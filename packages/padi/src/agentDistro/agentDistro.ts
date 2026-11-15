@@ -50,7 +50,7 @@ import {
   pruneGcRoots,
 } from "./deliveries.ts";
 import type { AgentLayer } from "./layer.ts";
-import { servedSetOnHost } from "./onHost.ts";
+import { packageAnswers, servedSetOnHost } from "./onHost.ts";
 import { readReceipt } from "./receipt.ts";
 
 /** The backing store of the `agentDistro` cell, shared by the cell declaration
@@ -148,7 +148,9 @@ export function newTerminalLayer(): AgentLayer | undefined {
   return assessed.kind === "ready" ? assessed.layer : undefined;
 }
 
-/** Publish `setting`'s status on this host. */
+/** Publish `setting`'s status on this host — a ready one with what its
+ *  package answers, which is how kolu-server tells agents too old to be
+ *  asked for a model from ones that can be, before asking. */
 function settle(setting: AgentDistroSetting): void {
   const assessed = assessAgentDistro(setting);
   padiSurfaceCtx.cells.agentDistroStatus.set(
@@ -160,6 +162,7 @@ function settle(setting: AgentDistroSetting): void {
             profiles: assessed.layer.profiles,
           },
           delivering: assessed.delivering,
+          answers: [...packageAnswers(assessed.layer.bundle)],
         }
       : assessed,
   );

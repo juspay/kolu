@@ -46,6 +46,7 @@ const ready = (
         : [{ reference: JUSPAY, name: "juspay", path: opts.profilePath }],
   },
   delivering: opts.delivering ?? false,
+  answers: ["--list", "--models"],
 });
 
 /** The set `landedFacts` names for a package and its profile builds. */

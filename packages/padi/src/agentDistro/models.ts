@@ -19,14 +19,19 @@ import { join } from "node:path";
 import { agentBinDir } from "@kolu/agent-distro/bundle";
 import {
   type AgentModels,
+  missingPackageCalls,
   modelsArgs,
   parseAgentModels,
 } from "@kolu/agent-distro/models";
-import { agentsNotReadyWords } from "@kolu/agent-distro/status";
+import {
+  agentsNotReadyWords,
+  agentsTooOldWords,
+} from "@kolu/agent-distro/status";
 import { AgentModelsUnavailable } from "@kolu/padi-client/surface";
 import { cleanEnv } from "kolu-pty";
 import { log } from "../log.ts";
 import { agentDistroSettingStore, assessAgentDistro } from "./agentDistro.ts";
+import { packageAnswers } from "./onHost.ts";
 import { AGENT_DISTRO_PLUGINS_ENV, AI_PROFILE_ENV } from "./bake.ts";
 import type { AgentLayer } from "./layer.ts";
 
@@ -72,15 +77,25 @@ export function listAgentModels(input: {
 
 /** ONE RUN of `bundle`'s `agent-distro --models <harness>` in `cwd` with
  *  `env` — upstream's answer, or {@link AgentModelsUnavailable} with the words
- *  the run failed in. The invocation, apart from the readiness that decides
- *  which package and which environment, so it can be run against a stand-in
- *  (`@kolu/agent-distro/testing`'s `standInModels`). */
+ *  the run failed in. A package that does not answer `--models` (it says so
+ *  itself, {@link packageAnswers}) is never run: it is older than this kolu,
+ *  and its picker would take the flag for a launch. The invocation, apart from
+ *  the readiness that decides which package and which environment, so it can
+ *  be run against any package — a stand-in (`@kolu/agent-distro/testing`'s
+ *  `standInModels`) or a real one. */
 export function runAgentModels(input: {
   readonly bundle: string;
   readonly cwd: string;
   readonly env: Readonly<Record<string, string>>;
   readonly harness: string;
 }): Promise<AgentModels> {
+  if (missingPackageCalls(packageAnswers(input.bundle)).length > 0)
+    return Promise.reject(
+      new AgentModelsUnavailable({
+        harness: input.harness,
+        why: agentsTooOldWords(HERE),
+      }),
+    );
   const command = join(agentBinDir(input.bundle), "agent-distro");
   const mlog = log.child({ harness: input.harness, cwd: input.cwd });
   const { promise, resolve, reject } = Promise.withResolvers<AgentModels>();

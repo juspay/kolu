@@ -414,6 +414,51 @@ test-daemon: install
     trap cleanup EXIT
     KOLU_DAEMON_TESTS=1 KOLU_DAEMON_BIND_PID=$$ {{ nix_shell }} pnpm -r {{ pnpm_vendored_filter }} --workspace-concurrency=1 test:daemon "${shard_args[@]}"
 
+# THE TWO REAL PACKAGES, ASKED (`ci::agent-models`). Builds the floor this tree
+# pins AND upstream's package from the commit before `--models` existed
+# (`agent-distro-pre-models`, its own npins pin), and runs padi's model call
+# against both — a real list from a real launcher read by kolu's parser, and
+# the named "these agents are older than this kolu" refusal from a really older
+# package. The suite's other model tests all use upstream's stand-in picker,
+# which is how a kolu whose hosts could not answer the question shipped green.
+#
+# A LANE, NOT A NIX CHECK: these are real launchers. They want a writable HOME
+# (the test gives them a temp one) and a harness that lists asks its own
+# catalogue; the build sandbox has neither a home it may write nor the network.
+# The two store paths are passed as variables the test REQUIRES — the file is
+# excluded from padi's `test:daemon` lane, so a missing variable must be a loud
+# failure rather than a skip nobody sees.
+test-agent-models: install
+    #!/usr/bin/env bash
+    set -euo pipefail
+    floor="$(nix build .#agent-distro-bundle --no-link --print-out-paths --accept-flake-config)"
+    # `-f default.nix`, not `.#`: these two attrs are deliberately not flake
+    # packages (flake.nix says why — ci::nix would build and PUSH an old
+    # upstream closure nobody ships).
+    old="$(nix build -f default.nix agent-distro-pre-models --argstr commitHash "$(git rev-parse HEAD)" --no-link --print-out-paths)"
+    echo "agent-models: floor bundle=$floor"
+    echo "agent-models: pre-models package=$old"
+    KOLU_AGENT_FLOOR_BUNDLE="$floor" KOLU_AGENT_PRE_MODELS_PACKAGE="$old" \
+      {{ nix_shell }} pnpm --filter @kolu/padi exec vitest run src/agentDistro/realPackages.e2e.test.ts
+
+# DOES THE PACKAGE HOSTS ARE DELIVERED ANSWER WHAT KOLU CALLS (`ci::agent-published`)?
+# A host serves upstream's newest PUBLISHED package, never this tree's floor, so
+# a call this kolu's contract makes is answered on a real host only once a
+# package answering it is published. The script
+# (`packages/server/src/agentDelivery/publishedAnswers.ts`) reads the index
+# through kolu-server's own reader and names the calls that package misses.
+#
+# A LANE, NOT A NIX CHECK: it reads upstream's HTTPS index and pulls the closure
+# from upstream's binary cache — a check with no network cannot ask, and not
+# asking is exactly the silence this ends.
+test-agent-published: install
+    #!/usr/bin/env bash
+    set -euo pipefail
+    delivery="$(nix build -f default.nix agent-distro-delivery --argstr commitHash "$(git rev-parse HEAD)" --no-link --print-out-paths)"
+    echo "agent-published: delivery=$delivery"
+    KOLU_AGENT_DISTRO_DELIVERY="$delivery" \
+      {{ nix_shell }} pnpm --filter kolu-server exec tsx src/agentDelivery/publishedAnswers.ts
+
 # W3.1 ssh-leg e2e — bind padiSurface over a REAL ssh hop, round-trip a terminal,
 # bench typing-echo latency, and prove drain->converge. TURNKEY on a `pu` box: with no
 # arg it auto-picks the box's own non-loopback 10.x IPv4 (a real ssh hop to its OWN

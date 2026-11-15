@@ -123,6 +123,12 @@ export function standInModels(
   ].join("\n");
 }
 
+/** What a stand-in package that answers `--models` says in its own
+ *  `share/agent-distro/answers` (`./models.ts`' `PACKAGE_ANSWERS_FILE`) —
+ *  upstream's two flags. A stand-in WITHOUT the file is a package older than
+ *  `--models`, which kolu never asks. */
+export const STAND_IN_ANSWERS = "--list\n--models\n";
+
 /** One POSIX single-quoted word. */
 const shellWord = (text: string): string =>
   `'${text.replaceAll("'", "'\\''")}'`;

@@ -15,6 +15,10 @@ import {
   type DeliveredSet,
   parseDeliveredSet,
 } from "@kolu/agent-distro/landing";
+import {
+  PACKAGE_ANSWERS_FILE,
+  parsePackageAnswers,
+} from "@kolu/agent-distro/models";
 import { profileFile } from "@kolu/agent-distro/profileFile";
 import type { AgentDistroBake } from "./bake.ts";
 
@@ -50,6 +54,15 @@ export function readOrUndefined(path: string): string | undefined {
     throw err;
   }
 }
+
+/** THE FLAGS `bundle`'s picker answers — its own
+ *  `share/agent-distro/answers` (`@kolu/agent-distro/models`), none for a
+ *  package older than that file. What the package says of itself, so kolu
+ *  never has to read an older picker's error to learn it cannot ask. */
+export const packageAnswers = (bundle: string): ReadonlyArray<string> =>
+  parsePackageAnswers(
+    readOrUndefined(join(bundle, PACKAGE_ANSWERS_FILE)) ?? "",
+  );
 
 /** Throw unless every path of `set` is in this host's store: the package's
  *  `bin/` and each profile's `profile.json`. kolu-server rooted them here, so

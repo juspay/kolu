@@ -9,9 +9,22 @@
       },
       "branch": "list-models",
       "submodules": false,
-      "revision": "57fbb9c6e865c349b6c4310a3a2065ff8fe48371",
-      "url": "https://github.com/juspay/agent-distro/archive/57fbb9c6e865c349b6c4310a3a2065ff8fe48371.tar.gz",
-      "hash": "sha256-oM96GHBbPn0mDRNlLrWS4Q1fZYp4kqRpI/KZkzLHbXs="
+      "revision": "22fd417dc01f2852560061180f3a742d58e493ea",
+      "url": "https://github.com/juspay/agent-distro/archive/22fd417dc01f2852560061180f3a742d58e493ea.tar.gz",
+      "hash": "sha256-Kk8nuVmgJWA5vKtxzmuL6nl8vj4kffDsHh14/4zsnv0="
+    },
+    "agent-distro-pre-models": {
+      "type": "Git",
+      "repository": {
+        "type": "GitHub",
+        "owner": "juspay",
+        "repo": "agent-distro"
+      },
+      "branch": "main",
+      "submodules": false,
+      "revision": "c484767289442a956cc7681147a1b223382ab45f",
+      "url": "https://github.com/juspay/agent-distro/archive/c484767289442a956cc7681147a1b223382ab45f.tar.gz",
+      "hash": "sha256-bVBeX2g3CENEk6DRbmIFVE8ABFkcc+fs1OymekaQ/kQ="
     },
     "iTerm2-Color-Schemes": {
       "type": "Git",

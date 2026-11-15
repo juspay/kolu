@@ -20,7 +20,11 @@
  */
 
 import type { AgentDistroListing } from "@kolu/agent-distro/listing";
-import { agentsNotReadyWords } from "@kolu/agent-distro/status";
+import { missingPackageCalls } from "@kolu/agent-distro/models";
+import {
+  agentsNotReadyWords,
+  agentsTooOldWords,
+} from "@kolu/agent-distro/status";
 import { firstFrameOrThrow } from "@kolu/surface/first-frame";
 import { Cause, Effect, Exit } from "effect";
 import type { KoluOffer } from "kolu-conductor";
@@ -84,6 +88,10 @@ export function koluOfferOver(deps: {
           "agents-not-ready",
           agentsNotReadyWords(status, where),
         );
+      // READY, BUT OLDER THAN THIS KOLU: it serves terminals, and no model
+      // can be asked of it — so nobody is handed a form they cannot answer.
+      if (missingPackageCalls(status.answers).length > 0)
+        throw new WorkRefusal("agents-not-ready", agentsTooOldWords(where));
     },
   };
 }

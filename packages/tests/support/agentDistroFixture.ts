@@ -14,6 +14,11 @@
  *                                       in effect without `AI_PROFILE`, else the stand-in's;
  *                                       with `--models claude`, {@link FIXTURE_MODELS}
  *     share/agent-distro/versions       its harnesses (kolu-server and padi read it)
+ *     share/agent-distro/answers        the flags its picker answers, as upstream
+ *                                       writes them ({@link STAND_IN_ANSWERS}) — the
+ *                                       file a package older than `--models` has not
+ *                                       got, which {@link ageOutFixturePackage} takes
+ *                                       away for the one scenario about that skew
  *
  * The real package is gigabytes of compiled harnesses; what the e2e lane proves
  * is kolu's half — Settings writes the switch and the profile list, the next
@@ -33,9 +38,13 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import type { AgentModels } from "@kolu/agent-distro/models";
+import {
+  type AgentModels,
+  PACKAGE_ANSWERS_FILE,
+} from "@kolu/agent-distro/models";
 import {
   packageFiles,
+  STAND_IN_ANSWERS,
   STAND_IN_PROFILE,
   standInListJson,
   standInModels,
@@ -93,6 +102,31 @@ const HISTORY_LOG = `${FIXTURE_MARK}/history.log`;
  *  a step seeds a line in upstream's format. */
 export function fixtureHistoryLog(stateHome: string): string {
   return path.join(stateHome, HISTORY_LOG);
+}
+
+/** The floor package's own `share/agent-distro/answers` — where the package
+ *  says which flags its picker takes. */
+function answersFile(): string {
+  const { KOLU_AGENT_DISTRO_BUNDLE: root } = agentDistroFixtureEnv();
+  if (root === undefined)
+    throw new Error("the agent-distro fixture was built without a bundle");
+  return path.join(root, "package", PACKAGE_ANSWERS_FILE);
+}
+
+/** THE FLOOR AS A PACKAGE OLDER THAN THIS KOLU: take its `answers` away, so
+ *  it is one that predates `--models` — the state every host whose delivered
+ *  agents are behind the kolu talking to them is in. Arranged BEFORE Agents
+ *  is turned on, because padi reads the file when it settles the status it
+ *  publishes. The worker's floor is shared, so whoever ages it out puts it
+ *  back ({@link restoreFixturePackage}). */
+export function ageOutFixturePackage(): void {
+  fs.rmSync(answersFile(), { force: true });
+}
+
+/** The floor as this kolu builds it again — idempotent, so an After hook may
+ *  call it for a scenario that never aged anything out. */
+export function restoreFixturePackage(): void {
+  fs.writeFileSync(answersFile(), STAND_IN_ANSWERS);
 }
 
 let memo: Record<string, string> | undefined;
@@ -160,6 +194,9 @@ function buildFixture(): Record<string, string> {
     fs.mkdirSync(path.dirname(file), { recursive: true });
     fs.writeFileSync(file, text);
   }
+  // WHAT THE PACKAGE SAYS IT ANSWERS, as upstream's own package does — the
+  // file kolu reads to know it may ask this package for a harness's models.
+  fs.writeFileSync(path.join(dir, PACKAGE_ANSWERS_FILE), STAND_IN_ANSWERS);
   // The host state, as the Nix half writes it: every path under the
   // placeholder home padi makes concrete on its host.
   const state = path.join(root, "state.json");

@@ -11206,6 +11206,18 @@
       "exampleRows": [],
       "executions": 1,
       "firstSeenSha": "3002c3b3df99589b79d21396280b5fae01fa059b"
+    },
+    {
+      "revisionId": "revision-bb5a2fe533ed3b79a974",
+      "scenarioKey": "scenario-fb5bca18958431fe4329",
+      "feature": "features/agents-too-old.feature",
+      "scenario": "A work whose setup names a harness is refused on agents too old to ask",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "9ca48c075a89867db93cd1a9cbf7f50512de6b7942101c22ca8c770abe22aec7",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "0e58ab0555b935d7c9e42cd531d2110c7e990161"
     }
   ]
 }

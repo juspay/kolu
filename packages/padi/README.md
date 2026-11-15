@@ -778,10 +778,14 @@ and one spawn layer carry it; the module is `src/agentDistro/`.
   over the profiles — with the environment a terminal spawned here now gets
   (the plugin dir and `AI_PROFILE`), and answers upstream's word unchanged: the
   ids the harness listed or `unlisted`, and how a launch takes a model. A host
-  whose agents are not ready, a list command that fails, or output kolu cannot
-  read is the declared `AgentModelsUnavailable` with the words (the not-ready
-  ones are `@kolu/agent-distro/status`'s `agentsNotReadyWords`, the failure's
-  are its own stderr) — never an empty list. Read-only; denied on the MCP face,
+  whose agents are not ready, a serving package OLDER than `--models` (read off
+  its own `share/agent-distro/answers`, so its picker is never run for it), a
+  list command that fails, or output kolu cannot read is the declared
+  `AgentModelsUnavailable` with the words (`@kolu/agent-distro/status`'s
+  `agentsNotReadyWords` / `agentsTooOldWords`, the failure's own stderr) —
+  never an empty list. The `agentDistroStatus` `ready` arm carries the serving
+  package's `answers`, so kolu-server refuses a harness question for such a
+  host before any form exists. Read-only; denied on the MCP face,
   because the harness and model are kolu's to offer.
 - **Keeping it current** — kolu-server's job, not padi's: it delivers on
   upstream's schedule (02/08/14/20 UTC, retries on a failed run), whenever this

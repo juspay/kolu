@@ -1393,6 +1393,26 @@ in
   # The local floor of coding agents, exposed so CI builds it and nix-cache.yml
   # pushes it (a `nix run` user then substitutes it rather than compiling).
   agent-distro-bundle = agentDistro.bundle;
+  # THE SKEW FIXTURE, and what names the published package — both read by CI
+  # lanes only (`ci::agent-models`, `ci::agent-published`), which is why
+  # `flake.nix` keeps them out of `packages` rather than letting
+  # `ci/flake-build` build and push them with the rest.
+  #
+  # `agent-distro-pre-models` is upstream's package one commit BEFORE
+  # juspay/agent-distro#163 (its own npins pin), built by the same
+  # `packages/agent-distro/package.nix` the floor is — a REAL older package, so
+  # padi's "the agents here are older than this kolu needs" refusal is proven
+  # against the thing it is about rather than a script that imitates it.
+  #
+  # `agent-distro-delivery` is the index/cache/schedule kolu-server delivers
+  # from (`packages/agent-distro/default.nix`'s `delivery`, already baked onto
+  # the floor wrapper), exposed so the published-package check reads upstream's
+  # index through the same values the binder does.
+  agent-distro-pre-models = import ./packages/agent-distro/package.nix {
+    inherit pkgs;
+    src = sources.agent-distro-pre-models;
+  };
+  agent-distro-delivery = agentDistro.delivery;
   # Claude Code's ACP adapter (nix/packages/acp-adapter.nix), exposed so CI
   # builds it and the cache carries it: it is a fixed-output npm fetch plus two
   # patches, and a host that had to realise it from scratch would need the

@@ -141,6 +141,10 @@ const WEB_SHELL_FILES = [
   "agentDelivery/install",
   "agentDelivery/ops",
   "agentDelivery/profiles",
+  // ...and the CI check that the package upstream's index publishes answers
+  // every call kolu makes (`just test-agent-published`): the same index read
+  // and cache, from this machine; no terminal domain.
+  "agentDelivery/publishedAnswers",
   "agentDelivery/schedule",
   "agentDelivery/timer",
   // ── the serving shell + true leaves (top-level) ──

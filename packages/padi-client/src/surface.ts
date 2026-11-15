@@ -761,11 +761,18 @@ export * from "./transcriptSchema.ts";
  *  `agent-distro --models <harness>` in `cwd`, with the profiles a new
  *  terminal here would get, and answers upstream's word — the ids the harness
  *  listed, or `unlisted` for one that cannot list, and how a launch takes a
- *  model. A list command that fails, or a host whose agents are not ready,
- *  is the declared {@link AgentModelsUnavailable} with the words — never an
- *  empty list. kolu's setup form fills its model question from it, kolu-server
- *  checks a model answer against it, and the fleet face reads a planner's
- *  launch words off it. A member ADDED, so the 7.4 class: a minor. */
+ *  model. A list command that fails, a host whose agents are not ready, or a
+ *  serving package OLDER than `--models` (it says what it answers itself, in
+ *  its `share/agent-distro/answers`) is the declared
+ *  {@link AgentModelsUnavailable} with the words — never an empty list, and
+ *  never an older picker's error read as one. kolu's setup form fills its
+ *  model question from it, kolu-server checks a model answer against it, and
+ *  the fleet face reads a planner's launch words off it. And the
+ *  `agentDistroStatus` cell's `ready` arm gains `answers` (what the serving
+ *  package answers), so kolu-server refuses a harness question for a host
+ *  whose agents are too old before any form exists. A member added and a
+ *  required field on an emitted arm — the 7.4 and 5.3/7.3 classes: a
+ *  minor. */
 export const PADI_SURFACE_VERSION = "7.6";
 
 /** The `version` cell payload — padi's self-declared surface contract version. */

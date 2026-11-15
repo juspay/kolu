@@ -555,6 +555,14 @@ export function agentsNotReadyWords(
   }
 }
 
+/** ... and for a host whose agents are READY but OLDER THAN THIS KOLU NEEDS:
+ *  the package it serves does not answer every call kolu makes of it
+ *  (`@kolu/agent-distro/models`' `missingPackageCalls`), so no harness's
+ *  models can be asked there. Said by the setup's refusal, the model list,
+ *  the answer check and the start alike. */
+export const agentsTooOldWords = (where: string): string =>
+  `The coding agents on ${where} are older than this kolu needs: they cannot say which models a harness offers. Check that machine from its host details for newer agents, then ask again.`;
+
 /** How many profile references the field remembers the user added before. */
 export const RECENT_PROFILES_CAP = 8;
 

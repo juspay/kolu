@@ -44,7 +44,11 @@
  *                      that leaves the on-green question for the human: says
  *                      `opening: <title>` and `opened: <id>` in the SAME
  *                      turn, because asking never waits — whatever they
- *                      answer arrives later as a wake
+ *                      answer arrives later as a wake. A `work_open` the
+ *                      fleet face REFUSED says `nothing opened: refused:
+ *                      <the face's own sentence>`, the way `ran:` prints
+ *                      what kolu typed: what kolu would not do, and why,
+ *                      is the only thing the person has to read
  *   run the implementor in <cwd>
  *                    — a REAL `lifecycle_create` with `work` = the last work
  *                      opened and `role: implementor`. NO command: kolu
@@ -537,6 +541,11 @@ const slug = (title: string): string =>
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-|-$/g, "");
 
+/** WHAT THE LAST `work_open` ANSWERED, kept whole — a refusal's own sentence
+ *  is all a person gets when no work was opened, so the turn says it rather
+ *  than reporting the absence of an id. */
+let lastOpenSaid = "";
+
 const openWork = async (
   title: string,
   mode: "full" | "trivial" | "watch",
@@ -566,6 +575,7 @@ const openWork = async (
     setup: setupFor(mode, over),
   });
   const work = /"work"\s*:\s*"([^"]+)"/.exec(answer)?.[1] ?? null;
+  lastOpenSaid = answer;
   lastWork = work;
   return work;
 };
@@ -617,7 +627,7 @@ const turn = async (
       repo,
       askOnGreen: true,
     });
-    say(work === null ? "nothing opened" : `opened: ${work}`);
+    say(work === null ? `nothing opened: ${lastOpenSaid}` : `opened: ${work}`);
     endTurn(id);
     return;
   }

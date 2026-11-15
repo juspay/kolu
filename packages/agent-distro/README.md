@@ -78,6 +78,12 @@ The **TypeScript half**, as data and pure functions:
   would refuse. Each harness says all of it in its own adapter upstream; kolu
   holds no table of list commands, model flags or model names. padi runs it
   (`agentDistro.models`); a failure is the runner's error, never an empty list.
+  The package a host serves is the one kolu DELIVERED, which may be older than
+  this contract: `HOST_PACKAGE_CALLS` is every flag kolu asks a host's package,
+  `PACKAGE_ANSWERS_FILE` / `parsePackageAnswers` read what a package says it
+  answers (upstream's `share/agent-distro/answers`), and `missingPackageCalls`
+  names what it cannot take — read off the package, never off an older
+  picker's error.
 - `./profileFile` — a BUILT profile's `share/agent-distro/profile.json` (its
   name and description; the fields a launch reads are upstream's) and its
   parser. kolu-server reads it off each profile it builds.
@@ -163,15 +169,17 @@ The **TypeScript half**, as data and pure functions:
   `agentChipLabel`); keeping it current (`AGENTS_CHECK_NOW`,
   `agentCheckFailed`, `landedFacts`, `receiptSet`, `updateLanded`); why a host
   has no harness to choose and what to do (`agentsNotReadyWords` — what a work's
-  setup and padi's model list both refuse with); and the setting's own
+  setup and padi's model list both refuse with — and `agentsTooOldWords` for a
+  ready host whose package is older than kolu's calls); and the setting's own
   toasts (`agentToast`) — typed against `./schema`, so a field added to the
   wire is one the folds must handle.
 - `./testing` — test support only: `packageFiles` (the package's versions
   file), `builtProfileFiles` (a built profile's `profile.json`), `readFrom` (a
   `readText` over them), `failedUpdateLine` (a failed run's line in a host's
   update log, by upstream's writer), `standInListJson` (a stand-in picker's
-  `--list --json`, upstream's shape) and `standInModels` (its `--models
-  <harness>`: an answer, or a list command that fails). Every test that fakes a package or a
+  `--list --json`, upstream's shape), `standInModels` (its `--models
+  <harness>`: an answer, or a list command that fails) and `STAND_IN_ANSWERS`
+  (the answers file a stand-in that knows `--models` ships). Every test that fakes a package or a
   profile — this package's, padi's, kolu-server's boot read, the e2e fixture —
   goes through it.
 - `./solid` — agent-distro's logo (`doc/logo.svg`, vendored byte-identical from

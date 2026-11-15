@@ -6,10 +6,19 @@
  * in its own words — never an empty list.
  */
 
-import { mkdirSync, mkdtempSync, realpathSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  realpathSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { standInModels } from "@kolu/agent-distro/testing";
+import { PACKAGE_ANSWERS_FILE } from "@kolu/agent-distro/models";
+import { agentsTooOldWords } from "@kolu/agent-distro/status";
+import { STAND_IN_ANSWERS, standInModels } from "@kolu/agent-distro/testing";
 import { AgentModelsUnavailable } from "@kolu/padi-client/surface";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { agentDistroSettingStore } from "./agentDistro.ts";
@@ -41,6 +50,8 @@ const CLAUDE = {
 beforeEach(() => {
   bundle = realpathSync(mkdtempSync(join(tmpdir(), "agent-distro-models-")));
   mkdirSync(join(bundle, "bin"));
+  mkdirSync(join(bundle, "share", "agent-distro"), { recursive: true });
+  writeFileSync(join(bundle, PACKAGE_ANSWERS_FILE), STAND_IN_ANSWERS);
   picker(
     `${standInModels({
       omp: OMP,
@@ -97,6 +108,20 @@ describe("runAgentModels", () => {
       kind: "listed",
       ids: ["repo"],
     });
+  });
+
+  it("a package older than `--models` is named as such, and never run", async () => {
+    // The delivered package predates the answers file: its picker would take
+    // `--models` for a launch and fail with its no-terminal message. kolu
+    // learns it from the package, so that message is never read.
+    rmSync(join(bundle, PACKAGE_ANSWERS_FILE));
+    picker("touch ran; exit 1");
+    const failed = await run("omp").catch((err: unknown) => err);
+    expect(failed).toBeInstanceOf(AgentModelsUnavailable);
+    expect((failed as AgentModelsUnavailable).why).toBe(
+      agentsTooOldWords("this host"),
+    );
+    expect(existsSync(join(bundle, "ran"))).toBe(false);
   });
 });
 

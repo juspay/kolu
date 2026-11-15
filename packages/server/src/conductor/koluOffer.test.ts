@@ -27,7 +27,10 @@
 import type { AgentDistroListing } from "@kolu/agent-distro/listing";
 import type { AgentModels } from "@kolu/agent-distro/models";
 import type { AgentDistroStatus } from "@kolu/agent-distro/schema";
-import { agentsNotReadyWords } from "@kolu/agent-distro/status";
+import {
+  agentsNotReadyWords,
+  agentsTooOldWords,
+} from "@kolu/agent-distro/status";
 import { type PadiSurfaceClient, padiClientOver } from "@kolu/padi-client/dial";
 import {
   AgentModelsUnavailable,
@@ -70,6 +73,7 @@ const READY: AgentDistroStatus = {
     ],
   },
   delivering: false,
+  answers: ["--list", "--models"],
 };
 
 /** What `omp` lists where it can list. */
@@ -236,6 +240,19 @@ describe("the gate in front of a harness question", () => {
     expect(refused.kind).toBe("agents-not-ready");
     expect(refused.why).toBe(agentsNotReadyWords(failed, "the build box"));
     expect(refused.why).toContain("could not be delivered to the build box");
+  });
+
+  it("refuses a READY host whose agents are OLDER than this kolu needs", async () => {
+    // The human's own host: the package kolu delivered (upstream's newest
+    // published) predates `--models`. It serves terminals, so it reads ready;
+    // what it answers says no model can be asked of it — so no form is handed
+    // out that nobody could answer.
+    const { requireAgentsReady } = offerOver(
+      fakePadi({ status: { ...READY, answers: [] } }),
+    );
+    const refused = await refusalOf(requireAgentsReady("build-box"));
+    expect(refused.kind).toBe("agents-not-ready");
+    expect(refused.why).toBe(agentsTooOldWords("the build box"));
   });
 
   it("refuses when THIS kolu was built without agent-distro, before asking the host", async () => {

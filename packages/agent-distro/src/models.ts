@@ -61,10 +61,35 @@ export const AgentModelsSchema = Schema.Struct({
 });
 export type AgentModels = typeof AgentModelsSchema.Type;
 
+/** The flag kolu asks a host's package for a harness's models. */
+const MODELS_FLAG = "--models";
+
+/** EVERY FLAG KOLU ASKS A HOST'S PACKAGE — the package a host serves is the
+ *  one kolu DELIVERED (upstream's newest published), not the one kolu was
+ *  built with, so it may be older than this contract. */
+export const HOST_PACKAGE_CALLS: ReadonlyArray<string> = [MODELS_FLAG];
+
+/** Where a package names the flags its picker answers, one per line —
+ *  upstream's `share/agent-distro/answers`. A package without it predates
+ *  `--models`. */
+export const PACKAGE_ANSWERS_FILE = "share/agent-distro/answers";
+
+/** The flags in that file's text. */
+export const parsePackageAnswers = (text: string): ReadonlyArray<string> =>
+  text.split("\n").filter((line) => line !== "");
+
+/** The calls of {@link HOST_PACKAGE_CALLS} a package that answers `answers`
+ *  cannot take — none for a package as new as this kolu. Read off the
+ *  package itself, never off a launch's error. */
+export const missingPackageCalls = (
+  answers: ReadonlyArray<string>,
+): ReadonlyArray<string> =>
+  HOST_PACKAGE_CALLS.filter((flag) => !answers.includes(flag));
+
 /** The arguments that make a package's `bin/agent-distro` answer for
  *  `harness`. */
 export const modelsArgs = (harness: string): readonly string[] => [
-  "--models",
+  MODELS_FLAG,
   harness,
 ];
 
