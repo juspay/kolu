@@ -10,11 +10,21 @@
  * frame it receives (a terminal record arriving a beat late), each stamped
  * with the page's own clock.
  *
- * Installed with `addInitScript` rather than `evaluate`, because these
- * scenarios RELOAD: a patch applied to the live document is gone on the next
- * navigation, and the mount after a reload is exactly the moment under
- * measurement. `window.__wsSent` is the e2e harness's existing stash for
- * outgoing frames (`kolu-common/test-hooks`); entries here carry a
+ * Installed TWICE and as SOURCE TEXT, and both are deliberate:
+ *
+ *  - as an `addInitScript` (every future document, which is what a reload
+ *    lands in — the mount after a reload is the moment under measurement) and
+ *    into the document already open (which is what a scenario with no reload
+ *    measures);
+ *  - as a STRING rather than a function, because this suite runs through
+ *    `tsx`. esbuild's `keepNames` wraps a named function in its own `__name`
+ *    helper, and `page.evaluate(fn)` ships `fn.toString()` to a browser where
+ *    that helper does not exist — `ReferenceError: __name is not defined`,
+ *    measured on CI. Inline anonymous callbacks (everywhere else in this
+ *    suite) are untouched by that transform; a named one must travel as text.
+ *
+ * `window.__wsSent` is the e2e harness's existing stash for outgoing frames
+ * (`kolu-common/test-hooks`); entries here carry a
  * milliseconds-since-document-load prefix so a reader can line them up with
  * the record.
  *
@@ -37,55 +47,49 @@ const FRAME_HEAD = 300;
  *  type surface to add one. */
 const RECEIVED_KEY = "__koluWsReceived";
 
-/** The patch itself, so the SAME code can be installed two ways: as an init
- *  script (every future document, which is what a reload lands in) and into
- *  the document that is already open (which is what a scenario without a
- *  reload measures). Running twice in one document is harmless — the second
- *  install wraps the first and both forward. */
-const probeScript = (opts: { cap: number; head: number; key: string }) => {
-  const { cap, head, key } = opts;
-  // The e2e harness's own window, carrying a global this very function
-  // installs two lines down. Unchecked by necessity: there is nothing to
-  // validate yet at the moment of the write.
-  const probed = window as unknown as Record<string, string[] | undefined>;
-  const sent: string[] = [];
-  const received: string[] = [];
+/** The flag that keeps a second install in ONE document from double-wrapping
+ *  `send` (which would record every outgoing frame twice). A reload is a
+ *  fresh document, so it never blocks the install that matters. */
+const INSTALLED_KEY = "__koluResizeProbeInstalled";
+
+/** The probe, as the text a browser runs. */
+const PROBE_SOURCE = `(() => {
+  if (window[${JSON.stringify(INSTALLED_KEY)}]) return;
+  window[${JSON.stringify(INSTALLED_KEY)}] = true;
+  var cap = ${FRAME_CAP};
+  var head = ${FRAME_HEAD};
+  var sent = [];
+  var received = [];
   window.__wsSent = sent;
-  probed[key] = received;
-  const push = (into: string[], data: string) => {
-    into.push(`${Math.round(performance.now())} ${data.slice(0, head)}`);
+  window[${JSON.stringify(RECEIVED_KEY)}] = received;
+  var push = function (into, data) {
+    into.push(Math.round(performance.now()) + " " + data.slice(0, head));
     if (into.length > cap) into.splice(0, into.length - cap);
   };
-
-  const origSend = WebSocket.prototype.send;
+  var origSend = WebSocket.prototype.send;
   WebSocket.prototype.send = function (data) {
     if (typeof data === "string") push(sent, data);
     return origSend.call(this, data);
   };
-
-  const NativeWebSocket = window.WebSocket;
-  const Patched = function (url: string | URL, protocols?: string | string[]) {
-    const socket = new NativeWebSocket(url, protocols);
-    socket.addEventListener("message", (event: MessageEvent) => {
+  var Native = window.WebSocket;
+  var Patched = function (url, protocols) {
+    var socket = new Native(url, protocols);
+    socket.addEventListener("message", function (event) {
       if (typeof event.data === "string") push(received, event.data);
     });
     return socket;
-  } as unknown as typeof WebSocket;
-  Patched.prototype = NativeWebSocket.prototype;
-  Object.defineProperties(Patched, {
-    CONNECTING: { value: NativeWebSocket.CONNECTING },
-    OPEN: { value: NativeWebSocket.OPEN },
-    CLOSING: { value: NativeWebSocket.CLOSING },
-    CLOSED: { value: NativeWebSocket.CLOSED },
+  };
+  Patched.prototype = Native.prototype;
+  ["CONNECTING", "OPEN", "CLOSING", "CLOSED"].forEach(function (name) {
+    Object.defineProperty(Patched, name, { value: Native[name] });
   });
   window.WebSocket = Patched;
-};
+})()`;
 
 /** Install the probe for the rest of the page's life, reload included. */
 export async function installResizeWireProbe(page: Page): Promise<void> {
-  const opts = { cap: FRAME_CAP, head: FRAME_HEAD, key: RECEIVED_KEY };
-  await page.addInitScript(probeScript, opts);
-  await page.evaluate(probeScript, opts);
+  await page.addInitScript({ content: PROBE_SOURCE });
+  await page.evaluate(PROBE_SOURCE);
 }
 
 /** What the probe saw, filtered to the frames that move a grid.
@@ -100,7 +104,9 @@ export async function readResizeWire(
 ): Promise<{ sent: string[]; received: string[] }> {
   return page.evaluate(
     ({ ids, key }) => {
-      // Same unchecked read as the install, for the same reason.
+      // The e2e harness's own window, carrying a global the probe installed.
+      // Unchecked by necessity: TypeScript has no declaration for a name this
+      // file writes at runtime.
       const probed = window as unknown as Record<string, string[] | undefined>;
       return {
         sent: (window.__wsSent ?? []).filter(
