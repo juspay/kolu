@@ -63,14 +63,22 @@ function mountTree(
   return { setPaths, root, onExpandLazyDirectory };
 }
 
-/** Click a row the way a user does — Pierre's own row button, inside its shadow
- *  root. `composed` so the event crosses the boundary like a real one. */
-function clickRow(root: ShadowRoot, path: string): void {
+/** A row as Pierre painted it, so expansion and selection are read off the DOM
+ *  the user sees rather than off the wrapper's bookkeeping. */
+function rowOf(root: ShadowRoot, path: string): HTMLElement {
   const row = root.querySelector(
     `[role="treeitem"][data-item-path="${path}"]`,
   ) as HTMLElement | null;
   if (!row) throw new Error(`no painted row for ${path}`);
-  row.dispatchEvent(new MouseEvent("click", { bubbles: true, composed: true }));
+  return row;
+}
+
+/** Click a row the way a user does — Pierre's own row button, inside its shadow
+ *  root. `composed` so the event crosses the boundary like a real one. */
+function clickRow(root: ShadowRoot, path: string): void {
+  rowOf(root, path).dispatchEvent(
+    new MouseEvent("click", { bubbles: true, composed: true }),
+  );
 }
 
 describe("lazily-loaded directory rows (#2091)", () => {
@@ -340,16 +348,6 @@ function supersedingLoader() {
     c.resolve();
   };
   return { calls, load, settle };
-}
-
-/** A row as Pierre painted it, so expansion is read off the DOM the user sees
- *  rather than off the wrapper's bookkeeping. */
-function rowOf(root: ShadowRoot, path: string): HTMLElement {
-  const row = root.querySelector(
-    `[role="treeitem"][data-item-path="${path}"]`,
-  ) as HTMLElement | null;
-  if (!row) throw new Error(`no painted row for ${path}`);
-  return row;
 }
 
 describe("a lazy directory under a host that rebuilds one props object", () => {

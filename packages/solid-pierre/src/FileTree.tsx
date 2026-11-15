@@ -449,24 +449,6 @@ export const FileTree: Component<FileTreeProps> = (props) => {
     }
   };
 
-  /** Mark `fn` as ONE rewrite of Pierre's paths: the store ticks it emits are
-   *  the middle of our own write (see `rebuilding`), so the probe sits them
-   *  out and runs exactly once against the settled tree afterwards. That one
-   *  probe is what keeps a genuinely new expansion reportable — a filter match
-   *  inside a watched directory opens it for the first time here — while the
-   *  re-opens that merely restore an already-recorded folder stay silent. */
-  const asRebuild =
-    <A,>(fn: (arg: A) => void) =>
-    (arg: A): void => {
-      rebuilding = true;
-      try {
-        fn(arg);
-      } finally {
-        rebuilding = false;
-        safeApply(reportLazyExpansions, props.onError);
-      }
-    };
-
   /** Every key that should be open, from every source that has an opinion — the
    *  search projection, the selected file's ancestors, a standing reveal, and
    *  the lazy directories the user opened by hand. Spelled ONCE so the
@@ -645,7 +627,7 @@ export const FileTree: Component<FileTreeProps> = (props) => {
       // `expandPaths` is a DEPENDENCY, not an argument: a change to it re-runs
       // this rebuild, which reads it (with the other expansion sources)
       // through `desiredExpandedPaths`.
-      asRebuild(([paths]) => {
+      ([paths]) => {
         // Capture once so closures (pathOps filter) keep a narrowed FileTree
         // handle — mutable `let tree` does not flow into arrow callbacks.
         const t = tree;
@@ -657,6 +639,12 @@ export const FileTree: Component<FileTreeProps> = (props) => {
         // path and the recovery rebuild so mixed keys never re-enter Pierre.
         const prev = dropRedundantDirKeys(appliedPaths);
         const next = dropRedundantDirKeys(paths);
+        // Everything below writes to Pierre, so the store ticks it emits are
+        // the middle of this one rewrite: the probe sits them out
+        // (`rebuilding`, documented above) and the `finally` runs it once on
+        // the settled tree — which still reports a directory the projection
+        // genuinely opened here, such as a filter match inside a watched one.
+        rebuilding = true;
         try {
           const pathOps = pathDiffOperations(prev, next).filter((op) => {
             // Pierre promotes an emptied directory to an explicit empty-folder
@@ -714,8 +702,11 @@ export const FileTree: Component<FileTreeProps> = (props) => {
             );
             return;
           }
+        } finally {
+          rebuilding = false;
+          safeApply(reportLazyExpansions, props.onError);
         }
-      }),
+      },
       { defer: true },
     ),
   );
