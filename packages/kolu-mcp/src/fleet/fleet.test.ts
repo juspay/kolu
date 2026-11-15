@@ -604,7 +604,7 @@ function fakeWorks(): FleetWorks & {
           "missing-setup",
           `The ${role} of ${work} has no harness and model answered yet. Nothing was created.`,
         );
-      return { host: one.host, repo: one.repo, ...start };
+      return { host: one.host, ...start };
     },
     setUp(
       work: string,

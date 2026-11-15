@@ -27,7 +27,7 @@
  */
 
 import {
-  UNIQUE_ROLES,
+  isWaterfallRole,
   type Work,
   type WorkId,
   type WorkMember,
@@ -107,10 +107,7 @@ export const storeFault = <M extends WorkMember>(
       return { kind: "work-ended", terminal, title: work.title };
     const roles = byWork.get(member.work) ?? new Map<string, string>();
     const taken = roles.get(member.role);
-    if (
-      taken !== undefined &&
-      (UNIQUE_ROLES as ReadonlyArray<string>).includes(member.role)
-    ) {
+    if (taken !== undefined && isWaterfallRole(member.role)) {
       return {
         kind: "role-taken",
         title: work.title,

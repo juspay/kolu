@@ -103,7 +103,6 @@ import {
   setConductorCellWriter,
   setWorksCollectionWriters,
 } from "./conductor/live.ts";
-import { koluOffer } from "./conductor/koluOffer.ts";
 import { store } from "./state.ts";
 
 // ── The WIDENING SEAM: kolu-server's served superset group ─────────────────
@@ -654,27 +653,22 @@ export function implementKoluSurface(deps: KoluSurfaceDeps) {
         }) =>
           Effect.tryPromise({
             try: () =>
-              liveServerConductor().answerWork(
-                {
-                  work: input.work,
-                  ask: input.ask,
-                  from: input.from,
-                  values:
-                    input.answers === null
-                      ? null
-                      : new Map(
-                          Object.entries(input.answers).map(
-                            ([decision, values]) => [
-                              decision,
-                              typeof values === "string" ? [values] : values,
-                            ],
-                          ),
+              liveServerConductor().answerWork({
+                work: input.work,
+                ask: input.ask,
+                from: input.from,
+                values:
+                  input.answers === null
+                    ? null
+                    : new Map(
+                        Object.entries(input.answers).map(
+                          ([decision, values]) => [
+                            decision,
+                            typeof values === "string" ? [values] : values,
+                          ],
                         ),
-                },
-                // WHAT KOLU OFFERS, so an answer to a harness or model
-                // question is checked where it is recorded.
-                koluOffer().offer,
-              ),
+                      ),
+              }),
             catch: (err: unknown) => err,
           }).pipe(
             Effect.catch((err: unknown) =>

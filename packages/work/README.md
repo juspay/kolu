@@ -53,12 +53,14 @@ offers on the work's host. Its decision has no `options` and no `multiple`, and
 its answer is ONE value (`picked` holds at most one, `text` is always `null`),
 so a stored model list (one that goes stale the day the host's agents update)
 or a role run on two harnesses is not a value. Every other decision keeps the
-asker's `options`. ONE RULE judges a kolu answer (`judgeAnswer`): a harness this
-kolu carries; a model its harness listed, or — for a harness that cannot list —
-a model id, upstream agent-distro's own rule (`modelNotOffered`). It runs where
-an answer is recorded (`unofferedAnswers`), and again on a SAVED answer when its
-agent starts and when `work_open` decides what to ask (`unofferedSaved`); the
-words are `unofferedWhy` / `unofferedWords`. The last answers a form preselects
+asker's `options`. ONE RULE judges a kolu answer (`unofferedAnswers`): a harness
+this kolu carries; a model its harness listed, or — for a harness that cannot
+list — a model id, upstream agent-distro's own rule (`modelNotOffered`). It
+reads one shape, `KoluAnswer` (a key, its values, its role's harness), built
+from wherever the answer is: the form (`askedAnswersOf`), the request
+(`givenAnswersOf`) or the record (`savedAnswersOf`, when its agent starts and
+when `work_open` decides what to ask). The words are `unofferedWhy` /
+`unofferedWords`. The last answers a form preselects
 are read off the saved works (`setupMemory`), never off a conversation — a
 model is that role's own last one with that harness first.
 
@@ -71,7 +73,7 @@ model is that role's own last one with that harness first.
 | `record.ts` | the transitions: `openWork`, `askQuestions`, `answerAsk`, `dropAsk`, `joinWork`, `leaveWork`, `recordEvent`, `takeOver`/`handBack`, `endWork`, `reopenWork`, `keepFiles`/`keepFailed` — the record only grows, bounded by `AGENT_STATES_KEPT`; `openAsks`/`hasOpenAsk` derive what is still waiting on a person |
 | `readings.ts` | the MECHANISM of a reading: what a decision came to (`answerValue`), the decisions of one ask, the PR as the timeline last said it (`prOf`) with the one check table (`CHECK_STEP`), the key a timeline holds at most one of (`checkKey`, `checksSeen` — one per kind per head commit, off the event's own `pr` and `head` fields), the files seen |
 | `folds.ts` | `waitingOn`, `standing`, `timeBar`, `timeSpent`, `took`, `lifetime`, `inProgress`/`finished` over `WorkRow`, `capFinished` — each taking a `Policy` (what the waterfall's words mean for this work) rather than reading the setup itself |
-| `waterfall.ts` | the WORDS and every rule over them: `MODE_RUNS` (what each mode runs, needs and drives), `rolesOf`, `setupKeyOf`, `roleOfKey`, `roleRank`, `modeOf`/`onGreenOf`/`setupOf`, `missingSetup` + `foreignSetupWords`, the kolu-choice rules (`harnessForModel`, `modelHarnessesOf`, `modelNotOffered`, `unofferedAnswers`, `savedModelHarnessesOf`, `unofferedSaved`, `koluKeysOf`, `unofferedWhy`/`unofferedWords`, `setupMemory`), `driverOf`, `membershipOf`, `waitingOnYou`, `policyOf`, and where a work's files live (`WATERFALL_DIR`, `waterfallFileName`) |
+| `waterfall.ts` | the WORDS and every rule over them: `MODE_RUNS` (what each mode runs, needs and drives), `rolesOf`, `setupKeyOf`, `roleOfKey`, `roleRank`, `modeOf`/`onGreenOf`/`setupOf`, `missingSetup` + `foreignSetupWords`, the kolu-choice rules (`harnessForModel`, `askedAnswersOf`/`givenAnswersOf`/`savedAnswersOf`, `modelHarnessesOf`, `modelNotOffered`, `unofferedAnswers`, `koluKeysOf`, `unofferedWhy`/`unofferedWords`, `setupMemory`), `driverOf`, `membershipOf`, `waitingOnYou`, `policyOf`, and where a work's files live (`WATERFALL_DIR`, `waterfallFileName`) |
 | `refusal.ts` | why a call about a work is refused — `WORK_REFUSALS` and the `WorkRefusal` every face `instanceof`s |
 
 **Four rules JSON cannot state, in one constructor.** Everything else is the

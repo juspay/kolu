@@ -61,9 +61,8 @@ export const FIXTURE_LISTING = {
  *  own parser reads, for the one harness this floor carries: Claude Code
  *  cannot list its models, and takes one with `--model`. So kolu builds a
  *  waterfall agent's command as `claude --model <whatever was chosen>`, and
- *  any model word the setup names is accepted. */
+ *  any model id the setup names is accepted. */
 export const FIXTURE_MODELS: AgentModels = {
-  harness: FIXTURE_HARNESS.name,
   launch: { kind: "flag", flag: "--model" },
   models: { kind: "unlisted" },
 };

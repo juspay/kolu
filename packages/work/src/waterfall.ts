@@ -33,7 +33,7 @@
  * waiting — and the reader spells it.
  */
 
-import { isAgentModelId } from "@kolu/agent-distro/models";
+import { type AgentModelList, isAgentModelId } from "@kolu/agent-distro/models";
 import { type Policy, type Waiter, waitingOn } from "./folds.ts";
 import { answerValue } from "./readings.ts";
 import {
@@ -50,6 +50,7 @@ import {
   SETUP_KEYS,
   type SetupKey,
   WORK_MODES,
+  type WaterfallRole,
   WORK_ROLES,
   type Work,
   type WorkMode,
@@ -364,16 +365,24 @@ export const foreignSetupWords = (
   return foreign;
 };
 
-/** The role a setup key is about, and which of its two it names — `null` for
- *  `mode` and `on-green`, which are about the whole work. */
-export const roleOfKey = (
+/** The role a setup key is about, and which of its two it names — for one of
+ *  kolu's own questions always a waterfall role; `null` for `mode` and
+ *  `on-green`, which are about the whole work. */
+export function roleOfKey(key: KoluChoiceKey): {
+  readonly role: WaterfallRole;
+  readonly what: "harness" | "model";
+};
+export function roleOfKey(
   key: SetupKey,
-): { readonly role: WorkRole; readonly what: "harness" | "model" } | null => {
+): { readonly role: WorkRole; readonly what: "harness" | "model" } | null;
+export function roleOfKey(
+  key: SetupKey,
+): { readonly role: WorkRole; readonly what: "harness" | "model" } | null {
   for (const role of WORK_ROLES)
     for (const what of ["harness", "model"] as const)
       if (setupKeyOf(role, what) === key) return { role, what };
   return null;
-};
+}
 
 /** THE HARNESS A MODEL QUESTION IS FOR, as this answer leaves it: the one the
  *  same form is answering for that role, else the one the work already
@@ -386,22 +395,19 @@ export const harnessForModel = (
   key: KoluChoiceKey,
   values: ReadonlyMap<string, ReadonlyArray<string>>,
 ): string | null => {
-  const named = roleOfKey(key);
-  if (named === null) return null;
-  const harnessKey = setupKeyOf(named.role, "harness");
+  const { role } = roleOfKey(key);
+  const harnessKey = setupKeyOf(role, "harness");
   const asked = work.decisions.find(
     (one) => one.ask === ask && one.key === harnessKey && isAsked(one),
   );
   if (asked !== undefined) return values.get(asked.id)?.[0] ?? null;
-  return roleAnswer(work, named.role, "harness");
+  return roleAnswer(work, role, "harness");
 };
 
 /** WHAT ONE HARNESS OFFERS for a model question on a host: the ids it listed,
  *  or `unlisted` for a harness that has no way to list its models (any model
- *  id the person names is then the answer). */
-export type ModelChoices =
-  | { readonly kind: "listed"; readonly ids: ReadonlyArray<string> }
-  | { readonly kind: "unlisted" };
+ *  id the person names is then the answer) — `--models`' own list. */
+export type ModelChoices = AgentModelList;
 
 /** WHAT KOLU CAN OFFER for its own setup questions on a work's host, read
  *  live by whoever records or starts an answer: the harnesses this kolu
@@ -440,7 +446,7 @@ const judgeAnswer = (
   harness: string | null,
   choices: KoluChoices,
 ): UnofferedAnswer | null => {
-  if (roleOfKey(key)?.what === "harness")
+  if (roleOfKey(key).what === "harness")
     return choices.harnesses.includes(value)
       ? null
       : { key, value, why: "not-installed" };
@@ -457,27 +463,92 @@ const judgeAnswer = (
   return why === null ? null : { key, value, why, harness };
 };
 
-/** The harnesses this answer needs kolu's model list for — one per model
- *  question it answers — so the recorder asks the host for exactly those. */
-export const modelHarnessesOf = (
+/** ONE ANSWER TO ONE OF KOLU'S QUESTIONS, wherever it comes from — the values
+ *  sent for it, and (for a model) the harness of its role, `null` when nobody
+ *  has said. The rule below reads only this, so an answer from the form, one
+ *  the request gave and one the record holds are judged alike. */
+export interface KoluAnswer {
+  readonly key: KoluChoiceKey;
+  readonly values: ReadonlyArray<string>;
+  readonly harness: string | null;
+}
+
+/** The answers to kolu's questions in one ASK, as the form sent them. */
+export const askedAnswersOf = (
   work: Work,
   ask: string,
   values: ReadonlyMap<string, ReadonlyArray<string>>,
-): ReadonlyArray<string> => {
-  const harnesses = new Set<string>();
-  for (const one of work.decisions) {
-    if (one.ask !== ask || !isAsked(one) || !isKoluChoice(one)) continue;
-    if (roleOfKey(one.key)?.what !== "model") continue;
-    if ((values.get(one.id) ?? []).length === 0) continue;
-    const harness = harnessForModel(work, ask, one.key, values);
-    if (harness !== null) harnesses.add(harness);
-  }
-  return [...harnesses];
-};
+): ReadonlyArray<KoluAnswer> =>
+  work.decisions.flatMap((one) =>
+    one.ask === ask && isAsked(one) && isKoluChoice(one)
+      ? [
+          {
+            key: one.key,
+            values: values.get(one.id) ?? [],
+            harness: harnessForModel(work, ask, one.key, values),
+          },
+        ]
+      : [],
+  );
+
+/** ... the ones the REQUEST gave (`work_open`'s `given`), before any work
+ *  exists: a model's harness is the one given beside it, else the one the
+ *  work (if there is one) already recorded. */
+export const givenAnswersOf = (
+  given: ReadonlyArray<{ readonly key: KoluChoiceKey; readonly value: string }>,
+  before: Work | undefined,
+): ReadonlyArray<KoluAnswer> =>
+  given.map(({ key, value }) => {
+    const { role } = roleOfKey(key);
+    const harnessKey = setupKeyOf(role, "harness");
+    return {
+      key,
+      values: [value],
+      harness:
+        given.find((one) => one.key === harnessKey)?.value ??
+        (before === undefined ? null : roleAnswer(before, role, "harness")),
+    };
+  });
+
+/** ... and the SAVED ones to `keys` — what a start rests on, and what
+ *  `work_open` re-judges. A key with no answer has none. */
+export const savedAnswersOf = (
+  work: Work,
+  keys: ReadonlyArray<KoluChoiceKey>,
+): ReadonlyArray<KoluAnswer> =>
+  keys.flatMap((key) => {
+    const value = answerValue(setupDecision(work, key));
+    return value === null
+      ? []
+      : [
+          {
+            key,
+            values: [value],
+            harness: roleAnswer(work, roleOfKey(key).role, "harness"),
+          },
+        ];
+  });
+
+/** The harnesses these answers need kolu's model list for — one per model
+ *  answered — so the caller asks the host for exactly those. */
+export const modelHarnessesOf = (
+  answers: ReadonlyArray<KoluAnswer>,
+): ReadonlyArray<string> => [
+  ...new Set(
+    answers.flatMap((one) =>
+      roleOfKey(one.key).what === "model" &&
+      one.values.length > 0 &&
+      one.harness !== null
+        ? [one.harness]
+        : [],
+    ),
+  ),
+];
 
 /**
- * EVERY ANSWER IN THIS ASK THAT IS NOT ONE OF KOLU'S OPTIONS — checked where
- * an answer is recorded, before it is.
+ * EVERY ANSWER THAT IS NOT ONE OF KOLU'S OPTIONS — the same rule where an
+ * answer is recorded, where a saved one is started, and where `work_open`
+ * decides whether a saved one stands.
  *
  *  - A harness must be one this kolu carries.
  *  - A model must be one the host listed for its harness, when that harness
@@ -489,31 +560,16 @@ export const modelHarnessesOf = (
  * Answers one fact per bad answer, so the refusal can name them all.
  */
 export const unofferedAnswers = (
-  work: Work,
-  ask: string,
-  values: ReadonlyMap<string, ReadonlyArray<string>>,
+  answers: ReadonlyArray<KoluAnswer>,
   choices: KoluChoices,
-): ReadonlyArray<UnofferedAnswer> => {
-  const bad: UnofferedAnswer[] = [];
-  for (const one of work.decisions) {
-    if (one.ask !== ask || !isAsked(one) || !isKoluChoice(one)) continue;
-    const given = values.get(one.id) ?? [];
-    if (given.length === 0) continue;
-    const [value = ""] = given;
-    if (given.length > 1) {
-      bad.push({ key: one.key, value, why: "several" });
-      continue;
-    }
-    const judged = judgeAnswer(
-      one.key,
-      value,
-      harnessForModel(work, ask, one.key, values),
-      choices,
-    );
-    if (judged !== null) bad.push(judged);
-  }
-  return bad;
-};
+): ReadonlyArray<UnofferedAnswer> =>
+  answers.flatMap((one): UnofferedAnswer[] => {
+    const [value, ...more] = one.values;
+    if (value === undefined) return [];
+    if (more.length > 0) return [{ key: one.key, value, why: "several" }];
+    const judged = judgeAnswer(one.key, value, one.harness, choices);
+    return judged === null ? [] : [judged];
+  });
 
 /** One answer kolu's rule found that is not kolu's to record or start. */
 export interface UnofferedAnswer {
@@ -563,52 +619,8 @@ export const unofferedWords = (
 ): string =>
   `${bad.key}: ${JSON.stringify(bad.value)} ${unofferedWhy(bad, harnesses, host)}`;
 
-/** The installed harnesses whose model lists the SAVED answers to `keys`
- *  need — so the caller asks the host for exactly those. */
-export const savedModelHarnessesOf = (
-  work: Work,
-  keys: ReadonlyArray<KoluChoiceKey>,
-  installed: ReadonlyArray<string>,
-): ReadonlyArray<string> => {
-  const harnesses = new Set<string>();
-  for (const key of keys) {
-    const named = roleOfKey(key);
-    if (named?.what !== "model") continue;
-    if (answerValue(setupDecision(work, key)) === null) continue;
-    const harness = roleAnswer(work, named.role, "harness");
-    if (harness !== null && installed.includes(harness)) harnesses.add(harness);
-  }
-  return [...harnesses];
-};
-
-/**
- * EVERY SAVED ANSWER TO `keys` THAT KOLU NO LONGER OFFERS — by the same rule
- * an answer is recorded by, read again later: when a planner or implementor
- * is started, and when `work_open` decides what to ask. An answer saved
- * before kolu drew these options (words typed as a model), a model that left
- * its harness's list, a harness this kolu stopped carrying: each is named here
- * rather than typed into a terminal. A key with no answer is not judged.
- */
-export const unofferedSaved = (
-  work: Work,
-  keys: ReadonlyArray<KoluChoiceKey>,
-  choices: KoluChoices,
-): ReadonlyArray<UnofferedAnswer> =>
-  keys.flatMap((key) => {
-    const value = answerValue(setupDecision(work, key));
-    const named = roleOfKey(key);
-    if (value === null || named === null) return [];
-    const judged = judgeAnswer(
-      key,
-      value,
-      named.what === "model" ? roleAnswer(work, named.role, "harness") : null,
-      choices,
-    );
-    return judged === null ? [] : [judged];
-  });
-
 /** A waterfall role's two kolu questions — what starting it rests on. */
-export const koluKeysOf = (role: WorkRole): ReadonlyArray<KoluChoiceKey> =>
+export const koluKeysOf = (role: WaterfallRole): ReadonlyArray<KoluChoiceKey> =>
   (["harness", "model"] as const).flatMap((what) => {
     const key = setupKeyOf(role, what);
     return key !== null && isKoluChoiceKey(key) ? [key] : [];

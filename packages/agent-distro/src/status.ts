@@ -530,18 +530,16 @@ function displayVersion(version: string): string {
 export const AGENTS_OFF_MEANS =
   "New terminals use only the agents you installed yourself.";
 
-/** WHY A HOST HAS NO HARNESS TO CHOOSE, and what to do about it — `null` for
- *  a host whose agents are ready. One sentence, said wherever kolu would
- *  otherwise ask which harness runs on `where`: a work's setup refuses with
- *  it, and so does a model list asked of that host. A failure carries its own
- *  words (its first line), never a summary of them. */
+/** WHY A HOST HAS NO HARNESS TO CHOOSE, and what to do about it — for any
+ *  status but `ready`. One sentence, said wherever kolu would otherwise ask
+ *  which harness runs on `where`: a work's setup refuses with it, and so does
+ *  a model list asked of that host. A failure carries its own words (its
+ *  first line), never a summary of them. */
 export function agentsNotReadyWords(
-  status: AgentDistroStatus,
+  status: Exclude<AgentDistroStatus, { readonly kind: "ready" }>,
   where: string,
-): string | null {
+): string {
   switch (status.kind) {
-    case "ready":
-      return null;
     case "off":
       return `The coding agents are switched off for ${where}. Turn Agents on for ${where} in Settings, then ask again.`;
     case "unavailable":

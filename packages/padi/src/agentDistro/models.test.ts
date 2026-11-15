@@ -26,7 +26,6 @@ function picker(script: string): void {
 }
 
 const OMP = {
-  harness: "omp",
   launch: { kind: "flag", flag: "--model" },
   models: {
     kind: "listed",
@@ -35,7 +34,6 @@ const OMP = {
 } as const;
 
 const CLAUDE = {
-  harness: "claude",
   launch: { kind: "flag", flag: "--model" },
   models: { kind: "unlisted" },
 } as const;

@@ -55,16 +55,13 @@ export function listAgentModels(input: {
   readonly cwd: string;
 }): Promise<AgentModels> {
   const assessed = assessAgentDistro(agentDistroSettingStore.get());
-  if (assessed.kind !== "ready") {
-    const why = agentsNotReadyWords(assessed, HERE);
-    if (why === null)
-      throw new Error(
-        "agentsNotReadyWords read a status that is not ready as ready",
-      );
+  if (assessed.kind !== "ready")
     return Promise.reject(
-      new AgentModelsUnavailable({ harness: input.harness, why }),
+      new AgentModelsUnavailable({
+        harness: input.harness,
+        why: agentsNotReadyWords(assessed, HERE),
+      }),
     );
-  }
   return runAgentModels({
     bundle: assessed.layer.bundle,
     cwd: input.cwd,

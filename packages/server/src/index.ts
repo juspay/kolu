@@ -56,22 +56,18 @@ import {
   modeOf,
   onGreenOf,
   policyOf,
-  roleOfKey,
   standing,
 } from "kolu-work";
 import { dirname } from "node:path";
 import type { KoluBootFlags } from "./bootFlags.ts";
-import {
-  koluOffer,
-  koluOfferOver,
-  setKoluOffer,
-} from "./conductor/koluOffer.ts";
+import { koluOfferOver } from "./conductor/koluOffer.ts";
 import { fleetHostsOver } from "./fleet/fleetHosts.ts";
 import { startFleetMcpEndpoint } from "./fleet/mcpEndpoint.ts";
 import {
   disposeServerConductor,
   liveServerConductor,
   setConductorFleetHosts,
+  setConductorOffer,
   setFleetMcpEndpoint,
   setWatchScopeListener,
   setWorksListener,
@@ -754,27 +750,15 @@ export async function bootKoluWeb(flags: KoluBootFlags): Promise<void> {
     // questions went out as; the face's answer is that reading flattened, so
     // the agent is told what it asked for without a second shape in between.
     // NOTHING WAITS: the human's answers arrive later, as a wake.
-    //
-    // NO HARNESS QUESTION FOR A HOST WITH NOTHING TO RUN: a setup that asks
-    // which harness runs a role is refused, naming the host and what to do,
-    // unless that host's coding agents are ready — before anything exists.
     open: async (intent) => {
-      const { offer, requireAgentsReady } = koluOffer();
-      if (intent.setup.some((one) => roleOfKey(one.key)?.what === "harness"))
-        await requireAgentsReady(
-          intent.key.kind === "branch"
-            ? intent.key.host
-            : (intent.key.terminal.split("/")[0] ?? ""),
-        );
       const { work, setup, ask, asked, created, reopened } =
-        await liveServerConductor().openWork(intent, offer);
+        await liveServerConductor().openWork(intent);
       return { work, ...setup, ask, asked, created, reopened };
     },
     // WHAT A PLANNER OR IMPLEMENTOR STARTS, read off the work's own answers
-    // and judged again against kolu's offer — the face builds the command
-    // from this, so there is one source for it.
-    startOf: (work, role) =>
-      liveServerConductor().startOf(work, role, koluOffer().offer),
+    // and judged again — the face builds the command from this, so there is
+    // one source for it.
+    startOf: (work, role) => liveServerConductor().startOf(work, role),
     stop: (work) => {
       liveServerConductor().stopWork(work, "conductor");
     },
@@ -1079,9 +1063,9 @@ export async function bootKoluWeb(flags: KoluBootFlags): Promise<void> {
   // `undelivered`).
   const agentDistroListing = readAgentDistroListing();
   // WHAT KOLU OFFERS for a work's harness and model questions — this listing
-  // and every host's own word on its models — registered before the surface
-  // is served, so `work_open` and `answerWork` check against one thing.
-  setKoluOffer(
+  // and every host's own word on its models — handed to the conversation
+  // before the surface is served, so every work is checked against one thing.
+  setConductorOffer(
     koluOfferOver({ listing: agentDistroListing, hosts: fleetHosts }),
   );
   const deliveryBake = readAgentDistroDeliveryBake();

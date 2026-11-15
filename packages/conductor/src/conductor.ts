@@ -137,29 +137,28 @@ import {
   type WorkKey,
   type WorkMember,
   type AnswerFrom,
-  askQuestions,
+  askedAnswersOf,
   foreignSetupWords,
+  givenAnswersOf,
   hostOf,
   isKoluChoiceKey,
   type KoluChoiceKey,
   type KoluChoices,
   koluKeysOf,
   missingSetup,
-  type ModelChoices,
   modelHarnessesOf,
   ON_GREEN,
-  openWork as freshWork,
   type Question,
   recordEvent,
   repoOf,
-  savedModelHarnessesOf,
+  roleOfKey,
+  savedAnswersOf,
   type SetupAsk,
   type SetupKey,
   type SetupReading,
   setupOf,
   type UnofferedAnswer,
   unofferedAnswers,
-  unofferedSaved,
   unofferedWhy,
   unofferedWords,
   WORK_MODES,
@@ -213,14 +212,17 @@ export interface KoluOffer {
     readonly repo: string;
     readonly harness: string;
   }) => Promise<AgentModels>;
+  /** Refuses ({@link WorkRefusal} `agents-not-ready`) unless `host` has a
+   *  harness to choose: this kolu carries agent-distro, and the host's agents
+   *  are ready. */
+  readonly requireAgentsReady: (host: string) => Promise<void>;
 }
 
 /** WHAT A PLANNER OR IMPLEMENTOR STARTS ON — its saved harness and model, on
- *  the work's host and in its repository, and how that harness takes a model
- *  there. Only ever answered for a setup kolu still offers. */
+ *  the work's host, and how that harness takes a model there. Only ever
+ *  answered for a setup kolu still offers. */
 export interface WaterfallStart {
   readonly host: string;
-  readonly repo: string;
   readonly harness: string;
   readonly model: string;
   readonly launch: AgentModels["launch"];
@@ -235,22 +237,29 @@ const KOLU_QUESTION: Readonly<Record<KoluChoiceKey, string>> = {
   "implementor.model": "Which model does the implementor run on?",
 };
 
-/** ASK THE WORK'S HOST what each of `harnesses` offers — only installed ones
- *  reach here — or refuse ({@link WorkRefusal} `not-offered`) in its own
- *  words, ending with what the refusal left undone (`nothing`). */
-async function hostModels(
-  work: Work,
+/** WHAT KOLU OFFERS RIGHT NOW on `where`'s host: the harnesses it carries,
+ *  and what each of `harnesses` it carries offers there — one question to the
+ *  host per harness, whose whole answer (the launch too) is kept. A harness
+ *  kolu does not carry is never asked about: the rule refuses it by name. A
+ *  host that cannot answer refuses ({@link WorkRefusal} `not-offered`) in its
+ *  own words, ending with what that left undone (`nothing`). */
+async function choicesFor(
+  where: Pick<Work, "key">,
   harnesses: ReadonlyArray<string>,
   offer: KoluOffer,
   nothing: string,
-): Promise<ReadonlyMap<string, AgentModels>> {
-  const host = hostOf(work);
+): Promise<{
+  readonly choices: KoluChoices;
+  readonly answers: ReadonlyMap<string, AgentModels>;
+}> {
+  const host = hostOf(where);
+  const installed = offer.harnesses();
   const answers = new Map<string, AgentModels>();
-  for (const harness of harnesses) {
+  for (const harness of harnesses.filter((one) => installed.includes(one))) {
     try {
       answers.set(
         harness,
-        await offer.models({ host, repo: repoOf(work), harness }),
+        await offer.models({ host, repo: repoOf(where), harness }),
       );
     } catch (err) {
       throw new WorkRefusal(
@@ -259,82 +268,26 @@ async function hostModels(
       );
     }
   }
-  return answers;
-}
-
-/** The choices the rule judges against: the installed harnesses, and each
- *  asked harness's models. */
-const choicesOf = (
-  installed: ReadonlyArray<string>,
-  answers: ReadonlyMap<string, AgentModels>,
-): KoluChoices => ({
-  harnesses: installed,
-  models: new Map<string, ModelChoices>(
-    [...answers].map(([harness, one]) => [harness, one.models]),
-  ),
-});
-
-/** CHECK the answers to kolu's own questions in `ask` against what kolu offers
- *  right now — every harness model list this answer needs, asked of the
- *  work's host — and refuse ({@link WorkRefusal} `not-offered`) naming every
- *  answer that is not an option. Nothing is recorded by a refused answer. */
-async function requireOffered(
-  work: Work,
-  ask: string,
-  values: ReadonlyMap<string, ReadonlyArray<string>>,
-  offer: KoluOffer,
-): Promise<void> {
-  const host = hostOf(work);
-  // Only an installed harness is asked about: a harness kolu does not carry
-  // is refused by name, never as a host that failed to answer.
-  const installed = offer.harnesses();
-  const answers = await hostModels(
-    work,
-    modelHarnessesOf(work, ask, values).filter((one) =>
-      installed.includes(one),
-    ),
-    offer,
-    "Nothing was recorded.",
-  );
-  const bad = unofferedAnswers(
-    work,
-    ask,
-    values,
-    choicesOf(installed, answers),
-  );
-  if (bad.length > 0)
-    throw new WorkRefusal(
-      "not-offered",
-      `${bad.map((one) => unofferedWords(one, installed, host)).join("; ")}. Answer with one of kolu's options. Nothing was recorded.`,
-    );
-}
-
-/** THE SAVED ANSWERS TO `keys` KOLU NO LONGER OFFERS on `work` — by the rule
- *  that records an answer, against what the host says now — with the models
- *  the host answered, which a start reads its launch off. */
-async function savedUnoffered(
-  work: Work,
-  keys: ReadonlyArray<KoluChoiceKey>,
-  offer: KoluOffer,
-  nothing: string,
-): Promise<{
-  readonly bad: ReadonlyArray<UnofferedAnswer>;
-  readonly installed: ReadonlyArray<string>;
-  readonly answers: ReadonlyMap<string, AgentModels>;
-}> {
-  const installed = offer.harnesses();
-  const answers = await hostModels(
-    work,
-    savedModelHarnessesOf(work, keys, installed),
-    offer,
-    nothing,
-  );
   return {
-    bad: unofferedSaved(work, keys, choicesOf(installed, answers)),
-    installed,
+    choices: {
+      harnesses: installed,
+      models: new Map(
+        [...answers].map(([harness, one]) => [harness, one.models]),
+      ),
+    },
     answers,
   };
 }
+
+/** Every bad answer, in the words a refusal names them by. */
+const unofferedSentence = (
+  bad: ReadonlyArray<UnofferedAnswer>,
+  choices: KoluChoices,
+  where: Pick<Work, "key">,
+): string =>
+  bad
+    .map((one) => unofferedWords(one, choices.harnesses, hostOf(where)))
+    .join("; ");
 
 export interface ConductorHost {
   /** The live cell value. Readable before the agent is up — it then says
@@ -412,24 +365,22 @@ export interface ConductorHost {
    * answer and why it no longer stands in the question's words. A second card
    * for one branch is not something any caller can make.
    *
-   * REFUSED, before anything exists, when the setup does not carry what the
-   * mode it might run needs ({@link WorkRefusal}, `missing-setup`), when a
-   * `given` harness or model is not one kolu offers, or when the host cannot
-   * say what a saved model is judged against (`not-offered`, checked against
-   * `offer`).
+   * REFUSED, before anything exists, when the setup asks a harness for a host
+   * whose coding agents are not ready (`agents-not-ready`), when it does not
+   * carry what the mode it might run needs ({@link WorkRefusal},
+   * `missing-setup`), when a `given` harness or model is not one kolu offers,
+   * or when the host cannot say what a model is judged against
+   * (`not-offered`, against {@link ConductorDeps.offer}).
    *
    * ANSWERS once the work is recorded, with the setup as it reads NOW.
    * `asked` says a form went to the human: the Conductor ends its turn, and
    * kolu WAKES it with what they said. Nothing here waits on a person.
    */
-  readonly openWork: (
-    intent: {
-      readonly key: WorkKey;
-      readonly title: string;
-      readonly setup: ReadonlyArray<SetupAsk>;
-    },
-    offer: KoluOffer,
-  ) => Promise<{
+  readonly openWork: (intent: {
+    readonly key: WorkKey;
+    readonly title: string;
+    readonly setup: ReadonlyArray<SetupAsk>;
+  }) => Promise<{
     readonly work: WorkId;
     readonly setup: SetupReading;
     readonly ask: string;
@@ -475,33 +426,29 @@ export interface ConductorHost {
    *  else answered it first — a reported state in a two-tab world, not a
    *  fault. Refused ({@link WorkRefusal}) for a work nobody knows, and
    *  (`not-offered`) for an answer to a harness or model question that is not
-   *  one of kolu's options right now — checked against `offer` here, where
-   *  the answer is recorded — and checked again when the role starts
+   *  one of kolu's options right now — checked here, where the answer is
+   *  recorded — and checked again when the role starts
    *  ({@link ConductorHost.startOf}).
    *
    *  NEVER goes through the agent: a person must be able to answer while the
    *  conversation is down, signed out or busy, and the wake is held like any
    *  other news until there is somebody to tell. */
-  readonly answerWork: (
-    answered: {
-      readonly work: string;
-      readonly ask: string;
-      readonly from: AnswerFrom;
-      readonly values: ReadonlyMap<string, ReadonlyArray<string>> | null;
-    },
-    offer: KoluOffer,
-  ) => Promise<{ readonly settled: boolean }>;
+  readonly answerWork: (answered: {
+    readonly work: string;
+    readonly ask: string;
+    readonly from: AnswerFrom;
+    readonly values: ReadonlyMap<string, ReadonlyArray<string>> | null;
+  }) => Promise<{ readonly settled: boolean }>;
   /** WHAT A PLANNER OR IMPLEMENTOR OF THIS WORK STARTS ON — its saved harness
-   *  and model, checked against `offer` by the rule that records an answer,
-   *  and how the host's harness takes a model. REFUSED ({@link WorkRefusal})
-   *  for an unknown or ended work, a watch, a role with no answer yet, and —
-   *  `not-offered` — a saved answer kolu no longer offers, naming which and
-   *  why: never a command typed into a terminal, never a defect. `work_open`
-   *  asks that question again. */
+   *  and model, judged by the rule that records an answer, and how the host's
+   *  harness takes a model. REFUSED ({@link WorkRefusal}) for an unknown or
+   *  ended work, a watch, a role with no answer yet, and — `not-offered` — a
+   *  saved answer kolu no longer offers, naming which and why: never a command
+   *  typed into a terminal, never a defect. `work_open` asks that question
+   *  again. */
   readonly startOf: (
     work: WorkId,
     role: WaterfallRole,
-    offer: KoluOffer,
   ) => Promise<WaterfallStart>;
   /** A TERMINAL JOINS A WORK, in a role stated in the same call that created
    *  or adopted it. Refused for a work that is unknown or has ended: a member
@@ -718,6 +665,11 @@ export interface ConductorDeps {
    *  inside `session/new` and an endpoint the agent cannot reach is marked
    *  failed for the life of the conversation. */
   readonly fleetMcp: () => FleetMcpEndpoint | null;
+  /** WHAT KOLU OFFERS for a role's harness and model — the harnesses it
+   *  carries, what each offers on a work's host, and whether that host has a
+   *  harness to choose at all. Read per call: the host owns it, built once it
+   *  has read its agent-distro listing. */
+  readonly offer: () => KoluOffer;
   /** PROVE that endpoint answers — a real request, no timer — returning the
    *  sentence that says why not, or `null` when it will serve this caller.
    *
@@ -1788,8 +1740,19 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
       remembered();
       return works.membersDetail();
     },
-    openWork: async (intent, offer) => {
+    openWork: async (intent) => {
       remembered();
+      const offer = deps.offer();
+      // NO HARNESS QUESTION FOR A HOST WITH NOTHING TO RUN: a setup that asks
+      // which harness runs a role is refused, naming the host and what to do,
+      // unless that host's coding agents are ready.
+      if (
+        intent.setup.some(
+          (one) =>
+            isKoluChoiceKey(one.key) && roleOfKey(one.key).what === "harness",
+        )
+      )
+        await offer.requireAgentsReady(hostOf(intent));
       // BEFORE ANYTHING EXISTS. A work whose setup is half asked is a planner
       // launched on a model nobody chose, and the Conductor cannot fix that
       // by asking a second form later — so the refusal names the keys and
@@ -1810,66 +1773,48 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
           `«${intent.title}» cannot be opened: ${foreign.join(", ")} — the mode and what to do on green are read back off the human's answer, so their options must be kolu's own words (${WORK_MODES.join(" | ")}; ${ON_GREEN.join(" | ")}). Ask the question in whatever words you like; offer those values.`,
         );
       }
-      // ... and a harness or model the REQUEST named is checked the way an
-      // answer from the form is, before the work exists: written down as the
-      // questions it would be, on the work as it stands (or a fresh one), and
-      // read by the same rule that records an answer.
-      const named = intent.setup.flatMap((one) =>
-        isKoluChoiceKey(one.key) && one.given !== undefined
-          ? [{ key: one.key, given: one.given }]
-          : [],
-      );
-      if (named.length > 0) {
-        const probeAsk = "given-check";
-        const probe = askQuestions(
-          works.get(workIdOf(intent.key)) ??
-            freshWork({
-              key: intent.key,
-              title: intent.title,
-              at: new Date().toISOString(),
-              request: "",
-            }),
-          {
-            ask: probeAsk,
-            at: new Date().toISOString(),
-            questions: named.map((one, at) => ({
-              id: `given-${at}`,
-              key: one.key,
-              header: "",
-              question: KOLU_QUESTION[one.key],
-              file: "",
-            })),
-          },
-        );
-        await requireOffered(
-          probe,
-          probeAsk,
-          new Map(named.map((one, at) => [`given-${at}`, [one.given]])),
-          offer,
-        );
-      }
-      // ... and A SAVED ANSWER KOLU NO LONGER OFFERS is asked again — judged
-      // by the rule that records one, against what the host says now — with
-      // what it was and why it no longer stands in the question's own words.
-      // Without this a role whose saved answer cannot start could never be
-      // asked again: only keys with no answer are.
+      // ... and a harness or model the REQUEST named is judged by the rule
+      // that records an answer, before the work exists — and A SAVED ANSWER
+      // KOLU NO LONGER OFFERS is asked again, with what it was and why it no
+      // longer stands in the question's own words (only keys with no answer
+      // are asked otherwise, so a role whose saved answer cannot start would
+      // never be asked again). Both against ONE reading of the host.
       const before = works.get(workIdOf(intent.key));
-      const reasked = new Map<SetupKey, string>();
-      if (before !== undefined) {
-        const { bad, installed } = await savedUnoffered(
-          before,
-          intent.setup.flatMap((one) =>
-            isKoluChoiceKey(one.key) ? [one.key] : [],
-          ),
-          offer,
-          "Nothing was opened or asked.",
+      const given = givenAnswersOf(
+        intent.setup.flatMap((one) =>
+          isKoluChoiceKey(one.key) && one.given !== undefined
+            ? [{ key: one.key, value: one.given }]
+            : [],
+        ),
+        before,
+      );
+      const saved =
+        before === undefined
+          ? []
+          : savedAnswersOf(
+              before,
+              intent.setup.flatMap((one) =>
+                isKoluChoiceKey(one.key) ? [one.key] : [],
+              ),
+            );
+      const { choices } = await choicesFor(
+        intent,
+        modelHarnessesOf([...given, ...saved]),
+        offer,
+        "Nothing was opened or asked.",
+      );
+      const refused = unofferedAnswers(given, choices);
+      if (refused.length > 0)
+        throw new WorkRefusal(
+          "not-offered",
+          `${unofferedSentence(refused, choices, intent)}. Answer with one of kolu's options. Nothing was recorded.`,
         );
-        for (const one of bad)
-          reasked.set(
-            one.key,
-            `${KOLU_QUESTION[one.key]} It was ${JSON.stringify(one.value)}, which ${unofferedWhy(one, installed, hostOf(before))}.`,
-          );
-      }
+      const reasked = new Map<SetupKey, string>(
+        unofferedAnswers(saved, choices).map((one) => [
+          one.key,
+          `${KOLU_QUESTION[one.key]} It was ${JSON.stringify(one.value)}, which ${unofferedWhy(one, choices.harnesses, hostOf(intent))}.`,
+        ]),
+      );
       // THE KEY IS THE WORK. A key kolu already holds answers that work as it
       // stands — reopened if it had ended — so a second card for one branch
       // is not something this call can make however often it is called.
@@ -1960,7 +1905,7 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
         asked,
       );
     },
-    answerWork: async ({ work, ask, from, values }, offer) => {
+    answerWork: async ({ work, ask, from, values }) => {
       remembered();
       const found = works.get(work);
       if (found === undefined) {
@@ -1971,7 +1916,21 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
       }
       // AN ANSWER IS CHECKED WHERE IT IS RECORDED: a harness kolu does not
       // carry, or a model the host did not list, never becomes a decision.
-      if (values !== null) await requireOffered(found, ask, values, offer);
+      if (values !== null) {
+        const answers = askedAnswersOf(found, ask, values);
+        const { choices } = await choicesFor(
+          found,
+          modelHarnessesOf(answers),
+          deps.offer(),
+          "Nothing was recorded.",
+        );
+        const bad = unofferedAnswers(answers, choices);
+        if (bad.length > 0)
+          throw new WorkRefusal(
+            "not-offered",
+            `${unofferedSentence(bad, choices, found)}. Answer with one of kolu's options. Nothing was recorded.`,
+          );
+      }
       // NOBODY IS WAITING ON THIS ANSWER, so nothing is released by it: it is
       // recorded, the conversation is WOKEN with what was said (by `asking`'s
       // news sink, which is where that rule lives), and this call answers
@@ -1998,7 +1957,7 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
       publishState();
       return { settled: true };
     },
-    startOf: async (id, role, offer) => {
+    startOf: async (id, role) => {
       remembered();
       const found = works.get(id);
       if (found === undefined)
@@ -2025,21 +1984,26 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
       // THE SAVED PAIR, JUDGED AGAIN — by the rule that records an answer,
       // against what the host says now. The same answer the launch is read
       // off, so the check costs no second question to the host.
-      const { bad, installed, answers } = await savedUnoffered(
+      const saved = savedAnswersOf(found, koluKeysOf(role));
+      const { choices, answers } = await choicesFor(
         found,
-        koluKeysOf(role),
-        offer,
+        modelHarnessesOf(saved),
+        deps.offer(),
         "Nothing was created.",
       );
-      const models = answers.get(part.harness);
-      if (bad.length > 0 || models === undefined)
+      const bad = unofferedAnswers(saved, choices);
+      if (bad.length > 0)
         throw new WorkRefusal(
           "not-offered",
-          `The ${role} of «${found.title}» cannot start on its saved setup: ${bad.map((one) => unofferedWords(one, installed, hostOf(found))).join("; ")}. Call \`work_open\` for this work again — kolu asks the human again for every answer it no longer offers. Nothing was created.`,
+          `The ${role} of «${found.title}» cannot start on its saved setup: ${unofferedSentence(bad, choices, found)}. Call \`work_open\` for this work again — kolu asks the human again for every answer it no longer offers. Nothing was created.`,
+        );
+      const models = answers.get(part.harness);
+      if (models === undefined)
+        throw new Error(
+          `startOf: ${part.harness} passed the rule with no model list read for it`,
         );
       return {
         host: found.key.host,
-        repo: found.key.repo,
         harness: part.harness,
         model: part.model,
         launch: models.launch,

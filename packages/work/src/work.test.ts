@@ -1,6 +1,8 @@
 import { Schema } from "effect";
 import { describe, expect, it } from "vitest";
 import {
+  askedAnswersOf,
+  givenAnswersOf,
   harnessForModel,
   isKoluChoice,
   KOLU_CHOICE_KEYS,
@@ -9,10 +11,9 @@ import {
   koluKeysOf,
   modelHarnessesOf,
   type Question,
-  savedModelHarnessesOf,
+  savedAnswersOf,
   setupMemory,
   unofferedAnswers,
-  unofferedSaved,
 } from "./index.ts";
 import {
   AGENT_STATE_KINDS,
@@ -336,15 +337,18 @@ describe("kolu's own setup questions — the harness and the model", () => {
       // A harness that cannot list takes whatever model the person names.
       ["q-im", ["claude-opus-4-6"]],
     ]);
-    expect(modelHarnessesOf(work, "ask-1", values)).toEqual(["omp", "claude"]);
-    expect(unofferedAnswers(work, "ask-1", values, CHOICES)).toEqual([]);
+    const answers = askedAnswersOf(work, "ask-1", values);
+    expect(modelHarnessesOf(answers)).toEqual(["omp", "claude"]);
+    expect(unofferedAnswers(answers, CHOICES)).toEqual([]);
 
     const bad = new Map<string, ReadonlyArray<string>>([
       ["q-ph", ["codex"]],
       ["q-ih", ["omp"]],
       ["q-im", ["claude-fable-5-1"]],
     ]);
-    expect(unofferedAnswers(work, "ask-1", bad, CHOICES)).toEqual([
+    expect(
+      unofferedAnswers(askedAnswersOf(work, "ask-1", bad), CHOICES),
+    ).toEqual([
       { key: "planner.harness", value: "codex", why: "not-installed" },
       {
         key: "implementor.model",
@@ -355,9 +359,11 @@ describe("kolu's own setup questions — the harness and the model", () => {
     ]);
     expect(
       unofferedAnswers(
-        work,
-        "ask-1",
-        new Map([["q-pm", ["anthropic/claude-fable-5-2"]]]),
+        askedAnswersOf(
+          work,
+          "ask-1",
+          new Map([["q-pm", ["anthropic/claude-fable-5-2"]]]),
+        ),
         CHOICES,
       ),
     ).toEqual([
@@ -375,7 +381,9 @@ describe("kolu's own setup questions — the harness and the model", () => {
       ["q-ih", ["claude"]],
       ["q-im", ["fable 5.2"]],
     ]);
-    expect(unofferedAnswers(work, "ask-1", values, CHOICES)).toEqual([
+    expect(
+      unofferedAnswers(askedAnswersOf(work, "ask-1", values), CHOICES),
+    ).toEqual([
       {
         key: "implementor.model",
         value: "fable 5.2",
@@ -399,10 +407,13 @@ describe("kolu's own setup questions — the harness and the model", () => {
         ["q-im", ["claude-opus-5-5"]],
       ]),
     });
+    expect(modelHarnessesOf(savedAnswersOf(saved, KOLU_CHOICE_KEYS))).toEqual([
+      "claude",
+      "omp",
+    ]);
     expect(
-      savedModelHarnessesOf(saved, KOLU_CHOICE_KEYS, CHOICES.harnesses),
-    ).toEqual(["claude", "omp"]);
-    expect(unofferedSaved(saved, koluKeysOf("planner"), CHOICES)).toEqual([
+      unofferedAnswers(savedAnswersOf(saved, koluKeysOf("planner")), CHOICES),
+    ).toEqual([
       {
         key: "planner.model",
         value: "fable 5.2",
@@ -410,7 +421,12 @@ describe("kolu's own setup questions — the harness and the model", () => {
         harness: "claude",
       },
     ]);
-    expect(unofferedSaved(saved, koluKeysOf("implementor"), CHOICES)).toEqual([
+    expect(
+      unofferedAnswers(
+        savedAnswersOf(saved, koluKeysOf("implementor")),
+        CHOICES,
+      ),
+    ).toEqual([
       {
         key: "implementor.model",
         value: "claude-opus-5-5",
@@ -420,11 +436,25 @@ describe("kolu's own setup questions — the harness and the model", () => {
     ]);
     // A harness this kolu stopped carrying takes its model down with it.
     expect(
-      unofferedSaved(saved, koluKeysOf("planner"), {
+      unofferedAnswers(savedAnswersOf(saved, koluKeysOf("planner")), {
         harnesses: ["omp"],
         models: CHOICES.models,
       }).map((one) => one.why),
     ).toEqual(["not-installed", "no-harness"]);
+    // ... and a model the REQUEST gives is of the harness given beside it,
+    // else of the one the work recorded.
+    expect(
+      givenAnswersOf([{ key: "planner.model", value: "x" }], saved),
+    ).toEqual([{ key: "planner.model", values: ["x"], harness: "claude" }]);
+    expect(
+      givenAnswersOf(
+        [
+          { key: "planner.harness", value: "omp" },
+          { key: "planner.model", value: "x" },
+        ],
+        saved,
+      )[1]?.harness,
+    ).toBe("omp");
   });
 
   it("records an answer to one of them as the one value picked", () => {

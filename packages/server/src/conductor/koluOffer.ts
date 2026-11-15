@@ -15,9 +15,8 @@
  * words.
  *
  * `index.ts` builds the one offer (it holds the listing and the fleet) and
- * registers it; the conductor's `openWork` / `answerWork` take it from here,
- * so the surface's `answerWork` and the fleet face's `work_open` check
- * against the same thing.
+ * hands it to the conversation (`live.ts`'s `setConductorOffer`), which
+ * opens, answers and starts every work against it.
  */
 
 import type { AgentDistroListing } from "@kolu/agent-distro/listing";
@@ -27,15 +26,6 @@ import { Cause, Effect, Exit } from "effect";
 import type { KoluOffer } from "kolu-conductor";
 import type { FleetHosts } from "kolu-mcp";
 import { WorkRefusal } from "kolu-work";
-
-/** The offer, and the readiness gate that comes before any harness question. */
-export interface KoluOfferHost {
-  readonly offer: KoluOffer;
-  /** Refuses ({@link WorkRefusal} `agents-not-ready`) unless `host` has a
-   *  harness to choose: this kolu carries agent-distro, and the host's agents
-   *  are ready. */
-  readonly requireAgentsReady: (host: string) => Promise<void>;
-}
 
 /** An Effect's value, or its failure's own words as an Error. */
 async function settled<A>(effect: Effect.Effect<A, unknown>): Promise<A> {
@@ -50,7 +40,7 @@ async function settled<A>(effect: Effect.Effect<A, unknown>): Promise<A> {
 export function koluOfferOver(deps: {
   readonly listing: AgentDistroListing;
   readonly hosts: FleetHosts;
-}): KoluOfferHost {
+}): KoluOffer {
   const { listing, hosts } = deps;
   /** The host's padi, or the sentence that says why there is none. */
   const padiOf = (host: string) => {
@@ -63,20 +53,18 @@ export function koluOfferOver(deps: {
     return padi;
   };
   return {
-    offer: {
-      harnesses: () =>
-        listing.kind === "available"
-          ? listing.harnesses.map((one) => one.name)
-          : [],
-      models: async ({ host, repo, harness }) => {
-        if (repo === "")
-          throw new Error(
-            "a watch has no repository, so there is nowhere to ask a harness for its models",
-          );
-        return await settled(
-          padiOf(host).surface.agentDistro.models({ harness, cwd: repo }),
+    harnesses: () =>
+      listing.kind === "available"
+        ? listing.harnesses.map((one) => one.name)
+        : [],
+    models: async ({ host, repo, harness }) => {
+      if (repo === "")
+        throw new Error(
+          "a watch has no repository, so there is nowhere to ask a harness for its models",
         );
-      },
+      return await settled(
+        padiOf(host).surface.agentDistro.models({ harness, cwd: repo }),
+      );
     },
     requireAgentsReady: async (host) => {
       if (listing.kind === "unavailable")
@@ -91,26 +79,11 @@ export function koluOfferOver(deps: {
           `${where} answered no agent status, so kolu cannot tell whether it has a harness to run.`,
         ),
       );
-      const why = agentsNotReadyWords(status, where);
-      if (why !== null) throw new WorkRefusal("agents-not-ready", why);
+      if (status.kind !== "ready")
+        throw new WorkRefusal(
+          "agents-not-ready",
+          agentsNotReadyWords(status, where),
+        );
     },
   };
-}
-
-let registered: KoluOfferHost | null = null;
-
-/** Register the one offer — `index.ts`, once it holds the listing and the
- *  fleet, before anything can open or answer a work. */
-export function setKoluOffer(host: KoluOfferHost): void {
-  registered = host;
-}
-
-/** The offer, or the boot-order crash: `null` here is wiring that moved,
- *  never a host that is away. */
-export function koluOffer(): KoluOfferHost {
-  if (registered === null)
-    throw new Error(
-      "a work was opened or answered before index.ts registered kolu's offer — setKoluOffer must run before the surface is served",
-    );
-  return registered;
 }

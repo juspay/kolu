@@ -4,7 +4,7 @@
       "dir": "juspay/agent-distro",
       "pin": {
         "name": "agent-distro",
-        "revision": "d6aee80dcdc852ee3e3abdc42217094fe184e035",
+        "revision": "57fbb9c6e865c349b6c4310a3a2065ff8fe48371",
         "subdir": "src"
       },
       "vendored": true,
@@ -830,6 +830,7 @@
       "workspace": [
         "@kolu/acp",
         "@kolu/acp-harness",
+        "@kolu/agent-distro",
         "@kolu/padi-client",
         "@kolu/surface",
         "@kolu/terminal-vocab",
@@ -896,8 +897,10 @@
     "kolu-mcp": {
       "dir": "packages/kolu-mcp",
       "workspace": [
+        "@kolu/agent-distro",
         "@kolu/padi",
         "@kolu/padi-client",
+        "@kolu/shell-quote",
         "@kolu/surface",
         "@kolu/surface-mcp",
         "@kolu/terminal-protocol",
@@ -1042,7 +1045,9 @@
     },
     "kolu-work": {
       "dir": "packages/work",
-      "workspace": [],
+      "workspace": [
+        "@kolu/agent-distro"
+      ],
       "external": {
         "effect": "catalog:"
       }

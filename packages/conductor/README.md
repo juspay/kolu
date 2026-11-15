@@ -88,22 +88,24 @@ appending what it observes.
   it; a decline on one a terminal joined is recorded, and the work stays open.
 - **kolu offers the harness and the model.** `work_open` NAMES a role's
   harness and model questions and nothing more: kolu words them, the form draws
-  their options live, and `openWork` / `answerWork` / `startOf` take a
-  `KoluOffer` — the harnesses this kolu carries, and what a harness offers on
-  the work's host and how it takes a model, which kolu-server reads off its
-  agent-distro listing and that host's padi. A `given` harness or model, and
-  every answer to one, is checked against it where it is recorded
-  (`kolu-work`'s `unofferedAnswers`), refused `not-offered` naming each answer
-  that is not an option; a host whose listing FAILED refuses with its own words
-  and records nothing.
+  their options live, and `openWork` / `answerWork` / `startOf` judge against
+  `ConductorDeps.offer` — a `KoluOffer`: the harnesses this kolu carries, what
+  a harness offers on the work's host and how it takes a model, and whether
+  that host has a harness to choose at all, which kolu-server reads off its
+  agent-distro listing and that host's padi. A setup asking a harness for a
+  host whose agents are not ready is refused `agents-not-ready` before
+  anything exists. A `given` harness or model, and every answer to one, is
+  judged where it is recorded (`kolu-work`'s `unofferedAnswers`), refused
+  `not-offered` naming each answer that is not an option; a host whose listing
+  FAILED refuses with its own words and records nothing.
 - **A saved answer is judged again, by the same rule.** `startOf` is what a
-  planner or implementor starts on: its saved harness and model checked
-  against the offer (`unofferedSaved`), with the host's launch for that
-  harness — or `not-offered`, naming which answer and why, so nothing is typed
-  into a terminal on an answer kolu no longer offers. `openWork` asks such a
-  question AGAIN (only unanswered keys are asked otherwise), its words saying
-  what the old answer was and why it no longer stands. All three calls are
-  async for that one read.
+  planner or implementor starts on: its saved harness and model judged against
+  the offer, with the host's launch for that harness from the same read — or
+  `not-offered`, naming which answer and why, so nothing is typed into a
+  terminal on an answer kolu no longer offers. `openWork` asks such a question
+  AGAIN (only unanswered keys are asked otherwise), its words saying what the
+  old answer was and why it no longer stands; one `work_open` reads the host
+  once for its `given` answers and its saved ones together.
 - **What is waiting on you is ONE list.** `publishState` composes the frame a
   browser reads: the conversation's own open elicitations, plus every question
   still open on a work in progress, together in `ConductorState.openAsks`. So

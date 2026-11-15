@@ -28,7 +28,8 @@
  *  when the question is answered.
  */
 
-import { batch } from "solid-js";
+import { type Accessor, batch, createEffect, createMemo } from "solid-js";
+import { type AskOption, defaultFirst } from "./AskOptions";
 import { askDraft, setAskDraft } from "./drafts";
 
 /** The free-text half of a question, under its own key beside the decision's
@@ -58,16 +59,17 @@ export function typeOnly(ask: string, field: string, text: string): void {
   });
 }
 
-/** SEED THE DEFAULT, ONCE PER CONTEXT. `value` is what this person answered
- *  last time AND can be answered again here (an option that is drawn, or any
- *  word for a question that takes words) — `null` when there is no such
- *  answer, which seeds the question empty rather than leaving it to be seeded
- *  later by something stale.
+/** SEED THE DEFAULT, ONCE PER CONTEXT — the write {@link seededChips} owns.
+ *  `value` is what this person answered last time AND can be answered again
+ *  here (an option that is drawn, or any word for a question that takes
+ *  words) — `null` when there is no such answer, which seeds the question
+ *  empty rather than leaving it to be seeded later by something stale.
  *
- *  Call it only once the options ARE known: a question seeded against a list
- *  that has not arrived would mark itself done and never offer the default.
+ *  It is called only once the options ARE known: a question seeded against a
+ *  list that has not arrived would mark itself done and never offer the
+ *  default.
  */
-export function seedAskDefault(
+function seedAskDefault(
   ask: string,
   field: string,
   context: string,
@@ -79,4 +81,28 @@ export function seedAskDefault(
     setAskDraft(ask, field, value === null ? [] : [value]);
     setAskDraft(ask, typedKey(field), []);
   });
+}
+
+/** DEFAULT FIRST, SEEDED ONCE — the whole of how a question opens on what
+ *  this person chose last time, in one place because every form does both
+ *  halves or neither: the default leads the options drawn ({@link
+ *  defaultFirst}), and the same value is written into the draft once per
+ *  context ({@link seedAskDefault}) so it is also selected.
+ *
+ *  A `context` of `null` is a question with no default to seed — the options
+ *  have not arrived, or this question has no memory behind it — and nothing
+ *  is marked, so it seeds when they do.
+ */
+export function seededChips(
+  ask: string,
+  field: string,
+  context: () => string | null,
+  options: () => ReadonlyArray<AskOption>,
+  standing: () => string | null,
+): Accessor<ReadonlyArray<AskOption>> {
+  createEffect(() => {
+    const now = context();
+    if (now !== null) seedAskDefault(ask, field, now, standing());
+  });
+  return createMemo(() => defaultFirst(options(), standing()));
 }

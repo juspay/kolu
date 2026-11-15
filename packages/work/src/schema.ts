@@ -49,8 +49,8 @@ export const UNIQUE_ROLES = ["planner", "implementor"] as const;
 /** A waterfall's part — the roles a work holds one of, and the two whose
  *  agent kolu starts from the work's own setup. */
 export type WaterfallRole = (typeof UNIQUE_ROLES)[number];
-export const isWaterfallRole = (role: WorkRole): role is WaterfallRole =>
-  (UNIQUE_ROLES as ReadonlyArray<string>).includes(role);
+export const isWaterfallRole = (role: unknown): role is WaterfallRole =>
+  (UNIQUE_ROLES as ReadonlyArray<unknown>).includes(role);
 
 /** How the work is run: the whole waterfall, the one-implementor waterfall,
  *  or a plain watch the human asked for. */
@@ -499,13 +499,13 @@ export const keptOf = (work: Work): ReadonlyArray<KeptFile> =>
 
 /** THE HOST a work runs on — read off its key, never off a decision. A watch
  *  takes its host from the terminal it watches (`<host>/<id>`). */
-export const hostOf = (work: Work): string =>
+export const hostOf = (work: Pick<Work, "key">): string =>
   work.key.kind === "branch"
     ? work.key.host
     : (work.key.terminal.split("/")[0] ?? "");
 
 /** The repository the work is in, or `""` for a watch. */
-export const repoOf = (work: Work): string =>
+export const repoOf = (work: Pick<Work, "key">): string =>
   work.key.kind === "branch" ? work.key.repo : "";
 
 /** The branch, or `""` for a watch. */

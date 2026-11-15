@@ -44,9 +44,8 @@ vi.mock("./useConductor", () => ({
 /** Every call the form made to a host's padi, and what that host answers. */
 const host = vi.hoisted(() => ({
   asked: [] as { harness: string; cwd: string }[],
-  reply: (harness: string): Effect.Effect<unknown, Error> =>
+  reply: (_harness: string): Effect.Effect<unknown, Error> =>
     Effect.succeed({
-      harness,
       launch: { kind: "flag", flag: "--model" },
       models: { kind: "listed", ids: ["sonnet-4", "opus-4.9"] },
     }),
@@ -230,9 +229,8 @@ afterEach(() => {
   forgetAskDraft(ASK);
   answerWork.mockClear();
   host.asked.length = 0;
-  host.reply = (harness: string) =>
+  host.reply = () =>
     Effect.succeed({
-      harness,
       launch: { kind: "flag", flag: "--model" },
       models: { kind: "listed", ids: ["sonnet-4", "opus-4.9"] },
     });
@@ -287,9 +285,8 @@ const sent = (): Record<string, readonly string[]> =>
 describe("a harness that cannot list its models", () => {
   it("offers the models used before and takes a typed one", async () => {
     setWorks(earlier());
-    host.reply = (harness: string) =>
+    host.reply = () =>
       Effect.succeed({
-        harness,
         launch: { kind: "flag", flag: "--model" },
         models: { kind: "unlisted" },
       });
@@ -319,9 +316,8 @@ describe("a harness that cannot list its models", () => {
     // these options. A launch would refuse it, so it is neither offered nor
     // put back under their hands.
     setWorks(earlier("fable 5.2"));
-    host.reply = (harness: string) =>
+    host.reply = () =>
       Effect.succeed({
-        harness,
         launch: { kind: "flag", flag: "--model" },
         models: { kind: "unlisted" },
       });
@@ -430,7 +426,6 @@ describe("the model question", () => {
   it("is of the harness picked in the same form", async () => {
     host.reply = (harness: string) =>
       Effect.succeed({
-        harness,
         launch: { kind: "flag", flag: "--model" },
         models: {
           kind: "listed",
@@ -477,9 +472,8 @@ describe("the model question", () => {
     await settle();
     expect(selected(el, "ask-model")).toEqual(["sonnet-4"]);
 
-    host.reply = (harness: string) =>
+    host.reply = () =>
       Effect.succeed({
-        harness,
         launch: { kind: "flag", flag: "--model" },
         models: { kind: "listed", ids: ["gpt-5-codex"] },
       });
@@ -511,9 +505,8 @@ describe("a kolu built without agent-distro", () => {
 describe("a long list of models", () => {
   it("gets a box that narrows it", async () => {
     const many = Array.from({ length: 12 }, (_, at) => `model-${at}`);
-    host.reply = (harness: string) =>
+    host.reply = () =>
       Effect.succeed({
-        harness,
         launch: { kind: "flag", flag: "--model" },
         models: { kind: "listed", ids: many },
       });

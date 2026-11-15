@@ -74,7 +74,6 @@ const READY: AgentDistroStatus = {
 
 /** What `omp` lists where it can list. */
 const OMP_MODELS: AgentModels = {
-  harness: "omp",
   launch: { kind: "flag", flag: "--model" },
   models: {
     kind: "listed",
@@ -84,7 +83,6 @@ const OMP_MODELS: AgentModels = {
 
 /** ... and Claude Code, which has no command that lists its models at all. */
 const CLAUDE_MODELS: AgentModels = {
-  harness: "claude",
   launch: { kind: "flag", flag: "--model" },
   models: { kind: "unlisted" },
 };
@@ -251,7 +249,7 @@ describe("the gate in front of a harness question", () => {
     // ... and `harnesses` is honestly empty rather than a list of nothing
     // that reads like a host problem.
     expect(
-      offerOver(padi, { listing: { kind: "unavailable" } }).offer.harnesses(),
+      offerOver(padi, { listing: { kind: "unavailable" } }).harnesses(),
     ).toEqual([]);
   });
 
@@ -282,7 +280,7 @@ describe("the gate in front of a harness question", () => {
 
 describe("the options kolu draws", () => {
   it("offers the harnesses this kolu's package carries, by command name", async () => {
-    const { offer } = offerOver(fakePadi({ status: READY }));
+    const offer = offerOver(fakePadi({ status: READY }));
     // The NAME, not the title: it is what a launch runs and what an answer is
     // checked against.
     expect(offer.harnesses()).toEqual(["omp", "claude"]);
@@ -293,7 +291,7 @@ describe("the options kolu draws", () => {
       status: READY,
       models: { omp: OMP_MODELS, claude: CLAUDE_MODELS },
     });
-    const { offer } = offerOver(padi);
+    const offer = offerOver(padi);
     // The host's WHOLE answer — the list and how the harness takes a model,
     // which a start reads its launch off.
     expect(
@@ -309,7 +307,7 @@ describe("the options kolu draws", () => {
   });
 
   it("REJECTS with the host's own words when the listing failed", async () => {
-    const { offer } = offerOver(
+    const offer = offerOver(
       fakePadi({ status: READY, models: { omp: LIST_FAILED } }),
     );
     // NEVER an empty list. The recorder turns this into its `not-offered`
@@ -321,7 +319,7 @@ describe("the options kolu draws", () => {
   });
 
   it("REJECTS for a harness the host does not have, in the host's words", async () => {
-    const { offer } = offerOver(
+    const offer = offerOver(
       fakePadi({ status: READY, models: { omp: OMP_MODELS } }),
     );
     await expect(
@@ -330,7 +328,7 @@ describe("the options kolu draws", () => {
   });
 
   it("REJECTS for a host that is not connected, naming it", async () => {
-    const { offer } = offerOver(null, { state: "failed" });
+    const offer = offerOver(null, { state: "failed" });
     const refused = await refusalOf(
       offer.models({ host: "build-box", repo: REPO, harness: "omp" }),
     );
@@ -341,7 +339,7 @@ describe("the options kolu draws", () => {
 
   it("REJECTS for a watch, which has no repository to ask about", async () => {
     const padi = fakePadi({ status: READY, models: { omp: OMP_MODELS } });
-    const { offer } = offerOver(padi);
+    const offer = offerOver(padi);
     // A watch is the person's own terminal: there is no repository a harness
     // would be asked in, so this is a caller mistake rather than a host that
     // is away.

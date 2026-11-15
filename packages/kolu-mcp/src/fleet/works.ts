@@ -192,9 +192,9 @@ export interface FleetWorks {
    *  offers — a {@link WorkRefusal} either way. */
   open(intent: FleetWorkIntent): Promise<FleetWorkOpened>;
   /** WHAT A PLANNER OR IMPLEMENTOR OF THIS WORK STARTS — the harness and model
-   *  its setup recorded, on the work's host and in its repository, judged
-   *  again against what kolu offers there now, and how that host's harness
-   *  takes a model. The one source of a waterfall agent's command:
+   *  its setup recorded, on the work's host, judged again against what kolu
+   *  offers there now, and how that host's harness takes a model. The one
+   *  source of a waterfall agent's command:
    *  `lifecycle_create` builds it from this. Rejects with a
    *  {@link WorkRefusal} for an unknown or ended work, a watch, a role whose
    *  harness or model has no answer yet, or a saved answer kolu no longer
@@ -204,7 +204,6 @@ export interface FleetWorks {
     role: WaterfallRole,
   ): Promise<{
     readonly host: string;
-    readonly repo: string;
     readonly harness: string;
     readonly model: string;
     readonly launch: AgentModelLaunch;

@@ -33,6 +33,7 @@ import {
   harnessForModel,
   hostOf,
   type KoluChoice,
+  type ModelChoices,
   modelNotOffered,
   repoOf,
   roleOfKey,
@@ -42,7 +43,6 @@ import {
 } from "kolu-work";
 import {
   type Component,
-  createEffect,
   createMemo,
   createResource,
   Match,
@@ -52,12 +52,8 @@ import {
 import { agentDistroListing } from "../agents/useAgentDistro";
 import { runActionPromise } from "../runAction";
 import { padiRpcOf } from "../wire";
-import AskOptions, {
-  type AskOption,
-  askOption,
-  defaultFirst,
-} from "./AskOptions";
-import { pickOnly, seedAskDefault, typedKey, typeOnly } from "./askForm";
+import AskOptions, { type AskOption, askOption } from "./AskOptions";
+import { pickOnly, seededChips, typedKey, typeOnly } from "./askForm";
 import { askDraft } from "./drafts";
 
 /** WHAT THERE IS TO PICK, as this question stands. One sum, because the three
@@ -70,12 +66,14 @@ type Offer =
   | {
       readonly kind: "choices";
       /** What this list is OF — the harness, for a model. The draft's default
-       *  is seeded once per context ({@link seedAskDefault}). */
+       *  is seeded once per context ({@link seededChips}). */
       readonly context: string;
       readonly options: ReadonlyArray<AskOption>;
-      /** Whether a model may be typed instead: a harness that cannot list its
-       *  own models takes any word. */
-      readonly free: boolean;
+      /** What the list is the offer OF, as the rule that judges an answer
+       *  reads it ({@link modelNotOffered}): a harness question offers the
+       *  harnesses by name, and `unlisted` is the harness that cannot list
+       *  its models — so any model id may be typed instead. */
+      readonly offered: ModelChoices;
       /** What to say when the list is empty — the host answered, and the
        *  answer was nothing. */
       readonly empty: string;
@@ -96,15 +94,9 @@ const WorkChoiceQuestion: Component<{
    *  the form — one reading for every question in it. */
   memory: SetupMemory;
 }> = (props) => {
-  /** Which half of a role's setup this is. Every kolu-choice key names a role
-   *  and one of its two, so a key that names neither is a key this component
-   *  has no business drawing. */
-  const what = (): "harness" | "model" => {
-    const named = roleOfKey(props.decision.key);
-    if (named === null)
-      throw new Error(`WorkChoiceQuestion: ${props.decision.key} has no role`);
-    return named.what;
-  };
+  /** Which half of a role's setup this is — every kolu-choice key names a
+   *  role and one of its two. */
+  const what = (): "harness" | "model" => roleOfKey(props.decision.key).what;
 
   /** This form's picks so far, as {@link harnessForModel} reads them: the
    *  harness answered beside this question counts before it is sent. */
@@ -146,10 +138,11 @@ const WorkChoiceQuestion: Component<{
         kind: "choices",
         context: "unavailable",
         options: [],
-        free: false,
+        offered: { kind: "listed", ids: [] },
         empty:
           "This kolu was built without agent-distro: it carries no agent to run.",
       };
+    const names = listing.harnesses.map((one) => one.name);
     return {
       kind: "choices",
       context: "listing",
@@ -157,7 +150,7 @@ const WorkChoiceQuestion: Component<{
         value: one.name,
         note: one.title,
       })),
-      free: false,
+      offered: { kind: "listed", ids: names },
       empty: "",
     };
   };
@@ -181,14 +174,14 @@ const WorkChoiceQuestion: Component<{
         kind: "choices",
         context: one,
         options: props.memory.modelsUsed(one).map(askOption),
-        free: true,
+        offered: answer.models,
         empty: `${one} cannot list its models — type the one to run.`,
       };
     return {
       kind: "choices",
       context: one,
       options: answer.models.ids.map(askOption),
-      free: false,
+      offered: answer.models,
       empty: `${one} lists no models on this host.`,
     };
   };
@@ -221,7 +214,7 @@ const WorkChoiceQuestion: Component<{
     const want = props.memory.last(props.decision.key, harness());
     if (want === null) return null;
     return now.options.some((one) => one.value === want) ||
-      (now.free && modelNotOffered(want, { kind: "unlisted" }) === null)
+      modelNotOffered(want, now.offered) === null
       ? want
       : null;
   };
@@ -233,7 +226,10 @@ const WorkChoiceQuestion: Component<{
   const typedWhy = (): string | null => {
     const typed = askDraft(props.ask, typedKey(props.decision.id))[0] ?? "";
     if (typed === "") return null;
-    const why = modelNotOffered(typed, { kind: "unlisted" });
+    const why = modelNotOffered(
+      typed,
+      choices()?.offered ?? { kind: "unlisted" },
+    );
     return why === null
       ? null
       : `${JSON.stringify(typed)} ${unofferedWhy(
@@ -243,22 +239,15 @@ const WorkChoiceQuestion: Component<{
         )}.`;
   };
 
-  /** The options as they are drawn — the default first. A memo because the
-   *  list reads it again on every keystroke of its own search box, and a
-   *  model list is the long one. */
-  const chips = createMemo(() => {
-    const now = choices();
-    return now === null ? [] : defaultFirst(now.options, standing());
-  });
-
-  // THE DEFAULT, WRITTEN INTO THE DRAFT — once the options are known, and
-  // once per list ({@link seedAskDefault}): what they chose last time is
-  // selected, and one press of Answer sends it.
-  createEffect(() => {
-    const now = choices();
-    if (now === null) return;
-    seedAskDefault(props.ask, props.decision.id, now.context, standing());
-  });
+  /** The options as they are drawn — the default first, and that default in
+   *  the draft once the list it belongs to is known. */
+  const chips = seededChips(
+    props.ask,
+    props.decision.id,
+    () => choices()?.context ?? null,
+    () => choices()?.options ?? [],
+    standing,
+  );
 
   return (
     <Switch>
@@ -311,7 +300,7 @@ const WorkChoiceQuestion: Component<{
                 {now().empty}
               </p>
             </Show>
-            <Show when={now().free}>
+            <Show when={now().offered.kind === "unlisted"}>
               <input
                 type="text"
                 data-testid="conductor-ask-other"

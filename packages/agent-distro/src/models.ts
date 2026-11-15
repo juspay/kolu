@@ -16,19 +16,20 @@
  *    never an answer: whoever runs the command raises it.
  */
 
-import {
-  isModelId,
-  launchWords,
-  type ModelLaunch,
-  parseModels,
-} from "@juspay/agent-distro/models";
+import { parseModels } from "@juspay/agent-distro/models";
 import { Schema } from "effect";
 
-/** WHAT A MODEL ID IS — upstream's own rule (one word, no whitespace), the
- *  one every launch takes. A model typed for a harness that cannot list its
- *  models is checked by it where it is answered, so a launch never meets one
- *  it would refuse. */
-export const isAgentModelId = (value: string): boolean => isModelId(value);
+/** Upstream's own two rules, read from where they are written:
+ *  `isAgentModelId` — WHAT A MODEL ID IS (one word, no whitespace), the one
+ *  every launch takes, so a model typed for a harness that cannot list is
+ *  checked by it where it is answered; `modelLaunchWords` — THE START OF A
+ *  LAUNCH THAT RUNS a model (the environment and arguments its harness takes,
+ *  before anything else), so the one place a model flag is spelled is the
+ *  harness's own adapter. It throws for a model that is not one word. */
+export {
+  isModelId as isAgentModelId,
+  launchWords as modelLaunchWords,
+} from "@juspay/agent-distro/models";
 
 /** How a launch is given a model — upstream's `ModelLaunch`, as a wire
  *  schema: a flag before the harness's own arguments, or a config layer in
@@ -44,7 +45,7 @@ export const AgentModelLaunchSchema = Schema.Union([
 export type AgentModelLaunch = typeof AgentModelLaunchSchema.Type;
 
 /** The models themselves, or that the harness cannot list them. */
-export const AgentModelListSchema = Schema.Union([
+const AgentModelListSchema = Schema.Union([
   Schema.Struct({
     kind: Schema.Literal("listed"),
     ids: Schema.Array(Schema.String),
@@ -55,7 +56,6 @@ export type AgentModelList = typeof AgentModelListSchema.Type;
 
 /** One harness's answer on one host — upstream's `Models`. */
 export const AgentModelsSchema = Schema.Struct({
-  harness: Schema.String,
   launch: AgentModelLaunchSchema,
   models: AgentModelListSchema,
 });
@@ -73,19 +73,4 @@ export const modelsArgs = (harness: string): readonly string[] => [
  *  must be loud about. */
 export function parseAgentModels(stdout: string): AgentModels {
   return parseModels(JSON.parse(stdout));
-}
-
-/** THE START OF A LAUNCH THAT RUNS `model`: the environment and the arguments
- *  the harness takes for it, before anything else it is given — upstream's
- *  `launchWords`, so the one place a model flag is spelled is the harness's
- *  own adapter. Throws for a model that is not one word. */
-export function modelLaunchWords(
-  launch: AgentModelLaunch,
-  model: string,
-): {
-  readonly env: Readonly<Record<string, string>>;
-  readonly args: readonly string[];
-} {
-  const upstream: ModelLaunch = launch;
-  return launchWords(upstream, model);
 }

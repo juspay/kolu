@@ -168,22 +168,15 @@ interface FleetLift {
     args: Record<string, unknown>,
     answer: unknown,
   ) => void;
-  /** WHAT IS CHECKED BEFORE ANYTHING HAPPENS — synchronously, off the record,
-   *  before the call is even routed to a host.
+  /** WHAT HAPPENS BEFORE THE CALL IS ROUTED — off the record, before any host
+   *  is reached: a refusal, or the arguments as the host is given them.
    *
-   *  One tool needs it and the reason is the whole rule: a terminal is created
-   *  into a piece of work, and a create that discovered the work was unknown
-   *  only AFTER padi had spawned a shell would leave a terminal nothing is
-   *  watching and no card to find it on. The refusal costs a turn; the orphan
-   *  costs the run. */
-  readonly precheck?: (
-    works: FleetWorks,
-    args: Record<string, unknown>,
-  ) => ToolFailure | null;
-  /** WHAT THE CALL IS GIVEN THAT THE AGENT DID NOT WRITE — after the
-   *  precheck, before the route. One tool needs it: a planner's or an
-   *  implementor's `run` is kolu's, built from the work's saved setup, judged
-   *  again, and the host's word on how its harness takes a model
+   *  One tool needs it, for two rules. A terminal is created into a piece of
+   *  work, and a create that discovered the work was unknown only AFTER padi
+   *  had spawned a shell would leave a terminal nothing is watching and no
+   *  card to find it on — the refusal costs a turn, the orphan the run. And a
+   *  planner's or implementor's `run` is kolu's, built from the work's saved
+   *  setup, judged again, and the host's word on how its harness takes a model
    *  ({@link waterfallRun}), so the command a waterfall agent starts with has
    *  one source. */
   readonly prepare?: (
@@ -223,30 +216,24 @@ const FLEET_LIFTS: Readonly<Record<string, FleetLift>> = {
     strip: ["work", "role"],
     answers: ["id"],
     refusals: ["landed.id", "id"],
-    precheck: (works, args) => {
+    prepare: (works, args) => {
       const work = typeof args.work === "string" ? args.work : "";
       const refused = works.check(work);
-      if (refused !== null) return workCheckFailure(work, refused);
+      if (refused !== null) return Effect.fail(workCheckFailure(work, refused));
+      const role = args.role;
+      if (!isWaterfallRole(role)) return Effect.succeed(args);
       // ONE SOURCE FOR THE COMMAND. A planner or implementor runs what the
       // human chose in setup, and kolu writes it; a `run` beside that would
       // be a second command that may disagree with the first.
-      if (isWorkRole(args.role) && isWaterfallRole(args.role) && "run" in args)
-        return new ToolFailure(
-          `kolu starts the ${args.role} itself, from this work's setup — the harness and model the human chose. Leave \`run\` out; the answer says what kolu ran (\`ran\`). Nothing was created.`,
-          { kind: "run-is-kolus", work, role: args.role },
+      if ("run" in args)
+        return Effect.fail(
+          new ToolFailure(
+            `kolu starts the ${role} itself, from this work's setup — the harness and model the human chose. Leave \`run\` out; the answer says what kolu ran (\`ran\`). Nothing was created.`,
+            { kind: "run-is-kolus", work, role },
+          ),
         );
-      return null;
-    },
-    prepare: (works, args) => {
-      const role = args.role;
-      if (!isWorkRole(role) || !isWaterfallRole(role))
-        return Effect.succeed(args);
       return Effect.map(
-        waterfallRun(works, {
-          work: typeof args.work === "string" ? args.work : "",
-          role,
-          host: String(args.host ?? ""),
-        }),
+        waterfallRun(works, { work, role, host: String(args.host ?? "") }),
         (run) => ({ ...args, run }),
       );
     },
@@ -524,9 +511,6 @@ function lifted(
     handler: (args, _bundle, signal) => {
       // BEFORE THE ROUTE, let alone the host: a create for a work that is not
       // there must refuse with nothing spawned behind it.
-      const refused = lift.precheck?.(works, args as Record<string, unknown>);
-      if (refused !== undefined && refused !== null)
-        return Effect.fail(refused);
       const prepared =
         lift.prepare?.(works, args as Record<string, unknown>) ??
         Effect.succeed(args as Record<string, unknown>);
