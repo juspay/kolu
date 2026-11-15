@@ -22,6 +22,24 @@ import {
   POLL_TIMEOUT,
 } from "../support/world.ts";
 
+/** The id the Nth fixture terminal is planted under.
+ *
+ *  A saved record's `id` is a `TerminalId` BY SCHEMA (`SavedTerminalIdSchema`),
+ *  and restore re-spawns each terminal UNDER ITS SAVED ID — so a fixture id is
+ *  a real registry key and a real PTY id on kaval, not a label. The ordinals
+ *  these fixtures used to plant ("0", "1") failed that decode once the field
+ *  was tightened; before it was, they reached kaval as unrepresentable PTY ids
+ *  and rode padi's roster census, which took the daemon's whole surface down
+ *  (#2376).
+ *
+ *  DERIVED FROM THE INDEX, never minted: the self-heal re-POSTs below rebuild
+ *  the terminal list from `savedSessionTerminalCount`, and a fresh
+ *  `randomUUID()` per POST would re-plant a DIFFERENT session each tick —
+ *  orphaning the stashed `activeTerminalId` and whatever the assertions
+ *  matched on. */
+const fixtureTerminalId = (index: number): string =>
+  `00000000-0000-4000-8000-${String(index).padStart(12, "0")}`;
+
 /** Post the saved-session payload to the server. Used both at scenario
  *  setup (Given) and as a self-heal in the assertion. Idempotent. */
 async function postSavedSession(
@@ -31,7 +49,11 @@ async function postSavedSession(
   const dirs = [os.homedir(), os.tmpdir(), "/"].slice(0, count);
   await postSavedSessionPayload(
     world,
-    dirs.map((cwd, i) => ({ id: String(i), cwd, git: { kind: "none" } })),
+    dirs.map((cwd, i) => ({
+      id: fixtureTerminalId(i),
+      cwd,
+      git: { kind: "none" },
+    })),
   );
 }
 
@@ -248,7 +270,12 @@ Given(
   async function (this: KoluWorld, themeName: string) {
     this.savedSessionTerminalCount = 1;
     const terminals = [
-      { id: "0", cwd: os.homedir(), git: { kind: "none" }, themeName },
+      {
+        id: fixtureTerminalId(0),
+        cwd: os.homedir(),
+        git: { kind: "none" },
+        themeName,
+      },
     ];
     this.savedSessionTerminals = terminals;
     await postSavedSessionPayload(this, terminals);
@@ -263,7 +290,7 @@ Given(
     this.savedSessionTerminalCount = 1;
     const terminals = [
       {
-        id: "0",
+        id: fixtureTerminalId(0),
         cwd: os.homedir(),
         git: { kind: "none" },
         canvasLayout: { x, y, w, h },
@@ -310,44 +337,43 @@ Given(
     this.savedSessionTerminalCount = 2;
     const terminals = [
       {
-        id: "0",
+        id: fixtureTerminalId(0),
         cwd: os.homedir(),
         git: { kind: "none" },
         canvasLayout: { x: -1200, y: -800, w: 480, h: 320 },
       },
       {
-        id: "1",
+        id: fixtureTerminalId(1),
         cwd: os.tmpdir(),
         git: { kind: "none" },
         canvasLayout: { x: 1200, y: 800, w: 480, h: 320 },
       },
     ];
     this.savedSessionTerminals = terminals;
-    await postSavedSessionPayload(this, terminals, "1");
+    await postSavedSessionPayload(this, terminals, fixtureTerminalId(1));
   },
 );
 
 Then(
   "the active canvas tile should match the saved-session second tile",
   async function (this: KoluWorld) {
-    // After restore, the server stamps new terminal ids, so we can't
-    // assert by saved id directly. Identify the second tile by its
-    // saved canvas-layout coordinates instead — load-bearing for this
-    // scenario, since the bug we're guarding against is "active id
-    // not preserved across restore". `canvasLayout` round-trips
-    // verbatim (covered by `session-restore.feature:37`), so matching
-    // on layout uniquely identifies the second saved tile.
+    // The active tile IS the saved one, by id: restore re-spawns each terminal
+    // under the id it was saved with, so the second saved record's id is what
+    // the active tile must carry. (It used to be matched by its saved canvas
+    // coordinates, because restore minted a fresh id for every record and the
+    // saved id named nothing on screen.)
     await this.page.waitForFunction(
-      (activeTileSel) => {
+      ({ activeTileSel, id }) => {
         const tiles = document.querySelectorAll<HTMLElement>(activeTileSel);
         for (const tile of tiles) {
-          if (tile.style.left === "1200px" && tile.style.top === "800px") {
-            return true;
-          }
+          if (tile.getAttribute("data-terminal-id") === id) return true;
         }
         return false;
       },
-      ACTIVE_CANVAS_TILE_SELECTOR,
+      {
+        activeTileSel: ACTIVE_CANVAS_TILE_SELECTOR,
+        id: fixtureTerminalId(1),
+      },
       { timeout: POLL_TIMEOUT },
     );
   },
@@ -523,7 +549,7 @@ Given(
     // terminal. The card counts and renders from `restoreTarget` (the fold-derived
     // structured value), so planting one is what makes the terminal resumable —
     // there is no remembered launch line to plant.
-    const id = String(index);
+    const id = fixtureTerminalId(index);
     const restoreTarget = RESUME_TARGETS[label];
     if (restoreTarget === undefined) {
       throw new Error(
@@ -533,7 +559,7 @@ Given(
     const terminals =
       this.savedSessionTerminals ??
       [...Array(this.savedSessionTerminalCount ?? 0)].map((_, i) => ({
-        id: String(i),
+        id: fixtureTerminalId(i),
         cwd: [os.homedir(), os.tmpdir(), "/"][i] ?? "/",
         git: { kind: "none" },
       }));
@@ -624,7 +650,7 @@ Given(
   async function (this: KoluWorld, cwd: string) {
     this.savedSessionTerminalCount = 1;
     const terminals: SavedTerminal[] = [
-      { id: "0", cwd, git: { kind: "none" } },
+      { id: fixtureTerminalId(0), cwd, git: { kind: "none" } },
     ];
     this.savedSessionTerminals = terminals;
     await postSavedSessionPayload(this, terminals);

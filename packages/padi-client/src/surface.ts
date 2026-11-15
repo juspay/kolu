@@ -712,7 +712,19 @@ export * from "./transcriptSchema.ts";
  *  record for the PR meant the one fact that ENDS a work (the merge) had no
  *  observer the moment the terminals were closed — which is the ordinary end of
  *  a Conductor-run waterfall (#2376). No terminal has to exist for this one.
- *  Same member class as `roster` above: added, so a minor. */
+ *  Same member class as `roster` above: added, so a minor.
+ *
+ *  7.4 also NARROWS one field of an existing member: a saved terminal's `id`
+ *  on the `session` cell is a `TerminalId`, not a bare string
+ *  (`SavedTerminalIdSchema`). It is the same member class as an added one for
+ *  every READER — the value was always a terminal id and still decodes as a
+ *  string — and the narrowing is what makes the WRITER honest: restore now
+ *  re-spawns each saved terminal UNDER ITS SAVED ID, so a blob naming a terminal
+ *  "0" (only an e2e fixture ever did) asks padi to open a PTY called "0" and to
+ *  publish it on the `roster` census above, whose `ids` encode as `TerminalId` —
+ *  an outbound encode failure that unwinds the whole mirror kolu-server holds,
+ *  leaving every padi procedure answering "no live upstream link" with the
+ *  daemon alive and idle (#2376). */
 export const PADI_SURFACE_VERSION = "7.4";
 
 /** The `version` cell payload — padi's self-declared surface contract version. */

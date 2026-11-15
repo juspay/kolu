@@ -75,6 +75,15 @@ const decodeSavedSession = Schema.decodeUnknownSync(SavedSessionSchema);
  *  consumed, and an id that still names a live terminal returns instead of spawning —
  *  so the re-spawn can never collide with a terminal that is already there.
  *
+ *  That makes the saved id a REGISTRY KEY and a kaval PTY id, so it must be a
+ *  `TerminalId` — and it is, BY TYPE: `SavedTerminalIdSchema.id` is
+ *  `TerminalIdSchema`, checked at the one door a saved blob comes through
+ *  (`session.test__set`, `session.import`, the client's import hatch). Nothing is
+ *  re-checked or repaired here, because an id that reached this function already
+ *  decoded as one. (While the field was a bare string, a fixture that named a
+ *  terminal "0" reached kaval as an unrepresentable PTY id AND rode the `roster`
+ *  census, whose encode failure kills the whole mirror kolu-server holds — #2376.)
+ *
  *  The parked entry padi's boot reconcile produced under this id IS the
  *  idempotency token: consume it (`discardLocalParked`) as the terminal flips to
  *  a fresh active PTY. Two cases have no parked token yet still restore exactly
