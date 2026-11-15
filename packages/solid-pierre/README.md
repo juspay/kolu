@@ -17,6 +17,19 @@ array, so a folder the user collapsed stays collapsed until the inventory or
 the search answer changes. Pass a new array for a changed inventory, never one
 mutated in place.
 
+**Every reactive prop is read by VALUE, compared with `===`.** A host may hand
+all of them through one object it rebuilds on every tick; handing the same
+array, request or epoch again is not a change and does nothing. So a changed
+inventory must be a new array, a repeat reveal a new request object, and a new
+`lazyEpoch` a genuinely different value.
+
+`lazyDirectories` names directory rows whose children are not in `paths`;
+`onExpandLazyDirectory` fires once per collapsed → expanded transition, and the
+promise it returns decides the outcome — a rejection collapses the row so the
+user never faces an open, empty folder. Start a newer read for the same
+directory and the older one owns nothing: its rejection neither re-reports nor
+collapses, which is what lets a host abort a superseded read.
+
 The `CodeView` adapter updates file content without replacing its mounted
 renderer. Consumers should pass reactive file props rather than reconstructing
 the view after a save.

@@ -1,9 +1,10 @@
 /// <reference path="./rhaiGrammar.d.ts" />
 
-import {
-  type LanguageRegistration,
-  registerCustomLanguage,
-} from "@pierre/diffs";
+import { registerCustomLanguage } from "@pierre/diffs";
+// `@pierre/diffs@1.6` stopped re-exporting Shiki's grammar type, so it comes
+// from its owner. Pinned to the exact Shiki the Pierre build resolves, as a
+// devDependency — the type is all that is used; nothing from Shiki ships.
+import type { LanguageRegistration } from "shiki";
 
 let registered = false;
 

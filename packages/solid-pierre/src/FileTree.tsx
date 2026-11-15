@@ -110,17 +110,26 @@ export type FileTreeProps = {
    *  directory, whose children `paths` already carries.
    *
    *  Return the load's promise to tell the wrapper the OUTCOME: on rejection it
-   *  forgets the expansion, so the next probe reports afresh and a retry costs
-   *  one re-expand. Without that a transient read failure wedges the folder
-   *  open-and-empty for the rest of the mount, indistinguishable on screen from
-   *  a genuinely empty directory. */
+   *  forgets the expansion AND collapses the row, so the next probe reports
+   *  afresh and a retry costs one re-expand. Without that a transient read
+   *  failure wedges the folder open-and-empty for the rest of the mount,
+   *  indistinguishable on screen from a genuinely empty directory.
+   *
+   *  Only the NEWEST call for a directory owns that outcome. Start a second
+   *  load for the same path and the first owns nothing — its rejection neither
+   *  forgets nor collapses — so a host that aborts a superseded read (as the
+   *  Code tab does) does not shut a folder whose contents are still coming. */
   onExpandLazyDirectory?: (path: string) => void | Promise<void>;
   /** Bump to declare every previously-reported expansion void — the host's
    *  loaded levels no longer describe this tree (a repo / host switch). The
    *  wrapper's record of which lazy directories are open is keyed by
    *  repo-relative path, and those collide across repos (`node_modules/`,
    *  `dist/`), so without this a switch leaves a key recorded, re-opened, and
-   *  never re-reported — an open, empty folder with no fetch behind it. */
+   *  never re-reported — an open, empty folder with no fetch behind it.
+   *
+   *  A **changed value** is the signal, compared by `===` like every other
+   *  reactive prop here — handing the same epoch again, however many times the
+   *  host rebuilds the object carrying it, declares nothing. */
   lazyEpoch?: unknown;
   /** Initial folder expansion — captured at construction and **not
    *  reactive**. Pierre takes this once in its constructor; later prop
@@ -239,11 +248,6 @@ export const FileTree: Component<FileTreeProps> = (props) => {
   // `undefined` on the first post-`defer` run — which would drop the very
   // first delta's removals.
   let appliedPaths: readonly string[] = [];
-  // The host's `paths` and `expandPaths` arrays the tree last answered, by
-  // identity. Seeded at mount like `appliedPaths`, for the same reason.
-  let answered:
-    | { paths: string[]; expandPaths: readonly string[] | undefined }
-    | undefined;
 
   // Provenance gate for `onSelectionChange` (juspay/kolu#1841). Pierre is a
   // CONTROLLED component: the host drives its selection via `props.selectedPath`
@@ -298,14 +302,57 @@ export const FileTree: Component<FileTreeProps> = (props) => {
   // `markDirectoryUnloaded` / `beginChildLoad` / `applyChildPatch` /
   // `completeChildLoad`, and `dist/model/mutationEvents.d.ts` even PUBLISHES
   // the matching `'begin-child-load' | 'apply-child-patch' | …` event names.
-  // But at `@pierre/trees@1.0.0-beta.6` the methods that drive them appear in
-  // no `.d.ts` and on no public class (the render `FileTree` exposes only
-  // `subscribe`), so the vocabulary is public while the driver is not. Reaching
-  // into `path-store/src/store.js` to get at it would bind us to unversioned
-  // internals. Re-check on the next Pierre bump: if those methods graduate to
-  // the public surface, this Set, `reportLazyExpansions`, and the two props
-  // below all delete in favour of the native API.
+  // Re-checked at `@pierre/trees@1.0.0` (the stable release): the methods that
+  // drive them still appear in no `.d.ts` and on no public class — the render
+  // `FileTree` gained `setLabels` and nothing else that touches child loading,
+  // and `beginChildLoad` and friends live only in `path-store/src/store.js`.
+  // So the vocabulary is public while the driver is not, and reaching into
+  // that file would bind us to unversioned internals. Re-check on the next
+  // Pierre bump: if those methods graduate to the public surface, this Set,
+  // `reportLazyExpansions`, and the two props below all delete in favour of
+  // the native API.
   const openLazyDirs = new Set<string>();
+
+  // The newest read in flight per lazy directory, as an identity token. A
+  // directory can be read twice — a rapid expand → collapse → expand, or a
+  // re-report — and the host (`CodeTab.loadLazyDirectory`) ABORTS the earlier
+  // read when the later one starts, which REJECTS its promise. That rejection
+  // is not a failed load: the directory has an answer coming. Only the newest
+  // token owns the outcome below, so a superseded read can neither retire the
+  // key nor shut the row under contents that are still on their way.
+  const newestLoad = new Map<string, object>();
+
+  // ── A prop's VALUE, never a bare notification ───────────────────────────
+  //
+  // `on(() => props.X, …)` re-runs whenever a source NOTIFIES, and a prop read
+  // notifies whenever anything it reads changes — not when its own value does.
+  // A host that hands every prop through ONE object it rebuilds per tick (the
+  // Code tab's per-mode `frame` memo, read through `<Show>`) therefore notifies
+  // every read here on any tick — a selection, a git-status pulse, a loaded
+  // level — carrying the very same values. Effects that did work on that are
+  // how an open gitignored folder snapped shut when a file inside it was
+  // picked: `lazyEpoch` re-notified with an unchanged epoch, the record of
+  // which lazy directories are open was wiped, and the still-open folder read
+  // as a fresh expansion on the next store tick.
+  //
+  // ONE mechanism for all of them, rather than a hand-written "did this
+  // change?" guard per effect: a memo per prop. A memo re-notifies only when
+  // its value changes, by `===` — which is exactly these props' own identity
+  // contract (a changed inventory is a NEW `paths` array; a repeat reveal is a
+  // fresh `revealRequest` object), so nothing that means "again" is swallowed.
+  // Every effect below takes its dependencies from here; a new reactive prop
+  // gets an entry here, and the next reader cannot reintroduce the hazard by
+  // reading `props` directly inside an `on`.
+  const propValue = {
+    paths: createMemo(() => props.paths),
+    expandPaths: createMemo(() => props.expandPaths),
+    gitStatus: createMemo(() => props.gitStatus),
+    selectedPath: createMemo(() => props.selectedPath ?? null),
+    revealRequest: createMemo(() => props.revealRequest),
+    lazyDirectories: createMemo(() => props.lazyDirectories),
+    shadowCss: createMemo(() => props.shadowCss),
+    lazyEpoch: createMemo(() => props.lazyEpoch),
+  };
 
   // Pierre fires `onSelectionChange` for directory clicks too, which would
   // produce an EISDIR if the consumer reads the path as a file. Directories
@@ -314,14 +361,27 @@ export const FileTree: Component<FileTreeProps> = (props) => {
   // tab's collapsed gitignored dirs, `node_modules/`), and Pierre reports a
   // click on such a row with the slash intact. Exclude them so membership
   // stays a reliable file-vs-folder discriminator.
-  // Built in one pass, no intermediate array: this recomputes on every `paths`
-  // change (each search keystroke, each file add/remove) but is read only
-  // inside `onSelectionChange`, i.e. on a click.
+  // Built in one pass, no intermediate array: this recomputes on each genuine
+  // `paths` change (each search keystroke, each file add/remove) but is read
+  // only inside `onSelectionChange`, i.e. on a click.
   const fileSet = createMemo(() => {
     const files = new Set<string>();
-    for (const p of props.paths) if (!isDirectoryPath(p)) files.add(p);
+    for (const p of propValue.paths()) if (!isDirectoryPath(p)) files.add(p);
     return files;
   });
+
+  /** True while the wrapper is itself rewriting Pierre's paths (the rebuild
+   *  below). Pierre ticks its store for OUR writes exactly as it does for the
+   *  user's, and a rebuild passes through intermediate states on the way to
+   *  the one it intends: a load REPLACES the collapsed directory key with its
+   *  children, which destroys the node carrying the expansion, so the folder
+   *  is briefly CLOSED before `expandDirs` re-opens it. Read as user
+   *  gestures, those two ticks are a close followed by an open — the record
+   *  retired, then the same folder reported as a fresh expansion, re-reading
+   *  the level the host just delivered. They are neither; they are the middle
+   *  of one write, so the probe stays out until it ends and then runs once
+   *  against the settled tree. */
+  let rebuilding = false;
 
   /** Probe the host's watched directories and report any that just opened.
    *
@@ -331,14 +391,17 @@ export const FileTree: Component<FileTreeProps> = (props) => {
    *  every path mutation. Scanning `getVisibleRows` here would put a
    *  whole-tree walk on that path for a fact about a few rows.
    *
-   *  Reporting is edge-triggered against `openLazyDirs`, so the host's own
-   *  answer — folding the fetched level into `paths`, which ticks the store
-   *  again — cannot re-enter: the directory is still open and still recorded,
-   *  so the next probe stays silent. */
+   *  Reporting is edge-triggered against `openLazyDirs`, which alone is not
+   *  enough to keep the host's own answer from re-entering: folding the
+   *  fetched level into `paths` REPLACES the collapsed key, and the rebuild
+   *  passes through a closed folder (retiring the record) before re-opening
+   *  it. Those ticks are sat out — see `rebuilding` — and one probe runs
+   *  afterwards on the settled tree, where the directory is open and still
+   *  recorded, so it stays silent. */
   const reportLazyExpansions = (): void => {
     const t = tree;
-    if (!t) return;
-    for (const key of props.lazyDirectories ?? []) {
+    if (!t || rebuilding) return;
+    for (const key of propValue.lazyDirectories() ?? []) {
       const item = t.getItem(key);
       // No row for this key right now — a search projection hid it (the host
       // filters `paths` but not `lazyDirectories`), or it has yet to render.
@@ -363,13 +426,26 @@ export const FileTree: Component<FileTreeProps> = (props) => {
       // `collapse()` closes the row so its visible state agrees with the
       // bookkeeping — the user sees the folder shut instead of a silent retry
       // storm, and a deliberate re-open is what re-arms the probe.
-      void Promise.resolve(props.onExpandLazyDirectory?.(key)).catch(() => {
-        openLazyDirs.delete(key);
-        safeApply(() => {
-          const row = t.getItem(key);
-          if (row && "collapse" in row) row.collapse();
-        }, props.onError);
-      });
+      //
+      // That outcome belongs to the NEWEST read alone (see `newestLoad`): a
+      // read the host has since replaced reports nothing, because the folder it
+      // would shut is already being filled by its successor.
+      const token = {};
+      newestLoad.set(key, token);
+      void Promise.resolve(props.onExpandLazyDirectory?.(key)).then(
+        () => {
+          if (newestLoad.get(key) === token) newestLoad.delete(key);
+        },
+        () => {
+          if (newestLoad.get(key) !== token) return;
+          newestLoad.delete(key);
+          openLazyDirs.delete(key);
+          safeApply(() => {
+            const row = t.getItem(key);
+            if (row && "collapse" in row) row.collapse();
+          }, props.onError);
+        },
+      );
     }
   };
 
@@ -394,9 +470,10 @@ export const FileTree: Component<FileTreeProps> = (props) => {
     // directory node — the one carrying the expansion — so the node rebuilt
     // from the children arrives closed. Without this the folder would snap shut
     // at the exact moment its contents arrived, which reads as the click having
-    // done nothing. Re-expanding is also what keeps the reporting
-    // edge-triggered: the directory stays open and stays recorded, so the load
-    // cannot re-enter as a fresh expansion.
+    // done nothing. Re-expanding restores the folder, but it does NOT by itself
+    // keep the load from re-entering as a fresh expansion: the folder is closed
+    // for the span between the remove and this re-open, and a probe that read
+    // the tree there retired the record. `rebuilding` is what covers that span.
     ...openLazyDirs,
   ];
 
@@ -489,7 +566,6 @@ export const FileTree: Component<FileTreeProps> = (props) => {
       // scroll). The folder is already expanded via `initialExpandedPaths`.
       if (reveal) tree.scrollToPath(reveal.path, { offset: "center" });
       appliedPaths = dropRedundantDirKeys(props.paths);
-      answered = { paths: props.paths, expandPaths: props.expandPaths };
       // Adopted empty; the (non-deferred) shadow-CSS effect below runs right
       // after this one in creation order and is what writes the content — one
       // call site for the rule, so the mount case can't drift from the change
@@ -547,16 +623,11 @@ export const FileTree: Component<FileTreeProps> = (props) => {
   // selection.
   createEffect(
     on(
-      [() => props.paths, () => props.expandPaths],
-      ([paths, expandPaths]) => {
-        // `on` re-runs whenever a source notifies, not when a value changes. A
-        // host that hands every prop through ONE changing object (the Code
-        // tab's per-mode frame) notifies both reads on any tick — a git-status
-        // frame included — with the very same arrays. Answering that would
-        // re-open `expandPaths` over a folder the user just collapsed.
-        if (answered?.paths === paths && answered.expandPaths === expandPaths)
-          return;
-        answered = { paths, expandPaths };
+      [propValue.paths, propValue.expandPaths],
+      // `expandPaths` is a DEPENDENCY, not an argument: a change to it re-runs
+      // this rebuild, which reads it (with the other expansion sources)
+      // through `desiredExpandedPaths`.
+      ([paths]) => {
         // Capture once so closures (pathOps filter) keep a narrowed FileTree
         // handle — mutable `let tree` does not flow into arrow callbacks.
         const t = tree;
@@ -568,6 +639,12 @@ export const FileTree: Component<FileTreeProps> = (props) => {
         // path and the recovery rebuild so mixed keys never re-enter Pierre.
         const prev = dropRedundantDirKeys(appliedPaths);
         const next = dropRedundantDirKeys(paths);
+        // Everything below writes to Pierre, so the store ticks it emits are
+        // the middle of this one rewrite: the probe sits them out
+        // (`rebuilding`, documented above) and the `finally` runs it once on
+        // the settled tree — which still reports a directory the projection
+        // genuinely opened here, such as a filter match inside a watched one.
+        rebuilding = true;
         try {
           const pathOps = pathDiffOperations(prev, next).filter((op) => {
             // Pierre promotes an emptied directory to an explicit empty-folder
@@ -615,7 +692,7 @@ export const FileTree: Component<FileTreeProps> = (props) => {
           } catch (recoverErr) {
             // Recovery failed — bookkeeping may still be desynced; surface
             // loudly and leave appliedPaths so a later inventory can retry.
-            // Only a LATER (new) inventory: `answered` already names these
+            // Only a LATER (new) inventory: the dependency memos hold these
             // arrays, so the same arrays handed again do not retry.
             const recovered = toError(recoverErr);
             props.onError(
@@ -625,6 +702,9 @@ export const FileTree: Component<FileTreeProps> = (props) => {
             );
             return;
           }
+        } finally {
+          rebuilding = false;
+          safeApply(reportLazyExpansions, props.onError);
         }
       },
       { defer: true },
@@ -639,7 +719,7 @@ export const FileTree: Component<FileTreeProps> = (props) => {
   // set itself changes.
   createEffect(
     on(
-      () => props.lazyDirectories,
+      propValue.lazyDirectories,
       (lazy) => {
         // A key the host no longer calls lazy — the overlay toggled off, the
         // directory left the listing — is no longer ours to hold open or to
@@ -665,7 +745,7 @@ export const FileTree: Component<FileTreeProps> = (props) => {
   // invalidation the host performs on its children cache.
   createEffect(
     on(
-      () => props.lazyEpoch,
+      propValue.lazyEpoch,
       () => {
         openLazyDirs.clear();
       },
@@ -675,7 +755,7 @@ export const FileTree: Component<FileTreeProps> = (props) => {
 
   createEffect(
     on(
-      () => props.gitStatus,
+      propValue.gitStatus,
       (g) => {
         safeApply(() => tree?.setGitStatus(g), props.onError);
       },
@@ -690,12 +770,9 @@ export const FileTree: Component<FileTreeProps> = (props) => {
   // adopted — its first run IS the mount-time application, and there is no
   // second call site to keep in sync.
   createEffect(
-    on(
-      () => props.shadowCss,
-      (css) => {
-        safeApply(() => hostSheet?.replaceSync(css ?? ""), props.onError);
-      },
-    ),
+    on(propValue.shadowCss, (css) => {
+      safeApply(() => hostSheet?.replaceSync(css ?? ""), props.onError);
+    }),
   );
 
   // Push post-mount `props.selectedPath` changes into Pierre's
@@ -714,7 +791,7 @@ export const FileTree: Component<FileTreeProps> = (props) => {
   // round-tripping through `onSelect`.
   createEffect(
     on(
-      [() => props.selectedPath ?? null, () => props.paths],
+      [propValue.selectedPath, propValue.paths],
       ([path]) => {
         safeApply(() => {
           const current = tree?.getSelectedPaths()[0] ?? null;
@@ -763,7 +840,7 @@ export const FileTree: Component<FileTreeProps> = (props) => {
   // consumed) so `onMount` can replay it across an fsListAll-driven remount.
   createEffect(
     on(
-      () => props.revealRequest,
+      propValue.revealRequest,
       (req) => {
         if (!req) return;
         safeApply(() => {
