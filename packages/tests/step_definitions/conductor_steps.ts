@@ -24,11 +24,13 @@ import {
   stageOmpPrompt,
   updateOmpFixture,
 } from "../support/agent-mock-omp.ts";
+import { fixtureClaudeRelay } from "../support/agentDistroFixture.ts";
 import { type PrFixture, statePullRequest } from "../support/fake-gh.ts";
 import { restartKoluServer } from "../support/hooks.ts";
 import { pollFor } from "../support/poll.ts";
 import { surfaceCall, surfaceFirstFrame } from "../support/rpcWire.ts";
 import { type KoluWorld, MOD_KEY, POLL_TIMEOUT } from "../support/world.ts";
+import { turnAgentsOnReady } from "./agents_steps.ts";
 
 /** How long a scenario leaves a landed wake alone before claiming it rang ONCE.
  *  Wider than the server's own re-report cadence, so a second ring has time to
@@ -46,6 +48,12 @@ After(() => {
     fs.rmSync(conductorAgentCwd, { recursive: true, force: true });
   }
   conductorAgentCwd = null;
+  // A stand-in left in the floor's relay is SPENT by the `claude` that runs
+  // it — but a scenario that died before kolu typed anything would leave one
+  // behind, and the next scenario's `claude` (an Agents one, say) would run
+  // it instead of printing its line. The relay belongs to the scenario that
+  // wrote it.
+  fs.rmSync(fixtureClaudeRelay(), { force: true });
 });
 
 const PANE = '[data-testid="conductor-pane"]';
@@ -330,6 +338,15 @@ Given(
     // still coming after the drain, the wipe below simply repeats, and it is
     // ITS assertions (an empty transcript, an idle phase) that decide whether
     // this scenario may start.
+    //
+    // AND THE AGENTS ON, before anything is opened: a piece of work names the
+    // harness its planner and implementor run, and kolu refuses to ask that
+    // of a host whose coding agents are off — `agents-not-ready`, before the
+    // work exists. The suite starts every scenario never chosen (a fresh
+    // install), so this is where the conductor's machine gets them. The
+    // helper proves padi is serving the floor, not merely that a switch
+    // moved.
+    await turnAgentsOnReady(this);
     await stopEveryOpenWork();
     // The conversation has to be ON SCREEN to be read — the wipe below opens
     // it anyway, and this step is where a scenario asks for it.
@@ -1810,16 +1827,20 @@ Then("the wake should be one line from kolu", async function (this: KoluWorld) {
   assert.equal(await wake.locator(USER_MARK).count(), 0);
 });
 
-/** THE CONVERSATION STARTS AN AGENT. The fixture's `run <command>` makes a real
- *  `lifecycle_create` on the fleet face with that command typed at the new
- *  terminal's first prompt — and the tool watches what it created, so this one
- *  step produces a watched terminal whose agent comes up on its own.
+/** THE CONVERSATION STARTS AN AGENT. The fixture's `run an agent in <dir>`
+ *  opens a piece of work and makes a real `lifecycle_create` on the fleet
+ *  face — and the tool watches what it created, so this one step produces a
+ *  watched terminal whose agent comes up on its own.
  *
- *  The command is built HERE because only the test process knows the stand-in's
+ *  KOLU TYPES THE COMMAND now (`claude --model …`, built from the work's
+ *  setup), so the stand-in cannot travel in the prompt. It travels in the
+ *  floor's RELAY instead: this step writes the command there, and the floor's
+ *  `claude` execs it (once) in the terminal kolu made. The relay is where the
+ *  command must be built because only the test process knows the stand-in's
  *  absolute path (the harness seeds a renamed bash per worker as
- *  `KOLU_FAKE_OMP_BIN`, so `/proc/<pid>/comm` reads `omp`), and because the
- *  stand-in must be the LAZY one: it writes its breadcrumb at launch and its
- *  session file only when something prompts it. Between those two moments the
+ *  `KOLU_FAKE_OMP_BIN`, so `/proc/<pid>/comm` reads `omp`), and the stand-in
+ *  must be the LAZY one: it writes its breadcrumb at launch and its session
+ *  file only when something prompts it. Between those two moments the
  *  terminal is an agent with no transcript, which is the whole subject of the
  *  scenario.
  *
@@ -1847,8 +1868,11 @@ When(
       transcriptPath: fixture.transcriptPath,
       stagePath,
     });
+    // THE STAND-IN, LEFT WHERE KOLU'S `claude` WILL FIND IT — one run, then
+    // the relay is spent.
+    fs.writeFileSync(fixtureClaudeRelay(), `${bin} -c '${payload}'`);
     await enterConductor(this);
-    await sendPrompt(this, `run ${bin} -c '${payload}'`);
+    await sendPrompt(this, `run an agent in ${conductorAgentCwd}`);
     // The create's own answer names the terminal — read off the row the agent
     // said it in, so the scenario watches the terminal that really was made
     // rather than whichever id the canvas happens to show.
@@ -2601,9 +2625,12 @@ Then("the work should have no open question", async function (this: KoluWorld) {
 /** THE WORK GETS AN IMPLEMENTOR — a real `lifecycle_create` on the fleet face
  *  carrying the work and the role, in the work's own repo, running the lazy
  *  omp stand-in: an agent that is UP with no transcript at all, which is the
- *  `ready` kolu records for a member coming up. The command is built here
- *  because only the test process knows the stand-in's absolute path (the
- *  harness seeds a renamed bash per worker). */
+ *  `ready` kolu records for a member coming up.
+ *
+ *  kolu builds the implementor's command itself (`claude --model …`, from the
+ *  work's setup) and types it, so the stand-in is left in the floor's RELAY
+ *  for that `claude` to exec — built here because only the test process knows
+ *  its absolute path (the harness seeds a renamed bash per worker). */
 When(
   "I ask the conductor to run the implementor in the work's repo",
   async function (this: KoluWorld) {
@@ -2622,11 +2649,9 @@ When(
       // repo is not, so the worktree stays the work's own files.
       stagePath: path.join(os.tmpdir(), `kolu-work-stage-${process.pid}`),
     });
+    fs.writeFileSync(fixtureClaudeRelay(), `${bin} -c '${payload}'`);
     await enterConductor(this);
-    await sendPrompt(
-      this,
-      `run the implementor in ${repo}: ${bin} -c '${payload}'`,
-    );
+    await sendPrompt(this, `run the implementor in ${repo}`);
     let inventoryAtTimeout = "(not observed)";
     const said = await pollFor({
       observe: async () => {

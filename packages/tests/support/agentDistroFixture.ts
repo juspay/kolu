@@ -6,10 +6,13 @@
  * real one — by its manifest, `share/kolu/agent-distro.json` (`{dir, bin}`),
  * which names agent-distro's ONE package, laid out as upstream's:
  *
- *     bin/claude                        prints "agent-distro fixture: claude"
+ *     bin/claude                        execs the command a scenario left in the relay
+ *                                       ({@link fixtureClaudeRelay}), else prints
+ *                                       "agent-distro fixture: claude"
  *     bin/agent-distro                  the picker: prints "agent-distro picker fixture";
  *                                       with `--list --json`, upstream's shape — no profile
- *                                       in effect without `AI_PROFILE`, else the stand-in's
+ *                                       in effect without `AI_PROFILE`, else the stand-in's;
+ *                                       with `--models claude`, {@link FIXTURE_MODELS}
  *     share/agent-distro/versions       its harnesses (kolu-server and padi read it)
  *
  * The real package is gigabytes of compiled harnesses; what the e2e lane proves
@@ -28,13 +31,15 @@
  */
 
 import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import type { AgentModels } from "@kolu/agent-distro/models";
 import {
   packageFiles,
   STAND_IN_PROFILE,
   standInListJson,
+  standInModels,
 } from "@kolu/agent-distro/testing";
-import os from "node:os";
-import path from "node:path";
 
 const PLACEHOLDER = "@KOLU_XDG_STATE_HOME@";
 
@@ -52,8 +57,20 @@ export const FIXTURE_LISTING = {
   harnesses: [FIXTURE_HARNESS],
 } as const;
 
-/** What the package's stub `claude` prints — the step that runs it waits for
- *  this, and it is never typed (the command is just `claude`). */
+/** What the stub picker answers for `--models claude` — the shape upstream's
+ *  own parser reads, for the one harness this floor carries: Claude Code
+ *  cannot list its models, and takes one with `--model`. So kolu builds a
+ *  waterfall agent's command as `claude --model <whatever was chosen>`, and
+ *  any model word the setup names is accepted. */
+export const FIXTURE_MODELS: AgentModels = {
+  harness: FIXTURE_HARNESS.name,
+  launch: { kind: "flag", flag: "--model" },
+  models: { kind: "unlisted" },
+};
+
+/** What the package's stub `claude` prints when no scenario left it a command
+ *  to run — the step that runs it waits for this, and it is never typed (the
+ *  command is just `claude`). */
 export const FIXTURE_CLAUDE_SAYS = "agent-distro fixture: claude";
 
 /** What the stub picker (`agent-distro`) prints: one plain line, as a command
@@ -80,6 +97,7 @@ export function fixtureHistoryLog(stateHome: string): string {
 }
 
 let memo: Record<string, string> | undefined;
+let relay: string | undefined;
 
 const script = (file: string, body: string) => {
   fs.writeFileSync(file, `#!/bin/sh\n${body}\n`, { mode: 0o755 });
@@ -91,18 +109,51 @@ export function agentDistroFixtureEnv(): Record<string, string> {
   return memo;
 }
 
+/** WHERE A SCENARIO LEAVES THE AGENT IT WANTS RUN. kolu builds a waterfall
+ *  agent's command itself now — `claude --model <model>` off the work's
+ *  setup — so a scenario can no longer hand its own stand-in binary to
+ *  `lifecycle_create`. It writes that command here instead: the floor's
+ *  `claude` execs this file's one line when it is there (and removes it, so
+ *  it serves exactly one run), and prints {@link FIXTURE_CLAUDE_SAYS} when it
+ *  is not. Per worker, beside the floor it belongs to. */
+export function fixtureClaudeRelay(): string {
+  agentDistroFixtureEnv();
+  if (relay === undefined)
+    throw new Error("the agent-distro fixture was built without a relay path");
+  return relay;
+}
+
 function buildFixture(): Record<string, string> {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), `${FIXTURE_MARK}-`));
   // The ONE package, as upstream builds it.
   const dir = path.join(root, "package");
   const bin = path.join(dir, "bin");
   fs.mkdirSync(bin, { recursive: true });
-  script(path.join(bin, "claude"), `echo "${FIXTURE_CLAUDE_SAYS}"`);
+  relay = path.join(root, "claude-relay");
+  // `claude`, as a scenario needs it: the command left in the relay REPLACES
+  // this process (so `/proc/<pid>/comm` reads the stand-in agent's own name,
+  // which is what agent detection reads), and the relay is spent.
+  script(
+    path.join(bin, "claude"),
+    [
+      `relay=${JSON.stringify(relay)}`,
+      'if [ -f "$relay" ]; then',
+      '  command=$(cat "$relay")',
+      '  rm -f "$relay"',
+      '  exec /bin/sh -c "exec $command"',
+      "fi",
+      `echo "${FIXTURE_CLAUDE_SAYS}"`,
+    ].join("\n"),
+  );
   // The picker, as the package carries it: a command for people, which kolu
-  // asks only for the profile in effect.
+  // asks for the profile in effect and for a harness's models.
   script(
     path.join(bin, "agent-distro"),
-    `${standInListJson([FIXTURE_HARNESS])}\necho "${FIXTURE_PICKER_SAYS}"`,
+    [
+      standInListJson([FIXTURE_HARNESS]),
+      standInModels({ [FIXTURE_HARNESS.name]: FIXTURE_MODELS }),
+      `echo "${FIXTURE_PICKER_SAYS}"`,
+    ].join("\n"),
   );
   for (const [file, text] of Object.entries(
     packageFiles(dir, [FIXTURE_HARNESS]),
