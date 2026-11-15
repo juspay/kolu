@@ -1375,6 +1375,8 @@ Feature: Code tab (review + browse)
     Then the file content should contain "brief-marker"
     And the directory ".waterfall" should stay expanded in the file browser
     And the file browser should show a file ".waterfall/notes.txt"
+    And the file ".waterfall/brief.txt" should be selected in the file browser
+    And the file content should contain "brief-marker"
     And there should be no page errors
 
   # Regression: expanding several directories and then clicking a file to
