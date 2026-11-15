@@ -134,7 +134,6 @@ export function useSubPanel() {
     /** The user asked for the split to open or shut — a gesture, so it writes
      *  the saved state. */
     togglePanel(parentId: TerminalId) {
-      ensureState(parentId);
       const collapsing = !split.state(parentId).collapsed;
       saveSplit(parentId, { collapsed: collapsing });
       if (collapsing) writePaneFocus(parentId, parentId, false);
@@ -145,7 +144,6 @@ export function useSubPanel() {
      *  opens to show it — a real change of what the user is looking at, so it
      *  is saved. It takes no focus; `expandAndFocusPanel` is the gesture. */
     expandPanel(parentId: TerminalId) {
-      ensureState(parentId);
       saveSplit(parentId, { collapsed: false });
     },
 
@@ -153,19 +151,16 @@ export function useSubPanel() {
      *  split. External split adoption uses the chrome-only `expandPanel` so an
      *  arrival never steals focus. */
     expandAndFocusPanel(parentId: TerminalId) {
-      ensureState(parentId);
       saveSplit(parentId, { collapsed: false });
       focusExpandedPanel(parentId);
     },
 
     /** Collapse with no focus move — the tab strip's own shut button. */
     collapsePanelChrome(parentId: TerminalId) {
-      ensureState(parentId);
       saveSplit(parentId, { collapsed: true });
     },
 
     collapsePanel(parentId: TerminalId) {
-      ensureState(parentId);
       saveSplit(parentId, { collapsed: true });
       // Collapsing temporarily forces input to main; it must not erase the pane
       // to restore when the user reopens this same split.

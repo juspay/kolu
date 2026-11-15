@@ -201,12 +201,19 @@ const describeTold = (told: readonly Told[]): string =>
     )
     .join("\n");
 
-/** Move every watched program's baseline up to what it has been told now, so
- *  the NEXT watch reports only its own sizes. */
-async function rebaseline(): Promise<void> {
+/** Move the named programs' baselines up to what they have been told now, so
+ *  the NEXT watch of them reports only its own sizes.
+ *
+ *  SCOPED, because a watch is: a step that watched one tile must not move the
+ *  baseline of a sibling it did not watch, or the sizes that sibling was told
+ *  during the window vanish and the step that asks about them next can no
+ *  longer fail. Scenario G is exactly that shape — one posture change, one
+ *  claim per tile. */
+async function rebaseline(only?: readonly string[]): Promise<void> {
+  const watched = new Set(only ?? recorded.keys());
   for (const [id, sizes] of await readAll()) {
     const entry = recorded.get(id);
-    if (entry) entry.baseline = sizes;
+    if (entry && watched.has(id)) entry.baseline = sizes;
   }
 }
 
@@ -628,6 +635,43 @@ Then(
   },
 );
 
+/** The ids of the canvas's tiles, in the order they are rendered. */
+async function tileIds(world: KoluWorld): Promise<string[]> {
+  return world.page.evaluate(
+    (sel) =>
+      [...document.querySelectorAll(sel)]
+        .map((tile) => tile.getAttribute("data-terminal-id"))
+        .filter((id): id is string => !!id),
+    CANVAS_TILE_SELECTOR,
+  );
+}
+
+/** The recorded program behind "canvas tile N" — the Nth tile as rendered. */
+async function recordedTileId(
+  world: KoluWorld,
+  position: number,
+): Promise<string> {
+  const ids = await tileIds(world);
+  const id = ids[position - 1];
+  assert.ok(id, `there is no canvas tile ${position} (saw ${ids.length})`);
+  assert.ok(
+    recorded.has(id),
+    `canvas tile ${position} (${id}) is not being recorded`,
+  );
+  return id;
+}
+
+/** The recorded program behind "the main pane" — the visible non-split pane. */
+async function recordedMainPaneId(world: KoluWorld): Promise<string> {
+  const id = await world.page.evaluate(
+    (sel) => document.querySelector(sel)?.getAttribute("data-terminal-id"),
+    MAIN_PANE,
+  );
+  assert.ok(id, "no visible main pane");
+  assert.ok(recorded.has(id), `the main pane (${id}) is not being recorded`);
+  return id;
+}
+
 Then(
   "no recorded program was told a new size",
   { timeout: 120_000 },
@@ -641,19 +685,7 @@ Then(
   "the program in canvas tile {int} was told no new size",
   { timeout: 120_000 },
   async function (this: KoluWorld, position: number) {
-    const ids = await this.page.evaluate(
-      (sel) =>
-        [...document.querySelectorAll(sel)]
-          .map((tile) => tile.getAttribute("data-terminal-id"))
-          .filter((id): id is string => !!id),
-      CANVAS_TILE_SELECTOR,
-    );
-    const id = ids[position - 1];
-    assert.ok(id, `there is no canvas tile ${position} (saw ${ids.length})`);
-    assert.ok(
-      recorded.has(id),
-      `canvas tile ${position} (${id}) is not being recorded`,
-    );
+    const id = await recordedTileId(this, position);
     await holdQuiet(this, `canvas tile ${position}`, [id]);
   },
 );
@@ -662,26 +694,9 @@ Then(
   "the program in the main pane was told no new size",
   { timeout: 120_000 },
   async function (this: KoluWorld) {
-    const id = await this.page.evaluate(
-      (sel) => document.querySelector(sel)?.getAttribute("data-terminal-id"),
-      MAIN_PANE,
-    );
-    assert.ok(id, "no visible main pane");
-    assert.ok(recorded.has(id), `the main pane (${id}) is not being recorded`);
-    await holdQuiet(this, "the main pane", [id]);
+    await holdQuiet(this, "the main pane", [await recordedMainPaneId(this)]);
   },
 );
-
-/** The ids of the canvas's tiles, in the order they are rendered. */
-async function tileIds(world: KoluWorld): Promise<string[]> {
-  return world.page.evaluate(
-    (sel) =>
-      [...document.querySelectorAll(sel)]
-        .map((tile) => tile.getAttribute("data-terminal-id"))
-        .filter((id): id is string => !!id),
-    CANVAS_TILE_SELECTOR,
-  );
-}
 
 /** Hold the window and require EXACTLY this many sizes — the positive form of
  *  the same claim. A box that really moved owes its program one new size: not
@@ -701,20 +716,14 @@ async function expectTold(
       `${describeTold(told)}\n` +
       `${await quoteResizeWire(world.page, recordedIds())}`,
   );
-  await rebaseline();
+  await rebaseline(watched);
 }
 
 Then(
   "the program in canvas tile {int} was told exactly {int} new size",
   { timeout: 120_000 },
   async function (this: KoluWorld, position: number, count: number) {
-    const ids = await tileIds(this);
-    const id = ids[position - 1];
-    assert.ok(id, `there is no canvas tile ${position} (saw ${ids.length})`);
-    assert.ok(
-      recorded.has(id),
-      `canvas tile ${position} (${id}) is not being recorded`,
-    );
+    const id = await recordedTileId(this, position);
     await expectTold(this, `canvas tile ${position}`, [id], count);
   },
 );
@@ -723,12 +732,7 @@ Then(
   "the program in the main pane was told exactly {int} new size",
   { timeout: 120_000 },
   async function (this: KoluWorld, count: number) {
-    const id = await this.page.evaluate(
-      (sel) => document.querySelector(sel)?.getAttribute("data-terminal-id"),
-      MAIN_PANE,
-    );
-    assert.ok(id, "no visible main pane");
-    assert.ok(recorded.has(id), `the main pane (${id}) is not being recorded`);
+    const id = await recordedMainPaneId(this);
     await expectTold(this, "the main pane", [id], count);
   },
 );

@@ -126,7 +126,7 @@ const [drawerOpen, setDrawerOpen] = createSignal(false);
 
 /** Per-terminal navigation history — one record per terminal bundling the
  *  back/forward stack with the repo it was captured against. Both fields share
- *  a single lifecycle (seeded in `seedPanel`, dropped in `removePanel`, reset
+ *  a single lifecycle (seeded in `seedHistory`, dropped in `removePanel`, reset
  *  together on a repo change), so they live in one Map entry rather than two
  *  parallel maps that must be kept in sync by hand.
  *
@@ -267,16 +267,20 @@ export function useRightPanel() {
    *  gap) and the toggle reads as open with nothing behind it. */
   const hasTerminals = () => tileStore.tileCount() > 0;
 
-  /** The per-terminal record for `id`: the local in-flight state if this
-   *  browser has written one, else THE TERMINAL'S OWN RECORD, else the fresh
-   *  seed. The ONE fallback — the tile reader, the pane reader and the
-   *  promotion seed all go through it.
+  /** The per-terminal record for `id`: the local state if this browser has
+   *  written one, else THE TERMINAL'S OWN RECORD, else the fresh seed. The ONE
+   *  fallback — the tile reader, the pane reader and the promotion seed all go
+   *  through it.
    *
-   *  Reading the record here (rather than waiting for session restore to copy
-   *  it in) is the same rule the split's saved state follows
-   *  (`terminal/splitPanelState.ts`): a mount must never lay a tile out from a
-   *  default the record disagrees with. It matters for SIZE in maximized
-   *  posture, where the panel's width comes out of the tile's box. */
+   *  Reading the record here, rather than waiting for session restore to copy
+   *  it into the local store, is the READ half of the rule the split's saved
+   *  state follows (`terminal/splitPanelState.ts`): a mount must never lay a
+   *  tile out from a default the record disagrees with. It matters for SIZE in
+   *  maximized posture, where the panel's width comes out of the tile's box.
+   *  Unlike the split, a local entry here has no settle rule — once this
+   *  browser writes one it wins for the rest of the session, so a failed write
+   *  shows until the next reload and a foreign write is not adopted. That is
+   *  this module's long-standing behaviour and is untouched here. */
   function stateOf(id: TerminalId | null): RightPanelPerTerminalState {
     if (id === null) return freshPerTerminalState();
     return (

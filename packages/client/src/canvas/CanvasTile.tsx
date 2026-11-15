@@ -218,13 +218,11 @@ const CanvasTile: Component<{
   const heldSeen = createHeldSeen(seen);
   /** Is this tile's box one the canvas DECIDED, so its panes may state a size?
    *
-   *  `heldSeen` says the tile is still ATTACHED — a reader's place in the
-   *  output is kept for `SEEN_HOLD_MS` after they look away. That is a
-   *  different question from this one, and one accessor used to stand for
-   *  both: a tile parked behind a maximized sibling was told it may state a
-   *  size, measured the full-window box it is parked in, and resized a PTY
-   *  nobody was looking at (kolu#2362 §3 — measured on both the way in and
-   *  the way back out).
+   *  A different question from `heldSeen`, which says the tile is still
+   *  ATTACHED — one accessor used to stand for both, and a tile parked behind
+   *  a maximized sibling was therefore told it may state a size, measured the
+   *  full-window box it is parked in, and resized a PTY nobody was looking at
+   *  (kolu#2362).
    *
    *  So: a COVERED tile has no decided box. The canvas is not laying it out —
    *  it is holding it. Its panes keep the grid they had, which is the grid
@@ -337,18 +335,13 @@ const CanvasTile: Component<{
   //    since #2374 its pane stays attached for `SEEN_HOLD_MS`, so the output
   //    keeps arriving and the reader keeps their place.
   //  - Its own rect, because a tile nobody is looking at must not be resized.
-  //    The box used to be the maximized tile's, which made switching WHICH tile
-  //    is maximized free but made ENTERING the posture cost one SIGWINCH per
-  //    tile — "a one-time cost per toggle" was the old decision, and the
-  //    measurement that replaced it (kolu#2362 §3) is that it is two: the
-  //    covered tile was sized to the viewport on the way in and back to its
-  //    rect on the way out, both for a screen nobody saw. Now the canvas
-  //    states that a covered tile's box is not a decided one (`boxDecided`
-  //    above), its panes measure nothing while it holds, and this box is
-  //    simply where the tile already was. Switching which tile is maximized
-  //    therefore tells the tile you switch TO the full-window size, once, and
-  //    tells the one you left nothing — it keeps the grid it had until it is
-  //    on screen at a size of its own again.
+  //    The box used to be the maximized tile's, which made switching WHICH
+  //    tile is maximized free at the cost of resizing every covered tile on
+  //    the way into the posture and back out of it — twice, for a screen
+  //    nobody saw. Its panes now measure nothing while it holds (`boxDecided`
+  //    above), so this box is simply where the tile already was: switching
+  //    tells the tile you switch TO the full-window size, once, and tells the
+  //    one you left nothing.
   const presentation = createMemo(
     (): {
       style: JSX.CSSProperties;

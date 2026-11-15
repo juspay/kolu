@@ -91,14 +91,13 @@ const TerminalContent: Component<{
    *   - the PANE SET's — until every terminal of this host has a record, one
    *     of them may yet turn out to be a split of THIS tile, and a tile that
    *     does not know whether it has a split does not know its panes' boxes.
-   *     This is the same gate the canvas's default placement already waits on
-   *     (`TerminalCanvas`'s `allRecordsSettled`), for the same reason: a
-   *     terminal LIST arrives before the records it names, and the client
-   *     cannot tell a returning tile from a new one in between. THIS tile's
-   *     own record is named separately: a host switch re-keys the active
-   *     scope, and for the tick where the new host has no census yet an empty
-   *     one would answer "nothing awaited" about terminals it has never heard
-   *     of.
+   *     It is the host-wide census (`recordPhases`), not the canvas's
+   *     per-tile-set `allRecordsSettled`: a terminal LIST arrives before the
+   *     records it names, and an id that is not a tile yet may still be this
+   *     tile's split. THIS tile's own record is named separately because a
+   *     host switch re-keys the active scope, and for the tick where the new
+   *     host has no census yet an empty one would answer "nothing awaited"
+   *     about terminals it has never heard of.
    *
    *  It is a fact about the TILE, not a timer and not a reading of the DOM, so
    *  it is true at the instant the geometry below is final — never a frame
@@ -156,9 +155,8 @@ const TerminalContent: Component<{
     // a panel registering on mount, a re-emit of the current value, the
     // programmatic transition a tile performs when it learns it has a split —
     // and persisting those is how a MOUNT came to write the split's state
-    // (kolu#2362: the first mount after a collapse wrote `collapsed: false`
-    // over it, and the collapse was gone). The same intent latch its two
-    // siblings below have always used, for the reason stated above them.
+    // (kolu#2362). The same intent latch its two siblings below have always
+    // used, for the reason stated above them.
     if (!resizeIntent) return;
     // `> 0.02` ignores the tiny `[1, 0]` values Corvu fires during
     // programmatic transitions (e.g. expand from collapsed), which would

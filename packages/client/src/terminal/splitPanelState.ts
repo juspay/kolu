@@ -6,22 +6,12 @@
  * `usePendingLayouts.ts` gives a tile's canvas geometry, for the same reason:
  * a gesture must show instantly, and the server is still the truth.
  *
- * It replaces a copy. The split's state used to live a second time in a
- * browser-side store that answered DEFAULTS until `hydrateFromTerminals`
- * copied the record into it, and a tile laid itself out from that copy. Two
- * consequences, both measured in CI (kolu#2362):
- *
- *  - every mount of a tile with a split laid the tile out as an EXPANDED,
- *    default-sized split for ~230 ms — one PTY resize on the way in and
- *    another on the way back — because `collapsed: false, panelSize: 0.3` is
- *    what the copy says before anyone has filled it in;
- *  - the Corvu size report that programmatic transition produced was
- *    persisted, so the first mount after a user collapsed a split WROTE
- *    `collapsed: false` over it and the collapse was gone for good.
- *
- * Reading the record directly makes the first unrepresentable: there is no
- * moment at which a tile holds a different answer than the record does,
- * because there is no second place for an answer to live. The second is
+ * It replaces a copy: a browser-side store that answered DEFAULTS until a
+ * restore copied the record into it, which a tile then laid itself out from.
+ * Reading the record directly makes that unrepresentable — there is no moment
+ * at which a tile holds a different answer than the record does, because
+ * there is no second place for an answer to live. The copy's other failure,
+ * a MOUNT persisting the size its own programmatic transition produced, is
  * `TerminalContent`'s to prevent — only a gesture may call {@link
  * SplitPanelStore.write} — and this module makes that rule checkable by being
  * the only writer of `chrome.setSubPanel` in the client.
@@ -48,6 +38,12 @@
  * to it. Once the last write resolves there are no echoes left behind it — a
  * reply travels the same socket after the record delta its write produced —
  * so the next thing the record says is either our value (landed) or theirs.
+ *
+ * HOST-SCOPING: the record is read off the ACTIVE host while the in-flight map
+ * is host-independent (keyed by globally-unique TerminalId, like
+ * `usePendingLayouts`). A host switch therefore reads `undefined` for an
+ * entry's record and retires it as superseded — intended: by then the write
+ * has been made, and the tile is not on screen to show anything.
  *
  * The record is read off the active host's `terminals` collection rather than
  * through `useTerminalMetadata`: the reprojection lives inside
@@ -108,6 +104,18 @@ export interface SplitPending {
   readonly sawRecord: SplitPanelState | undefined;
 }
 
+/** Has the record moved under this entry since it last looked? One rule, read
+ *  by both consumers: the settle verdict below, and the re-stamp of
+ *  `sawRecord` that keeps the watermark current. */
+export function splitRecordMoved(
+  pending: SplitPending,
+  record: SplitPanelState | undefined,
+): boolean {
+  return record
+    ? !pending.sawRecord || !sameSplitPanelState(record, pending.sawRecord)
+    : !!pending.sawRecord;
+}
+
 /** Does this in-flight entry end here, and why — the whole rule, pure.
  *
  *  `"keep"` — still owed, nothing has moved. `"landed"` — the record is now
@@ -121,10 +129,7 @@ export function settleSplitPending(
 ): "keep" | "landed" | "superseded" {
   if (record && sameSplitPanelState(record, pending.value)) return "landed";
   if (pending.inFlight > 0) return "keep";
-  const moved = record
-    ? !pending.sawRecord || !sameSplitPanelState(record, pending.sawRecord)
-    : !!pending.sawRecord;
-  return moved ? "superseded" : "keep";
+  return splitRecordMoved(pending, record) ? "superseded" : "keep";
 }
 
 /** The one precedence: the user's in-flight change, else the record, else the
@@ -191,15 +196,6 @@ export const useSplitPanelState = createSharedRoot((): SplitPanelStore => {
     return record && "subPanel" in record ? record.subPanel : undefined;
   };
 
-  /** Did the record move under this entry since it last looked? */
-  const sawSame = (
-    entry: SplitPending,
-    record: SplitPanelState | undefined,
-  ): boolean =>
-    entry.sawRecord && record
-      ? sameSplitPanelState(entry.sawRecord, record)
-      : !entry.sawRecord === !record;
-
   // The settle rule, run against every live entry whenever a record one of
   // them watches moves. Converges: each run either drops keys or re-stamps
   // `sawRecord` with the value it just read, and a run where nothing moved
@@ -213,7 +209,7 @@ export const useSplitPanelState = createSharedRoot((): SplitPanelStore => {
       id: r.id,
       record: r.record,
       verdict: settleSplitPending(r.entry, r.record),
-      moved: !sawSame(r.entry, r.record),
+      moved: splitRecordMoved(r.entry, r.record),
     }));
     if (acts.every((a) => a.verdict === "keep" && !a.moved)) return;
     setPending(

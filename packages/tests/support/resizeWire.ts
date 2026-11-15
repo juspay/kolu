@@ -104,7 +104,7 @@ export async function installResizeWireProbe(page: Page): Promise<void> {
  *  resize it caused). Received: anything naming the terminal whose size
  *  moved, or carrying panel state — a record arrival is the candidate late
  *  input these scenarios are hunting. */
-export async function readResizeWire(
+async function readResizeWire(
   page: Page,
   terminalIds: readonly string[],
 ): Promise<{ sent: string[]; received: string[] }> {

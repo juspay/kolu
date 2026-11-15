@@ -45,6 +45,14 @@ export const useTerminalStore = createSharedRoot(() => {
     return activeArm(metadata.getMetadata(resolved)) ? resolved : null;
   }
 
+  /** What the WebGL budget asks about a tile's split: whether it is shut, and
+   *  which tab it shows. One spelling, because the two halves now come from
+   *  two stores — the record (`savedSplit`) and the browser-only pane chrome. */
+  const panelOf = (tile: TerminalId) => ({
+    collapsed: subPanel.savedSplit(tile).collapsed,
+    activeSubTab: subPanel.paneChrome(tile).activeSubTab,
+  });
+
   /** The tiles entitled to a WebGL context: the most-recently-active *live*
    *  tiles that fit under `WEBGL_CONTEXT_CAP`. Derived from the tile MRU
    *  (`mruOrder`) intersected with the live top-level tiles, so a closed tile is
@@ -72,11 +80,7 @@ export const useTerminalStore = createSharedRoot(() => {
       // same split rule down to individual terminals via `isActiveSplit`.
       return admitWebglTiles(
         ordered,
-        (id) =>
-          tileWebglCost({
-            collapsed: subPanel.savedSplit(id).collapsed,
-            activeSubTab: subPanel.paneChrome(id).activeSubTab,
-          }),
+        (id) => tileWebglCost(panelOf(id)),
         WEBGL_CONTEXT_CAP,
       );
     },
@@ -107,10 +111,7 @@ export const useTerminalStore = createSharedRoot(() => {
     // (root, cycle member, or orphan) owns its own slot outright.
     const tile = metadata.containingTile(id);
     if (tile === id) return budgetContains(id);
-    const panel = {
-      collapsed: subPanel.savedSplit(tile).collapsed,
-      activeSubTab: subPanel.paneChrome(tile).activeSubTab,
-    };
+    const panel = panelOf(tile);
     // A budgeted tile's slot covers exactly its active split (a collapsed split
     // is invisible and holds no context). `isActiveSplit` is the same predicate
     // `tileWebglCost` builds the budget from, so this per-terminal grant and the

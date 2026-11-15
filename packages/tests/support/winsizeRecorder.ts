@@ -227,7 +227,7 @@ export async function startRecorder(terminalId: string): Promise<Winsize> {
 }
 
 /** The daemon's screen tail, quoted for a failure message. */
-export async function quoteDaemonScreen(terminalId: string): Promise<string> {
+async function quoteDaemonScreen(terminalId: string): Promise<string> {
   try {
     const screen = await daemonScreen(terminalId);
     return screen.trimEnd().split("\n").slice(-12).join("\n");

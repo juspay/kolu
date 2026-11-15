@@ -311,11 +311,7 @@ const App: Component = () => {
   const renderTerminalBody = (
     id: TerminalId,
     seen: () => boolean,
-    // The touch shells place ONE tile at a time, at the size of the window:
-    // the box a body gets there is always the one the shell decided, so they
-    // do not pass this and it reads true. Only the canvas has a posture in
-    // which a mounted tile's box is nobody's decision (`CanvasTile`).
-    boxDecided: () => boolean = () => true,
+    boxDecided: () => boolean,
   ) => (
     <TerminalContent
       terminalId={id}

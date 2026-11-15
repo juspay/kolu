@@ -128,13 +128,13 @@ interface XtermOwnProps {
   visible: boolean;
   /** Is the box this pane sits in the one its owner's LAYOUT DECIDED?
    *
-   *  An accessor, and a fact the OWNER states — never something this component
-   *  infers from timing or from the DOM settling. A pane mounts inside a tile
-   *  that may not yet know its own shape (a split whose second pane's record
-   *  has not arrived; a tile parked behind a maximized sibling), and the box it
-   *  has in the meantime is a stand-in. Measuring it is not harmless: the
-   *  measurement is what the consumer states to the host, and the host resizes
-   *  a live PTY to it.
+   *  A fact the OWNER states — never something this component infers from
+   *  timing or from the DOM settling. A pane mounts inside a tile that may not
+   *  yet know its own shape (a split whose second pane's record has not
+   *  arrived; a tile parked behind a maximized sibling), and the box it has in
+   *  the meantime is a stand-in. Measuring it is not harmless: the measurement
+   *  is what the consumer states to the host, and the host resizes a live PTY
+   *  to it.
    *
    *  So this gates {@link applyFit} itself rather than gating a consumer's use
    *  of the result. While it is false the pane MEASURES NOTHING — `wantedGrid`
@@ -143,7 +143,7 @@ interface XtermOwnProps {
    *  it turns true the pane measures once, synchronously in that same update,
    *  so the first reading a consumer can act on is a reading of the decided
    *  box. */
-  boxDecided: Accessor<boolean>;
+  boxDecided: boolean;
   /** Renderer gate — an accessor, never a snapshot: WHICH panes hold a GPU
    *  context is the consumer's budget policy. */
   webgl: Accessor<boolean>;
@@ -259,7 +259,7 @@ export const Xterm: Component<
     // The OWNER's gate, read first: a box its layout has not decided is a
     // stand-in, and a measurement of it is a size this pane would go on to
     // state. See {@link XtermOwnProps.boxDecided}.
-    if (!own.boxDecided()) return;
+    if (!own.boxDecided) return;
     if (container.clientWidth <= 0 || container.clientHeight <= 0) return;
     const box = measureGridBox(core.terminal, container);
     const next = box && gridForBox(box);
@@ -514,7 +514,7 @@ export const Xterm: Component<
   // — exactly the window this gate exists to close.
   createEffect(
     on(
-      () => own.boxDecided(),
+      () => own.boxDecided,
       (decided) => {
         if (!decided || !core) return;
         cancelAnimationFrame(fitRaf);

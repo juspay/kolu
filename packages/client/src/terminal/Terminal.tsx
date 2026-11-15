@@ -1293,7 +1293,7 @@ const Terminal: Component<{
         theme={props.theme}
         fontSize={fontSize()}
         visible={props.visible}
-        boxDecided={() => props.boxDecided}
+        boxDecided={props.boxDecided}
         webgl={shouldUseWebgl}
         scrollLockEnabled={() => preferences().scrollLock}
         fullRate={isFocused}
