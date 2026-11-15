@@ -200,11 +200,11 @@ detection](/agent-detection)). It refuses by name for a terminal with no agent,
 an agent kolu has no recipe for, an agent that cannot be told anything mid-turn,
 and an agent whose screen is still being drawn.
 
-Its answer says whether the words took: for an idle agent, whether it began
-working within a few seconds, and if not, that the keys were sent and the screen
-is what to read. For an agent already working, how the words were delivered
-(steered, or queued behind the turn), which is not observable from outside. The
-CLI serves it too: `kolu surface agent_say <id> --text '…'`.
+Its answer says whether the words took. An idle agent began working within a
+few seconds, or the screen is what to read. A working agent got them steered
+into its turn or queued behind it; a steer to omp or pi **landed**, or is
+**held** in its steering pane until a long tool call ends, then delivered on its
+own. The CLI serves it: `kolu surface agent_say <id> --text '…'`.
 
 ### Wait for the right moment
 

@@ -100,6 +100,7 @@ describe("AgentInfoSchema — a closed discriminated union", () => {
       taskProgress: null,
       contextTokens: 30676,
       startedAt: 1787509701451,
+      lastPromptId: "686ac209",
     });
     expect(decoded).toMatchObject({
       kind: "omp",

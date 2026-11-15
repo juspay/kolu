@@ -2,7 +2,9 @@
  *  with the shared append-robust subscription (`subscribeFileAppends`, which
  *  tolerates absence, fires on the absent→present transition, and keys on
  *  `size:mtime:ino` so a rewrite also re-fires) plus the shared coalesce
- *  schedule, and emits `OmpInfo` on change, gated by `agentInfoEqual`. The
+ *  schedule, and emits `OmpInfo` on change, gated by the schema's own
+ *  equivalence — every field, so a new prompt id (a steer that landed while the
+ *  state stayed `thinking`) is a change. The
  *  todo list's progress rides the same tick: `createTodoProgressReader` reads
  *  only the bytes appended since the last tick (see `todo.ts`).
  *
@@ -17,7 +19,7 @@
  *  call, so a pure trailing-edge debounce would starve; `createCoalesceSchedule`
  *  with maxWait caps the freeze while quiet turns still settle fast. */
 
-import { agentInfoEqual } from "anyagent";
+import { Schema } from "effect";
 import {
   COALESCE_DEBOUNCE_MS,
   COALESCE_MAX_WAIT_MS,
@@ -28,8 +30,12 @@ import {
 import type { Logger } from "kolu-shared";
 import type { OmpSession } from "./breadcrumb.ts";
 import { deriveOmpInfo } from "./core.ts";
-import type { OmpInfo } from "./schemas.ts";
+import { type OmpInfo, OmpInfoSchema } from "./schemas.ts";
 import { createTodoProgressReader } from "./todo.ts";
+
+/** Equality over EVERY field of `OmpInfo`, derived from its schema — the
+ *  shared `agentInfoEqual` compares only the fields every agent has. */
+const sameOmpInfo = Schema.toEquivalence(OmpInfoSchema);
 
 export interface OmpWatcher {
   readonly session: OmpSession;
@@ -59,8 +65,9 @@ export function createOmpWatcher(
       taskProgress: todo.read(),
       contextTokens: derived.contextTokens,
       startedAt: session.startedAt,
+      lastPromptId: derived.lastPromptId,
     };
-    if (agentInfoEqual(info, lastInfo)) return;
+    if (lastInfo !== null && sameOmpInfo(info, lastInfo)) return;
     lastInfo = info;
     log?.debug(
       {

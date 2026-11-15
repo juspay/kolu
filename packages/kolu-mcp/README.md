@@ -68,15 +68,22 @@ vocab (`AgentVocab.say` in `packages/integrations/<agent>/src/schemas.ts`), and
 every one of them was **established by running the agent or from its own docs**
 — never guessed. The answer says what happened, including the two things a
 caller cannot see. `delivery` is `"submitted"` (it was idle, the words start a
-turn), `"steer"` (the words reach the turn that is running — codex, omp, pi,
-xyne) or `"queue"` (they wait for the current turn to end — claude-code,
+turn), `"steer"` (the words join the running turn at its next step — codex,
+omp, pi, xyne) or `"queue"` (they wait for the current turn to end — claude-code,
 opencode, grok). `took` is whether the words LANDED: for an agent that was
 idle, kolu then watches its state for a hard-capped few seconds
 (`SAY_TAKE_CAP_MS`) and answers `began-working`, `submit-landed` or `did-not-begin` — the keys
 were sent either way, so a say that did not take is an ANSWER naming the screen
 read that settles it, never a refusal that invites typing the prompt a second
-time. For an agent that was already working there is no state change to watch,
-so `took` is `not-observable` and the delivery is the whole story. Refused as
+time. For a STEER whose landing the recipe can see (`SteerSight`: omp, pi),
+kolu watches the record for `SAY_STEER_CAP_MS` for the transcript's newest
+prompt to change — `landed` — and otherwise reads the screen once: the words in
+the agent's steering pane are `held` (a step it cannot interrupt is running, and
+the agent hands them over when it ends), anything else is `did-not-land`. A held
+steer is never "fixed" with a second Enter: in omp that delivers it by killing
+the running tool. An agent that queues, or whose steer is unmeasured (codex,
+xyne), has nothing to watch, so `took` is `not-observable` and the delivery is
+the whole story. Refused as
 data, never guessed: `no-agent` (a plain shell), `agent-cannot-be-told` (kolu
 detects the agent but has no verified recipe), `agent-cannot-be-told-while-working`,
 `agent-starting` (the agent is up but its screen is still being drawn — wait

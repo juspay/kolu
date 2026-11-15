@@ -44,6 +44,7 @@
  *  VT-resolved text `readScreenText` returns) on any omp UI change — never from
  *  a guess. */
 
+import { paneItemIs } from "anyagent";
 import type { OmpInfo } from "./schemas.ts";
 
 /** How many lines of the screen tail the gate inspects. The dialog renders at
@@ -74,6 +75,27 @@ function tailRegion(screenText: string): string[] {
 export function screenHasOmpPrompt(screenText: string): boolean {
   const tail = tailRegion(screenText).join("\n");
   return PROMPT_MARKERS.some((re) => re.test(tail));
+}
+
+/** omp's steering pane header — `Steering · <count>` on a row of its own,
+ *  captured from omp 18.20.2 in an 80-column kolu terminal (2026-11-15). The
+ *  items follow it, one per row, as `<n>. <message>`; `└ Alt+↑ to edit` closes
+ *  the pane. */
+const STEERING_HEADER = /^\s*Steering · \d+\s*$/;
+const STEERING_ITEM = /^\s*\d+\.\s(.*)$/;
+
+/** Whether omp's steering pane, in the screen tail, holds THESE words — a
+ *  steer omp accepted and is holding for a step it cannot interrupt to end. */
+export function ompSteerHeld(screenText: string, words: string): boolean {
+  const tail = tailRegion(screenText);
+  const header = tail.findIndex((line) => STEERING_HEADER.test(line));
+  if (header === -1) return false;
+  for (const line of tail.slice(header + 1)) {
+    const item = STEERING_ITEM.exec(line);
+    if (item === null) break;
+    if (paneItemIs(item[1] ?? "", words)) return true;
+  }
+  return false;
 }
 
 // --- Promote-only policy (the seam the orchestrator's poller drives) ---

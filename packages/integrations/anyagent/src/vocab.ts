@@ -121,9 +121,12 @@ export interface AgentResumePolicy<Info> {
  *  running — the half of a say recipe that is about the agent's behaviour
  *  rather than about keys.
  *
- *   - `steer` — the words reach the model INSIDE the running turn (at its next
- *     tool/model step), so the agent can change course on them. omp, pi, xyne
- *     and codex show the pending line in a steering pane and consume it there.
+ *   - `steer` — the words join the running turn at its next STEP: the TUI holds
+ *     them in a steering pane and hands them over between one tool/model step
+ *     and the next. A step the agent can interrupt ends early for them (omp
+ *     backgrounds a running `bash` call); a step it cannot (an omp eval cell,
+ *     any pi tool) holds them until it ends — minutes, if the step is a long
+ *     wait. omp, pi, xyne and codex steer.
  *   - `queue` — the words wait for the current turn to END and then start a new
  *     one. claude-code and grok do this: the message is never lost, but it has
  *     no effect on what the agent is doing right now.
@@ -131,16 +134,59 @@ export interface AgentResumePolicy<Info> {
  *  The distinction is reported back to the caller rather than hidden, because a
  *  conductor that told a worker "stop, the plan changed" needs to know whether
  *  that lands now or in ten minutes — and no keystroke can turn one into the
- *  other. */
+ *  other without cost: in omp a second Enter on the empty prompt delivers a
+ *  held steer by INTERRUPTING the running tool, which kills the step. */
 export type AgentSayDelivery = "steer" | "queue";
+
+/** How kolu SEES a steer — what lets `agent_say` answer whether the words
+ *  reached the running turn instead of naming a delivery it never saw.
+ *
+ *  Both halves are the agent's own records, read rather than inferred:
+ *
+ *   - `lastPrompt` — the id of the newest user message in the transcript. A
+ *     steer is written there when the turn TAKES it and not before (measured:
+ *     omp 18.20.2 and pi 1.5.2 append the user entry at the step boundary that
+ *     hands it over), so a new id after the keys is the words having landed.
+ *   - `held` — whether the screen shows these words in the agent's steering
+ *     pane: typed, accepted, and waiting for a step that cannot be interrupted
+ *     to end. Measured, a held steer is delivered on its own when the step
+ *     ends; nothing needs pressing. */
+export interface SteerSight<Info> {
+  readonly lastPrompt: (info: Info) => string | null;
+  readonly held: (screen: string, words: string) => boolean;
+}
+
+/** Whether one item a steering pane draws is THESE words — the comparison
+ *  every pane reader shares, so a sight states only how its own pane is drawn.
+ *
+ *  A pane draws an item on one row: cut to the width with a trailing `…`, a
+ *  multiline message joined (omp's `↵`). So the item is compared against the
+ *  words' FIRST line, each with its whitespace collapsed, in whichever
+ *  direction the cut leaves: the item a prefix of that line, or that line a
+ *  prefix of the item. An item the cut left empty matches nothing. */
+export function paneItemIs(item: string, words: string): boolean {
+  const collapse = (s: string): string => s.replace(/\s+/g, " ").trim();
+  const drawn = collapse(item.replace(/…\s*$/, ""));
+  const first = collapse(words.trim().split(/\r?\n/)[0] ?? "");
+  if (drawn === "" || first === "") return false;
+  return first.startsWith(drawn) || drawn.startsWith(first);
+}
 
 /** How to hand this agent words while it is WORKING: which keys submit, and
  *  what submitting then does ({@link AgentSayDelivery}). `null` on a recipe
- *  means kolu will not try — see {@link AgentSayRecipe.working}. */
-export interface AgentSayWhileWorking {
-  readonly keys: readonly string[];
-  readonly delivery: AgentSayDelivery;
-}
+ *  means kolu will not try — see {@link AgentSayRecipe.working}.
+ *
+ *  A `steer` names how it is SEEN ({@link SteerSight}), or `"unmeasured"` for
+ *  an agent whose transcript and steering pane nobody has measured — `agent_say`
+ *  then says the landing is not observable rather than guess at it. A `queue`
+ *  has nothing to see mid-turn: the words wait for the turn to end. */
+export type AgentSayWhileWorking<Info> =
+  | { readonly keys: readonly string[]; readonly delivery: "queue" }
+  | {
+      readonly keys: readonly string[];
+      readonly delivery: "steer";
+      readonly sight: SteerSight<Info> | "unmeasured";
+    };
 
 /** THE per-agent keystroke recipe for "say this to the agent in that terminal"
  *  — what kolu-mcp's `agent_say` performs so no driver ever has to learn one
@@ -159,14 +205,14 @@ export interface AgentSayWhileWorking {
  *  agent version and the date it was run here, or the docs URL for an agent
  *  this machine cannot run. A recipe nobody can source is a guess, and a guess
  *  typed into someone's half-finished work is worse than a refusal. */
-export interface AgentSayRecipe {
+export interface AgentSayRecipe<Info> {
   /** Keys to press after the text when the agent is idle at its prompt. */
   readonly idle: readonly string[];
   /** The same while the agent is WORKING, or `null` when kolu must refuse
    *  mid-turn for this agent (its TUI drops or mangles input during a turn).
    *  Not a fallback to `idle`: typing into a TUI that is not listening loses
    *  the words silently, which is the one outcome worse than a refusal. */
-  readonly working: AgentSayWhileWorking | null;
+  readonly working: AgentSayWhileWorking<Info> | null;
   /** How this recipe was established — `"ran omp 18.18.8 on 2026-11-13"`, or a
    *  documentation URL for an agent that is not installed here. */
   readonly verified: string;
@@ -195,7 +241,7 @@ export interface AgentVocab<Info extends AgentInfoShape> {
   /** How to say something to this agent through its TUI — the keys `agent_say`
    *  presses after the text, per state. `null` for an agent kolu cannot steer
    *  at all: the tool then refuses by name instead of guessing keys. */
-  readonly say: AgentSayRecipe | null;
+  readonly say: AgentSayRecipe<Info> | null;
 }
 
 // biome-ignore lint/suspicious/noExplicitAny: `Info` is the existential here — the registry stores vocabs of different `Info` and looks them up by kind, and `AgentVocab<AgentInfoShape>` is NOT a supertype (the resume `ref` is contravariant in `Info`), so the erasure must be `any`.

@@ -68,13 +68,17 @@ terminal can move under — that gap is a race, not a formality.
   settle, and presses that agent's own submit keys — you never send an Enter
   yourself, and you never need to know one agent's submit ritual from
   another's. The answer says what happened: `delivery` is `"submitted"` (it was
-  idle, the words start a turn), `"steer"` (they reached the turn that is
-  running — codex, omp, pi, xyne) or `"queue"` (they wait for the current turn
-  to end — claude-code, opencode, grok); and `took` says whether it landed —
-  `"began-working"` (its transcript started a turn), `"submit-landed"` (an
-  agent that had written nothing yet: kolu saw the Enter reach it; its reply
+  idle, the words start a turn), `"steer"` (they join the turn that is running
+  at its next step — codex, omp, pi, xyne) or `"queue"` (they wait for the
+  current turn to end — claude-code, opencode, grok); and `took` says whether it
+  landed — `"began-working"` (its transcript started a turn), `"submit-landed"`
+  (an agent that had written nothing yet: kolu saw the Enter reach it; its reply
   comes later — do not say it again), or `"did-not-begin"` within a few
-  seconds, in which case **read the screen rather than saying it again**. It
+  seconds, in which case **read the screen rather than saying it again**. A
+  steer to omp or pi answers `"landed"` (in the running turn's transcript),
+  `"held"` (in its steering pane until a long tool call ends — it is delivered
+  then on its own; **never press Enter to hurry it**, which in omp kills the
+  running tool) or `"did-not-land"` (read the screen). It
   REFUSES rather than guessing: a terminal with no agent (a plain shell), an
   agent still **starting** (its screen is being drawn — wait for `fresh`), an
   agent with no verified recipe, a terminal that is asleep, empty text.

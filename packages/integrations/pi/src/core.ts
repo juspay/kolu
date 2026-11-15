@@ -245,6 +245,9 @@ export function piHomePresent(): boolean {
  *  parse. */
 interface PiEntry {
   type?: string;
+  /** Every entry's own id — the newest `user` message's is what a steer that
+   *  landed changes. */
+  id?: string;
   timestamp?: string;
   /** `model_change` entries. */
   modelId?: string;
@@ -284,6 +287,10 @@ const TURN_ENDED = new Set(["stop", "length", "error", "aborted"]);
  *     (`input + cacheRead + cacheWrite`). Tracked separately because the
  *     newest turn entry (a fresh `user` prompt) carries no usage, while the
  *     meaningful running total lives one hop back.
+ *   - lastPromptId: the newest `user` message entry's `id`. pi writes a steer
+ *     as a user entry only when the running turn TAKES it (measured, 1.5.2:
+ *     one held behind a `bash` call was written when the call ended), so a new
+ *     id is the proof a steer landed — `agent_say` reads it.
  *
  *  Pure — unit-testable without touching the filesystem. */
 export function derivePiState(lines: string[]): {
@@ -291,11 +298,13 @@ export function derivePiState(lines: string[]): {
   model: string | null;
   contextTokens: number | null;
   summary: string | null;
+  lastPromptId: string | null;
 } | null {
   let state: PiInfo["state"] | null = null;
   let model: string | null = null;
   let contextTokens: number | null = null;
   let summary: string | null = null;
+  let lastPromptId: string | null = null;
 
   for (let i = lines.length - 1; i >= 0; i--) {
     const raw = lines[i];
@@ -308,10 +317,12 @@ export function derivePiState(lines: string[]): {
     if (state !== null && contextTokens !== null) {
       const wantName = summary === null;
       const wantModel = model === null;
-      if (!wantName && !wantModel) break;
+      const wantPrompt = lastPromptId === null;
+      if (!wantName && !wantModel && !wantPrompt) break;
       const isCandidate =
         (wantName && raw.includes('"session_info"')) ||
-        (wantModel && raw.includes('"model_change"'));
+        (wantModel && raw.includes('"model_change"')) ||
+        (wantPrompt && raw.includes('"role":"user"'));
       if (!isCandidate) continue;
     }
     let entry: PiEntry;
@@ -378,6 +389,15 @@ export function derivePiState(lines: string[]): {
       }
     }
 
+    if (
+      lastPromptId === null &&
+      entry.type === "message" &&
+      entry.message?.role === "user" &&
+      typeof entry.id === "string"
+    ) {
+      lastPromptId = entry.id;
+    }
+
     if (state === null && entry.type === "message") {
       const role = entry.message?.role;
       if (role === "assistant") {
@@ -400,7 +420,7 @@ export function derivePiState(lines: string[]): {
   }
 
   if (state === null) return null;
-  return { state, model, contextTokens, summary };
+  return { state, model, contextTokens, summary, lastPromptId };
 }
 
 // --- Tail reading ---
@@ -420,7 +440,10 @@ export const TAIL_BYTES = 256 * 1024;
 export function derivePiInfo(
   session: PiSession,
   log?: Logger,
-): Pick<PiInfo, "state" | "model" | "contextTokens" | "summary"> | null {
+): Pick<
+  PiInfo,
+  "state" | "model" | "contextTokens" | "summary" | "lastPromptId"
+> | null {
   let size: number;
   try {
     size = fs.statSync(session.transcriptPath).size;

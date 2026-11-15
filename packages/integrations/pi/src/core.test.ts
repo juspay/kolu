@@ -462,3 +462,25 @@ describe("derivePiState", () => {
     expect(derivePiState([])).toBeNull();
   });
 });
+
+describe("derivePiState — the newest prompt, which a landed steer moves", () => {
+  const prompt = (id: string) => user(id).replace('"id":"u"', `"id":"${id}"`);
+
+  it("finds the prompt behind a tool call, after the turn signals are settled", () => {
+    // The newest entries settle state and context first; the walk then only
+    // parses candidate lines, and the prompt must still be one of them.
+    const turn = [
+      header,
+      prompt("f674c007"),
+      assistant("toolUse"),
+      toolResult,
+      assistant("toolUse"),
+      toolResult,
+    ];
+    expect(derivePiState(turn)?.lastPromptId).toBe("f674c007");
+    // pi writes the held steer as a user entry when the `bash` call ends.
+    expect(derivePiState([...turn, prompt("1930b347")])?.lastPromptId).toBe(
+      "1930b347",
+    );
+  });
+});

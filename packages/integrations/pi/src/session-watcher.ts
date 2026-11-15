@@ -3,7 +3,9 @@
  * with the shared append-robust subscription (`subscribeFileAppends`, which
  * tolerates absence, fires on the absent→present transition, and keys on
  * `size:mtime:ino` so a `/compact` rewrite also re-fires) plus the shared
- * coalesce schedule, and emits `PiInfo` on change, gated by `agentInfoEqual`.
+ * coalesce schedule, and emits `PiInfo` on change, gated by the schema's own
+ * equivalence — every field, so a new prompt id (a steer that landed while the
+ * state stayed `thinking`) is a change.
  *
  * Pure observer: never creates paths under `~/.pi/agent`.
  *
@@ -13,7 +15,7 @@
  * quiet turns still settle fast.
  */
 
-import { agentInfoEqual } from "anyagent";
+import { Schema } from "effect";
 import {
   COALESCE_DEBOUNCE_MS,
   COALESCE_MAX_WAIT_MS,
@@ -23,7 +25,11 @@ import {
 } from "kolu-io";
 import type { Logger } from "kolu-shared";
 import { derivePiInfo, type PiSession } from "./core.ts";
-import type { PiInfo } from "./schemas.ts";
+import { type PiInfo, PiInfoSchema } from "./schemas.ts";
+
+/** Equality over EVERY field of `PiInfo`, derived from its schema — the shared
+ *  `agentInfoEqual` compares only the fields every agent has. */
+const samePiInfo = Schema.toEquivalence(PiInfoSchema);
 
 export interface PiWatcher {
   readonly session: PiSession;
@@ -67,8 +73,9 @@ export function createPiWatcher(
       taskProgress: null,
       contextTokens: derived.contextTokens,
       startedAt: session.startedAt,
+      lastPromptId: derived.lastPromptId,
     };
-    if (agentInfoEqual(info, lastInfo)) return;
+    if (lastInfo !== null && samePiInfo(info, lastInfo)) return;
     lastInfo = info;
     log?.debug(
       {

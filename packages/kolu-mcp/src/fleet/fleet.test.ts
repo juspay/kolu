@@ -123,12 +123,18 @@ const terminalRecord = (title: string, parentId?: TerminalId): PadiTerminal =>
   }) as unknown as PadiTerminal;
 
 /** The same record with a live agent in it — what `agent_say` reads to decide
- *  whose keys to press. */
-const withAgent = (title: string, kind: string, state: string): PadiTerminal =>
+ *  whose keys to press. `fields` are the agent's own facts beyond kind and
+ *  state (omp's `lastPromptId`, which a steer's landing is read off). */
+const withAgent = (
+  title: string,
+  kind: string,
+  state: string,
+  fields: object = {},
+): PadiTerminal =>
   ({
     state: "active",
     title,
-    agent: { kind, state },
+    agent: { kind, state, ...fields },
   }) as unknown as PadiTerminal;
 
 const EMPTY_URGENCY: PadiUrgency = {
@@ -143,11 +149,17 @@ interface FakePadi {
   readonly calls: string[];
   add(id: TerminalId, title: string, parentId?: TerminalId): void;
   /** Put a live agent of `kind` in `state` into that terminal's record. */
-  runAgent(id: TerminalId, kind: string, state: string): void;
+  runAgent(id: TerminalId, kind: string, state: string, fields?: object): void;
   /** Arm that terminal's agent to BEGIN WORKING when a submit key (`\r`)
    *  reaches it — a TUI accepting a prompt, which is what `agent_say`'s "did
    *  it take" wait watches for. */
   startsWorkingOnSubmit(id: TerminalId, kind: string): void;
+  /** Arm that terminal's WORKING omp to answer a steer's Enter as omp 18.20.2
+   *  did when measured: `holds` — a step it cannot interrupt is running, so
+   *  the words are DRAWN in its steering pane and its transcript gains
+   *  nothing; `takes` — the turn took them, so its transcript gains a new
+   *  prompt. Unarmed, the Enter does nothing at all. */
+  steersLike(id: TerminalId, behaviour: "holds" | "takes"): void;
   /** Put that terminal to sleep IN ITS RECORD — padi's `state` arm, which is
    *  what any reader of the roster sees (distinct from `sleep`, which is the
    *  screen-read gate). */
@@ -207,6 +219,12 @@ function fakePadi(host: string, seeded: readonly TerminalId[]): FakePadi {
   /** Terminals whose agent begins WORKING when its submit key arrives, by the
    *  agent kind that is in them. */
   const startsOnSubmit = new Map<TerminalId, string>();
+  /** Terminals whose working omp answers a steer, and how. */
+  const steers = new Map<TerminalId, "holds" | "takes">();
+  /** What each terminal's screen draws, when a steer has changed it. */
+  const screens = new Map<TerminalId, string>();
+  /** The last TEXT written to each terminal — what a submit hands over. */
+  const typed = new Map<TerminalId, string>();
   /** The one terminal this padi reports as ASLEEP, if any. */
   let sleeping: TerminalId | null = null;
 
@@ -244,7 +262,9 @@ function fakePadi(host: string, seeded: readonly TerminalId[]): FakePadi {
           ? Effect.fail(
               new TerminalNotActive({ id: input.id, state: "sleeping" }),
             )
-          : Effect.succeed(`screen of ${host}/${input.id}`);
+          : Effect.succeed(
+              screens.get(input.id) ?? `screen of ${host}/${input.id}`,
+            );
       }),
     [at("screen", "history")]: (input: { id: TerminalId; max: number }) =>
       Effect.sync(() => {
@@ -274,8 +294,32 @@ function fakePadi(host: string, seeded: readonly TerminalId[]): FakePadi {
         const { id, data } = input as { id: TerminalId; data: string };
         const starting = startsOnSubmit.get(id);
         const record = records.get(id);
+        if (data !== "\r") typed.set(id, data);
         if (data === "\r" && starting !== undefined && record !== undefined) {
           record.set(withAgent(`${host} agent`, starting, "thinking"));
+        }
+        // A steer's Enter on a working omp, as measured: held in the pane,
+        // or taken into the transcript as a new prompt.
+        const steer = steers.get(id);
+        if (data === "\r" && steer !== undefined && record !== undefined) {
+          const words = typed.get(id) ?? "";
+          if (steer === "holds") {
+            screens.set(
+              id,
+              [
+                " Steering · 1 ",
+                `   1. ${words} `,
+                "   └ Alt+↑ to edit ",
+                "╰─",
+              ].join("\n"),
+            );
+          } else {
+            record.set(
+              withAgent(`${host} agent`, "omp", "thinking", {
+                lastPromptId: "p-steer",
+              }),
+            );
+          }
         }
         return Effect.void;
       }),
@@ -361,15 +405,18 @@ function fakePadi(host: string, seeded: readonly TerminalId[]): FakePadi {
     calls,
     openedWatches,
     closedWatches,
-    runAgent(id, kind, state) {
+    runAgent(id, kind, state, fields) {
       const held = records.get(id);
-      const next = withAgent(`${host} agent`, kind, state);
+      const next = withAgent(`${host} agent`, kind, state, fields);
       if (held === undefined) records.set(id, cell(next));
       else held.set(next);
       keys.set([...records.keys()]);
     },
     startsWorkingOnSubmit(id, kind) {
       startsOnSubmit.set(id, kind);
+    },
+    steersLike(id, behaviour) {
+      steers.set(id, behaviour);
     },
     park(id, state) {
       const held = records.get(id);
@@ -1200,6 +1247,55 @@ describe("`agent_say` over the fleet", () => {
       took: { observed: "not-observable" },
     });
   });
+
+  /** A steer into a WORKING omp, through the whole face: the record says what
+   *  its transcript's newest prompt is, and the stand-in TUI answers the one
+   *  Enter as omp 18.20.2 did when measured. */
+  async function steerOmp(
+    behaviour: "holds" | "takes" | "drops",
+    words: string,
+  ) {
+    const { alpha, fleet } = twoHostFleet();
+    alpha.runAgent(ALPHA_1, "omp", "tool_use", { lastPromptId: "p-brief" });
+    if (behaviour !== "drops") alpha.steersLike(ALPHA_1, behaviour);
+    const mcp = await servedFleet(fleet.hosts);
+    const res = await mcp.callTool({
+      name: "agent_say",
+      arguments: { id: `local/${ALPHA_1}`, text: words },
+    });
+    expect(res.isError ?? false, JSON.stringify(res.content)).toBe(false);
+    const writes = alpha.calls.filter((one) =>
+      one.startsWith("lifecycle.sendInput:"),
+    );
+    return { took: (res.structuredContent as { took: unknown }).took, writes };
+  }
+
+  it("a steer HELD behind a step omp cannot interrupt is reported as held, after ONE Enter", async () => {
+    // The bug: a steer sent while omp ran a long tool call sat in its
+    // steering pane, and `agent_say` answered "steer" — words it never saw
+    // land. Measured, a held steer is delivered when the step ends, and a
+    // second Enter would deliver it by killing the step: so the answer names
+    // the hold, and the keys stay ONE Enter.
+    const { took, writes } = await steerOmp(
+      "holds",
+      "STEER-FOUR: also say the word LYCHEE.",
+    );
+    expect(took).toMatchObject({ observed: "held" });
+    expect(writes).toEqual([
+      `lifecycle.sendInput:{"id":"${ALPHA_1}","data":"STEER-FOUR: also say the word LYCHEE."}`,
+      `lifecycle.sendInput:{"id":"${ALPHA_1}","data":"\\r"}`,
+    ]);
+  }, 15_000);
+
+  it("a steer the turn TOOK is reported as landed, off the transcript's newest prompt", async () => {
+    const { took } = await steerOmp("takes", "skip the review");
+    expect(took).toMatchObject({ observed: "landed" });
+  });
+
+  it("a steer neither taken nor held is reported as did-not-land — never as delivered", async () => {
+    const { took } = await steerOmp("drops", "skip the review");
+    expect(took).toMatchObject({ observed: "did-not-land" });
+  }, 15_000);
 
   it("refuses a plain shell, at a reference this face can name", async () => {
     const { fleet } = twoHostFleet();

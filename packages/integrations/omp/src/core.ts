@@ -44,6 +44,9 @@ import type { OmpSession } from "./breadcrumb.ts";
  *  parse. */
 interface OmpEntry {
   type?: string;
+  /** Every entry's own id — the newest `user` message's is what a steer that
+   *  landed changes. */
+  id?: string;
   /** `model_change` entries (`model`, not pi's `modelId`). */
   model?: string;
   message?: {
@@ -77,6 +80,10 @@ interface OmpEntry {
  *   - contextTokens: newest assistant entry's usage
  *     (`input + cacheRead + cacheWrite`). Read on every entry, so the turn's own
  *     assistant record accounts rather than one hop back.
+ *   - lastPromptId: the newest `user` message entry's `id`. omp writes a steer
+ *     as a user entry only when the running turn TAKES it (measured, 18.20.2:
+ *     one held behind an eval cell was written when the cell ended), so a new
+ *     id is the proof a steer landed — `agent_say` reads it.
  *
  *  Pure — unit-testable without touching the filesystem. Returns null when the
  *  tail carries no turn entry at all (a file with only its title slot and
@@ -85,19 +92,27 @@ export function deriveOmpState(lines: string[]): {
   state: OmpInfo["state"];
   model: string | null;
   contextTokens: number | null;
+  lastPromptId: string | null;
 } | null {
   let state: OmpInfo["state"] | null = null;
   let model: string | null = null;
   let contextTokens: number | null = null;
+  let lastPromptId: string | null = null;
 
   for (let i = lines.length - 1; i >= 0; i--) {
     const raw = lines[i];
     if (raw === undefined) continue;
     // The walk's terminal condition, stated once: every independent projection
     // has an answer. Below, each line is offered to whichever projection is
-    // still unset — three "first unset slot wins" readers of one parsed line,
-    // each verifiable without the others.
-    if (state !== null && model !== null && contextTokens !== null) break;
+    // still unset — "first unset slot wins" readers of one parsed line, each
+    // verifiable without the others.
+    if (
+      state !== null &&
+      model !== null &&
+      contextTokens !== null &&
+      lastPromptId !== null
+    )
+      break;
     let entry: OmpEntry;
     try {
       entry = JSON.parse(raw) as OmpEntry;
@@ -127,6 +142,15 @@ export function deriveOmpState(lines: string[]): {
         contextTokens =
           (usage.input ?? 0) + (usage.cacheRead ?? 0) + (usage.cacheWrite ?? 0);
       }
+    }
+
+    if (
+      lastPromptId === null &&
+      entry.type === "message" &&
+      entry.message?.role === "user" &&
+      typeof entry.id === "string"
+    ) {
+      lastPromptId = entry.id;
     }
 
     if (state === null && entry.type === "message") {
@@ -160,7 +184,7 @@ export function deriveOmpState(lines: string[]): {
   }
 
   if (state === null) return null;
-  return { state, model, contextTokens };
+  return { state, model, contextTokens, lastPromptId };
 }
 
 // --- Tail reading ---
@@ -232,7 +256,10 @@ export function readTitleSlot(file: string, log?: Logger): string | null {
 export function deriveOmpInfo(
   session: OmpSession,
   log?: Logger,
-): Pick<OmpInfo, "state" | "model" | "contextTokens" | "summary"> | null {
+): Pick<
+  OmpInfo,
+  "state" | "model" | "contextTokens" | "summary" | "lastPromptId"
+> | null {
   let size: number;
   try {
     size = fs.statSync(session.transcriptPath).size;

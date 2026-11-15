@@ -17,6 +17,7 @@
 import {
   type AgentCliGrammar,
   type AgentCliRegistry,
+  type AgentSayRecipe,
   type AnyAgentVocab,
   agentLaunchLine as cliAgentLaunchLine,
   buildCliRegistry,
@@ -190,6 +191,42 @@ export function agentVocab<K extends AgentKind>(
   return AGENT_VOCABS[kind];
 }
 
+/** One agent's say recipe, its steer sight read over the WIRE union — the
+ *  kind → info correlation made once, here, where the registry already erases
+ *  it (`AnyAgentVocab`), so `agent_say` holds an `AgentInfo` and never casts.
+ *  The sight reads only a session-backed agent of THIS kind: a presence has no
+ *  transcript, so it has no prompt to name. */
+export function agentSayRecipe(
+  kind: AgentKind,
+): AgentSayRecipe<AgentInfo> | null {
+  const say: AgentSayRecipe<AgentInfo> | null = (
+    AGENT_VOCABS[kind] as AnyAgentVocab
+  ).say;
+  const working = say?.working ?? null;
+  if (
+    say === null ||
+    working === null ||
+    working.delivery === "queue" ||
+    working.sight === "unmeasured"
+  ) {
+    return say;
+  }
+  const sight = working.sight;
+  return {
+    ...say,
+    working: {
+      ...working,
+      sight: {
+        held: sight.held,
+        lastPrompt: (info) =>
+          info.kind !== kind || isAgentPresence(info)
+            ? null
+            : sight.lastPrompt(info),
+      },
+    },
+  };
+}
+
 /** Narrow a raw string to an `AgentKind` — `Object.hasOwn`, never `in`, so a
  *  wire word like `"toString"` cannot narrow as a kind it is not. */
 export function isAgentKind(raw: string): raw is AgentKind {
@@ -281,6 +318,7 @@ export type {
   AgentSayDelivery,
   AgentSayRecipe,
   AgentSayWhileWorking,
+  SteerSight,
   AgentVocab,
 } from "anyagent";
 export { agentNameHint, stableFlagTokens } from "anyagent";

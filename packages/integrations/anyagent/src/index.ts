@@ -46,6 +46,8 @@ export {
   type AgentSayDelivery,
   type AgentSayRecipe,
   type AgentSayWhileWorking,
+  type SteerSight,
+  paneItemIs,
   type AnyAgentVocab,
   type AgentVocab,
   type FlagArity,
