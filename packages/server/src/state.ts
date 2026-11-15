@@ -391,7 +391,7 @@ function readPersistedRecord(
  * Must be valid semver. `conf` runs all migration handlers
  * whose keys are > the last-seen version and ≤ this value.
  */
-const SCHEMA_VERSION = "1.51.0";
+const SCHEMA_VERSION = "1.52.0";
 
 /** THE VERSION STAMPED INTO THE TRANSCRIPT FILE
  *  (`<stateDir>/conductor/transcript.json`), and the one a reader accepts.
@@ -839,6 +839,97 @@ export function collapseFlappingChecks_1_51_0(
     return { ...work, events: kept };
   });
   if (swept) store.set("works", next as unknown as PersistedState["works"]);
+}
+
+/** A record, as a rung reads one: an object with string keys, or nothing. */
+const recordOf = (value: unknown): Record<string, unknown> | null =>
+  typeof value === "object" && value !== null && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+
+/** The 1.52.0 rung's body — A STORE THIS BRANCH WROTE BEFORE THE MEMBER
+ *  BOOKKEEPING MOVED OUT OF THE WORK (juspay/kolu#2376, round 3).
+ *
+ *  Commit `910515439` changed two saved shapes without a rung, because the
+ *  version then still read 1.50.0 and the branch was treated as unreleased.
+ *  It was not: a person had deployed an earlier commit, so their disk held
+ *  works written at 1.50.0 in the earlier shape, and the reader refused them
+ *  ("Missing key at [0]["members"][0]["worktree"]"). This rung takes that
+ *  shape to the current one, and passes the current shape through untouched:
+ *
+ *  - a work member's `watch` bookkeeping moves to the top-level `members`
+ *    record under the member's terminal — kept as it is if that terminal
+ *    already has an entry there (the newer writer's word wins) — minus the
+ *    `worktree` field, which is not watch bookkeeping;
+ *  - the member gets `worktree`, from `watch.worktree`, else `null`;
+ *  - `watch` is removed;
+ *  - a decision gets the `header` and `file` it was written without (`""`
+ *    both: a setup decision is named by its key, any other by its question,
+ *    and no file was named).
+ *
+ *  ORDER WITH 1.51.0: the ladder runs in version order, so a store at 1.50.0
+ *  meets the check sweep first and this rung second. That order is correct
+ *  and so would be the other: the sweep reads only `events` (as untyped
+ *  objects) and this rung never touches `events`, so neither depends on the
+ *  other's output. Taking this as a new number rather than editing 1.50.0 or
+ *  1.51.0 is the rule this round wrote into the state skill: a rung that has
+ *  run on somebody's store is never edited.
+ *
+ *  Read as untyped objects throughout: a rung runs against a file an older
+ *  build wrote, and must walk past anything it does not recognise. Exported
+ *  for `stateMigration.test.ts`. */
+export function memberWatchOutOfWorks_1_52_0(
+  store: Conf<PersistedState>,
+): void {
+  const works: unknown = store.get("works");
+  if (!Array.isArray(works)) return;
+  const members: Record<string, unknown> = {
+    ...(recordOf(store.get("members")) ?? {}),
+  };
+  let moved = false;
+  const next = works.map((value: unknown) => {
+    const work = recordOf(value);
+    if (work === null) return value;
+    const workMembers = Array.isArray(work.members) ? work.members : null;
+    const decisions = Array.isArray(work.decisions) ? work.decisions : null;
+    let changed = false;
+    const nextMembers = workMembers?.map((one: unknown) => {
+      const member = recordOf(one);
+      if (member === null) return one;
+      const watch = recordOf(member.watch);
+      if (watch === null && "worktree" in member) return one;
+      changed = true;
+      const { watch: _watch, ...rest } = member;
+      const worktree =
+        typeof watch?.worktree === "string" ? watch.worktree : null;
+      const terminal = member.terminal;
+      if (watch !== null && typeof terminal === "string") {
+        const { worktree: _worktree, ...bookkeeping } = watch;
+        if (!(terminal in members)) members[terminal] = bookkeeping;
+      }
+      return {
+        ...rest,
+        worktree: "worktree" in rest ? rest.worktree : worktree,
+      };
+    });
+    const nextDecisions = decisions?.map((one: unknown) => {
+      const decision = recordOf(one);
+      if (decision === null) return one;
+      if ("header" in decision && "file" in decision) return one;
+      changed = true;
+      return { header: "", file: "", ...decision };
+    });
+    if (!changed) return value;
+    moved = true;
+    return {
+      ...work,
+      ...(nextMembers === undefined ? {} : { members: nextMembers }),
+      ...(nextDecisions === undefined ? {} : { decisions: nextDecisions }),
+    };
+  });
+  if (!moved) return;
+  store.set("works", next as unknown as PersistedState["works"]);
+  store.set("members", members as unknown as PersistedState["members"]);
 }
 
 /** The store's `defaults` — hoisted so {@link decodeStateBackup}'s scratch
@@ -1521,6 +1612,13 @@ const CONF_MIGRATIONS = {
   // transcript file is untouched — so TRANSCRIPT_FILE_VERSION stays where it
   // is.
   "1.51.0": collapseFlappingChecks_1_51_0,
+  // A STORE THIS BRANCH WROTE BEFORE ITS MEMBER BOOKKEEPING MOVED. A work
+  // member's `watch` goes to the top-level `members` record, the member gains
+  // `worktree`, a decision gains `header` and `file` — and a store already in
+  // that shape passes through. `memberWatchOutOfWorks_1_52_0` argues the
+  // order against 1.51.0 and why this is a new number: a rung that has run on
+  // somebody's store is never edited.
+  "1.52.0": memberWatchOutOfWorks_1_52_0,
 };
 
 export const store = new Conf<PersistedState>({

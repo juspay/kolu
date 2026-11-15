@@ -52,11 +52,24 @@ import { confStore } from "@kolu/surface/server";
 import { Server as McpServer } from "@modelcontextprotocol/sdk/server/index.js";
 import { Schema } from "effect";
 import {
-  DEFAULT_CONDUCTOR_STATE,
   type ConductorFrame,
   type ConductorRow,
   type ConductorState,
+  DEFAULT_CONDUCTOR_STATE,
 } from "kolu-common/conductor";
+import {
+  type ConductorHost,
+  EMPTY_PERSISTED_CONDUCTOR,
+  type PersistedConductor,
+  PersistedConductorSchema,
+  type PersistedMembers,
+  type PersistedTranscript,
+  PersistedTranscriptSchema,
+  type PersistedWorks,
+  repointConductorAttachments,
+  startConductorHost,
+} from "kolu-conductor";
+import { hostOf, modeOf } from "kolu-work";
 import pino, { type Logger } from "pino";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
@@ -65,22 +78,9 @@ import {
   startFleetMcpEndpoint,
 } from "../fleet/mcpEndpoint.ts";
 import {
-  EMPTY_PERSISTED_CONDUCTOR,
-  PersistedConductorSchema,
-  PersistedTranscriptSchema,
-  repointConductorAttachments,
-  startConductorHost,
-  type ConductorHost,
-  type PersistedConductor,
-  type PersistedTranscript,
-  type PersistedMembers,
-  type PersistedWorks,
-} from "kolu-conductor";
-import { hostOf, modeOf } from "kolu-work";
-import {
-  TRANSCRIPT_FILE_VERSION,
   decodeStateBackup,
   store,
+  TRANSCRIPT_FILE_VERSION,
   worksFromWatched_1_50_0,
 } from "../state.ts";
 import { transcriptFilePath, transcriptFileStore } from "./transcriptFile.ts";
@@ -109,8 +109,9 @@ const THIRD_REF = "remote:box/33333333-3333-4333-8333-333333333333";
  * earlier builds stamped — one rung walks every one of those shapes through),
  * and 1.50.0 is the rung that turned the watch list into works and moved the
  * transcript into a file of its own; 1.51.0 sweeps the check ping-pong out of
- * the works that rung carried. */
-const STATE_SCHEMA_VERSION = "1.51.0";
+ * the works that rung carried; 1.52.0 moves a member's watch bookkeeping out of
+ * a work written by an earlier deployed build of this branch. */
+const STATE_SCHEMA_VERSION = "1.52.0";
 
 const log = {
   debug() {},

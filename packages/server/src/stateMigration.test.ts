@@ -32,9 +32,11 @@ import { afterEach, describe, expect, it } from "vitest";
 // below, which each build their own Conf under a fresh temp dir.
 import {
   collapseFlappingChecks_1_51_0,
-  TRANSCRIPT_FILE_VERSION,
+  decodeStateBackup,
+  memberWatchOutOfWorks_1_52_0,
   migrateConductorToWorks_1_50_0,
   stripLegacyStateKeys_1_31_0,
+  TRANSCRIPT_FILE_VERSION,
   worksFromWatched_1_50_0,
 } from "./state.ts";
 
@@ -497,5 +499,148 @@ describe("the 1.51.0 rung — the check ping-pong, swept out", () => {
     const conf = makeStore({ works: "nonsense" });
     collapseFlappingChecks_1_51_0(conf as never);
     expect(conf.get("works")).toBe("nonsense");
+  });
+});
+
+describe("the 1.52.0 rung — a store this branch wrote before the member bookkeeping moved", () => {
+  /** The human's REAL store, as their deployed build of this branch wrote it
+   *  (juspay/kolu#2376, round 3): stamped 1.50.0, each work member carrying a
+   *  `watch`, a top-level `members: {}`, decisions with no `header`, and the
+   *  429 flapping check events. Host names and home paths are replaced;
+   *  nothing else is touched. */
+  const DEPLOYED = JSON.parse(
+    readFileSync(
+      new URL("./fixtures/deployed-1.50.0-old-members.json", import.meta.url),
+      "utf8",
+    ),
+  ) as Record<string, unknown>;
+  const PLANNER = "remote:host-d/b05bbccd-4e62-408c-a590-5c5906ce7407";
+  const IMPL = "remote:host-d/415ebfc7-4a42-4561-a54b-c47f9d62284b";
+
+  it("brings the deployed store through the WHOLE ladder, and every persisted key decodes", () => {
+    // `decodeStateBackup` is the real ladder on a scratch copy, then the
+    // full persisted schema — works, members, conductor, preferences, hosts,
+    // viewerMode — decoded, throwing on any key that fails.
+    const decoded = decodeStateBackup(DEPLOYED, "the deployed store");
+    const work = decoded.works[0];
+    expect(work).toBeDefined();
+    // The members kept where they worked …
+    expect(
+      work?.members.map((one) => [one.terminal, one.role, one.worktree]),
+    ).toEqual([
+      [
+        PLANNER,
+        "planner",
+        "/home/person/code/odu/.worktrees/docs-human-reading",
+      ],
+      [
+        IMPL,
+        "implementor",
+        "/home/person/code/odu/.worktrees/docs-human-reading",
+      ],
+    ]);
+    // … and the bookkeeping moved to `members`, field for field.
+    expect(decoded.members[PLANNER]).toEqual({
+      name: "Planner: odu docs for human reading",
+      agent: "omp",
+      told: "stopped",
+      joined: "created-run",
+      spoken: true,
+      ran: true,
+    });
+    const implMember = (
+      (DEPLOYED.works as ReadonlyArray<Record<string, unknown>>)[0]
+        ?.members as ReadonlyArray<Record<string, unknown>>
+    ).find((one) => one.terminal === IMPL);
+    const { worktree: _worktree, ...implWatch } = (implMember?.watch ??
+      {}) as Record<string, unknown>;
+    expect(decoded.members[IMPL]).toEqual(implWatch);
+    // The 1.51.0 sweep ran on the same store: 429 flapping check events down
+    // to the first of each kind; every other event kept.
+    const kinds = work?.events.map((one) => one.kind) ?? [];
+    expect(kinds.filter((kind) => kind === "checks-running")).toHaveLength(1);
+    expect(kinds.filter((kind) => kind === "checks-passed")).toHaveLength(1);
+    expect(kinds).toHaveLength(465 - 213 - 214);
+    // Decisions got the header and file they were written without.
+    expect(
+      work?.decisions.every((one) => one.header === "" && one.file === ""),
+    ).toBe(true);
+    expect(work?.decisions).toHaveLength(8);
+  });
+
+  it("keeps a members entry that is already there — the newer writer's word wins", () => {
+    const conf = makeStore({
+      works: [
+        {
+          id: "w",
+          members: [
+            {
+              terminal: "local/a",
+              role: "planner",
+              joinedAt: "t",
+              leftAt: null,
+              watch: {
+                name: "old",
+                agent: null,
+                told: null,
+                joined: "asked",
+                spoken: false,
+                ran: false,
+                worktree: "/w",
+              },
+            },
+          ],
+          decisions: [],
+        },
+      ],
+      members: {
+        "local/a": {
+          name: "new",
+          agent: "omp",
+          told: "ready",
+          joined: "asked",
+          spoken: true,
+          ran: true,
+        },
+      },
+    });
+    memberWatchOutOfWorks_1_52_0(conf as never);
+    expect(
+      (conf.get("members") as Record<string, Record<string, unknown>>)[
+        "local/a"
+      ]?.name,
+    ).toBe("new");
+    const members = (
+      conf.get("works") as ReadonlyArray<Record<string, unknown>>
+    )[0]?.members as ReadonlyArray<Record<string, unknown>>;
+    expect(members[0]).toEqual({
+      terminal: "local/a",
+      role: "planner",
+      joinedAt: "t",
+      leftAt: null,
+      worktree: "/w",
+    });
+  });
+
+  it("passes a store already in the current shape through untouched", () => {
+    const current = {
+      id: "w",
+      members: [
+        {
+          terminal: "local/a",
+          role: "planner",
+          joinedAt: "t",
+          leftAt: null,
+          worktree: null,
+        },
+      ],
+      decisions: [
+        { id: "d", ask: "a", header: "Plan", file: ".waterfall/plan.md" },
+      ],
+    };
+    const conf = makeStore({ works: [current], members: {} });
+    memberWatchOutOfWorks_1_52_0(conf as never);
+    expect(conf.get("works")).toEqual([current]);
+    expect(conf.get("members")).toEqual({});
   });
 });
