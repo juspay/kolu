@@ -9,7 +9,10 @@ Feature: A piece of work is a stored thing
   state facts WHERE KOLU READS THEM — a file in the repo, a session file on
   disk, a pull request the repo's own `gh` answers with (the harness points
   `KOLU_GH_BIN` at a stand-in that answers from a file the scenario writes, see
-  `support/fake-gh.ts`) — and then read the card.
+  `support/fake-gh.ts`) — and then read the card. The pull request is read for
+  the WORK, from the branch its key names in the repository its key names, so
+  the scenarios that have a forge open their work IN the repo they wrote the
+  PR into and no terminal has to be alive for a merge to end the work.
 
   Background:
     Given the terminal is ready

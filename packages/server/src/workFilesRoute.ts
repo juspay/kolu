@@ -30,7 +30,7 @@
 import { type ServeResult, rawPathname, serveFile } from "@kolu/serve-dir";
 import { Effect } from "effect";
 import {
-  HttpRouter,
+  type HttpRouter,
   HttpServerRequest,
   type HttpServerResponse,
 } from "effect/http";
@@ -44,18 +44,36 @@ import { serveResultResponse } from "./iframePreviewRoute.ts";
 export const WORK_FILE_ROUTE_BASE = "/api/works";
 export const WORK_FILE_ROUTE_FILE_SEGMENT = "files";
 
-/** The route pattern. `:workId` is an ordinary param; the trailing `*` matches
- *  the file tail, which is deliberately NOT read from the router. */
-export const WORK_FILE_ROUTE_PATTERN =
-  `${WORK_FILE_ROUTE_BASE}/:workId/${WORK_FILE_ROUTE_FILE_SEGMENT}/*` as const;
+/** The route pattern. A work id CARRIES SLASHES (`branch:<host>/<repo>/<branch>`,
+ *  percent-encoded in the URL), and a router that decodes a path before
+ *  matching sees those `%2F`s as segment separators — a `:workId` param then
+ *  matches nothing and the request falls through to the SPA, which is served
+ *  as the file's "bytes" (a plan that renders kolu's own index.html, #2376).
+ *  So the whole tail is matched and parsed HERE, off the raw target. */
+export const WORK_FILE_ROUTE_PATTERN = `${WORK_FILE_ROUTE_BASE}/*` as const;
 
-/** The still-encoded path tail of a kept-file URL, off the RAW request target.
- *  `""` when the URL does not carry the prefix (the registration guarantees it
- *  does; the guard keeps this pure and total). */
-export function workFileTailFromRawUrl(rawUrl: string, workId: string): string {
-  const prefix = `${WORK_FILE_ROUTE_BASE}/${encodeURIComponent(workId)}/${WORK_FILE_ROUTE_FILE_SEGMENT}/`;
+/** The work id and the still-encoded file tail of a kept-file URL, off the RAW
+ *  request target — `null` when the URL is not one this route can answer.
+ *
+ *  Both halves come from the raw pathname rather than from a decoded one for
+ *  the reason `iframePreviewRoute.ts` states at length: a decode would turn
+ *  the id's own `%2F`s into separators and `foo/../secret` into `secret`. The
+ *  split is on the `/files/` segment, which the ENCODED id cannot contain. */
+export function workFileRequest(
+  rawUrl: string,
+): { readonly workId: string; readonly tail: string } | null {
+  const base = `${WORK_FILE_ROUTE_BASE}/`;
+  const marker = `/${WORK_FILE_ROUTE_FILE_SEGMENT}/`;
   const pathname = rawPathname(rawUrl);
-  return pathname.startsWith(prefix) ? pathname.slice(prefix.length) : "";
+  if (!pathname.startsWith(base)) return null;
+  const at = pathname.indexOf(marker, base.length);
+  if (at === -1) return null;
+  const encoded = pathname.slice(base.length, at);
+  if (encoded === "") return null;
+  return {
+    workId: decodeURIComponent(encoded),
+    tail: pathname.slice(at + marker.length),
+  };
 }
 
 const refusal = (body: string, status: number): ServeResult => ({
@@ -76,16 +94,16 @@ export const workFileRouteHandler = (options: {
 > =>
   Effect.gen(function* () {
     const request = yield* HttpServerRequest.HttpServerRequest;
-    const params = yield* HttpRouter.params;
-    const workId = params.workId;
-    // Unreachable through the registered pattern — stated rather than cast so
-    // the route is total.
-    if (workId === undefined) {
+    const asked = workFileRequest(request.url);
+    // A target this route cannot read a work and a file out of — unreachable
+    // through the registered pattern for a URL the client built, and stated
+    // rather than cast so the route is total.
+    if (asked === null) {
       return serveResultResponse(refusal("malformed work file route", 400));
     }
     let root: string;
     try {
-      root = workFilesDir(options.stateRoot, workDirOf(workId));
+      root = workFilesDir(options.stateRoot, workDirOf(asked.workId));
     } catch {
       // Unreachable for a hashed name (16 hex characters), and stated anyway
       // so the route is total: a directory that escapes the works corner is a
@@ -95,7 +113,7 @@ export const workFileRouteHandler = (options: {
     return serveResultResponse(
       yield* serveFile(
         root,
-        workFileTailFromRawUrl(request.url, workId),
+        asked.tail,
         request.headers.range,
         undefined,
         request.headers["if-range"],
