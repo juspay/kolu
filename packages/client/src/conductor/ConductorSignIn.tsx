@@ -1,4 +1,5 @@
-/** The way in, when the agent says nobody is signed in.
+/** The way in — when the agent says nobody is signed in, and when a PERSON
+ *  asks (a limit reached, the wrong account, a login that went stale).
  *
  *  The methods are the AGENT'S — kolu offers no API-key box, because an agent
  *  that wants a key has its own way of asking for one and a box here would be a
@@ -7,6 +8,13 @@
  *  which is why the output needs clickable URLs and the device code pulled out
  *  where a person can read it off the screen. An `agent`-run method is a page to
  *  visit and nothing to type.
+ *
+ *  WHO PUT IT HERE decides two things. The agent's row leads with its own
+ *  refusal and stays until the agent stops refusing; a row a person asked for
+ *  leads with where the signature is read from, can be closed again (`Not
+ *  now`), and offers to pick up a sign-in made OUTSIDE kolu — a running agent
+ *  keeps the credential it started with, so that is a restart into the same
+ *  conversation.
  *
  *  A second press on a running method ATTACHES to the attempt already going
  *  rather than starting a second process — the host owns that rule; this row
@@ -45,9 +53,21 @@ const ConductorSignIn: Component<{
   return (
     <section
       data-testid="conductor-signin"
+      data-cause={props.signIn.cause.kind}
       class="mx-3.5 mb-2 rounded-lg border border-attention/55 bg-attention/[0.08] px-3 py-2 text-xs"
     >
-      <p class="text-attention font-semibold mb-1">{props.signIn.why}</p>
+      {props.signIn.cause.kind === "agent" ? (
+        <p class="text-attention font-semibold mb-1">
+          {props.signIn.cause.why}
+        </p>
+      ) : (
+        <>
+          <p class="text-attention font-semibold mb-0.5">
+            Sign in again — the next message runs as whoever signs in here.
+          </p>
+          <p class="text-fg-3 mb-1">{props.signIn.cause.said}</p>
+        </>
+      )}
       <div class="flex flex-wrap gap-2">
         <For each={props.signIn.methods}>
           {(method) => (
@@ -65,6 +85,28 @@ const ConductorSignIn: Component<{
           )}
         </For>
       </div>
+      <Show when={props.signIn.cause.kind === "person" && attempt() === null}>
+        <div class="mt-2 flex flex-wrap gap-2">
+          <button
+            type="button"
+            data-testid="conductor-signin-reload"
+            class="rounded-md border border-edge-bright px-2.5 py-1 text-fg-2 hover:text-fg cursor-pointer"
+            // The restart takes this row with it: a new agent starts with no
+            // sign-in on screen.
+            onClick={() => orch.reloadAgent()}
+          >
+            Signed in elsewhere — restart the agent
+          </button>
+          <button
+            type="button"
+            data-testid="conductor-signin-close"
+            class="rounded-md border border-edge-bright px-2.5 py-1 text-fg-2 hover:text-fg cursor-pointer"
+            onClick={() => orch.signInCancel()}
+          >
+            Not now
+          </button>
+        </div>
+      </Show>
       <Show when={attempt()}>
         {(running) => (
           <div class="mt-2 space-y-2">

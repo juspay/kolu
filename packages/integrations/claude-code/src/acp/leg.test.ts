@@ -19,6 +19,7 @@
 import { describe, expect, test } from "vitest";
 
 import {
+  accountRefusalIn,
   allowedWithoutAsking,
   asksThroughForm,
   backgroundTaskIn,
@@ -86,6 +87,28 @@ const wrapped = (result: {
   readonly content: ReadonlyArray<{ type: "text"; text: string }>;
 }): { rawOutput: unknown } => ({
   rawOutput: result.content.map((part) => part.text).join("\n"),
+});
+
+describe("which refused turn another account could run", () => {
+  test("reads the SDK's error kind the adapter forwards, never the sentence", () => {
+    // The human's weekly limit: the SDK reports a usage limit as `rate_limit`.
+    expect(accountRefusalIn({ errorKind: "rate_limit" })).toBe(true);
+    for (const kind of [
+      "authentication_failed",
+      "oauth_org_not_allowed",
+      "billing_error",
+      "account_on_hold",
+    ])
+      expect(accountRefusalIn({ errorKind: kind })).toBe(true);
+    // What signing in cannot change.
+    for (const kind of ["overloaded", "server_error", "max_output_tokens"])
+      expect(accountRefusalIn({ errorKind: kind })).toBe(false);
+    // No structure is no answer — however much the words sound like a limit.
+    expect(accountRefusalIn({ details: "You've hit your weekly limit" })).toBe(
+      false,
+    );
+    expect(accountRefusalIn(undefined)).toBe(false);
+  });
 });
 
 describe("which permissions are answered without asking", () => {

@@ -3430,3 +3430,124 @@ When(
       .waitFor({ state: "detached", timeout: POLL_TIMEOUT });
   },
 );
+
+// ── signing in AGAIN ─────────────────────────────────────────────────────
+
+const IDENTITY = '[data-testid="conductor-identity"]';
+const SIGN_IN_ROW = '[data-testid="conductor-signin"]';
+
+/** The account the Conductor's agent says it is signed in as, off the
+ *  header's chip — the agent's own `_auth/status_update`, read where a person
+ *  reads it. */
+const accountShown = async (world: KoluWorld): Promise<string> =>
+  ((await world.page.locator(IDENTITY).textContent()) ?? "").trim();
+
+When("I note the conductor's account", async function (this: KoluWorld) {
+  await enterConductor(this);
+  await this.page
+    .locator(IDENTITY)
+    .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+  this.notedAccount = await accountShown(this);
+  assert.notEqual(this.notedAccount, "", "the account chip says nothing");
+});
+
+When(
+  "I ask to sign in again from the conductor menu",
+  async function (this: KoluWorld) {
+    await enterConductor(this);
+    await this.page.locator(MENU).click();
+    await waitForAtLeastOne(this, MENU_PANEL);
+    const door = this.page.locator('[data-testid="conductor-menu-signin"]');
+    // SIGNED IN AND STILL A DOOR, named for it.
+    assert.equal((await door.textContent())?.trim(), "Sign in again…");
+    await door.click();
+  },
+);
+
+Then(
+  "the sign-in row I asked for should offer {string}",
+  async function (this: KoluWorld, name: string) {
+    const row = this.page.locator(`${SIGN_IN_ROW}[data-cause="person"]`);
+    await row.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    await row
+      .locator('[data-testid="conductor-signin-method"]', { hasText: name })
+      .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+  },
+);
+
+When("I sign in with {string}", async function (this: KoluWorld, name: string) {
+  await this.page
+    .locator(`${SIGN_IN_ROW} [data-testid="conductor-signin-method"]`, {
+      hasText: name,
+    })
+    .click();
+});
+
+When("I close the sign-in row", async function (this: KoluWorld) {
+  await this.page.locator('[data-testid="conductor-signin-close"]').click();
+});
+
+Then("there should be no sign-in row", async function (this: KoluWorld) {
+  await waitForCount(this, SIGN_IN_ROW, 0);
+});
+
+Then(
+  "the conductor's account should have moved on",
+  async function (this: KoluWorld) {
+    const was = this.notedAccount;
+    assert.ok(was, "no account was noted before the sign-in");
+    await pollFor({
+      observe: () => accountShown(this),
+      isDone: (now) => now !== "" && now !== was,
+      timeoutMs: POLL_TIMEOUT,
+      onTimeout: (now, ms) =>
+        new Error(
+          `after ${ms}ms the account chip still reads ${JSON.stringify(now)} (it read ${JSON.stringify(was)} before the sign-in)`,
+        ),
+    });
+  },
+);
+
+Then(
+  "the conductor's account should be the one I noted",
+  async function (this: KoluWorld) {
+    assert.equal(await accountShown(this), this.notedAccount);
+  },
+);
+
+Then(
+  "the conductor should answer as the account it shows",
+  async function (this: KoluWorld) {
+    const shown = await accountShown(this);
+    await waitForAtLeastOne(
+      this,
+      `${TRANSCRIPT} ${ROW}[data-row-kind="agent"]:has-text(${JSON.stringify(`you are ${shown}`)})`,
+    );
+  },
+);
+
+Then(
+  "the refused message should offer to sign in again",
+  async function (this: KoluWorld) {
+    await this.page
+      .locator(
+        '[data-testid="conductor-user-mark"][data-mark="refused"][data-sign-in="account"]',
+      )
+      .last()
+      .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    await this.page
+      .locator('[data-testid="conductor-mark-signin"]')
+      .last()
+      .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+  },
+);
+
+When(
+  "I press sign in again beside the refused message",
+  async function (this: KoluWorld) {
+    await this.page
+      .locator('[data-testid="conductor-mark-signin"]')
+      .last()
+      .click();
+  },
+);

@@ -115,6 +115,11 @@ export interface Conductor {
    *  why this never asks anything a second time. */
   reopenWork(work: WorkId): void;
   signIn(method: string): void;
+  /** Ask for the sign-in row — signed in or not. */
+  askSignIn(): void;
+  /** Restart the agent into the same conversation, to pick up a signature
+   *  that changed outside it. */
+  reloadAgent(): void;
   signInInput(text: string): void;
   signInCancel(): void;
   setOption(id: string, value: string): void;
@@ -278,6 +283,15 @@ export const useConductor = createSharedRoot<Conductor>(() => {
       ask(
         "Could not cancel sign-in",
         app.procedures.conductor.signInCancel({}),
+      ),
+    askSignIn: () =>
+      ask("Could not open sign-in", app.procedures.conductor.askSignIn({})),
+    reloadAgent: () =>
+      ask(
+        "Could not restart the agent",
+        app.procedures.conductor.reloadAgent({}),
+        () =>
+          toast.success("Restarted — the next message uses the new sign-in"),
       ),
     setOption: (id, value) =>
       ask(

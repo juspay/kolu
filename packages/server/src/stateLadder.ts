@@ -1811,10 +1811,18 @@ const TRANSCRIPT_VERSION_1_55_0 = "1.55.0";
  *    drawing as a question the person already dealt with.
  *  - `ask.link` is gone and is dropped.
  *
+ *  A USER ROW'S `auth: true` — "refused, and nobody is signed in" — becomes
+ *  `signIn: "signed-out"`, the one arm of the reason a refusal signing in
+ *  could fix that this build's rows had a spelling for.
+ *
  *  PLAIN `ask` ROWS (the agent holding a call open on a person) are NOT
- *  touched: they keep the outcome shape they always had. A row whose ask
- *  already carries a `standing` has walked this rung, and a file with no such
- *  row is not rewritten at all.
+ *  touched: they keep the outcome shape they always had. A row that already
+ *  carries its new shape has walked this rung.
+ *
+ *  THE STAMP MOVES WHETHER OR NOT A ROW DID. The reader takes exactly the
+ *  version it was built with, so a file left at 1.53.0 because nothing in it
+ *  needed rewriting — a transcript after a New session, say — would be
+ *  refused by name on the very boot this rung ran.
  *
  *  Exported for `stateMigration.test.ts`. */
 export function workAskStanding_1_55_0(stateRoot: string): void {
@@ -1831,9 +1839,14 @@ export function workAskStanding_1_55_0(stateRoot: string): void {
   const record = recordOf(held);
   const rows = record === null ? null : record.rows;
   if (!Array.isArray(rows)) return;
-  let changed = false;
+  let changed = record?.version !== TRANSCRIPT_VERSION_1_55_0;
   const next = rows.map((value: unknown) => {
     const row = recordOf(value);
+    if (row !== null && row.kind === "user" && "auth" in row) {
+      changed = true;
+      const { auth, ...rest } = row;
+      return auth === true ? { ...rest, signIn: "signed-out" } : rest;
+    }
     if (row === null || row.kind !== "work-ask") return value;
     const ask = recordOf(row.ask);
     if (ask === null || "standing" in ask) return value;

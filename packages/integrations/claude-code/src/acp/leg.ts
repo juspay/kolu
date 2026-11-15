@@ -800,6 +800,38 @@ export const steerTaken = (answered: unknown): boolean =>
   (answered as { readonly outcome?: unknown } | null | undefined)?.outcome ===
   "injected";
 
+// ── a refusal another account could run ────────────────────────────────
+
+/**
+ * THE ERROR KINDS THAT ARE ABOUT THE ACCOUNT, as the pinned adapter forwards
+ * them. A turn the Claude SDK classifies as failed carries a categorical
+ * `error` on its assistant message, and adapter 0.81.2 rejects the prompt with
+ * `data: { errorKind }` (its own words: "sparing them from pattern-matching
+ * on text"). These are the kinds a different signature can change: the
+ * account cannot sign in or is not allowed, has no billing or is on hold, or
+ * has hit its usage limit — which the SDK reports as `rate_limit`, the same
+ * kind as a passing rate limit. Signing in is offered beside it, not forced:
+ * waiting is the other remedy, and the person reading the limit knows which.
+ */
+const ACCOUNT_ERROR_KINDS: ReadonlySet<string> = new Set([
+  "authentication_failed",
+  "oauth_org_not_allowed",
+  "billing_error",
+  "account_on_hold",
+  "rate_limit",
+]);
+
+/** Whether a refused request's `data` names one of
+ *  {@link ACCOUNT_ERROR_KINDS}. */
+export const accountRefusalIn = (data: unknown): boolean => {
+  if (typeof data !== "object" || data === null || !("errorKind" in data))
+    return false;
+  return (
+    typeof data.errorKind === "string" &&
+    ACCOUNT_ERROR_KINDS.has(data.errorKind)
+  );
+};
+
 // ── the leg ────────────────────────────────────────────────────────────
 
 /**
@@ -819,6 +851,7 @@ export const CLAUDE: Leg = {
   spelling,
   mcpCall: mcpCallBy(spelling),
   replyIn,
+  accountRefusal: accountRefusalIn,
   toolNameIn,
   // Nothing: a Claude call id is an opaque `toolu_…` and says nothing about the
   // tool. Reading it would answer for a call nothing has named, which is the

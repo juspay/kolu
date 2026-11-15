@@ -61,7 +61,7 @@ The message box never locks. While a turn is running:
 - <kbd>Enter</kbd> queues your message at the agent: it shows as _queued_ and runs when the turn is over. **Stop** cancels the turn, and queued messages still run.
 - <kbd>Alt</kbd> + <kbd>Enter</kbd> steers: your words go into the running turn and the Conductor reads them now. The status line shows **↯ Alt+⏎ steers** when you can.
 
-Steering is offered only when the agent supports it; a steer it cannot take is queued instead, so your words are never lost. A message with attachments is always queued, and after one queued message so is every later one.
+A steer the agent cannot take is queued instead, so your words are never lost. A message with attachments is always queued, and after one queued message so is every later one.
 
 ## The status line
 
@@ -110,7 +110,7 @@ A **piece of work is a branch**: one machine, one repository, one branch, or a t
 
 Every terminal joins with a **role**: planner, implementor, or other. It is in one work at a time, and the Conductor can adopt one you point it at, re-join one that left, or drop one whose part is done. The tools are on [the MCP page](/mcp#the-conductors-pieces-of-work).
 
-Losing terminals never ends a work: the card says **no terminals** and the Conductor is told once. kolu asks the work's host for the pull request on its branch whether or not a terminal is left, so a merge or a close still ends it, and an unreachable host concludes nothing. The `works` resource reads every work back for a fresh conversation.
+Losing terminals never ends a work: the card says **no terminals** and the Conductor is told once. kolu asks the work's host for the pull request on its branch whether or not a terminal is left, so a merge or a close still ends it, and an unreachable host concludes nothing.
 
 ### What a work holds
 
@@ -129,7 +129,7 @@ While a work is open, each member terminal is read-only to you. A border in the 
 
 ### The work card
 
-On a wide window the works stand in a column beside the chat, which gives way to [the reader](/read-a-plan) while a file is open. On a narrow window, or a phone, the status line's **N pieces of work** opens the same column above it.
+On a wide window the works stand in a column beside the chat, which gives way to [the reader](/read-a-plan) while a file is open.
 
 Each card shows its title and age, **repo · host · mode**, `PR #n`, where it stands, and a time bar split by who it has waited on: violet you, amber CI, teal the agents.
 
@@ -148,7 +148,7 @@ Press the head and it opens:
 
 A work ends two ways: the forge merges or closes its pull request, or **Stop** on the card ends it after a confirmation. An ended card shows how it ended, where the time went, the kept files, the decisions and the timeline. It never shows terminals, a lock or a question, and it offers **Reopen**. Declining the setup of a work nothing has happened in removes it.
 
-Finished works stand collapsed below the open ones. A conversation with no work shows no count, and the column reads **Nothing in progress.**
+Finished works stand collapsed below the open ones. With no work, the column reads **Nothing in progress.**
 
 ## Read the conversation
 
@@ -157,7 +157,7 @@ The header shows who the agent is signed in as, the **model**, the context used 
 | ⋯ menu item | What it does |
 | --- | --- |
 | **New session** | Starts an empty conversation: the messages and their attached files are deleted. The pieces of work stay. It asks first, and there is no undo. |
-| **Sign in…** | Shown while the agent is not signed in. |
+| **Sign in again…** | Opens the sign-in, even while signed in. **Sign in…** when not. |
 | **Copy transcript** | Copies the whole conversation as plain text. |
 | **How to use** | Opens the help. On a wide window it is a column beside the chat, folded away while a file is open. |
 | tool servers | `kolu ✓` when kolu's tools are attached, or the agent's reason when they are not. |
@@ -189,9 +189,9 @@ There are two limits: 10 MiB per file and 20 MiB per message. The message box sa
 
 ## Sign in
 
-If the agent is not signed in, the Conductor cannot run a turn. It shows the agent's own ways to sign in.
+Without a sign-in the agent cannot run a turn, and the Conductor shows its own ways to sign in. **Sign in again…** opens the same row while signed in, and a message refused for the account (a usage limit, billing) offers it beside the refusal.
 
-For Claude, kolu runs Claude's sign-in command, shows its links, and gives you a line to type the code into. The refused message is sent again once you are in. There is no box for an API key.
+For Claude, kolu runs Claude's sign-in command, shows its links, and takes the code. Then it restarts the agent into the same conversation, so the next message runs as the new account; **Signed in elsewhere** does that for a sign-in made outside kolu. There is no box for an API key.
 
 ## Run a waterfall
 

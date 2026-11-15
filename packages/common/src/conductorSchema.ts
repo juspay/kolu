@@ -189,6 +189,14 @@ export const promptAttachmentsTooBig = (bytes: number): string =>
 export const attachmentGone = (name: string): string =>
   `“${name}” is no longer on this host, so the message was not sent. Attach it again.`;
 
+/** WHY SIGNING IN COULD FIX A REFUSED MESSAGE — nobody is signed in, or the
+ *  account that is cannot run it. */
+export const ConductorSignInReasonSchema = Schema.Literals([
+  "signed-out",
+  "account",
+]);
+export type ConductorSignInReason = typeof ConductorSignInReasonSchema.Type;
+
 /** What a person typed. Never markdown — it is quoted, not rendered. */
 export const ConductorUserRowSchema = Schema.Struct({
   ...rowHead,
@@ -200,9 +208,11 @@ export const ConductorUserRowSchema = Schema.Struct({
    *  than `false`, because the writer only ever writes `true`. */
   queued: Schema.optionalKey(Schema.Literal(true)),
   delivery: Schema.optionalKey(ConductorDeliverySchema),
-  /** ...and why, on the one refusal with something to do about it: nobody is
-   *  signed in. The panel offers the sign-in row rather than a bare retry. */
-  auth: Schema.optionalKey(Schema.Literal(true)),
+  /** ...and, on a refusal SIGNING IN could fix, which kind: nobody is signed
+   *  in, or the account that is cannot run it (its limit, its billing, its
+   *  organisation). Read off what the agent sent as structure, never off its
+   *  words; the panel puts the sign-in door beside *send again*. */
+  signIn: Schema.optionalKey(ConductorSignInReasonSchema),
   /** What rode along with the words. A DECODING DEFAULT rather than an
    *  optional key, because this row is read back off `config.json` as well as
    *  off the wire: a transcript persisted before attachments existed has no
@@ -868,11 +878,29 @@ export const ConductorAuthMethodSchema = Schema.Struct({
   runs: Schema.Literals(["client", "agent"]),
 });
 
+/** WHO PUT THE SIGN-IN ON SCREEN — the agent, in its own refusal, or a person
+ *  who asked for it (a limit reached, the wrong account, a login that went
+ *  stale). Two arms rather than an empty sentence for "nobody refused":
+ *  which one it is decides whether the row can simply be closed again. */
+export const ConductorSignInCauseSchema = Schema.Union([
+  Schema.Struct({
+    kind: Schema.Literal("agent"),
+    /** The agent's own refusal, in its own words. */
+    why: Schema.String,
+  }),
+  Schema.Struct({
+    kind: Schema.Literal("person"),
+    /** What the harness has to say about signing in here: where the
+     *  signature is read from, or that the agent offered no way at all. */
+    said: Schema.String,
+  }),
+]);
+export type ConductorSignInCause = typeof ConductorSignInCauseSchema.Type;
+
 /** One sign-in per agent: a second press on the same method ATTACHES to the
  *  attempt already running rather than starting a second process. */
 export const ConductorSignInSchema = Schema.Struct({
-  /** The agent's own refusal, in its own words. */
-  why: Schema.String,
+  cause: ConductorSignInCauseSchema,
   methods: Schema.Array(ConductorAuthMethodSchema),
   attempt: Schema.NullOr(
     Schema.Struct({

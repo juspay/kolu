@@ -39,6 +39,7 @@
  */
 
 import type { AskField, AskLink, AskOutcome, FileDiff } from "@kolu/acp/wire";
+import type { ConductorSignInReason } from "kolu-common/conductor";
 import type {
   ConductorArmed,
   ConductorKoluCall,
@@ -495,9 +496,9 @@ export class Transcript {
    *  nothing is minted: what a person typed stays exactly where they typed it,
    *  with a mark saying it is still theirs to send — and the text it would take
    *  to send it again is the row's own, which is where the browser reads it. */
-  refused(key: string, auth = false): Change {
+  refused(key: string, signIn: ConductorSignInReason | "no"): Change {
     if (!this.#rows.has(key)) return EMPTY;
-    return this.#mark(key, "refused", auth);
+    return this.#mark(key, "refused", signIn);
   }
 
   /** NOTHING CAME BACK about that message, and that is all anybody can say. No
@@ -518,7 +519,7 @@ export class Transcript {
   #mark(
     key: string,
     delivery: "refused" | "unanswered" | null,
-    auth = false,
+    signIn: ConductorSignInReason | "no" = "no",
   ): Change {
     const current = this.#rows.get(key);
     if (current === undefined) return EMPTY;
@@ -529,21 +530,21 @@ export class Transcript {
     // stop saying it was.
     //
     // THE TWO KINDS A TURN IS THE DELIVERY OF are spelled apart rather than
-    // folded, because only one of them has an `auth` face: *nobody is signed
-    // in* is a refusal with a button under it, and the button belongs to words
+    // folded, because only one of them has a sign-in face: a refusal signing
+    // in could fix has a button beside it, and the button belongs to words
     // somebody typed. A wake is kolu's own line and its account is already in
     // the agent's store, so it carries the mark and nothing to press.
     if (current.kind === "user") {
       const {
         delivery: _delivery,
-        auth: _auth,
+        signIn: _signIn,
         ...content
       } = contentOf(current);
       if (delivery === null) return this.#put(key, content);
       return this.#put(key, {
         ...content,
         delivery,
-        ...(auth ? { auth: true as const } : {}),
+        ...(signIn === "no" ? {} : { signIn }),
       });
     }
     if (current.kind !== "wake") return EMPTY;

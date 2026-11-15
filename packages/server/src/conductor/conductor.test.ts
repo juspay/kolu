@@ -266,6 +266,7 @@ function fakeSpawner(): {
       // answered through `answerWork` with nothing waiting on them.
       answer: async () => true,
       signIn: async () => "signed-in",
+      askSignIn: () => {},
       signInInput: async () => {},
       signInCancel: async () => false,
       setOption: async () => {},
@@ -1116,6 +1117,34 @@ describe("a dead adapter (M3)", () => {
     first.die();
     await r.host.newSession();
     expect(r.spawns[1]?.options.resume).toBe("sess-opened");
+  });
+
+  it("RESTARTS the agent into the same conversation after a sign-in, and on a person's reload", async () => {
+    // A running adapter keeps the credential it read at `initialize`, so a
+    // sign-in that succeeded — or one made outside kolu — reaches the next
+    // turn only through a fresh one. The conversation must be the same.
+    const r = rig({
+      record: { sessionId: "sess-1", cwd: HOME, model: null, fleet: [] },
+      rows: [row("agent:1", 1, "an answer")],
+    });
+    await r.host.prompt("first", [], [], false);
+    const first = r.spawns[0];
+    if (first === undefined) throw new Error("the host spawned nothing");
+    first.push({
+      kind: "state",
+      state: { ...DEFAULT_CONDUCTOR_STATE, phase: "idle", sessionId: "sess-1" },
+    });
+
+    expect(await r.host.signIn("subscription")).toBe("signed-in");
+    expect(first.stops()).toBe(1);
+    expect(r.spawns).toHaveLength(2);
+    expect(r.spawns[1]?.options.resume).toBe("sess-1");
+
+    // ... and the door for a sign-in made OUTSIDE kolu is the same restart.
+    await r.host.reloadAgent();
+    expect(r.spawns[1]?.stops()).toBe(1);
+    expect(r.spawns).toHaveLength(3);
+    expect(r.spawns[2]?.options.resume).toBe("sess-1");
   });
 
   it("fences the REPLACEMENT on the rows we still hold (R2)", async () => {

@@ -124,6 +124,9 @@ export function conductorSurfaceMembers(deps: {
         ask<void, ConductorUnavailable>(async () => {
           await host().signInCancel();
         }),
+      askSignIn: () =>
+        ask<void, ConductorUnavailable>(() => host().askSignIn()),
+      reloadAgent: () => ask(() => host().reloadAgent()),
       setOption: ({ input }: { input: { id: string; value: string } }) =>
         ask(() => host().setOption(input.id, input.value)),
       newSession: () => ask(() => host().newSession()),

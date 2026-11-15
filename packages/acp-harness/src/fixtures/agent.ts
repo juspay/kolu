@@ -91,8 +91,17 @@ const respond = (id: unknown, result: unknown): void => {
   write({ jsonrpc: "2.0", id, result });
 };
 
-const refuse = (id: unknown, code: number, message: string): void => {
-  write({ jsonrpc: "2.0", id, error: { code, message } });
+const refuse = (
+  id: unknown,
+  code: number,
+  message: string,
+  data?: unknown,
+): void => {
+  write({
+    jsonrpc: "2.0",
+    id,
+    error: data === undefined ? { code, message } : { code, message, data },
+  });
 };
 
 const update = (sessionId: string, body: unknown): void => {
@@ -463,7 +472,19 @@ function handle(message: Message): void {
         // no interruption at all and the steer lane would be unreachable.
         _meta: { steering: { supported: true } },
         authMethods: [
-          { id: "subscription", name: "Claude subscription", type: "terminal" },
+          {
+            id: "subscription",
+            name: "Claude subscription",
+            type: "terminal",
+            // A login that finishes at once — so a person signing in AGAIN
+            // (another account, a stale login) runs to "signed-in" here.
+            _meta: {
+              "terminal-auth": {
+                command: process.execPath,
+                args: ["-e", "process.stdout.write('signed in\\n')"],
+              },
+            },
+          },
         ],
       });
       return;
@@ -902,6 +923,15 @@ function turn(message: Message): void {
   if (text === "fail") {
     process.stderr.write("fixture-agent: json-rpc boom\n");
     refuse(message.id, -32603, "the model said no");
+    return;
+  }
+  if (text === "limit") {
+    // THE ACCOUNT AT ITS LIMIT, the way the pinned Claude adapter refuses a
+    // turn for it: `-32603` with the SDK's categorical error kind in `data`.
+    // The sentence is the human's own and nothing is read off it.
+    refuse(message.id, -32603, "You've hit your weekly limit · resets 4pm", {
+      errorKind: "rate_limit",
+    });
     return;
   }
   says("hello back");

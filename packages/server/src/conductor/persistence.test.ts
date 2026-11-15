@@ -372,6 +372,7 @@ function hostOver(): {
         cancel: async () => {},
         answer: async () => true,
         signIn: async () => "signed-in",
+        askSignIn: () => {},
         signInInput: async () => {},
         signInCancel: async () => false,
         setOption: async () => {},

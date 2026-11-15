@@ -29,6 +29,12 @@
  *                      to be marked `queued` behind it
  *   refuse this      — a JSON-RPC error, which is a turn that ENDED rather than
  *                      an agent that has gone
+ *   hit the limit    — the account at its usage limit: a JSON-RPC error whose
+ *                      `data.errorKind` is `rate_limit`, as the pinned adapter
+ *                      sends it, so the row offers the sign-in beside it
+ *   who am I         — `you are <account>`: the account this PROCESS read at
+ *                      start, which its advertised login moves on, so a
+ *                      sign-in shows only once the agent is started again
  *   list the fleet   — the ONE verb that is not scripted: it opens a real MCP
  *                      session on the fleet endpoint this session was handed
  *                      and reads the roster + every host's terminals, then
@@ -103,7 +109,7 @@
  */
 
 import { randomUUID } from "node:crypto";
-import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { FIXTURE_HARNESS } from "./agentDistroFixture.ts";
 
@@ -139,6 +145,21 @@ const respond = (id: unknown, result: unknown): void => {
 const refuse = (id: unknown, message: string): void => {
   write({ jsonrpc: "2.0", id, error: { code: -32603, message } });
 };
+
+/** WHO THIS PROCESS IS SIGNED IN AS — read ONCE, at start, the way the pinned
+ *  adapter caches the account it read at `initialize`: a login that changes
+ *  the store is invisible to a running process until it is started again.
+ *  The store's `.account` holds a count the login moves on, so a scenario
+ *  compares the account before and after rather than naming one. */
+const ACCOUNT_FILE = join(STORE, ".account");
+const ACCOUNT = existsSync(ACCOUNT_FILE)
+  ? `account-${readFileSync(ACCOUNT_FILE, "utf8").trim()}`
+  : "account-0";
+
+/** The login this agent advertises: a command that moves the store's account
+ *  on by one and exits 0 — what `claude auth login` does to its store, minus
+ *  the browser. */
+const LOGIN = `const f=${JSON.stringify(ACCOUNT_FILE)},fs=require("fs");fs.writeFileSync(f,String((fs.existsSync(f)?Number(fs.readFileSync(f,"utf8")):0)+1));process.stdout.write("signed in\\n")`;
 
 const update = (frame: unknown): void => {
   write({
@@ -821,6 +842,25 @@ const turn = async (
     refuse(id, "the model said no");
     return;
   }
+  if (text === "hit the limit") {
+    // THE ACCOUNT AT ITS LIMIT, as the pinned adapter refuses a turn for it:
+    // the SDK's categorical error kind in `data`, never read off the words.
+    write({
+      jsonrpc: "2.0",
+      id,
+      error: {
+        code: -32603,
+        message: "You've hit your weekly limit · resets 4pm",
+        data: { errorKind: "rate_limit" },
+      },
+    });
+    return;
+  }
+  if (text === "who am I") {
+    say(`you are ${ACCOUNT}`);
+    endTurn(id);
+    return;
+  }
   if (text === "work slowly") {
     const slept = Promise.withResolvers<void>();
     setTimeout(slept.resolve, 1500);
@@ -1079,6 +1119,28 @@ process.stdin.on("data", (chunk: string) => {
             _meta: { claudeCode: { promptQueueing: true } },
           },
           _meta: { steering: { supported: true } },
+          // ONE LOGIN, run by the client — the shape the pinned adapter
+          // advertises for `claude auth login`.
+          authMethods: [
+            {
+              id: "claude-ai-login",
+              name: "Claude account",
+              type: "terminal",
+              _meta: {
+                "terminal-auth": {
+                  command: process.execPath,
+                  args: ["-e", LOGIN],
+                },
+              },
+            },
+          ],
+        });
+        // ... and WHO IT IS, said the way the adapter says it: on the
+        // connection, not on a session.
+        write({
+          jsonrpc: "2.0",
+          method: "_auth/status_update",
+          params: { authStatus: { kind: "account", label: ACCOUNT } },
         });
         continue;
       case "session/new":

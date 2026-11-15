@@ -97,7 +97,7 @@ import { Calls } from "./calls.ts";
 import { type Child, childEnvOf, start as startChild } from "./child.ts";
 import { Fleet, koluCallOf, refineKoluCall } from "./kolu.ts";
 import {
-  authOf,
+  signInOf,
   completionIdOf,
   detailOf,
   fromElsewhere,
@@ -111,6 +111,7 @@ import {
   saidOf,
   textOf,
 } from "./payloads.ts";
+import type { ConductorSignInReason } from "kolu-common/conductor";
 import { streamOver } from "./pipes.ts";
 import { AnswerRefused, Questions } from "./questions.ts";
 import type {
@@ -328,6 +329,9 @@ export interface Harness {
     answers: ReadonlyArray<AskAnswer> | null,
   ): Promise<boolean>;
   signIn(method: string): Promise<SignedIn>;
+  /** A person asks to sign in — signed in or not. Puts the sign-in row on
+   *  screen unless one is there already. */
+  askSignIn(): void;
   signInInput(text: string): Promise<void>;
   signInCancel(): Promise<boolean>;
   setOption(id: string, value: string): Promise<void>;
@@ -373,17 +377,19 @@ export class HarnessUnavailable extends Error {
  *
  *  Also this end's own no, on the one path where there is one: an answer that
  *  does not typecheck against the schema the agent asked in is refused HERE
- *  and never sent. Same shape, same `auth: false`, and the sentence says which
+ *  and never sent. Same shape, same `signIn: "no"`, and the sentence says which
  *  end said it — what a caller does with either is identical, which is why
  *  there is not a third class. */
 export class HarnessRefused extends Error {
   readonly why: string;
-  readonly auth: boolean;
-  constructor(why: string, auth: boolean) {
+  /** Whether signing in could fix it, and which kind — nobody is signed in,
+   *  or the account that is cannot run it — or `no`. */
+  readonly signIn: ConductorSignInReason | "no";
+  constructor(why: string, signIn: ConductorSignInReason | "no") {
     super(why);
     this.name = "HarnessRefused";
     this.why = why;
-    this.auth = auth;
+    this.signIn = signIn;
   }
 }
 
@@ -791,12 +797,12 @@ export const startHarness = async (
     }
   };
 
-  /** One rejection, read twice: whether the AGENT answered it, and whether it
-   *  answered for want of a signature. */
+  /** One rejection, read twice: whether the AGENT answered it, and whether
+   *  signing in could fix it. */
   const refusalOf = (method: string, cause: unknown): Error => {
     const why = `\`${method}\` failed: ${saidOf(cause)}`;
     if (goneOf(cause) === "refused") {
-      return new HarnessRefused(why, authOf(cause));
+      return new HarnessRefused(why, signInOf(cause, leg));
     }
     return new HarnessUnavailable(why);
   };
@@ -1674,7 +1680,8 @@ export const startHarness = async (
         LOAD_TIMEOUT,
       )) as LoadSessionResponse | undefined;
     } catch (cause) {
-      if (!(cause instanceof HarnessRefused) || cause.auth) throw cause;
+      if (!(cause instanceof HarnessRefused) || cause.signIn === "signed-out")
+        throw cause;
       lost = cause.why;
     } finally {
       replaying = false;
@@ -1763,7 +1770,7 @@ export const startHarness = async (
         // of a session this harness has left.
         closed.add(id);
         throw cause instanceof HarnessRefused
-          ? new HarnessRefused(why, cause.auth)
+          ? new HarnessRefused(why, cause.signIn)
           : new HarnessUnavailable(why);
       }
       notice(`${why} — carrying on with the mode the agent chose`);
@@ -1922,10 +1929,39 @@ export const startHarness = async (
   const offerSignIn = (why: string): void => {
     if (attempt !== null) return;
     signIn = {
-      why: `${why} — ${offered.length === 0 ? nothingOffered() : storedAt}.`,
+      cause: {
+        kind: "agent",
+        why: `${why} — ${offered.length === 0 ? nothingOffered() : storedAt}.`,
+      },
       methods: offered.map((one) => one.method),
       attempt: null,
     };
+  };
+
+  /** WHAT A PERSON IS TOLD when THEY ask to sign in: where the signature is
+   *  read from, or — for an agent that advertised no method — exactly what
+   *  was asked and what came back. */
+  const askedFor = (): ConductorSignIn["cause"] => ({
+    kind: "person",
+    said: `${offered.length === 0 ? nothingOffered() : storedAt}.`,
+  });
+
+  /**
+   * A PERSON ASKS TO SIGN IN — signed in already or not. The agent offers a
+   * sign-in only when IT refuses something; somebody whose account hit its
+   * limit, or is the wrong one, or whose login went stale has no refusal to
+   * wait for, and this is their door. The same row and the same methods the
+   * handshake advertised. An offer already on screen — the agent's own, or a
+   * running attempt — is left exactly as it is.
+   */
+  const askSignIn = (): void => {
+    if (stopped || signIn !== null) return;
+    signIn = {
+      cause: askedFor(),
+      methods: offered.map((one) => one.method),
+      attempt: null,
+    };
+    publish();
   };
 
   /**
@@ -1942,7 +1978,7 @@ export const startHarness = async (
    */
   const refusedOpen = (cause: unknown): boolean => {
     refusal = messageOf(cause);
-    if (cause instanceof HarnessRefused && cause.auth) {
+    if (cause instanceof HarnessRefused && cause.signIn === "signed-out") {
       offerSignIn(cause.why);
       publish();
       return true;
@@ -2054,14 +2090,14 @@ export const startHarness = async (
         log.warn({ said }, "the agent's own words for a turn that failed");
       const why = messageOf(cause);
       if (cause instanceof HarnessRefused) {
-        report(transcript.refused(ticket.key, cause.auth));
+        report(transcript.refused(ticket.key, cause.signIn));
         // A TURN REFUSED FOR WANT OF A SIGNATURE IS THE OTHER DOOR onto the
         // sign-in, and on the pinned pair it is the FIRST one a person reaches:
         // the conversation opened, the composer was there, and `-32000` is what
         // came back from `session/prompt`. Without this the only remedy stayed
         // off the screen for the whole life of a process that had already said
         // exactly what was wrong.
-        if (cause.auth) {
+        if (cause.signIn === "signed-out") {
           offerSignIn(cause.why);
           publish();
         }
@@ -2163,7 +2199,7 @@ export const startHarness = async (
       );
       if (steering.taken(answered)) return "handled";
       if (aimed.stopped) {
-        report(transcript.refused(key));
+        report(transcript.refused(key, "no"));
         notice(CANCELLED_UNDER_IT);
         publish();
         return "handled";
@@ -2174,8 +2210,8 @@ export const startHarness = async (
       // knows whether anything answered — and it is the one fact the row's two
       // faces are drawn out of.
       if (cause instanceof HarnessRefused) {
-        report(transcript.refused(key, cause.auth));
-        if (cause.auth) offerSignIn(cause.why);
+        report(transcript.refused(key, cause.signIn));
+        if (cause.signIn === "signed-out") offerSignIn(cause.why);
       } else {
         report(transcript.unanswered(key));
       }
@@ -2322,7 +2358,7 @@ export const startHarness = async (
         // never got.
         throw new HarnessRefused(
           `that answer was not sent: ${cause.message}`,
-          false,
+          "no",
         );
       }
       throw cause;
@@ -2448,7 +2484,7 @@ export const startHarness = async (
     if (value !== "true" && value !== "false") {
       throw new HarnessRefused(
         `\`${option.name}\` is a switch and takes \`true\` or \`false\`, not \`${value}\``,
-        false,
+        "no",
       );
     }
     return { type: "boolean", value: value === "true" };
@@ -2462,11 +2498,10 @@ export const startHarness = async (
     // took away must not come back behind it.
     if (running.stopping) return;
     signIn = {
-      // The agent's own sentence, which is on the state already: it is the
-      // refusal that made this sign-in offerable in the first place. An empty
-      // one means nobody refused anything and somebody asked for a sign-in
-      // anyway, which is a true thing to say and not a row anybody draws.
-      why: signIn?.why ?? refusal ?? "",
+      // Whoever put the sign-in on screen, which is on the state already: the
+      // agent's refusal, or the person who asked. An attempt started with no
+      // row on screen at all was asked for by somebody pressing it.
+      cause: signIn?.cause ?? askedFor(),
       methods: offered.map((one) => one.method),
       attempt: {
         method: running.method,
@@ -2482,7 +2517,7 @@ export const startHarness = async (
     signIn =
       signIn === null
         ? null
-        : { why: signIn.why, methods: signIn.methods, attempt: null };
+        : { cause: signIn.cause, methods: signIn.methods, attempt: null };
     publish();
   };
 
@@ -2509,14 +2544,14 @@ export const startHarness = async (
       if (running.method === method) return "attached";
       throw new HarnessRefused(
         `a sign-in is already running (${running.label})`,
-        false,
+        "no",
       );
     }
     const found = offered.find((one) => one.method.id === method);
     if (found === undefined) {
       throw new HarnessRefused(
         `\`${method}\` is not a sign-in this agent offers`,
-        false,
+        "no",
       );
     }
     // THE CLAIM, taken with nothing awaited between reading the slot and
@@ -2699,22 +2734,33 @@ export const startHarness = async (
     if (write === null) {
       throw new HarnessRefused(
         "no sign-in is waiting for a line to be typed into it",
-        false,
+        "no",
       );
     }
     write(`${text}\n`);
   };
 
-  /** ... and stopping it. The boolean is whether there was anything to stop: a
-   *  cancel with nothing behind it is a stale tab, not a failure. */
+  /** ... and stopping it — or, for a row a PERSON asked for, closing it: a
+   *  sign-in somebody asked for and then thought better of leaves everything
+   *  as it was. The agent's own offer stays, with its methods, because the
+   *  refusal behind it still stands. The boolean is whether there was
+   *  anything to stop: a cancel with nothing behind it is a stale tab, not a
+   *  failure. */
   const signInCancel = async (): Promise<boolean> => {
     const running = attempt;
+    if (running !== null) {
+      // Set BEFORE the stop, because the runner reads it on its way out:
+      // which of the two endings this is depends on whether a PERSON asked,
+      // and this is the only moment that is known.
+      running.stopping = true;
+      await running.stop();
+    }
+    if (signIn?.cause.kind === "person") {
+      signIn = null;
+      publish();
+      return true;
+    }
     if (running === null) return false;
-    // Set BEFORE the stop, because the runner reads it on its way out: which of
-    // the two endings this is depends on whether a PERSON asked, and this is
-    // the only moment that is known.
-    running.stopping = true;
-    await running.stop();
     clearAttempt();
     return true;
   };
@@ -2760,6 +2806,7 @@ export const startHarness = async (
     cancel,
     answer,
     signIn: doSignIn,
+    askSignIn,
     signInInput,
     signInCancel,
     setOption,
@@ -2896,7 +2943,7 @@ const blocksOf = async (
       throw new HarnessRefused(
         `\`${one.name}\` is ${sized(one.bytes)} and the most one attachment` +
           ` may carry is ${sized(ATTACHMENT_CAP)}`,
-        false,
+        "no",
       );
     }
     total += one.bytes;
@@ -2904,7 +2951,7 @@ const blocksOf = async (
       throw new HarnessRefused(
         `that is ${sized(total)} of attachments and the most one message may` +
           ` carry is ${sized(PROMPT_CAP)}`,
-        false,
+        "no",
       );
     }
     // ONE AT A TIME rather than in parallel: the blocks ride the prompt in
@@ -2926,7 +2973,7 @@ const blockOf = async (
       throw new HarnessRefused(
         `this agent did not advertise \`image\` at \`initialize\`, so` +
           ` \`${one.name}\` cannot be sent to it`,
-        false,
+        "no",
       );
     }
     return {
@@ -2940,7 +2987,7 @@ const blockOf = async (
       throw new HarnessRefused(
         `this agent did not advertise \`embeddedContext\` at \`initialize\`,` +
           ` so the contents of \`${one.name}\` cannot be sent to it`,
-        false,
+        "no",
       );
     }
     return {
@@ -2998,7 +3045,7 @@ const bytesOf = async (one: ConductorAttachment): Promise<Buffer> => {
     throw new HarnessRefused(
       `\`${one.name}\` is no longer readable at \`${one.path}\`, so there are` +
         ` no bytes to send`,
-      false,
+      "no",
     );
   }
 };

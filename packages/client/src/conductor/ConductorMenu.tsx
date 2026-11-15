@@ -13,10 +13,11 @@
  *  one implementation rather than a third hand-rolled dropdown.
  *
  *  WHAT IS OFFERED IS WHAT IS TRUE. `Stop` exists only while a turn is
- *  running (there is nothing to stop otherwise), and `Sign in…` only while
- *  the agent is not signed in. Neither is drawn disabled: a greyed row is a
- *  row a person reads, reaches for and then has to work out, and the fact
- *  behind both is already on the wire.
+ *  running (there is nothing to stop otherwise). Signing in is always here —
+ *  `Sign in again…` while signed in, `Sign in…` while not — because the
+ *  agent offers a sign-in only when IT refuses something, and an account at
+ *  its limit is still signed in. No row is drawn disabled: a greyed row is a
+ *  row a person reads, reaches for and then has to work out.
  *
  *  IT ALSO HOLDS THE ROSTER. `kolu ✓ · plus the agent's own` was a strip
  *  above every conversation — a permanent row answering a question a person
@@ -141,17 +142,19 @@ const ConductorMenu: Component<{
               Stop
             </button>
           </Show>
-          <Show when={!props.signedIn}>
-            <button
-              type="button"
-              role="menuitem"
-              data-testid="conductor-menu-signin"
-              class="mt-1 w-full text-left px-2 py-1 rounded-md text-xs text-fg hover:bg-surface-2 cursor-pointer"
-              onClick={() => pick(() => props.onSignIn())}
-            >
-              Sign in…
-            </button>
-          </Show>
+          {/* ALWAYS A DOOR. Signed in or not: an account at its limit, the
+              wrong account and a login that went stale are all signed in,
+              and the agent offers nothing for them. */}
+          <button
+            type="button"
+            role="menuitem"
+            data-testid="conductor-menu-signin"
+            data-signed-in={props.signedIn ? "" : undefined}
+            class="mt-1 w-full text-left px-2 py-1 rounded-md text-xs text-fg hover:bg-surface-2 cursor-pointer"
+            onClick={() => pick(() => props.onSignIn())}
+          >
+            {props.signedIn ? "Sign in again…" : "Sign in…"}
+          </button>
           <button
             type="button"
             role="menuitem"

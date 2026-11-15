@@ -701,11 +701,23 @@ export interface ConductorHost {
       values: ReadonlyArray<string>;
     }> | null,
   ) => Promise<boolean>;
+  /** RUN A SIGN-IN METHOD. One that succeeds RESTARTS the agent into the same
+   *  conversation ({@link ConductorHost.reloadAgent}): a running agent keeps
+   *  the credential it started with, and the next turn must be the new
+   *  account's. */
   readonly signIn: (
     method: string,
   ) => Promise<"signed-in" | "failed" | "cancelled" | "attached">;
+  /** A PERSON ASKS TO SIGN IN — signed in already or not. Puts the sign-in
+   *  row on screen with the methods the agent advertised. */
+  readonly askSignIn: () => Promise<void>;
   readonly signInInput: (text: string) => Promise<void>;
   readonly signInCancel: () => Promise<boolean>;
+  /** PICK UP A SIGNATURE THAT CHANGED UNDER THE AGENT — signed in again here,
+   *  or outside kolu. The adapter is stopped and started again, which is the
+   *  fresh `initialize` its new credential needs, and it comes back into the
+   *  SAME conversation (`resume`, the session it is in now). */
+  readonly reloadAgent: () => Promise<void>;
   readonly setOption: (id: string, value: string) => Promise<void>;
   /** A NEW CONVERSATION OVER THE SAME TRANSCRIPT. The agent's memory is
    *  reset and the scroll above it stays, with the divider the harness mints
@@ -1694,7 +1706,10 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
         throw new ConductorUnavailable({ why: err.why });
       }
       if (err instanceof HarnessRefused) {
-        throw new ConductorRefused({ why: err.why, auth: err.auth });
+        throw new ConductorRefused({
+          why: err.why,
+          auth: err.signIn === "signed-out",
+        });
       }
       throw err;
     }
@@ -1711,6 +1726,17 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
         "kolu-server: the conductor's agent did not stop cleanly",
       );
     }
+  };
+
+  /** THE AGENT, STARTED AGAIN into the conversation it is in. `live()` spawns
+   *  with `resume` — the session id the last state named — so the restart is
+   *  the same conversation with a fresh `initialize`, which is when the
+   *  adapter reads its signature. */
+  const reload = async (): Promise<void> => {
+    const running = harness;
+    harness = null;
+    if (running !== null) await stopQuietly(running);
+    await ask(async () => undefined);
   };
 
   /** THE KEYS CHANGED HANDS — the event, the file, the readers, and the
@@ -2279,9 +2305,18 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
     },
     cancel: () => ask((agent) => agent.cancel()),
     answer: (askId, answers) => ask((agent) => agent.answer(askId, answers)),
-    signIn: (method) => ask((agent) => agent.signIn(method)),
+    signIn: async (method) => {
+      const ended = await ask((agent) => agent.signIn(method));
+      // THE NEW SIGNATURE IS THE ONE THE NEXT TURN USES. The adapter caches
+      // the account it read at `initialize`; its own note says a credential
+      // that replaces it "is invisible until a new `initialize` runs".
+      if (ended === "signed-in") await reload();
+      return ended;
+    },
+    askSignIn: () => ask(async (agent) => agent.askSignIn()),
     signInInput: (text) => ask((agent) => agent.signInInput(text)),
     signInCancel: () => ask((agent) => agent.signInCancel()),
+    reloadAgent: () => reload(),
     setOption: (id, value) => ask((agent) => agent.setOption(id, value)),
     newSession: () => ask((agent) => agent.newSession()),
     clearSession: () =>

@@ -115,6 +115,8 @@ describe("surfaces map — two siblings (the W1 padi seam)", () => {
       "signIn",
       "signInInput",
       "signInCancel",
+      "askSignIn",
+      "reloadAgent",
       "setOption",
       "newSession",
       "clearSession",

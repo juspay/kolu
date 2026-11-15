@@ -38,7 +38,6 @@
 
 import { makeEventListener } from "@solid-primitives/event-listener";
 import { type Component, createMemo, createSignal, Show } from "solid-js";
-import { toast } from "solid-sonner";
 import { useDialogStack } from "../ui/useDialogStack";
 import { attachDroppedFiles } from "./attachFiles";
 import { completionOpen } from "./drafts";
@@ -237,14 +236,10 @@ const ConductorPane: Component<{
             <ConductorHeader
               state={state()}
               rows={feed.rows()}
-              onSignIn={() => {
-                if (state().signIn !== null) return;
-                // Nothing to offer is a fact about the AGENT, not a button that
-                // quietly does nothing: it has not asked anybody to sign in.
-                toast.info(
-                  `${state().agentName} has not offered a way to sign in`,
-                );
-              }}
+              // A REAL CALL: the harness puts the sign-in row up with the
+              // methods its handshake advertised, or the sentence saying it
+              // advertised none — never a row this end pretends to have.
+              onSignIn={() => orch.askSignIn()}
             />
             {/* THE FRAME. Tracks declared once and ALWAYS declared: the
                 reading column, the side column beside it on a window wide

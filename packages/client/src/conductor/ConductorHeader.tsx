@@ -42,7 +42,7 @@ const ConductorHeader: Component<{
   state: ConductorState;
   /** The transcript as it is drawn, for the menu's `Copy transcript`. */
   rows: readonly ConductorRow[];
-  /** Opens the sign-in row from the menu's `Sign in…`. */
+  /** Opens the sign-in row from the menu's `Sign in…` / `Sign in again…`. */
   onSignIn: () => void;
 }> = (props) => {
   let modelRef!: HTMLButtonElement;
@@ -64,9 +64,10 @@ const ConductorHeader: Component<{
   });
   const usage = () => props.state.usage;
   const identity = () => props.state.identity;
-  /** KNOWN signed in. The cell's rule is that silence is not logged out, so
-   *  `null` leaves `Sign in…` on the menu — an agent that never said is an
-   *  agent a person may still have to sign in. */
+  /** KNOWN signed in — which only changes what the menu's door is CALLED. The
+   *  cell's rule is that silence is not logged out, so `null` reads as
+   *  `Sign in…`: an agent that never said is one a person may still have to
+   *  sign in. */
   const signedIn = () => {
     const who = identity();
     return who !== null && who.kind !== "none";

@@ -2006,6 +2006,56 @@ describe("the 1.55.0 rung — no hole in the work model", () => {
     expect(readFileSync(transcriptFilePath(dir), "utf8")).toBe(again);
   });
 
+  it("restamps a transcript with no work-ask row, and names why a refusal was signed out", () => {
+    // A transcript after a New session holds no form at all — and the reader
+    // takes exactly the stamp it was built with, so leaving this at 1.53.0
+    // would refuse the file on the boot that ran the rung.
+    const dir = mkdtempSync(join(tmpdir(), "kolu-transcript-stamp-"));
+    dirs.push(dir);
+    writeTranscriptFile(transcriptFilePath(dir), "1.53.0", [
+      {
+        key: "u-1",
+        at: AT,
+        kind: "user",
+        text: "hi",
+        delivery: "refused",
+        auth: true,
+      },
+      {
+        key: "u-2",
+        at: AT,
+        kind: "user",
+        text: "and you",
+        delivery: "refused",
+      },
+    ] as never);
+
+    workAskStanding_1_55_0(dir);
+
+    const file = readJson(transcriptFilePath(dir));
+    expect(file.version).toBe(TRANSCRIPT_FILE_VERSION);
+    expect(file.rows).toEqual([
+      {
+        key: "u-1",
+        at: AT,
+        kind: "user",
+        text: "hi",
+        delivery: "refused",
+        signIn: "signed-out",
+      },
+      {
+        key: "u-2",
+        at: AT,
+        kind: "user",
+        text: "and you",
+        delivery: "refused",
+      },
+    ]);
+    const again = readFileSync(transcriptFilePath(dir), "utf8");
+    workAskStanding_1_55_0(dir);
+    expect(readFileSync(transcriptFilePath(dir), "utf8")).toBe(again);
+  });
+
   it("writes nothing when every work is already in the new shape", () => {
     const { state } = walk({ works: workWith([decision({ id: "d" })]) });
     const dir = mkdtempSync(join(tmpdir(), "kolu-no-null-again-"));
