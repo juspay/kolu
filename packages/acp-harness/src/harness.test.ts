@@ -46,9 +46,9 @@ const FIXTURES = path.join(import.meta.dirname, "fixtures");
 const CONFIG_DIR = "/tmp/kolu-test-home/.claude";
 
 /** The standing prompt, as DATA — padi's words now
- *  (`packages/padi/src/conductor/teaching.ts`), and all this package has to
+ *  (`packages/conductor/src/teaching.ts`), and all this package has to
  *  keep about them is that they ride the first message and no later one. */
-const TEACHING = ["[kolu] you are kolu's conductor on hostname"];
+const TEACHING = "# [kolu] you are kolu's conductor on hostname";
 
 /** How the fixture spells an MCP server's tools — the pinned Claude adapter's
  *  own spelling, which is what makes the auto-allow rule's positive
@@ -395,7 +395,7 @@ describe("one conversation with a real agent", () => {
     // the first carries the standing prompt above the word, and the second is
     // the word alone.
     const bodies = (await asked(running, "prompts")) as ReadonlyArray<string>;
-    expect(bodies[0]).toBe(`${TEACHING.join("\n")}\n\nhello`);
+    expect(bodies[0]).toBe(`${TEACHING}\n\nhello`);
     expect(bodies[0]).toContain("hostname");
     expect(bodies[1]).toBe("hello");
   });
@@ -1917,7 +1917,7 @@ describe("kolu's own line — a turn this end started", () => {
     // Whose words they are is the row's kind and nothing else: what crossed
     // the pipe is an ordinary prompt carrying the account.
     const bodies = (await asked(running, "prompts")) as ReadonlyArray<string>;
-    expect(bodies[0]).toBe(`${TEACHING.join("\n")}\n\ntwo terminals need you`);
+    expect(bodies[0]).toBe(`${TEACHING}\n\ntwo terminals need you`);
   });
 
   test("waits behind a running turn with the mark a person's message takes", async () => {

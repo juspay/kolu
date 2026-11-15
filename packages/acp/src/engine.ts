@@ -171,8 +171,8 @@ export interface Where {
  * ONE ARM TODAY, and the arm is the ruling rather than a placeholder. ACP has no
  * system prompt — `session/new` carries a cwd and a list of MCP servers and
  * nothing else a client may put words in — so every engine kolu ships rides the
- * first turn: the lines go under the first message a person sends, which puts
- * them IN THE TRANSCRIPT where the person can read what their agent was told,
+ * first turn: the text goes under the first message a person sends, which puts
+ * it IN THE TRANSCRIPT where the person can read what their agent was told,
  * costs a turn only where somebody says something, and survives a `/clear` by
  * construction because "has this session been taught" is written down per
  * session.

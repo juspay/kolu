@@ -372,7 +372,7 @@ const KoluChoiceSetupSchema = Schema.Struct({
 const WorkOpenArgsSchema = Schema.Struct({
   title: Schema.String.check(Schema.isMinLength(1)).annotate({
     description:
-      'What this piece of work IS, in a few words a person would recognise on a card — the thing being built, not the procedure ("rename the dock\'s badge", not "waterfall").',
+      'What this piece of work IS, in a few words a person would recognise on a card — the thing being built, not the procedure ("rename the dock\'s badge", not "waterfall"). Not a sentence: no parentheses, no issue or PR numbers, and nothing "like" another piece of work — what prompted it belongs in the request, which kolu keeps.',
   }),
   // A WORK IS ITS KEY: the branch on a machine, or the terminal being
   // watched. Not a setup question — the machine a work runs on identifies it,

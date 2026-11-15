@@ -117,7 +117,7 @@ export {
 } from "./readings.ts";
 export { type RecordWrites, recordWrites } from "./recordWrites.ts";
 export { conductorSurfaceMembers } from "./surface.ts";
-export { parseTeaching, teachingLines } from "./teaching.ts";
+export { parseTeaching, teaching } from "./teaching.ts";
 export { conductorTranscriptSource } from "./transcriptStream.ts";
 export { type WakeMembership, wakeText } from "./wakeText.ts";
 export { type Wakes, type WakeTurn, wakes } from "./wakes.ts";

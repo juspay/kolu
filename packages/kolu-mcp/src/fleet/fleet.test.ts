@@ -1357,6 +1357,49 @@ describe("the conductor's pieces of work", () => {
     return mcp;
   }
 
+  it("states the rules the Conductor's script leaves to the tools themselves", async () => {
+    // `teaching.md` says a rule once, and a rule about one tool is said in
+    // THAT tool's description, which the model reads with the tool. These are
+    // the rules the script relies on finding here (its inventory ids beside
+    // each), read off the face the Conductor is actually handed.
+    const { fleet } = twoHostFleet();
+    const mcp = await servedFleet(fleet.hosts, fakeWorks());
+    const { tools } = await mcp.listTools();
+    const said = (name: string): string => {
+      const tool = tools.find((one) => one.name === name);
+      if (tool === undefined) throw new Error(`the face serves no ${name}`);
+      return `${tool.description ?? ""} ${JSON.stringify(tool.inputSchema)}`;
+    };
+    const rules: ReadonlyArray<readonly [string, string, RegExp]> = [
+      ["R16", "work_open", /returns THAT work/],
+      ["R20", "work_open", /no parentheses, no issue or PR numbers/],
+      ["R21", "work_open", /DECISION/],
+      ["R72", "work_open", /kolu OFFERS the harness and model questions/],
+      ["R74", "work_open", /the way out when `lifecycle_create` refuses/],
+      ["R75", "work_open", /kolu's own words/],
+      [
+        "R76",
+        "work_open",
+        /Use `given` for anything the human's request already said/,
+      ],
+      ["R24", "lifecycle_create", /open the work FIRST/],
+      ["R25", "work_adopt", /BASELINE/],
+      ["R27", "work_leave", /leaves in silence/],
+      ["R29", "work_stop", /ONLY ways a work ends/],
+      ["R60", "work_ask", /any of them settles/],
+      ["R62", "work_ask", /reasoning about the choice in your PROSE/],
+      ["R63", "work_ask", /`header` of two or three words/],
+      ["R65", "work_ask", /Give `file`/],
+      ["R50", "agent_say", /"began-working"/],
+      ["R52", "agent_say", /REFUSED, never guessed/],
+    ];
+    for (const [rule, tool, pattern] of rules)
+      expect(
+        said(tool),
+        `${rule} is no longer in ${tool}'s description`,
+      ).toMatch(pattern);
+  });
+
   const SETUP = [
     { key: "mode", question: "Which mode?", options: ["full", "trivial"] },
     // kolu's own four: NAMED, never offered.

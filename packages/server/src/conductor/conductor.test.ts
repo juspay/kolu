@@ -1204,12 +1204,12 @@ describe("the standing prompt (M5)", () => {
     const agent = r.spawns[0];
     if (agent === undefined) throw new Error("the host spawned nothing");
     expect(agent.options.cwd).toBe(HOME);
-    expect(agent.options.teaching[0]).toContain(`You run on ${HOST}`);
+    expect(agent.options.teaching).toContain(`You run on ${HOST}`);
     // The old defect, stated as a negative: a directory is not a machine.
-    expect(agent.options.teaching[0]).not.toContain(HOME);
+    expect(agent.options.teaching).not.toContain(HOME);
     // …and the fleet grammar is TAUGHT, not assumed: one conversation over
     // every host is only usable if `host/id` is the identity on the wire.
-    expect(agent.options.teaching.join("\n")).toContain("`host/id`");
+    expect(agent.options.teaching).toContain("`host/id`");
   });
 
   it("names only verbs the session actually has", async () => {
@@ -1233,7 +1233,7 @@ describe("the standing prompt (M5)", () => {
     const agent = r.spawns[0];
     if (agent === undefined) throw new Error("the host spawned nothing");
     const named = new Set(
-      [...agent.options.teaching.join("\n").matchAll(/`([a-z]+_[a-zA-Z]+)`/g)]
+      [...agent.options.teaching.matchAll(/`([a-z]+_[a-zA-Z]+)`/g)]
         .map((hit) => hit[1])
         .filter((name): name is string => name !== undefined),
     );

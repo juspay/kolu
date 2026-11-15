@@ -131,7 +131,7 @@ describe.skipIf(!LIVE)(
         cwd: home,
         configDir,
         mcpServers: [],
-        teaching: ["[kolu] live test"],
+        teaching: "# [kolu] live test",
         log: silent,
         resume,
         onChange: () => {},

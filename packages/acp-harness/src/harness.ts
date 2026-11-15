@@ -192,10 +192,10 @@ export interface HarnessOptions {
    *  this machine or an HTTP endpoint already serving — kolu hands exactly one
    *  of the second kind, its fleet face. */
   readonly mcpServers: ReadonlyArray<StdioServer | HttpServer>;
-  /** The standing prompt's lines, which ride under the first message of every
+  /** The standing prompt, which rides under the first message of every
    *  session. The WORDS are the caller's — they name kolu's own MCP verbs, and
    *  this package knows no tool but the protocol's. */
-  readonly teaching: ReadonlyArray<string>;
+  readonly teaching: string;
   readonly log: {
     info(o: unknown, m?: string): void;
     warn(o: unknown, m?: string): void;
@@ -2051,7 +2051,7 @@ export const startHarness = async (
     const parts: Array<string> = [];
     if (!taught) {
       taught = true;
-      parts.push(options.teaching.join("\n"));
+      parts.push(options.teaching);
     }
     if (mentions.length > 0) {
       parts.push(

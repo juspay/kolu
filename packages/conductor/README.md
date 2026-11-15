@@ -15,9 +15,10 @@ Three things make the conversation work and they are all here:
   the agent writes nothing for a session until its first prompt, so one nobody
   spoke into is opened again in silence rather than "lost" with a notice;
 - **the standing prompt** — what the agent is told, once, on the first turn.
-  The words are in [`src/teaching.md`](src/teaching.md), one wrapped paragraph
-  per instruction, read when kolu-server starts (a missing or malformed file
-  stops the boot); `teaching.ts` sends each paragraph as one `[kolu] ` line.
+  The words are in [`src/teaching.md`](src/teaching.md), a Markdown file of
+  sections, lists and tables, read when kolu-server starts (a missing or
+  malformed file stops the boot) and sent as the Markdown it is. Each rule is
+  said once; a rule about one kolu tool lives in that tool's description.
 
 The `koluSurface` members a browser subscribes to are here too (`./surface`),
 because an implementation of "what `conductor.prompt` does" belongs with the

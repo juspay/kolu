@@ -206,7 +206,7 @@ import {
   UnreadablePersisted,
 } from "./persisted.ts";
 import { recordWrites } from "./recordWrites.ts";
-import { teachingLines } from "./teaching.ts";
+import { teaching } from "./teaching.ts";
 import { wakes } from "./wakes.ts";
 import type { WorkFiles } from "./workFiles.ts";
 import { type MemberDetail, workStore } from "./workStore.ts";
@@ -1594,7 +1594,7 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
         // own, not the one a person's terminal happens to have.
         configDir: conductorConfigDir(process.env, home),
         mcpServers: [kolu],
-        teaching: teachingLines(hostName),
+        teaching: teaching(hostName),
         log,
         // A conversation that never had a turn is opened again, not resumed —
         // see {@link hadATurn}. Decided at EVERY spawn, not once at boot: a
