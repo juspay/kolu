@@ -47,15 +47,28 @@ import {
   type PadiEntryFailure,
   padiHostMap,
 } from "kolu-common/surfacesWithPadi";
-import { type FleetWatchList, serveKoluFleetMcp } from "kolu-mcp";
+import { type FleetWorks, serveKoluFleetMcp } from "kolu-mcp";
+import {
+  driverOf,
+  branchOf,
+  hostOf,
+  repoOf,
+  modeOf,
+  onGreenOf,
+  policyOf,
+  standing,
+} from "kolu-work";
+import { dirname } from "node:path";
 import type { KoluBootFlags } from "./bootFlags.ts";
 import { fleetHostsOver } from "./fleet/fleetHosts.ts";
 import { startFleetMcpEndpoint } from "./fleet/mcpEndpoint.ts";
 import {
   disposeServerConductor,
   liveServerConductor,
+  setConductorFleetHosts,
   setFleetMcpEndpoint,
-  setWatchListListener,
+  setWatchScopeListener,
+  setWorksListener,
 } from "./conductor/live.ts";
 import {
   type ConductorWatcher,
@@ -103,7 +116,7 @@ import { makeHostPortsReader } from "./portForward/hostPorts.ts";
 import { makeViewerHostResolver } from "./portForward/resolveViewerHost.ts";
 import { pwaIdentityForHostname } from "./pwaIdentity.ts";
 import { buildAppRouter, CurrentViewer } from "./router.ts";
-import { stateBackupRing } from "./state.ts";
+import { stateBackupRing, store } from "./state.ts";
 import {
   listServerStateBackups,
   restoreServerStateBackup,
@@ -116,6 +129,10 @@ import {
   servedGroup,
 } from "./surface.ts";
 import { resolveTlsOptions } from "./tls.ts";
+import {
+  WORK_FILE_ROUTE_PATTERN,
+  workFileRouteHandler,
+} from "./workFilesRoute.ts";
 
 // The web face's boot contract (`KoluBootFlags`) lives in `bootFlags.ts` —
 // the leaf `packages/kolu-cli`'s command tree also imports, so schema and
@@ -631,57 +648,139 @@ export async function bootKoluWeb(flags: KoluBootFlags): Promise<void> {
     // at once cannot do anything with "local".
     localName: serverHostname,
   });
-  // THE CONDUCTOR'S WATCH LIST, as the fleet face reaches it. The list itself
-  // lives with the conversation (it is saved with it, and the Conductor's own
-  // `watch_terminal` / `unwatch_terminal` move it); what the face needs is the
-  // six verbs, and kolu-server is what knows that "the conversation" means
-  // `liveServerConductor()`. Read through the thunk on every call rather than
-  // captured, for the reason every other conductor seam here is: the host is
-  // built on its first reader, and a face held at boot would force it up.
+  // THE CONDUCTOR'S FLEET, handed to the conversation before anything can ask
+  // for it: a work's `.waterfall/` files are read off the machine its
+  // terminals are on, through these clients. Registered rather than imported
+  // for the reason every other conductor seam here is — the host is built on
+  // its first reader, and this module is one of three callers that hold no
+  // handle on each other.
+  setConductorFleetHosts(() => fleetHosts);
+  // THE WORKS, as the fleet face reaches them. The record lives with the
+  // conversation (it is saved under the state root, and the Conductor's own
+  // `work_open` / `work_adopt` / `work_leave` / `work_note` move it); what the
+  // face needs is this handful of verbs, and kolu-server is what knows that
+  // "the conversation" means `liveServerConductor()`. Read through the thunk
+  // on every call rather than captured, for the reason every other conductor
+  // seam here is: the host is built on its first reader, and a face held at
+  // boot would force it up.
   //
-  // `lifecycle_create` calls `watch` on what it creates, so a terminal the
-  // Conductor starts is watched without it having to ask — and says HOW it
-  // was created, because a terminal opened with a command is the only one
-  // whose return to a shell prompt means anything (`kolu-conductor`'s
-  // `WatchJoin`). `said` is every `agent_say` that landed its keystrokes, for
-  // any terminal: the conversation ignores the refs it is not watching, and
-  // the face has no business knowing which those are. `closed` is every
-  // `lifecycle_kill` that landed, on the same terms: a terminal the Conductor
-  // closed leaves its list without a `gone` wake about its own action.
+  // `lifecycle_create` on the fleet face takes a work and a role and `join`s
+  // what it creates, so a terminal the Conductor starts is a member without it
+  // having to ask — and says HOW it was created, because a terminal opened
+  // with a command is the only one whose return to a shell prompt means
+  // anything (`kolu-conductor`'s `WatchJoin`). `said` is every `agent_say`
+  // that landed its keystrokes, for any terminal: the conversation ignores the
+  // refs that are not members, and the face has no business knowing which
+  // those are. `closed` is every `lifecycle_kill` that landed, on the same
+  // terms: a terminal the Conductor closed leaves its work without a `gone`
+  // wake about its own action.
   //
-  // `entries` is the READ — the `watched` resource the Conductor reads its own
-  // list from — and `subscribe` is how that resource hears the list move
-  // without the Conductor calling anything. The subscribers are fired from the
-  // conversation's own "the list moved" event below, which is also what
-  // re-scopes the watcher.
-  const watchedReaders = new Set<() => void>();
-  const watchList: FleetWatchList = {
-    entries: () =>
-      liveServerConductor()
-        .watchedTerminals()
-        .map((one) => ({
-          ref: one.ref,
-          // "" is the entry's "nothing has read this terminal yet", and a
-          // reader handed it would be told the terminal is called nothing.
-          name: one.name === "" ? null : one.name,
-          agent: one.agent,
-          joined: one.joined,
-        })),
-    subscribe: (cb) => {
-      watchedReaders.add(cb);
-      return () => {
-        watchedReaders.delete(cb);
+  // `rows` is the READ — the `works` resource the Conductor reads its own work
+  // from — and `subscribe` is how that resource hears the record move without
+  // the Conductor calling anything. The subscribers are fired from the
+  // conversation's own "the works moved" event below — its own sink, beside
+  // the one that re-scopes the watcher.
+  //
+  // Every ROW here is a READING of the stored record (`kolu-work`'s
+  // `hostOf`/`modeOf`/`onGreenOf`/`standing`), never a second copy of it: the
+  // setup is decisions, so the one place "what to do on green" is written is
+  // the decision the script reads back through `onGreen`.
+  const worksReaders = new Set<() => void>();
+  const works: FleetWorks = {
+    rows: () => {
+      const stored = liveServerConductor().works();
+      const detail = liveServerConductor().membersDetail();
+      return {
+        works: stored
+          .filter(([, work]) => work.state.kind === "open")
+          .map(([id, work]) => ({
+            id,
+            title: work.title,
+            repo: repoOf(work),
+            branch: branchOf(work),
+            host: hostOf(work),
+            mode: modeOf(work),
+            onGreen: onGreenOf(work),
+            standing: standing(work, policyOf(work)),
+            members: detail
+              .filter((one) => one.work === id)
+              .map((one) => ({
+                ref: one.ref,
+                role: one.role,
+                // "" is the member's "nothing has read this terminal yet", and
+                // a reader handed it would be told the terminal is called
+                // nothing.
+                name: one.name === "" ? null : one.name,
+                agent: one.agent,
+                joined: one.joined,
+                // WHOSE KEYBOARD IT IS — a reading of the work's own timeline.
+                driver: driverOf(work, one.ref, one),
+              })),
+            // The questions still standing, in the words they were put in: an
+            // agent reading its own work must see what the human has not
+            // answered yet without guessing at an ask id.
+            openQuestions: work.decisions
+              .filter((one) => one.kind === "asked")
+              .map((one) => one.question),
+          })),
+        finished: stored.flatMap(([id, work]) =>
+          work.state.kind === "ended"
+            ? [
+                {
+                  id,
+                  title: work.title,
+                  outcome: work.state.outcome,
+                  endedAt: work.state.at,
+                },
+              ]
+            : [],
+        ),
       };
     },
-    watch: (ref, joined) => {
-      liveServerConductor().watchTerminal(ref, joined);
+    subscribe: (cb) => {
+      worksReaders.add(cb);
+      return () => {
+        worksReaders.delete(cb);
+      };
     },
-    unwatch: (ref) => liveServerConductor().unwatchTerminal(ref),
+    // The host answers with the SETUP READING (host, mode, roles, on-green —
+    // all of it read back off the decisions recorded so far) and the ask the
+    // questions went out as; the face's answer is that reading flattened, so
+    // the agent is told what it asked for without a second shape in between.
+    // NOTHING WAITS: the human's answers arrive later, as a wake.
+    open: (intent) => {
+      const { work, setup, ask, asked, created, reopened } =
+        liveServerConductor().openWork(intent);
+      return { work, ...setup, ask, asked, created, reopened };
+    },
+    stop: (work) => {
+      liveServerConductor().stopWork(work, "conductor");
+    },
+    ask: (work, questions) =>
+      liveServerConductor().askAboutWork(work, questions),
+    join: (ref, work, role, joined) => {
+      liveServerConductor().joinWork(work, ref, role, joined);
+    },
+    leave: (ref) => liveServerConductor().leaveWork(ref),
+    note: (work, text) => {
+      liveServerConductor().note(work, text);
+    },
     said: (ref) => {
       liveServerConductor().saidTo(ref);
     },
     closed: (ref) => {
       liveServerConductor().closedTerminal(ref);
+    },
+    // The PRE-CHECK `lifecycle_create` runs before anything is created, off
+    // the same record every other row is read from: a work the face cannot
+    // find, or one that has ended, is a refusal with nothing spawned behind
+    // it.
+    check: (work) => {
+      const found = liveServerConductor()
+        .works()
+        .find(([id]) => id === work)?.[1];
+      if (found === undefined) return "unknown-work";
+      return found.state.kind === "ended" ? "work-ended" : null;
     },
   };
   const fleetMcp = await startFleetMcpEndpoint({
@@ -691,7 +790,7 @@ export async function bootKoluWeb(flags: KoluBootFlags): Promise<void> {
         hosts: fleetHosts,
         transport,
         serverInfo: { name: "kolu-fleet", version: serverVersion },
-        watchList,
+        works,
       }),
   });
   // The conductor PROVES this endpoint before it names it to an agent — the
@@ -1068,33 +1167,34 @@ export async function bootKoluWeb(flags: KoluBootFlags): Promise<void> {
   // ── The CONDUCTOR'S WATCH, started now that the cell exists ──────────────
   //
   // AFTER `implementKoluSurface`, and that order is load-bearing: the watcher
-  // reads the conversation's watch list, which reads the remembered record,
-  // which PUBLISHES what it restored — and a publish before the cell writer is
+  // reads the works' membership, which reads the remembered record, which
+  // PUBLISHES what it restored — and a publish before the cell writers are
   // registered is the boot-order crash `conductor/live.ts` states. It is also
   // why nothing above this line asks the conversation anything.
   //
   // It may WAKE the conversation (that is the whole feature) but it must never
-  // start the agent merely to read the list, which is the line
-  // `ConductorHost.watched` draws: reading is bookkeeping, a wake is a turn.
+  // start the agent merely to read the membership, which is the line
+  // `ConductorHost.memberRefs` draws: reading is bookkeeping, a wake is a turn.
   conductorWatcher = startConductorWatcher({
     hosts: fleetHosts,
     conductor: liveServerConductor,
     log,
   });
-  // THE LIST MOVED, as the conversation itself says it. Membership — the
-  // Conductor watching or unwatching, a terminal it created being watched for
-  // it, a watched terminal going away — is what the WATCHER acts on: it
-  // re-scopes its per-host subscriptions, which is work worth doing only when
-  // the set of refs is different.
+  // WHAT MOVED, as the conversation itself says it — two facts, two sinks.
   //
-  // The `watched` RESOURCE moves for one more reason than the scope does: a
-  // reading that renames a terminal or finds an agent in it leaves membership
-  // alone and still changes every row an agent reads. So it hears every
-  // event, and the watcher hears the membership ones.
-  setWatchListListener((membership) => {
-    if (membership) conductorWatcher?.watchListMoved();
-    for (const tell of watchedReaders) tell();
+  // The WATCH'S SCOPE is the member refs and the branches with work in
+  // flight: a terminal created for a work, one the Conductor adopted or
+  // released, one that went away, a work opened, reopened or ended. The
+  // watcher re-chooses its legs off it, and compares the scope itself, so
+  // saying it when nothing moved costs one comparison.
+  //
+  // The `works` RESOURCE moves for one more reason than the scope does: a
+  // reading that renames a terminal, finds an agent in it or appends an event
+  // leaves the scope alone and still changes every row an agent reads.
+  setWorksListener(() => {
+    for (const tell of worksReaders) tell();
   });
+  setWatchScopeListener(() => conductorWatcher?.scopeMoved());
 
   // The ROOT procedures — kolu-server's own seven, bound as the third served
   // fragment. There is no router SPLICE any more: the wire namespace is flat, so the
@@ -1145,9 +1245,11 @@ export async function bootKoluWeb(flags: KoluBootFlags): Promise<void> {
         return s.renew();
       }),
     // The state-backup ring (#1658). Restore drives the two Conf-backed cells'
-    // server-internal writers (returned by `implementKoluSurface` above) and
+    // server-internal writers (returned by `implementKoluSurface` above),
     // converges the pool through the SAME add/remove path the strip's
-    // `hosts/add`/`hosts/remove` take — the pool stays membership's one writer.
+    // `hosts/add`/`hosts/remove` take — the pool stays membership's one writer —
+    // and hands the snapshot's works to the live conversation, which is THEIR
+    // one writer for exactly the same reason.
     listStateBackups: listServerStateBackups,
     restoreStateBackup: (input) =>
       restoreServerStateBackup(input, {
@@ -1158,6 +1260,9 @@ export async function bootKoluWeb(flags: KoluBootFlags): Promise<void> {
         hasLiveHost: (key) => pool.getHandler(key) !== undefined,
         addHostKey: (key) => pool.add(key),
         removeHostKey: (key) => pool.remove(key),
+        restoreWorks: (works, members) => {
+          liveServerConductor().restoreWorks(works, members);
+        },
       }),
   });
 
@@ -1285,6 +1390,24 @@ export async function bootKoluWeb(flags: KoluBootFlags): Promise<void> {
       "GET",
       PREVIEW_ROUTE_PATTERN,
       withArtifactSdk(SDK_SCRIPT_PATH)(previewRouteHandler({ pool, log })),
+    ),
+
+    // The KEPT-FILE byte route — the `.waterfall/` files kolu copied under the
+    // state root when a work ended, which is the only place they still exist
+    // once the worktree is gone. Rooted per work and guarded in
+    // `workFilesRoute.ts`; the composition root supplies only the state root,
+    // taken off the store so this and the conductor's own corner can never
+    // name different directories.
+    //
+    // DECORATED the same way the preview route is, and for the same reason: a
+    // kept `review.html` is a document an agent wrote, and the Code tab's
+    // comments-on-files has to work inside it.
+    HttpRouter.add(
+      "GET",
+      WORK_FILE_ROUTE_PATTERN,
+      withArtifactSdk(SDK_SCRIPT_PATH)(
+        workFileRouteHandler({ stateRoot: dirname(store.path) }),
+      ),
     ),
   );
 

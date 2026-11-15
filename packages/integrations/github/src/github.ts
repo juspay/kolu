@@ -114,6 +114,11 @@ export const GH_PR_VIEW_JSON_FIELD_LIST = [
   "statusCheckRollup",
   "reviewDecision",
   "mergeStateStatus",
+  // WHICH COMMIT the rollup above is about. Free: the same request already
+  // being made. What it is FOR is a consumer that keeps a history of check
+  // states — without it, the new push's `pending` and a re-read of the old
+  // commit's `pending` are the same value (juspay/kolu#2376).
+  "headRefOid",
 ] as const;
 
 export const GH_PR_VIEW_JSON_FIELDS = GH_PR_VIEW_JSON_FIELD_LIST.join(",");
@@ -129,6 +134,8 @@ export type GhPrViewJson = {
    *  as `""`, never as JSON `null`. */
   reviewDecision: string;
   mergeStateStatus: string;
+  /** The head commit's oid — 40 hex characters, gh's own spelling. */
+  headRefOid: string;
 };
 
 type GhPrViewJsonKeysMatch =
@@ -170,6 +177,10 @@ export function prInfoFromGhView(data: GhPrViewJson): PrInfo {
       data.reviewDecision === "" ? null : data.reviewDecision,
     ),
     mergeStateStatus: decodeMergeStateStatus(data.mergeStateStatus),
+    // THE COMMIT the rollup above is about. A gh that answered without it —
+    // one too old to know the field — reads as `null`, the shape's own word
+    // for "this reading carries no head", never a guessed one.
+    headSha: data.headRefOid ?? null,
   };
 }
 

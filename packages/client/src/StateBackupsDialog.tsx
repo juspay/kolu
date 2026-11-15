@@ -102,7 +102,7 @@ const UNDOABLE = "The current state is snapshotted first, so this is undoable.";
 const koluStore: StoreAdapter = {
   key: "kolu",
   title: "kolu-server",
-  subtitle: "preferences · hosts · this machine",
+  subtitle: "preferences · hosts · the Conductor's works",
   available: true,
   list: () =>
     runActionPromise(
@@ -114,7 +114,7 @@ const koluStore: StoreAdapter = {
             sizeBytes: b.sizeBytes,
             summary:
               b.summary.kind === "state"
-                ? `preferences · ${b.summary.hosts} ${b.summary.hosts === 1 ? "host" : "hosts"}`
+                ? `preferences · ${b.summary.hosts} ${b.summary.hosts === 1 ? "host" : "hosts"} · ${b.summary.works} ${b.summary.works === 1 ? "work" : "works"}`
                 : "unreadable",
             restorable: b.summary.kind === "state",
           })),
@@ -133,8 +133,14 @@ const koluStore: StoreAdapter = {
               },
       ),
     ),
+  // WHAT A RESTORE COVERS, and what is not in a backup at all. The two
+  // exclusions are not oversights and the copy says so plainly rather than
+  // letting a person discover them after restoring: the conversation's other
+  // half lives in the agent's own session store, which kolu does not back up,
+  // and kept files are copies on disk while the ring snapshots `config.json`'s
+  // bytes.
   confirmCopy: () =>
-    `Restore preferences and converge the host pool onto this snapshot? Applies live — no restart. ${UNDOABLE}`,
+    `Restore preferences, the host pool and the Conductor's works from this snapshot? Applies live — no restart. Not in backups: the conversation, kept files. ${UNDOABLE}`,
 };
 
 const padiStore = (host: HostKey): StoreAdapter => {

@@ -29,7 +29,19 @@ function resolveWithin(rcDir: string, name: string): string {
  *  return the absolute paths written (for {@link removeInitFiles} on dispose).
  *  Throws — before writing anything — if any name escapes `rcDir`. If a write
  *  fails partway, the files already written are removed before rethrowing, so a
- *  failed materialisation never leaves stragglers under `rcDir`. */
+ *  failed materialisation never leaves stragglers under `rcDir`.
+ *
+ *  A name already on disk is a STALE file, and is replaced. These names carry
+ *  the terminal id (`bashrc-<id>`, `zdotdir-<id>/.zshrc`), the daemon removes
+ *  them when the PTY ends, and it refuses to spawn an id it already holds live
+ *  (`ptyHost.ts`'s `entries.has(id)`) — so a file that is still here when a
+ *  spawn asks for its name belongs to a PTY that died with a daemon that never
+ *  got to clean up (a SIGKILL, an OOM, a crashed redeploy), and `rcDir` is this
+ *  daemon's own 0700 runtime home. Refusing used to look safe because a restore
+ *  invented a new id and so never met the leftover; now that a terminal keeps
+ *  its id across a recycle (padi's `restoreSpawn`), refusing would make one
+ *  unclean daemon death permanently un-restorable — the shell would fail to
+ *  spawn with `EEXIST` for as long as the runtime dir survives. */
 export function writeInitFiles(
   rcDir: string,
   // `readonly`, because that is what an Effect-Schema-decoded `Schema.Array`
@@ -46,9 +58,12 @@ export function writeInitFiles(
   try {
     for (const { path, content } of planned) {
       mkdirSync(dirname(path), { recursive: true });
-      // These files can contain shell setup and environment values. Create them
-      // atomically and owner-only; an existing path is a collision, not a file
-      // we are allowed to replace.
+      // Drop any leftover FIRST, so the create below is still exclusive: `wx`
+      // on a fresh name keeps the atomic owner-only create (and still refuses a
+      // concurrent spawn racing the same name), while the unlink is what makes
+      // a dead daemon's residue not outlive it. Unlinking also sheds a symlink
+      // rather than following it, which is the property `wx` was here to hold.
+      rmSync(path, { force: true });
       writeFileSync(path, content, { flag: "wx", mode: 0o600 });
       written.push(path);
     }

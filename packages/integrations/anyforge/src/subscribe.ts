@@ -32,6 +32,12 @@ export interface PrWatcher {
    *  an async resolve that emits the result. Pass `null` when the
    *  terminal leaves a repo. */
   setGit: (git: PrGitContext | null) => void;
+  /** ASK AGAIN, NOW — a re-resolve on the context already fed, for a caller
+   *  that has learned the answer may have moved (the repository changed under
+   *  it) and does not want to wait out the poll. It emits only if the answer
+   *  is DIFFERENT, like every other resolve here, so calling it often costs a
+   *  `gh` run and never a frame. A no-op before any context is fed. */
+  refresh: () => void;
   /** Cancel the poll timer and stop accepting updates. */
   stop: () => void;
 }
@@ -125,6 +131,9 @@ export function subscribePr<S extends PrUnavailableSourceBase>(
 
   return {
     setGit,
+    refresh: () => {
+      if (!stopped && lastGit) void fetchAndEmit(lastGit);
+    },
     stop: () => {
       stopped = true;
       clearInterval(pollTimer);

@@ -25,6 +25,7 @@
 import { Result, Schema } from "effect";
 import { isEncodedHostKey } from "kolu-common/hostKey";
 import { type TerminalId, TerminalIdSchema } from "kolu-common/surface";
+import { hashSegments } from "./hashPath";
 
 /** zod's `safeParse` in Effect terms — a `Result`, so a bad id segment is a
  *  BRANCH (an `invalid` verdict) rather than a throw out of the parser. */
@@ -61,39 +62,16 @@ const invalid = (reason: string): ParsedDeepLink => ({
 
 /** Parse a raw `location.hash` (with or without the leading `#`) into a verdict. */
 export function parseDeepLink(hash: string): ParsedDeepLink {
-  // Strip a single leading "#", then split the path from the query. Only the
-  // /code route reads the query; other families tolerate (ignore) a stray query
-  // rather than reject an otherwise fully-valid route.
-  const raw = hash.startsWith("#") ? hash.slice(1) : hash;
-  const qIndex = raw.indexOf("?");
-  const pathPart = qIndex === -1 ? raw : raw.slice(0, qIndex);
-  const queryPart = qIndex === -1 ? "" : raw.slice(qIndex + 1);
+  // The mechanics — the `#`, the query split, the segments, the decode — are
+  // the shared leaf's (`hashPath.ts`); what is this module's is the GRAMMAR
+  // over them and what each refusal means here: a route kolu never produced
+  // is a toast, an address with no route at all is silence.
+  const read = hashSegments(hash);
+  if (read.kind === "empty") return { kind: "none" };
+  if (read.kind === "bad") return invalid(read.reason);
+  const queryPart = read.query;
 
-  // An empty or bare-slash PATH carries no route — checked AFTER the query is
-  // split off, so a root hash with an incidental query (`#/?utm=x`, a bookmark
-  // saved with a trailing `?`) is `none`, not a false "invalid" toast.
-  if (pathPart === "" || pathPart === "/") return { kind: "none" };
-
-  // Split into segments and decode each. A malformed %-escape is not a route we
-  // ever produced — reject it whole. Strip EXACTLY ONE leading empty segment
-  // (the leading "/"); any OTHER empty segment — a repeated "//", a trailing
-  // "/" — is malformed, not a member of the grammar, so reject rather than
-  // silently collapse it (the reject-whole contract). "" / "#" / "#/" already
-  // returned `none` above.
-  const rawSegments = pathPart.split("/");
-  if (rawSegments[0] === "") rawSegments.shift();
-  if (rawSegments.length === 0) return { kind: "none" };
-  if (rawSegments.some((s) => s === "")) {
-    return invalid("empty path segment (a repeated or trailing slash)");
-  }
-  let segments: string[];
-  try {
-    segments = rawSegments.map((s) => decodeURIComponent(s));
-  } catch {
-    return invalid("malformed URL-encoding in the path");
-  }
-
-  const [family, ...rest] = segments;
+  const [family, ...rest] = read.segments;
 
   if (family === "settings") {
     if (rest.length !== 0)

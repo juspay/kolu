@@ -12,20 +12,17 @@
  * every host-switcher list — four lies, each one a place for the two models to
  * disagree.
  *
- * What it IS: a tab, current or not, carrying ONE badge — how many pieces of
- * work the conversation has in flight, violet while it is asking you
- * something.
+ * What it IS: a tab, current or not, carrying ONE badge — how many things are
+ * waiting on YOU, in the needs-you violet, and nothing at all when the answer
+ * is none.
  */
 
 import { render } from "solid-js/web";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const cell = vi.hoisted(() => ({ pieces: 0, asking: false }));
+const cell = vi.hoisted(() => ({ waiting: 0 }));
 vi.mock("./useConductorFacts", () => ({
-  useConductorBadge: () => ({
-    pieces: () => cell.pieces,
-    asking: () => cell.asking,
-  }),
+  useConductorBadge: () => ({ waiting: () => cell.waiting }),
 }));
 
 import ConductorTab from "./ConductorTab";
@@ -35,8 +32,7 @@ let dispose: (() => void) | undefined;
 let root: HTMLElement | undefined;
 
 beforeEach(() => {
-  cell.pieces = 0;
-  cell.asking = false;
+  cell.waiting = 0;
   exitConductorMode();
 });
 
@@ -107,32 +103,29 @@ describe("the conductor's tab", () => {
     expect(conductorMode()).toBe(true);
   });
 
-  it("counts the pieces of work, and is ABSENT at zero", () => {
+  it("counts what is waiting on you, and is ABSENT at zero", () => {
+    // A badge that renders its own silence is one every reader has to parse
+    // before ignoring it — so with nothing waiting there is no element at all.
     const el = mount();
     expect(el.querySelector('[data-testid="conductor-badge"]')).toBeNull();
     remount();
-    cell.pieces = 2;
-    expect(badgeOf(mount())?.textContent).toBe("2");
-  });
-
-  it("turns the needs-you colour while the conversation asks, keeping the one count", () => {
-    cell.pieces = 2;
-    cell.asking = true;
+    cell.waiting = 2;
     const badge = badgeOf(mount());
-    // The ask is a DATA fact on the badge, not a class name: what the reader
-    // is promised is "this badge is the needs-you one", and a utility class
-    // would pin the paint instead.
-    expect(badge?.dataset.asking).toBe("");
-    // ONE number. The work count is what it says; the ask only colours it.
     expect(badge?.textContent).toBe("2");
+    // The number rides as data too, for anything that should not read English.
+    expect(badge?.dataset.waiting).toBe("2");
   });
 
-  it("shows a dot — no number — when it asks with nothing in flight", () => {
-    cell.asking = true;
-    const badge = badgeOf(mount());
-    expect(badge).not.toBeNull();
-    expect(badge?.dataset.asking).toBe("");
-    expect(badge?.textContent).toBe("");
+  it("is the needs-you badge whenever it is there at all", () => {
+    // ONE meaning, so one colour: this badge only ever counts your turn. The
+    // fact rides a DATA channel rather than a class name — what the reader is
+    // promised is "this is the needs-you badge", and a utility class would
+    // pin the paint instead.
+    cell.waiting = 1;
+    const el = mount();
+    expect(badgeOf(el)?.dataset.asking).toBe("");
+    // And the tab itself washes violet while it is not the current place.
+    expect(entryOf(el).dataset.asking).toBe("");
   });
 
   it("never writes a host key — the selection is its own value", () => {

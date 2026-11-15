@@ -168,6 +168,36 @@
   },
   "overrides": [
     {
+      // THE WALL INSIDE `kolu-work`: the record's MECHANISM may not read the
+      // waterfall's VOCABULARY. `schema.ts` declares the words, `record.ts`
+      // appends, `folds.ts` folds a timeline and `readings.ts` reads a
+      // decision — none of them branches on `full` vs `trivial` or on
+      // `merge` vs `hand-over`, and `waterfall.ts` (every rule that DOES)
+      // reads all four. That direction is the whole claim the split makes, so
+      // it is a lint rule rather than a sentence in a doc comment: an import
+      // added the wrong way round fails `just check` in the PR that writes it.
+      "includes": [
+        "packages/work/src/schema.ts",
+        "packages/work/src/record.ts",
+        "packages/work/src/folds.ts",
+        "packages/work/src/readings.ts"
+      ],
+      "linter": {
+        "rules": {
+          "style": {
+            "noRestrictedImports": {
+              "level": "error",
+              "options": {
+                "paths": {
+                  "./waterfall.ts": "kolu-work's mechanism must not read the waterfall's vocabulary — the rules that need a mode, a role or an on-green live in waterfall.ts, which reads this file (never the other way round). Take the derived fact as an argument instead (folds take a `Policy`)."
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
       // `defineSurface`'s generic machinery is a library over *heterogeneous*
       // descriptor maps: `Record<string, CellSpec<any, any, TPolicy>>` and the
       // mapped types that walk it. `unknown` can't stand in — a concrete

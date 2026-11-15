@@ -178,6 +178,13 @@ export function daemonEnv(
   const nodeOptions = scrubDaemonNodeOptions(process.env.NODE_OPTIONS);
   if (nodeOptions !== undefined) env.NODE_OPTIONS = nodeOptions;
   if (process.env.KOLU_DIAG_DIR) env.KOLU_DIAG_DIR = process.env.KOLU_DIAG_DIR;
+  // The `gh` padi's PR sensor runs. Both wrappers bake it with `--set-default`
+  // (`default.nix`), so in production the value forwarded here IS padi's own
+  // bake; the e2e lane runs the nix-built `kolu` and points this at its scripted
+  // `gh` (`packages/tests/support/fake-gh.ts`) — the KOLU_ACP_AGENT precedent:
+  // a `--set` here would overwrite the fixture and drive the real `gh` against
+  // the suite's repositories, green or red for reasons no scenario stated.
+  if (process.env.KOLU_GH_BIN) env.KOLU_GH_BIN = process.env.KOLU_GH_BIN;
   // The client toolchain a terminal must be able to run (`kaval-tui`, `padi-tui`,
   // `kolu mcp`), baked onto the `kolu` wrapper by nix. A REMOTE padi gets this
   // from its own provisioned closure's wrapper — there is no env channel across

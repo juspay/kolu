@@ -14,9 +14,7 @@
  *     invocation (`codex resume <session-id>`, juspay/kolu#1495) in the SAME cwd,
  *     which a blank fresh agent never would (the agent-resume hole);
  *   - dragging a dormant tile (via the canvas-layout RPC the drag handle drives)
- *     and asserting its persisted position survives a reload;
- *   - planting a good + a malformed sleeping record so cold restore drops the
- *     malformed one without crashing.
+ *     and asserting its persisted position survives a reload.
  *
  * A SLEEPING tile keeps its CanvasTile wrapper (`canvas-tile` + `data-terminal-id`
  * + inline `style.left/top`) but its inner live `Terminal` (the only carrier of
@@ -25,13 +23,8 @@
  */
 
 import * as assert from "node:assert";
-import * as os from "node:os";
 import * as path from "node:path";
-import { Given, Then, When } from "@cucumber/cucumber";
-import {
-  LOCAL_LOCATION,
-  type SavedSleepingTerminal,
-} from "@kolu/padi-client/surface";
+import { Then, When } from "@cucumber/cucumber";
 import {
   ACTIVE_TERMINAL,
   readBufferText,
@@ -617,61 +610,5 @@ Then(
           `Buffer:\n${dump.slice(0, 800)}`,
       );
     }
-  },
-);
-
-// ── Malformed-record fixture ──
-
-Given(
-  "a saved session with one good and one malformed sleeping record",
-  async function (this: KoluWorld) {
-    // The malformation MUST be plantable: it has to PASS the persisted-session
-    // schema (`SavedSessionSchema`, validated at the `test__set` POST boundary,
-    // whose id field is the loose `SavedTerminalIdSchema = { id: z.string() }`)
-    // yet be DROPPED per-record at the server's seed boundary
-    // (`seedSleepingTerminal` re-checks `record.id` against the STRICT
-    // `TerminalIdSchema = z.string().uuid()`). A non-UUID `id` is exactly that
-    // record — well-formed except its id, complete WITH `sleptAt`. (A record
-    // missing `sleptAt` would instead be rejected at the POST boundary and the
-    // whole session would never be planted — the wrong kind of malformed.)
-    // Mirrors the unit guard `sleepWake.test.ts` → "DROPS a record with a
-    // non-uuid id".
-    const good: SavedSleepingTerminal = {
-      id: "11111111-1111-4111-8111-111111111111",
-      state: "sleeping",
-      sleptAt: Date.now(),
-      cwd: os.homedir(),
-      git: { kind: "none" },
-      // `pr` is restore-relevant (persisted) post-cutover, no schema default — a
-      // saved sleeping record carries it (the live PR sensor re-resolves on wake).
-      pr: { kind: "absent" },
-      location: LOCAL_LOCATION,
-      lastActivityAt: 0,
-    };
-    // The malformed record: a non-UUID id is the sole defect. It clears the
-    // persisted-session schema (loose `z.string()` id) so the session plants,
-    // but `seedSleepingTerminal`'s strict UUID re-check drops it on restore.
-    const malformed = {
-      id: "not-a-uuid",
-      state: "sleeping",
-      sleptAt: Date.now(),
-      cwd: os.tmpdir(),
-      git: { kind: "none" },
-      pr: { kind: "absent" },
-      location: LOCAL_LOCATION,
-      lastActivityAt: 0,
-    } as unknown as SavedSleepingTerminal;
-
-    // Stash for the restore-card self-heal (mirrors session_restore_steps:
-    // `the session restore card should be visible` re-POSTs this list on each
-    // poll tick; reuse the same `savedAt` so it replays the originally-planted
-    // session, malformed record and all).
-    this.savedSessionTerminals = [good, malformed];
-    this.savedSessionTerminalCount = 2;
-    this.savedSessionSavedAt = Date.now();
-    await padiCall("session/test__set", {
-      terminals: [good, malformed],
-      savedAt: this.savedSessionSavedAt,
-    });
   },
 );

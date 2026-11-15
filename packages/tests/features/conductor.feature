@@ -236,6 +236,30 @@ Feature: The Conductor
     And the Details fold should still be open, holding 3 tool calls
     And there should be no page errors
 
+  Scenario: A wipe forgets the calls, so the next turn's cards come back
+    # THE ORDER THIS SUITE USED TO DEPEND ON. The scripted agent sends the
+    # SAME call ids every time it is asked the same thing — which is what a
+    # real agent does, since ids are numbered inside a conversation and the
+    # next one starts at one again. While "New session" emptied only
+    # kolu-server's copy of the rows and left the ACP harness's own row map
+    # standing, those calls were read as repeats of rows nobody was holding
+    # any more: the turn ran and the panel stayed empty. The two fold
+    # scenarios above only passed because the default 4-way split never put
+    # them on one worker, and the Background's wipe between them is exactly
+    # this. Both turns are in ONE scenario here, so the claim holds at any
+    # parallelism and in any order.
+    When I create a terminal
+    And I enter conductor mode
+    And I send the conductor the prompt "work quietly"
+    Then the conductor transcript should fold 2 tool calls into one closed Details
+    When I start a new conductor session
+    Then the conductor transcript should be empty
+    When I send the conductor the prompt "work quietly"
+    Then the conductor transcript should show a row of kind "agent" saying "Found what I needed."
+    And the conductor transcript should fold 2 tool calls into one closed Details
+    And the failed tool call should stay in the flow
+    And there should be no page errors
+
   Scenario: An unrecognised tool gets the generic card, never a kolu one
     # The direction this is safe to fail in. A tool the harness cannot
     # positively name as one of the servers WE handed over must not acquire a
@@ -312,11 +336,16 @@ Feature: The Conductor
     # And the answer STAYS: a settled card is the record of the exchange, so
     # the question and what was said to it are both still on screen after the
     # form is gone — not the bare word `answered`.
+    #
+    # The tab's badge is what is WAITING ON YOU, so a question with nothing
+    # else in flight is one thing: a violet `1` that goes away with the
+    # answer, rather than a number about how busy the conversation is.
     When I create a terminal
     And I enter conductor mode
     And I send the conductor the prompt "ask me something"
     Then the conductor should be asking
-    And the conductor tab should show a needs-you dot
+    And the conductor tab should show a badge of 1
+    And the conductor tab badge should be the needs-you one
     When I answer the conductor's question with "30"
     Then the conductor should not be asking
     And the conductor tab should show no badge
@@ -326,15 +355,17 @@ Feature: The Conductor
   Scenario: An unanswered question is a needs-you source from the tab row
     # Leave the conversation and its pane is gone — the chrome-bar entry is the
     # whole of its presence on a host tab, so the ask has to show on the tab
-    # without the pane mounted to show it from. Nothing is being watched here,
-    # so the badge is the violet DOT rather than a count.
+    # without the pane mounted to show it from. The question belongs to no
+    # piece of work — it is the conversation's own — and it still counts,
+    # because the badge counts what waits on YOU wherever it came from.
     When I create a terminal
     And I enter conductor mode
     And I send the conductor the prompt "ask me something"
     Then the conductor should be asking
     When I press Escape
     Then the conductor pane should not be visible
-    And the conductor tab should show a needs-you dot
+    And the conductor tab should show a badge of 1
+    And the conductor tab badge should be the needs-you one
     And there should be no page errors
 
   Scenario: A question from the Conductor rings when you are not looking at it
@@ -353,9 +384,11 @@ Feature: The Conductor
     # The third is the reload. That question is still open; leave the
     # conversation so a host tab is on screen, and reload. The question was
     # there before the page was, so finding it is a discovery, not an
-    # arrival: the new page must not ring. The tab's needs-you dot is the
+    # arrival: the new page must not ring. The tab's needs-you badge is the
     # proof the server's first frame has landed — the bell reads that same
     # frame — so silence after it is silence, not a frame still in flight.
+    # The badge reads `1` because the number is what WAITS ON YOU, and an
+    # unanswered question is one such thing.
     When I create a terminal
     And I stub the notification sound
     And I enter conductor mode
@@ -372,7 +405,8 @@ Feature: The Conductor
     When I press Escape
     Then the conductor pane should not be visible
     When I reload the page
-    Then the conductor tab should show a needs-you dot
+    Then the conductor tab should show a badge of 1
+    And the conductor tab badge should be the needs-you one
     And the notification sound should have played 0 times
     And there should be no page errors
 

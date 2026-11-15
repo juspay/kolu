@@ -474,14 +474,17 @@ offset as a neighbour's `snapshot` and a fixed-width `cut` still lines up. In
 `--json` it is `{"kind":"heartbeat","at":<epoch ms>}`. Skip it before you read
 the id.
 
-> **A terminal id is not stable across a daemon restart.** kaval re-keys every
-> terminal when it restarts (crash-restore, a "Restart kaval", a redeploy), so an
-> id you were *handed* — a supervisor's terminal from your brief, an id you cached
-> turns ago — can go stale mid-run; a `send`/`snapshot` to it then fails with **"no
-> terminal matching"**. Don't re-assume the id: run `kolu ls --json` and re-find
-> the terminal by its stable **`intent` label** (which is exactly what you set it
-> at create for), then use its current id. For any long-lived reference, remember
-> the intent, not the id.
+> **A terminal id is stable across a daemon restart — its STATE is what moves.** A
+> kaval restart (crash-restore, a "Restart kaval", a redeploy) kills the shells and
+> leaves the terminals: each one stays in `kolu ls` under the SAME id, `parked`
+> while kaval is down and live again once the session is restored, with a fresh
+> shell behind the same id. A padi or kolu-server restart keeps the shells
+> themselves (padi re-adopts kaval's PTYs), so nothing moves at all. So a cached
+> id does not go stale on a restart — but it can name a terminal that is PARKED,
+> and `send`/`snapshot` to a parked terminal is not a live shell. Re-read `kolu ls
+> --json` and check the state before you drive an id you cached turns ago. Keep
+> setting a stable **`intent` label** at create: it is how you (and a human) tell
+> the terminals apart in that listing.
 
 > **Socket paths must stay under 108 bytes (the `AF_UNIX` limit).** If you spin
 > up your *own* padi at a private state-root to verify, keep the path short —

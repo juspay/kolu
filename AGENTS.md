@@ -72,6 +72,8 @@ Invoke the **`/ci` skill** — it owns the full CI procedure for this repo: the 
 
 Default to **over-checking**: enumerate the candidate docs and, for each, either edit it or state why it's untouched. "I updated the README and changelog" is not a doc-sync until the changed package's README, the framework inventory, and any user-facing marketing surface were each *considered* (and the skip, if any, justified).
 
+**Every workspace package has its own `README.md`, written with the package and landed in the same PR that adds it** — what it is for, what it exports, who depends on it, and what a maintainer must not break. The governance check (`pnpm test:governance`) fails naming any workspace package without one; there is no allowlist.
+
 **Edit the page so it stays true — do not append a paragraph or grow a table cell; history belongs in the changelog.** Every docs page is held to the writing standard in the `/docs-writing` skill (`dev/skills/docs-writing/SKILL.md`), and the build fails a page that breaks its shape limits.
 
 ### kolu.dev docs are the canonical product docs

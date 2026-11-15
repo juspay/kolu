@@ -57,7 +57,12 @@ const OPTION_CLASS = "rounded-md border px-2.5 py-1 text-fg cursor-pointer";
 const singleAnswer = (field: AskField): boolean =>
   field.kind === "choice" || field.kind === "boolean";
 
-const ConductorAsk: Component<{ row: ConductorAskRow }> = (props) => {
+const ConductorAsk: Component<{
+  /** THE AGENT'S OWN QUESTION, and only ever that: it is holding a call open
+   *  for this one. kolu's questions about a piece of work are decisions on
+   *  that work, drawn by `WorkQuestion` wherever the person happens to be. */
+  row: ConductorAskRow;
+}> = (props) => {
   const orch = useConductor();
   const ask = () => props.row.ask;
   const settled = () => ask().outcome !== null;
@@ -142,7 +147,7 @@ const ConductorAsk: Component<{ row: ConductorAskRow }> = (props) => {
       data-settled={settled() ? "" : undefined}
       class="rounded-xl border border-alert/55 bg-alert/[0.08] px-3 py-2.5 text-xs"
     >
-      <header class="flex items-center gap-2 mb-1">
+      <header class="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5 mb-1">
         <span class="text-alert text-base leading-none">✱</span>
         <b class="text-[0.78rem]">Conductor asks you</b>
       </header>

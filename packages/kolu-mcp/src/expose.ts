@@ -32,10 +32,10 @@
  * would have to read to learn what it already knows.
  *
  * The fleet face has one resource the stdio face could not have at all:
- * `watched` (`surface://cells/watched`), the Conductor's own watch list as
- * rows. It is per-CONVERSATION rather than per-host, and there is exactly one
- * conversation behind this map; a face serving many clients would be serving
- * one of them somebody else's list.
+ * `works` (`surface://cells/works`), kolu's own pieces of work as rows. It is
+ * per-RECORD rather than per-host, and there is exactly one conversation
+ * behind this map; a face serving many clients would be serving one of them
+ * somebody else's work.
  *
  * **Default deny**: an omitted member is unreachable, full stop. Widening this
  * map is a one-row diff with a review, never a default. The named denials below
@@ -130,11 +130,11 @@ export const KOLU_MCP_EXPOSE = {
  *
  *  There is no `watch.close` row and no `watch` member to put one on. This face
  *  serves ONE conversation — the conductor's — and that conversation may never
- *  be inside a call that blocks: it says what it watches and ends its turn,
- *  and kolu-server starts the next one when a watched terminal's agent stops,
- *  asks, or dies. The watch list is moved by two bespoke tools
- *  (`watch_terminal` / `unwatch_terminal`, `fleet/watchList.ts`) which address
- *  a TERMINAL rather than a subscription, so there is nothing here to close. */
+ *  be inside a call that blocks: it says what it is running and ends its turn,
+ *  and kolu-server starts the next one when a member terminal's agent stops,
+ *  asks, or dies. A work's membership is moved by bespoke tools (`work_adopt`
+ *  / `work_leave`, `fleet/works.ts`) which address a TERMINAL rather than a
+ *  subscription, so there is nothing here to close. */
 export const KOLU_FLEET_EXPOSE = {
   // ── Resources (subscribable) ─────────────────────────────────────────────
   /** Every terminal on every connected host, keyed `<host>/<id>`. */
@@ -143,11 +143,12 @@ export const KOLU_FLEET_EXPOSE = {
   urgency: "resource",
   /** The live roster, and the per-host health facts as its columns. */
   hosts: "resource",
-  /** What this conversation is woken about — its own watch list, with each
-   *  ref's host as the fleet reads it now. The one resource here whose value
-   *  is the CONVERSATION's: moving the list is two tools, reading it is this,
-   *  and a face that only had the tools left a restarted conductor guessing. */
-  watched: "resource",
+  /** WHAT THIS CONVERSATION IS RUNNING — kolu's own pieces of work, their
+   *  members by role, where each stands and what it is waiting on. The one
+   *  resource here whose value is kolu's RECORD rather than the fleet's:
+   *  moving a work is five tools, reading them is this, and a face that only
+   *  had the tools left a restarted conductor guessing. */
+  works: "resource",
 
   ...KOLU_MCP_TOOL_EXPOSE,
 } as const satisfies ExposeMap<FleetSurfaceSpec>;

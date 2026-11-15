@@ -7,9 +7,12 @@ import {
 import { SurfaceAppProvider } from "@kolu/surface-app/solid";
 import { MetaProvider } from "@solidjs/meta";
 import { koluBuildInfo } from "kolu-common/surface";
+import { Show } from "solid-js";
 import { render } from "solid-js/web";
 import { toast } from "solid-sonner";
 import App from "./App";
+import ReaderWindow from "./conductor/reader/ReaderWindow";
+import { parseReaderHash } from "./conductor/reader/useReader";
 import { status } from "./rpc/rpc";
 import { Fault } from "./ui/Fault";
 import { surfaceApp } from "./wire";
@@ -58,7 +61,21 @@ render(
       fault={(text) => <Fault text={text} />}
     >
       <MetaProvider>
-        <App />
+        {/* WHICH DOCUMENT THIS IS — decided ONCE, here, before anything
+            mounts. `#/reader/<work>/<path>` is a window that is nothing but
+            a work's file (`conductor/reader/ReaderWindow.tsx`), opened from
+            the reader's Pop out so a plan can live on a second monitor; every
+            other address is the workspace. It is read at boot and never
+            again: a window does not become the workspace halfway through its
+            life, and the workspace never navigates to a reader route — it
+            opens the reader in its own pane instead.
+
+            Both share everything below this line, which is what makes the
+            pop-out live: the same websocket, the same works collection, the
+            same host pool, the same comments in this browser's storage. */}
+        <Show when={parseReaderHash(location.hash) !== null} fallback={<App />}>
+          <ReaderWindow />
+        </Show>
       </MetaProvider>
     </SurfaceAppProvider>
   ),

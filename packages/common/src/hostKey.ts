@@ -139,7 +139,7 @@ export function isEncodedHostKey(s: string): boolean {
 
 /** The persisted host-membership list — the encoded keys the pool remembers across a
  *  kolu restart, stored as the `hosts` field of the server's conf state store (see
- *  `packages/server/src/state.ts`'s `PersistedStateSchema`), NOT a standalone file: it
+ *  `packages/server/src/stateShape.ts`'s `PersistedStateSchema`), NOT a standalone file: it
  *  rides the same schema + migration ladder as every other durable server fact. A
  *  well-formed value is exactly what the pool's `persist` hook writes: canonical encoded
  *  keys, no `local` (the code-seeded default is never persisted — persisting it would mint

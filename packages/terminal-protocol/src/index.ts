@@ -23,6 +23,8 @@
  *  - `submitInput`     — whether a write to a terminal SUBMITS (one of the
  *    caller's submit keys, typed unmodified outside a paste), which padi reads
  *    to know an agent was handed a prompt before its transcript says so.
+ *  - `readingReports`  — the focus and mouse-wheel reports a terminal sends
+ *    on a READER's behalf, which a gate on a person's typing lets through.
  *
  * A leaf: zero runtime dependencies, importable from the browser bundle, the
  * pty-host, and the CLI alike — which is exactly why this lives in its own
@@ -53,6 +55,7 @@ export {
   metaByte,
   NAMED_KEY_BYTES,
 } from "./keyInput.ts";
+export { isReadingReport } from "./readingReports.ts";
 export {
   createTerminalResponseStripper,
   isTerminalQueryResponse,

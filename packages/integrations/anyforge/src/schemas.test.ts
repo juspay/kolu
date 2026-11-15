@@ -19,7 +19,7 @@ describe("PrInfo wire format", () => {
   const decode = Schema.decodeUnknownSync(PrInfoSchema);
   const encode = Schema.encodeSync(PrInfoSchema);
 
-  it("encodes number/title/url/state/checks/checkRuns/reviewDecision/mergeStateStatus in that key order", () => {
+  it("encodes number/title/url/state/checks/checkRuns/reviewDecision/mergeStateStatus/headSha in that key order", () => {
     const pr: PrInfo = {
       number: 148,
       title: "Decomplect PR resolution state",
@@ -32,6 +32,7 @@ describe("PrInfo wire format", () => {
       ],
       reviewDecision: "CHANGES_REQUESTED",
       mergeStateStatus: "BLOCKED",
+      headSha: "4f21a9c0d3e5b7a9c1d3e5f7a9b1c3d5e7f9a1b3",
     };
     expect(JSON.stringify(encode(pr))).toBe(
       '{"number":148,"title":"Decomplect PR resolution state",' +
@@ -39,7 +40,8 @@ describe("PrInfo wire format", () => {
         '"checks":"fail","checkRuns":[' +
         '{"name":"ci::biome@x86_64-linux","outcome":"fail"},' +
         '{"name":"ci::unit@x86_64-linux","outcome":"pass"}],' +
-        '"reviewDecision":"CHANGES_REQUESTED","mergeStateStatus":"BLOCKED"}',
+        '"reviewDecision":"CHANGES_REQUESTED","mergeStateStatus":"BLOCKED",' +
+        '"headSha":"4f21a9c0d3e5b7a9c1d3e5f7a9b1c3d5e7f9a1b3"}',
     );
   });
 
@@ -56,15 +58,16 @@ describe("PrInfo wire format", () => {
       checkRuns: [],
       reviewDecision: null,
       mergeStateStatus: "UNKNOWN",
+      headSha: null,
     };
     expect(JSON.stringify(encode(pr))).toBe(
       '{"number":1,"title":"t","url":"https://example.invalid/pull/1",' +
         '"state":"merged","checks":null,"checkRuns":[],' +
-        '"reviewDecision":null,"mergeStateStatus":"UNKNOWN"}',
+        '"reviewDecision":null,"mergeStateStatus":"UNKNOWN","headSha":null}',
     );
   });
 
-  it("decodes an OLD server payload with no checkRuns / review / merge keys (rolling deploy)", () => {
+  it("decodes an OLD server payload with no checkRuns / review / merge / head keys (rolling deploy)", () => {
     // Rolling-deploy tolerance, not a fallback: an older server emitting
     // payloads without these fields must still parse on a newer client.
     expect(
@@ -84,6 +87,7 @@ describe("PrInfo wire format", () => {
       checkRuns: [],
       reviewDecision: null,
       mergeStateStatus: "UNKNOWN",
+      headSha: null,
     });
   });
 
@@ -99,11 +103,11 @@ describe("PrInfo wire format", () => {
       '{"number":7,"title":"old server",' +
         '"url":"https://example.invalid/pull/7","state":"open",' +
         '"checks":"pending","checkRuns":[],' +
-        '"reviewDecision":null,"mergeStateStatus":"UNKNOWN"}',
+        '"reviewDecision":null,"mergeStateStatus":"UNKNOWN","headSha":null}',
     );
   });
 
-  it("decodes a NEW server payload with checkRuns / review / merge verbatim", () => {
+  it("decodes a NEW server payload with checkRuns / review / merge / head verbatim", () => {
     const decoded = decode({
       number: 8,
       title: "new server",
@@ -113,10 +117,12 @@ describe("PrInfo wire format", () => {
       checkRuns: [{ name: "gate", outcome: "pass" }],
       reviewDecision: "APPROVED",
       mergeStateStatus: "CLEAN",
+      headSha: "4f21a9c",
     });
     expect(decoded.checkRuns).toEqual([{ name: "gate", outcome: "pass" }]);
     expect(decoded.reviewDecision).toBe("APPROVED");
     expect(decoded.mergeStateStatus).toBe("CLEAN");
+    expect(decoded.headSha).toBe("4f21a9c");
   });
 
   it("rejects an unknown state / outcome rather than defaulting it", () => {
@@ -259,6 +265,7 @@ describe("prResultEqual", () => {
     checkRuns: [],
     reviewDecision: null,
     mergeStateStatus: "UNKNOWN",
+    headSha: "4f21a9c",
   };
   const ok: PrResult = { kind: "ok", value: pr };
 
@@ -290,6 +297,8 @@ describe("prResultEqual", () => {
     { field: "checks", value: "fail" },
     { field: "reviewDecision", value: "APPROVED" },
     { field: "mergeStateStatus", value: "CLEAN" },
+    // A PUSH: every other field can read the same and it is still new news.
+    { field: "headSha", value: "9b7e3d1" },
   ] as const)("detects different $field", ({ field, value }) => {
     expect(
       prResultEqual(ok, { kind: "ok", value: { ...pr, [field]: value } }),

@@ -1,6 +1,7 @@
 /** Per-host WIRE SUBSCRIPTIONS retained across switch-away (padi W9 — completing
- *  W7's K1). The acceptance suite for the five per-host readouts (`terminalKeys`,
- *  the `terminals` collection, saved session, activity feed, daemon status) moved
+ *  W7's K1). The acceptance suite for the six per-host readouts (`terminalKeys`,
+ *  the `terminals` collection, saved session, activity feed, daemon status, and
+ *  padi's `roster` standing) moved
  *  OUT of `wire.ts`'s `useEntry(activeHost)` block and INTO the retained
  *  `scopedByEntry` owner via `hostScope/createHostWire`.
  *
@@ -85,13 +86,13 @@ describe("per-host wire subscriptions (padi W9 — instant host switch-back)", (
     await createRoot(async (dispose) => {
       try {
         // Visit A (the default active host): its owner builds, opening its subs.
-        // `createHostWire` opens FOUR subs through the instrumented `entry(host)`
-        // (terminals, session, activityFeed, daemonStatus); the fifth, terminalKeys,
-        // rides `createReactiveSubscription` and is not counted here.
+        // `createHostWire` opens FIVE subs through the instrumented `entry(host)`
+        // (terminals, session, roster, activityFeed, daemonStatus); the sixth,
+        // terminalKeys, rides `createReactiveSubscription` and is not counted here.
         switchTo(HOST_A);
         void activeScope();
         await flush();
-        expect(wireLifecycle(HOST_A).opened).toBe(4);
+        expect(wireLifecycle(HOST_A).opened).toBe(5);
 
         // Add B as a MEMBER but never make it active: a background host you have not
         // visited gets no owner and opens NO subscriptions (the lazy cost floor).
@@ -104,7 +105,7 @@ describe("per-host wire subscriptions (padi W9 — instant host switch-back)", (
         switchTo(HOST_B);
         void activeScope();
         await flush();
-        expect(wireLifecycle(HOST_B).opened).toBe(4);
+        expect(wireLifecycle(HOST_B).opened).toBe(5);
         expect(wireLifecycle(HOST_B).disposed).toBe(0);
       } finally {
         dispose();
@@ -118,23 +119,23 @@ describe("per-host wire subscriptions (padi W9 — instant host switch-back)", (
         switchTo(HOST_A);
         void activeScope();
         await flush();
-        expect(wireLifecycle(HOST_A).opened).toBe(4);
+        expect(wireLifecycle(HOST_A).opened).toBe(5);
 
         // Switch AWAY to B: B builds its own subs; A is RETAINED (not disposed).
         switchTo(HOST_B);
         void activeScope();
         await flush();
-        expect(wireLifecycle(HOST_B).opened).toBe(4);
-        expect(wireLifecycle(HOST_A).opened).toBe(4);
+        expect(wireLifecycle(HOST_B).opened).toBe(5);
+        expect(wireLifecycle(HOST_A).opened).toBe(5);
         expect(wireLifecycle(HOST_A).disposed).toBe(0);
 
         // Switch BACK to A: its owner was retained, so it is NOT rebuilt — `opened`
-        // stays 4 (a `useEntry` regression would reopen it, making this 8). This is
+        // stays 5 (a `useEntry` regression would reopen it, making this 10). This is
         // the structural proof that switch-back has no pending window.
         switchTo(HOST_A);
         void activeScope();
         await flush();
-        expect(wireLifecycle(HOST_A).opened).toBe(4);
+        expect(wireLifecycle(HOST_A).opened).toBe(5);
         expect(wireLifecycle(HOST_A).disposed).toBe(0);
       } finally {
         dispose();
@@ -168,7 +169,7 @@ describe("per-host wire subscriptions (padi W9 — instant host switch-back)", (
         removeHost(HOST_A);
         void activeScope();
         await flush();
-        expect(wireLifecycle(HOST_A).disposed).toBe(4);
+        expect(wireLifecycle(HOST_A).disposed).toBe(5);
         expect(wireLifecycle(HOST_B).disposed).toBe(0);
       } finally {
         dispose();

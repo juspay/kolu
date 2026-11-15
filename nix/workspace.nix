@@ -146,6 +146,7 @@ let
     "kaval-tui" = ../packages/kaval-tui;
     "kolu-cli" = ../packages/kolu-cli;
     "kolu-conductor" = ../packages/conductor;
+    "kolu-work" = ../packages/work;
     "kolu-mcp" = ../packages/kolu-mcp;
     "@kolu/padi" = ../packages/padi;
     "@kolu/padi-client" = ../packages/padi-client;

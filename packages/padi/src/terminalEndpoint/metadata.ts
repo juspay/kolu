@@ -55,6 +55,7 @@ import type {
   TerminalSnapshot,
 } from "@kolu/terminal-vocab/schema";
 import { Schema } from "effect";
+import { markCensusMoved } from "../attention/fleetGate.ts";
 import { log } from "../log.ts";
 import { padiSurfaceCtx } from "../padiSurfaceCtx.ts";
 import { notifyDirty } from "../publisher.ts";
@@ -117,9 +118,15 @@ function publishComposedTerminal(terminalId: string): void {
  *  registered), so this reads the live entry rather than taking the snapshot as an
  *  argument. Called by the endpoint AFTER `registerTerminal` on spawn / adopt /
  *  orphan / wake / cold-restore; the caller's `publishTerminalState` re-publishes
- *  the same composed record, so the tile has its metadata either way. */
+ *  the same composed record, so the tile has its metadata either way.
+ *
+ *  This is one of the two MEMBERSHIP moves, so it also re-states padi's census
+ *  on the `roster` cell ({@link markCensusMoved}) — the answer to "is that id
+ *  here?" travels as one frame, never as a standing on one member and a list on
+ *  another (#2376; `attention/fleetGate.ts`). */
 export function installSnapshot(terminalId: string): void {
   publishComposedTerminal(terminalId);
+  markCensusMoved();
 }
 
 /** Fan a terminal's REMOVAL out onto the `terminals` collection. The entry was
@@ -128,9 +135,11 @@ export function installSnapshot(terminalId: string): void {
  *  `.remove` tells subscribers it is gone — and the same `.remove` recomputes the
  *  derived `urgency` cell (the removal changes what `$.terminals()` folds), so no
  *  urgency rider is needed here either. Called by the endpoint's `finalizeRemoval`
- *  (and `killTerminal` / `killAllTerminals`) on exit / kill / discard. */
+ *  (and `killTerminal` / `killAllTerminals`) on exit / kill / discard. The other
+ *  membership move, so the census is re-stated here too. */
 export function dropSnapshot(terminalId: string): void {
   padiSurfaceCtx.collections.terminals.remove(terminalId);
+  markCensusMoved();
 }
 
 /** Commit a folded `TerminalSnapshot` — REPLACE `entry.snapshot` wholesale (the fold

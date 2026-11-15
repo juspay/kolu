@@ -1,11 +1,20 @@
-/** The Code tab's browse-mode adapter: owns the `fsReadFile` subscription
- *  and projects the wire's `kind` discriminator onto `@kolu/solid-fileview`'s
- *  `FileView` outlet — injecting kolu's renderer set rather than wiring any
- *  render mechanics here. The img/iframe strategies now live in the library
- *  (`@kolu/solid-fileview/renderers/*`); the pierre-backed source view and
- *  the artifact-sdk comment bridge stay in kolu (they're kolu's volatility),
+/** THE ONE FILE VIEWER — kolu's renderer set, its comment decision and its
+ *  link resolvers, over a file somebody else has already read.
+ *
+ *  It projects a `FileData` onto `@kolu/solid-fileview`'s `FileView` outlet,
+ *  injecting kolu's renderers rather than wiring any render mechanics here.
+ *  The img/iframe strategies live in the library
+ *  (`@kolu/solid-fileview/renderers/*`); the pierre-backed source view and the
+ *  artifact-sdk comment bridge stay in kolu (they're kolu's volatility),
  *  plugged in as appliances.
  *
+ *  THE READ IS THE CALLER'S, and that is what lets a file open in two places
+ *  without two viewers. The Code tab hands it the retained per-host query it
+ *  owns (`hostCodeTab.fileContent`, keyed on repo+file so a focus move never
+ *  blanks the view); a work's card hands it a one-shot read of a member's
+ *  worktree, or kolu's own copy of a file kept when the work ended. Both get
+ *  the same markdown, the same images, the same comments — because there is
+ *  one of each, here.
  *  Commentability is decided *here*, once: every renderer is built through
  *  `withComments(capture, …)`, which declares how that view exposes itself for
  *  comments — `"text"` (selectable source DOM, line-addressable), `"prose"`
@@ -46,7 +55,6 @@ import { PdfRenderer } from "@kolu/solid-fileview/renderers/pdf";
 import { VideoRenderer } from "@kolu/solid-fileview/renderers/video";
 import { resolveWikilink } from "@kolu/solid-markdown";
 import type { SelectedLineRange } from "@kolu/solid-pierre";
-import { encodeHostKey } from "kolu-common/hostKey";
 import { MAX_READ_BYTES } from "kolu-git/schemas";
 import { binaryPreviewFamily, isMarkdown } from "kolu-common/preview";
 import type { TerminalId } from "kolu-common/surface";
@@ -61,14 +69,11 @@ import {
 } from "solid-js";
 import { toast } from "solid-sonner";
 import { match, P } from "ts-pattern";
-import { buildTerminalFileUrl } from "kolu-common/preview";
 import { CommentTextSurface } from "../comments/CommentTextSurface";
 import { useCommentScrollRequest } from "../comments/scrollRequest";
 import { OptionMenu } from "../ui/OptionMenu";
-import { activeHost } from "../wire";
 import BrowseFileView from "./BrowseFileView";
 import BrowseIframeRenderer from "./BrowseIframeRenderer";
-import { codeFileContent } from "./hostCodeTab";
 import { FootnotePopover, type FootnoteTarget } from "./FootnotePopover";
 import { resolveMarkdownImageSrc } from "./markdownImageSrc";
 import { openInCodeTab } from "./openInCodeTab";
@@ -90,9 +95,28 @@ const TruncatedBanner: Component<{ show: boolean }> = (p) => (
 );
 
 export type BrowseFileDispatcherProps = {
-  terminalId: TerminalId;
-  repoPath: string;
+  /** WHERE the file comes from: the terminal whose host serves its bytes and
+   *  whose repo a comment is anchored against.
+   *
+   *  `null` for a copy kolu holds ITSELF — a finished work's kept file, which
+   *  outlived the worktree it was written in. There is no repo behind it and
+   *  no terminal to address a comment to, so the links, the image resolver
+   *  and the comment surface are simply absent rather than pointed at a
+   *  terminal that has nothing to do with the bytes. */
+  at: { host: string; terminalId: TerminalId } | null;
   filePath: string;
+  /** THE FILE, already read — text with its source, or a URL to bytes.
+   *  `null` while the read is still out.
+   *
+   *  The read itself is the CALLER's: the Code tab's is a retained per-host
+   *  query keyed on (repo, file) that survives a host switch
+   *  (`hostCodeTab.fileContent`), and a work card's is a one-shot read of a
+   *  member's worktree or of kolu's own copy. Only the RENDERING is shared —
+   *  which is the whole point of this seam: one viewer, one renderer set, one
+   *  comment decision, however the bytes arrived. */
+  file: FileWithSource | FileWithUrl | null;
+  /** Why the read failed, if it did — drawn in place of the file. */
+  error: Error | undefined;
   /** The repo's vault a `[[wikilink]]` resolves against — its full file list
    *  (`fsListAll`, repo-relative, pathless) paired with that list's readiness,
    *  threaded from `CodeTab` rather than re-subscribed here so resolution shares
@@ -122,16 +146,6 @@ export type BrowseFileDispatcherProps = {
 };
 
 const BrowseFileDispatcher: Component<BrowseFileDispatcherProps> = (props) => {
-  // The file-content read is RETAINED per host in `hostCodeTab` (padi W9): a stable
-  // window over the active host's own instance, so a switch-BACK — and this
-  // dispatcher's own unmount/remount (it lives under `CodeTab`'s keyed `<Show>` on the
-  // selected path, so every selection or host switch tears it down) — reads the held
-  // content with no blank and no `pending` window. The query's binary/text decision,
-  // input (browse-mode + selected file), and pulse all live at its real home; this
-  // component only READS `fileContent()` to render. `props` still feed the RENDER
-  // (theme, comment surface, wikilink vault) — only the query moved out.
-  const fileContent = codeFileContent;
-
   // ── Wikilink navigation ────────────────────────────────────────────
   // A `[[Note]]` click resolves pathless against the whole repo (`repoVault`),
   // GitHub/Obsidian-style. A unique hit opens through the same front door every
@@ -144,13 +158,18 @@ const BrowseFileDispatcher: Component<BrowseFileDispatcherProps> = (props) => {
   // (pathless vault vs. doc-relative); the *open* lives here, once. No fuzzy
   // basename fallback — the resolvers already produced an exact repo entry, and
   // a fallback would silently open a same-basename file in another folder.
-  const openPreviewPath = (path: string) =>
+  const openPreviewPath = (path: string) => {
+    const at = props.at;
+    // A kept file has no repo to resolve a link INTO — kolu holds the bytes,
+    // not the tree they came from. Nothing to open, so nothing is offered.
+    if (at === null) return;
     openInCodeTab({
-      terminalId: props.terminalId,
+      terminalId: at.terminalId,
       ref: { path, startLine: null, endLine: null },
       targetMode: "browse",
       allowBasenameFallback: false,
     });
+  };
 
   const [wikiMenu, setWikiMenu] = createSignal<{
     anchor: HTMLElement;
@@ -239,25 +258,34 @@ const BrowseFileDispatcher: Component<BrowseFileDispatcherProps> = (props) => {
   // host (see `sourceRenderer` and the `prose` renderer below): a user must
   // not be able to select "File truncated …" and save a comment whose quote
   // the agent can't find.
+  //
+  // WITH NO TERMINAL there is nothing to anchor a comment TO — a kept file's
+  // bytes are kolu's own copy, addressed by the work that kept them and not by
+  // a repo any agent can be pointed back at. The view is then mounted bare: a
+  // comment surface over it would offer to save a quote nobody could resolve.
   const textSurface = (
     file: () => FileData,
     view: JSX.Element,
     opts: { lineAnchored: boolean; surface?: "source" | "prose" },
   ): JSX.Element => (
-    <CommentTextSurface
-      terminalId={props.terminalId}
-      path={file().path}
-      // The host's text is the file source, so the highlight overlay
-      // re-anchors when the server bumps content on save.
-      contentTick={file().source?.content ?? ""}
-      // `flex-1 min-h-0` so the host fills the space left under the (optional)
-      // truncation-banner sibling without overflowing it.
-      class="min-h-0 w-full flex-1"
-      lineAnchored={opts.lineAnchored}
-      surface={opts.surface}
-    >
-      {view}
-    </CommentTextSurface>
+    <Show when={props.at} fallback={view}>
+      {(at) => (
+        <CommentTextSurface
+          terminalId={at().terminalId}
+          path={file().path}
+          // The host's text is the file source, so the highlight overlay
+          // re-anchors when the server bumps content on save.
+          contentTick={file().source?.content ?? ""}
+          // `flex-1 min-h-0` so the host fills the space left under the
+          // (optional) truncation-banner sibling without overflowing it.
+          class="min-h-0 w-full flex-1"
+          lineAnchored={opts.lineAnchored}
+          surface={opts.surface}
+        >
+          {view}
+        </CommentTextSurface>
+      )}
+    </Show>
   );
 
   // A comment records its surface only when the file is multi-surface — i.e.
@@ -368,7 +396,7 @@ const BrowseFileDispatcher: Component<BrowseFileDispatcherProps> = (props) => {
           "iframe",
           file,
           <BrowseIframeRenderer
-            terminalId={props.terminalId}
+            terminalId={props.at?.terminalId ?? null}
             path={file().path}
             url={file().url}
             onNavigate={props.onNavigate}
@@ -420,14 +448,20 @@ const BrowseFileDispatcher: Component<BrowseFileDispatcherProps> = (props) => {
             // to UI copy the agent can't find in the file.
             <MarkdownRenderer
               markdown={file().source.content}
-              resolveImageSrc={(src) =>
-                resolveMarkdownImageSrc(
-                  encodeHostKey(activeHost()),
-                  props.terminalId,
-                  props.filePath,
-                  src,
-                )
-              }
+              resolveImageSrc={(src) => {
+                const at = props.at;
+                // A kept file's images are already whatever the document
+                // names: there is no repo to resolve a relative `src`
+                // against, so it is left exactly as written.
+                return at === null
+                  ? src
+                  : resolveMarkdownImageSrc(
+                      at.host,
+                      at.terminalId,
+                      props.filePath,
+                      src,
+                    );
+              }}
               onNavigateRelative={onNavigateRelative}
               onNavigateWikilink={onNavigateWikilink}
               onFootnote={onFootnote}
@@ -438,37 +472,21 @@ const BrowseFileDispatcher: Component<BrowseFileDispatcherProps> = (props) => {
     },
   ];
 
-  // Project each wire variant to a `FileData`. Identity changes when the
-  // content/url changes (e.g. the `?v=<tag>` cache-key moves when the
-  // bytes change), so FileView re-renders through the same subscription path as
-  // before.
-  const textFile = createMemo<FileWithSource | null>(() => {
-    const fc = fileContent();
-    return fc?.kind === "text"
-      ? {
-          path: props.filePath,
-          source: { content: fc.content, truncated: fc.truncated },
-        }
+  // The file arrives already read (see `file` on the props) — the two arms
+  // below only decide WHICH renderer set it goes to. Identity changes when
+  // the content or the URL changes (e.g. a `?v=<tag>` cache key moving with
+  // the bytes), so FileView re-renders exactly when the file did.
+  const textFile = createMemo((): FileWithSource | null => {
+    const file = props.file;
+    return file !== null && file.source !== undefined
+      ? { ...file, source: file.source }
       : null;
   });
-  const binaryFile = createMemo<FileWithUrl | null>(() => {
-    const fc = fileContent();
-    if (fc?.kind !== "binary") return null;
-    // The URL is built HERE, where the terminal is read — not in the query. The
-    // query is keyed on (repo, file) so that a focus move between two panes
-    // showing the same file never blanks the view; the terminal named in the URL
-    // therefore has to come from the pane being SHOWN, or a URL left naming a
-    // pane that has since closed would 404 the preview. `?v=<tag>` is the
-    // content hash, so a real content change still reloads the img/iframe while
-    // an identical-content rewrite does not.
-    return {
-      path: props.filePath,
-      url: `${buildTerminalFileUrl(
-        encodeHostKey(activeHost()),
-        props.terminalId,
-        props.filePath,
-      )}?v=${fc.previewTag}`,
-    };
+  const binaryFile = createMemo((): FileWithUrl | null => {
+    const file = props.file;
+    return file !== null && file.url !== undefined
+      ? { ...file, url: file.url }
+      : null;
   });
 
   // A controlled FileView mode driven by a tray-jump scroll request: when the
@@ -487,7 +505,7 @@ const BrowseFileDispatcher: Component<BrowseFileDispatcherProps> = (props) => {
   return (
     <>
       <Switch fallback={<div class="px-2 py-1 text-fg-3/50">Loading…</div>}>
-        <Match when={fileContent.error()}>
+        <Match when={props.error}>
           {(err) => (
             <div class="px-2 py-1 text-danger">Error: {err().message}</div>
           )}

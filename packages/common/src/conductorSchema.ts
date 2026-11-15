@@ -35,6 +35,7 @@
 
 import {
   AskAnswer,
+  AskChoice,
   AskField,
   AskLink,
   AuthAccount,
@@ -45,6 +46,7 @@ import {
 } from "@kolu/acp/wire";
 import { formatBytes, MIB } from "@kolu/byte-units";
 import { TerminalIdSchema } from "@kolu/terminal-vocab/schema";
+import { AnsweredFromFaceSchema } from "kolu-work";
 import { Effect, Schema } from "effect";
 
 /** `YES_NO` is a VALUE, not a schema, and it is the one piece of this
@@ -55,6 +57,7 @@ import { Effect, Schema } from "effect";
  *  browser never needs `@kolu/acp` itself. */
 export {
   AskAnswer,
+  AskChoice,
   AskField,
   AskLink,
   AuthAccount,
@@ -322,8 +325,9 @@ export const ConductorKoluCallSchema = Schema.Union([
     text: Schema.NullOr(Schema.String),
   }),
   Schema.Struct({
-    /** `watch_terminal` / `unwatch_terminal` — the Conductor adding a terminal
-     *  to the list kolu wakes it about, or taking one off. */
+    /** `work_adopt` / `work_leave` — a terminal joining one of the
+     *  Conductor's works, or leaving it. (Rows stored before works existed
+     *  read the same way off `watch_terminal` / `unwatch_terminal`.) */
     kind: Schema.Literal("watch"),
     ...CALL_SUBJECT,
     watching: Schema.Boolean,
@@ -416,6 +420,28 @@ export const ConductorAskRowSchema = Schema.Struct({
   parent: Schema.optionalKey(Schema.String),
 });
 
+/** KOLU asking a person something ABOUT A PIECE OF WORK — its own row kind,
+ *  not an `ask` row with a work field bolted on.
+ *
+ *  Two different things were living under one tag: an ELICITATION the agent
+ *  is holding a call open for, and a DECISION on a work that nothing waits
+ *  on. Every reader had to re-discriminate them on the presence of an
+ *  optional field, and the two are answered through different procedures
+ *  (`conductor.answer` and `conductor.answerWork`). `work` is required here,
+ *  because a work question about no work is not a thing. */
+export const ConductorWorkAskRowSchema = Schema.Struct({
+  ...rowHead,
+  kind: Schema.Literal("work-ask"),
+  text: Schema.String,
+  ask: ConductorAskSchema,
+  parent: Schema.optionalKey(Schema.String),
+  /** THE WORK this question is about — stated when it was asked (kolu's own
+   *  `work_ask` / `work_open` put it), never inferred from timing. The work's
+   *  card draws the same decision, so answering either face answers the one
+   *  question. */
+  work: Schema.String,
+});
+
 /** The conversation reporting on itself: the agent died, a turn was cancelled,
  *  a session was loaded, a turn said nothing, a background task ended. */
 export const ConductorNoticeRowSchema = Schema.Struct({
@@ -477,6 +503,12 @@ const SHARED_LEVELS = ["stopped", "asking", "gone", "asleep"] as const;
  *    agent left behind is where the reason is. Like `ended` it carries no
  *    exit status: kolu saw the program go, not why.
  *
+ *  - `taken-over` / `handed-back` — the PERSON took the terminal off the
+ *    Conductor, or gave it back. Not a reading of the terminal at all: it is
+ *    an act, and it rings for the same reason the others do — what the
+ *    Conductor was about to do to that terminal is no longer its to do (or is
+ *    again).
+ *
  *  Nothing else rings: an agent that is working, a plain shell nobody
  *  created with a command, a host that is merely not answering. */
 export const ConductorWakeLevelSchema = Schema.Literals([
@@ -484,6 +516,8 @@ export const ConductorWakeLevelSchema = Schema.Literals([
   "ready",
   "ended",
   "exited",
+  "taken-over",
+  "handed-back",
 ]);
 export type ConductorWakeLevel = typeof ConductorWakeLevelSchema.Type;
 
@@ -575,6 +609,7 @@ export const ConductorRowSchema = Schema.Union([
   ConductorPlanRowSchema,
   ConductorToolRowSchema,
   ConductorAskRowSchema,
+  ConductorWorkAskRowSchema,
   ConductorNoticeRowSchema,
   ConductorDividerRowSchema,
   ConductorWakeRowSchema,
@@ -583,6 +618,7 @@ export type ConductorRow = typeof ConductorRowSchema.Type;
 export type ConductorToolRow = typeof ConductorToolRowSchema.Type;
 export type ConductorUserRow = typeof ConductorUserRowSchema.Type;
 export type ConductorAskRow = typeof ConductorAskRowSchema.Type;
+export type ConductorWorkAskRow = typeof ConductorWorkAskRowSchema.Type;
 
 /** A PIECE of streaming prose appended to a row — never the text so far, so a
  *  turn that runs for a minute does not re-send its own paragraph per tick. */
@@ -797,6 +833,49 @@ export const ConductorSignInSchema = Schema.Struct({
   ),
 });
 
+/** THE FOUR RECORDS A RESTART READS, by name — the `conductor`, `works` and
+ *  `members` keys of kolu-server's `config.json`, and the transcript file
+ *  beside it. The one vocabulary a refusal names a record by and a recovery
+ *  names one back: spelled here, on the wire, so the panel's copy, the
+ *  procedure's input and the server's switch cannot drift into three lists. */
+export const ConductorStoreKeySchema = Schema.Literals([
+  "conductor",
+  "works",
+  "members",
+  "transcript",
+]);
+export type ConductorStoreKey = typeof ConductorStoreKeySchema.Type;
+
+/** A REMEMBERED RECORD THIS BUILD CANNOT READ — what the Conductor's screen
+ *  turns into two buttons.
+ *
+ *  It carries the fact, never an instruction: `key` says which record,
+ *  `path` says which file is holding it (so a person can take a copy before
+ *  anything moves, and so a bug report names the right file), and the
+ *  sentence a person reads is `refusal` beside it. Nothing here ever asks
+ *  anybody to edit JSON — the two things kolu can do about it are
+ *  `conductor.recoverStore`'s two `how`s. */
+export const ConductorUnreadableSchema = Schema.Struct({
+  key: ConductorStoreKeySchema,
+  /** The file the unreadable value is in — `config.json` for the three keys,
+   *  the transcript's own file for the fourth. */
+  path: Schema.String,
+  /** WHERE THE UNREADABLE VALUE WOULD BE KEPT if a person chooses to start
+   *  that record empty — the exact path `recoverStore { how: "empty" }`
+   *  writes, so the confirm quotes it instead of guessing at it. */
+  keepsAt: Schema.String,
+  /** Whether the state-backup ring covers this record at all. The transcript
+   *  is NOT in it (it is most of the conversation's bytes and moves on every
+   *  keystroke), so the "restore the newest backup" button has nothing to
+   *  offer for that key — a fact the screen reads here rather than knowing. */
+  inBackups: Schema.Boolean,
+  /** WHAT IT TRIPPED ON, verbatim (a schema path, a version stamp, a JSON
+   *  parse error). Not the sentence a person reads — that is `refusal` — but
+   *  the one line a bug report needs, drawn small under it. */
+  detail: Schema.String,
+});
+export type ConductorUnreadable = typeof ConductorUnreadableSchema.Type;
+
 export const ConductorStateSchema = Schema.Struct({
   install: ConductorInstallSchema,
   phase: ConductorPhaseSchema,
@@ -815,9 +894,12 @@ export const ConductorStateSchema = Schema.Struct({
   commands: Schema.Array(ConductorCommandSchema),
   servers: Schema.Array(ConductorServerSchema),
   watching: Schema.Array(ConductorWatchingSchema),
-  /** The ids of the ask rows still waiting on a human. The violet badge is
-   *  this list's length — no separate count on the wire, because a count that
-   *  can disagree is a second source of truth. */
+  /** EVERY QUESTION STILL WAITING ON A HUMAN, as ask ids: the conversation's
+   *  own elicitations and the questions kolu put about a piece of work, in
+   *  one list composed by the server. One fact with one author, because a
+   *  bell that reads one half and a badge that reads the other is two
+   *  answers to "how many questions do I have". A work's questions are
+   *  derived from its decisions, so nothing stores them twice. */
   openAsks: Schema.Array(Schema.String),
   /** Every terminal this conductor has created or sent input to, as FLEET
    *  REFS (`<encodedHostKey>/<terminalId>`) — one conversation spans every
@@ -834,6 +916,17 @@ export const ConductorStateSchema = Schema.Struct({
    *  header draws no account chip at all; a KNOWN logged-out state arrives as
    *  a payload of its own (`kind: "none"`) and the chip says so. */
   identity: Schema.NullOr(AuthStatus),
+  /** WHICH REMEMBERED RECORD kolu could not read, when that is why there is
+   *  no conversation — `null` whenever the records read.
+   *
+   *  A SENTENCE IS NOT ENOUGH HERE, which is why this rides beside
+   *  {@link ConductorStateSchema.refusal} rather than inside it: the two
+   *  things kolu can actually DO about an unreadable record (restore the
+   *  newest backup that reads, or keep the unreadable value aside and start
+   *  with the record empty) are `conductor.recoverStore` calls, and a button
+   *  cannot be drawn off prose. The prose stays in `refusal`, which is what a
+   *  person reads; this is what the two buttons are made of. */
+  unreadable: Schema.NullOr(ConductorUnreadableSchema),
   /** A conversation the agent would not OPEN, in the agent's own words. There
    *  is no composer under this and the panel offers *try again*, which asks
    *  for the same thing that was refused. */
@@ -849,74 +942,11 @@ export const ConductorStateSchema = Schema.Struct({
   /** When the turn in flight began, or `null` while nothing is running — so
    *  every reader's "working · 2m" counts from the same instant. */
   busySince: Schema.NullOr(Schema.String),
-  /** HOW EACH WATCHED TERMINAL STANDS, and SINCE WHEN — one entry per ref the
-   *  watch has actually read, in watch order.
-   *
-   *  The watcher is the one thing that sees every level change on every host,
-   *  including hosts no browser has opened, so it is the only place that can
-   *  stamp when a terminal ENTERED the state it is in. A browser cannot: it
-   *  would be timing the moment it first noticed, per tab.
-   *
-   *  RUNTIME, which is why a ref can be absent: nothing is remembered across
-   *  a restart, and the first reading after one stamps the level afresh — as
-   *  accurate as the watch's first sight of it, which is the honest answer
-   *  and the only one kolu has. An absent ref is "not read yet", not "0s".
-   *
-   *  Beside `work` rather than inside it because it is a READING and `work`
-   *  is membership: a terminal is watched whether or not any host has
-   *  answered about it. MEMBERSHIP IS `work` AND ONLY `work` — every watched
-   *  terminal is in exactly one group, so the flat list of refs this cell
-   *  used to carry beside it was the same fact twice, and two counts of one
-   *  list are two counts free to disagree. */
-  seen: Schema.Array(
-    Schema.Struct({
-      ref: Schema.String,
-      /** What the watch last read in it. */
-      level: ConductorReadingLevelSchema,
-      /** The ISO time it entered that level, by the watcher's clock — kept
-       *  across readings that repeat the level, so the duration counts the
-       *  state and not the poll. */
-      since: Schema.String,
-    }),
-  ),
-  /** THE PIECES OF WORK in flight: the watched terminals grouped by the
-   *  top-level terminal their parent edges end at.
-   *
-   *  One group is one piece of work — a planner and the implementor it split
-   *  off are one thing going on, not two — and the count of these is what the
-   *  Conductor tab badges. DERIVED, by kolu's own watch (`kolu-conductor`'s
-   *  `workOf`), from the readings the watcher already takes of every watched
-   *  terminal's host: a browser cannot walk the parent edges of a terminal on
-   *  a host it never opened, and a host that is AWAY has no edges to walk at
-   *  all — only the server's remembered entries carry the last-known group
-   *  across that.
-   *
-   *  Groups are in the order their first member joined the watch list, and so
-   *  are the refs inside one. A watched terminal whose root is not known yet
-   *  (nothing has read its host since it joined) is its own group. */
-  work: Schema.Array(
-    Schema.Struct({
-      /** The fleet ref of the top-level terminal the group hangs off — the
-       *  terminal itself, when it has no parent. */
-      root: Schema.String,
-      /** What that terminal was last called, or EMPTY when nothing is known:
-       *  the same `intent ?? branch` rule every other watch reading uses. */
-      name: Schema.String,
-      /** The watched refs in this group, in watch order. */
-      refs: Schema.Array(Schema.String),
-      /** WHEN THIS PIECE OF WORK STARTED — the ISO time its FIRST terminal
-       *  joined the watch list, which is the earliest `since` of the entries
-       *  in it. kolu knows no other beginning: a waterfall is not declared
-       *  anywhere, and the moment the conversation started watching is the
-       *  moment it became work in flight. Saved with the entry, so the
-       *  duration a panel counts from it survives a restart. */
-      since: Schema.String,
-    }),
-  ),
-  /** The watched terminals whose news is HELD because a turn is running — one
+  /** The member terminals whose news is HELD because a turn is running — one
    *  per terminal, in the order the first of each rang. NEVER saved: a
-   *  restart looks at every watched terminal again instead. The status line's
-   *  "N waiting" is this list's length. */
+   *  restart looks at every member terminal again instead. The status line's
+   *  "N waiting" is this list's length. The works themselves are the `works`
+   *  cell's: a work outlives the conversation that opened it. */
   held: Schema.Array(Schema.String),
 });
 export type ConductorState = typeof ConductorStateSchema.Type;
@@ -938,10 +968,9 @@ export const DEFAULT_CONDUCTOR_STATE: ConductorState = {
   signIn: null,
   identity: null,
   refusal: null,
+  unreadable: null,
   steers: false,
   busySince: null,
-  seen: [],
-  work: [],
   held: [],
 };
 
@@ -1029,6 +1058,41 @@ export const ConductorAnswerOutputSchema = Schema.Struct({
   settled: Schema.Boolean,
 });
 
+/** THE HUMAN'S ANSWER TO ONE OF KOLU'S OWN QUESTIONS about a piece of work.
+ *
+ *  Not {@link ConductorAnswerInputSchema}: that one settles a question the
+ *  AGENT is holding a call open for, and this one writes a DECISION onto a
+ *  work. The work is named because the decision lives on it and the ask id
+ *  alone would have to be searched for; `answers` is keyed by the DECISION's
+ *  own id, which is what every face draws its buttons from.
+ *
+ *  A question nobody answered is `answers: null` — declined. A question left
+ *  alone inside an ask that was answered simply has no key here, and the
+ *  record says exactly that about it. */
+export const ConductorAnswerWorkInputSchema = Schema.Struct({
+  work: Schema.String,
+  ask: Schema.String,
+  /** Per decision id: the options picked, and/or the words typed. A bare
+   *  string is the one-value spelling of the same thing. */
+  answers: Schema.NullOr(
+    Schema.Record(
+      Schema.String,
+      Schema.Union([Schema.Array(Schema.String), Schema.String]),
+    ),
+  ),
+  /** WHERE the human was when they answered: the work's card, the chat, the
+   *  reader a file is open in, or that reader popped out into a window of its
+   *  own. One decision whichever face answered it, and the decision records
+   *  which — which is the only thing that tells them apart afterwards. */
+  from: AnsweredFromFaceSchema,
+});
+
+export const ConductorAnswerWorkOutputSchema = Schema.Struct({
+  /** `false` when that ask had nothing open any more — somebody else answered
+   *  it first, or the work ended under it. A reported state, not a fault. */
+  settled: Schema.Boolean,
+});
+
 export const ConductorSignInInputSchema = Schema.Struct({
   method: Schema.String,
 });
@@ -1044,6 +1108,38 @@ export const ConductorSetOptionInputSchema = Schema.Struct({
 
 export const ConductorTextInputSchema = Schema.Struct({
   text: Schema.String,
+});
+
+/** One terminal, by the `<host>/<id>` ref every face names it with — the input
+ *  of `conductor.takeOver` / `conductor.handBack`. */
+export const ConductorTerminalInputSchema = Schema.Struct({
+  terminal: Schema.String,
+});
+
+/** ONE PIECE OF WORK, by its id — the input of `conductor.stopWork` /
+ *  `conductor.reopenWork`. */
+export const ConductorWorkInputSchema = Schema.Struct({
+  work: Schema.String,
+});
+
+/** THE TWO THINGS KOLU CAN DO ABOUT A RECORD IT CANNOT READ, as one input.
+ *
+ *  `backup` walks the state-backup ring newest first and takes the newest
+ *  snapshot whose whole store decodes through the real migration ladder.
+ *  `empty` moves the unreadable value aside into a file of its own beside
+ *  `config.json` and starts that record empty. Neither deletes anything, and
+ *  neither asks a person to open an editor — which is the whole reason this
+ *  procedure exists rather than a sentence telling them to. */
+export const ConductorRecoverInputSchema = Schema.Struct({
+  key: ConductorStoreKeySchema,
+  how: Schema.Literals(["backup", "empty"]),
+});
+
+export const ConductorRecoverOutputSchema = Schema.Struct({
+  /** WHAT KOLU JUST DID, in the same plain words the refusal was in — which
+   *  snapshot it took and what came back, or where the unreadable value is
+   *  now. The panel shows it; nothing parses it. */
+  said: Schema.String,
 });
 
 export const ConductorEmptySchema = Schema.Struct({});

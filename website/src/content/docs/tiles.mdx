@@ -19,6 +19,37 @@ as the dock, so you can see which repository it belongs to.
   <figcaption>Maximized: the tile takes the screen and the dock becomes a sidebar.</figcaption>
 </figure>
 
+## A terminal the Conductor is driving
+
+A thin border in the Conductor's colour around the terminal body means [the
+Conductor](/conductor#who-is-typing) is driving that terminal. Nothing is added
+to the title bar.
+
+Reading works as usual: scroll, select, copy, search, open a link, and click
+the terminal to focus it.
+
+Typing is what is held back. Press a key, paste, or drop a file, and a card
+appears over the terminal reading **The Conductor is driving this terminal**
+with the role it plays. Nothing reaches the terminal.
+
+The card offers **Take over** and **Dismiss**, and it also closes on
+<kbd>Esc</kbd>, on a click elsewhere, or by itself after a few seconds.
+
+Click **Take over** and the terminal is yours. The border changes, and a
+**You're driving · Hand back** pill sits in the bottom left of the terminal
+body. Click the pill to give it back. Both controls are on each terminal row of
+the [work card](/conductor#the-work-card) too, so you can reach them without
+typing first.
+
+Each move goes on the work's [timeline](/conductor#what-a-work-holds) and wakes
+the Conductor, so the agent it directs is never typed at by two people at once.
+
+The lock is kolu's state on the work rather than a flag in your browser. A
+second device sees the same lock, and it survives a reload and a server
+restart. It ends when the terminal leaves the work or the work ends. A terminal
+the Conductor only watches is not locked, and neither are the `kolu` CLI, the
+[MCP](/mcp) tools or the Conductor itself.
+
 ## Splits and tabs
 
 Split a bottom pane with <kbd>Ctrl</kbd> + <kbd>{"`"}</kbd>, and add tabs with

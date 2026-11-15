@@ -27,6 +27,7 @@ import { restartedLabel } from "@kolu/agent-distro/status";
 import { agentLive } from "@kolu/terminal-vocab/agentProjection";
 import { createRestartGuard, type RestartGuard } from "../agents/restartGuard";
 import { usePendingLayouts } from "../canvas/usePendingLayouts";
+import { personInput } from "../conductor/personInput";
 import { createSharedRoot } from "../createSharedRoot";
 import { exportScrollbackAsPdf } from "../exportScrollbackAsPdf";
 import { exportSessionAsHtml } from "../exportSessionAsHtml";
@@ -669,11 +670,17 @@ export const useTerminalCrud = createSharedRoot(() => {
   /** Write a command line into the active terminal WITHOUT pressing Enter.
    *  Used by the "Recent agents" palette entry to prefill a previously
    *  seen agent CLI — the user reviews/edits and hits Enter themselves.
-   *  No-op if no terminal is active. */
+   *  No-op if no terminal is active.
+   *
+   *  Gated by THE LOCK like every other site a person writes into an existing
+   *  terminal from: a palette entry is a person's press, and a prefill into a
+   *  terminal the Conductor drives would land in the middle of an agent's
+   *  input line. */
   function handleRunInActiveTerminal(command: string): UiAction {
     return Effect.suspend(() => {
       const id = store.focusedId();
       if (id === null) return Effect.void;
+      if (!personInput(id)) return Effect.void;
       return activePadiRpc.lifecycle
         .sendInput({ id, data: command })
         .pipe(toastFailure("Failed to prefill command"));
@@ -681,15 +688,19 @@ export const useTerminalCrud = createSharedRoot(() => {
   }
 
   /** Type `text` into terminal `id`, then Enter when `enter` — the tile tip's
-   *  chip. The same `sendInput` the Inspector's Compose box writes through. */
+   *  chip. The same `sendInput` the Inspector's Compose box writes through,
+   *  and the same lock: the chip is a person's press. */
   function handleTypeInto(
     id: TerminalId,
     text: string,
     enter: boolean,
   ): UiAction {
-    return activePadiRpc.lifecycle
-      .sendInput({ id, data: enter ? `${text}\r` : text })
-      .pipe(toastFailure("Failed to type into the terminal"));
+    return Effect.suspend(() => {
+      if (!personInput(id)) return Effect.void;
+      return activePadiRpc.lifecycle
+        .sendInput({ id, data: enter ? `${text}\r` : text })
+        .pipe(toastFailure("Failed to type into the terminal"));
+    });
   }
 
   function handleCloseAll(): UiAction {

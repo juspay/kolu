@@ -58,9 +58,11 @@ export interface HostRestoreLatch {
   markSeeded(): void;
   /** `seeded → decided`: re-arm the view seed for an IN-SESSION restore (the
    *  `recycleKaval` recycle→restore, no page reload) — the restored terminals
-   *  come back under FRESH ids whose client sub-panel state has never been seeded,
-   *  so the hydration effect must re-run `hydrateFromTerminals` for them. It
-   *  re-latches `seeded` after, so a later reconnect stays a no-op. */
+   *  come back under their OWN ids, but as freshly spawned panes whose client
+   *  view state (the active tile, a parent's active sub-tab) has not been
+   *  seeded from THIS set of terminals, so the hydration effect must re-run
+   *  `hydrateFromTerminals` for them. It re-latches `seeded` after, so a later
+   *  reconnect stays a no-op. */
   reseedForRestore(): void;
   /** The active-terminal marker `session.restore` ANSWERED with, for the restore
    *  this host is currently seeding — the id the seed must prefer over the saved

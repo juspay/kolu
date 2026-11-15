@@ -57,6 +57,10 @@ export interface Held<T> {
   /** Whether that terminal has anything waiting. Read by a caller putting back
    *  news whose delivery failed: newer news must win over the retry. */
   readonly has: (ref: string) => boolean;
+  /** ... and WHAT is waiting for it, or `undefined`. Read by the one caller
+   *  that has to know WHICH news it would be throwing away before it throws
+   *  it ({@link Held.withdraw}). */
+  readonly peek: (ref: string) => T | undefined;
   /** What is waiting, oldest first — the caller's to hand back to
    *  {@link Held.took} verbatim. */
   readonly waiting: () => ReadonlyArray<HeldSlot<T>>;
@@ -88,6 +92,7 @@ export const holding = <T>(): Held<T> => {
       slots.set(ref, { ref, value });
     },
     has: (ref) => slots.has(ref),
+    peek: (ref) => slots.get(ref)?.value,
     waiting: () => [...slots.values()],
     took: (taken) => {
       for (const slot of taken) {

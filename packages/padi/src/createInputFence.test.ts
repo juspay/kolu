@@ -11,6 +11,7 @@ import {
   PadiCreateInputSchema,
   TOPLEVEL_PLACEMENT,
 } from "@kolu/padi-client/surface";
+import type { TerminalId } from "@kolu/terminal-vocab/schema";
 import { Schema } from "effect";
 import { describe, expect, it } from "vitest";
 import { createTerminal, restoreSpawn } from "./terminals.ts";
@@ -48,8 +49,10 @@ describe("create-input fence — restore-only facts never ride an ordinary creat
         // @ts-expect-error — CreateTerminalInput has no `restoreTarget`; an ordinary create can't forge a resume target.
         restoreTarget: { kind: "none" },
       });
-      // restoreSpawn takes the restore-only facts through its distinct `restoreOnly` arm — no error.
+      // restoreSpawn takes the terminal's OWN id (identity survives a recycle) and the
+      // restore-only facts through its distinct `restoreOnly` arm — no error.
       restoreSpawn(
+        "00000000-0000-4000-8000-000000000000" as TerminalId,
         undefined,
         undefined,
         {},

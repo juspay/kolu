@@ -66,6 +66,7 @@ function activeSnapshot(): TerminalSnapshot {
         checkRuns: [],
         reviewDecision: null,
         mergeStateStatus: "UNKNOWN",
+        headSha: null,
       },
     },
     agent: null,

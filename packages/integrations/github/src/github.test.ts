@@ -169,13 +169,22 @@ describe("prInfoFromGhView", () => {
     statusCheckRollup: undefined,
     reviewDecision: "",
     mergeStateStatus: "UNKNOWN",
+    headRefOid: "4f21a9c0d3e5b7a9c1d3e5f7a9b1c3d5e7f9a1b3",
   };
 
-  it("asks gh for reviewDecision and mergeStateStatus on the same view call", () => {
+  it("asks gh for review, merge state and the head commit on the same view call", () => {
     expect(GH_PR_VIEW_JSON_FIELDS).toBe(GH_PR_VIEW_JSON_FIELD_LIST.join(","));
     expect(GH_PR_VIEW_JSON_FIELD_LIST).toContain("reviewDecision");
     expect(GH_PR_VIEW_JSON_FIELD_LIST).toContain("mergeStateStatus");
     expect(GH_PR_VIEW_JSON_FIELD_LIST).toContain("statusCheckRollup");
+    // The commit the rollup is about — ONE request, not a second poll.
+    expect(GH_PR_VIEW_JSON_FIELD_LIST).toContain("headRefOid");
+  });
+
+  it("carries the head commit through as the reading's own", () => {
+    expect(prInfoFromGhView(base).headSha).toBe(
+      "4f21a9c0d3e5b7a9c1d3e5f7a9b1c3d5e7f9a1b3",
+    );
   });
 
   it("carries gh's reviewDecision and mergeStateStatus verbatim", () => {
@@ -194,6 +203,7 @@ describe("prInfoFromGhView", () => {
       checkRuns: [],
       reviewDecision: "APPROVED",
       mergeStateStatus: "CLEAN",
+      headSha: "4f21a9c0d3e5b7a9c1d3e5f7a9b1c3d5e7f9a1b3",
     });
   });
 

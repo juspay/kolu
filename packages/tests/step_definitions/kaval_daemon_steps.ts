@@ -89,16 +89,16 @@ Then(
 
 // Symptom 2 (the split comes back HIDDEN after a recycle+restore). STRONGER than
 // "the sub-panel should be visible": that step only waits for the tab bar, which
-// renders on `isExpanded()` = `hasSubs() && !collapsed`. A restored parent gets a
-// FRESH id whose CLIENT sub-panel state (`useSubPanel`, keyed by parent id) was
-// never seeded, so it defaults to `collapsed:false` → the tab bar shows even while
-// the split content stays hidden. The sub PANE is `visible` only when
-// `activeSubTab === subId` (TerminalContent.tsx), and the one place that seeds the
-// restored parent's active sub-tab — `hydrateFromTerminals` in useSessionRestore —
-// is short-circuited by the `viewSeeded` latch (set true on the first live load,
-// never reset; `useTerminals` is instantiated once, App.tsx). So `activeSubTab`
-// stays null and NO `[data-sub-terminal][data-visible]` element exists. Wait for the
-// sub-terminal CONTENT to actually be visible, not merely the surrounding chrome.
+// renders on `isExpanded()` = `hasSubs() && !collapsed`, and `collapsed` defaults
+// to false — so the tab bar shows even while the split content stays hidden. The
+// sub PANE is `visible` only when `activeSubTab === subId`
+// (TerminalContent.tsx), and the one place that seeds a restored parent's active
+// sub-tab — `hydrateFromTerminals` in useSessionRestore — is short-circuited by
+// the view-seed latch (set true on the first live load) unless the restore
+// re-arms it. The restore keeps each terminal's OWN id, so this is not about an
+// id changing: it is about whether the client's view state was seeded from the
+// restored tree at all. Wait for the sub-terminal CONTENT to actually be
+// visible, not merely the surrounding chrome.
 Then(
   "the restored split sub-terminal should be visible",
   async function (this: KoluWorld) {

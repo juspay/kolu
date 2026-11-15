@@ -13,8 +13,8 @@ kolu's **agent face**, in two projections of ONE expose map
   verbs lifted over kolu-server's host map, where a terminal is `host/id`. This
   is what the one conductor conversation holds, over a loopback
   streamable-HTTP transport kolu-server owns. It reaches the hosts through a
-  PORT (`FleetHosts`) and the conductor's watch list through another
-  (`FleetWatchList`), never by importing kolu-server, so the fence holds here
+  PORT (`FleetHosts`) and the conductor's pieces of work through another
+  (`FleetWorks`), never by importing kolu-server, so the fence holds here
   too.
 
 **The dependency fence**: padi/surface packages, `kolu-git`, and
@@ -186,8 +186,8 @@ with no imports, so a consumer that must not take the MCP SDK can still split a
 reference). Nothing in the tree splits a fleet reference by hand.
 
 **Resources.** `terminals` (every host's roster, host-qualified) · `urgency`
-(who needs someone, fleet-wide) · `watched` (this conversation's own watch
-list, below) · `hosts` — the live roster, and it *changes
+(who needs someone, fleet-wide) · `works` (the pieces of work kolu is storing,
+below) · `hosts` — the live roster, and it *changes
 under you*: name, reachability (`warming` · `connected` · `failed`), padi's
 commit, its surface version and boot time. Those last three are why there is no
 fleet `identity`/`status`/`daemonStatus`: they are per-host facts, so they are
@@ -209,17 +209,26 @@ key it arrived under. What the face serves and how it routes are published —
 these addresses, is tested against the face rather than against literals: a
 renamed resource fails that test instead of teaching a dead address.
 
-`watched` (`surface://cells/watched`) is the Conductor reading the list it is
-being woken by — one row per watched reference, carrying the last name and
-agent kolu saw in that terminal, how it joined, and the ref's host *as this
-fleet stands now* (`host` / `hostName` / `hostState`, all three `null` for a
-host that is no longer a member). It is the only resource here whose value
-belongs to the conversation rather than to the fleet, and it subscribes: a
-watched terminal that goes away — one the human closed, or one that died —
-reaches a conductor that is not calling anything. Without it a restarted
-Conductor could move the list and never read it — the observed result being an
-agent that says it is "not certain" what it is watching and then re-watches
-terminals that no longer exist.
+`works` (`surface://cells/works`) is the Conductor reading the pieces of work
+it is being woken by — one row per work IN PROGRESS, carrying its id and
+title, repo and branch, the host and mode, what to do on green, where it
+stands, and its members: each one's reference, role, the last name and agent
+kolu saw in that terminal, how it joined, who is DRIVING it (`driver`:
+`"conductor"`, or `"you"` once the human has taken that terminal over — theirs
+to type into, and not to be sent input until a wake says it was handed back),
+and the ref's host *as this fleet
+stands now* (`host` / `hostName` / `hostState`, all three `null` for a host
+that is no longer a member), plus any question still open with the human; the
+last few FINISHED works follow, with their outcomes. **`onGreen` is read here
+and nowhere else** — it is a decision on the work, so the script consults the
+record rather than its own memory of what was agreed. The works belong to kolu
+rather than to the conversation (that is the point of them: `clearSession`
+leaves them alone), and the resource subscribes: a member that goes away — one
+the human closed, or one that died — an answer given from the card, or a PR
+that merges reaches a conductor that is not calling anything. Without it a
+restarted Conductor could only guess at work already in flight — the observed
+result being an agent that says it is "not certain" what it is watching and
+then re-watches terminals that no longer exist.
 
 **Tools — a SUBSET, deliberately.** Per-terminal tools take a reference;
 `lifecycle_create` takes a `host` (create on the machine the repo lives on) and
@@ -237,41 +246,53 @@ What it does **not** serve is every call that can block forever:
 with the bound in the message and the cap is in the tool's advertised
 description. A clamp would answer "met" after three seconds to a caller that
 believed it had waited ten minutes. The reason is the conductor: its turn is a
-conversation a human may be trying to speak into, so it says what it watches
-and ENDS its turn, and kolu-server starts the next one when a watched
+conversation a human may be trying to speak into, so it opens the work and
+ENDS its turn, and kolu-server starts the next one when a member
 terminal's agent stops, asks or dies. The two waits that survive are both
 `agent_say`'s own and both hard constants: the settle between typing and the
 submit keys, and the few seconds it watches afterwards to say whether the words
 took.
 
-**The watch list, and who is on it.** `watch_terminal { id }` adds a terminal
-(refusing a malformed reference, a host that is not connected, and a terminal
-that is not in its host's roster — a watch on something that does not exist is
-silence a conductor would read as calm) and answers `{ watching, found }`:
-`found` is the state the terminal was in when it joined — the agent and its
-bucket, or `no-agent` / `asleep`. That state is also the BASELINE the server
-keeps for an `asked` join, so it is said here precisely because it will never
-arrive as a wake. `unwatch_terminal { id }` answers `{ watching, removed }`,
-consults no roster, and is happy to forget a terminal that has already died.
-Both say the WHOLE list back, so the agent that just moved it does not have to
-read anything to learn what it now holds.
-**A terminal this face CREATES is watched automatically**, at the fleet
-reference `lifecycle_create` answered — the agent never has to ask for news
-about a worker it just started.
+**The pieces of work, and who is in one.** `work_open { title, repo, branch,
+setup }` creates the work and carries the **setup questions** with it — kolu
+puts the ones the request has not already answered to the human as ONE ask
+linked to that work, records the answers as decisions, and answers `{ work,
+host, mode, roles, onGreen, declined }`, all of it READ back off those
+decisions. The setup keys it must cover are validated BEFORE anything is
+asked, so a missing one is a refusal naming it rather than a half-opened work.
+`work_ask { work, questions }` is every other question about a work — the ask
+NAMES the work, so the answer lands on it as a decision instead of being
+inferred from timing; a question about no work is the agent's own question
+tool and stays the conversation's alone. `work_adopt { id, work, role }` adds
+a terminal that was already running (refusing a malformed reference, a host
+that is not connected, a terminal that is not in its host's roster, and a work
+that is unknown or already ended — a watch on something that does not exist is
+silence a conductor would read as calm) and answers the state the terminal was
+in when it joined — the agent and its bucket, or `no-agent` / `asleep`. That
+state is also the BASELINE the server keeps for an `asked` join, so it is said
+here precisely because it will never arrive as a wake. `work_leave { id }`
+takes a member out, consults no roster, and is happy to forget a terminal that
+has already died. `work_note { work, text }` puts a line on the timeline;
+nothing reads a note to decide anything.
+**A terminal this face CREATES joins the work it was created for**: on the
+fleet face `lifecycle_create` REQUIRES `work` and `role`, and an unknown or
+ended work is refused *before* anything is created, so a member whose part
+nobody stated cannot exist.
 
-Every entry says HOW it joined (`FleetWatchJoin`): `created` for a bare shell
+Every member says HOW it joined (`FleetWatchJoin`): `created` for a bare shell
 this face opened, `created-run` when a command was typed at that shell (only
 that one can end with the command gone and no agent ever there), and `asked`
 for a terminal that was already running when the conductor asked for it. The
-list itself belongs to kolu-server (it is persisted with the conversation and
-read by the server's watcher); this face reaches it through the
-`FleetWatchList` port (`entries` · `subscribe` · `watch` · `unwatch` ·
-`said` · `closed`), for the same
+works themselves belong to kolu-server (they are persisted beside the
+conversation rather than inside it, and read by the server's watcher); this
+face reaches them through the
+`FleetWorks` port (`rows` · `subscribe` · `open` · `ask` · `join` · `leave` ·
+`note` · `said` · `closed` · `check`), for the same
 reason `FleetHosts` is a port. `agent_say` calls `said` once its keys land: the
 conductor has just acted on whatever that terminal was doing, so news held
 about it is stale. `lifecycle_kill` calls `closed` once the kill lands: a
-terminal the conductor closed leaves the list in silence, with no `gone` wake
-about its own action — closing needs no `unwatch_terminal`.
+terminal the conductor closed leaves its work in silence, with no `gone` wake
+about its own action — closing needs no `work_leave`.
 
 `agent_say` is on BOTH faces, unchanged except for the reference: the conductor
 says things to the agents it starts without knowing one keystroke of any of

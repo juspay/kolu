@@ -284,9 +284,9 @@ a separate app built on the same `@kolu/surface`.
 ## How a daemon is identified
 
 A daemon is its data folder. padi's identity is its _state-root_, a durable
-directory on the host that holds its session, its memory, and its activity feed.
-The socket it listens on is named by a digest of that folder and lives in a
-scratch directory that is wiped on every boot.
+directory on the host holding its session, its memory and its activity feed.
+The socket it listens on is named by a digest of that folder, in a scratch
+directory wiped on every boot.
 
 <div class="doc-term">
   <span class="note">// identity: durable, the daemon itself</span>
@@ -362,7 +362,7 @@ browser at all.
 
 <figure class="doc-figure">
   <svg viewBox="0 0 720 292" role="img" aria-labelledby="ax-flow-title">
-    <title id="ax-flow-title">Three data-flow loops. The terminal I/O loop runs both ways through client, kolu-server, padi, and kaval — keystrokes down to the PTY, the screen (a snapshot then live deltas) back up. The metadata loop flows the other way only: kaval feeds padi — its VT taps drive padi's git, PR, and agent sensors, and its resize-excluded meaningful-output edge feeds padi's live-activity fold — and padi pushes the result to the client. The conductor loop is separate and reaches no browser: kolu-server spawns the claude ACP adapter, which calls kolu's tools back over a loopback HTTP MCP endpoint, and kolu-server serves them from its host map — every padi, local and remote, with each terminal named host slash id. That loop closes the other way too: kolu-server watches the host map's urgency and terminal rosters for the terminals the conversation is watching, and starts a turn of the conversation itself when one of them stops, asks or is gone.</title>
+    <title id="ax-flow-title">Three data-flow loops. The terminal I/O loop runs both ways through client, kolu-server, padi, and kaval — keystrokes down to the PTY, the screen (a snapshot then live deltas) back up. The metadata loop flows the other way only: kaval feeds padi — its VT taps drive padi's git, PR, and agent sensors, and its resize-excluded meaningful-output edge feeds padi's live-activity fold — and padi pushes the result to the client. The conductor loop is separate and reaches no browser: kolu-server spawns the claude ACP adapter, which calls kolu's tools back over a loopback HTTP MCP endpoint, and kolu-server serves them from its host map — every padi, local and remote, with each terminal named host slash id. That loop closes the other way too: kolu-server watches the host map's urgency and terminal rosters for the terminals that are members of a piece of work in progress, and starts a turn of the conversation itself when one of them stops, asks or is gone.</title>
     <defs>
       <marker id="ax-flow-arrow" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
         <path d="M0,0 L10,5 L0,10 z" class="ax-d-arrow"></path>
@@ -416,7 +416,7 @@ browser at all.
     <text x="412" y="243" class="ax-d-sub">padi · local — padi · prod — padi · box-3</text>
 
     <path d="M551,250 V270 H87 V254" class="ax-d-socket" marker-end="url(#ax-flow-arrow)"></path>
-    <text x="360" y="288" text-anchor="middle" class="ax-d-tlabel">wakes — a watched terminal stops · asks · is gone → kolu-server starts the turn</text>
+    <text x="360" y="288" text-anchor="middle" class="ax-d-tlabel">wakes — a work's terminal stops · asks · is gone → kolu-server starts the turn</text>
   </svg>
 </figure>
 
@@ -430,31 +430,30 @@ about 4 KB of screen state instead of a replayed buffer.
 
 Each connection carries every terminal's stream at once. When one attach stream
 stops being read, only that stream waits, and it picks up where it left off. A
-reader that falls far enough behind is re-attached with a fresh snapshot rather
-than fed the backlog.
+reader far enough behind is re-attached with a fresh snapshot rather than fed
+the backlog.
 
 A resize is handled the same way: kaval holds the program's redraw back for a
 moment, then either delivers it or drops the viewers onto the settled screen.
 Both arrive as the attach stream's `overflow` control frame.
 
 A connection's keep-alive ping ends a hop that has carried nothing for a full
-minute. Where a watchdog guards a hop it decides first. The browser's counts
-any arriving data as progress, the one to a local padi checks that padi's
-process is still running, and a remote hop is probed over ssh. There is no
-watchdog between padi and kaval.
+minute. Where a watchdog guards a hop it decides first: the browser's counts
+arriving data as progress, the one to a local padi checks that padi is still
+running, and a remote hop is probed over ssh. There is no watchdog between padi
+and kaval.
 
 ### Metadata
 
 Every per-terminal sensor lives in padi. A working-directory change (OSC 7)
 wakes the git sensor (branch, remote), which wakes the PR sensor (open PR and
 CI checks). Agent detection tails each agent's session store. padi folds those
-observations into each terminal's record and serves it on one collection the
-client reads directly. See [Agent detection](/agent-detection) for the agent
-half.
+observations into each terminal's record and serves them on one collection the
+client reads directly. See [Agent detection](/agent-detection).
 
 Live output activity comes from a layer down. [kaval](/kaval) sees every PTY
 byte and every resize, so it emits a host-global meaningful-output edge, with
-resizes excluded, which padi folds into a short live-dot window.
+resizes excluded, which padi folds into a live-dot window.
 
 ### The conductor loop
 
@@ -464,11 +463,15 @@ kolu's own [MCP tools](/mcp) back over the loopback endpoint, and kolu-server
 answers them out of its host map, so `lifecycle_create` on `prod` lands a
 terminal in that host's padi. A terminal is named `host/id` on that wire.
 
-kolu-server also starts turns itself. It watches the same host records the dock
-is drawn from, and when a watched terminal stops, asks something or leaves, it
-mints a wake and runs a turn as your own prompt does. News arriving during a
-turn is held and delivered when the turn ends. See [the
-Conductor](/conductor).
+kolu-server also starts turns itself, watching the same host records the dock
+is drawn from. A work's member stopping, asking or leaving, and your answer to
+its question, each mint a wake that runs a turn as your prompt does. A host
+without an established roster is read as settling, so no wake says a terminal
+is gone until a host can say so.
+
+The works are keyed by branch and their members by terminal, in two keys
+restored together, and reach the browser as the collections `works` and
+`memberReadings`. See [the Conductor](/conductor).
 
 ## The packages
 
@@ -480,11 +483,12 @@ out. The map:
 
 | Package | What it does | Depends on |
 | --- | --- | --- |
-| `client` | The browser app: SolidJS, xterm.js, Tailwind. | `padi-client`, `surface`, `xterm-kit`, `theme`, the `solid-*` leaves |
-| `server` | The Effect HTTP shell: serves the app, the preview route and the websocket, binds one padi per host, and mounts [the Conductor](/conductor). | `padi`, `padi-client`, `conductor`, `surface-remote`, `port-forward` |
-| `conductor` | The conversation itself: the ACP child, the transcript, the standing prompt, and the rules of the watch, as pure functions kolu-server feeds. | `acp`, `acp-harness`, `padi-client`, `surface` |
+| `client` | The browser app: SolidJS, xterm.js, Tailwind. | `padi-client`, `surface`, `xterm-kit`, `theme`, `kolu-work`, the `solid-*` leaves |
+| `server` | The Effect HTTP shell: serves the app, the preview route and the websocket, binds one padi per host, and mounts [the Conductor](/conductor). | `padi`, `padi-client`, `conductor`, `kolu-work`, `surface-remote`, `port-forward` |
+| `conductor` | The conversation itself, split by clock: the ACP child, the transcript, the work and member stores, observation, wakes and asking. | `acp`, `acp-harness`, `padi-client`, `kolu-work`, `surface` |
+| `kolu-work` | A piece of work as kolu stores it, and the waterfall's words. | `effect` |
 | `kolu-cli` | The `kolu` binary: subcommand dispatch and the terminal verbs `ls`, `create`, `send`, `wait`, `snapshot`, `history`, `kill`, `watch`. | `padi`, `padi-client`, `surface-cli` |
-| `kolu-mcp` | The agent face, and the one place the exposed tool list is declared: `kolu mcp`, plus the fleet projection kolu-server serves over a host map. | `padi`, `padi-client`, `surface-mcp`, `conductor` |
+| `kolu-mcp` | The agent face, and the one place the exposed tool list is declared: `kolu mcp`, plus the fleet projection kolu-server serves over a host map. | `padi`, `padi-client`, `surface-mcp`, `conductor`, `kolu-work` |
 | [`padi`](/padi) | The per-host workspace daemon: it owns the terminal domain and serves `padiSurface`. Ships `padi-tui`. | `padi-client`, `surface-daemon`, `surface-remote`, `agent-distro` |
 | [`kaval`](/kaval) | The standalone PTY daemon: the shells and their live screens. Ships `kaval-tui`. | `surface-daemon`, `xterm-kit`, `terminal-protocol` |
 | `padi-client` | padi's other half: the `padiSurface` contract, the dial that reaches a running padi, the attention fold and the attach consumer contract. | `surface`, `surface-daemon`, `terminal-vocab` |
@@ -513,10 +517,10 @@ the Odu CI coordinator each have an independent subflake, so none of them enters
 `nix run .`'s evaluation graph. Remote provisioning uses a separate exact-source
 flake that exposes only the packages kolu's agent manifest names.
 
-A dial lands the daemon plus the client CLIs a terminal there must be able to
-run (`kaval-tui`, `padi-tui`, `kolu`). So an agent working on a remote machine
-can drive its sibling terminals and reach the [MCP server](/mcp) with nothing
-installed there. Tool and daemon arrive together, as one build.
+A dial lands the daemon plus the client CLIs a terminal there must run
+(`kaval-tui`, `padi-tui`, `kolu`). So an agent on a remote machine can drive
+its sibling terminals and reach the [MCP server](/mcp) with nothing installed
+there.
 
 <LinkCard title="The repo — juspay/kolu" href="https://github.com/juspay/kolu" description="every package, with its full README, in one tree" />
 

@@ -168,6 +168,15 @@ export function terminalEntries(): IterableIterator<
   return terminals.entries();
 }
 
+/** THE CENSUS — every registered terminal's id, in canonical `Map` insertion
+ *  order. What padi states about itself on the `roster` cell
+ *  (`attention/fleetGate.ts`): the registry is the authority for which
+ *  terminals exist, so the list a consumer reads an absence against is taken
+ *  from here and nowhere else. */
+export function terminalIds(): TerminalId[] {
+  return [...terminals.keys()];
+}
+
 /** Current terminals in their canonical `Map` insertion order.
  *
  *  Insertion order is the ordering model — new terminals append to the
