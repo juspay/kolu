@@ -120,11 +120,17 @@ re-enable watchman deliberately (with a `WATCHMAN_SOCK` that avoids the probe).
   subscription, listener-side filtering by optional `filePath`.
 - **Trailing-edge debounce** at `WATCHER_DEBOUNCE_MS` (150ms) coalesces bursts
   into one fire per listener.
-- **Hard-coded `IGNORE_GLOBS`** — `.git`, `node_modules`, `dist`, `build`,
-  `target`, `.next`, `.turbo`, `.cache`, `.parcel-cache`, `.kolu-dev`,
-  `.kolu-state`, `.DS_Store`. Not gitignore-aware. Over-firing on user build
-  outputs is absorbed by the snapshot-equality check in
-  `streamSnapshots(...)` upstream.
+- **Ignore set derived from git** (`_computeIgnore`) — `.git` plus every entry
+  of `git ls-files --others --ignored --exclude-standard --directory`, the same
+  listing the Code tab's show-ignored overlay reads, so whatever the tree shows
+  is watched. It follows rule changes from all three places git reads them:
+  a `.gitignore` at any depth (a parcel event on a file of that name), and the
+  common git dir's `info/exclude` plus the global ignore file
+  (`core.excludesFile`, else `$XDG_CONFIG_HOME/git/ignore`), both watched by
+  `ignore-rules-watcher.ts`. A change re-derives the set; only a set that
+  differs from the last attach's rebuilds the subscription, and a failed
+  enumeration leaves the live watch alone. If git cannot enumerate at install,
+  the watch degrades to `.git` + `node_modules`.
 - **Post-install reconciliation tick** (line 176) — `parcelSubscribe` is
   async. Filesystem mutations between `subscribe()` call and parcel resolving
   are invisible to parcel; the streaming endpoint already yielded its initial
@@ -145,6 +151,8 @@ the watcher came up in production:
 
 - `info  git: working-tree watcher installed` ← parcel resolved successfully
 - `info  git: working-tree watcher retired` ← last subscriber gone
+- `info  git: working-tree watcher rebuilding` ← resubscribe; `reason` is
+  `"new subtree parcel cannot see"` or `"ignore rules changed"`
 - `error git: working-tree watcher install failed` ← parcel `subscribe()` rejected
 - `error git: working-tree watcher callback error` ← parcel reported event-stream error
 - `error git: working-tree late-unsubscribe failed`
