@@ -16,7 +16,6 @@
 
 import {
   CodeView as CodeViewClass,
-  type CodeViewItem,
   type CodeViewLineSelection,
   type CodeViewOptions,
 } from "@pierre/diffs";
@@ -28,6 +27,7 @@ import {
   onCleanup,
   onMount,
 } from "solid-js";
+import type { CodeViewItem } from "./codeViewItem";
 import { safeApply } from "./safeApply";
 import { getCodeViewWorkerPool, HIGHLIGHTER_CONTRACT } from "./workerPool";
 
@@ -196,7 +196,9 @@ export const CodeView: Component<CodeViewProps> = (props) => {
   // instead of forcing a reconstruct. `lineHeight` (when supplied) feeds
   // Pierre's `itemMetrics.lineHeight` so its virtualizer windows the right
   // number of rows; see the prop doc.
-  const buildOptions = (): CodeViewOptions<undefined> => ({
+  // Two generics since `@pierre/diffs@1.6`: the line-annotation payload and
+  // the editor caret, both `undefined` here (see `codeViewItem`).
+  const buildOptions = (): CodeViewOptions<undefined, undefined> => ({
     // Fixed engine + theme policy shared with the worker pool that tokenizes
     // for this view. Not per-view choices — spread from the one named binding
     // (rather than inline literals among the reactive props below) so they

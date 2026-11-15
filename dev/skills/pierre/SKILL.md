@@ -26,7 +26,21 @@ Both publish a **vanilla class API** (Preact-rendered internally) plus optional
 React wrappers. Kolu consumes the vanilla core from SolidJS — no React.
 
 - Source for study: `git clone https://github.com/pierrecomputer/pierre /tmp/pierre`
-- npm: `@pierre/trees@1.0.0-beta.4`, `@pierre/diffs@1.2.1`
+- npm: `@pierre/trees@1.0.0`, `@pierre/diffs@1.6.4` (what kolu pins today).
+- **Both render types are generic since `@pierre/diffs@1.6`**: `CodeViewItem<LAnnotation>`
+  and `CodeViewOptions<LAnnotation, Caret>`. Kolu renders no line annotations
+  and runs no Pierre editor, so both are `undefined` — pinned once in
+  `packages/solid-pierre/src/codeViewItem.ts`, which re-exports `CodeViewItem`,
+  `CodeViewFileItem` and `CodeViewDiffItem` as the kolu spellings. Import those,
+  never the raw generic.
+- `@pierre/diffs@1.6` dropped the `LanguageRegistration` re-export; the grammar
+  type now comes from `shiki` (a type-only devDependency of
+  `@kolu/solid-pierre`, pinned to the version Pierre resolves).
+- `@pierre/trees@1.0.0` adds `labels` / `setLabels()` (translatable UI strings)
+  and still keeps its lazy child-load drivers (`beginChildLoad`,
+  `applyChildPatch`, `completeChildLoad`, `markDirectoryUnloaded`) OFF the
+  public surface, even though `mutationEvents.d.ts` publishes their event names
+  — so `FileTree.tsx`'s hand-rolled expansion reporting stays.
 
 ## Why Pierre over hand-rolled
 

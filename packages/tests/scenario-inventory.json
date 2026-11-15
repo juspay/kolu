@@ -11494,6 +11494,18 @@
       "exampleRows": [],
       "executions": 1,
       "firstSeenSha": "a371ec5474d1e587c0384901b7c23f622b99d0c1"
+    },
+    {
+      "revisionId": "revision-3623ee7734bd6dda0384",
+      "scenarioKey": "scenario-113467dadd8c3ebe5797",
+      "feature": "features/code-tab.feature",
+      "scenario": "A gitignored folder stays open when you open a file inside it",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "a8a1cab514e328a23353fce5b8c6a12d92f18a87c6e670676d47b67daaf18baa",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "21c2020df3b84f858bc848b59e375ae0b824eb7a"
     }
   ]
 }
