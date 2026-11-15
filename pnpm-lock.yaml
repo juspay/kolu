@@ -414,6 +414,9 @@ importers:
       kolu-mcp:
         specifier: workspace:*
         version: link:../kolu-mcp
+      kolu-work:
+        specifier: workspace:*
+        version: link:../work
       tailwindcss:
         specifier: ^4.1.0
         version: 4.2.2
@@ -483,6 +486,9 @@ importers:
       kolu-github:
         specifier: workspace:*
         version: link:../integrations/github
+      kolu-work:
+        specifier: workspace:*
+        version: link:../work
       ts-pattern:
         specifier: ^5.9.0
         version: 5.9.0
@@ -526,6 +532,9 @@ importers:
       kolu-mcp:
         specifier: workspace:*
         version: link:../kolu-mcp
+      kolu-work:
+        specifier: workspace:*
+        version: link:../work
       pino:
         specifier: ^10.3.1
         version: 10.3.1
@@ -1253,6 +1262,9 @@ importers:
       kolu-git:
         specifier: workspace:*
         version: link:../integrations/git
+      kolu-work:
+        specifier: workspace:*
+        version: link:../work
       ts-pattern:
         specifier: ^5.9.0
         version: 5.9.0
@@ -1679,6 +1691,9 @@ importers:
       kolu-transcript-html:
         specifier: workspace:*
         version: link:../transcript-html
+      kolu-work:
+        specifier: workspace:*
+        version: link:../work
       osfacts-client:
         specifier: workspace:*
         version: link:../../osfacts-client
@@ -2831,6 +2846,19 @@ importers:
         version: 7.0.2
 
   packages/url-shape:
+    devDependencies:
+      typescript:
+        specifier: ^7.0.2
+        version: 7.0.2
+      vitest:
+        specifier: ^5.0.3
+        version: 5.0.3(@types/node@22.19.15)(happy-dom@21.0.4)(jsdom@30.0.1)(vite@8.3.5(@types/node@22.19.15)(esbuild@0.28.1)(jiti@2.6.1)(terser@5.48.0)(tsx@4.23.1)(yaml@2.8.3))
+
+  packages/work:
+    dependencies:
+      effect:
+        specifier: 4.1.4
+        version: 4.1.4
     devDependencies:
       typescript:
         specifier: ^7.0.2

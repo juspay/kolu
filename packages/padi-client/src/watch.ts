@@ -39,11 +39,13 @@ import {
   TerminalNotActive,
 } from "./errors.ts";
 import {
+  type PadiRoster,
   type PadiStateEvent,
   type PadiTerminal,
   type PadiWatchEvent,
   type PadiWatchStatesInput,
   padiSurface,
+  rosterHolds,
   ScreenTextTailSchema,
 } from "./surface.ts";
 import { activeAgent } from "./terminalVocab.ts";
@@ -469,23 +471,39 @@ async function watchAttachFeed(
       // an `Effect` now and takes no signal, and `runWait` — the non-Effect
       // scaffold this whole wait is driven by — has no fiber to compose it
       // into. Same contract, same message: a first frame or a loud failure.
-      let keys: readonly string[] | undefined;
+      let standing: PadiRoster | undefined;
       for await (const frame of iterateUntilAborted(
-        client.surface.terminals.keys(undefined),
+        client.surface.roster.get(undefined),
         ctx.signal,
       )) {
-        keys = frame;
+        standing = frame;
         break;
       }
-      if (keys === undefined) {
+      if (standing === undefined) {
         throw new Error(
-          "padi terminals keys yielded no snapshot frame — link or protocol failure.",
+          "padi roster yielded no snapshot frame — link or protocol failure.",
         );
       }
-      if (!keys.includes(opts.id as (typeof keys)[number])) {
+      // ABSENT FROM A LIST THAT MAY NOT BE A CENSUS — so the list is read off
+      // the one member that only carries one when there IS one. padi serves
+      // its surface from the moment it starts, before it has adopted the
+      // terminals it supervises (and again across a kaval recycle), so "not
+      // listed" means "nothing has been adopted yet" in exactly the windows a
+      // wait is most likely to meet one: the daemon it was talking to was just
+      // replaced. Its `roster` standing tells the two apart AND carries the
+      // ids, in the same frame — a standing read beside a separately-fetched
+      // key set can be delivered established-but-empty by any projection
+      // between here and the daemon (#2376). While it is SETTLING this falls
+      // through to `closed`, which is the outcome whose whole meaning is
+      // "retry — conclude nothing about the agent".
+      const held = rosterHolds(standing, opts.id);
+      if (held === false) {
         fire("onTerminalGone", opts.onTerminalGone);
         ctx.settle({ kind: "gone", elapsedMs: ctx.elapsedMs() });
         return;
+      }
+      if (held === null) {
+        feedError ??= `the host has not finished adopting its terminals, so its list cannot say whether ${opts.id} is gone — ${opts.retryAdvice}.`;
       }
     } catch (err) {
       // A DEAD transport is not a healthy feed-end — it poisons the shared
@@ -1090,11 +1108,34 @@ function conditionForm(
               // The terminal we're waiting on left the collection — its PTY
               // exited, so no future frame can carry the target bucket. Resolve
               // gone rather than hanging. Removals of OTHERS are noise.
+              //
+              // UNLESS the host is not a census yet: a padi that was just
+              // replaced (or is recycling its kaval) serves a registry it has
+              // not finished adopting, and this mirror reports every terminal
+              // in it as removed. Asked of the host's own `roster` standing —
+              // once, on the absent path — so a daemon restart under a wait
+              // reads as what it is. A settling host settles nothing: the
+              // mirror re-seeds when it comes back, and the wait's own deadline
+              // bounds the case where it does not.
               onRemove: (removed) => {
                 if (removed !== engine.id) return;
-                engine.ctx.settle({
-                  kind: "gone",
-                  elapsedMs: engine.ctx.elapsedMs(),
+                void (async () => {
+                  for await (const standing of iterateUntilAborted(
+                    engine.client.surface.roster.get(undefined),
+                    engine.ctx.signal,
+                  )) {
+                    if (rosterHolds(standing, engine.id) === false) {
+                      engine.ctx.settle({
+                        kind: "gone",
+                        elapsedMs: engine.ctx.elapsedMs(),
+                      });
+                    }
+                    return;
+                  }
+                })().catch((err: unknown) => {
+                  engine.ctx.recordUpstreamError(
+                    `reading the host's roster standing failed: ${messageOf(err)}`,
+                  );
                 });
               },
             },

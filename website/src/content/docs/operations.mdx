@@ -75,8 +75,11 @@ The daemon logs are numbered, and roll by size. Current lines are in
 empty and is not where the lines go.
 
 Each `config.json` also keeps a backup ring: a `backups/` directory beside the
-file, holding the ten most recent boot-time and daily snapshots. To restore
-one, see
+file, holding the ten most recent boot-time and daily snapshots. The server's
+snapshot carries your preferences, the host pool and [the
+Conductor](/conductor#what-a-backup-of-kolu-holds)'s pieces of work. It does not
+carry the Conductor's conversation or the files a finished work kept, which are
+copies on disk rather than state in this file. To restore one, see
 [Troubleshooting](/troubleshooting#kolu-lost-my-session-or-my-settings-look-wrong).
 
 ## Stop the stack

@@ -32,13 +32,19 @@ describe("writeInitFiles / removeInitFiles", () => {
     expect(statSync(String(flat)).mode & 0o777).toBe(0o600);
   });
 
-  it("refuses to replace a pre-existing init file", () => {
+  it("REPLACES a stale leftover from a daemon that died without cleaning up", () => {
+    // The name carries the terminal id, the daemon removes it when the PTY ends,
+    // and it refuses to spawn an id it already holds live — so a file still here
+    // when a spawn asks for its name is residue of a SIGKILLed daemon. Refusing
+    // it made a terminal that keeps its id across a recycle (padi's same-id
+    // restore) un-spawnable with `EEXIST` for the life of the runtime dir.
     const rcDir = freshRcDir();
-    writeInitFiles(rcDir, [{ name: "bashrc-T1", content: "original" }]);
-    expect(() =>
+    writeInitFiles(rcDir, [{ name: "bashrc-T1", content: "stale" }]);
+    expect(
       writeInitFiles(rcDir, [{ name: "bashrc-T1", content: "replacement" }]),
-    ).toThrow();
-    expect(readFileSync(join(rcDir, "bashrc-T1"), "utf8")).toBe("original");
+    ).toEqual([join(rcDir, "bashrc-T1")]);
+    expect(readFileSync(join(rcDir, "bashrc-T1"), "utf8")).toBe("replacement");
+    expect(statSync(join(rcDir, "bashrc-T1")).mode & 0o777).toBe(0o600);
   });
 
   it("removes the files and prunes the empty parent dir it created, up to rcDir", () => {

@@ -83,6 +83,7 @@ import {
   FsReadFileTextOutputSchema,
   HostListenersSchema,
   hostListenersEqual,
+  PrResultSchema,
   RepoChangePulseSchema,
   TerminalIdSchema,
   UNKNOWN_HOST_LISTENERS,
@@ -676,8 +677,55 @@ export * from "./transcriptSchema.ts";
  *  code change: the folds decide all three states (`starting`/`fresh` quiet for
  *  attention, idle for urgency, buckets of their own; `prompted` is work). One
  *  that narrows an `AgentInfo` to one kind's info must now rule a presence out
- *  first (`isAgentPresence`). */
-export const PADI_SURFACE_VERSION = "7.3";
+ *  first (`isAgentPresence`).
+ *
+ *  7.4 (additive · minor) — THE ROSTER IS A FACT, not an absence. A new
+ *  read-only `roster` cell ({@link PadiRosterSchema}) carries THE CENSUS of the
+ *  terminals padi supervises, or says it has not taken one: `settling` while
+ *  the kaval endpoint is being booted-and-reconciled (or recycled),
+ *  `established` once it has — with the epoch it was, and the ids it holds.
+ *  padi knew this already — the serve-time empty seed its `urgency` fold gates
+ *  on (`attention/fleetGate.ts`) — and kept it to itself, so every consumer of
+ *  the `terminals` collection had to guess whether an empty roster meant
+ *  "nothing is running" or "nothing has been adopted YET". The Conductor's
+ *  watch guessed wrong: a redeploy's fresh padi served one information-free
+ *  frame and every member terminal of every work was recorded `gone` (#2376).
+ *  The ids ride this cell rather than being read off `terminals.keys` beside it
+ *  because a reader of TWO members can be told `established` by one and an
+ *  empty list by the other — which is what a projection of this surface does
+ *  while its collections are still folding ({@link PadiRosterSchema}).
+ *
+ *  A NEW MEMBER, so the 6.0 class in reverse: a 7.4 binder subscribing `roster`
+ *  against a surviving 7.3 padi meets a tag nobody serves. The minor rule is
+ *  what keeps it from ever meeting one (a newer binder against a 7.3 padi drains
+ *  it before consuming its surface; an older binder against a 7.4 padi is
+ *  build-mismatched and drains it first), and a 7.3 CONSUMER is unaffected: it
+ *  never asks. A member ADDED is a minor; only a member removed or reshaped —
+ *  which breaks a consumer that already reads it — forces the major.
+ *
+ *  7.4 also ADDS the `pullRequest` STREAM — the pull request of a BRANCH in a
+ *  REPOSITORY on this host, snapshot-then-changes ({@link PrResultSchema}, the
+ *  same reading the per-terminal `pr` field carries, resolved by the same
+ *  `subscribePr` watcher on the same 30 s cadence). It exists because a pull
+ *  request belongs to a BRANCH, not to a terminal: kolu's Conductor watches a
+ *  piece of work keyed `(host, repo, branch)`, and asking a member terminal's
+ *  record for the PR meant the one fact that ENDS a work (the merge) had no
+ *  observer the moment the terminals were closed — which is the ordinary end of
+ *  a Conductor-run waterfall (#2376). No terminal has to exist for this one.
+ *  Same member class as `roster` above: added, so a minor.
+ *
+ *  7.4 also NARROWS one field of an existing member: a saved terminal's `id`
+ *  on the `session` cell is a `TerminalId`, not a bare string
+ *  (`SavedTerminalIdSchema`). It is the same member class as an added one for
+ *  every READER — the value was always a terminal id and still decodes as a
+ *  string — and the narrowing is what makes the WRITER honest: restore now
+ *  re-spawns each saved terminal UNDER ITS SAVED ID, so a blob naming a terminal
+ *  "0" (only an e2e fixture ever did) asks padi to open a PTY called "0" and to
+ *  publish it on the `roster` census above, whose `ids` encode as `TerminalId` —
+ *  an outbound encode failure that unwinds the whole mirror kolu-server holds,
+ *  leaving every padi procedure answering "no live upstream link" with the
+ *  daemon alive and idle (#2376). */
+export const PADI_SURFACE_VERSION = "7.4";
 
 /** The `version` cell payload — padi's self-declared surface contract version. */
 export const PadiVersionSchema = Schema.Struct({
@@ -761,6 +809,78 @@ export type PadiStatus = typeof PadiStatusSchema.Type;
 /** The value a fresh `status` subscriber sees before padi seeds it — no expected
  *  kaval known yet. */
 export const DEFAULT_PADI_STATUS: PadiStatus = {};
+
+// ── Roster (has this padi finished adopting its terminals?) ───────────────
+
+/** The `roster` cell payload — THE CENSUS OF THIS HOST'S TERMINALS, or the
+ *  statement that there isn't one yet.
+ *
+ *  Not the rows (those are the `terminals` collection): WHICH IDS THIS HOST
+ *  HAS, as one frame padi states about itself. padi serves its surface BEFORE
+ *  it boots the kaval endpoint and reconciles the saved session, so its first
+ *  frame is an information-free empty registry, and a kaval recycle empties the
+ *  registry again between the drain and the re-park. In both windows "that id
+ *  is not listed" means NOTHING HAS BEEN ADOPTED YET, not "that terminal is
+ *  dead" — a distinction padi already draws for its own attention folds
+ *  (`attention/fleetGate.ts`) and now states out loud, because every consumer
+ *  of an absence needs it: kolu-server's Conductor watch (`gone` requires a
+ *  Ready host), the client's per-terminal standing, the deep-link gone-verdict.
+ *
+ *  THE CENSUS RIDES THE SAME FRAME AS THE STANDING, and that is the point. A
+ *  reader that takes the standing from one member and the list from another can
+ *  be told "established" by one and an empty list by the other — which is
+ *  exactly what a PROJECTION of this surface does, because kolu-server's
+ *  per-host mirror marks a session connected on its first folded CELL frame
+ *  while the `terminals` collection it mirrors has not folded yet. The
+ *  Conductor's watch read that pair and recorded every member of every work
+ *  `gone` on a redeploy whose terminals were adopted, alive, under the same ids
+ *  (#2376). Two members cannot be made to arrive together; one member cannot be
+ *  made to arrive apart. So the ids are HERE, and a census that has not been
+ *  taken has nowhere to be written down.
+ *
+ *  A SUM, not a boolean: `established` carries WHEN the roster became
+ *  authoritative, which is the one thing a reader debugging a false absence
+ *  wants (and what distinguishes "established at boot" from "re-established
+ *  after a recycle" in a log). There is nowhere to put a timestamp — or a
+ *  census — on a `settling` roster, because there isn't one. */
+export const PadiRosterSchema = Schema.Union([
+  Schema.Struct({ kind: Schema.Literal("settling") }),
+  Schema.Struct({
+    kind: Schema.Literal("established"),
+    at: Schema.Number,
+    /** Every terminal id this host holds — the SAME keys the `terminals`
+     *  collection carries records for, stated by the registry that is their
+     *  authority. A record may still be on its way; membership is answered
+     *  here. */
+    ids: Schema.Array(TerminalIdSchema),
+  }),
+]);
+export type PadiRoster = typeof PadiRosterSchema.Type;
+
+/** The honest pre-adopt value, and the cell's default: a padi that has not said
+ *  otherwise has not finished adopting. A fresh subscriber therefore learns
+ *  "settling" rather than an empty roster it would read as an absence — the
+ *  whole point of the member. */
+export const DEFAULT_PADI_ROSTER: PadiRoster = { kind: "settling" };
+
+/** Is this roster EVIDENCE — may a reader conclude that a terminal missing from
+ *  it is really gone? The one fold both sides read, so the browser's standing
+ *  and kolu-server's watch cannot answer it differently.
+ *
+ *  A PREDICATE, so a caller that goes on to read the census does not have to
+ *  re-spell the arm test to get at it.
+ */
+export const rosterIsEstablished = (
+  roster: PadiRoster,
+): roster is Extract<PadiRoster, { readonly kind: "established" }> =>
+  roster.kind === "established";
+
+/** Does this host hold that terminal? `null` when the roster is settling — the
+ *  question has no answer yet, which is NOT `false`. The one place a caller's
+ *  "is it there?" is decided, so nobody re-derives it from a list that may be a
+ *  projection's empty seed. */
+export const rosterHolds = (roster: PadiRoster, id: string): boolean | null =>
+  roster.kind === "established" ? roster.ids.some((held) => held === id) : null;
 
 // ── Host-daemon inventory rows (the "Running daemons" leak diagnostic) ─────
 //
@@ -2134,6 +2254,21 @@ export const padiSurface = defineSurfaceWithPolicy<ClientErrorPolicy>()({
       verbs: ["get"],
       client: { onError: { kind: "toast", label: "Padi identity" } },
     },
+    /** Whether the `terminals` collection is EVIDENCE yet — `settling` until
+     *  this padi has finished adopting (boot: the kaval endpoint up and the
+     *  saved session reconciled; a recycle: the fresh kaval connected and the
+     *  captured session re-parked), `established` after, with the epoch.
+     *  Read-only on the client; padi's own roster gate
+     *  (`attention/fleetGate.ts`) is the sole writer, and it is the SAME fact
+     *  the attention folds gate their serve-time empty seed on, so the wire and
+     *  padi's own consumers cannot hold two opinions. Every reader of an
+     *  ABSENCE goes through it. */
+    roster: {
+      schema: PadiRosterSchema,
+      default: DEFAULT_PADI_ROSTER,
+      verbs: ["get"],
+      client: { onError: { kind: "hostToast", label: "Terminal roster" } },
+    },
     /** The recency-free urgency projection — read-only on the client; a DERIVED
      *  member (dual-edged on terminals + finish-quiet generation in
      *  `servePadi.ts`), so the graph is its one writer: it recomputes whenever the
@@ -2367,6 +2502,26 @@ export const padiSurface = defineSurfaceWithPolicy<ClientErrorPolicy>()({
     subscribeFileChange: {
       inputSchema: FsFileInputSchema,
       outputSchema: RepoChangePulseSchema,
+    },
+    /** THE PULL REQUEST OF A BRANCH, as this host reads it — the forge reading
+     *  for `branch` in the repository at `repoPath`, snapshot-then-changes: the
+     *  first frame is the reading as it stands, every later frame is a reading
+     *  that CHANGED (a check that went green, a merge, a close).
+     *
+     *  The same value a terminal's record carries in its `pr` field, from the
+     *  same watcher (`anyforge`'s `subscribePr` over the host's forge dispatch,
+     *  30 s), because it is the same question — only asked about the branch
+     *  rather than about whoever happens to be sitting in it. A reading that is
+     *  not `ok` is padi saying it does not know (`pending` while a resolve is in
+     *  flight, `unsupported` for a remote no adapter serves, `unavailable` with
+     *  the forge's own reason), never "there is no pull request". VALUE-forwarded:
+     *  each frame is the whole current reading, so a rebind replays it. */
+    pullRequest: {
+      inputSchema: Schema.Struct({
+        repoPath: Schema.String,
+        branch: Schema.String,
+      }),
+      outputSchema: PrResultSchema,
     },
     /** The per-subscriber terminal byte stream — snapshot (serialized screen)
      *  as the first frame, then live output, 1:1 through each hop. DELTA/
@@ -2716,6 +2871,9 @@ export const PADI_FORWARDING_POLICY = {
   // cells
   version: "value",
   identity: "value",
+  // A rebind replays the current roster standing — a binder that reconnects
+  // mid-settle must learn it is still settling, not inherit a stale frame.
+  roster: "value",
   urgency: "value",
   status: "value",
   newTerminalPolicy: "value",
@@ -2740,6 +2898,9 @@ export const PADI_FORWARDING_POLICY = {
   subscribeRepoChange: "value",
   subscribeFileChange: "value",
   terminalAttach: "delta",
+  // A branch's PR reading is a VALUE: every frame is the whole current reading,
+  // so a rebind replaying the last one tells the truth rather than a stale half.
+  pullRequest: "value",
   // events
   terminalExit: "value",
   // procedure namespaces

@@ -40,20 +40,39 @@
  *   work in flight   — two calls that settle, then a third held RUNNING for a
  *                      few seconds before it settles and the agent speaks:
  *                      the turn the chat folds while it is still working
- *   watch <id>       — a REAL `watch_terminal` call on the fleet face for
- *                      `local/<id>`, so the watched list moves because the
- *                      Conductor's own tool moved it
- *   run <command>    — a REAL `lifecycle_create` on the fleet face that TYPES
- *                      `<command>` at the new terminal's first prompt (the
- *                      scenario names it, because only the test process knows
- *                      the stand-in binary's absolute path), and answers
+ *   open <title>     — a REAL `work_open` (mode `full`, repo /tmp/kolu-e2e)
+ *                      that leaves the on-green question for the human: says
+ *                      `opening: <title>` and `opened: <id>` in the SAME
+ *                      turn, because asking never waits — whatever they
+ *                      answer arrives later as a wake
+ *   run the implementor in <cwd>: <command>
+ *                    — a REAL `lifecycle_create` with `work` = the last work
+ *                      opened and `role: implementor`, typing `<command>`
+ *   ask about the work — a REAL `work_ask` ("Approve the plan?", approve or
+ *                      revise) about the last work opened; says
+ *                      `asked: <ask id>` and ENDS THE TURN. The answer comes
+ *                      back as a wake, which this fixture answers
+ *                      `answered: <what they said>` (or `declined`)
+ *   ask about the plan — a REAL `work_ask` about the last work opened whose
+ *                      question NAMES A FILE (`.waterfall/plan.md`): what
+ *                      makes every face of it offer to open the reader
+ *   note <text>      — a REAL `work_note` on the last work opened
+ *   watch <id>       — a plain watch: a REAL `work_open` in mode `watch`
+ *                      (host and mode given, nothing asked), then `work_adopt`
+ *                      of `local/<id>` with role `other`
+ *   run <command>    — a REAL `work_open` (mode `trivial`, nothing asked)
+ *                      then a REAL `lifecycle_create` with that work and role
+ *                      `implementor` that TYPES `<command>` at the new
+ *                      terminal's first prompt (the scenario names it,
+ *                      because only the test process knows the stand-in
+ *                      binary's absolute path), and answers
  *                      `ran: <the tool's answer>` — which carries the fleet
- *                      ref the create watched
+ *                      ref the create made a member
  *   tell it <words>  — a REAL `agent_say` to the terminal `run` last started,
  *                      answered verbatim: the tool's report when it landed,
  *                      its refusal sentence when it did not
  *   work for a while — a turn held open for twelve seconds: long enough for a
- *                      watched terminal to ring while it runs and be HELD
+ *                      member terminal to ring while it runs and be HELD
  *   work until steered — a turn held open until a STEER arrives
  *                      (`_session/steering`), which it then answers as
  *                      `heard: <the steered words>` before ending
@@ -438,6 +457,94 @@ let awaitingSteer: ((text: string) => void) | null = null;
  *  answered with — what `tell it <words>` speaks to. `null` until one is
  *  started, and the `tell` verb says so rather than inventing a ref. */
 let lastStarted: string | null = null;
+/** The work the last `open`/`run`/`watch` opened — what every later verb in
+ *  this vocabulary names, because a terminal is now created INTO a piece of
+ *  work and a question is asked ABOUT one. */
+let lastWork: string | null = null;
+
+/** The setup every work this fixture opens is given, with whatever the
+ *  scenario did not say left for the human to answer.
+ *
+ *  `mode` and `on-green` carry kolu's OWN words (`full`/`trivial`/`watch`,
+ *  `merge`/`hand-over`): those two answers are read back off the decision, so
+ *  the fleet face refuses options that are anything else. */
+const setupFor = (
+  mode: "full" | "trivial" | "watch",
+  over: { host?: string; askOnGreen?: boolean } = {},
+): Array<Record<string, unknown>> => {
+  const given = (
+    key: string,
+    question: string,
+    options: string[],
+    answer: string,
+  ) => ({ key, question, options, given: answer });
+  const setup: Array<Record<string, unknown>> = [
+    // The HOST is no longer a setup question: it is part of the work's key.
+    given("mode", "Which mode?", [mode], mode),
+  ];
+  if (mode === "watch") return setup;
+  if (mode === "full") {
+    setup.push(
+      given("planner.harness", "Which harness plans?", ["omp"], "omp"),
+      given("planner.model", "On which model?", ["opus"], "opus"),
+    );
+  }
+  setup.push(
+    given("implementor.harness", "Which harness builds?", ["omp"], "omp"),
+    given("implementor.model", "On which model?", ["sonnet"], "sonnet"),
+  );
+  // THE ONE QUESTION LEFT FOR THE HUMAN, when the scenario wants a card with
+  // something to answer: the options are kolu's own words, which is what the
+  // card draws its buttons from.
+  setup.push(
+    over.askOnGreen === true
+      ? {
+          key: "on-green",
+          question: "On green?",
+          options: ["merge", "hand-over"],
+        }
+      : given("on-green", "On green?", ["merge"], "merge"),
+  );
+  return setup;
+};
+
+/** Open a piece of work and remember it. Answers the work's id — the call
+ *  comes back AT ONCE, whether or not a setup question went to the human:
+ *  what they say arrives later, as a wake. */
+const slug = (title: string): string =>
+  title
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-|-$/g, "");
+
+const openWork = async (
+  title: string,
+  mode: "full" | "trivial" | "watch",
+  over: {
+    host?: string;
+    repo?: string;
+    askOnGreen?: boolean;
+    watch?: string;
+  } = {},
+): Promise<string | null> => {
+  // A WORK IS ITS KEY. Each title gets a branch of its own, so two scenarios
+  // in one worker are two pieces of work — and opening the SAME title twice
+  // is the idempotent case: the same key, the same work, no second card.
+  const answer = await callTool("work_open", {
+    title,
+    ...(over.watch === undefined
+      ? {
+          host: over.host ?? "local",
+          repo: over.repo ?? "/tmp/kolu-e2e",
+          branch: slug(title),
+        }
+      : { watch: over.watch }),
+    setup: setupFor(mode, over),
+  });
+  const work = /"work"\s*:\s*"([^"]+)"/.exec(answer)?.[1] ?? null;
+  lastWork = work;
+  return work;
+};
 
 const turn = async (
   id: unknown,
@@ -453,34 +560,181 @@ const turn = async (
     const refs = [...whole.matchAll(/\blocal\/[0-9a-f-]{36}\b/g)].map(
       (one) => one[0],
     );
+    // AN ANSWER IS A WAKE LIKE ANY OTHER — the half of this feature a
+    // scenario can see from the agent's side: the Conductor asked, ended its
+    // turn, and is told later what the human said. The answer is echoed so a
+    // scenario can assert the conversation really was woken WITH IT, rather
+    // than merely that a form settled on screen.
+    const answered = whole.includes("the human ANSWERED")
+      ? (/·\s*[^\n:]+:\s*(.+)/.exec(whole)?.[1]?.trim() ?? "")
+      : null;
+    if (answered !== null) say(`answered: ${answered}`);
+    else if (whole.includes("the human DECLINED")) say("declined");
     say(`woke: ${[...new Set(refs)].join(", ")}`);
     endTurn(id);
     return;
   }
+  if (text.startsWith("open ")) {
+    // THE CONDUCTOR STATES ITS INTENT. One `work_open` whose setup leaves the
+    // on-green question for the human, so the card has something to answer —
+    // and the call ANSWERS AT ONCE: nothing here waits on a person, and the
+    // answer reaches this fixture as a wake.
+    // A WORK IS A BRANCH IN A REPOSITORY, and kolu asks THAT repository about
+    // the branch's pull request — so when the scenario made a repo of its own
+    // it says which (`open <title> in <dir>`), and the work is keyed by it.
+    // A title with no `in` keeps the placeholder path: those scenarios are
+    // about cards and questions, not about a forge.
+    const said = text.slice("open ".length).trim();
+    const at = said.lastIndexOf(" in /");
+    const title = at === -1 ? said : said.slice(0, at).trim();
+    const repo = at === -1 ? "/tmp/kolu-e2e" : said.slice(at + 4).trim();
+    say(`opening: ${title}`);
+    const work = await openWork(title, "full", {
+      repo,
+      askOnGreen: true,
+    });
+    say(work === null ? "nothing opened" : `opened: ${work}`);
+    endTurn(id);
+    return;
+  }
+  if (text.startsWith("run the implementor in ")) {
+    // A MEMBER OF THE WORK ALREADY OPEN, in a directory the scenario made —
+    // which is where its `.waterfall/` files and its PR are observed from.
+    const rest = text.slice("run the implementor in ".length);
+    const at = rest.indexOf(":");
+    const cwd = rest.slice(0, at === -1 ? rest.length : at).trim();
+    const command = at === -1 ? "" : rest.slice(at + 1).trim();
+    if (lastWork === null) {
+      say("no work is open");
+      endTurn(id);
+      return;
+    }
+    const answer = await callTool("lifecycle_create", {
+      host: "local",
+      placement: { kind: "toplevel" },
+      cwd,
+      intent: "build it",
+      run: command,
+      work: lastWork,
+      role: "implementor",
+    });
+    lastStarted = /\blocal\/[0-9a-f-]{36}\b/.exec(answer)?.[0] ?? null;
+    say(`ran: ${answer}`);
+    endTurn(id);
+    return;
+  }
+  if (text === "ask about the work") {
+    if (lastWork === null) {
+      say("no work is open");
+      endTurn(id);
+      return;
+    }
+    // ASK, SAY WHAT YOU ASKED, END THE TURN. The call answers at once with
+    // the ask's id and nothing else: whatever the human says arrives later,
+    // as the wake handled at the top of this function.
+    const answer = await callTool("work_ask", {
+      work: lastWork,
+      questions: [
+        {
+          header: "Plan approval",
+          question: "Approve the plan?",
+          options: ["approve", "revise"],
+        },
+      ],
+    });
+    const ask = /"ask"\s*:\s*"([^"]+)"/.exec(answer)?.[1] ?? "";
+    say(`asked: ${ask}`);
+    endTurn(id);
+    return;
+  }
+  if (text === "ask about the plan") {
+    if (lastWork === null) {
+      say("no work is open");
+      endTurn(id);
+      return;
+    }
+    // THE QUESTION NAMES THE FILE. That one field is what makes the card and
+    // the chat offer to open the plan in the reader — the question carries
+    // the thing the human has to read before they can answer it.
+    const answer = await callTool("work_ask", {
+      work: lastWork,
+      questions: [
+        {
+          header: "Plan approval",
+          question: "Approve the plan?",
+          options: ["approve", "revise"],
+          file: ".waterfall/plan.md",
+        },
+      ],
+    });
+    say(`asked: ${answer}`);
+    endTurn(id);
+    return;
+  }
+  if (text.startsWith("note ")) {
+    if (lastWork === null) {
+      say("no work is open");
+      endTurn(id);
+      return;
+    }
+    await callTool("work_note", {
+      work: lastWork,
+      text: text.slice("note ".length).trim(),
+    });
+    say("noted");
+    endTurn(id);
+    return;
+  }
   if (text.startsWith("watch ")) {
+    // A PLAIN WATCH the human asked for: a piece of work in `watch` mode,
+    // then the terminal they pointed at adopted into it as `other`.
     const terminalId = text.slice("watch ".length).trim();
-    say(await callTool("watch_terminal", { id: `local/${terminalId}` }));
+    const work = await openWork(`watch ${terminalId}`, "watch", {
+      watch: `local/${terminalId}`,
+    });
+    if (work === null) {
+      say("nothing opened");
+      endTurn(id);
+      return;
+    }
+    say(
+      await callTool("work_adopt", {
+        id: `local/${terminalId}`,
+        work,
+        role: "other",
+      }),
+    );
     endTurn(id);
     return;
   }
   if (text.startsWith("run ")) {
-    // THE CONDUCTOR STARTS SOMETHING. A real `lifecycle_create` on the fleet
-    // face, with the command the scenario named typed at the new terminal's
-    // first prompt — the fleet grammar's own `run`. The tool watches what it
-    // created, so the terminal is on the watched list from the moment it
-    // exists and nothing here has to ask for that separately.
+    // THE CONDUCTOR STARTS SOMETHING. A piece of work first — nothing is
+    // created outside one — then a real `lifecycle_create` on the fleet face,
+    // with the command the scenario named typed at the new terminal's first
+    // prompt. The create makes what it created a MEMBER, so the terminal is
+    // watched from the moment it exists and nothing here has to ask for that
+    // separately.
     //
     // The COMMAND comes from the scenario rather than being baked in here: the
     // stand-in it starts is a fake agent binary whose absolute path only the
     // test process knows (the harness seeds it per worker), and a fixture that
     // guessed `claude` would start whatever that name happens to resolve to on
     // the box.
+    const command = text.slice("run ".length).trim();
+    const work = await openWork(`run ${command}`, "trivial");
+    if (work === null) {
+      say("nothing opened");
+      endTurn(id);
+      return;
+    }
     const answer = await callTool("lifecycle_create", {
       host: "local",
       placement: { kind: "toplevel" },
       cwd: "/tmp",
       intent: "bring one up",
-      run: text.slice("run ".length).trim(),
+      run: command,
+      work,
+      role: "implementor",
     });
     lastStarted = /\blocal\/[0-9a-f-]{36}\b/.exec(answer)?.[0] ?? null;
     say(`ran: ${answer}`);

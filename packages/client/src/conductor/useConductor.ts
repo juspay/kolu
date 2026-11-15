@@ -29,7 +29,9 @@ import type {
   ConductorAttachment,
   ConductorMention,
   ConductorState,
+  ConductorStoreKey,
 } from "kolu-common/conductor";
+import type { AnsweredFromFace, WorkId } from "kolu-work";
 import { Effect } from "effect";
 import type { Accessor } from "solid-js";
 import { toast } from "solid-sonner";
@@ -68,8 +70,42 @@ export interface Conductor {
     settled?: (accepted: boolean) => void,
   ): void;
   cancel(): void;
-  /** `answers === null` DECLINES — the agent is told you would not say. */
+  /** ANSWER THE AGENT'S OWN QUESTION — an elicitation it is holding a call
+   *  open for. `answers === null` DECLINES it.
+   *
+   *  kolu's own questions about a piece of work are NOT these: they are
+   *  decisions on the work, answered through {@link Conductor.answerWork}. */
   answer(askId: string, answers: readonly AskAnswer[] | null): void;
+  /** ANSWER ONE OF KOLU'S OWN QUESTIONS ABOUT A PIECE OF WORK, keyed by the
+   *  DECISION each answer belongs to. `answers === null` declines the whole
+   *  ask.
+   *
+   *  `from` is WHICH FACE answered — the work's card, the chat, the reader a
+   *  file is open in, or that reader in a window of its own. All four draw
+   *  the one decision and any of them settles it; the record keeps which one
+   *  the person was looking at.
+   *
+   *  Nothing is waiting on this: the Conductor was told its question had been
+   *  put and ended its turn, so this writes the decision and kolu WAKES it
+   *  with what was said. That is also why it works while the conversation is
+   *  down — the only failure it can raise is the work's own refusal. */
+  answerWork(
+    work: WorkId,
+    ask: string,
+    answers: Readonly<Record<string, readonly string[]>> | null,
+    from: AnsweredFromFace,
+  ): void;
+  /** END A PIECE OF WORK ON PURPOSE — the card's **Stop**, behind its
+   *  confirm. One of only two ways a work ends that is not the forge saying
+   *  merged or closed (the Conductor's own `work_stop` is the other): kolu
+   *  failing to SEE a terminal is not one of them. The record stays, its
+   *  members are released in the same step, and the card then offers
+   *  {@link Conductor.reopenWork}. */
+  stopWork(work: WorkId): void;
+  /** ... AND BACK. An ended work opens again with its decisions and its
+   *  timeline intact — the same thing `work_open` on its key does, which is
+   *  why this never asks anything a second time. */
+  reopenWork(work: WorkId): void;
   signIn(method: string): void;
   signInInput(text: string): void;
   signInCancel(): void;
@@ -83,6 +119,28 @@ export interface Conductor {
    *  `New session` is the one caller. Two verbs rather than a flag, because
    *  what a person LOSES is the whole of the difference. */
   clearSession(): void;
+  /** TAKE A DRIVEN TERMINAL off the Conductor — `terminal` is its
+   *  `<host>/<id>` ref. The lock is a fact about the WORK (an event on its
+   *  timeline), which is why this is a request of the record rather than a
+   *  local flag: a reload, a second browser and the agent itself all read the
+   *  same answer, and the conversation is woken to stop typing into it.
+   *
+   *  These two declare `ConductorRefused` ALONE on the wire: an agent that is
+   *  down or signed out must not stand between a person and the keyboard of a
+   *  terminal in front of them. */
+  takeOver(terminal: string): void;
+  /** ... and give it back: the Conductor drives it again, and is woken to
+   *  say so. */
+  handBack(terminal: string): void;
+  /** PUT A RECORD KOLU COULD NOT READ BACK IN A STATE IT CAN — the two
+   *  buttons under an unreadable-record refusal, which is the one screen
+   *  where the Conductor is down for a reason the AGENT has nothing to do
+   *  with. `how: "backup"` takes the newest state backup that reads;
+   *  `how: "empty"` keeps the unreadable value aside and starts that record
+   *  empty. The server's answer says what it did, which is why this one is
+   *  reported on success as well as on failure: a recovery nobody can see
+   *  the result of is indistinguishable from a button that did nothing. */
+  recoverStore(key: ConductorStoreKey, how: "backup" | "empty"): void;
 }
 
 export const useConductor = createSharedRoot<Conductor>(() => {
@@ -159,6 +217,29 @@ export const useConductor = createSharedRoot<Conductor>(() => {
           if (!result.settled) toast.info("That question was already answered");
         },
       ),
+    answerWork: (work, askId, answers, from) =>
+      ask(
+        "Could not answer",
+        app.procedures.conductor.answerWork({
+          work,
+          ask: askId,
+          answers:
+            answers === null
+              ? null
+              : Object.fromEntries(
+                  Object.entries(answers).map(([decision, values]) => [
+                    decision,
+                    [...values],
+                  ]),
+                ),
+          from,
+        }),
+        (result) => {
+          // Two faces of one question — a card and a popped-out reader, say —
+          // and the second one to press is told so rather than failing.
+          if (!result.settled) toast.info("That question was already answered");
+        },
+      ),
     signIn: (method) =>
       ask(
         "Sign-in failed",
@@ -184,6 +265,21 @@ export const useConductor = createSharedRoot<Conductor>(() => {
         "The agent kept its setting",
         app.procedures.conductor.setOption({ id, value }),
       ),
+    // STOP and REOPEN — requests of the RECORD, like the two hand-over verbs
+    // beside them: a person must be able to put a piece of work down (and
+    // pick it back up) while the conversation is down. The card has already
+    // asked before Stop gets here; the refusal, if any, is the work's own
+    // sentence.
+    stopWork: (work) =>
+      ask(
+        "Could not stop the work",
+        app.procedures.conductor.stopWork({ work }),
+      ),
+    reopenWork: (work) =>
+      ask(
+        "Could not open it again",
+        app.procedures.conductor.reopenWork({ work }),
+      ),
     newSession: () => {
       // The transcript this offset described is about to be replaced
       // wholesale; a pixel from the old conversation would land the new one
@@ -201,6 +297,35 @@ export const useConductor = createSharedRoot<Conductor>(() => {
       ask(
         "Could not start a new session",
         app.procedures.conductor.clearSession({}),
+      );
+    },
+    // The label IS the report: a refusal here is the work's own sentence
+    // ("that terminal is not driven by a piece of work"), and the banner it
+    // was pressed from is still on screen saying who drives it.
+    takeOver: (terminal) =>
+      ask(
+        "Could not take it over",
+        app.procedures.conductor.takeOver({ terminal }),
+      ),
+    handBack: (terminal) =>
+      ask(
+        "Could not hand it back",
+        app.procedures.conductor.handBack({ terminal }),
+      ),
+    // THE ONE VERB WHOSE SUCCESS IS ALSO A REPORT. The others move something
+    // on screen — a row, a lock, a session — and the screen is the answer.
+    // This one's whole result is a sentence: which snapshot kolu took, or
+    // where it kept the value it could not read. The panel under it is about
+    // to be replaced by a conversation coming up, so the toast is where that
+    // sentence can live long enough to be read.
+    recoverStore: (key, how) => {
+      pinTranscript();
+      ask(
+        "Could not recover",
+        app.procedures.conductor.recoverStore({ key, how }),
+        (result) => {
+          toast.success(result.said);
+        },
       );
     },
   };

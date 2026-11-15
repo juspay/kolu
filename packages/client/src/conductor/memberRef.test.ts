@@ -1,0 +1,29 @@
+/** A member terminal's two halves. The GRAMMAR (the last-slash split) is
+ *  `kolu-mcp/fleetRef`'s and is tested there; what is this module's own, and
+ *  all that is pinned here, is the validation on top — the browser only
+ *  resolves a ref whose halves are a canonical host key and a terminal id. */
+
+import { describe, expect, it } from "vitest";
+import { splitMemberRef } from "./memberRef";
+
+const ID = "aaaaaaaa-0000-4000-8000-000000000001";
+
+describe("splitting a member's ref", () => {
+  it("splits a ref whose halves are both resolvable", () => {
+    expect(splitMemberRef(`local/${ID}`)).toEqual({ host: "local", id: ID });
+    // Through the shared grammar, so a host key keeps its own slashes.
+    expect(splitMemberRef(`remote:ssh://box/3/${ID}`)).toEqual({
+      host: "remote:ssh://box/3",
+      id: ID,
+    });
+  });
+
+  it("answers null rather than guessing", () => {
+    // Not a reference at all — the grammar's refusal, passed through.
+    expect(splitMemberRef(ID)).toBeNull();
+    // A host key that is not canonical, and an id that is not a terminal id:
+    // the column draws the member anyway and says it cannot resolve it.
+    expect(splitMemberRef(`elsewhere/${ID}`)).toBeNull();
+    expect(splitMemberRef("local/not-a-uuid")).toBeNull();
+  });
+});

@@ -9,6 +9,7 @@
     "./surface": "./src/surface.ts",
     "./conductor": "./src/conductorSchema.ts",
     "./conductorErrors": "./src/conductorErrors.ts",
+    "./works": "./src/worksSchema.ts",
     "./surfacesWithPadi": "./src/surfacesWithPadi.ts",
     "./hostKey": "./src/hostKey.ts",
     "./hostHue": "./src/hostHue.ts",
@@ -43,6 +44,7 @@
     "effect": "catalog:",
     "kolu-git": "workspace:*",
     "kolu-github": "workspace:*",
+    "kolu-work": "workspace:*",
     "ts-pattern": "^5.9.0"
   }
 }

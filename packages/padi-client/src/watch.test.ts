@@ -49,7 +49,7 @@ import { Effect, Stream } from "effect";
 import { describe, expect, it } from "vitest";
 import type { PadiSurfaceClient } from "./dial.ts";
 import { TerminalNotActive, TerminalNotFound } from "./errors.ts";
-import type { PadiTerminal } from "./surface.ts";
+import type { PadiRoster, PadiTerminal } from "./surface.ts";
 import {
   awaitAgentState,
   awaitOutputSettled,
@@ -207,9 +207,10 @@ class FakeSource<T> {
   }
 }
 
-/** A structural `PadiSurfaceClient` over exactly the three members the match wait
- *  touches: the attach feed, the exit event, and the `terminals` key set the
- *  lost-feed discrimination reads. Each verb hands back a `Stream` SYNCHRONOUSLY,
+/** A structural `PadiSurfaceClient` over exactly the members the match wait
+ *  touches: the attach feed, the exit event, the `terminals` key set the
+ *  lost-feed discrimination reads, and the `roster` standing that says whether
+ *  that key set is a census. Each verb hands back a `Stream` SYNCHRONOUSLY,
  *  the shape every member ref has under Effect.
  *
  *  `attach` is a FACTORY (not a stream): the retry fence re-runs the whole call on
@@ -219,6 +220,10 @@ function matchClient(parts: {
   attach?: () => Stream.Stream<AttachFrame, unknown>;
   exit?: () => Stream.Stream<{ code: number }, unknown>;
   keys?: () => Stream.Stream<readonly TerminalId[], unknown>;
+  /** The host's ROSTER STANDING — `established` unless a case says otherwise,
+   *  which is what makes a missing id an absence rather than a daemon that has
+   *  not finished adopting its terminals. */
+  roster?: () => Stream.Stream<PadiRoster, unknown>;
   /** The `terminals` COLLECTION values the mirror replays — only the agent
    *  condition subscribes them. */
   get?: (key: TerminalId) => Stream.Stream<PadiTerminal, unknown>;
@@ -253,6 +258,15 @@ function matchClient(parts: {
         get: (input: { key: TerminalId }) =>
           parts.get?.(input.key) ?? Stream.make(activeWithAgent(null)),
       },
+      roster: {
+        get: () =>
+          parts.roster?.() ??
+          Stream.make({
+            kind: "established",
+            at: 1,
+            ids: [T as TerminalId],
+          } as PadiRoster),
+      },
       screen: {
         text: (input: { id: TerminalId; tail?: number }) =>
           parts.screenText?.(input) ??
@@ -262,11 +276,13 @@ function matchClient(parts: {
   } as unknown as PadiSurfaceClient;
 }
 
-/** A `terminals.keys` snapshot that does NOT contain the watched terminal — the
- *  membership answer that turns a lost feed into `gone`. The cases below use it
- *  when they only need the wait to END so its verdict can be asserted. */
-const keysWithout = (): Stream.Stream<readonly TerminalId[], unknown> =>
-  Stream.make([] as readonly TerminalId[]);
+/** A ROSTER whose census does NOT contain the watched terminal — the membership
+ *  answer that turns a lost feed into `gone`. It rides the roster cell, not the
+ *  `terminals` collection beside it, because a standing and a list on two wire
+ *  members can be delivered apart (#2376). The cases below use it when they
+ *  only need the wait to END so its verdict can be asserted. */
+const censusWithout = (): Stream.Stream<PadiRoster, unknown> =>
+  Stream.make({ kind: "established", at: 1, ids: [] } as PadiRoster);
 
 const T = "t1";
 
@@ -361,7 +377,7 @@ describe("the `match:` wait over a fake attach feed", () => {
     const outcome = await matchWait(
       matchClient({
         attach: () => (attempt++ === 0 ? first.stream() : second.stream()),
-        keys: keysWithout,
+        roster: censusWithout,
       }),
       // No timeout: the fence's own ~1s retry delay must not race a deadline.
       { id: T, pattern: /SENTINEL/ },
@@ -380,7 +396,7 @@ describe("the `match:` wait over a fake attach feed", () => {
     attach.end();
 
     const outcome = await matchWait(
-      matchClient({ attach: () => attach.stream(), keys: keysWithout }),
+      matchClient({ attach: () => attach.stream(), roster: censusWithout }),
       { id: T, pattern: /SENTINEL/, timeoutMs: 5000 },
     );
 
@@ -424,7 +440,7 @@ describe("the `match:` wait over a fake attach feed", () => {
     attach.end();
 
     const outcome = await matchWait(
-      matchClient({ attach: () => attach.stream(), keys: keysWithout }),
+      matchClient({ attach: () => attach.stream(), roster: censusWithout }),
       { id: T, pattern, timeoutMs: 20_000 },
     );
 
@@ -450,7 +466,7 @@ describe("the `match:` wait over a fake attach feed", () => {
 
     const started = Date.now();
     const outcome = await matchWait(
-      matchClient({ attach: () => attach.stream(), keys: keysWithout }),
+      matchClient({ attach: () => attach.stream(), roster: censusWithout }),
       { id: T, pattern: /a*Z/ },
     );
     const elapsed = Date.now() - started;
@@ -458,6 +474,30 @@ describe("the `match:` wait over a fake attach feed", () => {
     expect(outcome).toMatchObject({ kind: "gone" });
     expect(elapsed).toBeLessThan(8000);
   }, 30_000);
+
+  it("does NOT call a terminal gone when the host has not finished adopting", async () => {
+    // #2376 on this face: the daemon the wait was talking to was replaced, and
+    // the fresh one has not adopted the terminals it supervises yet, so it says
+    // so — `settling`, and no census at all. There is no list to be missing
+    // from, so the honest outcome is `closed` — the one whose documented
+    // meaning is "retry; conclude nothing about the agent" — never `gone`.
+    const attach = new FakeSource<AttachFrame>();
+    attach.push(delta("still working\n"));
+    attach.end();
+
+    const outcome = await matchWait(
+      matchClient({
+        attach: () => attach.stream(),
+        roster: () => Stream.make({ kind: "settling" } as PadiRoster),
+      }),
+      { id: T, pattern: /SENTINEL/, timeoutMs: 5000 },
+    );
+
+    expect(outcome).toMatchObject({
+      kind: "closed",
+      error: expect.stringContaining("has not finished adopting"),
+    });
+  });
 
   it("a LATCHED match stops scanning — a later line never overwrites the one that fired", async () => {
     // The latch is what keeps `matchedLine` honest, and nothing else pinned it:
@@ -504,7 +544,7 @@ describe("the `match:` wait over a fake attach feed", () => {
     attach.push(delta("Z\n"));
 
     const outcome = await matchWait(
-      matchClient({ attach: () => attach.stream(), keys: keysWithout }),
+      matchClient({ attach: () => attach.stream(), roster: censusWithout }),
       { id: T, pattern: new RegExp(`${emoji}b+Z`, "u"), timeoutMs: 5000 },
     );
 
@@ -879,7 +919,7 @@ describe("awaitTerminalCondition — `screenTail`, the screen stamp", () => {
       const outcome = await awaitTerminalCondition(
         matchClient({
           attach: () => attach.stream(),
-          keys: keysWithout,
+          roster: censusWithout,
           screenText: () =>
             Effect.promise(async () => {
               reads += 1;
@@ -972,7 +1012,7 @@ describe("awaitTerminalCondition — `screenTail`, the screen stamp", () => {
       matchClient({
         attach: () => attach.stream(),
         exit: () => exit.stream(),
-        keys: keysWithout,
+        roster: censusWithout,
       }),
       {
         id: T as TerminalId,
@@ -1009,7 +1049,7 @@ describe("awaitTerminalCondition — `screenTail`, the screen stamp", () => {
       matchClient({
         attach: () => attach.stream(),
         exit: () => exit.stream(),
-        keys: keysWithout,
+        roster: censusWithout,
         // Reading it would be the bug; a real padi answers TerminalNotFound.
         screenText: () => Effect.fail(new TerminalNotFound({ id: T })),
       }),
@@ -1040,9 +1080,14 @@ describe("awaitTerminalCondition — `screenTail`, the screen stamp", () => {
     const outcome = await awaitTerminalCondition(
       matchClient({
         attach: () => attach.stream(),
-        // No exit event, and the terminal is STILL IN the key set: the feed
+        // No exit event, and the terminal is STILL IN the census: the feed
         // dropped under a live terminal.
-        keys: () => Stream.make([T] as readonly TerminalId[]),
+        roster: () =>
+          Stream.make({
+            kind: "established",
+            at: 1,
+            ids: [T as TerminalId],
+          } as PadiRoster),
       }),
       {
         id: T as TerminalId,

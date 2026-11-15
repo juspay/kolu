@@ -1,0 +1,76 @@
+---
+title: Read a Plan
+description: "Open a work's files in a reader that takes the large side of the Conductor: a reading column, the other files as tabs, and the question pinned above."
+order: 52.6
+section: "Agents & Attention"
+koluHero:
+  eyebrow: before you approve
+  headline: |
+    Read the plan
+    {at full size}.
+---
+
+import LinkCard from "../../components/docs/LinkCard.astro";
+import CardGrid from "../../components/docs/CardGrid.astro";
+import Steps from "../../components/docs/Steps.astro";
+
+A [waterfall](/conductor#run-a-waterfall) writes its plan and its notes into the
+work's `.waterfall/` folder. Open one and it takes the large side of [the
+Conductor](/conductor): a reading column, the work's other files as tabs, and
+the question about that work pinned above the document.
+
+## Open a file
+
+<Steps>
+
+1. Open a work's card in the Conductor and go to **Files**.
+2. Click the file you want. The reader takes about two thirds of the screen and
+   the conversation keeps the rest, so you can read and talk at the same time.
+3. Click **← Work** when you are done. The cards come back exactly as you left
+   them.
+
+</Steps>
+
+When the Conductor asks you to approve a plan, its question carries a **Read the
+plan** button that opens the file in one click. The plan never opens by itself.
+
+On a narrow window, and on a phone, the reader takes the whole screen, with the
+same way back.
+
+## What you get
+
+| Part | What it does |
+| --- | --- |
+| The document | A column of about 50rem at 16px, set for reading. Tables and code blocks use the pane's full width and scroll sideways rather than squeeze to one word a line. |
+| **Rendered** / **Source** | Switches between the rendered file and its text. |
+| Tabs | The work's other files sit in the header. Clicking one moves the reader to it. |
+| The question | The open question about this work, pinned above the document with its buttons and a line saying how many comments go with your answer. |
+| Comments | Select text in the document to comment on it, the same comments as on the [Code tab](/code-tab). They are sent with your answer. |
+
+The file is read live, so a plan an agent is still writing grows under you, and
+a question that arrives appears at the top.
+
+## Give it more room
+
+- **Fill the screen** hides the conversation and gives the whole Conductor to
+  the document. **Show the chat** gives the conversation its third back.
+- **Pop out ↗** opens the same reader in a browser window of its own, which you
+  can move to a second monitor. It is the same live reader, so the file, the
+  question and your answer all work there, and closing the window loses nothing.
+
+## Answer where you are reading
+
+A question is one decision with four faces: the work's card, the chat, the
+reader and a popped-out reader. Pressing **Answer** in any of them settles it,
+and **I'd rather not say** declines it in any of them.
+
+Nothing is waiting on you while you read. The Conductor has ended its turn, and
+your answer is what wakes it. See [when it asks
+you](/conductor#when-it-asks-you).
+
+## Next
+
+<CardGrid>
+  <LinkCard title="The Conductor" href="/conductor" description="the chat that opens the work and asks the question" />
+  <LinkCard title="The Code Tab" href="/code-tab" description="the same renderers and the same comments, over a repo" />
+</CardGrid>

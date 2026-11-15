@@ -6,6 +6,7 @@ import {
 } from "@kolu/padi-client/surface";
 import { DEFAULT_PREFERENCES } from "kolu-common/surface";
 import { describe, expect, it } from "vitest";
+import { store } from "./state.ts";
 import {
   migratePreferences_1_30_0,
   migratePreferences_1_32_0,
@@ -17,8 +18,7 @@ import {
   migratePreferences_1_41_0,
   migratePreferences_1_42_0,
   migratePreferences_1_43_0,
-  store,
-} from "./state.ts";
+} from "./stateLadder.ts";
 
 // KOLU_STATE_DIR is set by the `test:unit` script in package.json — state.ts
 // reads it at module load.

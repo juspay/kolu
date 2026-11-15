@@ -96,12 +96,14 @@ import {
 } from "./codeTabOpenController";
 import FileSearchInput from "./FileSearchInput";
 import { projectFileTreeSearch } from "./fileSearch";
+import type { FileWithSource, FileWithUrl } from "@kolu/solid-fileview";
 import {
   codeActiveStatus,
   codeAllPaths,
   leaseCodeQueries,
   codeBranchStatus,
   codeDiff,
+  codeFileContent,
   codeIgnoredPaths,
   codeLocalStatus,
   readFreshCodePaths,
@@ -365,6 +367,35 @@ const CodeTab: Component<{
     return terminalId === null || repoRoot === null
       ? null
       : { terminalId, repoRoot };
+  });
+  /** THE SELECTED FILE, as the viewer takes it — the retained query's wire
+   *  variant projected onto `@kolu/solid-fileview`'s two shapes.
+   *
+   *  The URL for a binary is built HERE, where the terminal is read, and not
+   *  in the query: the query is keyed on (repo, file) so a focus move between
+   *  two panes showing the same file never blanks the view, and the terminal
+   *  named in the URL therefore has to come from the pane being SHOWN — a URL
+   *  left naming a pane that has since closed would 404 the preview. `?v=` is
+   *  the content hash, so a real change reloads the img/iframe while an
+   *  identical-content rewrite does not. */
+  const browseFile = createMemo((): FileWithSource | FileWithUrl | null => {
+    const content = codeFileContent();
+    const at = commentContext();
+    const path = rightPanel.selectedFile("browse");
+    if (content === undefined || at === null || path === null) return null;
+    return content.kind === "text"
+      ? {
+          path,
+          source: { content: content.content, truncated: content.truncated },
+        }
+      : {
+          path,
+          url: `${buildTerminalFileUrl(
+            encodeHostKey(activeHost()),
+            at.terminalId,
+            path,
+          )}?v=${content.previewTag}`,
+        };
   });
   const selectedPath = (): string | null => rightPanel.selectedFile(view());
   // The single selection funnel: set the shown file AND record it in history.
@@ -1526,9 +1557,13 @@ const CodeTab: Component<{
                     <Show when={commentContext()}>
                       {(present) => (
                         <BrowseFileDispatcher
-                          terminalId={present().terminalId}
-                          repoPath={present().repoRoot}
+                          at={{
+                            host: encodeHostKey(activeHost()),
+                            terminalId: present().terminalId,
+                          }}
                           filePath={path}
+                          file={browseFile()}
+                          error={codeFileContent.error()}
                           // The live repo FILE list — the vault a `[[wikilink]]`
                           // in the previewed doc resolves against, pathless.
                           // Both halves come off `treeInventory()`, the one

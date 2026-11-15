@@ -570,7 +570,7 @@ export const ActivityFeedSchema = Schema.Struct({
  * `state` — session save emits one list and sleeping terminals join it. The
  * discriminant means a legacy record with no `state` key is rejected on read,
  * which `backfillTerminalState` repairs (`state: "active"`) — run by both the
- * `state.ts` 1.27.0 migration (persisted state) and the client import hatch
+ * `stateLadder.ts` 1.27.0 migration (persisted state) and the client import hatch
  * (`backfillSavedSession`, for an exported `kolu-session.json`).
  *
  * Within-group ordering is the array index; the server writes terminals
@@ -578,8 +578,28 @@ export const ActivityFeedSchema = Schema.Struct({
  * order verbatim.
  */
 const SavedTerminalIdSchema = Schema.Struct({
-  /** Stable ID within this session (original terminal UUID at save time). */
-  id: Schema.String,
+  /** Stable ID within this session — the terminal's own {@link TerminalIdSchema},
+   *  checked HERE, at the one boundary where a saved blob becomes a decoded
+   *  record (`session.test__set`, `session.import`, the client's
+   *  `kolu-session.json` hatch).
+   *
+   *  It used to be a bare `Schema.String`, and that looseness was only ever
+   *  invisible because restore MINTED a fresh id for every record it re-spawned.
+   *  Restore now re-spawns a terminal UNDER ITS SAVED ID (that is what makes a
+   *  terminal's identity survive a kaval recycle), so this field IS the registry
+   *  key: a non-UUID here reached kaval as a PTY id, was reaped by the
+   *  unrepresentable-id guard on the inventory feed, and — worse — rode padi's
+   *  `roster` census, whose `ids` are `TerminalIdSchema`. That frame cannot
+   *  encode, and while the RPC layer answers the ONE subscription that asked
+   *  with the defect, a mirror treats a member's upstream death as the death of
+   *  the whole mirror: kolu-server's re-serve dropped its live client and parked
+   *  waiting for a fresh spawn that a perfectly healthy link never produces, so
+   *  every padi call answered "no live upstream link" for the rest of the
+   *  process with the daemon alive and idle (#2376).
+   *
+   *  So the check lives at the decode, not downstream: every id padi holds is
+   *  minted (`crypto.randomUUID`) or decoded, and nothing else can enter. */
+  id: TerminalIdSchema,
 });
 
 /** The active arm of the on-disk record (persisted-observation base + authored +
@@ -1019,7 +1039,7 @@ export function activePr(
 // current `SavedTerminalSchema`, one per schema bump that added a now-required
 // field. They live HERE, beside the schema they restore, because TWO callers
 // run them on the SAME blob: the server's versioned migration ladder
-// (`state.ts`, keyed per `SCHEMA_VERSION` step) AND the client's diagnostic
+// (`stateLadder.ts`, keyed per `SCHEMA_VERSION` step) AND the client's diagnostic
 // "Import session" hatch (`sessionTransfer.ts`), which ingests an exported
 // `kolu-session.json` that may predate any of these fields. A second hand-rolled
 // backfill on the import side would be a parallel source of truth — the bug

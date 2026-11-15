@@ -106,7 +106,7 @@ export const mockPadiMap = {
       unenrolledKeys: () => idleKeysStream(),
     };
     return {
-      cells: { session: cell, activityFeed: cell },
+      cells: { session: cell, roster: cell, activityFeed: cell },
       collections: { terminals: collection, daemonStatus: collection },
       // The entry's BOUND PROCEDURES face — where `createViewState`'s `writeActive`
       // reports the active tile (`padiMap.entry(host).procedures.chrome.setActive`).

@@ -49,6 +49,7 @@ import {
   type CellStore,
   confStore,
   type ImplementSurfaceDeps,
+  inMemoryCollection,
   inMemoryStore,
   implementSurfacesOnPublisher,
   publisherChannel,
@@ -83,6 +84,7 @@ import {
   surfaces,
 } from "kolu-common/surface";
 import { koluWireGroup } from "kolu-common/surfacesWithPadi";
+import type { MemberReading } from "kolu-common/works";
 import { serverCommit, serverStartedAt, serverVersion } from "./hostname.ts";
 import { log } from "./log.ts";
 import {
@@ -92,9 +94,14 @@ import {
 import { DAEMON_INVENTORY_SAMPLE_INTERVAL_MS } from "./padi/daemonInventory.ts";
 import { FORWARD_REAP_INTERVAL_MS } from "./portForward/forwards.ts";
 import { conductorSurfaceMembers } from "kolu-conductor/surface";
+import type { ConductorStoreKey } from "kolu-common/conductor";
+import { ConductorRefused } from "kolu-common/conductorErrors";
+import { recoverConductorStore } from "./conductorRecovery.ts";
+import { type Work, type WorkMember, WorkRefusal } from "kolu-work";
 import {
   liveServerConductor,
   setConductorCellWriter,
+  setWorksCollectionWriters,
 } from "./conductor/live.ts";
 import { store } from "./state.ts";
 
@@ -324,6 +331,25 @@ export interface StoreCellWriters {
   setViewerMode: (value: ViewerMode) => void;
 }
 
+/** THE HAND-OVER BRIDGE — `conductor.takeOver` / `conductor.handBack` as the
+ *  one declared failure they carry. The work refuses with a sentence (not a
+ *  driven member, already yours, already the Conductor's); anything else is a
+ *  bug in the bookkeeping and dies loudly, the same line the conductor's own
+ *  fragment draws for its verbs. `auth: false` — nothing about a hand-over is
+ *  a sign-in. */
+function handOver(act: () => void): Effect.Effect<void, ConductorRefused> {
+  return Effect.suspend(() => {
+    try {
+      act();
+      return Effect.void;
+    } catch (err) {
+      return err instanceof WorkRefusal
+        ? Effect.fail(new ConductorRefused({ why: err.message, auth: false }))
+        : Effect.die(err);
+    }
+  });
+}
+
 /** Serve kolu-server's OWN two sibling surfaces (kolu + surfaceApp) on the shared
  *  `@kolu/padi` publisher, wire the runtime's deliberately-fatal `done`, and return the
  *  built router + kolu ctx. `index.ts`'s boot splices the RE-SERVED `padi` sibling into
@@ -504,6 +530,22 @@ export function implementKoluSurface(deps: KoluSurfaceDeps) {
       // below a moment later, the same way `agentDistroStatus` lands on padi.
       conductor: { store: inMemoryStore(conductorMembers.state()) },
     },
+    // THE WORKS and their members' readings, each EMPTY until the host reads
+    // its record off disk on the first reader's edge (the watch, started right
+    // after this surface is served) and publishes it key by key through the
+    // writers registered below. Empty before then says "kolu has not read its
+    // works yet", which is true; seeding would mean building the conversation
+    // at boot merely to draw a column.
+    //
+    // The map behind each one IS this process's served copy — the host holds
+    // the record, these hold what has been published off it — so `upsert` and
+    // `remove` store as well as fan out (unlike padi's registry-backed
+    // collections, where the registry is the authority and both are no-ops).
+    collections: {
+      works: inMemoryCollection<string, Work>(),
+      workMembers: inMemoryCollection<string, WorkMember>(),
+      memberReadings: inMemoryCollection<string, MemberReading>(),
+    },
     streams: {
       // THE CONDUCTOR'S TRANSCRIPT — explicit snapshot-then-deltas. The
       // snapshot is queued synchronously inside the subscribe, so a reader's
@@ -537,7 +579,107 @@ export function implementKoluSurface(deps: KoluSurfaceDeps) {
       // adapter, no fleet endpoint, or no child) and `ConductorRefused`
       // (the agent said no). Anything else stays a defect and crosses the wire
       // as one.
-      conductor: conductorMembers.procedures,
+      //
+      // The two HAND-OVER verbs are bound HERE rather than in the conductor's
+      // own fragment, because they are the two that never ask the agent
+      // anything: they move the WORK (the act is appended to its timeline) and
+      // then wake the conversation if there is one. A person taking the
+      // keyboard of a terminal in front of them must not be stopped by an
+      // agent that is down or signed out, so the only failure they can raise is
+      // the work's own refusal — `WorkRefusal`, carried over with its sentence
+      // whole, because the sentence names what to do ("it is already yours").
+      conductor: {
+        ...conductorMembers.procedures,
+        takeOver: ({ input }: { input: { terminal: string } }) =>
+          handOver(() => liveServerConductor().takeOver(input.terminal)),
+        handBack: ({ input }: { input: { terminal: string } }) =>
+          handOver(() => liveServerConductor().handBack(input.terminal)),
+        // STOP and REOPEN, bound beside the hand-over verbs and for the same
+        // reason: they move the WORK and ask the agent nothing, so a person
+        // can end (or resume) a piece of work while the conversation is down.
+        stopWork: ({ input }: { input: { work: string } }) =>
+          handOver(() => liveServerConductor().stopWork(input.work, "you")),
+        reopenWork: ({ input }: { input: { work: string } }) =>
+          handOver(() => liveServerConductor().reopenWork(input.work)),
+        // PUTTING A RECORD KOLU CANNOT READ BACK IN A STATE IT CAN, bound
+        // here for the third variant of the same reason: it is the one verb
+        // that runs BECAUSE there is no conversation. It reaches no agent —
+        // it writes a conf key and asks the live host to read its records
+        // again — and the store, the backup ring and the state root it works
+        // on are kolu-server's, not the conductor package's. Its refusals are
+        // sentences a person reads under the two buttons ("no backup reads
+        // either"); anything else is a defect and dies loudly.
+        recoverStore: ({
+          input,
+        }: {
+          input: { key: ConductorStoreKey; how: "backup" | "empty" };
+        }) =>
+          Effect.suspend(() => {
+            try {
+              const host = liveServerConductor();
+              return Effect.succeed(
+                recoverConductorStore(input, {
+                  state: () => host.state(),
+                  reload: () => host.reloadRecords(),
+                }),
+              );
+            } catch (err) {
+              return err instanceof ConductorRefused
+                ? Effect.fail(err)
+                : Effect.die(err);
+            }
+          }),
+        // ANSWERING ONE OF KOLU'S OWN QUESTIONS is bound here for exactly the
+        // same reason, and it is the whole of why asking no longer waits: the
+        // question is a DECISION on the work, so answering it is a write to
+        // the record and a wake — never a call into an agent that may be
+        // down, busy, or a session later. A person reading a plan for ten
+        // minutes answers it the same way they would in ten seconds.
+        //
+        // The values arrive keyed by decision id, a bare string being the
+        // one-value spelling; they are normalised to lists HERE, at the wire,
+        // so the record only ever sees one shape.
+        answerWork: ({
+          input,
+        }: {
+          input: {
+            work: string;
+            ask: string;
+            answers: Readonly<
+              Record<string, ReadonlyArray<string> | string>
+            > | null;
+            from: "card" | "chat" | "reader" | "popout";
+          };
+        }) =>
+          Effect.suspend(() => {
+            try {
+              return Effect.succeed(
+                liveServerConductor().answerWork({
+                  work: input.work,
+                  ask: input.ask,
+                  from: input.from,
+                  values:
+                    input.answers === null
+                      ? null
+                      : new Map(
+                          Object.entries(input.answers).map(
+                            ([decision, values]) => [
+                              decision,
+                              typeof values === "string" ? [values] : values,
+                            ],
+                          ),
+                        ),
+                }),
+              );
+            } catch (err) {
+              return err instanceof WorkRefusal
+                ? Effect.fail(
+                    new ConductorRefused({ why: err.message, auth: false }),
+                  )
+                : Effect.die(err);
+            }
+          }),
+      },
     },
   };
 
@@ -619,6 +761,32 @@ export function implementKoluSurface(deps: KoluSurfaceDeps) {
   // this registration rather than swallowing one.
   setConductorCellWriter((state) => {
     koluSurfaces.ctx.kolu.cells.conductor.set(state);
+  });
+  // ...and the works', registered in the same breath. Separate members because
+  // a keystroke in the chat, a work moving and a member's agent going quiet are
+  // three different movements, and a reader of one has no business
+  // re-receiving the others. A `null` value is the key GOING — a work that fell
+  // off the twenty-finished cap, or a terminal the watch no longer reads.
+  setWorksCollectionWriters({
+    work: (id, work) => {
+      if (work === null) koluSurfaces.ctx.kolu.collections.works.remove(id);
+      else koluSurfaces.ctx.kolu.collections.works.upsert(id, work);
+    },
+    member: (terminal, member) => {
+      if (member === null)
+        koluSurfaces.ctx.kolu.collections.workMembers.remove(terminal);
+      else
+        koluSurfaces.ctx.kolu.collections.workMembers.upsert(terminal, member);
+    },
+    reading: (terminal, reading) => {
+      if (reading === null)
+        koluSurfaces.ctx.kolu.collections.memberReadings.remove(terminal);
+      else
+        koluSurfaces.ctx.kolu.collections.memberReadings.upsert(
+          terminal,
+          reading,
+        );
+    },
   });
 
   // Observe the surface runtime's `done` and route it into kolu-server's EXISTING

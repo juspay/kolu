@@ -34,6 +34,10 @@
 
 import { isContractSkewError } from "@kolu/surface-daemon-supervisor";
 import {
+  markRosterEstablished,
+  markRosterSettling,
+} from "../attention/fleetGate.ts";
+import {
   type AutosaveFreeze,
   cancelPendingAutosave,
   freezeAutosave,
@@ -59,9 +63,16 @@ export function restartLocalDaemon(): Effect.Effect<void, unknown> {
     // own steps, in order, and never leaves this expression.
     let freeze: AutosaveFreeze | undefined;
     return restartLocalEndpoint({
-      // Snapshot + persist BEFORE the kill — the session must outlive the daemon.
       capture: Effect.sync(() => {
         log.info({}, "session-trace restart: capture");
+        // THE ROSTER STOPS BEING EVIDENCE HERE. The drain below empties the
+        // registry on purpose and the park re-seeds it; between the two, "that
+        // terminal is not listed" is this recycle's doing, not a terminal that
+        // died. Said on the wire (`padiSurface`'s `roster` cell) so the readers
+        // of an ABSENCE — the Conductor's watch, the client's standing —
+        // withhold instead of guessing, the same way padi's own attention folds
+        // already do (#2376).
+        markRosterSettling();
         // Freeze the autosave for the WHOLE critical section before anything can arm
         // it: the drain below kills the PTYs → they fire `terminals:dirty` → the 500ms
         // autosave would fire in the recycle GAP with an empty registry and no parked
@@ -125,6 +136,9 @@ export function restartLocalDaemon(): Effect.Effect<void, unknown> {
         Effect.sync(() => {
           log.info({}, "session-trace restart: reattach (park)");
           parkSavedSession();
+          // The roster is a complete census again: what is listed now (the
+          // parked entries this restart will restore) is what this host has.
+          markRosterEstablished();
         }),
     }).pipe(
       // Park has seeded the parked entries (`hasParkedTerminals()` guards the autosave

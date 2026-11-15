@@ -4,10 +4,12 @@
  * outcome the client used to drive step-by-step:
  *
  *   - a reboot-killed ACTIVE record restores by CONSUMING its parked registry
- *     entry (the parked→active flip) and re-spawning a FRESH active PTY;
+ *     entry (the parked→active flip) and re-spawning a fresh PTY UNDER ITS OWN ID
+ *     — a terminal's identity survives a kaval recycle;
  *   - the saved recency (`lastActivityAt`) survives onto the fresh spawn (RISK Q6);
- *   - the saved active MARKER survives, mapped to the restored terminal's new id;
- *   - sub-terminals re-parent onto the FRESH parent id;
+ *   - the saved active MARKER survives, naming the same terminal it always did;
+ *   - sub-terminals re-parent onto their saved parent id, which is still the
+ *     parent's id after restore;
  *   - a top-level SLEEPING record restores DORMANT (kept id), never a live PTY;
  *   - a SLEPT SUB-TERMINAL (#1651) restores DORMANT under its now-live parent
  *     (honoring the saved state, F3), NOT as a fresh active split;
@@ -51,6 +53,7 @@ import {
   seedParkedTerminal,
   TerminalSpawnRacedError,
 } from "../terminalEndpoint/local.ts";
+import { parkSavedSession } from "../terminalEndpoint/reattach.ts";
 import { setTerminalTheme, snapshotSession } from "../terminals.ts";
 import { captureFinalSession, initAutosaveGate } from "./autosaveGate.ts";
 import {
@@ -168,7 +171,7 @@ function sessionBackedPadiCtx(): ReturnType<typeof noopPadiSurfaceCtxForTest> {
 }
 
 /** The live active entry seeded at `cwd` (fresh spawn re-observes cwd off
- *  `opts.cwd`), or undefined. Its id is the FRESH id `restoreSession` minted. */
+ *  `opts.cwd`), or undefined. Its id is the SAVED id — restore re-spawns under it. */
 function activeByCwd(
   cwd: string,
 ): { id: string; parentId?: string } | undefined {
@@ -209,37 +212,70 @@ describe("restoreSession — parked→active restore (the W1.R6 gate)", () => {
     // registry state the flip established before awaiting.
     const done = restoreSession({});
 
-    // (a) The parked entries were CONSUMED — their old ids are gone.
-    expect(getTerminal(PARENT_ID)).toBeUndefined();
-    expect(getTerminal(SUB_ID)).toBeUndefined();
+    // (a) The parked entries were CONSUMED — each id now names a LIVE terminal
+    // rather than a parked token, which is what makes a repeat restore a no-op.
+    expect(getTerminal(PARENT_ID)?.meta.state).toBe("active");
+    expect(getTerminal(SUB_ID)?.meta.state).toBe("active");
 
-    // The top-level active re-spawned FRESH (new id), recency preserved (RISK Q6).
+    // The top-level active re-spawned a fresh PTY under the SAME id (identity
+    // survives the recycle), recency preserved (RISK Q6).
     const parent = activeByCwd("/parent");
     expect(parent).toBeDefined();
-    expect(parent?.id).not.toBe(PARENT_ID);
+    expect(parent?.id).toBe(PARENT_ID);
     expect(getTerminal(parent?.id ?? "")?.meta.lastActivityAt).toBe(12345);
     expect(parent?.parentId).toBeUndefined();
 
-    // (d) The live sub re-parented onto the FRESH parent id.
+    // (d) The live sub kept its id and its parent edge.
     const sub = activeByCwd("/sub");
     expect(sub).toBeDefined();
-    expect(sub?.id).not.toBe(SUB_ID);
-    expect(sub?.parentId).toBe(parent?.id);
+    expect(sub?.id).toBe(SUB_ID);
+    expect(sub?.parentId).toBe(PARENT_ID);
 
     // (e) The top-level SLEEPING record restored DORMANT on its SAME id.
     const sleeper = getTerminal(SLEEP_ID);
     expect(sleeper?.meta.state).toBe("sleeping");
     expect(sleeper?.handle).toBeUndefined();
 
-    // (f) The SLEPT SUB restored DORMANT (honoring the saved state) and
-    // re-parented onto the FRESH parent (F3 — a sub hangs off a LIVE parent).
+    // (f) The SLEPT SUB restored DORMANT (honoring the saved state) under its
+    // now-live parent (F3 — a sub hangs off a LIVE parent).
     const sleptSub = getTerminal(SLEPT_SUB_ID);
     expect(sleptSub?.meta.state).toBe("sleeping");
     expect(sleptSub?.handle).toBeUndefined();
-    expect(sleptSub?.meta.parentId).toBe(parent?.id);
+    expect(sleptSub?.meta.parentId).toBe(PARENT_ID);
 
-    // (c) The active marker survived, mapped to the restored parent's FRESH id.
-    expect(getSavedSession()?.activeTerminalId).toBe(parent?.id);
+    // (c) The active marker survived — and needs no translation, because the
+    // restored parent is the same terminal it named before.
+    expect(getSavedSession()?.activeTerminalId).toBe(PARENT_ID);
+
+    await done;
+  });
+
+  it("a kaval RECYCLE keeps every terminal's id: park → restore re-spawns under the same ids", async () => {
+    // The recycle end to end, as `restartLocal` runs it: the live session is captured,
+    // kaval is killed with its PTYs, and `parkSavedSession` seeds a parked entry per
+    // saved ACTIVE record; restore then re-spawns them. Everything that keys on a
+    // terminal id ACROSS that boundary — the Conductor's work membership, an agent's
+    // cached id, the client's per-terminal chrome — survives only if the id does. It is
+    // the same promise `wake` and `lifecycle.restart` already keep; before this, restore
+    // was the one path that renamed a terminal it was reviving, and a recycle silently
+    // turned every member of a work into a stranger.
+    setSavedSession(savedSession());
+    parkSavedSession();
+    // Park seeds ACTIVE records only (a sleeper is a restore-card row, not a tile).
+    expect(getTerminal(PARENT_ID)?.meta.state).toBe("parked");
+    expect(getTerminal(SUB_ID)?.meta.state).toBe("parked");
+
+    const done = restoreSession({ resumeAgents: false });
+
+    // Same ids, now live — and the whole saved set is back under its own ids, with no
+    // extra terminal minted for a record that already had one.
+    expect(getTerminal(PARENT_ID)?.meta.state).toBe("active");
+    expect(getTerminal(SUB_ID)?.meta.state).toBe("active");
+    expect(getTerminal(SUB_ID)?.meta.parentId).toBe(PARENT_ID);
+    expect([...terminalEntries()].map(([id]) => id).sort()).toEqual(
+      [PARENT_ID, SLEEP_ID, SUB_ID, SLEPT_SUB_ID].sort(),
+    );
+    expect(getSavedSession()?.activeTerminalId).toBe(PARENT_ID);
 
     await done;
   });
@@ -294,7 +330,7 @@ describe("restoreSession — parked→active restore (the W1.R6 gate)", () => {
 
     const done = restoreSession({});
     // Read the SYNCHRONOUS registry the flip established, exactly as the gate
-    // test above does. Identify by cwd: the two actives came back on FRESH ids.
+    // test above does. Identify by cwd, which pins the ORDER independently of id.
     expect(
       [...terminalEntries()].map(([, entry]) => entry.snapshot.cwd),
     ).toEqual(["/order-a", "/order-sleep", "/order-b"]);
@@ -458,7 +494,7 @@ describe("restoreSession — parked→active restore (the W1.R6 gate)", () => {
     expect(kept?.restoreTarget).toEqual(orphanExact);
   });
 
-  it("W12/CONF-6 — a spawn that FAILS mid-restore is re-parked under the FRESH id, NOT deleted", async () => {
+  it("W12/CONF-6 — a spawn that FAILS mid-restore is re-parked under its own id, NOT deleted", async () => {
     // The env has no kaval, so every fresh spawn's async tail rejects — exactly the
     // mid-restore kaval-death shape. `restoreSession` freezes the autosave across the
     // spawn window and re-parks each failed respawn, so the failure NEVER journals a
@@ -471,11 +507,11 @@ describe("restoreSession — parked→active restore (the W1.R6 gate)", () => {
     // snapshot written before the tails rejected).
     const restored = restoredW12Agent();
     expect(restored).toBeDefined();
-    // The failed respawn is re-parked under the SAME (fresh) id the durable snapshot
-    // named — disk id and parked id MATCH, so a retry can consume the token (F1). The
-    // OLD saved id was consumed by the parked→active flip and must NOT linger parked.
-    expect(getTerminal(restored!.id)?.meta.state).toBe("parked");
-    expect(getTerminal(PARENT_ID)).toBeUndefined();
+    // The failed respawn is re-parked under the SAME id the durable snapshot names —
+    // disk id and parked id MATCH, so a retry can consume the token (F1). Restore
+    // re-spawns under the saved id, so there is only ever ONE id in play.
+    expect(restored?.id).toBe(PARENT_ID);
+    expect(getTerminal(PARENT_ID)?.meta.state).toBe("parked");
     expect(parkedTerminalIds()).toHaveLength(1);
   });
 
@@ -483,10 +519,10 @@ describe("restoreSession — parked→active restore (the W1.R6 gate)", () => {
     // The mixed-outcome retry half of F2. After a PARTIAL mid-restore failure (the parent
     // spawn confirmed, a later child spawn's `ready` rejected) the live parent stays live
     // and only the child is re-parked. On the RETRY, `respawnActive` skips the already-live
-    // parent — BEFORE the fix that skip produced NO `oldToNew` mapping, so the parked child
-    // (`parentId` → the live parent) got `oldToNew.get(parent) === undefined` and was
+    // parent — BEFORE the fix that skip left the parent OUT of the restored set, so the
+    // parked child (`parentId` → the live parent) counted as missing-parent and was
     // DROPPED, leaving its token parked forever (pinning `hasParkedTerminals()`, suppressing
-    // autosave). The fix maps the already-live parent to itself, so the child re-parents
+    // autosave). The fix counts an already-live parent as restored, so the child re-parents
     // onto the LIVE parent and restores. Here we seed that exact post-partial-failure state
     // directly (a live parent registered + a parked child under it).
     const LIVE_PARENT_ID = "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee";
@@ -543,13 +579,13 @@ describe("restoreSession — parked→active restore (the W1.R6 gate)", () => {
 
     const done = restoreSession({});
 
-    // The parked child RESTORED to a fresh live PTY under the still-live parent — the old
-    // parked token was consumed (not left to linger).
+    // The parked child RESTORED to a fresh live PTY under the still-live parent, keeping
+    // its id — the parked token was consumed (the entry is live now, not parked).
     const child = activeByCwd("/retry-child");
     expect(child).toBeDefined();
-    expect(child?.id).not.toBe(CHILD_ID);
+    expect(child?.id).toBe(CHILD_ID);
     expect(child?.parentId).toBe(LIVE_PARENT_ID);
-    expect(getTerminal(CHILD_ID)).toBeUndefined();
+    expect(getTerminal(CHILD_ID)?.meta.state).toBe("active");
     // The already-live parent was left untouched (a live PTY, never re-parked).
     expect(getTerminal(LIVE_PARENT_ID)?.meta.state).toBe("active");
 
@@ -557,13 +593,13 @@ describe("restoreSession — parked→active restore (the W1.R6 gate)", () => {
   });
 
   it("W12/F1 — a failed restore then a RETRY leaves NO orphan parked residue", async () => {
-    // The F1 regression: re-parking under the OLD saved id (while the disk snapshot names
-    // the FRESH id) desyncs the two identity spaces. A retry reads the fresh-id disk
-    // record, can't consume the old-id park, spawns yet another terminal, and leaves the
-    // old-id park orphaned FOREVER — and any lingering park pins `hasParkedTerminals()`
-    // true, suppressing every future autosave. Re-parking under the fresh id keeps the
-    // token consumable: each retry consumes the prior park and re-parks exactly one, so
-    // the parked set never accumulates and the original id never re-appears.
+    // The F1 regression: re-parking under an id the disk snapshot does NOT name desyncs
+    // the two identity spaces. A retry reads the disk record, can't consume the park,
+    // spawns yet another terminal, and leaves the old park orphaned FOREVER — and any
+    // lingering park pins `hasParkedTerminals()` true, suppressing every future autosave.
+    // Restore now re-spawns (and re-parks) under the saved id, so the two spaces are ONE:
+    // each retry consumes the prior park and re-parks exactly one, and the parked set
+    // never accumulates.
     seedW12Agent();
 
     await restoreSession({}); // first attempt fails (no kaval) → one parked entry
@@ -572,13 +608,12 @@ describe("restoreSession — parked→active restore (the W1.R6 gate)", () => {
 
     await restoreSession({}); // retry: consume that park, fail again, re-park exactly one
 
-    // Still exactly one parked entry — no accumulation, no orphan under the original id.
-    expect(parkedTerminalIds()).toHaveLength(1);
-    expect(getTerminal(PARENT_ID)).toBeUndefined();
-    // And the surviving parked id matches the id the current saved snapshot names.
+    // Still exactly one parked entry — no accumulation, and it is the id the saved
+    // snapshot names.
+    expect(parkedTerminalIds()).toEqual([PARENT_ID]);
     const restored = restoredW12Agent();
-    expect(restored).toBeDefined();
-    expect(getTerminal(restored!.id)?.meta.state).toBe("parked");
+    expect(restored?.id).toBe(PARENT_ID);
+    expect(getTerminal(PARENT_ID)?.meta.state).toBe("parked");
   });
 });
 
@@ -631,15 +666,11 @@ describe("settleRestoreRespawns — independent per-spawn settlement (F2 / F3 / 
     await settleRestoreRespawns([
       {
         ready: Promise.reject(new TerminalSpawnRacedError()),
-        newId: killed.id,
         record: killed,
-        parentIdMapped: undefined,
       },
       {
         ready: Promise.reject(new Error("pty-host terminal.spawn failed")),
-        newId: failed.id,
         record: failed,
-        parentIdMapped: undefined,
       },
     ]);
     expect(getTerminal(killed.id)).toBeUndefined();
@@ -661,15 +692,11 @@ describe("settleRestoreRespawns — independent per-spawn settlement (F2 / F3 / 
     await settleRestoreRespawns([
       {
         ready: Promise.reject(new Error("spawn failed — removed cwd")),
-        newId: parent.id,
         record: parent,
-        parentIdMapped: undefined,
       },
       {
         ready: Promise.resolve(),
-        newId: CHILD,
         record: child,
-        parentIdMapped: parent.id,
       },
     ]);
     expect(getTerminal(parent.id)?.meta.state).toBe("parked");
@@ -686,9 +713,7 @@ describe("settleRestoreRespawns — independent per-spawn settlement (F2 / F3 / 
     await settleRestoreRespawns([
       {
         ready: Promise.resolve(),
-        newId: CHILD,
         record: child,
-        parentIdMapped: PARENT,
       },
     ]);
     expect(getTerminal(CHILD)?.meta.parentId).toBe(PARENT);
@@ -714,15 +739,11 @@ describe("settleRestoreRespawns — independent per-spawn settlement (F2 / F3 / 
     const settle = settleRestoreRespawns([
       {
         ready: new Promise<void>(() => {}),
-        newId: wedged.id,
         record: wedged,
-        parentIdMapped: undefined,
       },
       {
         ready: Promise.reject(new Error("spawn failed")),
-        newId: failed.id,
         record: failed,
-        parentIdMapped: undefined,
       },
     ]);
     // Let the failed sibling's rejection microtask chain drain. `settle` itself stays PENDING
@@ -753,22 +774,16 @@ describe("settleRestoreRespawns — independent per-spawn settlement (F2 / F3 / 
     const settle = settleRestoreRespawns([
       {
         ready: Promise.reject(new Error("spawn failed — removed cwd")),
-        newId: parentA.id,
         record: parentA,
-        parentIdMapped: undefined,
       },
       {
         ready: Promise.resolve(),
-        newId: CHILD_B,
         record: childB,
-        parentIdMapped: parentA.id,
       },
       // C's `ready` never resolves or rejects — a permanently-pending RPC.
       {
         ready: new Promise<void>(() => {}),
-        newId: wedgedC.id,
         record: wedgedC,
-        parentIdMapped: undefined,
       },
     ]);
     // Let A's rejection microtask chain drain. `settle` stays PENDING forever (C never

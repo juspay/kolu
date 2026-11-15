@@ -78,7 +78,7 @@ vi.mock("../wire", () => {
       },
     },
     collections: { terminals, daemonStatus: stubCollection },
-    cells: { session: stubCell, activityFeed: stubCell },
+    cells: { session: stubCell, roster: stubCell, activityFeed: stubCell },
     // `createViewState`'s `writeActive` reports the active tile via
     // `entry(host).procedures.chrome.setActive` — a benign no-op here.
     procedures: { chrome: { setActive: async () => {} } },

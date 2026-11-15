@@ -79,6 +79,7 @@ import { TerminalIdSchema } from "@kolu/terminal-vocab/schema";
 import { Effect, Schema } from "effect";
 import type { AgentSayRecipe } from "kolu-agents/vocab";
 import { agentVocab, isAgentPresence } from "kolu-agents/vocab";
+import { rosterStandingOf, stillSettling } from "./rosterEvidence.ts";
 
 export const AgentSayArgsSchema = Schema.Struct({
   id: TerminalIdSchema,
@@ -455,12 +456,24 @@ export const agentSayTool: BespokeTool = {
     const { id, text } = args as AgentSayArgs;
     const padi = padiOf(client);
     return Effect.flatMap(
-      // The ROSTER read, not a screen read: who is in there and what are they
-      // doing. `firstFrameOrThrow` because a collection `get` is a live stream
-      // and this is a one-shot question.
-      firstFrameOrThrow(
-        padi.surface.terminals.get({ key: id }),
-        `terminal ${id} answered no record — it is not in this host's roster, so there is no agent to say anything to.`,
+      // THE HOST'S ROSTER FIRST. "No record" only means "there is no such
+      // terminal" once this host has finished adopting the terminals it
+      // supervises AND does not hold this one; before that it means "no
+      // answer yet", and saying the agent is gone is the defect of
+      // juspay/kolu#2376. The standing and the census are one frame, so the
+      // two facts cannot arrive apart.
+      Effect.flatMap(rosterStandingOf(padi, id, id), (standing) =>
+        // The RECORD read, not a screen read: who is in there and what are
+        // they doing. `firstFrameOrThrow` because a collection `get` is a
+        // live stream and this is a one-shot question. A host that HOLDS the
+        // terminal and has no record for it yet is late, not empty — the
+        // sentence says so rather than declaring the agent gone.
+        firstFrameOrThrow(
+          padi.surface.terminals.get({ key: id }),
+          standing === "absent"
+            ? `terminal ${id} answered no record — it is not in this host's roster, so there is no agent to say anything to.`
+            : stillSettling(id),
+        ),
       ),
       (record) =>
         // `Effect.try`, not a bare throw inside `suspend`: a synchronous throw

@@ -294,6 +294,33 @@ export async function surfaceCall(
   );
 }
 
+/** Read the FIRST frame of any kolu-surface SUBSCRIPTION by its wire tag and
+ *  close it — a collection's `keys` and `get` are subscriptions exactly as a
+ *  cell's `get` is, so a one-shot read of either is its opening frame and an
+ *  interruption (see {@link padiFirstFrame}, which is this over the padi map's
+ *  folded envelope).
+ *
+ *  An empty stream throws for the same reason it does there: a subscription
+ *  that closed before saying anything is a broken link, never an empty value. */
+export async function surfaceFirstFrame(
+  tag: string,
+  payload?: unknown,
+  opts: RpcCallOptions = {},
+): Promise<unknown> {
+  const decoded = decodePayload(tag, payload);
+  const d = await dispatch();
+  const head = Effect.flatMap(
+    Stream.runHead(d.stream(tag, decoded)),
+    (frame) =>
+      Option.isSome(frame)
+        ? Effect.succeed(frame.value)
+        : Effect.fail(
+            new Error(`${tag}: subscription closed before its first frame`),
+          ),
+  );
+  return settle(tag, head, opts.timeoutMs ?? DEFAULT_CALL_TIMEOUT_MS);
+}
+
 /** The wire tag a padi MAP entry member is served at. */
 const padiTag = (memberVerb: string): string =>
   `surface/${PADI_SURFACE_NAME}/${memberVerb}`;

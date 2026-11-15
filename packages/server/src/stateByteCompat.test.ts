@@ -46,10 +46,12 @@ import {
   migratePreferences_1_40_0,
   migratePreferences_1_41_0,
   migratePreferences_1_43_0,
-} from "./state.ts";
+} from "./stateLadder.ts";
 import {
   EMPTY_PERSISTED_CONDUCTOR,
   PersistedConductorSchema,
+  PersistedMembersSchema,
+  PersistedWorksSchema,
 } from "kolu-conductor";
 
 const dirs: string[] = [];
@@ -73,6 +75,8 @@ function makeStore(): Conf<Record<string, unknown>> {
       hosts: [],
       viewerMode: "dark",
       conductor: EMPTY_PERSISTED_CONDUCTOR,
+      works: {},
+      members: {},
     },
   });
 }
@@ -112,15 +116,15 @@ describe("the persisted state file — aggregate bytes", () => {
 \t\t"sessionId": null,
 \t\t"cwd": "",
 \t\t"model": null,
-\t\t"rows": [],
-\t\t"fleet": [],
-\t\t"watched": []
-\t}
+\t\t"fleet": []
+\t},
+\t"works": {},
+\t"members": {}
 }`,
     );
   });
 
-  it("a POPULATED state round-trips byte-for-byte through the four domain schemas", () => {
+  it("a POPULATED state round-trips byte-for-byte through every domain schema", () => {
     const store = makeStore();
     store.set("preferences", {
       ...DEFAULT_PREFERENCES,
@@ -140,37 +144,43 @@ describe("the persisted state file — aggregate bytes", () => {
       sessionId: "sess-live",
       cwd: "/home/tester",
       model: "claude-sonnet-4",
-      rows: [
-        {
-          id: "a",
-          seq: 1,
-          since: "2026-01-01T00:00:00.000Z",
-          kind: "agent",
-          text: "one",
-        },
-      ],
       fleet: ["local/11111111-1111-4111-8111-111111111111"],
-      // ... and the terminals kolu wakes it about, each with what was last
-      // seen of it, the level the conversation has already been told, how it
-      // joined the list, whether it has been spoken to, whether a command was
-      // seen running in it, when it joined (what a piece of work's age counts
-      // from), and the piece of work it belongs to.
-      watched: [
-        {
-          ref: "local/11111111-1111-4111-8111-111111111111",
+    });
+    // ... and the terminals kolu wakes it about: their own key since 1.50.0,
+    // keyed by fleet ref — which work the terminal is in and what part it
+    // plays, beside what was last seen of it: the level the conversation has
+    // already been told, how it joined, whether it has been spoken to and
+    // whether a command was seen running in it.
+    store.set("works", {
+      "branch:local/%2Fsrv%2Frepo/fix-the-parser": {
+        key: {
+          kind: "branch",
+          host: "local",
+          repo: "/srv/repo",
+          branch: "fix-the-parser",
+        },
+        title: "fix the parser",
+        startedAt: "2026-01-01T00:00:00.000Z",
+        decisions: [],
+        events: [],
+        state: { kind: "open" },
+      },
+    });
+    store.set("members", {
+      "local/11111111-1111-4111-8111-111111111111": {
+        work: "branch:local/%2Fsrv%2Frepo/fix-the-parser",
+        role: "implementor",
+        joinedAt: "2026-01-01T00:00:00.000Z",
+        worktree: null,
+        watch: {
           name: "fix the parser",
           agent: "claude-code",
           told: "stopped",
           joined: "created-run",
           spoken: true,
           ran: true,
-          since: "2026-01-01T00:00:10.000Z",
-          root: {
-            ref: "local/33333333-3333-4333-8333-333333333333",
-            name: "plan the cutover",
-          },
         },
-      ],
+      },
     });
 
     const onDisk = JSON.parse(readFileSync(store.path, "utf8")) as Record<
@@ -185,6 +195,8 @@ describe("the persisted state file — aggregate bytes", () => {
       ["hosts", PersistedHostsSchema],
       ["viewerMode", ViewerModeSchema],
       ["conductor", PersistedConductorSchema],
+      ["works", PersistedWorksSchema],
+      ["members", PersistedMembersSchema],
     ] as const) {
       const decoded = Schema.decodeUnknownSync(schema)(onDisk[key]);
       expect(JSON.stringify(Schema.encodeUnknownSync(schema)(decoded))).toBe(
@@ -195,14 +207,21 @@ describe("the persisted state file — aggregate bytes", () => {
       '["remote:zest","remote:srid@box"]',
     );
     expect(JSON.stringify(onDisk.viewerMode)).toBe('"light"');
-    // The record's own bytes, pinned: a row is a flat object with its kind on
-    // it, and the fleet is a list of `host/id` strings.
+    // The record's own bytes, pinned: the two halves of a resume and the model
+    // a person chose, with the fleet as a list of `host/id` strings. The rows
+    // left for the transcript FILE at 1.50.0, and the watch list became the
+    // `works` and `members` keys beside this one.
     expect(JSON.stringify(onDisk.conductor)).toBe(
       '{"sessionId":"sess-live","cwd":"/home/tester","model":"claude-sonnet-4",' +
-        '"rows":[{"id":"a","seq":1,"since":"2026-01-01T00:00:00.000Z","kind":"agent","text":"one"}],' +
-        '"fleet":["local/11111111-1111-4111-8111-111111111111"],' +
-        '"watched":[{"ref":"local/11111111-1111-4111-8111-111111111111","name":"fix the parser","agent":"claude-code","told":"stopped","joined":"created-run","spoken":true,"ran":true,"since":"2026-01-01T00:00:10.000Z",' +
-        '"root":{"ref":"local/33333333-3333-4333-8333-333333333333","name":"plan the cutover"}}]}',
+        '"fleet":["local/11111111-1111-4111-8111-111111111111"]}',
+    );
+    expect(JSON.stringify(onDisk.members)).toBe(
+      '{"local/11111111-1111-4111-8111-111111111111":' +
+        '{"work":"branch:local/%2Fsrv%2Frepo/fix-the-parser",' +
+        '"role":"implementor","joinedAt":"2026-01-01T00:00:00.000Z",' +
+        '"worktree":null,"watch":{"name":"fix the parser",' +
+        '"agent":"claude-code","told":"stopped","joined":"created-run",' +
+        '"spoken":true,"ran":true}}}',
     );
   });
 

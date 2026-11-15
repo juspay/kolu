@@ -138,6 +138,7 @@ describe("TerminalSnapshot — the persisted + served producer emission", () => 
           checkRuns: [{ name: "unit", outcome: "pass" }],
           reviewDecision: "APPROVED",
           mergeStateStatus: "CLEAN",
+          headSha: "4f21a9c0d3e5b7a9c1d3e5f7a9b1c3d5e7f9a1b3",
         },
       },
       agent: {
@@ -174,7 +175,8 @@ describe("TerminalSnapshot — the persisted + served producer emission", () => 
         '"pr":{"kind":"ok","value":{"number":2100,"title":"Wave 3",' +
         '"url":"https://github.com/juspay/kolu/pull/2100","state":"open","checks":"pass",' +
         '"checkRuns":[{"name":"unit","outcome":"pass"}],' +
-        '"reviewDecision":"APPROVED","mergeStateStatus":"CLEAN"}},' +
+        '"reviewDecision":"APPROVED","mergeStateStatus":"CLEAN",' +
+        '"headSha":"4f21a9c0d3e5b7a9c1d3e5f7a9b1c3d5e7f9a1b3"}},' +
         '"agent":{"kind":"claude-code","state":"thinking",' +
         '"sessionId":"f47ac10b-58cc-4372-a567-0e02b2c3d479","model":"claude-opus-5",' +
         '"summary":null,"taskProgress":null,"workflow":null,"contextTokens":47000,' +
@@ -184,7 +186,7 @@ describe("TerminalSnapshot — the persisted + served producer emission", () => 
     );
   });
 
-  it("decodes an OLDER producer's payload whose PR carries no checkRuns / review / merge keys", () => {
+  it("decodes an OLDER producer's payload whose PR carries no checkRuns / review / merge / head keys", () => {
     // Rolling deploy: the anyforge leaf's field backfills have to survive
     // being composed into this snapshot, not just decoded standalone.
     const decoded = Schema.decodeUnknownSync(TerminalSnapshotSchema)({
@@ -215,6 +217,7 @@ describe("TerminalSnapshot — the persisted + served producer emission", () => 
         checkRuns: [],
         reviewDecision: null,
         mergeStateStatus: "UNKNOWN",
+        headSha: null,
       },
     });
   });

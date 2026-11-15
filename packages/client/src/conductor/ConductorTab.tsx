@@ -28,21 +28,20 @@
  *  nothing, as with any tab — a host tab is the way back. `⌘⇧O` still toggles
  *  both ways.
  *
- *  Its badge is an UNREAD COUNT: how many pieces of work the conversation has
- *  in flight — the terminals it watches, grouped by the top-level terminal
- *  each one's `child-of` edges end at, so a waterfall's planner and the
- *  implementor split under it are ONE. It sits on the tab's top-right CORNER
- *  rather than inline, so the tab's width does not move when the number
- *  changes. ABSENT at zero, never a `0`: a badge that renders its own silence
- *  is one every reader has to parse before ignoring.
+ *  Its badge is a TO-DO COUNT: how many things are waiting on YOU — each
+ *  piece of work whose standing is "waiting on you", plus every question the
+ *  conversation has asked that belongs to no work. It sits on the tab's
+ *  top-right CORNER rather than inline, so the tab's width does not move when
+ *  the number changes. ABSENT at zero, never a `0`: a badge that renders its
+ *  own silence is one every reader has to parse before ignoring.
  *
- *  ONE BADGE, and its COLOUR says "look now". While the conversation is
- *  asking you something the same badge turns the needs-you violet — there is
- *  no second count beside it, because two numbers on one tab is a sum the
- *  reader has to do. Asking with nothing in flight still shows the badge, as
- *  a violet DOT with no number: the ask is never invisible, and a `0` is
- *  never drawn. The tab itself washes violet while it is not the current one,
- *  the same `data-asking` channel a host tab uses.
+ *  ONE BADGE, ONE COLOUR, ONE MEANING. It is always the needs-you violet,
+ *  because it only ever counts one thing: your turn. The count of work in
+ *  flight is a readout rather than a call to act, and it lives on the status
+ *  line above the composer, where there is room to say what it counts. Two
+ *  numbers on one tab is a sum the reader has to do. The tab itself washes
+ *  violet while it is not the current one, the same `data-asking` channel a
+ *  host tab uses.
  *
  *  The `alpha` tag is INLINE, and that is the opposite choice for the opposite
  *  reason. The corner is taken, and two things stacked there would overlap on
@@ -71,7 +70,7 @@ const ConductorTab: Component = () => {
         type="button"
         data-testid="conductor-tab"
         data-active={conductorMode() ? "" : undefined}
-        data-asking={badge.asking() && !conductorMode() ? "" : undefined}
+        data-asking={badge.waiting() > 0 && !conductorMode() ? "" : undefined}
         aria-current={conductorMode() ? "page" : undefined}
         // `--host-hue` and the resting ink come from `.conductor-tab`
         // (index.css), which feeds the host tabs' shared hover / lit-belly
@@ -93,22 +92,21 @@ const ConductorTab: Component = () => {
         >
           alpha
         </span>
-        <Show when={badge.pieces() > 0 || badge.asking()}>
+        <Show when={badge.waiting() > 0}>
           <span
             data-testid="conductor-badge"
-            // The ask rides a DATA channel rather than a class name: what a
-            // reader (and a test) asks is "is this the needs-you badge", and
-            // reading that off a utility class would pin the paint instead of
-            // the fact.
-            data-asking={badge.asking() ? "" : undefined}
-            data-work={badge.pieces()}
-            // ONE class binding, from those same two facts: violet while it
-            // asks, the conductor's own colour otherwise — and a bare DOT when
-            // there is nothing to count, because an empty pill reads as a
-            // number that failed to render.
-            class={`absolute rounded-full text-center text-[0.6rem] font-semibold leading-4 text-surface-0 ${badge.asking() ? "bg-alert" : "bg-conductor"} ${badge.pieces() > 0 ? "-top-1.5 -right-1.5 min-w-4 px-1" : "-top-0.5 -right-0.5 h-2 w-2"}`}
+            // The needs-you fact rides a DATA channel rather than a class
+            // name: what a reader (and a test) asks is "is this the needs-you
+            // badge", and reading that off a utility class would pin the
+            // paint instead of the fact.
+            data-asking=""
+            data-waiting={badge.waiting()}
+            // VIOLET, and only ever a number: this badge counts the things
+            // waiting on you, so there is no second colour for a second
+            // meaning and no dot standing in for a count of nothing.
+            class="absolute -top-1.5 -right-1.5 min-w-4 rounded-full bg-alert px-1 text-center text-[0.6rem] font-semibold leading-4 text-surface-0"
           >
-            <Show when={badge.pieces() > 0}>{badge.pieces()}</Show>
+            {badge.waiting()}
           </span>
         </Show>
       </button>

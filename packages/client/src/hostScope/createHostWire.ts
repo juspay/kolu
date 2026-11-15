@@ -5,12 +5,14 @@
  *  A sibling owner member to `createViewState` (selection + posture),
  *  `createHostPrefs`, `createCamera`, and `createSessionRestore`. Where THOSE hold
  *  cheap client-owned state, this one holds the host's live SUBSCRIPTIONS — the
- *  five per-host readouts that W7 consciously left keyed on `activeHost`:
+ *  six per-host readouts that W7 consciously left keyed on `activeHost`:
  *
  *    - `terminalKeys`  — the `terminals.keys` stream (the tile order source);
  *    - `terminals`     — the composed `terminals` metadata collection (keyed off
  *      this host's own `terminalKeys`);
  *    - `session`       — the persisted saved-session cell;
+ *    - `roster`        — whether that key list is a CENSUS yet (padi has
+ *      finished adopting), the qualifier every absence-reader needs;
  *    - `activityFeed`  — the MRU repos/agents cell;
  *    - `daemonStatus`  — the kaval status collection.
  *
@@ -76,6 +78,11 @@ export interface HostWire {
   terminalKeys: Subscription<TerminalId[]>;
   terminals: ReturnType<PadiEntry["collections"]["terminals"]["use"]>;
   session: ReturnType<PadiEntry["cells"]["session"]["use"]>;
+  /** WHETHER THIS HOST'S TERMINAL LIST IS A CENSUS — padi's own `roster`
+   *  standing (`padiSurface` 7.4). Retained beside the list it qualifies,
+   *  because every reader that concludes an ABSENCE from `terminalKeys` needs
+   *  both in the same breath (`listIsAuthoritative`, the fleet standing). */
+  roster: ReturnType<PadiEntry["cells"]["roster"]["use"]>;
   activityFeed: ReturnType<PadiEntry["cells"]["activityFeed"]["use"]>;
   daemonStatus: ReturnType<PadiEntry["collections"]["daemonStatus"]["use"]>;
   /** Pure placement lookup over this host's retained terminal collection. */
@@ -150,6 +157,13 @@ export function createHostWire(host: HostKey): HostWire {
   // The MRU activity feed (recent repos / agents — host-fs facts).
   const activityFeed = entry.cells.activityFeed.use();
 
+  // WHETHER THE LIST ABOVE IS A CENSUS — padi's own roster standing. Opened
+  // beside `terminalKeys` because it is the other half of reading an absence:
+  // a host that has not finished adopting serves an empty list that means
+  // nothing, and a reader without this fact cannot tell that from a machine
+  // whose terminals all exited.
+  const roster = entry.cells.roster.use();
+
   // The kaval daemon-status collection (this host's local kaval, keyed by its
   // local location). `useDaemonStatus` reads it through `activeScope().wire`. Its
   // `hostToast` "daemon status" policy (4C ruling) rides the spec; only `keys` stays.
@@ -161,6 +175,7 @@ export function createHostWire(host: HostKey): HostWire {
     terminalKeys,
     terminals,
     session,
+    roster,
     activityFeed,
     daemonStatus,
     placementOf,

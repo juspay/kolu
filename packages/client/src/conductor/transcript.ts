@@ -495,6 +495,12 @@ function rowText(row: ConductorRow): string {
         ...(row.ask.outcome === null ? [] : [`  [${row.ask.outcome.how}]`]),
       ].join("\n");
     }
+    // A QUESTION ABOUT A PIECE OF WORK is a row saying it was asked here; the
+    // question and its answer live on the WORK's decisions, which this fold
+    // has no record of — so the line says what happened and names the work,
+    // rather than inventing an exchange it cannot see.
+    case "work-ask":
+      return `ask about ${row.work}`;
     case "notice":
       return `note: ${row.text}`;
     case "divider":

@@ -39,6 +39,38 @@ describe("the standing prompt", () => {
     expect(lines.join("\n")).not.toContain("{{");
     expect(lines.every((line) => line.startsWith("[kolu] "))).toBe(true);
   });
+
+  it("says what a title is: a few words, no parentheses, no references", () => {
+    // THE DEFECT THIS GUARDS: a real work came out called "Rewrite odu's
+    // docs for human reading (like kolu PR #2375)" — a sentence with its
+    // own provenance in brackets, read on a card beside a dozen others.
+    const script = teachingLines("zest").join("\n");
+    expect(script).toContain("A TITLE IS A FEW WORDS");
+    expect(script).toContain("no parentheses, no issue or PR numbers");
+  });
+});
+
+describe("a piece of work is its branch", () => {
+  const SCRIPT = teachingLines("zest").join("\n");
+
+  it("says to OPEN existing work rather than start a second one", () => {
+    // THE DEFECT THIS GUARDS: one branch drawn as three cards, because a
+    // Conductor woken with "gone" opened a new piece of work each time.
+    expect(SCRIPT).toContain("A PIECE OF WORK IS ITS BRANCH ON ITS MACHINE");
+    expect(SCRIPT).toContain("NEVER start a second piece of work for a branch");
+  });
+
+  it("says `gone` is about the terminal, never about the work", () => {
+    expect(SCRIPT).toContain(
+      "`gone` means THAT TERMINAL is\nreally gone".replace("\n", " "),
+    );
+    expect(SCRIPT).toContain("NO TERMINALS");
+    expect(SCRIPT).toContain("work_stop");
+  });
+
+  it("asks which machine rather than guessing one", () => {
+    expect(SCRIPT).toContain("ask them in your reply and END YOUR TURN");
+  });
 });
 
 describe("the waterfall's two modes", () => {
@@ -122,21 +154,32 @@ describe("the waterfall's setup questions", () => {
     // The defect this guards: `waterfall ~/code/odu …` was asked mode,
     // harness, model and on-green, then opened its planner on the machine the
     // Conductor runs on — where the harness was not even installed — and the
-    // human had to type where it should have gone.
-    expect(SCRIPT).toContain("which HOST the work runs on");
-    expect(SCRIPT).toContain("unless the request names the host");
+    // human had to type where it should have gone. The host is part of the
+    // work's key, so it is asked in the reply, never in `work_open`'s form.
+    expect(SCRIPT).toContain(
+      "the HOST is not one of them: it is part of the work",
+    );
+    expect(SCRIPT).toContain(
+      "you ask it in your reply when the request does not name it",
+    );
     expect(SCRIPT).toContain("a path does not: the same path exists on");
-    expect(SCRIPT).toContain("NOTHING IS CREATED BEFORE THE HOST IS KNOWN.");
-    expect(SCRIPT).toContain("the host question offers the hosts connected");
+    expect(SCRIPT).toContain(
+      "NOTHING IS CREATED BEFORE THE WORK IS OPEN AND THE HOST IS KNOWN.",
+    );
+    expect(SCRIPT).toContain(
+      "when you ask which host, offer the hosts connected",
+    );
     // ... and outside a waterfall too: any terminal it is about to open.
     expect(SCRIPT).toContain("never default to zest");
   });
 
   it("asks what to do on green CI and the mode in that same one form", () => {
     expect(SCRIPT).toContain("what to do when CI is green");
-    expect(SCRIPT).toContain("the mode, unless the request already said which");
-    expect(SCRIPT).toContain("in ONE form");
-    expect(SCRIPT).toContain("all of one waterfall's setup in a single form");
+    expect(SCRIPT).toContain("and the mode. In a full waterfall");
+    expect(SCRIPT).toContain("The setup questions travel IN `work_open`");
+    expect(SCRIPT).toContain(
+      "all of one waterfall's setup goes in the single `work_open` call",
+    );
   });
 
   it("keeps every question optioned, with a box for the human's own answer", () => {
@@ -144,7 +187,7 @@ describe("the waterfall's setup questions", () => {
     // answer still needs them: a question without options is a form the
     // human never sees.
     expect(SCRIPT).toContain(
-      "a question tool may draw only questions that have options",
+      "a form may draw only questions that have options",
     );
     expect(SCRIPT).toContain(
       "a box beside them for an answer of the human's own",
@@ -164,7 +207,7 @@ describe("a choice put to the human", () => {
     );
     expect(rule).toBeDefined();
     expect(rule).toContain("inside a waterfall or not");
-    expect(rule).toContain("goes through your question tool");
+    expect(rule).toContain("it goes through a form: `work_ask`");
     expect(rule).toContain("Your prose explains the choice; the form asks it.");
     // ...and it is said BEFORE the waterfall, where it governs every turn
     // rather than reading as one of the procedure's steps.
@@ -174,18 +217,59 @@ describe("a choice put to the human", () => {
   });
 });
 
-describe("the watch list", () => {
+describe("the works", () => {
   const SCRIPT = teachingLines("zest").join("\n");
 
-  it("tells the Conductor to read its own list rather than remember it", () => {
+  it("tells the Conductor to read its own record rather than remember it", () => {
     // The defect this guards: after a restart it said it was "not certain"
     // which terminals it watched and then tried to watch two that were gone.
-    // The list is the fleet's, and it is readable.
-    expect(SCRIPT).toContain("`watched` resource");
-    expect(SCRIPT).toContain(
-      "Read it before you act on what you THINK you are",
-    );
+    // The record is kolu's, and it is readable.
+    expect(SCRIPT).toContain("`works` resource");
+    expect(SCRIPT).toContain("Read it at the start of every conversation");
     expect(SCRIPT).toContain("after a restart");
+  });
+
+  it("makes a work the thing a terminal is created INTO, with a role", () => {
+    expect(SCRIPT).toContain("EVERYTHING YOU START BELONGS TO A PIECE OF WORK");
+    expect(SCRIPT).toContain("`work` it is for with the `role`");
+    expect(SCRIPT).toContain("refused before");
+  });
+
+  it("keeps the two answers kolu reads back in kolu's own words", () => {
+    // `modeOf` and `onGreenOf` read a decision only when the answer is one of
+    // their words, so a question offering anything else is answered and then
+    // read as nothing.
+    expect(SCRIPT).toContain("Two of those answers are kolu's OWN WORDS");
+    expect(SCRIPT).toContain("`merge` or `hand-over`");
+    expect(SCRIPT).toContain("`full`, `trivial` or `watch`");
+  });
+
+  it("sends every question about a work through `work_ask`, and notes through `work_note`", () => {
+    expect(SCRIPT).toContain("`work_ask`");
+    expect(SCRIPT).toContain(
+      "from the work's card, from this chat or from the reader",
+    );
+    expect(SCRIPT).toContain("`work_note`");
+  });
+
+  it("teaches ask, say what you asked, END YOUR TURN — never wait", () => {
+    // THE RULE THIS WHOLE SHAPE RESTS ON. A Conductor that waits for an
+    // answer is a Conductor whose tool call dies at its client's deadline
+    // while a person is still reading the plan.
+    expect(SCRIPT).toContain("ASK, SAY, END YOUR TURN");
+    expect(SCRIPT).toContain("ASKING NEVER WAITS");
+    expect(SCRIPT).toContain("Never wait for an answer, never poll for one");
+    // ... and the approval carries the plan, so the question can be read
+    // where it is answered.
+    expect(SCRIPT).toContain(".waterfall/plan.md` so the question carries");
+  });
+
+  it("says a terminal the human took over is theirs until a wake says otherwise", () => {
+    expect(SCRIPT).toContain("TAKEN OVER");
+    expect(SCRIPT).toContain("do not send it input");
+    expect(SCRIPT).toContain("HANDED BACK");
+    expect(SCRIPT).toContain("You are always told when it is handed back");
+    expect(SCRIPT).toContain("a `driver`");
   });
 });
 

@@ -174,6 +174,10 @@ const WEB_SHELL_FILES = [
   // Pure HTTP shell code, runs no terminal domain.
   "httpMiddleware",
   "iframePreviewRoute",
+  // The kept-file byte route — `@kolu/serve-dir` rooted at one work's corner
+  // of the state root, so a finished work's plan still opens after its
+  // worktree is gone. Pure HTTP shell code.
+  "workFilesRoute",
   "index",
   "log",
   // The pure process-memory poll READ behind koluSurface's derived `processMemory`
@@ -190,6 +194,11 @@ const WEB_SHELL_FILES = [
   // The state-backup ring's server face (#1658) — web-shell store management,
   // not terminal domain (the generic ring mechanics live in `kolu-shared`).
   "stateBackups",
+  // The saved shape and its version (`stateShape`), and the ladder's frozen
+  // rungs with their table (`stateLadder`) — `state.ts` split by clock; both
+  // pure, no terminal domain.
+  "stateLadder",
+  "stateShape",
   "surface",
   "tls",
   // `kolu-rpc` — the harness CLIENT of this shell's own wire: one call by wire tag
@@ -218,6 +227,22 @@ const WEB_SHELL_FILES = [
   // on. Shell code by the same argument — it owns no PTY and runs no terminal
   // domain; it subscribes to padi like any other consumer.
   "conductor/watcher",
+  // ...the TRANSCRIPT FILE the conversation's rows live in, and the ladder
+  // rule that governs it (`stateLadder.ts`'s rungs write it; this file refuses a
+  // stamp that ladder did not write). A file beside `config.json`: shell
+  // storage, no terminal domain.
+  "conductor/transcriptFile",
+  // ...and the WORK FILES port: listing a worktree's `.waterfall/` over a
+  // host's padi and copying those bytes under the state root through the same
+  // remote-safe read the preview route uses. Shell code — it holds no PTY and
+  // reads every host the way any other consumer does.
+  "conductor/workFiles",
+  // ...and the RECOVERY the Conductor's screen offers when one of those
+  // records will not decode: the backup-ring walk and the keep-aside write
+  // behind `conductor.recoverStore`. Shell code for the same reason the two
+  // above are — it moves conf keys and files under the state root, and holds
+  // no terminal of any kind.
+  "conductorRecovery",
   // ── the fleet MCP face's server side (packages/server/src/fleet/) ──
   // The loopback listener the conductor's agent reaches the fleet through,
   // and kolu-server's implementation of `@kolu/kolu-mcp`'s `FleetHosts` port

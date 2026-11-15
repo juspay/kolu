@@ -68,6 +68,11 @@ export const LEVEL_WORD: Record<
   asleep: "asleep",
   ended: "ended without an agent",
   exited: "exited",
+  // The two the PERSON causes, not the terminal: the lock changing hands is a
+  // wake because what the Conductor was about to do to that terminal is no
+  // longer its to do (or is again).
+  "taken-over": "taken over by you",
+  "handed-back": "handed back to the agent",
 };
 
 /** The one-line news: `planner is up · impl asking`, with `+2 more` when

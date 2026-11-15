@@ -325,13 +325,15 @@ export function useSessionRestore(deps: { store: TerminalStore }) {
       // Re-arm the VIEW-STATE seed for THIS restore, on the ACTIVE host's latch. It
       // latches true on the first live load so a reconnect doesn't re-pan/re-seed the
       // canvas — but an in-session restore (the `recycleKaval` recycle→restore, no
-      // page reload) is PRECISELY a re-seed event: it re-spawns every terminal under
-      // FRESH ids whose client sub-panel state has never been seeded. Without this
-      // reset the hydration effect below short-circuits on the stale latch and never
-      // runs `hydrateFromTerminals` for the restored terminals, so a restored
-      // parent's active sub-tab is never set and its split comes back HIDDEN. Clearing
-      // it here lets the effect re-seed once the restored terminals arrive; it
-      // re-latches true after seeding, so a later reconnect is still a no-op.
+      // page reload) is PRECISELY a re-seed event: every terminal is re-spawned (the
+      // restore keeps each one's OWN id, but the panes behind them are new), and the
+      // client view state for the restored tree — the active tile, the MRU, a
+      // parent's active sub-tab — has not been seeded from THIS set of terminals.
+      // Without this reset the hydration effect below short-circuits on the stale
+      // latch and never runs `hydrateFromTerminals` for the restored terminals, so a
+      // restored parent's active sub-tab is never set and its split comes back
+      // HIDDEN. Clearing it here lets the effect re-seed once the restored terminals
+      // arrive; it re-latches true after seeding, so a later reconnect is a no-op.
       const latch = activeScope()?.restore;
       // Re-arm: this runs from the restore card (already past the decision), so drop
       // back to `decided` via the NAMED transition — the next hydration effect

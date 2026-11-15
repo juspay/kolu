@@ -833,7 +833,7 @@ let
       --add-flags "--import ${runtimeTsxLoader}" \
       --add-flags "${kolu}/packages/kolu-cli/src/main.ts" \
       --set KOLU_CLIENT_DIST "${koluClientDist}" \
-      --set KOLU_GH_BIN "${koluEnv.KOLU_GH_BIN}" \
+      --set-default KOLU_GH_BIN "${koluEnv.KOLU_GH_BIN}" \
       ${osfactsBakeArg} \
       ${snapshotFontsBakeArg} \
       --set KOLU_COMMIT_HASH "${commitHash}" \
@@ -1099,7 +1099,7 @@ let
       ${padiIdentity.bakeArgs} \
       --set KOLU_KAVAL_BIN "${kaval}/bin/kaval" \
       ${kavalIdentity.bakeArgs} \
-      --set KOLU_GH_BIN "${koluEnv.KOLU_GH_BIN}" \
+      --set-default KOLU_GH_BIN "${koluEnv.KOLU_GH_BIN}" \
       ${osfactsBakeArg} \
       ${snapshotFontsBakeArg} \
       --prefix PATH : ${pkgs.lib.makeBinPath [ runtimeNode pkgs.gitMinimal pkgs.gh ]} \

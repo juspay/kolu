@@ -16,24 +16,26 @@ import * as http from "node:http";
 import * as os from "node:os";
 import * as path from "node:path";
 import { After, AfterAll, Before, BeforeAll, Status } from "@cucumber/cucumber";
+import type { AgentDistroSetting } from "@kolu/agent-distro/schema";
 import { padiKavalSocketPath } from "@kolu/padi/stateRoot";
 import { padiGatePath, padiSocketPath } from "@kolu/padi-client/rendezvous";
 import type { NewTerminalPolicy } from "@kolu/padi-client/surface";
-import type { AgentDistroSetting } from "@kolu/agent-distro/schema";
 import getPort from "get-port";
 import { composeSpawnEnv, NIX_ENV_WHITELIST, pickEnv } from "kolu-pty";
 import type { Browser, BrowserContext, Page } from "playwright";
 import { chromium } from "playwright";
-import { agentDistroFixtureEnv } from "./agentDistroFixture.ts";
-import { AGENT_DIR_VARS, FAKE_BIN_NAMES } from "./agentHarnessLists.ts";
-import { waitForPadiCell } from "./padiCellWait.ts";
-import { stageRenamedBash } from "./renamed-bash.ts";
 import * as engine from "../screencast/engine.ts";
 import { getRecording } from "../screencast/recordings/index.ts";
+import { agentDistroFixtureEnv } from "./agentDistroFixture.ts";
+import { AGENT_DIR_VARS, FAKE_BIN_NAMES } from "./agentHarnessLists.ts";
+import { stageFakeGh } from "./fake-gh.ts";
+import { waitForPadiCell } from "./padiCellWait.ts";
+import { stageRenamedBash } from "./renamed-bash.ts";
 import {
   disposeRpcWire,
   isPadiWarmingUp,
   padiCall,
+  padiFirstFrame,
   RpcCallFailed,
   setRpcBaseUrl,
   surfaceCall,
@@ -256,6 +258,17 @@ process.env.KOLU_FAKE_XYNE_BIN = fakeBins.xyne;
 // detection through the seeded command hint (the two-lock path).
 process.env.KOLU_FAKE_CLAUDE_BIN = fakeBins.claude;
 process.env.KOLU_FAKE_NODE_BIN = fakeBins.node;
+
+/** The `gh` the PR sensor runs (see `support/fake-gh.ts`). Staged per worker
+ *  beside the other fake binaries and handed to the server child explicitly —
+ *  `KOLU_GH_BIN` is a which-binary var outside the shared spawn allowlist, the
+ *  same class as `KOLU_KAVAL_BIN`, so it can only reach the server by being
+ *  named there; the server forwards it to the padi it spawns (`daemonEnv`),
+ *  and both nix wrappers bake it with `--set-default`, so the nix-built lane
+ *  (`just test`, CI) gets the fake too. Without it the REAL `gh` would answer
+ *  the suite's repositories — a network call, a token, and an answer no
+ *  scenario stated. */
+const fakeGhBin = stageFakeGh(fakeBinDir, process.execPath);
 
 /** Per-worker ephemeral state dir for the kolu server under test. Routing
  *  to $TMPDIR keeps test state out of `~/.config`; nesting under
@@ -546,13 +559,22 @@ function httpGet(url: string): Promise<{ ok: boolean }> {
  *  detached daemons the cutover chains BELOW it — padi (the server's child) and
  *  padi's kaval (padi's child) — both of which outlive the server. Order matters:
  *  server → padi → kaval, so a still-live parent can't race a respawn of a child
- *  we just reaped (kill padi before its kaval, and the server before padi). */
-function killServer() {
+ *  we just reaped (kill padi before its kaval, and the server before padi).
+ *
+ *  `kaval: "keep"` stops one level short, and is THE REDEPLOY (see
+ *  {@link restartKoluServer}): a new build replaces kolu-server and the padi
+ *  under it, while the kaval holding the PTYs keeps running — so the fresh padi
+ *  converges on a survivor and ADOPTS its terminals under the ids they already
+ *  had, which is what a person's terminals do when kolu is redeployed under
+ *  them. The runtime dir is left alone too: kaval's socket and gate live there,
+ *  so removing it would strand the daemon we deliberately kept. */
+function killServer(kaval: "reap" | "keep" = "reap") {
   if (serverProcess) {
     serverProcess.kill("SIGTERM");
     serverProcess = undefined;
   }
   killPadiDaemon();
+  if (kaval === "keep") return;
   killKavalDaemon();
   // The per-worker runtime dir lives outside `testBaseDir` (short path, see its
   // comment), so the run's recursive remove won't catch it — reap it here.
@@ -562,7 +584,9 @@ function killServer() {
     // Best-effort: already gone / never created.
   }
 }
-process.on("exit", killServer);
+// `exit` hands its listener the exit CODE; take none, so the reap is never
+// read as a mode.
+process.on("exit", () => killServer());
 
 const ciArgs = [
   "--no-sandbox",
@@ -806,7 +830,14 @@ const acpFixtureAgent = path.resolve(
 /** ... and the store it remembers prompted sessions in, per worker. */
 const acpFixtureSessions = mkSubDir("acp-sessions");
 
-async function startServerChild(koluServer: string): Promise<void> {
+async function startServerChild(
+  koluServer: string,
+  /** How this start proves padi is live — see {@link waitForPadiLive}. A
+   *  start that precedes a FRESH scenario wipes as it probes; a restart in the
+   *  MIDDLE of one must not, because what the new padi parked from the saved
+   *  session is what that scenario is about. */
+  probe: "killAll" | "read" = "killAll",
+): Promise<void> {
   // Refuse a destructive ssh-leg bind BEFORE spawning the child — the spawn itself is
   // destructive, so the ack cannot wait until after (P2/F1).
   assertRemoteDestructiveAck();
@@ -939,6 +970,11 @@ async function startServerChild(koluServer: string): Promise<void> {
           // a per-worker dir that outlives a server respawn, the way a real
           // adapter's store outlives kolu-server.
           KOLU_ACP_AGENT: `${process.execPath} ${acpFixtureAgent} ${acpFixtureSessions}`,
+          // THE PR SENSOR'S `gh`. It runs inside padi; the server forwards it
+          // there (`daemonEnv`), and the suite's answer must be the one a
+          // scenario wrote into its own repo rather than whatever the real
+          // `gh` can reach.
+          KOLU_GH_BIN: fakeGhBin,
         },
       },
     );
@@ -1013,9 +1049,9 @@ async function startServerChild(koluServer: string): Promise<void> {
   // extend-fail-open-to-local fix — so the server is up before EITHER a local or a
   // remote padi is live). Wait for it here, on EVERY server start (boot AND the
   // mid-run restarts reconnect/session-restore/@kaval-restart trigger), so scenarios
-  // never race the warm-up (a `killAll` against a not-yet-connected binding is the
+  // never race the warm-up (a probe against a not-yet-connected binding is the
   // re-serve's "no live upstream link").
-  await waitForPadiLive();
+  await waitForPadiLive({ probe });
 }
 
 /** Poll a padi procedure until the (async-warming) bound arm — local or, under
@@ -1023,19 +1059,33 @@ async function startServerChild(koluServer: string): Promise<void> {
  *  Local warm-up is normally sub-second (a from-source spawn + connect); the remote
  *  leg's ssh provisioning is what needs the longer startup default. Runs
  *  UNCONDITIONALLY: since neither arm's boot blocks the server's listen anymore, a
- *  scenario racing padi's warm-up is possible on EITHER leg, not just the ssh one. */
+ *  scenario racing padi's warm-up is possible on EITHER leg, not just the ssh one.
+ *
+ *  THE PROBE IS A CHOICE, because "is it up?" and "wipe it" are two questions
+ *  and one helper used to mean both. `killAll` is right where the next thing
+ *  that happens is a fresh scenario (the suite's own boot): it answers the
+ *  liveness question AND clears whatever a previous run left. It is WRONG on a
+ *  mid-scenario restart, where what padi has just parked from its saved session
+ *  is the very thing the scenario is about — the probe killed the restored
+ *  terminal a second after the daemon parked it, and the work's member really
+ *  did go (kolu#2376's redeploy scenario read `gone` honestly about a terminal
+ *  the harness had destroyed). `read` asks the same question of the terminals
+ *  collection and changes nothing. */
 async function waitForPadiLive({
   announce = true,
   timeoutMs = 120_000,
+  probe = "killAll",
 }: {
   announce?: boolean;
   timeoutMs?: number;
+  probe?: "killAll" | "read";
 } = {}): Promise<void> {
   const remotePadiHost = process.env.KOLU_E2E_PADI_HOST;
   // Belt-and-suspenders: the ack was already enforced before the spawn (assertRemoteDestructiveAck
   // in startServerChild); re-assert here so this destructive killAll poll can't run without it
-  // even if a future caller reaches it another way. A no-op on the local leg.
-  assertRemoteDestructiveAck();
+  // even if a future caller reaches it another way. A no-op on the local leg, and
+  // nothing to ask about a read-only probe.
+  if (probe === "killAll") assertRemoteDestructiveAck();
   const deadline = Date.now() + timeoutMs;
   let lastDiagnostic = "no attempt completed";
   while (true) {
@@ -1045,9 +1095,15 @@ async function waitForPadiLive({
       // Bound each attempt so a wedged call (socket up, handler hung mid-boot)
       // can't outlive the caller's deadline. The final attempt gets only the time
       // still available rather than a fresh five-second budget.
-      await padiCall("lifecycle/killAll", undefined, {
-        timeoutMs: Math.min(5_000, remainingBeforeAttempt),
-      });
+      const attempt = { timeoutMs: Math.min(5_000, remainingBeforeAttempt) };
+      if (probe === "killAll") {
+        await padiCall("lifecycle/killAll", undefined, attempt);
+      } else {
+        // The collection's `keys` is a subscription whose opening frame is the
+        // roster padi is serving right now — the same "has the re-serve a live
+        // upstream?" answer the killAll gave, with nothing destroyed.
+        await padiFirstFrame("terminals/keys", undefined, attempt);
+      }
       if (announce)
         console.log(
           remotePadiHost
@@ -1201,6 +1257,26 @@ AfterAll(async () => {
   // left open would keep the process alive past the run.
   await disposeRpcWire();
   killServer();
+  // PADI'S OWN LOGS, kept beside the server's. The daemon writes them inside
+  // its state root, which lives under `testBaseDir` and is about to be
+  // removed — and they are the only account of what the daemon did on BOOT
+  // (what it found in the saved session and parked), which is exactly what a
+  // scenario about a restart has to be read against. Every `.log` in that
+  // root is taken rather than one name: the daemon keeps its own log and its
+  // raw stderr apart, and which of the two holds the line a post-mortem wants
+  // is not this harness's business. `reports/` is gitignored run output, like
+  // `server-w<N>.log`.
+  try {
+    for (const entry of fs.readdirSync(padiStateDir)) {
+      if (!entry.endsWith(".log")) continue;
+      fs.copyFileSync(
+        path.join(padiStateDir, entry),
+        path.join(serverLogDir, `padi-w${workerId}-${entry}`),
+      );
+    }
+  } catch {
+    // Best-effort: a run that never started a padi has no log to keep.
+  }
   // Remove the per-worker base dir created with `mkdtempSync` above. Without
   // this, every `just test` invocation leaks ~100–200MB of JSONL transcripts
   // and session files into /tmp/kolu-test-*, and a long ralph loop or CI
@@ -1552,3 +1628,52 @@ After({ tags: "@kaval-restart" }, async function (this: KoluWorld) {
   killServer(); // also reaps any surviving kaval
   await startServerChild(koluServer);
 });
+
+/** REDEPLOY THE WORKER'S SERVER MID-SCENARIO — what a person's machine lives
+ *  through when a new kolu build lands under them: the server child is killed
+ *  along with the padi it spawned, and a fresh one is started on a fresh port.
+ *  The new port is answered so the caller can navigate the page at it — a page
+ *  left on the old URL would be talking to a corpse.
+ *
+ *  THE KAVAL IS KEPT, because that is what actually happens (kolu#2376): a
+ *  redeploy replaces kolu-server and drain-replaces its padi, while the daemon
+ *  holding the PTYs keeps running — so the fresh padi converges on a survivor
+ *  and adopts its terminals, under the SAME ids. A restart that reaped kaval
+ *  too would ask the suite a question nobody has: it would destroy the
+ *  terminals and then observe that they were destroyed. Reaping it belongs to
+ *  the worker's teardown, not to a scenario (see {@link killServer}).
+ *
+ *  What survives is therefore of two kinds, and both are honest: what was
+ *  WRITTEN (the state dir is the worker's and does not move, so a restart is
+ *  the real test of "is this remembered?" rather than of a signal that happened
+ *  to stay in a browser tab), and what was never killed (the terminals, adopted
+ *  by the new padi).
+ *
+ *  Refuses when `KOLU_SERVER` is a URL: that mode reuses a server this run
+ *  neither owns nor may restart.
+ *
+ *  `whileDown` runs between the kill and the start, with the state file's path
+ *  — the one window in which a scenario can SEED that file, because the
+ *  running server is its one writer and would overwrite anything written
+ *  under it. That is what lets a scenario put a store this build cannot read
+ *  in front of a boot. */
+export async function restartKoluServer(
+  whileDown?: (stateFile: string) => void,
+): Promise<string> {
+  const koluServer = process.env.KOLU_SERVER;
+  if (!koluServer || koluServer.startsWith("http")) {
+    throw new Error(
+      "a scenario asked for a server restart, but KOLU_SERVER is a reused URL this run does not own",
+    );
+  }
+  console.log(`[worker:${workerId}] redeploying the server for a scenario.`);
+  killServer("keep");
+  whileDown?.(path.join(koluStateDir, "config.json"));
+  // READ-ONLY, because this restart happens INSIDE a scenario: the fresh padi
+  // adopts the surviving kaval's terminals (and parks whatever its saved
+  // session holds that is not live), and the destructive probe would kill
+  // exactly those terminals a second later — which is what a work's member
+  // leaving a redeploy really was.
+  await startServerChild(koluServer, "read");
+  return baseUrl;
+}

@@ -173,6 +173,17 @@ export function createTerminal(
  *  the type, not a convention. Called ONLY by `sessionRestore.ts`'s `respawnActive`;
  *  `restoreOnly` rides its own named parameter, never merged into `initial`.
  *
+ *  It takes the terminal's OWN id rather than minting one, which is what makes a
+ *  terminal's identity survive a kaval recycle. A recycle parks the saved record
+ *  under its id and restore re-spawns it; minting a fresh id here made the restored
+ *  terminal a DIFFERENT terminal to every id-keyed reader — the Conductor's work
+ *  membership, an agent's cached id, the client's per-terminal chrome — even though
+ *  nothing but the PTY had changed. Re-spawning under the saved id is the same move
+ *  `wake` and `lifecycle.restart` already make (both hand `spawnPty` the existing
+ *  id), so restore stops being the one path that renames a terminal it is reviving.
+ *  `respawnActive` guarantees the id is free: it consumes the parked entry, and an id
+ *  that still names a LIVE terminal is skipped rather than re-spawned.
+ *
  *  It keeps a bare `parentId` where {@link createTerminal} now takes a
  *  `TerminalPlacement`, and that difference is the point rather than an oversight: a
  *  restore AUTHORS nothing. It replays the parent edge already recorded on disk, so
@@ -181,12 +192,12 @@ export function createTerminal(
  *  the callers who DECIDE a placement — the wire, the CLI, the MCP face, the canvas
  *  — none of which is this. */
 export function restoreSpawn(
+  id: TerminalId,
   cwd: string | undefined,
   parentId: string | undefined,
   initial: CreateTerminalInput,
   restoreOnly: RestoreOnlyMetadata,
 ): TerminalInfo {
-  const id = crypto.randomUUID();
   return localEndpoint.spawnPty(id, {
     cwd,
     parentId,

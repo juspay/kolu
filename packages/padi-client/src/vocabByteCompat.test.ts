@@ -38,40 +38,48 @@ const accepts = (
   value: unknown,
 ): boolean => Result.isSuccess(Schema.decodeUnknownResult(schema)(value));
 
+/** The ids these fixtures are saved under. A saved record's `id` is a
+ *  `TerminalId` by schema — restore re-spawns the terminal under it, so it is a
+ *  registry key and a PTY id, not a label — hence real UUIDs here. */
+const SAVED_ID_1 = "11111111-1111-4111-8111-111111111111";
+const SAVED_ID_2 = "22222222-2222-4222-8222-222222222222";
+const SAVED_PARENT_ID = "00000000-0000-4000-8000-000000000000";
+
 /** A minimal ACTIVE saved terminal, spelled as it appears on disk. Field order
  *  is the schema's declaration order: the persisted observation, then the
  *  authored record (server fields, then client chrome), then the discriminant,
  *  then the id — exactly what the zod `.merge` chain produced. */
 const MINIMAL_ACTIVE =
-  '{"cwd":"/repo","git":{"kind":"none"},"pr":{"kind":"absent"},"location":{"kind":"local"},"restoreTarget":{"kind":"none"},"lastActivityAt":null,"promptedAt":null,"state":"active","id":"t-1"}';
+  '{"cwd":"/repo","git":{"kind":"none"},"pr":{"kind":"absent"},"location":{"kind":"local"},"restoreTarget":{"kind":"none"},"lastActivityAt":null,"promptedAt":null,"state":"active","id":"' +
+  `${SAVED_ID_1}"}`;
 
 /** The same record with every optional authored + chrome field populated. */
 const FULL_SLEEPING =
   '{"cwd":"/repo","git":{"kind":"none"},"pr":{"kind":"absent"},"location":{"kind":"remote","hostId":"zest"},' +
   '"restoreTarget":{"kind":"exact","agent":{"kind":"claude-code","sessionId":"s-1","resumeRef":"s-1"},"argv":["--model","sonnet"]},' +
-  '"lastActivityAt":1700000000000,"promptedAt":1699999999000,"themeName":"nord","parentId":"t-0",' +
+  `"lastActivityAt":1700000000000,"promptedAt":1699999999000,"themeName":"nord","parentId":"${SAVED_PARENT_ID}",` +
   '"canvasLayout":{"x":0,"y":1,"w":2,"h":3},"subPanel":{"collapsed":false,"panelSize":40},' +
   '"rightPanel":{"collapsed":true,"activeTab":"code","codeMode":"branch"},"intent":"ship it",' +
-  '"state":"sleeping","sleptAt":1700000001000,"id":"t-2"}';
+  `"state":"sleeping","sleptAt":1700000001000,"id":"${SAVED_ID_2}"}`;
 
 describe("SavedSession — the conf store + the exported kolu-session.json", () => {
   const roundTrip = (json: string): string =>
     JSON.stringify(encodeSession(decodeSession(JSON.parse(json))));
 
   it("a MINIMAL active record round-trips byte-for-byte", () => {
-    const stored = `{"terminals":[${MINIMAL_ACTIVE}],"activeTerminalId":"t-1","savedAt":1700000000000}`;
+    const stored = `{"terminals":[${MINIMAL_ACTIVE}],"activeTerminalId":"${SAVED_ID_1}","savedAt":1700000000000}`;
     expect(roundTrip(stored)).toBe(stored);
   });
 
   it("a FULLY-POPULATED sleeping record round-trips byte-for-byte", () => {
-    const stored = `{"terminals":[${FULL_SLEEPING}],"activeTerminalId":null,"savedAt":1700000000000,"resumableIds":["t-2"]}`;
+    const stored = `{"terminals":[${FULL_SLEEPING}],"activeTerminalId":null,"savedAt":1700000000000,"resumableIds":["${SAVED_ID_2}"]}`;
     expect(roundTrip(stored)).toBe(stored);
   });
 
   it("promptedAt: a LEGACY terminal that OMITS the key decodes to null AND re-encodes WITH it", () => {
     const legacy = MINIMAL_ACTIVE.replace('"promptedAt":null,', "");
     const stored = (t: string) =>
-      `{"terminals":[${t}],"activeTerminalId":"t-1","savedAt":1700000000000}`;
+      `{"terminals":[${t}],"activeTerminalId":"${SAVED_ID_1}","savedAt":1700000000000}`;
     expect(
       decodeSession(JSON.parse(stored(legacy))).terminals[0]?.promptedAt,
     ).toBeNull();
@@ -94,7 +102,7 @@ describe("SavedSession — the conf store + the exported kolu-session.json", () 
       '"git":{"kind":"unresolved"}',
     ).replace('"restoreTarget":{"kind":"none"},', "");
     const stored = (t: string) =>
-      `{"terminals":[${t}],"activeTerminalId":"t-1","savedAt":1700000000000}`;
+      `{"terminals":[${t}],"activeTerminalId":"${SAVED_ID_1}","savedAt":1700000000000}`;
     expect(accepts(SavedSessionSchema, JSON.parse(stored(legacy)))).toBe(false);
     expect(
       JSON.stringify(
@@ -141,6 +149,48 @@ describe("SavedSession — the conf store + the exported kolu-session.json", () 
     expect("resumableIds" in encoded).toBe(false);
   });
 
+  it("id: a record whose id is NOT a TerminalId is REFUSED at the decode", () => {
+    // The one field that is a REGISTRY KEY. Restore re-spawns each saved record
+    // under its own id, so a blob that names a terminal "0" asks padi to open a
+    // PTY called "0" and to publish it on a `roster` census whose ids encode as
+    // `TerminalIdSchema` — an outbound encode failure, which tears padi's whole
+    // RPC server down rather than failing one request (#2376). The refusal
+    // therefore belongs HERE, at the door, not downstream of the spawn.
+    const terminal = {
+      cwd: "/repo",
+      git: { kind: "none" },
+      pr: { kind: "absent" },
+      location: { kind: "local" },
+      lastActivityAt: null,
+      state: "active",
+    };
+    expect(
+      accepts(SavedSessionSchema, {
+        terminals: [{ ...terminal, id: "0" }],
+        activeTerminalId: null,
+        savedAt: 1,
+      }),
+    ).toBe(false);
+    // …and the backfill ladder does NOT invent one: an id is not a field a
+    // migration can repair, so a blob carrying a bad one stays refused.
+    expect(
+      accepts(
+        SavedSessionSchema,
+        backfillSavedSession({
+          terminals: [{ ...terminal, id: "not-a-uuid" }],
+          savedAt: 1,
+        }),
+      ),
+    ).toBe(false);
+    expect(
+      accepts(SavedSessionSchema, {
+        terminals: [{ ...terminal, id: SAVED_ID_1 }],
+        activeTerminalId: null,
+        savedAt: 1,
+      }),
+    ).toBe(true);
+  });
+
   it("an unknown key is DROPPED, not rejected — the tolerant-read policy, preserved", () => {
     const withJunk = {
       terminals: [],
@@ -160,7 +210,7 @@ describe("SavedSession — the conf store + the exported kolu-session.json", () 
       pr: { kind: "absent" },
       location: { kind: "local" },
       lastActivityAt: null,
-      id: "t-1",
+      id: SAVED_ID_1,
     };
     expect(accepts(SavedTerminalSchema, legacyTerminal)).toBe(false);
     // ...and the composed backfill ladder makes it decodable again, which is the
@@ -182,7 +232,7 @@ describe("SavedSession — the conf store + the exported kolu-session.json", () 
       lastAgentCommand: "LD_PRELOAD=/x claude --settings '{}'",
       agentSession: { kind: "claude-code", id: "s-9" },
       state: "active",
-      id: "t-1",
+      id: SAVED_ID_1,
     };
     const repaired = backfillSavedSession({
       terminals: [preCutover],
@@ -211,7 +261,7 @@ describe("SavedSession — the conf store + the exported kolu-session.json", () 
           lastActivityAt: 7,
           lastAgentCommand: "LD_PRELOAD=/x claude --settings '{}'",
           state: "active",
-          id: "t-1",
+          id: SAVED_ID_1,
         },
       ],
       savedAt: 1,
@@ -234,7 +284,7 @@ describe("SavedSession — the conf store + the exported kolu-session.json", () 
           lastAgentCommand: "claude",
           agentSession: { kind: "not-an-agent", id: 42 },
           state: "active",
-          id: "t-1",
+          id: SAVED_ID_1,
         },
       ],
       savedAt: 1,
@@ -263,7 +313,7 @@ describe("SavedSession — the conf store + the exported kolu-session.json", () 
             },
           },
           state: "active",
-          id: "t-1",
+          id: SAVED_ID_1,
         },
       ],
       savedAt: 1,
@@ -290,7 +340,7 @@ describe("SavedSession — the conf store + the exported kolu-session.json", () 
           location: { kind: "local" },
           lastActivityAt: 7,
           state: "active",
-          id: "t-1",
+          id: SAVED_ID_1,
         },
       ],
       savedAt: 1,
@@ -310,7 +360,7 @@ describe("SavedSession — the conf store + the exported kolu-session.json", () 
       lastAgentCommand: command,
       agentSession: { kind: "claude-code", id: "s-9" },
       state: "active",
-      id: "t-1",
+      id: SAVED_ID_1,
     });
     expect(cutover.restoreTarget).toEqual({
       kind: "exact",
@@ -338,7 +388,7 @@ describe("SavedSession — the conf store + the exported kolu-session.json", () 
           lastActivityAt: 7,
           restoreTarget: { kind: "legacyMostRecent", command: "claude" },
           state: "active",
-          id: "t-1",
+          id: SAVED_ID_1,
         },
       ],
       savedAt: 1,

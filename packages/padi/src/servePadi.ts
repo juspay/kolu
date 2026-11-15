@@ -19,6 +19,7 @@
 
 import { rmSync } from "node:fs";
 import {
+  DEFAULT_PADI_ROSTER,
   DEFAULT_PADI_VERSION,
   isPadiDeclaredError,
   KavalContractSkew,
@@ -68,12 +69,13 @@ import {
 } from "./agentDistro/agentDistro.ts";
 import { agentDistroBake } from "./agentDistro/bake.ts";
 import { createEventSeq } from "./attention/eventSeq.ts";
-import { createFleetGate } from "./attention/fleetGate.ts";
+import { createFleetGate, setServingFleetGate } from "./attention/fleetGate.ts";
 import { createSettleEvents } from "./attention/settleEvents.ts";
 import { createStateWatchHub } from "./attention/stateWatch.ts";
 import { stateWatchSource } from "./attention/stateWatchStream.ts";
 import { createWatchRegistry } from "./attention/watchRegistry.ts";
 import { specOf, watchFilterOf, watchSpecOf } from "./attention/watchSpec.ts";
+import { branchPrStream } from "./branchPr.ts";
 import type {
   EndpointGrid,
   TerminalAttachFrame,
@@ -92,6 +94,7 @@ import {
   newTerminalPolicyStore,
   resolveNewTerminalTheme,
 } from "./newTerminalTheme.ts";
+import { padiSurfaceCtx } from "./padiSurfaceCtx.ts";
 import { readPreview } from "./preview.ts";
 import {
   onDaemonStatusChange,
@@ -124,6 +127,7 @@ import {
   requireActiveTerminal,
   requireMutableTerminal,
   snapshotFor,
+  terminalIds,
   terminalNotFound,
 } from "./terminal-registry.ts";
 import {
@@ -348,11 +352,25 @@ export function buildPadiSurfaceDeps(deps: {
   // knowable only from the frame that still had it — so it is remembered once,
   // by the producer below, and read by both.
   const watchEdges = createEdgeMemory();
-  // Has a REAL fleet been seen yet? The serve-time empty seed is gated on this,
-  // once, in the `urgency` cell below — see `fleetGate.ts` for what the frame
-  // would otherwise cost each consumer. Per-serve rather than module-scoped, so
-  // a servePadi rebuild in tests starts unseeded exactly as a fresh daemon does.
-  const fleetGate = createFleetGate();
+  // HAS THIS PADI FINISHED ADOPTING, AND WHO IS HERE? The serve-time empty seed
+  // is gated on the first half, once, in the `urgency` cell below — see
+  // `fleetGate.ts` for what the frame would otherwise cost each consumer — and
+  // both halves ride the `roster` cell as ONE value, because the consumer they
+  // cost most was across a wire (the Conductor's watch, reading "not listed" as
+  // "dead"; #2376) and a projection delivers two members apart. The census is
+  // read from the REGISTRY at publish time, which is the authority for which
+  // terminals exist. Per-serve rather than module-scoped, so a servePadi
+  // rebuild in tests starts unseeded exactly as a fresh daemon does; REGISTERED
+  // as the serving gate so the moments that move a roster for real — the boot's
+  // endpoint reconcile, the recycle routine, and each terminal registered or
+  // dropped — can reach it from the modules they live in.
+  const fleetGate = createFleetGate({
+    publish: (roster) => {
+      padiSurfaceCtx.cells.roster.set(roster);
+    },
+    census: terminalIds,
+  });
+  setServingFleetGate(fleetGate);
   const settleEvents = createSettleEvents({
     log,
     seq: watchSeq,
@@ -386,6 +404,9 @@ export function buildPadiSurfaceDeps(deps: {
     watchRegistry.acceptSettle(events),
   );
   disposeStanding = () => {
+    // The serving gate goes with the serve it belongs to: a rebuilt padi
+    // surface must not have a dead gate publishing through its ctx.
+    setServingFleetGate(null);
     unsubscribeSettle();
     watchRegistry.dispose();
     stateWatch.dispose();
@@ -446,6 +467,12 @@ export function buildPadiSurfaceDeps(deps: {
       // time, the `hello` twin every `padiMap` entry can read directly (see
       // `PadiIdentitySchema`'s doc comment in `surface.ts`).
       identity: { store: inMemoryStore(padiIdentity) },
+      // Read-only: WHETHER THE ROSTER IS EVIDENCE. Written only by the roster
+      // gate above, which is the same fact the attention folds gate their
+      // serve-time empty seed on — one fact, one writer, so the wire and padi's
+      // own consumers cannot hold two opinions. `settling` until the boot's
+      // endpoint reconcile (or a recycle's re-park) says otherwise.
+      roster: { store: inMemoryStore(DEFAULT_PADI_ROSTER) },
       // Read-only build-currency axis — the expected-kaval identity, a build
       // constant seeded once at boot (the client's kaval-update nudge — the
       // amber pip + tooltip, via `kavalStale` — reads it against the connected
@@ -702,6 +729,14 @@ export function buildPadiSurfaceDeps(deps: {
         },
       },
       ...fsGit.streams,
+      // THE PULL REQUEST OF A BRANCH (7.4) — the same `subscribePr` watcher the
+      // per-terminal PR sensor runs, asked about a repository and a branch
+      // instead of about a terminal. One implementation, two callers: see
+      // `./branchPr.ts` for why a branch needs a door of its own.
+      pullRequest: {
+        source: ({ repoPath, branch }) =>
+          branchPrStream({ repoPath, branch }, log),
+      },
       // The per-subscriber terminal byte stream — snapshot-first frame, then
       // live output, with the shipped overflow re-attach (#1591) riding on
       // through `reattachingDeltas`. Routed by the terminal's OWN location so a

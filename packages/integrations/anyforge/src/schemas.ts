@@ -102,6 +102,25 @@ export const PrInfoSchema = Schema.Struct({
   mergeStateStatus: MergeStateStatusSchema.pipe(
     Schema.withDecodingDefaultKey(Effect.succeed("UNKNOWN" as const)),
   ),
+  /** THE COMMIT THE REST OF THIS VALUE IS ABOUT — the PR's head oid, as the
+   *  forge spells it. The one field that makes a check reading comparable
+   *  with another: `checks` alone says "pending" for two different pushes,
+   *  and a consumer that keeps a history of check states cannot otherwise
+   *  tell a re-read of the old commit from the new one's first run
+   *  (juspay/kolu#2376 — two terminals in one worktree wrote 430 events
+   *  ping-ponging between their two readings of ONE pull request).
+   *
+   *  It belongs in the VALUE rather than beside it as a fetch time because
+   *  it only moves on a push: `prResultEqual` compares it, so it rides the
+   *  existing dedup instead of republishing every terminal's PR metadata on
+   *  every poll, which is what a stamp of when the answer was read would do.
+   *
+   *  `null` is "this reading carries no head" — a payload from a daemon
+   *  older than this field, which is the same rolling-deploy tolerance
+   *  `checkRuns` and `reviewDecision` spell above. Never a guess. */
+  headSha: Schema.NullOr(Schema.String).pipe(
+    Schema.withDecodingDefaultKey(Effect.succeed(null)),
+  ),
 });
 export type PrInfo = typeof PrInfoSchema.Type;
 
@@ -217,7 +236,12 @@ export function prResultEqual<S extends PrUnavailableSourceBase>(
           a.value.checks === bv.checks &&
           checkRunsEqual(a.value.checkRuns, bv.checkRuns) &&
           a.value.reviewDecision === bv.reviewDecision &&
-          a.value.mergeStateStatus === bv.mergeStateStatus
+          a.value.mergeStateStatus === bv.mergeStateStatus &&
+          // A PUSH IS A CHANGE even when every other field reads the same:
+          // the new commit's checks start out `pending` exactly as the old
+          // one's did, and a consumer keeping a history of check states has
+          // only this to tell the two apart.
+          a.value.headSha === bv.headSha
         );
       })
       .with({ kind: "unavailable" }, (a) => {

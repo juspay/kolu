@@ -118,18 +118,17 @@ const MobileChromeSheet: Component<{
           >
             alpha
           </span>
-          {/* THE SAME ONE BADGE the desktop tab wears, from the same two
-              memos: how many pieces of work are in flight, violet while the
-              conversation is asking you something, and a bare dot when it is
-              asking with nothing in flight. */}
-          <Show when={badge.pieces() > 0 || badge.asking()}>
+          {/* THE SAME ONE BADGE the desktop tab wears, from the same memo:
+              how many things are waiting on YOU. Violet, always; absent at
+              zero. */}
+          <Show when={badge.waiting() > 0}>
             <span
               data-testid="conductor-badge"
-              data-asking={badge.asking() ? "" : undefined}
-              data-work={badge.pieces()}
-              class={`ml-auto rounded-full text-center text-[0.68rem] font-semibold leading-5 text-surface-0 ${badge.asking() ? "bg-alert" : "bg-conductor"} ${badge.pieces() > 0 ? "min-w-5 px-1.5" : "h-2.5 w-2.5 self-center"}`}
+              data-asking=""
+              data-waiting={badge.waiting()}
+              class="ml-auto min-w-5 rounded-full bg-alert px-1.5 text-center text-[0.68rem] font-semibold leading-5 text-surface-0"
             >
-              <Show when={badge.pieces() > 0}>{badge.pieces()}</Show>
+              {badge.waiting()}
             </span>
           </Show>
         </button>

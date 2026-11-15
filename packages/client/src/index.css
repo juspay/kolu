@@ -146,6 +146,61 @@ body {
   --spacing-conductor-gutter: 2rem;
   --breakpoint-conductor-wide: 69rem;
   --breakpoint-conductor-help: 87rem;
+  /* ── THE READER'S DOCUMENT ────────────────────────────────────────
+   * A plan is read, not glanced at, so the reader (`reader/WorkReader.tsx`)
+   * sets its document the way a document is set: 50rem of column at 1rem
+   * with a 1.75 line height — about 95 characters of a 16px face, and the
+   * extra leading that makes a long technical page scannable. It is wider
+   * and larger than the conversation's own column on purpose: the chat is a
+   * stream you follow, and this is a page you read and then have to agree
+   * to.
+   *
+   * Tables and code blocks are NOT held to it (`.reader-doc` below). A
+   * table's columns can never be narrower than their longest word, so a
+   * table squeezed into a reading column comes out one word a line — the
+   * defect the reader exists to end. They get the pane's full width and
+   * scroll sideways past it. */
+  --container-conductor-reader: 50rem;
+  --text-reader: 1rem;
+  --text-reader--line-height: 1.75;
+}
+
+/* ── THE READER'S DOCUMENT ──────────────────────────────────────────────
+ * The reader (`conductor/reader/WorkReader.tsx`) draws its file with the
+ * SAME viewer the Code tab uses, so what is different about reading a plan
+ * is stated here, over that viewer's own DOM, rather than in a second
+ * renderer that would start identical and drift by a release.
+ *
+ * THE COLUMN IS THE BLOCK'S, NOT THE PANE'S. The viewer centres its content
+ * in its own measure; the reader widens that wrapper to the whole pane and
+ * gives the measure to each block instead. That is the whole trick, because
+ * it lets exactly two kinds of block out of it:
+ *
+ *   - a TABLE's columns can never be narrower than their longest word, so a
+ *     table in a reading column comes out one word a line (the defect that
+ *     sent the plan here from the card). It is allowed the pane's full width
+ *     and scrolls sideways past that.
+ *   - a CODE BLOCK does not reflow at all; the same rule, the same reason.
+ *
+ * Both still START at the reading column's own left edge — `min-width` holds
+ * them to at least its measure — so a narrow table does not float off the
+ * line the prose is set on. */
+.reader-doc .kolu-md {
+  --md-fs: var(--text-reader);
+  --md-lh: var(--text-reader--line-height);
+}
+.reader-doc [data-testid="browse-preview-markdown"] > div {
+  max-width: none;
+  padding-inline: 1.75rem;
+}
+.reader-doc .kolu-md > * {
+  max-width: var(--container-conductor-reader);
+  margin-inline: auto;
+}
+.reader-doc .kolu-md > :is(table, pre) {
+  width: max-content;
+  min-width: min(100%, var(--container-conductor-reader));
+  max-width: 100%;
 }
 
 .chrome-bar-surface {

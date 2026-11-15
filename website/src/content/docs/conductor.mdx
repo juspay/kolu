@@ -1,6 +1,6 @@
 ---
 title: The Conductor
-description: "One chat that runs your fleet: an agent that opens terminals on any host, briefs the agents in them, and wakes when they finish or ask."
+description: "One chat that runs your fleet: an agent that opens a piece of work, creates terminals on any host, briefs them, and wakes when they finish or ask."
 order: 52.5
 section: "Agents & Attention"
 koluHero:
@@ -14,7 +14,7 @@ import Aside from "../../components/docs/Aside.astro";
 import LinkCard from "../../components/docs/LinkCard.astro";
 import Steps from "../../components/docs/Steps.astro";
 
-The **Conductor** is one chat with an agent that runs the agents in your terminals. You say what you want done. It opens terminals on whichever host the work belongs on, briefs the agents in them, watches them, and answers their questions or brings them to you.
+The **Conductor** is one chat with an agent that runs the agents in your terminals. You say what you want done; it opens a piece of work, creates terminals on the host that work belongs on, briefs their agents, and answers their questions or brings them to you.
 
 <Aside type="caution" title="alpha">
   The Conductor is alpha, and its shape is still changing. Upgrading kolu can leave you with a new, empty conversation: the old transcript is not carried over. Keep anything you need outside it, in the repository or in a file.
@@ -24,7 +24,7 @@ The **Conductor** is one chat with an agent that runs the agents in your termina
 
 The Conductor is a conversation with Claude, run by kolu-server (the kolu process your browser talks to) in the `$HOME` of its machine. Its tools are kolu's own [MCP tools](/mcp), across every host: it opens terminals, speaks to their agents, reads their screens and closes them.
 
-A terminal's name includes its host, such as `local/3f29…` or `remote:nix@prod/9a1b…`. Add a host mid-conversation and its terminals appear. Remove one and its terminals report themselves gone.
+A terminal's name includes its host, such as `local/3f29…` or `remote:nix@prod/9a1b…`. Add a host mid-conversation and its terminals appear; remove one and they report themselves gone.
 
 There is one Conductor, on the machine running kolu-server. While that machine is off, nothing supervises your other hosts.
 
@@ -32,17 +32,15 @@ There is one Conductor, on the machine running kolu-server. While that machine i
 
 <Steps>
 
-1. Click the **Conductor** tab, the first tab in the chrome bar, marked `◆`. Or press <kbd>Cmd</kbd>/<kbd>Super</kbd> + <kbd>Shift</kbd> + <kbd>O</kbd>.
+1. Click the **Conductor** tab, first in the chrome bar, marked `◆`. Or press <kbd>Cmd</kbd>/<kbd>Super</kbd> + <kbd>Shift</kbd> + <kbd>O</kbd>.
 2. Type what you want done, and press <kbd>Enter</kbd>. For example: `waterfall fix the login error in ~/code/app`.
-3. To get back, click a host tab, or press <kbd>Cmd</kbd>/<kbd>Super</kbd> + <kbd>Shift</kbd> + <kbd>O</kbd> again to return to the host you came from.
+3. To get back, click a host tab, or press <kbd>Cmd</kbd>/<kbd>Super</kbd> + <kbd>Shift</kbd> + <kbd>O</kbd> again for the host you came from.
 
 </Steps>
 
 On a phone, the Conductor is the first entry in the pull-down chrome sheet.
 
-Leaving the Conductor does not close it. When you come back, everything is as you left it, including a half-typed message.
-
-To ask about one terminal, use its tile action **Ask the Conductor about this**.
+Leaving it does not close it: you come back to everything as you left it, including a half-typed message. To ask about one terminal, use its tile action **Ask the Conductor about this**.
 
 ## Type a message
 
@@ -60,10 +58,10 @@ When the Conductor puts a choice to you, it arrives as a form: one button per op
 
 The message box never locks. While a turn is running:
 
-- <kbd>Enter</kbd> queues your message at the agent. It shows as _queued_ and runs when the turn is over. **Stop** cancels the turn, and queued messages still run next.
-- <kbd>Alt</kbd> + <kbd>Enter</kbd> steers: your words go into the running turn, and the Conductor reads them now. The status line shows **↯ Alt+⏎ steers** when you can.
+- <kbd>Enter</kbd> queues your message at the agent: it shows as _queued_ and runs when the turn is over. **Stop** cancels the turn, and queued messages still run.
+- <kbd>Alt</kbd> + <kbd>Enter</kbd> steers: your words go into the running turn and the Conductor reads them now. The status line shows **↯ Alt+⏎ steers** when you can.
 
-Steering is offered only when the agent supports it. A steer the agent does not accept is sent as a queued message, so your words are never lost. A message with attachments is always queued. Once one message has been queued in a session, every later one is queued too, until you start a new session.
+Steering is offered only when the agent supports it; a steer it does not take is queued instead, so your words are never lost. A message with attachments is always queued, and after one queued message so is every later one.
 
 ## The status line
 
@@ -72,80 +70,110 @@ The line above the message box says what the Conductor is doing:
 | Part | What it says |
 | --- | --- |
 | state | **working** (on what, and for how long), **asking you**, or **idle** |
-| **N pieces of work · M terminals** | what it is looking after; hidden at zero. On a narrow window, click it to open the watched panel. |
+| **N pieces of work · M waiting on you** | what it has in flight, and how many of those are stopped on you. Hidden at zero. On a narrow window, click it to open the work column. |
 | waiting | how many wakes are held until the turn ends |
 | **↯ Alt+⏎ steers** | shown while you can steer |
 
-A **piece of work** is a top-level terminal and every terminal opened under it, so a whole waterfall counts as one.
+A **piece of work** is one kolu is storing and has not finished, so a waterfall on three terminals counts once.
 
 ## What wakes it
 
-The Conductor does not sit waiting on a terminal. It says what it is watching and ends its turn. kolu starts its next turn when one of these happens in a watched terminal:
+The Conductor does not sit waiting, on a terminal or on you. It says what it has set going and ends its turn. kolu starts its next turn when one of these happens in a member terminal:
 
 | Wake | What happened |
 | --- | --- |
-| `ready` | An agent has started and has not been prompted yet. Also sent for an idle agent the Conductor has never spoken to, such as a resumed session. See [how kolu knows](/agent-detection#before-the-first-prompt). |
+| `ready` | An agent has started and has not been prompted. Also an idle agent the Conductor has never spoken to, such as a resumed session. [How kolu knows](/agent-detection#before-the-first-prompt). |
 | `stopped` | An agent the Conductor has spoken to finished its turn. |
 | `asking` | The agent stopped to ask a question. |
-| `gone` | The terminal was closed, or its host left. |
-| `asleep` | The terminal was put to sleep. Sent once; the terminal stays on the watch list. |
+| `gone` | The terminal was really closed, or its host left. A host still starting up says nothing. |
+| `asleep` | The terminal was put to sleep. Sent once; it stays in the work. |
 | `exited` | The agent quit or crashed, and the terminal is back at its shell prompt. |
 | `ended` | A `run` command finished and no agent ever appeared. |
+| `taken-over` | You took the terminal over. |
+| `handed-back` | You gave it back. |
 
-Nothing wakes the Conductor just because time passed, and a plain shell it is not watching never wakes it.
+An answer of yours wakes it too. Nothing wakes it because time passed, and a terminal in no work never wakes it.
 
-An agent can take seconds or minutes to start. So the Conductor creates a terminal, ends its turn, and sends the brief when the terminal reports `ready`.
+An agent can take minutes to start, so the Conductor creates a terminal, ends its turn, and briefs it when it reports `ready`.
 
-A wake shows in the chat as a line starting with **kolu**. Anything that happens during a turn is held, newest state per terminal, and arrives as one wake when the turn ends. Your own messages are never held.
+A wake is a line starting with **kolu**. News during a turn is held, newest state per terminal, and arrives as one wake when the turn ends. Your own messages are never held.
 
 What wakes cannot tell it:
 
-- A command that fails before anything starts, such as `omp: command not found`, wakes nothing.
-- No wake says whether a program succeeded. The Conductor reads the screen for that.
-- If kolu cannot deliver a wake (the agent will not start, or you are not signed in), it keeps the wake and posts one notice saying why. It tries again when the conversation next goes idle.
+- A command the shell refuses before anything starts, such as `omp: command not found`, wakes nothing.
+- No wake says whether a program succeeded; the Conductor reads the screen.
+- A wake kolu cannot deliver is kept, posted once as a notice saying why, and tried again when the conversation goes idle.
 
-## What it is watching
+## What it is working on
 
-- Every terminal the Conductor creates is watched from the start.
-- It also watches a terminal you point it at, and stops watching one whose work is done. The tools are on [the MCP page](/mcp#the-conductors-watched-list).
-- It is not woken about a terminal it has just added or just spoken to. It learns that state from its own call.
-- A terminal it closes itself leaves the list quietly. A terminal closed any other way leaves with `gone`.
+A **piece of work is a branch**: one machine, one repository, one branch, or a terminal you asked kolu to watch. Opening the same branch again gives that work back, decisions and timeline included, and reopens it if it had ended. There is never a second card for a branch, and the Conductor asks which host first.
 
-On a wide window, the watched terminals are a panel beside the chat. On a narrow window or a phone, click **N pieces of work · M terminals** in the status line to open them.
+Every terminal joins with a **role**: planner, implementor, or other. It is in one work at a time, and the Conductor can adopt one you point it at, re-join one that left, or drop one whose part is done. The tools are on [the MCP page](/mcp#the-conductors-pieces-of-work).
 
-Terminals are grouped by piece of work, with how long that work has been going. Each row shows:
+Losing terminals never ends a work: the card says **no terminals** and the Conductor is told once. kolu asks the work's host for the pull request on its branch whether or not a terminal is left, so a merge or a close still ends it, and an unreachable host concludes nothing. The `works` resource reads every work back for a fresh conversation.
 
-- the terminal's name, host and agent;
-- its state and for how long, such as **working 4m**;
-- how far through its task list the agent is, such as **7/12**, if it keeps one;
-- **Look**, which shows the last lines of the screen.
+### What a work holds
 
-Click a name to go to that terminal. To take a terminal off the list, tell the Conductor to stop watching it, or close the terminal.
+| Part | What is in it |
+| --- | --- |
+| Timeline | Every event kolu saw, append-only, each naming who it was: you, an agent, CI or kolu. An agent coming up, stopping or asking, a `.waterfall/` file, the PR and its checks. |
+| Decisions | Every question put to you about this work and your answer, the setup included: host, mode, the harness and model per role, and what to do on green. |
+| Members | Each terminal by `host/id`, its role, the agent kolu last saw, and who is driving it. |
+| Outcome | How it ended, once it has: **Merged #n**, **Closed #n**, **Stopped by you** or **by the Conductor**. The `.waterfall/` files are copied into kolu as it ends. |
+
+A work keeps its latest **30** agent state changes; older ones fold into one **N earlier agent state changes** line. Nothing else folds, and kolu keeps the **last 20** finished works with their files.
+
+### Who is typing
+
+While a work is open, each member terminal is read-only to you. A border in the Conductor's colour marks it, and typing raises a card offering **Take over**. [Tiles](/tiles#a-terminal-the-conductor-is-driving) has the rest.
+
+### The work card
+
+On a wide window the works stand in a column beside the chat, which gives way to [the reader](/read-a-plan) while a file is open. On a narrow window, or a phone, the status line's **N pieces of work** opens the same column above it.
+
+Each card shows its title and age, **repo · host · mode**, `PR #n`, where it stands, and a time bar split by who it has waited on: violet you, amber CI, teal the agents.
+
+Press the head and it opens:
+
+| Part | What you get |
+| --- | --- |
+| The question waiting for you | The same decision the chat and [the reader](/read-a-plan) show. Answering it in any of them answers it. |
+| Terminals | By role: how that agent stands, **Look** for its last lines, its name to go to its tile, and **Take over** or **Hand back**. |
+| Files | The worktree's `.waterfall/` files and the copies kolu kept. Click one to open it in [the reader](/read-a-plan). |
+| Pull request | Its number and title, the checks, and a link. |
+| Decisions | One line each: label, then answer, the setup first as **Host**, **Mode**, **Planner**, **Implementor**, **On green**. Click a row for the question. |
+| Timeline | One line per event, with its time and duration. A question reads **Asked:**, your answer **You:**. A long line is cut; click it for the rest. |
+
+### How a work ends
+
+A work ends two ways: the forge merges or closes its pull request, or **Stop** on the card ends it after a confirmation. An ended card shows how it ended, where the time went, the kept files, the decisions and the timeline. It never shows terminals, a lock or a question, and it offers **Reopen**. Declining the setup of a work nothing has happened in removes it.
+
+Finished works stand collapsed below the open ones. A conversation with no work shows no count, and the column reads **Nothing in progress.**
 
 ## Read the conversation
 
-The header shows who the agent is signed in as, the **model**, the context used (as `148k/1M`), and the **⋯** menu. Click the model to change it, or the reasoning effort and permission mode. The model you choose survives a restart.
+The header shows who the agent is signed in as, the **model**, the context used (as `148k/1M`), and the **⋯** menu. Click the model to change it, its reasoning effort or its permission mode. The model you choose survives a restart.
 
 | ⋯ menu item | What it does |
 | --- | --- |
-| **New session** | Starts an empty conversation. The messages and their attached files are deleted, and the watched terminals are forgotten. It asks first, and there is no undo. |
+| **New session** | Starts an empty conversation: the messages and their attached files are deleted. The pieces of work stay. It asks first, and there is no undo. |
 | **Sign in…** | Shown while the agent is not signed in. |
 | **Copy transcript** | Copies the whole conversation as plain text. |
-| **How to use** | Opens the help. On a wide window the help is a column beside the chat. |
+| **How to use** | Opens the help. On a wide window it is a column beside the chat, folded away while a file is open. |
 | tool servers | `kolu ✓` when kolu's tools are attached, or the agent's reason when they are not. |
 
 In the transcript:
 
-- Tool calls between two messages fold into one **Details** line with a count. Running calls, failed calls, questions and your messages always stay outside it.
-- A card for a terminal the Conductor created shows the agent's state, **Look**, and **open tile**, which takes you to the terminal.
-- **Look** shows the last 40 lines of the screen, refreshed about every two seconds while you can see it.
+- Tool calls between two messages fold into one **Details** line with a count. Running calls, failed calls, questions and your messages stay outside it.
+- A card for a terminal the Conductor created shows the agent's state, **Look**, and **open tile**, which takes you there.
+- **Look** shows the last 40 lines of its screen, refreshed about every two seconds while you can see it.
 - A `— new session —` line means kolu could not resume the conversation after a restart. The agent remembers nothing above it.
 
 ## When it asks you
 
-A question from the Conductor, or a permission its agent needs, appears as a form in the chat. Nothing times out. Dismissing the form is an answer too: the agent is told you declined.
+A question from the Conductor, or a permission its agent needs, appears as a form in the chat and on the work's card. Nothing is held open: the Conductor ends its turn and is idle while you think. Your answer wakes it, and dismissing the form declines. A question about a work outlasts **New session** and a restart.
 
-While a question waits, the Conductor tab's badge turns violet. The question chimes, raises a system notification and counts toward the app badge, like any [needs-you](/notifications) source, unless the conversation is on screen in a focused window. A turn simply ending makes no sound. Otherwise the badge counts the pieces of work in flight.
+The Conductor tab's badge counts what is waiting on you: a work stopped on a question of yours, plus any question asked outside a work. It is violet, absent at zero, and a [needs-you](/notifications) source like any terminal.
 
 ## Attach a file
 
@@ -157,13 +185,13 @@ Paste an image into the message box, or drop a file onto the chat. A chip shows 
 | a text file | its text |
 | anything else | a link to where kolu saved it |
 
-There are two limits: 10 MiB per file and 20 MiB per message. Over either, the message box tells you before anything is sent. An agent that does not accept a kind of file is refused out loud.
+There are two limits: 10 MiB per file and 20 MiB per message. The message box says so before anything is sent, and an agent that does not accept a kind of file is refused out loud.
 
 ## Sign in
 
 If the agent is not signed in, the Conductor cannot run a turn. It shows the agent's own ways to sign in.
 
-For Claude, kolu runs Claude's sign-in command, shows its links, and gives you a line to type the code into. The message that was refused is sent again once you are signed in. There is no box for an API key.
+For Claude, kolu runs Claude's sign-in command, shows its links, and gives you a line to type the code into. The refused message is sent again once you are in. There is no box for an API key.
 
 ## Run a waterfall
 
@@ -176,24 +204,30 @@ A **waterfall** takes a change from request to merged PR. Ask for one, or ask th
 
 <Steps>
 
-1. **Setup.** Every time, it asks which host, which agent CLI (the harness) and model run each agent, whether it may merge when CI is green, and the mode. It skips what your request already says.
+1. **Setup.** Every time, it asks which host, which agent CLI (the harness) and model run each agent, what to do when CI goes green, and the mode, skipping what your request already says. The questions arrive as one form.
 2. **Plan** (full only). A planner opens in a fresh worktree, writes `.waterfall/plan.md`, and stops.
 3. **Approve** (full only). The Conductor shows you a summary. You approve, or say what to change.
-4. **Implement.** The implementor opens with the brief in `.waterfall/brief.md` (full), or with your request (trivial). It stops when its PR is open. A doubt it stops on is answered from the plan, the request or the planner; only a decision that is yours comes to you.
-5. **Review** (full only). The planner reviews the PR and the implementor addresses it, until the planner is satisfied. Something you ask for mid-round waits for the next round.
-6. **Finish.** The implementor makes a final refactor pass, then runs CI until it is green. Only one waterfall runs CI at a time. A red check is retried once; red twice is a failure the implementor investigates.
-7. **Merge**, if you allowed it. The Conductor merges only when every required check is green on the PR's current head, the head has not moved since the last review, and the branch contains the current base branch.
-8. **Close up.** Once the PR is merged or closed, the Conductor closes the terminals it opened for it.
+4. **Implement.** The implementor opens with the brief in `.waterfall/brief.md` (full), or with your request (trivial), and stops when its PR is open. A doubt it stops on is answered from the plan, the request or the planner; only a decision that is yours comes to you.
+5. **Review** (full only). The planner reviews the PR and the implementor addresses it, until the planner is satisfied. What you ask for mid-round waits for the next round.
+6. **Finish.** The implementor makes a final refactor pass, then runs CI the way the repo says to run it, fixing it until it is green.
+7. **On green.** The Conductor does what the work's recorded decision says: it merges the PR, or hands it to you.
+8. **Close up.** Once the PR is merged or closed, the work ends with that outcome and the Conductor closes the terminals it opened for it.
 
 </Steps>
 
-A path does not choose a host: `~/code/odu` can exist on several machines. So the Conductor always asks which host before it creates a terminal.
+A path does not choose a host: `~/code/odu` can exist on several machines. So the Conductor asks which host in its reply, and opens the work when you answer.
 
-The Conductor never implements anything itself, never starts an agent or opens a PR without your approval, and never bypasses the merge rules. Its standing instructions are at the top of every new session's transcript.
+The Conductor never implements anything itself, never starts an agent or opens a PR without your approval, and never closes an implementor before its PR is merged or closed. Its standing instructions are at the top of every new session's transcript.
 
 ## After a restart
 
-kolu-server restarts when it is upgraded or its service restarts. The conversation comes back with its transcript, model and watched terminals. An agent that finished while kolu-server was down still wakes the Conductor, and nothing wakes it twice. A running turn and held wakes are lost. While the Conductor is alpha, an upgrade can still start an empty conversation instead (see the note at the top).
+kolu-server restarts when it is upgraded. The conversation comes back with its transcript and its model, and so does every piece of work, because a work is stored in its own right rather than inside the conversation.
+
+An agent that finished while kolu-server was down still wakes the Conductor, and nothing wakes it twice. A running turn and held wakes are lost. While the Conductor is alpha, an upgrade can still start an empty conversation instead (see the note at the top).
+
+### What a backup of kolu holds
+
+kolu's [rotated snapshots](/troubleshooting#kolu-lost-my-session-or-my-settings-look-wrong) include the pieces of work with their members, so restoring the server store puts back your preferences, your host pool and the works at once, live. Two things are not in them: the conversation, whose other half lives in the agent's own session store, and the files a finished work kept, which are copies on disk.
 
 <LinkCard
   title="Agent Fleets"

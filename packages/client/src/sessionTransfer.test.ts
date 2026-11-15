@@ -9,10 +9,15 @@ vi.mock("solid-sonner", () => ({ toast: {} }));
 
 import { parseSavedSession } from "./sessionTransfer";
 
+/** The id the fixtures are saved under. A saved record's `id` is a `TerminalId`
+ *  by schema — restore re-spawns the terminal under it — so an export that
+ *  names one anything else is refused by this very hatch. */
+const T1 = "11111111-1111-4111-8111-111111111111";
+
 const valid: SavedSession = {
   terminals: [
     {
-      id: "t1",
+      id: T1,
       state: "active",
       cwd: "/home/user",
       git: { kind: "none" },
@@ -26,7 +31,7 @@ const valid: SavedSession = {
       promptedAt: null,
     },
   ],
-  activeTerminalId: "t1",
+  activeTerminalId: T1,
   savedAt: 1_700_000_000_000,
 };
 
@@ -55,7 +60,7 @@ describe("parseSavedSession", () => {
   });
 
   it("rejects a session whose terminals are malformed", () => {
-    const bad = { terminals: [{ id: "t1" }], savedAt: 1 };
+    const bad = { terminals: [{ id: T1 }], savedAt: 1 };
     expect(() => parseSavedSession(JSON.stringify(bad))).toThrow(
       /valid kolu session export/,
     );
@@ -74,10 +79,8 @@ describe("parseSavedSession", () => {
     // old nullable `git` becomes the three-case fact. A record with no resume
     // target keeps ABSENT (`none` is not invented for it).
     const legacy = {
-      terminals: [
-        { id: "t1", cwd: "/home/user", git: null, lastActivityAt: 0 },
-      ],
-      activeTerminalId: "t1",
+      terminals: [{ id: T1, cwd: "/home/user", git: null, lastActivityAt: 0 }],
+      activeTerminalId: T1,
       savedAt: 1_700_000_000_000,
     };
     expect(parseSavedSession(JSON.stringify(legacy))).toEqual({
@@ -108,7 +111,7 @@ describe("parseSavedSession", () => {
     const legacy = {
       terminals: [
         {
-          id: "t1",
+          id: T1,
           state: "active",
           cwd: "/home/user",
           git: null,
@@ -118,14 +121,14 @@ describe("parseSavedSession", () => {
           agentSession: { kind: "claude-code", id: "sess-123" },
         },
       ],
-      activeTerminalId: "t1",
+      activeTerminalId: T1,
       savedAt: 1_700_000_000_000,
     };
     expect(parseSavedSession(JSON.stringify(legacy))).toEqual({
       ...legacy,
       terminals: [
         {
-          id: "t1",
+          id: T1,
           state: "active",
           cwd: "/home/user",
           git: { kind: "unresolved" },
@@ -155,7 +158,7 @@ describe("parseSavedSession", () => {
     const legacy = {
       terminals: [
         {
-          id: "t1",
+          id: T1,
           state: "active",
           cwd: "/home/user",
           git: null,
@@ -164,14 +167,14 @@ describe("parseSavedSession", () => {
           lastAgentCommand: "opencode --model sonnet",
         },
       ],
-      activeTerminalId: "t1",
+      activeTerminalId: T1,
       savedAt: 1_700_000_000_000,
     };
     expect(parseSavedSession(JSON.stringify(legacy))).toEqual({
       ...legacy,
       terminals: [
         {
-          id: "t1",
+          id: T1,
           state: "active",
           cwd: "/home/user",
           git: { kind: "unresolved" },
@@ -193,7 +196,7 @@ describe("parseSavedSession", () => {
     const legacy = {
       terminals: [
         {
-          id: "t1",
+          id: T1,
           state: "active",
           cwd: "/home/user",
           git: null,
@@ -203,14 +206,14 @@ describe("parseSavedSession", () => {
           agentSession: { kind: "claude-code", id: "sess-mismatch" },
         },
       ],
-      activeTerminalId: "t1",
+      activeTerminalId: T1,
       savedAt: 1_700_000_000_000,
     };
     expect(parseSavedSession(JSON.stringify(legacy))).toEqual({
       ...legacy,
       terminals: [
         {
-          id: "t1",
+          id: T1,
           state: "active",
           cwd: "/home/user",
           git: { kind: "unresolved" },

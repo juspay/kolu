@@ -1833,9 +1833,10 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
 
   /** Discard a PARKED terminal: drop the parked record + its snapshot. The PTY
    *  died with the host at reboot, so there is nothing to kill. The consume half of
-   *  the parked→active flip: `restoreSession` re-spawns a FRESH active terminal
-   *  (new id) and drops the old parked record here, so a concurrent restore finds
-   *  no parked entry and no-ops (the idempotency token). Returns false when `id`
+   *  the parked→active flip: `restoreSession` re-spawns a fresh PTY under the SAME
+   *  id and drops the old parked record here, so a concurrent restore finds no
+   *  parked entry and no-ops (the idempotency token) — and the discard running
+   *  BEFORE the spawn is what leaves that id free for it. Returns false when `id`
    *  is not parked. */
   discardParked(id: TerminalId): boolean {
     return this.discardHandleless(id, "parked");

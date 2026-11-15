@@ -95,6 +95,11 @@ export function conductorSurfaceMembers(deps: {
       attach: ({ input }: { input: Parameters<ConductorHost["attach"]>[0] }) =>
         ask(() => host().attach(input)),
       cancel: () => ask(() => host().cancel()),
+      /** The answer to the AGENT'S own question — an elicitation it is
+       *  holding a call open for. kolu's own questions about a piece of work
+       *  are decisions on that work and are answered through
+       *  `conductor.answerWork`, which waits on nothing and wakes the
+       *  conversation with what was said. */
       answer: ({
         input,
       }: {

@@ -1522,6 +1522,60 @@ describe("the break that says the agent's memory was reset", () => {
   });
 });
 
+describe("the wipe that deletes the conversation (`clearSession`)", () => {
+  test("forgets the calls, so the next conversation's draw their cards", async () => {
+    const running = await open("agent.ts");
+    await running.harness.prompt("kolu", [], [], false);
+    await settled(running, "the first turn never ended");
+    expect(running.rows().filter((one) => one.kind === "tool")).toHaveLength(1);
+    const left = running.harness.state().sessionId;
+
+    // A ROW THE CALLER HOLDS AND THIS HARNESS NEVER MINTED goes with it: padi
+    // read it out of its store at boot, and a wipe that left it standing
+    // would be a conversation that comes back.
+    await running.harness.clearSession(["user:restored"]);
+    expect(running.rows()).toEqual([]);
+    // ... and the agent's memory really was reset: a new conversation, not the
+    // one just emptied.
+    expect(running.harness.state().sessionId).not.toBe(left);
+
+    // THE SAME CALL ID AGAIN, which is what the next conversation does: ids
+    // are numbered inside a session and the next session starts at one. While
+    // the wipe lived at the caller, this row was "a repeat" of something only
+    // the harness was still holding — so nothing was published, and a panel a
+    // person had just emptied stayed empty through a turn that really ran.
+    await running.harness.prompt("kolu", [], [], false);
+    await settled(running, "the second turn never ended");
+    expect(running.rows().filter((one) => one.kind === "tool")).toHaveLength(1);
+  });
+
+  test("leaves nothing for a break to divide", async () => {
+    const running = await open("agent.ts");
+    await running.harness.prompt("hello", [], [], false);
+    await settled(running, "the turn never ended");
+    await running.harness.clearSession([]);
+    // The wipe mints no break of its own, and the break beside it mints none
+    // over the emptiness it left: a rule drawn between nothing and nothing.
+    expect(dividers(running)).toEqual([]);
+    await running.harness.newSession();
+    expect(dividers(running)).toEqual([]);
+  });
+
+  test("a conversation that would not open keeps the rows", async () => {
+    const running = await open("agent.ts");
+    await running.harness.prompt("hello", [], [], false);
+    await settled(running, "the turn never ended");
+    await running.harness.prompt("die", [], [], false);
+    await dead(running);
+    // The rows go LAST, after the next conversation is open: a wipe that ran
+    // anyway would have traded a transcript for a failure.
+    await expect(running.harness.clearSession([])).rejects.toMatchObject({
+      name: "HarnessUnavailable",
+    });
+    expect(running.rows().length).toBeGreaterThan(0);
+  });
+});
+
 /** One nested reading of a handshake, by key — the two advertisements a
  *  steering leg is drawn from both sit several objects deep, and a chain of
  *  casts at each call site is three places for one spelling to drift. */

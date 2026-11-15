@@ -125,8 +125,8 @@ Minutes](/first-five-minutes).
 Restore from a backup: open the palette with <kbd>Cmd</kbd>/<kbd>Super</kbd> +
 <kbd>K</kbd>, go to **Debug → Restore state from backup**, pick the store (the
 server's own, or any host's padi), and pick a snapshot. Each row says what it
-holds ("14 terminals", "preferences · 3 hosts"), so the good snapshot is easy
-to spot even when the newest ones carry the corruption.
+holds ("14 terminals", "preferences · 3 hosts · 4 works"), so the good snapshot
+is easy to spot even when the newest ones carry the corruption.
 
 kolu keeps a short history of its own state. At every boot, and once a day
 while running, the server's config store and each host's padi session file are
@@ -136,12 +136,42 @@ anything, so a session thrown away on purpose comes back the same way.
 
 Restoring a padi snapshot re-spawns its terminals beside your current ones,
 agents resumed and nothing killed. Restoring the server store applies live,
-with no restart. Every restore snapshots the current state first, so a restore
-is itself undoable.
+with no restart. Your preferences, your host pool and [the
+Conductor](/conductor#what-a-backup-of-kolu-holds)'s pieces of work come back
+at once, and the running Conductor takes the restored works rather than writing
+over them. Every restore snapshots the current state first, so a restore is
+itself undoable.
+
+A backup does not hold two things. The Conductor's **conversation** is not in
+it: its other half lives in the agent's own session store, which kolu does not
+back up. The **files a finished work kept** are not either, because they are
+copies on disk rather than state in the config file, so a restored work whose
+kept files have been deleted shows them as gone.
 
 If a snapshot cannot be taken, because the disk is full or a state directory
 has gone read-only, **Start fresh** refuses rather than discarding a session it
 could not copy first. Fix the disk and try again; the session is still there.
+
+## The Conductor says it cannot read one of its records
+
+[The Conductor](/conductor) keeps four saved records: its pieces of work, what
+it remembers about their terminals, the conversation's own record, and the
+transcript. When one of them will not read, the Conductor's panel says so in
+plain words, shows what the read tripped on, and offers two buttons. You never
+have to edit a file, and kolu comes back without a restart.
+
+| Button | What it does |
+| --- | --- |
+| **Restore the newest backup that reads** | Walks the backup ring newest first and takes the newest snapshot this build can read, naming it. The current state is snapshotted first, so this is undoable. Not offered for the transcript. |
+| **Start with no works** | Starts that record empty. The wording follows the record: no works, no remembered terminals, a fresh conversation, or an empty transcript. It asks you to confirm first. |
+
+A restore writes only the records the message was about, so your preferences
+and host pool stay as they are. The transcript is not in backups, which is why
+only the second button is offered for it.
+
+Nothing is deleted either way. The value kolu could not read is kept aside as
+`<state dir>/conductor/unreadable-<record>-<time>.json`, and the confirm step
+names the file.
 
 ## Something looks stuck, and I want to report it
 

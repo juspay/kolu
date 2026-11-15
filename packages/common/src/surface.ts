@@ -70,6 +70,11 @@ import {
 import type { TaskProgressSchema } from "anyagent/schemas";
 import { Schema, Struct } from "effect";
 import { match } from "ts-pattern";
+// THE RECORD itself — the `works` collection's value is `kolu-work`'s own
+// `Work`, imported rather than re-declared: a browser reads the stored record,
+// and a second wire shape beside it would be a second answer to what a piece
+// of work IS.
+import { WorkMemberSchema, WorkSchema } from "kolu-work";
 // The host key, from its own padi-LESS module — the forward vocabulary below is
 // keyed by it, so a row can be filtered to a terminal's host without parsing an
 // ssh string. `./hostKey.ts` imports nothing of padi, so this keeps the seal.
@@ -83,21 +88,29 @@ import {
   DEFAULT_CONDUCTOR_STATE,
   ConductorAnswerInputSchema,
   ConductorAnswerOutputSchema,
+  ConductorAnswerWorkInputSchema,
+  ConductorWorkInputSchema,
+  ConductorAnswerWorkOutputSchema,
   ConductorAttachInputSchema,
   ConductorAttachOutputSchema,
   ConductorEmptySchema,
   ConductorFrameSchema,
   ConductorPromptInputSchema,
   ConductorPromptOutputSchema,
+  ConductorRecoverInputSchema,
+  ConductorRecoverOutputSchema,
   ConductorSetOptionInputSchema,
   ConductorSignInInputSchema,
   ConductorSignInOutputSchema,
   ConductorStateSchema,
+  ConductorTerminalInputSchema,
   ConductorTextInputSchema,
 } from "./conductorSchema.ts";
 import { ConductorRefused, ConductorUnavailable } from "./conductorErrors.ts";
 export * from "./conductorSchema.ts";
 export * from "./conductorErrors.ts";
+import { MemberReadingSchema } from "./worksSchema.ts";
+export * from "./worksSchema.ts";
 
 // The host-daemon inventory row TYPES are re-exported from @kolu/padi-client/surface (their
 // home) so existing `kolu-common/surface` importers (the client dialogs) keep resolving
@@ -933,11 +946,13 @@ export const koluBuildInfo = defineBuildInfo<KoluBuildInfo>({
 //
 //   - `koluSurface` — the primitives kolu OWNS that are NOT part of the terminal
 //     domain: the `preferences` + `processMemory` + `padiLink` + `processStartedAt`
-//     cells. Served under the `kolu` key. Every terminal-DERIVED member (`activityFeed`, `session`,
+//     cells, and the Conductor's `works` + `memberReadings` collections.
+//     Served under the `kolu` key. Every terminal-DERIVED member (`activityFeed`, `session`,
 //     the `terminalExit` event, the per-terminal record, urgency, daemon status,
 //     the expected-kaval axis) relocated to `@kolu/padi` (the package-boundary
-//     seal) — so koluSurface has NO collections and NO events, and the terminal
-//     RECORD rides padi's `terminals` collection, not here.
+//     seal) — so koluSurface has NO events, and the terminal RECORD rides
+//     padi's `terminals` collection, not here. The collections it DOES serve are
+//     the Conductor's record, which is kolu's own and no terminal's.
 //   - `surfaceAppSurface_kolu` — surface-app's COMPLETE surface (the
 //     build-identity `buildInfo` cell — `commit` + `version`). Served under the
 //     `surfaceApp` key; its wire path is `surface.surfaceApp.buildInfo`. The restart
@@ -967,8 +982,9 @@ export const surfaceAppSurface_kolu = surfaceAppSurfaceWith(koluBuildInfo);
  *  urgency, daemon status — now rides `padiSurface` (the package-boundary seal):
  *  only the conf-store STORAGE for session/activityFeed stays kolu-server-side
  *  (injected INTO padi at boot) until W2.2 gives padi its own state-root. So this
- *  surface serves NO collections and NO events. surface-app's buildInfo/identity
- *  ride the sibling surface above, not here. */
+ *  surface serves NO events, and its only collections are the Conductor's own
+ *  record (`works`, `memberReadings`) — kolu's, not the terminal domain's.
+ *  surface-app's buildInfo/identity ride the sibling surface above, not here. */
 export const koluSurface = defineSurfaceWithPolicy<ToastOnlyPolicy>()({
   cells: {
     /** User preferences — local-authority on the client; server-canonical
@@ -1172,6 +1188,59 @@ export const koluSurface = defineSurfaceWithPolicy<ToastOnlyPolicy>()({
     },
   },
 
+  collections: {
+    /** THE WORKS — every piece of work the Conductor opened, as kolu stores
+     *  it, keyed by work id. Their own member rather than a field of
+     *  `conductor`: a work outlives the conversation that opened it ("New
+     *  session" clears the conversation, never the work), and every mark on a
+     *  dock row or a tile reads membership from here.
+     *
+     *  A COLLECTION rather than one cell holding the list, because the list is
+     *  long-lived and moves in one place at a time: an agent-state event on one
+     *  piece of work sent the whole list — the twenty finished ones included —
+     *  to every connected browser, and an agent that stops every minute for a
+     *  day is tens of thousands of those. Keyed, a work that moved sends
+     *  itself.
+     *
+     *  Read-only: the record is written by the Conductor's open/join calls and
+     *  by what kolu observes, and the human's part is answering its questions
+     *  (and taking a terminal over — `conductor.takeOver` below). */
+    works: {
+      keySchema: Schema.String,
+      schema: WorkSchema,
+      verbs: ["keys", "get"],
+      client: { onError: { kind: "toast", label: "Works" } },
+    },
+    /** WHICH WORK EACH MEMBER TERMINAL IS IN — one entry per member, keyed by
+     *  its `<host>/<id>` ref, holding the work it belongs to, its role, when
+     *  it joined and where it is working.
+     *
+     *  ITS OWN COLLECTION, and that is what makes "a terminal is in at most
+     *  one piece of work" true rather than checked: membership is one row
+     *  under one key, so a terminal cannot be listed inside two works. A
+     *  terminal with no row is a terminal no work has — and an open work with
+     *  no rows pointing at it is the "no terminals" card. */
+    workMembers: {
+      keySchema: Schema.String,
+      schema: WorkMemberSchema,
+      verbs: ["keys", "get"],
+      client: { onError: { kind: "toast", label: "Works" } },
+    },
+    /** HOW EACH MEMBER TERMINAL STANDS — one entry per terminal the watch has
+     *  read in THIS process, keyed by its `<host>/<id>` ref. Runtime only and
+     *  never stored: an absent key is "not read yet", never "0s".
+     *
+     *  Beside the works rather than inside them for the reason they are two
+     *  members at all: a member's level moves on the terminal's clock (every
+     *  keystroke an agent answers), the record on the work's, and a reader of
+     *  one has no business re-receiving the other. */
+    memberReadings: {
+      keySchema: Schema.String,
+      schema: MemberReadingSchema,
+      verbs: ["keys", "get"],
+      client: { onError: { kind: "toast", label: "Works" } },
+    },
+  },
   streams: {
     /** The conductor's transcript — an EXPLICITLY discriminated
      *  snapshot-then-deltas feed. The snapshot is only ever the first frame of
@@ -1254,6 +1323,24 @@ export const koluSurface = defineSurfaceWithPolicy<ToastOnlyPolicy>()({
         output: ConductorAnswerOutputSchema,
         error: Schema.Union([ConductorUnavailable, ConductorRefused]),
       },
+      /** ANSWER ONE OF KOLU'S OWN QUESTIONS ABOUT A PIECE OF WORK — from the
+       *  card, the chat, the reader or its pop-out window. The decision is
+       *  written on the work and the conversation is WOKEN with what was
+       *  said; nothing was waiting on it, so nothing is released.
+       *
+       *  `ConductorRefused` ALONE, deliberately, exactly as the two hand-over
+       *  verbs are: a person reading a plan must be able to approve it while
+       *  the conversation is down, signed out or busy. The refusals are the
+       *  work's own ("there is no piece of work called…").
+       *
+       *  Answering the same ask twice is NOT a refusal: the loser is told
+       *  `settled: false`, because two tabs (or a card and a pop-out) looking
+       *  at the same question is the ordinary thing. */
+      answerWork: {
+        input: ConductorAnswerWorkInputSchema,
+        output: ConductorAnswerWorkOutputSchema,
+        error: Schema.Union([ConductorRefused]),
+      },
       signIn: {
         input: ConductorSignInInputSchema,
         output: ConductorSignInOutputSchema,
@@ -1293,6 +1380,64 @@ export const koluSurface = defineSurfaceWithPolicy<ToastOnlyPolicy>()({
       clearSession: {
         input: ConductorEmptySchema,
         error: Schema.Union([ConductorUnavailable, ConductorRefused]),
+      },
+      /** TAKE A DRIVEN TERMINAL OFF THE CONDUCTOR — the person is typing into
+       *  it now. Appends the act to the work (it is a fact about the work, so
+       *  it survives a reload and every browser sees it), and wakes the
+       *  conversation so the agent stops sending that terminal input.
+       *
+       *  `ConductorRefused` ALONE, deliberately: the refusals are the work's
+       *  own ("that terminal is not driven", "it is already yours"), and a
+       *  conversation that is down or signed out must not stand between a
+       *  person and the keyboard of a terminal in front of them.
+       *  `terminal` is the `<host>/<id>` ref. */
+      takeOver: {
+        input: ConductorTerminalInputSchema,
+        error: Schema.Union([ConductorRefused]),
+      },
+      /** ... and give it back: the Conductor drives it again, and is woken to
+       *  say so. Same single error, for the same reason. */
+      handBack: {
+        input: ConductorTerminalInputSchema,
+        error: Schema.Union([ConductorRefused]),
+      },
+      /** STOP A PIECE OF WORK — the card's button, behind its confirm. The
+       *  work ends `stopped by you`, its members leave with it and its open
+       *  questions are dropped. The ONLY endings are this, the Conductor's
+       *  own `work_stop`, and the forge saying merged or closed: nothing kolu
+       *  merely fails to SEE ends a work.
+       *
+       *  `ConductorRefused` alone, as the hand-over verbs are: stopping work
+       *  must not wait on a conversation being up. */
+      stopWork: {
+        input: ConductorWorkInputSchema,
+        error: Schema.Union([ConductorRefused]),
+      },
+      /** ... and bring one back: Ended → Open, every decision and the whole
+       *  timeline kept, a `reopened` line on it. The same work — never a
+       *  second card for the same branch. */
+      reopenWork: {
+        input: ConductorWorkInputSchema,
+        error: Schema.Union([ConductorRefused]),
+      },
+      /** PUT A RECORD KOLU CANNOT READ BACK IN A STATE IT CAN — the two
+       *  buttons under an unreadable-record refusal, and the only two things
+       *  kolu can honestly do about one.
+       *
+       *  `how: "backup"` restores the newest state-backup snapshot whose
+       *  store decodes; `how: "empty"` keeps the unreadable value aside in a
+       *  file of its own and starts that record empty. The running server
+       *  re-reads its records afterwards — no restart — and the answer says
+       *  which snapshot it took or where the value was kept.
+       *
+       *  `ConductorRefused` ALONE: every no here is one a person reads and
+       *  acts on ("no backup reads either", "there is nothing to recover —
+       *  kolu can read its records"), and none of them is the agent being
+       *  down. There is no agent: that is why this screen is up. */
+      recoverStore: {
+        input: ConductorRecoverInputSchema,
+        output: ConductorRecoverOutputSchema,
+        error: Schema.Union([ConductorRefused]),
       },
     },
   },

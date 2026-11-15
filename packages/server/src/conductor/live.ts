@@ -21,33 +21,65 @@
 import { homedir, hostname } from "node:os";
 import { dirname } from "node:path";
 import { startHarness } from "@kolu/acp-harness";
-import type { ConductorState } from "kolu-common/conductor";
 import { confStore } from "@kolu/surface/server";
-import { log } from "../log.ts";
-import { store } from "../state.ts";
+import type { ConductorState } from "kolu-common/conductor";
+import type { MemberReading } from "kolu-common/works";
+import type { Work, WorkMember } from "kolu-work";
 import {
-  type FleetMcpEndpoint,
   type ConductorHost,
+  type FleetMcpEndpoint,
   type PersistedConductor,
+  type PersistedMembers,
+  type PersistedWorks,
   startConductorHost,
 } from "kolu-conductor";
+import type { FleetHosts } from "kolu-mcp";
 import { proveFleetMcpEndpoint } from "../fleet/mcpEndpoint.ts";
+import { log } from "../log.ts";
+import { store } from "../state.ts";
+import { TRANSCRIPT_FILE_VERSION } from "../stateShape.ts";
+import { transcriptFilePath, transcriptFileStore } from "./transcriptFile.ts";
+import { workFilesOverHosts } from "./workFiles.ts";
 
 /** Where the fleet MCP face is listening, or `null` while it is not. */
 let endpoint: () => FleetMcpEndpoint | null = () => null;
 
-/** The served cell's writer, or `null` until `surface.ts` registers it. */
+/** The served `conductor` cell's writer, or `null` until `surface.ts`
+ *  registers it. */
 let writeCell: ((state: ConductorState) => void) | null = null;
-/** Who follows THE WATCH LIST, or `null` until the boot wires it — the
- *  watcher, which re-scopes its per-host subscriptions when the set of
- *  watched refs changes, and the `watched` resource's subscribers, which want
- *  every change to a row as well. Registered rather than imported for the
- *  same reason the cell writer is: this module is reached by three callers
- *  that hold no handle on each other.
+/** ...and the served `works` + `memberReadings` COLLECTIONS' writers,
+ *  registered at the same moment. Separate writers because they are separate
+ *  members: the conversation moves on a keystroke, a work when something about
+ *  THAT work is observed, and a member's reading on its terminal's own clock —
+ *  and a reader of one has no business re-receiving the others. `null` value =
+ *  the key is gone (a work that fell off the cap, a terminal that is no longer
+ *  read). */
+let writeWork: ((id: string, work: Work | null) => void) | null = null;
+let writeMember:
+  | ((terminal: string, member: WorkMember | null) => void)
+  | null = null;
+let writeReading:
+  | ((terminal: string, reading: MemberReading | null) => void)
+  | null = null;
+/** Who is owed a redraw of the `works` resource, or `null` until the boot
+ *  wires it — the resource's subscribers, which want every change to a row.
+ *  Registered rather than imported for the same reason the cell writers are:
+ *  this module is reached by three callers that hold no handle on each other.
+ */
+let onWorks: (() => void) | null = null;
+/** ... and who re-chooses THE WATCH'S SCOPE: the watcher, which re-opens its
+ *  per-host subscriptions when the member set or the set of branches with
+ *  work in flight moves.
  *
- *  `null` is ordinary at boot — the watcher reads the list itself when it
+ *  `null` is ordinary at boot — the watcher reads the scope itself when it
  *  starts, so an event before it is wired has nothing to tell. */
-let onWatchList: ((membership: boolean) => void) | null = null;
+let onWatchScope: (() => void) | null = null;
+/** The fleet, for the one dependency that needs a padi client rather than a
+ *  cell: reading and copying a work's `.waterfall/` files. `null` until the
+ *  boot has built the host map — which is BEFORE anything can ask for the
+ *  conversation, so a file read that finds it null is a boot-order fault, not
+ *  a host being away (that is `hosts.state`'s answer). */
+let fleetHosts: (() => FleetHosts) | null = null;
 
 let live: ConductorHost | undefined;
 
@@ -79,14 +111,50 @@ export function setConductorCellWriter(
   writeCell = write;
 }
 
-/** ... and register who follows THE WATCH LIST ({@link onWatchList}). The
- *  conversation announces that event where it mutates the list, so what
- *  arrives here is the fact itself rather than a frame a consumer has to
- *  diff. */
-export function setWatchListListener(
-  listen: (membership: boolean) => void,
-): void {
-  onWatchList = listen;
+/** ... and the two collection writers, registered in the same call
+ *  `surface.ts` makes for the conversation's. */
+export function setWorksCollectionWriters(writers: {
+  work: (id: string, work: Work | null) => void;
+  member: (terminal: string, member: WorkMember | null) => void;
+  reading: (terminal: string, reading: MemberReading | null) => void;
+}): void {
+  writeWork = writers.work;
+  writeMember = writers.member;
+  writeReading = writers.reading;
+}
+
+/** ... and register who is owed a redraw of the WORKS ({@link onWorks}), and
+ *  who re-chooses the WATCH'S SCOPE ({@link onWatchScope}). Two sinks, because
+ *  they are two different jobs: a terminal being renamed moves every row an
+ *  agent reads and moves no subscription at all. The conversation announces
+ *  each where it happens, so what arrives here is the fact itself rather than
+ *  a frame a consumer has to diff. */
+export function setWorksListener(listen: () => void): void {
+  onWorks = listen;
+}
+
+export function setWatchScopeListener(listen: () => void): void {
+  onWatchScope = listen;
+}
+
+/** ... and hand over the fleet, which `index.ts` builds before anything can
+ *  ask for the conversation. It is the ONE dependency here that is a live
+ *  client rather than a stored value: a work's files are read off the machine
+ *  its terminals are on. */
+export function setConductorFleetHosts(hosts: () => FleetHosts): void {
+  fleetHosts = hosts;
+}
+
+/** The fleet, or the boot-order crash. `index.ts` registers it before the
+ *  surface is served, which is before anything can reach the conversation —
+ *  so `null` here is wiring that moved, never a host that is away. */
+function requireFleet(): FleetHosts {
+  if (fleetHosts === null) {
+    throw new Error(
+      "the conductor read a work's files before index.ts registered the fleet — setConductorFleetHosts must run before the first reader",
+    );
+  }
+  return fleetHosts();
 }
 
 /**
@@ -131,17 +199,77 @@ export function liveServerConductor(): ConductorHost {
       }
       writeCell(state);
     },
-    // The list moved, said by the one thing that knows. Unguarded: this is
-    // not riding a browser's frame any more, so a listener that throws is a
+    publishWork: (id, work) => {
+      if (writeWork === null) {
+        // Same boot-order crash as the conversation's publish above, for the
+        // same reason: a work frame nobody can receive is the restart's own
+        // "here is what was in flight" frame, lost.
+        throw new Error(
+          "the conductor published a work before surface.ts registered the works collection writer — implementKoluSurface must run before the first reader",
+        );
+      }
+      writeWork(id, work);
+    },
+    publishMember: (terminal, member) => {
+      if (writeMember === null) {
+        throw new Error(
+          "the conductor published a membership before surface.ts registered the workMembers collection writer — implementKoluSurface must run before the first reader",
+        );
+      }
+      writeMember(terminal, member);
+    },
+    publishReading: (terminal, reading) => {
+      if (writeReading === null) {
+        throw new Error(
+          "the conductor published a member reading before surface.ts registered the memberReadings collection writer — implementKoluSurface must run before the first reader",
+        );
+      }
+      writeReading(terminal, reading);
+    },
+    // What moved, said by the one thing that knows. Unguarded: this is not
+    // riding a browser's frame any more, so a listener that throws is a
     // boot-wiring fault to see rather than a frame to protect.
-    watchListMoved: (membership) => onWatchList?.(membership),
+    worksMoved: () => onWorks?.(),
+    watchScopeMoved: () => onWatchScope?.(),
+    // THE FOUR RECORDS, each where its volatility says it belongs. The
+    // conversation, the works and what kolu knows about their member
+    // terminals are keys of the one conf store (one schema, one ladder —
+    // `dev/skills/state/SKILL.md`); the transcript is a file of its own
+    // because it is most of the bytes and it moves on every keystroke, and it
+    // rides the SAME ladder from there (`transcriptFile.ts`).
+    //
+    // `members` is its own key beside `works` rather than a field inside one,
+    // because it is the watch's memory of a TERMINAL (what it was called,
+    // what the conversation was told about it) rather than part of what a
+    // work IS — and it moves every time a host is read.
     store: confStore<PersistedConductor>(store, "conductor"),
+    works: confStore<PersistedWorks>(store, "works"),
+    members: confStore<PersistedMembers>(store, "members"),
+    transcript: transcriptFileStore(
+      dirname(store.path),
+      TRANSCRIPT_FILE_VERSION,
+    ),
     storePath: () => store.path,
+    transcriptPath: () => transcriptFilePath(dirname(store.path)),
     // Attachments land beside the state file, under `conductor/attachments`.
     // `store.path` is `<KOLU_STATE_DIR>/config.json`, and taking the directory
     // off the store itself rather than re-reading the env is what keeps the
     // two from ever naming different roots.
     stateRoot: dirname(store.path),
+    // A work's files are read off the machine its terminals are on and copied
+    // under this state root. The fleet is reached through the thunk the boot
+    // registered, read per call: a host that dropped and came back answers
+    // with a different client, and holding one here would be reading a padi
+    // that has never heard of this process.
+    workFiles: workFilesOverHosts({
+      hosts: {
+        padi: (key) => requireFleet().padi(key),
+        display: (key) => requireFleet().display(key),
+        state: (key) => requireFleet().state(key),
+      },
+      stateRoot: dirname(store.path),
+      log,
+    }),
     // The composition root is the one place that knows BOTH that a
     // conversation is an ACP subprocess and that kolu-server is what hosts it.
     spawn: startHarness,

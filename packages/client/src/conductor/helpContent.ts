@@ -18,10 +18,10 @@
  *      teaching.md`) and revs with the procedure — so the help says THAT it
  *      asks and not WHICH, because a list here is a copy of a document this
  *      module cannot see, and the copy is the half that goes stale.
- *    - The status line names what is running and for how long; the watched
- *      terminals are the side panel on a wide window and behind the status
- *      line's count otherwise; a terminal's name goes to it and `Look` peeks
- *      (`ConductorStatus.tsx`, `ConductorWatchedPanel.tsx`, `ConductorLook.tsx`).
+ *    - The status line names what is running and for how long; the work
+ *      column is the side track on a wide window and behind the status
+ *      line's count otherwise; a member's name goes to it and `Look` peeks
+ *      (`ConductorStatus.tsx`, `WorkColumn.tsx`, `ConductorLook.tsx`).
  *    - Enter queues at the agent, the steer chord goes into the running turn
  *      while the status line offers it, and `■ Stop` is beside Send.
  *    - A wake is kolu ringing the conversation when a watched agent is ready
@@ -42,10 +42,10 @@
  *  The one thing computed is a key's label, printed in the reader's own idiom
  *  (`formatKeybind`) rather than spelled `⌥⏎` at a Linux reader. */
 
-import { createDisclosure } from "../ui/createDisclosure";
 import { formatKeybind, type Keybind } from "../input/keyboard";
 import { isMac as detectedIsMac } from "../input/platform";
 import { boolPref } from "../persistedPref";
+import { createDisclosure } from "../ui/createDisclosure";
 import { STEER_KEYBIND } from "./steer";
 
 /** The sections, in the order they are read. The id is what a test and a
@@ -55,7 +55,10 @@ export type HelpSectionId =
   | "ask"
   | "waterfall"
   | "while-it-works"
+  | "the-card"
   | "terminals"
+  | "the-lock"
+  | "files"
   | "mid-work"
   | "wakes"
   | "asks";
@@ -110,6 +113,7 @@ export function helpSections(
       items: [
         [code("waterfall fix the login error in ~/code/app")],
         [text("Answer its setup questions; it runs the rest")],
+        [text("Your answers are kept, as the work’s decisions")],
       ],
     },
     {
@@ -117,19 +121,54 @@ export function helpSections(
       heading: "While it works",
       items: [
         [text("The status line: what it is doing, for how long")],
+        [text("The work: beside the chat, or behind the status line’s count")],
+      ],
+    },
+    {
+      id: "the-card",
+      heading: "A piece of work",
+      items: [
+        [text("One card per branch: opening it again is the same work")],
+        [text("The bar under it: agents, you, CI")],
+        [text("Open it for the timeline, decisions and the PR")],
         [
-          text(
-            "Its terminals: beside the chat, or behind the status line’s count",
-          ),
+          screen("Stop"),
+          text(" ends it, "),
+          screen("Reopen"),
+          text(" brings it back with what it decided"),
         ],
       ],
     },
     {
       id: "terminals",
-      heading: "In its terminal list",
+      heading: "Its terminals",
       items: [
+        [text("Each one by the part it plays: planner, implementor")],
         [text("A name takes you to that terminal")],
         [screen("Look"), text(" peeks at its screen")],
+        [text("Losing them says “no terminals”; the work is still there")],
+      ],
+    },
+    {
+      id: "the-lock",
+      heading: "Who is typing",
+      items: [
+        [text("A terminal it drives is bordered; reading it is not gated")],
+        [text("Type in it and a card offers "), screen("Take over")],
+        [
+          screen("Hand back"),
+          text(" is the pill in its corner; it is told either way"),
+        ],
+      ],
+    },
+    {
+      id: "files",
+      heading: "What it wrote",
+      items: [
+        [text("A file opens in the reader, beside the chat")],
+        [screen("Pop out"), text(" gives it a window of its own")],
+        [text("Select text to comment, as on the Code tab")],
+        [text("Kept when the work ends, after the worktree is gone")],
       ],
     },
     {
@@ -145,7 +184,7 @@ export function helpSections(
       id: "wakes",
       heading: "It wakes itself",
       items: [
-        [text("When a watched agent is ready, stops, asks or leaves")],
+        [text("When a member’s agent is ready, stops, asks or leaves")],
         [text("Ready: its screen has settled, before it says a word")],
         [text("A "), screen("kolu"), text(" line in the chat is a wake")],
       ],
@@ -154,7 +193,8 @@ export function helpSections(
       id: "asks",
       heading: "When it asks you",
       items: [
-        [text("Answer the form in the chat")],
+        [text("Answer on the work’s card, or in the chat")],
+        [text("Either one settles it; the card records which")],
         [
           text("Until then, the "),
           screen("Conductor"),

@@ -43,7 +43,10 @@ import {
   updateMemory,
 } from "./metadata.ts";
 
-const ID = "term-pub-test";
+/** A real `TerminalId`: this id is decoded as one by the saved-record gate the
+ *  seam test below runs (`SavedTerminalSchema`), which is the registry key
+ *  restore re-spawns under — not a label. */
+const ID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 
 /** The exact decode `snapshotSession` (terminals.ts) runs over every composed
  *  record on each autosave — spelled here so the seam test below exercises the

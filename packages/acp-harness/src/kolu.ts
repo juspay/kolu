@@ -222,12 +222,15 @@ const READINGS: Readonly<Record<string, AnyReading>> = {
     // chord they were delivered with.
     said: (input) => ({ name: null, text: stringAt(input, "text") }),
   },
-  watch_terminal: {
+  // A terminal JOINING the Conductor's work (adopted into it) or leaving it —
+  // the card the old watch/unwatch drew, which is still what rows a
+  // transcript stored before works existed carry.
+  work_adopt: {
     kind: "watch",
     ref: idOfCall,
     said: () => ({ name: null, watching: true }),
   },
-  unwatch_terminal: {
+  work_leave: {
     kind: "watch",
     ref: idOfCall,
     said: () => ({ name: null, watching: false }),

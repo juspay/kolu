@@ -608,10 +608,15 @@ describe("useActiveReconcile — FULL cleanup driven off the list", () => {
     h.setRawIds([]); // supervised drain → suppressed
     expect(h.calls.promoteToTopLevel).not.toHaveBeenCalled();
 
-    // Reconnect, then restore repopulates with a FRESH set (new ids). The prior
-    // P/S departure was already folded into the snapshot's `prev` (advanced past
-    // it while suppressed), so it is never re-processed; the fresh ids are an
-    // arrival, not a departure.
+    // Reconnect, then the canvas repopulates with a DIFFERENT set. A restore is no
+    // longer that case — it brings every terminal back under its saved id, which is
+    // a plain re-arrival — but "Start fresh" (forfeit the parked rows, then create)
+    // and a host whose terminals genuinely ended both land here, and they are the
+    // adverse shape: the prior P/S departure was already folded into the snapshot's
+    // `prev` (advanced past it while suppressed), so it is never re-processed, and
+    // ids nobody has seen are an arrival rather than a departure. Pinned with new
+    // ids BECAUSE a same-id return would pass vacuously: `prev` and the live set
+    // would agree and there would be no departure to replay.
     h.setConnected(true);
     h.setParents({ P2: null, S2: T("P2") });
     h.setRawIds([T("P2"), T("S2")]);

@@ -12,6 +12,8 @@ import { join } from "node:path";
 import { encodeHostKey } from "kolu-common/hostKey";
 import { DEFAULT_PREFERENCES } from "kolu-common/surface";
 import { afterEach, describe, expect, it } from "vitest";
+import type { PersistedMembers, PersistedWorks } from "kolu-conductor";
+import { workIdOf } from "kolu-work";
 import { decodeStateBackup, stateBackupRing, store } from "./state.ts";
 import {
   listServerStateBackups,
@@ -28,6 +30,7 @@ const STALE = remote("zest-stale");
 const GONE = remote("zest-gone");
 const HOST_A = remote("zest-a");
 const HOST_B = remote("zest-b");
+const AT = "2026-01-01T00:00:00.000Z";
 
 // The module-level `store` is a process-wide singleton shared with
 // `state.test.ts` (the suites run serially in one process) — put back every
@@ -36,6 +39,8 @@ afterEach(() => {
   store.set("preferences", DEFAULT_PREFERENCES);
   store.set("hosts", []);
   store.set("viewerMode", "dark");
+  store.set("works", {});
+  store.set("members", {});
 });
 
 /** Snapshot the CURRENT live store into the ring and hand back the file name. */
@@ -62,6 +67,8 @@ function recordingDeps(
     viewerMode: [] as unknown[],
     added: [] as string[],
     removed: [] as string[],
+    works: [] as PersistedWorks[],
+    members: [] as PersistedMembers[],
   };
   const deps: RestoreServerStateBackupDeps = {
     setPreferences: (v) => calls.preferences.push(v),
@@ -74,8 +81,67 @@ function recordingDeps(
     removeHostKey: async (key) => {
       calls.removed.push(key);
     },
+    restoreWorks: (works, members) => {
+      calls.works.push(works);
+      calls.members.push(members);
+    },
   };
   return { calls, deps };
+}
+
+/** A stored work in today's shape, keyed by its own id — one branch work with
+ *  one member terminal, which is what a restore has to carry across whole. */
+function storedWork(branch: string, name: string): PersistedWorks {
+  const key = {
+    kind: "branch",
+    host: "local",
+    repo: "/srv/repo",
+    branch,
+  } as const;
+  return {
+    [workIdOf(key)]: {
+      key,
+      title: name,
+      startedAt: AT,
+      decisions: [],
+      events: [
+        { at: AT, by: "you", kind: "requested", terminal: null, text: name },
+        {
+          at: AT,
+          by: "kolu",
+          kind: "joined",
+          terminal: "local/t1",
+          role: "implementor",
+        },
+      ],
+      state: { kind: "open" },
+    },
+  };
+}
+
+/** ... and what kolu knew about its member terminal, in the one members map. */
+function storedMembers(branch: string, name: string): PersistedMembers {
+  return {
+    "local/t1": {
+      work: workIdOf({
+        kind: "branch",
+        host: "local",
+        repo: "/srv/repo",
+        branch,
+      }),
+      role: "implementor",
+      joinedAt: AT,
+      worktree: null,
+      watch: {
+        name,
+        agent: null,
+        told: null,
+        joined: "created",
+        spoken: false,
+        ran: false,
+      },
+    },
+  };
 }
 
 describe("listServerStateBackups", () => {
@@ -86,7 +152,7 @@ describe("listServerStateBackups", () => {
     ]);
     const file = takeSnapshot();
     const entry = listServerStateBackups().backups.find((b) => b.file === file);
-    expect(entry?.summary).toEqual({ kind: "state", hosts: 2 });
+    expect(entry?.summary).toEqual({ kind: "state", hosts: 2, works: 0 });
   });
 
   it("lists an unparseable snapshot as unreadable instead of collapsing", () => {
@@ -155,6 +221,31 @@ describe("restoreServerStateBackup", () => {
     expect(calls.viewerMode).toEqual(["light"]);
     expect(calls.added).toEqual([FROM_BACKUP]);
     expect(calls.removed).toEqual([STALE]);
+  });
+
+  it("hands the snapshot's WORKS to the live conductor, which is their one writer", async () => {
+    // The works as the snapshot holds them...
+    store.set("works", storedWork("work-from-backup", "last week's work"));
+    store.set("members", storedMembers("work-from-backup", "last week's work"));
+    const file = takeSnapshot();
+    // ...and the works this process has moved on to since. A restore must
+    // replace them with the snapshot's, through the host rather than behind it.
+    store.set("works", storedWork("work-today", "today's work"));
+
+    const { calls, deps } = recordingDeps([]);
+    await restoreServerStateBackup({ file }, deps);
+    expect(calls.works).toHaveLength(1);
+    expect(Object.keys(calls.works[0] ?? {})).toEqual(
+      Object.keys(storedWork("work-from-backup", "last week's work")),
+    );
+    expect(calls.works[0]).toEqual(
+      storedWork("work-from-backup", "last week's work"),
+    );
+    // The two keys travel together: works without their members come back as
+    // terminals nobody has read, which rings about everything again.
+    expect(calls.members[0]).toEqual(
+      storedMembers("work-from-backup", "last week's work"),
+    );
   });
 
   it("skips a host that is LIVE but unpersisted — an env seed is not a failed add", async () => {

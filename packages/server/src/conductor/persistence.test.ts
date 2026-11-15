@@ -1,17 +1,24 @@
 /**
- * THE RECORD — kolu-server's `conductor` key, through the real `config.json`.
+ * THE RECORD — kolu-server's `conductor` and `works` keys, and the transcript
+ * FILE beside them, through the real state root.
  *
- * Five things, and each is a different kind of promise:
+ * Six things, and each is a different kind of promise:
  *  - a ROUND TRIP: a conversation written by one process comes back whole to
- *    the next one — its rows, the session it IS and the fleet it was working
- *    with — through the same `Conf` the host map and the preferences ride;
+ *    the next one — its rows (now out of `config.json`, in
+ *    `conductor/transcript.json`), the session it IS and the fleet it was
+ *    working with;
  *  - the MIGRATION RUNGS: a state file written before the conductor moved
- *    here opens and answers the empty record, and one written while the
+ *    here opens and answers the empty record, one written while the
  *    conversation was still called the orchestrator keeps its conversation
- *    under the new key — both walked through the REAL ladder rather than a
- *    re-implementation of it;
+ *    under the new key, and a MASTER-SHAPED file (rows in the store, a watch
+ *    list beside them) comes back as works with no terminal lost — all
+ *    walked through the REAL ladder rather than a re-implementation of it;
+ *  - WORKS SURVIVE: the pieces of work a restart finds are the ones it left,
+ *    and their members are what the watch scopes itself by;
  *  - FAIL-LOUD: a parseable-but-wrong record refuses by name instead of being
- *    normalized into a transcript with holes in it;
+ *    normalized into a transcript with holes in it, and a transcript file
+ *    stamped with a version this build did not write is refused by name
+ *    rather than read as a guess;
  *  - the BYTES of an attachment land beside the file, never inside it;
  *  - WHAT IS RESUMED: a session nobody spoke into comes back as a new one in
  *    silence, and one that had a turn and is lost still says so — through
@@ -25,7 +32,13 @@
  * would prove something about a store nothing ships.
  */
 
-import { mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import {
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { AGENT_ENV } from "@kolu/acp/engine";
@@ -39,11 +52,33 @@ import { confStore } from "@kolu/surface/server";
 import { Server as McpServer } from "@modelcontextprotocol/sdk/server/index.js";
 import { Schema } from "effect";
 import {
-  DEFAULT_CONDUCTOR_STATE,
   type ConductorFrame,
   type ConductorRow,
   type ConductorState,
+  DEFAULT_CONDUCTOR_STATE,
 } from "kolu-common/conductor";
+import {
+  type ConductorHost,
+  EMPTY_PERSISTED_CONDUCTOR,
+  type PersistedConductor,
+  PersistedConductorSchema,
+  type MemberWatch,
+  type PersistedMembers,
+  type PersistedTranscript,
+  PersistedTranscriptSchema,
+  type PersistedWorks,
+  repointConductorAttachments,
+  startConductorHost,
+} from "kolu-conductor";
+import {
+  type Decision,
+  hostOf,
+  modeOf,
+  type SetupKey,
+  type WorkKey,
+  workIdOf,
+  type WorkRole,
+} from "kolu-work";
 import pino, { type Logger } from "pino";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
@@ -52,14 +87,9 @@ import {
   startFleetMcpEndpoint,
 } from "../fleet/mcpEndpoint.ts";
 import { decodeStateBackup, store } from "../state.ts";
-import {
-  EMPTY_PERSISTED_CONDUCTOR,
-  PersistedConductorSchema,
-  repointConductorAttachments,
-  startConductorHost,
-  type ConductorHost,
-  type PersistedConductor,
-} from "kolu-conductor";
+import { foldWorksByKey_1_53_0 } from "../stateLadder.ts";
+import { TRANSCRIPT_FILE_VERSION } from "../stateShape.ts";
+import { transcriptFilePath, transcriptFileStore } from "./transcriptFile.ts";
 
 const HOME = "/home/tester";
 
@@ -73,14 +103,37 @@ const FLEET_REF = "local/11111111-1111-4111-8111-111111111111";
  *  one. */
 const OTHER_REF = "remote:prod/22222222-2222-4222-8222-222222222222";
 
+/** ... and a third, on a third machine, for the carried-over work that was
+ *  nobody's group — a plain watch the human asked for. */
+const THIRD_REF = "remote:box/33333333-3333-4333-8333-333333333333";
+
+/** The two work keys these fixtures use — a work IS its branch on a machine,
+ *  so the ref's host half and the key's host are the same machine. */
+const KEY = {
+  kind: "branch",
+  host: "local",
+  repo: "/srv/repo",
+  branch: "fix-the-parser",
+} as const satisfies WorkKey;
+const OTHER_KEY = {
+  kind: "branch",
+  host: "remote:prod",
+  repo: "/srv/repo",
+  branch: "last-week",
+} as const satisfies WorkKey;
+
 /** The version this file's ladder pin names. A literal, deliberately: a pin
  *  read off the constant it is pinning asserts nothing. The conductor arrived
  *  at 1.44.0 (master took 1.43.0 for `hostOrder` — see the note on the ladder
- * entry in `state.ts`), 1.45.0 is the rename of its key, and 1.49.0 is the
- * watch list joining the record (1.46.0, 1.47.0 and 1.48.0 are the numbers
- * its earlier builds stamped — one rung walks every one of those shapes
- * through, see that rung). */
-const STATE_SCHEMA_VERSION = "1.49.0";
+ * entry in `state.ts`), 1.45.0 is the rename of its key, 1.49.0 is the watch
+ * list joining the record (1.46.0, 1.47.0 and 1.48.0 are the numbers its
+ * earlier builds stamped — one rung walks every one of those shapes through),
+ * and 1.50.0 is the rung that turned the watch list into works and moved the
+ * transcript into a file of its own; 1.51.0 sweeps the check ping-pong out of
+ * the works that rung carried; 1.52.0 moves a member's watch bookkeeping out of
+ * a work written by an earlier deployed build of this branch; 1.53.0 folds
+ * every work onto its KEY and moves the transcript file's stamp with it. */
+const STATE_SCHEMA_VERSION = "1.53.0";
 
 const log = {
   debug() {},
@@ -111,10 +164,116 @@ function expectStampedAtBoot(stamped: unknown, after: number): void {
 }
 
 /** kolu-server's state root — where `config.json` is, and where the
- *  conductor's attachments go. Taken off the store rather than off the env
- *  for the reason `live.ts` takes it there: two readings of one root. */
+ *  conductor's attachments and its transcript file go. Taken off the store
+ *  rather than off the env for the reason `live.ts` takes it there: two
+ *  readings of one root. */
 const stateRoot = dirname(store.path);
 const conductorStore = confStore<PersistedConductor>(store, "conductor");
+const worksStore = confStore<PersistedWorks>(store, "works");
+/** ... and the `members` key beside it: what kolu knows about each member
+ *  TERMINAL, which is the half of a restart that decides whether it rings. */
+const membersStore = confStore<PersistedMembers>(store, "members");
+/** The transcript, through the SAME store `live.ts` hands the conversation —
+ *  so what this file proves is the file the server writes, not a second
+ *  reader of it. */
+const transcriptStore = transcriptFileStore(stateRoot, TRANSCRIPT_FILE_VERSION);
+const transcriptPath = join(stateRoot, "conductor", "transcript.json");
+
+/** The storage half of `ConductorDeps`, exactly as `live.ts` composes it —
+ *  spelled once so no test here can accidentally prove something about a
+ *  record the server does not keep. The work FILES are stubbed: copying a
+ *  worktree's `.waterfall/` is the padi port's story (`workFiles.ts`), not
+ *  this file's. */
+const recordDeps = () => ({
+  store: conductorStore,
+  works: worksStore,
+  members: membersStore,
+  transcript: transcriptStore,
+  transcriptPath: () => transcriptFilePath(stateRoot),
+  publishWork: () => {},
+  publishMember: () => {},
+  publishReading: () => {},
+  worksMoved: () => {},
+  watchScopeMoved: () => {},
+  workFiles: {
+    list: async () => [],
+    keep: async () => [],
+    sweep: async () => {},
+  },
+});
+
+/** A STORED WORK AND ITS MEMBERS, in today's shape — the two keys a previous
+ *  kolu-server left behind, which a restart must come back to whole. Built
+ *  here rather than through a migration rung: what these tests are about is
+ *  the record as it stands, and a rung's output is a different promise. */
+function stored(
+  key: WorkKey,
+  title: string,
+  members: ReadonlyArray<{
+    readonly ref: string;
+    readonly role: WorkRole;
+    readonly watch: MemberWatch;
+  }>,
+  decisions: ReadonlyArray<Decision> = [],
+): { works: PersistedWorks; members: PersistedMembers } {
+  const id = workIdOf(key);
+  const at = "2026-01-01T00:00:00.000Z";
+  return {
+    works: {
+      [id]: {
+        key,
+        title,
+        startedAt: at,
+        decisions,
+        events: [
+          { at, by: "you", kind: "requested", terminal: null, text: title },
+          ...members.map((one) => ({
+            at,
+            by: "kolu" as const,
+            kind: "joined" as const,
+            terminal: one.ref,
+            role: one.role,
+          })),
+        ],
+        state: { kind: "open" },
+      },
+    },
+    members: Object.fromEntries(
+      members.map((one) => [
+        one.ref,
+        {
+          work: id,
+          role: one.role,
+          joinedAt: at,
+          worktree: null,
+          watch: one.watch,
+        },
+      ]),
+    ),
+  };
+}
+
+/** The setup answer a reader shows, as a decision — the ONE place a work's
+ *  mode is written. */
+const answered = (key: SetupKey, value: string): Decision => ({
+  kind: "answered",
+  id: `d-${key}`,
+  ask: "setup",
+  at: "2026-01-01T00:00:00.000Z",
+  key,
+  header: key,
+  question: key,
+  options: [],
+  multiple: false,
+  file: "",
+  answer: {
+    at: "2026-01-01T00:00:00.000Z",
+    how: "answered",
+    picked: [value],
+    text: null,
+    from: "card",
+  },
+});
 
 /** AN ENDPOINT THAT ANSWERS, and the REAL one: the host proves the fleet MCP
  *  face before it hands the URL to an agent, and the proof is a real
@@ -126,6 +285,8 @@ const SAVED_AGENT = process.env[AGENT_ENV];
 
 beforeEach(async () => {
   conductorStore.set(EMPTY_PERSISTED_CONDUCTOR);
+  worksStore.set({});
+  membersStore.set({});
   rmSync(join(stateRoot, "conductor"), { recursive: true, force: true });
   process.env[AGENT_ENV] = "/nix/store/fake-acp-adapter";
   liveEndpoint = await startFleetMcpEndpoint({
@@ -145,6 +306,8 @@ afterEach(async () => {
   if (SAVED_AGENT === undefined) delete process.env[AGENT_ENV];
   else process.env[AGENT_ENV] = SAVED_AGENT;
   conductorStore.set(EMPTY_PERSISTED_CONDUCTOR);
+  worksStore.set({});
+  membersStore.set({});
   rmSync(join(stateRoot, "conductor"), { recursive: true, force: true });
   await liveEndpoint.close();
 });
@@ -175,8 +338,7 @@ function hostOver(): {
     fleetMcp: () => liveEndpoint,
     proveFleetMcp: proveFleetMcpEndpoint,
     publish: () => {},
-    watchListMoved: () => {},
-    store: conductorStore,
+    ...recordDeps(),
     storePath: () => store.path,
     stateRoot,
     spawn: async (opts) => {
@@ -198,6 +360,9 @@ function hostOver(): {
         signInCancel: async () => false,
         setOption: async () => {},
         newSession: async () => {},
+        // The wipe reports the removes itself now (the harness owns the rows);
+        // nothing in this file asks it to.
+        clearSession: async () => {},
         stop: async () => {
           // A real `stop()` lets the session go and publishes one final state
           // saying so. Modelled because this file is where it bites: the flush
@@ -229,7 +394,7 @@ function hostOver(): {
 }
 
 describe("the conversation survives a restart", () => {
-  it("round-trips the transcript, the session and the fleet through kolu-server's own `config.json`", async () => {
+  it("round-trips the transcript through its own file, and the session and fleet through `config.json`", async () => {
     const first = hostOver();
     await first.host.prompt("hello", [], [], false);
     // What the open publishes: the conversation this IS, and the terminals it
@@ -258,19 +423,29 @@ describe("the conversation survives a restart", () => {
     // The flush the shutdown runs — everything the throttle still owes.
     await first.host.dispose();
 
-    // The BYTES, read back the way the next boot reads them: through the
-    // record's own schema, so "it round-trips" means "it round-trips as a
-    // value this code would accept", not "the JSON looked about right".
+    // THE ROWS ARE NOT IN `config.json` ANY MORE. That is the point of the
+    // 1.50.0 rung: conf rewrites the whole file on every `set`, and the
+    // transcript was most of its bytes.
     const file: unknown = JSON.parse(readFileSync(store.path, "utf8"));
     if (typeof file !== "object" || file === null || !("conductor" in file))
       throw new Error("kolu-server's state kept no conductor record");
-    const onDisk = Schema.decodeUnknownSync(PersistedConductorSchema)(
-      file.conductor,
-    );
-    expect(onDisk.rows).toEqual([
+    expect(Object.keys(file.conductor as object)).not.toContain("rows");
+    // The BYTES of the transcript, read back the way the next boot reads
+    // them — through the file store, so "it round-trips" means "it
+    // round-trips as a value this code would accept", not "the JSON looked
+    // about right". The stamp is the ladder's, and a reader that found
+    // another one would refuse rather than guess.
+    const kept = JSON.parse(readFileSync(transcriptPath, "utf8")) as {
+      version: string;
+    };
+    expect(kept.version).toBe(TRANSCRIPT_FILE_VERSION);
+    expect(transcriptStore.get().rows).toEqual([
       row("a", 1, "one"),
       row("b", 2, "two and a half"),
     ]);
+    const onDisk = Schema.decodeUnknownSync(PersistedConductorSchema)(
+      file.conductor,
+    );
     // The teardown's own last breath says the session is gone — it is a stop,
     // not a conversation ending — and a record that believed it would hand the
     // next boot a transcript with nothing to resume it into.
@@ -298,108 +473,154 @@ describe("the conversation survives a restart", () => {
     await second.host.dispose();
   });
 
-  it("keeps the WATCH LIST — with what each terminal was told — and never the held news", async () => {
-    const watchedFrom = Date.now();
-    const first = hostOver();
-    first.host.watchTerminal(FLEET_REF, "created");
-    first.host.watchTerminal(OTHER_REF, "created");
-    // The Conductor briefed the first one, so its next idle is a STOP rather
-    // than the `ready` an agent nobody has spoken to rings.
-    first.host.saidTo(FLEET_REF);
-    // One of them rang and the conversation was idle, so it was told at once.
-    first.host.observe([
-      {
-        ref: FLEET_REF,
-        host: "local",
-        terminalId: FLEET_REF.slice(FLEET_REF.indexOf("/") + 1),
-        hostName: "box",
-        name: "fix the parser",
-        agent: "claude-code",
-        level: "stopped",
-        foregroundShell: false,
-        root: { ref: FLEET_REF, name: "fix the parser" },
-      },
-    ]);
-    await vi.waitFor(() => {
-      expect(first.wakes()).toBe(1);
-    });
-    await first.host.dispose();
-
-    const file: unknown = JSON.parse(readFileSync(store.path, "utf8"));
-    if (typeof file !== "object" || file === null || !("conductor" in file))
-      throw new Error("kolu-server's state kept no conductor record");
-    const onDisk = Schema.decodeUnknownSync(PersistedConductorSchema)(
-      file.conductor,
+  it("comes back to the WORKS it left, with their members and their decisions", async () => {
+    // The record a previous kolu-server wrote: one work in progress with two
+    // member terminals on two machines.
+    const carried = stored(
+      KEY,
+      "fix the parser",
+      [
+        {
+          ref: FLEET_REF,
+          role: "planner",
+          watch: {
+            name: "fix the parser",
+            agent: "claude-code",
+            told: "stopped",
+            joined: "created-run",
+            spoken: true,
+            ran: true,
+          },
+        },
+        {
+          ref: OTHER_REF,
+          role: "implementor",
+          watch: {
+            name: "the implementor",
+            agent: null,
+            told: null,
+            joined: "created",
+            spoken: false,
+            ran: false,
+          },
+        },
+      ],
+      [answered("mode", "full")],
     );
-    // Per entry, the facts a restart cannot re-derive — and `told` is the one
-    // that makes the restart quiet. The runtime halves of a live entry (the
-    // last reading, and whether the next one baselines) are NOT here: a
-    // restart re-reads the world. `since` is each terminal's own join time,
-    // so it is checked as a window rather than pinned.
-    expect(onDisk.watched.map(({ since: _joined, ...rest }) => rest)).toEqual([
-      {
-        ref: FLEET_REF,
-        name: "fix the parser",
-        agent: "claude-code",
-        told: "stopped",
-        joined: "created",
-        spoken: true,
-        ran: true,
-        root: { ref: FLEET_REF, name: "fix the parser" },
-      },
-      {
-        ref: OTHER_REF,
-        name: "",
-        agent: null,
-        told: null,
-        joined: "created",
-        spoken: false,
-        ran: false,
-        // Never read: the watcher says nothing about a terminal on a host it
-        // has not reached, so which piece of work it is part of is not known
-        // yet — and a record that guessed would be the restart inventing a
-        // group.
-        root: null,
-      },
-    ]);
-    for (const entry of onDisk.watched)
-      expectStampedAtBoot(entry.since, watchedFrom);
+    worksStore.set(carried.works);
+    membersStore.set(carried.members);
 
+    const host = hostOver().host;
+    const works = host.works();
+    expect(works.map(([id]) => id)).toEqual([workIdOf(KEY)]);
+    const work = works[0]?.[1];
+    if (work === undefined) throw new Error("the work was not restored");
+    expect(work.title).toBe("fix the parser");
+    // THE WATCH'S SCOPE IS MEMBERSHIP: both terminals come back watched, on
+    // the hosts their refs name, without anything having to re-derive a
+    // grouping from the machines (which may not even be reachable yet).
+    expect(host.memberRefs()).toEqual([FLEET_REF, OTHER_REF]);
+    // ...and the setup a reader shows is read back off the decisions, not off
+    // a second copy of it, while the HOST is read off the key.
+    expect(modeOf(work)).toBe("full");
+    expect(hostOf(work)).toBe("local");
     // THE HELD NEWS IS MEMORY ONLY: a restart re-reads the world rather than
     // replaying a queue about one that has moved on, so there is no such key
     // on disk to replay from.
+    const file: unknown = JSON.parse(readFileSync(store.path, "utf8"));
+    if (typeof file !== "object" || file === null || !("conductor" in file))
+      throw new Error("kolu-server's state kept no conductor record");
     expect(Object.keys(file.conductor as object)).not.toContain("held");
+    expect(host.state().held).toEqual([]);
+    await host.dispose();
+  });
 
-    // ... and the next boot comes back watching exactly those two, with
-    // nothing waiting.
-    const second = hostOver();
-    expect(second.host.watched()).toEqual([FLEET_REF, OTHER_REF]);
-    expect(second.host.state().held).toEqual([]);
-    await second.host.dispose();
+  it("a backup restore replaces the works with the snapshot's, and the host reloads them", async () => {
+    // What this process was running when the person pressed restore.
+    const today = stored(KEY, "the work of today", [
+      {
+        ref: FLEET_REF,
+        role: "planner",
+        watch: {
+          name: "the work of today",
+          agent: null,
+          told: null,
+          joined: "created",
+          spoken: false,
+          ran: false,
+        },
+      },
+    ]);
+    worksStore.set(today.works);
+    membersStore.set(today.members);
+    const host = hostOver().host;
+    expect(host.works().map(([, one]) => one.title)).toEqual([
+      "the work of today",
+    ]);
+
+    // ...and what the snapshot holds. `restoreWorks` is what `stateBackups.ts`
+    // hands the decoded `works` key to: the live host is that key's one
+    // writer, so a restore that wrote it underneath would be overwritten by
+    // the host's own save within the second.
+    const snapshot = stored(OTHER_KEY, "the work of last week", [
+      {
+        ref: OTHER_REF,
+        role: "implementor",
+        watch: {
+          name: "the work of last week",
+          agent: "claude-code",
+          told: null,
+          joined: "asked",
+          spoken: true,
+          ran: false,
+        },
+      },
+    ]);
+    host.restoreWorks(snapshot.works, snapshot.members);
+
+    // The host's works ARE the snapshot's — not merged with, not beside.
+    expect(host.works().map(([id]) => id)).toEqual([workIdOf(OTHER_KEY)]);
+    expect(host.works().map(([, one]) => one.title)).toEqual([
+      "the work of last week",
+    ]);
+    // The watch follows membership, so it re-scopes onto the restored members
+    // and drops the terminal no restored work names.
+    expect(host.memberRefs()).toEqual([OTHER_REF]);
+    // ...and the key is written NOW, so a crash a moment later comes back to
+    // what the person restored rather than to what they replaced.
+    expect(Object.keys(worksStore.get())).toEqual([workIdOf(OTHER_KEY)]);
+    await host.dispose();
   });
 });
 
 describe("the conductor's rungs", () => {
+  /** A state file at `version`, carrying `keys` on top of a real one — every
+   *  fixture below is this build's own `preferences` plus the key under
+   *  test, walked through the REAL ladder by `decodeStateBackup`. */
+  const fileAt = (version: string, keys: Record<string, unknown>): unknown => ({
+    preferences: (
+      JSON.parse(readFileSync(store.path, "utf8")) as {
+        preferences: unknown;
+      }
+    ).preferences,
+    hosts: [],
+    viewerMode: "dark",
+    ...keys,
+    __internal__: { migrations: { version } },
+  });
+
   it("cost a pre-conductor state file nothing, and carry the version", () => {
     // A 1.42-era file: everything kolu-server persisted before the conductor
     // moved here, and no conversation key at all. Walked through the REAL
     // ladder (`decodeStateBackup` builds a scratch store with the shipped
     // `CONF_MIGRATIONS`), so this proves the rung rather than a copy of it.
-    const legacy: unknown = {
-      preferences: (
-        JSON.parse(readFileSync(store.path, "utf8")) as {
-          preferences: unknown;
-        }
-      ).preferences,
-      hosts: [],
-      viewerMode: "dark",
-      __internal__: { migrations: { version: "1.42.0" } },
-    };
-    const migrated = decodeStateBackup(legacy, "1.42-era");
+    const migrated = decodeStateBackup(fileAt("1.42.0", {}), "1.42-era");
     // The rung SEEDS; it does not import. padi's own 1.5.0 rung deletes the
     // matching key on each host, and nothing is carried across — that record
     // was written by another process against another `$HOME`.
     expect(migrated.conductor).toEqual(EMPTY_PERSISTED_CONDUCTOR);
+    // ...and a file that never watched anything has no work to show for it.
+    expect(migrated.works).toEqual({});
 
     // …and the live store carries today's version, so a file this build wrote
     // says which ladder position it is at.
@@ -422,22 +643,23 @@ describe("the conductor's rungs", () => {
       rows: [row("a", 1, "one")],
       fleet: [FLEET_REF],
     };
-    const legacy: unknown = {
-      preferences: (
-        JSON.parse(readFileSync(store.path, "utf8")) as {
-          preferences: unknown;
-        }
-      ).preferences,
-      hosts: [],
-      viewerMode: "dark",
-      orchestrator: held,
-      __internal__: { migrations: { version: "1.44.0" } },
-    };
-    const migrated = decodeStateBackup(legacy, "1.44-era");
-    // The conversation itself, carried over whole — plus the empty watch list
-    // the rung ABOVE this one seeds, because a 1.44-era file walks the rest
-    // of the ladder on its way here.
-    expect(migrated.conductor).toEqual({ ...held, watched: [] });
+    const migrated = decodeStateBackup(
+      fileAt("1.44.0", { orchestrator: held }),
+      "1.44-era",
+    );
+    // The conversation itself, carried over whole — minus the rows, which the
+    // 1.50.0 rung moved into the transcript file on the way here (that file's
+    // own bytes are proven in `stateMigration.test.ts`, where the scratch
+    // store outlives the walk).
+    expect(migrated.conductor).toEqual({
+      sessionId: "sess-held",
+      cwd: HOME,
+      model: "claude-sonnet-4",
+      fleet: [FLEET_REF],
+    });
+    // A file that never had a watch list has no works, and the key is THERE:
+    // the shape is complete however old the file was.
+    expect(migrated.works).toEqual({});
     // And the old key is gone — one conversation, one record, not a stale
     // copy left behind for the next reader to find.
     expect((migrated as unknown as Record<string, unknown>).orchestrator).toBe(
@@ -445,43 +667,13 @@ describe("the conductor's rungs", () => {
     );
   });
 
-  it("seed a `watched` key onto a conversation written before the watch existed", () => {
-    // A 1.45-era file: a real conversation — a session a person can resume,
-    // the rows their chat reopens with, the terminals it was working with —
-    // and no watch list, because there was none to write. The record's schema
-    // would refuse that file on read, so the rung owes it the key.
-    const held = {
-      sessionId: "sess-held",
-      cwd: HOME,
-      model: "claude-sonnet-4",
-      rows: [row("a", 1, "one")],
-      fleet: [FLEET_REF],
-    };
-    const legacy: unknown = {
-      preferences: (
-        JSON.parse(readFileSync(store.path, "utf8")) as {
-          preferences: unknown;
-        }
-      ).preferences,
-      hosts: [],
-      viewerMode: "dark",
-      conductor: held,
-      __internal__: { migrations: { version: "1.45.0" } },
-    };
-    const migrated = decodeStateBackup(legacy, "1.45-era");
-    // EMPTY is the truth about a conversation that has never watched
-    // anything, and every other fact carries across untouched: this rung is
-    // an addition, not a reshape.
-    expect(migrated.conductor).toEqual({ ...held, watched: [] });
-  });
-
-  it("complete each entry of a watch list a pre-release build stamped 1.46.0", () => {
-    // A file the watch list's own earlier builds wrote: it HAS a `watched`
-    // key, at the version number those builds bumped to, but its entries
-    // predate `joined`/`spoken`/`ran` and `root`. The schema carries no
-    // defaults for them, so without the rung this file is refused on read —
-    // and with it, each entry gains the reading that claims nothing it did
-    // not see, while a fact the file DID record is kept, never overwritten.
+  it("lose no terminal off a watch list a pre-release build stamped 1.46.0", () => {
+    // A file the watch list's own earlier builds wrote: its first entry
+    // predates `joined`/`spoken`/`ran`, `root` and `since`. TWO rungs run
+    // over it — 1.49.0 completes each entry, 1.50.0 turns them into works —
+    // and the promise across both is that no watched terminal is lost, that a
+    // fact the file DID record is kept, and that one it never had is the
+    // reading claiming nothing it did not see.
     const held = {
       sessionId: "sess-held",
       cwd: HOME,
@@ -502,47 +694,54 @@ describe("the conductor's rungs", () => {
         },
       ],
     };
-    const legacy: unknown = {
-      preferences: (
-        JSON.parse(readFileSync(store.path, "utf8")) as {
-          preferences: unknown;
-        }
-      ).preferences,
-      hosts: [],
-      viewerMode: "dark",
-      conductor: held,
-      __internal__: { migrations: { version: "1.46.0" } },
-    };
     const before = Date.now();
-    const migrated = decodeStateBackup(legacy, "1.46-pre-release");
-    // The `since` the rung stamps is read off its own clock, so it is checked
-    // as a WINDOW below rather than pinned; everything else is exact.
+    const migrated = decodeStateBackup(
+      fileAt("1.46.0", { conductor: held }),
+      "1.46-pre-release",
+    );
+    // ONE work — the second entry's `root` names the first — holding both
+    // terminals as members, with each entry's own wake bookkeeping carried
+    // onto its member verbatim.
+    const ids = Object.keys(migrated.works);
+    expect(ids.length).toBe(1);
+    const id = ids[0] ?? "";
+    const work = migrated.works[id];
+    if (work === undefined) throw new Error("the watch list lost its work");
+    expect(work.title).toBe("build");
+    // ... and both terminals are members of it, in the ONE members map keyed
+    // by ref, with each entry's own wake bookkeeping carried on verbatim.
+    const watched = migrated.members;
     expect(
-      migrated.conductor.watched.map(({ since: _stamped, ...rest }) => rest),
-    ).toEqual([
-      {
-        ref: FLEET_REF,
-        name: "build",
-        agent: "claude",
-        told: "stopped",
-        joined: "asked",
-        spoken: false,
-        ran: false,
-        root: null,
-      },
-      held.watched[1],
-    ]);
-    for (const entry of migrated.conductor.watched)
-      expectStampedAtBoot(entry.since, before);
-    expect(migrated.conductor.rows).toEqual(held.rows);
+      Object.entries(watched)
+        .filter(([, one]) => one.work === id)
+        .map(([ref]) => ref),
+    ).toEqual([FLEET_REF, OTHER_REF]);
+    expect([
+      watched[FLEET_REF]?.watch.told,
+      watched[OTHER_REF]?.watch.told,
+    ]).toEqual(["stopped", null]);
+    expect([
+      watched[FLEET_REF]?.watch.joined,
+      watched[OTHER_REF]?.watch.joined,
+    ]).toEqual(["asked", "created-run"]);
+    expect([
+      watched[FLEET_REF]?.watch.spoken,
+      watched[OTHER_REF]?.watch.spoken,
+    ]).toEqual([false, true]);
+    // Every member's role is `other`: roles arrived with works, and a watch
+    // is exactly "keep an eye on this".
+    expect(Object.values(watched).every((one) => one.role === "other")).toBe(
+      true,
+    );
+    // The start is the 1.49.0 rung's own stamp — the earliest instant kolu
+    // can honestly vouch for — not the epoch and not an invented past.
+    expectStampedAtBoot(work.startedAt, before);
   });
 
-  it("complete a watch list a 1.47.0 build wrote with no piece of work on it", () => {
-    // The rung's OTHER pre-release number: these entries are complete in
-    // every way the watch list knew about at 1.47.0, and carry no `root` —
-    // the grouping arrived after them. A restart owes them `null` (nothing
-    // has read their hosts yet), and the first reading after the boot says
-    // which piece of work each is part of.
+  it("turn a MASTER-SHAPED 1.49.0 file into works without losing a terminal", () => {
+    // THE NUMBER A RUNNING INSTALL SITS ON, with everything 1.49.0
+    // guarantees: rows in the store and a complete watch list beside them —
+    // two terminals grouped as one piece of work, and a third on its own.
     const held = {
       sessionId: "sess-held",
       cwd: HOME,
@@ -558,52 +757,7 @@ describe("the conductor's rungs", () => {
           joined: "created-run",
           spoken: true,
           ran: true,
-        },
-      ],
-    };
-    const legacy: unknown = {
-      preferences: (
-        JSON.parse(readFileSync(store.path, "utf8")) as {
-          preferences: unknown;
-        }
-      ).preferences,
-      hosts: [],
-      viewerMode: "dark",
-      conductor: held,
-      __internal__: { migrations: { version: "1.47.0" } },
-    };
-    const before = Date.now();
-    const migrated = decodeStateBackup(legacy, "1.47-pre-release");
-    expect(
-      migrated.conductor.watched.map(({ since: _stamped, ...rest }) => rest),
-    ).toEqual([{ ...held.watched[0], root: null }]);
-    expectStampedAtBoot(migrated.conductor.watched[0]?.since, before);
-    // ... and nothing else moved: the rung is an addition.
-    expect(migrated.conductor.rows).toEqual(held.rows);
-  });
-
-  it("give a watch list a 1.48.0 build wrote the start time it never recorded", () => {
-    // THE NUMBER A RUNNING INSTALL SITS ON. These entries are complete in
-    // every way the watch list knew about at 1.48.0 — they even carry their
-    // piece of work — and they have no `since`, because nothing was counting
-    // a duration then. The rung is numbered above that version precisely so
-    // it runs for this file; were it still 1.48.0, conf would skip it and the
-    // conductor's schema would refuse the record by name on the next boot.
-    const held = {
-      sessionId: "sess-held",
-      cwd: HOME,
-      model: null,
-      rows: [row("a", 1, "one")],
-      fleet: [FLEET_REF],
-      watched: [
-        {
-          ref: FLEET_REF,
-          name: "plan the cutover",
-          agent: "claude",
-          told: "stopped",
-          joined: "created-run",
-          spoken: true,
-          ran: true,
+          since: "2026-01-01T00:00:00.000Z",
           root: { ref: FLEET_REF, name: "plan the cutover" },
         },
         {
@@ -614,36 +768,64 @@ describe("the conductor's rungs", () => {
           joined: "created-run",
           spoken: true,
           ran: true,
+          since: "2026-01-01T00:10:00.000Z",
           root: { ref: FLEET_REF, name: "plan the cutover" },
+        },
+        {
+          ref: THIRD_REF,
+          name: "a plain watch",
+          agent: null,
+          told: null,
+          joined: "asked",
+          spoken: false,
+          ran: false,
+          since: "2026-01-01T00:20:00.000Z",
+          root: null,
         },
       ],
     };
-    const legacy: unknown = {
-      preferences: (
-        JSON.parse(readFileSync(store.path, "utf8")) as {
-          preferences: unknown;
-        }
-      ).preferences,
-      hosts: [],
-      viewerMode: "dark",
-      conductor: held,
-      __internal__: { migrations: { version: "1.48.0" } },
-    };
-    const before = Date.now();
-    const migrated = decodeStateBackup(legacy, "1.48-era");
-    // Every fact the file recorded is kept — the grouping included — and the
-    // one it never had is the boot's own time.
-    expect(
-      migrated.conductor.watched.map(({ since: _stamped, ...rest }) => rest),
-    ).toEqual(held.watched);
-    for (const entry of migrated.conductor.watched)
-      expectStampedAtBoot(entry.since, before);
-    // ONE STAMP FOR THE WHOLE FILE: two terminals watched as one piece of
-    // work must not come back as two ages a millisecond apart.
-    expect(migrated.conductor.watched[1]?.since).toBe(
-      migrated.conductor.watched[0]?.since,
+    const migrated = decodeStateBackup(
+      fileAt("1.49.0", { conductor: held }),
+      "1.49-master",
     );
-    expect(migrated.conductor.rows).toEqual(held.rows);
+    // The rows left the record...
+    expect(migrated.conductor).toEqual({
+      sessionId: "sess-held",
+      cwd: HOME,
+      model: null,
+      fleet: [FLEET_REF],
+    });
+    // ...and the watch list left it too, as two works: the waterfall its two
+    // terminals were drawn as, and the plain watch on its own. A work with no
+    // branch IS the terminal somebody asked kolu to watch, so that is its key.
+    const ids = Object.keys(migrated.works);
+    expect(ids).toEqual([
+      workIdOf({ kind: "watch", terminal: FLEET_REF }),
+      workIdOf({ kind: "watch", terminal: THIRD_REF }),
+    ]);
+    const all = Object.values(migrated.works);
+    const memberRefs = (id: string) =>
+      Object.entries(migrated.members)
+        .filter(([, one]) => one.work === id)
+        .map(([ref]) => ref);
+    expect(
+      all.map((one, at) => [one.title, memberRefs(ids[at] ?? "")]),
+    ).toEqual([
+      ["plan the cutover", [FLEET_REF, OTHER_REF]],
+      ["a plain watch", [THIRD_REF]],
+    ]);
+    // NOT A TERMINAL LOST, and each age is the one the person was already
+    // being shown — the earliest join in its group, never this boot.
+    expect(all.map((one) => one.startedAt)).toEqual([
+      "2026-01-01T00:00:00.000Z",
+      "2026-01-01T00:20:00.000Z",
+    ]);
+    // The mode is a DECISION, so a card reads it the same way it reads an
+    // answer a person gave; the HOST is the key's own, never a decision.
+    expect(all.map((one) => modeOf(one))).toEqual(["watch", "watch"]);
+    expect(all.map((one) => hostOf(one))).toEqual(["local", "remote:box"]);
+    // ...and the timeline opens with the carry-over rather than with nothing.
+    expect(all[0]?.events[0]?.kind).toBe("carried-over");
   });
 
   it("re-point a remembered attachment at the corner its bytes moved to", () => {
@@ -652,10 +834,7 @@ describe("the conductor's rungs", () => {
     // is handed it and the harness reads the file off it. So the rows have to
     // be re-pointed or every chip in a restored transcript names a file at an
     // address that no longer exists.
-    const before: PersistedConductor = {
-      sessionId: "sess-held",
-      cwd: HOME,
-      model: null,
+    const before: PersistedTranscript = {
       rows: [
         {
           id: "u1",
@@ -675,8 +854,6 @@ describe("the conductor's rungs", () => {
           ],
         },
       ],
-      fleet: [],
-      watched: [],
     };
     const after = repointConductorAttachments(
       before,
@@ -699,29 +876,51 @@ describe("the conductor's rungs", () => {
 });
 
 describe("a record that parses but is wrong", () => {
-  it("REFUSES by name rather than restoring a transcript with holes in it", () => {
+  it("REFUSES in plain words rather than restoring a transcript with holes in it", () => {
     // A row with no `kind` — the shape a hand-edit, a half-written file or a
-    // rolled-back binary leaves behind. `confStore` casts, so without the
-    // re-validation this reaches the panel as a row nothing can draw.
-    //
-    // Written through the store rather than onto the bytes, because the live
-    // `Conf` is already open over this file and would overwrite a behind-its-
-    // back edit; the cast is the point of the test — the store does no
-    // decoding, which is exactly what `readPersistedConductor` repairs.
-    conductorStore.set({
-      sessionId: null,
-      cwd: HOME,
-      model: null,
+    // rolled-back binary leaves behind. The transcript store casts, so
+    // without the re-validation this reaches the panel as a row nothing can
+    // draw. The refusal says what happened and names the FILE the rows are
+    // in; what to DO about it is the two buttons the panel draws off the
+    // state (`conductor/recovery.test.ts`), never an instruction to go and
+    // edit the file.
+    transcriptStore.set({
       rows: [
         { id: "a", seq: 1, since: "2026-01-01T00:00:00.000Z" },
-      ] as unknown as PersistedConductor["rows"],
-      fleet: [],
-      watched: [],
+      ] as unknown as PersistedTranscript["rows"],
     });
 
     const host = hostOver().host;
-    expect(() => host.watch(() => {})).toThrow(/does not match schema/);
-    expect(() => host.watch(() => {})).toThrow(store.path);
+    expect(() => host.watch(() => {})).toThrow(
+      /kolu could not read the Conductor's saved transcript/,
+    );
+    expect(() => host.watch(() => {})).toThrow(transcriptPath);
+    expect(host.state().unreadable?.key).toBe("transcript");
+  });
+
+  it("REFUSES a transcript file this build's ladder did not stamp", () => {
+    // The transcript file rides kolu-server's ONE ladder: a future change to
+    // the row shape is a rung in `state.ts` that rewrites this file and moves
+    // `TRANSCRIPT_FILE_VERSION` to that rung's number. So a file carrying any
+    // other stamp is a file no rung brought here — a rolled-back binary, a
+    // hand-edit, a copy from another install — and reading it as if the rows
+    // meant what this build thinks they mean is exactly the silent
+    // data-mangling the ladder exists to prevent.
+    mkdirSync(join(stateRoot, "conductor"), { recursive: true });
+    writeFileSync(
+      transcriptPath,
+      JSON.stringify({ version: "9.99.0", rows: [] }),
+    );
+    expect(() => transcriptStore.get()).toThrow(transcriptPath);
+    expect(() => transcriptStore.get()).toThrow("9.99.0");
+  });
+
+  it("reads a state root with no transcript file as a conversation that has said nothing", () => {
+    // A fresh install, or one whose ladder wrote no rows. Missing is not
+    // broken: `{rows: []}` is the truth, and the refusals above are for a
+    // file that IS there and does not belong.
+    rmSync(transcriptPath, { force: true });
+    expect(transcriptStore.get()).toEqual({ rows: [] });
   });
 });
 
@@ -732,7 +931,7 @@ describe("an attachment's bytes", () => {
   const PIXEL =
     "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
 
-  it("land in the state root and NEVER in `config.json`", async () => {
+  it("land in the state root and NEVER in the record", async () => {
     mkdirSync(stateRoot, { recursive: true });
     const first = hostOver();
     const written = first.host.attach({
@@ -770,20 +969,21 @@ describe("an attachment's bytes", () => {
 
     // The bytes are on disk, once, as bytes.
     expect(readFileSync(written.path).length).toBe(70);
-    // ...and `config.json` carries the chip and nothing else. A copy of the
-    // base64 in the record would be read back in full on every boot, and a
-    // single pasted screenshot would be the largest thing in the file.
+    // ...and neither file carries the base64. A copy of it in the record
+    // would be read back in full on every boot, and a single pasted
+    // screenshot would be the largest thing in the state root.
     const raw = readFileSync(store.path, "utf8");
-    expect(raw).not.toContain("base64");
-    expect(raw).not.toContain("iVBORw0KGgo");
-    const config = JSON.parse(raw) as {
-      conductor: {
-        rows: ReadonlyArray<{
-          attachments?: ReadonlyArray<Record<string, unknown>>;
-        }>;
-      };
+    const rows = readFileSync(transcriptPath, "utf8");
+    for (const text of [raw, rows]) {
+      expect(text).not.toContain("base64");
+      expect(text).not.toContain("iVBORw0KGgo");
+    }
+    const transcript = JSON.parse(rows) as {
+      rows: ReadonlyArray<{
+        attachments?: ReadonlyArray<Record<string, unknown>>;
+      }>;
     };
-    const kept = config.conductor.rows[0]?.attachments?.[0];
+    const kept = transcript.rows[0]?.attachments?.[0];
     if (kept === undefined) throw new Error("the row lost its attachment");
     // A RESTORED ROW IS THE SAME SHAPE AS A LIVE ONE — that is what makes
     // "send again" on an old message read the same file the first send did.
@@ -841,8 +1041,7 @@ describe("a session nobody spoke into, across a restart", () => {
       publish: (next) => {
         state = next;
       },
-      watchListMoved: () => {},
-      store: conductorStore,
+      ...recordDeps(),
       storePath: () => store.path,
       stateRoot,
       spawn: startHarness,
@@ -872,11 +1071,20 @@ describe("a session nobody spoke into, across a restart", () => {
     };
   };
 
-  const onDisk = (): PersistedConductor => {
+  /** The record AND the rows, each read from the file it lives in — the
+   *  conversation is one thing to a reader and two files on disk. */
+  const onDisk = (): PersistedConductor & {
+    readonly rows: ReadonlyArray<ConductorRow>;
+  } => {
     const file: unknown = JSON.parse(readFileSync(store.path, "utf8"));
     if (typeof file !== "object" || file === null || !("conductor" in file))
       throw new Error("kolu-server's state kept no conductor record");
-    return Schema.decodeUnknownSync(PersistedConductorSchema)(file.conductor);
+    return {
+      ...Schema.decodeUnknownSync(PersistedConductorSchema)(file.conductor),
+      rows: Schema.decodeUnknownSync(PersistedTranscriptSchema)(
+        transcriptStore.get(),
+      ).rows,
+    };
   };
   const says = (rows: ReadonlyArray<ConductorRow>, kind: string): string[] =>
     rows.flatMap((r) => (r.kind === kind && "text" in r ? [r.text] : []));
@@ -937,4 +1145,70 @@ describe("a session nobody spoke into, across a restart", () => {
       `the previous conversation could not be resumed, so this is a new one: \`session/load\` failed: Resource not found: ${spoken}`,
     ]);
   }, 60_000);
+});
+
+describe("the human's real store, one observation later", () => {
+  /** THE STORE AS IT STANDS (juspay/kolu#2376, round 5): their live 1.52.0
+   *  `config.json`, sanitized — three works all ended `abandoned`, with PR
+   *  #181 merged on the forge and no `merged` event anywhere, because the
+   *  Conductor closed both terminals fourteen seconds after merging and the
+   *  only observers of that pull request went with them.
+   *
+   *  Through the REAL ladder rung (`foldWorksByKey_1_53_0`) the three become
+   *  ONE work, open, keyed by its branch. What this test is about is the
+   *  NEXT thing kolu does: look. */
+  const DEPLOYED = JSON.parse(
+    readFileSync(
+      new URL("../fixtures/deployed-1.52.0-all-ended.json", import.meta.url),
+      "utf8",
+    ),
+  ) as { works: ReadonlyArray<unknown>; members: Record<string, unknown> };
+
+  it("ends the human's work as Merged 181 on the first look after start-up", async () => {
+    const folded = foldWorksByKey_1_53_0(DEPLOYED.works, DEPLOYED.members);
+    worksStore.set(folded.works as unknown as PersistedWorks);
+    membersStore.set(folded.members as unknown as PersistedMembers);
+    const id = Object.keys(folded.works)[0] ?? "";
+
+    const over = hostOver();
+    try {
+      // What a restart read back: one work, in progress, with no terminals —
+      // the card that said "in progress · no terminals" for ever.
+      const [[, work] = []] = over.host.works();
+      expect(work?.state.kind).toBe("open");
+      expect(over.host.memberRefs()).toEqual([]);
+      // It is WATCHED all the same: the work is a branch on a machine, and
+      // that is what kolu asks about.
+      expect(over.host.prWatches()).toHaveLength(1);
+      expect(over.host.prWatches()[0]?.work).toBe(id);
+
+      // ONE observation, with a forge that says what the real one says.
+      over.host.observedPr(id, {
+        kind: "ok",
+        value: {
+          number: 181,
+          title: "the Conductor runs the waterfall",
+          url: "https://github.com/juspay/kolu/pull/181",
+          state: "merged",
+          checks: "pass",
+          checkRuns: [],
+          reviewDecision: null,
+          mergeStateStatus: "UNKNOWN",
+          headSha: "4f21a9c0d3e5b7a9c1d3e5f7a9b1c3d5e7f9a1b3",
+        },
+      });
+
+      await vi.waitFor(() => {
+        const [[, ended] = []] = over.host.works();
+        expect(ended?.state).toMatchObject({
+          kind: "ended",
+          outcome: { kind: "merged", pr: 181 },
+        });
+      });
+      // ... and it is no longer asked about.
+      expect(over.host.prWatches()).toEqual([]);
+    } finally {
+      await over.host.dispose();
+    }
+  });
 });

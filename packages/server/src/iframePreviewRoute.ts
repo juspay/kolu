@@ -541,9 +541,10 @@ function confinedHeaders(input: Record<string, string>): Headers.Headers {
  *  a stream (bytes flow disk→socket with a bounded heap, so a multi-GB video
  *  never lands in kolu-server's memory); a string body is an error reason.
  *  Status and headers are serve-dir's own, with ONE addition: the CSP sandbox
- *  of {@link confinedHeaders}. This is the single point both the local and the
- *  remote arm pass through, so neither can skip it. */
-const serveResultResponse = (
+ *  of {@link confinedHeaders}. This is the single point the local arm, the
+ *  remote arm AND the kept-file route (`workFilesRoute.ts`) pass through, so
+ *  none of them can skip the confinement. */
+export const serveResultResponse = (
   r: ServeResult,
 ): HttpServerResponse.HttpServerResponse => {
   const headers = confinedHeaders(r.headers);

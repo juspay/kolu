@@ -331,6 +331,7 @@ describe("WorkSection PR and CI", () => {
         ],
         reviewDecision: "APPROVED",
         mergeStateStatus: "CLEAN",
+        headSha: null,
       },
     },
   });
@@ -356,6 +357,7 @@ describe("WorkSection PR and CI", () => {
         ],
         reviewDecision: "CHANGES_REQUESTED",
         mergeStateStatus: "BLOCKED",
+        headSha: null,
       },
     },
   });
