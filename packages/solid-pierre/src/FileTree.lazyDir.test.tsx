@@ -22,7 +22,7 @@
  * app observes it, and asserted on the callback and the painted rows rather
  * than on any internal call.
  */
-import { createSignal } from "solid-js";
+import { createSignal, Show } from "solid-js";
 import { render } from "solid-js/web";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { FileTree } from "./FileTree";
@@ -307,5 +307,179 @@ describe("lazily-loaded directory rows (#2091)", () => {
     await flush();
 
     expect(onExpandLazyDirectory).toHaveBeenCalledWith("out/");
+  });
+});
+
+/** The host side of `CodeTab.loadLazyDirectory`, which is the shape the
+ *  wrapper's contract actually meets in the app: a NEWER read for a directory
+ *  aborts the one still in flight, and the aborted promise REJECTS. Every call
+ *  is recorded so a test can settle it by hand. */
+function supersedingLoader() {
+  type Pending = {
+    dir: string;
+    resolve: () => void;
+    reject: (err: Error) => void;
+    done: boolean;
+  };
+  const calls: Pending[] = [];
+  const load = (dir: string): Promise<void> => {
+    for (const c of calls) {
+      if (c.dir !== dir || c.done) continue;
+      c.done = true;
+      c.reject(new Error(`superseded read of ${dir}`));
+    }
+    const { promise, resolve, reject } = Promise.withResolvers<void>();
+    calls.push({ dir, resolve, reject, done: false });
+    return promise;
+  };
+  /** Answer the newest read for `dir` the way the host does. */
+  const settle = (dir: string): void => {
+    const c = [...calls].reverse().find((p) => p.dir === dir && !p.done);
+    if (!c) throw new Error(`no read of ${dir} in flight`);
+    c.done = true;
+    c.resolve();
+  };
+  return { calls, load, settle };
+}
+
+/** A row as Pierre painted it, so expansion is read off the DOM the user sees
+ *  rather than off the wrapper's bookkeeping. */
+function rowOf(root: ShadowRoot, path: string): HTMLElement {
+  const row = root.querySelector(
+    `[role="treeitem"][data-item-path="${path}"]`,
+  ) as HTMLElement | null;
+  if (!row) throw new Error(`no painted row for ${path}`);
+  return row;
+}
+
+describe("a lazy directory under a host that rebuilds one props object", () => {
+  /** `CodeTab` hands every prop through ONE object: a per-mode `frame` memo
+   *  rebuilt on any tick — a selection, a git-status pulse, a loaded level —
+   *  and read through `<Show>`. Every prop read therefore notifies on every
+   *  tick, carrying the very same values. The wrapper must react to a prop's
+   *  VALUE; a bare notification is not a change. */
+  type Frame = {
+    paths: string[];
+    lazy: string[];
+    epoch: string;
+    selected: string | null;
+  };
+
+  function mountFrameHost(initial: Frame, load: (dir: string) => Promise<void>) {
+    const [frame, setFrame] = createSignal<Frame>(initial);
+    const root = mountInto((host) =>
+      render(
+        () => (
+          <Show when={frame()}>
+            {(current) => (
+              <FileTree
+                paths={current().paths}
+                selectedPath={current().selected}
+                lazyDirectories={current().lazy}
+                lazyEpoch={current().epoch}
+                onExpandLazyDirectory={load}
+                onSelect={(p) =>
+                  // The host's answer to a pick: a NEW frame object, same
+                  // everything else.
+                  setFrame((f) => ({ ...f, selected: p }))
+                }
+                search={false}
+                onError={(err) => {
+                  throw err;
+                }}
+              />
+            )}
+          </Show>
+        ),
+        host,
+      ),
+    );
+    return { root, setFrame };
+  }
+
+  it("loads it once, and keeps it open when a file inside is picked", async () => {
+    // The user's report: eye on, expand `.waterfall/`, click a file inside —
+    // the file loads and the folder snaps shut. Each rebuilt frame re-notified
+    // `lazyEpoch`, which wiped the record of which lazy directories are open;
+    // the next store tick then read "expanded, not recorded" and reported the
+    // already-open folder as a fresh expansion, so the level was re-fetched on
+    // every tick — and the re-fetch that the file click triggered superseded
+    // (aborted, hence rejected) the one before it, which closed the row.
+    const { calls, load, settle } = supersedingLoader();
+    const { root, setFrame } = mountFrameHost(
+      {
+        paths: ["kept.md", ".waterfall/"],
+        lazy: [".waterfall/"],
+        epoch: "/repo|browse",
+        selected: null,
+      },
+      load,
+    );
+
+    clickRow(root, ".waterfall/");
+    await flush();
+    expect(calls).toHaveLength(1);
+
+    // The host answers by folding the level into `paths` — a fresh frame, same
+    // epoch, a rebuilt (but equal) lazy list, exactly as the Code tab does.
+    settle(".waterfall/");
+    setFrame((f) => ({
+      ...f,
+      paths: ["kept.md", ".waterfall/brief.md", ".waterfall/notes.md"],
+      lazy: [".waterfall/"],
+    }));
+    await flush();
+    expect(paintedRows(root)).toContain(".waterfall/brief.md");
+
+    clickRow(root, ".waterfall/brief.md");
+    await flush();
+
+    // One expansion, one read. Not three.
+    expect(calls.map((c) => c.dir)).toEqual([".waterfall/"]);
+    // And the folder the user opened is still open, with its contents on
+    // screen — Pierre paints only visible rows, so a shut folder shows neither.
+    expect(rowOf(root, ".waterfall/").getAttribute("aria-expanded")).toBe(
+      "true",
+    );
+    expect(paintedRows(root)).toContain(".waterfall/brief.md");
+    expect(paintedRows(root)).toContain(".waterfall/notes.md");
+  });
+});
+
+describe("a superseded load owns no outcome", () => {
+  it("keeps the row open when a replaced read rejects", async () => {
+    // Expand → collapse → expand is two reads of one directory, and the host
+    // aborts the first when the second starts, so the first REJECTS after the
+    // second has already been reported. A rejection still closes a folder it
+    // owns (an unreadable directory must not sit open and empty) — but this one
+    // owns nothing: a newer read has taken the directory, and collapsing on its
+    // behalf shuts a folder whose contents are still on their way.
+    const { calls, load } = supersedingLoader();
+    const root = mountInto((host) =>
+      render(
+        () => (
+          <FileTree
+            paths={["kept.md", "out/"]}
+            lazyDirectories={["out/"]}
+            onExpandLazyDirectory={load}
+            search={false}
+            onError={(err) => {
+              throw err;
+            }}
+          />
+        ),
+        host,
+      ),
+    );
+
+    clickRow(root, "out/"); // expand — read 1
+    await flush();
+    clickRow(root, "out/"); // collapse
+    await flush();
+    clickRow(root, "out/"); // expand again — read 2 supersedes read 1
+    await flush();
+
+    expect(calls).toHaveLength(2);
+    expect(rowOf(root, "out/").getAttribute("aria-expanded")).toBe("true");
   });
 });

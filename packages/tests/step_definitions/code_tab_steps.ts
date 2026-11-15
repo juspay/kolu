@@ -702,6 +702,20 @@ When(
   },
 );
 
+When(
+  "I click the show-gitignored toggle",
+  async function (this: KoluWorld) {
+    // The eye in the Code-tab toolbar. Browse-only, and it arms the separate
+    // `fs.listIgnored` query rather than re-reading the tracked listing.
+    const eye = this.page.locator(
+      '[data-testid="code-tab-show-ignored-toggle"]',
+    );
+    await eye.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    await eye.click();
+    await this.waitForFrame();
+  },
+);
+
 // ── File browser assertions ──
 
 Then(
@@ -722,6 +736,35 @@ Then(
       this,
       `${TREE} [data-item-path="${path}/"][data-item-type="folder"][aria-expanded="true"]:not([data-file-tree-sticky-row])`,
     );
+  },
+);
+
+Then(
+  "the directory {string} should stay expanded in the file browser",
+  async function (this: KoluWorld, path: string) {
+    // The STAYS-open assertion, not the becomes-open one: the folder is
+    // already painted open when this runs, and the defect shut it a beat later
+    // (a superseded lazy read rejecting). Asserting straight away would pass
+    // against the bug, so settle first — one frame, then a beat long enough
+    // for the load round-trip the collapse rode on — and only then read the
+    // row. Mirrors the settle in "should not be selected" above.
+    const row = this.page.locator(
+      `${TREE} [data-item-path="${path}/"][data-item-type="folder"]:not([data-file-tree-sticky-row])`,
+    );
+    await waitTreeReady(
+      this,
+      `${TREE} [data-item-path="${path}/"][data-item-type="folder"][aria-expanded="true"]:not([data-file-tree-sticky-row])`,
+    );
+    await this.waitForFrame();
+    await new Promise((r) => setTimeout(r, 1500));
+    const expanded = await row.first().getAttribute("aria-expanded");
+    if (expanded !== "true") {
+      throw new Error(
+        `Expected "${path}" to still be expanded after things settled, but ` +
+          `aria-expanded is "${expanded}" — the folder folded away under the ` +
+          `file that was just opened`,
+      );
+    }
   },
 );
 
