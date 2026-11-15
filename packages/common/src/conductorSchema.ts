@@ -35,6 +35,7 @@
 
 import {
   AskAnswer,
+  AskChoice,
   AskField,
   AskLink,
   AuthAccount,
@@ -56,6 +57,7 @@ import { Effect, Schema } from "effect";
  *  browser never needs `@kolu/acp` itself. */
 export {
   AskAnswer,
+  AskChoice,
   AskField,
   AskLink,
   AuthAccount,

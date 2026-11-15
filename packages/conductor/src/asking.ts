@@ -23,7 +23,7 @@
  * offers the question to a person reads it there.
  */
 
-import type { AskAnswer, AskChoice, AskField } from "@kolu/acp/wire";
+import type { AskAnswer, AskChoice, AskField } from "kolu-common/conductor";
 import {
   answerAsk,
   type AnswerFrom,

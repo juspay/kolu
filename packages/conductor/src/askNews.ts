@@ -12,7 +12,7 @@
  * into `asking`.
  */
 
-import type { AskAnswer } from "@kolu/acp/wire";
+import type { AskAnswer } from "kolu-common/conductor";
 import {
   type AnswerFrom,
   dropAsk,

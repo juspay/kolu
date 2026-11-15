@@ -113,8 +113,9 @@ import {
   conductorConfigDir,
   CONDUCTOR_ENGINE as ENGINE,
 } from "kolu-agents/acp";
-import type { AskAnswer, AskField } from "@kolu/acp/wire";
 import {
+  type AskAnswer,
+  type AskField,
   appendedText,
   type ConductorAttachment,
   type ConductorFrame,
