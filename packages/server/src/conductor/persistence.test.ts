@@ -50,7 +50,7 @@ import {
 } from "@kolu/acp-harness";
 import { confStore } from "@kolu/surface/server";
 import { Server as McpServer } from "@modelcontextprotocol/sdk/server/index.js";
-import { Schema } from "effect";
+import { Option, Schema } from "effect";
 import {
   type ConductorFrame,
   type ConductorRow,
@@ -74,8 +74,8 @@ import {
   type Decision,
   hostOf,
   modeOf,
-  type SetupKey,
   type WorkKey,
+  type WorkMode,
   workIdOf,
   type WorkRole,
 } from "kolu-work";
@@ -90,6 +90,7 @@ import { decodeStateBackup, store } from "../state.ts";
 import {
   dropKoluChoiceOptions_1_54_0,
   foldWorksByKey_1_53_0,
+  workArmsNotNulls_1_55_0,
 } from "../stateLadder.ts";
 import { TRANSCRIPT_FILE_VERSION } from "../stateShape.ts";
 import { transcriptFilePath, transcriptFileStore } from "./transcriptFile.ts";
@@ -137,8 +138,10 @@ const OTHER_KEY = {
  * a work written by an earlier deployed build of this branch; 1.53.0 folds
  * every work onto its KEY and moves the transcript file's stamp with it; and
  * 1.54.0 drops the `options`/`multiple` the Conductor used to offer for a
- * role's harness and model, which are kolu's options to draw now. */
-const STATE_SCHEMA_VERSION = "1.54.0";
+ * role's harness and model, which are kolu's options to draw now; and 1.55.0
+ * takes every decision, event and member to the arms that cannot say
+ * "answered with no answer". */
+const STATE_SCHEMA_VERSION = "1.55.0";
 
 const log = {
   debug() {},
@@ -231,12 +234,18 @@ function stored(
         startedAt: at,
         decisions,
         events: [
-          { at, by: "you", kind: "requested", terminal: null, text: title },
+          {
+            at,
+            by: "you",
+            kind: "requested",
+            about: { kind: "work" },
+            request: { kind: "said", text: title },
+          },
           ...members.map((one) => ({
             at,
             by: "kolu" as const,
             kind: "joined" as const,
-            terminal: one.ref,
+            about: { kind: "member" as const, terminal: one.ref },
             role: one.role,
           })),
         ],
@@ -250,7 +259,7 @@ function stored(
           work: id,
           role: one.role,
           joinedAt: at,
-          worktree: null,
+          worktree: { kind: "unread" as const },
           watch: one.watch,
         },
       ]),
@@ -259,23 +268,22 @@ function stored(
 }
 
 /** The setup answer a reader shows, as a decision — the ONE place a work's
- *  mode is written. */
-const answered = (key: SetupKey, value: string): Decision => ({
-  kind: "answered",
-  id: `d-${key}`,
+ *  mode is written. A setup question is labelled by its key's own name, so it
+ *  carries no header and no file, and its answer is ONE value, in kolu's own
+ *  words for that key. */
+const answered = (mode: WorkMode): Decision => ({
+  kind: "settled",
+  id: "d-mode",
   ask: "setup",
   at: "2026-01-01T00:00:00.000Z",
-  key,
-  header: key,
-  question: key,
+  topic: "setup",
+  key: "mode",
+  question: "mode",
   options: [],
-  multiple: false,
-  file: "",
   answer: {
     at: "2026-01-01T00:00:00.000Z",
     how: "answered",
-    picked: [value],
-    text: null,
+    value: mode,
     from: "card",
   },
 });
@@ -513,7 +521,7 @@ describe("the conversation survives a restart", () => {
           },
         },
       ],
-      [answered("mode", "full")],
+      [answered("full")],
     );
     worksStore.set(carried.works);
     membersStore.set(carried.members);
@@ -530,7 +538,7 @@ describe("the conversation survives a restart", () => {
     expect(host.memberRefs()).toEqual([FLEET_REF, OTHER_REF]);
     // ...and the setup a reader shows is read back off the decisions, not off
     // a second copy of it, while the HOST is read off the key.
-    expect(modeOf(work)).toBe("full");
+    expect(modeOf(work)).toEqual(Option.some("full"));
     expect(hostOf(work)).toBe("local");
     // THE HELD NEWS IS MEMORY ONLY: a restart re-reads the world rather than
     // replaying a queue about one that has moved on, so there is no such key
@@ -830,7 +838,10 @@ describe("the conductor's rungs", () => {
     ]);
     // The mode is a DECISION, so a card reads it the same way it reads an
     // answer a person gave; the HOST is the key's own, never a decision.
-    expect(all.map((one) => modeOf(one))).toEqual(["watch", "watch"]);
+    expect(all.map((one) => modeOf(one))).toEqual([
+      Option.some("watch"),
+      Option.some("watch"),
+    ]);
     expect(all.map((one) => hostOf(one))).toEqual(["local", "remote:box"]);
     // ...and the timeline opens with the carry-over rather than with nothing.
     expect(all[0]?.events[0]?.kind).toBe("carried-over");
@@ -1181,8 +1192,9 @@ describe("the human's real store, one observation later", () => {
   it("ends the human's work as Merged 181 on the first look after start-up", async () => {
     const folded = foldWorksByKey_1_53_0(DEPLOYED.works, DEPLOYED.members);
     worksStore.set(folded.works as unknown as PersistedWorks);
-    dropKoluChoiceOptions_1_54_0(store);
     membersStore.set(folded.members as unknown as PersistedMembers);
+    dropKoluChoiceOptions_1_54_0(store);
+    workArmsNotNulls_1_55_0(store);
     const id = Object.keys(folded.works)[0] ?? "";
 
     const over = hostOver();

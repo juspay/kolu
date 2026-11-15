@@ -50,7 +50,7 @@
 import type { PadiSurfaceClient } from "@kolu/padi-client/dial";
 import { PLACEMENT_REQUIRED } from "@kolu/padi-client/surface";
 import { type BespokeTool, ToolFailure } from "@kolu/surface-mcp/tools";
-import { Effect, Schema } from "effect";
+import { Effect, Option, Schema } from "effect";
 import {
   isWaterfallRole,
   WORK_ROLES,
@@ -219,7 +219,8 @@ const FLEET_LIFTS: Readonly<Record<string, FleetLift>> = {
     prepare: (works, args) => {
       const work = typeof args.work === "string" ? args.work : "";
       const refused = works.check(work);
-      if (refused !== null) return Effect.fail(workCheckFailure(work, refused));
+      if (Option.isSome(refused))
+        return Effect.fail(workCheckFailure(work, refused.value));
       const role = args.role;
       if (!isWaterfallRole(role)) return Effect.succeed(args);
       // ONE SOURCE FOR THE COMMAND. A planner or implementor runs what the

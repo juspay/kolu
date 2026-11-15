@@ -25,12 +25,15 @@
 
 import { Effect } from "effect";
 import type {
+  Asked,
   Decision,
   KoluChoiceKey,
-  OfferedSetupKey,
+  Said,
   Work,
   WorkId,
+  WorkMode,
 } from "kolu-work";
+import { WORK_MODES } from "kolu-work";
 import { createSignal } from "solid-js";
 import { render } from "solid-js/web";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -97,32 +100,63 @@ const ASK = "ask-1";
 const AT = "2026-01-01T00:00:00.000Z";
 const REPO = "/src/kolu";
 
-const koluAsked = (id: string, key: KoluChoiceKey): Decision => ({
+/** ONE OF KOLU'S OWN SETUP QUESTIONS — no options and no words of its own on
+ *  the record: the harnesses and the models are read live. */
+const koluAsked = (
+  id: string,
+  key: KoluChoiceKey,
+): Extract<Asked, { readonly key: KoluChoiceKey }> => ({
   kind: "asked",
   id,
   ask: ASK,
   at: AT,
+  topic: "setup",
   key,
-  header: "",
   question: `Which ${key}?`,
-  file: "",
 });
 
-const offeredAsked = (
-  id: string,
-  key: OfferedSetupKey,
-  options: readonly string[],
-): Decision => ({
+/** The mode, whose options are kolu's own words. */
+const modeAsked = (id: string): Extract<Asked, { readonly key: "mode" }> => ({
   kind: "asked",
   id,
   ask: ASK,
   at: AT,
-  key,
-  header: "",
-  question: `Which ${key}?`,
-  options,
+  topic: "setup",
+  key: "mode",
+  options: [...WORK_MODES],
+  question: "Which mode?",
+});
+
+/** A QUESTION ABOUT THE WORK — the asker's own, which is the only kind with
+ *  a box to type in. */
+const workAsked = (
+  id: string,
+  over: {
+    readonly question?: string;
+    readonly header?: string;
+    readonly options?: readonly string[];
+  } = {},
+): Extract<Asked, { readonly topic: "work" }> => ({
+  kind: "asked",
+  id,
+  ask: ASK,
+  at: AT,
+  topic: "work",
+  question: over.question ?? "Approve the plan?",
+  header:
+    over.header === undefined
+      ? { kind: "none" }
+      : { kind: "header", text: over.header },
+  options: over.options ?? ["Approve", "Ask for changes"],
   multiple: false,
-  file: "",
+  file: { kind: "none" },
+});
+
+/** ... and that question, settled with what was said. */
+const workSaid = (id: string, value: Said): Decision => ({
+  ...workAsked(id),
+  kind: "settled",
+  answer: { how: "answered", at: AT, from: "card", said: value },
 });
 
 /** A setup question already answered — on this work (the harness the record
@@ -133,34 +167,19 @@ const koluAnswered = (
   value: string,
   at = AT,
 ): Decision => ({
-  kind: "answered",
-  id,
+  ...koluAsked(id, key),
   ask: `${id}-ask`,
   at,
-  key,
-  header: "",
-  question: `Which ${key}?`,
-  file: "",
-  answer: { at, how: "answered", picked: [value], text: null, from: "card" },
+  kind: "settled",
+  answer: { how: "answered", at, from: "card", value },
 });
 
-const offeredAnswered = (
-  id: string,
-  key: OfferedSetupKey,
-  value: string,
-  at = AT,
-): Decision => ({
-  kind: "answered",
-  id,
+const modeAnswered = (id: string, value: WorkMode, at = AT): Decision => ({
+  ...modeAsked(id),
   ask: `${id}-ask`,
   at,
-  key,
-  header: "",
-  question: `Which ${key}?`,
-  options: [value],
-  multiple: false,
-  file: "",
-  answer: { at, how: "answered", picked: [value], text: null, from: "card" },
+  kind: "settled",
+  answer: { how: "answered", at, from: "card", value },
 });
 
 const workOf = (branch: string, decisions: readonly Decision[]): Work => ({
@@ -179,7 +198,7 @@ const earlier = (model = "sonnet-4"): ReadonlyMap<WorkId, Work> =>
     [
       "branch:local/src/before",
       workOf("before", [
-        offeredAnswered("p-mode", "mode", "trivial", "2025-12-01T00:00:00Z"),
+        modeAnswered("p-mode", "trivial", "2025-12-01T00:00:00Z"),
         koluAnswered(
           "p-harness",
           "planner.harness",
@@ -278,6 +297,27 @@ const press = (el: HTMLElement, testid: string): void => {
   (button as HTMLElement).click();
 };
 
+/** THE ANSWER BUTTON ITSELF — what a person reads before pressing: it is
+ *  dead while there is nothing in the form to record. */
+const submit = (el: HTMLElement): HTMLButtonElement => {
+  const button = el.querySelector('[data-testid="conductor-ask-submit"]');
+  if (button === null) throw new Error("no Answer button");
+  return button as HTMLButtonElement;
+};
+
+/** The record lines a form draws above its open questions — what was already
+ *  said, by field. */
+const recorded = (el: HTMLElement): string[] =>
+  [...el.querySelectorAll('[data-testid="conductor-ask-answer"]')].map((one) =>
+    (one.textContent ?? "").replace(/\s+/g, " ").trim(),
+  );
+
+/** The questions still drawn as FIELDS, by decision id. */
+const fields = (el: HTMLElement): string[] =>
+  [...el.querySelectorAll("fieldset[data-decision]")].map(
+    (one) => one.getAttribute("data-decision") ?? "",
+  );
+
 /** What the last Answer press sent, by field. */
 const sent = (): Record<string, readonly string[]> =>
   answerWork.mock.calls.at(-1)?.[2] as Record<string, readonly string[]>;
@@ -352,7 +392,7 @@ describe("the answers from last time", () => {
     setWorks(earlier());
     const el = mount(
       workOf("now", [
-        offeredAsked("ask-mode", "mode", ["full", "trivial", "watch"]),
+        modeAsked("ask-mode"),
         koluAsked("ask-harness", "planner.harness"),
         koluAsked("ask-model", "planner.model"),
       ]),
@@ -374,25 +414,46 @@ describe("the answers from last time", () => {
     });
   });
 
-  it("leave a question alone once it has been cleared", async () => {
-    setWorks(earlier());
+  it("leave a question alone once its words have been typed over", async () => {
+    setWorks(earlier("sonnet-4"));
+    host.reply = () =>
+      Effect.succeed({
+        launch: { kind: "flag", flag: "--model" },
+        models: { kind: "unlisted" },
+      });
     const el = mount(
       workOf("now", [
-        offeredAsked("ask-mode", "mode", ["full", "trivial", "watch"]),
+        koluAnswered("now-harness", "planner.harness", "claude"),
+        koluAsked("ask-model", "planner.model"),
       ]),
     );
     await settle();
+    expect(selected(el, "ask-model")).toEqual(["sonnet-4"]);
     // Typing takes the pick off a single-answer question; the default must
     // not come back over the words.
     const box = el.querySelector(
-      '[data-testid="conductor-ask-other"][data-field="ask-mode"]',
+      '[data-testid="conductor-ask-other"][data-field="ask-model"]',
     ) as HTMLInputElement;
-    typeInto(box, "whatever you think");
+    typeInto(box, "opus-4.9");
     await settle();
 
-    expect(selected(el, "ask-mode")).toEqual([]);
+    expect(selected(el, "ask-model")).toEqual([]);
     press(el, "conductor-ask-submit");
-    expect(sent()).toEqual({ "ask-mode": ["whatever you think"] });
+    expect(sent()).toEqual({ "ask-model": ["opus-4.9"] });
+  });
+
+  it("offers no box at all for a question answered in kolu's own words", async () => {
+    setWorks(earlier());
+    const el = mount(workOf("now", [modeAsked("ask-mode")]));
+    await settle();
+    // The mode is one of three words the record takes and the start command
+    // reads back; words outside them are refused where they are recorded, so
+    // there is nowhere here to type them.
+    expect(
+      el.querySelector(
+        '[data-testid="conductor-ask-other"][data-field="ask-mode"]',
+      ),
+    ).toBeNull();
   });
 });
 
@@ -416,9 +477,17 @@ describe("a model list that could not be read", () => {
       "agent-distro is not ready on this machine: no bundle",
     );
     expect(options(el, "ask-model")).toEqual([]);
-    // Nothing was seeded into a question nobody could answer.
+    // AND THAT IT STAYS OPEN. A question nobody can answer yet must not read
+    // as answered after the press, so the form says so on the question
+    // itself — and the press has nothing to send.
+    expect(
+      el.querySelector(
+        '[data-testid="conductor-ask-stays-open"][data-field="ask-model"]',
+      )?.textContent,
+    ).toContain("stays open");
+    expect(submit(el).disabled).toBe(true);
     press(el, "conductor-ask-submit");
-    expect(sent()).toEqual({});
+    expect(answerWork).not.toHaveBeenCalled();
   });
 });
 
@@ -528,5 +597,48 @@ describe("a long list of models", () => {
       "model-10",
       "model-11",
     ]);
+  });
+});
+
+describe("a form answered in part", () => {
+  it("shows what was said as a line and keeps the blank question a field", async () => {
+    mount(
+      workOf("now", [
+        workSaid("w-plan", { kind: "picked", picked: ["Approve"] }),
+        workAsked("w-review", {
+          question: "Who reviews it?",
+          header: "Reviewer",
+        }),
+      ]),
+    );
+    await settle();
+    const el = root ?? document.body;
+    // The answered one is the record, the blank one is still asked.
+    expect(recorded(el)).toEqual([expect.stringContaining("Approve")]);
+    expect(fields(el)).toEqual(["w-review"]);
+    // Nothing filled in yet: nothing to send, and the button says so.
+    expect(submit(el).disabled).toBe(true);
+    chip(el, "w-review", "Ask for changes").click();
+    await settle();
+    expect(submit(el).disabled).toBe(false);
+    submit(el).click();
+    // Only the open question is sent — the answered one is not sent again.
+    expect(sent()).toEqual({ "w-review": ["Ask for changes"] });
+  });
+
+  it("sends only what was filled in, leaving the rest for the record to keep open", async () => {
+    mount(
+      workOf("now", [
+        workAsked("w-plan"),
+        workAsked("w-review", { question: "Who reviews it?" }),
+      ]),
+    );
+    await settle();
+    const el = root ?? document.body;
+    expect(submit(el).disabled).toBe(true);
+    chip(el, "w-plan", "Approve").click();
+    await settle();
+    submit(el).click();
+    expect(sent()).toEqual({ "w-plan": ["Approve"] });
   });
 });

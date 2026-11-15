@@ -15,6 +15,7 @@
  *  and a ranked reorder would move the thing they were reaching for.
  */
 
+import { Option } from "effect";
 import { type Component, createMemo, createSignal, For, Show } from "solid-js";
 
 /** One option as the list draws it. */
@@ -32,15 +33,16 @@ export const askOption = (value: string): AskOption => ({ value, note: "" });
 
 /** THE DEFAULT IS DRAWN FIRST. What this person chose last time leads the
  *  list wherever it is drawn, so the thing already selected is also the thing
- *  under their eyes; the rest keep the order they came in. A `value` that is
+ *  under their eyes; the rest keep the order they came in. A value that is
  *  not among them (nothing remembered, or a model this host no longer lists)
  *  leaves the list exactly as it was. */
 export function defaultFirst(
   options: ReadonlyArray<AskOption>,
-  value: string | null,
+  value: Option.Option<string>,
 ): ReadonlyArray<AskOption> {
-  if (value === null) return options;
-  const first = options.find((one) => one.value === value);
+  const want = Option.getOrUndefined(value);
+  if (want === undefined) return options;
+  const first = options.find((one) => one.value === want);
   if (first === undefined) return options;
   return [first, ...options.filter((one) => one !== first)];
 }

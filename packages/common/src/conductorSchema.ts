@@ -420,6 +420,59 @@ export const ConductorAskRowSchema = Schema.Struct({
   parent: Schema.optionalKey(Schema.String),
 });
 
+/** WHAT A PERSON FILLED IN for one of kolu's work questions, as the chat's
+ *  copy of the ask carries it: the DECISION's own id, and what was said for
+ *  it. Never empty — a question left blank is not an answer, it is a question
+ *  still being asked ({@link ConductorWorkAskStandingSchema}'s `part`). */
+export const ConductorWorkAnswerSchema = Schema.Struct({
+  key: Schema.String,
+  values: Schema.NonEmptyArray(Schema.String),
+});
+export type ConductorWorkAnswer = typeof ConductorWorkAnswerSchema.Type;
+
+/** WHERE ONE OF KOLU'S WORK FORMS STANDS IN THE CHAT, as a SUM — the same
+ *  fact the work's own decisions hold, said in the row the question was asked
+ *  in.
+ *
+ *  An elicitation's outcome ({@link ConductorAskSchema}) cannot say this: it
+ *  is an all-or-nothing settlement of a call the agent is holding open, and a
+ *  work form is several questions a person may answer ONE of. `part` is that
+ *  state — what they filled in is recorded, the rest is still in front of
+ *  them, in the same form — and it is an arm rather than a nullable outcome
+ *  with a flag beside it because "answered with nothing" and "answered the
+ *  lot" were the two readings that disagreed.
+ *
+ *   - `open` — nobody has said anything yet;
+ *   - `part` — some questions are answered, the rest are still asked;
+ *   - `answered` — nothing is open any more, and this is what was filled in;
+ *   - `declined` — they would not say, and nothing was filled in;
+ *   - `withdrawn` — the questions went away unanswered (the work ended under
+ *     them, or the conversation that asked them is gone). */
+export const ConductorWorkAskStandingSchema = Schema.Union([
+  Schema.Struct({ kind: Schema.Literal("open") }),
+  Schema.Struct({
+    kind: Schema.Literal("part"),
+    answers: Schema.NonEmptyArray(ConductorWorkAnswerSchema),
+  }),
+  Schema.Struct({
+    kind: Schema.Literal("answered"),
+    answers: Schema.NonEmptyArray(ConductorWorkAnswerSchema),
+  }),
+  Schema.Struct({ kind: Schema.Literal("declined") }),
+  Schema.Struct({ kind: Schema.Literal("withdrawn") }),
+]);
+export type ConductorWorkAskStanding =
+  typeof ConductorWorkAskStandingSchema.Type;
+
+/** KOLU'S OWN FORM, as the chat holds it: the fields it put and where it
+ *  stands. No `link`: a url to visit is an ACP elicitation's other mode, and
+ *  kolu's questions about a piece of work are never one. */
+export const ConductorWorkAskSchema = Schema.Struct({
+  fields: Schema.Array(AskField),
+  standing: ConductorWorkAskStandingSchema,
+});
+export type ConductorWorkAsk = typeof ConductorWorkAskSchema.Type;
+
 /** KOLU asking a person something ABOUT A PIECE OF WORK — its own row kind,
  *  not an `ask` row with a work field bolted on.
  *
@@ -433,7 +486,7 @@ export const ConductorWorkAskRowSchema = Schema.Struct({
   ...rowHead,
   kind: Schema.Literal("work-ask"),
   text: Schema.String,
-  ask: ConductorAskSchema,
+  ask: ConductorWorkAskSchema,
   parent: Schema.optionalKey(Schema.String),
   /** THE WORK this question is about — stated when it was asked (kolu's own
    *  `work_ask` / `work_open` put it), never inferred from timing. The work's
@@ -1087,10 +1140,30 @@ export const ConductorAnswerWorkInputSchema = Schema.Struct({
   from: AnsweredFromFaceSchema,
 });
 
+/** WHAT THE ANSWER DID TO THE ASK — a SUM, because a reply may settle only
+ *  PART of a form: a question left blank stays asked, in the same ask, and
+ *  the face that sent this must know whether to keep the form in front of the
+ *  person (`part`, naming the decisions still open) or to close it.
+ *
+ *  `nothing-open` is the two-tab race and the work that ended under the
+ *  question: there was nothing left to settle. A reported state, not a fault
+ *  — a reply that fills in nothing at all is refused by the conductor
+ *  (`nothing-answered`) and never reaches here. */
+export const ConductorAnswerWorkOutcomeSchema = Schema.Union([
+  Schema.Struct({ kind: Schema.Literal("answered") }),
+  Schema.Struct({
+    kind: Schema.Literal("part"),
+    /** The decisions of that ask still waiting on them, by decision id. */
+    open: Schema.NonEmptyArray(Schema.String),
+  }),
+  Schema.Struct({ kind: Schema.Literal("declined") }),
+  Schema.Struct({ kind: Schema.Literal("nothing-open") }),
+]);
+export type ConductorAnswerWorkOutcome =
+  typeof ConductorAnswerWorkOutcomeSchema.Type;
+
 export const ConductorAnswerWorkOutputSchema = Schema.Struct({
-  /** `false` when that ask had nothing open any more — somebody else answered
-   *  it first, or the work ended under it. A reported state, not a fault. */
-  settled: Schema.Boolean,
+  outcome: ConductorAnswerWorkOutcomeSchema,
 });
 
 export const ConductorSignInInputSchema = Schema.Struct({

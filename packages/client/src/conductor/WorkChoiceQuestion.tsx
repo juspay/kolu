@@ -28,6 +28,7 @@
  *  the pair out of the draft).
  */
 
+import { Option } from "effect";
 import { decodeHostKey } from "kolu-common/hostKey";
 import {
   harnessForModel,
@@ -35,7 +36,6 @@ import {
   type KoluChoice,
   type ModelChoices,
   modelNotOffered,
-  repoOf,
   roleOfKey,
   type SetupMemory,
   unofferedWhy,
@@ -109,24 +109,58 @@ const WorkChoiceQuestion: Component<{
   };
 
   /** The harness this model is for — read by the host call, by the memory
-   *  lookup and by the words on screen. `null` for a harness question, which
-   *  is not of anything. */
-  const harness = createMemo(() =>
-    what() === "model"
-      ? harnessForModel(props.work, props.ask, props.decision.key, drafted())
-      : null,
+   *  lookup and by the words on screen. None for a harness question, which
+   *  is not of anything, and for a model nobody has named a harness for. */
+  const harness = createMemo(
+    () =>
+      what() === "model"
+        ? harnessForModel(props.work, props.ask, props.decision.key, drafted())
+        : Option.none<string>(),
+    undefined,
+    // BY VALUE: every keystroke in the form re-reads the draft, and a fresh
+    // `Option` of the same harness is not news — re-asking the host for it
+    // would drop the list back to loading under the person typing.
+    { equals: Option.makeEquivalence((a: string, b: string) => a === b) },
   );
 
-  /** What the host says that harness offers. The source is the harness, so a
-   *  change in the same form re-asks and a question with no harness yet asks
-   *  nothing at all. */
-  const [models] = createResource(harness, (one: string) =>
-    runActionPromise(
-      padiRpcOf(decodeHostKey(hostOf(props.work))).agentDistro.models({
-        harness: one,
-        cwd: repoOf(props.work),
-      }),
-    ),
+  /** WHERE KOLU ASKS FROM — the work's own repository. A watch has none: it
+   *  is a terminal somebody pointed kolu at rather than a branch, so there is
+   *  no checkout to ask a harness what it offers in. */
+  const repo = createMemo(() =>
+    props.work.key.kind === "branch"
+      ? Option.some(props.work.key.repo)
+      : Option.none<string>(),
+  );
+
+  /** WHERE AND WHAT TO ASK — the harness and the checkout — compared by value
+   *  for the same reason as {@link harness}. */
+  const where = createMemo(
+    () =>
+      Option.getOrUndefined(
+        Option.flatMap(harness(), (one) =>
+          Option.map(repo(), (cwd) => ({ harness: one, cwd })),
+        ),
+      ),
+    undefined,
+    {
+      equals: (a, b) =>
+        a === b ||
+        (a !== undefined &&
+          b !== undefined &&
+          a.harness === b.harness &&
+          a.cwd === b.cwd),
+    },
+  );
+
+  /** What the host says that harness offers. The source is the harness and
+   *  the place to ask from, so a change in the same form re-asks and a
+   *  question with no harness yet asks nothing at all. */
+  const [models] = createResource(
+    where,
+    (one: { harness: string; cwd: string }) =>
+      runActionPromise(
+        padiRpcOf(decodeHostKey(hostOf(props.work))).agentDistro.models(one),
+      ),
   );
 
   const harnessOffer = (): Offer => {
@@ -156,11 +190,16 @@ const WorkChoiceQuestion: Component<{
   };
 
   const modelOffer = (): Offer => {
-    const one = harness();
-    if (one === null)
+    const one = Option.getOrUndefined(harness());
+    if (one === undefined)
       return {
         kind: "waiting",
         words: "Choose the harness first — a model is a model of one.",
+      };
+    if (Option.isNone(repo()))
+      return {
+        kind: "failed",
+        words: `This work watches a terminal, so there is no checkout to ask ${one} what it offers in.`,
       };
     if (models.loading)
       return { kind: "waiting", words: `Asking what ${one} offers here…` };
@@ -208,35 +247,37 @@ const WorkChoiceQuestion: Component<{
    *  here: an option that is drawn, or — for a harness that takes a typed
    *  model — a model id kolu would record (words saved as a model before kolu
    *  drew these options are not put back under their hands). */
-  const standing = (): string | null => {
+  const standing = (): Option.Option<string> => {
     const now = choices();
-    if (now === null) return null;
-    const want = props.memory.last(props.decision.key, harness());
-    if (want === null) return null;
-    return now.options.some((one) => one.value === want) ||
-      modelNotOffered(want, now.offered) === null
-      ? want
-      : null;
+    if (now === null) return Option.none();
+    return Option.filter(
+      props.memory.last(props.decision.key, harness()),
+      (want) =>
+        now.options.some((one) => one.value === want) ||
+        Option.isNone(modelNotOffered(want, now.offered)),
+    );
   };
 
   /** WHY THE MODEL TYPED IN THE BOX IS NOT ONE KOLU WOULD RECORD — the rule
    *  the answer is checked by where it is recorded, said as it is typed, so a
-   *  refusal is never the first a person hears of it. `null` while the box is
-   *  empty or holds a model id. */
-  const typedWhy = (): string | null => {
+   *  refusal is never the first a person hears of it. None while the box is
+   *  empty or holds a model id — and for a question with no list yet, which
+   *  draws no box at all. */
+  const typedWhy = (): Option.Option<string> => {
+    const now = choices();
     const typed = askDraft(props.ask, typedKey(props.decision.id))[0] ?? "";
-    if (typed === "") return null;
-    const why = modelNotOffered(
-      typed,
-      choices()?.offered ?? { kind: "unlisted" },
-    );
-    return why === null
-      ? null
-      : `${JSON.stringify(typed)} ${unofferedWhy(
-          { key: props.decision.key, value: typed, why },
+    if (now === null || typed === "") return Option.none();
+    return Option.map(
+      modelNotOffered(typed, now.offered),
+      (why) =>
+        // The box is only ever drawn for a harness that cannot list its
+        // models, so the list's own context IS that harness.
+        `${JSON.stringify(typed)} ${unofferedWhy(
+          { key: props.decision.key, value: typed, why, harness: now.context },
           [],
           hostOf(props.work),
-        )}.`;
+        )}.`,
+    );
   };
 
   /** The options as they are drawn — the default first, and that default in
@@ -244,35 +285,55 @@ const WorkChoiceQuestion: Component<{
   const chips = seededChips(
     props.ask,
     props.decision.id,
-    () => choices()?.context ?? null,
+    () => Option.fromNullishOr(choices()?.context),
     () => choices()?.options ?? [],
     standing,
+  );
+
+  /** THE ONE THING A PERSON MUST BE TOLD about a question they cannot answer
+   *  yet: pressing Answer does not answer it, and it will still be there
+   *  afterwards. Said ON the question — the form does not invite a blank it
+   *  then reads back as an answer. */
+  const StaysOpen: Component = () => (
+    <p
+      data-testid="conductor-ask-stays-open"
+      data-field={props.decision.id}
+      class={LINE_CLASS}
+    >
+      Nothing to pick yet — this one stays open when you answer the rest.
+    </p>
   );
 
   return (
     <Switch>
       <Match when={waiting()}>
         {(now) => (
-          <p
-            data-testid="conductor-ask-waiting"
-            data-field={props.decision.id}
-            class={LINE_CLASS}
-          >
-            {now().words}
-          </p>
+          <>
+            <p
+              data-testid="conductor-ask-waiting"
+              data-field={props.decision.id}
+              class={LINE_CLASS}
+            >
+              {now().words}
+            </p>
+            <StaysOpen />
+          </>
         )}
       </Match>
       <Match when={failed()}>
         {(now) => (
           // THE HOST'S OWN WORDS. Not "no models": a question that could not
           // be asked is answered by saying so.
-          <p
-            data-testid="conductor-ask-failed"
-            data-field={props.decision.id}
-            class="mt-1.5 m-0 rounded-md border border-alert/55 bg-alert/[0.08] px-2 py-1 text-alert"
-          >
-            {now().words}
-          </p>
+          <>
+            <p
+              data-testid="conductor-ask-failed"
+              data-field={props.decision.id}
+              class="mt-1.5 m-0 rounded-md border border-alert/55 bg-alert/[0.08] px-2 py-1 text-alert"
+            >
+              {now().words}
+            </p>
+            <StaysOpen />
+          </>
         )}
       </Match>
       <Match when={choices()}>
@@ -318,7 +379,7 @@ const WorkChoiceQuestion: Component<{
                   )
                 }
               />
-              <Show when={typedWhy()}>
+              <Show when={Option.getOrUndefined(typedWhy())}>
                 {(why) => (
                   <p
                     data-testid="conductor-ask-invalid"

@@ -61,15 +61,10 @@ export function koluOfferOver(deps: {
       listing.kind === "available"
         ? listing.harnesses.map((one) => one.name)
         : [],
-    models: async ({ host, repo, harness }) => {
-      if (repo === "")
-        throw new Error(
-          "a watch has no repository, so there is nowhere to ask a harness for its models",
-        );
-      return await settled(
+    models: async ({ host, repo, harness }) =>
+      await settled(
         padiOf(host).surface.agentDistro.models({ harness, cwd: repo }),
-      );
-    },
+      ),
     requireAgentsReady: async (host) => {
       if (listing.kind === "unavailable")
         throw new WorkRefusal(

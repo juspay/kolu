@@ -60,7 +60,7 @@ import type {
   FsFileInputSchema,
   TerminalId,
 } from "@kolu/terminal-vocab/schema";
-import { Effect, Queue, Stream } from "effect";
+import { Effect, Option, Queue, Stream } from "effect";
 import type {
   FsListAllInputSchema,
   GitDiffInputSchema,
@@ -289,7 +289,21 @@ function worksRows(hosts: FleetHosts, works: FleetWorks): FleetWorksView {
   const rows = works.rows();
   return {
     works: rows.works.map((work) => ({
-      ...work,
+      id: work.id,
+      title: work.title,
+      key: work.key,
+      host: work.host,
+      // THE SETUP'S TWO ANSWERS, as arms: the port answers an Option — the
+      // ONE reading of whether a setup question has a value — and the wire
+      // says which of the two it is rather than handing a reader a null.
+      mode: Option.match(work.mode, {
+        onNone: () => ({ kind: "unanswered" }) as const,
+        onSome: (value) => ({ kind: "answered", value }) as const,
+      }),
+      onGreen: Option.match(work.onGreen, {
+        onNone: () => ({ kind: "unanswered" }) as const,
+        onSome: (value) => ({ kind: "answered", value }) as const,
+      }),
       // THE WORDS ARE THIS FACE'S. `kolu-work` answers a token — who is
       // waited on and why — and the sentence an agent reads is written here,
       // where the rest of this resource's vocabulary is.
@@ -298,6 +312,7 @@ function worksRows(hosts: FleetHosts, works: FleetWorks): FleetWorksView {
         what: standingWords(work.standing),
         since: work.standing.since,
       },
+      openQuestions: work.openQuestions,
       members: work.members.map((member) =>
         memberWithHost(hosts, fleet, member, splitFleetTerminalRef),
       ),

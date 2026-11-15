@@ -8,19 +8,24 @@
  * These are the same rules, exercised the same way.
  */
 
+import { Option } from "effect";
 import { describe, expect, it } from "vitest";
 import {
+  ABOUT_WORK,
+  aboutMember,
+  type CheckHead,
+  endedAt,
   endWork,
   joinWork,
   openWork,
   outcomeOf,
-  endedAt,
+  type PrReading,
   prOf,
   recordEvent,
   type Work,
 } from "kolu-work";
 import { fileEvents, prEvents, ringEvent } from "./observing.ts";
-import type { WatchPr } from "./observation.ts";
+import type { WatchChecks, WatchPr } from "./observation.ts";
 
 const AT = "2026-02-01T10:00:00.000Z";
 const A = "local/aaaa";
@@ -40,7 +45,7 @@ const work = (): Work =>
         },
         title: "fix the parser",
         at: AT,
-        request: "fix it",
+        request: { kind: "said", text: "fix it" },
       }),
       { terminal: A, role: "implementor", at: AT },
     ),
@@ -48,14 +53,32 @@ const work = (): Work =>
   );
 
 /** The commit the checks are about — a forge's oid, as padi now reports it. */
-const HEAD = "4f21a9c0d3e5b7a9c1d3e5f7a9b1c3d5e7f9a1b3";
-const PUSHED = "9b7e3d1aa5c7e9b1d3f5a7c9e1b3d5f7a9c1e3b5";
+const HEAD: CheckHead = {
+  kind: "commit",
+  sha: "4f21a9c0d3e5b7a9c1d3e5f7a9b1c3d5e7f9a1b3",
+};
+const PUSHED: CheckHead = {
+  kind: "commit",
+  sha: "9b7e3d1aa5c7e9b1d3f5a7c9e1b3d5f7a9c1e3b5",
+};
+/** A host whose padi predates the field says nothing about commits. */
+const NO_HEAD: CheckHead = { kind: "unreported" };
+
+/** The forge's rollup over a PR's checks. */
+const rolled = (rollup: "pending" | "pass" | "fail"): WatchChecks => ({
+  kind: "rollup",
+  rollup,
+});
+
+/** What the timeline last said about the PR's checks. */
+const checksOf = (one: Work): Option.Option<PrReading["checks"]> =>
+  Option.map(prOf(one), (pr) => pr.checks);
 
 const pr = (over: Partial<WatchPr> = {}): WatchPr => ({
   number: 7,
   title: "Fix the parser",
   state: "open",
-  checks: null,
+  checks: { kind: "unreported" },
   failing: [],
   head: HEAD,
   ...over,
@@ -67,18 +90,20 @@ const kinds = (one: Work): ReadonlyArray<string> =>
 describe("what a ring puts on the timeline", () => {
   it("spells an agent's four states as themselves, by the agent", () => {
     for (const level of ["ready", "stopped", "asking", "exited"] as const) {
-      expect(ringEvent(A, level, AT)).toEqual({
-        at: AT,
-        by: "agent",
-        kind: level,
-        terminal: A,
-        why: "",
-      });
+      expect(ringEvent(A, level, AT)).toEqual(
+        Option.some({
+          at: AT,
+          by: "agent",
+          kind: level,
+          about: aboutMember(A),
+          why: { kind: "none" },
+        }),
+      );
     }
   });
 
   it("says a terminal put away is kolu's doing, not an agent's", () => {
-    expect(ringEvent(A, "asleep", AT)).toMatchObject({
+    expect(Option.getOrThrow(ringEvent(A, "asleep", AT))).toMatchObject({
       by: "kolu",
       kind: "asleep",
     });
@@ -88,19 +113,19 @@ describe("what a ring puts on the timeline", () => {
     // For a reader of the timeline "the command ended with no agent ever in
     // it" is the same ending as an exit — by kolu, because there was no agent
     // there to do it.
-    expect(ringEvent(A, "ended", AT)).toMatchObject({
+    expect(Option.getOrThrow(ringEvent(A, "ended", AT))).toMatchObject({
       by: "kolu",
       kind: "exited",
-      why: "ended without an agent",
+      why: { kind: "reason", text: "ended without an agent" },
     });
   });
 
   it("writes nothing for the three that are not readings of an agent", () => {
     // `gone` is a member LEAVING (`leaveWork` writes that with its reason);
     // the two hand-overs are written where the keys actually changed hands.
-    expect(ringEvent(A, "gone", AT)).toBeNull();
-    expect(ringEvent(A, "taken-over", AT)).toBeNull();
-    expect(ringEvent(A, "handed-back", AT)).toBeNull();
+    expect(ringEvent(A, "gone", AT)).toEqual(Option.none());
+    expect(ringEvent(A, "taken-over", AT)).toEqual(Option.none());
+    expect(ringEvent(A, "handed-back", AT)).toEqual(Option.none());
   });
 });
 
@@ -111,7 +136,7 @@ describe("the PR the work's own watch reads", () => {
     expect(opened.events.at(-1)).toMatchObject({
       kind: "pr-opened",
       by: "kolu",
-      terminal: null,
+      about: ABOUT_WORK,
       pr: 7,
     });
     // The comparison is against the TIMELINE, so the next poll — and the
@@ -120,22 +145,26 @@ describe("the PR the work's own watch reads", () => {
   });
 
   it("steps the checks through the ONE table, and names the failures", () => {
-    let one = prEvents(work(), pr({ checks: "pending" }), AT);
-    expect(prOf(one)?.checks).toBe("running");
+    let one = prEvents(work(), pr({ checks: rolled("pending") }), AT);
+    expect(checksOf(one)).toEqual(Option.some("running"));
     // The same rollup again is the same reading: nothing is written.
-    expect(prEvents(one, pr({ checks: "pending" }), AT)).toBe(one);
-    one = prEvents(one, pr({ checks: "fail", failing: ["build", "lint"] }), AT);
-    expect(prOf(one)?.checks).toBe("failed");
+    expect(prEvents(one, pr({ checks: rolled("pending") }), AT)).toBe(one);
+    one = prEvents(
+      one,
+      pr({ checks: rolled("fail"), failing: ["build", "lint"] }),
+      AT,
+    );
+    expect(checksOf(one)).toEqual(Option.some("failed"));
     expect(one.events.at(-1)).toMatchObject({
       kind: "checks-failed",
       by: "ci",
-      terminal: null,
+      about: ABOUT_WORK,
       pr: 7,
       head: HEAD,
       failing: ["build", "lint"],
     });
-    one = prEvents(one, pr({ checks: "pass" }), AT);
-    expect(prOf(one)?.checks).toBe("passed");
+    one = prEvents(one, pr({ checks: rolled("pass") }), AT);
+    expect(checksOf(one)).toEqual(Option.some("passed"));
   });
 
   // THE DEFECT THIS GUARDS (juspay/kolu#2376): the work used to learn its PR
@@ -144,20 +173,20 @@ describe("the PR the work's own watch reads", () => {
   // they disagreed — 429 of the human's real work's 465 events. There is ONE
   // reader now, and the poll is what repeats.
   it("writes a HANDFUL of events for five hundred polls of one PR", () => {
-    let one = prEvents(work(), pr({ checks: "pending" }), AT);
+    let one = prEvents(work(), pr({ checks: rolled("pending") }), AT);
     for (let poll = 0; poll < 500; poll += 1) {
-      one = prEvents(one, pr({ checks: "pending" }), AT);
-      one = prEvents(one, pr({ checks: "pass" }), AT);
+      one = prEvents(one, pr({ checks: rolled("pending") }), AT);
+      one = prEvents(one, pr({ checks: rolled("pass") }), AT);
     }
     expect(one.events.filter((event) => event.by === "ci")).toHaveLength(2);
     expect(kinds(one).filter((kind) => kind === "pr-opened")).toHaveLength(1);
   });
 
   it("says WHICH COMMIT a check event is about, so a push reads as one", () => {
-    let one = prEvents(work(), pr({ checks: "pending" }), AT);
-    one = prEvents(one, pr({ checks: "pass" }), AT);
+    let one = prEvents(work(), pr({ checks: rolled("pending") }), AT);
+    one = prEvents(one, pr({ checks: rolled("pass") }), AT);
     // A push: the same rollup word about a different commit is news.
-    one = prEvents(one, pr({ checks: "pending", head: PUSHED }), AT);
+    one = prEvents(one, pr({ checks: rolled("pending"), head: PUSHED }), AT);
     expect(kinds(one).filter((kind) => kind.startsWith("checks-"))).toEqual([
       "checks-running",
       "checks-passed",
@@ -165,30 +194,34 @@ describe("the PR the work's own watch reads", () => {
     ]);
     expect(one.events.at(-1)).toMatchObject({ head: PUSHED, pr: 7 });
     // ... and the new commit's checks running is still recorded once.
-    expect(prEvents(one, pr({ checks: "pending", head: PUSHED }), AT)).toBe(
-      one,
-    );
+    expect(
+      prEvents(one, pr({ checks: rolled("pending"), head: PUSHED }), AT),
+    ).toBe(one);
   });
 
   it("hears a reading with NO head once per kind, ever", () => {
     // A host whose padi predates the field says nothing about commits, so
     // there is nothing to tell two readings apart with — and the honest
     // reading of that is one event per kind, not one per poll.
-    let one = prEvents(work(), pr({ checks: "pending", head: null }), AT);
-    one = prEvents(one, pr({ checks: "pass", head: null }), AT);
-    one = prEvents(one, pr({ checks: "pending", head: null }), AT);
-    one = prEvents(one, pr({ checks: "pass", head: null }), AT);
+    let one = prEvents(
+      work(),
+      pr({ checks: rolled("pending"), head: NO_HEAD }),
+      AT,
+    );
+    one = prEvents(one, pr({ checks: rolled("pass"), head: NO_HEAD }), AT);
+    one = prEvents(one, pr({ checks: rolled("pending"), head: NO_HEAD }), AT);
+    one = prEvents(one, pr({ checks: rolled("pass"), head: NO_HEAD }), AT);
     expect(one.events.filter((event) => event.by === "ci")).toHaveLength(2);
   });
 
   it("ENDS the work when the PR merges, and when it closes", () => {
     const merged = prEvents(work(), pr({ state: "merged" }), AT);
     expect(kinds(merged)).toContain("merged");
-    expect(outcomeOf(merged)).toEqual({ kind: "merged", pr: 7 });
-    expect(endedAt(merged)).toBe(AT);
+    expect(outcomeOf(merged)).toEqual(Option.some({ kind: "merged", pr: 7 }));
+    expect(endedAt(merged)).toEqual(Option.some(AT));
 
     const closed = prEvents(work(), pr({ state: "closed" }), AT);
-    expect(outcomeOf(closed)).toEqual({ kind: "closed", pr: 7 });
+    expect(outcomeOf(closed)).toEqual(Option.some({ kind: "closed", pr: 7 }));
   });
 
   it("ends a MERGED work whose members are all gone, on the first look", () => {
@@ -200,13 +233,19 @@ describe("the PR the work's own watch reads", () => {
         at: AT,
         by: "kolu",
         kind: "left",
-        terminal: A,
+        about: aboutMember(A),
         why: "closed",
       }),
-      { at: AT, by: "kolu", kind: "left", terminal: B, why: "closed" },
+      {
+        at: AT,
+        by: "kolu",
+        kind: "left",
+        about: aboutMember(B),
+        why: "closed",
+      },
     );
     const ended = prEvents(abandoned, pr({ number: 181, state: "merged" }), AT);
-    expect(outcomeOf(ended)).toEqual({ kind: "merged", pr: 181 });
+    expect(outcomeOf(ended)).toEqual(Option.some({ kind: "merged", pr: 181 }));
     // The pull request is on the timeline too: kolu never saw it opened, and
     // a merge of a PR nobody recorded is still this work's merge.
     expect(kinds(ended)).toContain("pr-opened");
@@ -240,7 +279,7 @@ describe("the PR the work's own watch reads", () => {
     // is not a second opinion, it is the next pull request on the branch.
     const first = prEvents(work(), pr(), AT);
     const next = prEvents(first, pr({ number: 9, title: "Other" }), AT);
-    expect(prOf(next)?.number).toBe(9);
+    expect(Option.map(prOf(next), (one) => one.number)).toEqual(Option.some(9));
     expect(kinds(next).filter((kind) => kind === "pr-opened")).toHaveLength(2);
     expect(prEvents(next, pr({ number: 9, title: "Other" }), AT)).toBe(next);
   });
@@ -250,11 +289,21 @@ describe("the PR the work's own watch reads", () => {
   // A deterministic sweep rather than a random one — the repo has no
   // fast-check — over every reading the watch can make about one PR.
   it("appends NOTHING when the same readings are fed again", () => {
-    const checks = ["pending", "pass", "fail", null] as const;
-    const heads = [HEAD, PUSHED, null];
+    const checks: ReadonlyArray<WatchChecks> = [
+      rolled("pending"),
+      rolled("pass"),
+      rolled("fail"),
+      { kind: "unreported" },
+    ];
+    const heads = [HEAD, PUSHED, NO_HEAD];
     const readings = checks.flatMap((check) =>
       heads.map((head) =>
-        pr({ checks: check, head, failing: check === "fail" ? ["ci"] : [] }),
+        pr({
+          checks: check,
+          head,
+          failing:
+            check.kind === "rollup" && check.rollup === "fail" ? ["ci"] : [],
+        }),
       ),
     );
     let settled = work();
@@ -275,7 +324,7 @@ describe("the files a listing found", () => {
     expect(first.events.at(-1)).toMatchObject({
       kind: "file",
       by: "agent",
-      terminal: A,
+      about: aboutMember(A),
       path: ".waterfall/plan.md",
     });
     // Listed again — the same file is not news a second time, and the work is
@@ -299,7 +348,7 @@ describe("the files a listing found", () => {
       at: AT,
       by: "agent",
       kind: "file",
-      terminal: B,
+      about: aboutMember(B),
       path: ".waterfall/plan.md",
     });
     expect(fileEvents(restarted, A, [".waterfall/plan.md"], AT)).toBe(

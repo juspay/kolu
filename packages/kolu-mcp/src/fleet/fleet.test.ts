@@ -53,9 +53,9 @@ import type { TerminalId } from "@kolu/terminal-vocab/schema";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { ResourceUpdatedNotificationSchema } from "@modelcontextprotocol/sdk/types.js";
-import { Effect, Queue, Stream } from "effect";
+import { Effect, Option, Queue, Stream } from "effect";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { WorkRefusal } from "kolu-work";
+import { type SetupAsk, WorkRefusal } from "kolu-work";
 import { KOLU_FLEET_EXPOSE, KOLU_MCP_EXPOSE } from "../expose.ts";
 import { KOLU_MCP_TOOLS } from "../tools.ts";
 import { fleetSurface } from "./fleetSurface.ts";
@@ -65,6 +65,7 @@ import { serveKoluFleetMcp } from "./serve.ts";
 import type {
   FleetWatchJoin,
   FleetWorkMemberRow,
+  FleetWorkOpened,
   FleetWorkRow,
   FleetWorks,
 } from "./works.ts";
@@ -514,8 +515,14 @@ function fakeWorks(): FleetWorks & {
   readonly saids: string[];
   /** Every `closed` the face told the record, in order. */
   readonly closeds: string[];
-  /** Every `work_open` that reached the port, and every note. */
-  readonly opened: { title: string; setup: readonly string[] }[];
+  /** Every `work_open` that reached the port — with the setup AS THE RECORD
+   *  TAKES IT, which is what the tool's edge conversion is about — every
+   *  `work_ask`, and every note. */
+  readonly opened: { title: string; setup: ReadonlyArray<SetupAsk> }[];
+  readonly asks: {
+    work: string;
+    questions: Parameters<FleetWorks["ask"]>[1];
+  }[];
   readonly notes: { work: string; text: string }[];
   /** What a waterfall role of a seeded work starts on — what `startOf`
    *  answers once kolu-server has judged the saved setup against its offer
@@ -531,7 +538,11 @@ function fakeWorks(): FleetWorks & {
   const listeners = new Set<() => void>();
   const saids: string[] = [];
   const closeds: string[] = [];
-  const opened: { title: string; setup: readonly string[] }[] = [];
+  const opened: { title: string; setup: ReadonlyArray<SetupAsk> }[] = [];
+  const asks: {
+    work: string;
+    questions: Parameters<FleetWorks["ask"]>[1];
+  }[] = [];
   const notes: { work: string; text: string }[] = [];
   const starts = new Map<string, SetUpStart | WorkRefusal>();
   const moved = (): void => {
@@ -540,18 +551,14 @@ function fakeWorks(): FleetWorks & {
   const blank = (id: string, title: string): FleetWorkRow => ({
     id,
     title,
-    repo: "/repo",
-    branch: "work",
+    key: { kind: "branch", host: "local", repo: "/repo", branch: "work" },
     host: "local",
-    mode: "full",
-    onGreen: "merge",
+    mode: Option.some("full"),
+    onGreen: Option.some("merge"),
     standing: {
       who: "agent",
       why: "working",
-      what: "",
-      ref: null,
       since: "2026-01-01",
-      outcome: null,
     },
     members: [],
     openQuestions: [],
@@ -575,25 +582,42 @@ function fakeWorks(): FleetWorks & {
     open: async (intent: Parameters<FleetWorks["open"]>[0]) => {
       opened.push({
         title: intent.title,
-        setup: intent.setup.map((one) => one.key),
+        setup: intent.setup,
       });
       const id = `work:${works.size + 1}`;
       works.set(id, blank(id, intent.title));
       moved();
-      return {
+      const answer: FleetWorkOpened = {
         work: id,
-        host: "local",
-        mode: "full" as const,
-        roles: [
-          { role: "planner" as const, harness: "omp", model: "opus" },
-          { role: "implementor" as const, harness: "omp", model: "sonnet" },
-        ],
-        onGreen: "merge" as const,
+        setup: {
+          host: "local",
+          mode: Option.some("full"),
+          roles: [
+            {
+              role: "planner",
+              setup: {
+                kind: "harness-and-model",
+                harness: "omp",
+                model: "opus",
+              },
+            },
+            {
+              role: "implementor",
+              setup: {
+                kind: "harness-and-model",
+                harness: "omp",
+                model: "sonnet",
+              },
+            },
+          ],
+          onGreen: Option.some("merge"),
+        },
         ask: `ask:${id}`,
         asked: true,
         created: true,
         reopened: false,
       };
+      return answer;
     },
     startOf: async (work: string, role: "planner" | "implementor") => {
       const one = works.get(work);
@@ -613,9 +637,10 @@ function fakeWorks(): FleetWorks & {
     ) {
       starts.set(`${work}#${role}`, start);
     },
-    ask: (_work: string, _questions: Parameters<FleetWorks["ask"]>[1]) => ({
-      ask: `ask:${works.size}`,
-    }),
+    ask: (work: string, questions: Parameters<FleetWorks["ask"]>[1]) => {
+      asks.push({ work, questions });
+      return { ask: `ask:${works.size}` };
+    },
     join(
       ref: string,
       work: string,
@@ -660,12 +685,10 @@ function fakeWorks(): FleetWorks & {
       closeds.push(ref);
       if (self.leave(ref)) moved();
     },
-    check: (work: string) =>
+    check: (work: string): Option.Option<"unknown-work" | "work-ended"> =>
       works.has(work)
-        ? null
-        : ended.has(work)
-          ? ("work-ended" as const)
-          : ("unknown-work" as const),
+        ? Option.none()
+        : Option.some(ended.has(work) ? "work-ended" : "unknown-work"),
     seed(id: string, title = "a piece of work") {
       works.set(id, blank(id, title));
       moved();
@@ -708,6 +731,7 @@ function fakeWorks(): FleetWorks & {
     saids,
     closeds,
     opened,
+    asks,
     notes,
   };
   return self;
@@ -1268,19 +1292,92 @@ describe("the conductor's pieces of work", () => {
     });
 
     expect(res.isError ?? false, JSON.stringify(res.content)).toBe(false);
-    // The answer is the setup READ BACK off the decisions, flattened — plus
-    // the ask the rest went out as. NOTHING WAITED for the human: the call
-    // answered with `asked`, and their answers arrive as a wake.
+    // The answer is the setup READ BACK off the decisions, each answer as an
+    // ARM — plus the ask the rest went out as. NOTHING WAITED for the human:
+    // the call answered with `asked`, and their answers arrive as a wake.
     expect(res.structuredContent).toMatchObject({
       work: "work:1",
-      host: "local",
-      mode: "full",
-      onGreen: "merge",
+      setup: {
+        host: "local",
+        mode: { kind: "answered", value: "full" },
+        onGreen: { kind: "answered", value: "merge" },
+        roles: [
+          {
+            role: "planner",
+            setup: {
+              kind: "harness-and-model",
+              harness: "omp",
+              model: "opus",
+            },
+          },
+          {
+            role: "implementor",
+            setup: {
+              kind: "harness-and-model",
+              harness: "omp",
+              model: "sonnet",
+            },
+          },
+        ],
+      },
       ask: "ask:work:1",
       asked: true,
     });
+    // THE EDGE: what reached the port is the RECORD's shape — every question
+    // carries `given: {kind: "ask"}`, because this call gave no answers. The
+    // tool's wire leaves `given` out; nothing below the tool sees that.
     expect(works.opened).toEqual([
-      { title: "a stored piece of work", setup: SETUP.map((one) => one.key) },
+      {
+        title: "a stored piece of work",
+        setup: SETUP.map((one) =>
+          "options" in one
+            ? {
+                key: one.key,
+                question: one.question,
+                options: one.options,
+                given: { kind: "ask" },
+              }
+            : { key: one.key, given: { kind: "ask" } },
+        ),
+      },
+    ]);
+  });
+
+  it("a `given` answer reaches the record as the arm that says the request gave it", async () => {
+    const { fleet } = twoHostFleet();
+    const works = fakeWorks();
+    const mcp = await servedFleet(fleet.hosts, works);
+
+    const res = await mcp.callTool({
+      name: "work_open",
+      arguments: {
+        title: "a stored piece of work",
+        host: "local",
+        repo: "/repo",
+        branch: "work",
+        setup: [
+          {
+            key: "mode",
+            question: "Which mode?",
+            options: ["full", "trivial"],
+            given: "full",
+          },
+          { key: "planner.harness", given: "omp" },
+          { key: "planner.model" },
+        ],
+      },
+    });
+
+    expect(res.isError ?? false, JSON.stringify(res.content)).toBe(false);
+    expect(works.opened.at(0)?.setup).toEqual([
+      {
+        key: "mode",
+        question: "Which mode?",
+        options: ["full", "trivial"],
+        given: { kind: "given", value: "full" },
+      },
+      { key: "planner.harness", given: { kind: "given", value: "omp" } },
+      { key: "planner.model", given: { kind: "ask" } },
     ]);
   });
 
@@ -1806,15 +1903,17 @@ describe("the conductor's pieces of work", () => {
       name: "work_leave",
       arguments: { id: `local/${ALPHA_1}` },
     });
-    expect(left.structuredContent).toEqual({ left: true, work: "work:1" });
+    expect(left.structuredContent).toEqual({
+      left: { kind: "left", work: "work:1" },
+    });
 
     // A terminal that already died has left by itself, so letting it go again
-    // is a plain `false` — never an error a conductor has to handle.
+    // says `not-a-member` — never an error a conductor has to handle.
     const again = await mcp.callTool({
       name: "work_leave",
       arguments: { id: `local/${ALPHA_1}` },
     });
-    expect(again.structuredContent).toEqual({ left: false, work: null });
+    expect(again.structuredContent).toEqual({ left: { kind: "not-a-member" } });
   });
 
   it("letting go of a terminal that is GONE still works — the roster is not consulted", async () => {
@@ -1834,7 +1933,9 @@ describe("the conductor's pieces of work", () => {
     });
 
     expect(res.isError ?? false).toBe(false);
-    expect(res.structuredContent).toEqual({ left: true, work: "work:1" });
+    expect(res.structuredContent).toEqual({
+      left: { kind: "left", work: "work:1" },
+    });
   });
 
   it("`work_ask` puts questions about a work and answers AT ONCE", async () => {
@@ -1867,6 +1968,55 @@ describe("the conductor's pieces of work", () => {
     expect(asked.ask).toMatch(/^ask:/);
     expect(asked.said).toContain("END YOUR TURN");
     expect(asked).not.toHaveProperty("answers");
+    // ... and what reached the record: the ARMS. The tool's wire leaves out
+    // what it was not told (`multiple`, `file`), and the question put on the
+    // work says which of the two it is instead.
+    expect(works.asks).toEqual([
+      {
+        work: "work:1",
+        questions: [
+          {
+            header: { kind: "header", text: "Plan approval" },
+            question: "Approve the plan?",
+            options: ["approve", "revise"],
+            multiple: false,
+            file: { kind: "file", path: ".waterfall/plan.md" },
+          },
+        ],
+      },
+    ]);
+  });
+
+  it("a question about no file and no multiple pick says so in its own arms", async () => {
+    const { fleet } = twoHostFleet();
+    const works = fakeWorks();
+    works.seed("work:1");
+    const mcp = await servedFleet(fleet.hosts, works);
+
+    await mcp.callTool({
+      name: "work_ask",
+      arguments: {
+        work: "work:1",
+        questions: [
+          {
+            header: "Failing check",
+            question: "What now?",
+            options: ["retry", "revert"],
+            multiple: true,
+          },
+        ],
+      },
+    });
+
+    expect(works.asks.at(0)?.questions).toEqual([
+      {
+        header: { kind: "header", text: "Failing check" },
+        question: "What now?",
+        options: ["retry", "revert"],
+        multiple: true,
+        file: { kind: "none" },
+      },
+    ]);
   });
 
   it("`work_note` writes one line on the timeline and nothing else", async () => {
@@ -1918,11 +2068,15 @@ describe("the conductor's pieces of work", () => {
         {
           id: "work:1",
           title: "a stored piece of work",
-          repo: "/repo",
-          branch: "work",
+          key: {
+            kind: "branch",
+            host: "local",
+            repo: "/repo",
+            branch: "work",
+          },
           host: "local",
-          mode: "full",
-          onGreen: "merge",
+          mode: { kind: "answered", value: "full" },
+          onGreen: { kind: "answered", value: "merge" },
           standing: {
             who: "agent",
             what: "agents at work",

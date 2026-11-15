@@ -109,21 +109,22 @@ import {
 } from "@kolu/acp-harness";
 import type { CellStore } from "@kolu/surface/server";
 import type { PrResult } from "@kolu/terminal-vocab/schema";
-import { Schema } from "effect";
+import { Option, Schema } from "effect";
 import {
   conductorConfigDir,
   CONDUCTOR_ENGINE as ENGINE,
 } from "kolu-agents/acp";
 import {
-  type AskAnswer,
   type AskField,
   appendedText,
+  type ConductorAnswerWorkOutcome,
   type ConductorAttachment,
   type ConductorFrame,
   type ConductorReadingLevel,
   type ConductorRow,
   type ConductorState,
   ConductorStateSchema,
+  type ConductorWorkAskStanding,
   DEFAULT_CONDUCTOR_STATE,
 } from "kolu-common/conductor";
 import {
@@ -133,30 +134,41 @@ import {
 import type { MemberReading } from "kolu-common/works";
 import { splitFleetTerminalRef } from "kolu-mcp/fleetRef";
 import {
-  type WorkId,
-  type WorkKey,
-  type WorkMember,
-  type AnswerFrom,
+  ABOUT_WORK,
+  type AnsweredFromFace,
+  type AskReply,
   askedAnswersOf,
   foreignSetupWords,
+  type Given,
   givenAnswersOf,
+  type Header,
   hostOf,
   isKoluChoiceKey,
+  isOnGreen,
+  isWorkMode,
   type KoluChoiceKey,
   type KoluChoices,
+  keysToAsk,
   koluKeysOf,
   missingSetup,
+  modeOf,
   modelHarnessesOf,
   ON_GREEN,
+  openSetupQuestions,
   type Question,
+  type QuestionFile,
+  type RequestWords,
   recordEvent,
-  repoOf,
   roleOfKey,
-  savedAnswersOf,
+  roleSetupOf,
+  rolesOf,
   type SetupAsk,
   type SetupKey,
   type SetupReading,
+  type StartBlocker,
+  savedAnswersOf,
   setupOf,
+  startBlockers,
   type UnofferedAnswer,
   unofferedAnswers,
   unofferedWhy,
@@ -164,11 +176,15 @@ import {
   WORK_MODES,
   type WaterfallRole,
   type Work,
+  type WorkId,
+  type WorkKey,
+  type WorkMember,
   workIdOf,
   WorkRefusal,
   type WorkRole,
 } from "kolu-work";
 import type { Logger } from "pino";
+import { dropSuperseded } from "./askNews.ts";
 import { asking } from "./asking.ts";
 import { attachments } from "./attachments.ts";
 import { memberStore } from "./memberStore.ts";
@@ -255,12 +271,21 @@ async function choicesFor(
   const host = hostOf(where);
   const installed = offer.harnesses();
   const answers = new Map<string, AgentModels>();
-  for (const harness of harnesses.filter((one) => installed.includes(one))) {
+  const asking = harnesses.filter((one) => installed.includes(one));
+  if (asking.length === 0)
+    return { choices: chosen(installed, answers), answers };
+  // A MODEL IS ASKED FOR IN THE WORK'S REPOSITORY, with the profiles a new
+  // terminal there gets — and a watch has none, so nothing about a model is
+  // judged for one.
+  if (where.key.kind === "watch")
+    throw new WorkRefusal(
+      "not-offered",
+      `a watch has no repository on ${host} to ask ${asking.join(", ")} for its models in. ${nothing}`,
+    );
+  const repo = where.key.repo;
+  for (const harness of asking) {
     try {
-      answers.set(
-        harness,
-        await offer.models({ host, repo: repoOf(where), harness }),
-      );
+      answers.set(harness, await offer.models({ host, repo, harness }));
     } catch (err) {
       throw new WorkRefusal(
         "not-offered",
@@ -268,16 +293,17 @@ async function choicesFor(
       );
     }
   }
-  return {
-    choices: {
-      harnesses: installed,
-      models: new Map(
-        [...answers].map(([harness, one]) => [harness, one.models]),
-      ),
-    },
-    answers,
-  };
+  return { choices: chosen(installed, answers), answers };
 }
+
+/** What the host's answers make the choices — the model lists by harness. */
+const chosen = (
+  installed: ReadonlyArray<string>,
+  answers: ReadonlyMap<string, AgentModels>,
+): KoluChoices => ({
+  harnesses: installed,
+  models: new Map([...answers].map(([harness, one]) => [harness, one.models])),
+});
 
 /** Every bad answer, in the words a refusal names them by. */
 const unofferedSentence = (
@@ -288,6 +314,78 @@ const unofferedSentence = (
   bad
     .map((one) => unofferedWords(one, choices.harnesses, hostOf(where)))
     .join("; ");
+
+/** A given value narrowed to kolu's words for its key. {@link foreignSetupWords}
+ *  refused every other word before a question is built, so one that gets
+ *  here is a broken caller, and it is said so rather than asked anyway. */
+const givenAs = <V extends string>(
+  given: Given<string>,
+  is: (value: string) => value is V,
+): Given<V> => {
+  if (given.kind === "ask") return given;
+  if (is(given.value)) return { kind: "given", value: given.value };
+  throw new Error(
+    `openWork: ${JSON.stringify(given.value)} passed foreignSetupWords and is not one of kolu's words`,
+  );
+};
+
+/** EVERY MODE OR ON-GREEN ANSWER IN `values` THAT IS NOT ONE OF KOLU'S WORDS
+ *  for it, in the words a refusal names them by. The form offers only those
+ *  words; this is the rule behind it, where the answer is recorded — a word
+ *  the record cannot hold is refused by name, never left asked in silence. */
+const foreignAnswers = (
+  work: Work,
+  ask: string,
+  values: ReadonlyMap<string, ReadonlyArray<string>>,
+): ReadonlyArray<string> =>
+  work.decisions.flatMap((one) => {
+    if (one.ask !== ask || one.kind !== "asked" || one.topic !== "setup")
+      return [];
+    const [value] = (values.get(one.id) ?? []).filter((each) => each !== "");
+    if (value === undefined) return [];
+    switch (one.key) {
+      case "mode":
+        return isWorkMode(value)
+          ? []
+          : [
+              `mode: ${JSON.stringify(value)} is not a mode (${WORK_MODES.join(" | ")})`,
+            ];
+      case "on-green":
+        return isOnGreen(value)
+          ? []
+          : [
+              `on-green: ${JSON.stringify(value)} is not what kolu does on green (${ON_GREEN.join(" | ")})`,
+            ];
+      default:
+        return [];
+    }
+  });
+
+/** WHAT STARTING A ROLE WAITS ON, said as it is — the keys open in front of
+ *  the human (their answer wakes the Conductor by itself) apart from the
+ *  ones nobody is being asked (only `work_open` puts them). */
+const blockersSentence = (blockers: ReadonlyArray<StartBlocker>): string => {
+  const open = blockers.flatMap((one) =>
+    one.standing.kind === "open" ? [one.key] : [],
+  );
+  const unasked = blockers.flatMap((one) =>
+    one.standing.kind === "unasked" ? [one.key] : [],
+  );
+  const are = (keys: ReadonlyArray<string>) =>
+    `${keys.join(", ")} ${keys.length === 1 ? "is" : "are"}`;
+  return [
+    ...(open.length === 0
+      ? []
+      : [
+          `${are(open)} open in front of the human — wait for their answer; kolu wakes you with it`,
+        ]),
+    ...(unasked.length === 0
+      ? []
+      : [
+          `${are(unasked)} asked of nobody — call \`work_open\` for this work, which asks ${unasked.length === 1 ? "it" : "them"}`,
+        ]),
+  ].join("; and ");
+};
 
 export interface ConductorHost {
   /** The live cell value. Readable before the agent is up — it then says
@@ -407,27 +505,30 @@ export interface ConductorHost {
     work: string,
     questions: ReadonlyArray<{
       /** The question's short header — two or three words, the label its
-       *  decision is drawn under on the card. */
-      readonly header: string;
+       *  decision is drawn under on the card — or none given. */
+      readonly header: Header;
       readonly question: string;
       readonly options: ReadonlyArray<string>;
-      readonly multiple?: boolean | undefined;
+      readonly multiple: boolean;
       /** The worktree-relative file the question is about — a plan to
-       *  approve, a diff to look at — or absent for a question about none. */
-      readonly file?: string | undefined;
+       *  approve, a diff to look at — or none. */
+      readonly file: QuestionFile;
     }>,
   ) => { readonly ask: string };
-  /** THE HUMAN'S ANSWER to one of those questions, from whichever face they
-   *  were looking at. Records the decision, settles the row in the chat, and
+  /** THE HUMAN'S REPLY to one of those questions, from whichever face they
+   *  were looking at. Records what it settles, moves the row in the chat, and
    *  WAKES the conversation with what they said — which is the only way an
    *  answer ever reaches the Conductor.
    *
-   *  `values: null` DECLINES the whole ask. `settled: false` means somebody
-   *  else answered it first — a reported state in a two-tab world, not a
-   *  fault. Refused ({@link WorkRefusal}) for a work nobody knows, and
-   *  (`not-offered`) for an answer to a harness or model question that is not
-   *  one of kolu's options right now — checked here, where the answer is
-   *  recorded — and checked again when the role starts
+   *  A DECLINE settles the whole ask; an ANSWER settles the questions it gives
+   *  a value for and leaves the rest asked (`part`). `nothing-open` means
+   *  somebody else got there first — a reported state in a two-tab world,
+   *  not a fault. Refused ({@link WorkRefusal}) for a work nobody knows,
+   *  (`nothing-answered`) for an answer that fills in no question, and
+   *  (`not-offered`) for an answer that is not one of kolu's options right
+   *  now — a mode or on-green outside kolu's words, a harness it does not
+   *  carry, a model the host did not list — checked here, where the answer
+   *  is recorded, and checked again when the role starts
    *  ({@link ConductorHost.startOf}).
    *
    *  NEVER goes through the agent: a person must be able to answer while the
@@ -436,9 +537,9 @@ export interface ConductorHost {
   readonly answerWork: (answered: {
     readonly work: string;
     readonly ask: string;
-    readonly from: AnswerFrom;
-    readonly values: ReadonlyMap<string, ReadonlyArray<string>> | null;
-  }) => Promise<{ readonly settled: boolean }>;
+    readonly from: AnsweredFromFace;
+    readonly reply: AskReply;
+  }) => Promise<{ readonly outcome: ConductorAnswerWorkOutcome }>;
   /** WHAT A PLANNER OR IMPLEMENTOR OF THIS WORK STARTS ON — its saved harness
    *  and model, judged by the rule that records an answer, and how the host's
    *  harness takes a model. REFUSED ({@link WorkRefusal}) for an unknown or
@@ -931,13 +1032,16 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
    *  Read off the transcript rather than taken from `work_open`, because the
    *  Conductor's version of the request is its SUMMARY of the words: what the
    *  timeline's first line must say is what the person actually asked for. */
-  const newestRequest = (): string => {
+  const newestRequest = (): RequestWords => {
     const said = rows();
     for (let at = said.length - 1; at >= 0; at -= 1) {
       const row = said[at];
-      if (row?.kind === "user") return row.text;
+      if (row?.kind !== "user") continue;
+      return row.text === ""
+        ? { kind: "none" }
+        : { kind: "said", text: row.text };
     }
-    return "";
+    return { kind: "none" };
   };
 
   let seq = 0;
@@ -1037,7 +1141,7 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
     // answer.
     ended: (settled) => {
       for (const one of settled) {
-        settleAsk(one.ask, one.outcome);
+        settleAsk(one.ask, one.standing);
         wake.answered(one.news);
       }
       void wake.flush();
@@ -1135,8 +1239,8 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
     said: (ask, work, message, fields) => {
       sayAsk(ask, work, message, fields);
     },
-    settled: (ask, outcome) => {
-      settleAsk(ask, outcome);
+    settled: (ask, standing) => {
+      settleAsk(ask, standing);
     },
     // THE ONE PLACE THE NEWS RULE LIVES: an answer is held and the
     // conversation is woken with it. No caller of `answer` remembers to do
@@ -1401,7 +1505,7 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
           seq: (rows().at(-1)?.seq ?? 0) + 1,
           since: new Date().toISOString(),
           text: message,
-          ask: { fields: [...fields], link: null, outcome: null },
+          ask: { fields: [...fields], standing: { kind: "open" } },
           work,
         },
       ],
@@ -1410,28 +1514,20 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
     });
   };
 
-  /** ... and how it ended, on that same row — read off the decisions that
-   *  settled, so the log and the record cannot disagree. A row that is not
+  /** ... and where it stands now, on that same row — read off the decisions,
+   *  so the log and the record cannot disagree. A row still being answered
+   *  (`open`, `part`) moves; one that has ended does not. A row that is not
    *  there any more (the session was wiped under it) changes nothing. */
-  const settleAsk = (
-    ask: string,
-    outcome: {
-      how: "answered" | "declined" | "withdrawn";
-      answers: AskAnswer[];
-    },
-  ): void => {
+  const settleAsk = (ask: string, standing: ConductorWorkAskStanding): void => {
     const row = byId.get(ask);
     // A WORK ASK: kolu's own question about a piece of work, which is the
     // only kind this settles — an elicitation the agent is holding is ended
     // by the call it is holding, not here.
-    if (
-      row === undefined ||
-      row.kind !== "work-ask" ||
-      row.ask.outcome !== null
-    )
-      return;
+    if (row === undefined || row.kind !== "work-ask") return;
+    const now = row.ask.standing.kind;
+    if (now !== "open" && now !== "part") return;
     applyRows({
-      upserts: [{ ...row, ask: { ...row.ask, outcome } }],
+      upserts: [{ ...row, ask: { ...row.ask, standing } }],
       removes: [],
       appends: [],
     });
@@ -1782,21 +1878,22 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
       const before = works.get(workIdOf(intent.key));
       const given = givenAnswersOf(
         intent.setup.flatMap((one) =>
-          isKoluChoiceKey(one.key) && one.given !== undefined
-            ? [{ key: one.key, value: one.given }]
+          isKoluChoiceKey(one.key) && one.given.kind === "given"
+            ? [{ key: one.key, value: one.given.value }]
             : [],
         ),
         before,
       );
-      const saved =
-        before === undefined
-          ? []
-          : savedAnswersOf(
-              before,
-              intent.setup.flatMap((one) =>
-                isKoluChoiceKey(one.key) ? [one.key] : [],
-              ),
-            );
+      const saved = Option.match(before, {
+        onNone: () => [],
+        onSome: (work) =>
+          savedAnswersOf(
+            work,
+            intent.setup.flatMap((one) =>
+              isKoluChoiceKey(one.key) ? [one.key] : [],
+            ),
+          ),
+      });
       const { choices } = await choicesFor(
         intent,
         modelHarnessesOf([...given, ...saved]),
@@ -1828,43 +1925,63 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
         request: newestRequest(),
       });
       const id = opened.id;
-      // ONLY WHAT HAS NO ANSWER (or one kolu no longer offers) IS ASKED. A
-      // work already set up asks nothing, which is what makes carrying on with
-      // an existing work free of a second form about decisions the human
-      // already made.
-      const answeredKeys = new Set(
-        opened.work.decisions
-          .filter((one) => one.kind === "answered" && one.key !== null)
-          .map((one) => one.key),
+      // WHAT IS ASKED is read by THE ONE READING of a setup question: every
+      // key with no value — the ones whose question is still open included —
+      // and every saved answer kolu no longer offers. A work already set up
+      // asks nothing, which is what makes carrying on with an existing work
+      // free of a second form about decisions the human already made.
+      const keys = keysToAsk(
+        Option.some(opened.work),
+        intent.setup.map((one) => one.key),
+        new Set(reasked.keys()),
       );
+      // ... and A KEY STILL OPEN IN AN OLDER FORM is asked in this one
+      // instead: the old question is dropped, so exactly one question per key
+      // is ever in front of the human, and its row in the chat says so.
+      const superseded = dropSuperseded(
+        opened.work,
+        openSetupQuestions(opened.work, keys),
+        new Date().toISOString(),
+      );
+      if (superseded.work !== opened.work) {
+        works.save(id, superseded.work);
+        works.changed();
+        for (const one of superseded.settled) settleAsk(one.ask, one.standing);
+      }
       const questions: ReadonlyArray<Question> = intent.setup
-        .filter((one) => !answeredKeys.has(one.key) || reasked.has(one.key))
+        .filter((one) => keys.includes(one.key))
         .map((one): Question => {
-          const common = {
-            id: crypto.randomUUID(),
-            // A setup question's label is its KEY's own name, so it carries
-            // no header of its own.
-            header: "",
-            file: "",
-            ...(one.given === undefined ? {} : { given: one.given }),
-          };
-          // KOLU'S OWN QUESTIONS are worded by kolu and carry no options:
-          // the form draws them live, off the listing and the host.
-          return "options" in one
-            ? {
-                ...common,
-                key: one.key,
+          const id = crypto.randomUUID();
+          switch (one.key) {
+            case "mode":
+              return {
+                id,
                 question: one.question,
-                options: one.options,
-                // One answer each: a setup question with two answers is two
-                // questions.
-                multiple: false,
-              }
-            : {
-                ...common,
-                key: one.key,
-                question: reasked.get(one.key) ?? KOLU_QUESTION[one.key],
+                topic: "setup",
+                key: "mode",
+                options: one.options.filter(isWorkMode),
+                given: givenAs(one.given, isWorkMode),
               };
+            case "on-green":
+              return {
+                id,
+                question: one.question,
+                topic: "setup",
+                key: "on-green",
+                options: one.options.filter(isOnGreen),
+                given: givenAs(one.given, isOnGreen),
+              };
+            default:
+              // KOLU'S OWN QUESTIONS are worded by kolu and carry no options:
+              // the form draws them live, off the listing and the host.
+              return {
+                id,
+                question: reasked.get(one.key) ?? KOLU_QUESTION[one.key],
+                topic: "setup",
+                key: one.key,
+                given: one.given,
+              };
+          }
         });
       const put =
         questions.length === 0
@@ -1874,7 +1991,7 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
       // whatever the work already decided.
       return {
         work: id,
-        setup: setupOf(works.get(id) ?? opened.work),
+        setup: setupOf(Option.getOrElse(works.get(id), () => superseded.work)),
         ask: put.ask,
         asked: put.asked,
         created: opened.created,
@@ -1886,14 +2003,14 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
       const work = works.openAt(id);
       const asked: ReadonlyArray<Question> = questions.map((one) => ({
         id: crypto.randomUUID(),
-        // NOT a setup key: this is a question about the work rather than about
-        // how it is run, so no reading is ever taken off it.
-        key: null,
+        // A QUESTION ABOUT THE WORK rather than about how it is run, so no
+        // reading is ever taken off it.
+        topic: "work",
         header: one.header,
         question: one.question,
         options: one.options,
-        multiple: one.multiple === true,
-        file: one.file ?? "",
+        multiple: one.multiple,
+        file: one.file,
       }));
       return asks.put(
         id,
@@ -1905,19 +2022,27 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
         asked,
       );
     },
-    answerWork: async ({ work, ask, from, values }) => {
+    answerWork: async ({ work, ask, from, reply }) => {
       remembered();
-      const found = works.get(work);
-      if (found === undefined) {
-        throw new WorkRefusal(
-          "unknown-work",
-          `There is no piece of work called ${JSON.stringify(work)}, so there is nothing to answer about it.`,
-        );
-      }
-      // AN ANSWER IS CHECKED WHERE IT IS RECORDED: a harness kolu does not
-      // carry, or a model the host did not list, never becomes a decision.
-      if (values !== null) {
-        const answers = askedAnswersOf(found, ask, values);
+      const found = Option.getOrThrowWith(
+        works.get(work),
+        () =>
+          new WorkRefusal(
+            "unknown-work",
+            `There is no piece of work called ${JSON.stringify(work)}, so there is nothing to answer about it.`,
+          ),
+      );
+      // AN ANSWER IS CHECKED WHERE IT IS RECORDED: a mode or an on-green
+      // outside kolu's words, a harness kolu does not carry, or a model the
+      // host did not list never becomes a decision.
+      if (reply.kind === "answered") {
+        const foreign = foreignAnswers(found, ask, reply.values);
+        if (foreign.length > 0)
+          throw new WorkRefusal(
+            "not-offered",
+            `${foreign.join("; ")}. Answer with one of kolu's words for it. Nothing was recorded.`,
+          );
+        const answers = askedAnswersOf(found, ask, reply.values);
         const { choices } = await choicesFor(
           found,
           modelHarnessesOf(answers),
@@ -1936,50 +2061,91 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
       // news sink, which is where that rule lives), and this call answers
       // only how it was settled. Read again after the check: another face
       // may have answered while the host was asked.
-      const current = works.get(work) ?? found;
-      const how = asks.answer({ id: work, work: current, ask, from, values });
-      if (how === null) return { settled: false };
-      // A SETUP NOBODY WOULD ANSWER, FOR A WORK NOTHING HAS HAPPENED IN, IS A
-      // WORK NOBODY WANTED — and it is REMOVED rather than ended. There is no
-      // outcome that would be true of it: no terminal ever joined it and no
-      // pull request was ever opened for it, so a card reading "stopped"
-      // would be a line about a thing that never happened. A decline on a
-      // work that HAS got somewhere is recorded and the work stays open.
-      const after = works.get(work);
-      if (
-        how === "declined" &&
-        after !== undefined &&
-        after.state.kind === "open" &&
-        after.decisions.some((one) => one.ask === ask && one.key !== null)
-      ) {
-        works.declined(work);
+      const current = Option.getOrElse(works.get(work), () => found);
+      const answered = asks.answer({
+        id: work,
+        work: current,
+        ask,
+        from,
+        reply,
+      });
+      switch (answered.kind) {
+        case "nothing-open":
+          return { outcome: { kind: "nothing-open" } };
+        case "nothing-answered":
+          throw new WorkRefusal(
+            "nothing-answered",
+            `That answer fills in no question of «${current.title}», so nothing was recorded and every question is still asked. Fill in at least one, or say you would rather not.`,
+          );
+        case "declined":
+          // A SETUP NOBODY WOULD ANSWER, FOR A WORK NOTHING HAS HAPPENED IN,
+          // IS A WORK NOBODY WANTED — and it is REMOVED rather than ended.
+          // There is no outcome that would be true of it: no terminal ever
+          // joined it and no pull request was ever opened for it, so a card
+          // reading "stopped" would be a line about a thing that never
+          // happened. A decline on a work that HAS got somewhere is recorded
+          // and the work stays open.
+          if (
+            Option.exists(
+              works.get(work),
+              (after) =>
+                after.state.kind === "open" &&
+                after.decisions.some(
+                  (one) => one.ask === ask && one.topic === "setup",
+                ),
+            )
+          )
+            works.declined(work);
+          publishState();
+          return { outcome: { kind: "declined" } };
+        case "part":
+          publishState();
+          return { outcome: { kind: "part", open: answered.open } };
+        case "answered":
+          publishState();
+          return { outcome: { kind: "answered" } };
+        default:
+          return answered satisfies never;
       }
-      publishState();
-      return { settled: true };
     },
     startOf: async (id, role) => {
       remembered();
-      const found = works.get(id);
-      if (found === undefined)
-        throw new WorkRefusal(
-          "unknown-work",
-          `There is no piece of work called ${JSON.stringify(id)} — open it with \`work_open\` first. Nothing was created.`,
-        );
+      const found = Option.getOrThrowWith(
+        works.get(id),
+        () =>
+          new WorkRefusal(
+            "unknown-work",
+            `There is no piece of work called ${JSON.stringify(id)} — open it with \`work_open\` first. Nothing was created.`,
+          ),
+      );
       if (found.state.kind === "ended")
         throw new WorkRefusal(
           "work-ended",
           `The piece of work ${JSON.stringify(id)} has ended, so nothing more is started for it. Nothing was created.`,
         );
-      const part = setupOf(found).roles.find((one) => one.role === role);
-      if (
-        found.key.kind !== "branch" ||
-        part === undefined ||
-        part.harness === null ||
-        part.model === null
-      )
+      if (found.key.kind !== "branch")
         throw new WorkRefusal(
           "missing-setup",
-          `The ${role} of «${found.title}» has no harness and model answered yet, so kolu has nothing to start it with. Wait for the human's answer — kolu wakes you with it. Nothing was created.`,
+          `«${found.title}» is a watch of a terminal, and a watch runs no ${role}. Nothing was created.`,
+        );
+      // WHAT IT WAITS ON, by the one reading — and said as it is: a question
+      // open in front of the human will be answered by itself, and one asked
+      // of nobody will not be until `work_open` asks it.
+      const blockers = startBlockers(found, role);
+      if (blockers.length > 0)
+        throw new WorkRefusal(
+          "missing-setup",
+          `The ${role} of «${found.title}» cannot start yet: ${blockersSentence(blockers)}. Nothing was created.`,
+        );
+      if (!rolesOf(modeOf(found)).includes(role))
+        throw new WorkRefusal(
+          "missing-setup",
+          `«${found.title}» runs in ${Option.getOrElse(modeOf(found), () => "no")} mode, which has no ${role}. Nothing was created.`,
+        );
+      const setup = roleSetupOf(found, role);
+      if (setup.kind !== "harness-and-model")
+        throw new Error(
+          `startOf: the ${role} of ${id} waits on nothing, yet its setup is ${setup.kind}`,
         );
       // THE SAVED PAIR, JUDGED AGAIN — by the rule that records an answer,
       // against what the host says now. The same answer the launch is read
@@ -1997,15 +2163,15 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
           "not-offered",
           `The ${role} of «${found.title}» cannot start on its saved setup: ${unofferedSentence(bad, choices, found)}. Call \`work_open\` for this work again — kolu asks the human again for every answer it no longer offers. Nothing was created.`,
         );
-      const models = answers.get(part.harness);
+      const models = answers.get(setup.harness);
       if (models === undefined)
         throw new Error(
-          `startOf: ${part.harness} passed the rule with no model list read for it`,
+          `startOf: ${setup.harness} passed the rule with no model list read for it`,
         );
       return {
         host: found.key.host,
-        harness: part.harness,
-        model: part.model,
+        harness: setup.harness,
+        model: setup.model,
         launch: models.launch,
       };
     },
@@ -2096,7 +2262,7 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
           at: nowIso(),
           by: "agent",
           kind: "note",
-          terminal: null,
+          about: ABOUT_WORK,
           text,
         }),
       );

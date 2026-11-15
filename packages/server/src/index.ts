@@ -50,9 +50,7 @@ import {
 import { type FleetWorks, serveKoluFleetMcp } from "kolu-mcp";
 import {
   driverOf,
-  branchOf,
   hostOf,
-  repoOf,
   modeOf,
   onGreenOf,
   policyOf,
@@ -698,8 +696,7 @@ export async function bootKoluWeb(flags: KoluBootFlags): Promise<void> {
           .map(([id, work]) => ({
             id,
             title: work.title,
-            repo: repoOf(work),
-            branch: branchOf(work),
+            key: work.key,
             host: hostOf(work),
             mode: modeOf(work),
             onGreen: onGreenOf(work),
@@ -716,7 +713,7 @@ export async function bootKoluWeb(flags: KoluBootFlags): Promise<void> {
                 agent: one.agent,
                 joined: one.joined,
                 // WHOSE KEYBOARD IT IS — a reading of the work's own timeline.
-                driver: driverOf(work, one.ref, one),
+                driver: driverOf(work, one.ref, Option.some(one)),
               })),
             // The questions still standing, in the words they were put in: an
             // agent reading its own work must see what the human has not
@@ -747,13 +744,15 @@ export async function bootKoluWeb(flags: KoluBootFlags): Promise<void> {
     },
     // The host answers with the SETUP READING (host, mode, roles, on-green —
     // all of it read back off the decisions recorded so far) and the ask the
-    // questions went out as; the face's answer is that reading flattened, so
-    // the agent is told what it asked for without a second shape in between.
+    // questions went out as; the face's answer carries that reading WHOLE,
+    // so the agent is told what it asked for without a second shape in
+    // between — and without a flattening that would have to invent a value
+    // for a role nobody has chosen one for.
     // NOTHING WAITS: the human's answers arrive later, as a wake.
     open: async (intent) => {
       const { work, setup, ask, asked, created, reopened } =
         await liveServerConductor().openWork(intent);
-      return { work, ...setup, ask, asked, created, reopened };
+      return { work, setup, ask, asked, created, reopened };
     },
     // WHAT A PLANNER OR IMPLEMENTOR STARTS, read off the work's own answers
     // and judged again — the face builds the command from this, so there is
@@ -780,13 +779,15 @@ export async function bootKoluWeb(flags: KoluBootFlags): Promise<void> {
     // The PRE-CHECK `lifecycle_create` runs before anything is created, off
     // the same record every other row is read from: a work the face cannot
     // find, or one that has ended, is a refusal with nothing spawned behind
-    // it.
+    // it. None means there is nothing to refuse.
     check: (work) => {
       const found = liveServerConductor()
         .works()
         .find(([id]) => id === work)?.[1];
-      if (found === undefined) return "unknown-work";
-      return found.state.kind === "ended" ? "work-ended" : null;
+      if (found === undefined) return Option.some("unknown-work");
+      return found.state.kind === "ended"
+        ? Option.some("work-ended")
+        : Option.none();
     },
   };
   const fleetMcp = await startFleetMcpEndpoint({

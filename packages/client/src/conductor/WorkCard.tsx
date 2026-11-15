@@ -30,6 +30,7 @@ import { prValue } from "anyforge/schemas";
 import { decodeHostKey, isEncodedHostKey } from "kolu-common/hostKey";
 import { DASH } from "kolu-common/surface";
 import { fleetTerminalRef } from "kolu-mcp/fleetRef";
+import { Option } from "effect";
 import {
   hostOf,
   lifetime,
@@ -70,6 +71,7 @@ import {
   decisionRows,
   EVENT_INK,
   eventReader,
+  type Lock,
   membersIn,
   oneLine,
   outcomeWords,
@@ -223,7 +225,7 @@ const WorkCard: Component<{
     }
     return null;
   });
-  const checks = createMemo(() => checksTally(livePr()));
+  const checks = createMemo(() => checksTally(Option.fromNullishOr(livePr())));
 
   /** WHERE THE FILES COME FROM — the one derivation, shared with the reader a
    *  file row opens (`workFile.ts`): the live worktree while a member reports
@@ -253,8 +255,10 @@ const WorkCard: Component<{
    *  never a question that could go unanswered. */
   const host = createMemo(() => {
     const given = hostOf(props.work);
-    if (given === "") return null;
-    return isEncodedHostKey(given) ? hostLabel(decodeHostKey(given)) : given;
+    if (given === "") return Option.none<string>();
+    return Option.some(
+      isEncodedHostKey(given) ? hostLabel(decodeHostKey(given)) : given,
+    );
   });
 
   /** EVERY DECISION AS ONE ROW — the setup under its keys' names first, then
@@ -315,8 +319,10 @@ const WorkCard: Component<{
           class="m-0 mt-1 flex min-w-0 flex-wrap items-baseline gap-x-1.5 text-[0.7rem]"
         >
           <b class={standingInk()}>{at().lead}</b>
-          <Show when={at().what !== ""}>
-            <span class="min-w-0 truncate text-fg-2">· {at().what}</span>
+          <Show when={Option.getOrUndefined(at().what)}>
+            {(what) => (
+              <span class="min-w-0 truncate text-fg-2">· {what()}</span>
+            )}
           </Show>
           <span class="font-mono text-[0.62rem] tabular-nums text-fg-3">
             · {endedOrElapsed()}
@@ -391,10 +397,14 @@ const WorkCard: Component<{
                           const reading = () => seen().get(one.terminal);
                           /** WHO IS DRIVING THIS MEMBER, from the one
                            *  membership index the tile's own frame reads —
-                           *  `null` for a terminal nothing drives, which has
-                           *  no control here. */
-                          const driver = () =>
-                            membership().get(one.terminal)?.driver ?? null;
+                           *  nothing for a terminal nothing drives
+                           *  (`nobody`), which has no control here. */
+                          const driver = (): Lock | undefined => {
+                            const at = membership().get(one.terminal);
+                            return at === undefined || at.driver === "nobody"
+                              ? undefined
+                              : at.driver;
+                          };
                           return (
                             <li
                               data-testid="work-member"
@@ -549,7 +559,7 @@ const WorkCard: Component<{
             kept={ended() !== undefined}
           />
 
-          <Show when={prOf(props.work)}>
+          <Show when={Option.getOrUndefined(prOf(props.work))}>
             {(pr) => (
               <section data-testid="work-pr" class="mt-2.5">
                 <h4 class="m-0 font-mono text-[0.58rem] uppercase tracking-[0.1em] text-fg-3">
@@ -571,7 +581,7 @@ const WorkCard: Component<{
                       </a>
                     )}
                   </Show>
-                  <Show when={checks()}>
+                  <Show when={Option.getOrUndefined(checks())}>
                     {(tally) => <span> · {checksBreakdown(tally())}</span>}
                   </Show>
                 </p>
@@ -595,8 +605,10 @@ const WorkCard: Component<{
                   {(row) => (
                     <li
                       data-testid="work-decision"
-                      data-key={row.key ?? undefined}
-                      data-from={row.from ?? undefined}
+                      data-key={
+                        row.topic.kind === "setup" ? row.topic.key : undefined
+                      }
+                      data-from={Option.getOrUndefined(row.from)}
                       // The answer AS RECORDED, beside the one a person
                       // reads: the row says "On green — hand over", and what
                       // was actually answered was "hand-over".
@@ -629,7 +641,11 @@ const WorkCard: Component<{
                                 <span class="font-mono text-[0.6rem] text-fg-3">
                                   {" · "}
                                   {answeredWhen(decision, clockOf)}
-                                  <Show when={answerSource(decision)}>
+                                  <Show
+                                    when={Option.getOrUndefined(
+                                      answerSource(decision),
+                                    )}
+                                  >
                                     {(from) => <> · {from()}</>}
                                   </Show>
                                 </span>

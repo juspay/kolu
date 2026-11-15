@@ -26,6 +26,7 @@
 
 import type {
   AskAnswer,
+  ConductorAnswerWorkOutcome,
   ConductorAttachment,
   ConductorMention,
   ConductorState,
@@ -88,12 +89,19 @@ export interface Conductor {
    *  Nothing is waiting on this: the Conductor was told its question had been
    *  put and ended its turn, so this writes the decision and kolu WAKES it
    *  with what was said. That is also why it works while the conversation is
-   *  down — the only failure it can raise is the work's own refusal. */
+   *  down — the only failure it can raise is the work's own refusal.
+   *
+   *  `recorded` is told WHAT THE RECORD TOOK: the whole ask, a decline, or
+   *  only part of it — and `part` names the questions still asked. A form
+   *  that sent some of its questions blank keeps THEIR drafts and forgets
+   *  only what was written down, so nothing a person typed is lost to a
+   *  value the record would not take. */
   answerWork(
     work: WorkId,
     ask: string,
     answers: Readonly<Record<string, readonly string[]>> | null,
     from: AnsweredFromFace,
+    recorded?: (outcome: ConductorAnswerWorkOutcome) => void,
   ): void;
   /** END A PIECE OF WORK ON PURPOSE — the card's **Stop**, behind its
    *  confirm. One of only two ways a work ends that is not the forge saying
@@ -217,7 +225,7 @@ export const useConductor = createSharedRoot<Conductor>(() => {
           if (!result.settled) toast.info("That question was already answered");
         },
       ),
-    answerWork: (work, askId, answers, from) =>
+    answerWork: (work, askId, answers, from, recorded) =>
       ask(
         "Could not answer",
         app.procedures.conductor.answerWork({
@@ -235,9 +243,20 @@ export const useConductor = createSharedRoot<Conductor>(() => {
           from,
         }),
         (result) => {
-          // Two faces of one question — a card and a popped-out reader, say —
-          // and the second one to press is told so rather than failing.
-          if (!result.settled) toast.info("That question was already answered");
+          recorded?.(result.outcome);
+          switch (result.outcome.kind) {
+            case "answered":
+            case "declined":
+            case "part":
+              return;
+            // Two faces of one question — a card and a popped-out reader, say
+            // — and the second one to press is told so rather than failing.
+            case "nothing-open":
+              toast.info("That question was already answered");
+              return;
+            default:
+              return result.outcome satisfies never;
+          }
         },
       ),
     signIn: (method) =>

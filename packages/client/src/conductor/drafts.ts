@@ -192,3 +192,23 @@ export function forgetAskDraft(askId: string): void {
     }),
   );
 }
+
+/** SOME OF ONE ASK'S FIELDS, forgotten — the questions a form sent and the
+ *  record TOOK. The rest of the form is left exactly as it was, which is how
+ *  a half-filled form survives an Answer that settled only part of it.
+ *
+ *  An ask left with no fields at all goes with them, so a long session's
+ *  store does not grow one empty form per question asked. */
+export function dropAskFields(
+  askId: string,
+  fields: ReadonlyArray<string>,
+): void {
+  setAskDrafts(
+    produce((drafts) => {
+      const form = drafts[askId];
+      if (form === undefined) return;
+      for (const field of fields) delete form[field];
+      if (Object.keys(form).length === 0) delete drafts[askId];
+    }),
+  );
+}

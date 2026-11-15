@@ -353,16 +353,4 @@ describe("the options kolu draws", () => {
     expect(refused.why).toContain("the build box is failed");
     expect(refused.why).toContain("which harnesses it can run");
   });
-
-  it("REJECTS for a watch, which has no repository to ask about", async () => {
-    const padi = fakePadi({ status: READY, models: { omp: OMP_MODELS } });
-    const offer = offerOver(padi);
-    // A watch is the person's own terminal: there is no repository a harness
-    // would be asked in, so this is a caller mistake rather than a host that
-    // is away.
-    await expect(
-      offer.models({ host: "build-box", repo: "", harness: "omp" }),
-    ).rejects.toThrow("a watch has no repository");
-    expect(padi.modelCalls()).toEqual([]);
-  });
 });

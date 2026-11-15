@@ -35,6 +35,7 @@ import type { PadiTerminal, PadiUrgency } from "@kolu/padi-client/surface";
 // for them and not this module's.
 import { agentBucket } from "@kolu/terminal-vocab/agentProjection";
 import type { PrResult } from "@kolu/terminal-vocab/schema";
+import { Option } from "effect";
 import { fleetTerminalRef } from "kolu-mcp/fleetRef";
 import type { WatchGit, WatchObservation, WatchPr } from "./observation.ts";
 
@@ -155,19 +156,25 @@ const gitOf = (record: PadiTerminal | undefined): WatchGit | null => {
  *
  *  Pure, and the ONE translation: the watcher subscribes, this says what the
  *  frame means, and `./observing.ts` decides what the work learns from it. */
-export const prReading = (pr: PrResult): WatchPr | null => {
-  if (pr.kind !== "ok") return null;
+export const prReading = (pr: PrResult): Option.Option<WatchPr> => {
+  if (pr.kind !== "ok") return Option.none();
   const value = pr.value;
-  return {
+  return Option.some({
     number: value.number,
     title: value.title,
     state: value.state,
-    checks: value.checks,
+    checks:
+      value.checks === null
+        ? { kind: "unreported" }
+        : { kind: "rollup", rollup: value.checks },
     failing: value.checkRuns
       .filter((one) => one.outcome === "fail")
       .map((one) => one.name),
-    head: value.headSha,
-  };
+    head:
+      value.headSha === null
+        ? { kind: "unreported" }
+        : { kind: "commit", sha: value.headSha },
+  });
 };
 
 /**

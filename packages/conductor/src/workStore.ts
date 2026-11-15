@@ -31,7 +31,7 @@
  * it is in progress.
  */
 
-import { Schema } from "effect";
+import { Option, Schema } from "effect";
 import { type MemberReading, MemberReadingSchema } from "kolu-common/works";
 import {
   capFinished,
@@ -50,6 +50,7 @@ import {
   openAsks,
   openWork,
   reopenWork,
+  type RequestWords,
   takeOver as takeOverRecord,
   type Work,
   type WorkId,
@@ -124,7 +125,9 @@ export interface WorkStore {
    *  cards: it is what the bell, the OS badge and the panel's count all read,
    *  through the published frame. */
   readonly openAsks: () => ReadonlyArray<string>;
-  readonly get: (id: WorkId) => Work | undefined;
+  /** The work by that id — none for an id kolu holds no work for, which is
+   *  what an agent naming a work it never opened hands in. */
+  readonly get: (id: WorkId) => Option.Option<Work>;
   readonly at: (ref: string) => MemberAt | undefined;
   /** A work that exists and has not ended, or the refusal that says which of
    *  the two it failed. */
@@ -135,7 +138,7 @@ export interface WorkStore {
   readonly openFor: (opened: {
     readonly key: WorkKey;
     readonly title: string;
-    readonly request: string;
+    readonly request: RequestWords;
   }) => Opened;
   /** Write a work back. */
   readonly save: (id: WorkId, work: Work) => void;
@@ -319,29 +322,30 @@ export const workStore = (deps: WorkStoreDeps): WorkStore => {
   };
 
   /** WHERE A WORK'S FILES ARE — the first member whose record named a
-   *  worktree, host and all. Read before the members are dropped. */
+   *  worktree, host and all. None while no member has had one read off its
+   *  terminal. Read before the members are dropped. */
   const worktreeOf = (
     id: WorkId,
-  ): { host: string; worktree: string } | null => {
+  ): Option.Option<{ host: string; worktree: string }> => {
     for (const [ref, member] of deps.members.ofWork(id)) {
       const host = splitFleetTerminalRef(ref)?.host;
-      if (member.worktree !== null && host !== undefined)
-        return { host, worktree: member.worktree };
+      if (member.worktree.kind === "read" && host !== undefined)
+        return Option.some({ host, worktree: member.worktree.path });
     }
-    return null;
+    return Option.none();
   };
 
   /** THE WORK IS OVER — keep its files, then cap the history. */
   const closeOut = async (
     id: WorkId,
-    at: { host: string; worktree: string } | null,
+    at: Option.Option<{ host: string; worktree: string }>,
   ): Promise<void> => {
     const ending = works.get(id);
     if (ending === undefined || ending.state.kind !== "ended") return;
     const paths = new Set(filesSeen(ending));
-    if (at !== null) {
+    if (Option.isSome(at)) {
       try {
-        for (const path of await deps.workFiles.list(at)) paths.add(path);
+        for (const path of await deps.workFiles.list(at.value)) paths.add(path);
       } catch (err) {
         deps.log.warn(
           { err, work: id },
@@ -350,10 +354,10 @@ export const workStore = (deps: WorkStoreDeps): WorkStore => {
       }
     }
     const ended = works.get(id);
-    if (ended !== undefined && at !== null && paths.size > 0) {
+    if (ended !== undefined && Option.isSome(at) && paths.size > 0) {
       try {
         const kept = await deps.workFiles.keep({
-          ...at,
+          ...at.value,
           work: workDirOf(id),
           paths: [...paths],
         });
@@ -451,12 +455,14 @@ export const workStore = (deps: WorkStoreDeps): WorkStore => {
     for (const [id, work] of works) {
       if (work.state.kind !== "open") continue;
       const key = workKeyOf(id);
-      if (key === null || key.kind !== "branch") continue;
+      // An id that is no work key at all cannot be watched, and neither can a
+      // WATCH: a pull request is a fact about a branch.
+      if (Option.isNone(key) || key.value.kind !== "branch") continue;
       watches.push({
         work: id,
-        host: key.host,
-        repo: key.repo,
-        branch: key.branch,
+        host: key.value.host,
+        repo: key.value.repo,
+        branch: key.value.branch,
       });
     }
     return watches;
@@ -487,7 +493,7 @@ export const workStore = (deps: WorkStoreDeps): WorkStore => {
 
   return {
     all: everyWork,
-    get: (id) => works.get(id),
+    get: (id) => Option.fromUndefinedOr(works.get(id)),
     at,
     openAt,
     leave,
@@ -635,7 +641,10 @@ export const workStore = (deps: WorkStoreDeps): WorkStore => {
       save(id, joinWork(works.get(id) ?? work, { terminal: ref, role, at }));
       deps.members.set(
         ref,
-        joinedMember({ work: id, role, joinedAt: at, worktree: null }, how),
+        joinedMember(
+          { work: id, role, joinedAt: at, worktree: { kind: "unread" } },
+          how,
+        ),
       );
       changed();
       deps.records.schedule("members");
@@ -648,9 +657,13 @@ export const workStore = (deps: WorkStoreDeps): WorkStore => {
      *  no mode decided yet. */
     driven: (ref) => {
       const found = at(ref);
-      const driver =
-        found === undefined ? null : driverOf(found.work, ref, found.member);
-      if (found === undefined || driver === null) {
+      // NOBODY drives a terminal that is a member of nothing — the same word
+      // the record's own reading answers for a work kolu does not run.
+      const driver = Option.match(Option.fromUndefinedOr(found), {
+        onNone: (): Driver => "nobody",
+        onSome: (one) => driverOf(one.work, ref, Option.some(one.member)),
+      });
+      if (found === undefined || driver === "nobody") {
         throw new WorkRefusal(
           "not-driven",
           `kolu's Conductor is not driving ${ref}, so there is nothing to take over or hand back — only a member of a piece of work in progress that kolu runs (mode full or trivial) is driven.`,

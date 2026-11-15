@@ -25,6 +25,7 @@
  *  running. Those are kolu typing on its own behalf, and they target terminals
  *  it just made. */
 
+import { Option } from "effect";
 import type { TerminalId } from "kolu-common/surface";
 import { fleetTerminalRef } from "kolu-mcp/fleetRef";
 import { createSignal } from "solid-js";
@@ -71,7 +72,8 @@ function raiseLockCard(terminal: string): void {
  *  around the terminal says and what the keyboard does are the same fact. */
 export function personInput(id: TerminalId): boolean {
   const terminal = activeTerminalRef(id);
-  if (inputAllowed(useMembership()().get(terminal)?.driver)) return true;
+  if (inputAllowed(Option.fromUndefinedOr(useMembership()().get(terminal))))
+    return true;
   raiseLockCard(terminal);
   return false;
 }

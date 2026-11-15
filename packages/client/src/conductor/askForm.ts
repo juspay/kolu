@@ -28,9 +28,10 @@
  *  when the question is answered.
  */
 
+import { Option } from "effect";
 import { type Accessor, batch, createEffect, createMemo } from "solid-js";
 import { type AskOption, defaultFirst } from "./AskOptions";
-import { askDraft, setAskDraft } from "./drafts";
+import { askDraft, dropAskFields, setAskDraft } from "./drafts";
 
 /** The free-text half of a question, under its own key beside the decision's
  *  — `~` because a decision id is a uuid and never contains one. */
@@ -62,7 +63,7 @@ export function typeOnly(ask: string, field: string, text: string): void {
 /** SEED THE DEFAULT, ONCE PER CONTEXT — the write {@link seededChips} owns.
  *  `value` is what this person answered last time AND can be answered again
  *  here (an option that is drawn, or any word for a question that takes
- *  words) — `null` when there is no such answer, which seeds the question
+ *  words) — none when there is no such answer, which seeds the question
  *  empty rather than leaving it to be seeded later by something stale.
  *
  *  It is called only once the options ARE known: a question seeded against a
@@ -73,12 +74,12 @@ function seedAskDefault(
   ask: string,
   field: string,
   context: string,
-  value: string | null,
+  value: Option.Option<string>,
 ): void {
   if (askDraft(ask, seededKey(field))[0] === context) return;
   batch(() => {
     setAskDraft(ask, seededKey(field), [context]);
-    setAskDraft(ask, field, value === null ? [] : [value]);
+    setAskDraft(ask, field, Option.toArray(value));
     setAskDraft(ask, typedKey(field), []);
   });
 }
@@ -89,20 +90,40 @@ function seedAskDefault(
  *  defaultFirst}), and the same value is written into the draft once per
  *  context ({@link seedAskDefault}) so it is also selected.
  *
- *  A `context` of `null` is a question with no default to seed — the options
+ *  A context of NONE is a question with no default to seed — the options
  *  have not arrived, or this question has no memory behind it — and nothing
  *  is marked, so it seeds when they do.
  */
 export function seededChips(
   ask: string,
   field: string,
-  context: () => string | null,
+  context: () => Option.Option<string>,
   options: () => ReadonlyArray<AskOption>,
-  standing: () => string | null,
+  standing: () => Option.Option<string>,
 ): Accessor<ReadonlyArray<AskOption>> {
   createEffect(() => {
-    const now = context();
-    if (now !== null) seedAskDefault(ask, field, now, standing());
+    Option.match(context(), {
+      onNone: () => {},
+      onSome: (now) => seedAskDefault(ask, field, now, standing()),
+    });
   });
   return createMemo(() => defaultFirst(options(), standing()));
+}
+
+/** THE QUESTIONS WHOSE DRAFT IS NO LONGER ANYBODY'S UNSENT TEXT — the ones
+ *  the record TOOK. All three of a question's keys go together (its pick,
+ *  its words, and the mark that says it was seeded), which is why the
+ *  spelling of them lives here rather than at the form that sends.
+ *
+ *  A question the record did not take keeps everything: a person who filled
+ *  in three of four questions and pressed Answer still has the fourth in
+ *  front of them, with whatever they had started typing in it. */
+export function forgetAskFields(
+  ask: string,
+  fields: ReadonlyArray<string>,
+): void {
+  dropAskFields(
+    ask,
+    fields.flatMap((field) => [field, typedKey(field), seededKey(field)]),
+  );
 }

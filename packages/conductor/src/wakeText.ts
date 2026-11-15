@@ -29,7 +29,7 @@
  */
 
 import type { ConductorWakeEvent } from "kolu-common/conductor";
-import type { AnswerFrom, WorkRole } from "kolu-work";
+import type { AnsweredFromFace, Said, WorkRole } from "kolu-work";
 
 /** How each level reads in the account — a whole clause, because what the
  *  agent has to decide from is the SITUATION and not a one-word enum it has to
@@ -62,68 +62,131 @@ export interface WakeMembership {
 
 /** WHERE A PERSON WAS when they answered, in the words the account uses. The
  *  Conductor is told because it decides what to do next: an answer given in
- *  the reader is one somebody gave with the plan in front of them. */
-const FACES: Readonly<Record<AnswerFrom, string>> = {
+ *  the reader is one somebody gave with the plan in front of them.
+ *
+ *  The four FACES and nothing else: an answer the request itself gave is a
+ *  decision the Conductor made in its own call, and nobody is woken about it. */
+const FACES: Readonly<Record<AnsweredFromFace, string>> = {
   card: "on the work's card",
   chat: "in this conversation",
   reader: "in the reader, with the file open",
   popout: "in the reader, in a window of its own",
-  request: "in the request that opened the work",
 };
 
-/** ONE ANSWERED (or declined, or dropped) QUESTION, as the wake carries it.
+/** WHAT A PERSON SAID to one question, as the news carries it — the record's
+ *  own two shapes and no third: one of kolu's words for a setup question, and
+ *  what was picked and typed for a question about the work. An answer ALWAYS
+ *  has a value, so there is no arm here for "answered with nothing". */
+export type NewsSaid =
+  | { readonly kind: "value"; readonly value: string }
+  | { readonly kind: "said"; readonly said: Said };
+
+/** ONE QUESTION OF AN ASK, as the news tells it — a SUM, because the four
+ *  ways a question can stand after a reply are four different things to do
+ *  about it:
+ *
+ *   - `answered` — filled in, and it carries WHAT WAS SAID;
+ *   - `open` — left blank, so it is STILL ASKED: in the same ask, on the
+ *     card and in the chat, and the Conductor is told so rather than left to
+ *     read an empty answer as one;
+ *   - `declined` — they would not say;
+ *   - `dropped` — nobody answered and the question went away. */
+export type NewsQuestion = { readonly question: string } & (
+  | { readonly how: "answered"; readonly said: NewsSaid }
+  | { readonly how: "open" }
+  | { readonly how: "declined" }
+  | { readonly how: "dropped" }
+);
+
+/** ONE ASK, as the wake carries it.
  *
  *  Not a {@link ConductorWakeEvent}: a wake event is a reading of a TERMINAL,
  *  and this is a thing a PERSON did to the record. They ride one queue
  *  because they are one kind of news — something happened that the Conductor
  *  has to decide about — and they are one turn for the same reason several
  *  terminals are: everything that landed while it was busy should be decided
- *  about in one pass. */
-export interface AnsweredNews {
+ *  about in one pass.
+ *
+ *  A SUM on how the ask was replied to, so the face a person answered from is
+ *  carried only where there was one: a DROPPED ask is one nobody answered. */
+export type AnsweredNews = {
   readonly work: string;
   readonly title: string;
   readonly ask: string;
-  /** `null` for a question nobody answered — it was dropped. */
-  readonly from: AnswerFrom | null;
-  readonly how: "answered" | "declined" | "dropped";
   readonly at: string;
-  readonly answers: ReadonlyArray<{
-    /** The question's short header, or its whole text when it had none. */
-    readonly question: string;
-    readonly picked: ReadonlyArray<string>;
-    readonly text: string | null;
-    /** The file the question was about (`.waterfall/plan.md`), or `""`. */
-    readonly file: string;
-  }>;
-}
+  /** The questions this reply was about — each as it stands NOW. */
+  readonly questions: ReadonlyArray<NewsQuestion>;
+} & (
+  | { readonly how: "answered"; readonly from: AnsweredFromFace }
+  | { readonly how: "declined"; readonly from: AnsweredFromFace }
+  | { readonly how: "dropped" }
+);
 
-/** What one question was answered with, in one phrase: what they pressed and
- *  what they typed. `nothing` is a real answer here — a question in a form
- *  they left alone — and the line says so rather than trailing off. */
-const saidOf = (answer: AnsweredNews["answers"][number]): string => {
-  const parts = [...answer.picked];
-  if (answer.text !== null) parts.push(`“${answer.text}”`);
-  return parts.length === 0 ? "nothing" : parts.join(" · ");
+/** What one question was answered with, in one phrase: kolu's own word for a
+ *  setup question, or what they pressed and what they typed. Every arm has
+ *  something to print — an answer with no value is not a value this takes. */
+const saidOf = (said: NewsSaid): string => {
+  switch (said.kind) {
+    case "value":
+      return said.value;
+    case "said":
+      return wordsOf(said.said);
+    default:
+      return said satisfies never;
+  }
 };
 
-/** One answer's line. It names the WORK rather than a terminal, because that
+const wordsOf = (said: Said): string => {
+  switch (said.kind) {
+    case "picked":
+      return said.picked.join(" · ");
+    case "typed":
+      return `“${said.text}”`;
+    case "picked-and-typed":
+      return [...said.picked, `“${said.text}”`].join(" · ");
+    default:
+      return said satisfies never;
+  }
+};
+
+/** One question's line — what it came to, in the words the Conductor acts on.
+ *  A question left blank says it is still open and where it still is, because
+ *  what the agent must NOT do about it is ask it again. */
+const questionLine = (one: NewsQuestion): string => {
+  switch (one.how) {
+    case "answered":
+      return `    · ${one.question}: ${saidOf(one.said)}`;
+    case "open":
+      return `    · ${one.question}: STILL OPEN — left blank, still on the work's card and in this conversation`;
+    case "declined":
+      return `    · ${one.question}: — they would not say`;
+    case "dropped":
+      return `    · ${one.question}: — nobody answered it`;
+    default:
+      return one satisfies never;
+  }
+};
+
+/** One ask's lines. They name the WORK rather than a terminal, because that
  *  is what the Conductor acts on next: the decision is already on the record,
- *  and what is left is to get on with the work it was holding up. */
+ *  and what is left is to get on with the work it was holding up.
+ *
+ *  An answer that left something blank says so in its first line as well as
+ *  on the question: PART of the form came back, and the rest is still in
+ *  front of the human. */
 const answerLine = (news: AnsweredNews): string => {
-  const where = news.from === null ? "" : ` ${FACES[news.from]}`;
+  const open = news.questions.filter((one) => one.how === "open");
   const head =
     news.how === "answered"
-      ? `the human ANSWERED${where}`
+      ? open.length === 0
+        ? `the human ANSWERED ${FACES[news.from]}`
+        : `the human ANSWERED PART of it ${FACES[news.from]} — ${open.length === 1 ? "one question is" : `${open.length} questions are`} still open`
       : news.how === "declined"
-        ? `the human DECLINED to answer${where} — they would not say`
+        ? `the human DECLINED to answer ${FACES[news.from]} — they would not say`
         : "the question was DROPPED — the work ended under it and nobody answered";
-  const lines = news.answers.map(
-    (one) =>
-      `    · ${one.question}: ${news.how === "answered" ? saidOf(one) : "—"}`,
-  );
   return [
     `- «${news.title}» (${news.work}) — ${head} (${news.at}):`,
-    ...lines,
+    ...news.questions.map(questionLine),
   ].join("\n");
 };
 

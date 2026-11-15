@@ -13,10 +13,26 @@
  *  the answer reaches it as a wake whenever it comes — ten seconds or an hour
  *  later, across a restart, across a "New session".
  *
+ *  A FORM MAY BE ANSWERED IN PARTS. An ask is as many questions as its asker
+ *  put in it, and pressing Answer records the ones that were FILLED IN: the
+ *  blank ones stay asked, in the same ask, and this form keeps drawing them
+ *  with what was already said listed above them. So the three questions a
+ *  person could answer are answered now, and the fourth — the model whose
+ *  list has not arrived, the plan they have not read yet — is still there
+ *  when they can. Answer is dead while nothing at all is filled in: a press
+ *  that would record nothing is not offered.
+ *
  *  ONE QUESTION, ONE ANSWER. For a single-answer question the options and the
  *  box beside them are two halves of the same question: typing replaces the
  *  pick and picking replaces the words. A `multiple` question is a list by
  *  definition and keeps both.
+ *
+ *  KOLU'S OWN WORDS, FOR KOLU'S OWN QUESTIONS. The mode and what to do on
+ *  green are answered from their options and from nowhere else — their
+ *  answers are a vocabulary the record and the start command both read, and
+ *  an answer outside it is refused where it is recorded. So those two draw no
+ *  box to type in. A question ABOUT THE WORK is the asker's own and keeps
+ *  one: its answer is words.
  *
  *  WHOSE OPTIONS THEY ARE. Most questions are drawn from the options their
  *  asker gave. The four setup questions about a role's harness and its model
@@ -35,15 +51,19 @@
  *
  *  Drafts are kept per ask (`./drafts`), so half-filling a form, opening the
  *  plan and coming back does not lose the pick — and the draft is shared by
- *  every face, because they are one question.
+ *  every face, because they are one question. What a press of Answer forgets
+ *  is exactly what the record TOOK ({@link forgetAskFields}): a question the
+ *  record left open keeps the words that were in it.
  */
 
+import { Option } from "effect";
 import {
   type AnsweredFromFace,
+  type Asked,
   hostOf,
-  isAnswered,
   isAsked,
   isKoluChoice,
+  isSettled,
   type Offered,
   setupMemory,
   type Work,
@@ -51,14 +71,20 @@ import {
 } from "kolu-work";
 import { type Component, createMemo, For, Show } from "solid-js";
 import AskOptions, { askOption } from "./AskOptions";
-import { pickOnly, seededChips, typedKey, typeOnly } from "./askForm";
+import {
+  forgetAskFields,
+  pickOnly,
+  seededChips,
+  typedKey,
+  typeOnly,
+} from "./askForm";
 import { askDraft, forgetAskDraft, setAskDraft } from "./drafts";
 import { openReader } from "./reader/useReader";
 import { useConductor } from "./useConductor";
 import { useWorkMap } from "./useWorks";
 import WorkChoiceQuestion from "./WorkChoiceQuestion";
 import { workFileName } from "./workFile";
-import { answerWords } from "./workReadings";
+import { answerWords, decisionLabel } from "./workReadings";
 
 /** WHAT TO CALL THE BUTTON THAT OPENS THE FILE. The plan is the file this
  *  exists for, so it is named rather than described; anything else is read by
@@ -67,6 +93,12 @@ const readWords = (path: string): string => {
   const name = workFileName(path);
   return name === "plan.md" ? "Read the plan" : `Read ${name}`;
 };
+
+/** Whether this question takes more than one answer — a fact of a question
+ *  ABOUT THE WORK alone: the setup's own questions each take one value, by
+ *  type, so there is nowhere on them to say otherwise. */
+const takesSeveral = (decision: Offered): boolean =>
+  decision.topic === "work" && decision.multiple;
 
 const WorkQuestion: Component<{
   work: Work;
@@ -91,10 +123,20 @@ const WorkQuestion: Component<{
     props.work.decisions.filter(
       (one) =>
         one.ask === props.ask &&
-        !(isAnswered(one) && one.answer.from === "request"),
+        !(
+          isSettled(one) &&
+          one.answer.how !== "dropped" &&
+          one.answer.from === "request"
+        ),
     ),
   );
+  /** The ones still asked — the fields — and the ones already settled, which
+   *  are drawn as the record of what was said ABOVE them. A form answered in
+   *  parts is both at once. */
   const open = createMemo(() => questions().filter((one) => isAsked(one)));
+  const recorded = createMemo(() =>
+    questions().filter((one) => isSettled(one)),
+  );
   const settled = () => open().length === 0;
 
   /** WHAT THIS PERSON CHOSE BEFORE on this work's host, off the saved works.
@@ -112,7 +154,7 @@ const WorkQuestion: Component<{
    *  and empties its box; a `multiple` question toggles. */
   const pick = (decision: Offered, value: string): void => {
     const current = askDraft(props.ask, decision.id);
-    if (decision.multiple) {
+    if (takesSeveral(decision)) {
       setAskDraft(
         props.ask,
         decision.id,
@@ -128,7 +170,7 @@ const WorkQuestion: Component<{
   /** Words typed beside the options. The first character of an own answer to
    *  a single-answer question drops the pick, as you watch. */
   const type = (decision: Offered, text: string): void => {
-    if (!decision.multiple) {
+    if (!takesSeveral(decision)) {
       typeOnly(props.ask, decision.id, text);
       return;
     }
@@ -136,23 +178,26 @@ const WorkQuestion: Component<{
   };
 
   /** A QUESTION ITS ASKER DREW THE OPTIONS FOR: the options with what this
-   *  person chose last time first and already in the draft, and the box
-   *  beside them. The options are known the moment the form is drawn, so the
-   *  default seeds on the first frame and never again — and a question that
-   *  is none of kolu's setup questions (`key === null`) has no last time to
-   *  open on. */
+   *  person chose last time first and already in the draft, and — for a
+   *  question about the work, whose answer is words — the box beside them.
+   *  The options are known the moment the form is drawn, so the default seeds
+   *  on the first frame and never again. */
   const OfferedQuestion: Component<{ decision: Offered }> = (one) => {
-    /** The last answer, when it is one of the options drawn here. */
-    const standing = (): string | null => {
-      const key = one.decision.key;
-      if (key === null) return null;
-      const want = memory().last(key, null);
-      return want !== null && one.decision.options.includes(want) ? want : null;
+    /** The last answer, when it is one of the options drawn here. A question
+     *  about the work has no last time to open on: it is this work's own
+     *  question, asked once. */
+    const standing = (): Option.Option<string> => {
+      const decision = one.decision;
+      if (decision.topic !== "setup") return Option.none();
+      return Option.filter(memory().last(decision.key, Option.none()), (want) =>
+        (decision.options as ReadonlyArray<string>).includes(want),
+      );
     };
     const chips = seededChips(
       props.ask,
       one.decision.id,
-      () => (one.decision.key === null ? null : "offered"),
+      () =>
+        one.decision.topic === "setup" ? Option.some("offered") : Option.none(),
       () => one.decision.options.map(askOption),
       standing,
     );
@@ -165,47 +210,99 @@ const WorkQuestion: Component<{
           onPick={(value) => pick(one.decision, value)}
           searchLabel="options"
         />
-        <input
-          type="text"
-          data-testid="conductor-ask-other"
-          data-field={one.decision.id}
-          placeholder="or say it in your own words"
-          value={askDraft(props.ask, typedKey(one.decision.id))[0] ?? ""}
-          class="mt-1.5 w-full rounded-md border border-edge-bright bg-surface-0 px-2 py-1 text-fg outline-none focus:border-accent"
-          onInput={(event) => type(one.decision, event.currentTarget.value)}
-        />
+        {/* THE BOX IS FOR QUESTIONS ABOUT THE WORK. The mode and what to do
+            on green are answered in kolu's own words — the record takes no
+            other, and the start command reads them back — so offering a box
+            there would be offering an answer that is refused. */}
+        <Show when={one.decision.topic === "work"}>
+          <input
+            type="text"
+            data-testid="conductor-ask-other"
+            data-field={one.decision.id}
+            placeholder="or say it in your own words"
+            value={askDraft(props.ask, typedKey(one.decision.id))[0] ?? ""}
+            class="mt-1.5 w-full rounded-md border border-edge-bright bg-surface-0 px-2 py-1 text-fg outline-none focus:border-accent"
+            onInput={(event) => type(one.decision, event.currentTarget.value)}
+          />
+        </Show>
       </>
     );
   };
 
-  /** WHAT IS SENT, per decision: what they picked, plus what they typed —
-   *  and, from the reader, the comments that go with the answer appended to
-   *  those words. A question they left alone sends nothing, and the record
-   *  says exactly that about it.
+  /** WHAT ONE QUESTION SENDS: what they picked, plus what they typed — and,
+   *  from the reader, the comments that go with the answer appended to those
+   *  words. Empty is a question they left alone, which is sent as nothing at
+   *  all and STAYS ASKED.
    *
-   *  A question kolu drew the options for sends EXACTLY ONE value and no
-   *  rider: a harness is a command and a model is a word the launch takes, so
-   *  there is nothing in either for a page of comments to ride on. */
-  const answers = (): Record<string, ReadonlyArray<string>> => {
+   *  A setup question sends EXACTLY ONE value and no rider: its answer is one
+   *  of kolu's words (or, for a harness or a model, one name the host
+   *  offers), so there is nothing in it for a page of comments to ride on. */
+  const valuesOf = (decision: Asked, rider: string): ReadonlyArray<string> => {
+    const chosen = askDraft(props.ask, decision.id);
+    const typed = askDraft(props.ask, typedKey(decision.id))[0] ?? "";
+    switch (decision.topic) {
+      case "setup": {
+        // Only a question kolu drew the options for takes a typed answer —
+        // the model of a harness that cannot list its models.
+        const one = isKoluChoice(decision) && typed !== "" ? typed : chosen[0];
+        return one === undefined || one === "" ? [] : [one];
+      }
+      case "work": {
+        const words = [typed, rider].filter((part) => part !== "").join("\n\n");
+        return [...chosen, ...(words === "" ? [] : [words])];
+      }
+      default:
+        return decision satisfies never;
+    }
+  };
+
+  /** The whole form, as it is sent: only the questions that have something in
+   *  them. */
+  const answers = createMemo((): Record<string, ReadonlyArray<string>> => {
     const sending: Record<string, ReadonlyArray<string>> = {};
     const rider = props.attach?.text() ?? "";
     for (const decision of open()) {
-      const chosen = askDraft(props.ask, decision.id);
-      const typed = askDraft(props.ask, typedKey(decision.id))[0] ?? "";
-      if (isKoluChoice(decision)) {
-        const one = typed === "" ? chosen[0] : typed;
-        if (one !== undefined && one !== "") sending[decision.id] = [one];
-        continue;
-      }
-      const words = [typed, rider].filter((one) => one !== "").join("\n\n");
-      const values = [...chosen, ...(words === "" ? [] : [words])];
+      const values = valuesOf(decision, rider);
       if (values.length > 0) sending[decision.id] = values;
     }
     return sending;
+  });
+
+  /** NOTHING FILLED IN IS NOTHING TO SEND — the one rule the Answer button
+   *  is dead by. */
+  const filled = () => Object.keys(answers()).length > 0;
+
+  /** ANSWER. What the record TOOK is forgotten; what it left open keeps its
+   *  draft, so a question whose value the record would not take is still
+   *  there with the words that were in it. */
+  const send = (values: Record<string, ReadonlyArray<string>>): void => {
+    const sent = Object.keys(values);
+    orch.answerWork(props.id, props.ask, values, props.from, (outcome) => {
+      switch (outcome.kind) {
+        case "answered":
+        case "declined":
+          forgetAskDraft(props.ask);
+          return;
+        case "part":
+          forgetAskFields(
+            props.ask,
+            sent.filter((id) => !outcome.open.includes(id)),
+          );
+          return;
+        // The record took nothing — another face got there first, or none of
+        // it was still open. Everything stays where it is.
+        case "nothing-open":
+          return;
+        default:
+          return outcome satisfies never;
+      }
+    });
   };
 
-  const send = (values: Record<string, ReadonlyArray<string>> | null): void => {
-    orch.answerWork(props.id, props.ask, values, props.from);
+  /** DECLINE, which settles every question still open in this ask — so the
+   *  whole of the form's draft goes with it. */
+  const decline = (): void => {
+    orch.answerWork(props.id, props.ask, null, props.from);
     forgetAskDraft(props.ask);
   };
 
@@ -233,33 +330,31 @@ const WorkQuestion: Component<{
         </Show>
       </header>
 
-      <Show
-        when={!settled()}
-        fallback={
-          <ul class="mt-2 list-none m-0 p-0 flex flex-col gap-0.5">
-            {/* THE RECORD: what was asked and what was said, one line each —
-                drawn for every ending, so a declined or dropped question
-                lists its questions with how they ended instead, which is
-                exactly what happened to them. */}
-            <For each={questions()}>
-              {(decision) => (
-                <li
-                  data-testid="conductor-ask-answer"
-                  data-field={decision.id}
-                  class="text-fg-2"
-                >
-                  <span class="font-mono text-[0.62rem] uppercase tracking-[0.1em] text-fg-3">
-                    {decision.header === ""
-                      ? decision.question
-                      : decision.header}
-                  </span>
-                  <span class="text-fg"> — {answerWords(decision)}</span>
-                </li>
-              )}
-            </For>
-          </ul>
-        }
-      >
+      {/* THE RECORD: what was asked and what was said, one line each — drawn
+          for every ending, so a declined or dropped question lists how it
+          ended instead, which is exactly what happened to it. It sits ABOVE
+          the fields, because in a form answered in parts these are the
+          questions that are already behind the person. */}
+      <Show when={recorded().length > 0}>
+        <ul class="mt-2 list-none m-0 p-0 flex flex-col gap-0.5">
+          <For each={recorded()}>
+            {(decision) => (
+              <li
+                data-testid="conductor-ask-answer"
+                data-field={decision.id}
+                class="text-fg-2"
+              >
+                <span class="font-mono text-[0.62rem] uppercase tracking-[0.1em] text-fg-3">
+                  {decisionLabel(decision)}
+                </span>
+                <span class="text-fg"> — {answerWords(decision)}</span>
+              </li>
+            )}
+          </For>
+        </ul>
+      </Show>
+
+      <Show when={!settled()}>
         <For each={open()}>
           {(decision) => (
             <fieldset class="mt-2" data-decision={decision.id}>
@@ -284,21 +379,24 @@ const WorkQuestion: Component<{
                   you are looking at is noise. */}
               <Show
                 when={
-                  decision.file !== "" &&
+                  decision.topic === "work" &&
+                  decision.file.kind === "file" &&
                   (props.from === "card" || props.from === "chat")
+                    ? decision.file.path
+                    : undefined
                 }
               >
-                <button
-                  type="button"
-                  data-testid="work-question-read"
-                  data-path={decision.file}
-                  class="mt-1.5 rounded-md border border-edge-bright px-2.5 py-1 text-fg-2 hover:text-fg cursor-pointer"
-                  onClick={() =>
-                    openReader({ work: props.id, path: decision.file })
-                  }
-                >
-                  {readWords(decision.file)}
-                </button>
+                {(path) => (
+                  <button
+                    type="button"
+                    data-testid="work-question-read"
+                    data-path={path()}
+                    class="mt-1.5 rounded-md border border-edge-bright px-2.5 py-1 text-fg-2 hover:text-fg cursor-pointer"
+                    onClick={() => openReader({ work: props.id, path: path() })}
+                  >
+                    {readWords(path())}
+                  </button>
+                )}
               </Show>
             </fieldset>
           )}
@@ -322,7 +420,11 @@ const WorkQuestion: Component<{
           <button
             type="button"
             data-testid="conductor-ask-submit"
-            class="rounded-md bg-accent px-3 py-1 font-semibold text-surface-0 cursor-pointer"
+            // DEAD WHILE THERE IS NOTHING TO RECORD. A press that answered
+            // nothing used to read as an answer; now the button says before
+            // the press that there is nothing in the form yet.
+            disabled={!filled()}
+            class="rounded-md bg-accent px-3 py-1 font-semibold text-surface-0 cursor-pointer disabled:cursor-not-allowed disabled:opacity-50"
             onClick={() => send(answers())}
           >
             Answer
@@ -333,7 +435,7 @@ const WorkQuestion: Component<{
             class="rounded-md border border-edge-bright px-3 py-1 text-fg-2 hover:text-fg cursor-pointer"
             // DECLINE, not a silent close: the Conductor is told you would not
             // say, never handed a choice you did not make.
-            onClick={() => send(null)}
+            onClick={decline}
           >
             I'd rather not say
           </button>

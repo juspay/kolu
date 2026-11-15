@@ -37,6 +37,7 @@
  *  pill over its one terminal as a canvas tile does, because the band and the
  *  gate must be one reading of one index. */
 
+import type { Membership } from "kolu-work";
 import {
   type Component,
   createEffect,
@@ -47,7 +48,7 @@ import {
 import { dismissLockCard, lockCardShown } from "./personInput";
 import { useConductor } from "./useConductor";
 import { useMembership } from "./useWorks";
-import { lockCardWords, lockWords } from "./workReadings";
+import { lockCardWords, type Lock, lockWords } from "./workReadings";
 
 const BUTTON_CLASS =
   "shrink-0 rounded-sm px-2 py-[0.2rem] font-mono text-[0.62rem] font-semibold uppercase tracking-[0.06em] transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50";
@@ -59,13 +60,17 @@ const WorkLock: Component<{
 }> = (props) => {
   const membership = useMembership();
   const conductor = useConductor();
-  /** The membership ONLY while something drives this terminal — the `null`
-   *  driver (no lock) and the absent membership (no work) are one case here,
-   *  and it draws nothing. */
-  const driven = createMemo(() => {
-    const at = membership().get(props.terminal);
-    return at === undefined || at.driver === null ? undefined : at;
-  });
+  /** The membership ONLY while something drives this terminal, with its
+   *  driver NARROWED to the two that are a lock — the `nobody` driver (no
+   *  lock) and the absent membership (no work) are one case here, and it
+   *  draws nothing. */
+  const driven = createMemo(
+    (): (Membership & { readonly driver: Lock }) | undefined => {
+      const at = membership().get(props.terminal);
+      if (at === undefined || at.driver === "nobody") return undefined;
+      return { ...at, driver: at.driver };
+    },
+  );
   const carded = () => driven() !== undefined && lockCardShown(props.terminal);
 
   /** The card's own box, so a press INSIDE it is not the click-elsewhere that
@@ -118,7 +123,7 @@ const WorkLock: Component<{
             // reader outside — a test, a second browser — has to be able to
             // say which terminal it is looking at the lock of.
             data-lock-terminal={props.terminal}
-            data-driver={at().driver ?? undefined}
+            data-driver={at().driver}
             data-work={at().work}
             data-role={at().role}
             aria-hidden="true"
@@ -134,7 +139,7 @@ const WorkLock: Component<{
               type="button"
               data-testid="work-hand-back"
               data-lock-terminal={props.terminal}
-              title={lockWords(at())}
+              title={lockWords(at(), at().driver)}
               class={`${BUTTON_CLASS} absolute bottom-2 left-2 z-20 flex items-center gap-1.5 border border-alert/40 bg-surface-1/95 text-alert shadow-md hover:bg-alert/15`}
               onPointerDown={(e) => e.stopPropagation()}
               onClick={(e) => {
