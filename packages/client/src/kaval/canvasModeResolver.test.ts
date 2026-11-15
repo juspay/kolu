@@ -303,6 +303,31 @@ describe("resolveCanvasMode connected-arm precedence (#1034)", () => {
     });
   });
 
+  it("holds `connecting` even with tiles already composed — a tile cannot size itself mid-census", () => {
+    // AHEAD of `terminalCount` (#2381). A tile may not state a size until it
+    // knows whether it has a split, and that is not known until every listed
+    // terminal's record has arrived — so painting the workspace here would
+    // paint tiles that measure nothing and attach nothing.
+    expect(mode(connected({ terminalCount: 3, recordsAwaited: 1 }))).toEqual({
+      kind: "connecting",
+    });
+  });
+
+  it("a record that never composes escapes to the boot-stalled card rather than holding a blank canvas forever", () => {
+    // The hazard `useTerminalMetadata.ts` names: a per-key record stream can
+    // wedge without erroring, leaving `awaited` above zero on a channel that
+    // reads as healthy. It used to cost the one tile; since the census gates
+    // every tile's measurement it holds the whole canvas, so it must be
+    // reported rather than waited in. Same ceiling, same Retry as every other
+    // stalled leg.
+    const wedged = connected({ terminalCount: 3, recordsAwaited: 1 });
+    expect(tag(wedged)).toMatchObject({ accrual: "accrue", leg: "session" });
+    expect(mode(wedged, true)).toEqual({
+      kind: "boot-stalled",
+      recovery: { via: "client", leg: "session" },
+    });
+  });
+
   it("reboot: records all settled (parked) with zero tiles resolves to `empty`/restore", () => {
     expect(mode(connected({ terminalCount: 0, recordsAwaited: 0 }))).toEqual({
       kind: "empty",
@@ -514,8 +539,15 @@ describe("resolveCanvasMode — #1763 R2 exclusions (retain overlays never escap
     });
   });
 
-  it("a records-awaited connecting is `retain` and does NOT escape past the deadline", () => {
-    const records = connected({ terminalCount: 0, recordsAwaited: 7 });
+  it("a records-awaited connecting over a DEAD channel is `retain` and does NOT escape", () => {
+    // The stall we cannot watch. Over a live channel this leg accrues (below);
+    // over a dead one the transport overlay owns the screen and certifying a
+    // record stall from here would be an invention.
+    const records = connected({
+      terminalCount: 0,
+      recordsAwaited: 7,
+      channelLive: false,
+    });
     expect(tag(records)).toEqual({ accrual: "retain" });
     expect(mode(records, true)).toEqual({ kind: "connecting" });
   });
@@ -917,12 +949,19 @@ describe("resolveCanvasMode — while unobservable, no anchor: one rule, every v
   // things — unreachable in production, spellable in the type — so the rule is stated for
   // every variant and this pins it, rather than leaving a cross-package invariant in prose.
   it("a `retain` frame over a dead link releases the anchor like any other", () => {
-    // recordsAwaited > 0 is a `retain` return site.
-    const retained = connected({ terminalCount: 0, recordsAwaited: 7 });
+    // A kaval-restart warming is a `retain` return site.
+    const retained = connected({
+      terminalCount: 0,
+      warming: true,
+      daemonState: "restarting",
+    });
     expect(tag(retained)).toEqual({ accrual: "retain" });
     expect(tagOffline(retained)).toEqual({ accrual: "clear" });
     // The surface is unchanged either way — the floor governs the clock, never the screen.
-    expect(modeOffline(retained)).toEqual({ kind: "connecting" });
+    expect(modeOffline(retained)).toEqual({
+      kind: "warming",
+      daemonState: "restarting",
+    });
   });
 
   it("a settled `clear` frame over a dead link is still just clear", () => {
