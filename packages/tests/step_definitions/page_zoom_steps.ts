@@ -16,7 +16,11 @@
 import * as assert from "node:assert";
 import { Then, When } from "@cucumber/cucumber";
 import { readPerTerminal } from "../support/buffer.ts";
-import { type KoluWorld, POLL_TIMEOUT } from "../support/world.ts";
+import {
+  GRID_ROUND_TRIP_MS,
+  type KoluWorld,
+  POLL_TIMEOUT,
+} from "../support/world.ts";
 
 const CANVAS_SELECTOR = '[data-testid="canvas-container"]';
 const DOCK_SELECTOR = '[data-testid="dock"]';
@@ -208,16 +212,27 @@ Then(
       before,
       "No grid snapshot — call 'I snapshot the terminal grid' first",
     );
-    const [cols, rows] = await Promise.all([
-      readPerTerminal(this.page, "cols"),
-      readPerTerminal(this.page, "rows"),
-    ]);
-    for (const [id, grid] of Object.entries(before)) {
-      assert.deepStrictEqual(
-        { cols: cols[id], rows: rows[id] },
-        grid,
-        `terminal ${id} refit from ${grid.cols}×${grid.rows} to ${cols[id]}×${rows[id]} — magnifying the page must not resize the shell underneath it`,
-      );
-    }
+    // HELD for a round trip, not sampled once. A refit no longer happens in
+    // the pane: the magnification would have to travel out as a new wanted
+    // grid and come back from the daemon before any xterm changed size, so a
+    // single read taken right after the pinch proves only that the answer has
+    // not arrived — it would pass just as happily against a page that IS
+    // refitting its terminals. Sample until GRID_ROUND_TRIP_MS has elapsed and
+    // fail on the first divergence.
+    const deadline = Date.now() + GRID_ROUND_TRIP_MS;
+    do {
+      const [cols, rows] = await Promise.all([
+        readPerTerminal(this.page, "cols"),
+        readPerTerminal(this.page, "rows"),
+      ]);
+      for (const [id, grid] of Object.entries(before)) {
+        assert.deepStrictEqual(
+          { cols: cols[id], rows: rows[id] },
+          grid,
+          `terminal ${id} refit from ${grid.cols}×${grid.rows} to ${cols[id]}×${rows[id]} — magnifying the page must not resize the shell underneath it`,
+        );
+      }
+      await this.waitForFrame();
+    } while (Date.now() < deadline);
   },
 );

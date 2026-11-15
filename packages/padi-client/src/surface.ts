@@ -724,8 +724,35 @@ export * from "./transcriptSchema.ts";
  *  publish it on the `roster` census above, whose `ids` encode as `TerminalId` —
  *  an outbound encode failure that unwinds the whole mirror kolu-server holds,
  *  leaving every padi procedure answering "no live upstream link" with the
- *  daemon alive and idle (#2376). */
-export const PADI_SURFACE_VERSION = "7.4";
+ *  daemon alive and idle (#2376).
+ *
+ *  7.5 (additive · minor) — THE ATTACH STREAM SAYS WHEN THE PTY RESIZED. A new
+ *  `resized` arm on {@link PadiTerminalAttachFrameSchema} carries the pty's new
+ *  grid AT ITS POSITION in the byte stream, and the `snapshot` arm's `grid`
+ *  becomes REQUIRED. Together they let a consumer change its own terminal's
+ *  size at exactly the points the pty's mirror changed its own, which is the
+ *  only way the two screens can be made to agree: a viewer used to resize when
+ *  its own box moved and the pty resized when that grid reached it a settle
+ *  window later, so everything written in between was laid out for one size and
+ *  parsed at the other — a cursor row apart, different lines out of scrollback,
+ *  and a full-screen program's relative repaint then erasing the wrong rows on
+ *  the viewer's side only (#2362, #2372).
+ *
+ *  A WIDENED EMITTED UNION plus a field made required, so the 5.3/7.3 class, not
+ *  the `resizeTo` class: a 7.4 decoder refuses a `resized` frame outright, and a
+ *  7.4 PADI omits a grid a 7.5 consumer's decoder now demands. The minor rule is
+ *  what keeps either from happening (a newer binder against a 7.4 padi drains it
+ *  before consuming its surface; an older binder against a 7.5 padi is
+ *  build-mismatched and drains it first), and draining a padi is not what
+ *  draining a kaval is — padi hands its terminals back. The kaval contract this
+ *  rides on top of took the MAJOR it needed for the same shape (9.0), because
+ *  there a skew costs live PTYs.
+ *
+ *  One LOCAL consequence worth stating, since the wire now forbids what the code
+ *  used to permit: an attach torn down before kaval answers describes no screen
+ *  at all, so padi emits NO snapshot frame for it rather than one carrying an
+ *  invented grid. */
+export const PADI_SURFACE_VERSION = "7.5";
 
 /** The `version` cell payload — padi's self-declared surface contract version. */
 export const PadiVersionSchema = Schema.Struct({
@@ -1309,38 +1336,39 @@ export type AttachCause = (typeof ATTACH_CAUSES)[number];
  *  mid-session as a desktop and a resumed iOS tab alternately assert. The
  *  consequences each side sees, so nobody has to re-derive them:
  *    - The asserting client gets a snapshot serialized at ITS grid. Correct.
- *    - Every OTHER attached client keeps its own xterm dimensions and receives
- *      the reflowed bytes, so it renders N columns of content inside its own
- *      2N-column pane until something makes it re-attach.
- *    - A client that re-measures mid-request refuses the stale answer and
- *      reopens at its current grid (`client/src/terminal/reattachingStream.ts`'s
- *      `StaleSnapshotGrid`), so contention costs a repaint — never the attach
- *      loop, which is the property kolu#2101 G8 restored and pins.
+ *    - Every OTHER attached client is TOLD, on its own attach stream, that the
+ *      pty is now N columns wide (the `resized` frame, 7.5), and follows — so
+ *      it renders N columns of content inside its own 2N-column box, drawn at
+ *      the size the bytes are actually laid out for, until it re-asserts.
+ *    - A client that wants a different grid re-attaches at it (kolu's pane
+ *      watches the record and waits out a settle first), so contention costs a
+ *      repaint — never the attach loop, which is the property kolu#2101 G8
+ *      restored and pins.
  *
- *  **Telling the viewer — SETTLED at 5.5, on two members, because it is two
+ *  **Telling the viewer — three facts now, because they answer three
  *  questions.** A client used to know only its own grid and the grid it asked
  *  at, so a foreign resize was silent by construction. The tempting proxy — a
  *  `reflowEpoch` bump — was never one, because the epoch also bumps on a RIS
  *  re-anchor (`xterm-kit/src/mirrorAnchor.ts`), so an indicator driven by it
- *  lights on every `clear`. What landed instead is the grid itself, twice:
- *    - **on the snapshot frame** — the cols×rows those BYTES were serialized at.
- *      Answers "is what I am about to paint laid out for my pane?", and only at
- *      the moments a snapshot exists (the initial attach, an overflow
- *      re-attach). `./attach` reads it in two steps: `snapshotLayoutGrid`
- *      resolves the layout the bytes actually carry (the frame's own `grid`,
- *      falling back to the grid the attach ASKED at, which is all an older
- *      kaval's frame can tell you), and `snapshotPaintableAt` turns that into
- *      the verdict — paintable only when the layout is the grid the pane is at
- *      NOW, never merely the one it asked for.
- *    - **on the terminal record** (`TerminalSnapshot.grid`) — the grid the pty
- *      is at NOW, published by padi's own resize path. Answers "is the terminal
- *      still my size?", CONTINUOUSLY, which is the half the frame cannot cover:
- *      a foreign resize mid-stream produces no frame at all, so a client
- *      watching only frames keeps painting reflowed bytes forever. `./attach`'s
- *      rule 2c is that reading, and kolu's pane consumes it.
+ *  lights on every `clear`. What the stream carries instead:
+ *    - **the snapshot frame's `grid`** (REQUIRED at 7.5) — the cols×rows those
+ *      BYTES are laid out at. The consumer sizes its terminal to it and then
+ *      paints, so painting a screen at the wrong width is no longer a state it
+ *      can reach.
+ *    - **the `resized` frame** (7.5) — the pty's mirror changed size HERE,
+ *      between these two bytes. This is the half nothing could express before:
+ *      a foreign resize mid-stream produced no frame at all, so a client
+ *      watching only frames painted reflowed bytes forever. It also carries the
+ *      consumer's OWN resize back to it, which is what puts the two screens in
+ *      step (the pty resizes a settle window after the box moved, not when).
+ *    - **the terminal record's grid** (`TerminalSnapshot.grid`) — the grid the
+ *      pty is at NOW, published by padi's own resize path. A standing fact
+ *      rather than an event, so a client that was not attached at the time can
+ *      still see that the terminal is not its size. kolu's pane re-asserts off
+ *      this one.
  *  The ping-pong above is unchanged and remains the whole policy — what changed
- *  is that the losing side can now SEE it lost, which is what makes "contention
- *  costs a repaint" true for every viewer instead of only the asserting one.
+ *  is that the losing side both SEES it lost and keeps a correct screen while it
+ *  has lost, instead of painting bytes whose layout nothing ever told it about.
  *
  *  The fusion is the point. The snapshot is bytes laid out for a specific
  *  cols×rows — cursor moves and wraps only mean anything at the width they were
@@ -1408,11 +1436,15 @@ export const PadiTerminalAttachInputSchema = Schema.Struct({
  *  `delta` is bytes to write; a `snapshot` (the first frame of any fresh
  *  stream, and every overflow re-attach) is a serialized screen that also
  *  carries the absolute mirror-line `topLine` seed for a scrollback-backfill
- *  cursor. Mirrors kaval's own `TerminalDataMsg` one hop up.
+ *  cursor and the grid its bytes are laid out at; a `resized` says the pty's
+ *  mirror changed size at this exact point between two bytes. Mirrors kaval's
+ *  own `TerminalDataMsg` one hop up.
  *
  *  NAMED and exported because a consumer has to be able to say this type to
- *  write a frame handler at all — and because only the `snapshot` arm can go
- *  STALE. See `./attach` for the rules that govern it.
+ *  write a frame handler at all. See `./attach` for the rules that govern what
+ *  a consumer must DO with each arm — in particular that a `snapshot` and a
+ *  `resized` both SET the consumer's terminal size, and that a `resized` only
+ *  means anything if it is applied in the order it arrived in.
  */
 export const PadiTerminalAttachFrameSchema = Schema.Union([
   Schema.Struct({
@@ -1442,48 +1474,57 @@ export const PadiTerminalAttachFrameSchema = Schema.Union([
     // the key is omitted, never nulled — and a non-integer is still
     // rejected. Pinned by a byte fixture in `surface.test.ts`.
     reflowEpoch: Schema.optional(NonNegativeInt),
-    /** `grid` (5.5 · additive · optional) — the cols×rows this snapshot was
-     *  SERIALIZED at, read inside the same synchronous act as the bytes and the
-     *  epoch so it cannot describe a reflow they never saw.
+    /** `grid` (5.5 · additive · optional; REQUIRED at 7.5) — the cols×rows this
+     *  snapshot was SERIALIZED at, read inside the same synchronous act as the
+     *  bytes and the epoch so it cannot describe a reflow they never saw.
      *
-     *  It is the FRAME half of the two the multi-client note above settles. Two
-     *  consumers needed it and neither could be served without it:
+     *  REQUIRED, because a consumer now SIZES ITSELF TO IT rather than merely
+     *  comparing against it. A snapshot is bytes already laid out for one
+     *  cols×rows; the consumer sets its terminal to this grid and then paints,
+     *  so "do these bytes fit my screen" stops being a question anything can
+     *  get wrong. An OPTIONAL grid could not carry that rule — absence would
+     *  mean "size however you like", which is the defect itself — and the two
+     *  readings it used to serve are both subsumed:
      *
      *    · the OBSERVE-ONLY attach — one that passes no `resizeTo` because it
      *      has no size to assert (a monitor, a read-only pane, a CLI dumping the
-     *      screen). It never learned what size it received, so it sized its
-     *      renderer by guess and a mismatched box wrapped the bytes into
-     *      garbage. The frame is self-describing now.
-     *    · the FOREIGN-RESIZE reading. Comparing this with the grid the pane is
-     *      at NOW — `./attach`'s `snapshotLayoutGrid` then
-     *      `snapshotPaintableAt` — is the first honest detector of another
-     *      viewer holding the terminal at a different size. Two LOCAL
-     *      measurements cannot see it: what you asked for and what you are
-     *      agree with each other while the bytes on the wire were laid out for
-     *      somebody else.
+     *      screen). It sizes to the frame, which is now always there.
+     *    · the FOREIGN-RESIZE reading. A foreign resize now arrives as its own
+     *      `resized` frame on this stream, so a consumer no longer has to infer
+     *      one by comparing a snapshot's grid against its own box.
      *
-     *  `Schema.optional`, NOT `optionalKey` — the same call `reflowEpoch` above
-     *  makes, for the same reason, and getting it wrong here would have been
-     *  strictly worse than the gap this field closes. `grid` rides the SAME five
-     *  hops: kaval's decoded frame → `OpenedAttach.grid?` →
-     *  `TerminalAttachment.grid?` → `reattachingDeltas`' re-attach frame → this
-     *  frame. Reading an absent optional key yields `undefined`, so every hop
-     *  re-creates the key present-with-`undefined`, and `optionalKey` REJECTS a
-     *  present `undefined` — which would fail the ENCODE and take the whole
-     *  attach stream down rather than degrade.
-     *
-     *  Two reachable producers omit it, so this is not theoretical: a kaval
-     *  predating the field (exactly the mixed-version path the no-major bump
-     *  exists to keep alive), and `local.ts`'s abort-before-snapshot return,
-     *  which carries no grid even on a current kaval. `optional` is
-     *  `optionalKey` + `UndefinedOr`, so the emitted BYTES are identical — the
-     *  key is omitted, never nulled — and absence really is silence.
-     *
-     *  NO MAJOR: absence degrades to exactly the previous reading in both skew
-     *  directions, the no-bump class this contract already documents. kaval's
-     *  OUTBOUND schema keeps `optionalKey` because its producer always supplies
-     *  a real grid — a cosmetic readout must never cost a live terminal. */
-    grid: Schema.optional(EndpointGridSchema),
+     *  The three producers that could omit it are gone with kaval's 9.0 major:
+     *  an older kaval is refused at the handshake rather than adopted, and
+     *  `local.ts`'s abort-before-snapshot return now says `grid: null`, which
+     *  `servePadi` answers by emitting NO snapshot frame — the honest encoding
+     *  of "this attachment describes no screen". */
+    grid: EndpointGridSchema,
+  }),
+  /** The pty's mirror CHANGED SIZE at this point in the stream (kaval contract
+   *  9.0, padi 7.5).
+   *
+   *  A control frame carrying one fact and no bytes, and its POSITION is the
+   *  fact: every byte before it was laid out for the old grid, every byte after
+   *  it for the new one. A consumer that resizes its own terminal exactly here
+   *  has applied the same events in the same order as the pty's mirror, so the
+   *  two screens cannot diverge over a resize — which, before this frame
+   *  existed, they routinely did: a pane resized when its own box moved and the
+   *  pty resized when the grid reached it a settle window later, and everything
+   *  written in between was parsed at the wrong size by one of them.
+   *
+   *  A TYPED frame rather than an escape sequence inside a `delta`: program
+   *  output is untrusted, so an in-band marker would be forgeable by whatever is
+   *  running in the terminal.
+   *
+   *  It is also what makes the multi-client note above OBSERVABLE in-band: a
+   *  second viewer attaching at its own size now announces itself on every other
+   *  viewer's stream instead of silently reflowing them. The POLICY is unchanged
+   *  — last-attach-wins, and a losing pane re-asserts its own grid through the
+   *  record watcher — but the losing side is no longer painting bytes whose
+   *  layout nothing ever told it about. */
+  Schema.Struct({
+    kind: Schema.Literal("resized"),
+    grid: EndpointGridSchema,
   }),
 ]);
 export type TerminalAttachFrame = typeof PadiTerminalAttachFrameSchema.Type;

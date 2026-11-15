@@ -17,7 +17,7 @@ import type { Terminal as XTerm } from "@xterm/xterm";
 import type { TerminalId } from "kolu-common/surface";
 import { type Accessor, createEffect, createRoot } from "solid-js";
 import { createStore, produce } from "solid-js/store";
-import type { ScrollLockEvent } from "@kolu/xterm-kit/solid";
+import type { ScrollLockEvent, TerminalGrid } from "@kolu/xterm-kit/solid";
 
 export type Renderer = "webgl" | "dom";
 
@@ -32,12 +32,19 @@ export interface ScrollLockDiagnostics {
 
 export interface TerminalDiagnostics {
   id: TerminalId;
+  /** The size the terminal IS — what the bytes in its buffer are laid out for.
+   *  Moves only when the attach stream says the pty's mirror moved. */
   cols: number;
   rows: number;
-  /** Whether `cols`/`rows` are a real MEASUREMENT of this pane's own box, or
-   *  the 80×24 an unmeasured xterm invents. False means no attach stream has
-   *  opened yet ("no grid, no bytes") — a state that looks exactly like an
-   *  attached-and-idle terminal on screen. */
+  /** The size this pane's BOX can hold — what it has asked the pty for. `null`
+   *  until the pane has measured. The two differ for a settle window plus a
+   *  round trip after any box change, and a dialog showing only one of them
+   *  cannot explain a terminal that looks a row short. */
+  wantedCols: number | null;
+  wantedRows: number | null;
+  /** Whether this pane has a real MEASUREMENT of its own box at all. False
+   *  means no attach stream has opened yet ("no grid, no bytes") — a state that
+   *  looks exactly like an attached-and-idle terminal on screen. */
   measured: boolean;
   renderer: Renderer;
   scrollLock: ScrollLockDiagnostics;
@@ -73,11 +80,13 @@ export function registerDiagnostics(
   {
     xterm,
     renderer,
+    wanted,
     measured,
     scrollLock,
   }: {
     xterm: XTerm;
     renderer: Accessor<Renderer>;
+    wanted: Accessor<TerminalGrid | null>;
     measured: Accessor<boolean>;
     scrollLock: {
       locked: Accessor<boolean>;
@@ -90,6 +99,8 @@ export function registerDiagnostics(
     id,
     cols: xterm.cols,
     rows: xterm.rows,
+    wantedCols: wanted()?.cols ?? null,
+    wantedRows: wanted()?.rows ?? null,
     measured: measured(),
     renderer: renderer(),
     scrollLock: scrollLockSnapshot(scrollLock),
@@ -109,6 +120,13 @@ export function registerDiagnostics(
     });
     createEffect(() => {
       setStore(id, "measured", measured());
+    });
+    createEffect(() => {
+      const w = wanted();
+      setStore(id, {
+        wantedCols: w?.cols ?? null,
+        wantedRows: w?.rows ?? null,
+      });
     });
     createEffect(() => {
       setStore(id, "scrollLock", scrollLockSnapshot(scrollLock));

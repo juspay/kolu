@@ -313,7 +313,7 @@ export async function watchAgentStates(
 /** One frame of the `terminalAttach` feed, as an output wait reads it — the
  *  member's OWN discriminated union (`surface.ts` → `terminalAttach.outputSchema`,
  *  mirrored by `TerminalAttachFrame` in `endpoint.ts`), narrowed to the fields
- *  both waits read. The settle wait needs only that a frame ARRIVED, the match
+ *  both waits read. The settle wait needs only that OUTPUT arrived, the match
  *  wait needs a `delta`'s bytes, and neither has any use for
  *  `topLine`/`reflowEpoch` — so the spine hands the frame across at exactly that
  *  width, dropping the snapshot's backfill seed but NOT its identity.
@@ -323,13 +323,19 @@ export async function watchAgentStates(
  *  rename or a typo of that literal compiles clean and silently disables all
  *  scanning — a `match:` wait that can never fire, reported to its caller as a
  *  plain timeout. Spelled as a union, the compiler rejects any `kind` the wire
- *  does not carry, and the `!== "delta"` site narrows the remainder to
- *  `snapshot` instead of to `unknown-shaped`. `data` is non-optional on both
- *  arms because the wire puts it on both; there is no frame whose bytes are
- *  absent, so no reader has to invent an empty one. */
+ *  does not carry.
+ *
+ *  `resized` is here because the wire carries it, and it is the one arm with NO
+ *  bytes: it says the pty changed size at this point in the stream. Both waits
+ *  ignore it, and for the same reason — a resize is not OUTPUT. Treating it as
+ *  output would re-arm an idle window for a terminal nothing wrote to, so a
+ *  `settled:` wait on a quiet terminal would never land while somebody dragged
+ *  a divider over it. The repaint a resize provokes is ordinary output and arms
+ *  the window exactly as it always did. */
 type AttachFrame =
   | { readonly kind: "snapshot"; readonly data: string }
-  | { readonly kind: "delta"; readonly data: string };
+  | { readonly kind: "delta"; readonly data: string }
+  | { readonly kind: "resized" };
 
 /**
  * Subscribe terminal `id`'s output feed (and its exit event) for the duration of
@@ -985,8 +991,10 @@ function conditionForm(
         evidenceIsFeedOrdered: false,
         // Snapshot AND delta both (re)start the window: the snapshot is the
         // replay of the current screen — the moment to start counting — and
-        // each delta is fresh output resetting the count.
-        onFrame: () => {
+        // each delta is fresh output resetting the count. A `resized` is not
+        // output and does not (see {@link AttachFrame}).
+        onFrame: (frame) => {
+          if (frame.kind === "resized") return;
           engine.setHeld(null);
           window.arm();
         },
@@ -1546,10 +1554,11 @@ export async function awaitTerminalCondition<C extends TerminalCondition>(
               // Snapshot AND delta both (re)start the conjunct's window: the
               // snapshot is the replay of the current screen — the moment to
               // start counting — and each delta is fresh output resetting the
-              // count. The arming goes through `update`, so the generation moves
-              // exactly when a half does and never merely because a byte
-              // arrived.
-              if (settledWindow !== undefined) {
+              // count. A `resized` is not output and does not (see
+              // {@link AttachFrame}). The arming goes through `update`, so the
+              // generation moves exactly when a half does and never merely
+              // because a byte arrived.
+              if (settledWindow !== undefined && frame.kind !== "resized") {
                 update({ quiet: false });
                 settledWindow.arm();
               }

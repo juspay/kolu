@@ -11170,6 +11170,30 @@
       "exampleRows": [],
       "executions": 1,
       "firstSeenSha": "7ce34194c3809bfa9be26ff7dd489c71aaee7d3a"
+    },
+    {
+      "revisionId": "revision-947a4d37a3fe164470e5",
+      "scenarioKey": "scenario-4cc54c52f22a98e8bad1",
+      "feature": "features/terminal-lockstep.feature",
+      "scenario": "A pane keeps the program's screen while its box moves",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "a07b9e1b0b8dc2f7194e8d41b56bf3cb8480ceffffe141935b1bd0396c86b274",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "a7433de1ab48324674140beaf46371a5d1febe3a"
+    },
+    {
+      "revisionId": "revision-82a054f79050ddb50d03",
+      "scenarioKey": "scenario-9d491a0d4cbbf5ce9091",
+      "feature": "features/terminal-resize.feature",
+      "scenario": "Resizing the active mobile terminal does not resize hidden terminals",
+      "kind": "scenario",
+      "tags": ["@mobile"],
+      "bodyHash": "451893dc1a3b9e28021bc7e1e1907dc261850ebe16923e29d5cd0726579c908d",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "a7433de1ab48324674140beaf46371a5d1febe3a"
     }
   ]
 }

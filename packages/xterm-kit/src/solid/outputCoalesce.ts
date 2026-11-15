@@ -28,9 +28,25 @@ export interface OutputCoalesceDeps {
   intervalMs?: number;
 }
 
+/** Where a coalesced batch — and anything that must stay ordered with it —
+ *  goes next. One object rather than two parameters because the two doors are
+ *  one door: what makes a resize correct is its POSITION among the bytes, so a
+ *  caller must not be able to wire the bytes here and the resizes somewhere
+ *  else. */
+export interface OutputSink {
+  /** Bytes to parse. `onParsed` fires when they reach xterm's buffer. */
+  write: (data: string, onParsed?: () => void) => void;
+  /** The pty's mirror changed size at this point between two bytes. */
+  resize: (cols: number, rows: number) => void;
+}
+
 export interface OutputCoalesce {
   /** Buffer-or-passthrough write. `onParsed` fires when the bytes reach xterm. */
   write: (data: string, onParsed?: () => void) => void;
+  /** A resize that arrived HERE in the stream. Buffered bytes are flushed
+   *  first — they were produced for the OLD grid and must parse at it — and the
+   *  resize follows them through the same sink. */
+  resize: (cols: number, rows: number) => void;
   /** Flush any pending buffer immediately (call when becoming full-rate). */
   flush: () => void;
   /** Drop pending bytes without writing; keep the handle alive (snapshot reset). */
@@ -45,11 +61,11 @@ export interface OutputCoalesce {
  * @param isFullRate — true for the one (or few) terminals that must paint live
  *   (focused tile). When this becomes true, call `flush()` from the reactive
  *   owner so a pending unfocused buffer is not left sitting.
- * @param writeThrough — the real write (e.g. `scrollLock.writeData`).
+ * @param sink — the real write and the real resize (e.g. scroll-lock's pair).
  */
 export function createOutputCoalesce(
   isFullRate: () => boolean,
-  writeThrough: (data: string, onParsed?: () => void) => void,
+  sink: OutputSink,
   deps: OutputCoalesceDeps = {},
 ): OutputCoalesce {
   const schedule: ScheduleFn =
@@ -87,9 +103,9 @@ export function createOutputCoalesce(
       for (const cb of cbs) cb();
       return;
     }
-    // Preserve writeThrough's "no callback" optimization when nobody is waiting
+    // Preserve the sink's "no callback" optimization when nobody is waiting
     // (scroll-lock skips a closure allocation when onParsed is undefined).
-    writeThrough(
+    sink.write(
       data,
       cbs.length === 0
         ? undefined
@@ -104,7 +120,7 @@ export function createOutputCoalesce(
     if (isFullRate()) {
       // Becoming full-rate mid-buffer: land pending first, then this chunk live.
       flush();
-      writeThrough(data, onParsed);
+      sink.write(data, onParsed);
       return;
     }
     buf += data;
@@ -112,6 +128,17 @@ export function createOutputCoalesce(
     if (timer === null) {
       timer = schedule(flush, intervalMs);
     }
+  }
+
+  function resize(cols: number, rows: number): void {
+    if (disposed) return;
+    // The buffered bytes were produced BEFORE this resize and must parse at the
+    // grid they were written for, so they go first — then the resize follows
+    // them down the same sink. Jumping the buffer here would reflow the screen
+    // under up to a full coalesce window of bytes laid out for the old size,
+    // which is the defect this frame exists to close, re-created locally.
+    flush();
+    sink.resize(cols, rows);
   }
 
   function clear(): void {
@@ -127,6 +154,7 @@ export function createOutputCoalesce(
 
   return {
     write,
+    resize,
     flush,
     clear,
     dispose,

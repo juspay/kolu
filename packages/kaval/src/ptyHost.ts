@@ -269,6 +269,32 @@ export interface PtySpawnResult {
   pid: number;
 }
 
+/** One item on a PTY's data feed: bytes the mirror parsed, or the mirror
+ *  CHANGING SIZE.
+ *
+ *  Two kinds in ONE ordered channel, because the order between them is the
+ *  fact being published. A consumer that resizes its own terminal when — and
+ *  only when — it reads a `resized` has received exactly the events this
+ *  mirror did, in the same sequence, so its screen and the mirror's cannot
+ *  disagree about a resize. Published out of band instead (which is what a
+ *  separate channel, or no channel at all, amounts to), a resize races the
+ *  bytes around it and every byte in the gap is laid out for one grid and
+ *  parsed at the other.
+ *
+ *  `resized` is a CONTROL item: it carries no bytes, is never withheld by the
+ *  resize window, and costs nothing against the byte budget (see
+ *  `dataItemChars`). */
+export type PtyDataItem =
+  | { kind: "bytes"; data: string }
+  | { kind: "resized"; grid: PtyGrid };
+
+/** The byte cost of one data item — the fan-out's budget unit. A `resized` is
+ *  free: it is a few numbers, and a consumer that is behind needs the new size
+ *  MORE than it needs to be dropped for having been told it. */
+export function dataItemChars(item: PtyDataItem): number {
+  return item.kind === "bytes" ? item.data.length : 0;
+}
+
 /** Result of {@link PtyHost.attach}: the screen state at attach time plus
  *  the live output stream from exactly that point forward. */
 export interface PtyAttachment {
@@ -299,12 +325,14 @@ export interface PtyAttachment {
    *  renderer sized by guess wraps the bytes into garbage. Every attach can now
    *  answer "what shape is this screen" from the frame itself. */
   grid: PtyGrid;
-  /** Live output deltas after the snapshot. Ends when the attachment's scope
-   *  closes (unsubscribing IS interrupting the consuming fiber) or the PTY
-   *  exits, and FAILS with {@link SubscriberOverflow} when this attachment
-   *  lagged past the bound — so the serving layer tells a slow-consumer drop
-   *  apart from a graceful end by the channel it arrives on, not by a flag. */
-  deltas: Stream.Stream<string, SubscriberOverflow>;
+  /** Live output after the snapshot — bytes AND the mirror's own resizes, in
+   *  the one order they happened ({@link PtyDataItem}). Ends when the
+   *  attachment's scope closes (unsubscribing IS interrupting the consuming
+   *  fiber) or the PTY exits, and FAILS with {@link SubscriberOverflow} when
+   *  this attachment lagged past the bound — so the serving layer tells a
+   *  slow-consumer drop apart from a graceful end by the channel it arrives on,
+   *  not by a flag. */
+  deltas: Stream.Stream<PtyDataItem, SubscriberOverflow>;
 }
 
 /** One older-history chunk from {@link PtyHost.getHistory}: a serialized slice
@@ -706,7 +734,7 @@ interface Entry {
    *  kolu-server restart. */
   exitWaiters: Set<(code: number) => void>;
   disposables: { dispose(): void }[];
-  data: FanOut<string>;
+  data: FanOut<PtyDataItem>;
   cwdFanOut: FanOut<string>;
   titleFanOut: FanOut<string>;
   commandRunFanOut: FanOut<string>;
@@ -1173,10 +1201,10 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
       // behind is dropped and re-synced instead of being shown the replay (see
       // `dataBudgetChars`). The metadata taps below keep the item bound alone —
       // their items are a cwd, a title, a command line.
-      data: new FanOut<string>({
+      data: new FanOut<PtyDataItem>({
         maxQueue: dataMaxQueue,
         byteBudget: {
-          sizeOf: (chunk) => chunk.length,
+          sizeOf: dataItemChars,
           limit: () => dataBudgetChars(entries.get(id)),
         },
       }),
@@ -1486,7 +1514,7 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
   function publishParsed(entry: Entry, data: string): void {
     const w = entry.window;
     if (w === undefined) {
-      entry.data.publishUnsafe(data);
+      entry.data.publishUnsafe({ kind: "bytes", data });
       return;
     }
     // Already past the budget: this window can only end in a re-sync, so there
@@ -1503,6 +1531,27 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
       w.withheldChars = 0;
       w.resync = true;
     }
+  }
+
+  /** Tell every data subscriber the mirror is now `grid`, AT THIS POINT in
+   *  their byte stream (contract 9.0).
+   *
+   *  Straight to the fan-out, never through {@link publishParsed}: this item is
+   *  a CONTROL fact, not output, and withholding it would leave a viewer
+   *  painting the repaint of a resize nobody told it about. It is free against
+   *  the byte budget ({@link dataItemChars}) for the same reason.
+   *
+   *  "Never withheld" and "always in order" are not in tension, and the reason
+   *  is the window's own rule rather than timing: the only way this can run
+   *  with a window ALREADY open is a second resize, and `openResizeWindow`
+   *  answers that by discarding what it held and latching `resync`. So every
+   *  byte this item could have jumped ahead of is dropped in the same
+   *  synchronous breath, and those subscribers are re-snapshotted at the
+   *  settled screen instead. Nothing is ever delivered out of order; the
+   *  alternative — withholding the size until the window closes — would deliver
+   *  it LATE, which is the defect. */
+  function publishResized(entry: Entry, grid: PtyGrid): void {
+    entry.data.publishUnsafe({ kind: "resized", grid });
   }
 
   /** Open a resize window, or restart the one already open.
@@ -1576,7 +1625,8 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
     if (w.resync) {
       entry.data.dropAllUnsafe();
     } else {
-      for (const chunk of w.withheld) entry.data.publishUnsafe(chunk);
+      for (const chunk of w.withheld)
+        entry.data.publishUnsafe({ kind: "bytes", data: chunk });
     }
     w.withheld.length = 0;
     const waiters = [...w.waiters];
@@ -1942,11 +1992,21 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
     // parsed afterwards, at the NEW width. The old ordering here was resting
     // on that — which is why it only started re-syncing on the bump.
     //
-    // So: drain and reflow the mirror FIRST, open the window SECOND, and
-    // SIGWINCH the child LAST. Nothing can interleave — all three are
-    // synchronous — so not one byte of the repaint can still escape, and not
-    // one pre-resize byte is mistaken for it.
+    // So: drain and reflow the mirror FIRST, PUBLISH the new size SECOND, open
+    // the window THIRD, and SIGWINCH the child LAST. Nothing can interleave —
+    // all four are synchronous — so not one byte of the repaint can still
+    // escape, and not one pre-resize byte is mistaken for it.
+    //
+    // The publish sits where it does because that is the point in the byte
+    // stream the mirror actually changed size at (contract 9.0). The chunks the
+    // drain above just published were written for the OLD grid and are already
+    // on their way; everything a subscriber receives after this item was parsed
+    // at the NEW one. A subscriber that resizes its own terminal exactly here
+    // has seen the same events in the same order as this mirror, which is the
+    // whole guarantee. Before the drain it would be a lie (bytes for the old
+    // grid would follow it); after the window opens it would be withheld.
     entry.headless.resize(cols, rows);
+    publishResized(entry, { cols, rows });
     openResizeWindow(entry);
     entry.proc.resize(cols, rows);
     // resize() reflows the mirror (reflowCursorLine rewraps lines on a width

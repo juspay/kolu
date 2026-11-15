@@ -387,6 +387,15 @@ export function runAttach(
                 if (msg.kind === "overflow") {
                   return yield* Effect.fail(new DroppedForLagging({ id }));
                 }
+                // A `resized` frame (contract 9.0) is IGNORED, deliberately: it
+                // tells a consumer to resize its own terminal at this point in
+                // the stream, and this consumer's terminal is the USER'S real
+                // tty — which it cannot resize and must not try to. The passthrough
+                // already asserts its own size on every attach (`resizeTo:
+                // tty.size()` above) and re-attaches when the tty changes, so the
+                // only `resized` it can meet names a size another viewer took,
+                // which is last-attach-wins working as documented.
+                if (msg.kind === "resized") return;
                 // Backpressure-aware: `tty.write` completes on drain, so a slow
                 // local terminal slows this consumer rather than ballooning memory.
                 // (The server side bounds its queue regardless; if we lag past it,

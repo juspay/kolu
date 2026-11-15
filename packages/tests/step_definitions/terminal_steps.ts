@@ -6,10 +6,11 @@ import {
   readPerTerminal,
   waitForBufferContains,
 } from "../support/buffer.ts";
-import { pollUntil } from "../support/poll.ts";
+import { pollFor, pollUntil } from "../support/poll.ts";
 import {
   ACTIVE_CANVAS_TILE_SELECTOR,
   type KoluWorld,
+  POLL_TIMEOUT,
 } from "../support/world.ts";
 
 async function clearClipboard(world: KoluWorld) {
@@ -180,17 +181,33 @@ Then(
 Then(
   "the canvas should fill at least {int}% of its container",
   async function (this: KoluWorld, pct: number) {
-    const canvas = await this.canvasBox();
-    const container = await this.containerBox();
     const ratio = pct / 100;
-    assert.ok(
-      canvas.width > container.width * ratio,
-      `Canvas width ${canvas.width} < ${ratio * 100}% of container ${container.width}`,
-    );
-    assert.ok(
-      canvas.height > container.height * ratio,
-      `Canvas height ${canvas.height} < ${ratio * 100}% of container ${container.height}`,
-    );
+    // POLLED, not read once — and what is being waited for is a ROUND TRIP.
+    // A pane's xterm no longer resizes itself when its box (or its font)
+    // changes: it states the grid its box can hold and adopts the new one
+    // where the daemon's mirror did, which is the client's settle window
+    // (250ms) plus an answer from the daemon later. In between, the terminal
+    // is drawn at its own grid at natural size — so a font zoom-out leaves it
+    // visibly short of its container until the new grid lands, and a single
+    // read here would be asserting on the gap. A deadline, never a sleep: the
+    // loop ends the instant the terminal fills its box.
+    await pollFor({
+      observe: async () => ({
+        canvas: await this.canvasBox(),
+        container: await this.containerBox(),
+      }),
+      isDone: ({ canvas, container }) =>
+        canvas.width > container.width * ratio &&
+        canvas.height > container.height * ratio,
+      timeoutMs: POLL_TIMEOUT,
+      intervalMs: 100,
+      onTimeout: (last, elapsedMs) =>
+        new Error(
+          `after ${elapsedMs}ms the terminal is ${Math.round(last?.canvas.width ?? -1)}x${Math.round(last?.canvas.height ?? -1)} ` +
+            `in a ${Math.round(last?.container.width ?? -1)}x${Math.round(last?.container.height ?? -1)} container — ` +
+            `less than ${pct}% of it, so the grid the daemon handed back never filled the box`,
+        ),
+    });
   },
 );
 

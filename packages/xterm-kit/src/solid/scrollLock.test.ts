@@ -11,6 +11,10 @@ function makeMockTerm() {
   const handlers: ((y: number) => void)[] = [];
   const buf = { baseY: 0, viewportY: 0, type: "normal" as const };
   const written: string[] = [];
+  /** Writes AND resizes, in the one order they reached the terminal — the only
+   *  way to tell a door that kept them in order from one that did not. */
+  const trace: string[] = [];
+  const grid = { cols: 80, rows: 24 };
 
   function fire() {
     for (const h of [...handlers]) h(buf.viewportY);
@@ -18,6 +22,12 @@ function makeMockTerm() {
 
   const term = {
     buffer: { active: buf },
+    get cols() {
+      return grid.cols;
+    },
+    get rows() {
+      return grid.rows;
+    },
     onScroll(h: (y: number) => void) {
       handlers.push(h);
       return {
@@ -29,9 +39,15 @@ function makeMockTerm() {
     },
     write(d: string, cb?: () => void) {
       written.push(d);
+      trace.push(`w:${d}`);
       // Real xterm fires this once the chunk parses; synchronous here is enough
       // to prove a buffered chunk's callback survives the flush.
       cb?.();
+    },
+    resize(cols: number, rows: number) {
+      grid.cols = cols;
+      grid.rows = rows;
+      trace.push(`r:${cols}x${rows}`);
     },
     scrollToBottom() {
       if (buf.viewportY === buf.baseY) return;
@@ -44,6 +60,8 @@ function makeMockTerm() {
     term: term as unknown as Terminal,
     buf,
     written,
+    trace,
+    grid: () => ({ cols: grid.cols, rows: grid.rows }),
     /** New PTY lines land while the viewport is pinned to the bottom —
      *  baseY and viewportY advance together, firing onScroll. */
     emitOutputAtBottom(lines: number) {
@@ -355,6 +373,97 @@ describe("createScrollLock — existing semantics preserved", () => {
     expect(t.lock.isLocked()).toBe(false);
     expect(t.written).toEqual(["pending"]);
     expect(t.buf.viewportY).toBe(t.buf.baseY);
+    t.dispose();
+  });
+});
+
+// The pty tells a viewer its mirror resized at a point BETWEEN two bytes, and
+// the viewer's screen only matches the mirror's if it resizes at that same
+// point. An engaged scroll lock is where that is easiest to get wrong: the
+// bytes are being held, so a resize applied when it arrives reflows a screen
+// made of output that has not been parsed yet.
+describe("createScrollLock — a resize keeps its place in the stream", () => {
+  it("applies a resize immediately when the lock is not engaged", () => {
+    const t = setup();
+    t.lock.writeData(t.term, "a");
+    t.lock.resizeInOrder(t.term, 100, 40);
+    t.lock.writeData(t.term, "b");
+    expect(t.trace).toEqual(["w:a", "r:100x40", "w:b"]);
+    expect(t.grid()).toEqual({ cols: 100, rows: 40 });
+    t.dispose();
+  });
+
+  it("holds a resize behind the bytes it followed and replays both in order", () => {
+    const t = setup();
+    t.lock.armUserScrollIntent("wheel");
+    t.scrollUp(10);
+    expect(t.lock.isLocked()).toBe(true);
+
+    t.lock.writeData(t.term, "before");
+    t.lock.resizeInOrder(t.term, 100, 40);
+    t.lock.writeData(t.term, "after");
+    // Nothing has reached the terminal: the resize is held with the bytes, not
+    // around them. Applying it now would reflow the screen the user is reading
+    // under output it has not seen.
+    expect(t.trace).toEqual([]);
+    expect(t.grid()).toEqual({ cols: 80, rows: 24 });
+    // Only the BYTES count as output the user has not seen.
+    expect(t.lock.pendingChunks()).toBe(2);
+
+    t.buf.viewportY = t.buf.baseY; // user returns to the bottom → flush
+    t.lock.handleTabVisible();
+    t.lock.reset();
+    expect(t.trace).toEqual(["w:before", "r:100x40", "w:after"]);
+    expect(t.grid()).toEqual({ cols: 100, rows: 40 });
+    t.dispose();
+  });
+
+  it("replays several held resizes each at its own point in the byte stream", () => {
+    const t = setup();
+    t.lock.armUserScrollIntent("wheel");
+    t.scrollUp(10);
+
+    t.lock.writeData(t.term, "a");
+    t.lock.resizeInOrder(t.term, 90, 30);
+    t.lock.writeData(t.term, "b");
+    t.lock.resizeInOrder(t.term, 70, 20);
+    t.lock.writeData(t.term, "c");
+    t.lock.reset();
+    // Collapsing them — "apply the last one at the end" — would parse `b` at a
+    // width it was never written for.
+    expect(t.trace).toEqual(["w:a", "r:90x30", "w:b", "r:70x20", "w:c"]);
+    t.dispose();
+  });
+
+  it("fires a held chunk's onParsed before the resize that follows it", () => {
+    const t = setup();
+    t.lock.armUserScrollIntent("wheel");
+    t.scrollUp(10);
+
+    const order: string[] = [];
+    t.lock.writeData(t.term, "snapshot", () => order.push("parsed"));
+    t.lock.resizeInOrder(t.term, 100, 40);
+    t.lock.reset();
+    // The seed a snapshot's callback commits describes the buffer those bytes
+    // landed in — which is the buffer BEFORE the resize that followed them.
+    expect(order).toEqual(["parsed"]);
+    expect(t.trace).toEqual(["w:snapshot", "r:100x40"]);
+    t.dispose();
+  });
+
+  it("drops held resizes with the bytes on a fresh-snapshot drop", () => {
+    const t = setup();
+    t.lock.armUserScrollIntent("wheel");
+    t.scrollUp(10);
+
+    t.lock.writeData(t.term, "stale");
+    t.lock.resizeInOrder(t.term, 100, 40);
+    // A fresh snapshot replaces the screen AND states its own grid, so a resize
+    // held for the screen it replaces describes nothing.
+    t.lock.dropPending();
+    t.lock.reset();
+    expect(t.trace).toEqual([]);
+    expect(t.grid()).toEqual({ cols: 80, rows: 24 });
     t.dispose();
   });
 });

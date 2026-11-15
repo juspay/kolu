@@ -43,12 +43,19 @@ When("I wait for all terminals to settle", async function (this: KoluWorld) {
 });
 
 When(
-  "I wait for the active terminal to refit",
+  "I wait for the active terminal's grid to come back from the daemon",
   async function (this: KoluWorld) {
-    // "Settle" alone isn't enough after a viewport resize: the previous
-    // cols are already non-zero, so a bare non-zero check passes before
-    // debouncedFit()'s rAF has run. Wait until the visible terminal's
-    // cols actually changes relative to the stashed snapshot.
+    // This is a ROUND TRIP, not a local refit, and the name says so.
+    //
+    // A pane no longer resizes its own xterm when its box moves: it measures
+    // what the box can hold, states that as its wanted grid, and its xterm
+    // changes size only where the daemon's mirror did — at the `resized`
+    // frame on the attach stream. So after a viewport change the visible
+    // terminal's `cols` moves once the client's settle window (GRID_SETTLE_MS,
+    // 250ms) has elapsed AND the daemon has answered; an assertion that reads
+    // `cols` without waiting for that is reading the OLD grid and is right
+    // only by luck. POLL_TIMEOUT is many times the settle plus a round trip,
+    // so a loaded runner has room without the budget becoming a bare sleep.
     assert.ok(
       this.snapshotCols,
       "Snapshot required — call 'I snapshot each terminal's cols' first",

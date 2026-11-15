@@ -199,10 +199,18 @@ const DiagnosticInfoContent: Component<{ activeId: TerminalId | null }> = (
         const bufferLen = refs?.xterm.buffer.active.length ?? null;
         return {
           id: d.id,
+          // What the terminal IS — the grid the bytes in its buffer are laid
+          // out for, which moves only when the pty says its mirror did.
           cols: d.cols,
           rows: d.rows,
-          // false ⇒ cols/rows are xterm's invented 80×24 and NO attach stream
-          // has opened for this pane (see TerminalDiagnostics.measured).
+          // What this pane's BOX wants, and has asked the pty for. The two
+          // differ for a settle window plus a round trip after a box change;
+          // stuck apart means the pane's publish is not reaching the pty.
+          wantedCols: d.wantedCols,
+          wantedRows: d.wantedRows,
+          // false ⇒ this pane has never measured its box, so cols/rows are
+          // xterm's invented 80×24 and NO attach stream has opened for it (see
+          // TerminalDiagnostics.measured).
           measured: d.measured,
           renderer: d.renderer,
           bufferLen,

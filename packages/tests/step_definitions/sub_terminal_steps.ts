@@ -200,25 +200,31 @@ When(
     // pass while the bug was fully present — a vacuous guard. Assert it rather
     // than assume it.
     //
-    // POLLED, not read once: the grid is measured by a ResizeObserver + a
-    // rAF-debounced `applyFit`, and the preceding step only waits for the split's
-    // DOM presence — so a bare read on a loaded CI box can land on 0 or a pre-fit
-    // value and fail spuriously. Wait until the split reports a measured,
-    // non-zero `cols`, then assert what that measurement is.
-    const measured = await this.page.waitForFunction(
-      (sel) => {
-        const node = document.querySelector(sel);
-        const cols = (node as unknown as { __xterm?: { cols: number } })
-          ?.__xterm?.cols;
-        return typeof cols === "number" && cols > 0 ? cols : null;
-      },
-      VISIBLE_SUB,
-      { timeout: POLL_TIMEOUT },
-    );
-    const cols = await measured.jsonValue();
+    // The wait is for a DAEMON ROUND TRIP, and "cols is non-zero" can no longer
+    // stand in for it: a pane's xterm starts life at the 80×24 its constructor
+    // invents and changes size ONLY where the daemon's mirror did — on the
+    // attach stream's snapshot frame, which carries the grid those bytes were
+    // serialized at. So a freshly mounted split reports a non-zero 80 instantly
+    // and a check for "non-zero" passes before the split has learned anything.
+    // Wait for the split to leave that invented grid; the message that used to
+    // be the assertion is now what a timeout says.
+    const measured = await this.page
+      .waitForFunction(
+        (sel) => {
+          const node = document.querySelector(sel);
+          if (!(node instanceof HTMLDivElement)) return null;
+          const cols = node.__xterm?.cols;
+          return typeof cols === "number" && cols > 0 && cols !== 80
+            ? cols
+            : null;
+        },
+        VISIBLE_SUB,
+        { timeout: POLL_TIMEOUT },
+      )
+      .catch(() => null);
     assert.ok(
-      cols !== 80,
-      `split is ${cols} columns; this scenario only exercises the defect when the real grid differs from xterm's fabricated 80`,
+      measured,
+      "the split never took a grid from the daemon — it is still at xterm's fabricated 80 columns, and this scenario only exercises the defect when the real grid differs from it",
     );
     await this.focusForTyping(VISIBLE_SUB);
     await this.page.keyboard.type(WIDE_OUTPUT_COMMAND);

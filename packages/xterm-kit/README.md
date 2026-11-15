@@ -49,9 +49,23 @@ buffer ones in tandem.
 ## `@kolu/xterm-kit/solid` — the SolidJS browser adapter
 
 Retained panes should keep explicit host dimensions while hidden. Revealing a
-pane refits its current geometry without resetting its scroll lock or jumping
-to the bottom. Callback props are read at event time. Document pointer-release
+pane re-measures its geometry without resetting its scroll lock or jumping to
+the bottom. Callback props are read at event time. Document pointer-release
 listeners exist only while that pane holds a pointer gesture.
+
+**Two grids, never one.** `<Xterm>` measures the grid its own BOX can hold —
+the WANTED grid, what the consumer publishes — and does NOT resize the terminal
+from it. The terminal's grid changes only when the consumer applies the size its
+STREAM states, and that resize goes through the same single write door as the
+bytes (`handle.write`), so it lands in stream order: never ahead of output the
+unfocused coalescer is still holding, never ahead of a scroll lock's queue.
+That is what keeps a pane's buffer identical to the daemon's mirror, which
+resizes at the same point in the same sequence of events; a terminal that
+resized when its box moved diverged for as long as the publish took, and the
+program's next relative repaint erased the wrong rows in the pane only. While
+the two grids differ, the consumer draws the terminal at ITS grid, at natural
+size, aligned to the pane's bottom-left and clipped by it — no scaling, because
+the bottom is where the prompt is.
 
 - `<Xterm>` — the whole hazard set as one JSX element: it composes lifecycle,
   WebGL, scroll-lock, render-recovery, write coalesce (via `fullRate`), and touch,
