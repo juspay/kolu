@@ -1629,33 +1629,47 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
       // does — which is what makes the process repaint into the new grid. This is
       // the WRITE the `resizeTo` name advertises: it is visible to every other
       // client attached to this PTY, not private to this attachment.
-      // Whether a window was ALREADY open decides what happens next, so it is
-      // read before the resize can open one.
-      const windowWasOpen = entry.window !== undefined;
-      if (resizeTo) resize(id, resizeTo.cols, resizeTo.rows);
-      // An attach whose own `resizeTo` opens a FRESH window is not delayed at
-      // all: nothing has been withheld yet, so subscribing and serializing right
-      // here still partitions the byte stream at a single point, and first paint
-      // costs what it always did. It then receives the withheld bytes, or a
-      // re-sync, when the window closes — like every other viewer.
       //
-      // An attach arriving into a window that was ALREADY open must PARK. The
+      // WHERE that write happens is decided here and differs by case, so the
+      // question is asked before anything can open a window.
+      const windowWasOpen = entry.window !== undefined;
+      // An attach whose own `resizeTo` opens a FRESH window is not delayed at
+      // all, and its resize rides INSIDE the subscribe+serialize step below —
+      // so no chunk can be withheld between the window opening and this
+      // subscriber registering, and the byte stream still partitions at a
+      // single point. That ordering is load-bearing rather than tidy: a chunk
+      // landing in that gap is in the snapshot AND held for replay, which
+      // `claimWithheldOverlap` can only resolve by re-syncing EVERY viewer of
+      // the PTY. Leaving the two steps apart made that cost a matter of
+      // whether the fiber happened to yield — and an `@xterm/headless` bump
+      // (kolu#2377) changed exactly that, turning a rare re-sync into one per
+      // attach-while-output-flows.
+      //
+      // An attach arriving into a window that was ALREADY open must PARK, and
+      // its resize goes out NOW: the SIGWINCH is the shared write the
+      // `resizeTo` name advertises, and delaying it until the window closed
+      // would make a drag's second tile wait half a second to be sized. The
       // bytes that window is holding are already in the mirror, so a snapshot
       // taken now would contain them AND they would arrive again as deltas at
       // close: the one duplication this design has to rule out — and the one
-      // `claimWithheldOverlap` then rules out structurally, for the race this
-      // check cannot see. Parking costs it the rest of the window; the
-      // mirror parses throughout, so what moves is only WHEN its one reading is
-      // taken.
-      if (!windowWasOpen) return attachNow(id, entry);
+      // `claimWithheldOverlap` rules out structurally, for the race this check
+      // cannot see. Parking costs it the rest of the window; the mirror parses
+      // throughout, so what moves is only WHEN its one reading is taken.
+      if (!windowWasOpen) return attachNow(id, entry, resizeTo);
+      if (resizeTo) resize(id, resizeTo.cols, resizeTo.rows);
       return Effect.flatMap(awaitResizeWindow(entry), () =>
         attachNow(id, entry),
       );
     });
   }
 
-  /** The fused subscribe+serialize half of {@link attach}, after any resize
-   *  window it had to wait for has closed.
+  /** The fused resize+subscribe+serialize half of {@link attach}, after any
+   *  resize window it had to wait for has closed.
+   *
+   *  `resizeTo` is applied HERE, inside the one synchronous step, for the
+   *  attach whose own resize opens a fresh window — see the call site for why
+   *  that is correctness and not tidiness. A parked attach has already resized
+   *  and passes nothing.
    *
    *  `id` is re-resolved rather than trusting the `entry` the caller parked
    *  with: a PTY can EXIT while its attach is parked (teardown releases the
@@ -1670,14 +1684,17 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
   function attachNow(
     id: PtyId,
     parked: Entry,
+    resizeTo?: { cols: number; rows: number },
   ): Effect.Effect<PtyAttachment, never, Scope.Scope> {
     return Effect.suspend(() => {
       const entry = requireEntry(id);
       if (entry !== parked) throw new PtyNotFound({ id });
-      // Subscribe and serialize in ONE synchronous step (`subscribeWith` — the
-      // two halves are not separately spellable): no headless parse, and thus no
-      // post-parse publish, can interleave between them, so every chunk lands in
-      // exactly one of snapshot / deltas.
+      // Resize, subscribe and serialize in ONE synchronous step
+      // (`subscribeWith` — its two halves are not separately spellable): no
+      // headless parse, and thus no post-parse publish, can interleave between
+      // them, so every chunk lands in exactly one of snapshot / deltas AND the
+      // window this resize opens starts empty, with this subscriber already in
+      // it.
       //
       // The serialize coalesces within the publish-epoch: the first attach
       // serializes and memoizes via boundedSnapshotOf(); the rest of a burst reuse
@@ -1691,6 +1708,12 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
       // from the bytes the client received.
       return Effect.map(
         entry.data.subscribeWith(() => {
+          // Size the PTY to the consumer's grid BEFORE serializing, so the
+          // snapshot is bytes laid out for the grid that will paint them —
+          // through `resize()`, the single mutator, so a same-size attach is
+          // still a no-op and a real change still SIGWINCHes the child and
+          // reflows the mirror for everyone.
+          if (resizeTo) resize(id, resizeTo.cols, resizeTo.rows);
           // Anything an open window still holds is about to be in this
           // snapshot, so it must not also be replayed at close. See
           // `claimWithheldOverlap` — this is the one instant where the
