@@ -159,10 +159,14 @@ let left = 0;
 let timer = null;
 function rows() { return out.rows || 24; }
 function write(s) { out.write(s); }
+// The quiet marker names the SIZE the program went quiet at, never a count of
+// resizes: SIGWINCH is a standard signal and standard signals do not queue, so
+// two ioctls landing close together are delivered as one and a counter silently
+// skips a number. The size is the fact the waiter actually wants anyway.
 function stop() {
   if (timer !== null) { clearInterval(timer); timer = null; }
   left = 0;
-  write("\\u001b[" + rows() + ";1HIDLE" + epoch + "\\r\\n");
+  write("\\u001b[" + rows() + ";1HIDLE " + out.columns + "x" + rows() + "\\r\\n");
 }
 function paint() {
   tick += 1;
@@ -209,7 +213,7 @@ burst();
 const FLOOD_SOURCE = `${PAINTER_SOURCE}
 process.on("SIGWINCH", () => {
   out.write("F".repeat(${MIN_DATA_BUDGET_CHARS * 2}) + "\\r\\n");
-  out.write("\\u001b[" + rows() + ";1HIDLE" + epoch + "\\r\\n");
+  out.write("\\u001b[" + rows() + ";1HIDLE " + out.columns + "x" + rows() + "\\r\\n");
 });
 `;
 
@@ -408,12 +412,16 @@ describeDaemon("a pane's screen is the mirror's screen", () => {
     }
   }
 
-  /** Wait until the host's own mirror shows the program has gone quiet after
-   *  `epoch` resizes — the one side that knows when the painting has stopped. */
-  const settled = (host: PtyHost, id: PtyId, epoch: number) =>
+  /** Wait until the host's own mirror shows the program has gone quiet AT a
+   *  given size — the one side that knows when the painting has stopped. Named
+   *  by size rather than by how many resizes have happened: see the quiet
+   *  marker in {@link PAINTER_SOURCE} for why a count cannot be waited on. */
+  const settled = (host: PtyHost, id: PtyId, cols: number, rows: number) =>
     until(
       () =>
-        host.getScreenText(id, { kind: "viewport" }).includes(`IDLE${epoch}`),
+        host
+          .getScreenText(id, { kind: "viewport" })
+          .includes(`IDLE ${cols}x${rows}`),
       CONVERGE_MS,
     );
 
@@ -478,7 +486,7 @@ describeDaemon("a pane's screen is the mirror's screen", () => {
     async () => {
       const { host, id } = spawnPainter(PAINTER_SOURCE);
       const pane = openPane(host, id);
-      expect(await settled(host, id, 0)).toBe(true);
+      expect(await settled(host, id, 100, 30)).toBe(true);
       expect(await agree(host, id, pane), diff(host, id, pane)).toBe(true);
 
       // The pane's box moved a settle window ago; the grid reaches the pty now,
@@ -486,7 +494,7 @@ describeDaemon("a pane's screen is the mirror's screen", () => {
       // hundred bytes, so the window ends by FORWARDING what it held.
       await burstUnderway(host, id);
       expect(host.resize(id, 70, 20)).toBe(true);
-      expect(await settled(host, id, 1)).toBe(true);
+      expect(await settled(host, id, 70, 20)).toBe(true);
       expect(await agree(host, id, pane), diff(host, id, pane)).toBe(true);
       expect(pane.term.rows).toBe(20);
       expect(pane.term.cols).toBe(70);
@@ -503,12 +511,12 @@ describeDaemon("a pane's screen is the mirror's screen", () => {
       // grid it was serialized at.
       const { host, id } = spawnPainter(FLOOD_SOURCE);
       const pane = openPane(host, id);
-      expect(await settled(host, id, 0)).toBe(true);
+      expect(await settled(host, id, 100, 30)).toBe(true);
       expect(await agree(host, id, pane), diff(host, id, pane)).toBe(true);
 
       await burstUnderway(host, id);
       expect(host.resize(id, 70, 20)).toBe(true);
-      expect(await settled(host, id, 1)).toBe(true);
+      expect(await settled(host, id, 70, 20)).toBe(true);
       expect(await agree(host, id, pane), diff(host, id, pane)).toBe(true);
       expect(pane.term.rows).toBe(20);
     },
@@ -520,7 +528,7 @@ describeDaemon("a pane's screen is the mirror's screen", () => {
     async () => {
       const { host, id } = spawnPainter(PAINTER_SOURCE);
       const pane = openPane(host, id);
-      expect(await settled(host, id, 0)).toBe(true);
+      expect(await settled(host, id, 100, 30)).toBe(true);
       expect(await agree(host, id, pane), diff(host, id, pane)).toBe(true);
 
       // Two sizes inside one window — a divider dragged through an intermediate
@@ -541,8 +549,10 @@ describeDaemon("a pane's screen is the mirror's screen", () => {
         "the pane was not told the second size",
       ).toBe(true);
 
-      // …and then the re-sync repairs the content, which is the other half.
-      expect(await settled(host, id, 2)).toBe(true);
+      // …and then the re-sync repairs the content, which is the other half. The
+      // wait is for quiet at the FINAL size: the two resizes may reach the
+      // program as one SIGWINCH or as two, and the claim is the same either way.
+      expect(await settled(host, id, 60, 16)).toBe(true);
       expect(await agree(host, id, pane), diff(host, id, pane)).toBe(true);
     },
     TEST_TIMEOUT_MS,
@@ -559,7 +569,7 @@ describeDaemon("a pane's screen is the mirror's screen", () => {
       // back to repair it.
       const { host, id } = spawnPainter(PAINTER_SOURCE);
       const pane = openPane(host, id, { resizeEarly: true });
-      expect(await settled(host, id, 0)).toBe(true);
+      expect(await settled(host, id, 100, 30)).toBe(true);
       expect(await agree(host, id, pane), diff(host, id, pane)).toBe(true);
 
       await burstUnderway(host, id);
@@ -571,7 +581,7 @@ describeDaemon("a pane's screen is the mirror's screen", () => {
       await gap.promise;
       expect(host.resize(id, 70, 20)).toBe(true);
 
-      expect(await settled(host, id, 1)).toBe(true);
+      expect(await settled(host, id, 70, 20)).toBe(true);
       // The band a person would be looking at: where the mirror kept refreshing
       // its status line, this pane has the log lines that scrolled under it.
       expect(

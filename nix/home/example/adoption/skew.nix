@@ -45,11 +45,17 @@ let
   # kolu's pinned nixpkgs at an explicit `system` — so the only difference from the
   # running (old) kolu is the contract bump, and so importing default.nix stays pure
   # (its `pkgs` default reaches `builtins.currentSystem`, which flakes ban).
+  #
+  # The version is deliberately out of reach of any release. It used to be "9.0",
+  # which the real constant caught up with in kolu#2378 — at which point the two
+  # builds spoke the same wire, nothing was recycled, and this test failed
+  # pointing at the daemon. `default.nix` now refuses a vacuous override, so a
+  # future collision is a build error here rather than a mystery over there.
   koluPkgs = import "${kolu}/nix/nixpkgs.nix" { inherit system; };
   koluNew = (import "${kolu}/default.nix" {
     pkgs = koluPkgs;
     commitHash = "skew-test";
-    contractVersionOverride = "9.0";
+    contractVersionOverride = "4242.0";
   }).default;
 
   # Seed: open a terminal on the OLD (compatible) stack and wait until padi's

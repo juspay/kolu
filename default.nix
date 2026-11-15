@@ -10,13 +10,14 @@
 # cannot honestly carry a build id without the source commit that produced it.
 { pkgs ? import ./nix/nixpkgs.nix { }
 , commitHash
-  # TEST-ONLY hook: when set (e.g. "9.0"), rewrite the daemon's
+  # TEST-ONLY hook: when set (e.g. "4242.0"), rewrite the daemon's
   # `PTY_HOST_CONTRACT_VERSION` so this build's server *and* the kaval it spawns
   # speak an incompatible wire. Used by the adoption-skew VM test to build a
   # "newer kolu" whose handshake rejects (and recycles) a surviving older daemon
   # — there is no env seam for the contract version (it's a source constant), so
   # the skew can only be produced at build time. `null` (the default) is a no-op,
-  # so the real build is untouched.
+  # so the real build is untouched. A value the source ALREADY speaks is refused
+  # (see `postPatch`): it would build a skew that is not one.
 , contractVersionOverride ? null
   # TEST-ONLY hook: when set, FORCE this build's KAVAL_BUILD_ID to the given
   # value instead of the source-closure hash. Used by the adoption build-skew VM
@@ -652,7 +653,19 @@ let
     # TEST-ONLY contract-version skew (see the function arg). A no-op unless
     # `contractVersionOverride` is set; then the daemon's single source-constant
     # version is rewritten so both the server and the kaval it spawns speak it.
+    #
+    # The FIRST grep is the one that matters: an override equal to the version
+    # the source already carries patches nothing and builds a "skewed" kolu that
+    # is bit-identical to the real one, so `adoption-skew` would wait for a
+    # recycle that is correctly never going to happen and fail pointing at the
+    # daemon. That is not hypothetical — kolu#2378 bumped the real constant onto
+    # the literal the test had been passing since it was written.
     postPatch = pkgs.lib.optionalString (contractVersionOverride != null) ''
+      if grep -q 'PTY_HOST_CONTRACT_VERSION = "${contractVersionOverride}"' \
+        packages/kaval/src/ptyHostSurface.ts; then
+        echo "contractVersionOverride: the source already speaks ${contractVersionOverride} — this skew is vacuous, pick a version no release will reach" >&2
+        exit 1
+      fi
       sed -i 's|PTY_HOST_CONTRACT_VERSION = "[^"]*"|PTY_HOST_CONTRACT_VERSION = "${contractVersionOverride}"|' \
         packages/kaval/src/ptyHostSurface.ts
       grep -q 'PTY_HOST_CONTRACT_VERSION = "${contractVersionOverride}"' \
