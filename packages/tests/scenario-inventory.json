@@ -11206,6 +11206,78 @@
       "exampleRows": [],
       "executions": 1,
       "firstSeenSha": "3002c3b3df99589b79d21396280b5fae01fa059b"
+    },
+    {
+      "revisionId": "revision-7a71891135bb9e8c2398",
+      "scenarioKey": "scenario-85f68725fb02e7f53071",
+      "feature": "features/mount-size-stability.feature",
+      "scenario": "A second terminal appears beside a settled one",
+      "kind": "scenario",
+      "tags": ["@retina"],
+      "bodyHash": "cb2e1c5f9ca4589aa9f7f4c6180f27f71b6bf82d42e74ed96b9b1cc345ef65a3",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "438c0cbd4cc3fd48c67b7f3db7c501e3cbf98e04"
+    },
+    {
+      "revisionId": "revision-b2010521e7c3554dbdff",
+      "scenarioKey": "scenario-1da9cfd36fb26d38f870",
+      "feature": "features/mount-size-stability.feature",
+      "scenario": "A tile whose divider was dragged is remounted fifteen times",
+      "kind": "scenario",
+      "tags": ["@retina"],
+      "bodyHash": "6d918fbb993f3f87066baf047c7105a20c019a8c41f031503a6f70ecd6e8ede1",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "438c0cbd4cc3fd48c67b7f3db7c501e3cbf98e04"
+    },
+    {
+      "revisionId": "revision-ed171c9b3df77b8132f1",
+      "scenarioKey": "scenario-2d6082cbcf3068a752a5",
+      "feature": "features/mount-size-stability.feature",
+      "scenario": "A tile whose split was collapsed is remounted fifteen times",
+      "kind": "scenario",
+      "tags": ["@retina"],
+      "bodyHash": "7ef46bb0efffe4a56443377f30b61f05af657467e96c7a80aee3705e4a4c9124",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "438c0cbd4cc3fd48c67b7f3db7c501e3cbf98e04"
+    },
+    {
+      "revisionId": "revision-80925701721076ef2ed6",
+      "scenarioKey": "scenario-301f8d3528ec60381952",
+      "feature": "features/mount-size-stability.feature",
+      "scenario": "A tile with an open split is remounted fifteen times",
+      "kind": "scenario",
+      "tags": ["@retina"],
+      "bodyHash": "1629b2b5769c31767160a300dcec842b02ec80ca96343f0cfb0e0c2b458f3a9a",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "438c0cbd4cc3fd48c67b7f3db7c501e3cbf98e04"
+    },
+    {
+      "revisionId": "revision-9ba4cbdb81917e7bc4ff",
+      "scenarioKey": "scenario-2f755196006e935128dc",
+      "feature": "features/mount-size-stability.feature",
+      "scenario": "One tile is maximized over another and restored",
+      "kind": "scenario",
+      "tags": ["@retina"],
+      "bodyHash": "1d3c016158cc497a4e15e9b4e117c84691f0f2b0e0efd45a37b42aac10c744b0",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "438c0cbd4cc3fd48c67b7f3db7c501e3cbf98e04"
+    },
+    {
+      "revisionId": "revision-7f9f6371f586771ade98",
+      "scenarioKey": "scenario-842efa7ce6f80f0972e0",
+      "feature": "features/mount-size-stability.feature",
+      "scenario": "Two tiles are remounted fifteen times",
+      "kind": "scenario",
+      "tags": ["@retina"],
+      "bodyHash": "6c7972166820ddc16d425325dd903776cbe73a5fe5ecebd4f9fdee590f53ffee",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "438c0cbd4cc3fd48c67b7f3db7c501e3cbf98e04"
     }
   ]
 }
