@@ -365,7 +365,10 @@ describe("a lazy directory under a host that rebuilds one props object", () => {
     selected: string | null;
   };
 
-  function mountFrameHost(initial: Frame, load: (dir: string) => Promise<void>) {
+  function mountFrameHost(
+    initial: Frame,
+    load: (dir: string) => Promise<void>,
+  ) {
     const [frame, setFrame] = createSignal<Frame>(initial);
     const root = mountInto((host) =>
       render(

@@ -767,12 +767,9 @@ export const FileTree: Component<FileTreeProps> = (props) => {
   // adopted — its first run IS the mount-time application, and there is no
   // second call site to keep in sync.
   createEffect(
-    on(
-      propValue.shadowCss,
-      (css) => {
-        safeApply(() => hostSheet?.replaceSync(css ?? ""), props.onError);
-      },
-    ),
+    on(propValue.shadowCss, (css) => {
+      safeApply(() => hostSheet?.replaceSync(css ?? ""), props.onError);
+    }),
   );
 
   // Push post-mount `props.selectedPath` changes into Pierre's

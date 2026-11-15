@@ -702,19 +702,14 @@ When(
   },
 );
 
-When(
-  "I click the show-gitignored toggle",
-  async function (this: KoluWorld) {
-    // The eye in the Code-tab toolbar. Browse-only, and it arms the separate
-    // `fs.listIgnored` query rather than re-reading the tracked listing.
-    const eye = this.page.locator(
-      '[data-testid="code-tab-show-ignored-toggle"]',
-    );
-    await eye.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
-    await eye.click();
-    await this.waitForFrame();
-  },
-);
+When("I click the show-gitignored toggle", async function (this: KoluWorld) {
+  // The eye in the Code-tab toolbar. Browse-only, and it arms the separate
+  // `fs.listIgnored` query rather than re-reading the tracked listing.
+  const eye = this.page.locator('[data-testid="code-tab-show-ignored-toggle"]');
+  await eye.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+  await eye.click();
+  await this.waitForFrame();
+});
 
 // ── File browser assertions ──
 
