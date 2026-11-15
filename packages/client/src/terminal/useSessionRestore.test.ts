@@ -104,13 +104,12 @@ vi.mock("../rpc/rpc", () => ({
   lifecycle: () => ({ kind: h.lifecycleKind() }),
 }));
 vi.mock("../right-panel/useRightPanel", () => ({
-  useRightPanel: () => ({ seedPanel: () => {} }),
+  useRightPanel: () => ({ seedHistory: () => {} }),
 }));
 const subPanelSpy = vi.hoisted(() => ({ setActiveSubTab: vi.fn() }));
 vi.mock("./useSubPanel", () => ({
   useSubPanel: () => ({
-    seedPanel: () => {},
-    peekSubPanel: () => ({ activeSubTab: null }),
+    paneChrome: () => ({ activeSubTab: null }),
     setActiveSubTab: subPanelSpy.setActiveSubTab,
   }),
 }));

@@ -72,7 +72,11 @@ export const useTerminalStore = createSharedRoot(() => {
       // same split rule down to individual terminals via `isActiveSplit`.
       return admitWebglTiles(
         ordered,
-        (id) => tileWebglCost(subPanel.peekSubPanel(id)),
+        (id) =>
+          tileWebglCost({
+            collapsed: subPanel.savedSplit(id).collapsed,
+            activeSubTab: subPanel.paneChrome(id).activeSubTab,
+          }),
         WEBGL_CONTEXT_CAP,
       );
     },
@@ -103,7 +107,10 @@ export const useTerminalStore = createSharedRoot(() => {
     // (root, cycle member, or orphan) owns its own slot outright.
     const tile = metadata.containingTile(id);
     if (tile === id) return budgetContains(id);
-    const panel = subPanel.peekSubPanel(tile);
+    const panel = {
+      collapsed: subPanel.savedSplit(tile).collapsed,
+      activeSubTab: subPanel.paneChrome(tile).activeSubTab,
+    };
     // A budgeted tile's slot covers exactly its active split (a collapsed split
     // is invisible and holds no context). `isActiveSplit` is the same predicate
     // `tileWebglCost` builds the budget from, so this per-terminal grant and the

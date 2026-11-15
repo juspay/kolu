@@ -11278,6 +11278,102 @@
       "exampleRows": [],
       "executions": 1,
       "firstSeenSha": "438c0cbd4cc3fd48c67b7f3db7c501e3cbf98e04"
+    },
+    {
+      "revisionId": "revision-d3decb1b9bba04037261",
+      "scenarioKey": "scenario-a7c81f4752ebf77bdf84",
+      "feature": "features/mount-size-stability.feature",
+      "scenario": "A second terminal is created while the canvas is maximized",
+      "kind": "scenario",
+      "tags": ["@retina"],
+      "bodyHash": "9887352b3320c180225dca5e27d64c621af4bd5717b15d546f6539b23b611550",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "d216483cd42d20da2a0ae293ba333346b2b18878"
+    },
+    {
+      "revisionId": "revision-5e75044cf574fac64417",
+      "scenarioKey": "scenario-2e4cf8e8fe3843582b50",
+      "feature": "features/mount-size-stability.feature",
+      "scenario": "A second terminal is created with the inspector open and the dock railed",
+      "kind": "scenario",
+      "tags": ["@retina"],
+      "bodyHash": "97a88158ecc39cc7625ff9b12534529f1b08c53170d22de7e9b032df352f0963",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "d216483cd42d20da2a0ae293ba333346b2b18878"
+    },
+    {
+      "revisionId": "revision-f42d044e1bb77a06ad88",
+      "scenarioKey": "scenario-10e46056e1e88f7dd558",
+      "feature": "features/mount-size-stability.feature",
+      "scenario": "A second terminal is created with the keyboard from a resized tile",
+      "kind": "scenario",
+      "tags": ["@retina"],
+      "bodyHash": "63c861d333adc5fc1e41480e69e289d642d0aee2f92af1b205f5954e8a5fe71b",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "d216483cd42d20da2a0ae293ba333346b2b18878"
+    },
+    {
+      "revisionId": "revision-b22da5147e28902353a1",
+      "scenarioKey": "scenario-1da9cfd36fb26d38f870",
+      "feature": "features/mount-size-stability.feature",
+      "scenario": "A tile whose divider was dragged is remounted fifteen times",
+      "kind": "scenario",
+      "tags": ["@retina"],
+      "bodyHash": "162ffeefe213ac1968450f82bc97205eb5bf5eb01572d3e7f2c6d03dcd17355e",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "d216483cd42d20da2a0ae293ba333346b2b18878"
+    },
+    {
+      "revisionId": "revision-ed47c6072685a4fec4de",
+      "scenarioKey": "scenario-2d6082cbcf3068a752a5",
+      "feature": "features/mount-size-stability.feature",
+      "scenario": "A tile whose split was collapsed is remounted fifteen times",
+      "kind": "scenario",
+      "tags": ["@retina"],
+      "bodyHash": "da2109e5f8a5626f95b3087defe1e7237266ae36b4dd2564066d452dc8d4b4b6",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "d216483cd42d20da2a0ae293ba333346b2b18878"
+    },
+    {
+      "revisionId": "revision-68ed57d994d025b537f5",
+      "scenarioKey": "scenario-301f8d3528ec60381952",
+      "feature": "features/mount-size-stability.feature",
+      "scenario": "A tile with an open split is remounted fifteen times",
+      "kind": "scenario",
+      "tags": ["@retina"],
+      "bodyHash": "6f41c5d8c10e2cebae5038421fbd5e942244e062dd50a8dd82f90d8e4fa468ce",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "d216483cd42d20da2a0ae293ba333346b2b18878"
+    },
+    {
+      "revisionId": "revision-09233bab2bdaaad8b584",
+      "scenarioKey": "scenario-f8f9e88aecbc3816cf19",
+      "feature": "features/mount-size-stability.feature",
+      "scenario": "Adding a split and collapsing it each tell the main program once",
+      "kind": "scenario",
+      "tags": ["@retina"],
+      "bodyHash": "6a013cc26093b372395287f8ddba4b703d13ce131821156e1b25f16cb00942d8",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "d216483cd42d20da2a0ae293ba333346b2b18878"
+    },
+    {
+      "revisionId": "revision-f4f5f5e42026480e39c4",
+      "scenarioKey": "scenario-8889456d5b8e0895a9d2",
+      "feature": "features/mount-size-stability.feature",
+      "scenario": "Maximizing, switching which tile is maximized, and restoring",
+      "kind": "scenario",
+      "tags": ["@retina"],
+      "bodyHash": "617167bf5cad6fa683084d49d904feb96d1f8435b7bf35ecfd731c4543ef4ac8",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "d216483cd42d20da2a0ae293ba333346b2b18878"
     }
   ]
 }

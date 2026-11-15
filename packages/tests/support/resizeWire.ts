@@ -131,6 +131,20 @@ export async function readResizeWire(
   );
 }
 
+/** Every `chrome.setSubPanel` this document has SENT — the split's saved state
+ *  being written.
+ *
+ *  Only a user's gesture may produce one. A mount that writes it is the defect
+ *  measured in kolu#2362: the first mount after a collapse wrote the default
+ *  `collapsed: false` back over it, and the collapse was gone for good. The
+ *  probe's stash is per-document, so what this answers after a reload is "did
+ *  THIS mount write it", which is exactly the question. */
+export async function readPanelWrites(page: Page): Promise<string[]> {
+  return page.evaluate(() =>
+    (window.__wsSent ?? []).filter((frame) => frame.includes("setSubPanel")),
+  );
+}
+
 /** The probe's reading as a quoted block for a failure message. */
 export async function quoteResizeWire(
   page: Page,

@@ -1,20 +1,21 @@
-/** Sub-panel UI state — singleton module. Tracks collapsed, size, active tab, and remembered pane per parent terminal.
- *  Reported to server for session snapshots; seeded from server on restore. */
+/** A tile's PANE CHROME — which split tab is showing, which pane a landing
+ *  returns to, and the DOM-focus nonce. Singleton module, browser-only by
+ *  construction: none of it is persisted, and none of it decides a pane's box.
+ *
+ *  What is NOT here any more is the split's SAVED state (collapsed, divider
+ *  position). That lives on the terminal's record and is read through
+ *  `splitPanelState.ts` — see its header for why a second copy of it was a
+ *  defect rather than a cache. The verbs below still read and write it,
+ *  because collapsing a split is one gesture that moves both facts; they just
+ *  no longer own half of it. */
 
-import { toError } from "@kolu/surface/run-stream";
-import { Effect } from "effect";
 import type { TerminalId } from "kolu-common/surface";
 import { nonEmpty } from "nonempty";
 import { createStore, produce } from "solid-js/store";
-import { toast } from "solid-sonner";
 import { activeScope } from "../hostScope/hostScopes";
-import { runAction } from "../runAction";
-import { activePadiRpc } from "../wire";
+import { type SplitPanelState, useSplitPanelState } from "./splitPanelState";
 
-interface SubPanelState {
-  collapsed: boolean;
-  /** Panel size as fraction (0–1). */
-  panelSize: number;
+interface PaneChrome {
   activeSubTab: TerminalId | null;
   /** Landing chrome only: verbs remember which pane to choose when this tile
    *  is selected again. Focus derivations never read it. Optional so session
@@ -27,60 +28,24 @@ interface SubPanelState {
   refocusNonce: number;
 }
 
-const DEFAULT_PANEL_STATE: Readonly<SubPanelState> = Object.freeze({
-  collapsed: false,
-  panelSize: 0.3,
+const DEFAULT_PANE_CHROME: Readonly<PaneChrome> = Object.freeze({
   activeSubTab: null,
   rememberedPane: "main",
   refocusNonce: 0,
 });
 
-const [state, setState] = createStore<Record<TerminalId, SubPanelState>>({});
+const [state, setState] = createStore<Record<TerminalId, PaneChrome>>({});
 
-function ensureState(parentId: TerminalId): SubPanelState {
+function ensureState(parentId: TerminalId): PaneChrome {
   const existing = state[parentId];
   if (existing) return existing;
-  const seeded: SubPanelState = { ...DEFAULT_PANEL_STATE };
+  const seeded: PaneChrome = { ...DEFAULT_PANE_CHROME };
   setState(parentId, seeded);
   return seeded;
 }
 
-/** Report sub-panel state to server for session persistence. */
-function reportToServer(parentId: TerminalId) {
-  const s = state[parentId];
-  if (!s) return;
-  // Run at the seam: the caller is a synchronous store mutation echoing a local
-  // write that already happened, with nothing to compose into.
-  runAction(
-    "save sub-panel state",
-    activePadiRpc.chrome
-      .setSubPanel({
-        id: parentId,
-        collapsed: s.collapsed,
-        panelSize: s.panelSize,
-      })
-      .pipe(
-        Effect.catch((err) =>
-          // Mirror `useRightPanel.reportToServer`: a failed `setSubPanel` means
-          // the optimistic sub-panel state (collapsed / size) is NOT persisted
-          // and silently reverts on the next session restore. The health pip
-          // reports only TRANSPORT health, so an application-level rejection on
-          // an otherwise-live padi would go unseen — surface it per the
-          // terminal-mutation rule (toast with the server message). One STABLE
-          // id dedups the failure so a downed padi collapses onto a single
-          // toast, not one per drag.
-          Effect.sync(() => {
-            toast.error(
-              `Failed to save sub-panel state: ${toError(err).message}`,
-              { id: "sub-panel-report-failed" },
-            );
-          }),
-        ),
-      ),
-  );
-}
-
 export function useSubPanel() {
+  const split = useSplitPanelState();
   const focusedTerminalId = (): TerminalId | null =>
     activeScope()?.view.focusedTerminalId() ?? null;
 
@@ -121,9 +86,10 @@ export function useSubPanel() {
 
   function focusVisiblePane(parentId: TerminalId): void {
     const panel = state[parentId];
+    const open = !split.state(parentId).collapsed;
     writePaneFocus(
       parentId,
-      panel?.rememberedPane === "sub" && !panel.collapsed && panel.activeSubTab
+      panel?.rememberedPane === "sub" && open && panel.activeSubTab
         ? panel.activeSubTab
         : parentId,
       false,
@@ -138,11 +104,20 @@ export function useSubPanel() {
     writePaneFocus(parentId, panel?.activeSubTab ?? parentId);
   }
 
+  /** Write a tile's saved split state — the ONE place these verbs reach the
+   *  record, so every writer below is a gesture that passed through here. */
+  const saveSplit = (parentId: TerminalId, next: Partial<SplitPanelState>) => {
+    split.write(parentId, { ...split.state(parentId), ...next });
+  };
+
   return {
-    /** Pure read: an absent entry returns the immutable defaults without
-     *  seeding the store. */
-    peekSubPanel(parentId: TerminalId): Readonly<SubPanelState> {
-      return state[parentId] ?? DEFAULT_PANEL_STATE;
+    /** A tile's SAVED split state, off the record. */
+    savedSplit: split.state,
+
+    /** Pure read of the browser-only pane chrome: an absent entry returns the
+     *  immutable defaults without seeding the store. */
+    paneChrome(parentId: TerminalId): Readonly<PaneChrome> {
+      return state[parentId] ?? DEFAULT_PANE_CHROME;
     },
 
     /** Focus a top-level tile's remembered pane. Both rememberedPane and the
@@ -156,45 +131,45 @@ export function useSubPanel() {
       activeScope()?.view.writeFocus(null);
     },
 
+    /** The user asked for the split to open or shut — a gesture, so it writes
+     *  the saved state. */
     togglePanel(parentId: TerminalId) {
-      const panel = ensureState(parentId);
-      const collapsing = !panel.collapsed;
-      setState(parentId, "collapsed", collapsing);
+      ensureState(parentId);
+      const collapsing = !split.state(parentId).collapsed;
+      saveSplit(parentId, { collapsed: collapsing });
       if (collapsing) writePaneFocus(parentId, parentId, false);
       else focusExpandedPanel(parentId);
-      reportToServer(parentId);
     },
 
+    /** A split ARRIVED (created here, or by an agent through MCP) and the tile
+     *  opens to show it — a real change of what the user is looking at, so it
+     *  is saved. It takes no focus; `expandAndFocusPanel` is the gesture. */
     expandPanel(parentId: TerminalId) {
       ensureState(parentId);
-      setState(parentId, "collapsed", false);
-      reportToServer(parentId);
+      saveSplit(parentId, { collapsed: false });
     },
 
-    /** User-driven expansion: update the panel chrome and focus its visible
-     *  active split. External split adoption uses the
-     *  chrome-only `expandPanel` so an arrival never steals focus. */
+    /** User-driven expansion: open the split and focus its visible active
+     *  split. External split adoption uses the chrome-only `expandPanel` so an
+     *  arrival never steals focus. */
     expandAndFocusPanel(parentId: TerminalId) {
       ensureState(parentId);
-      setState(parentId, "collapsed", false);
+      saveSplit(parentId, { collapsed: false });
       focusExpandedPanel(parentId);
-      reportToServer(parentId);
     },
 
-    /** Chrome-only collapse for Corvu's generic controlled-state callback. */
+    /** Collapse with no focus move — the tab strip's own shut button. */
     collapsePanelChrome(parentId: TerminalId) {
       ensureState(parentId);
-      setState(parentId, "collapsed", true);
-      reportToServer(parentId);
+      saveSplit(parentId, { collapsed: true });
     },
 
     collapsePanel(parentId: TerminalId) {
       ensureState(parentId);
-      setState(parentId, "collapsed", true);
+      saveSplit(parentId, { collapsed: true });
       // Collapsing temporarily forces input to main; it must not erase the pane
       // to restore when the user reopens this same split.
       writePaneFocus(parentId, parentId, false);
-      reportToServer(parentId);
     },
 
     /** Chrome-only remembered-tab update for hydration, adoption, and landing
@@ -216,8 +191,7 @@ export function useSubPanel() {
     focusSubTab(parentId: TerminalId, subId: TerminalId) {
       ensureState(parentId);
       setState(parentId, "activeSubTab", subId);
-      setState(parentId, "collapsed", false);
-      reportToServer(parentId);
+      saveSplit(parentId, { collapsed: false });
       writePaneFocus(parentId, subId);
     },
 
@@ -229,7 +203,7 @@ export function useSubPanel() {
 
     focusVisibleSubPane(parentId: TerminalId, subId: TerminalId) {
       const panel = ensureState(parentId);
-      if (panel.collapsed || panel.activeSubTab !== subId) {
+      if (split.state(parentId).collapsed || panel.activeSubTab !== subId) {
         throw new Error(
           `focusVisibleSubPane: ${subId} is not the visible split of ${parentId}`,
         );
@@ -237,10 +211,9 @@ export function useSubPanel() {
       writePaneFocus(parentId, subId);
     },
 
+    /** The user dragged the divider — the one gesture that moves it. */
     setPanelSize(parentId: TerminalId, size: number) {
-      ensureState(parentId);
-      setState(parentId, "panelSize", size);
-      reportToServer(parentId);
+      saveSplit(parentId, { panelSize: size });
     },
 
     /** Cycle to the next/previous sub-tab within a parent's sub-panel. */
@@ -265,24 +238,11 @@ export function useSubPanel() {
       setState(parentId, "refocusNonce", (n) => n + 1);
     },
 
-    /** Seed sub-panel state from server data — no report-back to server. */
-    seedPanel(
-      parentId: TerminalId,
-      opts: { collapsed: boolean; panelSize: number },
-    ) {
-      setState(parentId, {
-        collapsed: opts.collapsed,
-        panelSize: opts.panelSize,
-        activeSubTab:
-          state[parentId]?.activeSubTab ?? DEFAULT_PANEL_STATE.activeSubTab,
-        refocusNonce:
-          state[parentId]?.refocusNonce ?? DEFAULT_PANEL_STATE.refocusNonce,
-      });
-    },
-
-    /** Clean up state for a parent that no longer exists. */
+    /** Clean up state for a parent that no longer exists — the browser-only
+     *  chrome here, and any in-flight split write it left behind. */
     removePanel(parentId: TerminalId) {
       setState(produce((s) => delete s[parentId]));
+      split.forget(parentId);
     },
   } as const;
 }
@@ -296,7 +256,7 @@ export function useSubPanel() {
 export type TabStripRepairPorts = {
   collapsePanel: (parentId: TerminalId) => void;
   collapsePanelChrome: (parentId: TerminalId) => void;
-  peekSubPanel: (parentId: TerminalId) => { activeSubTab: TerminalId | null };
+  paneChrome: (parentId: TerminalId) => { activeSubTab: TerminalId | null };
   setActiveSubTab: (parentId: TerminalId, subId: TerminalId | null) => void;
   selectSubTab: (parentId: TerminalId, subId: TerminalId | null) => void;
 };
@@ -340,7 +300,7 @@ export function repairTileTabs(
     panel.setActiveSubTab(tileId, null);
     return;
   }
-  const active = panel.peekSubPanel(tileId).activeSubTab;
+  const active = panel.paneChrome(tileId).activeSubTab;
   if (active !== null && !remaining.includes(active)) {
     const replacement = remaining[0] ?? null;
     if (leavingWasFocused) panel.selectSubTab(tileId, replacement);

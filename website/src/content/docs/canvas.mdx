@@ -46,9 +46,12 @@ is no separate edit mode, so the canvas is always live.
 ## Maximize
 
 Double-click a tile's title bar to maximize it. That posture persists across
-reloads. Switching terminals while maximized, from the dock, with
-<kbd>Cmd</kbd>/<kbd>Ctrl</kbd> + <kbd>1</kbd>…<kbd>9</kbd>, or by cycling, is a pure
-show/hide: no reflow, no repaint, no shell resize.
+reloads. The tile you maximize is told the window's size; the tiles behind it
+keep their own size and are not resized at all, going in or coming back out.
+Switching terminals while maximized — from the dock, with
+<kbd>Cmd</kbd>/<kbd>Ctrl</kbd> + <kbd>1</kbd>…<kbd>9</kbd>, or by cycling — shows the
+tile you switch to at the window's size, once, and leaves the one you came
+from as it was.
 
 ## Canvas, maximized, and the Conductor
 

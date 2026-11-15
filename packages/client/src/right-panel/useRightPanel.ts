@@ -205,11 +205,6 @@ function freshPerTerminalState(): RightPanelPerTerminalState {
   };
 }
 
-function ensureState(id: TerminalId): void {
-  if (perTerminal[id]) return;
-  setPerTerminal(id, freshPerTerminalState());
-}
-
 function reportToServer(
   id: TerminalId,
   rpc: ReturnType<typeof padiRpcOf>,
@@ -272,12 +267,23 @@ export function useRightPanel() {
    *  gap) and the toggle reads as open with nothing behind it. */
   const hasTerminals = () => tileStore.tileCount() > 0;
 
-  /** The per-terminal record for `id` — the stored one, or the fresh seed when
-   *  there is no such terminal (or it has no record yet). The ONE fallback: the
-   *  tile reader, the pane reader and the promotion seed all go through it. */
+  /** The per-terminal record for `id`: the local in-flight state if this
+   *  browser has written one, else THE TERMINAL'S OWN RECORD, else the fresh
+   *  seed. The ONE fallback — the tile reader, the pane reader and the
+   *  promotion seed all go through it.
+   *
+   *  Reading the record here (rather than waiting for session restore to copy
+   *  it in) is the same rule the split's saved state follows
+   *  (`terminal/splitPanelState.ts`): a mount must never lay a tile out from a
+   *  default the record disagrees with. It matters for SIZE in maximized
+   *  posture, where the panel's width comes out of the tile's box. */
   function stateOf(id: TerminalId | null): RightPanelPerTerminalState {
     if (id === null) return freshPerTerminalState();
-    return perTerminal[id] ?? freshPerTerminalState();
+    return (
+      perTerminal[id] ??
+      store.getMetadata(id)?.rightPanel ??
+      freshPerTerminalState()
+    );
   }
 
   /** The desktop panel's collapsed bit — the TILE's, so moving focus between
@@ -302,7 +308,11 @@ export function useRightPanel() {
   }
 
   /** All panel writes share local initialization, mutation, and persistence.
-   *  The host is explicit so an in-flight create can retain its destination. */
+   *  The host is explicit so an in-flight create can retain its destination.
+   *
+   *  The local entry is seeded from {@link stateOf} — the record when there is
+   *  one — so a partial write cannot replace the terminal's saved tab, mode or
+   *  selection with a default it never held. */
   function mutatePanel(
     id: TerminalId,
     update:
@@ -310,7 +320,7 @@ export function useRightPanel() {
       | ((s: RightPanelPerTerminalState) => void),
     rpc: ReturnType<typeof padiRpcOf>,
   ): void {
-    ensureState(id);
+    if (!perTerminal[id]) setPerTerminal(id, { ...stateOf(id) });
     if (typeof update === "function") {
       setPerTerminal(id, produce(update));
     } else {
@@ -362,18 +372,19 @@ export function useRightPanel() {
     return (id: TerminalId) => mutatePanel(id, seed, rpc);
   }
 
-  /** Seed a terminal's per-terminal record from AUTHORITATIVE data — no
-   *  report-back to the server. The ONE body behind session restore's
-   *  `seedPanel` and the arrival adopt's adoption of a creator-passed record. */
-  function applySeed(id: TerminalId, state: RightPanelPerTerminalState): void {
-    setPerTerminal(id, state);
-    // Seed the history with the restored location so back/forward have a
-    // starting point matching what's shown — but only when a file was
-    // actually selected; a restored-but-empty mode starts with no history.
-    // `lastRepo: undefined` resets the repo baseline so the next `syncRepo`
-    // re-adopts this terminal's current repo without resetting — the stack we
-    // just seeded is the truth, and re-seeding is a "this is a fresh start"
-    // event, same as first mount.
+  /** Seed a terminal's NAVIGATION HISTORY from its saved state — the one piece
+   *  of right-panel state no record carries, so the one piece a restore still
+   *  has to hand over. The per-terminal record itself is READ off the terminal
+   *  (see {@link stateOf}); copying it into the local store is what used to
+   *  leave a window where the two disagreed.
+   *
+   *  Seeded only when a file was actually selected; a restored-but-empty mode
+   *  starts with no history. `lastRepo: undefined` resets the repo baseline so
+   *  the next `syncRepo` re-adopts this terminal's current repo without
+   *  resetting — the stack just seeded is the truth, and re-seeding is a "this
+   *  is a fresh start" event, same as first mount. */
+  function seedHistory(id: TerminalId): void {
+    const state = stateOf(id);
     const path = state.selectedFileByMode?.[state.codeMode] ?? null;
     const h = historyFor(id);
     h.browser.reset(path !== null ? { mode: state.codeMode, path } : undefined);
@@ -606,26 +617,25 @@ export function useRightPanel() {
     /** Hand `id` the active tab of the terminal it came from — the pane a
      *  browser split was made from, or a split's own parent when it arrived from
      *  elsewhere — so creating a split never flips the panel. A no-op when the
-     *  split already carries a record (the browser create path seeds first, and
-     *  session restore seeds its own), and it ADOPTS a `rightPanel` the creator
-     *  passed on `lifecycle.create` instead of overwriting it. */
+     *  split already carries a record of its own (the creator may have passed a
+     *  `rightPanel` on `lifecycle.create`, and {@link stateOf} reads it) or when
+     *  this browser already holds in-flight state for it. */
     seedSplitTab: (fromId: TerminalId | null) => {
       const apply = capturePanelSeed({ activeTab: stateOf(fromId).activeTab });
       return (id: TerminalId) => {
         if (perTerminal[id]) return;
-        const carried = store.getMetadata(id)?.rightPanel;
-        if (carried) {
-          applySeed(id, carried);
+        if (store.getMetadata(id)?.rightPanel) {
+          seedHistory(id);
           return;
         }
         apply(id);
       };
     },
 
-    /** Adopt a record the server already holds — no report-back. Called by
-     *  `useSessionRestore` during hydration and after recreating a saved
-     *  terminal, and by `seedSplitTab` for a creator-passed record. */
-    seedPanel: applySeed,
+    /** Seed a terminal's in-memory navigation history from its saved state —
+     *  the only right-panel state a record does not carry. Called by
+     *  `useSessionRestore` during hydration. */
+    seedHistory,
     /** Clean up state for a terminal that no longer exists. Mirrors
      *  `useSubPanel.removePanel`. */
     removePanel: (id: TerminalId) => {

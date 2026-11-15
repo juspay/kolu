@@ -308,10 +308,19 @@ const App: Component = () => {
   // (`WorkspaceTerminals`). App does not re-derive it: the old
   // `visible={isDesktop() || …}` called every desktop tile visible, so one
   // mount attached every terminal of the host (kolu#2362).
-  const renderTerminalBody = (id: TerminalId, seen: () => boolean) => (
+  const renderTerminalBody = (
+    id: TerminalId,
+    seen: () => boolean,
+    // The touch shells place ONE tile at a time, at the size of the window:
+    // the box a body gets there is always the one the shell decided, so they
+    // do not pass this and it reads true. Only the canvas has a posture in
+    // which a mounted tile's box is nobody's decision (`CanvasTile`).
+    boxDecided: () => boolean = () => true,
+  ) => (
     <TerminalContent
       terminalId={id}
       visible={seen()}
+      boxDecided={boxDecided()}
       focused={tileStore.isActiveTile(id)}
       theme={getTerminalTheme(id)}
       onCloseTerminal={closeTerminal}

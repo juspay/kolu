@@ -84,10 +84,18 @@ const CanvasTile: Component<{
   /** Optional bar between the title bar and the body, full width (the tile
    *  tip). It takes its own height; the body shrinks to make room. */
   renderBar?: () => JSX.Element;
-  /** Render the tile's body, told whether a user can SEE it — the fact the
-   *  pane turns into "attach / stop attaching" (`tileSeen.ts`, `shownPane.ts`).
-   *  An accessor, so the body subscribes to it rather than re-rendering. */
-  renderBody: (seen: () => boolean) => JSX.Element;
+  /** Render the tile's body, told TWO facts, which are not the same fact:
+   *
+   *   - `seen` — can a user SEE it, which the pane turns into "attach / stop
+   *     attaching" (`tileSeen.ts`, `shownPane.ts`), held open for a while
+   *     after the tile stops being seen so a trip away and back is free;
+   *   - `boxDecided` — is its box one this canvas's layout DECIDED, which the
+   *     pane turns into "may I state a size". A covered tile is attached and
+   *     has no decided box: it sits wherever the posture left it, and nobody
+   *     is looking at it to want it any other size.
+   *
+   *  Accessors, so the body subscribes to each rather than re-rendering. */
+  renderBody: (seen: () => boolean, boxDecided: () => boolean) => JSX.Element;
   getLayout: (id: string) => TileLayout | undefined;
   startResize: (
     id: string,
@@ -208,6 +216,21 @@ const CanvasTile: Component<{
     }),
   );
   const heldSeen = createHeldSeen(seen);
+  /** Is this tile's box one the canvas DECIDED, so its panes may state a size?
+   *
+   *  `heldSeen` says the tile is still ATTACHED — a reader's place in the
+   *  output is kept for `SEEN_HOLD_MS` after they look away. That is a
+   *  different question from this one, and one accessor used to stand for
+   *  both: a tile parked behind a maximized sibling was told it may state a
+   *  size, measured the full-window box it is parked in, and resized a PTY
+   *  nobody was looking at (kolu#2362 §3 — measured on both the way in and
+   *  the way back out).
+   *
+   *  So: a COVERED tile has no decided box. The canvas is not laying it out —
+   *  it is holding it. Its panes keep the grid they had, which is the grid
+   *  they will still have when the posture ends, so the return is free too. */
+  const boxDecided = () => !isCovered();
+
   // One decision — "is the aura showing" — so the `data-aura` host attribute
   // and the `.tile-aura` child can't drift. Only TILED tiles animate: a
   // maximized tile mutes its own aura, a covered tile (behind a maximized
@@ -296,49 +319,49 @@ const CanvasTile: Component<{
 
   // Per-mode presentation: ONE switch on `props.mode` is the sole place that
   // decides geometry + layer + decoration + visibility, returning a complete,
-  // self-sufficient box. `maximized` and `covered` literally reuse the same
-  // `fullViewportBox` (`position: absolute; inset: 0`), so "covered shares the
-  // maximized tile's box" is one source of truth a reader verifies at a glance
-  // rather than an invariant assembled from `inset-0` (classList) agreeing with
-  // a deliberately-geometry-less `style`. The style object alone is always a
-  // legal box — no mode's geometry depends on a second structure firing in
-  // lockstep. Two invariants ride on the maximized/covered equality:
+  // self-sufficient box. The style object alone is always a legal box — no
+  // mode's geometry depends on a second structure firing in lockstep.
   //
-  //  - A covered tile hides INTRINSICALLY (`visibility: hidden`), not by relying
-  //    on the maximized tile's `z-40` cover. During the window where `activeId`
-  //    already points at a just-created tile that hasn't entered `terminalIds`
-  //    yet, no maximized tile exists — a covered tile carrying only `inert`
-  //    would paint, flashing the canvas for a frame (regressed in #989, which
-  //    dropped the pre-#988 `visibility: hidden`). Keep the subtree mounted
-  //    (`visibility`, not `display`): the xterm, its scrollback and the tile's
-  //    whole tree survive being covered, so the trip back is a repaint and not
-  //    a rebuild. What a covered tile does NOT do any more is take live output
-  //    — nobody can see it, so its pane ends its attach (`tileSeen.ts`,
-  //    kolu#2362) and the reveal repaints it from a fresh screen.
-  //  - A covered tile is the SAME SIZE as the maximized tile (both are
-  //    `fullViewportBox`). Switching the active terminal in maximized posture is
-  //    then a pure visibility/z-index swap: no tile changes border-box size, so
-  //    `Terminal`'s ResizeObserver never fires `fit()` — no xterm grid reflow,
-  //    no repaint, and no server PTY resize on switch. (Were covered tiles sized
-  //    to their small canvas-layout rect — as they are when `tiled` — every
-  //    switch would resize BOTH the revealed and the hidden xterm and refit
-  //    them: the per-switch "re-render".) Tradeoff: ENTERING maximized posture
-  //    now sizes every covered tile's PTY to the viewport grid once — a one-time
-  //    SIGWINCH per tile on the posture toggle, not a per-switch cost — and
-  //    LEAVING it hands a feed back to every tile then on screen.
+  // A COVERED TILE IS LEFT ALONE. It keeps its own tiled rect and hides
+  // INTRINSICALLY (`visibility: hidden`), rather than being stretched to the
+  // maximized tile's box:
+  //
+  //  - Intrinsically, not by relying on the maximized tile's `z-40` cover.
+  //    During the window where `activeId` already points at a just-created tile
+  //    that hasn't entered `terminalIds` yet, no maximized tile exists — a
+  //    covered tile carrying only `inert` would paint, flashing the canvas for
+  //    a frame (regressed in #989, which dropped the pre-#988
+  //    `visibility: hidden`). Keep the subtree MOUNTED (`visibility`, not
+  //    `display`): the xterm, its scrollback and the tile's whole tree survive
+  //    being covered, so the trip back is a repaint and not a rebuild — and
+  //    since #2374 its pane stays attached for `SEEN_HOLD_MS`, so the output
+  //    keeps arriving and the reader keeps their place.
+  //  - Its own rect, because a tile nobody is looking at must not be resized.
+  //    The box used to be the maximized tile's, which made switching WHICH tile
+  //    is maximized free but made ENTERING the posture cost one SIGWINCH per
+  //    tile — "a one-time cost per toggle" was the old decision, and the
+  //    measurement that replaced it (kolu#2362 §3) is that it is two: the
+  //    covered tile was sized to the viewport on the way in and back to its
+  //    rect on the way out, both for a screen nobody saw. Now the canvas
+  //    states that a covered tile's box is not a decided one (`boxDecided`
+  //    above), its panes measure nothing while it holds, and this box is
+  //    simply where the tile already was. Switching which tile is maximized
+  //    therefore tells the tile you switch TO the full-window size, once, and
+  //    tells the one you left nothing — it keeps the grid it had until it is
+  //    on screen at a size of its own again.
   const presentation = createMemo(
     (): {
       style: JSX.CSSProperties;
       classes: Record<string, boolean>;
     } => {
-      // The full canvas viewport box, shared verbatim by maximized and covered so
-      // their border-box is structurally identical. Since #988 dropped the
-      // pan/zoom wrapper div, the nearest positioned ancestor is `canvas-grid-bg`
-      // (real viewport rect, untransformed), so `inset: 0` resolves cleanly to the
-      // canvas's screen-space without any inverse-transform tricks. The dock sits
-      // outside this container as a flex sibling in maximized posture
-      // (TerminalCanvas), so the tile naturally fills the remaining viewport
-      // without needing a left-inset (#904).
+      // The full canvas viewport box — the MAXIMIZED tile's, and only its.
+      // Since #988 dropped the pan/zoom wrapper div, the nearest positioned
+      // ancestor is `canvas-grid-bg` (real viewport rect, untransformed), so
+      // `inset: 0` resolves cleanly to the canvas's screen-space without any
+      // inverse-transform tricks. The dock sits outside this container as a
+      // flex sibling in maximized posture (TerminalCanvas), so the tile
+      // naturally fills the remaining viewport without needing a left-inset
+      // (#904).
       const fullViewportBox: JSX.CSSProperties = {
         position: "absolute",
         inset: 0,
@@ -358,7 +381,7 @@ const CanvasTile: Component<{
           classes: { "border-transparent": true },
         }))
         .with("covered", () => ({
-          style: { ...fullViewportBox, visibility: "hidden" as const },
+          style: { ...tiledStyle(), visibility: "hidden" as const },
           classes: { "border-transparent": true },
         }))
         .with("tiled", () => ({
@@ -518,7 +541,7 @@ const CanvasTile: Component<{
         {props.renderBar?.()}
 
         {/* Tile body — injected by caller */}
-        {props.renderBody(heldSeen)}
+        {props.renderBody(heldSeen, boxDecided)}
       </div>
 
       {/* Resize handles — 4 edges + 4 corners. Invisible; cursor change is the

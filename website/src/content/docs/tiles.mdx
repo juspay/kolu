@@ -65,6 +65,12 @@ split of that tile, you are left where you are.
 To move a split, drag a Dock row's grip onto another row to make it a split of
 that one, or onto its repo card's header to give it its own tile.
 
+A split's shape is kept on the terminal, not in your browser: whether the
+panel is collapsed, and where you dragged the divider. Reload the page, switch
+hosts and come back, or open kolu on a second device, and the tile comes back
+the way you left it — and the program inside it is not resized on the way,
+because the tile never lays itself out any way but the saved one.
+
 ## Restarting a terminal in place
 
 The **↻** button on the title bar, or **Restart terminal** in the command
@@ -120,6 +126,12 @@ layout stops moving. The terminal changes size only when the machine running
 your shell says its own screen did, so the pane and the shell are never laid
 out differently.
 
+A terminal is told a size only when its own box moved. A pane states nothing
+until the tile around it knows its shape, so reloading the page, coming back
+to a host, or opening a second kolu does not resize anything: the programs
+carry on at the size they already had. Opening a split takes its share of the
+tile once; collapsing it gives the share back once.
+
 Until that lands, about a quarter of a second later, the text keeps the size it
 has, sitting against the bottom left of the pane and clipped by it. A pane you
 made bigger shows a blank band along the top. So text does not reflow while you
@@ -151,6 +163,12 @@ short trip away changes nothing, and you come back to the place you were
 reading. After five minutes the tile lets go, and coming back puts you at the
 end of its output. Scrolling up still fetches the older history. Leaving
 maximized gives every tile then in view its feed back at once.
+
+Maximizing leaves the tiles behind it alone: they keep their own size and
+their programs are told nothing, neither on the way in nor on the way back
+out. The tile you are looking at is told the window's size when you maximize
+it, and its own size again when you restore — and if you switch which tile is
+maximized, the one you switch to is told the window's size then, once.
 
 A tile that is not live does not tell its terminal how big it is, so opening
 kolu on a second device does not reshape every terminal on the host. Coming back

@@ -36,6 +36,12 @@ const TerminalContent: Component<{
    *  SHELL that places the body answers it: the canvas tile's rect against
    *  the camera (`canvas/tileSeen.ts`), the touch shells' active tile. */
   visible: boolean;
+  /** Is this tile's BOX one the shell's layout decided? False while the tile
+   *  is parked behind a maximized sibling: it is still attached (`visible`),
+   *  and those are two different facts — a covered tile may be read from, and
+   *  may not state a size. The canvas answers it per mode; the touch shells
+   *  place one tile at a time and always answer true. */
+  boxDecided: boolean;
   /** Whether this terminal should grab keyboard focus. True only for
    *  the selected tile on the canvas; same as `visible` on mobile. Also
    *  gates the per-terminal find bar (only the focused terminal shows it). */
@@ -67,10 +73,40 @@ const TerminalContent: Component<{
   // Flat descendants under this root tile — nested splits paint as peers in
   // the tab strip (the canvas flattens; the Dock keeps the true tree).
   const subTerminalIds = () => store.getSplitPaneIds(props.terminalId);
-  const panelState = () => subPanel.peekSubPanel(props.terminalId);
+  const savedSplit = () => subPanel.savedSplit(props.terminalId);
+  const paneChrome = () => subPanel.paneChrome(props.terminalId);
   const hasSubs = () => subTerminalIds().length > 0;
-  const isExpanded = () => hasSubs() && !panelState().collapsed;
-  const activeSubTab = () => panelState().activeSubTab;
+  const isExpanded = () => hasSubs() && !savedSplit().collapsed;
+  const activeSubTab = () => paneChrome().activeSubTab;
+
+  /** THE TILE'S OWN FACT: is the layout its panes sit in the one it has
+   *  decided? A pane may state a size only against a decided box, and the kit
+   *  will not even measure an undecided one (`XtermOwnProps.boxDecided`).
+   *
+   *  Two halves, and the tile owns both:
+   *
+   *   - the SHELL's (`props.boxDecided`) — a covered tile is parked behind a
+   *     maximized sibling and its box is wherever it was left, not a layout
+   *     anybody chose;
+   *   - the PANE SET's — until every terminal of this host has a record, one
+   *     of them may yet turn out to be a split of THIS tile, and a tile that
+   *     does not know whether it has a split does not know its panes' boxes.
+   *     This is the same gate the canvas's default placement already waits on
+   *     (`TerminalCanvas`'s `allRecordsSettled`), for the same reason: a
+   *     terminal LIST arrives before the records it names, and the client
+   *     cannot tell a returning tile from a new one in between. THIS tile's
+   *     own record is named separately: a host switch re-keys the active
+   *     scope, and for the tick where the new host has no census yet an empty
+   *     one would answer "nothing awaited" about terminals it has never heard
+   *     of.
+   *
+   *  It is a fact about the TILE, not a timer and not a reading of the DOM, so
+   *  it is true at the instant the geometry below is final — never a frame
+   *  later, never a frame early. */
+  const boxDecided = () =>
+    props.boxDecided &&
+    store.getMetadata(props.terminalId) !== undefined &&
+    store.recordPhases().awaited === 0;
 
   // One owner for "which pane is live within this tile": only the focused tile's
   // *open* split has a live pane, folded directly from the one focus fact.
@@ -108,14 +144,22 @@ const TerminalContent: Component<{
   const subVisible = (subId: TerminalId) =>
     props.visible && isExpanded() && activeSubTab() === subId;
 
-  const sizes = controlledSizes(() =>
+  /** The tile's decided geometry: the fractions its two panes hold. */
+  const fractions = (): [number, number] =>
     isExpanded()
-      ? [1 - panelState().panelSize, panelState().panelSize]
-      : [1, 0],
-  );
+      ? [1 - savedSplit().panelSize, savedSplit().panelSize]
+      : [1, 0];
+  const sizes = controlledSizes(fractions);
 
   function handleSizesChange(sizes: number[]) {
-    // Persist the bottom panel size when user drags the handle.
+    // ONLY A GESTURE PERSISTS. Corvu reports sizes for its own reasons too —
+    // a panel registering on mount, a re-emit of the current value, the
+    // programmatic transition a tile performs when it learns it has a split —
+    // and persisting those is how a MOUNT came to write the split's state
+    // (kolu#2362: the first mount after a collapse wrote `collapsed: false`
+    // over it, and the collapse was gone). The same intent latch its two
+    // siblings below have always used, for the reason stated above them.
+    if (!resizeIntent) return;
     // `> 0.02` ignores the tiny `[1, 0]` values Corvu fires during
     // programmatic transitions (e.g. expand from collapsed), which would
     // immediately re-collapse the panel.
@@ -175,6 +219,14 @@ const TerminalContent: Component<{
         as="div"
         class={`relative min-h-0 overflow-hidden ${RECEDE_INACTIVE_PANE}`}
         minSize={0.2}
+        // A Corvu panel takes its fraction from the root once it has
+        // REGISTERED, which happens in an effect — until then it falls back to
+        // `initialSize`, and the default for that fallback is the whole
+        // container. Stating the tile's decided fraction here means the panel
+        // element's `flex-basis` is that fraction from its very first frame:
+        // there is no instant at which this pane's box is the whole tile while
+        // the tile has a split.
+        initialSize={fractions()[0]}
         data-pane="main"
         data-pane-focus={paneFocus("main")}
       >
@@ -194,6 +246,7 @@ const TerminalContent: Component<{
           <Terminal
             terminalId={props.terminalId}
             visible={props.visible}
+            boxDecided={boxDecided()}
             focused={shouldFocusMain()}
             theme={props.theme}
             searchOpen={props.focused && search.isOpen(props.terminalId)}
@@ -201,7 +254,7 @@ const TerminalContent: Component<{
               search.setOpen(props.terminalId, open)
             }
             onFocus={() => subPanel.focusMainPane(props.terminalId)}
-            refocusNonce={panelState().refocusNonce}
+            refocusNonce={paneChrome().refocusNonce}
           />
         </Show>
       </Resizable.Panel>
@@ -244,6 +297,10 @@ const TerminalContent: Component<{
         minSize={0}
         collapsible
         collapsedSize={0}
+        // The sub pane's half of the same first-frame rule as the main pane
+        // above: its share is the tile's decided one before Corvu has
+        // registered it, not the container it would otherwise fall back to.
+        initialSize={fractions()[1]}
         // Only PERSIST a collapse from pointer/keyboard intent on the handle.
         // On a host
         // switch-BACK the sub-terminal metadata (parentId) re-arrives a beat
@@ -323,6 +380,7 @@ const TerminalContent: Component<{
                 <Terminal
                   terminalId={subId}
                   visible={subVisible(subId)}
+                  boxDecided={boxDecided()}
                   focused={shouldFocusSub(subId)}
                   theme={props.theme}
                   searchOpen={false}
@@ -330,7 +388,7 @@ const TerminalContent: Component<{
                   onFocus={() =>
                     subPanel.focusVisibleSubPane(props.terminalId, subId)
                   }
-                  refocusNonce={panelState().refocusNonce}
+                  refocusNonce={paneChrome().refocusNonce}
                   isSub
                 />
               </Show>

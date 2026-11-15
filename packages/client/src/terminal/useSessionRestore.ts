@@ -238,11 +238,15 @@ export function useSessionRestore(deps: { store: TerminalStore }) {
     entries: HydrationEntry[],
     serverActiveId: string | null,
   ) {
-    // Canvas layouts live on metadata — no client-side seeding needed.
-    // Seed sub-panel + right-panel state from server metadata.
+    // Canvas layouts live on metadata — no client-side seeding needed, and
+    // since the split's saved state (collapsed + divider) moved onto the
+    // record too (`splitPanelState.ts`), neither does that: a tile reads both
+    // off the record, so there is no window in which it holds something else.
+    // The right panel's per-terminal record is read the same way; what is
+    // seeded here is only its in-memory NAVIGATION history, which no record
+    // carries.
     for (const { t, m } of entries) {
-      if (m.subPanel) subPanel.seedPanel(t.id, m.subPanel);
-      if (m.rightPanel) rightPanel.seedPanel(t.id, m.rightPanel);
+      if (m.rightPanel) rightPanel.seedHistory(t.id);
     }
 
     // Parent edge over the hydration census — shared by tab seeding, topIds,
@@ -263,7 +267,7 @@ export function useSessionRestore(deps: { store: TerminalStore }) {
       parentEdge,
     );
     for (const [rootId, subIds] of byRoot) {
-      const activeSubTab = subPanel.peekSubPanel(rootId).activeSubTab;
+      const activeSubTab = subPanel.paneChrome(rootId).activeSubTab;
       if (!activeSubTab || !subIds.includes(activeSubTab)) {
         subPanel.setActiveSubTab(rootId, subIds[0] ?? null);
       }

@@ -142,6 +142,10 @@ const FOREIGN_GRID_SETTLE_MS = 750;
 const Terminal: Component<{
   terminalId: TerminalId;
   visible: boolean;
+  /** Is the box this pane sits in the one its TILE's layout decided? The tile
+   *  states it (`TerminalContent`); the pane only carries it to the kit, which
+   *  refuses to measure an undecided box (`XtermOwnProps.boxDecided`). */
+  boxDecided: boolean;
   /** When true, this terminal should grab keyboard focus. */
   focused?: boolean;
   /** Bumped by the host to force a focus re-assert when the reactive `focused`
@@ -1289,6 +1293,7 @@ const Terminal: Component<{
         theme={props.theme}
         fontSize={fontSize()}
         visible={props.visible}
+        boxDecided={() => props.boxDecided}
         webgl={shouldUseWebgl}
         scrollLockEnabled={() => preferences().scrollLock}
         fullRate={isFocused}

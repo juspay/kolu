@@ -23,6 +23,7 @@ import { paneSelector } from "../support/daemonScreen.ts";
 import {
   installResizeWireProbe,
   quoteResizeWire,
+  readPanelWrites,
 } from "../support/resizeWire.ts";
 import { pollFor } from "../support/poll.ts";
 import { padiCall } from "../support/rpcWire.ts";
@@ -282,6 +283,11 @@ When(
     // story.
     const perMount: string[] = [];
     let mountsThatTold = 0;
+    // A mount that WRITES the split's saved state is its own failure, and the
+    // probe's per-document stash is what makes it checkable here: whatever
+    // `chrome.setSubPanel` frames this document sent, this mount sent. Only a
+    // user's gesture may produce one, and a reload is not a gesture.
+    const mountsThatWrote: string[] = [];
     // Two mounts' wires are kept, and each reload is a new document so a
     // probe's stash is that mount's own and no other's:
     //
@@ -297,11 +303,15 @@ When(
       await this.page.reload();
       await this.waitForReady();
       const told = await watchQuiet();
+      const wrote = await readPanelWrites(this.page);
       if (told.length > 0) {
         mountsThatTold++;
         perMount.push(`  mount ${mount}:\n${describeTold(told)}`);
       } else {
         perMount.push(`  mount ${mount}: nothing`);
+      }
+      for (const frame of wrote) {
+        mountsThatWrote.push(`  mount ${mount} wrote: ${frame}`);
       }
       if (mount === 1 || (told.length > 0 && !toldWire)) {
         if (told.length > 0) toldWire = true;
@@ -316,6 +326,11 @@ When(
     }
     const report = `[mount-size] ${mounts} mounts\n${perMount.join("\n")}\n${wires.join("\n")}`;
     console.log(report);
+    if (mountsThatWrote.length > 0) {
+      throw new Error(
+        `a mount wrote the split's saved state — only a gesture may:\n${mountsThatWrote.join("\n")}`,
+      );
+    }
     if (mountsThatTold > 0) {
       throw new Error(
         `${mountsThatTold} of ${mounts} mounts told a program a new size with nothing ` +
@@ -355,6 +370,23 @@ When(
     await this.page
       .locator(`${paneSelector(id)}`)
       .waitFor({ state: "attached", timeout: POLL_TIMEOUT });
+  },
+);
+
+When(
+  "I create another terminal with the keyboard and start a size recorder in it",
+  { timeout: 120_000 },
+  async function (this: KoluWorld) {
+    // The PRODUCT's own create path (⌘⏎ → `handleCreate`), which the RPC
+    // create above deliberately skips. It is a different path for sizing: it
+    // arms the one-shot "inherit the active tile's size" slot
+    // (`usePendingLayouts.takeNextDefaultSize`), so the new tile opens at the
+    // size of the tile it was made from rather than the canvas default — the
+    // shape production had and the first measurement run did not.
+    const id = await this.createTerminal();
+    this.createdTerminalIds.push(id);
+    const start = await startRecorder(id);
+    recorded.set(id, { label: `the new terminal ${id}`, baseline: [start] });
   },
 );
 
@@ -542,6 +574,96 @@ Then(
     assert.ok(id, "no visible main pane");
     assert.ok(recorded.has(id), `the main pane (${id}) is not being recorded`);
     await holdQuiet(this, "the main pane", [id]);
+  },
+);
+
+/** The ids of the canvas's tiles, in the order they are rendered. */
+async function tileIds(world: KoluWorld): Promise<string[]> {
+  return world.page.evaluate(
+    (sel) =>
+      [...document.querySelectorAll(sel)]
+        .map((tile) => tile.getAttribute("data-terminal-id"))
+        .filter((id): id is string => !!id),
+    CANVAS_TILE_SELECTOR,
+  );
+}
+
+/** Hold the window and require EXACTLY this many sizes — the positive form of
+ *  the same claim. A box that really moved owes its program one new size: not
+ *  none (the program would be laid out for a box it no longer has) and not two
+ *  (the second is a correction of a size that should never have been stated). */
+async function expectTold(
+  world: KoluWorld,
+  what: string,
+  watched: readonly string[],
+  count: number,
+): Promise<void> {
+  const told = await watchQuiet(watched);
+  assert.strictEqual(
+    told.length,
+    count,
+    `${what}: expected exactly ${count} new size, saw ${told.length}.\n` +
+      `${describeTold(told)}\n` +
+      `${await quoteResizeWire(world.page, recordedIds())}`,
+  );
+  await rebaseline();
+}
+
+Then(
+  "the program in canvas tile {int} was told exactly {int} new size",
+  { timeout: 120_000 },
+  async function (this: KoluWorld, position: number, count: number) {
+    const ids = await tileIds(this);
+    const id = ids[position - 1];
+    assert.ok(id, `there is no canvas tile ${position} (saw ${ids.length})`);
+    assert.ok(
+      recorded.has(id),
+      `canvas tile ${position} (${id}) is not being recorded`,
+    );
+    await expectTold(this, `canvas tile ${position}`, [id], count);
+  },
+);
+
+Then(
+  "the program in the main pane was told exactly {int} new size",
+  { timeout: 120_000 },
+  async function (this: KoluWorld, count: number) {
+    const id = await this.page.evaluate(
+      (sel) => document.querySelector(sel)?.getAttribute("data-terminal-id"),
+      MAIN_PANE,
+    );
+    assert.ok(id, "no visible main pane");
+    assert.ok(recorded.has(id), `the main pane (${id}) is not being recorded`);
+    await expectTold(this, "the main pane", [id], count);
+  },
+);
+
+Then(
+  "the split should still be collapsed",
+  { timeout: 120_000 },
+  async function (this: KoluWorld) {
+    // A collapsed split has no pane on screen. Read the DOM rather than the
+    // store: what the user is looking at is the claim, and the record is what
+    // the pane reads (`splitPanelState.ts`), so this is the round trip.
+    const shown = await this.page
+      .locator("[data-sub-terminal][data-visible]")
+      .count();
+    assert.strictEqual(
+      shown,
+      0,
+      `the split came back open after the reload — ${shown} sub pane(s) on screen`,
+    );
+  },
+);
+
+Then(
+  "the split should still be open",
+  { timeout: 120_000 },
+  async function (this: KoluWorld) {
+    await this.page
+      .locator("[data-sub-terminal][data-visible]")
+      .first()
+      .waitFor({ state: "attached", timeout: POLL_TIMEOUT });
   },
 );
 

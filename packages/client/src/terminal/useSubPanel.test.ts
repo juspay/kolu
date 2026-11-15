@@ -14,6 +14,9 @@ vi.mock("../hostScope/hostScopes", () => ({
       focusedTerminalId: () => h.focused,
       writeFocus: h.writeFocus,
     },
+    // No terminals collection in these tests: every tile's record is absent,
+    // so the split state reads its one default (`splitPanelState.ts`).
+    wire: { terminals: undefined },
   }),
 }));
 
@@ -87,7 +90,7 @@ describe("useSubPanel focus verbs", () => {
     const panel = useSubPanel();
     panel.focusSubTab(PARENT, SUB);
     h.focused = SUB;
-    const before = panel.peekSubPanel(PARENT).refocusNonce;
+    const before = panel.paneChrome(PARENT).refocusNonce;
     h.writeFocus.mockClear();
     h.setSubPanel.mockClear();
 
@@ -97,7 +100,7 @@ describe("useSubPanel focus verbs", () => {
       id: SUB,
       tileHint: PARENT,
     });
-    expect(panel.peekSubPanel(PARENT).refocusNonce).toBe(before + 1);
+    expect(panel.paneChrome(PARENT).refocusNonce).toBe(before + 1);
   });
 
   it("lands on a different split with one focus commit", () => {
@@ -135,7 +138,7 @@ describe("useSubPanel focus verbs", () => {
 
   it("lands a never-touched tile in main without seeding panel state", () => {
     const panel = useSubPanel();
-    const absentDefault = panel.peekSubPanel(PARENT);
+    const absentDefault = panel.paneChrome(PARENT);
 
     panel.focusVisiblePane(PARENT);
 
@@ -143,7 +146,7 @@ describe("useSubPanel focus verbs", () => {
       id: PARENT,
       tileHint: PARENT,
     });
-    expect(panel.peekSubPanel(PARENT)).toBe(absentDefault);
+    expect(panel.paneChrome(PARENT)).toBe(absentDefault);
     expect(h.setSubPanel).not.toHaveBeenCalled();
   });
 
@@ -167,7 +170,7 @@ describe("useSubPanel focus verbs", () => {
     panel.focusSubTab(PARENT, SUB);
     panel.collapsePanel(PARENT);
 
-    expect(panel.peekSubPanel(PARENT).rememberedPane).toBe("sub");
+    expect(panel.paneChrome(PARENT).rememberedPane).toBe("sub");
 
     h.writeFocus.mockClear();
     h.setSubPanel.mockClear();
@@ -187,7 +190,7 @@ describe("useSubPanel focus verbs", () => {
 
     panel.focusVisiblePane(PARENT);
 
-    expect(panel.peekSubPanel(PARENT).rememberedPane).toBe("sub");
+    expect(panel.paneChrome(PARENT).rememberedPane).toBe("sub");
   });
 
   it("lands back in the split after a collapsed landing and chrome-only expand", () => {
@@ -277,12 +280,10 @@ describe("useSubPanel focus verbs", () => {
     });
   });
 
-  it("reads absent panel defaults without seeding or reporting state", () => {
-    const state = useSubPanel().peekSubPanel(PARENT);
+  it("reads absent pane chrome without seeding or reporting state", () => {
+    const state = useSubPanel().paneChrome(PARENT);
 
     expect(state).toEqual({
-      collapsed: false,
-      panelSize: 0.3,
       activeSubTab: null,
       rememberedPane: "main",
       refocusNonce: 0,
@@ -290,16 +291,26 @@ describe("useSubPanel focus verbs", () => {
     expect(h.writeFocus).not.toHaveBeenCalled();
     expect(h.setSubPanel).not.toHaveBeenCalled();
   });
+
+  it("answers the default saved split for a terminal with no record", () => {
+    // ONE answer for an unsaid split, and it is the record's absence that
+    // produces it — never a copy sitting in front of the record.
+    expect(useSubPanel().savedSplit(PARENT)).toEqual({
+      collapsed: false,
+      panelSize: 0.3,
+    });
+    expect(h.setSubPanel).not.toHaveBeenCalled();
+  });
 });
 
 /** The panel's seams `repairTileTabs` drives, as spies — the rule's own
- *  vocabulary (`peekSubPanel` resolves the active tab), so nothing here can
+ *  vocabulary (`paneChrome` resolves the active tab), so nothing here can
  *  hand the repair a verb it is not allowed to call. */
 function repairSpies(active: TerminalId | null) {
   return {
     collapsePanel: vi.fn<(id: TerminalId) => void>(),
     collapsePanelChrome: vi.fn<(id: TerminalId) => void>(),
-    peekSubPanel: () => ({ activeSubTab: active }),
+    paneChrome: () => ({ activeSubTab: active }),
     setActiveSubTab: vi.fn<(id: TerminalId, sub: TerminalId | null) => void>(),
     selectSubTab: vi.fn<(id: TerminalId, sub: TerminalId | null) => void>(),
   };
