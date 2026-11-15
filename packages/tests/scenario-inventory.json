@@ -11158,6 +11158,18 @@
       "exampleRows": [],
       "executions": 1,
       "firstSeenSha": "5507ab5da778a67bd2807efac6484969293c6b71"
+    },
+    {
+      "revisionId": "revision-828ed23d512a6f495411",
+      "scenarioKey": "scenario-2d9f7945312b4f68312d",
+      "feature": "features/preferences.feature",
+      "scenario": "A tile keeps its grid when the renderer changes",
+      "kind": "scenario",
+      "tags": ["@retina"],
+      "bodyHash": "6eef6b09f3e00af2e54ef0e2eb5d17753d7d0a176cd4e56277b5c81c4011acfa",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "7ce34194c3809bfa9be26ff7dd489c71aaee7d3a"
     }
   ]
 }

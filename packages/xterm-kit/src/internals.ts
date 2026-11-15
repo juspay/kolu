@@ -18,6 +18,8 @@
  *     forced sync repaint + render-pipeline probes.
  *   - `Terminal.tsx` uses `readBufferBytes` for the Diagnostic dialog's
  *     per-terminal byte counts.
+ *   - `measureBox.ts` uses `measuredCharWidth` for the column arithmetic that
+ *     replaced `@xterm/addon-fit` — the one metric both renderers start from.
  *   - `scrollbackBackfill.ts` is a SECOND, deliberately FAIL-LOUD `_core`
  *     reach (its `coreOf` THROWS rather than degrading to null, because a
  *     partial prepend corrupts the buffer). It pins its own
@@ -43,6 +45,14 @@ function core<T>(term: XTerm): T | undefined {
  *  the cast is unchecked, so the guards in the accessors are what keep us safe. */
 export interface RenderInternals {
   refreshRows?: (start: number, end: number, sync?: boolean) => void;
+  /** Drop what the renderer believes is on screen. `@xterm/addon-fit` called
+   *  this before every `resize()` ("force a full render"), and the grid path
+   *  that replaced it keeps doing so: the WebGL renderer DIFFS each frame
+   *  against `_model`, and `RenderModel.resize` only reallocates when
+   *  `cols * rows` changes — so a reflow that keeps the cell COUNT (120×30 →
+   *  90×40) would otherwise be diffed against a model describing the old
+   *  layout and leave stale glyphs behind. */
+  clear?: () => void;
   _renderDebouncer?: { _animationFrame?: number };
   _isPaused?: boolean;
 }
@@ -51,6 +61,33 @@ export interface RenderInternals {
 export function renderService(term: XTerm): RenderInternals | null {
   const rs = core<{ _renderService?: RenderInternals }>(term)?._renderService;
   return rs ?? null;
+}
+
+/** xterm's own character-width measurement, in CSS pixels and UNROUNDED —
+ *  `CharSizeService.width`, the width of one 'W' through `measureText` (or an
+ *  offsetWidth fallback), divided by nothing.
+ *
+ *  Private because xterm exposes only what its renderers MADE of it:
+ *  `terminal.dimensions` carries each renderer's own cell width and the two
+ *  disagree, which is the whole reason kolu measures its own grid — the rule
+ *  is stated in `solid/grid.ts`. Shape pinned by `internals.test.ts` against
+ *  the shipped `@xterm/xterm`.
+ *
+ *  **Fail-loud**, like `clearWriteQueue` and for the same reason: there is no
+ *  honest degraded answer. Returning null would silently leave every pane
+ *  unmeasured and therefore unattached — a dead app with no signal. Valid only
+ *  after `terminal.open()`, which is when `_charSizeService` is constructed;
+ *  before the first measure it legitimately reads 0 (the caller treats that as
+ *  "not measurable yet"). */
+export function measuredCharWidth(term: XTerm): number {
+  const width = core<{ _charSizeService?: { width?: unknown } }>(term)
+    ?._charSizeService?.width;
+  if (typeof width !== "number") {
+    throw new Error(
+      "measuredCharWidth: xterm CharSizeService private shape missing or incomplete; cannot size the terminal grid",
+    );
+  }
+  return width;
 }
 
 /** Drop unparsed chunks in xterm's WriteBuffer without parsing them.

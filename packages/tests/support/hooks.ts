@@ -604,11 +604,22 @@ const ciArgs = [
 const PHONE_VIEWPORT = { width: 390, height: 844 };
 const COMPACT_VIEWPORT = { width: 900, height: 1000 };
 
+/** `@retina` — the device pixel ratio such a scenario asks for. 2.25 is not a
+ *  round number on purpose: it is a ratio real machines report (and the one
+ *  kolu's renderer-dependent resize was measured at), and a FRACTIONAL ratio
+ *  is what makes xterm's two renderers derive different cell widths from one
+ *  character measurement. At the default 1 — with a font this harness measures
+ *  as a whole pixel — the two agree by accident, which silently turns a sizing
+ *  scenario into an unconditional pass. Untagged scenarios keep Playwright's
+ *  own default of 1. */
+const RETINA_DEVICE_SCALE_FACTOR = 2.25;
+
 async function newScenarioPage(
   isMobile: boolean,
   chrome: "app" | "browser",
   vp: { width: number; height: number } = X11_VIEWPORT,
   touchViewport: { width: number; height: number } = PHONE_VIEWPORT,
+  deviceScaleFactor?: number,
 ): Promise<{ context: BrowserContext; page: Page }> {
   // KOLU_X11CAP app-mode: a frameless `--app=` window (the installed-PWA look)
   // needs its own persistent context — Playwright drives the page Chrome opens
@@ -654,6 +665,9 @@ async function newScenarioPage(
             ? EVIDENCE_VIEWPORT
             : { width: 1920, height: 1080 },
       ...(isMobile && { hasTouch: true, isMobile: true }),
+      // `@retina`: a fractional device pixel ratio, so a scenario about SIZE
+      // runs where the two xterm renderers can actually disagree.
+      ...(deviceScaleFactor === undefined ? {} : { deviceScaleFactor }),
       baseURL: baseUrl,
       ignoreHTTPSErrors: true,
       // clipboard-write: lets tests place images in the clipboard for paste testing.
@@ -1359,6 +1373,12 @@ Before(
     const isMobile =
       isCompact || scenario.pickle.tags.some((t) => t.name === "@mobile");
     const touchViewport = isCompact ? COMPACT_VIEWPORT : PHONE_VIEWPORT;
+    // @retina → a fractional device pixel ratio (see RETINA_DEVICE_SCALE_FACTOR).
+    const deviceScaleFactor = scenario.pickle.tags.some(
+      (t) => t.name === "@retina",
+    )
+      ? RETINA_DEVICE_SCALE_FACTOR
+      : undefined;
 
     // KOLU_X11CAP: the recording (keyed by scenario name) decides app-mode vs
     // browser chrome and its capture viewport — read it so the launch + grab match.
@@ -1367,7 +1387,13 @@ Before(
     const vp = rec?.viewport ?? X11_VIEWPORT;
 
     this.browser = browser;
-    const created = await newScenarioPage(isMobile, chrome, vp, touchViewport);
+    const created = await newScenarioPage(
+      isMobile,
+      chrome,
+      vp,
+      touchViewport,
+      deviceScaleFactor,
+    );
     this.context = created.context;
     this.page = created.page;
     // Disable CSS transitions/animations so Corvu dialogs open/close instantly.
