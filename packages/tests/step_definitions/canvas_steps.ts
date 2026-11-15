@@ -1555,40 +1555,39 @@ Then(
 // ENTERING the posture cost one resize per covered tile — and another on the
 // way out, for a screen nobody saw. Now the canvas holds a covered tile at its
 // own rect and its panes measure nothing while it holds, so the trip costs the
-// tiles behind it nothing at all. Pin the rect ACROSS the posture change: a
+// tiles behind it nothing at all. Pin the box ACROSS the posture change: a
 // future edit that stretches a covered tile again re-introduces that cost with
 // a RED test rather than silently.
-const notedTileBoxes = new Map<
-  string,
-  { left: number; top: number; width: number; height: number }
->();
+//
+// `offsetWidth`/`offsetHeight`, not `getBoundingClientRect`: the tile's LAYOUT
+// box is the one its pane measures and the one that decides its program's
+// grid. Entering the posture moves the canvas viewport (the dock becomes a
+// flex sibling), so every tiled tile's SCREEN rect shifts under the camera
+// without its layout box moving at all — a fact about the camera, not about
+// the tile.
+const notedTileBoxes = new Map<string, { width: number; height: number }>();
 
 When("I note every canvas tile's box", async function (this: KoluWorld) {
   const boxes = await this.page.evaluate(
     (sel: string) =>
-      [...document.querySelectorAll(sel)].map((t) => {
-        const r = (t as HTMLElement).getBoundingClientRect();
-        return {
-          id: t.getAttribute("data-terminal-id") ?? "",
-          left: r.left,
-          top: r.top,
-          width: r.width,
-          height: r.height,
-        };
-      }),
+      [...document.querySelectorAll(sel)].map((t) => ({
+        id: t.getAttribute("data-terminal-id") ?? "",
+        width: (t as HTMLElement).offsetWidth,
+        height: (t as HTMLElement).offsetHeight,
+      })),
     CANVAS_TILE_SELECTOR,
   );
   notedTileBoxes.clear();
-  for (const { id, ...rect } of boxes) notedTileBoxes.set(id, rect);
+  for (const { id, ...box } of boxes) notedTileBoxes.set(id, box);
   assert.ok(notedTileBoxes.size > 0, "no canvas tiles to note");
 });
 
 Then(
   "every covered canvas tile should keep the box it had",
   async function (this: KoluWorld) {
-    const noted = [...notedTileBoxes.entries()].map(([id, rect]) => ({
+    const noted = [...notedTileBoxes.entries()].map(([id, box]) => ({
       id,
-      ...rect,
+      ...box,
     }));
     await this.page.waitForFunction(
       ({ sel, noted }) => {
@@ -1604,12 +1603,9 @@ Then(
             (n) => n.id === t.getAttribute("data-terminal-id"),
           );
           if (!was) return false;
-          const r = t.getBoundingClientRect();
           return (
-            Math.abs(r.left - was.left) <= 1 &&
-            Math.abs(r.top - was.top) <= 1 &&
-            Math.abs(r.width - was.width) <= 1 &&
-            Math.abs(r.height - was.height) <= 1
+            Math.abs(t.offsetWidth - was.width) <= 1 &&
+            Math.abs(t.offsetHeight - was.height) <= 1
           );
         });
       },

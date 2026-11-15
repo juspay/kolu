@@ -108,11 +108,13 @@ interface MarkedPane {
 let marked: MarkedPane[] = [];
 
 let coveredBefore: { id: string; label: string } | undefined;
+let lastMaximized: string | undefined;
 
 After(() => {
   recorded.clear();
   marked = [];
   coveredBefore = undefined;
+  lastMaximized = undefined;
   removeRecorderScript();
 });
 
@@ -729,8 +731,32 @@ async function tileByRole(
   );
   assert.ok(id, `there is no single ${role} tile on screen`);
   assert.ok(recorded.has(id), `the ${role} tile (${id}) is not being recorded`);
+  if (role === "maximized") lastMaximized = id;
   return id;
 }
+
+Then(
+  "a different canvas tile should be maximized",
+  { timeout: 120_000 },
+  async function (this: KoluWorld) {
+    const was = lastMaximized;
+    assert.ok(was, "no tile has been maximized in this scenario yet");
+    // The switch is the act this scenario is about, so prove it happened
+    // before asking what it cost: a gesture that selected the tile already
+    // maximized would make every claim after it vacuously true.
+    await this.page.waitForFunction(
+      ({ sel, was }) => {
+        const max = [...document.querySelectorAll(sel)].find(
+          (t) => t.getAttribute("data-maximized") === "true",
+        );
+        const id = max?.getAttribute("data-terminal-id");
+        return !!id && id !== was;
+      },
+      { sel: CANVAS_TILE_SELECTOR, was },
+      { timeout: POLL_TIMEOUT },
+    );
+  },
+);
 
 Then(
   "the maximized tile's program was told exactly {int} new size",

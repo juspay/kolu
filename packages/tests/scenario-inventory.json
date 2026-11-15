@@ -11482,6 +11482,18 @@
       "exampleRows": [],
       "executions": 1,
       "firstSeenSha": "b219d3ca1039fc64e1e983af840884d035b542cc"
+    },
+    {
+      "revisionId": "revision-f2a3a0713ca6aebcadb8",
+      "scenarioKey": "scenario-8889456d5b8e0895a9d2",
+      "feature": "features/mount-size-stability.feature",
+      "scenario": "Maximizing, switching which tile is maximized, and restoring",
+      "kind": "scenario",
+      "tags": ["@retina"],
+      "bodyHash": "13ae5af1bacfd75ceae32cc4cec14c6c6aa0fe97e210bc1b213d32d28485e087",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "a371ec5474d1e587c0384901b7c23f622b99d0c1"
     }
   ]
 }

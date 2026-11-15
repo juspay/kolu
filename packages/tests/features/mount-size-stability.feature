@@ -236,8 +236,9 @@ Feature: A program is told a new size only when its box moved
     Then some canvas tile should be maximized
     And the maximized tile's program was told exactly 1 new size
     And the covered tile's program was told no new size
-    When I click dock row 2
-    Then the maximized tile's program was told exactly 1 new size
+    When I press Control+Tab
+    Then a different canvas tile should be maximized
+    And the maximized tile's program was told exactly 1 new size
     And the covered tile's program was told no new size
     When I click the chrome-bar maximize toggle
     Then no canvas tile should be maximized

@@ -4595,7 +4595,7 @@ retirements:
     defectSurface: [terminal-resize, user-journey]
     destinationLayer: L5
     replacements: []
-    survivorRevisionIds: [revision-077fcdc67984b3d4beb2]
+    survivorRevisionIds: [revision-f2a3a0713ca6aebcadb8]
     sameCodePathEvidence:
       file: packages/tests/features/mount-size-stability.feature
       symbol: "Scenario: Maximizing, switching which tile is maximized, and restoring"
@@ -4621,7 +4621,7 @@ retirements:
     defectSurface: [terminal-resize, user-journey]
     destinationLayer: L5
     replacements: []
-    survivorRevisionIds: [revision-077fcdc67984b3d4beb2]
+    survivorRevisionIds: [revision-f2a3a0713ca6aebcadb8]
     sameCodePathEvidence:
       file: packages/tests/features/mount-size-stability.feature
       symbol: "Scenario: Maximizing, switching which tile is maximized, and restoring"
@@ -4639,3 +4639,16 @@ retirements:
       file: packages/tests/features/canvas.feature
       symbol: "Scenario: Covered tiles stay hidden in maximized mode"
       test: The revised scenario asserts a covered tile KEEPS the box it had, the inverse of the retired stretch-to-maximized invariant (kolu#2362).
+  - id: revise-077fcdc67984b3d4beb2
+    revisionId: revision-077fcdc67984b3d4beb2
+    action: revised
+    status: landed
+    promise: A posture trip tells each program exactly the sizes the posture changed
+    defectSurface: [terminal-resize, user-journey]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-f2a3a0713ca6aebcadb8]
+    sameCodePathEvidence:
+      file: packages/tests/features/mount-size-stability.feature
+      symbol: "Scenario: Maximizing, switching which tile is maximized, and restoring"
+      test: The revised scenario switches with the product's own cycle shortcut and PROVES the switch happened, so the claims after it cannot be vacuous.
