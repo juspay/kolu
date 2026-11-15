@@ -38,7 +38,12 @@ import { answerValue } from "./readings.ts";
 import {
   type Decision,
   hostOf,
+  isAnswered,
+  isAsked,
+  isKoluChoice,
+  type KoluChoiceKey,
   ON_GREEN,
+  type OfferedSetupKey,
   type OnGreen,
   SETUP_KEYS,
   type SetupKey,
@@ -51,7 +56,15 @@ import {
 
 export {
   hostOf,
+  isKoluChoice,
+  isKoluChoiceKey,
+  KOLU_CHOICE_KEYS,
+  type KoluChoice,
+  type KoluChoiceKey,
   ON_GREEN,
+  OFFERED_SETUP_KEYS,
+  type Offered,
+  type OfferedSetupKey,
   type OnGreen,
   SETUP_KEYS,
   type SetupKey,
@@ -259,13 +272,20 @@ export const setupOf = (work: Work): SetupReading => {
 };
 
 /** One setup question as `work_open` carries it — the shape the two checks
- *  below read, stated before any work exists. */
-export interface SetupAsk {
-  readonly key: SetupKey;
-  readonly question: string;
-  readonly options: ReadonlyArray<string>;
-  readonly given?: string | undefined;
-}
+ *  below read, stated before any work exists. The questions kolu draws the
+ *  options for ({@link KOLU_CHOICE_KEYS}) are NAMED, with what the request
+ *  already said: no options and no words, which are kolu's. */
+export type SetupAsk =
+  | {
+      readonly key: OfferedSetupKey;
+      readonly question: string;
+      readonly options: ReadonlyArray<string>;
+      readonly given?: string | undefined;
+    }
+  | {
+      readonly key: KoluChoiceKey;
+      readonly given?: string | undefined;
+    };
 
 /**
  * WHAT THIS SETUP DOES NOT ASK AND MUST — checked BEFORE the work exists and
@@ -329,13 +349,9 @@ export const foreignSetupWords = (
 ): ReadonlyArray<string> => {
   const foreign: string[] = [];
   for (const one of setup) {
-    const vocabulary: ReadonlyArray<string> | null =
-      one.key === "mode"
-        ? WORK_MODES
-        : one.key === "on-green"
-          ? ON_GREEN
-          : null;
-    if (vocabulary === null) continue;
+    if (!("options" in one)) continue;
+    const vocabulary: ReadonlyArray<string> =
+      one.key === "mode" ? WORK_MODES : ON_GREEN;
     for (const word of [
       ...one.options,
       ...(one.given === undefined ? [] : [one.given]),
@@ -344,6 +360,198 @@ export const foreignSetupWords = (
         foreign.push(`${one.key}: ${JSON.stringify(word)}`);
   }
   return foreign;
+};
+
+/** The role a setup key is about, and which of its two it names — `null` for
+ *  `mode` and `on-green`, which are about the whole work. */
+export const roleOfKey = (
+  key: SetupKey,
+): { readonly role: WorkRole; readonly what: "harness" | "model" } | null => {
+  for (const role of WORK_ROLES)
+    for (const what of ["harness", "model"] as const)
+      if (setupKeyOf(role, what) === key) return { role, what };
+  return null;
+};
+
+/** THE HARNESS A MODEL QUESTION IS FOR, as this answer leaves it: the one the
+ *  same form is answering for that role, else the one the work already
+ *  recorded, else `null` (nobody has said yet). A model is only ever a model
+ *  OF a harness, so this is the one place the pair is put together — the
+ *  form, the check and the start command all read it. */
+export const harnessForModel = (
+  work: Work,
+  ask: string,
+  key: KoluChoiceKey,
+  values: ReadonlyMap<string, ReadonlyArray<string>>,
+): string | null => {
+  const named = roleOfKey(key);
+  if (named === null) return null;
+  const harnessKey = setupKeyOf(named.role, "harness");
+  const asked = work.decisions.find(
+    (one) => one.ask === ask && one.key === harnessKey && isAsked(one),
+  );
+  if (asked !== undefined) return values.get(asked.id)?.[0] ?? null;
+  return roleAnswer(work, named.role, "harness");
+};
+
+/** WHAT KOLU CAN OFFER for its own setup questions on a work's host, read
+ *  live by whoever records an answer: the harnesses this kolu carries, and —
+ *  for each harness a model is being answered for — what the host listed, or
+ *  `unlisted` for a harness that has no way to list its models (any model the
+ *  person names is then the answer). A listing that FAILED is not in here: it
+ *  is the recorder's refusal, never an empty list. */
+export interface KoluChoices {
+  readonly harnesses: ReadonlyArray<string>;
+  readonly models: ReadonlyMap<
+    string,
+    | { readonly kind: "listed"; readonly ids: ReadonlyArray<string> }
+    | { readonly kind: "unlisted" }
+  >;
+}
+
+/** The harnesses this answer needs kolu's model list for — one per model
+ *  question it answers — so the recorder asks the host for exactly those. */
+export const modelHarnessesOf = (
+  work: Work,
+  ask: string,
+  values: ReadonlyMap<string, ReadonlyArray<string>>,
+): ReadonlyArray<string> => {
+  const harnesses = new Set<string>();
+  for (const one of work.decisions) {
+    if (one.ask !== ask || !isAsked(one) || !isKoluChoice(one)) continue;
+    if (roleOfKey(one.key)?.what !== "model") continue;
+    if ((values.get(one.id) ?? []).length === 0) continue;
+    const harness = harnessForModel(work, ask, one.key, values);
+    if (harness !== null) harnesses.add(harness);
+  }
+  return [...harnesses];
+};
+
+/**
+ * EVERY ANSWER IN THIS ASK THAT IS NOT ONE OF KOLU'S OPTIONS — checked where
+ * an answer is recorded, before it is.
+ *
+ *  - A harness must be one this kolu carries.
+ *  - A model must be one the host listed for its harness, when that harness
+ *    can list; any words at all when it cannot.
+ *  - A model whose harness nobody has named is not a model of anything.
+ *  - One answer each: a role does not run on two harnesses.
+ *
+ * A question left blank is not checked: the record says exactly that about it.
+ * Answers one fact per bad answer, so the refusal can name them all.
+ */
+export const unofferedAnswers = (
+  work: Work,
+  ask: string,
+  values: ReadonlyMap<string, ReadonlyArray<string>>,
+  choices: KoluChoices,
+): ReadonlyArray<UnofferedAnswer> => {
+  const bad: UnofferedAnswer[] = [];
+  for (const one of work.decisions) {
+    if (one.ask !== ask || !isAsked(one) || !isKoluChoice(one)) continue;
+    const given = values.get(one.id) ?? [];
+    if (given.length === 0) continue;
+    const [value = ""] = given;
+    if (given.length > 1) {
+      bad.push({ key: one.key, value, why: "several" });
+      continue;
+    }
+    if (roleOfKey(one.key)?.what === "harness") {
+      if (!choices.harnesses.includes(value))
+        bad.push({ key: one.key, value, why: "not-installed" });
+      continue;
+    }
+    const harness = harnessForModel(work, ask, one.key, values);
+    // A model of no harness — none answered, or one this kolu does not carry
+    // (which its own answer is refused for) — is not a model of anything.
+    if (harness === null || !choices.harnesses.includes(harness)) {
+      bad.push({ key: one.key, value, why: "no-harness" });
+      continue;
+    }
+    const listed = choices.models.get(harness);
+    if (listed === undefined)
+      throw new Error(
+        `unofferedAnswers: no model list for ${harness} — the recorder must ask the host for every installed harness modelHarnessesOf names`,
+      );
+    if (listed.kind === "listed" && !listed.ids.includes(value))
+      bad.push({ key: one.key, value, why: "not-listed", harness });
+  }
+  return bad;
+};
+
+/** One answer {@link unofferedAnswers} found that is not kolu's to record. */
+export interface UnofferedAnswer {
+  readonly key: KoluChoiceKey;
+  readonly value: string;
+  readonly why: "several" | "not-installed" | "no-harness" | "not-listed";
+  /** The harness whose list it is not in (`not-listed` only). */
+  readonly harness?: string;
+}
+
+/**
+ * WHAT A PERSON CHOSE LAST TIME, read off the saved works — never off a
+ * conversation's memory, so a new conversation, a restart and another tab all
+ * offer the same thing first.
+ *
+ *  - {@link SetupMemory.last}: the most recent answer to a setup question on
+ *    this host; for a model, the most recent model run with `harness` (in any
+ *    role, since a model is a model of its harness, not of a part).
+ *  - {@link SetupMemory.modelsUsed}: every model a person ran `harness` on,
+ *    on any host, most recent first — what a harness that cannot list its own
+ *    models is offered.
+ */
+export interface SetupMemory {
+  readonly last: (key: SetupKey, harness: string | null) => string | null;
+  readonly modelsUsed: (harness: string) => ReadonlyArray<string>;
+}
+
+export const setupMemory = (
+  works: ReadonlyArray<Work>,
+  host: string,
+): SetupMemory => {
+  /** Every setup answer, with the harness its role ran on in that work. */
+  const answers = works
+    .flatMap((work) =>
+      work.decisions.flatMap((one) => {
+        if (one.key === null || !isAnswered(one)) return [];
+        const value = answerValue(one);
+        if (value === null) return [];
+        const named = roleOfKey(one.key);
+        return [
+          {
+            host: hostOf(work),
+            key: one.key,
+            at: one.answer.at,
+            value,
+            harness:
+              named === null ? null : roleAnswer(work, named.role, "harness"),
+            model: named?.what === "model",
+          },
+        ];
+      }),
+    )
+    .sort((a, b) => (a.at < b.at ? 1 : a.at > b.at ? -1 : 0));
+  return {
+    last: (key, harness) => {
+      const isModel = roleOfKey(key)?.what === "model";
+      return (
+        answers.find((one) =>
+          one.host !== host
+            ? false
+            : isModel
+              ? one.model && one.harness === harness
+              : one.key === key,
+        )?.value ?? null
+      );
+    },
+    modelsUsed: (harness) => [
+      ...new Set(
+        answers
+          .filter((one) => one.model && one.harness === harness)
+          .map((one) => one.value),
+      ),
+    ],
+  };
 };
 
 /** What a terminal is, as a member of a work in progress. */

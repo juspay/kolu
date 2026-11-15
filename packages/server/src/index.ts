@@ -56,10 +56,18 @@ import {
   modeOf,
   onGreenOf,
   policyOf,
+  roleOfKey,
+  setupOf,
   standing,
+  WorkRefusal,
 } from "kolu-work";
 import { dirname } from "node:path";
 import type { KoluBootFlags } from "./bootFlags.ts";
+import {
+  koluOffer,
+  koluOfferOver,
+  setKoluOffer,
+} from "./conductor/koluOffer.ts";
 import { fleetHostsOver } from "./fleet/fleetHosts.ts";
 import { startFleetMcpEndpoint } from "./fleet/mcpEndpoint.ts";
 import {
@@ -748,10 +756,57 @@ export async function bootKoluWeb(flags: KoluBootFlags): Promise<void> {
     // questions went out as; the face's answer is that reading flattened, so
     // the agent is told what it asked for without a second shape in between.
     // NOTHING WAITS: the human's answers arrive later, as a wake.
-    open: (intent) => {
+    //
+    // NO HARNESS QUESTION FOR A HOST WITH NOTHING TO RUN: a setup that asks
+    // which harness runs a role is refused, naming the host and what to do,
+    // unless that host's coding agents are ready — before anything exists.
+    open: async (intent) => {
+      const { offer, requireAgentsReady } = koluOffer();
+      if (intent.setup.some((one) => roleOfKey(one.key)?.what === "harness"))
+        await requireAgentsReady(
+          intent.key.kind === "branch"
+            ? intent.key.host
+            : (intent.key.terminal.split("/")[0] ?? ""),
+        );
       const { work, setup, ask, asked, created, reopened } =
-        liveServerConductor().openWork(intent);
+        await liveServerConductor().openWork(intent, offer);
       return { work, ...setup, ask, asked, created, reopened };
+    },
+    // WHAT A PLANNER OR IMPLEMENTOR STARTS, read off the work's own answers —
+    // the face builds the command from this and the host's word on how the
+    // harness takes a model, so there is one source for it.
+    startOf: (work, role) => {
+      const found = liveServerConductor()
+        .works()
+        .find(([id]) => id === work)?.[1];
+      if (found === undefined)
+        throw new WorkRefusal(
+          "unknown-work",
+          `There is no piece of work called ${JSON.stringify(work)} — open it with \`work_open\` first. Nothing was created.`,
+        );
+      if (found.state.kind === "ended")
+        throw new WorkRefusal(
+          "work-ended",
+          `The piece of work ${JSON.stringify(work)} has ended, so nothing more is started for it. Nothing was created.`,
+        );
+      const setup = setupOf(found);
+      const part = setup.roles.find((one) => one.role === role);
+      if (
+        found.key.kind !== "branch" ||
+        part === undefined ||
+        part.harness === null ||
+        part.model === null
+      )
+        throw new WorkRefusal(
+          "missing-setup",
+          `The ${role} of «${found.title}» has no harness and model answered yet, so kolu has nothing to start it with. Wait for the human's answer — kolu wakes you with it. Nothing was created.`,
+        );
+      return {
+        host: found.key.host,
+        repo: found.key.repo,
+        harness: part.harness,
+        model: part.model,
+      };
     },
     stop: (work) => {
       liveServerConductor().stopWork(work, "conductor");
@@ -1056,6 +1111,12 @@ export async function bootKoluWeb(flags: KoluBootFlags): Promise<void> {
   // from source has no delivery bake and delivers nothing (its hosts read
   // `undelivered`).
   const agentDistroListing = readAgentDistroListing();
+  // WHAT KOLU OFFERS for a work's harness and model questions — this listing
+  // and every host's own word on its models — registered before the surface
+  // is served, so `work_open` and `answerWork` check against one thing.
+  setKoluOffer(
+    koluOfferOver({ listing: agentDistroListing, hosts: fleetHosts }),
+  );
   const deliveryBake = readAgentDistroDeliveryBake();
   // The delivery itself is installed BELOW, once kolu's surface — whose
   // `agentProfiles` cell it writes — is served: installing it delivers at once

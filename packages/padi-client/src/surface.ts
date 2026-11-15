@@ -122,8 +122,10 @@ import {
   EMPTY_AGENT_DISTRO_RECEIPT,
   TerminalAgentsSchema,
 } from "@kolu/agent-distro/schema";
+import { AgentModelsSchema } from "@kolu/agent-distro/models";
 import type { ClientErrorPolicy } from "./clientPolicy.ts";
 import {
+  AgentModelsUnavailable,
   FsGitReadErrorSchema,
   KavalContractSkew,
   PreviewTooLarge,
@@ -724,8 +726,20 @@ export * from "./transcriptSchema.ts";
  *  publish it on the `roster` census above, whose `ids` encode as `TerminalId` —
  *  an outbound encode failure that unwinds the whole mirror kolu-server holds,
  *  leaving every padi procedure answering "no live upstream link" with the
- *  daemon alive and idle (#2376). */
-export const PADI_SURFACE_VERSION = "7.4";
+ *  daemon alive and idle (#2376).
+ *
+ *  7.5 (additive · minor) — WHICH MODELS A HARNESS OFFERS on this host. A new
+ *  procedure, `agentDistro.models` (`{ harness, cwd }` →
+ *  {@link AgentModelsSchema}): padi runs its serving package's
+ *  `agent-distro --models <harness>` in `cwd`, with the profiles a new
+ *  terminal here would get, and answers upstream's word — the ids the harness
+ *  listed, or `unlisted` for one that cannot list, and how a launch takes a
+ *  model. A list command that fails, or a host whose agents are not ready,
+ *  is the declared {@link AgentModelsUnavailable} with the words — never an
+ *  empty list. kolu's setup form fills its model question from it, kolu-server
+ *  checks a model answer against it, and the fleet face reads a planner's
+ *  launch words off it. A member ADDED, so the 7.4 class: a minor. */
+export const PADI_SURFACE_VERSION = "7.5";
 
 /** The `version` cell payload — padi's self-declared surface contract version. */
 export const PadiVersionSchema = Schema.Struct({
@@ -2813,6 +2827,15 @@ export const padiSurface = defineSurfaceWithPolicy<ClientErrorPolicy>()({
      *  bundle is not here). */
     agentDistro: {
       report: { input: AgentDistroDeliveryReportSchema },
+      /** Which models `harness` offers on this host, run in `cwd` (the
+       *  repository a role will start in, whose own `plugin.json` composes
+       *  over the profiles) — and how a launch is given one. Read-only; the
+       *  binder calls it and the browser calls it through the re-serve. */
+      models: {
+        input: Schema.Struct({ harness: Schema.String, cwd: Schema.String }),
+        output: AgentModelsSchema,
+        error: AgentModelsUnavailable,
+      },
     },
     /** Session restore/import/forfeit — executes host-side (padi as one writer). */
     session: {

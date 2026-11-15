@@ -132,8 +132,10 @@ const OTHER_KEY = {
  * transcript into a file of its own; 1.51.0 sweeps the check ping-pong out of
  * the works that rung carried; 1.52.0 moves a member's watch bookkeeping out of
  * a work written by an earlier deployed build of this branch; 1.53.0 folds
- * every work onto its KEY and moves the transcript file's stamp with it. */
-const STATE_SCHEMA_VERSION = "1.53.0";
+ * every work onto its KEY and moves the transcript file's stamp with it; and
+ * 1.54.0 drops the `options`/`multiple` the Conductor used to offer for a
+ * role's harness and model, which are kolu's options to draw now. */
+const STATE_SCHEMA_VERSION = "1.54.0";
 
 const log = {
   debug() {},

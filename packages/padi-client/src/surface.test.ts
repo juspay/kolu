@@ -160,7 +160,9 @@ describe("padiSurface contract", () => {
     // 7.4 ADDS the `roster` cell — whether padi has finished adopting, so a
     // reader may tell an empty roster apart from one that has not been
     // established. A new member an older consumer never asks for: a minor.
-    expect(PADI_SURFACE_VERSION).toBe("7.4");
+    // 7.5 ADDS the `agentDistro.models` procedure — which models a harness
+    // offers on this host. Another member added: a minor.
+    expect(PADI_SURFACE_VERSION).toBe("7.5");
     expect(DEFAULT_PADI_VERSION.contractVersion).toBe(PADI_SURFACE_VERSION);
     expect(
       Schema.decodeUnknownSync(PadiVersionSchema)(DEFAULT_PADI_VERSION),
@@ -675,6 +677,9 @@ describe("the declared error vocabulary (PLAN D4)", () => {
     // `preview.repoRootForTerminal`, `session.*`) cannot quietly lose one.
     expect(declared.sort()).toEqual(
       [
+        // `agentDistro.models` refuses with the host's own words: agents not
+        // ready here, or the harness's list command failed.
+        "agentDistro.models",
         "chrome.setCanvasLayout",
         "chrome.setIntent",
         "chrome.setParent",

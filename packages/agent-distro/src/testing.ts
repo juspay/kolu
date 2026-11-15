@@ -11,6 +11,7 @@
 
 import { historyLine } from "@juspay/agent-distro/update/history";
 import { versionsFile } from "./bundle.ts";
+import type { AgentModels } from "./models.ts";
 import type { AgentVersion } from "./listing.ts";
 import { type ProfileFile, profileFile } from "./profileFile.ts";
 
@@ -96,3 +97,32 @@ export function standInListJson(harnesses: readonly AgentVersion[]): string {
     "fi",
   ].join("\n");
 }
+
+/** What the stand-in picker answers for one harness's `--models`: upstream's
+ *  `Models`, or a list command that fails with these words on stderr. */
+export type StandInModels = AgentModels | { readonly fails: string };
+
+/** The stand-in picker's `--models <harness>` branch (POSIX sh), answering
+ *  each harness as given — a harness not named fails, as upstream's picker
+ *  refuses one it does not carry. */
+export function standInModels(
+  answers: Readonly<Record<string, StandInModels>>,
+): string {
+  const arms = Object.entries(answers).map(([harness, answer]) =>
+    "fails" in answer
+      ? `    ${harness}) printf '%s\\n' ${shellWord(answer.fails)} >&2; exit 1 ;;`
+      : `    ${harness}) printf '%s\\n' ${shellWord(JSON.stringify(answer))}; exit 0 ;;`,
+  );
+  return [
+    'if [ "$1" = "--models" ]; then',
+    '  case "$2" in',
+    ...arms,
+    '    *) echo "agent-distro picker: error: --models takes a harness this package carries" >&2; exit 2 ;;',
+    "  esac",
+    "fi",
+  ].join("\n");
+}
+
+/** One POSIX single-quoted word. */
+const shellWord = (text: string): string =>
+  `'${text.replaceAll("'", "'\\''")}'`;

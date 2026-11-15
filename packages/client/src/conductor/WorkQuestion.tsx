@@ -18,6 +18,21 @@
  *  pick and picking replaces the words. A `multiple` question is a list by
  *  definition and keeps both.
  *
+ *  WHOSE OPTIONS THEY ARE. Most questions are drawn from the options their
+ *  asker gave. The four setup questions about a role's harness and its model
+ *  are not: nobody but kolu knows which agents this build carries or which
+ *  models the work's host offers, so those are drawn by
+ *  {@link WorkChoiceQuestion}, from the listing and from that host's own
+ *  answer, live.
+ *
+ *  WHAT YOU CHOSE LAST TIME IS ALREADY CHOSEN. Every setup question opens on
+ *  this person's last answer on this host, read off the SAVED works
+ *  (`setupMemory`) rather than off a conversation — so a new conversation, a
+ *  restart and a second tab all offer the same thing — drawn first and
+ *  selected, which means one press of Answer sends the whole setup. It is
+ *  written into the draft once ({@link seedAskDefault}), which is what keeps
+ *  "nobody has touched this" and "they took the pick off" apart.
+ *
  *  Drafts are kept per ask (`./drafts`), so half-filling a form, opening the
  *  plan and coming back does not lose the pick — and the draft is shared by
  *  every face, because they are one question.
@@ -25,26 +40,26 @@
 
 import {
   type AnsweredFromFace,
-  type Decision,
+  hostOf,
   isAnswered,
   isAsked,
+  isKoluChoice,
+  type KoluChoice,
+  type Offered,
+  setupMemory,
   type Work,
   type WorkId,
 } from "kolu-work";
-import { type Component, For, Show, batch, createMemo } from "solid-js";
+import { type Component, createEffect, createMemo, For, Show } from "solid-js";
+import AskOptions, { askOption, defaultFirst } from "./AskOptions";
+import { pickOnly, seedAskDefault, typedKey, typeOnly } from "./askForm";
 import { askDraft, forgetAskDraft, setAskDraft } from "./drafts";
-import { answerWords } from "./workReadings";
-import { workFileName } from "./workFile";
 import { openReader } from "./reader/useReader";
 import { useConductor } from "./useConductor";
-
-/** One option chip. The SELECTED state is layered on through `classList`, so
- *  the shape of a chip is written once and only the two colours branch. */
-const OPTION_CLASS = "rounded-md border px-2.5 py-1 text-fg cursor-pointer";
-
-/** The free-text half of a question, under its own key beside the decision's
- *  — `~` because a decision id is a uuid and never contains one. */
-const typedKey = (decision: string): string => `${decision}~typed`;
+import { useWorkMap } from "./useWorks";
+import WorkChoiceQuestion from "./WorkChoiceQuestion";
+import { workFileName } from "./workFile";
+import { answerWords } from "./workReadings";
 
 /** WHAT TO CALL THE BUTTON THAT OPENS THE FILE. The plan is the file this
  *  exists for, so it is named rather than described; anything else is read by
@@ -83,12 +98,20 @@ const WorkQuestion: Component<{
   const open = createMemo(() => questions().filter((one) => isAsked(one)));
   const settled = () => open().length === 0;
 
+  /** WHAT THIS PERSON CHOSE BEFORE on this work's host, off the saved works.
+   *  Read by every setup question in the form — the two drawn here and the
+   *  four {@link WorkChoiceQuestion} draws — so the mirror is folded once. */
+  const works = useWorkMap();
+  const memory = createMemo(() =>
+    setupMemory([...works().values()], hostOf(props.work)),
+  );
+
   const picked = (decision: string, value: string): boolean =>
     askDraft(props.ask, decision).includes(value);
 
   /** An option pressed. A single-answer question keeps the one pressed last
    *  and empties its box; a `multiple` question toggles. */
-  const pick = (decision: Decision, value: string): void => {
+  const pick = (decision: Offered, value: string): void => {
     const current = askDraft(props.ask, decision.id);
     if (decision.multiple) {
       setAskDraft(
@@ -100,31 +123,38 @@ const WorkQuestion: Component<{
       );
       return;
     }
-    batch(() => {
-      setAskDraft(props.ask, decision.id, [value]);
-      setAskDraft(props.ask, typedKey(decision.id), []);
-    });
+    pickOnly(props.ask, decision.id, value);
   };
 
   /** Words typed beside the options. The first character of an own answer to
    *  a single-answer question drops the pick, as you watch. */
-  const type = (decision: Decision, text: string): void =>
-    batch(() => {
-      setAskDraft(props.ask, typedKey(decision.id), text === "" ? [] : [text]);
-      if (text !== "" && !decision.multiple)
-        setAskDraft(props.ask, decision.id, []);
-    });
+  const type = (decision: Offered, text: string): void => {
+    if (!decision.multiple) {
+      typeOnly(props.ask, decision.id, text);
+      return;
+    }
+    setAskDraft(props.ask, typedKey(decision.id), text === "" ? [] : [text]);
+  };
 
   /** WHAT IS SENT, per decision: what they picked, plus what they typed —
    *  and, from the reader, the comments that go with the answer appended to
    *  those words. A question they left alone sends nothing, and the record
-   *  says exactly that about it. */
+   *  says exactly that about it.
+   *
+   *  A question kolu drew the options for sends EXACTLY ONE value and no
+   *  rider: a harness is a command and a model is a word the launch takes, so
+   *  there is nothing in either for a page of comments to ride on. */
   const answers = (): Record<string, ReadonlyArray<string>> => {
     const sending: Record<string, ReadonlyArray<string>> = {};
     const rider = props.attach?.text() ?? "";
     for (const decision of open()) {
       const chosen = askDraft(props.ask, decision.id);
       const typed = askDraft(props.ask, typedKey(decision.id))[0] ?? "";
+      if (isKoluChoice(decision)) {
+        const one = typed === "" ? chosen[0] : typed;
+        if (one !== undefined && one !== "") sending[decision.id] = [one];
+        continue;
+      }
       const words = [typed, rider].filter((one) => one !== "").join("\n\n");
       const values = [...chosen, ...(words === "" ? [] : [words])];
       if (values.length > 0) sending[decision.id] = values;
@@ -189,68 +219,103 @@ const WorkQuestion: Component<{
         }
       >
         <For each={open()}>
-          {(decision) => (
-            <fieldset class="mt-2" data-decision={decision.id}>
-              <legend class="font-mono text-[0.62rem] uppercase tracking-[0.1em] text-fg-3">
-                {decision.question}
-              </legend>
-              <div class="mt-1.5 flex flex-wrap gap-1.5">
-                <For each={decision.options}>
-                  {(option) => {
-                    const on = () => picked(decision.id, option);
-                    return (
-                      <button
-                        type="button"
-                        data-testid="conductor-ask-option"
-                        data-field={decision.id}
-                        data-value={option}
-                        data-active={on() ? "" : undefined}
-                        class={OPTION_CLASS}
-                        classList={{
-                          "border-accent bg-accent/15": on(),
-                          "border-edge-bright bg-surface-2": !on(),
-                        }}
-                        onClick={() => pick(decision, option)}
-                      >
-                        {option}
-                      </button>
-                    );
-                  }}
-                </For>
-              </div>
-              <input
-                type="text"
-                data-testid="conductor-ask-other"
-                data-field={decision.id}
-                placeholder="or say it in your own words"
-                value={askDraft(props.ask, typedKey(decision.id))[0] ?? ""}
-                class="mt-1.5 w-full rounded-md border border-edge-bright bg-surface-0 px-2 py-1 text-fg outline-none focus:border-accent"
-                onInput={(event) => type(decision, event.currentTarget.value)}
-              />
-              {/* THE ONE THING THEY MUST READ BEFORE ANSWERING. Offered where
-                  the reader is not already open — in the reader itself the
-                  file IS on screen, and a button to open what you are looking
-                  at is noise. */}
-              <Show
-                when={
-                  decision.file !== "" &&
-                  (props.from === "card" || props.from === "chat")
-                }
-              >
-                <button
-                  type="button"
-                  data-testid="work-question-read"
-                  data-path={decision.file}
-                  class="mt-1.5 rounded-md border border-edge-bright px-2.5 py-1 text-fg-2 hover:text-fg cursor-pointer"
-                  onClick={() =>
-                    openReader({ work: props.id, path: decision.file })
+          {(decision) => {
+            // WHOSE QUESTION THIS IS, decided once: a decision is one shape
+            // or the other for as long as it exists, so this is not a memo.
+            const choice: KoluChoice | null = isKoluChoice(decision)
+              ? decision
+              : null;
+            const offered: Offered | null = isKoluChoice(decision)
+              ? null
+              : decision;
+            const key = offered === null ? null : offered.key;
+            /** The last answer, when it is one of the options drawn here. */
+            const standing = (): string | null => {
+              if (key === null || offered === null) return null;
+              const want = memory().last(key, null);
+              return want !== null && offered.options.includes(want)
+                ? want
+                : null;
+            };
+            /** The options as they are drawn — the default first. A memo
+             *  because the list below it reads it on every keystroke of its
+             *  own search box. */
+            const chips = createMemo(() =>
+              offered === null
+                ? []
+                : defaultFirst(offered.options.map(askOption), standing()),
+            );
+            // The default, written into the draft once (`./askForm`): the
+            // options an asker gave are known the moment the form is drawn,
+            // so this seeds on the first frame and never again.
+            if (offered !== null && key !== null)
+              createEffect(() =>
+                seedAskDefault(props.ask, offered.id, "offered", standing()),
+              );
+            return (
+              <fieldset class="mt-2" data-decision={decision.id}>
+                <legend class="font-mono text-[0.62rem] uppercase tracking-[0.1em] text-fg-3">
+                  {decision.question}
+                </legend>
+                <Show when={choice}>
+                  {(one) => (
+                    <WorkChoiceQuestion
+                      work={props.work}
+                      ask={props.ask}
+                      decision={one()}
+                      memory={memory()}
+                    />
+                  )}
+                </Show>
+                <Show when={offered}>
+                  {(one) => (
+                    <>
+                      <AskOptions
+                        field={one().id}
+                        options={chips()}
+                        picked={(value) => picked(one().id, value)}
+                        onPick={(value) => pick(one(), value)}
+                        searchLabel="options"
+                      />
+                      <input
+                        type="text"
+                        data-testid="conductor-ask-other"
+                        data-field={one().id}
+                        placeholder="or say it in your own words"
+                        value={askDraft(props.ask, typedKey(one().id))[0] ?? ""}
+                        class="mt-1.5 w-full rounded-md border border-edge-bright bg-surface-0 px-2 py-1 text-fg outline-none focus:border-accent"
+                        onInput={(event) =>
+                          type(one(), event.currentTarget.value)
+                        }
+                      />
+                    </>
+                  )}
+                </Show>
+                {/* THE ONE THING THEY MUST READ BEFORE ANSWERING. Offered
+                    where the reader is not already open — in the reader
+                    itself the file IS on screen, and a button to open what
+                    you are looking at is noise. */}
+                <Show
+                  when={
+                    decision.file !== "" &&
+                    (props.from === "card" || props.from === "chat")
                   }
                 >
-                  {readWords(decision.file)}
-                </button>
-              </Show>
-            </fieldset>
-          )}
+                  <button
+                    type="button"
+                    data-testid="work-question-read"
+                    data-path={decision.file}
+                    class="mt-1.5 rounded-md border border-edge-bright px-2.5 py-1 text-fg-2 hover:text-fg cursor-pointer"
+                    onClick={() =>
+                      openReader({ work: props.id, path: decision.file })
+                    }
+                  >
+                    {readWords(decision.file)}
+                  </button>
+                </Show>
+              </fieldset>
+            );
+          }}
         </For>
 
         {/* WHAT TRAVELS WITH THE ANSWER, said out loud: comments left on the

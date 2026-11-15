@@ -36,6 +36,7 @@
 
 import { type PadiSurfaceClient, padiClientOver } from "@kolu/padi-client/dial";
 import {
+  AgentModelsUnavailable,
   type PadiTerminal,
   type PadiUrgency,
   type PadiWatchEvent,
@@ -44,6 +45,7 @@ import {
   TerminalNotActive,
   WatchSubscriptionNotFound,
 } from "@kolu/padi-client/surface";
+import type { AgentModels } from "@kolu/agent-distro/models";
 import { surfaceTag } from "@kolu/surface/define";
 import { directDispatch } from "@kolu/surface/links/direct";
 import type { SurfaceHandlers } from "@kolu/surface/server";
@@ -54,6 +56,7 @@ import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { ResourceUpdatedNotificationSchema } from "@modelcontextprotocol/sdk/types.js";
 import { Effect, Queue, Stream } from "effect";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { WorkRefusal } from "kolu-work";
 import { KOLU_FLEET_EXPOSE, KOLU_MCP_EXPOSE } from "../expose.ts";
 import { KOLU_MCP_TOOLS } from "../tools.ts";
 import { fleetSurface } from "./fleetSurface.ts";
@@ -168,6 +171,9 @@ interface FakePadi {
    *  that RESTARTED under a mirror that never dropped, so nothing upstream
    *  observed a disconnect and the next drain finds no such queue. */
   forgetWatches(): void;
+  /** What `agentDistro.models` answers for a harness on this host — a
+   *  `string` is the words its list command failed with. */
+  answerModels(harness: string, answer: AgentModels | string): void;
   readonly openedWatches: string[];
   readonly closedWatches: string[];
 }
@@ -196,6 +202,41 @@ function fakePadi(host: string, seeded: readonly TerminalId[]): FakePadi {
   const queue: PadiWatchEvent[] = [];
   const openedWatches: string[] = [];
   const closedWatches: string[] = [];
+  /** The host's word on each harness's models: omp lists and takes a flag,
+   *  opencode takes its model in a config layer, claude cannot list. */
+  const models = new Map<string, AgentModels | string>([
+    [
+      "omp",
+      {
+        harness: "omp",
+        launch: { kind: "flag", flag: "--model" },
+        models: {
+          kind: "listed",
+          ids: ["anthropic/claude-fable-5-2", "litellm/claude-fable-5-2"],
+        },
+      },
+    ],
+    [
+      "opencode",
+      {
+        harness: "opencode",
+        launch: {
+          kind: "config",
+          variable: "OPENCODE_CONFIG_CONTENT",
+          key: "model",
+        },
+        models: { kind: "listed", ids: ["litellm/open-large"] },
+      },
+    ],
+    [
+      "claude",
+      {
+        harness: "claude",
+        launch: { kind: "flag", flag: "--model" },
+        models: { kind: "unlisted" },
+      },
+    ],
+  ]);
   /** Open subscription names → the watermark each has acknowledged. */
   const open = new Map<string, number>();
   let seq = 0;
@@ -341,6 +382,19 @@ function fakePadi(host: string, seeded: readonly TerminalId[]): FakePadi {
     // spending its whole cap.
     [at("terminalAttach", "get")]: () =>
       Stream.make({ kind: "snapshot", data: `screen of ${host}` }),
+    [at("agentDistro", "models")]: (input: { harness: string; cwd: string }) =>
+      Effect.suspend(() => {
+        calls.push(`agentDistro.models:${input.harness}@${input.cwd}`);
+        const answer = models.get(input.harness);
+        if (answer === undefined || typeof answer === "string")
+          return Effect.fail(
+            new AgentModelsUnavailable({
+              harness: input.harness,
+              why: answer ?? `${input.harness} is not a harness here`,
+            }),
+          );
+        return Effect.succeed(answer);
+      }),
     [at("watchPulse", "get")]: () => pulse.stream(),
   } as unknown as SurfaceHandlers;
 
@@ -411,6 +465,9 @@ function fakePadi(host: string, seeded: readonly TerminalId[]): FakePadi {
       open.clear();
       queue.length = 0;
       seq = 0;
+    },
+    answerModels(harness, answer) {
+      models.set(harness, answer);
     },
   };
 }
@@ -504,6 +561,13 @@ function fakeWorks(): FleetWorks & {
   /** Every `work_open` that reached the port, and every note. */
   readonly opened: { title: string; setup: readonly string[] }[];
   readonly notes: { work: string; text: string }[];
+  /** What a waterfall role of a seeded work was set up to run — what
+   *  `startOf` reads, as the server reads the work's decisions. */
+  setUp(
+    work: string,
+    role: "planner" | "implementor",
+    start: { harness: string; model: string },
+  ): void;
 } {
   const works = new Map<string, FleetWorkRow>();
   const ended = new Map<string, string>();
@@ -512,6 +576,7 @@ function fakeWorks(): FleetWorks & {
   const closeds: string[] = [];
   const opened: { title: string; setup: readonly string[] }[] = [];
   const notes: { work: string; text: string }[] = [];
+  const starts = new Map<string, { harness: string; model: string }>();
   const moved = (): void => {
     for (const one of listeners) one();
   };
@@ -550,7 +615,7 @@ function fakeWorks(): FleetWorks & {
         listeners.delete(cb);
       };
     },
-    open: (intent: Parameters<FleetWorks["open"]>[0]) => {
+    open: async (intent: Parameters<FleetWorks["open"]>[0]) => {
       opened.push({
         title: intent.title,
         setup: intent.setup.map((one) => one.key),
@@ -572,6 +637,23 @@ function fakeWorks(): FleetWorks & {
         created: true,
         reopened: false,
       };
+    },
+    startOf: (work: string, role: "planner" | "implementor") => {
+      const one = works.get(work);
+      const start = starts.get(`${work}#${role}`);
+      if (one === undefined || start === undefined)
+        throw new WorkRefusal(
+          "missing-setup",
+          `The ${role} of ${work} has no harness and model answered yet. Nothing was created.`,
+        );
+      return { host: one.host, repo: one.repo, ...start };
+    },
+    setUp(
+      work: string,
+      role: "planner" | "implementor",
+      start: { harness: string; model: string },
+    ) {
+      starts.set(`${work}#${role}`, start);
     },
     ask: (_work: string, _questions: Parameters<FleetWorks["ask"]>[1]) => ({
       ask: `ask:${works.size}`,
@@ -943,7 +1025,7 @@ describe("the fleet face over two hosts", () => {
         host: "remote:box",
         placement: { kind: "toplevel" },
         work: "work:1",
-        role: "implementor",
+        role: "other",
       },
     });
     expect(res.isError ?? false).toBe(false);
@@ -965,7 +1047,7 @@ describe("the fleet face over two hosts", () => {
         placement: { kind: "toplevel" },
         run: "pnpm test",
         work: "work:1",
-        role: "implementor",
+        role: "other",
       },
     });
     expect(res.isError).toBe(true);
@@ -994,7 +1076,7 @@ describe("the fleet face over two hosts", () => {
         host: "remote:box",
         placement: { kind: "child-of", parentId: `local/${ALPHA_1}` },
         work: "work:1",
-        role: "implementor",
+        role: "other",
       },
     });
     expect(res.isError).toBe(true);
@@ -1199,26 +1281,15 @@ describe("the conductor's pieces of work", () => {
 
   const SETUP = [
     { key: "mode", question: "Which mode?", options: ["full", "trivial"] },
-    {
-      key: "planner.harness",
-      question: "Which harness plans?",
-      options: ["omp"],
-    },
-    { key: "planner.model", question: "On which model?", options: ["opus"] },
-    {
-      key: "implementor.harness",
-      question: "Which harness builds?",
-      options: ["omp"],
-    },
-    {
-      key: "implementor.model",
-      question: "On which model?",
-      options: ["sonnet"],
-    },
+    // kolu's own four: NAMED, never offered.
+    { key: "planner.harness" },
+    { key: "planner.model" },
+    { key: "implementor.harness" },
+    { key: "implementor.model" },
     {
       key: "on-green",
       question: "On green?",
-      options: ["merge it", "hand it over"],
+      options: ["merge", "hand-over"],
     },
   ];
 
@@ -1255,6 +1326,181 @@ describe("the conductor's pieces of work", () => {
     ]);
   });
 
+  it("the Conductor CANNOT offer a harness or a model — options for kolu's four questions are refused, and nothing opens", async () => {
+    const { fleet } = twoHostFleet();
+    const works = fakeWorks();
+    const mcp = await servedFleet(fleet.hosts, works);
+    for (const key of [
+      "planner.harness",
+      "planner.model",
+      "implementor.harness",
+      "implementor.model",
+    ]) {
+      const res = await mcp.callTool({
+        name: "work_open",
+        arguments: {
+          title: "a stored piece of work",
+          host: "local",
+          repo: "/repo",
+          branch: "work",
+          setup: SETUP.map((one) =>
+            one.key === key
+              ? { key, question: "Which one?", options: ["omp", "claude"] }
+              : one,
+          ),
+        },
+      });
+      expect(res.isError, `${key}: ${JSON.stringify(res.content)}`).toBe(true);
+    }
+    expect(works.opened).toEqual([]);
+  });
+
+  it("a planner is STARTED BY KOLU from the work's saved harness and model, in the harness's own launch words", async () => {
+    const alpha = fakePadi("local", [ALPHA_1]);
+    const fleet = fakeFleet([
+      { key: "local", display: "this machine", padi: alpha },
+    ]);
+    const works = fakeWorks();
+    works.seed("work:1");
+    works.setUp("work:1", "planner", {
+      harness: "omp",
+      model: "anthropic/claude-fable-5-2",
+    });
+    works.setUp("work:1", "implementor", {
+      harness: "opencode",
+      model: "litellm/open-large",
+    });
+    const mcp = await servedFleet(fleet.hosts, works);
+
+    const planner = await mcp.callTool({
+      name: "lifecycle_create",
+      arguments: {
+        host: "local",
+        placement: { kind: "toplevel" },
+        work: "work:1",
+        role: "planner",
+      },
+    });
+    expect(planner.isError ?? false, JSON.stringify(planner.content)).toBe(
+      false,
+    );
+    // What was typed IS the saved setup, in the flag omp's adapter names —
+    // asked of the work's host, in the work's repository.
+    expect(planner.structuredContent).toMatchObject({
+      ran: "omp --model anthropic/claude-fable-5-2",
+    });
+    expect(alpha.calls).toContain("agentDistro.models:omp@/repo");
+    expect(
+      alpha.calls.filter((one) => one.startsWith("lifecycle.sendInput")),
+    ).toEqual([
+      `lifecycle.sendInput:${JSON.stringify({ id: BETA_1, data: "omp --model anthropic/claude-fable-5-2\r" })}`,
+    ]);
+    expect(works.joinOf(`local/${BETA_1}`)).toBe("created-run");
+
+    // A harness that takes its model in a config layer gets it there.
+    const implementor = await mcp.callTool({
+      name: "lifecycle_create",
+      arguments: {
+        host: "local",
+        placement: { kind: "toplevel" },
+        work: "work:1",
+        role: "implementor",
+      },
+    });
+    expect(implementor.structuredContent).toMatchObject({
+      ran: `OPENCODE_CONFIG_CONTENT='{"model":"litellm/open-large"}' opencode`,
+    });
+  });
+
+  it("a planner given its own `run` is refused with NOTHING created — the command has one source", async () => {
+    const alpha = fakePadi("local", [ALPHA_1]);
+    const fleet = fakeFleet([
+      { key: "local", display: "this machine", padi: alpha },
+    ]);
+    const works = fakeWorks();
+    works.seed("work:1");
+    works.setUp("work:1", "planner", {
+      harness: "omp",
+      model: "anthropic/claude-fable-5-2",
+    });
+    const mcp = await servedFleet(fleet.hosts, works);
+
+    const res = await mcp.callTool({
+      name: "lifecycle_create",
+      arguments: {
+        host: "local",
+        placement: { kind: "toplevel" },
+        run: "omp --model anthropic/claude-fable-5-1",
+        work: "work:1",
+        role: "planner",
+      },
+    });
+    expect(res.isError).toBe(true);
+    expect(res.structuredContent).toMatchObject({ kind: "run-is-kolus" });
+    expect(
+      alpha.calls.filter((one) => one.startsWith("lifecycle.create")),
+    ).toEqual([]);
+    expect(works.refs()).toEqual([]);
+  });
+
+  it("a planner whose harness cannot be asked for its models is refused with the host's words, NOTHING created", async () => {
+    const alpha = fakePadi("local", [ALPHA_1]);
+    alpha.answerModels(
+      "omp",
+      "agent-distro omp: error: cannot list its models: omp models --json exited 1",
+    );
+    const fleet = fakeFleet([
+      { key: "local", display: "this machine", padi: alpha },
+    ]);
+    const works = fakeWorks();
+    works.seed("work:1");
+    works.setUp("work:1", "planner", {
+      harness: "omp",
+      model: "anthropic/claude-fable-5-2",
+    });
+    const mcp = await servedFleet(fleet.hosts, works);
+
+    const res = await mcp.callTool({
+      name: "lifecycle_create",
+      arguments: {
+        host: "local",
+        placement: { kind: "toplevel" },
+        work: "work:1",
+        role: "planner",
+      },
+    });
+    expect(res.isError).toBe(true);
+    expect(JSON.stringify(res.content)).toContain("omp models --json exited 1");
+    expect(
+      alpha.calls.filter((one) => one.startsWith("lifecycle.create")),
+    ).toEqual([]);
+  });
+
+  it("a planner whose setup is not answered yet is refused, NOTHING created", async () => {
+    const alpha = fakePadi("local", [ALPHA_1]);
+    const fleet = fakeFleet([
+      { key: "local", display: "this machine", padi: alpha },
+    ]);
+    const works = fakeWorks();
+    works.seed("work:1");
+    const mcp = await servedFleet(fleet.hosts, works);
+
+    const res = await mcp.callTool({
+      name: "lifecycle_create",
+      arguments: {
+        host: "local",
+        placement: { kind: "toplevel" },
+        work: "work:1",
+        role: "planner",
+      },
+    });
+    expect(res.isError).toBe(true);
+    expect(res.structuredContent).toMatchObject({ kind: "missing-setup" });
+    expect(
+      alpha.calls.filter((one) => one.startsWith("lifecycle.create")),
+    ).toEqual([]);
+  });
+
   it("`lifecycle_create` puts what it created INTO the work, in the role it was given", async () => {
     const alpha = fakePadi("local", [ALPHA_1]);
     const fleet = fakeFleet([
@@ -1270,7 +1516,7 @@ describe("the conductor's pieces of work", () => {
         host: "local",
         placement: { kind: "toplevel" },
         work: "work:1",
-        role: "implementor",
+        role: "other",
       },
     });
 
@@ -1279,7 +1525,7 @@ describe("the conductor's pieces of work", () => {
     // tools that only accept `<host>/<id>`, so a bare id here would be a
     // member nothing on this face can name.
     expect(works.refs()).toEqual([`local/${BETA_1}`]);
-    expect(works.roleOf(`local/${BETA_1}`)).toBe("implementor");
+    expect(works.roleOf(`local/${BETA_1}`)).toBe("other");
     // A bare shell: nothing was asked to run in it, so there is no bring-up
     // that can end without an agent.
     expect(works.joinOf(`local/${BETA_1}`)).toBe("created");
@@ -1301,7 +1547,7 @@ describe("the conductor's pieces of work", () => {
         placement: { kind: "toplevel" },
         run: "omp",
         work: "work:1",
-        role: "planner",
+        role: "other",
       },
     });
 
@@ -1381,7 +1627,7 @@ describe("the conductor's pieces of work", () => {
         placement: { kind: "toplevel" },
         run: "claude",
         work: "work:1",
-        role: "implementor",
+        role: "other",
       },
     });
 

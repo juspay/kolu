@@ -28,8 +28,13 @@ import {
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import Conf from "conf";
+import { Result, Schema } from "effect";
 import { DEFAULT_PREFERENCES } from "kolu-common/surface";
-import { readPersistedTranscript, workDirOf } from "kolu-conductor";
+import {
+  PersistedWorksSchema,
+  readPersistedTranscript,
+  workDirOf,
+} from "kolu-conductor";
 import { workIdOf } from "kolu-work";
 import { afterEach, describe, expect, it } from "vitest";
 import {
@@ -44,6 +49,7 @@ import {
 import { decodeStateBackup } from "./state.ts";
 import {
   collapseFlappingChecks_1_51_0,
+  CONF_MIGRATIONS,
   foldWorksByKey_1_53_0,
   memberWatchOutOfWorks_1_52_0,
   migrateConductorToWorks_1_50_0,
@@ -52,7 +58,11 @@ import {
   stripLegacyStateKeys_1_31_0,
   worksFromWatched_1_50_0,
 } from "./stateLadder.ts";
-import { TRANSCRIPT_FILE_VERSION } from "./stateShape.ts";
+import {
+  CONF_DEFAULTS,
+  SCHEMA_VERSION,
+  TRANSCRIPT_FILE_VERSION,
+} from "./stateShape.ts";
 
 const dirs: string[] = [];
 
@@ -1130,3 +1140,135 @@ describe("the 1.53.0 rung — the human's store as it stands, and its kept files
 
 const recordLike = (value: unknown): boolean =>
   typeof value === "object" && value !== null;
+
+describe("the 1.54.0 rung — a role's harness and model are kolu's options", () => {
+  const AT_54 = "2026-11-01T00:00:00.000Z";
+
+  /** A real store stamped at 1.53.0, holding the works record below, reopened
+   *  through the LIVE ladder — so only the rungs above 1.53.0 run, which is
+   *  exactly what a person's store does on the boot after this change. */
+  const walk = (works: Record<string, unknown>): Record<string, unknown> => {
+    const dir = mkdtempSync(join(tmpdir(), "kolu-kolu-choice-"));
+    dirs.push(dir);
+    writeFileSync(
+      join(dir, "config.json"),
+      JSON.stringify({
+        preferences: DEFAULT_PREFERENCES,
+        works,
+        __internal__: { migrations: { version: "1.53.0" } },
+      }),
+    );
+    const store = new Conf<Record<string, unknown>>({
+      cwd: dir,
+      projectVersion: SCHEMA_VERSION,
+      defaults: CONF_DEFAULTS as unknown as Record<string, unknown>,
+      migrations: CONF_MIGRATIONS as never,
+    });
+    expect(store.get("__internal__" as never)).toBeDefined();
+    return readJson(store.path).works as Record<string, unknown>;
+  };
+
+  const ID = "branch:local/%2Frepo/setup-choices";
+
+  const WORKS = {
+    [ID]: {
+      key: { kind: "branch", host: "local", repo: "/repo", branch: "setup" },
+      title: "the setup form",
+      startedAt: AT_54,
+      decisions: [
+        // (a) an OPEN question the Conductor offered its own model list for.
+        {
+          kind: "asked",
+          id: "d-model",
+          ask: "ask-1",
+          at: AT_54,
+          key: "planner.model",
+          header: "",
+          question: "Which model should plan?",
+          options: ["opus", "sonnet"],
+          multiple: false,
+          file: "",
+        },
+        // (b) an ANSWERED harness question, options and all.
+        {
+          kind: "answered",
+          id: "d-harness",
+          ask: "ask-1",
+          at: AT_54,
+          key: "implementor.harness",
+          header: "",
+          question: "Which harness implements?",
+          options: ["claude", "omp"],
+          multiple: false,
+          file: "",
+          answer: {
+            at: AT_54,
+            how: "answered",
+            picked: ["omp"],
+            text: null,
+            from: "card",
+          },
+        },
+        // ... and a question whose options are still the asker's.
+        {
+          kind: "asked",
+          id: "d-mode",
+          ask: "ask-1",
+          at: AT_54,
+          key: "mode",
+          header: "",
+          question: "How should this run?",
+          options: ["full", "trivial"],
+          multiple: false,
+          file: "",
+        },
+      ],
+      events: [],
+      state: { kind: "open" },
+    },
+  };
+
+  const decisionsOf = (works: Record<string, unknown>) =>
+    (
+      (works[ID] as { decisions: Array<Record<string, unknown>> }).decisions ??
+      []
+    ).reduce<Record<string, Record<string, unknown>>>((all, one) => {
+      all[one.id as string] = one;
+      return all;
+    }, {});
+
+  it("drops options and multiple from the four kolu-choice decisions only", () => {
+    const after = decisionsOf(walk(structuredClone(WORKS)));
+
+    // The open question becomes one kolu draws the options for — which is
+    // what makes it answerable at all after this change.
+    expect(after["d-model"]).toBeDefined();
+    expect("options" in (after["d-model"] ?? {})).toBe(false);
+    expect("multiple" in (after["d-model"] ?? {})).toBe(false);
+    expect(after["d-model"]?.question).toBe("Which model should plan?");
+
+    // The answered one loses the same two fields and keeps its answer: that
+    // `picked` is what the readings read.
+    expect("options" in (after["d-harness"] ?? {})).toBe(false);
+    expect("multiple" in (after["d-harness"] ?? {})).toBe(false);
+    expect(after["d-harness"]?.answer).toEqual({
+      at: AT_54,
+      how: "answered",
+      picked: ["omp"],
+      text: null,
+      from: "card",
+    });
+
+    // A question whose options are the asker's keeps them.
+    expect(after["d-mode"]?.options).toEqual(["full", "trivial"]);
+    expect(after["d-mode"]?.multiple).toBe(false);
+  });
+
+  it("decodes through the live works schema, and runs again as a no-op", () => {
+    const once = walk(structuredClone(WORKS));
+    const decoded = Schema.decodeUnknownResult(PersistedWorksSchema)(once);
+    expect(Result.isSuccess(decoded)).toBe(true);
+    // Idempotent: the walked record fed back through the rung is unchanged.
+    expect(walk(structuredClone(once))).toEqual(once);
+  });
+});

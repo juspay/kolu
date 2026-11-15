@@ -42,8 +42,9 @@ npins pin as a workspace member (`nix/workspace.nix`, the `@odu/*` mechanism).
 Each piece is imported where it is used:
 
 - **this package** — the history line's reader (`update/history`), the
-  versions file and `changes()` (`update/versions`), and the `--list --json`
-  value and its words (`listing`);
+  versions file and `changes()` (`update/versions`), the `--list --json`
+  value and its words (`listing`), and the `--models` value, its checker and
+  a launch's words for a model (`models`: `parseModels`, `launchWords`);
 - **padi** — the history line's writer (`historyLine`), the history log's one
   writer (`appendHistory`, `update/history-log`, which keeps it trimmed under
   upstream's lock), the state directory's `current` and `last-success`
@@ -65,6 +66,16 @@ The **TypeScript half**, as data and pure functions:
   /home/me/repo/plugin.json over AI_PROFILE=…`): `parseProfileInEffect`,
   `undefined` when none is in effect, a throw for output out of format. padi
   asks it once per terminal; kolu never re-derives it.
+- `./models` — which models a harness offers on a host, and how a launch is
+  given one: upstream's `agent-distro --models <harness>` (`modelsArgs`), read
+  with upstream's `parseModels` (`parseAgentModels`) into
+  `AgentModelsSchema` — `listed` ids (exactly what the launch takes, so one
+  model under two providers is two ids), `unlisted` (the harness has no list
+  command), and `launch`, a flag or a config layer — and the start of a launch
+  for a model, upstream's `launchWords` (`modelLaunchWords`). Each harness says
+  all of it in its own adapter upstream; kolu holds no table of list commands,
+  model flags or model names. padi runs it (`agentDistro.models`); a failure is
+  the runner's error, never an empty list.
 - `./profileFile` — a BUILT profile's `share/agent-distro/profile.json` (its
   name and description; the fields a launch reads are upstream's) and its
   parser. kolu-server reads it off each profile it builds.
@@ -148,14 +159,17 @@ The **TypeScript half**, as data and pure functions:
   `agentRestartReady`, `agentRestartAction`, `agentStaleLabel`,
   `restartedLabel`); the tile pill's words (`agentChipProfile`,
   `agentChipLabel`); keeping it current (`AGENTS_CHECK_NOW`,
-  `agentCheckFailed`, `landedFacts`, `receiptSet`, `updateLanded`); and the setting's own
+  `agentCheckFailed`, `landedFacts`, `receiptSet`, `updateLanded`); why a host
+  has no harness to choose and what to do (`agentsNotReadyWords` — what a work's
+  setup and padi's model list both refuse with); and the setting's own
   toasts (`agentToast`) — typed against `./schema`, so a field added to the
   wire is one the folds must handle.
 - `./testing` — test support only: `packageFiles` (the package's versions
   file), `builtProfileFiles` (a built profile's `profile.json`), `readFrom` (a
   `readText` over them), `failedUpdateLine` (a failed run's line in a host's
-  update log, by upstream's writer) and `standInListJson` (a stand-in picker's
-  `--list --json`, upstream's shape). Every test that fakes a package or a
+  update log, by upstream's writer), `standInListJson` (a stand-in picker's
+  `--list --json`, upstream's shape) and `standInModels` (its `--models
+  <harness>`: an answer, or a list command that fails). Every test that fakes a package or a
   profile — this package's, padi's, kolu-server's boot read, the e2e fixture —
   goes through it.
 - `./solid` — agent-distro's logo (`doc/logo.svg`, vendored byte-identical from

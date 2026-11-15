@@ -103,6 +103,7 @@ import {
   setConductorCellWriter,
   setWorksCollectionWriters,
 } from "./conductor/live.ts";
+import { koluOffer } from "./conductor/koluOffer.ts";
 import { store } from "./state.ts";
 
 // ── The WIDENING SEAM: kolu-server's served superset group ─────────────────
@@ -651,10 +652,10 @@ export function implementKoluSurface(deps: KoluSurfaceDeps) {
             from: "card" | "chat" | "reader" | "popout";
           };
         }) =>
-          Effect.suspend(() => {
-            try {
-              return Effect.succeed(
-                liveServerConductor().answerWork({
+          Effect.tryPromise({
+            try: () =>
+              liveServerConductor().answerWork(
+                {
                   work: input.work,
                   ask: input.ask,
                   from: input.from,
@@ -669,16 +670,21 @@ export function implementKoluSurface(deps: KoluSurfaceDeps) {
                             ],
                           ),
                         ),
-                }),
-              );
-            } catch (err) {
-              return err instanceof WorkRefusal
+                },
+                // WHAT KOLU OFFERS, so an answer to a harness or model
+                // question is checked where it is recorded.
+                koluOffer().offer,
+              ),
+            catch: (err: unknown) => err,
+          }).pipe(
+            Effect.catch((err: unknown) =>
+              err instanceof WorkRefusal
                 ? Effect.fail(
                     new ConductorRefused({ why: err.message, auth: false }),
                   )
-                : Effect.die(err);
-            }
-          }),
+                : Effect.die(err),
+            ),
+          ),
       },
     },
   };

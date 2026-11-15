@@ -1336,6 +1336,80 @@ export function splitWorkAskRows_1_53_0(stateRoot: string): void {
   );
 }
 
+/** THE FOUR SETUP QUESTIONS KOLU NOW DRAWS THE OPTIONS FOR, as 1.54.0 froze
+ *  them. Copied rather than imported from `kolu-work`: a rung keeps producing
+ *  the bytes it was proven against, whatever that package's key list does
+ *  next. */
+const KOLU_CHOICE_KEYS_1_54_0: ReadonlySet<string> = new Set([
+  "planner.harness",
+  "planner.model",
+  "implementor.harness",
+  "implementor.model",
+]);
+
+/** The 1.54.0 rung — THE CONDUCTOR NO LONGER OFFERS OPTIONS FOR A ROLE'S
+ *  HARNESS OR ITS MODEL, so the decisions that stored them lose the copy.
+ *
+ *  A decision whose `key` is one of {@link KOLU_CHOICE_KEYS_1_54_0} has no
+ *  `options` and no `multiple` any more: the harnesses are the agent-distro
+ *  listing this kolu carries, and the models are what the work's HOST answers
+ *  for the chosen harness, asked for when the form is drawn and never saved
+ *  (a saved model list goes stale the day that host's agents update). So the
+ *  stored `works` record is rewritten: for every decision with one of those
+ *  keys, ASKED OR ANSWERED, both fields are deleted. Everything else — every
+ *  other decision, the events, the state, the members — is untouched, and a
+ *  `mode` or `on-green` decision keeps the options its asker gave.
+ *
+ *  THIS IS WHAT KEEPS AN OPEN FORM ANSWERABLE. A work opened before this
+ *  change may have an OPEN setup question still carrying the Conductor's own
+ *  options; dropping them turns it into a question kolu draws the options for,
+ *  which is the only shape the form can now be answered in. An ANSWERED
+ *  decision keeps its `answer.picked` verbatim — that is what the readings
+ *  read to say which harness and which model a role runs on, and nothing here
+ *  touches it.
+ *
+ *  IDEMPOTENT: a decision with neither field is left exactly as it is, and a
+ *  store with no such decision is not written back at all. The works record
+ *  is a keyed object at 1.53.0 (`{ [workId]: Work }`) and is read as untyped
+ *  JSON, like every rung before it. The transcript file's row shape does not
+ *  change, so `TRANSCRIPT_FILE_VERSION` stays at 1.53.0.
+ *
+ *  Exported for `stateMigration.test.ts`. */
+export function dropKoluChoiceOptions_1_54_0(
+  store: Conf<PersistedState>,
+): void {
+  const works = recordOf(store.get("works"));
+  if (works === null) return;
+  let changed = false;
+  const next: Record<string, unknown> = {};
+  for (const [id, value] of Object.entries(works)) {
+    const work = recordOf(value);
+    if (work === null || !Array.isArray(work.decisions)) {
+      next[id] = value;
+      continue;
+    }
+    let touched = false;
+    const decisions = work.decisions.map((one: unknown) => {
+      const decision = recordOf(one);
+      if (decision === null) return one;
+      if (typeof decision.key !== "string") return one;
+      if (!KOLU_CHOICE_KEYS_1_54_0.has(decision.key)) return one;
+      if (!("options" in decision) && !("multiple" in decision)) return one;
+      touched = true;
+      const { options: _options, multiple: _multiple, ...rest } = decision;
+      return rest;
+    });
+    if (!touched) {
+      next[id] = value;
+      continue;
+    }
+    changed = true;
+    next[id] = { ...work, decisions };
+  }
+  if (!changed) return;
+  store.set("works", next as unknown as PersistedState["works"]);
+}
+
 /** The migration ladder — hoisted so {@link decodeStateBackup}'s scratch
  *  store walks the REAL ladder on a backup snapshot (which may predate any
  *  rung), never a parallel re-implementation of it. */
@@ -2011,4 +2085,12 @@ export const CONF_MIGRATIONS = {
   // (a work question is its own row kind), which is why
   // TRANSCRIPT_FILE_VERSION reads 1.53.0.
   "1.53.0": foldWorks_1_53_0,
+  // A ROLE'S HARNESS AND ITS MODEL ARE KOLU'S OPTIONS TO DRAW, so those four
+  // decisions lose the `options`/`multiple` the Conductor used to offer —
+  // which is what keeps a work opened before the change, with an OPEN setup
+  // question, answerable at all. `dropKoluChoiceOptions_1_54_0` argues it;
+  // answered decisions keep their `answer.picked`, which is what the readings
+  // read. The transcript file's rows do not change, so
+  // TRANSCRIPT_FILE_VERSION stays at 1.53.0.
+  "1.54.0": dropKoluChoiceOptions_1_54_0,
 };

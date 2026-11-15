@@ -46,6 +46,11 @@ export type WorkRole = typeof WorkRoleSchema.Type;
  *  defect this round removes; `other` is uncapped (a watch may hold several
  *  terminals nobody has a part for). Enforced in {@link parseStore}. */
 export const UNIQUE_ROLES = ["planner", "implementor"] as const;
+/** A waterfall's part — the roles a work holds one of, and the two whose
+ *  agent kolu starts from the work's own setup. */
+export type WaterfallRole = (typeof UNIQUE_ROLES)[number];
+export const isWaterfallRole = (role: WorkRole): role is WaterfallRole =>
+  (UNIQUE_ROLES as ReadonlyArray<string>).includes(role);
 
 /** How the work is run: the whole waterfall, the one-implementor waterfall,
  *  or a plain watch the human asked for. */
@@ -76,6 +81,36 @@ export const SETUP_KEYS = [
 ] as const;
 export const SetupKeySchema = Schema.Literals(SETUP_KEYS);
 export type SetupKey = typeof SetupKeySchema.Type;
+
+/** THE SETUP QUESTIONS KOLU DRAWS THE OPTIONS FOR — a role's harness (the
+ *  agent-distro harnesses this kolu carries) and its model (what that harness
+ *  offers on the work's host, asked for when the form is drawn). Whoever opens
+ *  a work NAMES these questions and passes what the request already said; it
+ *  cannot offer options for them, and their decisions store none: a model list
+ *  is a live fact about a host, and a copy in the record is a copy that goes
+ *  stale the day the host's agents update. */
+export const KOLU_CHOICE_KEYS = [
+  "planner.harness",
+  "planner.model",
+  "implementor.harness",
+  "implementor.model",
+] as const satisfies ReadonlyArray<SetupKey>;
+export const KoluChoiceKeySchema = Schema.Literals(KOLU_CHOICE_KEYS);
+export type KoluChoiceKey = typeof KoluChoiceKeySchema.Type;
+
+/** ... and the ones whose options the asker offers, in kolu's own words: the
+ *  mode and what to do on green. With {@link KOLU_CHOICE_KEYS}, every setup
+ *  key, each in exactly one of the two. */
+export const OFFERED_SETUP_KEYS = [
+  "mode",
+  "on-green",
+] as const satisfies ReadonlyArray<SetupKey>;
+export const OfferedSetupKeySchema = Schema.Literals(OFFERED_SETUP_KEYS);
+export type OfferedSetupKey = typeof OfferedSetupKeySchema.Type;
+
+/** Whether kolu draws this setup question's options itself. */
+export const isKoluChoiceKey = (key: SetupKey | null): key is KoluChoiceKey =>
+  key !== null && (KOLU_CHOICE_KEYS as ReadonlyArray<string>).includes(key);
 
 /** WHAT A PIECE OF WORK IS — a branch on a machine, or a terminal somebody
  *  asked kolu to keep an eye on.
@@ -327,13 +362,15 @@ export type DecisionAnswer = typeof DecisionAnswerSchema.Type;
 /** What every decision carries, asked or answered. One ask (a form) can hold
  *  several questions — the setup is one form — so `ask` is the form's id and
  *  `id` is this question's own. */
-const decisionFields = {
+const questionFields = {
   id: Schema.String,
   ask: Schema.String,
   /** When it was asked. */
   at: Schema.String,
-  /** The setup question this answers, or `null` for any other. */
-  key: Schema.NullOr(SetupKeySchema),
+};
+
+/** ... and after the key, what every decision says about itself. */
+const describedFields = {
   /** THE QUESTION'S SHORT HEADER — two or three words, which is the label a
    *  decision is DRAWN under on the card: the question's own words are behind
    *  a press. `""` for a setup question, whose label is its key's own name,
@@ -341,15 +378,38 @@ const decisionFields = {
    *  question stand in). */
   header: Schema.String,
   question: Schema.String,
+};
+
+/** THE FILE THIS QUESTION IS ABOUT — worktree-relative, exactly as the work's
+ *  own `file` events spell it (`.waterfall/plan.md`), or `""` for a question
+ *  about no file. A plan approval carries the plan, so every face that draws
+ *  the question can offer the one thing a person must read before answering
+ *  it. */
+const fileField = {
+  file: Schema.String.pipe(Schema.withDecodingDefaultKey(Effect.succeed(""))),
+};
+
+/** A question whose OPTIONS ARE THE ASKER'S: any question about a work
+ *  (`key: null`), and the two setup questions answered in kolu's own words. */
+const offeredFields = {
+  ...questionFields,
+  /** The setup question this answers, or `null` for any other. */
+  key: Schema.NullOr(OfferedSetupKeySchema),
+  ...describedFields,
   options: Schema.Array(Schema.String),
   /** Whether more than one option may be picked. */
   multiple: Schema.Boolean,
-  /** THE FILE THIS QUESTION IS ABOUT — worktree-relative, exactly as the
-   *  work's own `file` events spell it (`.waterfall/plan.md`), or `""` for a
-   *  question about no file. A plan approval carries the plan, so every face
-   *  that draws the question can offer the one thing a person must read
-   *  before answering it. */
-  file: Schema.String.pipe(Schema.withDecodingDefaultKey(Effect.succeed(""))),
+  ...fileField,
+};
+
+/** A question whose options are KOLU'S ({@link KOLU_CHOICE_KEYS}): no options
+ *  and no `multiple` — there is nowhere to write either, so a stored copy of
+ *  a model list, or a role run on two harnesses, is not a value. */
+const koluChoiceFields = {
+  ...questionFields,
+  key: KoluChoiceKeySchema,
+  ...describedFields,
+  ...fileField,
 };
 
 /** ONE QUESTION PUT TO THE HUMAN, and its answer — as a SUM.
@@ -357,22 +417,39 @@ const decisionFields = {
  *  `asked` is a question waiting on somebody; `answered` carries the answer,
  *  and carrying it is the only way to be that arm. The open asks a card draws
  *  are therefore DERIVED (`openAsks`): there is no second list that a restart
- *  could leave disagreeing with the decisions. */
-export const AskedSchema = Schema.Struct({
-  kind: Schema.Literal("asked"),
-  ...decisionFields,
-});
+ *  could leave disagreeing with the decisions. Each arm is two shapes, by who
+ *  draws the options: the asker ({@link offeredFields}) or kolu
+ *  ({@link koluChoiceFields}). */
+export const AskedSchema = Schema.Union([
+  Schema.Struct({ kind: Schema.Literal("asked"), ...offeredFields }),
+  Schema.Struct({ kind: Schema.Literal("asked"), ...koluChoiceFields }),
+]);
 export type Asked = typeof AskedSchema.Type;
 
-export const AnsweredSchema = Schema.Struct({
-  kind: Schema.Literal("answered"),
-  ...decisionFields,
-  answer: DecisionAnswerSchema,
-});
+export const AnsweredSchema = Schema.Union([
+  Schema.Struct({
+    kind: Schema.Literal("answered"),
+    ...offeredFields,
+    answer: DecisionAnswerSchema,
+  }),
+  Schema.Struct({
+    kind: Schema.Literal("answered"),
+    ...koluChoiceFields,
+    answer: DecisionAnswerSchema,
+  }),
+]);
 export type Answered = typeof AnsweredSchema.Type;
 
 export const DecisionSchema = Schema.Union([AskedSchema, AnsweredSchema]);
 export type Decision = typeof DecisionSchema.Type;
+
+/** A decision kolu draws the options for — a role's harness or model. */
+export type KoluChoice = Extract<Decision, { readonly key: KoluChoiceKey }>;
+/** ... and one whose options the asker gave. */
+export type Offered = Exclude<Decision, KoluChoice>;
+
+export const isKoluChoice = (decision: Decision): decision is KoluChoice =>
+  isKoluChoiceKey(decision.key);
 
 export const isAsked = (decision: Decision): decision is Asked =>
   decision.kind === "asked";

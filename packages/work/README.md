@@ -46,16 +46,27 @@ per role, what to do on green) is **read** off those decisions (`setupOf`,
 `onGreenOf`), never stored beside them. kolu records everything else it
 observes as events.
 
+**Two kinds of question, by who offers the options.** A decision whose key is
+one of `KOLU_CHOICE_KEYS` — a role's harness or model — is one kolu draws the
+options for, live: the harnesses this kolu carries, and what that harness
+offers on the work's host. Its decision has no `options` and no `multiple`, so
+a stored model list (one that goes stale the day the host's agents update) or
+a role run on two harnesses is not a value. Every other decision keeps the
+asker's `options`. An answer to a kolu question is checked where it is recorded
+(`unofferedAnswers`, against the `KoluChoices` the recorder read live), and the
+last answers a form preselects are read off the saved works (`setupMemory`),
+never off a conversation.
+
 ## What is here
 
 | module | what |
 | --- | --- |
-| `schema.ts` | the KEY (`WorkKey`, `workIdOf`, `workKeyOf`), the record, the `state`/`outcome` sums and their readings (`isOpen`, `endedAt`, `outcomeOf`, `keptOf`), the `Asked \| Answered` decision sum, the event union typed by kind, and the waterfall's WORDS (`WORK_ROLES`, `WORK_MODES`, `ON_GREEN`, `SETUP_KEYS`) — declared here because the record's schema embeds them |
+| `schema.ts` | the KEY (`WorkKey`, `workIdOf`, `workKeyOf`), the record, the `state`/`outcome` sums and their readings (`isOpen`, `endedAt`, `outcomeOf`, `keptOf`), the `Asked \| Answered` decision sum (each arm split by who offers the options: `Offered` or `KoluChoice`), the event union typed by kind, and the waterfall's WORDS (`WORK_ROLES`, `WORK_MODES`, `ON_GREEN`, `SETUP_KEYS`, `KOLU_CHOICE_KEYS`, `OFFERED_SETUP_KEYS`) — declared here because the record's schema embeds them |
 | `store.ts` | the ONE smart constructor over works + members: `parseStore` (what the decoder and the single writer both go through), `storeFault` and the `InvalidWorkStore` carrying the `StoreFault` that names the rule that broke and the rows that break it — a VALUE, because the sentence belongs to the face that shows it |
 | `record.ts` | the transitions: `openWork`, `askQuestions`, `answerAsk`, `dropAsk`, `joinWork`, `leaveWork`, `recordEvent`, `takeOver`/`handBack`, `endWork`, `reopenWork`, `keepFiles`/`keepFailed` — the record only grows, bounded by `AGENT_STATES_KEPT`; `openAsks`/`hasOpenAsk` derive what is still waiting on a person |
 | `readings.ts` | the MECHANISM of a reading: what a decision came to (`answerValue`), the decisions of one ask, the PR as the timeline last said it (`prOf`) with the one check table (`CHECK_STEP`), the key a timeline holds at most one of (`checkKey`, `checksSeen` — one per kind per head commit, off the event's own `pr` and `head` fields), the files seen |
 | `folds.ts` | `waitingOn`, `standing`, `timeBar`, `timeSpent`, `took`, `lifetime`, `inProgress`/`finished` over `WorkRow`, `capFinished` — each taking a `Policy` (what the waterfall's words mean for this work) rather than reading the setup itself |
-| `waterfall.ts` | the WORDS and every rule over them: `MODE_RUNS` (what each mode runs, needs and drives), `rolesOf`, `setupKeyOf`, `roleRank`, `modeOf`/`onGreenOf`/`setupOf`, `missingSetup` + `foreignSetupWords`, `driverOf`, `membershipOf`, `waitingOnYou`, `policyOf`, and where a work's files live (`WATERFALL_DIR`, `waterfallFileName`) |
+| `waterfall.ts` | the WORDS and every rule over them: `MODE_RUNS` (what each mode runs, needs and drives), `rolesOf`, `setupKeyOf`, `roleOfKey`, `roleRank`, `modeOf`/`onGreenOf`/`setupOf`, `missingSetup` + `foreignSetupWords`, the kolu-choice rules (`harnessForModel`, `modelHarnessesOf`, `unofferedAnswers`, `setupMemory`), `driverOf`, `membershipOf`, `waitingOnYou`, `policyOf`, and where a work's files live (`WATERFALL_DIR`, `waterfallFileName`) |
 | `refusal.ts` | why a call about a work is refused — `WORK_REFUSALS` and the `WorkRefusal` every face `instanceof`s |
 
 **Four rules JSON cannot state, in one constructor.** Everything else is the

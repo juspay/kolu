@@ -8,6 +8,7 @@
   "exports": {
     "./listing": "./src/listing.ts",
     "./inEffect": "./src/inEffect.ts",
+    "./models": "./src/models.ts",
     "./landing": "./src/landing.ts",
     "./receipt": "./src/receipt.ts",
     "./bundle": "./src/bundle.ts",

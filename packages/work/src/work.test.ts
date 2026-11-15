@@ -1,6 +1,17 @@
 import { Schema } from "effect";
 import { describe, expect, it } from "vitest";
 import {
+  harnessForModel,
+  isKoluChoice,
+  KOLU_CHOICE_KEYS,
+  type KoluChoiceKey,
+  type KoluChoices,
+  modelHarnessesOf,
+  type Question,
+  setupMemory,
+  unofferedAnswers,
+} from "./index.ts";
+import {
   AGENT_STATE_KINDS,
   AGENT_STATES_KEPT,
   answerAsk,
@@ -66,6 +77,9 @@ const opened = (key: WorkKey = KEY): Work =>
     request: "waterfall ~/code/kolu — show the error",
   });
 
+const koluQuestion = (id: string, key: KoluChoiceKey, question: string) =>
+  ({ id, key, header: "", question, file: "" }) as const;
+
 const SETUP = [
   {
     id: "q-mode",
@@ -76,42 +90,11 @@ const SETUP = [
     multiple: false,
     file: "",
   },
-  {
-    id: "q-ph",
-    key: "planner.harness",
-    header: "",
-    question: "Planner harness?",
-    options: ["omp", "claude"],
-    multiple: false,
-    file: "",
-  },
-  {
-    id: "q-pm",
-    key: "planner.model",
-    header: "",
-    question: "Planner model?",
-    options: ["fable", "opus"],
-    multiple: false,
-    file: "",
-  },
-  {
-    id: "q-ih",
-    key: "implementor.harness",
-    header: "",
-    question: "Implementor harness?",
-    options: ["omp", "claude"],
-    multiple: false,
-    file: "",
-  },
-  {
-    id: "q-im",
-    key: "implementor.model",
-    header: "",
-    question: "Implementor model?",
-    options: ["fable", "opus"],
-    multiple: false,
-    file: "",
-  },
+  // kolu's own four: no options to write down.
+  koluQuestion("q-ph", "planner.harness", "Planner harness?"),
+  koluQuestion("q-pm", "planner.model", "Planner model?"),
+  koluQuestion("q-ih", "implementor.harness", "Implementor harness?"),
+  koluQuestion("q-im", "implementor.model", "Implementor model?"),
   {
     id: "q-green",
     key: "on-green",
@@ -121,7 +104,7 @@ const SETUP = [
     multiple: false,
     file: "",
   },
-] as const;
+] as const satisfies ReadonlyArray<Question>;
 
 const setUp = (work: Work): Work =>
   answerAsk(askQuestions(work, { ask: "ask-1", questions: SETUP, at: T(1) }), {
@@ -276,6 +259,174 @@ describe("parseStore — what the types cannot say", () => {
       // the words it shows are its own.
       expect((err as InvalidWorkStore).fault.kind).toBe("key-mismatch");
     }
+  });
+});
+
+describe("kolu's own setup questions — the harness and the model", () => {
+  const CHOICES: KoluChoices = {
+    harnesses: ["omp", "claude"],
+    models: new Map([
+      [
+        "omp",
+        {
+          kind: "listed",
+          ids: ["anthropic/claude-fable-5-2", "litellm/claude-fable-5-2"],
+        },
+      ],
+      ["claude", { kind: "unlisted" }],
+    ]),
+  };
+  const asked = (): Work =>
+    askQuestions(opened(), { ask: "ask-1", questions: SETUP, at: T(1) });
+
+  it("stores no options for them, so a model list is never a copy in the record", () => {
+    const work = asked();
+    const kolus = work.decisions.filter((one) => isKoluChoice(one));
+    expect(kolus.map((one) => one.key)).toEqual([...KOLU_CHOICE_KEYS]);
+    for (const one of kolus) {
+      expect(one).not.toHaveProperty("options");
+      expect(one).not.toHaveProperty("multiple");
+    }
+    // ... the record decodes as the schema says, and a stored list a reader
+    // is handed anyway has nowhere to land: it is not part of the value.
+    expect(Schema.decodeUnknownSync(WorkSchema)(work)).toEqual(work);
+    const smuggled = Schema.decodeUnknownSync(WorkSchema)({
+      ...work,
+      decisions: work.decisions.map((one) =>
+        isKoluChoice(one) ? { ...one, options: ["omp"], multiple: false } : one,
+      ),
+    });
+    for (const one of smuggled.decisions.filter((d) => isKoluChoice(d)))
+      expect(one).not.toHaveProperty("options");
+  });
+
+  it("reads a model's harness off the same form, else off the work", () => {
+    const work = asked();
+    expect(
+      harnessForModel(
+        work,
+        "ask-1",
+        "planner.model",
+        new Map([["q-ph", ["claude"]]]),
+      ),
+    ).toBe("claude");
+    expect(
+      harnessForModel(work, "ask-1", "planner.model", new Map()),
+    ).toBeNull();
+    // A later ask about the model alone reads the harness already decided.
+    const later = askQuestions(setUp(opened()), {
+      ask: "ask-2",
+      questions: [koluQuestion("q-pm2", "planner.model", "Model?")],
+      at: T(3),
+    });
+    expect(harnessForModel(later, "ask-2", "planner.model", new Map())).toBe(
+      "omp",
+    );
+  });
+
+  it("finds every answer that is not one of kolu's options, and passes the ones that are", () => {
+    const work = asked();
+    const values = new Map<string, ReadonlyArray<string>>([
+      ["q-ph", ["omp"]],
+      ["q-pm", ["anthropic/claude-fable-5-2"]],
+      ["q-ih", ["claude"]],
+      // A harness that cannot list takes whatever model the person names.
+      ["q-im", ["claude-opus-4-6"]],
+    ]);
+    expect(modelHarnessesOf(work, "ask-1", values)).toEqual(["omp", "claude"]);
+    expect(unofferedAnswers(work, "ask-1", values, CHOICES)).toEqual([]);
+
+    const bad = new Map<string, ReadonlyArray<string>>([
+      ["q-ph", ["codex"]],
+      ["q-ih", ["omp"]],
+      ["q-im", ["claude-fable-5-1"]],
+    ]);
+    expect(unofferedAnswers(work, "ask-1", bad, CHOICES)).toEqual([
+      { key: "planner.harness", value: "codex", why: "not-installed" },
+      {
+        key: "implementor.model",
+        value: "claude-fable-5-1",
+        why: "not-listed",
+        harness: "omp",
+      },
+    ]);
+    expect(
+      unofferedAnswers(
+        work,
+        "ask-1",
+        new Map([["q-pm", ["anthropic/claude-fable-5-2"]]]),
+        CHOICES,
+      ),
+    ).toEqual([
+      {
+        key: "planner.model",
+        value: "anthropic/claude-fable-5-2",
+        why: "no-harness",
+      },
+    ]);
+  });
+
+  it("records an answer to one of them as the one value picked", () => {
+    const work = answerAsk(asked(), {
+      ask: "ask-1",
+      at: T(2),
+      from: "card",
+      values: new Map([["q-im", ["claude-opus-4-6"]]]),
+    });
+    const model = work.decisions.find((one) => one.id === "q-im");
+    expect(model?.kind === "answered" ? model.answer : null).toMatchObject({
+      picked: ["claude-opus-4-6"],
+      text: null,
+    });
+  });
+
+  it("remembers the last answers from the SAVED works — per host, a model per harness", () => {
+    const elsewhere: WorkKey = { ...KEY, host: "local", branch: "other" };
+    const answered = (key: WorkKey, at: number, models: [string, string]) =>
+      answerAsk(
+        askQuestions(opened(key), {
+          ask: "ask-1",
+          questions: SETUP,
+          at: T(at),
+        }),
+        {
+          ask: "ask-1",
+          at: T(at + 1),
+          from: "card",
+          values: new Map([
+            ["q-mode", ["full"]],
+            ["q-ph", ["omp"]],
+            ["q-pm", [models[0]]],
+            ["q-ih", ["claude"]],
+            ["q-im", [models[1]]],
+            ["q-green", ["hand-over"]],
+          ]),
+        },
+      );
+    const works = [
+      answered(KEY, 1, ["anthropic/claude-fable-5-1", "claude-opus-4-5"]),
+      answered({ ...KEY, branch: "newer" }, 10, [
+        "anthropic/claude-fable-5-2",
+        "claude-opus-4-6",
+      ]),
+      answered(elsewhere, 20, ["litellm/open-large", "claude-sonnet-4-6"]),
+    ];
+    const memory = setupMemory(works, KEY.host);
+    expect(memory.last("planner.harness", null)).toBe("omp");
+    expect(memory.last("on-green", null)).toBe("hand-over");
+    // The newest on THIS host, not the newest anywhere.
+    expect(memory.last("planner.model", "omp")).toBe(
+      "anthropic/claude-fable-5-2",
+    );
+    // A model is a model of its harness, whichever role ran it.
+    expect(memory.last("planner.model", "claude")).toBe("claude-opus-4-6");
+    expect(memory.last("implementor.model", "codex")).toBeNull();
+    // What a harness that cannot list offers: every model it ran, newest first.
+    expect(memory.modelsUsed("claude")).toEqual([
+      "claude-sonnet-4-6",
+      "claude-opus-4-6",
+      "claude-opus-4-5",
+    ]);
   });
 });
 

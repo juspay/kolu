@@ -700,8 +700,8 @@ system and the Nix versions involved (`deliverClosure`): content-addressed to a
 Linux host when kolu-server's `nix`, its store's Nix and the host's all handle
 the same form (the same side of Nix 2.35), else as built here — signed by no
 one, so the host takes it only when its Nix trusts the login; to a Mac always
-as built. Two cells, one procedure (`padiSurface` 7.0) and one spawn
-layer carry it; the module is `src/agentDistro/`.
+as built. Two cells, two procedures (`padiSurface` 7.0, `models` since 7.5)
+and one spawn layer carry it; the module is `src/agentDistro/`.
 
 - **`agentDistro` (memory-only, `get`/`set`)** — the Agents setting
   (`{ enabled, profiles }`: the harnesses on or off, and the stack of profile
@@ -756,6 +756,20 @@ layer carry it; the module is `src/agentDistro/`.
   never retries and never runs Nix for agents — kolu-server delivers again on
   upstream's schedule, on every bind, and on the user's check. Binder-only; not
   on the MCP face.
+- **`agentDistro.models` (procedure, `padiSurface` 7.5)** — which models a
+  harness offers on THIS host, for kolu's setup form, its answer check and the
+  command the fleet face starts a planner or implementor with
+  (`src/agentDistro/models.ts`). padi runs the serving package's
+  `bin/agent-distro --models <harness>` (`@kolu/agent-distro/models`) in the
+  `cwd` it is given — the work's repository, whose own `plugin.json` composes
+  over the profiles — with the environment a terminal spawned here now gets
+  (the plugin dir and `AI_PROFILE`), and answers upstream's word unchanged: the
+  ids the harness listed or `unlisted`, and how a launch takes a model. A host
+  whose agents are not ready, a list command that fails, or output kolu cannot
+  read is the declared `AgentModelsUnavailable` with the words (the not-ready
+  ones are `@kolu/agent-distro/status`'s `agentsNotReadyWords`, the failure's
+  are its own stderr) — never an empty list. Read-only; denied on the MCP face,
+  because the harness and model are kolu's to offer.
 - **Keeping it current** — kolu-server's job, not padi's: it delivers on
   upstream's schedule (02/08/14/20 UTC, retries on a failed run), whenever this
   padi binds or takes a changed setting, and when the user asks — re-reading the

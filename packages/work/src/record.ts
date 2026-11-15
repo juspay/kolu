@@ -12,16 +12,21 @@
  * own that disagrees with that map.
  */
 
-import type {
-  AnswerFrom,
-  Decision,
-  EventKind,
-  KeptFile,
-  Outcome,
-  SetupKey,
-  Work,
-  WorkEvent,
-  WorkRole,
+import {
+  type Answered,
+  type AnswerFrom,
+  type Asked,
+  type Decision,
+  type DecisionAnswer,
+  type EventKind,
+  isKoluChoice,
+  type KeptFile,
+  type KoluChoiceKey,
+  type OfferedSetupKey,
+  type Outcome,
+  type Work,
+  type WorkEvent,
+  type WorkRole,
 } from "./schema.ts";
 
 /** HOW A TERMINAL'S AGENT STANDS, as events — the only kinds a work produces
@@ -108,19 +113,25 @@ export const openWork = (opened: {
   state: { kind: "open" },
 });
 
-/** One question as the Conductor asks it. `given` is an answer the human's
- *  request already carried: it is RECORDED as a decision answered from the
- *  request, and nobody is asked. */
-export interface Question {
+/** One question as it is put. `given` is an answer the human's request
+ *  already carried: it is RECORDED as a decision answered from the request,
+ *  and nobody is asked. A question kolu draws the options for carries none
+ *  ({@link KoluChoiceKey}); its `given` was checked against kolu's own
+ *  options before it got here. */
+export type Question = {
   readonly id: string;
-  readonly key: SetupKey | null;
   readonly header: string;
   readonly question: string;
-  readonly options: ReadonlyArray<string>;
-  readonly multiple: boolean;
   readonly file: string;
   readonly given?: string | undefined;
-}
+} & (
+  | {
+      readonly key: OfferedSetupKey | null;
+      readonly options: ReadonlyArray<string>;
+      readonly multiple: boolean;
+    }
+  | { readonly key: KoluChoiceKey }
+);
 
 /** Questions put to the human in ONE ask. A `question` event is appended
  *  only when something is actually being asked — an ask whose every answer
@@ -136,33 +147,20 @@ export const askQuestions = (
   const decisions: Decision[] = [...work.decisions];
   let open = false;
   for (const one of asked.questions) {
-    const common = {
-      id: one.id,
-      ask: asked.ask,
-      at: asked.at,
-      key: one.key,
-      header: one.header,
-      question: one.question,
-      options: [...one.options],
-      multiple: one.multiple,
-      file: one.file,
-    };
+    const asking = askedOf(one, asked.ask, asked.at);
     if (one.given === undefined) {
       open = true;
-      decisions.push({ kind: "asked", ...common });
+      decisions.push(asking);
       continue;
     }
-    decisions.push({
-      kind: "answered",
-      ...common,
-      answer: {
+    decisions.push(
+      answeredWith(asking, {
         at: asked.at,
         how: "answered",
-        picked: one.options.includes(one.given) ? [one.given] : [],
-        text: one.options.includes(one.given) ? null : one.given,
+        ...answerOf(asking, [one.given]),
         from: "request",
-      },
-    });
+      }),
+    );
   }
   const asking = { ...work, decisions };
   return open
@@ -193,34 +191,19 @@ export const answerAsk = (
   const decisions = work.decisions.map((one): Decision => {
     if (one.ask !== answered.ask || one.kind === "answered") return one;
     if (answered.values === null)
-      return {
-        ...one,
-        kind: "answered",
-        answer: {
-          at: answered.at,
-          how: "declined",
-          picked: [],
-          text: null,
-          from: answered.from,
-        },
-      };
-    const values = answered.values.get(one.id) ?? [];
-    const picked = values.filter((value) => one.options.includes(value));
-    const typed = values
-      .filter((value) => !one.options.includes(value))
-      .join("\n")
-      .trim();
-    return {
-      ...one,
-      kind: "answered",
-      answer: {
+      return answeredWith(one, {
         at: answered.at,
-        how: "answered",
-        picked,
-        text: typed === "" ? null : typed,
+        how: "declined",
+        picked: [],
+        text: null,
         from: answered.from,
-      },
-    };
+      });
+    return answeredWith(one, {
+      at: answered.at,
+      how: "answered",
+      ...answerOf(one, answered.values.get(one.id) ?? []),
+      from: answered.from,
+    });
   });
   return append(
     { ...work, decisions },
@@ -232,6 +215,51 @@ export const answerAsk = (
       ask: answered.ask,
     },
   );
+};
+
+/** A question as it is first written down: asked, in the shape its key says
+ *  — a question kolu draws the options for has none to write. */
+const askedOf = (one: Question, ask: string, at: string): Asked => {
+  const common = {
+    id: one.id,
+    ask,
+    at,
+    header: one.header,
+    question: one.question,
+    file: one.file,
+  };
+  return "options" in one
+    ? {
+        kind: "asked",
+        ...common,
+        key: one.key,
+        options: [...one.options],
+        multiple: one.multiple,
+      }
+    : { kind: "asked", ...common, key: one.key };
+};
+
+/** An asked decision, now answered — the same shape, the other arm. */
+const answeredWith = (one: Asked, answer: DecisionAnswer): Answered =>
+  isKoluChoice(one)
+    ? { ...one, kind: "answered", answer }
+    : { ...one, kind: "answered", answer };
+
+/** WHAT THE VALUES SENT FOR ONE QUESTION COME TO. A value among the asker's
+ *  options is a PICK; anything else is text they typed. A question kolu drew
+ *  the options for has one answer, already checked against those options
+ *  where it arrived (`unofferedAnswers`), and it is recorded as picked. */
+const answerOf = (
+  one: Decision,
+  values: ReadonlyArray<string>,
+): { picked: string[]; text: string | null } => {
+  if (isKoluChoice(one)) return { picked: values.slice(0, 1), text: null };
+  const picked = values.filter((value) => one.options.includes(value));
+  const typed = values
+    .filter((value) => !one.options.includes(value))
+    .join("\n")
+    .trim();
+  return { picked, text: typed === "" ? null : typed };
 };
 
 /** An ask that went away unanswered: the conversation that asked it is gone

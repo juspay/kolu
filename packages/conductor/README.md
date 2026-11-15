@@ -86,6 +86,16 @@ appending what it observes.
   `modeOf`/`onGreenOf` cannot read — is refused with `WorkRefusal` before the
   work exists. Declining the setup of a work nothing has happened in REMOVES
   it; a decline on one a terminal joined is recorded, and the work stays open.
+- **kolu offers the harness and the model.** `work_open` NAMES a role's
+  harness and model questions and nothing more: kolu words them, the form draws
+  their options live, and `openWork` / `answerWork` take a `KoluOffer` — the
+  harnesses this kolu carries, and what a harness offers on the work's host,
+  which kolu-server reads off its agent-distro listing and that host's padi.
+  A `given` harness or model, and every answer to one, is checked against it
+  where it is recorded (`kolu-work`'s `unofferedAnswers`), refused
+  `not-offered` naming each answer that is not an option; a host whose listing
+  FAILED refuses with its own words and records nothing. Both calls are async
+  for that one read.
 - **What is waiting on you is ONE list.** `publishState` composes the frame a
   browser reads: the conversation's own open elicitations, plus every question
   still open on a work in progress, together in `ConductorState.openAsks`. So

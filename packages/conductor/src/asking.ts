@@ -54,16 +54,21 @@ export const askFields = (
   questions: ReadonlyArray<Question>,
 ): ReadonlyArray<AskField> =>
   questions.map((one) => {
-    const choices: AskChoice[] = one.options.map((option) => ({
-      value: option,
-      label: option,
-      hint: null,
-    }));
+    // A question kolu draws the options for has none to log: they are read
+    // live off the listing and the host, and the answer is logged as text.
+    const choices: AskChoice[] =
+      "options" in one
+        ? one.options.map((option) => ({
+            value: option,
+            label: option,
+            hint: null,
+          }))
+        : [];
     return {
       key: one.id,
       label: one.question,
       hint: null,
-      kind: one.multiple ? "choices" : "choice",
+      kind: !("options" in one) ? "text" : one.multiple ? "choices" : "choice",
       choices,
       // Every question is optional: a person may answer the one they came for
       // and leave the rest, and the record says exactly that about the others.

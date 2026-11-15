@@ -146,7 +146,7 @@ loopback HTTP listener.
 | | `kolu mcp`, one host | the Conductor's, every host |
 | --- | --- | --- |
 | naming a terminal | `3f29…` | `local/3f29…`, `remote:nix@prod/9a1b…`: the host, then the id, read apart at the last `/` |
-| `lifecycle_create` | opens one here | takes the host to open on, answers a fleet reference, and is refused without a `work` and a `role` |
+| `lifecycle_create` | opens one here | takes the host to open on, answers a fleet reference, and is refused without a `work` and a `role`; kolu writes a planner's or implementor's command |
 | the repo tools — `git_getStatus` · `git_getDiff` · `fs_listAll` · `fs_readFile` | a repo path | a repo path and the host it is on |
 | the waits and the watch | `wait_outputSettled` · `wait_agentState` · `watch_open` · `watch_next` · `watch_close`, all as below | `wait_outputSettled`, hard-capped at a few seconds, plus the work tools below. The rest are not served |
 | live views | `terminals` · `urgency` · `daemonStatus` · `status` · `identity` | `terminals` · `urgency` · `hosts` · `works` |
@@ -154,9 +154,8 @@ loopback HTTP listener.
 </div>
 
 A turn of the Conductor's stuck in a wait is a person stuck behind it. It opens
-a piece of work, says what it has set going, ends its turn, and kolu-server
-starts the next one. The capped `wait_outputSettled` survives because typing a
-command and submitting it needs the pause between.
+a piece of work, ends its turn, and kolu-server starts the next one. The capped
+`wait_outputSettled` survives for the pause between typing and submitting.
 
 `hosts` is the live roster: which machines kolu knows, what each is called, and
 whether it is warming, connected or failed. A call naming a host that is not
@@ -289,7 +288,7 @@ kolu-server stores: it is woken rather than waiting.
 
 | Tool | What it does |
 | --- | --- |
-| `work_open` | Open a work by its host, repo and branch, or by the terminal to watch, with its title and setup questions. Opening one that exists returns it as it stands, and reopens it if it had ended. |
+| `work_open` | Open a work by its host, repo and branch, or by the terminal to watch, with its setup questions; kolu offers the harness and model options. Opening one that exists returns it, reopened if it had ended. |
 | `work_ask` | Ask you about a work, under a two-or-three-word header, with options, a box of your own, and the `file` to read. It answers at once; kolu wakes the Conductor with your answer. |
 | `work_adopt` | Bring a terminal into a work by its `host/id` and role, including one that left. Answers the state it was found in, a baseline rather than news. Refused for a role another holds. |
 | `work_leave` | Take a terminal out of its work. One that closes leaves by itself. |

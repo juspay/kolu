@@ -51,6 +51,7 @@ export {
   type ConductorFrameSink,
   type ConductorHost,
   type FleetMcpEndpoint,
+  type KoluOffer,
   startConductorHost,
 } from "./conductor.ts";
 export { type Held, type HeldSlot, holding } from "./held.ts";

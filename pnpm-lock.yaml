@@ -1232,12 +1232,18 @@ importers:
       '@effect/platform-node':
         specifier: 4.1.4
         version: 4.1.4(effect@4.1.4)(redis@6.2.1)
+      '@kolu/agent-distro':
+        specifier: workspace:*
+        version: link:../agent-distro
       '@kolu/padi':
         specifier: workspace:*
         version: link:../padi
       '@kolu/padi-client':
         specifier: workspace:*
         version: link:../padi-client
+      '@kolu/shell-quote':
+        specifier: workspace:*
+        version: link:../shell-quote
       '@kolu/surface':
         specifier: workspace:*
         version: link:../surface

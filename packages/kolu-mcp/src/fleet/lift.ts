@@ -51,7 +51,12 @@ import type { PadiSurfaceClient } from "@kolu/padi-client/dial";
 import { PLACEMENT_REQUIRED } from "@kolu/padi-client/surface";
 import { type BespokeTool, ToolFailure } from "@kolu/surface-mcp/tools";
 import { Effect, Schema } from "effect";
-import { WORK_ROLES, type WorkRole, WorkRoleSchema } from "kolu-work";
+import {
+  isWaterfallRole,
+  WORK_ROLES,
+  type WorkRole,
+  WorkRoleSchema,
+} from "kolu-work";
 import { CreateArgsSchema } from "../create.ts";
 import { AgentSayArgsSchema } from "../say.ts";
 import { ScreenImageArgsSchema } from "../screenImage.ts";
@@ -62,6 +67,7 @@ import { MillisecondsSchema, WaitOutputSettledArgsSchema } from "../wait.ts";
 import { type FleetHosts, requireHost, requireTerminal } from "./hosts.ts";
 import { fleetTerminalRef, splitFleetTerminalRef } from "./ref.ts";
 import { FleetHostKeySchema, FleetTerminalRefSchema } from "./refSchema.ts";
+import { waterfallRun } from "./start.ts";
 import {
   type FleetWorks,
   workAdoptTool,
@@ -174,6 +180,16 @@ interface FleetLift {
     works: FleetWorks,
     args: Record<string, unknown>,
   ) => ToolFailure | null;
+  /** WHAT THE CALL IS GIVEN THAT THE AGENT DID NOT WRITE — after the
+   *  precheck, before the route. One tool needs it: a planner's or an
+   *  implementor's `run` is kolu's, built from the work's saved setup and the
+   *  host's word on how its harness takes a model ({@link waterfallRun}), so
+   *  the command a waterfall agent starts with has one source. */
+  readonly prepare?: (
+    hosts: FleetHosts,
+    works: FleetWorks,
+    args: Record<string, unknown>,
+  ) => Effect.Effect<Record<string, unknown>, ToolFailure>;
 }
 
 /** THE id grammar of the fleet face, in one place. Each input is the per-host
@@ -199,7 +215,7 @@ const FLEET_LIFTS: Readonly<Record<string, FleetLift>> = {
       }),
       role: WorkRoleSchema.annotate({
         description:
-          "What this terminal is there to do: `planner`, `implementor`, or `other` for one the human simply asked you to keep an eye on. Required — a terminal with no part in the work is one nobody can read a card about.",
+          "What this terminal is there to do: `planner`, `implementor`, or `other` for one the human simply asked you to keep an eye on. Required — a terminal with no part in the work is one nobody can read a card about. A `planner` or `implementor` is started by KOLU from the work's setup — the harness and model the human chose — so give it no `run`: kolu types the command and answers with it as `ran`.",
       }),
     }),
     from: { host: true },
@@ -210,7 +226,29 @@ const FLEET_LIFTS: Readonly<Record<string, FleetLift>> = {
     precheck: (works, args) => {
       const work = typeof args.work === "string" ? args.work : "";
       const refused = works.check(work);
-      return refused === null ? null : workCheckFailure(work, refused);
+      if (refused !== null) return workCheckFailure(work, refused);
+      // ONE SOURCE FOR THE COMMAND. A planner or implementor runs what the
+      // human chose in setup, and kolu writes it; a `run` beside that would
+      // be a second command that may disagree with the first.
+      if (isWorkRole(args.role) && isWaterfallRole(args.role) && "run" in args)
+        return new ToolFailure(
+          `kolu starts the ${args.role} itself, from this work's setup — the harness and model the human chose. Leave \`run\` out; the answer says what kolu ran (\`ran\`). Nothing was created.`,
+          { kind: "run-is-kolus", work, role: args.role },
+        );
+      return null;
+    },
+    prepare: (hosts, works, args) => {
+      const role = args.role;
+      if (!isWorkRole(role) || !isWaterfallRole(role))
+        return Effect.succeed(args);
+      return Effect.map(
+        waterfallRun(hosts, works, {
+          work: typeof args.work === "string" ? args.work : "",
+          role,
+          host: String(args.host ?? ""),
+        }),
+        (run) => ({ ...args, run }),
+      );
     },
     tells: (works, args, answer) => {
       const ref = refAt(answer, "id");
@@ -489,9 +527,11 @@ function lifted(
       const refused = lift.precheck?.(works, args as Record<string, unknown>);
       if (refused !== undefined && refused !== null)
         return Effect.fail(refused);
-      return Effect.flatMap(
-        route(hosts, lift, args as Record<string, unknown>),
-        (call) =>
+      const prepared =
+        lift.prepare?.(hosts, works, args as Record<string, unknown>) ??
+        Effect.succeed(args as Record<string, unknown>);
+      return Effect.flatMap(prepared, (given) =>
+        Effect.flatMap(route(hosts, lift, given), (call) =>
           Effect.mapError(
             Effect.map(
               // The per-host handler is handed the ROOTED BUNDLE shape it reads
@@ -503,13 +543,14 @@ function lifted(
                 const lifted = requalify(answer, lift.answers, call.host);
                 // AFTER the re-qualification, so every reference the record is
                 // told is the one the agent was given back.
-                lift.tells?.(works, args as Record<string, unknown>, lifted);
+                lift.tells?.(works, given, lifted);
                 return lifted;
               },
             ),
             (error: unknown) =>
               requalifyRefusal(error, lift.refusals, call.host),
           ),
+        ),
       );
     },
   };

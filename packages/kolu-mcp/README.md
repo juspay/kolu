@@ -260,6 +260,12 @@ linked to that work, records the answers as decisions, and answers `{ work,
 host, mode, roles, onGreen, declined }`, all of it READ back off those
 decisions. The setup keys it must cover are validated BEFORE anything is
 asked, so a missing one is a refusal naming it rather than a half-opened work.
+A role's **harness and model are kolu's to offer**: their setup entries are
+`{ key, given? }`, and an `options` or `question` there is refused by the
+schema, not ignored (`Schema.Never`). kolu-server refuses the whole call when
+the setup asks a harness for a host whose coding agents are not ready, naming
+the host and what to do, and checks a `given` harness or model against what
+it offers.
 `work_ask { work, questions }` is every other question about a work — the ask
 NAMES the work, so the answer lands on it as a decision instead of being
 inferred from timing; a question about no work is the agent's own question
@@ -277,7 +283,15 @@ nothing reads a note to decide anything.
 **A terminal this face CREATES joins the work it was created for**: on the
 fleet face `lifecycle_create` REQUIRES `work` and `role`, and an unknown or
 ended work is refused *before* anything is created, so a member whose part
-nobody stated cannot exist.
+nobody stated cannot exist. **A planner or implementor runs kolu's command,
+not the caller's**: `run` is refused for those two roles, and the face's
+`prepare` step (`src/fleet/start.ts`) builds it from the work's saved harness
+and model (`FleetWorks.startOf`) and the host's word on how that harness takes
+a model (padi's `agentDistro.models`, through `@kolu/agent-distro/models`'
+`modelLaunchWords`) — `omp --model anthropic/claude-fable-5-2`, or
+`OPENCODE_CONFIG_CONTENT='{"model":…}' opencode` — and answers it as `ran`.
+A setup not answered yet, a work on another host, or a host that cannot say
+refuses with nothing created. `other` keeps `run`.
 
 Every member says HOW it joined (`FleetWatchJoin`): `created` for a bare shell
 this face opened, `created-run` when a command was typed at that shell (only
@@ -286,8 +300,8 @@ for a terminal that was already running when the conductor asked for it. The
 works themselves belong to kolu-server (they are persisted beside the
 conversation rather than inside it, and read by the server's watcher); this
 face reaches them through the
-`FleetWorks` port (`rows` · `subscribe` · `open` · `ask` · `join` · `leave` ·
-`note` · `said` · `closed` · `check`), for the same
+`FleetWorks` port (`rows` · `subscribe` · `open` · `startOf` · `ask` · `join` ·
+`leave` · `note` · `said` · `closed` · `check`), for the same
 reason `FleetHosts` is a port. `agent_say` calls `said` once its keys land: the
 conductor has just acted on whatever that terminal was doing, so news held
 about it is stale. `lifecycle_kill` calls `closed` once the kill lands: a
