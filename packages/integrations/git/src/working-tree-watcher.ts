@@ -157,21 +157,23 @@ export async function _computeIgnore(
   log?: Logger,
 ): Promise<string[]> {
   const ignored = await listIgnored(repoRoot, log);
-  let rels: string[];
-  if (ignored.ok) {
-    rels = [...ALWAYS_IGNORE_RELS, ...ignored.value];
-  } else {
-    log?.warn(
-      { repoRoot },
-      "git: working-tree ignore enumeration failed, using fallback ignore set",
-    );
-    rels = [...ALWAYS_IGNORE_RELS, ...FALLBACK_IGNORE_RELS];
-  }
-  // `path.resolve` normalizes git's trailing directory slash away, so the
-  // collapsed `node_modules/` entry and a bare `node_modules` prune
-  // identically. That erasure is why the watcher needs no slash-stripped
-  // listing of its own — it reads the same `listIgnored` the Code tab does.
-  return rels.map((rel) => path.resolve(repoRoot, rel));
+  if (ignored.ok) return ignorePaths(repoRoot, ignored.value);
+  log?.warn(
+    { repoRoot },
+    "git: working-tree ignore enumeration failed, using fallback ignore set",
+  );
+  return ignorePaths(repoRoot, FALLBACK_IGNORE_RELS);
+}
+
+/** Absolute ignore paths for git's ignored entries `rels`, plus `.git`.
+ *  `path.resolve` normalizes git's trailing directory slash away, so the
+ *  collapsed `node_modules/` entry and a bare `node_modules` prune
+ *  identically. That erasure is why the watcher needs no slash-stripped
+ *  listing of its own — it reads the same `listIgnored` the Code tab does. */
+function ignorePaths(repoRoot: string, rels: readonly string[]): string[] {
+  return [...ALWAYS_IGNORE_RELS, ...rels].map((rel) =>
+    path.resolve(repoRoot, rel),
+  );
 }
 
 interface Listener {
@@ -262,11 +264,12 @@ function installSharedWorkingTreeWatcher(
   let timer: ReturnType<typeof setTimeout> | undefined;
   let subscription: AsyncSubscription | null = null;
   let cancelled = false;
-  /** The ignore list the live parcel subscription was built with, or null
-   *  when no subscription is live. What `refreshIgnore` compares against. */
-  let liveIgnore: readonly string[] | null = null;
+  /** The ignore list the most recent `attach()` derived, recorded whether or
+   *  not its parcel subscribe landed. What `refreshIgnore` compares against:
+   *  only a set that differs from it is evidence the rules changed. */
+  let derivedIgnore: readonly string[] | null = null;
   /** The `attach()` in flight, if any — `refreshIgnore` waits it out so the
-   *  comparison is against what actually landed. */
+   *  comparison is against the set it derived. */
   let attaching: Promise<void> | null = null;
 
   /** Fire all current listeners after a debounce. Both real events and the
@@ -338,14 +341,17 @@ function installSharedWorkingTreeWatcher(
   };
 
   /** Re-derive the ignore set after git's ignore rules may have changed, and
-   *  rebuild only if it differs from the live one. Waits out any attach in
-   *  flight first: that attach may have derived its set BEFORE the change, so
-   *  the comparison must be against what it landed, and a difference then
-   *  schedules a rebuild whose attach derives the set after the change. A
-   *  request arriving mid-refresh re-runs it once more rather than overlapping
-   *  it. Unchanged set, no rebuild: the dir watchers' attach ticks and the
-   *  duplicate lines agents append to a shared `info/exclude` cost one
-   *  `git ls-files`, never a parcel resubscribe. */
+   *  rebuild only if it differs from the set the last attach derived. Waits
+   *  out any attach in flight first: that attach may have derived its set
+   *  BEFORE the change, so the comparison must be against what it derived, and
+   *  a difference then schedules a rebuild whose attach derives the set after
+   *  the change. A request arriving mid-refresh re-runs it once more rather
+   *  than overlapping it. Unchanged set, no rebuild: the dir watchers' attach
+   *  ticks and the duplicate lines agents append to a shared `info/exclude`
+   *  cost one `git ls-files`, never a parcel resubscribe — and that holds for
+   *  a watcher whose install failed, too. A failed enumeration (the worktree
+   *  was removed, say) is no evidence of a rule change either: `listIgnored`
+   *  has logged it, and the live watch is left alone. */
   let refreshing = false;
   let refreshAgain = false;
   async function refreshIgnore(): Promise<void> {
@@ -359,15 +365,17 @@ function installSharedWorkingTreeWatcher(
         refreshAgain = false;
         while (attaching !== null) await attaching;
         if (cancelled) return;
-        const ignore = await _computeIgnore(repoRoot, log);
+        const ignored = await listIgnored(repoRoot, log);
         if (cancelled) return;
+        if (!ignored.ok) continue;
+        const ignore = ignorePaths(repoRoot, ignored.value);
         // `git ls-files` output order is stable, so an unchanged rule set
         // yields an element-wise identical list.
-        const live = liveIgnore;
+        const derived = derivedIgnore;
         const unchanged =
-          live !== null &&
-          ignore.length === live.length &&
-          ignore.every((p, i) => p === live[i]);
+          derived !== null &&
+          ignore.length === derived.length &&
+          ignore.every((p, i) => p === derived[i]);
         if (!unchanged) scheduleRebuild("ignore rules changed");
       } while (refreshAgain);
     } finally {
@@ -459,6 +467,7 @@ function installSharedWorkingTreeWatcher(
   async function attach(): Promise<void> {
     const ignore = await _computeIgnore(repoRoot, log);
     if (cancelled) return;
+    derivedIgnore = ignore;
     await sequenceParcelCall(repoRoot, async () => {
       if (cancelled) return;
       // Retire the outgoing subscription first, in this same queued call —
@@ -467,7 +476,6 @@ function installSharedWorkingTreeWatcher(
       // leave the replacement holding no watches at all.
       const outgoing = subscription;
       subscription = null;
-      liveIgnore = null;
       if (outgoing) {
         await outgoing.unsubscribe().catch((e: Error) => {
           log?.error(
@@ -499,7 +507,6 @@ function installSharedWorkingTreeWatcher(
           return;
         }
         subscription = sub;
-        liveIgnore = ignore;
         log?.info({ repoRoot }, "git: working-tree watcher installed");
 
         // Reconcile any mutations that landed in the (re)install window —
