@@ -114,10 +114,22 @@ continue until output reaches the pane again.
 A split you open later, such as a collapsed panel or a background tab, stays
 empty until you reveal it, and then paints once at its real size.
 
-Dragging a divider or opening the soft keyboard resizes the terminal once, after
-the layout stops moving. Programs redraw their whole screen at a new size, so
-kolu hands you the finished screen instead of the terminal scrolling through the
-session to reach it.
+Resize a tile and the pane states the size it wants. Dragging a divider,
+zooming the font, or raising the soft keyboard publishes one size, once the
+layout stops moving. The terminal changes size only when the machine running
+your shell says its own screen did, so the pane and the shell are never laid
+out differently.
+
+Until that lands, about a quarter of a second later, the text keeps the size it
+has, sitting against the bottom left of the pane and clipped by it. A pane you
+made bigger shows a blank band along the top. So text does not reflow while you
+drag: it snaps shortly after you let go, and the program redraws its screen
+once rather than scrolling through the session to reach it.
+
+Scroll up and the pane holds output rather than moving the text you are
+reading. A resize waits with it: the terminal keeps the size it had until you
+return to the bottom, and the held output lands with it. The "new output" dot
+counts only output, so a resize never lights it.
 
 ## Which tiles are live
 

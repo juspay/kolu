@@ -403,14 +403,19 @@ export type HistoryChunk =
  *     a deliberate follow-up; the common stable-width path is fully covered.)
  *
  *   - A FOREIGN width change — another client attached to the SAME PTY (a
- *     `kaval-tui attach`, which resizes the shared mirror last-resize-wins) —
- *     reflows the mirror underneath us WITHOUT our `term.cols` changing, so the
- *     local `onResize` pause above never fires and our absolute cursor goes stale
- *     against a renumbered buffer. Left unguarded, the next `getHistory` would
- *     splice a duplicated or skipped band that PERSISTS (our own later resize only
+ *     `kaval-tui attach`, which resizes the shared mirror last-resize-wins).
+ *     Since kaval contract 9.0 this DOES reach us: the mirror publishes a
+ *     `resized` frame and the pane applies it, so `term.cols` moves and the
+ *     local `onResize` pause above fires like any other width change. Before
+ *     that frame existed it did not, and the cursor went stale against a
+ *     renumbered buffer with nothing to notice: the next `getHistory` spliced a
+ *     duplicated or skipped band that PERSISTED (our own later resize only
  *     `pause()`s, never re-seeds, so a fresh anchor arrives only with the next
  *     snapshot). Unlike the transient LIVE-view wrap garble at differing widths
  *     (which self-heals on the next repaint), that spliced history stays wrong.
+ *     The EPOCH remains the guard, and is not redundant: it covers every reflow
+ *     that renumbers rows without this terminal's width moving — a RIS
+ *     re-anchor, and a cursor seeded before a reflow this pane did follow.
  *     So the cursor carries a REFLOW EPOCH: the attach snapshot stamps the
  *     mirror's reflow generation, `seed` captures it, and every fetch echoes it;
  *     the host serves an empty `stale` reply once the generation has moved, and

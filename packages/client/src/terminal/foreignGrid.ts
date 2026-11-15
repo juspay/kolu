@@ -2,18 +2,22 @@
  * The pane's answer to "someone else is holding this terminal at their size".
  *
  * Attaching is a WRITE on a shared pty and the policy is last-attach-wins, so a
- * second viewer attaching at its own size reflows this pane underneath it. The
- * byte stream cannot say so: a snapshot rides the initial attach and an overflow
- * re-attach and nothing else, so the losing pane goes on painting deltas laid
- * out for a grid no frame ever named — N columns of content inside its own 2N
- * column box, indefinitely, with no error and nothing to time out.
+ * second viewer attaching at its own size resizes this pane's pty underneath
+ * it. The pane FOLLOWS that — the stream carries a `resized` frame and the
+ * pane's terminal takes the new size, so what it paints stays correct — but
+ * following is not winning: it is now N columns wide inside its own 2N column
+ * box, and nothing in the byte stream says it should ask again.
  *
  * What makes it observable is the terminal RECORD, which carries the pty's
- * current grid (`TerminalSnapshot.grid`, padi contract 5.5). This module owns
- * what to DO with that fact, lifted out of `Terminal.tsx` for the same reason
- * `publishGrid.ts` was: the policy is a judgment about timing, the pane supplies
- * three live facts, and the judgment deserves a single owner a unit test can
- * drive without an xterm or a socket.
+ * current grid (`TerminalSnapshot.grid`, padi contract 5.5) as a standing fact
+ * rather than an event — so it is still true when this module re-reads it after
+ * waiting. A second viewer is not the only way to get here: the attach's
+ * `resizeTo` is CAPTURED input, so a transport retry re-asserts a grid this
+ * pane has moved on from, and the record is the only thing that says so. This
+ * module owns what to DO with that fact, lifted out of `Terminal.tsx` for the
+ * same reason `publishGrid.ts` was: the policy is a judgment about timing, the
+ * pane supplies three live facts, and the judgment deserves a single owner a
+ * unit test can drive without an xterm or a socket.
  *
  * The judgment is the SETTLE WINDOW. A record grid that differs from the pane's
  * is ALSO the ordinary transient shape of the pane's OWN resize — the pane
@@ -53,12 +57,10 @@ export interface ForeignGridWatcher {
 
 /** Is the pty at a size this pane did not ask for?
  *
- *  Absence on EITHER side answers "no evidence", exactly as the snapshot
- *  predicates in `@kolu/padi-client/attach` read it: an older padi states no
- *  grid, and an unmeasured or disposed pane has none to compare. Acting on
- *  ignorance would spin the re-attach loop against a pane with nothing to ask
- *  for — the same failure mode `snapshotPaintableAt`'s absence rule exists to
- *  avoid. */
+ *  Absence on EITHER side answers "no evidence": a terminal nothing has resized
+ *  yet states no grid, and an unmeasured or disposed pane has none to compare.
+ *  Acting on ignorance would spin the re-attach loop against a pane with
+ *  nothing to ask for. */
 function heldByAnother(deps: ForeignGridDeps): boolean {
   const served = deps.served();
   const mine = deps.mine();

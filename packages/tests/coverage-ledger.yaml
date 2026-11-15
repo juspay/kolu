@@ -4457,3 +4457,29 @@ retirements:
       file: packages/tests/features/conductor-work.feature
       symbol: "Scenario: The plan is approved from the card while the Conductor sits idle"
       test: The same one-record claim, answered from the same face — the work ends with no open question and the decision records `card`. The survivor adds what changed underneath it — asking no longer holds the Conductor's turn open, so the scenario asserts it is NOT `asking` while the question stands, the state its tool call used to die in.
+  - id: revise-ce020103f9ac2b4be0a2
+    revisionId: revision-ce020103f9ac2b4be0a2
+    action: revised
+    status: landed
+    promise: Resizing the active mobile terminal does not resize hidden terminals
+    defectSurface: [mobile-tile-view, terminal-resize]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-82a054f79050ddb50d03]
+    sameCodePathEvidence:
+      file: packages/tests/features/terminal-resize.feature
+      symbol: "Scenario: Resizing the active mobile terminal does not resize hidden terminals"
+      test: The same claim about the same two terminals. Only the wait changed — a pane no longer refits itself when its box moves, it states the grid its box can hold and adopts it where the daemon's mirror did, so waiting for a local reflow would wait for something that no longer happens. The survivor waits for the grid to come back from the daemon instead.
+  - id: revise-947a4d37a3fe164470e5
+    revisionId: revision-947a4d37a3fe164470e5
+    action: revised
+    status: landed
+    promise: A pane keeps the program's screen while its box moves
+    defectSurface: [terminal-resize, user-journey]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-5ad4b08c8c6847cf04c4]
+    sameCodePathEvidence:
+      file: packages/tests/features/terminal-lockstep.feature
+      symbol: "Scenario: A pane keeps the program's screen while its box moves"
+      test: This revision never ran anywhere — the scenario is new in the same PR and the inventory stamped an intermediate body before review. The survivor is that body plus two geometry assertions, added because comparing text says nothing about where the terminal is drawn; every claim this row held, it still holds.

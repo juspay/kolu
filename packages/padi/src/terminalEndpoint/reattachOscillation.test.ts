@@ -76,6 +76,7 @@ async function oscillate(stop: number): Promise<number> {
       return Promise.resolve({
         snapshot: "S",
         topLine: 0,
+        grid: { cols: 80, rows: 24 },
         iter: oneFrameThenEnd(cycles),
       } satisfies OpenedAttach);
     },

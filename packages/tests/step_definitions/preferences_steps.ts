@@ -1,6 +1,10 @@
 import { Then, When } from "@cucumber/cucumber";
 import { ACTIVE_TERMINAL } from "../support/buffer.ts";
-import { type KoluWorld, POLL_TIMEOUT } from "../support/world.ts";
+import {
+  GRID_ROUND_TRIP_MS,
+  type KoluWorld,
+  POLL_TIMEOUT,
+} from "../support/world.ts";
 
 When("I reload the page and wait for ready", async function (this: KoluWorld) {
   await this.page.reload();
@@ -116,11 +120,12 @@ Then(
     const expected = remembered;
     if (!expected)
       throw new Error("no grid remembered — the When step must run first");
-    // Hold the assertion for several frames rather than sampling once: a
-    // re-fit is scheduled on an animation frame, so a change that DOES resize
-    // lands a frame or two after the renderer attribute flips. Fail on the
-    // first divergence, quoting both grids and both renderers.
-    for (let frame = 0; frame < 10; frame++) {
+    // A negative grid claim must outlast a daemon round trip
+    // ({@link GRID_ROUND_TRIP_MS}), not a handful of frames: ten frames is
+    // ~160ms, which ends before the resize this step is looking for could
+    // arrive. Fail on the first divergence, quoting both grids and renderers.
+    const deadline = Date.now() + GRID_ROUND_TRIP_MS;
+    do {
       const tile = await readTile(this);
       if (tile.cols !== expected.cols || tile.rows !== expected.rows) {
         throw new Error(
@@ -128,6 +133,6 @@ Then(
         );
       }
       await this.waitForFrame();
-    }
+    } while (Date.now() < deadline);
   },
 );

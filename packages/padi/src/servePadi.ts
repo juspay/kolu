@@ -256,7 +256,15 @@ async function* attachFrames(
       signal,
       resizeTo,
     );
-  yield { kind: "snapshot", data: snapshot, topLine, reflowEpoch, grid };
+  // `grid === null` is the attachment that describes no screen — the consumer
+  // tore the attach down before kaval answered. Emit no snapshot frame for it:
+  // a snapshot states the grid its bytes are laid out at, and there are no
+  // bytes. The deltas loop below then ends immediately on the same teardown.
+  if (grid !== null) {
+    yield { kind: "snapshot", data: snapshot, topLine, reflowEpoch, grid };
+  }
+  // Deltas and `resized` frames pass through in the order the endpoint produced
+  // them — the ordering IS the guarantee a `resized` carries.
   for await (const frame of deltas) yield frame;
 }
 

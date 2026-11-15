@@ -63,6 +63,29 @@ export function renderService(term: XTerm): RenderInternals | null {
   return rs ?? null;
 }
 
+/** Resize the terminal — the ONE place the kit calls `terminal.resize`.
+ *
+ *  The public `resize` and the private `clear` are paired here because they are
+ *  one act: the renderer DIFFS each frame against a model `RenderModel.resize`
+ *  only reallocates when `cols * rows` changes, so a reflow that keeps the cell
+ *  COUNT (120×30 → 90×40) leaves stale glyphs behind unless what it believes is
+ *  on screen is dropped first (see {@link RenderInternals.clear}). Splitting
+ *  them is how the pairing gets lost at the second call site.
+ *
+ *  Same-size is a NO-OP, and deliberately: `terminal.resize` re-measures the
+ *  character size, and this runs on the divider-drag hot path.
+ *
+ *  Note what `resize` itself does, because the kit's ordering rests on it: it
+ *  calls `WriteBuffer.flushSync()` FIRST, so bytes still queued are parsed at
+ *  the OLD grid before the reflow. Writing a run and then resizing therefore
+ *  lands those bytes at the width they were written for, with nothing to
+ *  schedule or await (CONTRACT PIN in `internals.test.ts`). */
+export function resizeTerminal(term: XTerm, cols: number, rows: number): void {
+  if (term.cols === cols && term.rows === rows) return;
+  renderService(term)?.clear?.();
+  term.resize(cols, rows);
+}
+
 /** xterm's own character-width measurement, in CSS pixels and UNROUNDED —
  *  `CharSizeService.width`, the width of one 'W' through `measureText` (or an
  *  offsetWidth fallback), divided by nothing.

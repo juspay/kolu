@@ -38,9 +38,10 @@ describe("PTY_HOST_CONTRACT_VERSION", () => {
   it("the protocol epoch is the MAJOR — a previous epoch is refused both ways", () => {
     // The MAJOR is the epoch and is what this case is about; the MINOR moves
     // with additive changes (7.1 added `terminal.getScreenCells`; 8.0 removed a
-    // required field), so pinning the whole string here would make every such
+    // required field; 9.0 added the `resized` frame and made the snapshot's
+    // `grid` required), so pinning the whole string here would make every such
     // change edit a test about the EPOCH.
-    expect(PTY_HOST_CONTRACT_VERSION.split(".")[0]).toBe("8");
+    expect(PTY_HOST_CONTRACT_VERSION.split(".")[0]).toBe("9");
     // Both directions are refused, which is what a MAJOR buys. A previous-epoch
     // peer cannot even be spoken to (framing), but the comparison must never wave
     // its version string through on the strength of a minor alone.
@@ -132,17 +133,28 @@ describe("wire byte fixtures — the attach frame union", () => {
   const schema = spec.streams.terminalAttach.outputSchema;
 
   it("encodes each arm on the `kind` discriminant, never `_tag`", () => {
+    const grid = { cols: 80, rows: 24 };
     expect(
-      encodeJson(schema, { kind: "snapshot", data: "hello", topLine: 12 }),
-    ).toBe('{"kind":"snapshot","data":"hello","topLine":12}');
+      encodeJson(schema, {
+        kind: "snapshot",
+        data: "hello",
+        topLine: 12,
+        grid,
+      }),
+    ).toBe(
+      '{"kind":"snapshot","data":"hello","topLine":12,"grid":{"cols":80,"rows":24}}',
+    );
     expect(
       encodeJson(schema, {
         kind: "snapshot",
         data: "hello",
         topLine: 12,
         reflowEpoch: 3,
+        grid,
       }),
-    ).toBe('{"kind":"snapshot","data":"hello","topLine":12,"reflowEpoch":3}');
+    ).toBe(
+      '{"kind":"snapshot","data":"hello","topLine":12,"reflowEpoch":3,"grid":{"cols":80,"rows":24}}',
+    );
     expect(encodeJson(schema, { kind: "delta", data: "x" })).toBe(
       '{"kind":"delta","data":"x"}',
     );
@@ -151,6 +163,12 @@ describe("wire byte fixtures — the attach frame union", () => {
     // shape.
     expect(encodeJson(schema, { kind: "overflow" })).toBe(
       '{"kind":"overflow"}',
+    );
+    // The 9.0 control frame carries a grid and NOTHING else: a consumer resizes
+    // its own terminal at this point in the stream and writes no bytes. A `data`
+    // key here would make it a delta a consumer might paint.
+    expect(encodeJson(schema, { kind: "resized", grid })).toBe(
+      '{"kind":"resized","grid":{"cols":80,"rows":24}}',
     );
   });
 });

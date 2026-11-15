@@ -15,16 +15,14 @@ import LinkCard from "../../components/docs/LinkCard.astro";
 
 kolu splits the terminal problem across four layers. Close the browser tab,
 restart the web server, or redeploy the whole thing: your shells, and the agents
-running in them, keep going. This page shows the layers, the contract they talk
-over, and the packages behind them.
+running in them, keep going.
 
 ## The stack
 
 Four layers, each with one job. The top two are faces, which come and go. The
 bottom two are daemons: [padi](/padi) holds the workspace record, and
-[kaval](/kaval) owns the live shells. The arrows are transports: a websocket to
-the browser, a unix socket between the daemons, ssh out to each other host's
-padi. Kill any layer and everything below it keeps running.
+[kaval](/kaval) owns the live shells. Kill any layer and everything below it
+keeps running.
 
 kolu-server binds one padi per host. That set is its **host map**, which is why
 kolu-server also holds [the Conductor](/conductor), one agent conversation for
@@ -166,11 +164,11 @@ agents in your terminals survive the upgrade, because they never stopped.
   </svg>
 </figure>
 
-<Aside type="tip" title="padi drains, kaval waits">
+<Aside type="tip" title="padi drains, kaval is replaced">
   A newer client asks an older padi to _drain_: save its session and exit, while
   the PTYs stay alive in kaval. An older client is refused by a newer padi.
-  Draining kaval would kill the live shells, so an older kaval stays up and asks
-  you to restart it.
+  Draining kaval would kill live shells, so a kaval that speaks a different
+  contract is replaced instead, and the session is restored.
 </Aside>
 
 ## Compared to tmux and zellij
@@ -362,7 +360,7 @@ browser at all.
 
 <figure class="doc-figure">
   <svg viewBox="0 0 720 292" role="img" aria-labelledby="ax-flow-title">
-    <title id="ax-flow-title">Three data-flow loops. The terminal I/O loop runs both ways through client, kolu-server, padi, and kaval — keystrokes down to the PTY, the screen (a snapshot then live deltas) back up. The metadata loop flows the other way only: kaval feeds padi — its VT taps drive padi's git, PR, and agent sensors, and its resize-excluded meaningful-output edge feeds padi's live-activity fold — and padi pushes the result to the client. The conductor loop is separate and reaches no browser: kolu-server spawns the claude ACP adapter, which calls kolu's tools back over a loopback HTTP MCP endpoint, and kolu-server serves them from its host map — every padi, local and remote, with each terminal named host slash id. That loop closes the other way too: kolu-server watches the host map's urgency and terminal rosters for the terminals that are members of a piece of work in progress, and starts a turn of the conversation itself when one of them stops, asks or is gone.</title>
+    <title id="ax-flow-title">Three data-flow loops. The terminal I/O loop runs both ways through client, kolu-server, padi, and kaval — keystrokes down to the PTY, the screen (a snapshot, then live deltas and the resize frames between them) back up. The metadata loop flows the other way only: kaval feeds padi — its VT taps drive padi's git, PR, and agent sensors, and its resize-excluded meaningful-output edge feeds padi's live-activity fold — and padi pushes the result to the client. The conductor loop is separate and reaches no browser: kolu-server spawns the claude ACP adapter, which calls kolu's tools back over a loopback HTTP MCP endpoint, and kolu-server serves them from its host map — every padi, local and remote, with each terminal named host slash id. That loop closes the other way too: kolu-server watches the host map's urgency and terminal rosters for the terminals that are members of a piece of work in progress, and starts a turn of the conversation itself when one of them stops, asks or is gone.</title>
     <defs>
       <marker id="ax-flow-arrow" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
         <path d="M0,0 L10,5 L0,10 z" class="ax-d-arrow"></path>
@@ -424,18 +422,29 @@ browser at all.
 
 A keystroke goes over `sendInput` to the PTY that [kaval](/kaval) owns.
 kolu-server proxies the browser's socket to [padi](/padi), which drives kaval.
-Output flows back as an **attach stream**: a screen-state snapshot, then live
-deltas. kaval parses the VT sequences itself, so a client joining late gets
-about 4 KB of screen state instead of a replayed buffer.
+Output flows back as an **attach stream** of typed frames. kaval parses the VT
+sequences itself, so a client joining late gets about 4 KB of screen state
+instead of a replayed buffer.
 
-Each connection carries every terminal's stream at once. When one attach stream
-stops being read, only that stream waits, and it picks up where it left off. A
-reader far enough behind is re-attached with a fresh snapshot rather than fed
-the backlog.
+<div class="doc-scroll">
 
-A resize is handled the same way: kaval holds the program's redraw back for a
-moment, then either delivers it or drops the viewers onto the settled screen.
-Both arrive as the attach stream's `overflow` control frame.
+| Frame | What it carries |
+| --- | --- |
+| `snapshot` | the screen, and the grid it was drawn at |
+| `delta` | output, in the order the shell wrote it |
+| `resized` | the point where that screen changed size |
+
+</div>
+
+A pane resizes its terminal at the `resized` frame, never when its own box
+moves, so it cannot disagree with kaval's copy about a size.
+
+Each connection carries every terminal's stream at once. When one stops being
+read, only that stream waits, and picks up where it left off. A reader far
+enough behind is re-attached with a fresh snapshot instead.
+
+kaval holds a resize's repaint back for a moment, then delivers it or drops the
+viewers onto the settled screen. Both drops arrive as an `overflow` frame.
 
 A connection's keep-alive ping ends a hop that has carried nothing for a full
 minute. Where a watchdog guards a hop it decides first: the browser's counts

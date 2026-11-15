@@ -525,13 +525,11 @@ export type TerminalGrid = typeof TerminalGridSchema.Type;
  *      workspace leaf (`@kolu/url-shape`) and nothing else, which is the property
  *      that makes it cheap to consume; importing this one would take its closure
  *      from two members to thirteen to share four tokens.
- *    · `@kolu/padi-client/attach`'s `snapshotPaintableAt`, over `EndpointGrid` —
- *      a THIRD declaration of `{ cols, rows }`, on padi's own surface, with its
- *      own header claiming to be "the ONE grid rule on this surface". It is
- *      structurally identical and its comparison is not: it answers `true` for a
- *      nullable pair, because "nobody asserted a size" is not "the sizes differ".
- *      Collapsing the two RECORDS is a wire-schema change and wants its own
- *      sitting; until then this fold would only be its last line.
+ *    · `@kolu/padi-client/surface`'s `EndpointGridSchema` — a THIRD declaration
+ *      of `{ cols, rows }`, on padi's own surface, with its own header claiming
+ *      to be "the ONE grid rule on this surface". Collapsing the two RECORDS is
+ *      a wire-schema change and wants its own sitting; until then this fold
+ *      would only be its last line.
  *
  *  What this one is, meanwhile, is the comparison for the grid a padi frame
  *  carries as a terminal FACT — which is what a dedup gate over the record

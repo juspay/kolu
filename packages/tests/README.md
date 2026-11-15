@@ -90,6 +90,7 @@ cd packages/tests && REUSE_SERVER=1 HEADLESS=false nix develop ../..#default -c 
 - **Playwright** is the browser automation library. `chromium.launch()` starts a real Chromium instance.
 - **KoluWorld** (in `support/world.ts`) holds per-scenario state: the Playwright `page`, collected errors, and terminal helper methods (`zoomIn()`, `resizeViewport()`, `terminalRun()`, etc.).
 - **Hooks** (`support/hooks.ts`) manage lifecycle: one browser for the entire run (`BeforeAll`), fresh context + page per scenario (`Before`/`After`), screenshot on failure.
+- **Two-sided screen reads** (`support/daemonScreen.ts`) answer "does the pane show what the program actually drew": the pane's screen comes off the `__xterm` bridge, the daemon's copy of the same terminal comes from padi's `screen.text` over the harness's own wire, and both are cut to the same window so equality means something.
 
 ### Adding a new test
 

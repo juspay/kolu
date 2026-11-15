@@ -160,7 +160,14 @@ describe("padiSurface contract", () => {
     // 7.4 ADDS the `roster` cell — whether padi has finished adopting, so a
     // reader may tell an empty roster apart from one that has not been
     // established. A new member an older consumer never asks for: a minor.
-    expect(PADI_SURFACE_VERSION).toBe("7.4");
+    // 7.5 puts the pty's RESIZES on the attach stream: a new `resized` frame
+    // naming the grid the mirror moved to, at its own point between two bytes,
+    // and the snapshot frame's `grid` becomes REQUIRED so a consumer sizes
+    // itself to the bytes before painting them. A widened emitted union plus a
+    // field made required — a 7.4 decoder refuses the new frame and a 7.4 padi
+    // omits a grid a 7.5 consumer demands — which is the 5.3/7.3 case again,
+    // and therefore a minor.
+    expect(PADI_SURFACE_VERSION).toBe("7.5");
     expect(DEFAULT_PADI_VERSION.contractVersion).toBe(PADI_SURFACE_VERSION);
     expect(
       Schema.decodeUnknownSync(PadiVersionSchema)(DEFAULT_PADI_VERSION),
@@ -864,6 +871,11 @@ describe("the two optional-key spellings on this wire, in BYTES (#17 audit)", ()
     // the emitted bytes key-omitted.
     const frame = padiSurface.spec.streams.terminalAttach.outputSchema;
     const encode = Schema.encodeUnknownSync(frame);
+    /** The grid every snapshot fixture below rides with — REQUIRED since 7.5,
+     *  so there is no longer a snapshot frame to spell without one. */
+    const GRID = { cols: 80, rows: 24 } as const;
+    const SNAPSHOT_BYTES =
+      '{"kind":"snapshot","data":"hi","topLine":0,"grid":{"cols":80,"rows":24}}';
 
     it("ACCEPTS a present-but-undefined reflowEpoch, and OMITS it from the bytes", () => {
       expect(
@@ -873,23 +885,34 @@ describe("the two optional-key spellings on this wire, in BYTES (#17 audit)", ()
             data: "hi",
             topLine: 0,
             reflowEpoch: undefined,
+            grid: GRID,
           }),
         ),
-      ).toBe('{"kind":"snapshot","data":"hi","topLine":0}');
+      ).toBe(SNAPSHOT_BYTES);
     });
 
     it("an ABSENT key emits the same bytes — `optional` never nulls", () => {
       expect(
-        JSON.stringify(encode({ kind: "snapshot", data: "hi", topLine: 0 })),
-      ).toBe('{"kind":"snapshot","data":"hi","topLine":0}');
+        JSON.stringify(
+          encode({ kind: "snapshot", data: "hi", topLine: 0, grid: GRID }),
+        ),
+      ).toBe(SNAPSHOT_BYTES);
     });
 
     it("still emits a real epoch, and still REJECTS a non-integer one", () => {
       expect(
         JSON.stringify(
-          encode({ kind: "snapshot", data: "", topLine: 3, reflowEpoch: 7 }),
+          encode({
+            kind: "snapshot",
+            data: "",
+            topLine: 3,
+            reflowEpoch: 7,
+            grid: GRID,
+          }),
         ),
-      ).toBe('{"kind":"snapshot","data":"","topLine":3,"reflowEpoch":7}');
+      ).toBe(
+        '{"kind":"snapshot","data":"","topLine":3,"reflowEpoch":7,"grid":{"cols":80,"rows":24}}',
+      );
       expect(
         accepts(frame, {
           kind: "snapshot",
@@ -900,24 +923,25 @@ describe("the two optional-key spellings on this wire, in BYTES (#17 audit)", ()
       ).toBe(false);
     });
 
-    // `grid` (5.5) rides the SAME five hops and therefore needs the SAME
-    // spelling. It shipped as `optionalKey` for one round, which would have
-    // failed the ENCODE — taking the whole attach stream down — on both of its
-    // reachable no-grid producers: a kaval predating the field (the mixed-version
-    // path the no-major bump exists to keep alive) and `local.ts`'s
-    // abort-before-snapshot return, which omits it even on a current kaval. An
-    // encode throw is the opposite of "absence degrades to today's reading".
-    it("ACCEPTS a present-but-undefined grid, and OMITS it from the bytes", () => {
+    // `grid` (5.5) rode the SAME five hops and shipped as `optional` for the
+    // same reason. At 7.5 it is REQUIRED — a consumer sizes its terminal to it
+    // before painting, so "absent" has no honest reading left — and the two
+    // producers that used to omit it are gone with it: kaval's 9.0 major
+    // refuses a daemon that predates the field rather than adopting it, and
+    // `local.ts`'s abort-before-snapshot return now says `grid: null`, which
+    // `servePadi` answers by emitting NO snapshot frame at all.
+    it("REFUSES a snapshot that states no grid — there is no sizing it", () => {
+      expect(accepts(frame, { kind: "snapshot", data: "hi", topLine: 0 })).toBe(
+        false,
+      );
       expect(
-        JSON.stringify(
-          encode({
-            kind: "snapshot",
-            data: "hi",
-            topLine: 0,
-            grid: undefined,
-          }),
-        ),
-      ).toBe('{"kind":"snapshot","data":"hi","topLine":0}');
+        accepts(frame, {
+          kind: "snapshot",
+          data: "hi",
+          topLine: 0,
+          grid: undefined,
+        }),
+      ).toBe(false);
     });
 
     it("emits a real grid, and REJECTS a malformed one", () => {
@@ -957,6 +981,21 @@ describe("the two optional-key spellings on this wire, in BYTES (#17 audit)", ()
       expect(JSON.stringify(encode({ kind: "delta", data: ID }))).toBe(
         `{"kind":"delta","data":"${ID}"}`,
       );
+    });
+
+    it("a resized frame carries nothing but the grid", () => {
+      // A control frame: no `data`, no `topLine`. What it means is its POSITION
+      // in the stream, which no byte fixture can hold — what IS pinned here is
+      // that it cannot smuggle bytes past a consumer's frame handler.
+      expect(
+        JSON.stringify(
+          encode({ kind: "resized", grid: { cols: 80, rows: 24 } }),
+        ),
+      ).toBe('{"kind":"resized","grid":{"cols":80,"rows":24}}');
+      expect(accepts(frame, { kind: "resized" })).toBe(false);
+      expect(
+        accepts(frame, { kind: "resized", grid: { cols: 0, rows: 24 } }),
+      ).toBe(false);
     });
   });
 });

@@ -71,7 +71,12 @@ function openOnFanOut(
 ): OpenedAttach {
   const iter = Stream.toAsyncIterable(fan.stream)[Symbol.asyncIterator]();
   releaseOnAbort(iter, signal);
-  return { snapshot: "FRESH", topLine: 0, iter };
+  return {
+    snapshot: "FRESH",
+    topLine: 0,
+    grid: { cols: 80, rows: 24 },
+    iter,
+  };
 }
 
 /** Every fan-out a test opened, closed after it so a still-running generator

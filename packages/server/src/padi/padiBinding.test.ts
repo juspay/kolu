@@ -328,8 +328,19 @@ async function roundTripTerminal(padi: any, mark: string): Promise<void> {
     throw new Error(
       "terminalAttach never landed a snapshot across the reconnect",
     );
-  expect(firstFrame.kind).toBe("snapshot");
+  // A narrowing check, not a bare equality: the frame union has an arm with no
+  // `data` (`resized`), so reading bytes off it has to be earned.
+  if (firstFrame.kind !== "snapshot")
+    throw new Error(
+      `terminalAttach answered "${firstFrame.kind}" where the contract promises a snapshot first`,
+    );
   expect(typeof firstFrame.data).toBe("string");
+  // Required since kaval 9.0: a consumer sizes its terminal to this before
+  // painting, so a snapshot that states no grid is one nothing can paint.
+  expect(firstFrame.grid).toEqual({
+    cols: expect.any(Number),
+    rows: expect.any(Number),
+  });
 
   await Effect.runPromise(
     padi.lifecycle.sendInput({ id, data: `echo ${mark}\r` }),
@@ -508,7 +519,11 @@ describeDaemon("kolu-server padi binder — cutover acceptance", () => {
     ]();
     const first = await attach.next();
     const firstFrame = first.value as TerminalAttachFrame;
-    expect(firstFrame.kind).toBe("snapshot");
+    // Narrowing, not equality: the union has an arm with no `data`.
+    if (firstFrame.kind !== "snapshot")
+      throw new Error(
+        `terminalAttach answered "${firstFrame.kind}" where the contract promises a snapshot first`,
+      );
     expect(typeof firstFrame.data).toBe("string");
 
     // Kill the bound padi WHILE the iterator is held.
