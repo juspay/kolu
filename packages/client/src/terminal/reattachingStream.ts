@@ -56,7 +56,7 @@
  *  - **This loop's channel-2 retry** (the three members above plus the deadline).
  *    Governed by the budgets, the fruitless-cycle counter, and one loudness
  *    policy — {@link FRUITLESS_CYCLE_VERDICT}.
- *  - **The re-assert reopen** (`Terminal.tsx`'s `reopenAtWantedGrid`, pulled by
+ *  - **The RE-ASSERT lane** (`Terminal.tsx`'s `reassertWantedGrid`, pulled by
  *    the served-grid watcher). It exists because nothing has FAILED: the frames
  *    are arriving and the screen is correct, the pty is simply at a size this
  *    pane did not ask for and has stayed there past a settle window. So there is
@@ -87,7 +87,7 @@ import { isDeclared, TERMINAL_NOT_FOUND } from "../rpc/declaredErrors";
  *  tile then unmounts, interrupting the fiber and ending the loop).
  *
  *  EXPORTED for the one reopen lane that lives outside this file —
- *  `Terminal.tsx`'s `reopenAtWantedGrid` (kolu#2101 K5). It reopens from the
+ *  `Terminal.tsx`'s `reassertWantedGrid` (kolu#2101 K5). It reopens from the
  *  served-grid watcher, where nothing has failed and the loop's own error
  *  channel would be a lie, and it takes this same spacing so the module
  *  header's four-lane list has one backoff, not two. */

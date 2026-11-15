@@ -200,14 +200,12 @@ When(
     // pass while the bug was fully present — a vacuous guard. Assert it rather
     // than assume it.
     //
-    // The wait is for a DAEMON ROUND TRIP, and "cols is non-zero" can no longer
-    // stand in for it: a pane's xterm starts life at the 80×24 its constructor
-    // invents and changes size ONLY where the daemon's mirror did — on the
-    // attach stream's snapshot frame, which carries the grid those bytes were
-    // serialized at. So a freshly mounted split reports a non-zero 80 instantly
-    // and a check for "non-zero" passes before the split has learned anything.
-    // Wait for the split to leave that invented grid; the message that used to
-    // be the assertion is now what a timeout says.
+    // The wait is for a DAEMON ROUND TRIP (see `terminal_resize_steps.ts`), and
+    // "cols is non-zero" cannot stand in for it: a pane's xterm starts life at
+    // the 80×24 its constructor invents, so a freshly mounted split reports a
+    // non-zero 80 instantly and the check passes before it has learned
+    // anything. Wait for the split to LEAVE that invented grid; the message
+    // that used to be the assertion is now what a timeout says.
     const measured = await this.page
       .waitForFunction(
         (sel) => {

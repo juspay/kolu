@@ -283,7 +283,8 @@ export function createScrollLock(
     writeRun();
   }
 
-  /** Drop buffered chunks without writing them (snapshot / re-attach reset). */
+  /** Drop everything the lock is holding, bytes and resizes alike, without
+   *  applying any of it (snapshot / re-attach reset). */
   function dropPending(): void {
     setPending([]);
   }
@@ -444,8 +445,16 @@ export function createScrollLock(
    * the hazard the old `applyFit` named and declined to fix ("a resize
    * overtaking bytes held by scroll lock"); the resize travelling the same
    * door as the bytes is the fix.
+   *
+   * It takes NO terminal, unlike `writeData` beside it: a queued resize is
+   * applied by `flush`, which resizes `termRef`, so a terminal passed in here
+   * would be the one resized while unlocked and ignored while locked — two
+   * sources for "which terminal" on the one path whose whole point is that
+   * nothing gets out of order.
    */
-  function resizeInOrder(term: Terminal, cols: number, rows: number): void {
+  function resizeInOrder(cols: number, rows: number): void {
+    const term = termRef;
+    if (!term) return;
     if (!isLocked()) {
       resizeTerminal(term, cols, rows);
       return;

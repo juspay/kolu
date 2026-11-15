@@ -212,13 +212,10 @@ Then(
       before,
       "No grid snapshot — call 'I snapshot the terminal grid' first",
     );
-    // HELD for a round trip, not sampled once. A refit no longer happens in
-    // the pane: the magnification would have to travel out as a new wanted
-    // grid and come back from the daemon before any xterm changed size, so a
-    // single read taken right after the pinch proves only that the answer has
-    // not arrived — it would pass just as happily against a page that IS
-    // refitting its terminals. Sample until GRID_ROUND_TRIP_MS has elapsed and
-    // fail on the first divergence.
+    // HELD for a round trip ({@link GRID_ROUND_TRIP_MS}), not sampled once: a
+    // single read right after the pinch would pass just as happily against a
+    // page that IS refitting its terminals and has not been answered yet.
+    // Fail on the first divergence.
     const deadline = Date.now() + GRID_ROUND_TRIP_MS;
     do {
       const [cols, rows] = await Promise.all([

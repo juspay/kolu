@@ -14,9 +14,8 @@
  * rather than only the one that asked, it is never withheld (even when the
  * repaint it provokes is), and a subscriber that attaches after the fact is told
  * its grid on the snapshot instead of being replayed a resize it never missed.
- * The CONSUMER's half — that applying it at that point keeps two screens equal —
- * is `xterm-kit`'s `mirrorLockstep.test.ts`, which can run two real xterm
- * buffers against each other.
+ * The CONSUMER's half — that applying it at that point keeps a pane's screen
+ * equal to this mirror's — is `lockstepMirror.test.ts`, beside this one.
  *
  * These spawn real PTYs, so they live under the daemon gate like every other
  * `createPtyHost` suite (the #1375 fork bomb). REAL timers throughout, and

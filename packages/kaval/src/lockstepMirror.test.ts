@@ -53,6 +53,7 @@ import { createRoot } from "solid-js";
 import { afterEach, expect, it } from "vitest";
 import {
   createPtyHost,
+  MIN_DATA_BUDGET_CHARS,
   type PtyDataItem,
   type PtyGrid,
   type PtyHost,
@@ -63,12 +64,14 @@ const require = createRequire(import.meta.url);
 const { Terminal } =
   require("@xterm/headless") as typeof import("@xterm/headless");
 
-/** The host's resize window, as this file has to wait it out. A copy, because
- *  `RESIZE_WINDOW_MS` is private to `ptyHost.ts` and exporting a constant only
- *  a test reads would make it look like policy somebody may tune. A copy that
- *  drifts LOW only makes these waits longer than needed; the polls all have
- *  their own deadlines. */
-const HOST_RESIZE_WINDOW_MS = 600;
+/** How far the CONTROL's pane runs ahead of the pty — the gap the whole change
+ *  is about, which on the client is `GRID_SETTLE_MS` plus a publish.
+ *
+ *  Its own number, not a copy of anything: this file is on kaval's side of the
+ *  wire and has no business holding the browser's settle. What it needs is
+ *  "long enough that the program writes several lines into the gap", and the
+ *  painter's tick is what decides that. */
+const PANE_RUNS_AHEAD_MS = 300;
 
 /** How long a case gives the two screens to agree. Generous: a settle has to
  *  cover the host's window, the child's repaint, the kit's coalesce interval
@@ -191,15 +194,21 @@ process.stdin.on("data", burst);
 burst();
 `;
 
-/** A program whose SIGWINCH repaint is larger than the host's byte budget
- *  (`MIN_DATA_BUDGET_CHARS`, 128 KiB), so the window gives up on replaying it
- *  and drops its subscribers instead. Appended to the painter rather than
- *  written separately so both cases run the SAME painting program — the second
- *  handler runs after the first, so the flood follows the repaint, and it
- *  re-prints the quiet marker the flood just scrolled away. */
+/** A program whose SIGWINCH repaint is larger than the host's byte budget, so
+ *  the window gives up on replaying it and drops its subscribers instead.
+ *
+ *  DERIVED from {@link MIN_DATA_BUDGET_CHARS} rather than hand-sized against
+ *  it: a hard-coded number that the budget later grew past would turn this case
+ *  into a second copy of the under-budget one, still green, with the drop path
+ *  no longer exercised by anything.
+ *
+ *  Appended to the painter rather than written separately so both cases run the
+ *  SAME painting program — the second handler runs after the first, so the
+ *  flood follows the repaint, and it re-prints the quiet marker the flood just
+ *  scrolled away. */
 const FLOOD_SOURCE = `${PAINTER_SOURCE}
 process.on("SIGWINCH", () => {
-  out.write("F".repeat(200000) + "\\r\\n");
+  out.write("F".repeat(${MIN_DATA_BUDGET_CHARS * 2}) + "\\r\\n");
   out.write("\\u001b[" + rows() + ";1HIDLE" + epoch + "\\r\\n");
 });
 `;
@@ -305,7 +314,7 @@ describeDaemon("a pane's screen is the mirror's screen", () => {
       () => false,
       {
         write: (data, onParsed) => lock.writeData(asBrowser, data, onParsed),
-        resize: (cols, rows) => lock.resizeInOrder(asBrowser, cols, rows),
+        resize: (cols, rows) => lock.resizeInOrder(cols, rows),
       },
       { intervalMs: COALESCE_MS },
     );
@@ -555,10 +564,10 @@ describeDaemon("a pane's screen is the mirror's screen", () => {
 
       await burstUnderway(host, id);
       pane.resizeBox({ cols: 70, rows: 20 });
-      // The settle window is how long the pane runs ahead of the pty for, and
-      // the program writes throughout it.
+      // How long the pane runs ahead of the pty for: the client's grid settle
+      // plus the publish, which is the gap this whole change is about.
       const gap = Promise.withResolvers<void>();
-      setTimeout(() => gap.resolve(), HOST_RESIZE_WINDOW_MS / 2);
+      setTimeout(() => gap.resolve(), PANE_RUNS_AHEAD_MS);
       await gap.promise;
       expect(host.resize(id, 70, 20)).toBe(true);
 

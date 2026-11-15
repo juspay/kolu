@@ -53,7 +53,7 @@ function errMsg(err: unknown): string {
  *
  *  **Why SUPPRESS rather than defer, and why that needs a latch (kolu#2101
  *  K4).** The original argument was that every (re-)attach RESTATES the grid —
- *  `Terminal.tsx`'s `streamFn` thunk re-reads `h.grid()` into the attach's own
+ *  `Terminal.tsx`'s `streamFn` thunk re-reads `h.wantedGrid()` into the attach's
  *  `resizeTo` on each open, and the post-convergence re-attach is exactly such
  *  an open. True, but only when a re-attach HAPPENS. The grid effect fires once
  *  per grid CHANGE, nothing re-observes the host returning to `connected`, and

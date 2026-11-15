@@ -797,23 +797,16 @@ const TerminalDataMsgSchema = Schema.Union([
   // skew rather than a silent mis-parse — see PTY_HOST_CONTRACT_VERSION.
   Schema.Struct({ kind: Schema.Literal("overflow") }),
   // The MIRROR JUST CHANGED SIZE, here, at this point in the stream (contract
-  // 9.0). Published to every data subscriber from `resize()` itself, through the
-  // same ordered channel the bytes use, so a subscriber sees: the bytes parsed
-  // before the resize, then this frame, then the bytes parsed after.
-  //
-  // That ordering is the whole value. A consumer that resizes its own terminal
-  // AT this frame holds a screen that received exactly the events this mirror
-  // did, in the same order, so the two cannot disagree about a resize — which
-  // they previously always could, because a viewer resized when its own box
-  // moved and the host resized when the grid reached it ~a settle window later.
+  // 9.0 — see PTY_HOST_CONTRACT_VERSION for why this frame exists and why it is
+  // typed rather than an escape inside a `delta`). Published from `resize()`
+  // through the same ordered channel the bytes use, so a subscriber sees: the
+  // bytes parsed before the resize, then this frame, then the bytes parsed
+  // after. That POSITION is the whole of its content.
   //
   // A CONTROL frame, like `overflow`: it carries no bytes, it is never withheld
   // by the resize window (a viewer must learn the new size even while the
   // repaint is being held), and it costs nothing against the per-subscriber
   // byte budget. A same-size `resize()` is a no-op and emits nothing.
-  //
-  // NOT an escape sequence smuggled inside a `delta`: PTY output is untrusted,
-  // so an in-band marker is forgeable by the program on the other end.
   Schema.Struct({ kind: Schema.Literal("resized"), grid: PtyGridSchema }),
 ]);
 

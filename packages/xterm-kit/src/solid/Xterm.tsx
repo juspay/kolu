@@ -73,7 +73,8 @@ export interface XtermHandle {
    *  Nothing measured drives this. The box decides what the pane ASKS for
    *  ({@link wantedGrid}); the stream decides what the terminal IS. */
   resize: (grid: TerminalGrid) => void;
-  /** Drop coalesced + scroll-lock pending bytes without writing (fresh snapshot). */
+  /** Drop everything the door is holding — coalesced bytes and any queued
+   *  resize — without applying it (fresh snapshot). */
   clearPendingOutput: () => void;
   webgl: WebglHandle;
   recovery: RenderRecovery;
@@ -350,7 +351,7 @@ export const Xterm: Component<
       const fullRate = () => own.fullRate();
       const outputCoalesce = createOutputCoalesce(fullRate, {
         write: (data, onParsed) => scrollLock.writeData(term, data, onParsed),
-        resize: (cols, rows) => scrollLock.resizeInOrder(term, cols, rows),
+        resize: (cols, rows) => scrollLock.resizeInOrder(cols, rows),
       });
       // The terminal is the authority on its own size, so the signal follows
       // its event rather than the call that asked: a resize held by an engaged

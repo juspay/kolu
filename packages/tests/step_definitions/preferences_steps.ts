@@ -120,13 +120,10 @@ Then(
     const expected = remembered;
     if (!expected)
       throw new Error("no grid remembered — the When step must run first");
-    // Hold the assertion past a daemon ROUND TRIP rather than sampling for a
-    // few frames: a pane's xterm no longer changes size on its own, so a
-    // renderer swap that DID disturb the measurement would travel out as a
-    // new wanted grid and come back ~250ms later (GRID_ROUND_TRIP_MS covers
-    // the settle plus the answer). Ten frames is ~160ms — it would end before
-    // the resize it is looking for could arrive. Fail on the first
-    // divergence, quoting both grids and both renderers.
+    // A negative grid claim must outlast a daemon round trip
+    // ({@link GRID_ROUND_TRIP_MS}), not a handful of frames: ten frames is
+    // ~160ms, which ends before the resize this step is looking for could
+    // arrive. Fail on the first divergence, quoting both grids and renderers.
     const deadline = Date.now() + GRID_ROUND_TRIP_MS;
     do {
       const tile = await readTile(this);

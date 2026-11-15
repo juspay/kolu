@@ -18,17 +18,9 @@
  *  under `/solid`, which is what keeps it out of the runtime-neutral core
  *  barrel the daemon imports — see `../noSolidInDaemon.test.ts`. */
 
-export {
-  createOutputCoalesce,
-  UNFOCUSED_COALESCE_MS,
-} from "./outputCoalesce";
-export type {
-  OutputCoalesce,
-  OutputCoalesceDeps,
-  OutputSink,
-} from "./outputCoalesce";
-export { createScrollLock, SCROLL_INTENT_WINDOW_MS } from "./scrollLock";
-export type { PendingItem, ScrollIntentSource } from "./scrollLock";
+export { createOutputCoalesce } from "./outputCoalesce";
+export type { OutputCoalesce, OutputSink } from "./outputCoalesce";
+export { createScrollLock } from "./scrollLock";
 /** The terminal the door writes to, re-exported so a consumer can name it
  *  without declaring `@xterm/xterm` itself — the door's own dependency, not
  *  its caller's. `@xterm/headless` is the same core minus the renderer and

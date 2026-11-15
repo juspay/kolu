@@ -273,13 +273,9 @@ export interface PtySpawnResult {
  *  CHANGING SIZE.
  *
  *  Two kinds in ONE ordered channel, because the order between them is the
- *  fact being published. A consumer that resizes its own terminal when — and
- *  only when — it reads a `resized` has received exactly the events this
- *  mirror did, in the same sequence, so its screen and the mirror's cannot
- *  disagree about a resize. Published out of band instead (which is what a
- *  separate channel, or no channel at all, amounts to), a resize races the
- *  bytes around it and every byte in the gap is laid out for one grid and
- *  parsed at the other.
+ *  fact being published — a separate channel, or no channel at all, would let
+ *  a resize race the bytes around it. `ptyHostSurface.ts`'s contract-version
+ *  note is where that argument lives; this is its in-process shape.
  *
  *  `resized` is a CONTROL item: it carries no bytes, is never withheld by the
  *  resize window, and costs nothing against the byte budget (see
@@ -826,7 +822,7 @@ const RESIZE_WINDOW_MS = 600;
  *  Two full reads is the floor: a viewer that is one chunk behind is not behind.
  *  Baked, not configurable — the fail-fast rule: a derived bound with a baked
  *  floor, never a knob. */
-const MIN_DATA_BUDGET_CHARS = 128 * 1024;
+export const MIN_DATA_BUDGET_CHARS = 128 * 1024;
 
 /** Coalesce the meaningful-output edge to at most one per PTY per window — a
  *  streaming agent produces thousands of chunks/sec, but the edge only needs to
@@ -1997,16 +1993,19 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
     // all four are synchronous — so not one byte of the repaint can still
     // escape, and not one pre-resize byte is mistaken for it.
     //
-    // The publish sits where it does because that is the point in the byte
-    // stream the mirror actually changed size at (contract 9.0). The chunks the
-    // drain above just published were written for the OLD grid and are already
-    // on their way; everything a subscriber receives after this item was parsed
-    // at the NEW one. A subscriber that resizes its own terminal exactly here
-    // has seen the same events in the same order as this mirror, which is the
-    // whole guarantee. Before the drain it would be a lie (bytes for the old
-    // grid would follow it); after the window opens it would be withheld.
+    // The publish sits between the drain and the window because those are the
+    // two things that would make it wrong: before the drain, bytes written for
+    // the OLD grid would still follow it; after the window opens, it would be
+    // withheld.
     entry.headless.resize(cols, rows);
-    publishResized(entry, { cols, rows });
+    // Read back off the MIRROR, not restated from the request: a snapshot's
+    // grid is `entry.headless.cols/rows`, and xterm clamps a degenerate request
+    // to its own minimum — so restating `{ cols, rows }` here would let the two
+    // frames describe one screen with two different sizes.
+    publishResized(entry, {
+      cols: entry.headless.cols,
+      rows: entry.headless.rows,
+    });
     openResizeWindow(entry);
     entry.proc.resize(cols, rows);
     // resize() reflows the mirror (reflowCursorLine rewraps lines on a width

@@ -182,15 +182,11 @@ Then(
   "the canvas should fill at least {int}% of its container",
   async function (this: KoluWorld, pct: number) {
     const ratio = pct / 100;
-    // POLLED, not read once — and what is being waited for is a ROUND TRIP.
-    // A pane's xterm no longer resizes itself when its box (or its font)
-    // changes: it states the grid its box can hold and adopts the new one
-    // where the daemon's mirror did, which is the client's settle window
-    // (250ms) plus an answer from the daemon later. In between, the terminal
-    // is drawn at its own grid at natural size — so a font zoom-out leaves it
-    // visibly short of its container until the new grid lands, and a single
-    // read here would be asserting on the gap. A deadline, never a sleep: the
-    // loop ends the instant the terminal fills its box.
+    // POLLED, not read once — what is being waited for is a DAEMON ROUND TRIP
+    // (see `terminal_resize_steps.ts`). Until it lands the terminal is drawn
+    // at its old grid, so a font zoom-out leaves it visibly short of its
+    // container and a single read would be asserting on that gap. A deadline,
+    // never a sleep: the loop ends the instant the terminal fills its box.
     await pollFor({
       observe: async () => ({
         canvas: await this.canvasBox(),

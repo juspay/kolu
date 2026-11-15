@@ -129,9 +129,14 @@ function errMsg(err: unknown): string {
  *  A mismatch is also the ordinary transient shape of the pane's OWN resize —
  *  it measures first and the record catches up a round-trip later — so the
  *  window is what separates "someone else holds this terminal" from "my own
- *  resize is still in flight". Comfortably longer than a local publish + fold +
- *  collection push, and short enough that a genuinely foreign resize is repaired
- *  before the user has read a screenful of mis-wrapped output. */
+ *  resize is still in flight". It MUST exceed `publishGrid.ts`'s
+ *  `GRID_SETTLE_MS` plus a round trip, and that constraint is load-bearing
+ *  rather than decorative: since the snapshot-refusal lane went away this
+ *  watcher is the only thing that repairs a transport retry replaying a stale
+ *  captured grid, so a publish settle raised past this one would turn every
+ *  ordinary resize into a re-attach. Short enough, at the other end, that a
+ *  genuinely foreign resize is repaired before the user has read a screenful of
+ *  mis-wrapped output. */
 const FOREIGN_GRID_SETTLE_MS = 750;
 
 const Terminal: Component<{
@@ -169,27 +174,27 @@ const Terminal: Component<{
    *  pane is gone — so "am I torn down" stays a synchronous fact, exactly as the
    *  `signal.aborted` it replaces was. */
   let attachTornDown = false;
-  /** The pending {@link REATTACH_BACKOFF_MS} pause of a RE-ASSERT reopen — the
+  /** The pending {@link REATTACH_BACKOFF_MS} pause of the RE-ASSERT lane — the
    *  fourth reopen lane (kolu#2101 K5). Held so teardown can cancel it, the same
    *  way interrupting `attachFiber` cancels the loop's own sleeping backoff. */
-  let reassertReopenTimer: ReturnType<typeof setTimeout> | null = null;
-  /** The LIVE attach attempt's re-assert reopen, exposed so the served-grid
+  let reassertTimer: ReturnType<typeof setTimeout> | null = null;
+  /** The LIVE attach attempt's RE-ASSERT lane, exposed so the served-grid
    *  watcher below can end this attempt and open one at the grid this pane
-   *  actually wants.
+   *  actually wants. Its one caller is that watcher.
    *
    *  Each attempt overwrites it on open, and that IS the correctness property
    *  rather than the hazard the attempt-local state warns about: the watcher
    *  must reach whichever attempt is running now, and the closure stored here is
    *  already wrapped in that attempt's own liveness latch, so a stale one is
    *  inert rather than a second successor. */
-  let reopenForForeignGrid: (() => void) | null = null;
+  let reassertGrid: (() => void) | null = null;
   /** The LIVE attach attempt's own supersession latch, exposed for the one
    *  caller that has to end an attach WITHOUT opening a successor: the pane
    *  going hidden. Every other route out of an attempt is a REPLACEMENT, and a
    *  replacement supersedes by opening (`attempts.open()`); a close has nothing
    *  to open, so it has to reach the latch the attempt guards itself with, or
    *  the attempt would stay "current" and a late frame would paint into a pane
-   *  nobody is watching. Same reason `reopenForForeignGrid` is held here: the
+   *  nobody is watching. Same reason `reassertGrid` is held here: the
    *  live attempt's state is in its closure, and a cross-lane caller needs a
    *  door to it. */
   let supersedeAttempt: (() => void) | null = null;
@@ -384,20 +389,15 @@ const Terminal: Component<{
     // Diagnostics subscribes to hasWebgl via accessor — keeps it the single
     // source of truth, no imperative updater to forget.
     disposeDiagnostics = registerDiagnostics(props.terminalId, {
-      xterm: term,
       renderer: () => (h.webgl.hasWebgl() ? "webgl" : "dom"),
-      // `cols`/`rows` are read off xterm: the size the terminal IS, which is the
-      // size the bytes in its buffer are laid out for. This is what the pane
-      // WANTS — the reading of its own box — and the two differ for a settle
-      // window plus a round trip after any box change, so a dialog showing only
-      // one of them cannot explain a terminal that looks a row short.
+      // Both grids, from the kit's own two signals — the size the terminal IS
+      // and the size this pane's box WANTS. They differ for a settle window
+      // plus a round trip after any box change, so a dialog showing one of them
+      // cannot explain a terminal that looks a row short; and `wanted` being
+      // null is also "this pane has never measured, so no attach stream has
+      // opened" — a state that looks exactly like attached-and-quiet on screen.
+      term: h.termGrid,
       wanted: h.wantedGrid,
-      // The gate on ALL bytes. An unmeasured xterm reports the invented 80×24,
-      // so without this the dialog cannot tell "waiting to be measured, no
-      // attach stream open" from "attached and quiet". On screen the two are
-      // identical (a blank terminal), which is why the fact has to be named
-      // somewhere the code can see it.
-      measured: () => h.wantedGrid() !== null,
       scrollLock: {
         locked: h.scrollLock.isLocked,
         pendingChunks: h.scrollLock.pendingChunks,
@@ -625,21 +625,10 @@ const Terminal: Component<{
     );
 
     // The pty's OWN grid, as the record states it — the standing fact that says
-    // this pane is not getting the size it asked for, and its route back to a
-    // grid it wants.
-    //
-    // The attach stream now TELLS this pane when the pty resized (the `resized`
-    // frame), so the screen it paints is always correct for the size the pty
-    // is. What a frame cannot say is that the size is not the one this pane
-    // ASKED for — whether because another viewer took the terminal, or because
-    // a transport retry replayed a grid this pane has moved on from. The record
-    // is the channel that carries that (`TerminalEndpoint.noteGrid`), and it is
-    // a standing fact rather than an event, so it is still true when the watcher
-    // re-reads it after waiting.
-    //
-    // The JUDGMENT — a settle window, and the one mismatch to sit out — is
-    // `foreignGrid.ts`'s; what stays here is the three live facts and the
-    // re-attach. See that module's header for why waiting is the whole policy.
+    // this pane is not getting the size it ASKED for, and its route back to one
+    // it wants. The WHY and the judgment (a settle window, and the one mismatch
+    // to sit out) are `foreignGrid.ts`'s; what stays here is the live facts it
+    // binds and the re-attach.
     const foreignGrid = createForeignGridWatcher({
       served: () =>
         activeArm(terminalStore.getMetadata(props.terminalId))?.grid,
@@ -648,7 +637,7 @@ const Terminal: Component<{
       // facts would always agree and the watcher would never fire.
       mine: h.wantedGrid,
       hostState: hostEntryKind,
-      reopen: () => reopenForForeignGrid?.(),
+      reopen: () => reassertGrid?.(),
       settleMs: FOREIGN_GRID_SETTLE_MS,
     });
     onCleanup(() => foreignGrid.dispose());
@@ -765,7 +754,7 @@ const Terminal: Component<{
        *
        *  Guarded by `attemptLive()` at every call site, so several superseded
        *  callbacks reaching here produce ONE successor, not a cascade. */
-      const reopenAtWantedGrid = (cause: AttachCause = "attach") => {
+      const reassertWantedGrid = () => {
         // Latch first, interrupt second — the window between them is exactly
         // where a late frame of this attempt would otherwise land.
         superseded = true;
@@ -775,24 +764,24 @@ const Terminal: Component<{
         // fiber left to sleep in — this attempt's was just interrupted. It is
         // cancelled by the component teardown, which is the same lifetime the
         // interrupt above respects.
-        clearTimeout(reassertReopenTimer ?? undefined);
-        reassertReopenTimer = setTimeout(() => {
-          reassertReopenTimer = null;
+        clearTimeout(reassertTimer ?? undefined);
+        reassertTimer = setTimeout(() => {
+          reassertTimer = null;
           if (attachTornDown) return;
-          openAttachStream({ cause, repaint: false });
+          // `"foreign"` is the lane's only cause and needs no parameter: an
+          // attach that exists because another viewer took the terminal is not
+          // the same event as a user revealing a pane, and the host can only
+          // tell them apart if the client says which it is.
+          openAttachStream({ cause: "foreign", repaint: false });
         }, REATTACH_BACKOFF_MS);
       };
 
       // The served-grid watcher's route into THIS attempt (see the binding's
       // note). Guarded exactly as every other cross-lane callback is, so a
       // watcher tick that lands on a superseded attempt does nothing.
-      //
-      // It also NAMES the open it pulls. An attach that exists because another
-      // viewer took the terminal is not the same event as a user revealing a
-      // pane, and the host can only tell them apart if the client says which
-      // one it is — the whole point of counting attaches by cause.
-      reopenForForeignGrid = onlyWhenCurrent({ isCurrent: attemptLive }, () =>
-        reopenAtWantedGrid("foreign"),
+      reassertGrid = onlyWhenCurrent(
+        { isCurrent: attemptLive },
+        reassertWantedGrid,
       );
 
       // The hide route into THIS attempt (see the binding's note). A close is
@@ -876,8 +865,8 @@ const Terminal: Component<{
           // successor has already reset.
           if (!attemptLive()) return;
           // THE STREAM OWNS THIS TERMINAL'S SIZE (`@kolu/padi-client/attach`,
-          // rule 1). Two frames state a size and the pane obeys both, HERE, in
-          // the order they arrived:
+          // rule 1, which is where the argument lives). Two frames state a
+          // size and the pane obeys both, HERE, in the order they arrived:
           //
           //   · a `resized` — the pty's mirror changed size at this exact point
           //     between two bytes. Nothing else happens: no bytes, no backfill
@@ -889,19 +878,10 @@ const Terminal: Component<{
           //     The terminal is set to that grid FIRST and painted SECOND, so a
           //     screen is never parsed at a width it was not serialized for.
           //
-          // This is what replaced refusing a snapshot whose grid did not match
-          // the pane's (kolu#2101 deploy #2 incident #3). The refusal existed
-          // because the pane's xterm was sized by its own BOX, so bytes from a
-          // pty at another size were damage — scrollback wrapped at the wrong
-          // width, which a later repaint cannot undo. With the pane following
-          // the stream there is nothing left to refuse: every snapshot fits by
-          // construction, and a pty sitting at a size this pane did not ASK for
-          // is a standing fact the served-grid watcher reads off the record,
-          // not a frame to reject. One lane instead of two, and the one that
-          // remains is the one that can see a foreign resize that sends no
-          // frame at all.
           // ONE reading for both arms (`frameGrid`), so covering `snapshot`
-          // while forgetting `resized` is not spellable here.
+          // while forgetting `resized` is not spellable here. There is no
+          // refusal arm: `reattachingStream.ts` keeps the obituary of the one
+          // that used to be here.
           const statedGrid = frameGrid(frame);
           if (statedGrid) h.resize(statedGrid);
           if (isResizedFrame(frame)) return;
@@ -1060,11 +1040,11 @@ const Terminal: Component<{
     function closeAttachStream() {
       supersedeAttempt?.();
       supersedeAttempt = null;
-      reopenForForeignGrid = null;
+      reassertGrid = null;
       attachFiber?.interruptUnsafe();
       attachFiber = null;
-      clearTimeout(reassertReopenTimer ?? undefined);
-      reassertReopenTimer = null;
+      clearTimeout(reassertTimer ?? undefined);
+      reassertTimer = null;
     }
 
     // Initial focus, mirroring the old post-fit focus on first mount.

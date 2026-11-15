@@ -13,7 +13,6 @@
  *  store for UI subscription. Same lifecycle, different volatility axes
  *  — both registrations happen in Terminal.tsx onMount/onCleanup. */
 
-import type { Terminal as XTerm } from "@xterm/xterm";
 import type { TerminalId } from "kolu-common/surface";
 import { type Accessor, createEffect, createRoot } from "solid-js";
 import { createStore, produce } from "solid-js/store";
@@ -34,18 +33,13 @@ export interface TerminalDiagnostics {
   id: TerminalId;
   /** The size the terminal IS — what the bytes in its buffer are laid out for.
    *  Moves only when the attach stream says the pty's mirror moved. */
-  cols: number;
-  rows: number;
-  /** The size this pane's BOX can hold — what it has asked the pty for. `null`
-   *  until the pane has measured. The two differ for a settle window plus a
+  term: TerminalGrid;
+  /** The size this pane's BOX can hold, and has asked the pty for — `null`
+   *  until the pane has measured its own box at all, which is also "no attach
+   *  stream has opened yet". The two grids differ for a settle window plus a
    *  round trip after any box change, and a dialog showing only one of them
    *  cannot explain a terminal that looks a row short. */
-  wantedCols: number | null;
-  wantedRows: number | null;
-  /** Whether this pane has a real MEASUREMENT of its own box at all. False
-   *  means no attach stream has opened yet ("no grid, no bytes") — a state that
-   *  looks exactly like an attached-and-idle terminal on screen. */
-  measured: boolean;
+  wanted: TerminalGrid | null;
   renderer: Renderer;
   scrollLock: ScrollLockDiagnostics;
 }
@@ -78,16 +72,14 @@ const [store, setStore] = createStore<Record<TerminalId, TerminalDiagnostics>>(
 export function registerDiagnostics(
   id: TerminalId,
   {
-    xterm,
+    term,
     renderer,
     wanted,
-    measured,
     scrollLock,
   }: {
-    xterm: XTerm;
+    term: Accessor<TerminalGrid>;
     renderer: Accessor<Renderer>;
     wanted: Accessor<TerminalGrid | null>;
-    measured: Accessor<boolean>;
     scrollLock: {
       locked: Accessor<boolean>;
       pendingChunks: Accessor<number>;
@@ -97,17 +89,10 @@ export function registerDiagnostics(
 ): () => void {
   setStore(id, {
     id,
-    cols: xterm.cols,
-    rows: xterm.rows,
-    wantedCols: wanted()?.cols ?? null,
-    wantedRows: wanted()?.rows ?? null,
-    measured: measured(),
+    term: term(),
+    wanted: wanted(),
     renderer: renderer(),
     scrollLock: scrollLockSnapshot(scrollLock),
-  });
-
-  const resizeDisposable = xterm.onResize(({ cols, rows }) => {
-    setStore(id, { cols, rows });
   });
 
   // Own the effect root explicitly so the subscription is torn down with
@@ -119,14 +104,10 @@ export function registerDiagnostics(
       setStore(id, "renderer", renderer());
     });
     createEffect(() => {
-      setStore(id, "measured", measured());
+      setStore(id, "term", term());
     });
     createEffect(() => {
-      const w = wanted();
-      setStore(id, {
-        wantedCols: w?.cols ?? null,
-        wantedRows: w?.rows ?? null,
-      });
+      setStore(id, "wanted", wanted());
     });
     createEffect(() => {
       setStore(id, "scrollLock", scrollLockSnapshot(scrollLock));
@@ -135,7 +116,6 @@ export function registerDiagnostics(
   });
 
   return () => {
-    resizeDisposable.dispose();
     disposeRoot();
     setStore(produce((s) => void delete s[id]));
   };

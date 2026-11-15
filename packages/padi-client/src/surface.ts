@@ -1501,27 +1501,13 @@ export const PadiTerminalAttachFrameSchema = Schema.Union([
     grid: EndpointGridSchema,
   }),
   /** The pty's mirror CHANGED SIZE at this point in the stream (kaval contract
-   *  9.0, padi 7.5).
+   *  9.0, padi 7.5 — see {@link PADI_SURFACE_VERSION} for why it exists, and
+   *  the multi-client note on the attach INPUT for what it makes observable).
    *
    *  A control frame carrying one fact and no bytes, and its POSITION is the
    *  fact: every byte before it was laid out for the old grid, every byte after
-   *  it for the new one. A consumer that resizes its own terminal exactly here
-   *  has applied the same events in the same order as the pty's mirror, so the
-   *  two screens cannot diverge over a resize — which, before this frame
-   *  existed, they routinely did: a pane resized when its own box moved and the
-   *  pty resized when the grid reached it a settle window later, and everything
-   *  written in between was parsed at the wrong size by one of them.
-   *
-   *  A TYPED frame rather than an escape sequence inside a `delta`: program
-   *  output is untrusted, so an in-band marker would be forgeable by whatever is
-   *  running in the terminal.
-   *
-   *  It is also what makes the multi-client note above OBSERVABLE in-band: a
-   *  second viewer attaching at its own size now announces itself on every other
-   *  viewer's stream instead of silently reflowing them. The POLICY is unchanged
-   *  — last-attach-wins, and a losing pane re-asserts its own grid through the
-   *  record watcher — but the losing side is no longer painting bytes whose
-   *  layout nothing ever told it about. */
+   *  it for the new one. A consumer applies it exactly there and nowhere else;
+   *  `./attach` rule 2 is what a consumer that BUFFERS bytes owes it. */
   Schema.Struct({
     kind: Schema.Literal("resized"),
     grid: EndpointGridSchema,
