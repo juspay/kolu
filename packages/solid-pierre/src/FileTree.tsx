@@ -110,10 +110,15 @@ export type FileTreeProps = {
    *  directory, whose children `paths` already carries.
    *
    *  Return the load's promise to tell the wrapper the OUTCOME: on rejection it
-   *  forgets the expansion, so the next probe reports afresh and a retry costs
-   *  one re-expand. Without that a transient read failure wedges the folder
-   *  open-and-empty for the rest of the mount, indistinguishable on screen from
-   *  a genuinely empty directory. */
+   *  forgets the expansion AND collapses the row, so the next probe reports
+   *  afresh and a retry costs one re-expand. Without that a transient read
+   *  failure wedges the folder open-and-empty for the rest of the mount,
+   *  indistinguishable on screen from a genuinely empty directory.
+   *
+   *  Only the NEWEST call for a directory owns that outcome. Start a second
+   *  load for the same path and the first owns nothing — its rejection neither
+   *  forgets nor collapses — so a host that aborts a superseded read (as the
+   *  Code tab does) does not shut a folder whose contents are still coming. */
   onExpandLazyDirectory?: (path: string) => void | Promise<void>;
   /** Bump to declare every previously-reported expansion void — the host's
    *  loaded levels no longer describe this tree (a repo / host switch). The
@@ -386,10 +391,13 @@ export const FileTree: Component<FileTreeProps> = (props) => {
    *  every path mutation. Scanning `getVisibleRows` here would put a
    *  whole-tree walk on that path for a fact about a few rows.
    *
-   *  Reporting is edge-triggered against `openLazyDirs`, so the host's own
-   *  answer — folding the fetched level into `paths`, which ticks the store
-   *  again — cannot re-enter: the directory is still open and still recorded,
-   *  so the next probe stays silent. */
+   *  Reporting is edge-triggered against `openLazyDirs`, which alone is not
+   *  enough to keep the host's own answer from re-entering: folding the
+   *  fetched level into `paths` REPLACES the collapsed key, and the rebuild
+   *  passes through a closed folder (retiring the record) before re-opening
+   *  it. Those ticks are sat out — see `rebuilding` — and one probe runs
+   *  afterwards on the settled tree, where the directory is open and still
+   *  recorded, so it stays silent. */
   const reportLazyExpansions = (): void => {
     const t = tree;
     if (!t || rebuilding) return;
@@ -480,9 +488,10 @@ export const FileTree: Component<FileTreeProps> = (props) => {
     // directory node — the one carrying the expansion — so the node rebuilt
     // from the children arrives closed. Without this the folder would snap shut
     // at the exact moment its contents arrived, which reads as the click having
-    // done nothing. Re-expanding is also what keeps the reporting
-    // edge-triggered: the directory stays open and stays recorded, so the load
-    // cannot re-enter as a fresh expansion.
+    // done nothing. Re-expanding restores the folder, but it does NOT by itself
+    // keep the load from re-entering as a fresh expansion: the folder is closed
+    // for the span between the remove and this re-open, and a probe that read
+    // the tree there retired the record. `rebuilding` is what covers that span.
     ...openLazyDirs,
   ];
 

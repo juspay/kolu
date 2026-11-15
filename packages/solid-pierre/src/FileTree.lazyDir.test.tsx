@@ -370,6 +370,7 @@ describe("a lazy directory under a host that rebuilds one props object", () => {
     load: (dir: string) => Promise<void>,
   ) {
     const [frame, setFrame] = createSignal<Frame>(initial);
+    const picked: Array<string | null> = [];
     const root = mountInto((host) =>
       render(
         () => (
@@ -381,11 +382,12 @@ describe("a lazy directory under a host that rebuilds one props object", () => {
                 lazyDirectories={current().lazy}
                 lazyEpoch={current().epoch}
                 onExpandLazyDirectory={load}
-                onSelect={(p) =>
+                onSelect={(p) => {
+                  picked.push(p);
                   // The host's answer to a pick: a NEW frame object, same
                   // everything else.
-                  setFrame((f) => ({ ...f, selected: p }))
-                }
+                  setFrame((f) => ({ ...f, selected: p }));
+                }}
                 search={false}
                 onError={(err) => {
                   throw err;
@@ -397,7 +399,7 @@ describe("a lazy directory under a host that rebuilds one props object", () => {
         host,
       ),
     );
-    return { root, setFrame };
+    return { root, setFrame, picked, frame };
   }
 
   it("loads it once, and keeps it open when a file inside is picked", async () => {
@@ -409,7 +411,7 @@ describe("a lazy directory under a host that rebuilds one props object", () => {
     // every tick — and the re-fetch that the file click triggered superseded
     // (aborted, hence rejected) the one before it, which closed the row.
     const { calls, load, settle } = supersedingLoader();
-    const { root, setFrame } = mountFrameHost(
+    const { root, setFrame, picked, frame } = mountFrameHost(
       {
         paths: ["kept.md", ".waterfall/"],
         lazy: [".waterfall/"],
@@ -437,6 +439,14 @@ describe("a lazy directory under a host that rebuilds one props object", () => {
     clickRow(root, ".waterfall/brief.md");
     await flush();
 
+    // The pick itself landed — without this the rest could pass on the frame
+    // rebuild the load alone causes, with the click dropped (the provenance
+    // gate, a Pierre change) and nobody the wiser.
+    expect(picked).toEqual([".waterfall/brief.md"]);
+    expect(frame().selected).toBe(".waterfall/brief.md");
+    expect(
+      rowOf(root, ".waterfall/brief.md").getAttribute("aria-selected"),
+    ).toBe("true");
     // One expansion, one read. Not three.
     expect(calls.map((c) => c.dir)).toEqual([".waterfall/"]);
     // And the folder the user opened is still open, with its contents on
