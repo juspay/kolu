@@ -37,6 +37,10 @@ import {
   validateOptionalTolerance,
 } from "./optionalTolerance";
 import {
+  collectPackageReadmes,
+  validatePackageReadmes,
+} from "./packageReadmes";
+import {
   collectRunEdges,
   RUN_EDGE_ALLOWLIST,
   validateRunEdges,
@@ -220,6 +224,14 @@ const optionalShimSites = [...optionalShims.values()].reduce(
 const trackedFiles = git("ls-files", "-z").split("\0").filter(Boolean);
 validateCaseCollisions(findCaseCollisions(trackedFiles));
 
+// Every workspace package has its own README (AGENTS.md, Documentation). The
+// fifth whole-tree scan, over the same committed file list: the package set is
+// the workspace's own globs resolved against it, so a package joins the rule by
+// existing and there is no allowlist to fall out of date. See
+// `packageReadmes.ts`.
+const packageReadmes = collectPackageReadmes(repoRoot, trackedFiles);
+validatePackageReadmes(packageReadmes.missing);
+
 // The manifest-closure walk exists in TS and in Nix, and neither can run the
 // other. This makes them answer the same question over the same entries, so a
 // drift fails here instead of downstream — as a daemon that ships new code under
@@ -269,5 +281,5 @@ validateBetaAssumptions(
 );
 
 console.log(
-  `e2e governance: ${counts.featureFiles} features, ${counts.declarations} declarations, ${counts.executions} executions (${counts.linuxDefault} Linux default, ${counts.darwinDefault} Darwin default), ${inventory.records.length} immutable revisions, ${runEdgeSites} allowlisted Effect.run* edges in ${runEdges.size} files, ${optionalShimSites} allowlisted Schema.optional shims in ${optionalShims.size} files, ${trackedFiles.length} tracked files with no case-only module collision, effect@${effectVersion} agreed across ${effectPins.length} pin sites, ${betaAssumptions.length} beta-behavior assumptions stamped (${effectVersionRefs.length} evidence citations agreed), ${closureMembers} vendored + daemon-identity closure members walked identically by nix and TS, ${consumerClosureMembers} consumer-closure members emitted fresh, README consumer recipe evaluates to ${consumerRecipeMembers} members`,
+  `e2e governance: ${counts.featureFiles} features, ${counts.declarations} declarations, ${counts.executions} executions (${counts.linuxDefault} Linux default, ${counts.darwinDefault} Darwin default), ${inventory.records.length} immutable revisions, ${runEdgeSites} allowlisted Effect.run* edges in ${runEdges.size} files, ${optionalShimSites} allowlisted Schema.optional shims in ${optionalShims.size} files, ${trackedFiles.length} tracked files with no case-only module collision, ${packageReadmes.packages.length} workspace packages each with a README, effect@${effectVersion} agreed across ${effectPins.length} pin sites, ${betaAssumptions.length} beta-behavior assumptions stamped (${effectVersionRefs.length} evidence citations agreed), ${closureMembers} vendored + daemon-identity closure members walked identically by nix and TS, ${consumerClosureMembers} consumer-closure members emitted fresh, README consumer recipe evaluates to ${consumerRecipeMembers} members`,
 );
