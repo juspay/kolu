@@ -297,13 +297,15 @@ export const FileTree: Component<FileTreeProps> = (props) => {
   // `markDirectoryUnloaded` / `beginChildLoad` / `applyChildPatch` /
   // `completeChildLoad`, and `dist/model/mutationEvents.d.ts` even PUBLISHES
   // the matching `'begin-child-load' | 'apply-child-patch' | …` event names.
-  // But at `@pierre/trees@1.0.0-beta.6` the methods that drive them appear in
-  // no `.d.ts` and on no public class (the render `FileTree` exposes only
-  // `subscribe`), so the vocabulary is public while the driver is not. Reaching
-  // into `path-store/src/store.js` to get at it would bind us to unversioned
-  // internals. Re-check on the next Pierre bump: if those methods graduate to
-  // the public surface, this Set, `reportLazyExpansions`, and the two props
-  // below all delete in favour of the native API.
+  // Re-checked at `@pierre/trees@1.0.0` (the stable release): the methods that
+  // drive them still appear in no `.d.ts` and on no public class — the render
+  // `FileTree` gained `setLabels` and nothing else that touches child loading,
+  // and `beginChildLoad` and friends live only in `path-store/src/store.js`.
+  // So the vocabulary is public while the driver is not, and reaching into
+  // that file would bind us to unversioned internals. Re-check on the next
+  // Pierre bump: if those methods graduate to the public surface, this Set,
+  // `reportLazyExpansions`, and the two props below all delete in favour of
+  // the native API.
   const openLazyDirs = new Set<string>();
 
   // The newest read in flight per lazy directory, as an identity token. A
