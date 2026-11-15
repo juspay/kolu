@@ -1361,7 +1361,7 @@ Feature: Code tab (review + browse)
   # exactly like a `.gitignore`d one, so it needs the eye toggle to appear.
   Scenario: A gitignored folder stays open when you open a file inside it
     When I run "rm -rf /tmp/kolu-ignored-stay && git init /tmp/kolu-ignored-stay && cd /tmp/kolu-ignored-stay"
-    And I run "mkdir -p .waterfall && printf 'brief-marker\n' > .waterfall/brief.md && printf 'notes\n' > .waterfall/notes.md"
+    And I run "mkdir -p .waterfall && printf 'brief-marker\n' > .waterfall/brief.txt && printf 'notes\n' > .waterfall/notes.txt"
     And I run "printf 'tracked\n' > kept.md && git add kept.md && git commit -m init"
     And I run "printf '.waterfall/\n' >> .git/info/exclude"
     And I click the Code tab
@@ -1370,11 +1370,11 @@ Feature: Code tab (review + browse)
     When I click the show-gitignored toggle
     Then the file browser should show a directory ".waterfall"
     When I click the directory ".waterfall" in the file browser
-    Then the file browser should show a file ".waterfall/brief.md"
-    When I click the file ".waterfall/brief.md" in the file browser
+    Then the file browser should show a file ".waterfall/brief.txt"
+    When I click the file ".waterfall/brief.txt" in the file browser
     Then the file content should contain "brief-marker"
     And the directory ".waterfall" should stay expanded in the file browser
-    And the file browser should show a file ".waterfall/notes.md"
+    And the file browser should show a file ".waterfall/notes.txt"
     And there should be no page errors
 
   # Regression: expanding several directories and then clicking a file to
