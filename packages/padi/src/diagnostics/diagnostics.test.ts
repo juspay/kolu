@@ -8,7 +8,10 @@
 
 import { execFile } from "node:child_process";
 import { PadiDiagnosticsSchema } from "@kolu/padi-client/surface";
-import { describeDaemon } from "@kolu/daemon-test-gate";
+import {
+  assertDaemonSpawnAllowed,
+  describeDaemon,
+} from "@kolu/daemon-test-gate";
 import { Effect, Schema } from "effect";
 import { installChildMeter } from "kolu-io";
 import type { Logger } from "pino";
@@ -26,6 +29,9 @@ import { startPadiDiagnostics } from "./index.ts";
 import { startStallMonitor } from "./stalls.ts";
 
 function sleepChild(seconds: string): Promise<void> {
+  // Every caller sits inside `describeDaemon`, and the gate is asserted here
+  // too, at the fork itself.
+  assertDaemonSpawnAllowed("a real `sleep` child");
   const { promise, resolve } = Promise.withResolvers<void>();
   execFile("sleep", [seconds], () => resolve());
   return promise;
