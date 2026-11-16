@@ -108,7 +108,7 @@ async function pidFrom(file: string): Promise<number> {
 const never = new AbortController().signal;
 
 describe("a shell kolu cannot ask", () => {
-  it("is a failure naming the shells it can, with nothing spawned", async () => {
+  it("is a failure naming the shell it was handed, with nothing spawned", async () => {
     const home = homeRunning([]);
     const ran = join(home, "ran");
     const fish = join(home, "fish");
@@ -119,7 +119,7 @@ describe("a shell kolu cannot ask", () => {
       signal: never,
     }).catch((err: unknown) => err);
     expect(failed).toBeInstanceOf(ShellEnvUnreadable);
-    expect((failed as ShellEnvUnreadable).message).toContain("bash and zsh");
+    expect((failed as ShellEnvUnreadable).message).toContain(fish);
     // Said BEFORE anything ran: a shell that takes neither `-i` nor `-c`
     // would otherwise answer a flag-parsing error for every harness.
     expect(existsSync(ran)).toBe(false);

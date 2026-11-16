@@ -289,33 +289,23 @@ const refusalFailure = (err: unknown, work: string): ToolFailure =>
  *  "waiting on". One table here rather than a phrase in the model is what
  *  lets the two differ without either rewriting the other's prose. */
 export const standingWords = (standing: Standing): string => {
-  switch (standing.who) {
-    case "you":
-      switch (standing.why) {
-        case "question":
-          return standing.question;
-        case "merge":
-          return Option.match(standing.pr, {
-            onNone: () => "merge the PR",
-            onSome: (pr) => `merge PR #${pr}`,
-          });
-        default:
-          return standing satisfies never;
-      }
+  switch (standing.why) {
+    case "question":
+      return standing.question;
+    case "merge":
+      return Option.match(standing.pr, {
+        onNone: () => "merge the PR",
+        onSome: (pr) => `merge PR #${pr}`,
+      });
     case "ci":
       return "CI running";
-    case "agent":
-      switch (standing.why) {
-        case "watching":
-          return "watching";
-        case "working":
-          return "agents at work";
-        default:
-          return standing satisfies never;
-      }
+    case "watching":
+      return "watching";
+    case "working":
+      return "agents at work";
     // A FINISHED work: how it ended is the whole answer, and the outcome
     // carries what that takes — which pull request, or who stopped it.
-    case "done":
+    default:
       switch (standing.outcome.kind) {
         case "merged":
           return `merged PR #${standing.outcome.pr}`;
@@ -326,8 +316,6 @@ export const standingWords = (standing: Standing): string => {
         default:
           return standing.outcome satisfies never;
       }
-    default:
-      return standing satisfies never;
   }
 };
 
@@ -665,11 +653,11 @@ const setupAsksOf = (args: WorkOpenArgs): ReadonlyArray<SetupAsk> =>
  *  the question has none yet. An arm rather than a null, for the reason the
  *  record has arms — "unanswered" is a state of the question, and an agent
  *  acting on `null` cannot tell it from a mode called nothing. */
-type SetupAnswerSaid<V extends string> =
+export type SetupAnswerSaid<V extends string> =
   | { readonly kind: "unanswered" }
   | { readonly kind: "answered"; readonly value: V };
 
-const answerSaid = <V extends string>(
+export const answerSaid = <V extends string>(
   value: Option.Option<V>,
 ): SetupAnswerSaid<V> =>
   Option.match(value, {

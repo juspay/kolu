@@ -60,12 +60,13 @@ import type {
   FsFileInputSchema,
   TerminalId,
 } from "@kolu/terminal-vocab/schema";
-import { Effect, Option, Queue, Stream } from "effect";
+import { Effect, Queue, Stream } from "effect";
 import type {
   FsListAllInputSchema,
   GitDiffInputSchema,
   GitStatusInputSchema,
 } from "kolu-git/schemas";
+import { WAITER_OF } from "kolu-work";
 import {
   EMPTY_FLEET_URGENCY,
   type FleetHost,
@@ -77,7 +78,12 @@ import {
 import { type FleetHosts, requireHost, requireTerminal } from "./hosts.ts";
 import { hostRoster, overConnectedHosts } from "./overHosts.ts";
 import { fleetTerminalRef, splitFleetTerminalRef } from "./ref.ts";
-import { type FleetWorks, memberWithHost, standingWords } from "./works.ts";
+import {
+  answerSaid,
+  type FleetWorks,
+  memberWithHost,
+  standingWords,
+} from "./works.ts";
 
 // The four repo-scoped verbs take padi's own input, plus a host. Named off the
 // SCHEMAS padi declares them with, so a field added upstream arrives here
@@ -289,26 +295,17 @@ function worksRows(hosts: FleetHosts, works: FleetWorks): FleetWorksView {
   const rows = works.rows();
   return {
     works: rows.works.map((work) => ({
-      id: work.id,
-      title: work.title,
-      key: work.key,
-      host: work.host,
+      ...work,
       // THE SETUP'S TWO ANSWERS, as arms: the port answers an Option — the
       // ONE reading of whether a setup question has a value — and the wire
       // says which of the two it is rather than handing a reader a null.
-      mode: Option.match(work.mode, {
-        onNone: () => ({ kind: "unanswered" }) as const,
-        onSome: (value) => ({ kind: "answered", value }) as const,
-      }),
-      onGreen: Option.match(work.onGreen, {
-        onNone: () => ({ kind: "unanswered" }) as const,
-        onSome: (value) => ({ kind: "answered", value }) as const,
-      }),
+      mode: answerSaid(work.mode),
+      onGreen: answerSaid(work.onGreen),
       // THE WORDS ARE THIS FACE'S. `kolu-work` answers a token — who is
       // waited on and why — and the sentence an agent reads is written here,
       // where the rest of this resource's vocabulary is.
       standing: {
-        who: work.standing.who,
+        who: WAITER_OF[work.standing.why],
         what: standingWords(work.standing),
         since: work.standing.since,
       },

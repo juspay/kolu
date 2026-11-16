@@ -124,29 +124,35 @@ export const waitingOn = (work: Work, policy: Policy): Waiter | "done" =>
  *    stopped it). */
 export type Standing =
   | {
-      readonly who: "you";
       readonly why: "question";
       readonly question: string;
       readonly since: string;
     }
   | {
-      readonly who: "you";
       readonly why: "merge";
       readonly pr: Option.Option<number>;
       readonly since: string;
     }
-  | { readonly who: "ci"; readonly why: "ci"; readonly since: string }
+  | { readonly why: "ci"; readonly since: string }
+  | { readonly why: "watching" | "working"; readonly since: string }
   | {
-      readonly who: "agent";
-      readonly why: "watching" | "working";
-      readonly since: string;
-    }
-  | {
-      readonly who: "done";
       readonly why: Outcome["kind"];
       readonly outcome: Outcome;
       readonly since: string;
     };
+
+/** WHO EACH REASON WAITS ON — the one table that derives the waiter from the
+ *  reason, so no arm has to carry both. */
+export const WAITER_OF: Record<StandingWhy, Waiter | "done"> = {
+  question: "you",
+  merge: "you",
+  ci: "ci",
+  watching: "agent",
+  working: "agent",
+  merged: "done",
+  closed: "done",
+  stopped: "done",
+};
 
 /** Why a work stands where it does, as a token. */
 export type StandingWhy = Standing["why"];
@@ -173,26 +179,20 @@ const standingOf = (
     case "you":
       return Option.match(askedOf(work, open), {
         onSome: (question): Standing => ({
-          who: "you",
           why: "question",
           question: question.question,
           since,
         }),
         onNone: (): Standing => ({
-          who: "you",
           why: "merge",
           pr: Option.map(prOf(work), (pr) => pr.number),
           since,
         }),
       });
     case "ci":
-      return { who: "ci", why: "ci", since };
+      return { why: "ci", since };
     case "agent":
-      return {
-        who: "agent",
-        why: policy.watching ? "watching" : "working",
-        since,
-      };
+      return { why: policy.watching ? "watching" : "working", since };
     default:
       return who satisfies never;
   }
@@ -201,7 +201,6 @@ const standingOf = (
 export const standing = (work: Work, policy: Policy): Standing => {
   if (work.state.kind === "ended") {
     return {
-      who: "done",
       why: work.state.outcome.kind,
       outcome: work.state.outcome,
       since: work.state.at,

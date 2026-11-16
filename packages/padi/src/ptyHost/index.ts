@@ -37,7 +37,6 @@ import {
   Fiber,
   MutableRef,
   Ref,
-  Schema,
 } from "effect";
 import {
   DEFAULT_MIRROR_SCROLLBACK,
@@ -63,7 +62,6 @@ import {
 } from "osfacts-client";
 import type { AgentLayer } from "../agentDistro/layer.ts";
 import { agentBinDir } from "@kolu/agent-distro/bundle";
-import { DeliveredProfileSchema } from "@kolu/agent-distro/landing";
 import {
   AGENT_DISTRO_PLUGINS_ENV,
   AI_PROFILE_ENV,
@@ -805,37 +803,19 @@ export function buildTerminalSpawnInput(args: {
 }
 
 /** WHAT A CAPTURE'S ANSWER DEPENDS ON — the directory it runs in and the
- *  agent layer it runs with — as one string, so two calls in flight for the
- *  same pair share one shell. Built field by field, in a fixed order, so the
- *  same pair is the same key; read back by the lookup below, which is why it
- *  carries the layer whole. */
-const AskSchema = Schema.Struct({
-  cwd: Schema.String,
-  agents: Schema.Struct({
-    bundle: Schema.String,
-    plugins: Schema.String,
-    profiles: Schema.Array(DeliveredProfileSchema),
-  }),
-});
+ *  agent layer it runs with. The cache below is keyed by this value ITSELF:
+ *  effect compares and hashes a plain struct by its fields, so two calls for
+ *  the same pair are the same key without a string to build and read back. */
+interface ShellEnvAsk {
+  readonly cwd: string;
+  readonly agents: AgentLayer;
+}
 
-type ShellEnvAsk = typeof AskSchema.Type;
+type Captures = Cache.Cache<ShellEnvAsk, Record<string, string>, unknown>;
 
-const readAsk = Schema.decodeUnknownSync(AskSchema);
-
-const askKey = (ask: ShellEnvAsk): string =>
-  JSON.stringify({
-    cwd: ask.cwd,
-    agents: {
-      bundle: ask.agents.bundle,
-      plugins: ask.agents.plugins,
-      profiles: ask.agents.profiles.map((one) => ({
-        reference: one.reference,
-        name: one.name,
-        path: one.path,
-        ...(one.rev === undefined ? {} : { rev: one.rev }),
-      })),
-    },
-  });
+const capturesCell: Ref.Ref<Captures | undefined> = Ref.makeUnsafe<
+  Captures | undefined
+>(undefined);
 
 /** ONE CAPTURE PER DIRECTORY AND LAYER, for as long as it is in flight. A
  *  form asks for every role's harness, asks again on each change and again
@@ -844,14 +824,22 @@ const askKey = (ask: ShellEnvAsk): string =>
  *  lookup among its callers and, with a zero time to live, keeps nothing once
  *  it answers: a capture is a reading of the person's dotfiles AS THEY ARE
  *  NOW, never a remembered one. It also counts the callers, so the shell is
- *  interrupted — and its group killed — only when the last of them is gone. */
-const captures = Effect.runSync(
-  Cache.make({
+ *  interrupted — and its group killed — only when the last of them is gone.
+ *
+ *  Made on the first question and held for the process, like `cachedInfo`
+ *  above: a `Cache` is made BY an Effect, and composing that Effect into the
+ *  one caller is what keeps this module off an `Effect.run*` edge (PLAN #25). */
+const captures: Effect.Effect<Captures> = Effect.gen(function* () {
+  const existing = Ref.getUnsafe(capturesCell);
+  if (existing !== undefined) return existing;
+  const made = yield* Cache.make({
     capacity: 16,
     timeToLive: Duration.zero,
-    lookup: (key: string) => captureShellEnv(readAsk(JSON.parse(key))),
-  }),
-);
+    lookup: captureShellEnv,
+  });
+  setRef(capturesCell, made);
+  return made;
+});
 
 /** THE ENVIRONMENT A NEW TERMINAL IN `cwd` WOULD HAVE, with `agents`, once its
  *  shell has read the person's dotfiles: that terminal's own spawn
@@ -862,7 +850,7 @@ const captures = Effect.runSync(
 export function terminalShellEnv(
   args: ShellEnvAsk,
 ): Effect.Effect<Record<string, string>, unknown> {
-  return Cache.get(captures, askKey(args));
+  return Effect.flatMap(captures, (cache) => Cache.get(cache, args));
 }
 
 /** The one shell a {@link terminalShellEnv} call runs. Interrupting it aborts

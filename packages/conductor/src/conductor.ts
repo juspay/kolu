@@ -141,7 +141,6 @@ import {
   type AskReply,
   askedAnswersOf,
   foreignSetupWords,
-  type Given,
   givenAnswersOf,
   type Header,
   hostOf,
@@ -324,20 +323,6 @@ const unofferedSentence = (
   bad
     .map((one) => unofferedWords(one, choices.harnesses, hostOf(where)))
     .join("; ");
-
-/** A given value narrowed to kolu's words for its key. {@link foreignSetupWords}
- *  refused every other word before a question is built, so one that gets
- *  here is a broken caller, and it is said so rather than asked anyway. */
-const givenAs = <V extends string>(
-  given: Given<string>,
-  is: (value: string) => value is V,
-): Given<V> => {
-  if (given.kind === "ask") return given;
-  if (is(given.value)) return { kind: "given", value: given.value };
-  throw new Error(
-    `openWork: ${JSON.stringify(given.value)} passed foreignSetupWords and is not one of kolu's words`,
-  );
-};
 
 /** EVERY MODE OR ON-GREEN ANSWER IN `values` THAT IS NOT ONE OF KOLU'S WORDS
  *  for it, in the words a refusal names them by. The form offers only those
@@ -1741,10 +1726,7 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
         throw new ConductorUnavailable({ why: err.why });
       }
       if (err instanceof HarnessRefused) {
-        throw new ConductorRefused({
-          why: err.why,
-          auth: err.signIn === "signed-out",
-        });
+        throw new ConductorRefused({ why: err.why });
       }
       throw err;
     }
@@ -1784,7 +1766,6 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
           state.phase === "asking"
             ? "the agent is in the middle of a turn, waiting on a question. Answer it, or stop the turn, and restart the agent then — a restart now would end the turn mid-sentence with nothing on screen saying so."
             : "the agent is in the middle of a turn. Stop the turn, or wait for it to end, and restart the agent then — a restart now would end the answer mid-sentence and drop anything queued behind it, with nothing on screen saying so.",
-        auth: false,
       });
     }
     resume = into;
@@ -2038,22 +2019,14 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
           const id = crypto.randomUUID();
           switch (one.key) {
             case "mode":
-              return {
-                id,
-                question: one.question,
-                topic: "setup",
-                key: "mode",
-                options: one.options.filter(isWorkMode),
-                given: givenAs(one.given, isWorkMode),
-              };
             case "on-green":
               return {
                 id,
                 question: one.question,
                 topic: "setup",
-                key: "on-green",
-                options: one.options.filter(isOnGreen),
-                given: givenAs(one.given, isOnGreen),
+                key: one.key,
+                options: one.options,
+                given: one.given,
               };
             default:
               // KOLU'S OWN QUESTIONS are worded by kolu and carry no options:

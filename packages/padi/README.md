@@ -783,9 +783,10 @@ and one spawn layer carry it; the module is `src/agentDistro/`.
   reaches a launch.
 
   THE CAPTURE'S OWN RULES, since asking a shell is not spawning one. Only a
-  shell kolu wraps can be asked (`kolu-pty`'s `SHELLS_KOLU_WRAPS`: bash and
-  zsh) — any other is named as such before anything is spawned. It runs in
-  its own session, so an rc file's `/dev/tty` prompt cannot hang it and what
+  shell kolu wraps can be asked (`kolu-pty`'s `isShellKoluWraps`, read off the
+  planner's own selector) — any other is named as such before anything is
+  spawned. It runs in its own session, so an rc file's `/dev/tty` prompt
+  cannot hang it and what
   it started dies with it: a capture that does not answer in time, or whose
   caller withdrew the question, ends by SIGTERM→SIGKILL on the whole group
   and settles either way. What is printed on fd 3 is DECODED, never cast, and

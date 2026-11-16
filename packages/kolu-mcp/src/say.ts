@@ -161,7 +161,9 @@ export const SAY_TAKE_CAP_MS = 3_000;
 export const SAY_STEER_CAP_MS = 5_000;
 
 /** The screen rows the held check reads: the steering pane sits just above
- *  the input box, at the bottom of the screen. */
+ *  the input box, at the bottom of the screen. THE one row budget — the cut
+ *  is made here, and each agent's pane reader reads the rows it is handed
+ *  rather than cutting again to a number of its own. */
 export const SAY_STEER_SCREEN_TAIL = 40;
 
 /** How long kolu keeps watching the record AFTER the steer cap before it will
@@ -934,23 +936,10 @@ function watchSteer(
         id,
         tail: SAY_STEER_SCREEN_TAIL,
       });
-      const late = yield* Effect.tryPromise((fiberSignal) =>
-        awaitPromptTook(
-          padi,
-          id,
-          watch,
-          words,
-          SAY_RECORD_LAG_MS,
-          signal ?? fiberSignal,
-        ),
-      );
-      if (late.kind === "took") {
-        return {
-          kind: "landed",
-          elapsedMs: SAY_STEER_CAP_MS + late.elapsedMs,
-        } satisfies SteerOutcome;
-      }
-      if (late.kind === "gone") return gone;
+      // The record's own lag, waited out — not a second watch: the record
+      // read below answers landed (its newest prompt is these words) and
+      // gone (it is no longer a member) on its own.
+      yield* Effect.sleep(SAY_RECORD_LAG_MS);
       const read = yield* recordAfterSteer(padi, id, waitedMs);
       if (read.kind === "outcome") return read.outcome;
       return steerVerdict({

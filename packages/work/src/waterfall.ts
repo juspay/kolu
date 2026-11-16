@@ -44,13 +44,15 @@ import {
   isAsked,
   isKoluChoice,
   isKoluChoiceKey,
+  isWaterfallRole,
+  type KoluChoice,
   type KoluChoiceKey,
   ON_GREEN,
   type OfferedSetupKey,
   type OnGreen,
   SETUP_KEYS,
+  type SetupDecision,
   type SetupKey,
-  UNIQUE_ROLES,
   WORK_MODES,
   type WaterfallRole,
   WORK_ROLES,
@@ -182,6 +184,30 @@ export type SetupStanding<V extends string> =
   | { readonly kind: "open"; readonly ask: string }
   | { readonly kind: "unasked" };
 
+/** A setup decision that stands ANSWERED — the arm every reading below is
+ *  after, with the value (and, for one of kolu's own, how it was chosen)
+ *  right there on it. */
+type AnsweredSetup = Extract<SetupDecision, { readonly kind: "settled" }> & {
+  readonly answer: { readonly how: "answered" };
+};
+
+/** THE NEWEST ANSWER TO A SETUP QUESTION — the one walk behind every reading
+ *  of what a key stands answered with: the last answer wins, because a key
+ *  asked again is answered again. */
+const newestSetupAnswer = (
+  work: Work,
+  key: SetupKey,
+): Option.Option<AnsweredSetup> =>
+  Option.fromUndefinedOr(
+    work.decisions.findLast(
+      (one): one is AnsweredSetup =>
+        one.topic === "setup" &&
+        one.key === key &&
+        one.kind === "settled" &&
+        one.answer.how === "answered",
+    ),
+  );
+
 export function setupStanding(work: Work, key: "mode"): SetupStanding<WorkMode>;
 export function setupStanding(
   work: Work,
@@ -192,17 +218,9 @@ export function setupStanding(
   work: Work,
   key: SetupKey,
 ): SetupStanding<string> {
-  for (let at = work.decisions.length - 1; at >= 0; at -= 1) {
-    const one = work.decisions[at];
-    if (
-      one !== undefined &&
-      one.topic === "setup" &&
-      one.key === key &&
-      one.kind === "settled" &&
-      one.answer.how === "answered"
-    )
-      return { kind: "answered", value: one.answer.value };
-  }
+  const answered = newestSetupAnswer(work, key);
+  if (Option.isSome(answered))
+    return { kind: "answered", value: answered.value.answer.value };
   const open = work.decisions.find(
     (one) => one.topic === "setup" && one.key === key && one.kind === "asked",
   );
@@ -228,23 +246,14 @@ export function setupValue(work: Work, key: SetupKey): Option.Option<string> {
 export const koluAnswerOf = (
   work: Work,
   key: KoluChoiceKey,
-): Option.Option<Recalled> => {
-  for (let at = work.decisions.length - 1; at >= 0; at -= 1) {
-    const one = work.decisions[at];
-    if (
-      one !== undefined &&
-      isKoluChoice(one) &&
-      one.key === key &&
-      one.kind === "settled" &&
-      one.answer.how === "answered"
-    )
-      return Option.some({
-        value: one.answer.value,
-        chosen: one.answer.chosen,
-      });
-  }
-  return Option.none();
-};
+): Option.Option<Recalled> =>
+  Option.map(
+    Option.filter(
+      newestSetupAnswer(work, key),
+      (one): one is AnsweredSetup & KoluChoice => isKoluChoice(one),
+    ),
+    (one) => ({ value: one.answer.value, chosen: one.answer.chosen }),
+  );
 
 /** A VALUE AND HOW IT WAS CHOSEN — a saved answer to one of kolu's own
  *  questions, or one this person gave before ({@link SetupMemory}). An answer
@@ -473,14 +482,14 @@ export const roleOfSetupKey = (
  *  harness or model. */
 export const roleOfKey = (
   key: KoluChoiceKey,
-): { readonly role: WaterfallRole; readonly what: "harness" | "model" } => {
-  for (const role of UNIQUE_ROLES)
-    for (const what of ["harness", "model"] as const)
-      if (Option.contains(setupKeyOf(role, what), key)) return { role, what };
-  throw new Error(
-    `roleOfKey: ${key} names no waterfall role's harness or model`,
+): { readonly role: WaterfallRole; readonly what: "harness" | "model" } =>
+  Option.getOrThrowWith(
+    Option.flatMap(roleOfSetupKey(key), ({ role, what }) =>
+      isWaterfallRole(role) ? Option.some({ role, what }) : Option.none(),
+    ),
+    () =>
+      new Error(`roleOfKey: ${key} names no waterfall role's harness or model`),
   );
-};
 
 /** THE HARNESS A MODEL QUESTION IS FOR, as this answer leaves it: the one the
  *  same form is answering for that role, else the one the work already

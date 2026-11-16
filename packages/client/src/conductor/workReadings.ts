@@ -33,10 +33,10 @@ import {
   type EventBy,
   isAbout,
   isCheckEvent,
+  isOnGreen,
   isOpen,
   isSettled,
   type Membership,
-  ON_GREEN,
   type OnGreen,
   type Outcome,
   policyOf,
@@ -51,6 +51,7 @@ import {
   timeBar,
   timeSpent,
   type Waiter,
+  WAITER_OF,
   type Work,
   type WorkEvent,
   type WorkId,
@@ -370,45 +371,37 @@ export function standingLine(
   checks: Option.Option<ChecksTally>,
 ): StandingLine {
   const at = standing(work, policyOf(work));
-  const lead = WHY_LEAD[at.why];
-  switch (at.who) {
-    case "done":
-      return {
-        who: "done",
-        lead,
-        // HOW it ended, which for a stopped work is the whole fact: a person
-        // reading "Stopped" wants to know whether they did it.
-        what: Option.some(outcomeWords(at.outcome)),
-        since: at.since,
-      };
-    case "ci":
-      return {
-        who: "ci",
-        lead,
-        // The LIVE tally is the only honest detail while checks run: the
-        // timeline says they are running, how many have landed is true only
-        // for the instant it is read.
-        what: Option.map(checks, checksProgress),
-        since: at.since,
-      };
-    case "you":
-      return {
-        who: "you",
-        lead,
-        what: Option.some(
-          at.why === "question"
-            ? at.question
-            : Option.match(at.pr, {
-                onNone: () => "merge the PR",
-                onSome: (pr) => `merge PR #${pr}`,
-              }),
+  const line = (what: Option.Option<string>): StandingLine => ({
+    who: WAITER_OF[at.why],
+    lead: WHY_LEAD[at.why],
+    what,
+    since: at.since,
+  });
+  switch (at.why) {
+    case "question":
+      return line(Option.some(at.question));
+    case "merge":
+      return line(
+        Option.some(
+          Option.match(at.pr, {
+            onNone: () => "merge the PR",
+            onSome: (pr) => `merge PR #${pr}`,
+          }),
         ),
-        since: at.since,
-      };
-    case "agent":
-      return { who: "agent", lead, what: Option.none(), since: at.since };
+      );
+    // The LIVE tally is the only honest detail while checks run: the timeline
+    // says they are running, how many have landed is true only for the
+    // instant it is read.
+    case "ci":
+      return line(Option.map(checks, checksProgress));
+    // The agents are simply at work: no detail to give.
+    case "watching":
+    case "working":
+      return line(Option.none());
+    // HOW it ended, which for a stopped work is the whole fact: a person
+    // reading "Stopped" wants to know whether they did it.
     default:
-      return at satisfies never;
+      return line(Option.some(outcomeWords(at.outcome)));
   }
 }
 
@@ -731,10 +724,6 @@ function setupAnswer(decision: Decision): string {
   return decision.key === "on-green" && isOnGreen(value)
     ? ON_GREEN_WORD[value]
     : words;
-}
-
-function isOnGreen(word: string): word is OnGreen {
-  return (ON_GREEN as ReadonlyArray<string>).includes(word);
 }
 
 /** WHERE THE ROW'S ANSWER CAME FROM — the first of its decisions anybody

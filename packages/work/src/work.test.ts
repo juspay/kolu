@@ -58,6 +58,7 @@ import {
   timeSpent,
   took,
   unofferedAnswers,
+  WAITER_OF,
   waitingOn,
   waitingOnYou,
   waterfallFileName,
@@ -928,7 +929,6 @@ describe("a question left blank stays asked", () => {
     });
     expect(waitingOn(work, policyOf(work))).toBe("you");
     expect(standing(work, policyOf(work))).toMatchObject({
-      who: "you",
       why: "question",
       question: "Planner model?",
     });
@@ -1137,7 +1137,7 @@ describe("opening, ending, reopening", () => {
     expect(again.events.slice(0, ended.events.length)).toEqual(ended.events);
     expect(again.events.at(-1)?.kind).toBe("reopened");
     expect(reopenWork(again, T(11))).toBe(again);
-    expect(standing(again, policyOf(again)).who).not.toBe("done");
+    expect(WAITER_OF[standing(again, policyOf(again)).why]).not.toBe("done");
   });
 });
 
@@ -1260,7 +1260,6 @@ describe("the readings", () => {
     });
     expect(waitingOn(ended, policyOf(ended))).toBe("done");
     expect(standing(ended, policyOf(ended))).toMatchObject({
-      who: "done",
       why: "stopped",
       outcome: { kind: "stopped", by: "conductor" },
       since: T(9),

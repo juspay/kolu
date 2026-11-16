@@ -659,7 +659,6 @@ function fakeWorks(): FleetWorks & {
     mode: Option.some("full"),
     onGreen: Option.some("merge"),
     standing: {
-      who: "agent",
       why: "working",
       since: "2026-01-01",
     },

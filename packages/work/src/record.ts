@@ -26,7 +26,6 @@ import {
   isWorkMode,
   type KeptFile,
   type KoluChoiceKey,
-  type OnGreen,
   type Outcome,
   type QuestionFile,
   type RequestWords,
@@ -35,7 +34,6 @@ import {
   type TypedAnswer,
   type Work,
   type WorkEvent,
-  type WorkMode,
   type WorkRole,
 } from "./schema.ts";
 
@@ -137,16 +135,13 @@ export type Given<V extends string> =
  *  always asked. */
 export type Question = { readonly id: string; readonly question: string } & (
   | {
+      /** The two setup questions kolu offers words for. The options are
+       *  narrowed to those words where the question is written down
+       *  ({@link askedOf}), so no caller has to narrow them twice. */
       readonly topic: "setup";
-      readonly key: "mode";
-      readonly options: ReadonlyArray<WorkMode>;
-      readonly given: Given<WorkMode>;
-    }
-  | {
-      readonly topic: "setup";
-      readonly key: "on-green";
-      readonly options: ReadonlyArray<OnGreen>;
-      readonly given: Given<OnGreen>;
+      readonly key: "mode" | "on-green";
+      readonly options: ReadonlyArray<string>;
+      readonly given: Given<string>;
     }
   | {
       readonly topic: "setup";
@@ -301,7 +296,7 @@ const askedOf = (one: Question, ask: string, at: string): Asked => {
             kind: "asked",
             topic: "setup",
             key: "mode",
-            options: [...one.options],
+            options: one.options.filter(isWorkMode),
           };
         case "on-green":
           return {
@@ -309,7 +304,7 @@ const askedOf = (one: Question, ask: string, at: string): Asked => {
             kind: "asked",
             topic: "setup",
             key: "on-green",
-            options: [...one.options],
+            options: one.options.filter(isOnGreen),
           };
         default:
           return { ...common, kind: "asked", topic: "setup", key: one.key };

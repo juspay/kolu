@@ -28,7 +28,6 @@ export {
   prependPathEntries,
   readAgentToolsBake,
   type ShellInitPlan,
-  SHELLS_KOLU_WRAPS,
   SPAWN_ENV_ALLOWLIST,
   SPAWN_ENV_FUNCTIONAL,
   SPAWN_ENV_OPERATIONAL,

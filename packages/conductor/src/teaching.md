@@ -199,9 +199,12 @@ The brief is the plan (full) or the human's request in full (trivial), the
 repo's own rules, and:
 
 - never use a question tool;
-- open a PR with an interesting title and a short body a reader finishes: what
-  changes for a person and why, in a few lines; a decision it made on its own
-  goes in a comment on the PR;
+- open a PR written for a person, not for an AI: simple, interesting and never
+  cryptic. Use everyday words and short sentences, and no internal names, file
+  paths or type names unless the reader needs one, explained once. The title
+  says what changes for the person using it; the body is a few lines they
+  finish: what changes and why. Everything else, and every decision made on its
+  own, goes in a comment on the PR;
 - stop when the PR is open;
 - in a trivial waterfall, make one final refactor pass before that, and run CI
   once the repo's way.

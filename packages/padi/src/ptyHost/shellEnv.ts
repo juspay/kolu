@@ -24,7 +24,7 @@
  *
  * ASKING IS NOT SPAWNING, in three ways this module owns:
  *
- *  - only a shell kolu WRAPS can be asked (`kolu-pty`'s `SHELLS_KOLU_WRAPS`):
+ *  - only a shell kolu WRAPS can be asked (`kolu-pty`'s `isShellKoluWraps`):
  *    `-i -c` is this module's own appendix, and a shell that takes neither
  *    flag would answer a flag-parsing error for every harness. Refused by
  *    name, before anything is spawned;
@@ -50,7 +50,7 @@ import { randomUUID } from "node:crypto";
 import { shellJoin } from "@kolu/shell-quote";
 import { Schema } from "effect";
 import { type PtyHostSpawnInput, removeInitFiles, writeInitFiles } from "kaval";
-import { isShellKoluWraps, SHELLS_KOLU_WRAPS } from "kolu-pty";
+import { isShellKoluWraps } from "kolu-pty";
 
 /** A shell that reads its dotfiles may fetch, compile or wait on a slow mount
  *  the first time; a terminal opening there would wait as long. */
@@ -167,11 +167,7 @@ export function readShellEnv(
   // module's appendix to the terminal's own argv, and a shell that takes
   // neither would answer a flag-parsing error for every harness instead.
   if (!isShellKoluWraps(shell))
-    return Promise.reject(
-      failed(
-        `kolu can ask ${SHELLS_KOLU_WRAPS.join(" and ")} for it, and this is neither`,
-      ),
-    );
+    return Promise.reject(failed("it is not a shell kolu can ask for one"));
   const written = writeInitFiles(rcDir, input.initFiles);
   const { promise, resolve, reject } =
     Promise.withResolvers<Record<string, string>>();

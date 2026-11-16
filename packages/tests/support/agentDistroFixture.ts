@@ -47,6 +47,7 @@ import {
   STAND_IN_ANSWERS,
   STAND_IN_PROFILE,
   standInListJson,
+  type StandInModels,
   standInModels,
 } from "@kolu/agent-distro/testing";
 
@@ -104,14 +105,17 @@ export function fixtureHistoryLog(stateHome: string): string {
   return path.join(stateHome, HISTORY_LOG);
 }
 
-/** The floor package's own `share/agent-distro/answers` — where the package
- *  says which flags its picker takes. */
-function answersFile(): string {
+/** A path inside the floor bundle this worker built. */
+function fixtureFile(...parts: readonly string[]): string {
   const { KOLU_AGENT_DISTRO_BUNDLE: root } = agentDistroFixtureEnv();
   if (root === undefined)
     throw new Error("the agent-distro fixture was built without a bundle");
-  return path.join(root, "package", PACKAGE_ANSWERS_FILE);
+  return path.join(root, ...parts);
 }
+
+/** The floor package's own `share/agent-distro/answers` — where the package
+ *  says which flags its picker takes. */
+const answersFile = (): string => fixtureFile("package", PACKAGE_ANSWERS_FILE);
 
 /** THE FLOOR AS A PACKAGE OLDER THAN THIS KOLU: take its `answers` away, so
  *  it is one that predates `--models` — the state every host whose delivered
@@ -128,7 +132,7 @@ export function ageOutFixturePackage(): void {
  *  answers again, too. */
 export function restoreFixturePackage(): void {
   fs.writeFileSync(answersFile(), STAND_IN_ANSWERS);
-  fs.rmSync(listFailsFile(), { force: true });
+  writePicker(FIXTURE_MODELS);
 }
 
 /** What the floor's list command says when it cannot list — the words a host
@@ -136,22 +140,13 @@ export function restoreFixturePackage(): void {
 export const FIXTURE_LIST_FAILS =
   "agent-distro claude: error: cannot list its models: claude models exited 1: LITELLM_API_KEY is not set";
 
-/** Where the floor's picker looks to know its list command fails: present,
- *  `--models` fails with {@link FIXTURE_LIST_FAILS}; absent, it answers. */
-function listFailsFile(): string {
-  const { KOLU_AGENT_DISTRO_BUNDLE: root } = agentDistroFixtureEnv();
-  if (root === undefined)
-    throw new Error("the agent-distro fixture was built without a bundle");
-  return path.join(root, "list-fails");
-}
-
 /** THE FLOOR'S LIST COMMAND FAILS — a host that cannot list its models just
  *  now (a gateway down, a key the environment lacks), while every other call
  *  answers: `--launch` still says how a launch takes a model. The worker's
  *  floor is shared, so whoever breaks it puts it back
  *  ({@link restoreFixturePackage}). */
 export function failFixtureModelList(): void {
-  fs.writeFileSync(listFailsFile(), `${FIXTURE_LIST_FAILS}\n`);
+  writePicker({ launch: FIXTURE_MODELS.launch, fails: FIXTURE_LIST_FAILS });
 }
 
 let memo: Record<string, string> | undefined;
@@ -160,6 +155,24 @@ let relay: string | undefined;
 const script = (file: string, body: string) => {
   fs.writeFileSync(file, `#!/bin/sh\n${body}\n`, { mode: 0o755 });
 };
+
+/** Write the floor's picker: a command for people, which kolu asks for the
+ *  profile in effect and for a harness's models — answering `--models` with
+ *  `answer`, so a list command that FAILS is the stand-in's own failing arm.
+ *  Written at build time, and again when a scenario changes that answer. */
+function writePicker(
+  answer: StandInModels,
+  file = fixtureFile("package", "bin", "agent-distro"),
+): void {
+  script(
+    file,
+    [
+      standInListJson([FIXTURE_HARNESS]),
+      standInModels({ [FIXTURE_HARNESS.name]: answer }),
+      `echo "${FIXTURE_PICKER_SAYS}"`,
+    ].join("\n"),
+  );
+}
 
 /** Build the fixture once (per worker) and return the env that bakes it. */
 export function agentDistroFixtureEnv(): Record<string, string> {
@@ -203,20 +216,7 @@ function buildFixture(): Record<string, string> {
       `echo "${FIXTURE_CLAUDE_SAYS}"`,
     ].join("\n"),
   );
-  // The picker, as the package carries it: a command for people, which kolu
-  // asks for the profile in effect and for a harness's models.
-  script(
-    path.join(bin, "agent-distro"),
-    [
-      standInListJson([FIXTURE_HARNESS]),
-      `if [ "$1" = "--models" ] && [ -f ${JSON.stringify(path.join(root, "list-fails"))} ]; then`,
-      `  cat ${JSON.stringify(path.join(root, "list-fails"))} >&2`,
-      "  exit 1",
-      "fi",
-      standInModels({ [FIXTURE_HARNESS.name]: FIXTURE_MODELS }),
-      `echo "${FIXTURE_PICKER_SAYS}"`,
-    ].join("\n"),
-  );
+  writePicker(FIXTURE_MODELS, path.join(bin, "agent-distro"));
   for (const [file, text] of Object.entries(
     packageFiles(dir, [FIXTURE_HARNESS]),
   )) {

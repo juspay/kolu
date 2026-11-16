@@ -335,8 +335,7 @@ export interface StoreCellWriters {
  *  one declared failure they carry. The work refuses with a sentence (not a
  *  driven member, already yours, already the Conductor's); anything else is a
  *  bug in the bookkeeping and dies loudly, the same line the conductor's own
- *  fragment draws for its verbs. `auth: false` — nothing about a hand-over is
- *  a sign-in. */
+ *  fragment draws for its verbs. */
 function handOver(act: () => void): Effect.Effect<void, ConductorRefused> {
   return Effect.suspend(() => {
     try {
@@ -344,7 +343,7 @@ function handOver(act: () => void): Effect.Effect<void, ConductorRefused> {
       return Effect.void;
     } catch (err) {
       return err instanceof WorkRefusal
-        ? Effect.fail(new ConductorRefused({ why: err.message, auth: false }))
+        ? Effect.fail(new ConductorRefused({ why: err.message }))
         : Effect.die(err);
     }
   });
@@ -680,9 +679,7 @@ export function implementKoluSurface(deps: KoluSurfaceDeps) {
           }).pipe(
             Effect.catch((err: unknown) =>
               err instanceof WorkRefusal
-                ? Effect.fail(
-                    new ConductorRefused({ why: err.message, auth: false }),
-                  )
+                ? Effect.fail(new ConductorRefused({ why: err.message }))
                 : Effect.die(err),
             ),
           ),

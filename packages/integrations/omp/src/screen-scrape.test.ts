@@ -207,12 +207,11 @@ describe("ompSteerPane", () => {
     expect(reading.kind === "unreadable" && reading.why).toContain("2");
   });
 
-  it("a pane whose header is above the rows kolu reads is UNREADABLE", () => {
+  it("a pane whose header is above the rows kolu was GIVEN is UNREADABLE", () => {
+    // The caller cut the screen below the pane's header: its items are off
+    // the top of what this reader got, and part of a pane is not an absence.
     const tall = [
-      ...Array.from(
-        { length: TAIL_REGION_LINES },
-        (_, i) => `   ${i + 1}. a message kolu never sees the header of `,
-      ),
+      "   7. a message kolu never sees the header of ",
       "   └ Alt+↑ to edit ",
     ].join("\n");
     expect(ompSteerPane(tall, "ship it").kind).toBe("unreadable");

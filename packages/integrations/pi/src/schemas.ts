@@ -98,20 +98,20 @@ const PI_MARK = {
 
 /** pi's steering pane — one `Steering: <message>` row per held message, then
  *  `↳ Alt+Up to edit all queued messages`; captured from pi 1.5.2 in an
- *  80-column kolu terminal (2026-11-15). Read over the screen's last
- *  {@link PI_STEERING_ROWS} rows, where the pane sits above the input box. The
+ *  80-column kolu terminal (2026-11-15). Read over the rows it is GIVEN — the
+ *  caller cuts the screen to the rows it wants read (`agent_say`'s
+ *  `SAY_STEER_SCREEN_TAIL`), where the pane sits above the input box. The
  *  FOOTER is what makes the pane readable or not: it is drawn only when pi is
  *  holding something, so a footer with no item row above it is a pane whose
  *  items this reader could not parse — never a pane without these words. */
 const PI_STEERING_ITEM = /^\s*Steering: (.*)$/;
 const PI_STEERING_FOOTER = /^\s*↳ Alt\+Up to edit all queued messages\s*$/;
-const PI_STEERING_ROWS = 40;
 
 /** What pi's steering pane says about THESE words — a steer pi accepted and is
  *  holding for the running step to end, a pane without them, or a pane this
  *  reader could not parse. */
 export function piSteerPane(screenText: string, words: string): PaneReading {
-  const rows = screenText.split("\n").slice(-PI_STEERING_ROWS);
+  const rows = screenText.split("\n");
   const items: string[] = [];
   for (const line of rows) {
     const item = PI_STEERING_ITEM.exec(line);
@@ -121,7 +121,7 @@ export function piSteerPane(screenText: string, words: string): PaneReading {
     return rows.some((line) => PI_STEERING_FOOTER.test(line))
       ? {
           kind: "unreadable",
-          why: `pi's steering pane is open and kolu could read none of its rows in the ${PI_STEERING_ROWS} it looked at`,
+          why: `pi's steering pane is open and kolu could read none of the ${rows.length} rows it was given`,
         }
       : { kind: "absent" };
   }

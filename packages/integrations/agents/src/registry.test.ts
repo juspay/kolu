@@ -101,6 +101,7 @@ describe("AgentInfoSchema — a closed discriminated union", () => {
       contextTokens: 30676,
       startedAt: 1787509701451,
       lastPromptId: "686ac209",
+      lastPromptText: "Run echo hello bash command",
     });
     expect(decoded).toMatchObject({
       kind: "omp",

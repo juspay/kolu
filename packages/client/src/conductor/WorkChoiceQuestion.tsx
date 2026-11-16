@@ -372,6 +372,19 @@ const WorkChoiceQuestion: Component<{
     </p>
   );
 
+  /** THE HOST'S OWN WORDS when a list could not be read — drawn alone when
+   *  there is nothing to pick, and above the chips when something can still
+   *  be chosen. One paragraph either way. */
+  const Failed: Component<{ readonly words: string }> = (said) => (
+    <p
+      data-testid="conductor-ask-failed"
+      data-field={props.decision.id}
+      class="mt-1.5 m-0 rounded-md border border-alert/55 bg-alert/[0.08] px-2 py-1 text-alert"
+    >
+      {said.words}
+    </p>
+  );
+
   return (
     <Switch>
       <Match when={waiting()}>
@@ -393,13 +406,7 @@ const WorkChoiceQuestion: Component<{
           // THE HOST'S OWN WORDS. Not "no models": a question that could not
           // be asked is answered by saying so.
           <>
-            <p
-              data-testid="conductor-ask-failed"
-              data-field={props.decision.id}
-              class="mt-1.5 m-0 rounded-md border border-alert/55 bg-alert/[0.08] px-2 py-1 text-alert"
-            >
-              {now().words}
-            </p>
+            <Failed words={now().words} />
             <StaysOpen />
           </>
         )}
@@ -416,15 +423,7 @@ const WorkChoiceQuestion: Component<{
                 return offered.kind === "unavailable" ? offered : null;
               })()}
             >
-              {(unread) => (
-                <p
-                  data-testid="conductor-ask-failed"
-                  data-field={props.decision.id}
-                  class="mt-1.5 m-0 rounded-md border border-alert/55 bg-alert/[0.08] px-2 py-1 text-alert"
-                >
-                  {unread().why}
-                </p>
-              )}
+              {(unread) => <Failed words={unread().why} />}
             </Show>
             <Show when={now().options.length > 0}>
               <AskOptions

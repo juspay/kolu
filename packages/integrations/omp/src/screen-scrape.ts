@@ -88,26 +88,27 @@ const STEERING_HEADER = /^\s*Steering · (\d+)\s*$/;
 const STEERING_ITEM = /^\s*\d+\.\s(.*)$/;
 const STEERING_CLOSER = /^\s*└ Alt\+↑ to edit\s*$/;
 
-/** What omp's steering pane, in the screen tail, says about THESE words — a
- *  steer omp accepted and is holding for a step it cannot interrupt to end,
- *  a pane without them, or a pane this reader could not parse. */
+/** What omp's steering pane says about THESE words — a steer omp accepted and
+ *  is holding for a step it cannot interrupt to end, a pane without them, or a
+ *  pane this reader could not parse. Over the rows it is GIVEN: the caller
+ *  cuts the screen (`agent_say`'s `SAY_STEER_SCREEN_TAIL`), never this. */
 export function ompSteerPane(screenText: string, words: string): PaneReading {
-  const tail = tailRegion(screenText);
-  const header = tail.findIndex((line) => STEERING_HEADER.test(line));
+  const rows = screenText.split("\n");
+  const header = rows.findIndex((line) => STEERING_HEADER.test(line));
   if (header === -1) {
     // The pane's CLOSER with no header above it: the pane is taller than the
-    // rows kolu read, so its items are off the top of the tail. Seeing part of
-    // a pane is not seeing an absence.
-    return tail.some((line) => STEERING_CLOSER.test(line))
+    // rows kolu was given, so its items are off the top of them. Seeing part
+    // of a pane is not seeing an absence.
+    return rows.some((line) => STEERING_CLOSER.test(line))
       ? {
           kind: "unreadable",
-          why: `omp's steering pane runs past the ${TAIL_REGION_LINES} rows kolu read, so its items are above them`,
+          why: `omp's steering pane runs past the ${rows.length} rows kolu read, so its items are above them`,
         }
       : { kind: "absent" };
   }
-  const held = Number(STEERING_HEADER.exec(tail[header] ?? "")?.[1]);
+  const held = Number(STEERING_HEADER.exec(rows[header] ?? "")?.[1]);
   const items: string[] = [];
-  for (const line of tail.slice(header + 1)) {
+  for (const line of rows.slice(header + 1)) {
     const item = STEERING_ITEM.exec(line);
     if (item === null) break;
     items.push(item[1] ?? "");

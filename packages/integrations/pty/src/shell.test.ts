@@ -36,7 +36,6 @@ import {
   prependPathEntries,
   PS0_PREEXEC_BASH,
   readAgentToolsBake,
-  SHELLS_KOLU_WRAPS,
   SPAWN_ENV_ALLOWLIST,
   SPAWN_ENV_FUNCTIONAL,
   SPAWN_ENV_OPERATIONAL,
@@ -664,11 +663,10 @@ describe("prepareShellInit — fully-specified plan (B0)", () => {
     ).toEqual(empty);
   });
 
-  it("names the shells it wraps, and says the same thing twice about each", () => {
+  it("says the same thing twice about every shell: a plan, and wrapped", () => {
     // A caller that must ASK a shell (padi's environment capture appends
-    // `-i -c`, which only these take) refuses the rest by name, so the two
-    // readings must not drift: whatever gets a plan is a shell kolu wraps.
-    expect([...SHELLS_KOLU_WRAPS]).toEqual(["bash", "zsh"]);
+    // `-i -c`, which only these take) refuses the rest, so the two readings
+    // must not drift: whatever gets a plan is a shell kolu wraps.
     for (const shell of ["/bin/bash", "/usr/bin/bash5", "/bin/zsh"]) {
       expect(isShellKoluWraps(shell)).toBe(true);
       expect(
