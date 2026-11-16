@@ -122,6 +122,8 @@ export function helpSections(
       items: [
         [text("The status line: what it is doing, for how long")],
         [text("The work: beside the chat, or behind the status line’s count")],
+        [text("Waiting on you first, then the rest in progress")],
+        [text("A chip on a reply names its work; click it to go there")],
       ],
     },
     {
@@ -129,7 +131,8 @@ export function helpSections(
       heading: "A piece of work",
       items: [
         [text("One card per branch: opening it again is the same work")],
-        [text("The bar under it: agents, you, CI")],
+        [text("Its stages: plan, approve, build, review, checks, merge")],
+        [text("Each coloured by whose time: agents, you, CI")],
         [text("Open it for the timeline, decisions and the PR")],
         [
           screen("Stop"),
@@ -166,6 +169,7 @@ export function helpSections(
       heading: "What it wrote",
       items: [
         [text("A file opens in the reader, beside the chat")],
+        [text("A file named in a reply opens that reply’s work’s copy")],
         [screen("Pop out"), text(" gives it a window of its own")],
         [text("Select text to comment, as on the Code tab")],
         [text("Kept when the work ends, after the worktree is gone")],

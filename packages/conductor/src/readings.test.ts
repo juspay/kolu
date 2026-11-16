@@ -19,8 +19,14 @@ import {
   LOCAL_LOCATION,
 } from "@kolu/padi-client/vocab";
 import { type AgentPresence, agentPresence } from "kolu-agents/vocab";
+import { Option } from "effect";
 import { describe, expect, it } from "vitest";
-import { type HostView, readingsOf, recordName } from "./readings.ts";
+import {
+  type HostView,
+  prReading,
+  readingsOf,
+  recordName,
+} from "./readings.ts";
 
 const HOST = "local";
 const PLANNER = "11111111-1111-4111-8111-111111111111";
@@ -289,5 +295,94 @@ describe("what a host's frames say about each watched terminal", () => {
         level: "asking",
       },
     ]);
+  });
+});
+
+describe("a pull request is green only when it can merge", () => {
+  /** One resolved PR, as padi's `pullRequest` stream carries it. */
+  const resolved = (
+    checks: "pending" | "pass" | "fail" | null,
+    mergeStateStatus:
+      | "BEHIND"
+      | "BLOCKED"
+      | "CLEAN"
+      | "DIRTY"
+      | "DRAFT"
+      | "HAS_HOOKS"
+      | "UNKNOWN"
+      | "UNSTABLE",
+    reviewDecision:
+      | "APPROVED"
+      | "CHANGES_REQUESTED"
+      | "REVIEW_REQUIRED"
+      | null = null,
+  ) =>
+    Option.getOrThrow(
+      prReading({
+        kind: "ok",
+        value: {
+          number: 2388,
+          title: "Mermaid diagrams",
+          url: "https://github.com/juspay/kolu/pull/2388",
+          state: "open",
+          checks,
+          checkRuns: [],
+          reviewDecision,
+          mergeStateStatus,
+          headSha: "4c3f17ea2",
+        },
+      }),
+    ).checks;
+
+  it("passes a rollup that passed on a PR that can merge", () => {
+    for (const state of ["CLEAN", "HAS_HOOKS", "UNSTABLE"] as const)
+      expect(resolved("pass", state)).toEqual({
+        kind: "rollup",
+        rollup: "pass",
+      });
+  });
+
+  it("reads required checks that have not reported as CI still running", () => {
+    // THE CASE THAT WOKE THE HUMAN TOO EARLY: two checks passed, twenty-three
+    // required ones had not started, and GitHub said the PR was blocked.
+    expect(resolved("pass", "BLOCKED")).toEqual({
+      kind: "rollup",
+      rollup: "pending",
+    });
+    expect(resolved("pass", "BLOCKED", "APPROVED")).toEqual({
+      kind: "rollup",
+      rollup: "pending",
+    });
+    // ... and before any check has reported at all.
+    expect(resolved(null, "BLOCKED")).toEqual({
+      kind: "rollup",
+      rollup: "pending",
+    });
+  });
+
+  it("never calls a PR waiting on a review CI's time", () => {
+    for (const review of ["REVIEW_REQUIRED", "CHANGES_REQUESTED"] as const) {
+      expect(resolved("pass", "BLOCKED", review)).toEqual({
+        kind: "rollup",
+        rollup: "pass",
+      });
+      expect(resolved(null, "BLOCKED", review)).toEqual({ kind: "unreported" });
+    }
+  });
+
+  it("records nothing for a PR that is behind, conflicted, a draft, or not worked out yet", () => {
+    for (const state of ["BEHIND", "DIRTY", "DRAFT", "UNKNOWN"] as const)
+      expect(resolved("pass", state)).toEqual({ kind: "unreported" });
+  });
+
+  it("keeps a failing or running rollup whatever the merge state says", () => {
+    expect(resolved("fail", "CLEAN")).toEqual({
+      kind: "rollup",
+      rollup: "fail",
+    });
+    expect(resolved("pending", "DIRTY")).toEqual({
+      kind: "rollup",
+      rollup: "pending",
+    });
   });
 });

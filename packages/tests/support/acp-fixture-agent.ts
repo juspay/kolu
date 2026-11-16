@@ -705,6 +705,35 @@ const turn = async (
     endTurn(id);
     return;
   }
+  if (text === "look at the implementor and say where its plan is") {
+    // THE SAME SENTENCE, IN A TURN THAT IS ABOUT ONE WORK: a real kolu tool
+    // card naming the implementor this fixture last started (a screen read),
+    // then the path in backticks. The card is what tells kolu which work the
+    // reply is about — the sentence still names none.
+    if (lastStarted === null) {
+      say("no implementor was started");
+      endTurn(id);
+      return;
+    }
+    update({
+      sessionUpdate: "tool_call",
+      toolCallId: "call-look",
+      title: "screen_text",
+      kind: "read",
+      status: "in_progress",
+      rawInput: { id: lastStarted },
+      _meta: { claudeCode: { toolName: "mcp__kolu__screen_text" } },
+    });
+    update({
+      sessionUpdate: "tool_call_update",
+      toolCallId: "call-look",
+      status: "completed",
+      rawOutput: { text: "plan written" },
+    });
+    say("Its plan is at `.waterfall/plan.md`.");
+    endTurn(id);
+    return;
+  }
   if (text === "ask about the work") {
     if (lastWork === null) {
       say("no work is open");

@@ -37,7 +37,12 @@ import { agentBucket } from "@kolu/terminal-vocab/agentProjection";
 import type { PrResult } from "@kolu/terminal-vocab/schema";
 import { Option } from "effect";
 import { fleetTerminalRef } from "kolu-mcp/fleetRef";
-import type { WatchGit, WatchObservation, WatchPr } from "./observation.ts";
+import type {
+  WatchChecks,
+  WatchGit,
+  WatchObservation,
+  WatchPr,
+} from "./observation.ts";
 
 /** padi's own terminal-id type, read off the urgency cell this module already
  *  takes — the watch list carries plain strings, and the one place they are
@@ -141,6 +146,58 @@ const gitOf = (record: PadiTerminal | undefined): WatchGit | null => {
   };
 };
 
+/** A pull request as the forge resolved it — the `ok` arm's value. */
+type PrValue = Extract<PrResult, { readonly kind: "ok" }>["value"];
+
+/** THE ONE RULE FOR "GREEN": a PR's checks are green only when the PR can
+ *  merge. Every reader of a work — the card, its timeline, its stages and the
+ *  wake that tells the Conductor a hand-over is due — reads the check events
+ *  this rule decides, so none of them asks the question again.
+ *
+ *  The forge's rollup covers only the checks that have REPORTED. A required
+ *  check that has not started yet is not in it, so a rollup can pass while
+ *  GitHub says the PR is blocked — and the merge state is the forge's own
+ *  answer to whether it can merge:
+ *
+ *  - a failing or pending rollup is that;
+ *  - `CLEAN`, `HAS_HOOKS` and `UNSTABLE` can merge, so a passing rollup is a
+ *    pass;
+ *  - `BLOCKED` while no review is wanted is required checks the forge is
+ *    still waiting for: CI's time, so pending — even before any check has
+ *    reported;
+ *  - `BLOCKED` while a review is required or changes were requested is a
+ *    PERSON'S to settle, never CI's: a passing rollup there is a pass;
+ *  - `BEHIND`, `DIRTY` (conflicts), `DRAFT` and `UNKNOWN` (the forge has not
+ *    worked it out yet) are not a pass, and not CI running either: nothing is
+ *    recorded until the forge says something this rule can act on. The fix
+ *    for the first three is a push, which is a new commit and reads as one. */
+export const greenChecks = (value: PrValue): WatchChecks => {
+  if (value.checks === "pending" || value.checks === "fail")
+    return { kind: "rollup", rollup: value.checks };
+  const passed: WatchChecks =
+    value.checks === "pass"
+      ? { kind: "rollup", rollup: "pass" }
+      : { kind: "unreported" };
+  switch (value.mergeStateStatus) {
+    case "CLEAN":
+    case "HAS_HOOKS":
+    case "UNSTABLE":
+      return passed;
+    case "BLOCKED":
+      return value.reviewDecision === "REVIEW_REQUIRED" ||
+        value.reviewDecision === "CHANGES_REQUESTED"
+        ? passed
+        : { kind: "rollup", rollup: "pending" };
+    case "BEHIND":
+    case "DIRTY":
+    case "DRAFT":
+    case "UNKNOWN":
+      return { kind: "unreported" };
+    default:
+      return value.mergeStateStatus satisfies never;
+  }
+};
+
 /** THE PULL REQUEST OF A BRANCH, as the work's own watch reads it.
  *
  *  Takes padi's reading — the value its `pullRequest` stream carries for the
@@ -148,11 +205,11 @@ const gitOf = (record: PadiTerminal | undefined): WatchGit | null => {
  *  carries in its `pr` field — and answers what a timeline can learn from it.
  *  Only the RESOLVED arm says anything: `pending`, `absent`, `unsupported` and
  *  `unavailable` are all "kolu does not know", and a work's timeline must not
- *  learn a PR closed because the forge stopped answering. The failing check
- *  NAMES come off the same per-check breakdown the rollup is folded from, so
- *  the `checks-failed` event says which gates are red rather than that some
- *  are — and the head commit comes off the same reading, so a check says WHICH
- *  push it is about.
+ *  learn a PR closed because the forge stopped answering. Its checks are read
+ *  through {@link greenChecks}. The failing check NAMES come off the same
+ *  per-check breakdown the rollup is folded from, so the `checks-failed`
+ *  event says which gates are red rather than that some are — and the head
+ *  commit comes off the same reading, so a check says WHICH push it is about.
  *
  *  Pure, and the ONE translation: the watcher subscribes, this says what the
  *  frame means, and `./observing.ts` decides what the work learns from it. */
@@ -163,10 +220,7 @@ export const prReading = (pr: PrResult): Option.Option<WatchPr> => {
     number: value.number,
     title: value.title,
     state: value.state,
-    checks:
-      value.checks === null
-        ? { kind: "unreported" }
-        : { kind: "rollup", rollup: value.checks },
+    checks: greenChecks(value),
     failing: value.checkRuns
       .filter((one) => one.outcome === "fail")
       .map((one) => one.name),

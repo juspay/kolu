@@ -125,13 +125,13 @@ A work keeps its latest **30** agent state changes; older ones fold into one **N
 
 ### Who is typing
 
-While a work is open, each member terminal is read-only to you. A border in the Conductor's colour marks it, and typing raises a card offering **Take over**. [Tiles](/tiles#a-terminal-the-conductor-is-driving) has the rest.
+While a work is open, each member terminal is read-only to you, bordered in the Conductor's colour. [Tiles](/tiles#a-terminal-the-conductor-is-driving) says how to take one over.
 
 ### The work card
 
-On a wide window the works stand in a column beside the chat, which gives way to [the reader](/read-a-plan) while a file is open.
+On a wide window the works stand in a column beside the chat, giving way to [the reader](/read-a-plan) while a file is open: **Waiting on you** first, then **In progress**, then **Finished**, collapsed. With nothing in progress it says **Nothing in progress.**
 
-Each card shows its title and age, **repo · host · mode**, `PR #n`, where it stands, and a time bar split by who it has waited on: violet you, amber CI, teal the agents.
+Each card shows its title and age, **repo · host · mode**, `PR #n`, where it stands, and its six stages, **Plan** to **Merge**. Each stage shows its time coloured by whose it was: violet you, amber CI, teal the agents. The current one is outlined; a dash marks one that did not happen.
 
 Press the head and it opens:
 
@@ -148,8 +148,6 @@ Press the head and it opens:
 
 A work ends two ways: the forge merges or closes its pull request, or **Stop** on the card ends it after a confirmation. An ended card shows how it ended, where the time went, the kept files, the decisions and the timeline. It never shows terminals, a lock or a question, and it offers **Reopen**. Declining the setup of a work nothing has happened in removes it.
 
-Finished works stand collapsed below the open ones. With no work, the column reads **Nothing in progress.**
-
 ## Read the conversation
 
 The header shows who the agent is signed in as, the **model**, the context used (as `148k/1M`), and the **⋯** menu. Click the model to change it, its reasoning effort or its permission mode. The model you choose survives a restart.
@@ -165,6 +163,7 @@ The header shows who the agent is signed in as, the **model**, the context used 
 In the transcript:
 
 - Tool calls between two messages fold into one **Details** line with a count. Running calls, failed calls, questions and your messages stay outside it.
+- Each turn names its pieces of work as chips: hover one for where it stands, click it to open its card. A file a reply names opens [that work's copy](/read-a-plan#open-a-file).
 - A card for a terminal the Conductor created shows the agent's state, **Look**, and **open tile**, which takes you there.
 - **Look** shows the last 40 lines of its screen, refreshed about every two seconds while visible.
 - A ` ```mermaid ` block draws as a [diagram](/code-tab#markdown-and-artifacts) once complete, and shows as code until then.
@@ -211,7 +210,7 @@ A **waterfall** takes a change from request to merged PR. Ask for one, or ask th
 4. **Implement.** The implementor opens with the brief in `.waterfall/brief.md` (full), or with your request (trivial), and stops when its PR is open. A doubt it stops on is answered from the plan, the request or the planner; only a decision that is yours comes to you.
 5. **Review** (full only). The planner reviews the PR and the implementor addresses it, until the planner is satisfied. What you ask for mid-round waits for the next round.
 6. **Finish.** The implementor makes a final refactor pass, then runs CI the way the repo says to run it, fixing it until it is green.
-7. **On green.** The Conductor does what the work's recorded decision says: it merges the PR, or hands it to you.
+7. **On green.** The Conductor does what the work's recorded decision says: it merges the PR, or hands it to you. Green means GitHub would let it merge.
 8. **Close up.** Once the PR is merged or closed, the work ends with that outcome and the Conductor closes the terminals it opened for it.
 
 </Steps>
@@ -222,13 +221,13 @@ The Conductor never implements anything itself, never starts an agent or opens a
 
 ## After a restart
 
-kolu-server restarts when it is upgraded. The conversation comes back with its transcript and its model, and so does every piece of work, because a work is stored in its own right rather than inside the conversation.
+kolu-server restarts when it is upgraded. The conversation comes back with its transcript and model, and so does every piece of work, which is stored apart from the conversation.
 
 An agent that finished while kolu-server was down still wakes the Conductor, and nothing wakes it twice. A running turn and held wakes are lost.
 
 ### What a backup of kolu holds
 
-kolu's [rotated snapshots](/troubleshooting#kolu-lost-my-session-or-my-settings-look-wrong) include the pieces of work with their members, so restoring the server store puts back your preferences, your host pool and the works at once, live. Two things are not in them: the conversation, whose other half lives in the agent's own session store, and the files a finished work kept, which are copies on disk.
+kolu's [rotated snapshots](/troubleshooting#kolu-lost-my-session-or-my-settings-look-wrong) hold the pieces of work with their members, and restoring one puts them back live, without the conversation or a finished work's kept files.
 
 <LinkCard
   title="Agent Fleets"

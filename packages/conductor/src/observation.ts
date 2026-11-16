@@ -54,10 +54,11 @@ export interface WatchPr {
   readonly number: number;
   readonly title: string;
   readonly state: "open" | "closed" | "merged";
-  /** How its checks stand — unreported, or the forge's own rollup. Two arms
-   *  rather than a nullable word: "the forge reported no checks" is a reading,
-   *  not a hole. `kolu-work`'s `CHECK_STEP` is the one table that says what
-   *  each rollup becomes on a timeline. */
+  /** How its checks stand — nothing to record, or the rollup read against
+   *  the merge state ({@link WatchChecks}). Two arms rather than a nullable
+   *  word: "nothing to record" is a reading, not a hole. `kolu-work`'s
+   *  `CHECK_STEP` is the one table that says what each word becomes on a
+   *  timeline. */
   readonly checks: WatchChecks;
   /** The names of the checks that are failing, when any are. */
   readonly failing: ReadonlyArray<string>;
@@ -71,8 +72,12 @@ export interface WatchPr {
   readonly head: CheckHead;
 }
 
-/** HOW A PULL REQUEST'S CHECKS STAND, as the forge answered — nothing
- *  reported, or its rollup over them. */
+/** HOW A PULL REQUEST'S CHECKS STAND, as far as a work's timeline is
+ *  concerned — nothing to record, or one of the three words a check event is
+ *  spelled from. The forge's own rollup counts only the checks that have
+ *  reported, so it is read against the PR's merge state first
+ *  (`readings.ts`'s `greenChecks`, the one rule for "green"): `pass` here
+ *  means the PR can merge. */
 export type WatchChecks =
   | { readonly kind: "unreported" }
   | {

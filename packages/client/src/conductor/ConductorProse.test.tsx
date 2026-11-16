@@ -106,18 +106,25 @@ afterEach(() => {
   closeReader();
 });
 
-/** Mount the prose and hand back its host element. */
+/** Mount the prose and hand back its host element. `turn` is the works the
+ *  chat turn it sits in is about — none, unless a case says. */
 function mount(
   rowId: string,
   text: () => string,
   onRedrawn?: () => void,
+  turn: ReadonlyArray<WorkId> = [],
 ): HTMLElement {
   const host = document.createElement("div");
   document.body.append(host);
   disposers.push(
     render(
       () => (
-        <ConductorProse rowId={rowId} text={text()} onRedrawn={onRedrawn} />
+        <ConductorProse
+          rowId={rowId}
+          text={text()}
+          works={turn}
+          onRedrawn={onRedrawn}
+        />
       ),
       host,
     ),
@@ -355,7 +362,7 @@ describe("a file the Conductor names", () => {
     expect(link(host)?.getAttribute("aria-current")).toBe("true");
   });
 
-  it("offers the works by title when several hold it, and opens the one chosen", () => {
+  it("offers the works as chips when several hold it, and opens the one chosen", () => {
     setWorks(
       new Map([
         ["w-parser" as WorkId, workWith("rewrite the parser", [PLAN])],
@@ -368,16 +375,59 @@ describe("a file the Conductor names", () => {
     // NOTHING OPENED YET — no guess at which one the sentence meant.
     expect(readerTarget()).toBeNull();
     const offered = Array.from(
-      document.querySelectorAll('[data-testid^="named-file-option-"]'),
+      document.querySelectorAll(
+        '[data-testid^="named-file-option-"] [data-testid="work-chip"]',
+      ),
     ).map((one) => one.textContent?.trim());
     expect(offered).toEqual(["rewrite the parser", "fix the login"]);
 
     document
       .querySelector<HTMLButtonElement>(
-        '[data-testid="named-file-option-w-login"]',
+        '[data-testid="named-file-option-w-login"] [data-testid="work-chip"]',
       )
       ?.click();
     expect(readerTarget()).toEqual({ work: "w-login", path: PLAN });
+  });
+
+  it("opens the turn's own work's file without asking, whoever else has one", () => {
+    setWorks(
+      new Map([
+        ["w-parser" as WorkId, workWith("rewrite the parser", [PLAN])],
+        ["w-login" as WorkId, workWith("fix the login", [PLAN])],
+      ]),
+    );
+    const host = mount("row-turn", () => SAID, undefined, [
+      "w-login" as WorkId,
+    ]);
+
+    link(host)?.click();
+
+    expect(readerTarget()).toEqual({ work: "w-login", path: PLAN });
+    expect(
+      document.querySelector('[data-testid="named-file-menu"]'),
+    ).toBeNull();
+  });
+
+  it("says in place that the turn's work has no such file, and offers no other", () => {
+    setWorks(
+      new Map([
+        ["w-parser" as WorkId, workWith("rewrite the parser", [PLAN])],
+        ["w-split" as WorkId, workWith("split the column", [])],
+      ]),
+    );
+    const host = mount("row-missing", () => SAID, undefined, [
+      "w-split" as WorkId,
+    ]);
+
+    link(host)?.click();
+
+    expect(readerTarget()).toBeNull();
+    expect(
+      document.querySelector('[data-testid="named-file-missing"]')?.textContent,
+    ).toContain("“split the column” has no");
+    expect(
+      document.querySelector('[data-testid="named-file-menu"]'),
+    ).toBeNull();
   });
 
   it("leaves a path no work holds as plain code", () => {

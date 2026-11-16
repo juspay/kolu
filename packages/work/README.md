@@ -2,10 +2,10 @@
 
 A **piece of work**, as kolu stores it: the record, its event vocabulary, the
 pure transitions that grow it, and the folds that read it — where it stands,
-who it is waiting on, the time bar, how long each step took. One dependency
-(`effect`, for the schemas). It knows nothing of the Conductor, ACP, MCP, padi
-or the browser: a terminal is a string (`host/id`), a question is its words and
-its options.
+who it is waiting on, the time bar, the six stages, how long each step took.
+One dependency (`effect`, for the schemas). It knows nothing of the Conductor,
+ACP, MCP, padi or the browser: a terminal is a string (`host/id`), a question
+is its words and its options.
 
 ```ts
 WorkKey = { kind: "branch", host, repo, branch }   // a work IS its branch…
@@ -107,7 +107,7 @@ conversation — a model is that role's own last one with that harness first.
 | `store.ts` | the ONE smart constructor over works + members: `parseStore` (what the decoder and the single writer both go through), `storeFault` and the `InvalidWorkStore` carrying the `StoreFault` that names the rule that broke and the rows that break it — a VALUE, because the sentence belongs to the face that shows it |
 | `record.ts` | the transitions: `openWork`, `askQuestions`, `answerAsk` (a blank question stays asked; `answered` or `answered-part` on the timeline), `answeredWith`, `dropAsk`, `dropQuestions`, `joinWork`, `leaveWork`, `recordEvent`, `takeOver`/`handBack`, `endWork`, `reopenWork`, `keepFiles`/`keepFailed` — the record only grows, bounded by `AGENT_STATES_KEPT`; `openAsks`/`hasOpenAsk` derive what is still waiting on a person |
 | `readings.ts` | the MECHANISM of a reading: the decisions of one ask, the PR as the timeline last said it (`prOf`) with the one check table (`CHECK_STEP`), the key a timeline holds at most one of (`checkKey`, `checksSeen` — one per kind per head commit, off the event's own `pr` and `head` fields), the files seen |
-| `folds.ts` | `waitingOn`, `standing` (a sum: a question, a merge, CI, the agents, or done), `timeBar`, `timeSpent`, `took`, `lifetime`, `inProgress`/`finished` over `WorkRow`, `capFinished` — each taking a `Policy` (what the waterfall's words mean for this work) rather than reading the setup itself |
+| `folds.ts` | `waitingOn`, `standing` (a sum: a question, a merge, CI, the agents, or done), `timeBar`, `timeSpent`, `stages` (the six stages, each a `StageState` sum), `took`, `lifetime`, `inProgress`/`finished` over `WorkRow`, `capFinished` — each taking a `Policy` (what the waterfall's words mean for this work) rather than reading the setup itself |
 | `waterfall.ts` | the WORDS and every rule over them: `MODE_RUNS` (what each mode runs, needs and drives), `rolesOf`, `setupKeyOf`, `roleOfKey`, `roleRank`, the one setup reading (`setupStanding`, `setupValue`, `modeOf`/`onGreenOf`/`setupOf`/`roleSetupOf`, `keysToAsk`, `openSetupQuestions`, `startBlockers`), `missingSetup` + `foreignSetupWords`, the kolu-choice rules (`harnessForModel`, `askedAnswersOf`/`givenAnswersOf`/`savedAnswersOf`, `modelHarnessesOf`, `modelNotOffered`, `unofferedAnswers`, `koluKeysOf`, `unofferedWhy`/`unofferedWords`, `setupMemory`), `driverOf`, `membershipOf`, `waitingOnYou`, `policyOf`, and where a work's files live (`WATERFALL_DIR`, `waterfallFileName`) |
 | `refusal.ts` | why a call about a work is refused — `WORK_REFUSALS` and the `WorkRefusal` every face `instanceof`s |
 
@@ -149,6 +149,19 @@ ever folded, and the folds above cannot tell the difference.
 
 Nothing computed is stored: "where it stands", the bar and the durations are
 folds over the events at a clock reading the caller passes in.
+
+**One walk, so the time adds up.** `timeBar`, `stages` and `lifetime` step
+through the events with the same running state `standing` uses, and the
+stretches tile the work's life exactly: an event stamped before the one
+ahead of it is held to the walk's clock, and time a reopened work spent
+ended is nobody's and counts in none of them. The stages are cut by two
+moments the record already holds — the implementor joining and the PR
+opening — and inside each part by who the work waited on: before the
+implementor the agents' time is Plan and yours Approve (a work with no
+planner, `Policy.planned` false, builds from the start); then all of it is
+Build; after the PR the agents' time is Review, CI's Checks and yours Merge.
+`stages.test.ts` checks over generated records that the stages and the bar
+each add up to `lifetime`.
 
 ## Why a package of its own
 

@@ -1,8 +1,9 @@
 /** ONE PIECE OF WORK, as a card.
  *
- *  SHUT, it is four lines and answers the only question a person has while
+ *  SHUT, it is a few lines and answers the only question a person has while
  *  something is running: what is this, who is it waiting on, and for how long.
- *  The thin bar under those lines is where the time has actually gone.
+ *  The stage strip under those lines is where the time has gone, stage by
+ *  stage, and which stage the work is in now.
  *
  *  OPEN, it is the whole of what kolu knows, in the order a person asks for
  *  it: the questions waiting on you (the SAME form as in the chat — answering
@@ -20,19 +21,19 @@
  *  is unspellable.
  *
  *  NOTHING HERE IS STORED TWICE. The card reads `kolu-work`'s folds over the
- *  record (`standing`, `timeBar`, `took`) and the three live facts a browser
+ *  record (`standing`, `stages`, `took`) and the three live facts a browser
  *  has anyway — how a member terminal stands, which agent is in it, and a PR's
- *  check runs. A number that moves every second is never written down. */
+ *  check runs. A number that moves every second is never written down.
+ *
+ *  A WORK CHIP ELSEWHERE CAN ASK FOR THIS CARD (`./workListing.ts`'s
+ *  `showWork`): it opens, and once it is on screen it scrolls itself into
+ *  view and flashes once. */
 
 import { activeArm } from "@kolu/padi-client/surface";
 import { dualPhrase } from "@kolu/terminal-vocab/duration";
-import { prValue } from "anyforge/schemas";
-import { decodeHostKey, isEncodedHostKey } from "kolu-common/hostKey";
-import { DASH } from "kolu-common/surface";
 import { fleetTerminalRef } from "kolu-mcp/fleetRef";
 import { Option } from "effect";
 import {
-  hostOf,
   lifetime,
   openAsks,
   prOf,
@@ -42,14 +43,15 @@ import {
 } from "kolu-work";
 import {
   type Component,
+  createEffect,
   createMemo,
   createSignal,
   For,
   Match,
+  onCleanup,
   Show,
   Switch,
 } from "solid-js";
-import { hostLabel } from "../host/hostChipTone";
 import {
   fleetTerminalStanding,
   useFleetTerminalIndex,
@@ -57,7 +59,7 @@ import {
 import { elapsedSince } from "../time/duration";
 import { agentName } from "../ui/agentDisplay";
 import InlineConfirmButton from "../ui/InlineConfirmButton";
-import { useShownClock } from "../ui/shown";
+import { useShown, useShownClock } from "../ui/shown";
 import Tip from "../ui/Tip";
 import ConductorLook from "./ConductorLook";
 import WorkQuestion from "./WorkQuestion";
@@ -68,10 +70,12 @@ import { useOpenTile } from "./useOpenTile";
 import { holdsPath } from "./namedFiles";
 import { openReader, readerTarget } from "./reader/useReader";
 import { useMembership, useSeen, useWorkMembers } from "./useWorks";
-import WorkBar from "./WorkBar";
+import StageStrip from "./StageStrip";
 import WorkFiles from "./WorkFiles";
 import { LEVEL_WORD } from "./wake";
 import { workFileSource } from "./workFile";
+import { cardShown, isCardOpen, toggleCard, wantedCard } from "./workListing";
+import WorkStanding from "./WorkStanding";
 import {
   answerSource,
   answeredWhen,
@@ -82,13 +86,15 @@ import {
   EVENT_INK,
   eventReader,
   type Lock,
+  livePrOf,
   membersIn,
   oneLine,
   outcomeWords,
   ROLE_WORD,
   standingLine,
+  timeSpentOnYou,
   timeSpentWords,
-  WAITER_INK,
+  workHost,
   workSubtitle,
 } from "./workReadings";
 
@@ -111,24 +117,6 @@ const clockOf = (at: string): string =>
     minute: "2-digit",
     hourCycle: "h23",
   });
-
-/** WHICH CARDS ARE OPEN — module state, keyed by the work's id.
- *
- *  Module rather than component state for the reason `ConductorLook`'s open
- *  set is: the column is drawn in two placements (the side column on a wide
- *  window, the band the status line opens below it) and a resize moves it
- *  between them. A card a person opened must still be open on the other side
- *  of that move; a signal inside the card would say the opposite. */
-const [openCards, setOpenCards] = createSignal<ReadonlySet<string>>(new Set());
-
-/** Open a shut card, or shut an open one. */
-function toggleCard(id: string): void {
-  setOpenCards((was) => {
-    const next = new Set(was);
-    if (!next.delete(id)) next.add(id);
-    return next;
-  });
-}
 
 /** THE TWO FACES, each built from the arm of the state sum it belongs to —
  *  {@link live} for a work in progress (its members, its open questions) and
@@ -167,7 +155,30 @@ const WorkCard: Component<{
       return next;
     });
   };
-  const isOpen = () => openCards().has(props.id);
+  const isOpen = () => isCardOpen(props.id);
+
+  /** A CHIP ASKED FOR THIS CARD: once it is on screen, scroll it into view
+   *  and flash it once. Asked of `shown`, as every retained view asks before
+   *  touching the page — a request made while the column is hidden waits for
+   *  it to come back. */
+  let card!: HTMLElement;
+  const onScreen = useShown();
+  const [flash, setFlash] = createSignal(false);
+  let unflash: number | undefined;
+  onCleanup(() => clearTimeout(unflash));
+  createEffect(() => {
+    const want = wantedCard();
+    if (want === null || want.id !== props.id || !onScreen()) return;
+    cardShown(want.seq);
+    // After the frame that laid the card out: a card the listing has just
+    // opened, or a band that has just come out, has no box until then.
+    requestAnimationFrame(() => {
+      card.scrollIntoView({ block: "nearest" });
+      setFlash(true);
+      clearTimeout(unflash);
+      unflash = window.setTimeout(() => setFlash(false), 1200);
+    });
+  });
 
   /** HOW IT ENDED, or `undefined` while it is in flight. The state's own arm,
    *  narrowed — not a copy of it. */
@@ -222,20 +233,14 @@ const WorkCard: Component<{
   const name = (ref: string): string =>
     names().get(ref) ?? splitMemberRef(ref)?.id.slice(0, 8) ?? ref;
 
-  /** THE PR, LIVE — off whichever member's record carries it. The timeline
-   *  says the checks are running; how many have landed is only true for the
-   *  instant it is read, so it is never stored. */
-  const livePr = createMemo(() => {
-    for (const one of members()) {
-      const meta =
-        one.standing?.kind === "here" ? one.standing.meta : undefined;
-      const arm = meta === undefined ? undefined : activeArm(meta);
-      const pr = arm === undefined ? null : prValue(arm.pr);
-      if (pr !== null) return pr;
-    }
-    return null;
-  });
+  const livePr = createMemo(() => livePrOf(members()));
   const checks = createMemo(() => checksTally(Option.fromNullishOr(livePr())));
+  /** All the time this work has waited on you, while it is still running. */
+  const onYou = createMemo(() =>
+    props.work.state.kind === "open"
+      ? timeSpentOnYou(props.work, new Date(now()).toISOString())
+      : 0,
+  );
 
   /** WHERE THE FILES COME FROM — the one derivation, shared with the reader a
    *  file row opens (`workFile.ts`): the live worktree while a member reports
@@ -245,31 +250,6 @@ const WorkCard: Component<{
   );
 
   const at = createMemo(() => standingLine(props.work, checks()));
-  /** How long the current wait has run — or, once the work has ended, how
-   *  long ago it ended ("just now" inside the first second, where the
-   *  elapsed readout has no figure to give). */
-  const endedOrElapsed = (): string => {
-    const elapsed = elapsedSince(at().since, now());
-    if (at().who !== "done") return elapsed;
-    return elapsed === DASH ? "just now" : `${elapsed} ago`;
-  };
-  /** The lead's ink: the waiter's own colour, and the quiet one for a work
-   *  that is over — "done" is not a waiter, so it has no stretch of bar and
-   *  no colour in that table. */
-  const standingInk = (): string => {
-    const who = at().who;
-    return who === "done" ? "text-fg-2" : WAITER_INK[who].text;
-  };
-  /** The host, as a person says it — read off the work's KEY, which is where
-   *  the machine a work runs on lives now: it identifies the work, so it was
-   *  never a question that could go unanswered. */
-  const host = createMemo(() => {
-    const given = hostOf(props.work);
-    if (given === "") return Option.none<string>();
-    return Option.some(
-      isEncodedHostKey(given) ? hostLabel(decodeHostKey(given)) : given,
-    );
-  });
 
   /** EVERY DECISION AS ONE ROW — the setup under its keys' names first, then
    *  the rest. */
@@ -287,10 +267,12 @@ const WorkCard: Component<{
 
   return (
     <article
+      ref={card}
       data-testid="work-card"
       data-work={props.id}
       data-who={at().who}
       data-open={isOpen() ? "" : undefined}
+      data-flash={flash() ? "" : undefined}
       data-state={props.work.state.kind}
       data-outcome={
         props.work.state.kind === "ended"
@@ -299,7 +281,8 @@ const WorkCard: Component<{
       }
       // The needs-you edge is the one piece of colour a shut card carries: a
       // column of five works must say which one is on you without being read.
-      class={`min-w-0 overflow-hidden rounded-xl border bg-surface-0 ${
+      // A card a chip asked for flashes once (`index.css`, on `data-flash`).
+      class={`min-w-0 scroll-m-3 overflow-hidden rounded-xl border bg-surface-0 ${
         at().who === "you" ? "border-alert/55" : "border-edge"
       }`}
     >
@@ -320,25 +303,20 @@ const WorkCard: Component<{
             </span>
           </Tip>
         </div>
-        <p class="m-0 mt-0.5 truncate font-mono text-[0.62rem] text-fg-3">
-          {workSubtitle(props.work, host()).join(" · ")}
-        </p>
-        <p
-          data-testid="work-standing"
-          data-who={at().who}
-          class="m-0 mt-1 flex min-w-0 flex-wrap items-baseline gap-x-1.5 text-[0.7rem]"
-        >
-          <b class={standingInk()}>{at().lead}</b>
-          <Show when={Option.getOrUndefined(at().what)}>
-            {(what) => (
-              <span class="min-w-0 truncate text-fg-2">· {what()}</span>
-            )}
-          </Show>
-          <span class="font-mono text-[0.62rem] tabular-nums text-fg-3">
-            · {endedOrElapsed()}
+        <p class="m-0 mt-0.5 flex min-w-0 gap-2 font-mono text-[0.62rem] text-fg-3">
+          <span class="min-w-0 flex-1 truncate">
+            {workSubtitle(props.work, workHost(props.work)).join(" · ")}
           </span>
+          {/* HOW LONG IT HAS WAITED ON YOU, all told — from a whole second,
+              so a setup answered in a blink does not read "you 0s". */}
+          <Show when={onYou() >= 1000}>
+            <span data-testid="work-on-you" class="shrink-0 text-alert">
+              you {dualPhrase(onYou())}
+            </span>
+          </Show>
         </p>
-        <WorkBar work={props.work} now={now()} />
+        <WorkStanding line={at()} now={now()} />
+        <StageStrip work={props.work} now={now()} size="full" />
       </button>
 
       <Show when={isOpen()}>

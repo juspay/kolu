@@ -1831,6 +1831,56 @@ Then(
   },
 );
 
+/** THE WAKE NAMES ITS WORK — a chip in its one line, for the work the watched
+ *  terminal belongs to (`watch <id>`, the fixture's title for a plain watch),
+ *  found by the work it says it is for rather than by its words. */
+function wakeChip(world: KoluWorld) {
+  const title = world.workTitle;
+  assert.ok(title, "this scenario never named the work it opened");
+  return world.page
+    .locator(
+      `${WAKE_ROW} [data-testid="conductor-wake-works"] [data-testid="work-chip"]`,
+    )
+    .filter({ hasText: title })
+    .last();
+}
+
+Then(
+  "the wake should name the watched work with a chip",
+  async function (this: KoluWorld) {
+    await wakeChip(this).waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+  },
+);
+
+When("I press the wake's work chip", async function (this: KoluWorld) {
+  await wakeChip(this).click();
+});
+
+/** ... and the press lands on that work's card: open, and on screen. */
+Then(
+  "the watched work's card should be open",
+  async function (this: KoluWorld) {
+    const card = workCard(this);
+    await card.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    await pollFor({
+      observe: () =>
+        card.evaluate((el) => {
+          const box = el.getBoundingClientRect();
+          return {
+            open: el.hasAttribute("data-open"),
+            onScreen: box.bottom > 0 && box.top < window.innerHeight,
+          };
+        }),
+      isDone: (seen) => seen.open && seen.onScreen,
+      timeoutMs: POLL_TIMEOUT,
+      onTimeout: (last, ms) =>
+        new Error(
+          `${ms}ms after the chip the work's card was ${last?.open ? "open" : "shut"} and ${last?.onScreen ? "on" : "off"} screen`,
+        ),
+    });
+  },
+);
+
 Then(
   "the conductor transcript should show a {string} wake about the watched terminal",
   async function (this: KoluWorld, level: string) {
@@ -2017,12 +2067,14 @@ When(
   },
 );
 
+/** OPEN THE WAKE by its leading `▸`: the middle of the line can be the work
+ *  chip, and pressing that goes to the work rather than opening the account. */
 When("I open the wake", async function (this: KoluWorld) {
   await this.page
     .locator(WAKE_ROW)
     .last()
     .locator('[data-testid="conductor-wake-toggle"]')
-    .click();
+    .click({ position: { x: 4, y: 6 } });
 });
 
 Then(
@@ -3037,6 +3089,34 @@ Then(
   "the work's timeline should show a {string} event saying {string}",
   async function (this: KoluWorld, kind: string, says: string) {
     await waitForTimelineEvent(this, kind, says);
+  },
+);
+
+/** ... on THIS scenario's card alone. The column-wide reading above is
+ *  satisfied by any card, which is wrong as soon as a scenario holds two
+ *  works that each wrote the same file. */
+Then(
+  "this work's own timeline should show a {string} event saying {string}",
+  async function (this: KoluWorld, kind: string, says: string) {
+    await openWorkCard(this);
+    await pollFor({
+      observe: () =>
+        workCard(this)
+          .locator(`[data-testid="work-event"][data-kind="${kind}"]`)
+          .evaluateAll(
+            (all, want) =>
+              all.filter((event) => (event.textContent ?? "").includes(want))
+                .length,
+            says,
+          ),
+      isDone: (seen) => seen > 0,
+      timeoutMs: POLL_TIMEOUT,
+      onTick: () => keepWorkCardOpen(this),
+      onTimeout: (_last, ms) =>
+        new Error(
+          `no ${JSON.stringify(kind)} event about ${JSON.stringify(says)} on this work's card after ${ms}ms`,
+        ),
+    });
   },
 );
 

@@ -274,12 +274,19 @@ export const onGreenOf = (work: Work): Option.Option<OnGreen> =>
 /** WHAT THE WATERFALL'S WORDS MEAN FOR THIS WORK, as the folds take it.
  *
  *  The folds compute from the timeline and must not re-read the setup three
- *  times over (and could not, without importing this module): the two facts
- *  they need — whether the human asked for a hand-over, and whether this is a
- *  plain watch — are read ONCE here and handed in. */
+ *  times over (and could not, without importing this module): the facts they
+ *  need — whether the human asked for a hand-over, whether this is a plain
+ *  watch, and whether a planner runs before the implementor — are read ONCE
+ *  here and handed in. A work whose mode nobody has answered yet is planned:
+ *  until somebody says otherwise, the time before an implementor is the plan
+ *  and its approval. */
 export const policyOf = (work: Work): Policy => ({
   handOver: Option.contains(onGreenOf(work), "hand-over"),
   watching: Option.contains(modeOf(work), "watch"),
+  planned: Option.match(modeOf(work), {
+    onNone: () => true,
+    onSome: (mode) => MODE_RUNS[mode].roles.includes("planner"),
+  }),
 });
 
 /** WHO IS TYPING INTO A MEMBER TERMINAL — the Conductor, the person who took

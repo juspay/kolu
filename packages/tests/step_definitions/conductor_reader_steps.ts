@@ -111,6 +111,17 @@ When("the conductor says where the plan is", async function (this: KoluWorld) {
   await sendPrompt(this, "say where the plan is");
 });
 
+/** ... in a reply that is ABOUT ONE WORK: it looks at that work's
+ *  implementor first (a kolu tool card naming the terminal), then names the
+ *  file. The sentence still says no work; the turn does. */
+When(
+  "the conductor looks at the implementor and says where its plan is",
+  async function (this: KoluWorld) {
+    await enterConductor(this);
+    await sendPrompt(this, "look at the implementor and say where its plan is");
+  },
+);
+
 /** THE NAMED FILE, pressed where it was said — a real button in the chat,
  *  found by the name a screen reader reads ("Open <path>"). */
 When(
@@ -182,6 +193,30 @@ Then(
       .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
   },
 );
+
+/** ... and on THIS scenario's work — the one the reply was about — rather
+ *  than whichever other work happens to hold a file of the same name. */
+Then(
+  "the reader should be open on the work's {string}",
+  async function (this: KoluWorld, file: string) {
+    const work = this.workId;
+    assert.ok(work, "this scenario never opened a work");
+    await this.page
+      .locator(
+        `${READER}[data-path="${file}"][data-from="reader"][data-work="${work}"]`,
+      )
+      .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+  },
+);
+
+/** NO CHOICE WAS PUT: the press opened a file outright. */
+Then("no menu of works should have opened", async function (this: KoluWorld) {
+  assert.equal(
+    await this.page.locator('[data-testid="named-file-menu"]').count(),
+    0,
+    "pressing the file put a menu of works up",
+  );
+});
 
 Then("the reader should be closed", async function (this: KoluWorld) {
   await pollFor({

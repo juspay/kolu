@@ -32,11 +32,12 @@
 
 import type { ConductorRow, ConductorState } from "kolu-common/conductor";
 import { isOpen } from "kolu-work";
-import { type Component, createMemo, createSignal, Show } from "solid-js";
+import { type Component, createMemo, Show } from "solid-js";
 import { formatKeybind } from "../input/keyboard";
 import Tip from "../ui/Tip";
 import WorkColumn from "./WorkColumn";
 import { useWorks } from "./useWorks";
+import { isListingOut, toggleListing } from "./workListing";
 import { waitingCount, worksStatusWords } from "./workReadings";
 import { conductorWide } from "./conductorLayout";
 import { useShownClock } from "../ui/shown";
@@ -85,11 +86,10 @@ const ConductorStatus: Component<{
   const since = createMemo(() =>
     statusSince(props.state.phase, props.state.busySince, now()),
   );
-  // The panel's open/closed, LOCAL — and it stays open across a trip to a
-  // host tab, because the pane that holds this signal is retained rather than
-  // rebuilt (`App.tsx`). Hoisting it to a module would say the opposite: that
-  // it has to outlive its own view.
-  const [open, setOpen] = createSignal(false);
+  // The band's open/closed is the LISTING'S (`./workListing.ts`), not this
+  // line's: a work chip anywhere in the chat brings its card into view, and
+  // on a narrow window that means bringing the band out first.
+  const open = isListingOut;
   /** WHAT KOLU HAS IN FLIGHT, off the `works` collection — the pieces of work, and
    *  how many things are waiting on you.
    *
@@ -234,7 +234,7 @@ const ConductorStatus: Component<{
                 data-waiting={waiting() > 0 ? waiting() : undefined}
                 aria-expanded={open()}
                 class="shrink-0 rounded-md border border-edge-bright px-1.5 py-px text-fg-2 hover:text-fg hover:bg-surface-2 cursor-pointer"
-                onClick={() => setOpen(!open())}
+                onClick={toggleListing}
               >
                 {words()}
               </button>

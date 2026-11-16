@@ -22,15 +22,18 @@
  *  terminal's record — arrives as an argument ({@link ChecksTally}), so every
  *  sentence here is testable without a browser. */
 
+import { activeArm } from "@kolu/padi-client/surface";
 import { dualPhrase } from "@kolu/terminal-vocab/duration";
-import type { PrInfo } from "anyforge/schemas";
+import { type PrInfo, prValue } from "anyforge/schemas";
 import { Option } from "effect";
+import { decodeHostKey, isEncodedHostKey } from "kolu-common/hostKey";
 import {
   type AnswerFrom,
   type Decision,
   type Driver,
   type EventAbout,
   type EventBy,
+  hostOf,
   isAbout,
   isCheckEvent,
   isOnGreen,
@@ -48,7 +51,9 @@ import {
   type StandingWhy,
   setupOf,
   standing,
-  timeBar,
+  type Stage,
+  type StageName,
+  stages,
   timeSpent,
   type Waiter,
   WAITER_OF,
@@ -62,16 +67,73 @@ import {
   waitingOnYou,
 } from "kolu-work";
 import { type NonEmpty, nonEmpty } from "nonempty";
+import type { FleetTerminalStanding } from "../palette/fleetTerminals";
+import { hostLabel } from "../host/hostChipTone";
 
 /** THE THREE INKS, by who is being waited on — violet for you, amber for CI,
- *  teal for the agents. One table, read by the standing line, the time bar,
- *  the timeline's dots and the legend, so a stretch of bar and the sentence
- *  over it are never two different colours of the same wait. */
-export const WAITER_INK: Record<Waiter, { text: string; fill: string }> = {
-  agent: { text: "text-accent", fill: "bg-accent" },
-  you: { text: "text-alert", fill: "bg-alert" },
-  ci: { text: "text-attention", fill: "bg-attention" },
+ *  teal for the agents. One table, read by the standing line, the stage
+ *  strip, the work chip's dot, the timeline's dots and the legend, so a stage
+ *  and the sentence over it are never two different colours of the same
+ *  wait. `tint` is a stage that had that waiter's time; `now` is the stage
+ *  the work is in, outlined. */
+export const WAITER_INK: Record<
+  Waiter,
+  {
+    readonly text: string;
+    readonly fill: string;
+    readonly tint: string;
+    readonly now: string;
+  }
+> = {
+  agent: {
+    text: "text-accent",
+    fill: "bg-accent",
+    tint: "bg-accent/15",
+    now: "bg-accent/30 border-accent",
+  },
+  you: {
+    text: "text-alert",
+    fill: "bg-alert",
+    tint: "bg-alert/15",
+    now: "bg-alert/30 border-alert",
+  },
+  ci: {
+    text: "text-attention",
+    fill: "bg-attention",
+    tint: "bg-attention/15",
+    now: "bg-attention/30 border-attention",
+  },
 };
+
+/** A WORK'S DOT, by who it waits on — the waiter's fill, pulsing when it is
+ *  you, and the finished colour once it is over. */
+export const WORK_DOT: Record<Waiter | "done", string> = {
+  agent: WAITER_INK.agent.fill,
+  you: `${WAITER_INK.you.fill} motion-safe:animate-pulse`,
+  ci: WAITER_INK.ci.fill,
+  done: "bg-ok",
+};
+
+/** What each stage is called on the strip. */
+export const STAGE_LABEL: Record<StageName, string> = {
+  plan: "Plan",
+  approve: "Approve",
+  build: "Build",
+  review: "Review",
+  checks: "Checks",
+  merge: "Merge",
+};
+
+/** THE STAGES of a work, under its own policy. */
+export function stagesOf(work: Work, now: string): ReadonlyArray<Stage> {
+  return stages(work, policyOf(work), now);
+}
+
+/** IS THIS WORK WAITING ON YOU — by the same `standing` the card's line
+ *  reads, so the group a card sits in and the words on it cannot disagree. */
+export function waitsOnYou(work: Work): boolean {
+  return WAITER_OF[standing(work, policyOf(work)).why] === "you";
+}
 
 /** The same three, plus kolu's own — the ink of a timeline dot, by who the
  *  event is BY. kolu's own events (membership, the end, files kept) are the
@@ -259,6 +321,17 @@ export function repoName(repo: string): string {
   return trimmed === "" ? "" : trimmed.slice(trimmed.lastIndexOf("/") + 1);
 }
 
+/** THE HOST a work runs on, as a person says it — read off the work's KEY,
+ *  which is where the machine lives: it identifies the work, so it was never
+ *  a question that could go unanswered. None for a key with no host. */
+export function workHost(work: Work): Option.Option<string> {
+  const given = hostOf(work);
+  if (given === "") return Option.none();
+  return Option.some(
+    isEncodedHostKey(given) ? hostLabel(decodeHostKey(given)) : given,
+  );
+}
+
 /** The line under a card's title: WHERE the work is — which is now its
  *  identity, `repo · branch` for a branch work and "watching" for a watch —
  *  the host as a person names it, the mode, and the PR once there is one.
@@ -405,25 +478,27 @@ export function standingLine(
   }
 }
 
-/** One stretch of the drawn bar, as a share of the whole life. Percentages
- *  rather than milliseconds because what the eye reads is the proportion;
- *  a work with no measurable life yet draws nothing at all. */
-export interface BarSegment {
-  readonly who: Waiter;
-  readonly percent: number;
+/** THE PR, LIVE — off whichever member terminal's record carries one. The
+ *  timeline says the checks are running; how many have landed is only true
+ *  for the instant it is read, so it is never stored. Each member's standing
+ *  is read once by the caller and handed in. */
+export function livePrOf(
+  members: ReadonlyArray<{
+    readonly standing: FleetTerminalStanding | undefined;
+  }>,
+): PrInfo | null {
+  for (const one of members) {
+    const meta = one.standing?.kind === "here" ? one.standing.meta : undefined;
+    const arm = meta === undefined ? undefined : activeArm(meta);
+    const pr = arm === undefined ? null : prValue(arm.pr);
+    if (pr !== null) return pr;
+  }
+  return null;
 }
 
-export function barSegments(
-  work: Work,
-  now: string,
-): ReadonlyArray<BarSegment> {
-  const bar = timeBar(work, policyOf(work), now);
-  const total = bar.reduce((sum, stretch) => sum + stretch.ms, 0);
-  if (total === 0) return [];
-  return bar.map((stretch) => ({
-    who: stretch.who,
-    percent: (stretch.ms / total) * 100,
-  }));
+/** ALL THE TIME A WORK HAS WAITED ON YOU — the card's "you 12m". */
+export function timeSpentOnYou(work: Work, now: string): number {
+  return timeSpent(work, policyOf(work), now).you;
 }
 
 /** WHERE THE TIME WENT, for a finished card — the three figures in one line,

@@ -157,3 +157,30 @@ Feature: A plan is read, not glimpsed
     When I press the work's timeline row for ".waterfall/plan.md"
     Then the reader should be open on ".waterfall/plan.md"
     And there should be no page errors
+
+  Scenario: A file named in a reply about one work opens that work's copy, with no menu
+    # EVERY WORK HAS A PLAN, so the path alone names none of them: two works
+    # here each hold `.waterfall/plan.md`. The reply looks at the second work's
+    # implementor before it names the file — that is what the turn is about —
+    # so the press opens the second work's plan at once and offers no choice.
+    Given a repo for the work
+    When I ask the conductor to open the work "the first plan"
+    And I answer the work's question with "hand-over" in the chat
+    And I ask the conductor to run the implementor in the work's repo
+    And the implementor writes a plan with a table into the work's repo
+    And the implementor's agent starts working
+    And the implementor's agent stops
+    Then this work's own timeline should show a "file" event saying ".waterfall/plan.md"
+    Given a repo for the work
+    When I ask the conductor to open the work "the second plan"
+    And I answer the work's question with "hand-over" in the chat
+    And I ask the conductor to run the implementor in the work's repo
+    And the implementor writes a plan with a table into the work's repo
+    And the implementor's agent starts working
+    And the implementor's agent stops
+    Then this work's own timeline should show a "file" event saying ".waterfall/plan.md"
+    When the conductor looks at the implementor and says where its plan is
+    And I press the file the conductor named, ".waterfall/plan.md"
+    Then the reader should be open on the work's ".waterfall/plan.md"
+    And no menu of works should have opened
+    And there should be no page errors

@@ -2170,7 +2170,8 @@ const forgeSays = (over: {
       outcome: "fail" as const,
     })),
     reviewDecision: null,
-    mergeStateStatus: "UNKNOWN",
+    // A PR the forge says can merge: what a passing rollup is green on.
+    mergeStateStatus: "CLEAN",
     headSha: over.head === undefined ? HEAD : over.head,
   },
 });
