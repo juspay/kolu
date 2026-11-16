@@ -23,7 +23,7 @@ import {
   _sharedCwdGitWatcherCount,
 } from "./cwd-git-watcher.ts";
 import { SKIP_DARWIN_FSWATCH } from "./fs-watch-delivery.testlib.ts";
-import { WATCHER_DEBOUNCE_MS } from "./git-dir.ts";
+import { isInsideWorkTree, WATCHER_DEBOUNCE_MS } from "./git-dir.ts";
 import {
   _resetSharedHeadWatchers,
   _settledSharedHeadWatchers,
@@ -375,6 +375,7 @@ describe("gitInfoEqual", () => {
     isWorktree: false,
     mainRepoRoot: "/home/user/repo",
     remoteUrl: null,
+    isBare: false,
   };
 
   it("returns true for identical references", () => {
@@ -402,6 +403,9 @@ describe("gitInfoEqual", () => {
     // remoteUrl is compared so a `git remote set-url` re-triggers the
     // downstream forge dispatch.
     { field: "remoteUrl", value: "https://github.com/o/r.git" },
+    // isBare is compared so a `core.bare` flip moves the Code tab between
+    // git and the disk.
+    { field: "isBare", value: true },
   ] as const)("detects different $field", ({ field, value }) => {
     expect(gitInfoEqual(info, { ...info, [field]: value })).toBe(false);
   });
@@ -460,6 +464,7 @@ describe("resolveGitInfo", () => {
     expect(result.value.branch).toBe("main");
     expect(result.value.isWorktree).toBe(false);
     expect(result.value.mainRepoRoot).toBe(fs.realpathSync(dir));
+    expect(result.value.isBare).toBe(false);
   });
 
   it("resolves a worktree", async () => {
@@ -475,6 +480,7 @@ describe("resolveGitInfo", () => {
     expect(result.value.branch).toBe("feature");
     expect(result.value.isWorktree).toBe(true);
     expect(result.value.mainRepoRoot).toBe(fs.realpathSync(mainDir));
+    expect(result.value.isBare).toBe(false);
   });
 
   it("resolves from a subdirectory", async () => {
@@ -512,6 +518,7 @@ describe("resolveGitInfo", () => {
     expect(result.value.repoName).toBe("plain-bare");
     expect(result.value.repoRoot).toBe(fs.realpathSync(dir));
     expect(result.value.mainRepoRoot).toBe(fs.realpathSync(dir));
+    expect(result.value.isBare).toBe(true);
   });
 
   it("resolves a bare repo with .git-suffix convention", async () => {
@@ -526,6 +533,7 @@ describe("resolveGitInfo", () => {
     if (!result.ok) return;
     expect(result.value.repoName).toBe("suffixed");
     expect(result.value.repoRoot).toBe(fs.realpathSync(dir));
+    expect(result.value.isBare).toBe(true);
   });
 
   it("resolves a sibling of a `.git` bare repo (project-layout)", async () => {
@@ -547,6 +555,12 @@ describe("resolveGitInfo", () => {
     expect(result.value.repoName).toBe("proj");
     expect(result.value.repoName).not.toBe(".worktrees");
     expect(result.value.mainRepoRoot).toBe(fs.realpathSync(proj));
+    expect(result.value.isBare).toBe(true);
+    // The listing and the working-tree watcher must agree about a root:
+    // `isBare` is the Code tab's "git cannot list this", and the watcher asks
+    // git the same question of the same root before it installs.
+    const watcherAnswer = await isInsideWorkTree(result.value.repoRoot);
+    expect(watcherAnswer).toEqual({ ok: true, value: false });
   });
 });
 

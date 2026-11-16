@@ -3,7 +3,8 @@
  *
  *  It owns the pulse-then-requery reads the Code tab stands on — the three git
  *  status streams (local / branch / active-view), the browse file list, the
- *  gitignored overlay, the diff, and the browse file-content — as one
+ *  gitignored overlay, the from-disk root level of a folder git cannot list,
+ *  the diff, and the browse file-content — as one
  *  {@link createPolledQuery} instance PER host,
  *  born inside a `scopedByEntry(padiMap, activeHost, …)` owner: created LAZILY on a
  *  host's first activation, RETAINED across every switch-away (paused, value held),
@@ -76,7 +77,8 @@ import {
   padiMap,
   padiRpcOf,
 } from "../wire";
-import { mergeBrowseInventory } from "./browseInventory";
+import { diskInventory, mergeBrowseInventory } from "./browseInventory";
+import { type CodeLister, codeLister } from "./codeLister";
 import { createPolledQuery, type PolledQueryConfig } from "./createPolledQuery";
 import { showIgnoredFiles } from "./showIgnoredFiles";
 import { useRightPanel } from "./useRightPanel";
@@ -134,6 +136,14 @@ function buildHostCodeTab(ctx: { isActive: () => boolean }) {
     const git = store.focused().meta?.git;
     return git?.kind === "repo" ? git.info.repoRoot : null;
   };
+  // Who lists the shown root: git, or the disk when git cannot (a bare repo's
+  // folder). Every git read below is idle unless git can answer — the failing
+  // `git ls-files` / `git status` calls on a root with no working tree are
+  // simply never made — and the one disk read is idle unless it is the disk.
+  const shownLister = (): CodeLister | null =>
+    codeLister(store.focused().meta?.git);
+  const gitRepoPath = (): string | null =>
+    shownLister() === "git" ? shownRepoPath() : null;
   const codeView = (): CodeTabView => rightPanel.codeMode();
   const codeDiffMode = (): GitDiffMode | undefined =>
     codeView() === "browse" ? undefined : (codeView() as GitDiffMode);
@@ -172,7 +182,7 @@ function buildHostCodeTab(ctx: { isActive: () => boolean }) {
   // independent of the active view (see CodeTab for the passive-vs-active-view split).
   const localStatus = repoQuery({
     input: () => {
-      const p = shownRepoPath();
+      const p = gitRepoPath();
       return p ? { repoPath: p, mode: "local" as const } : null;
     },
     query: (i) => activePadiRpc.git.getStatus(i),
@@ -180,11 +190,13 @@ function buildHostCodeTab(ctx: { isActive: () => boolean }) {
   });
 
   // Always-on branch status — feeds the Branch badge/count, base/ref, and overlay.
-  // The un-fetched-base case (`WorktreeBaseBranchMissing`) is EXPECTED for this
-  // passive read and swallowed; any other failure toasts.
+  // The un-fetched-base case (`WorktreeBaseBranchMissing`) raises no toast: this
+  // passive read runs in every view and only feeds a badge. The Branch view
+  // itself shows the error's sentence (with its `git fetch` fix) in its banner,
+  // through `activeStatus.error`; any other failure toasts.
   const branchStatus = repoQuery({
     input: () => {
-      const p = shownRepoPath();
+      const p = gitRepoPath();
       return p ? { repoPath: p, mode: "branch" as const } : null;
     },
     query: (i) => activePadiRpc.git.getStatus(i),
@@ -199,13 +211,7 @@ function buildHostCodeTab(ctx: { isActive: () => boolean }) {
     codeDiffMode() === "branch" ? branchStatus : localStatus;
   const activeStatus = Object.assign(() => selectedStatus()(), {
     pending: () => selectedStatus().pending(),
-    error: () => {
-      const error = selectedStatus().error();
-      // A missing branch base is an expected empty state, not an error banner.
-      return error && isDeclared(error, WORKTREE_BASE_BRANCH_MISSING)
-        ? undefined
-        : error;
-    },
+    error: () => selectedStatus().error(),
     complete: () => selectedStatus().complete(),
   });
 
@@ -220,7 +226,7 @@ function buildHostCodeTab(ctx: { isActive: () => boolean }) {
   // one repo blanked the tree and re-dispatched `fs.listAll` for a fact that had
   // not changed.
   const browseInput = (): { repoPath: string } | null => {
-    const repoPath = shownRepoPath();
+    const repoPath = gitRepoPath();
     return repoPath === null ? null : { repoPath };
   };
 
@@ -238,6 +244,31 @@ function buildHostCodeTab(ctx: { isActive: () => boolean }) {
         ),
       ),
     onError: (err) => toast.error(`File list stream: ${err.message}`),
+  });
+
+  // The root level of a folder git cannot list (a bare repository's folder),
+  // read from disk — the `allPaths` of disk mode. One level: every folder in it
+  // is opened on click, through the same lazy-directory read the ignored
+  // overlay uses. It rides the same repo-change pulse as the git reads, which
+  // on such a root moves only with HEAD and the index; nothing new is watched.
+  const diskRootLevel = repoQuery({
+    enabled: () => codeView() === "browse",
+    input: () => {
+      const repoPath = shownLister() === "disk" ? shownRepoPath() : null;
+      return repoPath === null ? null : { repoPath };
+    },
+    query: (i) =>
+      activePadiRpc.fs
+        .listDirectory({ repoPath: i.repoPath, dirPath: "" })
+        .pipe(
+          Effect.map(
+            (result): ScopedCodePaths => ({
+              repoRoot: i.repoPath,
+              paths: result.paths,
+            }),
+          ),
+        ),
+    onError: (err) => toast.error(`Folder listing: ${err.message}`),
   });
 
   // The gitignored overlay — a SEPARATE query, idle (null input) unless the
@@ -266,7 +297,7 @@ function buildHostCodeTab(ctx: { isActive: () => boolean }) {
   // find the file's `oldPath` (a cross-query dependency that rides one owner).
   const diff = repoQuery({
     input: () => {
-      const p = shownRepoPath();
+      const p = gitRepoPath();
       const s = codeSelectedPath();
       const m = codeDiffMode();
       if (!p || !s || !m) return null;
@@ -339,6 +370,7 @@ function buildHostCodeTab(ctx: { isActive: () => boolean }) {
     branchStatus,
     activeStatus,
     allPaths,
+    diskRootLevel,
     ignoredPaths,
     diff,
     fileContent,
@@ -401,6 +433,11 @@ export const codeFileContent = windowedSub(
   (v) => v,
   undefined,
 );
+export const codeDiskRootLevel = windowedSub(
+  () => activeHostCodeTab()?.diskRootLevel,
+  (v) => v,
+  undefined,
+);
 
 /** Read a fresh authoritative browse inventory for a user-initiated open.
  *
@@ -412,7 +449,9 @@ export const codeFileContent = windowedSub(
  * request. The request's captured host selects the padi procedures: an
  * in-flight confirmation must not follow the active-host projection when the
  * user switches hosts. Keep that read beside the retained query so both paths
- * use the same ignored-file partition.
+ * use the same partition: git's tracked listing (plus the ignored overlay),
+ * or, for a root git cannot list (`lister` `"disk"`), the root's own level read
+ * from disk — the failing `git ls-files` is never fired there.
  *
  * No cancellation token: a padi procedure call carries none under Effect
  * (D10/#18). Interrupting this effect's fiber IS the cancellation, and a
@@ -423,9 +462,20 @@ export const codeFileContent = windowedSub(
 export function readFreshCodePaths(
   host: HostKey,
   repoPath: string,
+  lister: CodeLister,
   includeIgnored: boolean,
 ): Effect.Effect<string[], unknown> {
   const rpc = padiRpcOf(host);
+  // No loaded levels in either arm: this read resolves a terminal link against
+  // the authoritative listing, and a lazily-expanded directory's contents are a
+  // VIEW concern — a path only reachable by hand-opening a folder is not
+  // something a `path:line` ref can name.
+  if (lister === "disk")
+    return rpc.fs
+      .listDirectory({ repoPath, dirPath: "" })
+      .pipe(
+        Effect.map((root) => diskInventory(root.paths, undefined, false).paths),
+      );
   return Effect.all(
     [
       rpc.fs.listAll({ repoPath }),
@@ -440,10 +490,6 @@ export function readFreshCodePaths(
   ).pipe(
     Effect.map(
       ([tracked, ignored]) =>
-        // No loaded levels: this read resolves a terminal link against the
-        // authoritative listing, and a lazily-expanded directory's contents are
-        // a VIEW concern — a path only reachable by hand-expanding an ignored
-        // folder is not something a `path:line` ref can name.
         mergeBrowseInventory(tracked.paths, ignored?.paths, undefined, {
           trackedPending: false,
           ignoredPending: false,

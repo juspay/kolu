@@ -45,6 +45,7 @@ function renderMenu(
   const render = makeTreeContextMenu({
     view: () => "browse",
     navigate: () => {},
+    viewsAvailable: () => true,
     gitStatus: () => undefined,
     download,
     ...hooks,
@@ -94,5 +95,12 @@ describe("makeTreeContextMenu", () => {
       gitStatus: () => [{ path: "api/handler.ts", status: "modified" }],
     });
     expect(labels).toContain("Download");
+  });
+
+  it("offers no view switch where the other views do not exist", () => {
+    // A bare repository's folder is browse-only: an "Open Local diff" entry
+    // there would land on a view that cannot exist.
+    const { labels } = renderMenu(FILE_ROW, { viewsAvailable: () => false });
+    expect(labels).toEqual(["Copy path", "Download"]);
   });
 });

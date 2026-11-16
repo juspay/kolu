@@ -37,6 +37,10 @@ export type TreeContextMenuHooks = {
    *  directories aren't selectable) leaves the target's selection slot
    *  untouched, so it restores its own last pick per the per-slot design. */
   navigate: (target: CodeTabView, path: string | null) => void;
+  /** Whether the other views exist for this root, read at right-click time.
+   *  `false` on a folder git cannot list (a bare repository's), which is
+   *  browse-only: the menu then offers no "Open … diff" entries. */
+  viewsAvailable: () => boolean;
   /** The active view's git decoration, read at right-click time. A row's
    *  `deleted` entry withholds the Download entry — the file is gone from
    *  disk, so there are no bytes to save. */
@@ -146,10 +150,12 @@ export function makeTreeContextMenu(nav: TreeContextMenuHooks) {
     // the destination's selection only for files; directories aren't selectable
     // (they never appear in the tree's `paths`), so they just switch the view.
     const selection = item.kind === "file" ? item.path : null;
-    for (const entry of navEntriesFor(nav.view())) {
-      addItem(entry.label, () => nav.navigate(entry.target, selection));
+    if (nav.viewsAvailable()) {
+      for (const entry of navEntriesFor(nav.view())) {
+        addItem(entry.label, () => nav.navigate(entry.target, selection));
+      }
+      addSeparator();
     }
-    addSeparator();
 
     addItem("Copy path", () => {
       runAction(

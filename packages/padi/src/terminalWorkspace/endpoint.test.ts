@@ -1,7 +1,14 @@
+import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { FileGone, GitFailed } from "@kolu/padi-client/surface";
+import {
+  FileGone,
+  GitFailed,
+  padiSurface,
+  WorktreeBaseBranchMissing,
+} from "@kolu/padi-client/surface";
+import { Schema } from "effect";
 import pino from "pino";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createTerminalWorkspaceEndpoint } from "./endpoint.ts";
@@ -143,5 +150,60 @@ describe("createTerminalWorkspaceEndpoint", () => {
     } finally {
       fs.rmSync(notRepo, { recursive: true, force: true });
     }
+  });
+
+  /** The handler-versus-declaration check `servePadi`'s `handle` cast skips:
+   *  what these two reads RAISE for a Branch comparison with no fetched base
+   *  must be what their members DECLARE, or the response encode fails and the
+   *  Branch view shows "Failed to encode response" instead of the fix. */
+  describe("an unfetched base branch surfaces as the declared WorktreeBaseBranchMissing", () => {
+    beforeEach(() => {
+      execFileSync(
+        "git",
+        [
+          "remote",
+          "add",
+          "origin",
+          "https://example.invalid/never-fetched.git",
+        ],
+        { cwd: repo, stdio: "pipe" },
+      );
+    });
+
+    const declared = padiSurface.spec.procedures.git;
+    const cases = [
+      {
+        member: "getStatus",
+        read: () =>
+          createTerminalWorkspaceEndpoint(log).git.getStatus(repo, "branch"),
+        error: declared.getStatus.error,
+      },
+      {
+        member: "getDiff",
+        read: () =>
+          createTerminalWorkspaceEndpoint(log).git.getDiff(
+            repo,
+            "a.txt",
+            "branch",
+          ),
+        error: declared.getDiff.error,
+      },
+    ];
+    it.each(cases)("git.$member", async ({ read, error }) => {
+      const raised = await read().then(
+        () => {
+          throw new Error("expected the branch read to reject");
+        },
+        (e: unknown) => e,
+      );
+      expect(raised).toBeInstanceOf(WorktreeBaseBranchMissing);
+      expect((raised as WorktreeBaseBranchMissing).message).toContain(
+        "git fetch origin",
+      );
+      const schema = error as Schema.Codec<unknown, unknown>;
+      expect(Schema.encodeUnknownSync(schema)(raised)).toMatchObject({
+        _tag: "WorktreeBaseBranchMissing",
+      });
+    });
   });
 });

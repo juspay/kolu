@@ -103,6 +103,35 @@ round, that path shows as one row:
 - Comments attach only to the path's own file. Select text in a file under it
   and the comment pill says so.
 
+### A folder git cannot list
+
+A bare repository has no working tree, so git has no file list for its folder.
+A common layout is `proj/.git` as a bare repository, with its worktrees beside
+it in `proj/.worktrees/`. In that folder the Code tab reads the files from disk
+instead, and a strip above the tree says so.
+
+- Each folder opens one level at a time, as you click it.
+- There is no **Local** or **Branch** view and no eye toggle: there is nothing
+  to diff, and nothing is marked as ignored.
+- A worktree inside the folder is a plain folder here, with no git marks. Open
+  a terminal in the worktree to see its own tree and changes.
+- Switching to another repository's pane and back closes the folders you
+  opened, and deselects a file inside one.
+
+Nothing in the folder is watched. kolu reads it again at these moments:
+
+| What | When it is read again |
+| --- | --- |
+| The top level | When you come back to the Code tab, after a reconnect, and when the repository's branch or index moves. |
+| A folder | When you collapse it and open it again. |
+| An open file | When you select it again. |
+
+A `path:line` reference in terminal output opens only files in folders you have
+already opened. Any other reference shows **File reference not found**.
+
+A folder outside any git repository shows **Not in a git repository** and no
+tree.
+
 ## Markdown and artifacts
 
 | File | How it opens |

@@ -25,10 +25,10 @@ Functions accept `log?: Logger` (from `anyagent`). Pass a pino child logger in p
 | Module         | Exports                                                                           | Purpose                                                                  |
 | -------------- | --------------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
 | `schemas.ts`   | `GitInfoSchema`, `GitDiffOutputSchema`, etc.                                      | Effect Schema definitions (re-exported by `kolu-common`)                 |
-| `resolve.ts`   | `resolveGitInfo`, `watchGitHead`, `gitInfoEqual`, `hasGitDir`, `subscribeGitInfo` | Repo context resolution + `.git/HEAD` watching + combined subscribe loop |
+| `resolve.ts`   | `resolveGitInfo`, `watchGitHead`, `gitInfoEqual`, `hasGitDir`, `subscribeGitInfo` | Repo context resolution (`GitInfo.isBare` says the root has no working tree) + `.git/HEAD` watching + combined subscribe loop |
 | `worktree.ts`  | `worktreeCreate`, `worktreeRemove`, `detectDefaultBranch`                         | Worktree lifecycle                                                       |
 | `review.ts`    | `getStatus`, `getDiff`, `parseNameStatus`                                         | Diff review (local + branch modes)                                       |
-| `browse.ts`    | `listAll`, `listIgnored`, `listDirectory`, `readFile`, `filePreviewTag`           | Code-tab listings + file reads (`listDirectory` opens a collapsed ignored dir) |
+| `browse.ts`    | `listAll`, `listIgnored`, `listDirectory`, `readFile`, `filePreviewTag`           | Code-tab listings + file reads (`listDirectory` opens a collapsed ignored dir, and every folder of a bare repo's folder) |
 | `safe-path.ts` | `resolveUnder`                                                                    | Path traversal guard                                                     |
 | `errors.ts`    | `GitError`, `GitResult`, `ok`, `err`                                              | Sum-type error types and constructors                                    |
 | `repo-change.ts` | `subscribeRepoChange`, `subscribeFileChange`                                    | The Code tab's composed watchers (HEAD, reflog, index, working tree)     |

@@ -96,35 +96,68 @@ export function mergeBrowseInventory(
     return true;
   });
 
-  // Rule 4 — emit each surviving overlay entry, substituting a directory that
-  // has been loaded for the level that was read. Recursive because a load can
-  // expose further directories that are THEMSELVES loaded (expand `blog/out/`,
-  // then `blog/out/assets/`), and each of those must resolve too; the depth is
-  // real directory nesting, so the stack is bounded where a spread of one
-  // level's children into argument position is not (a flat cache directory
-  // reaches six figures). `visited` still guards it: a self-referential cache
-  // entry `{"out/": ["out/"]}` has to terminate, and a directory reached twice
-  // is listed once.
-  const overlay: string[] = [];
+  // Rule 4 — substitute each loaded overlay directory for the level that was
+  // read. Rule 2 again, for the OTHER source: a level read at click time can
+  // name a path `listAll` has since claimed; admitting it duplicates the row,
+  // and `pathDiffOperations` then emits two adds for one path — Pierre throws
+  // and the recovery discards every hand-expanded folder. So `seen` is passed
+  // as the claimed set.
+  const walk = walkLazyLevels(surviving, loadedChildren, seen);
+
+  return {
+    paths: [...tracked, ...walk.rows],
+    // Loaded directories whose children REPLACED their key are rows Pierre
+    // still paints but `paths` no longer names, so `ignored` carries them to
+    // keep them dimmed.
+    ignored: [...walk.rows, ...walk.substituted],
+    lazyDirs: walk.lazyDirs,
+    pending,
+  };
+}
+
+/** What {@link walkLazyLevels} found. */
+interface LazyWalk {
+  /** The rows to put in `paths`: every file reached, plus every directory
+   *  that was not loaded or loaded EMPTY (its own trailing-slash key). */
+  rows: string[];
+  /** Every directory reached, loaded or not. */
+  lazyDirs: string[];
+  /** Loaded directories whose children replaced their key. */
+  substituted: string[];
+}
+
+/** Rule 4's walk, shared by the ignored overlay and the from-disk tree: emit
+ *  each entry, substituting a directory that has been loaded for the level
+ *  that was read.
+ *
+ *  Recursive because a load can expose further directories that are
+ *  THEMSELVES loaded (expand `blog/out/`, then `blog/out/assets/`), and each
+ *  of those must resolve too; the depth is real directory nesting, so the
+ *  stack is bounded where a spread of one level's children into argument
+ *  position is not (a flat cache directory reaches six figures). `visited`
+ *  still guards it: a self-referential cache entry `{"out/": ["out/"]}` has to
+ *  terminate, and a directory reached twice is listed once. Only directories
+ *  reached from `entries` are visited, so a cached level whose directory has
+ *  left `entries` resurrects nothing. `claimed` names paths another source
+ *  already renders; they are skipped. */
+function walkLazyLevels(
+  entries: readonly string[],
+  loadedChildren: ReadonlyMap<string, readonly string[]> | undefined,
+  claimed?: ReadonlySet<string>,
+): LazyWalk {
+  const rows: string[] = [];
   const lazyDirs: string[] = [];
-  // Loaded directories whose children REPLACED their key — the rows Pierre
-  // still paints but `paths` no longer names, which `ignored` must carry so
-  // they stay dimmed.
   const substituted: string[] = [];
   const visited = new Set<string>();
   const emit = (entry: string): void => {
-    // Rule 2 again, for the OTHER source. A level read at click time can name a
-    // path `listAll` has since claimed; admitting it duplicates the row, and
-    // `pathDiffOperations` then emits two adds for one path — Pierre throws and
-    // the recovery discards every hand-expanded folder.
-    if (seen.has(entry)) return;
+    if (claimed?.has(entry)) return;
     if (!isDirectoryPath(entry)) {
-      overlay.push(entry);
+      rows.push(entry);
       return;
     }
     if (visited.has(entry)) return;
     visited.add(entry);
-    // Every overlay directory is watchable, loaded or not — an unloaded one so
+    // Every lazy directory is watchable, loaded or not — an unloaded one so
     // its first expand is reported, a loaded one so a reopen refetches.
     lazyDirs.push(entry);
     const children = loadedChildren?.get(entry);
@@ -137,21 +170,31 @@ export function mergeBrowseInventory(
       // the user watches the folder they just clicked disappear. The empty case
       // is reachable with no race, because `git ls-files --others --ignored
       // --directory` lists a permanently-empty ignored directory in the overlay
-      // directly.
-      overlay.push(entry);
+      // directly, and a folder on disk can simply be empty.
+      rows.push(entry);
       return;
     }
     substituted.push(entry);
     for (const child of children) emit(child);
   };
-  for (const entry of surviving) emit(entry);
+  for (const entry of entries) emit(entry);
+  return { rows, lazyDirs, substituted };
+}
 
-  return {
-    paths: [...tracked, ...overlay],
-    ignored: [...overlay, ...substituted],
-    lazyDirs,
-    pending,
-  };
+/** The tree for a root git cannot list (a bare repository's folder): the
+ *  root's own level as read from disk, each folder replaced by its loaded
+ *  level when there is one. Rule 4 applied to the whole root — every folder is
+ *  a lazy directory, and nothing is dimmed because there is no git to call
+ *  anything ignored. `rootLevel` absent means the root has not been read yet,
+ *  which is pending, never empty (rule 1). */
+export function diskInventory(
+  rootLevel: readonly string[] | undefined,
+  loadedChildren: ReadonlyMap<string, readonly string[]> | undefined,
+  pending: boolean,
+): BrowseInventory {
+  if (!rootLevel) return { paths: [], ignored: [], lazyDirs: [], pending };
+  const walk = walkLazyLevels(rootLevel, loadedChildren);
+  return { paths: walk.rows, ignored: [], lazyDirs: walk.lazyDirs, pending };
 }
 
 /** Fold a directory↔file type change down to its ONE file row.

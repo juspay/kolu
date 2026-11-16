@@ -48,6 +48,7 @@ const sentinel: SavedActiveTerminal = {
       isWorktree: true,
       mainRepoRoot: "/sentinel/main",
       remoteUrl: "git@example.com:sentinel.git",
+      isBare: false,
     },
   },
   // A RESOLVED pr — distinct from the `{ kind: "pending" }` seed — so the

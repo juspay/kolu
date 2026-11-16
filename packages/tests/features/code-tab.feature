@@ -2183,3 +2183,52 @@ Feature: Code tab (review + browse)
     Then the file content should contain "saved-source-marker"
     And the Pierre source renderer should be the kept-alive element
     And there should be no page errors
+
+  # ── A folder git cannot list ──
+
+  # The issue's layout: `proj/.git` is a bare repository and its worktrees sit
+  # beside it under `proj/.worktrees/`. There is no working tree at `proj`, so
+  # git cannot list it; the Code tab reads the folder from disk instead, one
+  # folder per click, and never fires the git calls that fail there ("must be
+  # run in a work tree").
+  Scenario: A bare repository's folder is browsed from disk
+    When I start recording error toasts
+    And I run "rm -rf /tmp/kolu-bare-seed /tmp/kolu-bare && git init -q /tmp/kolu-bare-seed && printf 'readme-marker\n' > /tmp/kolu-bare-seed/README.md && git -C /tmp/kolu-bare-seed add . && git -C /tmp/kolu-bare-seed commit -qm init"
+    And I run "mkdir -p /tmp/kolu-bare && git clone -q --bare /tmp/kolu-bare-seed /tmp/kolu-bare/.git && git -C /tmp/kolu-bare/.git worktree add -q /tmp/kolu-bare/.worktrees/feat"
+    And I run "mkdir -p /tmp/kolu-bare/.claude && printf 'notes-marker\n' > /tmp/kolu-bare/notes.md && printf '<!doctype html><h1>bare-page-marker</h1>\n' > /tmp/kolu-bare/page.html && cd /tmp/kolu-bare"
+    And I click the Code tab
+    Then the Code tab should read the folder from disk
+    And the file browser should show a directory ".git"
+    And the file browser should show a directory ".worktrees"
+    And the file browser should show a file "notes.md"
+    When I click the directory ".worktrees" in the file browser
+    Then the file browser should show a directory ".worktrees/feat"
+    When I click the directory ".worktrees/feat" in the file browser
+    Then the file browser should show a file ".worktrees/feat/README.md"
+    When I click the file "notes.md" in the file browser
+    Then the markdown preview should contain "notes-marker"
+    When I click the file "page.html" in the file browser
+    Then the file preview iframe should contain "bare-page-marker"
+    And the Code tab should show no error
+    And no "work tree" error toast should have been shown
+    And no "Failed to encode" error toast should have been shown
+    And there should be no page errors
+
+  # A repo with an `origin` whose default branch was never fetched has nothing
+  # to compare against. The Branch view says so, with the command that fixes
+  # it; the read behind the Branch badge stays quiet in every other view.
+  Scenario: Branch view names the missing base branch and how to fetch it
+    When I start recording error toasts
+    And I run "rm -rf /tmp/kolu-nobase && git init /tmp/kolu-nobase && cd /tmp/kolu-nobase"
+    And I run "printf 'kept\n' > kept.md && git add . && git commit -m init"
+    And I run "git remote add origin https://example.invalid/kolu-nobase.git"
+    And I click the Code tab
+    And I click the Code tab mode "browse"
+    Then the file browser should show a file "kept.md"
+    And the Code tab should show no error
+    When I click the Code tab mode "branch"
+    Then the Code tab error should say "No base branch found"
+    And the Code tab error should say "git fetch origin"
+    And no "No base branch found" error toast should have been shown
+    And no "Failed to encode" error toast should have been shown
+    And there should be no page errors

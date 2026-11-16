@@ -2,6 +2,7 @@ import { FileTree as PierreFileTree } from "@pierre/trees";
 import { describe, expect, it } from "vitest";
 import {
   diffInventory,
+  diskInventory,
   foldTypeChanges,
   mergeBrowseInventory,
 } from "./browseInventory.ts";
@@ -432,5 +433,66 @@ describe("foldTypeChanges", () => {
         false,
       ).paths,
     ).toEqual([".claude/skills/odu", "skills/odu/SKILL.md"]);
+  });
+});
+
+describe("diskInventory — a folder git cannot list, read one level at a time", () => {
+  const ROOT = [".claude/", ".git/", ".worktrees/", "notes.md"];
+  it.each([
+    {
+      name: "a root not read yet is pending, never empty",
+      root: undefined,
+      loaded: new Map<string, string[]>(),
+      pending: true,
+      expected: { paths: [], lazyDirs: [], pending: true },
+    },
+    {
+      name: "every folder is a lazy row, and nothing is dimmed",
+      root: ROOT,
+      loaded: new Map<string, string[]>(),
+      pending: false,
+      expected: {
+        paths: ROOT,
+        lazyDirs: [".claude/", ".git/", ".worktrees/"],
+        pending: false,
+      },
+    },
+    {
+      name: "a loaded folder yields to its children, recursively",
+      root: ROOT,
+      loaded: new Map([
+        [".worktrees/", [".worktrees/feat/"]],
+        [".worktrees/feat/", [".worktrees/feat/README.md"]],
+      ]),
+      pending: false,
+      expected: {
+        paths: [".claude/", ".git/", ".worktrees/feat/README.md", "notes.md"],
+        lazyDirs: [".claude/", ".git/", ".worktrees/", ".worktrees/feat/"],
+        pending: false,
+      },
+    },
+    {
+      name: "an empty loaded folder keeps its own row",
+      root: ROOT,
+      loaded: new Map([[".claude/", []]]),
+      pending: false,
+      expected: {
+        paths: ROOT,
+        lazyDirs: [".claude/", ".git/", ".worktrees/"],
+        pending: false,
+      },
+    },
+    {
+      name: "a loaded level whose folder left the root resurrects nothing",
+      root: ["notes.md"],
+      loaded: new Map([[".worktrees/", [".worktrees/feat/"]]]),
+      pending: false,
+      expected: { paths: ["notes.md"], lazyDirs: [], pending: false },
+    },
+  ])("$name", ({ root, loaded, pending, expected }) => {
+    expect(diskInventory(root, loaded, pending)).toEqual({
+      ...expected,
+      ignored: [],
+    });
   });
 });

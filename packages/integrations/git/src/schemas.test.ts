@@ -27,7 +27,7 @@ function wire<A, E>(schema: Schema.Codec<A, E>, value: A): string {
 }
 
 describe("GitInfo wire bytes", () => {
-  it("encodes every field, with an explicit null remoteUrl", () => {
+  it("encodes every field, with an explicit null remoteUrl and isBare", () => {
     expect(
       wire(GitInfoSchema, {
         repoRoot: "/repo",
@@ -37,10 +37,27 @@ describe("GitInfo wire bytes", () => {
         isWorktree: false,
         mainRepoRoot: "/repo",
         remoteUrl: null,
+        isBare: true,
       }),
     ).toBe(
-      '{"repoRoot":"/repo","repoName":"repo","worktreePath":"/repo","branch":"master","isWorktree":false,"mainRepoRoot":"/repo","remoteUrl":null}',
+      '{"repoRoot":"/repo","repoName":"repo","worktreePath":"/repo","branch":"master","isWorktree":false,"mainRepoRoot":"/repo","remoteUrl":null,"isBare":true}',
     );
+  });
+
+  it("reads a terminal saved before isBare as having a working tree", () => {
+    // A saved session from before the field must still load; the live git
+    // sensor replaces the value on restore.
+    expect(
+      Schema.decodeUnknownSync(GitInfoSchema)({
+        repoRoot: "/repo",
+        repoName: "repo",
+        worktreePath: "/repo",
+        branch: "master",
+        isWorktree: false,
+        mainRepoRoot: "/repo",
+        remoteUrl: null,
+      }).isBare,
+    ).toBe(false);
   });
 });
 

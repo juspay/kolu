@@ -41,6 +41,7 @@ const REPO: TerminalTipFacts["git"] = {
     isWorktree: false,
     mainRepoRoot: "/src/kolu",
     remoteUrl: null,
+    isBare: false,
   },
 };
 const NO_REPO: TerminalTipFacts["git"] = { kind: "none" };

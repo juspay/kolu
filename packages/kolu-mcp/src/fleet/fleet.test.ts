@@ -851,6 +851,18 @@ function twoHostFleet() {
   return { alpha, beta, fleet };
 }
 
+describe("the fleet face's git reads", () => {
+  it("declare padi's own error set, so a missing base branch reaches the agent", () => {
+    // The fleet face forwards to padi's members; an error padi declares and
+    // the fleet face does not fails the fleet's response encode instead of
+    // reaching an agent calling `git_getStatus`.
+    const fleetGit = fleetSurface.spec.procedures.git;
+    const padiGit = padiSurface.spec.procedures.git;
+    expect(fleetGit.getStatus.error).toBe(padiGit.getStatus.error);
+    expect(fleetGit.getDiff.error).toBe(padiGit.getDiff.error);
+  });
+});
+
 describe("the fleet face over two hosts", () => {
   let teardown: (() => Promise<void>) | undefined;
   afterEach(async () => {
