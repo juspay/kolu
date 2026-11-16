@@ -38,6 +38,7 @@ import {
   TerminalParentCycle,
   TranscriptNoAgent,
   TranscriptNotFound,
+  WorktreeBaseBranchMissing,
 } from "./surface.ts";
 
 /** zod's `.safeParse(x).success`, in Effect terms. */
@@ -175,7 +176,11 @@ describe("padiSurface contract", () => {
     // field on an emitted arm, the 5.3/7.3 case: a minor.
     // 7.9 ADDS the `diagnostics` procedure namespace (`diagnostics.read`): a
     // member an older consumer never asks for, so a minor.
-    expect(PADI_SURFACE_VERSION).toBe("7.9");
+    // 7.10 ADDS `isBare` to the record's `GitInfo` and widens `git.getStatus` /
+    // `git.getDiff`'s declared error with `WorktreeBaseBranchMissing` — a
+    // required field on an emitted value and a widened emitted union, the
+    // 5.3/7.3 case again: a minor.
+    expect(PADI_SURFACE_VERSION).toBe("7.10");
     expect(DEFAULT_PADI_VERSION.contractVersion).toBe(PADI_SURFACE_VERSION);
     expect(
       Schema.decodeUnknownSync(PadiVersionSchema)(DEFAULT_PADI_VERSION),
@@ -789,6 +794,23 @@ describe("the declared error vocabulary (PLAN D4)", () => {
     }).toEqual({ daemonVersion: "6.0", requiredVersion: "7.0" });
     expect(err.message).toContain("6.0");
     expect(err.message).toContain("7.0");
+  });
+
+  it("a missing base branch crosses git.getStatus and git.getDiff with its sentence", () => {
+    // The handler raises this for a Branch comparison whose `origin` default
+    // was never fetched. Undeclared, it failed the response encode and the
+    // Branch view showed "Failed to encode response" instead of the fix.
+    const sentence =
+      "No base branch found — origin/master doesn't exist. Run: git fetch origin && git remote set-head origin --auto";
+    const original = new WorktreeBaseBranchMissing({ detail: sentence });
+    const git = padiSurface.spec.procedures.git;
+    for (const error of [git.getStatus.error, git.getDiff.error]) {
+      const schema = error as Schema.Codec<unknown, unknown>;
+      const bytes = JSON.stringify(Schema.encodeUnknownSync(schema)(original));
+      const back = Schema.decodeUnknownSync(schema)(JSON.parse(bytes));
+      expect(back).toBeInstanceOf(WorktreeBaseBranchMissing);
+      expect((back as WorktreeBaseBranchMissing).message).toBe(sentence);
+    }
   });
 });
 

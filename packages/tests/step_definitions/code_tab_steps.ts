@@ -444,6 +444,54 @@ Then(
   },
 );
 
+// A bare repository's folder: git has no file list there, so the Code tab
+// reads the folder from disk and says so. Browse-only — no scope switch and no
+// eye toggle, because there is nothing to diff and nothing git calls ignored.
+Then(
+  "the Code tab should read the folder from disk",
+  async function (this: KoluWorld) {
+    await ensurePanelOpen(this);
+    await this.page
+      .locator('[data-testid="code-tab-disk-notice"]', {
+        hasText: "Bare repository.",
+      })
+      .waitFor({ state: "visible", timeout: HYDRATION_TIMEOUT });
+    const switches = await this.page
+      .locator('[data-testid^="diff-mode-"]')
+      .count();
+    const eyes = await this.page
+      .locator('[data-testid="code-tab-show-ignored-toggle"]')
+      .count();
+    if (switches !== 0 || eyes !== 0)
+      throw new Error(
+        `A folder read from disk is browse-only, but the toolbar shows ${switches} scope segment(s) and ${eyes} eye toggle(s)`,
+      );
+  },
+);
+
+Then("the Code tab should show no error", async function (this: KoluWorld) {
+  const banner = this.page.locator('[data-testid="diff-error"]');
+  if ((await banner.count()) !== 0)
+    throw new Error(
+      `Expected no Code tab error, but it says: ${await banner.first().textContent()}`,
+    );
+});
+
+Then(
+  "the Code tab error should say {string}",
+  async function (this: KoluWorld, needle: string) {
+    const banner = this.page.locator('[data-testid="diff-error"]');
+    await banner
+      .filter({ hasText: needle })
+      .waitFor({ state: "visible", timeout: HYDRATION_TIMEOUT })
+      .catch(async (e: Error) => {
+        throw new Error(
+          `Code tab error never said "${needle}": ${e.message}; ${await codeTabTimeoutDiagnostic(this)}`,
+        );
+      });
+  },
+);
+
 Then(
   "the Code tab should show the empty-changes message for repo {string}",
   async function (this: KoluWorld, repoPath: string) {

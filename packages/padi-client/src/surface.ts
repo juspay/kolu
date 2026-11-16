@@ -132,6 +132,7 @@ import {
   AgentLaunchUnavailable,
   AgentModelsUnavailable,
   FsGitReadErrorSchema,
+  GitBaseReadErrorSchema,
   KavalContractSkew,
   PreviewTooLarge,
   ScratchWriteRejected,
@@ -814,8 +815,20 @@ export * from "./transcriptSchema.ts";
  *  A MEMBER ADDED, so the `pullRequest` class: a newer binder against a
  *  surviving 7.8 padi drains it before consuming its surface, so nobody asks a
  *  7.8 padi for a verb it does not serve, and a 7.8 consumer never asks. No
- *  existing member changes shape. */
-export const PADI_SURFACE_VERSION = "7.9";
+ *  existing member changes shape.
+ *
+ *  7.10 (additive · minor) — A REPO WITH NO WORKING TREE SAYS SO, AND A MISSING
+ *  BASE BRANCH CROSSES THE WIRE. Two changes, one minor. The record's `git`
+ *  fact ({@link GitInfoSchema}) gains `isBare`: true when the repo has no
+ *  working tree at its root, so the Code tab reads that folder from disk
+ *  instead of asking git for a file list it cannot give (#2392). And
+ *  `git.getStatus` / `git.getDiff` declare {@link GitBaseReadErrorSchema},
+ *  adding {@link WorktreeBaseBranchMissing} — the class their handler always
+ *  raised for a Branch comparison whose `origin` default was never fetched, and
+ *  which failed the response encode because neither member declared it. A
+ *  required field on an emitted value and a widened emitted error union — the
+ *  5.3/7.3 class: a minor. */
+export const PADI_SURFACE_VERSION = "7.10";
 
 /** The `version` cell payload — padi's self-declared surface contract version. */
 export const PadiVersionSchema = Schema.Struct({
@@ -2832,12 +2845,12 @@ export const padiSurface = defineSurfaceWithPolicy<ClientErrorPolicy>()({
       getStatus: {
         input: GitStatusInputSchema,
         output: GitStatusOutputSchema,
-        error: FsGitReadErrorSchema,
+        error: GitBaseReadErrorSchema,
       },
       getDiff: {
         input: GitDiffInputSchema,
         output: GitDiffOutputSchema,
-        error: FsGitReadErrorSchema,
+        error: GitBaseReadErrorSchema,
       },
       worktreeCreate: {
         input: WorktreeCreateInputSchema,

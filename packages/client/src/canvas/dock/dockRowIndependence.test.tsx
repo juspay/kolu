@@ -56,6 +56,7 @@ const GIT: GitInfo = {
   isWorktree: false,
   mainRepoRoot: "/home/dev/proj",
   remoteUrl: null,
+  isBare: false,
 };
 
 function metaWith(agent: AgentInfo | null, intent?: string): TerminalMetadata {

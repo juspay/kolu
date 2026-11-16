@@ -33,6 +33,7 @@
 
 import {
   FsGitReadErrorSchema,
+  GitBaseReadErrorSchema,
   PadiActiveTerminalSchema,
   PadiParkedTerminalSchema,
   PadiScreenHistoryInputSchema,
@@ -417,12 +418,12 @@ export const fleetSurface = defineSurface({
       getStatus: {
         input: onHost(GitStatusInputSchema.fields),
         output: GitStatusOutputSchema,
-        error: FsGitReadErrorSchema,
+        error: GitBaseReadErrorSchema,
       },
       getDiff: {
         input: onHost(GitDiffInputSchema.fields),
         output: GitDiffOutputSchema,
-        error: FsGitReadErrorSchema,
+        error: GitBaseReadErrorSchema,
       },
     },
     fs: {

@@ -65,6 +65,7 @@ import {
   GitBranchIcon,
 } from "../ui/Icons";
 import { resolveRef } from "../ui/lineRef";
+import DocLink from "../ui/DocLink";
 import { makeTreeContextMenu } from "../ui/pierreAdapters";
 import {
   pierreIconConfig,
@@ -84,8 +85,10 @@ import BrowseFileDispatcher from "./BrowseFileDispatcher";
 import {
   type BrowseInventory,
   diffInventory,
+  diskInventory,
   mergeBrowseInventory,
 } from "./browseInventory";
+import { codeLister } from "./codeLister";
 import {
   type CodeTabOpenResolutionSource,
   type CodeTabScope,
@@ -100,6 +103,7 @@ import type { FileWithSource, FileWithUrl } from "@kolu/solid-fileview";
 import {
   codeActiveStatus,
   codeAllPaths,
+  codeDiskRootLevel,
   leaseCodeQueries,
   codeBranchStatus,
   codeDiff,
@@ -267,6 +271,7 @@ const CodeTab: Component<{
       if (path !== null) select(target, path);
       setView(target);
     },
+    viewsAvailable: () => lister() !== "disk",
     // The tree's own decoration, read at right-click time — the adapter uses
     // its `deleted` rows to withhold Download (a diff view's deleted file has
     // no bytes left to fetch). Read through a thunk: `treeGitStatus` is declared
@@ -304,6 +309,12 @@ const CodeTab: Component<{
     const git = props.meta?.git;
     return git?.kind === "repo" ? git.info.repoRoot : null;
   };
+  // Who lists that root — git, or the disk when git cannot (a bare
+  // repository's folder). Disk mode is browse-only (`useRightPanel.codeMode`
+  // answers "browse" there), has no scope switch or eye toggle, and builds its
+  // tree from one level per opened folder.
+  const lister = () => codeLister(props.meta?.git);
+  const readsFromDisk = () => lister() === "disk";
 
   // History records repo-relative `{ mode, path }` locations with no repo
   // identity of their own, so a stack captured in repo A must not be replayed
@@ -475,8 +486,9 @@ const CodeTab: Component<{
   // kept verbatim so every reader below (`treeGitStatus`, `scopeSegments`, the diff
   // Match, the selection-stability effects, `status`/`statusPending`/`statusError`) is
   // unchanged. `localStatus`/`branchStatus` stay warm whenever there's a repo (Local /
-  // Branch badges, base/ref, browse overlay); the un-fetched-base PRECONDITION_FAILED
-  // case is swallowed for the passive `branchStatus` inside `hostCodeTab`. `activeStatus`
+  // Branch badges, base/ref, browse overlay); in Branch, the un-fetched-base
+  // `WorktreeBaseBranchMissing` raises no toast from the passive `branchStatus`
+  // but shows its sentence in this view's error banner. `activeStatus`
   // is the view-keyed active read — entering Branch performs a fresh read, never a stale
   // error. The queries' INPUTS live in `hostCodeTab` (read off the active projection);
   // this component now only READS their values and WRITES selection.
@@ -485,6 +497,7 @@ const CodeTab: Component<{
   const activeStatus = codeActiveStatus;
   const allPaths = codeAllPaths;
   const ignoredPaths = codeIgnoredPaths;
+  const diskRootLevel = codeDiskRootLevel;
   const diff = codeDiff;
   const status = () => activeStatus();
   const statusPending = () => activeStatus.pending();
@@ -568,11 +581,12 @@ const CodeTab: Component<{
   // click of the same folder.
   const [revealDir, setRevealDir] = createSignal<{ path: string } | null>(null);
 
-  // One level of contents per gitignored directory the user has opened, keyed
-  // by Pierre's folder key. `fs.listIgnored` collapses a wholly-ignored
+  // One level of contents per lazy directory the user has opened, keyed by
+  // Pierre's folder key. `fs.listIgnored` collapses a wholly-ignored
   // directory to its name alone — one `node_modules/` row instead of thousands
   // — which left those rows expandable but empty (#2091); this holds what an
-  // expand read back so the merge can substitute it for the collapsed key.
+  // expand read back so the merge can substitute it for the collapsed key. On a
+  // folder git cannot list, every folder is such a directory.
   //
   // Deliberately NOT a `createPolledQuery` beside the two listings in
   // `hostCodeTab`: those are keyed by REPO and refreshed by the repo-change
@@ -734,12 +748,19 @@ const CodeTab: Component<{
         // directory match would wrongly reveal the folder and drop the line.
         hasLine: request.ref.startLine !== null,
       }),
-    readFresh: (request, includeIgnored) =>
-      readFreshCodePaths(
-        request.scope.host,
-        request.scope.repoRoot,
-        includeIgnored,
-      ),
+    readFresh: (request, includeIgnored) => {
+      // The request only reaches here while its scope is the one shown, so
+      // the shown root's lister is the request's.
+      const by = lister();
+      return by === null
+        ? Effect.fail(new Error("No repository to read"))
+        : readFreshCodePaths(
+            request.scope.host,
+            request.scope.repoRoot,
+            by,
+            includeIgnored,
+          );
+    },
     onResolved: finishOpenRequest,
     onNotFound: (request) => {
       toast.error(`File reference not found: ${request.ref.path}`);
@@ -837,6 +858,17 @@ const CodeTab: Component<{
     // enumerates. The merge's three rules (absent≠empty, tracked wins the
     // overlap, readiness covers only the consulted sources) live in
     // `mergeBrowseInventory`, where a table test pins each one.
+    if (view() === "browse" && readsFromDisk()) {
+      const rootLevel = diskRootLevel();
+      return {
+        ...diskInventory(
+          rootLevel?.paths,
+          loadedChildren(),
+          diskRootLevel.pending(),
+        ),
+        scope: stampOf(rootLevel),
+      };
+    }
     if (view() === "browse") {
       const tracked = allPaths();
       const ignored = ignoredPaths();
@@ -1080,8 +1112,10 @@ const CodeTab: Component<{
     );
   };
 
+  // The browse tree's own listing: git's, or the root level read from disk.
+  const browseListing = () => (readsFromDisk() ? diskRootLevel : allPaths);
   const treeError = (): Error | undefined =>
-    isDiffView() ? statusError() : allPaths.error();
+    isDiffView() ? statusError() : browseListing().error();
   // "Is there a tree to paint at all", which is the TRACKED authority's
   // question alone — deliberately not `treeInventory().pending`. The gitignored
   // overlay is additive decoration; waiting on it here would hold the whole
@@ -1089,7 +1123,7 @@ const CodeTab: Component<{
   // extra. The selection/resolution guards read the merged readiness because
   // they ask a different question: is this inventory complete enough to
   // conclude a path is absent.
-  const treeReady = () => (isDiffView() ? status() : allPaths());
+  const treeReady = () => (isDiffView() ? status() : browseListing()());
   // Branch base, read off the always-on `branchStatus` so it's correct in
   // any view (the scope switcher annotates the Branch segment even from
   // Local/Browse). `undefined` while pending; `null` once loaded with no
@@ -1227,16 +1261,18 @@ const CodeTab: Component<{
               onClick={goForward}
             />
           </div>
-          <SegmentedControl
-            options={scopeSegments()}
-            value={view()}
-            onChange={setView}
-            testIdPrefix="diff-mode"
-            ariaRole="toolbar"
-            ariaLabel="File scope"
-            dataMode
-            touch={isTouch()}
-          />
+          <Show when={!readsFromDisk()}>
+            <SegmentedControl
+              options={scopeSegments()}
+              value={view()}
+              onChange={setView}
+              testIdPrefix="diff-mode"
+              ariaRole="toolbar"
+              ariaLabel="File scope"
+              dataMode
+              touch={isTouch()}
+            />
+          </Show>
           <FileSearchInput
             value={searchQuery()}
             onChange={setSearchQuery}
@@ -1247,7 +1283,7 @@ const CodeTab: Component<{
            *  flipping it arms the SEPARATE fs.listIgnored query in
            *  `hostCodeTab` — fs.listAll is untouched, so the mounted tree keeps
            *  its expansion and scroll. */}
-          <Show when={view() === "browse"}>
+          <Show when={view() === "browse" && !readsFromDisk()}>
             <ToolbarIconButton
               testId="code-tab-show-ignored-toggle"
               label="Show gitignored files"
@@ -1263,6 +1299,20 @@ const CodeTab: Component<{
             </ToolbarIconButton>
           </Show>
         </div>
+
+        <Show when={readsFromDisk()}>
+          <div
+            class="shrink-0 border-b border-edge bg-surface-1/30 px-2 py-1 text-fg-3"
+            data-testid="code-tab-disk-notice"
+          >
+            <span class="font-semibold text-fg-2">Bare repository.</span> Git
+            has no file list for this folder, so kolu reads it from disk, one
+            folder at a time.{" "}
+            <DocLink slug="code-tab" anchor="a-folder-git-cannot-list">
+              Learn more
+            </DocLink>
+          </div>
+        </Show>
 
         {/* Vertical split between tree and content. Mirrors the horizontal
          *  split that the desktop host wires up in `App.tsx` — same
@@ -1323,7 +1373,9 @@ const CodeTab: Component<{
                     ? branchViewHasNoBase()
                       ? NO_BRANCH_BASE
                       : EMPTY_STATE[diffMode()!]
-                    : "Empty repository"}
+                    : readsFromDisk()
+                      ? "Empty folder"
+                      : "Empty repository"}
                 </div>
               </Show>
               <For each={CODE_TAB_VIEW_ORDER}>

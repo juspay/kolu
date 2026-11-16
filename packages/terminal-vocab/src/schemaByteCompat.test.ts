@@ -125,6 +125,7 @@ describe("TerminalSnapshot — the persisted + served producer emission", () => 
           isWorktree: false,
           mainRepoRoot: "/home/u/code/kolu",
           remoteUrl: "https://github.com/juspay/kolu",
+          isBare: false,
         },
       },
       pr: {
@@ -171,7 +172,7 @@ describe("TerminalSnapshot — the persisted + served producer emission", () => 
       '{"cwd":"/home/u/code/kolu",' +
         '"git":{"kind":"repo","info":{"repoRoot":"/home/u/code/kolu","repoName":"kolu","worktreePath":"/home/u/code/kolu",' +
         '"branch":"effect","isWorktree":false,"mainRepoRoot":"/home/u/code/kolu",' +
-        '"remoteUrl":"https://github.com/juspay/kolu"}},' +
+        '"remoteUrl":"https://github.com/juspay/kolu","isBare":false}},' +
         '"pr":{"kind":"ok","value":{"number":2100,"title":"Wave 3",' +
         '"url":"https://github.com/juspay/kolu/pull/2100","state":"open","checks":"pass",' +
         '"checkRuns":[{"name":"unit","outcome":"pass"}],' +

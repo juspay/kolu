@@ -28,7 +28,7 @@ const h = vi.hoisted(() => ({
   // What `getMetadata` answers with — `undefined` for every terminal by default,
   // so only a test that pins a creator-passed `rightPanel` sees one.
   metadata: undefined as
-    | { rightPanel?: RightPanelPerTerminalState }
+    | { rightPanel?: RightPanelPerTerminalState; git?: GitFact }
     | undefined,
 }));
 
@@ -72,6 +72,7 @@ vi.mock("../tile/useTileStore", () => ({
 
 import type { RightPanelPerTerminalState } from "@kolu/padi-client/surface";
 import type { TerminalId } from "kolu-common/surface";
+import type { GitFact } from "@kolu/terminal-vocab/schema";
 import { useRightPanel } from "./useRightPanel";
 
 beforeEach(() => {
@@ -231,6 +232,30 @@ describe("useRightPanel — the panel follows the focused pane", () => {
     h.focusedId = split;
     expect(rp.activeTab().kind).toBe("inspector");
     expect(rp.collapsed()).toBe(false);
+  });
+
+  it("a bare repository's folder is browse-only, and the stored mode returns in a working tree", () => {
+    const tile = "fp-bare-tile" as TerminalId;
+    h.activeId = tile;
+    const rp = useRightPanel();
+    rp.showCode("local");
+    const info = {
+      repoRoot: "/proj",
+      repoName: "proj",
+      worktreePath: "/proj",
+      branch: "master",
+      isWorktree: false,
+      mainRepoRoot: "/proj",
+      remoteUrl: null,
+    };
+    // No working tree: nothing to diff, so the Code tab browses.
+    h.metadata = { git: { kind: "repo", info: { ...info, isBare: true } } };
+    expect(rp.codeMode()).toBe("browse");
+    expect(rp.activeTab()).toEqual({ kind: "code", mode: "browse" });
+    // Into a checkout: the mode the user picked is still theirs.
+    h.metadata = { git: { kind: "repo", info: { ...info, isBare: false } } };
+    expect(rp.codeMode()).toBe("local");
+    expect(rp.activeTab()).toEqual({ kind: "code", mode: "local" });
   });
 
   it("a collapse targets the tile, never the focused split", () => {

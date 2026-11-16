@@ -1,7 +1,7 @@
 /** Git-domain Effect schemas — single source of truth for git types.
  *  Consumed by kolu-common (re-exported) and kolu-git functions. */
 
-import { Schema } from "effect";
+import { Effect, Schema } from "effect";
 
 // --- Git context ---
 
@@ -17,6 +17,17 @@ export const GitInfoSchema = Schema.Struct({
    *  so a forge dispatcher downstream can pick the PR adapter from the host;
    *  `NullOr` not `optionalKey` so every producer states it explicitly. */
   remoteUrl: Schema.NullOr(Schema.String),
+  /** True when the repo has no working tree at `repoRoot` (a bare repo, or a
+   *  folder holding a bare `.git`), so git cannot list files there and the
+   *  Code tab reads the folder from disk instead. Agrees with
+   *  `isInsideWorkTree(repoRoot)` by construction: the bare branch of
+   *  `resolveGitInfo` is the only one that yields such a root. The decoding
+   *  default lets a terminal saved before this field load; the live git
+   *  sensor replaces it with the real answer on restore. Encoding never
+   *  omits it. */
+  isBare: Schema.Boolean.pipe(
+    Schema.withDecodingDefaultKey(Effect.succeed(false)),
+  ),
 });
 
 // --- Git worktree operations ---

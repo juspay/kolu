@@ -364,10 +364,12 @@ export class FileGone extends Schema.TaggedError<FileGone>("padi/FileGone")(
   }
 }
 
-/** A worktree create refused because its base branch does not exist.
- *  Successor of `unwrapGit`'s `BASE_BRANCH_NOT_FOUND →
- *  ORPCError("PRECONDITION_FAILED")`; actionable (pick another base), so
- *  declared. */
+/** The base branch a request names, or the repo's default one, does not
+ *  exist. Two raisers, both through `unwrapGit`'s `BASE_BRANCH_NOT_FOUND`: a
+ *  worktree create (pick another base) and the Branch comparison
+ *  (`git.getStatus` / `git.getDiff` in branch mode, whose `origin` default
+ *  branch was never fetched). Actionable either way — the detail says what to
+ *  run — so declared. */
 export class WorktreeBaseBranchMissing extends Schema.TaggedError<WorktreeBaseBranchMissing>(
   "padi/WorktreeBaseBranchMissing",
 )("WorktreeBaseBranchMissing", { detail: Schema.String }) {
@@ -428,6 +430,16 @@ export const TerminalGateErrorSchema = Schema.Union([
 
 /** Every fs/git READ can hit a gone file or a git failure. */
 export const FsGitReadErrorSchema = Schema.Union([FileGone, GitFailed]);
+
+/** The two reads that compare against a base branch (`git.getStatus`,
+ *  `git.getDiff`) add the missing-base answer to every read's pair, so its
+ *  sentence ("No base branch found … git fetch origin …") crosses the wire
+ *  instead of failing the encode. */
+export const GitBaseReadErrorSchema = Schema.Union([
+  FileGone,
+  GitFailed,
+  WorktreeBaseBranchMissing,
+]);
 
 /** A worktree CREATE adds the two refusals a caller can correct. */
 export const WorktreeCreateErrorSchema = Schema.Union([
