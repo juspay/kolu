@@ -1,6 +1,6 @@
 ---
 title: Troubleshooting
-description: "Fixes for the common snags: install prompts, notifications, supported agents, updates, memory, lost sessions, and the welcome overlay."
+description: "Fixes for the common snags: install prompts, notifications, agents, updates, slowness, memory, lost sessions, and the welcome overlay."
 order: 71
 section: Operate
 koluHero:
@@ -195,7 +195,62 @@ The block names:
 
 The block is read from what the tab already holds, so it tells the truth even
 when the connection is what is wrong. **Copy JSON** beside it dumps the full
-per-terminal render state, for a rendering or memory problem instead.
+per-terminal render state and the **padi** section's answer, for a rendering,
+memory or slowness problem instead.
+
+## kolu feels slow
+
+Ask padi, the daemon that runs your terminals on each host, what it has been
+doing. Open **Debug → Diagnostic info** in the palette and read its **padi**
+section, or run `kolu surface diagnostics_read` in a shell on that host. Both
+give the same answer, covering the last minute. The dialog asks the host whose
+tab is active, and **Refresh** asks again.
+
+| Part | What it shows | What a bad number means |
+| --- | --- | --- |
+| Child processes | Each kind of command padi ran, such as `git status` or `gh pr view`: how many, the time inside the start call, and how long each ran. | A long start call froze padi for that long. Many runs of one kind point at whatever keeps asking. |
+| Stalls | How late padi ran work that was already due, for the last full minute and the minute in progress. | A worst of a few hundred milliseconds is a freeze you feel as typing lag. |
+| File watchers | One row per watch: its kind, folder, how many folders it covers, who asked for it, and how long it took to install. | A `git: working-tree` row with a long install walked a large folder. |
+| Watches | The file watches the kernel says padi holds, for each inotify instance, on Linux. | A number in the hundreds of thousands is a folder tree being watched whole. |
+| Memory | padi's resident memory, its JavaScript heap, and what lies outside the heap. | Growth outside the heap is native memory, such as file watches. |
+| Calls | Each request padi answered: its total time, and the part spent waiting on child processes. | A slow call whose time is all in children is waiting on a command, not on padi. |
+
+A request that takes longer than half a second also writes one warning line to
+padi's log, naming the request, its time and its child processes.
+
+### Who asked for a watcher
+
+| Asker | Who it is |
+| --- | --- |
+| `terminal <id>` | That terminal, following the git repository it sits in. |
+| `stream subscribeRepoChange` | A browser's **Code** tab, following a repository. |
+| `stream subscribeFileChange (<file>)` | A file open in a browser's **Code** tab. |
+| `stream pullRequest (branch <b>)` | A [Conductor](/conductor) work following the pull request of branch `<b>`. |
+| `grok session detection` | kolu itself, following Grok's list of running sessions. One watch serves every terminal running `grok`. |
+| `git: repo-change (no subscriber; retiring within 30 s)`, or the same for `git: file-change` | Nobody, for now. Whoever followed this repository or file stopped, and the watch waits 30 seconds in case they come back. |
+
+A row whose state is `no-working-tree` is a bare repository's folder. kolu
+installs nothing there on purpose. A `git: working-tree` row gives no folder
+count, because its watcher reports none and counting would walk the folder
+again. The **Watches** line has the kernel's count instead, for each inotify
+instance padi holds.
+
+Agent session watchers, for Claude Code, pi, Xyne and Codex, have no rows.
+Their watches are still in the **Watches** count. macOS has no such count, and
+the line says so.
+
+### Why `gh` ran
+
+Each `gh pr view` row says why each run happened:
+
+| Cause | What asked |
+| --- | --- |
+| `context` | A terminal or a work moved to a new repository, branch or remote. |
+| `poll` | The 30-second recheck of a pull request kolu already follows. |
+| `refresh` | The repository changed on disk, so kolu asked again at once. |
+
+Many `refresh` runs mean a repository that changes all the time, such as one
+with a build writing into it.
 
 ## kolu is using a lot of memory
 
@@ -221,7 +276,8 @@ switching back is instant.
 
 The chrome bar shows a live memory figure for each process (server · client ·
 kaval), so you can watch which one is climbing. **Debug → Diagnostic info** in
-the palette has the per-terminal detail. If the server or kaval figure keeps
+the palette has the per-terminal detail, and its **padi** section splits padi's
+memory into its JavaScript heap and what lies outside it. If the server or kaval figure keeps
 growing rather than the browser, a home-manager deployment can write heap
 snapshots and periodic process stats: see [Deployment → Capture memory
 diagnostics](/deployment#capture-memory-diagnostics).

@@ -25,6 +25,7 @@ import { SKIP_DARWIN_FSWATCH } from "./fs-watch-delivery.testlib.ts";
 import { _resetIgnoreRulesWatchers } from "./ignore-rules-watcher.ts";
 import {
   _sharedWorkingTreeWatcherCount,
+  listWorkingTreeWatcherRows,
   watchWorkingTree,
 } from "./working-tree-watcher.ts";
 import { quiesce, sleep, waitFor } from "./working-tree-watcher.testlib.ts";
@@ -71,7 +72,7 @@ function initRepo(name: string): string {
 /** Subscribe, counting every pulse the listener receives. */
 function watch(dir: string): { fired: () => number } {
   let fired = 0;
-  offs.push(watchWorkingTree(dir, () => fired++, log));
+  offs.push(watchWorkingTree(dir, "test", () => fired++, log));
   return { fired: () => fired };
 }
 
@@ -127,6 +128,16 @@ describe("watchWorkingTree on a root with no working tree", () => {
       lines.filter((l) => l.startsWith("warn") || l.startsWith("error")),
     ).toEqual([]);
 
+    // Its diagnostic row says why nothing is installed, and claims no
+    // install time or ignore count it never measured.
+    const row = listWorkingTreeWatcherRows().find(
+      (r) => r.repoRoot === project,
+    );
+    expect(row?.state).toEqual({ kind: "no-working-tree" });
+    expect(row?.askers).toEqual(["test"]);
+    expect(row?.lastInstallMs.kind).toBe("unmeasured");
+    expect(row?.ignoredPaths.kind).toBe("unmeasured");
+
     expect(_sharedWorkingTreeWatcherCount()).toBe(before + 1);
     for (const off of offs.splice(0)) off();
     expect(_sharedWorkingTreeWatcherCount()).toBe(before);
@@ -143,6 +154,9 @@ describe("watchWorkingTree on a root with no working tree", () => {
 
     expect(pulses.fired()).toBe(0);
     expect(logged(INSTALLED)).toBe(false);
+    expect(
+      listWorkingTreeWatcherRows().find((r) => r.repoRoot === dir)?.state.kind,
+    ).toBe("failed");
   }, 30_000);
 });
 

@@ -7,6 +7,7 @@
 
 import fs from "node:fs";
 import path from "node:path";
+import type { WatchAsker } from "kolu-io";
 import type { Logger } from "kolu-shared";
 import type { SimpleGit } from "simple-git";
 import { backgroundGit } from "./background.ts";
@@ -194,6 +195,7 @@ type WatcherSlot = { mode: WatcherMode; stop: () => void };
 
 export function subscribeGitInfo(
   initialCwd: string,
+  asker: WatchAsker,
   onChange: (info: GitInfo | null) => void,
   log?: Logger,
 ): { setCwd(next: string): void; stop(): void } {
@@ -216,14 +218,19 @@ export function subscribeGitInfo(
 
   function install(mode: WatcherMode): () => void {
     if (mode === "cwd") {
-      return watchCwdForGitDir(currentCwd, handleWatcherEvent, log);
+      return watchCwdForGitDir(currentCwd, asker, handleWatcherEvent, log);
     }
     // In-repo: watch HEAD (branch identity) and the shared config (remote URL)
     // together — a change to either re-resolves GitInfo. Both are refcounted
     // shared singletons, so this adds no OS handle when another watcher on the
     // same repo already exists.
-    const stopHead = watchGitHead(currentCwd, handleWatcherEvent, log);
-    const stopConfig = watchGitConfig(currentCwd, handleWatcherEvent, log);
+    const stopHead = watchGitHead(currentCwd, asker, handleWatcherEvent, log);
+    const stopConfig = watchGitConfig(
+      currentCwd,
+      asker,
+      handleWatcherEvent,
+      log,
+    );
     return () => {
       stopHead();
       stopConfig();

@@ -79,12 +79,13 @@ import { DepartedNames } from "./departed";
 import {
   addressOf,
   isMiss,
-  isSubscribable,
   noLegFor,
   noMemberFor,
   readSnapshot,
   type ReadMiss,
+  refusalOf,
   type Snapshot,
+  servesAddress,
   streamForUri,
 } from "./read";
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
@@ -679,15 +680,16 @@ export async function serveSurfaceAsMcp<
         // The UNRESOLVED case is answered here too, in the one place that holds
         // both the URI and the generation it failed against — `readSnapshot` used
         // to carry an arm for it that this handler had already ruled out one line
-        // earlier.
-        const address = addressOf(uri, current);
-        if (address === undefined) {
+        // earlier. Its sentence is `refusalOf`'s, the same one a subscription
+        // gets.
+        const resolved = addressOf(uri, current);
+        if (resolved.at !== "served") {
           return Promise.resolve<ReadOutcome>({
-            unresolved: departed.resourceMessage(uri, current.siblings),
+            unresolved: refusalOf(uri, resolved, current, departed),
           });
         }
         return withBundle((bundle) =>
-          runRequest(readSnapshot(bundle, address), extra.signal),
+          runRequest(readSnapshot(bundle, resolved.address), extra.signal),
         );
       },
     ).catch((e: unknown): never => {
@@ -724,12 +726,15 @@ export async function serveSurfaceAsMcp<
   server.setRequestHandler(SubscribeRequestSchema, async (req) => {
     const { uri } = req.params;
     // Only the resources we actually serve. Storing an unknown URI would
-    // leave the pusher attached/retrying for something it can never push.
+    // leave the pusher attached/retrying for something it can never push. A
+    // subscription is kept under the address it was made at: two spellings of
+    // one item are two subscriptions, each notified at its own address.
     const current = gen;
-    if (!isSubscribable(uri, current)) {
+    const resolved = addressOf(uri, current);
+    if (resolved.at !== "served") {
       throw new Error(
         brand(
-          `cannot subscribe to ${departed.resourceMessage(uri, current.siblings)}`,
+          `cannot subscribe to ${refusalOf(uri, resolved, current, departed)}`,
         ),
       );
     }
@@ -763,7 +768,7 @@ export async function serveSurfaceAsMcp<
     // rest. It used to keep a mirror of the set and align the two by hand at four
     // paired call sites.
     for (const uri of [...pusher.subscriptions]) {
-      if (isSubscribable(uri, next)) continue;
+      if (servesAddress(uri, next)) continue;
       pusher.unsubscribe(uri);
     }
     shared.retire();

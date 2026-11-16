@@ -43,6 +43,7 @@ import type {
   PrResult,
   PrUnavailableSource,
 } from "@kolu/terminal-vocab/schema";
+import { askerLabel } from "./diagnostics/askers.ts";
 import { dispatchingForgeAdapter } from "./terminalWorkspace/sensors.ts";
 
 /** The pull request of one branch in one repository, as a stream of readings.
@@ -84,6 +85,7 @@ export function branchPrStream(
     // thing. A re-resolve that finds the same answer emits nothing.
     const unwatch = subscribeRepoChange(
       at.repoPath,
+      askerLabel.pullRequestStream(at.branch),
       () => {
         watcher.refresh();
       },

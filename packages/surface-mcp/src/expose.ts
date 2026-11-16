@@ -12,7 +12,9 @@
  *
  *   - a Cell      → resource `surface://cells/<key>`
  *   - a Collection→ resource `surface://collections/<key>` (the key set) +
- *                   a template `surface://collections/<key>/{id}`
+ *                   a template `surface://collections/<key>/{+id}`, where an
+ *                   item's name is everything after the collection's address
+ *                   and may itself contain `/`
  *   - a Stream    → resource `surface://streams/<key>`
  *   - an Event    → resource `surface://events/<key>`
  *   - a procedure → tool `<ns>_<verb>` (`.` is illegal in a tool name; the
@@ -87,18 +89,20 @@ export interface ResourceEntry {
   mimeType: string;
 }
 
-/** A `surface://collections/<key>/{id}` template — one per exposed
- *  collection, alongside its key-set `ResourceEntry`. */
+/** A `surface://collections/<key>/{+id}` template — one per exposed
+ *  collection, alongside its key-set `ResourceEntry`. RFC 6570's `{+id}`, so a
+ *  conforming host expands an item's name with its `/` and `:` left as they are:
+ *  the address it writes is the one a person would. */
 export interface ResourceTemplateEntry {
   uriTemplate: string;
   key: string;
   sibling: SiblingKey;
   name: string;
   mimeType: string;
-  /** The collection's key schema — used to decode an item-template URI's
-   *  `<id>` segment (a string) back into the collection's actual key type
-   *  before calling `.get({ key })`. A `keySchema: Schema.Finite` collection
-   *  must turn the string `"42"` into `42`, not address item `"42"`. */
+  /** The collection's key schema — used to decode an item address's name (a
+   *  string) back into the collection's actual key type before calling
+   *  `.get({ key })`. A `keySchema: Schema.Finite` collection must turn the
+   *  string `"42"` into `42`, not address item `"42"`. */
   keySchema: WireSchemaAny;
   /** Does the collection DECLARE a `keys` verb? The bounded item read races the
    *  item's first frame against a live membership watch, and whether there is
@@ -147,9 +151,7 @@ export interface ResolvedExpose {
 // below (`cellUri`/`collectionUri`/`collectionItemTemplate`/`streamUri`/
 // `eventUri`) and the one reader (`parseCollectionItem`); a consumer that
 // concatenated a prefix by hand would be spelling the segment rule a second
-// time, which is exactly what `memberUri` exists to stop. The last external
-// reader went when `parseCollectionItem` moved in here beside the writer whose
-// encoding makes it sound.
+// time, which is exactly what `memberUri` exists to stop.
 const CELL_PREFIX = "surface://cells/";
 const COLLECTION_PREFIX = "surface://collections/";
 const STREAM_PREFIX = "surface://streams/";
@@ -161,8 +163,8 @@ const EVENT_PREFIX = "surface://events/";
  *  ONE builder behind all four kinds, because the prefix rule is one rule and
  *  four hand-written spellings of it are four places for the core's "no segment"
  *  case to be forgotten. Every segment is `encodeURIComponent`-ed on its own, so
- *  a member key containing a slash cannot forge an extra segment — which is what
- *  lets {@link parseCollectionItem}'s reader count segments and know what it has. */
+ *  a sibling or member key containing a slash stays one segment and two members
+ *  can never share an address. */
 function memberUri(prefix: string, sibling: SiblingKey, key: string): string {
   const member = encodeURIComponent(key);
   return sibling === undefined
@@ -180,47 +182,63 @@ export function collectionItemTemplate(
   sibling: SiblingKey,
   key: string,
 ): string {
-  return `${collectionUri(sibling, key)}/{id}`;
+  return `${collectionUri(sibling, key)}/{+id}`;
 }
-/** A collection-item URI, split into the bundle address it names.
+/** A collection-item address, split into the collection it falls under and the
+ *  item's name.
  *
- *  Segment counting is the whole rule, and it is sound because every segment was
- *  `encodeURIComponent`-ed on the way out by {@link memberUri} above: TWO segments is a CORE
- *  collection's item, THREE is a sibling's. A two-segment URI that is really a
- *  sibling's key-set resource never reaches here — the caller answers those from
- *  the resource index first — and the one case where the two readings would
- *  genuinely overlap is refused at boot by {@link assertItemSpaceUnshadowed}.
+ *  An item's name may contain `/`, so counting segments says nothing about where
+ *  the collection ends; `collections` does. It is keyed by collection address
+ *  (what {@link collectionUri} builds) and the reader tries the only two
+ *  readings a rooted bundle has: the first segment is a core collection, or the
+ *  first two are a sibling and its collection. The candidate is rebuilt with
+ *  {@link collectionUri} from decoded segments, so `chat:0` and `chat%3A0` find
+ *  the same sibling. At most one reading can be in the table:
+ *  {@link assertItemSpaceUnshadowed} refuses a sibling keyed like a core
+ *  collection, which keeps the served collection addresses prefix-free.
  *
- *  `null` for anything else, including a URI with four or more segments: a rooted
- *  bundle is one level deep, so a deeper address names nothing rather than being
- *  folded into the last segment.
+ *  Everything after the collection's address and its `/` is the name, percent-
+ *  decoded: `a/b`, `a%2Fb` and `a%2fb` are one name, and a literal `%` is
+ *  written `%25`. That is what both a `{+id}` and an `{id}` expansion of the
+ *  advertised template produce. (Each segment is decoded and the rest joined
+ *  back with `/`, which is the same as decoding the tail whole: an escape never
+ *  spans a raw `/`.)
  *
- *  It lives HERE, directly below the builders, because the reader's soundness is a
- *  precondition on the WRITER — one axis, "how a bundle address is spelled in a
- *  `surface://` URI", and the segment-counting rule is only sound because
- *  {@link memberUri} encodes each segment on its own. Split across two modules
- *  that was a promise a caller had to keep, held together by this comment across a
- *  boundary. */
-export function parseCollectionItem(
+ *  `null` when no reading is served, when the name is empty, or when the
+ *  address is not valid percent-encoding. The table's `entry` for the found
+ *  collection comes back with the name, so the caller does not look it up a
+ *  second time.
+ *
+ *  It lives HERE, directly below the builders, because the reader and the writer
+ *  are one axis: "how a bundle address is spelled in a `surface://` URI". */
+export function parseCollectionItem<T>(
   uri: string,
-): { sibling: SiblingKey; key: string; id: string } | null {
+  collections: ReadonlyMap<string, T>,
+): { entry: T; name: string } | null {
   if (!uri.startsWith(COLLECTION_PREFIX)) return null;
-  const raw = uri.slice(COLLECTION_PREFIX.length).split("/");
-  if (raw.length !== 2 && raw.length !== 3) return null;
   let parts: string[];
   try {
-    parts = raw.map((segment) => decodeURIComponent(segment));
+    parts = uri
+      .slice(COLLECTION_PREFIX.length)
+      .split("/")
+      .map((segment) => decodeURIComponent(segment));
   } catch {
     return null;
   }
-  if (parts.some((segment) => segment === "")) return null;
-  return parts.length === 2
-    ? { sibling: undefined, key: parts[0] as string, id: parts[1] as string }
-    : {
-        sibling: parts[0] as string,
-        key: parts[1] as string,
-        id: parts[2] as string,
-      };
+  const [head = "", second] = parts;
+  const readings = [
+    { sibling: undefined, key: head, nameFrom: 1 },
+    ...(second === undefined
+      ? []
+      : [{ sibling: head, key: second, nameFrom: 2 }]),
+  ];
+  for (const { sibling, key, nameFrom } of readings) {
+    const entry = collections.get(collectionUri(sibling, key));
+    if (entry === undefined) continue;
+    const name = parts.slice(nameFrom).join("/");
+    return name === "" ? null : { entry, name };
+  }
+  return null;
 }
 
 export function streamUri(sibling: SiblingKey, key: string): string {

@@ -91,6 +91,8 @@ import {
   MEMORY_SAMPLE_INTERVAL_MS,
   samplePadiMemory,
 } from "./memorySampler.ts";
+import type { PadiDiagnosticsHandle } from "./diagnostics/index.ts";
+import { callScoped } from "./diagnostics/calls.ts";
 import {
   newTerminalPolicyStore,
   resolveNewTerminalTheme,
@@ -187,19 +189,21 @@ type PadiDeps = ImplementSurfaceDeps<typeof padiSurface.spec>;
  * it receives the AbortSignal the call's fiber owns, which is how a superseded
  * read (`fs.filePreviewTag`) still aborts mid-flight now that there is no
  * `signal` on the handler options (D10/#18).
+ *
+ * The body runs LATER, on the fiber, outside whatever async context built the
+ * handler. `callScoped` (`diagnostics/calls.ts`) captures the call scope in
+ * force NOW, runs the body inside it and marks the Effect, as one act; without
+ * the capture every call would report zero time in children.
  */
 function handle<A, E>(
   body: (signal: AbortSignal) => A | Promise<A>,
 ): Effect.Effect<A, E> {
-  return Effect.catch(
-    Effect.tryPromise({
-      try: async (signal) => body(signal),
-      catch: (err: unknown) => err,
-    }),
-    (err) =>
+  return callScoped(body, (attempt) =>
+    Effect.catch(attempt, (err) =>
       isPadiDeclaredError(err)
         ? Effect.fail(err as E)
         : (Effect.die(err) as Effect.Effect<A, E>),
+    ),
   );
 }
 
@@ -318,8 +322,13 @@ export function buildPadiSurfaceDeps(deps: {
   /** padi's resolved state-root — the `hostInventory` poll read resolves the
    *  held-kaval fallback address from it (`samplePadiHostInventory`). */
   stateRoot: string;
+  /** padi's diagnostics (`./diagnostics/index.ts`) — times every procedure
+   *  call and answers `diagnostics.read`. Started by the daemon boot, which
+   *  owns its lifetime. */
+  diagnostics: PadiDiagnosticsHandle;
 }): PadiDeps {
-  const { endpoint, log, startedAt, commit, lifetime, stateRoot } = deps;
+  const { endpoint, log, startedAt, commit, lifetime, stateRoot, diagnostics } =
+    deps;
   // Read the agent-distro bake NOW so a broken one (a half bake, a listing that
   // does not parse) crashes the daemon at boot rather than at the first spawn.
   agentDistroBake();
@@ -789,7 +798,8 @@ export function buildPadiSurfaceDeps(deps: {
       },
     },
 
-    procedures: {
+    // Every leaf is timed under its dotted path (`diagnostics/calls.ts`).
+    procedures: diagnostics.timeProcedures({
       // Standing settle-event subscriptions. All three verbs are INSTANT — the
       // waiting happens on the caller's side, parked on `watchPulse`, so no
       // handler is held open for the minutes or hours a supervisor may idle
@@ -1328,6 +1338,12 @@ export function buildPadiSurfaceDeps(deps: {
         restore: ({ input }) =>
           handle(() => restorePadiStateBackup(stateRoot, input)),
       },
-    },
+
+      // Why this padi is slow — assembled when asked, from instruments that
+      // are always on (`./diagnostics/index.ts`).
+      diagnostics: {
+        read: () => handle(() => diagnostics.read()),
+      },
+    }),
   };
 }

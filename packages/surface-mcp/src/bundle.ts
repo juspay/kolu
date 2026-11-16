@@ -385,7 +385,7 @@ function describeProcedure(tool: ToolEntry): string {
 /** THE one ambiguity prefix composition can produce, refused where it is made.
  *
  *  A collection is the only member kind with a TEMPLATE under it, so a core
- *  collection named `x` claims every `surface://collections/x/<id>` — which is
+ *  collection named `x` claims every `surface://collections/x/<name>` — which is
  *  exactly the address space a sibling keyed `x` claims for its own members. Two
  *  readings of one URI is not something a lookup order can fix honestly: whichever
  *  one wins, the other's rows are advertised and unreachable.
@@ -393,6 +393,11 @@ function describeProcedure(tool: ToolEntry): string {
  *  So it is refused at BOOT and on every reroster, naming both claimants. It is
  *  the only pair that can collide — every other kind's URI has a fixed segment
  *  count, and the tool names are held disjoint by the uniqueness pass above.
+ *
+ *  It is also what lets an item's name contain `/`: with it held, no served
+ *  collection's address is a prefix of another's, so `parseCollectionItem`
+ *  (`./expose.ts`) finds at most one collection for any address and the rest is
+ *  the name, however many slashes it has.
  *
  *  It takes no `core` and needs none: the shadowed set is the CORE's own
  *  resources (`sibling === undefined`) whose key a sibling also claims, so a

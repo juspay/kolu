@@ -43,7 +43,10 @@ default-deny with named, tested denials:
   a text dump flattens into indistinguishable characters. `screen_text` stays
   the default read, because characters cost a fraction of the context and
   answer "did it finish?" on their own) · `screen_history` ·
-  `git_getStatus`/`git_getDiff` · `fs_listAll`/`fs_readFile`, the two composite
+  `git_getStatus`/`git_getDiff` · `fs_listAll`/`fs_readFile` ·
+  `diagnostics_read` (why this host's padi is slow: children, stalls, watchers,
+  memory, call times — this face only; the fleet face has no per-host member
+  for it), the two composite
   done-signals `wait_outputSettled` / `wait_agentState` (the /orchestrator·/kolu
   dispatch loop's load-bearing verbs), and `watch_next` (below);
 - **mutating tools**: `lifecycle_create` (bespoke: `kolu create` parity in one
@@ -209,22 +212,21 @@ under you*: name, reachability (`warming` · `connected` · `failed`), padi's
 commit, its surface version and boot time. Those last three are why there is no
 fleet `identity`/`status`/`daemonStatus`: they are per-host facts, so they are
 columns of `hosts` rather than three fleet-wide readings of a per-host thing.
-**One terminal's record is read at the reference as handed out** —
-`surface://collections/terminals/remote:gossamer/9ab1…`, nothing escaped. The
-adapter addresses a collection item by URI *segment* and a reference carries a
-slash, so that URI reads to the generic rule as a sibling's collection and was
-refused as an unknown resource; this face therefore answers `resources/read`
-itself (`src/fleet/recordRead.ts`), re-addressing the reference to the single
-encoded segment the adapter resolves and answering at the address the caller
-wrote. A reference that names nothing — and any address this face does not
-serve — is refused *here*, in a sentence that says what a record address looks
-like. Each row carries its own `host` and its `id` / `parentId` as fleet
+**One terminal's record is read, and subscribed to, at the reference as handed
+out** — `surface://collections/terminals/remote:gossamer/9ab1…`, nothing
+escaped (the escaped `remote%3Agossamer%2F9ab1…` names the same record).
+[`@kolu/surface-mcp`](../surface-mcp/README.md) reads everything after a
+collection's address as the item's name, slashes and all. A name that is not a
+fleet reference is refused with the reference grammar's own sentence (its key
+schema's), and an address the face does not serve is refused with the list of
+what it does. Each row carries its own `host` and its `id` / `parentId` as fleet
 references, so a record you read is one you can act on without remembering the
-key it arrived under. What the face serves and how it routes are published —
+key it arrived under. What the face serves is published —
 `KOLU_FLEET_RESOURCES` (every static address), `KOLU_FLEET_RECORD_ADDRESS` and
-`isKoluFleetAddress` — so the Conductor's teaching script, which names each of
-these addresses, is tested against the face rather than against literals: a
-renamed resource fails that test instead of teaching a dead address.
+`isKoluFleetAddress`, all resolved through the adapter's own reader — so the
+Conductor's teaching script, which names each of these addresses, is tested
+against the face rather than against literals: a renamed resource fails that
+test instead of teaching a dead address.
 
 `works` (`surface://cells/works`) is the Conductor reading the pieces of work
 it is being woken by — one row per work IN PROGRESS, carrying its id and

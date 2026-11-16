@@ -69,7 +69,11 @@ import {
   isAgentKind,
   isAgentPresence,
 } from "kolu-agents/vocab";
-import { type ProcessSnapshot, readProcessSnapshot } from "kolu-io";
+import {
+  type ProcessSnapshot,
+  readProcessSnapshot,
+  runInChildScope,
+} from "kolu-io";
 import { subscribeGitInfo } from "kolu-git";
 import type { GitInfo } from "kolu-git/schemas";
 import { githubForgeAdapter } from "kolu-github";
@@ -93,6 +97,7 @@ import {
 } from "@kolu/terminal-vocab/schema";
 import { Schema } from "effect";
 import { agentIdentityChanged, sameArgv } from "./fold.ts";
+import { askerLabel } from "../diagnostics/askers.ts";
 import { claimSession, releaseTerminal } from "./sessionOwnership.ts";
 
 /** The engine's transient agent working state — the last-emitted agent value (the
@@ -433,6 +438,7 @@ function startGitSensor(
   plog.debug({ cwd }, "started");
   const watcher = subscribeGitInfo(
     cwd,
+    askerLabel.terminal(terminalId),
     (git) => {
       // Emit the `git` observation — its first answer, `none` included, moves
       // the snapshot off `unresolved`; kolu's fold owns the recent-repo MRU
@@ -524,8 +530,12 @@ export function detectForge(remoteUrl: string | null): ForgeKind {
  *  adapter on the next poll, no rebuild. */
 export const dispatchingForgeAdapter: ForgeAdapter<PrUnavailableSource> = {
   kind: "forge-dispatch",
-  resolve: (git, log) =>
-    FORGE_ADAPTERS[detectForge(git.remoteUrl)].resolve(git, log),
+  // The resolve runs inside a child-meter scope carrying its cause, so the
+  // `gh` it starts is counted in `diagnostics.read` under why it ran.
+  resolve: (git, cause, log) =>
+    runInChildScope({ cause }, () =>
+      FORGE_ADAPTERS[detectForge(git.remoteUrl)].resolve(git, cause, log),
+    ),
 };
 
 function startPrSensor(

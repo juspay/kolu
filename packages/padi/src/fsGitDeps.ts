@@ -19,6 +19,7 @@
 import type { padiSurface } from "@kolu/padi-client/surface";
 import type { ImplementSurfaceDeps } from "@kolu/surface/server";
 import type { Logger } from "pino";
+import { askerLabel } from "./diagnostics/askers.ts";
 import type { TerminalEndpoint } from "./endpoint.ts";
 import { pulseSource } from "./pulseSource.ts";
 
@@ -52,7 +53,12 @@ export function padiFsGitDeps(
       subscribeRepoChange: {
         source: ({ repoPath }) =>
           pulseSource(
-            (onEvent) => endpoint.fs.subscribeRepoChange(repoPath, onEvent),
+            (onEvent) =>
+              endpoint.fs.subscribeRepoChange(
+                repoPath,
+                askerLabel.repoChangeStream,
+                onEvent,
+              ),
             log,
             "subscribeRepoChange",
           ),
@@ -61,7 +67,12 @@ export function padiFsGitDeps(
         source: ({ repoPath, filePath }) =>
           pulseSource(
             (onEvent) =>
-              endpoint.fs.subscribeFileChange(repoPath, filePath, onEvent),
+              endpoint.fs.subscribeFileChange(
+                repoPath,
+                filePath,
+                askerLabel.fileChangeStream(filePath),
+                onEvent,
+              ),
             log,
             "subscribeFileChange",
           ),

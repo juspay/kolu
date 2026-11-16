@@ -161,7 +161,7 @@ spec.
 | Surface member | Exposed as | URI / wire name (core) | …on sibling `t` |
 | --- | --- | --- | --- |
 | cell | resource | `surface://cells/<k>` | `surface://cells/t/<k>` |
-| collection | resource (+ template) | `surface://collections/<k>` · `…/<k>/{id}` | `surface://collections/t/<k>` · `…/t/<k>/{id}` |
+| collection | resource (+ template) | `surface://collections/<k>` · `…/<k>/{+id}` | `surface://collections/t/<k>` · `…/t/<k>/{+id}` |
 | stream | resource | `surface://streams/<k>` | `surface://streams/t/<k>` |
 | event | resource | `surface://events/<k>` | `surface://events/t/<k>` |
 | procedure `"<ns>.<verb>"` | tool | `<ns>_<verb>` (`.` is illegal in a tool name) | `t_<ns>_<verb>` |
@@ -173,6 +173,7 @@ Resources are readable and subscribable; procedures become callable tools.
 | [How a tool name is spelled](#how-a-tool-name-is-spelled) | Which character of a procedure's name becomes `_`, and which stays. |
 | [Where `ExposeMap` lives](#where-exposemap-lives) | The package that owns the map, and the part this one owns. |
 | [Sibling prefixes](#sibling-prefixes) | How a sibling key becomes a segment of every name it contributes. |
+| [How a collection item is addressed](#how-a-collection-item-is-addressed) | Where an item's name starts, which spellings name it, and how an address that serves nothing is refused. |
 | [What the composition refuses](#what-the-composition-refuses) | The three refusals made at boot and on every `reroster`. |
 | [Which client a bespoke tool receives](#which-client-a-bespoke-tool-receives) | The client handed to a sibling's tools and to the bundle root's. |
 
@@ -219,12 +220,38 @@ two name spaces.
   reach that check.
 - Why: [Why each face spells a name its own way](/surface/why-surfaces#why-each-face-spells-a-name-its-own-way).
 
+### How a collection item is addressed
+
+An item of collection `<k>` is read and subscribed to at the collection's address, a `/`, and the item's name:
+`surface://collections/<k>/<name>`, or `surface://collections/t/<k>/<name>` on sibling `t`.
+
+- The name is everything after the collection's address, so it may contain `/`. A kolu terminal `remote:box/9ab1` is
+  read at `surface://collections/terminals/remote:box/9ab1`.
+- The name is percent-decoded once: `a/b`, `a%2Fb` and `a%2fb` name the same item. A literal `%` is written `%25`, and
+  nothing else needs escaping.
+- The advertised template is `…/<k>/{+id}`. An RFC 6570 host expands `{+id}` with `/` and `:` left as they are, so the
+  address it writes is the one a person would.
+- An empty name, or one that is not valid percent-encoding, addresses nothing.
+- The name is decoded through the collection's key schema, so a `Schema.Finite` collection reads `…/rows/42` as `42`.
+- An answer carries the address you asked at. A subscription is kept under the address it was made at, so two spellings
+  of one item are two subscriptions, each notified at its own address.
+
+An address this endpoint does not serve is refused on `resources/read` and `resources/subscribe` alike, in one of three
+sentences:
+
+| The address | The refusal says |
+| --- | --- |
+| belonged to a sibling that left, or that no longer exposes it | that it is no longer served, and which of the two |
+| falls under a served collection, and the name fails the collection's key schema | that it names no item of that collection, then the key schema's own failure message |
+| is anything else | `unknown resource`, then every static resource address and every item template the endpoint serves |
+
 ### What the composition refuses
 
 Three refusals, each made at boot and again on every `reroster`:
 
-- a sibling key that equals a core collection's key is refused: `surface://collections/<k>/{id}` would be that
-  collection's items and that sibling's whole address space, and no lookup order resolves that honestly;
+- a sibling key that equals a core collection's key is refused: `surface://collections/<k>/{+id}` would be that
+  collection's items and that sibling's whole address space, and no lookup order resolves that honestly. With it held,
+  no served collection's address is a prefix of another's, which is what lets an item's name contain `/`;
 - the whole tool namespace, generated names plus every bespoke table, is checked for duplicates in one pass, each
   candidate tagged by origin, so a report names both claimants;
 - a `expose` key that names nothing on its own sibling's spec is refused where it is written.
@@ -410,6 +437,7 @@ Two authoring rules follow:
 | [`toInputSchema(schema?)`](#toinputschemaschema) | `.` | Effect Schema → JSON Schema, re-exported from the framework. |
 | [`resolveExpose(spec, expose, sibling)`](#resolveexposespec-expose-sibling) | `.` | The default-deny resolver for one surface. |
 | [`resolveBundle(bundle)`](#resolvebundlebundle) | `.` | The whole-bundle resolver that boot and every `reroster` run through. |
+| [`servesAddress(uri, generation)`](#servesaddressuri-generation) | `.` | Whether a resolved bundle serves an address, for a read and a subscription alike. |
 | [`scopedToolName(sibling, name)`](#scopedtoolnamesibling-name) | `.` | The tool-name half of the prefix rule (`t_ops_run`). |
 | [`McpCore<S>` · `McpSibling<S>` · `McpBundle<C, M>`](#mcpcores--mcpsiblings--mcpbundlec-m) | `.` | The bundle's option shapes. |
 | [`SiblingKey`](#siblingkey) | `.` | A sibling's key, re-exported from the framework's client subpath. |
@@ -444,6 +472,14 @@ The whole-bundle resolver that the boot and every `reroster` run through. It ans
 - every refusal the composition owes.
 
 It is one value, replaced whole by a move, so no request ever reads a half-updated roster.
+
+### `servesAddress(uri, generation)`
+
+Whether `generation`, a [`resolveBundle`](#resolvebundlebundle) result, serves `uri`.
+
+- It asks the reader `resources/read` and `resources/subscribe` resolve through, with no client and no request.
+- A consumer that states its own addresses checks them with it, rather than with a router of its own. kolu's Conductor
+  script is checked this way.
 
 ### `scopedToolName(sibling, name)`
 

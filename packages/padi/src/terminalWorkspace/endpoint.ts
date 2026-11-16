@@ -74,10 +74,17 @@ export interface TerminalEndpointFs {
     filePath: string,
     signal?: AbortSignal,
   ): Promise<string>;
-  subscribeRepoChange(repoPath: string, onChange: () => void): () => void;
+  /** `asker` names who asked (`./diagnostics/askers.ts`), for the watcher rows
+   *  of `diagnostics.read`. */
+  subscribeRepoChange(
+    repoPath: string,
+    asker: string,
+    onChange: () => void,
+  ): () => void;
   subscribeFileChange(
     repoPath: string,
     filePath: string,
+    asker: string,
     onChange: () => void,
   ): () => void;
 }
@@ -182,11 +189,11 @@ export function createTerminalWorkspaceEndpoint(
     async filePreviewTag(repoPath, filePath, signal) {
       return unwrapGit(await filePreviewTag(repoPath, filePath, log, signal));
     },
-    subscribeRepoChange(repoPath, onChange) {
-      return subscribeRepoChange(repoPath, onChange, log);
+    subscribeRepoChange(repoPath, asker, onChange) {
+      return subscribeRepoChange(repoPath, asker, onChange, log);
     },
-    subscribeFileChange(repoPath, filePath, onChange) {
-      return subscribeFileChange(repoPath, filePath, onChange, log);
+    subscribeFileChange(repoPath, filePath, asker, onChange) {
+      return subscribeFileChange(repoPath, filePath, asker, onChange, log);
     },
   };
   const git: TerminalEndpointGit = {

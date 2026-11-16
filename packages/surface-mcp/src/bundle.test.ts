@@ -166,8 +166,8 @@ describe("a rooted bundle composes by PREFIX", () => {
 
     const { resourceTemplates } = await mcp.listResourceTemplates();
     expect(resourceTemplates.map((t) => t.uriTemplate).sort()).toEqual([
-      "surface://collections/a/rows/{id}",
-      "surface://collections/b/rows/{id}",
+      "surface://collections/a/rows/{+id}",
+      "surface://collections/b/rows/{+id}",
     ]);
   });
 
@@ -300,7 +300,7 @@ describe("the composition refuses at BOOT", () => {
   });
 
   it("refuses a sibling key that shadows a core collection's item space", () => {
-    // `surface://collections/a/{id}` is the core collection's items AND the
+    // `surface://collections/a/{+id}` is the core collection's items AND the
     // sibling `a`'s whole address space. Two readings of one URI is not
     // something a lookup order can fix honestly.
     const withCollection = defineSurface({

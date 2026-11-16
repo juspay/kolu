@@ -33,6 +33,7 @@
 import fs from "node:fs";
 import type { Logger } from "@kolu/log";
 import { bakedOsFactsBin, snapshotPidsSync } from "osfacts-client";
+import { meterSyncChild } from "./child-meter.ts";
 import type { ProcessSnapshot } from "./types.ts";
 
 export type { ProcessSnapshot };
@@ -68,7 +69,9 @@ export function readProcessSnapshot(
       // Exact argv tokens from the OS (KERN_PROCARGS2). `env` is null by OS
       // policy, not empty: macOS redacts even a same-user process's environment,
       // and osfacts has no env facet.
-      const reading = snapshotPidsSync(OSFACTS_BIN, [pid], { argv: true });
+      const reading = meterSyncChild(["osfacts", "snapshot"], () =>
+        snapshotPidsSync(OSFACTS_BIN, [pid], { argv: true }),
+      );
       const row = reading.argv.find((r) => r.pid === pid);
       if (row === undefined || row.argv.length === 0) return null;
       return { argv: row.argv, env: null };

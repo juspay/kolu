@@ -2480,8 +2480,12 @@ read one contract by one grammar, as
 - `toolName` rewrites only the separator, so `a.b` and `c` mint `a.b_c` and stay
   reversible to one pair.
 - `decodeTextValue(schema, text)` reads a token verbatim first, then as its JSON
-  reading, and answers with both: `decoded` for a face that addresses by value,
-  `encoded` for one that hands a member's own ref something to decode.
+  reading, and answers a `Result`. Success carries both readings: `decoded` for a
+  face that addresses by value, `encoded` for one that hands a member's own ref
+  something to decode.
+- A token that lands in neither reading fails with the verbatim reading's own
+  `SchemaError`, such as a filter's sentence. A face quotes it in its refusal:
+  MCP refuses an item address with it.
 - `admitsNoArgument(schema)` is the question every face asks before offering a
   member that carries none: MCP before publishing a static `surface://` resource,
   the CLI before letting `get <member>` stand with no `[arg]`.

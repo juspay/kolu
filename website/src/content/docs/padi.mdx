@@ -101,6 +101,10 @@ So a restart or a redeploy is never read a layer up as every terminal dying.
 Nothing above padi calls a terminal gone until the roster that would have held
 it is real, and "the roster is real" always arrives with its list of terminals.
 
+padi also keeps account of its own cost: the commands it ran in the last
+minute, its stalls, its file watchers and its call times. [Troubleshooting →
+kolu feels slow](/troubleshooting#kolu-feels-slow) shows where to read them.
+
 <CardGrid>
   <Card title="terminal registry">
     which terminals exist, where they belong, and how to re-open them after the

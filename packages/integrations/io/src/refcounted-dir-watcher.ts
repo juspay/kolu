@@ -57,13 +57,61 @@ function sameObservation(a: FileObservation, b: FileObservation): boolean {
   return true;
 }
 
+/** WHO ASKED for a watch — an opaque label the caller states (kolu-io knows
+ *  nothing about terminals or streams). A string, or a function returning the
+ *  current labels: a composed watcher hands its leaf watchers a LIVE view of its
+ *  own askers, so a leaf row names whoever is at the top, never the composer. */
+export type WatchAsker = string | (() => readonly string[]);
+
+/** Every distinct label across a set of askers right now, in first-seen
+ *  order. */
+export function distinctAskerLabels(
+  askers: Iterable<WatchAsker>,
+): readonly string[] {
+  const out = new Set<string>();
+  for (const asker of askers) {
+    for (const label of typeof asker === "string" ? [asker] : asker()) {
+      out.add(label);
+    }
+  }
+  return [...out];
+}
+
+/** One live dir+filename watch, as a diagnostic row. It covers exactly one
+ *  directory: an `fs.watch` on `dir`. */
+export interface DirWatcherRow {
+  /** The watcher's log label, e.g. `git: head`. */
+  readonly kind: string;
+  readonly dir: string;
+  readonly file: string;
+  readonly askers: readonly string[];
+  /** From the `watch()` call that created the entry to its `fs.watch` being
+   *  live: the directory resolution plus the attach. */
+  readonly installMs: number;
+}
+
+interface Subscriber {
+  readonly onChange: () => void;
+  readonly asker: WatchAsker;
+}
+
 interface SharedFilenameWatcher {
-  subscribe(onChange: () => void): () => void;
+  subscribe(onChange: () => void, asker: WatchAsker): () => void;
+  row(): DirWatcherRow;
   /** Test-only: tear down the underlying `fs.watch` handle and clear the poll
    *  and debounce timers, regardless of subscriber count. Invoked by
    *  `DirFilenameWatcher._reset()` to break the module-scope leak that
    *  cascades vitest `afterEach` failures (see #955). */
   _forceClose(): void;
+}
+
+/** Every factory {@link createDirFilenameWatcher} has built, so one read can
+ *  list every live entry across all of them. */
+const factories = new Set<{ rows(): DirWatcherRow[] }>();
+
+/** One row per live entry of every dir+filename watcher in this process. */
+export function listDirWatcherRows(): DirWatcherRow[] {
+  return [...factories].flatMap((f) => f.rows());
 }
 
 export interface DirFilenameWatcherConfig {
@@ -94,7 +142,12 @@ export interface DirFilenameWatcher {
    *  install. Once the handle is live, `onChange` fires once as a
    *  reconciliation tick so a change that landed in the snapshot→attach
    *  window isn't lost (the consumer re-reads and converges). */
-  watch(cwd: string, onChange: () => void, log?: Logger): () => void;
+  watch(
+    cwd: string,
+    asker: WatchAsker,
+    onChange: () => void,
+    log?: Logger,
+  ): () => void;
   /** Test-only inspector — number of distinct resolved dirs with active
    *  shared watchers. Reflects installs that have already settled; pair
    *  with `_whenSettled()` before asserting a count after `watch()`. */
@@ -114,7 +167,7 @@ export interface DirFilenameWatcher {
 }
 
 /**
- * Build a `watch(cwd, onChange, log) → unsubscribe` function with a private
+ * Build a `watch(cwd, asker, onChange, log) → unsubscribe` function with a private
  * registry, plus a test-only `_watcherCount()` inspector. Each call to
  * `createDirFilenameWatcher` produces an independent singleton — don't call
  * it twice with the same config and expect sharing.
@@ -133,11 +186,12 @@ export function createDirFilenameWatcher(
 
   function install(
     dir: string,
+    watchStartedAt: number,
     onLast: () => void,
     log?: Logger,
   ): SharedFilenameWatcher | null {
     const filePath = path.join(dir, config.filename);
-    const listeners = new Set<() => void>();
+    const listeners = new Set<Subscriber>();
     // maxWait is baked as COALESCE_MAX_WAIT_MS — no per-call disable (#1952).
     const coalesce: CoalesceSchedule = createCoalesceSchedule({
       debounceMs: config.debounceMs,
@@ -145,9 +199,9 @@ export function createDirFilenameWatcher(
       onFire: () => {
         // Snapshot before iteration so a listener that unsubscribes
         // synchronously can't skip a peer for this event.
-        for (const cb of [...listeners]) {
+        for (const listener of [...listeners]) {
           try {
-            cb();
+            listener.onChange();
           } catch (e) {
             log?.error(
               { err: e instanceof Error ? e.message : String(e), dir },
@@ -192,17 +246,19 @@ export function createDirFilenameWatcher(
     pollTimer.unref();
 
     log?.info({ dir }, `${config.logLabel} watcher installed`);
+    const installMs = performance.now() - watchStartedAt;
 
     return {
-      subscribe(onChange) {
-        listeners.add(onChange);
+      subscribe(onChange, asker) {
+        const listener: Subscriber = { onChange, asker };
+        listeners.add(listener);
         return () => {
-          // `Set.delete` returns false if `onChange` was already removed —
+          // `Set.delete` returns false if this listener was already removed —
           // double-call from the same caller can't double-tear-down. A
           // later subscribe under the same dir installs a fresh singleton;
           // this closure stays bound to the old one, so it can't
           // accidentally tear that fresh entry down.
-          if (!listeners.delete(onChange)) return;
+          if (!listeners.delete(listener)) return;
           if (listeners.size === 0) {
             coalesce.destroy();
             clearTimeout(pollTimer);
@@ -212,6 +268,15 @@ export function createDirFilenameWatcher(
           }
         };
       },
+      row: () => ({
+        kind: config.logLabel,
+        dir,
+        file: config.filename,
+        askers: distinctAskerLabels(
+          [...listeners].map((listener) => listener.asker),
+        ),
+        installMs,
+      }),
       _forceClose() {
         listeners.clear();
         coalesce.destroy();
@@ -221,8 +286,9 @@ export function createDirFilenameWatcher(
     };
   }
 
-  return {
-    watch(cwd, onChange, log) {
+  const factory: DirFilenameWatcher = {
+    watch(cwd, asker, onChange, log) {
+      const watchStartedAt = performance.now();
       // The resolution (a git subprocess, a realpath) must not block the
       // event loop, so it runs async and `fs.watch` attaches once it
       // settles. The unsubscribe is returned synchronously; if it runs
@@ -247,12 +313,17 @@ export function createDirFilenameWatcher(
         if (cancelled || startGeneration !== generation || dir === null) return;
         let entry = watchers.get(dir);
         if (!entry) {
-          const fresh = install(dir, () => watchers.delete(dir), log);
+          const fresh = install(
+            dir,
+            watchStartedAt,
+            () => watchers.delete(dir),
+            log,
+          );
           if (!fresh) return;
           watchers.set(dir, fresh);
           entry = fresh;
         }
-        unsubscribe = entry.subscribe(onChange);
+        unsubscribe = entry.subscribe(onChange, asker);
         // Post-install reconciliation. The consumer takes its snapshot (a `git
         // status`, a `resolveGitInfo`) and *then* calls `watch()`; this resolve
         // + `fs.watch` attach lands on a LATER tick (an `execFile` git subprocess
@@ -298,4 +369,8 @@ export function createDirFilenameWatcher(
       watchers.clear();
     },
   };
+  factories.add({
+    rows: () => [...watchers.values()].map((entry) => entry.row()),
+  });
+  return factory;
 }

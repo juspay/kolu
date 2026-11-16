@@ -10,7 +10,7 @@ import {
   type Mock,
   vi,
 } from "vitest";
-import type { PrGitContext, ForgeAdapter } from "./adapter.ts";
+import type { ForgeAdapter, PrGitContext, PrResolveCause } from "./adapter.ts";
 import type { PrResult } from "./schemas.ts";
 import { subscribePr } from "./subscribe.ts";
 
@@ -388,6 +388,31 @@ describe("subscribePr", () => {
       expect(resolves).toHaveBeenCalledTimes(1);
     } finally {
       watcher.stop();
+    }
+  });
+
+  it("tells the adapter why each resolve ran: context, poll, refresh", async () => {
+    vi.useFakeTimers();
+    const causes: PrResolveCause[] = [];
+    const watcher = subscribePr(
+      {
+        kind: "github",
+        resolve: async (_git, cause) => {
+          causes.push(cause);
+          return { kind: "absent" };
+        },
+      },
+      () => {},
+    );
+    try {
+      watcher.setGit(ctx());
+      await vi.advanceTimersByTimeAsync(30_000);
+      watcher.refresh();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(causes).toEqual(["context", "poll", "refresh"]);
+    } finally {
+      watcher.stop();
+      vi.useRealTimers();
     }
   });
 });

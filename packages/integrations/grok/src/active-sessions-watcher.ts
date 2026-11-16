@@ -52,6 +52,9 @@ function attach(
 ): void {
   activeSessionsWatcher.watch(
     "",
+    // The process-wide grok session detector, not any one terminal: the
+    // watch is installed once and serves every terminal running grok.
+    "grok session detection",
     () => {
       try {
         onChange();

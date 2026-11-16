@@ -22,6 +22,14 @@ export type PrGitContext = {
   remoteUrl: string | null;
 };
 
+/** WHY a resolve ran, as the watcher that triggered it knows:
+ *  - `context` — the git context changed (a new repo, branch or remote);
+ *  - `poll` — the 30 s re-check of the context already held;
+ *  - `refresh` — a caller learned the repository changed and asked again
+ *    (`PrWatcher.refresh`).
+ *  An adapter may ignore it; a caller that meters its children reports it. */
+export type PrResolveCause = "context" | "poll" | "refresh";
+
 export interface ForgeAdapter<
   S extends PrUnavailableSourceBase = PrUnavailableSourceBase,
 > {
@@ -35,5 +43,9 @@ export interface ForgeAdapter<
    *  `ok` / `absent` / `unavailable`; the `unsupported` member is reserved
    *  for the dispatch layer ("no adapter for this remote") and must never be
    *  returned by a real adapter's `resolve`. */
-  resolve(git: PrGitContext, log?: Logger): Promise<PrResult<S>>;
+  resolve(
+    git: PrGitContext,
+    cause: PrResolveCause,
+    log?: Logger,
+  ): Promise<PrResult<S>>;
 }

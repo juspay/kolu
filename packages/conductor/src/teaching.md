@@ -188,7 +188,7 @@ your turn.
 | Brief | The planner writes it to `.waterfall/brief.md` (see "The brief"). | No brief file. You say it yourself. |
 | Implementor | `lifecycle_create` as a split of the planner (`placement` `child-of` the planner's `host/id`), `cwd` the worktree, role `implementor`. On `ready`, give it the brief's path. | `lifecycle_create` in its own fresh worktree, role `implementor`. On `ready`, say the brief. |
 | Doubts | Answer from the plan, or ask the planner. | Answer from the request. |
-| Review rounds | When the PR is open, the planner reviews it by the repo's guidelines and posts the review; the implementor addresses it; repeat until the planner is satisfied. Tests run once per round. A request mid-round waits for the next. | None. |
+| Review rounds | When the PR is open, the planner reviews it by the repo's guidelines and posts the review; the implementor addresses it; repeat until the planner is satisfied. The planner refuses a workaround and asks for the fix at its source. Tests run once per round. A request mid-round waits for the next. | None. |
 | Finish | The implementor makes one final refactor pass (https://kolu.dev/blog/hickey-lowy/), then runs CI once, the repo's way, fixing until green. | The same. |
 | On green | Merge the PR, or hand it over, as `onGreen` in `works` says. Read it there, not from memory. | The same. |
 | Closing | Once the PR is merged or closed, close the planner and the implementor, and nothing else. | Close the implementor, and nothing else. |

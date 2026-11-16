@@ -29,7 +29,7 @@ const upstream = vi.hoisted(() => {
   const state = { installs: 0, uninstalls: 0, ticks: [] as Array<() => void> };
   return {
     state,
-    install: (_repoRoot: string, onChange: () => void) => {
+    install: (_repoRoot: string, _askers: unknown, onChange: () => void) => {
       state.installs += 1;
       state.ticks.push(onChange);
       return () => {
@@ -94,7 +94,7 @@ afterEach(() => {
 
 describe("repo-change watcher lifetime", () => {
   it("a client re-key costs zero installs and zero retires", () => {
-    const stop = subscribeRepoChange(repo, () => {}, log);
+    const stop = subscribeRepoChange(repo, "test", () => {}, log);
     expect(upstream.state.installs).toBe(4);
     expect(installs()).toBe(1);
     stop();
@@ -103,7 +103,7 @@ describe("repo-change watcher lifetime", () => {
     // re-subscribe it, twenty times over. Before #2286 each lap tore down four
     // inotify watchers and built four more.
     for (let i = 0; i < 20; i += 1) {
-      const again = subscribeRepoChange(repo, () => {}, log);
+      const again = subscribeRepoChange(repo, "test", () => {}, log);
       again();
     }
 
@@ -115,7 +115,7 @@ describe("repo-change watcher lifetime", () => {
   });
 
   it("the last reference retires only after the grace window", () => {
-    subscribeRepoChange(repo, () => {}, log)();
+    subscribeRepoChange(repo, "test", () => {}, log)();
 
     vi.advanceTimersByTime(WATCHER_RETIRE_GRACE_MS - 1);
     expect(retires()).toBe(0);
@@ -129,10 +129,10 @@ describe("repo-change watcher lifetime", () => {
   });
 
   it("a reference acquired inside the grace window cancels the retirement", () => {
-    subscribeRepoChange(repo, () => {}, log)();
+    subscribeRepoChange(repo, "test", () => {}, log)();
     vi.advanceTimersByTime(WATCHER_RETIRE_GRACE_MS / 2);
 
-    const stop = subscribeRepoChange(repo, () => {}, log);
+    const stop = subscribeRepoChange(repo, "test", () => {}, log);
     // Well past the original deadline: the cancelled timer must not fire.
     vi.advanceTimersByTime(WATCHER_RETIRE_GRACE_MS * 2);
     expect(retires()).toBe(0);
@@ -146,7 +146,7 @@ describe("repo-change watcher lifetime", () => {
     expect(upstream.state.uninstalls).toBe(4);
   });
   it("file-change entries share the same grace window", () => {
-    const stop = subscribeFileChange(repo, "a.txt", () => {}, log);
+    const stop = subscribeFileChange(repo, "a.txt", "test", () => {}, log);
     stop();
     expect(_sharedFileChangeCount()).toBe(1);
     expect(
