@@ -16,9 +16,11 @@
  * suite, which runs under jsdom for exactly this reason, and the client runs
  * on happy-dom for the rest of its browser tests.) What the mock keeps is the
  * part of the package's contract this component depends on: the prose arrives
- * as HTML written through a RENDER effect, which is what puts the DOM in place
- * before the user effect that folds it — and the package's OWN inline-code
- * step and click seam (`decorateInlineCode`, `bindMarkdownLinks`), run for
+ * as HTML written through a RENDER effect, and `onRendered` is called from a
+ * USER effect after every such write — which is what puts the DOM in place
+ * before the fold runs. It can also rewrite its DOM with the text unchanged,
+ * as the real one does when a diagram lands. The package's OWN inline-code
+ * step and click seam (`decorateInlineCode`, `bindMarkdownLinks`) run for
  * real. So the tests feed HTML where the app feeds Markdown, and everything
  * else here — the fold, the control, the remembered open state, the links —
  * is the real thing.
@@ -30,6 +32,10 @@ import { createSignal } from "solid-js";
 import { render } from "solid-js/web";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+/** Rewrite every mounted prose's DOM without changing its text — what a
+ *  diagram landing does to the real component. */
+const markdownMock = vi.hoisted(() => ({ redraw: () => {} }));
+
 vi.mock("@kolu/solid-markdown", async () => {
   // `vi.mock`'s factory is hoisted above this file's imports, so the
   // primitive it needs is reached from inside it — a static import would not
@@ -38,9 +44,11 @@ vi.mock("@kolu/solid-markdown", async () => {
   const actual = await vi.importActual<typeof SolidMarkdown>(
     "@kolu/solid-markdown",
   );
-  // What the compiled `innerHTML={html()}` binding does inside the real
-  // component: a render effect, so the prose lands in the update's pure phase,
-  // before the user effect that folds it.
+  const [redraws, setRedraws] = solid.createSignal(0);
+  markdownMock.redraw = () => setRedraws((n) => n + 1);
+  // What the real component does: the compiled `innerHTML={html()}` binding
+  // is a render effect, so the prose lands in the update's pure phase; then a
+  // user effect tells `onRendered`, untracked.
   return {
     ...actual,
     Markdown: (props: {
@@ -49,15 +57,29 @@ vi.mock("@kolu/solid-markdown", async () => {
         action: Parameters<typeof actual.decorateInlineCode>[1];
         onPress: (text: string, anchor: HTMLElement) => void;
       };
+      onRendered?: () => void;
     }) => {
       const el = document.createElement("div");
       el.className = "kolu-md";
-      solid.createRenderEffect(() => {
-        const inlineCode = props.inlineCode;
-        el.innerHTML =
-          inlineCode === undefined
+      // Like the real `html` memo: the decorated prose, re-derived when the
+      // text, what the links answer, or a scripted redraw changes.
+      const html = solid.createMemo(
+        () => {
+          redraws();
+          const inlineCode = props.inlineCode;
+          return inlineCode === undefined
             ? props.markdown
             : actual.decorateInlineCode(props.markdown, inlineCode.action);
+        },
+        undefined,
+        { equals: false },
+      );
+      solid.createRenderEffect(() => {
+        el.innerHTML = html();
+      });
+      solid.createEffect(() => {
+        html();
+        solid.untrack(() => props.onRendered?.());
       });
       actual.bindMarkdownLinks(el, {
         onInlineCode: (text, anchor) => props.inlineCode?.onPress(text, anchor),
@@ -85,11 +107,20 @@ afterEach(() => {
 });
 
 /** Mount the prose and hand back its host element. */
-function mount(rowId: string, text: () => string): HTMLElement {
+function mount(
+  rowId: string,
+  text: () => string,
+  onRedrawn?: () => void,
+): HTMLElement {
   const host = document.createElement("div");
   document.body.append(host);
   disposers.push(
-    render(() => <ConductorProse rowId={rowId} text={text()} />, host),
+    render(
+      () => (
+        <ConductorProse rowId={rowId} text={text()} onRedrawn={onRedrawn} />
+      ),
+      host,
+    ),
   );
   return host;
 }
@@ -234,6 +265,52 @@ describe("the Conductor's prose folds a long list", () => {
 
     expect(visibleItems(first)).toHaveLength(PROSE_LIST_FOLD_SHOWS);
     expect(visibleItems(second)).toHaveLength(7);
+  });
+
+  it("keeps a folded list folded, and an opened one open, when the prose is redrawn in place", () => {
+    const host = mount("row-redrawn", () => `${bullets(8)}<p>a diagram</p>`);
+    expect(visibleItems(firstList(host))).toHaveLength(PROSE_LIST_FOLD_SHOWS);
+
+    markdownMock.redraw();
+    expect(visibleItems(firstList(host))).toHaveLength(PROSE_LIST_FOLD_SHOWS);
+    expect(control(host)?.textContent).toBe("and 5 more");
+
+    control(host)?.click();
+    markdownMock.redraw();
+    expect(visibleItems(firstList(host))).toHaveLength(8);
+
+    // The control the redraw minted afresh still works.
+    control(host)?.click();
+    expect(visibleItems(firstList(host))).toHaveLength(PROSE_LIST_FOLD_SHOWS);
+  });
+
+  it("answers a press on a list that only a later chunk brought", () => {
+    const [text, setText] = createSignal("<p>thinking</p>");
+    const host = mount("row-late-list", text);
+
+    setText(bullets(7));
+    control(host)?.click();
+
+    expect(visibleItems(firstList(host))).toHaveLength(7);
+  });
+
+  it("reports every rewrite of the prose, and never a press on the fold", () => {
+    let redrawn = 0;
+    const host = mount(
+      "row-report",
+      () => bullets(6),
+      () => redrawn++,
+    );
+    const afterMount = redrawn;
+
+    // A press writes no HTML: reporting it would re-pin a reader who just
+    // opened a list.
+    control(host)?.click();
+    expect(redrawn).toBe(afterMount);
+
+    // A diagram landing rewrites the DOM with the text unchanged.
+    markdownMock.redraw();
+    expect(redrawn).toBe(afterMount + 1);
   });
 });
 

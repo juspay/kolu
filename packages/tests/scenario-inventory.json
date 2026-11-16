@@ -11566,6 +11566,66 @@
       "exampleRows": [],
       "executions": 1,
       "firstSeenSha": "b9af7a9fafaaf1e91d6f21928d10f26b79d3b011"
+    },
+    {
+      "revisionId": "revision-15d3b42a1331a2586dfa",
+      "scenarioKey": "scenario-490f2b6dc73892e82b53",
+      "feature": "features/code-tab.feature",
+      "scenario": "A mermaid block that cannot be drawn says why and keeps its source",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "0835aaf55166208d4c64961e513edf8a0cd5fb4f2aa3fd84fc702bbee823b532",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "7afe0bb416477dec65bc87a9a58d4666f5cc7fa8"
+    },
+    {
+      "revisionId": "revision-638512c504f40b82d763",
+      "scenarioKey": "scenario-e71a595f97aae551ac97",
+      "feature": "features/code-tab.feature",
+      "scenario": "Markdown preview draws a mermaid block as a diagram",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "89b06b314180de2f8a5d258bce613ed7da1bdb93e3af236baef9cafb04bd02e3",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "7afe0bb416477dec65bc87a9a58d4666f5cc7fa8"
+    },
+    {
+      "revisionId": "revision-a2d2128734a5393b0377",
+      "scenarioKey": "scenario-e08a28defbfa92a5f290",
+      "feature": "features/conductor.feature",
+      "scenario": "A mermaid block in an answer draws once it is complete",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "397b93fb1992d0bd1d75b630f493bd8c9f042e2857a11a2d2943fb2ff8431fcc",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "7afe0bb416477dec65bc87a9a58d4666f5cc7fa8"
+    },
+    {
+      "revisionId": "revision-424cc5d049e774ffc452",
+      "scenarioKey": "scenario-e533cedd0d88105404f1",
+      "feature": "features/terminal-intent.feature",
+      "scenario": "A mermaid block typed into the intent editor previews as a diagram",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "9d5c4e7c94e6ce4a7ae8ad75b33b54adc31a45f27770d22e0fcff3f21e3b0f14",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "7afe0bb416477dec65bc87a9a58d4666f5cc7fa8"
+    },
+    {
+      "revisionId": "revision-68550599cfa07cc2e397",
+      "scenarioKey": "scenario-e71a595f97aae551ac97",
+      "feature": "features/code-tab.feature",
+      "scenario": "Markdown preview draws a mermaid block as a diagram",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "9322494368463ef45b6f329c84657f96bd6ea0dd1efac41d34676a70b4dce3e2",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "8617def069d82fca3a76290c264da81d2e5ed087"
     }
   ]
 }

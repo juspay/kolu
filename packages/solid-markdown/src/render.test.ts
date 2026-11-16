@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { renderMarkdownToRawHtml } from "./render";
+import { mermaidSources, renderMarkdownToRawHtml } from "./render";
+import { sanitizeHtml } from "./sanitize";
 import { hasOwnScheme, safeHref } from "./url-policy";
 
 const html = (md: string, inline = false) =>
@@ -407,5 +408,75 @@ describe("wikilinks", () => {
     // stays literal there, so a chat message can't mint a file-opening anchor.
     const out = renderMarkdownToRawHtml("[[Note]]", { rawHtml: false });
     expect(out).not.toContain("data-md-wikilink");
+  });
+});
+
+describe("mermaidSources — only finished blocks are diagrams", () => {
+  const FLOW = "flowchart TD\n  A --> B";
+
+  it("lists a block only once its whole closing fence has arrived, for every prefix of a streamed text", () => {
+    const text = `Steps:\n\n- one\n- two\n\n\`\`\`mermaid\n${FLOW}\n\`\`\`\n\nafter the diagram\n`;
+    const closed = text.indexOf("```\n\nafter") + 3;
+    for (let end = 0; end <= text.length; end++) {
+      const sources = mermaidSources(text.slice(0, end));
+      expect(sources, `prefix of length ${end}`).toEqual(
+        end >= closed ? [FLOW] : [],
+      );
+    }
+  });
+
+  it("finds finished blocks at top level, in a list item and in a quote, with backtick and tilde fences", () => {
+    const md = [
+      "```mermaid\ngraph LR\n  top --> level\n```",
+      "- item\n\n  ~~~mermaid\n  graph LR\n    in --> list\n  ~~~",
+      "> ```mermaid\n> graph LR\n>   in --> quote\n> ```",
+    ].join("\n\n");
+    expect(mermaidSources(md)).toEqual([
+      "graph LR\n  top --> level",
+      "graph LR\n  in --> list",
+      "graph LR\n  in --> quote",
+    ]);
+  });
+
+  it("skips other languages, indented code, and empty mermaid blocks", () => {
+    const md = `\`\`\`ts\nconst mermaid = 1;\n\`\`\`\n\n    mermaid\n    graph LR\n\n\`\`\`mermaidish\n${FLOW}\n\`\`\`\n\n\`\`\`mermaid\n\`\`\`\n\n\`\`\`mermaid\n   \n\t\n\`\`\``;
+    expect(mermaidSources(md)).toEqual([]);
+  });
+
+  it("does not treat a shorter fence as the closer of a longer opener", () => {
+    expect(mermaidSources(`\`\`\`\`mermaid\n${FLOW}\n\`\`\``)).toEqual([]);
+    expect(
+      mermaidSources(`\`\`\`\`mermaid\n${FLOW}\n\`\`\`\n\`\`\`\``),
+    ).toEqual([`${FLOW}\n\`\`\``]);
+  });
+
+  it("matches the text the sanitizer reads from each block, in both scopes, for CRLF text", () => {
+    const md =
+      "---\ntitle: x\n---\r\n\r\nIntro\r\n\r\n```mermaid\r\nflowchart TD\r\n  A --> B\r\n```\r\n\r\n- item\r\n\r\n  ```mermaid\r\n  sequenceDiagram\r\n    A->>B: hi\r\n  ```\r\n";
+    const sources = mermaidSources(md);
+    expect(sources).toHaveLength(2);
+    for (const scope of [
+      { breaks: false, rawHtml: true, frontMatter: true, richHtml: true },
+      { breaks: true, rawHtml: false, frontMatter: false, richHtml: false },
+    ]) {
+      const root = document.createElement("div");
+      root.innerHTML = sanitizeHtml(renderMarkdownToRawHtml(md, scope), {
+        links: true,
+        richHtml: scope.richHtml,
+      });
+      const texts = Array.from(
+        root.querySelectorAll('code[data-lang="mermaid"]'),
+        (code) => code.textContent,
+      );
+      expect(texts).toEqual(sources);
+    }
+  });
+
+  it("leaves footnotes intact in the next render of the same document", () => {
+    const md = "Claim.[^1]\n\n```mermaid\ngraph LR\n```\n\n[^1]: Source.";
+    const before = html(md);
+    mermaidSources(md);
+    expect(html(md)).toBe(before);
+    expect(before).toContain("Source.");
   });
 });

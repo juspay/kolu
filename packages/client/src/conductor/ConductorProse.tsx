@@ -15,18 +15,20 @@
  *     the live works, never stored in the row, so a file written after the
  *     sentence turns its mention into a link by itself.
  *
- *  THE ORDER MATTERS, and it is Solid's, not a timer's. The package writes the
- *  prose through an `innerHTML` binding, which is a RENDER effect — those run
- *  in the update's pure phase, before the user effects queued below. So by the
- *  time the effect here runs, on the first paint and on every streamed chunk
- *  alike, the DOM it folds is the DOM the reader is about to see. Nothing is
- *  deferred, observed or polled.
+ *  THE TRIGGER IS THE PACKAGE'S, not the text's. The prose's DOM is rewritten
+ *  whenever the package writes rendered HTML — a streamed chunk, but also a
+ *  diagram landing in text that did not change — and every rewrite throws the
+ *  fold away. So the fold is re-applied from `<Markdown onRendered>`, which
+ *  the package calls after EVERY such write, once the DOM is in place and in
+ *  the same update: the DOM it folds is the DOM the reader is about to see.
+ *  Nothing is deferred, observed or polled.
  *
- *  The effect re-runs for three reasons and all are reads: the row's text (a
- *  chunk replaced the prose, so the fold must be re-applied), what the links
- *  answer (a file appeared, or the reader moved — the prose was re-rendered),
- *  and the open state of the lists `applyProseListFold` touches (somebody
- *  pressed "and N more"). */
+ *  The fold effect re-runs for two reasons and both are reads: the rewrite
+ *  count `onRendered` bumps (the prose was replaced — a chunk, a diagram
+ *  landing, a link appearing or the reader moving — so the fold must be
+ *  re-applied, and the lists it must watch may be new ones), and the open
+ *  state of the lists `applyProseListFold` touches (somebody pressed "and N
+ *  more"). */
 
 import { type InlineCodeAction, Markdown } from "@kolu/solid-markdown";
 import type { WorkId } from "kolu-work";
@@ -43,6 +45,13 @@ const ConductorProse: Component<{
   rowId: string;
   /** The agent's Markdown, as it stands this chunk. */
   text: string;
+  /** The prose's DOM was rewritten — a chunk, a diagram landing (which grows
+   *  the row with no new text), a named file becoming a link. Whether the text
+   *  changed is not asked here: the closing-fence chunk renders the same HTML
+   *  as the chunk before it, so the text a rewrite carries cannot tell what
+   *  caused it. Never called for a press on "and N more", which writes no
+   *  HTML. */
+  onRedrawn?: () => void;
 }> = (props) => {
   let host!: HTMLDivElement;
   const works = useWorkMap();
@@ -84,13 +93,10 @@ const ConductorProse: Component<{
     setChoosing({ anchor, path, holders });
   };
 
+  const [rewrites, setRewrites] = createSignal(0);
+
   createEffect(() => {
-    // Read the text to re-fold a prose that has just been rewritten, and what
-    // the links read to re-fold one re-rendered for a new link; the pass
-    // itself reads the open state, so a press re-runs this too.
-    void props.text;
-    void works();
-    void readerTarget();
+    rewrites();
     applyProseListFold(host, props.rowId);
   });
 
@@ -103,6 +109,12 @@ const ConductorProse: Component<{
         markdown={props.text}
         variant="compact"
         inlineCode={{ action, onPress: press }}
+        onRendered={() => {
+          // The fold is queued first, so a transcript re-pinning on
+          // `onRedrawn` measures the folded row.
+          setRewrites((n) => n + 1);
+          props.onRedrawn?.();
+        }}
       />
       <OptionMenu<WorkId>
         triggerRef={() => choosing()?.anchor}

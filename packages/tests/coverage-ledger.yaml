@@ -4652,3 +4652,16 @@ retirements:
       file: packages/tests/features/mount-size-stability.feature
       symbol: "Scenario: Maximizing, switching which tile is maximized, and restoring"
       test: The revised scenario switches with the product's own cycle shortcut and PROVES the switch happened, so the claims after it cannot be vacuous.
+  - id: revise-638512c504f40b82d763
+    revisionId: revision-638512c504f40b82d763
+    action: revised
+    status: landed
+    promise: A finished mermaid block in a Markdown preview draws as a painted diagram, never as SVG markup in the page
+    defectSurface: [code-tab, user-journey]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-68550599cfa07cc2e397]
+    sameCodePathEvidence:
+      file: packages/tests/features/code-tab.feature
+      symbol: "Scenario: Markdown preview draws a mermaid block as a diagram"
+      test: The revised scenario also asserts that no renderer frame remains once the diagram has painted, since each frame is now single-use.

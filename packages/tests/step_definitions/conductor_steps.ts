@@ -29,6 +29,10 @@ import {
   fixtureClaudeRelay,
 } from "../support/agentDistroFixture.ts";
 import { type PrFixture, statePullRequest } from "../support/fake-gh.ts";
+import {
+  expectNoDiagramError,
+  waitForPaintedDiagram,
+} from "../support/diagram.ts";
 import { restartKoluServer } from "../support/hooks.ts";
 import { pollFor } from "../support/poll.ts";
 import { surfaceCall, surfaceFirstFrame } from "../support/rpcWire.ts";
@@ -752,6 +756,54 @@ Then(
     await waitForAtLeastOne(
       this,
       `${TRANSCRIPT} ${ROW}[data-row-kind="${kind}"]:has-text(${JSON.stringify(text)})`,
+    );
+  },
+);
+
+/** The latest agent row whose text includes `text`. */
+const agentRowSaying = (world: KoluWorld, text: string) =>
+  world.page
+    .locator(`${TRANSCRIPT} ${ROW}[data-row-kind="agent"]`)
+    .filter({ hasText: text })
+    .last();
+
+Then(
+  "the conductor agent row saying {string} should show a painted diagram",
+  async function (this: KoluWorld, text: string) {
+    await waitForPaintedDiagram(
+      agentRowSaying(this, text),
+      `the agent row saying "${text}"`,
+    );
+  },
+);
+
+Then(
+  "the conductor agent row saying {string} should show no diagram error",
+  async function (this: KoluWorld, text: string) {
+    await expectNoDiagramError(
+      agentRowSaying(this, text),
+      `the agent row saying "${text}"`,
+    );
+  },
+);
+
+// The fold is a DOM pass over the prose, and a diagram landing rewrites that
+// DOM with the text unchanged — so a fold re-applied only on new text would be
+// silently gone here, every item on show and no control offering the rest.
+Then(
+  "the conductor agent row saying {string} should still fold its long list",
+  async function (this: KoluWorld, text: string) {
+    const row = agentRowSaying(this, text);
+    const fold = await row.evaluate((el) => ({
+      control: el
+        .querySelector('[data-testid="conductor-prose-more"]')
+        ?.getAttribute("aria-expanded"),
+      hidden: el.querySelectorAll("li[hidden]").length,
+    }));
+    assert.deepStrictEqual(
+      fold,
+      { control: "false", hidden: 3 },
+      `the six-item list is not folded: ${JSON.stringify(fold)}`,
     );
   },
 );

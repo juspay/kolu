@@ -1,5 +1,9 @@
 import { Then, When } from "@cucumber/cucumber";
 import {
+  expectNoDiagramError,
+  waitForPaintedDiagram,
+} from "../support/diagram.ts";
+import {
   ACTIVE_CANVAS_TILE_SELECTOR,
   type KoluWorld,
   POLL_TIMEOUT,
@@ -10,6 +14,27 @@ const EDITOR = '[data-testid="intent-editor-textarea"]';
 const SAVE = '[data-testid="intent-editor-save"]';
 const CLEAR = '[data-testid="intent-editor-clear"]';
 const QUICK = '[data-testid="intent-editor-quick"]';
+const PREVIEW = '[data-testid="intent-editor-preview"]';
+
+Then(
+  "the intent editor preview should show a painted diagram",
+  async function (this: KoluWorld) {
+    await waitForPaintedDiagram(
+      this.page.locator(PREVIEW),
+      "the intent editor preview",
+    );
+  },
+);
+
+Then(
+  "the intent editor preview should show no diagram error",
+  async function (this: KoluWorld) {
+    await expectNoDiagramError(
+      this.page.locator(PREVIEW),
+      "the intent editor preview",
+    );
+  },
+);
 
 When(
   "I click the active terminal annotation slot",

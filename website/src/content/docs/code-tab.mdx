@@ -107,13 +107,20 @@ round, that path shows as one row:
 
 | File | How it opens |
 | --- | --- |
-| `.md`, `.markdown`, `.mdx` | As a reading document, with a Source/Rendered toggle that holds your scroll position in both. A `---` front-matter block renders as a table, and a footnote marker opens its definition in a popover. |
+| `.md`, `.markdown`, `.mdx` | As a reading document, with a Source/Rendered toggle that holds your scroll position in both. |
 | `.html` and `.svg` | Inline in a sandboxed iframe. The sandbox holds even when the file is opened on its own browser tab, so its scripts never get kolu's access. |
 | `.pdf` | In the browser's native viewer. |
 | images and video | As themselves. |
 
-MDX is previewed as Markdown: component tags are not executed, and the
-sanitizer strips them. Use **Source** for the raw MDX.
+In a rendered Markdown document:
+
+- A `---` front-matter block renders as a table.
+- A footnote marker opens its definition in a popover.
+- A ` ```mermaid ` block draws as a diagram, in light or dark to match kolu. It
+  shows as code until its closing fence is in the file. Mermaid's own error
+  message appears under a block it cannot draw, and the source stays.
+- MDX is previewed as Markdown: component tags are not executed, and the
+  sanitizer strips them. Use **Source** for the raw MDX.
 
 Previews live-reload on change. An external link in an HTML preview opens in a
 new tab, and a link back into kolu itself does not.

@@ -474,6 +474,34 @@
   margin-bottom: 0.3em;
 }
 
+/* ── Mermaid diagrams ────────────────────────────────────────── */
+/* A drawn ` ```mermaid ` block is a `<figure data-md-diagram>` holding two
+ * images, one per theme (see sanitize.ts). Like the Shiki colour swap above,
+ * the light image shows by default and the dark one under `.dark`, so a theme
+ * switch never re-renders. Each image carries its natural size: it scales
+ * down to the column and is never upscaled. */
+.kolu-md figure[data-md-diagram] img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  margin-inline: auto;
+  border-radius: 0;
+}
+.kolu-md figure[data-md-diagram] img[data-md-scheme="dark"],
+.dark .kolu-md figure[data-md-diagram] img[data-md-scheme="light"] {
+  display: none;
+}
+.dark .kolu-md figure[data-md-diagram] img[data-md-scheme="dark"] {
+  display: block;
+}
+/* Why a finished mermaid block could not be drawn, under its source. */
+.kolu-md [data-md-diagram-error] {
+  margin-top: calc(var(--md-gap) * -0.5);
+  font-size: 0.85em;
+  color: color-mix(in oklch, var(--color-danger, #dc2626) 70%, currentColor);
+  white-space: pre-wrap;
+}
+
 /* ── GFM footnotes (marked-footnote) ─────────────────────────── */
 /* The reference superscript links down to a "Footnotes" section at the end.
  * marked-footnote's `class="sr-only"` on the section heading is stripped by

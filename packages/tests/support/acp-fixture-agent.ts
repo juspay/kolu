@@ -1093,6 +1093,53 @@ const turn = async (
     endTurn(id);
     return;
   }
+
+  if (text === "draw a diagram") {
+    // A MERMAID BLOCK THAT ARRIVES IN PIECES, the way a model streams one: the
+    // opening fence and first line, the middle, then the closing fence on its
+    // own — so the block sits unfinished for several pieces, which is exactly
+    // when it must stay code and never flash a parse error. A long list comes
+    // first, so the fold can be seen to survive the diagram landing; words
+    // keep arriving for seconds after it, so the diagram lands WHILE the
+    // message is still being rewritten piece by piece — the case in which it
+    // must not blink or move — rather than after the turn is over.
+    //
+    // SLOWER THAN `say a lot`, on purpose. The first diagram in a page boots
+    // the sandboxed renderer (it fetches mermaid and starts it), which takes
+    // around a second; at 40 ms a piece the whole answer would have landed by
+    // then and nothing would arrive after the diagram.
+    const pieces = [
+      "Here is the plan:\n\n",
+      "- check 1\n- check 2\n- check 3\n- check 4\n- check 5\n- check 6\n\n",
+      "```mermaid\nflowchart TD\n",
+      "  A[Read the plan] --> B{Ready?}\n",
+      "  B -->|yes| C[Draw it]\n  B -->|no| A\n",
+      "```\n\n",
+      "after the diagram",
+      ", the answer",
+      " keeps",
+      " arriving",
+      " for a",
+      " few",
+      " more",
+      " seconds,",
+      " so you",
+      " can watch",
+      " it stay",
+      " put.",
+    ];
+    for (const piece of pieces) {
+      update({
+        sessionUpdate: "agent_message_chunk",
+        content: { type: "text", text: piece },
+      });
+      const tick = Promise.withResolvers<void>();
+      setTimeout(tick.resolve, 300);
+      await tick.promise;
+    }
+    endTurn(id);
+    return;
+  }
   update({
     sessionUpdate: "agent_message_chunk",
     content: { type: "text", text: "hello back" },
