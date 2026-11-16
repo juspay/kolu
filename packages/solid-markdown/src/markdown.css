@@ -588,3 +588,27 @@
   background: color-mix(in oklch, currentColor 12%, transparent);
   border-radius: 3px;
 }
+/* Inline code the host can act on (`inlineCode`): a real button around the
+ * same code, so it reads as the code it is, coloured and underlined as a link
+ * — and filled while it is the one the host has open (`aria-current`). */
+.kolu-md button[data-md-code-action] {
+  all: unset;
+  cursor: pointer;
+  border-radius: 4px;
+}
+.kolu-md button[data-md-code-action] > code {
+  color: var(--md-link);
+  text-decoration: underline;
+  text-decoration-color: color-mix(in oklch, var(--md-link) 45%, transparent);
+  text-underline-offset: 2px;
+}
+.kolu-md button[data-md-code-action]:hover > code {
+  text-decoration-color: var(--md-link);
+}
+.kolu-md button[data-md-code-action]:focus-visible {
+  outline: 2px solid var(--md-link);
+  outline-offset: 1px;
+}
+.kolu-md button[data-md-code-action][aria-current="true"] > code {
+  background: color-mix(in oklch, var(--md-link) 18%, transparent);
+}

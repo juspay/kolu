@@ -7,7 +7,7 @@ the result in a `.kolu-md` container.
 
 | Entry | What it holds |
 | --- | --- |
-| `.` | `Markdown`, `MarkdownVariant`, `bindMarkdownLinks`, `resolveWikilink`, `WikilinkResolution`. |
+| `.` | `Markdown`, `MarkdownVariant`, `bindMarkdownLinks`, `decorateInlineCode`, `InlineCodeAction`, `resolveWikilink`, `WikilinkResolution`. |
 | `./render` | `renderMarkdownToRawHtml`, `splitFrontMatter`, `RenderOptions`. Output is untrusted HTML. |
 | `./url-policy` | `safeHref`, `isLoadableImage`, and a re-export of `hasOwnScheme`. |
 | `./markdown.css` | The stylesheet, scoped to `.kolu-md`. |
@@ -32,6 +32,12 @@ repo-relative image, `onNavigateRelative` for a repo-relative link,
 `onNavigateWikilink` for `[[Note]]`, and `onFootnote` for a footnote popover.
 Each one unwired leaves that link kind inert, never navigating the app origin.
 
+`inlineCode` makes inline code a host can act on pressable. The host answers
+for one span's exact text (`action`: a name for the press and whether it is
+open now, or `undefined`), and a span it answers for becomes a `<button>`
+around the same `<code>`, with that name as its `aria-label`. `onPress` gets
+the text and the button. kolu's Conductor uses it to open a file it names.
+
 ## What not to break
 
 - Raw HTML from `./render` must pass through `sanitizeHtml` before it reaches
@@ -50,8 +56,12 @@ Each one unwired leaves that link kind inert, never navigating the app origin.
 - `bindMarkdownLinks` is the single home for the `data-md-*` flag to handler
   mapping. Every consumer of sanitized Markdown DOM plugs into it rather than
   re-deriving the routing.
+- `decorateInlineCode` runs after the sanitizer and only moves the `<code>`
+  nodes the sanitizer produced into buttons it builds itself, so a span's text
+  can never become markup. Code inside `<pre>` is never touched.
 - `LIMITATIONS.md` lists what the renderer does not support, such as maths,
   mermaid and emoji shortcodes. Keep it in step when you add or drop a feature.
 
 Tests sit beside each stage: `render.test.ts`, `sanitize.test.ts`,
-`url-policy.test.ts`, `wikilink.test.ts` and `highlight.test.ts`.
+`url-policy.test.ts`, `wikilink.test.ts`, `highlight.test.ts` and
+`inlineCode.test.ts`.

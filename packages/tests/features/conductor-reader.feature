@@ -133,3 +133,27 @@ Feature: A plan is read, not glimpsed
     Then the reader should be closed
     And the work column should be back as it was
     And there should be no page errors
+
+  Scenario: A file the Conductor names in the chat opens in the reader
+    # NO COOPERATION FROM THE MODEL. The Conductor just writes the path in
+    # backticks; kolu knows the files of the works it holds, and a path that
+    # is exactly one of them is a link — here one work holds it, so it opens.
+    Given a repo for the work
+    When I ask the conductor to open the work "name the plan"
+    And I answer the work's question with "hand-over" in the chat
+    And I ask the conductor to run the implementor in the work's repo
+    And the implementor writes a plan with a table into the work's repo
+    And the implementor's agent starts working
+    And the implementor's agent stops
+    Then the work's timeline should show a "file" event saying ".waterfall/plan.md"
+    When the conductor says where the plan is
+    And I press the file the conductor named, ".waterfall/plan.md"
+    Then the reader should be open on ".waterfall/plan.md"
+    And the file the conductor named, ".waterfall/plan.md", should read as open
+    # THE CARD'S TIMELINE ROW opens it too: the `file` event names the work
+    # and the path, so there is nothing to match.
+    When I leave the reader
+    Then the reader should be closed
+    When I press the work's timeline row for ".waterfall/plan.md"
+    Then the reader should be open on ".waterfall/plan.md"
+    And there should be no page errors

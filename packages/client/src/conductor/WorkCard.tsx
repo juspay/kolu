@@ -40,7 +40,15 @@ import {
   type Work,
   type WorkId,
 } from "kolu-work";
-import { type Component, createMemo, createSignal, For, Show } from "solid-js";
+import {
+  type Component,
+  createMemo,
+  createSignal,
+  For,
+  Match,
+  Show,
+  Switch,
+} from "solid-js";
 import { hostLabel } from "../host/hostChipTone";
 import {
   fleetTerminalStanding,
@@ -57,6 +65,8 @@ import { splitMemberRef } from "./memberRef";
 import { fleetMentionCandidates } from "./mentionCandidates";
 import { useConductor } from "./useConductor";
 import { useOpenTile } from "./useOpenTile";
+import { holdsPath } from "./namedFiles";
+import { openReader, readerTarget } from "./reader/useReader";
 import { useMembership, useSeen, useWorkMembers } from "./useWorks";
 import WorkBar from "./WorkBar";
 import WorkFiles from "./WorkFiles";
@@ -685,29 +695,74 @@ const WorkCard: Component<{
                         aria-hidden="true"
                         class={`h-1.5 w-1.5 shrink-0 translate-y-[-0.1em] rounded-full ${EVENT_INK[event.by]}`}
                       />
-                      {/* ONE LINE, CUT — an event longer than the row says
+                      {/* A FILE THE WORK WROTE OPENS FROM ITS ROW — the event
+                          names the work and the path, so there is nothing to
+                          match; it is a link only where the reader can open
+                          it (for a work that ended, a kept copy). Otherwise:
+                          ONE LINE, CUT — an event longer than the row says
                           the rest on a press rather than wrapping into a
                           paragraph nobody asked to read. */}
-                      <Show
-                        when={cut().rest}
+                      <Switch
                         fallback={
-                          <span class="min-w-0 flex-1 truncate text-fg-2">
-                            {cut().line}
-                          </span>
+                          <Show
+                            when={cut().rest}
+                            fallback={
+                              <span class="min-w-0 flex-1 truncate text-fg-2">
+                                {cut().line}
+                              </span>
+                            }
+                          >
+                            <button
+                              type="button"
+                              data-testid="work-event-more"
+                              aria-expanded={shown(key)}
+                              class="min-w-0 flex-1 cursor-pointer rounded-sm text-start text-fg-2 hover:bg-surface-1"
+                              onClick={() => toggleRow(key)}
+                            >
+                              <span class={shown(key) ? "" : "block truncate"}>
+                                {shown(key) ? whole() : cut().line}
+                              </span>
+                            </button>
+                          </Show>
                         }
                       >
-                        <button
-                          type="button"
-                          data-testid="work-event-more"
-                          aria-expanded={shown(key)}
-                          class="min-w-0 flex-1 cursor-pointer rounded-sm text-start text-fg-2 hover:bg-surface-1"
-                          onClick={() => toggleRow(key)}
+                        <Match
+                          when={
+                            event.kind === "file" &&
+                            holdsPath(props.work, event.path)
+                              ? event.path
+                              : undefined
+                          }
                         >
-                          <span class={shown(key) ? "" : "block truncate"}>
-                            {shown(key) ? whole() : cut().line}
-                          </span>
-                        </button>
-                      </Show>
+                          {(path) => {
+                            const open = () => {
+                              const target = readerTarget();
+                              return (
+                                target !== null &&
+                                target.work === props.id &&
+                                target.path === path()
+                              );
+                            };
+                            return (
+                              <button
+                                type="button"
+                                data-testid="work-event-file"
+                                data-path={path()}
+                                aria-label={`Open ${path()}`}
+                                aria-current={open() ? "true" : undefined}
+                                class={`min-w-0 flex-1 cursor-pointer truncate rounded-sm text-start hover:underline ${
+                                  open() ? "text-accent" : "text-fg-2"
+                                }`}
+                                onClick={() =>
+                                  openReader({ work: props.id, path: path() })
+                                }
+                              >
+                                {cut().line}
+                              </button>
+                            );
+                          }}
+                        </Match>
+                      </Switch>
                       {/* HOW LONG THAT STEP TOOK — the step still running keeps
                           counting, with the ellipsis that says so. */}
                       <span class="shrink-0 font-mono text-[0.6rem] tabular-nums text-fg-3">

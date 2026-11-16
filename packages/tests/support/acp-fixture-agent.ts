@@ -697,6 +697,14 @@ const turn = async (
     endTurn(id);
     return;
   }
+  if (text === "say where the plan is") {
+    // THE CONDUCTOR NAMES A FILE IN ITS OWN WORDS, as a real one does after
+    // a planner writes — plain prose with the path in backticks. Nothing
+    // here says which work: kolu reads that off the files it holds.
+    say("Its plan is at `.waterfall/plan.md`.");
+    endTurn(id);
+    return;
+  }
   if (text === "ask about the work") {
     if (lastWork === null) {
       say("no work is open");

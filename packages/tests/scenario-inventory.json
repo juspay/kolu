@@ -11989,6 +11989,18 @@
       "exampleRows": [],
       "executions": 1,
       "firstSeenSha": "14694585998e95da8800e0c480b1aae9e04604ab"
+    },
+    {
+      "revisionId": "revision-92cde8fdc1eceddd2342",
+      "scenarioKey": "scenario-6d9c582e37068b415202",
+      "feature": "features/conductor-reader.feature",
+      "scenario": "A file the Conductor names in the chat opens in the reader",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "b0ddb6db7258a73b612f6dc0a8258b4223dc9a22aa1e4d3ebd00c7754f07af14",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "b9af7a9fafaaf1e91d6f21928d10f26b79d3b011"
     }
   ]
 }

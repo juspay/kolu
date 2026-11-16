@@ -104,6 +104,55 @@ When(
   },
 );
 
+/** THE CONDUCTOR NAMES THE FILE in its prose — no question, no card: just a
+ *  sentence with the path in backticks. */
+When("the conductor says where the plan is", async function (this: KoluWorld) {
+  await enterConductor(this);
+  await sendPrompt(this, "say where the plan is");
+});
+
+/** THE NAMED FILE, pressed where it was said — a real button in the chat,
+ *  found by the name a screen reader reads ("Open <path>"). */
+When(
+  "I press the file the conductor named, {string}",
+  async function (this: KoluWorld, file: string) {
+    const link = this.page
+      .locator(`${CHAT} button[aria-label="Open ${file}"]`)
+      .last();
+    await link.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    await link.click();
+  },
+);
+
+/** ... and, once the reader is on it, the mention says so, as the card's row
+ *  does. */
+Then(
+  "the file the conductor named, {string}, should read as open",
+  async function (this: KoluWorld, file: string) {
+    await this.page
+      .locator(`${CHAT} button[aria-label="Open ${file}"][aria-current="true"]`)
+      .last()
+      .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+  },
+);
+
+/** A `Wrote …` ROW on the card's timeline, pressed — found by the name a
+ *  screen reader reads, on the card the scenario opened. */
+When(
+  "I press the work's timeline row for {string}",
+  async function (this: KoluWorld, file: string) {
+    await showWorkColumn(this);
+    await openWorkCard(this);
+    const row = this.page
+      .locator(
+        `${WORK_COLUMN} [data-testid="work-timeline"] button[aria-label="Open ${file}"]`,
+      )
+      .first();
+    await row.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    await row.click();
+  },
+);
+
 /** THE READ BUTTON, on the card's copy of the question. It is the route the
  *  design insists on: the plan does NOT open by itself when the Conductor
  *  asks — the question carries the way in. */
