@@ -19,12 +19,7 @@ import type {
   PadiDiagnostics,
   PadiWatcherRow,
 } from "@kolu/padi-client/surface";
-import {
-  listDirWatcherRows,
-  measured,
-  readChildren,
-  unmeasured,
-} from "kolu-io";
+import { listDirWatcherRows, measured, readChildren } from "kolu-io";
 import { listWorkingTreeWatcherRows } from "kolu-git";
 import type { Logger } from "pino";
 import { type CallsTable, createCallsTable, timeProcedures } from "./calls.ts";
@@ -40,13 +35,11 @@ export interface PadiDiagnosticsHandle {
 
 function watcherRows(): PadiWatcherRow[] {
   const trees: PadiWatcherRow[] = listWorkingTreeWatcherRows().map((row) => ({
-    kind: "git: working-tree",
+    kind: row.kind,
     root: row.repoRoot,
     askers: [...row.askers],
     state: row.state,
-    directories: unmeasured(
-      "a recursive @parcel/watcher subscription reports no directory count; counting would walk the tree again (see the kernel's count)",
-    ),
+    directories: row.directories,
     rebuilds: row.rebuilds,
     lastInstallMs: row.lastInstallMs,
     detail: {

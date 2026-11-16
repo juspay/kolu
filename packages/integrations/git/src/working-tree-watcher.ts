@@ -204,7 +204,12 @@ export type WorkingTreeWatcherState =
 
 /** One live working-tree entry, as a diagnostic row. */
 export interface WorkingTreeWatcherRow {
+  /** The watcher's label, the way the dir+filename watchers carry theirs. */
+  readonly kind: "git: working-tree";
   readonly repoRoot: string;
+  /** Directories covered. Parcel reports none for a recursive subscription,
+   *  and counting would walk the tree again, so it is always unmeasured. */
+  readonly directories: Measured<number>;
   readonly askers: readonly string[];
   readonly state: WorkingTreeWatcherState;
   /** Paths handed to parcel as ignored, from the latest successful listing. */
@@ -638,7 +643,11 @@ function installSharedWorkingTreeWatcher(
 
   return {
     row: () => ({
+      kind: "git: working-tree",
       repoRoot,
+      directories: unmeasured(
+        "a recursive @parcel/watcher subscription reports no directory count; counting would walk the tree again (see the kernel's count)",
+      ),
       askers: askers(),
       state,
       ignoredPaths:

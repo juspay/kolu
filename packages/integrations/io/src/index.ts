@@ -23,15 +23,18 @@ export {
   type ChildTally,
   createChildTally,
   installChildMeter,
-  type Measured,
-  measured,
   meterSyncChild,
   readChildren,
   runInChildScope,
+} from "./child-meter.ts";
+
+export {
+  type Measured,
+  measured,
   summarizeTimings,
   type TimingSummary,
   unmeasured,
-} from "./child-meter.ts";
+} from "./measured.ts";
 
 export {
   DEFAULT_APPEND_POLL_MS,
