@@ -205,15 +205,16 @@ export function collectionItemTemplate(
  *  spans a raw `/`.)
  *
  *  `null` when no reading is served, when the name is empty, or when the
- *  address is not valid percent-encoding. The found entry comes back with the
- *  name, so the caller does not look its collection up a second time.
+ *  address is not valid percent-encoding. The table's `entry` for the found
+ *  collection comes back with the name, so the caller does not look it up a
+ *  second time.
  *
  *  It lives HERE, directly below the builders, because the reader and the writer
  *  are one axis: "how a bundle address is spelled in a `surface://` URI". */
 export function parseCollectionItem<T>(
   uri: string,
   collections: ReadonlyMap<string, T>,
-): { collection: T; name: string } | null {
+): { entry: T; name: string } | null {
   if (!uri.startsWith(COLLECTION_PREFIX)) return null;
   let parts: string[];
   try {
@@ -232,10 +233,10 @@ export function parseCollectionItem<T>(
       : [{ sibling: head, key: second, nameFrom: 2 }]),
   ];
   for (const { sibling, key, nameFrom } of readings) {
-    const collection = collections.get(collectionUri(sibling, key));
-    if (collection === undefined) continue;
+    const entry = collections.get(collectionUri(sibling, key));
+    if (entry === undefined) continue;
     const name = parts.slice(nameFrom).join("/");
-    return name === "" ? null : { collection, name };
+    return name === "" ? null : { entry, name };
   }
   return null;
 }

@@ -58,10 +58,9 @@ import {
   firstFrameOrThrow,
   ITEM_READ_DEADLINE_MS,
 } from "@kolu/surface/first-frame";
-import type { WireSchemaAny } from "@kolu/surface/define";
 import { messageOf } from "@kolu/surface/errors";
 import { decodeTextValue } from "@kolu/surface/verbs";
-import { Effect, Option, Result, Schema, Stream } from "effect";
+import { Effect, Result, Stream } from "effect";
 import { match, P } from "ts-pattern";
 import type { ResolvedBundle } from "./bundle";
 import type { DepartedNames } from "./departed";
@@ -143,17 +142,18 @@ export function addressOf(uri: string, gen: ResolvedBundle): Resolution {
   // member key cannot answer for each other's items.
   const item = parseCollectionItem(uri, gen.templateByCollection);
   if (item === null) return { at: "unserved" };
-  const { collection: template, name } = item;
+  const { entry: template, name } = item;
   // A name that fails its key schema names nothing this generation can serve,
   // so `.get` is never called with a wrong-typed key — and the refusal carries
   // the schema's own sentence, which is where a consumer teaches what a name of
-  // that collection looks like.
-  const decoded = decodeKey(template.keySchema, name);
-  if ("why" in decoded) {
+  // that collection looks like. The DECODED key is what the address carries:
+  // the face's collection payloads are built from decoded keys (`client.ts`).
+  const landed = decodeTextValue(template.keySchema, name);
+  if (Result.isFailure(landed)) {
     return {
       at: "not-a-key",
       collection: collectionUri(template.sibling, template.key),
-      why: decoded.why,
+      why: messageOf(landed.failure),
     };
   }
   return {
@@ -164,7 +164,7 @@ export function addressOf(uri: string, gen: ResolvedBundle): Resolution {
       sibling: template.sibling,
       key: template.key,
       verb: "get",
-      itemKey: decoded.key,
+      itemKey: landed.success.decoded,
       listable: template.listable,
       mimeType: "application/json",
     },
@@ -576,25 +576,4 @@ function asStream(
     );
   }
   return source as Stream.Stream<unknown, unknown>;
-}
-
-/** Decode a collection item's name into the collection's declared key type —
- *  {@link decodeTextValue}'s rule ("a schema-less caller hands scalars over as
- *  text"). A name that lands in neither the verbatim nor the JSON reading comes
- *  back with the key schema's own failure for the verbatim name, so the caller
- *  refuses it in that schema's words rather than calling `.get` with a
- *  wrong-typed key.
- *
- *  The DECODED key is what comes back, which is what the face's collection
- *  payloads are built from (`{ key }` carries decoded keys — client.ts). */
-function decodeKey(
-  keySchema: WireSchemaAny,
-  name: string,
-): { readonly key: unknown } | { readonly why: string } {
-  const verbatim = Schema.decodeUnknownResult(keySchema)(name);
-  if (Result.isSuccess(verbatim)) return { key: verbatim.success };
-  const landed = decodeTextValue(keySchema, name);
-  return Option.isSome(landed)
-    ? { key: landed.value.decoded }
-    : { why: messageOf(verbatim.failure) };
 }

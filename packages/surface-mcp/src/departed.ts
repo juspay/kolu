@@ -156,8 +156,7 @@ export class DepartedNames {
    *  still says "no longer served". */
   private ownerOfUri(uri: string): string | undefined {
     return (
-      this.resources.get(uri) ??
-      parseCollectionItem(uri, this.resources)?.collection
+      this.resources.get(uri) ?? parseCollectionItem(uri, this.resources)?.entry
     );
   }
 }

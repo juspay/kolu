@@ -959,9 +959,12 @@ describe("the fleet face over two hosts", () => {
       updates.push(note.params.uri);
     });
     await mcp.subscribeResource({ uri });
-    // Whatever subscribing itself announces has landed by the time a round
-    // trip to the same server has: what follows is what the change adds.
-    await mcp.readResource({ uri });
+    // The opening snapshot is announced too, after the pusher's debounce — so
+    // wait until it has been heard, and only then clear: what arrives after the
+    // change is the change.
+    await vi.waitFor(() => {
+      expect(updates).toContain(uri);
+    });
     updates.length = 0;
 
     beta.runAgent(BETA_1, "claude-code", "thinking");
@@ -984,8 +987,9 @@ describe("the fleet face over two hosts", () => {
       () => null,
       (e: unknown) => String(e),
     );
-    expect(refusal).toContain(uri);
-    expect(refusal).toMatch(/no value yet|not present/);
+    expect(refusal).toContain(
+      `resource "${uri}" has no value yet — its collection key is not present`,
+    );
   });
 
   it("refuses a name that is not a reference in the reference grammar's own words", async () => {

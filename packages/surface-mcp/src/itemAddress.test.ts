@@ -147,7 +147,7 @@ function textOf(read: ReadResourceResult): unknown {
 }
 
 /** The sentence a request was refused with. */
-const refusalOf = (pending: Promise<unknown>): Promise<string> =>
+const refusedWith = (pending: Promise<unknown>): Promise<string> =>
   pending.then(
     () => {
       throw new Error("expected a refusal, and the request was answered");
@@ -185,9 +185,13 @@ describe("an item whose name has a slash", () => {
     const escaped = `${collection}/${encodeURIComponent("a/b")}`;
     await mcp.subscribeResource({ uri: natural });
     await mcp.subscribeResource({ uri: escaped });
-    // Whatever subscribing itself announces has landed by the time a round
-    // trip to the same server has: what follows is what the change adds.
-    await mcp.readResource({ uri: natural });
+    // Each subscription's opening snapshot is announced too, after the
+    // pusher's debounce — so wait until both have been heard, and only then
+    // clear: what arrives after the change is the change.
+    await vi.waitFor(() => {
+      expect(updates).toContain(natural);
+      expect(updates).toContain(escaped);
+    });
     updates.length = 0;
 
     const client = owner === "core" ? served.core : served.tenant;
@@ -232,7 +236,7 @@ describe("an item whose name has a slash", () => {
       `${ROWS}/`,
       "surface://collections/nobody/a/b",
     ]) {
-      expect(await refusalOf(mcp.readResource({ uri }))).toContain(
+      expect(await refusedWith(mcp.readResource({ uri }))).toContain(
         `unknown resource "${uri}"`,
       );
     }
@@ -247,7 +251,7 @@ describe("an address this endpoint does not serve is refused in words that help"
     const served = await serve();
     await served.dropTenant();
     const uri = `${ROWS}/a/b`;
-    const refusal = await refusalOf(
+    const refusal = await refusedWith(
       verb === "read"
         ? served.mcp.readResource({ uri })
         : served.mcp.subscribeResource({ uri }),
@@ -262,7 +266,7 @@ describe("an address this endpoint does not serve is refused in words that help"
   ] as const)("on %s: a name the collection's key schema refuses carries the schema's own sentence", async (verb) => {
     const { mcp } = await serve();
     const uri = `${NOTES}/!x`;
-    const refusal = await refusalOf(
+    const refusal = await refusedWith(
       verb === "read"
         ? mcp.readResource({ uri })
         : mcp.subscribeResource({ uri }),
@@ -278,7 +282,7 @@ describe("an address this endpoint does not serve is refused in words that help"
   ] as const)("on %s: anything else names every resource and template served", async (verb) => {
     const { mcp } = await serve();
     const uri = "surface://cells/nope";
-    const refusal = await refusalOf(
+    const refusal = await refusedWith(
       verb === "read"
         ? mcp.readResource({ uri })
         : mcp.subscribeResource({ uri }),
