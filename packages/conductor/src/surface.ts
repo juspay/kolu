@@ -111,8 +111,11 @@ export function conductorSurfaceMembers(deps: {
         ask(async () => ({
           settled: await host().answer(input.askId, input.answers),
         })),
+      // The WHOLE answer: what the login did and what the restart behind it
+      // did. A sign-in that landed over an agent that would not restart is
+      // two facts, and the member declares both.
       signIn: ({ input }: { input: { method: string } }) =>
-        ask(async () => ({ outcome: await host().signIn(input.method) })),
+        ask(() => host().signIn(input.method)),
       signInInput: ({ input }: { input: { text: string } }) =>
         ask(() => host().signInInput(input.text)),
       // The host answers whether there WAS an attempt to cancel; the wire
@@ -124,6 +127,9 @@ export function conductorSurfaceMembers(deps: {
         ask<void, ConductorUnavailable>(async () => {
           await host().signInCancel();
         }),
+      askSignIn: () =>
+        ask<void, ConductorUnavailable>(() => host().askSignIn()),
+      reloadAgent: () => ask(() => host().reloadAgent()),
       setOption: ({ input }: { input: { id: string; value: string } }) =>
         ask(() => host().setOption(input.id, input.value)),
       newSession: () => ask(() => host().newSession()),

@@ -9,18 +9,27 @@
  * the one that must not be re-derived anywhere else.
  */
 
+import { Option } from "effect";
 import {
-  type Answered,
+  ABOUT_WORK,
+  aboutMember,
+  type AnswerFrom,
   type Asked,
   type Decision,
-  type DecisionAnswer,
   handBack,
+  type KoluChoiceKey,
   membershipOf,
+  ON_GREEN,
+  type OnGreen,
+  type Said,
+  type Settled,
   SETUP_KEYS,
   takeOver,
+  WORK_MODES,
   type Work,
   type WorkEvent,
   type WorkMember,
+  type WorkMode,
 } from "kolu-work";
 import { describe, expect, it } from "vitest";
 import {
@@ -47,30 +56,121 @@ import {
 const AT = "2026-01-01T10:00:00.000Z";
 const WORK = "branch:local/%2Fhome%2Fsrid%2Fcode%2Fkolu/update-errors";
 
-const asked = (over: Partial<Asked> = {}): Asked => ({
-  kind: "asked",
-  id: "d1",
-  ask: "ask-1",
-  at: AT,
-  key: null,
-  header: "",
-  question: "Approve the plan?",
-  options: ["Approve", "Ask for changes"],
-  multiple: false,
-  file: "",
-  ...over,
-});
-
-function answered(pick: string): DecisionAnswer {
-  return { at: AT, how: "answered", picked: [pick], text: null, from: "chat" };
+/** What every decision carries, whatever it is about. */
+interface Over {
+  readonly id?: string;
+  readonly ask?: string;
+  readonly question?: string;
 }
 
-/** An answered decision — the other arm of the sum, which is the only way to
- *  carry an answer at all. */
-const settled = (
-  answer: DecisionAnswer,
-  over: Partial<Asked> = {},
-): Answered => ({ ...asked(over), kind: "answered", answer });
+const common = (over: Over, fallbackId: string) => ({
+  kind: "asked" as const,
+  id: over.id ?? fallbackId,
+  ask: over.ask ?? "ask-1",
+  at: AT,
+  question: over.question ?? "Approve the plan?",
+});
+
+/** A QUESTION ABOUT THE WORK — the asker's own, with its header, its options
+ *  and the file it is about. Each absence is an ARM: a question with no
+ *  header is `{kind:"none"}`, never an empty string. */
+const asked = (
+  over: Over & {
+    readonly header?: string;
+    readonly options?: ReadonlyArray<string>;
+    readonly multiple?: boolean;
+    readonly file?: string;
+  } = {},
+): Extract<Asked, { topic: "work" }> => ({
+  ...common(over, "d1"),
+  topic: "work",
+  header:
+    over.header === undefined
+      ? { kind: "none" }
+      : { kind: "header", text: over.header },
+  options: over.options ?? ["Approve", "Ask for changes"],
+  multiple: over.multiple ?? false,
+  file:
+    over.file === undefined
+      ? { kind: "none" }
+      : { kind: "file", path: over.file },
+});
+
+/** ... answered, with what was SAID: a sum with no "answered with nothing"
+ *  arm, which is the whole point of this round. */
+const said = (
+  value: Said,
+  over: Parameters<typeof asked>[0] = {},
+  from: AnswerFrom = "chat",
+): Settled => ({
+  ...asked(over),
+  kind: "settled",
+  answer: { how: "answered", at: AT, from, said: value },
+});
+
+const picked = (
+  one: string,
+  over: Parameters<typeof asked>[0] = {},
+  from: AnswerFrom = "chat",
+): Settled => said({ kind: "picked", picked: [one] }, over, from);
+
+/** A question about the work nobody would answer. */
+const declined = (over: Parameters<typeof asked>[0] = {}): Settled => ({
+  ...asked(over),
+  kind: "settled",
+  answer: { how: "declined", at: AT, from: "card" },
+});
+
+/** THE SETUP'S OWN QUESTIONS, by key — labelled by the key's own name, with
+ *  no header and no file to carry. */
+const modeAsked = (
+  over: Over = {},
+): Extract<Asked, { topic: "setup"; key: "mode" }> => ({
+  ...common(over, "m"),
+  topic: "setup",
+  key: "mode",
+  options: [...WORK_MODES],
+});
+
+const mode = (value: WorkMode, over: Over = {}): Settled => ({
+  ...modeAsked(over),
+  kind: "settled",
+  answer: { how: "answered", at: AT, from: "chat", value },
+});
+
+const onGreenAsked = (
+  over: Over = {},
+): Extract<Asked, { topic: "setup"; key: "on-green" }> => ({
+  ...common(over, "g"),
+  topic: "setup",
+  key: "on-green",
+  options: [...ON_GREEN],
+});
+
+const onGreen = (value: OnGreen, over: Over = {}): Settled => ({
+  ...onGreenAsked(over),
+  kind: "settled",
+  answer: { how: "answered", at: AT, from: "chat", value },
+});
+
+const choiceAsked = (
+  key: KoluChoiceKey,
+  over: Over = {},
+): Extract<Asked, { topic: "setup"; key: KoluChoiceKey }> => ({
+  ...common(over, key),
+  topic: "setup",
+  key,
+});
+
+const choice = (
+  key: KoluChoiceKey,
+  value: string,
+  over: Over = {},
+): Settled => ({
+  ...choiceAsked(key, over),
+  kind: "settled",
+  answer: { how: "answered", at: AT, from: "chat", value, chosen: "picked" },
+});
 
 const work = (over: Partial<Work> = {}): Work => ({
   key: {
@@ -93,20 +193,25 @@ const members = (
   role: WorkMember["role"] = "planner",
   terminal = "local/a",
 ): ReadonlyMap<string, WorkMember> =>
-  new Map([[terminal, { work: WORK, role, joinedAt: AT, worktree: null }]]);
+  new Map([
+    [
+      terminal,
+      { work: WORK, role, joinedAt: AT, worktree: { kind: "unread" } },
+    ],
+  ]);
 
 const event = (over: Partial<WorkEvent> & Pick<WorkEvent, "kind">): WorkEvent =>
   ({
     at: AT,
     by: "kolu",
-    terminal: null,
+    about: ABOUT_WORK,
     ...over,
   }) as WorkEvent;
 
 /** A member joined, as the TIMELINE says it — which is where a role is read
  *  from, so a terminal that has since left is still named by its part. */
 const joined = (terminal = "local/a", role: WorkMember["role"] = "planner") =>
-  event({ kind: "joined", terminal, role });
+  event({ kind: "joined", about: aboutMember(terminal), role });
 
 const words = (one: Work, of: WorkEvent): string => eventReader(one)(of);
 
@@ -119,16 +224,19 @@ describe("what a card's head says", () => {
 
   it("says where the work IS — the repo and the branch of its key", () => {
     // Setup unanswered: no mode, no PR — the line is the identity alone.
-    expect(workSubtitle(work(), null)).toEqual(["kolu", "update-errors"]);
+    expect(workSubtitle(work(), Option.none())).toEqual([
+      "kolu",
+      "update-errors",
+    ]);
     expect(
       workSubtitle(
         work({
-          decisions: [settled(answered("trivial"), { id: "m", key: "mode" })],
+          decisions: [mode("trivial")],
           events: [
             event({ kind: "pr-opened", pr: 178, title: "Slim it", by: "kolu" }),
           ],
         }),
-        "naiveintent",
+        Option.some("naiveintent"),
       ),
     ).toEqual(["kolu", "update-errors", "naiveintent", "trivial", "PR #178"]);
   });
@@ -137,7 +245,7 @@ describe("what a card's head says", () => {
     expect(
       workSubtitle(
         work({ key: { kind: "watch", terminal: "local/a" } }),
-        "naiveintent",
+        Option.some("naiveintent"),
       ),
     ).toEqual(["watching", "naiveintent"]);
   });
@@ -151,22 +259,20 @@ describe("where it stands", () => {
           kind: "checks-running",
           by: "ci",
           pr: 7,
-          head: null,
+          head: { kind: "unreported" },
           failing: [],
         }),
       ],
     });
-    const line = standingLine(ci, {
-      pass: 14,
-      pending: 9,
-      fail: 0,
-      total: 23,
-    });
+    const line = standingLine(
+      ci,
+      Option.some({ pass: 14, pending: 9, fail: 0, total: 23 }),
+    );
     expect(line.who).toBe("ci");
     expect(line.lead).toBe("CI running");
     // 14 landed of 23 — the one number the record cannot hold, because it is
     // only true for the instant it was read.
-    expect(line.what).toBe("14 of 23 checks");
+    expect(line.what).toEqual(Option.some("14 of 23 checks"));
   });
 
   it("says the question itself while it waits on you", () => {
@@ -174,10 +280,10 @@ describe("where it stands", () => {
       decisions: [asked()],
       events: [event({ kind: "question", by: "agent", ask: "ask-1" })],
     });
-    const line = standingLine(asking, null);
+    const line = standingLine(asking, Option.none());
     expect(line.who).toBe("you");
     expect(line.lead).toBe("Waiting on you");
-    expect(line.what).toBe("Approve the plan?");
+    expect(line.what).toEqual(Option.some("Approve the plan?"));
   });
 
   it("names the outcome once it is over — and there is no 'abandoned'", () => {
@@ -186,10 +292,10 @@ describe("where it stands", () => {
       state: { kind: "ended", at: AT, outcome, kept: [] },
       events: [event({ kind: "ended", outcome })],
     });
-    expect(standingLine(over, null)).toMatchObject({
+    expect(standingLine(over, Option.none())).toMatchObject({
       who: "done",
       lead: "Merged",
-      what: "Merged #7",
+      what: Option.some("Merged #7"),
     });
   });
 
@@ -204,14 +310,15 @@ describe("where it stands", () => {
 
 describe("the members of one work", () => {
   it("reads them out of the ONE map, in the order a waterfall runs them", () => {
+    const unread = { kind: "unread" } as const;
     const map = new Map<string, WorkMember>([
       [
         "local/b",
-        { work: WORK, role: "implementor", joinedAt: AT, worktree: null },
+        { work: WORK, role: "implementor", joinedAt: AT, worktree: unread },
       ],
       [
         "local/a",
-        { work: WORK, role: "planner", joinedAt: AT, worktree: null },
+        { work: WORK, role: "planner", joinedAt: AT, worktree: unread },
       ],
       [
         "local/c",
@@ -219,7 +326,7 @@ describe("the members of one work", () => {
           work: "branch:local/x/y",
           role: "other",
           joinedAt: AT,
-          worktree: null,
+          worktree: unread,
         },
       ],
     ]);
@@ -236,14 +343,7 @@ describe("the members of one work", () => {
 
 describe("the timeline's words", () => {
   const plan = work({
-    decisions: [
-      settled(
-        { ...answered("Approve"), from: "card" },
-        {
-          header: "Plan approval",
-        },
-      ),
-    ],
+    decisions: [picked("Approve", { header: "Plan approval" }, "card")],
     events: [joined()],
   });
 
@@ -258,6 +358,15 @@ describe("the timeline's words", () => {
     );
   });
 
+  it("says a form answered in parts is answered in parts", () => {
+    // BUG 2, on the timeline: what was filled in is recorded and the rest of
+    // the ask is still in front of the person, so the line must not read as
+    // an answer to the whole of it.
+    const line = words(plan, event({ kind: "answered-part", ask: "ask-1" }));
+    expect(line).toContain("part");
+    expect(line).toContain("still open");
+  });
+
   it("never draws an ask id, not even for a question nobody can find", () => {
     const orphan = { kind: "question", ask: "ask:29b0c4f1:1" } as const;
     for (const kind of ["question", "answered", "question-dropped"] as const)
@@ -270,9 +379,10 @@ describe("the timeline's words", () => {
     const PUSHED = "9b7e3d1aa5c7e9b1d3f5a7c9e1b3d5f7a9c1e3b5";
     const check = (
       kind: "checks-running" | "checks-passed" | "checks-failed",
-      head: string,
+      sha: string,
       failing: string[] = [],
-    ) => event({ kind, by: "ci", pr: 7, head, failing });
+    ) =>
+      event({ kind, by: "ci", pr: 7, head: { kind: "commit", sha }, failing });
     // One commit: the oid is on the record, and saying it would be the
     // card's loudest word for its least interesting fact.
     const one = work({
@@ -305,7 +415,7 @@ describe("the timeline's words", () => {
           kind: "checks-failed",
           by: "ci",
           pr: 7,
-          head: null,
+          head: { kind: "unreported" },
           failing: ["build"],
         }),
       ],
@@ -317,14 +427,47 @@ describe("the timeline's words", () => {
 
   it("names a member by the part it played, even after it left", () => {
     expect(
-      words(plan, event({ kind: "stopped", terminal: "local/a", why: "" })),
+      words(
+        plan,
+        event({
+          kind: "stopped",
+          about: aboutMember("local/a"),
+          why: { kind: "none" },
+        }),
+      ),
     ).toBe("Planner stopped");
     expect(
-      words(plan, event({ kind: "left", terminal: "local/a", why: "gone" })),
+      words(
+        plan,
+        event({ kind: "left", about: aboutMember("local/a"), why: "gone" }),
+      ),
     ).toBe("Planner left · its terminal is gone");
     expect(
       words(plan, event({ kind: "file", path: ".waterfall/plan.md" })),
     ).toBe("Wrote .waterfall/plan.md");
+  });
+
+  it("says why an agent exited when its terminal gave a reason", () => {
+    expect(
+      words(
+        plan,
+        event({
+          kind: "exited",
+          about: aboutMember("local/a"),
+          why: { kind: "reason", text: "killed" },
+        }),
+      ),
+    ).toBe("Planner exited · killed");
+    expect(
+      words(
+        plan,
+        event({
+          kind: "exited",
+          about: aboutMember("local/a"),
+          why: { kind: "none" },
+        }),
+      ),
+    ).toBe("Planner exited");
   });
 
   it("says the end and the way back in the words there are only four of", () => {
@@ -339,17 +482,23 @@ describe("the timeline's words", () => {
 
   it("says how an answer ended when nobody gave one", () => {
     expect(answerWords(asked())).toBe("waiting");
+    expect(answerWords(declined())).toBe("declined");
+  });
+
+  it("says what was SAID — the picks, then the words typed", () => {
+    expect(answerWords(picked("Approve"))).toBe("Approve");
+    expect(answerWords(said({ kind: "typed", text: "keep the guides" }))).toBe(
+      "keep the guides",
+    );
     expect(
       answerWords(
-        settled({
-          at: AT,
-          how: "declined",
-          picked: [],
-          text: null,
-          from: "card",
+        said({
+          kind: "picked-and-typed",
+          picked: ["Approve"],
+          text: "but rename it",
         }),
       ),
-    ).toBe("declined");
+    ).toBe("Approve · but rename it");
   });
 });
 
@@ -358,10 +507,7 @@ describe("the lock, as a person meets it", () => {
    *  map. The driver is read off the record by `kolu-work`; what is tested
    *  here is the browser's two answers to it: may this person type, and what
    *  does the banner say. */
-  const driven = work({
-    decisions: [settled(answered("full"), { id: "m", key: "mode" })],
-    events: [joined()],
-  });
+  const driven = work({ decisions: [mode("full")], events: [joined()] });
   const membershipAt = (one: Work) => {
     const at = membershipOf(new Map([[WORK, one]]), members()).get("local/a");
     if (at === undefined) throw new Error("the planner must be a member");
@@ -369,27 +515,29 @@ describe("the lock, as a person meets it", () => {
   };
 
   it("blocks a person's input only while the Conductor is driving", () => {
-    // The four cases every input site passes through this one rule.
-    expect(inputAllowed("conductor")).toBe(false);
-    expect(inputAllowed("you")).toBe(true);
-    expect(inputAllowed(null)).toBe(true);
-    expect(inputAllowed(undefined)).toBe(true);
+    // The three cases every input site passes through this one rule: driven,
+    // taken over, and a terminal the index does not name at all.
+    expect(inputAllowed(Option.some(membershipAt(driven)))).toBe(false);
+    const mine = takeOver(driven, "local/a", AT);
+    expect(inputAllowed(Option.some(membershipAt(mine)))).toBe(true);
+    expect(inputAllowed(Option.none())).toBe(true);
   });
 
   it("says who is driving, which part and which work", () => {
-    expect(lockWords(membershipAt(driven))).toBe(
+    const at = membershipAt(driven);
+    expect(lockWords(at, "conductor")).toBe(
       "Driven by the Conductor · Planner · Show agent-distro update errors",
     );
     // Taken over: the SAME index, read after the act — so the banner, the
     // dock's mark and the keystroke gate cannot disagree.
     const mine = takeOver(driven, "local/a", AT);
-    expect(lockWords(membershipAt(mine))).toBe(
+    expect(membershipAt(mine).driver).toBe("you");
+    expect(lockWords(membershipAt(mine), "you")).toBe(
       "Taken over · Planner · Show agent-distro update errors",
     );
-    expect(inputAllowed(membershipAt(mine).driver)).toBe(true);
-    expect(
-      inputAllowed(membershipAt(handBack(mine, "local/a", AT)).driver),
-    ).toBe(false);
+    expect(membershipAt(handBack(mine, "local/a", AT)).driver).toBe(
+      "conductor",
+    );
   });
 
   it("names the Conductor and the part on the card typing raises", () => {
@@ -401,26 +549,29 @@ describe("the lock, as a person meets it", () => {
     );
   });
 
-  it("draws nothing for a work that drives nothing — a watch", () => {
-    const watched = work({
-      decisions: [settled(answered("watch"), { id: "m", key: "mode" })],
-      events: [joined()],
-    });
-    expect(membershipAt(watched).driver).toBe(null);
-    expect(lockWords(membershipAt(watched))).toBe("");
+  it("drives NOBODY in a work that drives nothing — a watch", () => {
+    const watched = work({ decisions: [mode("watch")], events: [joined()] });
+    // An arm of its own, not an absence: the terminal is a member, and
+    // nothing types into it but the person in front of it.
+    expect(membershipAt(watched).driver).toBe("nobody");
+    expect(inputAllowed(Option.some(membershipAt(watched)))).toBe(true);
   });
 
   it("tells the timeline what the person did, by the part they took", () => {
     expect(
       words(
         driven,
-        event({ kind: "taken-over", by: "you", terminal: "local/a" }),
+        event({ kind: "taken-over", by: "you", about: aboutMember("local/a") }),
       ),
     ).toBe("You took over the planner");
     expect(
       words(
         driven,
-        event({ kind: "handed-back", by: "you", terminal: "local/a" }),
+        event({
+          kind: "handed-back",
+          by: "you",
+          about: aboutMember("local/a"),
+        }),
       ),
     ).toBe("You handed the planner back");
     // The bound's own event: a count, in words, where the stretch happened.
@@ -432,14 +583,12 @@ describe("the lock, as a person meets it", () => {
 
 describe("the card's own vocabulary and typography", () => {
   it("labels a setup decision by its key's own name, one label per role", () => {
-    expect(decisionLabel(asked({ key: "mode" }))).toBe("Mode");
-    expect(decisionLabel(asked({ key: "on-green" }))).toBe("On green");
+    expect(decisionLabel(modeAsked())).toBe("Mode");
+    expect(decisionLabel(onGreenAsked())).toBe("On green");
     // A role is ONE row: its harness and its model answer under one label.
-    expect(decisionLabel(asked({ key: "planner.harness" }))).toBe("Planner");
-    expect(decisionLabel(asked({ key: "planner.model" }))).toBe("Planner");
-    expect(decisionLabel(asked({ key: "implementor.model" }))).toBe(
-      "Implementor",
-    );
+    expect(decisionLabel(choiceAsked("planner.harness"))).toBe("Planner");
+    expect(decisionLabel(choiceAsked("planner.model"))).toBe("Planner");
+    expect(decisionLabel(choiceAsked("implementor.model"))).toBe("Implementor");
     // Every key has a row, and no key has two. The HOST is not among them:
     // a work IS its host, so there is nothing there to decide.
     expect([...SETUP_ROWS].flat().sort()).toEqual([...SETUP_KEYS].sort());
@@ -451,7 +600,7 @@ describe("the card's own vocabulary and typography", () => {
     );
   });
 
-  it("falls back to a few words of the question when there is no header", () => {
+  it("stands in a few words of the question for a header of none", () => {
     expect(decisionLabel(asked())).toBe("Approve the plan?");
     // THE DEFECT THIS GUARDS: a Conductor that reasons inside its question
     // had that whole paragraph drawn as the row's label.
@@ -490,10 +639,10 @@ describe("the card's own vocabulary and typography", () => {
 describe("the decisions, as the rows a card draws", () => {
   const set = work({
     decisions: [
-      settled(answered("trivial"), { id: "m", key: "mode" }),
-      settled(answered("omp"), { id: "ih", key: "implementor.harness" }),
-      settled(answered("Opus 5.5"), { id: "im", key: "implementor.model" }),
-      settled(answered("hand-over"), { id: "g", key: "on-green" }),
+      mode("trivial"),
+      choice("implementor.harness", "omp", { id: "ih" }),
+      choice("implementor.model", "Opus 5.5", { id: "im" }),
+      onGreen("hand-over"),
     ],
   });
 
@@ -512,25 +661,32 @@ describe("the decisions, as the rows a card draws", () => {
 
   it("keeps the question and where it was answered behind the row", () => {
     const row = decisionRows(set)[0];
-    expect(row?.from).toBe("chat");
+    expect(row?.from).toEqual(Option.some("chat"));
+    expect(row?.topic).toEqual({ kind: "setup", key: "mode" });
     expect(row?.decisions.map((one) => one.question)).toEqual([
       "Approve the plan?",
     ]);
   });
 
+  it("says a setup question nobody has answered is still waiting", () => {
+    const open = work({ decisions: [modeAsked()] });
+    const row = decisionRows(open)[0];
+    expect(row?.answer).toBe("waiting");
+    expect(row?.from).toEqual(Option.none());
+  });
+
   it("labels a question that is not setup by its header, and cuts a long answer", () => {
     const long = work({
       decisions: [
-        settled(
-          answered(
-            "Change it: the rewrite should keep the reference pages as they are and only touch the guides",
-          ),
+        picked(
+          "Change it: the rewrite should keep the reference pages as they are and only touch the guides",
           { id: "p", header: "Plan approval" },
         ),
       ],
     });
     const row = decisionRows(long)[0];
     expect(row?.label).toBe("Plan approval");
+    expect(row?.topic).toEqual({ kind: "work" });
     expect(row?.rest).toBe(true);
     expect(row?.answer.endsWith("…")).toBe(true);
   });
@@ -587,19 +743,21 @@ describe("the tab's one number", () => {
 describe("a PR's checks", () => {
   it("says nothing at all when no checks are configured", () => {
     expect(
-      checksTally({
-        number: 1,
-        title: "t",
-        url: "u",
-        state: "open",
-        checks: null,
-        checkRuns: [],
-        reviewDecision: null,
-        mergeStateStatus: "UNKNOWN",
-        headSha: null,
-      }),
-    ).toBeNull();
-    expect(checksTally(null)).toBeNull();
+      checksTally(
+        Option.some({
+          number: 1,
+          title: "t",
+          url: "u",
+          state: "open",
+          checks: null,
+          checkRuns: [],
+          reviewDecision: null,
+          mergeStateStatus: "UNKNOWN",
+          headSha: null,
+        }),
+      ),
+    ).toEqual(Option.none());
+    expect(checksTally(Option.none())).toEqual(Option.none());
   });
 });
 
@@ -615,9 +773,7 @@ describe("a finished card has nothing to draw terminals or questions from", () =
   });
 
   it("keeps its decisions and its timeline across the end", () => {
-    const decided: ReadonlyArray<Decision> = [
-      settled(answered("hand-over"), { id: "g", key: "on-green" }),
-    ];
+    const decided: ReadonlyArray<Decision> = [onGreen("hand-over")];
     const over = work({
       decisions: [...decided],
       state: {

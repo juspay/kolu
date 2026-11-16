@@ -18,12 +18,21 @@
 import type { PadiTerminal } from "@kolu/padi-client/surface";
 import { ToolFailure } from "@kolu/surface-mcp";
 import { describe, expect, it } from "vitest";
-import { agentPresence, agentVocab } from "kolu-agents/vocab";
+import type { AgentStateOutcome } from "@kolu/padi-client/watch";
+import type { AgentInfo } from "@kolu/terminal-vocab/schema";
+import {
+  agentPresence,
+  agentVocab,
+  type PaneReading,
+  type SteerSight,
+} from "kolu-agents/vocab";
 import {
   resolveSay,
   type SayRefusal,
   type SayVocabulary,
   sayTook,
+  steerVerdict,
+  terminalRecord,
 } from "./say.ts";
 
 const ID = "11111111-1111-4111-8111-111111111111";
@@ -278,8 +287,11 @@ describe("the two refusals no shipped agent can reach", () => {
 });
 
 describe("sayTook — did the keys take, and what the answer says either way", () => {
+  const started = (outcome: AgentStateOutcome) =>
+    sayTook("submitted", { kind: "start", outcome });
+
   it("an idle agent that starts working took it", () => {
-    const took = sayTook("submitted", {
+    const took = started({
       kind: "met",
       agent: { kind: "omp", state: "thinking" } as never,
       elapsedMs: 120,
@@ -291,7 +303,7 @@ describe("sayTook — did the keys take, and what the answer says either way", (
   it("a fresh agent padi saw the submit reach is `submit-landed`, never claimed as a turn begun", () => {
     // The keys this tool pressed are what make it `prompted`, so that reading
     // proves the Enter got there — not that the agent answered.
-    const took = sayTook("submitted", {
+    const took = started({
       kind: "met",
       agent: agentPresence("omp", "prompted", null),
       elapsedMs: 3,
@@ -303,35 +315,165 @@ describe("sayTook — did the keys take, and what the answer says either way", (
   it("an idle agent that does NOT start is an ANSWER, not a failure — and it names the screen read", () => {
     // The failure mode this exists to stop: a tool that reports nothing but
     // "sent" invites the caller to say it again, which types the prompt twice.
-    const took = sayTook("submitted", { kind: "timeout", elapsedMs: 3000 });
+    const took = started({ kind: "timeout", elapsedMs: 3000 });
     expect(took).toMatchObject({ observed: "did-not-begin", waitedMs: 3000 });
     expect(took.note).toContain("keys were sent");
     expect(took.note).toContain("screen_text");
   });
 
-  it("a WORKING agent is told plainly that taking is not observable — with its delivery", () => {
-    const steered = sayTook("steer", null);
+  it("a working agent with nothing to watch is told plainly that taking is not observable — with its delivery", () => {
+    const steered = sayTook("steer", { kind: "nothing" });
     expect(steered.observed).toBe("not-observable");
     expect(steered.note).toContain("turn that is running");
 
-    const queued = sayTook("queue", null);
+    const queued = sayTook("queue", { kind: "nothing" });
     expect(queued.observed).toBe("not-observable");
     expect(queued.note).toContain("next turn");
   });
 
+  it("a HELD steer says it will be delivered on its own, and warns off the Enter that would interrupt", () => {
+    const took = sayTook("steer", {
+      kind: "steer",
+      outcome: { kind: "held", waitedMs: 5000 },
+    });
+    expect(took).toMatchObject({ observed: "held", waitedMs: 5000 });
+    expect(took.note).toContain("on their own");
+    expect(took.note).toContain("do not send Enter");
+  });
+
   it("losing sight of the terminal says which way it was lost", () => {
-    expect(sayTook("submitted", { kind: "gone", elapsedMs: 10 })).toMatchObject(
-      { observed: "lost-sight", why: "gone" },
+    expect(started({ kind: "gone", elapsedMs: 10 })).toMatchObject({
+      observed: "lost-sight",
+      why: "gone",
+    });
+    expect(started({ kind: "closed", error: "link dropped" })).toMatchObject({
+      observed: "lost-sight",
+      why: "closed",
+    });
+    expect(started({ kind: "closed", error: "link dropped" }).note).toContain(
+      "link dropped",
     );
-    expect(
-      sayTook("submitted", { kind: "closed", error: "link dropped" }),
-    ).toMatchObject({ observed: "lost-sight", why: "closed" });
-    expect(
-      sayTook("submitted", { kind: "closed", error: "link dropped" }).note,
-    ).toContain("link dropped");
-    expect(sayTook("submitted", { kind: "interrupted" })).toMatchObject({
+    expect(started({ kind: "interrupted" })).toMatchObject({
       observed: "lost-sight",
       why: "interrupted",
     });
+  });
+});
+
+describe("steerVerdict — where a steer stands when the watch runs out", () => {
+  const WORDS = "also check the staging logs";
+  const sight = (pane: PaneReading): SteerSight<AgentInfo> => ({
+    lastPrompt: (info) => {
+      const { lastPromptId, lastPromptText } = info as unknown as {
+        lastPromptId: string | null;
+        lastPromptText: string | null;
+      };
+      return lastPromptId === null
+        ? null
+        : { id: lastPromptId, text: lastPromptText };
+    },
+    pane: () => pane,
+  });
+  const omp = (
+    lastPromptId: string | null,
+    lastPromptText: string | null = WORDS,
+  ): AgentInfo =>
+    ({
+      kind: "omp",
+      state: "thinking",
+      lastPromptId,
+      lastPromptText,
+    }) as unknown as AgentInfo;
+  const verdict = (after: AgentInfo | null, pane: PaneReading) =>
+    steerVerdict({
+      sight: sight(pane),
+      before: "686ac209",
+      after,
+      screen: "",
+      words: WORDS,
+      waitedMs: 6500,
+    });
+  const ABSENT: PaneReading = { kind: "absent" };
+
+  it("a new prompt CARRYING THESE WORDS is LANDED, held or not", () => {
+    // The step ended between the two reads: the pane emptied because the turn
+    // took the words.
+    expect(verdict(omp("7d8bf8bc"), ABSENT)).toEqual({
+      kind: "landed",
+      elapsedMs: 6500,
+    });
+  });
+
+  it("a new prompt carrying SOMEONE ELSE'S words is not landed", () => {
+    // An older held steer handed over, or the human typing in that terminal,
+    // inside the watch. The id moved; what was said is still in the input
+    // box, and a caller told `landed` would never send it again.
+    expect(
+      verdict(omp("7d8bf8bc", "whatever the human just typed"), ABSENT),
+    ).toEqual({ kind: "did-not-land", waitedMs: 6500 });
+  });
+
+  it("a new prompt whose text kolu cannot read is CANNOT-TELL", () => {
+    const outcome = verdict(omp("7d8bf8bc", null), ABSENT);
+    expect(outcome.kind).toBe("cannot-tell");
+  });
+
+  it("the same prompt and the words in the pane is HELD", () => {
+    expect(verdict(omp("686ac209"), { kind: "holds" })).toEqual({
+      kind: "held",
+      waitedMs: 6500,
+    });
+  });
+
+  it("the same prompt and an EMPTY pane is DID-NOT-LAND — both facts seen", () => {
+    expect(verdict(omp("686ac209"), ABSENT)).toEqual({
+      kind: "did-not-land",
+      waitedMs: 6500,
+    });
+  });
+
+  it("a pane kolu could not parse is CANNOT-TELL, never did-not-land", () => {
+    const outcome = verdict(omp("686ac209"), {
+      kind: "unreadable",
+      why: "its steering pane runs past the rows kolu read",
+    });
+    expect(outcome).toEqual({
+      kind: "cannot-tell",
+      waitedMs: 6500,
+      why: "its steering pane runs past the rows kolu read",
+    });
+  });
+
+  it("no live agent in the record after the keys is CANNOT-TELL", () => {
+    // Nothing was read that says the words did not arrive — saying they did
+    // not would be reporting an absence kolu never saw.
+    expect(verdict(null, ABSENT).kind).toBe("cannot-tell");
+  });
+});
+
+describe("terminalRecord — padi's frame is decoded, never asserted", () => {
+  it("a malformed frame is a named refusal, and nothing is typed", () => {
+    try {
+      terminalRecord(ID, { state: "active", agent: { kind: 42 } });
+      throw new Error("expected the decode to refuse");
+    } catch (e) {
+      expect(e).toBeInstanceOf(ToolFailure);
+      expect((e as ToolFailure<SayRefusal>).detail).toEqual({
+        kind: "record-unreadable",
+        id: ID,
+      });
+      expect((e as ToolFailure<SayRefusal>).message).toContain(
+        "nothing was typed",
+      );
+    }
+  });
+
+  it("a real record decodes to padi's own shape", () => {
+    const record = terminalRecord(ID, {
+      state: "active",
+      title: "worker",
+      agent: null,
+    });
+    expect(record.state).toBe("active");
   });
 });

@@ -390,6 +390,7 @@ describe("delivery reports — what a host does with kolu-server's word", () => 
       kind: "ready",
       set: { bundle, profiles: [juspay] },
       delivering: false,
+      answers: [],
     });
     const layer = newTerminalLayer();
     expect(layer).toEqual({
@@ -618,6 +619,8 @@ describe("delivery reports — what a host does with kolu-server's word", () => 
       kind: "ready",
       set: { bundle: floorPackage(), profiles: [] },
       delivering: false,
+      // The stand-in package names no answers: a package older than `--models`.
+      answers: [],
     };
     expect(status()).toEqual(ready);
 

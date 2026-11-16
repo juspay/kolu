@@ -171,7 +171,7 @@ describe("the persisted state file — aggregate bytes", () => {
         work: "branch:local/%2Fsrv%2Frepo/fix-the-parser",
         role: "implementor",
         joinedAt: "2026-01-01T00:00:00.000Z",
-        worktree: null,
+        worktree: { kind: "unread" },
         watch: {
           name: "fix the parser",
           agent: "claude-code",
@@ -219,7 +219,7 @@ describe("the persisted state file — aggregate bytes", () => {
       '{"local/11111111-1111-4111-8111-111111111111":' +
         '{"work":"branch:local/%2Fsrv%2Frepo/fix-the-parser",' +
         '"role":"implementor","joinedAt":"2026-01-01T00:00:00.000Z",' +
-        '"worktree":null,"watch":{"name":"fix the parser",' +
+        '"worktree":{"kind":"unread"},"watch":{"name":"fix the parser",' +
         '"agent":"claude-code","told":"stopped","joined":"created-run",' +
         '"spoken":true,"ran":true}}}',
     );

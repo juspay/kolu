@@ -74,7 +74,7 @@ nix_shell := if env('IN_NIX_SHELL', '') != '' { '' } else { 'nix develop --accep
 [macos]
 [parallel]
 [metadata("ci")]
-default: nix cache-substitutable agent-flake-nix agent-bake website-nix website-pnpm-hash-fresh surface-examples-nix solid-browser-example-nix odu-nix home-manager e2e e2e-governance dev-smoke smoke fmt biome unit daemon upgrade-window surface-example-build surface-app-example-build pnpm-hash-fresh
+default: nix cache-substitutable agent-flake-nix agent-bake agent-models agent-published website-nix website-pnpm-hash-fresh surface-examples-nix solid-browser-example-nix odu-nix home-manager e2e e2e-governance dev-smoke smoke fmt biome unit daemon upgrade-window surface-example-build surface-app-example-build pnpm-hash-fresh
 
 # Single per-platform `pnpm install`. The runner fans every recipe out into
 # its own process and starts them all in parallel as soon as setup completes,
@@ -278,6 +278,27 @@ dev-smoke: install
 # rather than a build racing ci::nix for the same drv.
 agent-bake: nix
     {{ nix_shell }} just --no-deps test-agent-bake
+
+# Padi's model call against the TWO REAL PACKAGES — this tree's floor and
+# upstream's package from the commit before `--models` existed — rationale with
+# the recipe (root justfile `test-agent-models`). A LANE, not a check inside
+# `ci::nix`: real launchers want a writable HOME, and a harness that lists asks
+# its own catalogue, neither of which the build sandbox has. Depends on
+# `install` (vitest) and `nix` so both `nix build`s are already-realized
+# lookups rather than builds racing ci::nix.
+agent-models: install nix
+    {{ nix_shell }} just --no-deps test-agent-models
+
+# Does the package kolu DELIVERS — upstream's newest published, which is what
+# every host actually serves — answer every call kolu's contract makes?
+# Rationale with the recipe (root justfile `test-agent-published`). A LANE
+# because it reads upstream's HTTPS index and pulls that closure from upstream's
+# binary cache; a sandboxed check has no network and could only stay silent,
+# which is how the model question shipped unanswerable on every delivered host.
+# RED until upstream publishes a package that answers, and green then with no
+# change in this repo.
+agent-published: install nix
+    {{ nix_shell }} just --no-deps test-agent-published
 
 # `just test` builds `.#koluBin` itself (justfile `test` recipe). Depend on
 # `nix` as well as the shared pnpm install so that build is an already-realized

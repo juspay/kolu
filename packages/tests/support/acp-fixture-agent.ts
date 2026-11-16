@@ -29,6 +29,12 @@
  *                      to be marked `queued` behind it
  *   refuse this      — a JSON-RPC error, which is a turn that ENDED rather than
  *                      an agent that has gone
+ *   hit the limit    — the account at its usage limit: a JSON-RPC error whose
+ *                      `data.errorKind` is `rate_limit`, as the pinned adapter
+ *                      sends it, so the row offers the sign-in beside it
+ *   who am I         — `you are <account>`: the account this PROCESS read at
+ *                      start, which its advertised login moves on, so a
+ *                      sign-in shows only once the agent is started again
  *   list the fleet   — the ONE verb that is not scripted: it opens a real MCP
  *                      session on the fleet endpoint this session was handed
  *                      and reads the roster + every host's terminals, then
@@ -44,10 +50,15 @@
  *                      that leaves the on-green question for the human: says
  *                      `opening: <title>` and `opened: <id>` in the SAME
  *                      turn, because asking never waits — whatever they
- *                      answer arrives later as a wake
- *   run the implementor in <cwd>: <command>
+ *                      answer arrives later as a wake. A `work_open` the
+ *                      fleet face REFUSED says `nothing opened: refused:
+ *                      <the face's own sentence>`, the way `ran:` prints
+ *                      what kolu typed: what kolu would not do, and why,
+ *                      is the only thing the person has to read
+ *   run the implementor in <cwd>
  *                    — a REAL `lifecycle_create` with `work` = the last work
- *                      opened and `role: implementor`, typing `<command>`
+ *                      opened and `role: implementor`. NO command: kolu
+ *                      builds one from that work's setup and types it
  *   ask about the work — a REAL `work_ask` ("Approve the plan?", approve or
  *                      revise) about the last work opened; says
  *                      `asked: <ask id>` and ENDS THE TURN. The answer comes
@@ -60,14 +71,16 @@
  *   watch <id>       — a plain watch: a REAL `work_open` in mode `watch`
  *                      (host and mode given, nothing asked), then `work_adopt`
  *                      of `local/<id>` with role `other`
- *   run <command>    — a REAL `work_open` (mode `trivial`, nothing asked)
- *                      then a REAL `lifecycle_create` with that work and role
- *                      `implementor` that TYPES `<command>` at the new
- *                      terminal's first prompt (the scenario names it,
- *                      because only the test process knows the stand-in
- *                      binary's absolute path), and answers
- *                      `ran: <the tool's answer>` — which carries the fleet
- *                      ref the create made a member
+ *   run an agent in <cwd>
+ *                    — a REAL `work_open` (mode `trivial`, nothing asked,
+ *                      keyed by that directory) then a REAL
+ *                      `lifecycle_create` with that work and role
+ *                      `implementor`. kolu types the command (`claude
+ *                      --model …`, off the setup), and the floor's stand-in
+ *                      `claude` runs whatever the scenario left in its relay;
+ *                      answered `ran: <the tool's answer>`, which carries
+ *                      both the fleet ref the create made a member and the
+ *                      line kolu typed
  *   tell it <words>  — a REAL `agent_say` to the terminal `run` last started,
  *                      answered verbatim: the tool's report when it landed,
  *                      its refusal sentence when it did not
@@ -96,8 +109,14 @@
  */
 
 import { randomUUID } from "node:crypto";
-import { existsSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { FIXTURE_HARNESS } from "./agentDistroFixture.ts";
+
+/** The model every work this fixture opens runs its implementor on. A word,
+ *  not an id: the floor's one harness lists no models (`FIXTURE_MODELS`), so
+ *  kolu accepts whatever is named and starts it as `claude --model sonnet`. */
+const IMPLEMENTOR_MODEL = "sonnet";
 
 /** Where this agent remembers the sessions that had a prompt. Required: a
  *  fixture that silently accepted every id would hide the very defect it is
@@ -126,6 +145,21 @@ const respond = (id: unknown, result: unknown): void => {
 const refuse = (id: unknown, message: string): void => {
   write({ jsonrpc: "2.0", id, error: { code: -32603, message } });
 };
+
+/** WHO THIS PROCESS IS SIGNED IN AS — read ONCE, at start, the way the pinned
+ *  adapter caches the account it read at `initialize`: a login that changes
+ *  the store is invisible to a running process until it is started again.
+ *  The store's `.account` holds a count the login moves on, so a scenario
+ *  compares the account before and after rather than naming one. */
+const ACCOUNT_FILE = join(STORE, ".account");
+const ACCOUNT = existsSync(ACCOUNT_FILE)
+  ? `account-${readFileSync(ACCOUNT_FILE, "utf8").trim()}`
+  : "account-0";
+
+/** The login this agent advertises: a command that moves the store's account
+ *  on by one and exits 0 — what `claude auth login` does to its store, minus
+ *  the browser. */
+const LOGIN = `const f=${JSON.stringify(ACCOUNT_FILE)},fs=require("fs");fs.writeFileSync(f,String((fs.existsSync(f)?Number(fs.readFileSync(f,"utf8")):0)+1));process.stdout.write("signed in\\n")`;
 
 const update = (frame: unknown): void => {
   write({
@@ -467,10 +501,18 @@ let lastWork: string | null = null;
  *
  *  `mode` and `on-green` carry kolu's OWN words (`full`/`trivial`/`watch`,
  *  `merge`/`hand-over`): those two answers are read back off the decision, so
- *  the fleet face refuses options that are anything else. */
+ *  the fleet face refuses options that are anything else. The four harness
+ *  and model questions are kolu's to offer — this names them and says what
+ *  the request already carried, and nothing else: a `question` or `options`
+ *  beside one of those keys is refused by the tool's own schema.
+ *
+ *  The harness is the one the floor under the e2e server carries
+ *  ({@link FIXTURE_HARNESS}), because kolu checks a given harness against its
+ *  agent-distro listing; the model is a word, which that harness takes as it
+ *  lists none ({@link FIXTURE_MODELS}). */
 const setupFor = (
   mode: "full" | "trivial" | "watch",
-  over: { host?: string; askOnGreen?: boolean } = {},
+  over: { host?: string; askOnGreen?: boolean; askModel?: boolean } = {},
 ): Array<Record<string, unknown>> => {
   const given = (
     key: string,
@@ -478,6 +520,9 @@ const setupFor = (
     options: string[],
     answer: string,
   ) => ({ key, question, options, given: answer });
+  /** A harness or model question: NAMED, with the answer the request carried.
+   *  kolu words it and draws its options. */
+  const chosen = (key: string, answer: string) => ({ key, given: answer });
   const setup: Array<Record<string, unknown>> = [
     // The HOST is no longer a setup question: it is part of the work's key.
     given("mode", "Which mode?", [mode], mode),
@@ -485,13 +530,17 @@ const setupFor = (
   if (mode === "watch") return setup;
   if (mode === "full") {
     setup.push(
-      given("planner.harness", "Which harness plans?", ["omp"], "omp"),
-      given("planner.model", "On which model?", ["opus"], "opus"),
+      chosen("planner.harness", FIXTURE_HARNESS.name),
+      chosen("planner.model", "opus"),
     );
   }
   setup.push(
-    given("implementor.harness", "Which harness builds?", ["omp"], "omp"),
-    given("implementor.model", "On which model?", ["sonnet"], "sonnet"),
+    chosen("implementor.harness", FIXTURE_HARNESS.name),
+    // THE MODEL LEFT TO THE HUMAN, when the scenario is about the form's
+    // model question: named, with nothing given, so kolu asks it.
+    over.askModel === true
+      ? { key: "implementor.model" }
+      : chosen("implementor.model", IMPLEMENTOR_MODEL),
   );
   // THE ONE QUESTION LEFT FOR THE HUMAN, when the scenario wants a card with
   // something to answer: the options are kolu's own words, which is what the
@@ -517,6 +566,11 @@ const slug = (title: string): string =>
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-|-$/g, "");
 
+/** WHAT THE LAST `work_open` ANSWERED, kept whole — a refusal's own sentence
+ *  is all a person gets when no work was opened, so the turn says it rather
+ *  than reporting the absence of an id. */
+let lastOpenSaid = "";
+
 const openWork = async (
   title: string,
   mode: "full" | "trivial" | "watch",
@@ -524,24 +578,30 @@ const openWork = async (
     host?: string;
     repo?: string;
     askOnGreen?: boolean;
+    askModel?: boolean;
     watch?: string;
   } = {},
 ): Promise<string | null> => {
   // A WORK IS ITS KEY. Each title gets a branch of its own, so two scenarios
   // in one worker are two pieces of work — and opening the SAME title twice
   // is the idempotent case: the same key, the same work, no second card.
+  //
+  // THE REPOSITORY HAS TO BE THERE: kolu asks the work's host which models
+  // the chosen harness offers, and it asks IN the work's repository (the
+  // profiles a terminal there would get). A placeholder path nobody made is a
+  // directory that command cannot run in, so the open would be refused for a
+  // reason that has nothing to do with the scenario.
+  const repo = over.repo ?? "/tmp/kolu-e2e";
+  if (over.watch === undefined) mkdirSync(repo, { recursive: true });
   const answer = await callTool("work_open", {
     title,
     ...(over.watch === undefined
-      ? {
-          host: over.host ?? "local",
-          repo: over.repo ?? "/tmp/kolu-e2e",
-          branch: slug(title),
-        }
+      ? { host: over.host ?? "local", repo, branch: slug(title) }
       : { watch: over.watch }),
     setup: setupFor(mode, over),
   });
   const work = /"work"\s*:\s*"([^"]+)"/.exec(answer)?.[1] ?? null;
+  lastOpenSaid = answer;
   lastWork = work;
   return work;
 };
@@ -574,6 +634,20 @@ const turn = async (
     endTurn(id);
     return;
   }
+  if (text.startsWith("open the model by hand ")) {
+    // A TRIVIAL WORK WHOSE MODEL IS THE HUMAN'S TO NAME: everything else is
+    // given, so the form is the one model question — what a person sees on a
+    // host that could not list its models.
+    const said = text.slice("open the model by hand ".length).trim();
+    const at = said.lastIndexOf(" in /");
+    const title = at === -1 ? said : said.slice(0, at).trim();
+    const repo = at === -1 ? "/tmp/kolu-e2e" : said.slice(at + 4).trim();
+    say(`opening: ${title}`);
+    const work = await openWork(title, "trivial", { repo, askModel: true });
+    say(work === null ? `nothing opened: ${lastOpenSaid}` : `opened: ${work}`);
+    endTurn(id);
+    return;
+  }
   if (text.startsWith("open ")) {
     // THE CONDUCTOR STATES ITS INTENT. One `work_open` whose setup leaves the
     // on-green question for the human, so the card has something to answer —
@@ -593,17 +667,18 @@ const turn = async (
       repo,
       askOnGreen: true,
     });
-    say(work === null ? "nothing opened" : `opened: ${work}`);
+    say(work === null ? `nothing opened: ${lastOpenSaid}` : `opened: ${work}`);
     endTurn(id);
     return;
   }
   if (text.startsWith("run the implementor in ")) {
     // A MEMBER OF THE WORK ALREADY OPEN, in a directory the scenario made —
     // which is where its `.waterfall/` files and its PR are observed from.
-    const rest = text.slice("run the implementor in ".length);
-    const at = rest.indexOf(":");
-    const cwd = rest.slice(0, at === -1 ? rest.length : at).trim();
-    const command = at === -1 ? "" : rest.slice(at + 1).trim();
+    //
+    // NO COMMAND: an implementor is started by KOLU, from the harness and
+    // model this work's setup carries — `lifecycle_create` refuses a `run`
+    // beside that role. The answer says what kolu typed, as `ran`.
+    const cwd = text.slice("run the implementor in ".length).trim();
     if (lastWork === null) {
       say("no work is open");
       endTurn(id);
@@ -614,12 +689,19 @@ const turn = async (
       placement: { kind: "toplevel" },
       cwd,
       intent: "build it",
-      run: command,
       work: lastWork,
       role: "implementor",
     });
     lastStarted = /\blocal\/[0-9a-f-]{36}\b/.exec(answer)?.[0] ?? null;
     say(`ran: ${answer}`);
+    endTurn(id);
+    return;
+  }
+  if (text === "say where the plan is") {
+    // THE CONDUCTOR NAMES A FILE IN ITS OWN WORDS, as a real one does after
+    // a planner writes — plain prose with the path in backticks. Nothing
+    // here says which work: kolu reads that off the files it holds.
+    say("Its plan is at `.waterfall/plan.md`.");
     endTurn(id);
     return;
   }
@@ -707,21 +789,24 @@ const turn = async (
     endTurn(id);
     return;
   }
-  if (text.startsWith("run ")) {
+  if (text.startsWith("run an agent in ")) {
     // THE CONDUCTOR STARTS SOMETHING. A piece of work first — nothing is
-    // created outside one — then a real `lifecycle_create` on the fleet face,
-    // with the command the scenario named typed at the new terminal's first
-    // prompt. The create makes what it created a MEMBER, so the terminal is
-    // watched from the moment it exists and nothing here has to ask for that
+    // created outside one — then a real `lifecycle_create` on the fleet face.
+    // The create makes what it created a MEMBER, so the terminal is watched
+    // from the moment it exists and nothing here has to ask for that
     // separately.
     //
-    // The COMMAND comes from the scenario rather than being baked in here: the
-    // stand-in it starts is a fake agent binary whose absolute path only the
-    // test process knows (the harness seeds it per worker), and a fixture that
-    // guessed `claude` would start whatever that name happens to resolve to on
-    // the box.
-    const command = text.slice("run ".length).trim();
-    const work = await openWork(`run ${command}`, "trivial");
+    // THE COMMAND IS KOLU'S, built from the work's own setup (`claude` on the
+    // model this fixture chose) and typed at the new terminal's first prompt
+    // — an implementor given a `run` is refused. What that `claude` actually
+    // starts is the scenario's business: it leaves its stand-in agent in the
+    // floor's relay (`fixtureClaudeRelay`), because only the test process
+    // knows that binary's absolute path.
+    //
+    // The DIRECTORY the scenario names is both the terminal's cwd and the
+    // work's repository, so each scenario's run is a piece of work of its own.
+    const cwd = text.slice("run an agent in ".length).trim();
+    const work = await openWork(`run ${cwd}`, "trivial", { repo: cwd });
     if (work === null) {
       say("nothing opened");
       endTurn(id);
@@ -730,9 +815,8 @@ const turn = async (
     const answer = await callTool("lifecycle_create", {
       host: "local",
       placement: { kind: "toplevel" },
-      cwd: "/tmp",
+      cwd,
       intent: "bring one up",
-      run: command,
       work,
       role: "implementor",
     });
@@ -783,6 +867,25 @@ const turn = async (
   }
   if (text === "refuse this") {
     refuse(id, "the model said no");
+    return;
+  }
+  if (text === "hit the limit") {
+    // THE ACCOUNT AT ITS LIMIT, as the pinned adapter refuses a turn for it:
+    // the SDK's categorical error kind in `data`, never read off the words.
+    write({
+      jsonrpc: "2.0",
+      id,
+      error: {
+        code: -32603,
+        message: "You've hit your weekly limit · resets 4pm",
+        data: { errorKind: "rate_limit" },
+      },
+    });
+    return;
+  }
+  if (text === "who am I") {
+    say(`you are ${ACCOUNT}`);
+    endTurn(id);
     return;
   }
   if (text === "work slowly") {
@@ -1043,6 +1146,28 @@ process.stdin.on("data", (chunk: string) => {
             _meta: { claudeCode: { promptQueueing: true } },
           },
           _meta: { steering: { supported: true } },
+          // ONE LOGIN, run by the client — the shape the pinned adapter
+          // advertises for `claude auth login`.
+          authMethods: [
+            {
+              id: "claude-ai-login",
+              name: "Claude account",
+              type: "terminal",
+              _meta: {
+                "terminal-auth": {
+                  command: process.execPath,
+                  args: ["-e", LOGIN],
+                },
+              },
+            },
+          ],
+        });
+        // ... and WHO IT IS, said the way the adapter says it: on the
+        // connection, not on a session.
+        write({
+          jsonrpc: "2.0",
+          method: "_auth/status_update",
+          params: { authStatus: { kind: "account", label: ACCOUNT } },
         });
         continue;
       case "session/new":

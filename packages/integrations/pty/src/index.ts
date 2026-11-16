@@ -18,6 +18,7 @@ export {
   configureNixShellEnv,
   CONTAINING_TERMINAL_ENV,
   type InitFile,
+  isShellKoluWraps,
   koluIdentityEnv,
   NIX_ENV_WHITELIST,
   PATH_PREPEND_CASES,

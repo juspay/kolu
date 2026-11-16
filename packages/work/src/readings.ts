@@ -2,31 +2,24 @@
  * WHAT A WORK SAYS, read off its decisions and its events — never stored
  * beside them.
  *
- * The MECHANISM of a reading lives here: how a decision's answer comes to one
- * value, which decisions belong to one ask, what the timeline last said about
- * the PR, which files kolu has seen. The rules that read the WATERFALL'S WORDS
+ * The MECHANISM of a reading lives here: which decisions belong to one ask,
+ * what the timeline last said about the PR, which files kolu has seen. The
+ * rules that read the WATERFALL'S WORDS
  * off the same record — the mode, the roles, the setup, who drives — are
  * `./waterfall.ts`, and this module deliberately imports nothing from there: a
  * reading of a decision is the same reading whatever words the waterfall
  * grows.
  */
 
+import { Option } from "effect";
 import type {
+  CheckHead,
   Decision,
   EventKind,
   EventOf,
   Work,
   WorkEvent,
 } from "./schema.ts";
-
-/** What a decision came to as ONE value: the option picked, else the words
- *  typed, else `null`. */
-export const answerValue = (decision: Decision | undefined): string | null => {
-  if (decision === undefined || decision.kind !== "answered") return null;
-  const { answer } = decision;
-  if (answer.how !== "answered") return null;
-  return answer.picked[0] ?? answer.text;
-};
 
 /** The decisions of one ask, in the order they were asked. */
 export const decisionsOfAsk = (
@@ -40,7 +33,9 @@ export const decisionsOfAsk = (
 export interface PrReading {
   readonly number: number;
   readonly state: "open" | "merged" | "closed";
-  readonly checks: "running" | "passed" | "failed" | null;
+  /** What the timeline last said about its checks — `none` until a check
+   *  event since it was opened (or since it merged or closed). */
+  readonly checks: "none" | "running" | "passed" | "failed";
 }
 
 /** THE CHECK CORRESPONDENCE, in ONE table: a forge's rollup word, the event
@@ -62,10 +57,13 @@ export const CHECK_STEP = {
     string,
     {
       readonly kind: EventKind;
-      readonly checks: NonNullable<PrReading["checks"]>;
+      readonly checks: CheckWord;
     }
   >
 >;
+
+/** A word the checks of a PR can be in, once a check event said one. */
+export type CheckWord = Exclude<PrReading["checks"], "none">;
 
 /** The three event kinds a PR's checks become — read off {@link CHECK_STEP},
  *  so the table stays the one place that says which they are. */
@@ -81,7 +79,7 @@ const CHECK_KINDS: ReadonlySet<string> = new Set(
  *  and an arm of a ternary sixty lines below it. */
 export const CHECKS_READ_BACK = Object.fromEntries(
   Object.values(CHECK_STEP).map((step) => [step.kind, step.checks]),
-) as Readonly<Record<CheckKind, NonNullable<PrReading["checks"]>>>;
+) as Readonly<Record<CheckKind, CheckWord>>;
 
 /** Whether this event is one of the three — narrowing the EVENT, which is
  *  what every reader of its `pr`, `head` and `failing` needs. */
@@ -100,8 +98,9 @@ export const isCheckEvent = (event: WorkEvent): event is EventOf<CheckKind> =>
 export const checkKey = (
   kind: CheckKind,
   pr: number,
-  head: string | null,
-): string => `${kind}#${pr}@${head ?? ""}`;
+  head: CheckHead,
+): string =>
+  `${kind}#${pr}@${head.kind === "commit" ? head.sha : "unreported"}`;
 
 export const checksSeen = (work: Work): ReadonlySet<string> => {
   const keys = new Set<string>();
@@ -110,38 +109,39 @@ export const checksSeen = (work: Work): ReadonlySet<string> => {
   return keys;
 };
 
-/** THE PR, as the timeline last said it. The reading moves on five kinds and
- *  nothing else — and every one of them carries its own PR number, so there
- *  is no parsing and no event that is about a pull request nobody named. */
-export const prOf = (work: Work): PrReading | null => {
-  let pr = null as PrReading | null;
-  for (const event of work.events) {
-    if (isCheckEvent(event)) {
-      if (pr !== null) pr = { ...pr, checks: CHECKS_READ_BACK[event.kind] };
-      continue;
-    }
+/** One event's move on the PR reading — none for a work no PR was opened
+ *  for yet, which only `pr-opened` changes. */
+const prStep = (
+  pr: Option.Option<PrReading>,
+  event: WorkEvent,
+): Option.Option<PrReading> => {
+  if (event.kind === "pr-opened")
+    return Option.some({ number: event.pr, state: "open", checks: "none" });
+  return Option.map(pr, (was): PrReading => {
+    if (isCheckEvent(event))
+      return { ...was, checks: CHECKS_READ_BACK[event.kind] };
     switch (event.kind) {
-      case "pr-opened":
-        pr = { number: event.pr, state: "open", checks: null };
-        break;
       case "merged":
-        if (pr !== null) pr = { ...pr, state: "merged", checks: null };
-        break;
+        return { ...was, state: "merged", checks: "none" };
       case "pr-closed":
-        if (pr !== null) pr = { ...pr, state: "closed", checks: null };
-        break;
+        return { ...was, state: "closed", checks: "none" };
       // A person pressing Reopen, or `work_open` on the same key: the reading
       // goes back to open, so the next frame of the same reading is not news
       // again.
       case "reopened":
-        if (pr !== null) pr = { ...pr, state: "open" };
-        break;
+        return { ...was, state: "open" };
       default:
-        break;
+        return was;
     }
-  }
-  return pr;
+  });
 };
+
+/** THE PR, as the timeline last said it — none until one was opened. The
+ *  reading moves on five kinds and nothing else, and every one of them
+ *  carries its own PR number, so there is no parsing and no event that is
+ *  about a pull request nobody named. */
+export const prOf = (work: Work): Option.Option<PrReading> =>
+  work.events.reduce(prStep, Option.none<PrReading>());
 
 /** The worktree-relative paths of every file kolu has seen appear. */
 export const filesSeen = (work: Work): ReadonlySet<string> =>

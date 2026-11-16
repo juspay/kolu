@@ -57,12 +57,7 @@ import type {
   AgentTerminalState,
   AgentWatcher,
 } from "anyagent";
-import {
-  agentInfoEqual,
-  agentNameHint,
-  matchesAgent,
-  stableFlagTokens,
-} from "anyagent";
+import { agentNameHint, matchesAgent, stableFlagTokens } from "anyagent";
 import type { ForgeAdapter, PrResult } from "anyforge";
 import { parseRemoteHost, subscribePr } from "anyforge";
 import { AGENT_PLUGINS } from "kolu-agents";
@@ -90,7 +85,13 @@ import type {
   TerminalId,
   TerminalPorts,
 } from "@kolu/terminal-vocab/schema";
-import { gitFactOf, gridsEqual, portsEqual } from "@kolu/terminal-vocab/schema";
+import {
+  AgentInfoSchema,
+  gitFactOf,
+  gridsEqual,
+  portsEqual,
+} from "@kolu/terminal-vocab/schema";
+import { Schema } from "effect";
 import { agentIdentityChanged, sameArgv } from "./fold.ts";
 import { claimSession, releaseTerminal } from "./sessionOwnership.ts";
 
@@ -802,6 +803,13 @@ function emitAgentValue(
   emit({ kind: "agent", agent: { value: resolved } });
 }
 
+/** Equality over EVERY field of every agent's info, derived from the wire
+ *  schema. The shared `agentInfoEqual` compares only the fields every agent
+ *  has, and a field one agent adds (omp's and pi's `lastPromptId`, Claude's
+ *  `workflow`) is a change this gate must publish — `agent_say` reads a steer
+ *  landing off `lastPromptId` while `state` stays `thinking`. */
+const sameAgentInfo = Schema.toEquivalence(AgentInfoSchema);
+
 /** The mirror's equality: same info AND the same allowlisted argv.
  *  @internal Producer door opened for the sensor-level test (the "unread argv is
  *  not a change" pin). */
@@ -811,7 +819,7 @@ export function agentObservationEqual(
 ): boolean {
   if (a === b) return true;
   if (a === null || b === null) return false;
-  if (!agentInfoEqual(a.info, b.info)) return false;
+  if (!sameAgentInfo(a.info, b.info)) return false;
   return sameArgv(a.argv, b.argv);
 }
 

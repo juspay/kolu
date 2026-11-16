@@ -187,7 +187,6 @@ export const attachments = (deps: {
       if (!SAFE_ATTACHMENT_ID.test(chunk.id)) {
         throw new ConductorRefused({
           why: `“${chunk.name}” came with the id ${JSON.stringify(chunk.id)}, which is not a name this server will write a file under.`,
-          auth: false,
         });
       }
       mkdirSync(dirOf(), { recursive: true });
@@ -209,7 +208,6 @@ export const attachments = (deps: {
         if (!existsSync(chunk.appendTo)) {
           throw new ConductorRefused({
             why: `“${chunk.name}” has no file to append to on this host, so the upload was refused. Start it again.`,
-            auth: false,
           });
         }
         const real = realpathSync(chunk.appendTo);
@@ -220,7 +218,6 @@ export const attachments = (deps: {
         if (!real.startsWith(dir + sep) || basename(real) !== chunk.id) {
           throw new ConductorRefused({
             why: `“${chunk.name}” tried to continue into ${JSON.stringify(chunk.appendTo)}, which is not this attachment's file under this host's attachments directory.`,
-            auth: false,
           });
         }
         appendFileSync(real, body, { mode: 0o600 });
@@ -240,7 +237,6 @@ export const attachments = (deps: {
         unsent.delete(chunk.id);
         throw new ConductorRefused({
           why: attachmentTooBig(chunk.name, bytes),
-          auth: false,
         });
       }
       return { path, bytes };
@@ -268,14 +264,12 @@ export const attachments = (deps: {
         if (!SAFE_ATTACHMENT_ID.test(one.id)) {
           throw new ConductorRefused({
             why: `“${one.name}” came with the id ${JSON.stringify(one.id)}, which is not a name this server will write a file under.`,
-            auth: false,
           });
         }
         const held = join(dirOf(), one.id);
         if (!existsSync(held)) {
           throw new ConductorRefused({
             why: attachmentGone(one.name),
-            auth: false,
           });
         }
         const path = realpathSync(held);
@@ -284,7 +278,6 @@ export const attachments = (deps: {
         if (total > PROMPT_ATTACHMENT_BYTE_CAP) {
           throw new ConductorRefused({
             why: promptAttachmentsTooBig(total),
-            auth: false,
           });
         }
         found.push({ ...one, bytes, path });

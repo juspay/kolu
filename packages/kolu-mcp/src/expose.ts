@@ -202,6 +202,16 @@ export const KOLU_MCP_DENIED: readonly { member: string; reason: string }[] = [
     reason:
       "kolu-server's word on a delivery it ran to this host — the binder's own channel; an agent that called it would be telling padi a bundle landed that kolu never delivered",
   },
+  {
+    member: "agentDistro.models",
+    reason:
+      "the harness and model a piece of work runs on are kolu's to offer, not the Conductor's: the setup form asks the host itself, and `lifecycle_create` builds a planner's or implementor's command off the work's answers — an agent reading the list would only be back to writing the flags",
+  },
+  {
+    member: "agentDistro.launch",
+    reason:
+      "how a harness takes a model is read by kolu itself when `lifecycle_create` starts a planner or implementor off the work's answers — an agent holding it would only be back to writing the flags",
+  },
   { member: "lifecycle.resize", reason: "layout policy the canvas owns" },
   {
     member: "chrome.setTheme",

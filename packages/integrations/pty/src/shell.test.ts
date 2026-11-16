@@ -24,6 +24,7 @@ import {
   AGENT_TOOLS_BAKE_ENV,
   cleanEnv,
   composeSpawnEnv,
+  isShellKoluWraps,
   koluIdentityEnv,
   OSC2_PRECMD_BASH,
   OSC2_PRECMD_ZSH,
@@ -660,6 +661,25 @@ describe("prepareShellInit — fully-specified plan (B0)", () => {
         rcDir: "/r",
       }),
     ).toEqual(empty);
+  });
+
+  it("says the same thing twice about every shell: a plan, and wrapped", () => {
+    // A caller that must ASK a shell (padi's environment capture appends
+    // `-i -c`, which only these take) refuses the rest, so the two readings
+    // must not drift: whatever gets a plan is a shell kolu wraps.
+    for (const shell of ["/bin/bash", "/usr/bin/bash5", "/bin/zsh"]) {
+      expect(isShellKoluWraps(shell)).toBe(true);
+      expect(
+        prepareShellInit({
+          shell,
+          home: "/home/x",
+          terminalId: "x",
+          rcDir: "/r",
+        }).initFiles,
+      ).toHaveLength(1);
+    }
+    for (const shell of ["/usr/bin/fish", "/bin/sh", "/bin/dash"])
+      expect(isShellKoluWraps(shell)).toBe(false);
   });
 });
 

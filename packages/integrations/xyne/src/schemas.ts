@@ -78,10 +78,13 @@ export const xyneVocab: AgentVocab<XyneInfo> = {
   // session). WHILE WORKING, the same keys show xyne's "Steering: …" line
   // under the running turn — the pi-derived steering pane, delivered at the
   // turn's next step. Observed with the provider request held open by a
-  // never-answering proxy, for the reason pi's note gives.
+  // never-answering proxy, for the reason pi's note gives. kolu reads xyne as
+  // permanently `waiting` (its transcript has no live phase), so this working
+  // arm is reached only by a just-prompted presence, which has no transcript
+  // to see a steer land in: the sight is unmeasured.
   say: {
     idle: ["Enter"],
-    working: { keys: ["Enter"], delivery: "steer" },
+    working: { keys: ["Enter"], delivery: "steer", sight: "unmeasured" },
     verified: "ran xyne-cli 0.4.8-dev in a kolu terminal, 2026-11-13",
   },
   infoSchema: XyneInfoSchema,

@@ -35,20 +35,27 @@
  * refusal costs one turn, the silence costs the run.
  */
 
+import type { AgentModelLaunch } from "@kolu/agent-distro/models";
 import type { PadiSurfaceClient } from "@kolu/padi-client/dial";
 import type { PadiTerminal } from "@kolu/padi-client/surface";
 import { activeAgent } from "@kolu/padi-client/terminalVocab";
 import { firstFrameOrThrow } from "@kolu/surface/first-frame";
 import { type BespokeTool, ToolFailure } from "@kolu/surface-mcp/tools";
 import { agentBucket } from "@kolu/terminal-vocab/agentProjection";
-import { Effect, Schema } from "effect";
+import { Effect, Option, Schema } from "effect";
 import {
   type Driver,
+  type Given,
+  type Header,
+  KoluChoiceKeySchema,
   type OnGreen,
   OnGreenSchema,
-  type SetupKey,
-  SetupKeySchema,
+  type QuestionFile,
+  type RoleSetup,
+  type SetupAsk,
+  type SetupReading,
   type Standing,
+  type WaterfallRole,
   type WorkMode,
   WorkModeSchema,
   type Outcome,
@@ -90,21 +97,29 @@ export interface FleetWorkMemberRow {
   readonly joined: FleetWatchJoin;
   /** Whose keyboard it is — `kolu-work`'s own reading of the work's timeline
    *  ({@link Driver}), never a second fact kept beside it. `you` means the
-   *  person took it over and the Conductor must not send it input. */
-  readonly driver: Driver | null;
+   *  person took it over and the Conductor must not send it input, and
+   *  `nobody` is an arm of that reading rather than an absent answer. */
+  readonly driver: Driver;
 }
 
 /** ONE PIECE OF WORK IN PROGRESS, as the port answers it — every field a
  *  READING of the stored record rather than a second copy of it. `onGreen` is
- *  the one place the script reads what to do when CI is green. */
+ *  the one place the script reads what to do when CI is green.
+ *
+ *  WHAT THE WORK IS is its `key` — a branch on a machine or the terminal
+ *  being watched — carried whole rather than flattened into a repo and a
+ *  branch that a watch has none of. `host` is read off that key
+ *  (`hostOf`). */
 export interface FleetWorkRow {
   readonly id: string;
   readonly title: string;
-  readonly repo: string;
-  readonly branch: string;
+  readonly key: WorkKey;
   readonly host: string;
-  readonly mode: WorkMode | null;
-  readonly onGreen: OnGreen | null;
+  /** The mode and what to do on green, as the ONE reading of the setup says
+   *  them (`setupValue`) — none while the question is open or unasked, which
+   *  is a state of the question rather than a mode called nothing. */
+  readonly mode: Option.Option<WorkMode>;
+  readonly onGreen: Option.Option<OnGreen>;
   /** WHERE IT STANDS, as `kolu-work` reads it off the timeline — a TOKEN
    *  (who is waited on and why), never a phrase. The words an agent reads are
    *  this face's ({@link standingWords}), the card's are the browser's, and
@@ -129,16 +144,13 @@ export interface FleetWorksRows {
 }
 
 /** What `work_open` states: WHICH WORK (its key — a branch on a machine, or
- *  the terminal to watch), and every setup question in one call. */
+ *  the terminal to watch), and every setup question in one call. The four
+ *  harness and model questions are NAMED, never offered: kolu draws their
+ *  options ({@link SetupAsk}). */
 export interface FleetWorkIntent {
   readonly key: WorkKey;
   readonly title: string;
-  readonly setup: ReadonlyArray<{
-    readonly key: SetupKey;
-    readonly question: string;
-    readonly options: ReadonlyArray<string>;
-    readonly given?: string | undefined;
-  }>;
+  readonly setup: ReadonlyArray<SetupAsk>;
 }
 
 /** ... and what it answers: the work, the setup as the decisions now READ,
@@ -147,14 +159,11 @@ export interface FleetWorkIntent {
  *  wake when they answer. */
 export interface FleetWorkOpened {
   readonly work: string;
-  readonly host: string;
-  readonly mode: WorkMode | null;
-  readonly roles: ReadonlyArray<{
-    readonly role: WorkRole;
-    readonly harness: string | null;
-    readonly model: string | null;
-  }>;
-  readonly onGreen: OnGreen | null;
+  /** THE SETUP AS IT NOW READS — `kolu-work`'s own reading
+   *  ({@link SetupReading}: the host, the mode, each role's {@link RoleSetup},
+   *  what to do on green), not a second copy with a null per unanswered
+   *  question. The tool renders it for the agent. */
+  readonly setup: SetupReading;
   /** The ask the questions were put as — the id the work's decisions carry. */
   readonly ask: string;
   /** Whether a form actually went to the human. `false` when the request had
@@ -185,21 +194,43 @@ export interface FleetWorks {
    *  that went away reaches a conductor that is not calling anything. */
   subscribe(cb: () => void): () => void;
   /** OPEN A WORK and put its setup questions to the human as one ask — and
-   *  ANSWER AT ONCE. Nothing here waits on a person: the human's answers
-   *  arrive later, as a wake, and the work carries them as decisions.
-   *  Refused, with nothing created, when the setup does not carry a question
-   *  the mode needs. */
-  open(intent: FleetWorkIntent): FleetWorkOpened;
+   *  ANSWER as soon as the work is recorded. Nothing here waits on a person:
+   *  the human's answers arrive later, as a wake, and the work carries them as
+   *  decisions. Refused, with nothing created, when the setup does not carry
+   *  a question the mode needs, when it asks a harness on a host whose agents
+   *  are not ready, or when a `given` harness or model is not one kolu
+   *  offers — a {@link WorkRefusal} either way. */
+  open(intent: FleetWorkIntent): Promise<FleetWorkOpened>;
+  /** WHAT A PLANNER OR IMPLEMENTOR OF THIS WORK STARTS — the harness and model
+   *  its setup recorded, on the work's host, judged again against what kolu
+   *  offers there now, and how that host's harness takes a model. The one
+   *  source of a waterfall agent's command:
+   *  `lifecycle_create` builds it from this. Rejects with a
+   *  {@link WorkRefusal} for an unknown or ended work, a watch, a role whose
+   *  harness or model has no answer yet, or a saved answer kolu no longer
+   *  offers (naming which and why). */
+  startOf(
+    work: string,
+    role: WaterfallRole,
+  ): Promise<{
+    readonly host: string;
+    readonly harness: string;
+    readonly model: string;
+    readonly launch: AgentModelLaunch;
+  }>;
   /** Ask the human something about a work — and answer at once, with the ask
-   *  it was put as. The answer comes back as a wake. */
+   *  it was put as. The answer comes back as a wake. The questions arrive in
+   *  the record's own arms: the tool's optional JSON fields are turned into
+   *  them at the edge ({@link workAskTool}), so nothing below this door has to
+   *  decide what a missing header means. */
   ask(
     work: string,
     questions: ReadonlyArray<{
-      readonly header: string;
+      readonly header: Header;
       readonly question: string;
       readonly options: ReadonlyArray<string>;
-      readonly multiple?: boolean | undefined;
-      readonly file?: string | undefined;
+      readonly multiple: boolean;
+      readonly file: QuestionFile;
     }>,
   ): FleetWorkAsked;
   /** A terminal joins a work in a role, saying how it got there. Idempotent:
@@ -222,9 +253,9 @@ export interface FleetWorks {
   closed(ref: string): void;
   /** THE PRE-CHECK `lifecycle_create` runs BEFORE anything is created — the
    *  one question a create has to answer first, and the only one it can
-   *  answer without a round trip. `null` means the work is there and in
+   *  answer without a round trip. None means the work is there and in
    *  progress. */
-  check(work: string): "unknown-work" | "work-ended" | null;
+  check(work: string): Option.Option<"unknown-work" | "work-ended">;
 }
 
 /** Why a call about a work was refused, as this face reports it — the kinds
@@ -260,20 +291,31 @@ const refusalFailure = (err: unknown, work: string): ToolFailure =>
 export const standingWords = (standing: Standing): string => {
   switch (standing.why) {
     case "question":
-      return standing.what;
+      return standing.question;
     case "merge":
-      return standing.ref === null
-        ? "merge the PR"
-        : `merge PR #${standing.ref}`;
+      return Option.match(standing.pr, {
+        onNone: () => "merge the PR",
+        onSome: (pr) => `merge PR #${pr}`,
+      });
     case "ci":
       return "CI running";
     case "watching":
       return "watching";
     case "working":
       return "agents at work";
+    // A FINISHED work: how it ended is the whole answer, and the outcome
+    // carries what that takes — which pull request, or who stopped it.
     default:
-      // A finished work: how it ended is the whole answer.
-      return standing.why;
+      switch (standing.outcome.kind) {
+        case "merged":
+          return `merged PR #${standing.outcome.pr}`;
+        case "closed":
+          return `PR #${standing.outcome.pr} closed`;
+        case "stopped":
+          return `stopped by ${standing.outcome.by === "you" ? "the human" : "the conductor"}`;
+        default:
+          return standing.outcome satisfies never;
+      }
   }
 };
 
@@ -295,10 +337,30 @@ const OptionsSchema = Schema.Array(
   Schema.String.check(Schema.isMinLength(1)),
 ).check(Schema.isMinLength(1));
 
+/** A role's harness or model, NAMED in the setup: kolu draws the options (the
+ *  harnesses this kolu carries; what the harness offers on the work's host)
+ *  and words the question. `options` and `question` are refused, not
+ *  ignored — there is no way to offer a harness or a model through this
+ *  tool. */
+const KoluChoiceSetupSchema = Schema.Struct({
+  key: KoluChoiceKeySchema.annotate({
+    description:
+      "A role's harness or model. kolu asks it with its own options — the harnesses installed, the models that harness offers on the work's host — and the human's last answer already selected. Name the question; never offer options for it.",
+  }),
+  given: Schema.optionalKey(
+    Schema.String.check(Schema.isMinLength(1)).annotate({
+      description:
+        "The harness or model the human's REQUEST already named, exactly as kolu offers it (a model as `provider/id` for a harness that lists its models). Recorded as their answer from the request; they are not asked it. Refused, with nothing created, when it is not one kolu offers.",
+    }),
+  ),
+  options: Schema.optionalKey(Schema.Never),
+  question: Schema.optionalKey(Schema.Never),
+});
+
 const WorkOpenArgsSchema = Schema.Struct({
   title: Schema.String.check(Schema.isMinLength(1)).annotate({
     description:
-      'What this piece of work IS, in a few words a person would recognise on a card — the thing being built, not the procedure ("rename the dock\'s badge", not "waterfall").',
+      'What this piece of work IS, in a few words a person would recognise on a card — the thing being built, not the procedure ("rename the dock\'s badge", not "waterfall"). Not a sentence: no parentheses, no issue or PR numbers, and nothing "like" another piece of work — what prompted it belongs in the request, which kolu keeps.',
   }),
   // A WORK IS ITS KEY: the branch on a machine, or the terminal being
   // watched. Not a setup question — the machine a work runs on identifies it,
@@ -333,7 +395,7 @@ const WorkOpenArgsSchema = Schema.Struct({
   // answer is one of their words, so a `mode` question offering "the full
   // thing" would be answered, stored, and then read as NOTHING — a work with
   // no mode, and nobody able to say why. The decoder refuses it instead, with
-  // the words in the message.
+  // the words in the message. The other four are KOLU'S to offer.
   setup: Schema.Array(
     Schema.Union([
       Schema.Struct({
@@ -358,27 +420,14 @@ const WorkOpenArgsSchema = Schema.Struct({
           }),
         given: Schema.optionalKey(OnGreenSchema),
       }),
-      Schema.Struct({
-        key: SetupKeySchema.annotate({
-          description:
-            "Which setup question this is. `mode` is always required; a mode that could be `full` or `trivial` also requires `implementor.harness`, `implementor.model` and `on-green`, and `full` requires `planner.harness` and `planner.model`. The host is not a question: it is part of what the work is, given as `host`.",
-        }),
-        question: Schema.String.check(Schema.isMinLength(1)).annotate({
-          description: "The question, in the words the human will read.",
-        }),
-        options: OptionsSchema.annotate({
-          description:
-            "The options to offer, best first (last time's answer first). At least one: a question with no options is a form nobody can press — the human always gets a box to type their own answer beside them.",
-        }),
-        given: Schema.optionalKey(
-          Schema.String.annotate({
-            description:
-              "The answer the human's REQUEST already carried. Recorded as a decision answered from the request; they are not asked it.",
-          }),
-        ),
-      }),
+      KoluChoiceSetupSchema,
     ]),
-  ).check(Schema.isMinLength(1)),
+  )
+    .check(Schema.isMinLength(1))
+    .annotate({
+      description:
+        "Every setup question, in one form. `mode` is always required; a mode that could be `full` or `trivial` also requires `implementor.harness`, `implementor.model` and `on-green`, and `full` requires `planner.harness` and `planner.model`. The host is not a question: it is part of what the work is, given as `host`.",
+    }),
 });
 type WorkOpenArgs = typeof WorkOpenArgsSchema.Type;
 
@@ -582,6 +631,61 @@ const workKeyOfArgs = (args: WorkOpenArgs): WorkKey => {
   };
 };
 
+/** The setup the tool was called with, as the record's own asks — THE EDGE
+ *  where the wire's optional `given` becomes an arm. A model writes JSON and
+ *  "I was not told" is a key it leaves out; the record takes
+ *  {@link Given}, so this is the one place the two meet and nothing below it
+ *  has to decide what a missing key meant. The two offered keys carry their
+ *  options and their words; kolu's own four carry nothing but what the
+ *  request gave, because the options are kolu's. */
+const setupAsksOf = (args: WorkOpenArgs): ReadonlyArray<SetupAsk> =>
+  args.setup.map((one): SetupAsk => {
+    const given: Given<string> =
+      one.given === undefined
+        ? { kind: "ask" }
+        : { kind: "given", value: one.given };
+    return one.key === "mode" || one.key === "on-green"
+      ? { key: one.key, question: one.question, options: one.options, given }
+      : { key: one.key, given };
+  });
+
+/** ONE SETUP ANSWER, as the agent reads it back: the value, or the fact that
+ *  the question has none yet. An arm rather than a null, for the reason the
+ *  record has arms — "unanswered" is a state of the question, and an agent
+ *  acting on `null` cannot tell it from a mode called nothing. */
+export type SetupAnswerSaid<V extends string> =
+  | { readonly kind: "unanswered" }
+  | { readonly kind: "answered"; readonly value: V };
+
+export const answerSaid = <V extends string>(
+  value: Option.Option<V>,
+): SetupAnswerSaid<V> =>
+  Option.match(value, {
+    onNone: (): SetupAnswerSaid<V> => ({ kind: "unanswered" }),
+    onSome: (one): SetupAnswerSaid<V> => ({ kind: "answered", value: one }),
+  });
+
+/** THE SETUP AS IT NOW READS, for the agent — `kolu-work`'s one reading, with
+ *  each role's {@link RoleSetup} handed on whole: `not-chosen`, `harness`, or
+ *  `harness-and-model` says exactly how far that role's setup got, which is
+ *  what the Conductor needs to know before it creates anything. */
+interface SetupSaid {
+  readonly host: string;
+  readonly mode: SetupAnswerSaid<WorkMode>;
+  readonly roles: ReadonlyArray<{
+    readonly role: WorkRole;
+    readonly setup: RoleSetup;
+  }>;
+  readonly onGreen: SetupAnswerSaid<OnGreen>;
+}
+
+const setupSaid = (setup: SetupReading): SetupSaid => ({
+  host: setup.host,
+  mode: answerSaid(setup.mode),
+  roles: setup.roles,
+  onGreen: answerSaid(setup.onGreen),
+});
+
 /** `work_open` — state a piece of work, and ask its setup in one form. */
 export function workOpenTool(works: FleetWorks): BespokeTool {
   return {
@@ -589,17 +693,25 @@ export function workOpenTool(works: FleetWorks): BespokeTool {
     mutates: true,
     title: "Open a piece of work",
     description:
-      "Open a piece of work — a branch on a machine (`host`, `repo`, `branch`), or `watch` for one terminal — and ask the human its setup in ONE form, the whole of it: which mode, which harness and model per role, and what to do when CI is green. Opening a host, repo and branch that already has a work returns THAT work (reopening it if it had ended) and asks only what is still unanswered. kolu puts the questions to the human, records every one as a DECISION on this work, and ANSWERS YOU AT ONCE: nothing in kolu's tools ever waits for a person. The answer carries the work's id, the setup as kolu reads it back RIGHT NOW (`host`, `mode`, `roles` — harness and model each — `onGreen`; each one but `host` is `null` while its question is still open), and `asked: true` when a form went to them. Use `given` for anything the human's request already said — it is recorded as their answer without asking, and reads back immediately. Refused, with nothing created, when the setup does not carry a question the mode needs. When `asked` is true, say what you asked and END YOUR TURN: kolu wakes you with every answer. A setup they decline for a work nothing has happened in removes the work, and you are told the same way. Everything after this names the work it answers with: `lifecycle_create`, `work_adopt`, `work_ask`, `work_note`, `work_stop`.",
+      'Open a piece of work — a branch on a machine (`host`, `repo`, `branch`), or `watch` for one terminal — and ask the human its setup in ONE form, the whole of it: which mode, which harness and model per role, and what to do when CI is green. kolu OFFERS the harness and model questions itself — the harnesses installed, the models the chosen harness offers on that host, the human\'s last answers already selected — so you name those four keys and offer nothing for them. Opening a host, repo and branch that already has a work returns THAT work (reopening it if it had ended) and asks only what is still unanswered — and again any saved harness or model kolu no longer offers, which is the way out when `lifecycle_create` refuses to start a planner or implementor on one. kolu puts the questions to the human, records every one as a DECISION on this work, and ANSWERS YOU AT ONCE: nothing in kolu\'s tools ever waits for a person. The answer carries the work\'s id and `setup`, as kolu reads it back RIGHT NOW: `host`, and `mode` and `onGreen` as `{kind: "answered", value}` or `{kind: "unanswered"}` while their question is still open, and `roles` — each role\'s setup as `{kind: "not-chosen"}`, `{kind: "harness", harness}` or `{kind: "harness-and-model", harness, model}`, so a role is startable exactly when it reads `harness-and-model`. `asked: true` means a form went to them. Use `given` for anything the human\'s request already said — it is recorded as their answer without asking, and reads back immediately. Refused, with nothing created, when the setup does not carry a question the mode needs, when the host\'s coding agents are not ready (the refusal says why and what the human must do — tell them, and end your turn), or when a `given` harness or model is not one kolu offers. When `asked` is true, say what you asked and END YOUR TURN: kolu wakes you with every answer. A setup they decline for a work nothing has happened in removes the work, and you are told the same way. Everything after this names the work it answers with: `lifecycle_create`, `work_adopt`, `work_ask`, `work_note`, `work_stop`.',
     handler: (args, _bundle, _signal) => {
       const intent = args as WorkOpenArgs;
-      return Effect.try({
-        try: () => {
-          const opened = works.open({
+      return Effect.tryPromise({
+        try: async () => {
+          const opened = await works.open({
             key: workKeyOfArgs(intent),
             title: intent.title,
-            setup: intent.setup,
+            setup: setupAsksOf(intent),
           });
-          return opened.asked ? { ...opened, said: ASKED_SAID } : opened;
+          const answer = {
+            work: opened.work,
+            setup: setupSaid(opened.setup),
+            ask: opened.ask,
+            asked: opened.asked,
+            created: opened.created,
+            reopened: opened.reopened,
+          };
+          return opened.asked ? { ...answer, said: ASKED_SAID } : answer;
         },
         catch: (err: unknown) => refusalFailure(err, intent.title),
       });
@@ -614,11 +726,29 @@ export function workAskTool(works: FleetWorks): BespokeTool {
     mutates: true,
     title: "Ask the human about a piece of work",
     description:
-      "Ask the human one or more questions ABOUT a piece of work — approving a plan, a tradeoff nobody told you how to make, what to do about a failing check. They see one form; each question is stored as a DECISION on that work and shows on its card, so it survives this conversation and a restart. THIS CALL ANSWERS AT ONCE, with the ask's id: the question does not hold your turn open, and you must not wait for it — say what you asked and end the turn. kolu wakes you when they answer, saying who answered, from where (the card, the chat, the reader) and what; a question they decline, or one whose work ends under it, reaches you the same way. They may answer from the card, the chat or the reader a file is open in — any of them settles the one question. Every question needs a `header` of two or three words — the card draws the decision as `header — answer`, one line — and options (the human also gets a box to type their own answer). Give `file` when the question is about something they must READ before answering — the plan, for a plan approval — and every face offers them a button that opens it. Keep your reasoning about the choice in your PROSE, never in the question text: a question that argues its own answer is drawn back to the human as a wall of words. A question about NO work is your own question tool's, not this: it belongs to the conversation alone.",
+      "Ask the human one or more questions ABOUT a piece of work — approving a plan, a tradeoff nobody told you how to make, what to do about a failing check. They see one form; each question is stored as a DECISION on that work and shows on its card, so it survives this conversation and a restart. THIS CALL ANSWERS AT ONCE, with the ask's id: the question does not hold your turn open, and you must not wait for it — say what you asked and end the turn. kolu wakes you when they answer, saying who answered, from where (the card, the chat, the reader) and what; a question they decline, or one whose work ends under it, reaches you the same way. A question they LEAVE BLANK is not answered and stays in front of them, in the same form — so one ask may wake you twice, with what they filled in each time. They may answer from the card, the chat or the reader a file is open in — any of them settles the one question. Every question needs a `header` of two or three words — the card draws the decision as `header — answer`, one line — and options (the human also gets a box to type their own answer). Give `file` when the question is about something they must READ before answering — the plan, for a plan approval — and every face offers them a button that opens it. Keep your reasoning about the choice in your PROSE, never in the question text: a question that argues its own answer is drawn back to the human as a wall of words. A question about NO work is your own question tool's, not this: it belongs to the conversation alone.",
     handler: (args, _bundle, _signal) => {
       const { work, questions } = args as WorkAskArgs;
       return Effect.try({
-        try: () => ({ ...works.ask(work, questions), said: ASKED_SAID }),
+        try: () => ({
+          // THE EDGE: the tool's JSON leaves out what it was not told, and
+          // the record takes an arm for each — the header a face draws the
+          // decision under, the file a person must read, whether more than
+          // one option may be picked. Converted once, here.
+          ...works.ask(
+            work,
+            questions.map((one) => ({
+              header: { kind: "header", text: one.header } satisfies Header,
+              question: one.question,
+              options: one.options,
+              multiple: one.multiple === true,
+              file: (one.file === undefined
+                ? { kind: "none" }
+                : { kind: "file", path: one.file }) satisfies QuestionFile,
+            })),
+          ),
+          said: ASKED_SAID,
+        }),
         catch: (err: unknown) => refusalFailure(err, work),
       });
     },
@@ -639,7 +769,8 @@ export function workAdoptTool(
     handler: (args, _bundle, _signal) => {
       const { id, work, role } = args as WorkAdoptArgs;
       const refused = works.check(work);
-      if (refused !== null) return Effect.fail(workCheckFailure(work, refused));
+      if (Option.isSome(refused))
+        return Effect.fail(workCheckFailure(work, refused.value));
       return Effect.flatMap(requireInRoster(hosts, id), (terminal) =>
         Effect.flatMap(
           foundState(id, terminal.id, terminal.padi),
@@ -653,11 +784,21 @@ export function workAdoptTool(
             } catch (err: unknown) {
               return Effect.fail(refusalFailure(err, work));
             }
-            const joined = works.rows().works.find((one) => one.id === work);
             return Effect.succeed({
               work,
               role,
-              members: joined?.members.map((one) => one.ref) ?? [id],
+              members: Option.match(
+                Option.fromUndefinedOr(
+                  works.rows().works.find((one) => one.id === work),
+                ),
+                {
+                  // The join above said this work is there; a read that finds
+                  // no row answers the one member it just put in it rather
+                  // than an empty list that reads as a work with nobody.
+                  onNone: () => [id],
+                  onSome: (one) => one.members.map((two) => two.ref),
+                },
+              ),
               found,
             });
           },
@@ -674,7 +815,7 @@ export function workLeaveTool(works: FleetWorks): BespokeTool {
     mutates: true,
     title: "Take a terminal out of its piece of work",
     description:
-      "A member's part is done, or the human asked you to drop it: this terminal stops being part of its work and stops waking you. Answers which work it left and whether it was a member at all (`left: false` simply means it was not, which is not an error: a terminal that died has already left by itself). Closing a terminal yourself needs no call here — one you close with `lifecycle_kill` leaves in silence.",
+      'A member\'s part is done, or the human asked you to drop it: this terminal stops being part of its work and stops waking you. Answers `left`: `{kind: "left", work}` naming the work it was taken out of, or `{kind: "not-a-member"}` — which is not an error (a terminal that died has already left by itself). Closing a terminal yourself needs no call here — one you close with `lifecycle_kill` leaves in silence.',
     // No roster check, deliberately: the common reason to let a member go is
     // that it is finished or gone, and refusing to forget a terminal because
     // it no longer exists would leave a work unable to shed exactly the
@@ -682,10 +823,22 @@ export function workLeaveTool(works: FleetWorks): BespokeTool {
     handler: (args, _bundle, _signal) =>
       Effect.sync(() => {
         const { id } = args as WorkLeaveArgs;
-        const was = works
-          .rows()
-          .works.find((one) => one.members.some((two) => two.ref === id));
-        return { left: works.leave(id), work: was?.id ?? null };
+        // WHICH WORK IT LEAVES is read BEFORE it leaves — afterwards there is
+        // no row holding it — and answered as an arm: "it was nobody's
+        // member" is a thing this says, not a work called null. The port is
+        // told to drop it either way; the row only names what it left.
+        const was = Option.fromUndefinedOr(
+          works
+            .rows()
+            .works.find((one) => one.members.some((two) => two.ref === id)),
+        );
+        works.leave(id);
+        return {
+          left: Option.match(was, {
+            onNone: () => ({ kind: "not-a-member" }) as const,
+            onSome: (one) => ({ kind: "left", work: one.id }) as const,
+          }),
+        };
       }),
   };
 }

@@ -713,8 +713,8 @@ system and the Nix versions involved (`deliverClosure`): content-addressed to a
 Linux host when kolu-server's `nix`, its store's Nix and the host's all handle
 the same form (the same side of Nix 2.35), else as built here — signed by no
 one, so the host takes it only when its Nix trusts the login; to a Mac always
-as built. Two cells, one procedure (`padiSurface` 7.0) and one spawn
-layer carry it; the module is `src/agentDistro/`.
+as built. Two cells, two procedures (`padiSurface` 7.0, `models` since 7.6)
+and one spawn layer carry it; the module is `src/agentDistro/`.
 
 - **`agentDistro` (memory-only, `get`/`set`)** — the Agents setting
   (`{ enabled, profiles }`: the harnesses on or off, and the stack of profile
@@ -769,6 +769,57 @@ layer carry it; the module is `src/agentDistro/`.
   never retries and never runs Nix for agents — kolu-server delivers again on
   upstream's schedule, on every bind, and on the user's check. Binder-only; not
   on the MCP face.
+- **`agentDistro.models` (procedure, `padiSurface` 7.6)** — which models a
+  harness offers on THIS host, for kolu's setup form and its answer check
+  (`src/agentDistro/models.ts`). padi runs the serving package's
+  `bin/agent-distro --models <harness>` (`@kolu/agent-distro/models`) in the
+  `cwd` it is given — the work's repository, whose own `plugin.json` composes
+  over the profiles — in THE ENVIRONMENT A NEW TERMINAL THERE ENDS UP WITH:
+  that terminal's own spawn (`composeSpawnInput`: the plugin dir,
+  `AI_PROFILE`, the toolchain), run once as `<shell> -i -c` so the person's
+  dotfiles are read the way a terminal reads them
+  (`src/ptyHost/shellEnv.ts`, its wrapper files written by kaval's
+  `writeInitFiles`). A key only `~/.bashrc` exports reaches the list, as it
+  reaches a launch.
+
+  THE CAPTURE'S OWN RULES, since asking a shell is not spawning one. Only a
+  shell kolu wraps can be asked (`kolu-pty`'s `isShellKoluWraps`, read off the
+  planner's own selector) — any other is named as such before anything is
+  spawned. It runs in its own session, so an rc file's `/dev/tty` prompt
+  cannot hang it and what
+  it started dies with it: a capture that does not answer in time, or whose
+  caller withdrew the question, ends by SIGTERM→SIGKILL on the whole group
+  and settles either way. What is printed on fd 3 is DECODED, never cast, and
+  neither it nor the shell's stderr is kept past its cap. The answer is what
+  the person's shell contributed: this spawn's own plumbing (`ZDOTDIR` naming
+  a wrapper directory already removed, `KAVAL_TERMINAL_ID`) is dropped, so
+  nothing started from it is told it lives in a terminal that never existed.
+  Calls in flight for the same directory and layer share ONE capture (an
+  Effect `Cache` that keeps nothing once it answers), so a two-role form
+  replays the dotfiles once rather than per question.
+
+  It answers upstream's word unchanged: the ids the harness
+  listed or `unlisted`. A host whose agents are not ready, a serving package
+  OLDER than kolu's calls (read off its own `share/agent-distro/answers`, so
+  its picker is never run for it) or one whose answers file is there and
+  names nothing (BROKEN, not old: `AgentPackageUnreadable`, which also turns
+  the host's status to `error`), a shell that cannot be asked (named, never
+  a quiet fall back to padi's own environment), a list command that fails, or
+  output kolu cannot read is the declared `AgentModelsUnavailable` with the
+  words (`@kolu/agent-distro/status`'s `agentsNotReadyWords` /
+  `agentsTooOldWords`, the failure's own stderr, capped) — never an empty
+  list. The
+  `agentDistroStatus` `ready` arm carries the serving package's `answers`, so
+  kolu-server refuses a harness question for such a host before any form
+  exists. Read-only; denied on the MCP face, because the harness and model
+  are kolu's to offer.
+- **`agentDistro.launch` (procedure, `padiSurface` 7.7)** — how a harness's
+  launch takes a model on THIS host: the serving package's `agent-distro
+  --launch <harness>`, which reads the harness's adapter and runs nothing, so
+  it answers whether or not the list works today. It is what the fleet face
+  starts a planner or implementor with. A host whose agents are not ready, or
+  a package older than `--launch`, is the declared `AgentLaunchUnavailable`.
+  Read-only; denied on the MCP face.
 - **Keeping it current** — kolu-server's job, not padi's: it delivers on
   upstream's schedule (02/08/14/20 UTC, retries on a failed run), whenever this
   padi binds or takes a changed setting, and when the user asks — re-reading the

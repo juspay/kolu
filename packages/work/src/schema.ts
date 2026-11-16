@@ -10,10 +10,11 @@
  *    {@link workIdOf} is the one string encoding of it, so a second card for
  *    one branch cannot be created by any caller;
  *  - **what the human decided** — every question put to them about this work
- *    and its answer ({@link Decision}, a SUM: a question is `asked` or it is
- *    `answered`, never "answered with null"). The setup (mode, harness and
- *    model per role, what to do on green) is a set of decisions like any
- *    other, and `./readings.ts` reads it off them: there is no second copy.
+ *    and how it ended ({@link Decision}, a SUM: a question is `asked` or it
+ *    is `settled` — answered WITH its value, declined, or dropped; there is
+ *    no "answered with nothing"). The setup (mode, harness and model per
+ *    role, what to do on green) is a set of decisions like any other, and
+ *    `./waterfall.ts` reads it off them: there is no second copy.
  *    The host is NOT a setup decision any more — it is part of the key;
  *  - **what kolu observed** — the append-only timeline ({@link WorkEvent}),
  *    each kind with its own typed payload, and the work's {@link WorkState}:
@@ -33,7 +34,7 @@
  * in a worktree) is read where it lives and never copied in.
  */
 
-import { Effect, Schema } from "effect";
+import { Option, Schema } from "effect";
 
 /** What a member is there to do. `other` is a terminal the human asked the
  *  Conductor to keep an eye on without a part in a waterfall. */
@@ -46,22 +47,29 @@ export type WorkRole = typeof WorkRoleSchema.Type;
  *  defect this round removes; `other` is uncapped (a watch may hold several
  *  terminals nobody has a part for). Enforced in {@link parseStore}. */
 export const UNIQUE_ROLES = ["planner", "implementor"] as const;
+/** A waterfall's part — the roles a work holds one of, and the two whose
+ *  agent kolu starts from the work's own setup. */
+export type WaterfallRole = (typeof UNIQUE_ROLES)[number];
+export const isWaterfallRole = (role: unknown): role is WaterfallRole =>
+  (UNIQUE_ROLES as ReadonlyArray<unknown>).includes(role);
 
 /** How the work is run: the whole waterfall, the one-implementor waterfall,
  *  or a plain watch the human asked for. */
 export const WORK_MODES = ["full", "trivial", "watch"] as const;
 export const WorkModeSchema = Schema.Literals(WORK_MODES);
 export type WorkMode = typeof WorkModeSchema.Type;
+export const isWorkMode = Schema.is(WorkModeSchema);
 
 /** What to do when CI is green. The ONE place this is written: kolu's
  *  standing reads it, the card shows it, and the Conductor reads it back. */
 export const ON_GREEN = ["merge", "hand-over"] as const;
 export const OnGreenSchema = Schema.Literals(ON_GREEN);
 export type OnGreen = typeof OnGreenSchema.Type;
+export const isOnGreen = Schema.is(OnGreenSchema);
 
-/** The setup questions, by key. A decision with one of these keys is a setup
- *  answer; a decision with `key: null` is any other question about the work
- *  (approving a plan, a tradeoff an agent stopped on).
+/** The setup questions, by key. A decision about the setup carries one of
+ *  these keys; any other question about the work (approving a plan, a
+ *  tradeoff an agent stopped on) is the `work` arm, which has no key.
  *
  *  `host` is NOT here: the machine a work runs on is part of its identity
  *  ({@link WorkKey}), stated by the caller that opens it, and a thing that
@@ -76,6 +84,36 @@ export const SETUP_KEYS = [
 ] as const;
 export const SetupKeySchema = Schema.Literals(SETUP_KEYS);
 export type SetupKey = typeof SetupKeySchema.Type;
+
+/** THE SETUP QUESTIONS KOLU DRAWS THE OPTIONS FOR — a role's harness (the
+ *  agent-distro harnesses this kolu carries) and its model (what that harness
+ *  offers on the work's host, asked for when the form is drawn). Whoever opens
+ *  a work NAMES these questions and passes what the request already said; it
+ *  cannot offer options for them, and their decisions store none: a model list
+ *  is a live fact about a host, and a copy in the record is a copy that goes
+ *  stale the day the host's agents update. */
+export const KOLU_CHOICE_KEYS = [
+  "planner.harness",
+  "planner.model",
+  "implementor.harness",
+  "implementor.model",
+] as const satisfies ReadonlyArray<SetupKey>;
+export const KoluChoiceKeySchema = Schema.Literals(KOLU_CHOICE_KEYS);
+export type KoluChoiceKey = typeof KoluChoiceKeySchema.Type;
+
+/** ... and the ones whose options the asker offers, in kolu's own words: the
+ *  mode and what to do on green. With {@link KOLU_CHOICE_KEYS}, every setup
+ *  key, each in exactly one of the two. */
+export const OFFERED_SETUP_KEYS = [
+  "mode",
+  "on-green",
+] as const satisfies ReadonlyArray<SetupKey>;
+export const OfferedSetupKeySchema = Schema.Literals(OFFERED_SETUP_KEYS);
+export type OfferedSetupKey = typeof OfferedSetupKeySchema.Type;
+
+/** Whether kolu draws this setup question's options itself. */
+export const isKoluChoiceKey = (key: SetupKey): key is KoluChoiceKey =>
+  (KOLU_CHOICE_KEYS as ReadonlyArray<string>).includes(key);
 
 /** WHAT A PIECE OF WORK IS — a branch on a machine, or a terminal somebody
  *  asked kolu to keep an eye on.
@@ -119,21 +157,22 @@ export const workIdOf = (key: WorkKey): WorkId =>
     ? `branch:${part(key.host)}/${part(key.repo)}/${part(key.branch)}`
     : `watch:${part(key.terminal)}`;
 
-/** ... and back. `null` for a string that is no work id — which is what an
- *  agent naming a work kolu never opened hands in. */
-export const workKeyOf = (id: WorkId): WorkKey | null => {
+const decodeWorkKey = Schema.decodeUnknownOption(WorkKeySchema);
+
+/** ... and back. `none` for a string that is no work id — which is what an
+ *  agent naming a work kolu never opened hands in. The parts go through the
+ *  key's own schema, so an empty one is refused by the rule that refuses it
+ *  everywhere else. */
+export const workKeyOf = (id: WorkId): Option.Option<WorkKey> => {
   const branch = /^branch:([^/]*)\/([^/]*)\/([^/]*)$/.exec(id);
   if (branch !== null) {
-    const host = decodeURIComponent(branch[1] ?? "");
-    const repo = decodeURIComponent(branch[2] ?? "");
-    const name = decodeURIComponent(branch[3] ?? "");
-    if (host === "" || repo === "" || name === "") return null;
-    return { kind: "branch", host, repo, branch: name };
+    const [host, repo, name] = branch.slice(1).map(decodeURIComponent);
+    return decodeWorkKey({ kind: "branch", host, repo, branch: name });
   }
   const watch = /^watch:(.*)$/.exec(id);
-  if (watch === null) return null;
-  const terminal = decodeURIComponent(watch[1] ?? "");
-  return terminal === "" ? null : { kind: "watch", terminal };
+  if (watch === null) return Option.none();
+  const [terminal] = watch.slice(1).map(decodeURIComponent);
+  return decodeWorkKey({ kind: "watch", terminal });
 };
 
 /** Who an event is BY: the human, an agent (the Conductor or one of the
@@ -206,6 +245,7 @@ export const EVENT_KINDS = [
   "file",
   "question",
   "answered",
+  "answered-part",
   "question-dropped",
   "pr-opened",
   "checks-running",
@@ -225,8 +265,33 @@ export const EVENT_KINDS = [
 export const EventKindSchema = Schema.Literals(EVENT_KINDS);
 export type EventKind = typeof EventKindSchema.Type;
 
-/** Every event's three common fields: when, by whom, and which member
- *  terminal it is about (`null` for one about the work itself). */
+/** WHAT AN EVENT IS ABOUT — the work itself, or one member terminal of it.
+ *  Two arms rather than a nullable terminal: "about no terminal" is a thing
+ *  an event says, not a hole in it. */
+export const EventAboutSchema = Schema.Union([
+  Schema.Struct({ kind: Schema.Literal("work") }),
+  Schema.Struct({
+    kind: Schema.Literal("member"),
+    terminal: Schema.NonEmptyString,
+  }),
+]);
+export type EventAbout = typeof EventAboutSchema.Type;
+
+/** About the work itself — the one value of that arm. */
+export const ABOUT_WORK: EventAbout = { kind: "work" };
+/** About one member terminal. */
+export const aboutMember = (terminal: string): EventAbout => ({
+  kind: "member",
+  terminal,
+});
+/** Whether an event is about this member terminal. */
+export const isAbout = (
+  event: { readonly about: EventAbout },
+  terminal: string,
+): boolean =>
+  event.about.kind === "member" && event.about.terminal === terminal;
+
+/** Every event's three common fields: when, by whom, and what it is about. */
 const eventOf = <K extends EventKind, F extends Schema.Struct.Fields>(
   kind: K,
   fields: F,
@@ -234,7 +299,7 @@ const eventOf = <K extends EventKind, F extends Schema.Struct.Fields>(
   Schema.Struct({
     at: Schema.String,
     by: EventBySchema,
-    terminal: Schema.NullOr(Schema.String),
+    about: EventAboutSchema,
     kind: Schema.Literal(kind),
     ...fields,
   });
@@ -242,21 +307,53 @@ const eventOf = <K extends EventKind, F extends Schema.Struct.Fields>(
 /** How a member stopped being one. */
 export const LEFT_WHY = ["closed", "released", "gone"] as const;
 
-/** The words an agent-state event may carry — a short reason, or `""`. */
-const whyField = { why: Schema.String };
+/** WHY AN AGENT STANDS WHERE IT DOES — the short reason its terminal gave,
+ *  or none given. */
+export const AgentWhySchema = Schema.Union([
+  Schema.Struct({ kind: Schema.Literal("none") }),
+  Schema.Struct({
+    kind: Schema.Literal("reason"),
+    text: Schema.NonEmptyString,
+  }),
+]);
+export type AgentWhy = typeof AgentWhySchema.Type;
+
+/** The reason an agent-state event carries. */
+const whyField = { why: AgentWhySchema };
+
+/** THE COMMIT A CHECK RAN ON — known, or a host whose record reports none. */
+export const CheckHeadSchema = Schema.Union([
+  Schema.Struct({ kind: Schema.Literal("unreported") }),
+  Schema.Struct({
+    kind: Schema.Literal("commit"),
+    sha: Schema.NonEmptyString,
+  }),
+]);
+export type CheckHead = typeof CheckHeadSchema.Type;
 
 /** What a check event says: the PR it is about, the head commit it ran on
- *  (`null` from a host whose record reports none) and the gates that are red.
+ *  and the gates that are red.
  *
  *  `pr` is REQUIRED, so a check event with no pull request is not a value. */
 const checkFields = {
   pr: Schema.Int,
-  head: Schema.NullOr(Schema.String),
+  head: CheckHeadSchema,
   failing: Schema.Array(Schema.String),
 };
 
+/** WHAT THE HUMAN ASKED FOR, as kolu saw them say it — their words, or a work
+ *  opened off something else, where there were none. */
+export const RequestWordsSchema = Schema.Union([
+  Schema.Struct({ kind: Schema.Literal("none") }),
+  Schema.Struct({
+    kind: Schema.Literal("said"),
+    text: Schema.NonEmptyString,
+  }),
+]);
+export type RequestWords = typeof RequestWordsSchema.Type;
+
 export const WorkEventSchema = Schema.Union([
-  eventOf("requested", { text: Schema.String }),
+  eventOf("requested", { request: RequestWordsSchema }),
   eventOf("carried-over", {}),
   eventOf("joined", { role: WorkRoleSchema }),
   eventOf("left", { why: Schema.Literals(LEFT_WHY) }),
@@ -268,6 +365,8 @@ export const WorkEventSchema = Schema.Union([
   eventOf("file", { path: Schema.String }),
   eventOf("question", { ask: Schema.String }),
   eventOf("answered", { ask: Schema.String }),
+  /** Part of an ask answered: the questions left blank are still asked. */
+  eventOf("answered-part", { ask: Schema.String }),
   eventOf("question-dropped", { ask: Schema.String }),
   eventOf("pr-opened", { pr: Schema.Int, title: Schema.String }),
   eventOf("checks-running", checkFields),
@@ -290,10 +389,9 @@ export type WorkEvent = typeof WorkEventSchema.Type;
 export type EventOf<K extends EventKind> = Extract<WorkEvent, { kind: K }>;
 
 /** Where an answer came from: the work's card, the chat, the READER a file is
- *  read in (or that reader popped out into a window of its own), or the
- *  request itself (a setup answer the human's message already gave, recorded
- *  without asking). `null` for a question nobody answered (declined from
- *  nowhere, or dropped because the work ended under it).
+ *  read in (or that reader popped out into a window of its own), the request
+ *  itself (a setup answer the human's message already gave, recorded without
+ *  asking), or carried over from the file kolu kept before it stored work.
  *
  *  The reader and the pop-out are two faces rather than one because they are
  *  two places a person can be: the question pinned above a plan inside kolu,
@@ -306,78 +404,221 @@ export const AnsweredFromFaceSchema = Schema.Literals(ANSWERED_FROM_FACE);
  *  already gave, which no face can claim to be. */
 export type AnsweredFromFace = typeof AnsweredFromFaceSchema.Type;
 
-export const ANSWER_FROM = [...ANSWERED_FROM_FACE, "request"] as const;
+export const ANSWER_FROM = [
+  ...ANSWERED_FROM_FACE,
+  "request",
+  "carried-over",
+] as const;
 export const AnswerFromSchema = Schema.Literals(ANSWER_FROM);
 export type AnswerFrom = typeof AnswerFromSchema.Type;
 
-export const DecisionAnswerSchema = Schema.Struct({
-  at: Schema.String,
-  /** `answered` — picked and/or typed; `declined` — the human would not say;
-   *  `dropped` — the question went away unanswered (the conversation that
-   *  asked it ended, kolu restarted). */
-  how: Schema.Literals(["answered", "declined", "dropped"]),
-  /** The options picked, verbatim. */
-  picked: Schema.Array(Schema.String),
-  /** What the human typed instead of (or beside) an option, or `null`. */
-  text: Schema.NullOr(Schema.String),
-  from: Schema.NullOr(AnswerFromSchema),
-});
-export type DecisionAnswer = typeof DecisionAnswerSchema.Type;
+/** Words a person typed, as the record keeps them: trimmed, and never none —
+ *  a box left empty is not an answer. */
+export const TypedSchema = Schema.String.check(
+  Schema.isTrimmed(),
+  Schema.isMinLength(1),
+);
 
-/** What every decision carries, asked or answered. One ask (a form) can hold
+/** WHAT A PERSON SAID to a question about the work: options they picked,
+ *  words they typed, or both — and never neither, because "answered with
+ *  nothing" is not an answer. A question left blank stays asked. */
+export const SaidSchema = Schema.Union([
+  Schema.Struct({
+    kind: Schema.Literal("picked"),
+    picked: Schema.NonEmptyArray(Schema.String),
+  }),
+  Schema.Struct({ kind: Schema.Literal("typed"), text: TypedSchema }),
+  Schema.Struct({
+    kind: Schema.Literal("picked-and-typed"),
+    picked: Schema.NonEmptyArray(Schema.String),
+    text: TypedSchema,
+  }),
+]);
+export type Said = typeof SaidSchema.Type;
+
+/** A question the human would not answer — from the face they said so on. */
+const DeclinedSchema = Schema.Struct({
+  how: Schema.Literal("declined"),
+  at: Schema.String,
+  from: AnsweredFromFaceSchema,
+});
+
+/** A question that went away unanswered: the work ended under it, or the
+ *  conversation that asked it is gone. Nobody answered, so it has no face. */
+const DroppedSchema = Schema.Struct({
+  how: Schema.Literal("dropped"),
+  at: Schema.String,
+});
+
+/** HOW A QUESTION WAS SETTLED, as a SUM: answered WITH its value, declined,
+ *  or dropped. Each arm carries only its own fields, so an answer with no
+ *  value cannot be written down. */
+const answerOf = <V extends Schema.Struct.Fields>(value: V) =>
+  Schema.Union([
+    Schema.Struct({
+      how: Schema.Literal("answered"),
+      at: Schema.String,
+      from: AnswerFromSchema,
+      ...value,
+    }),
+    DeclinedSchema,
+    DroppedSchema,
+  ]);
+
+/** The answer to a question about the work: what was said. */
+export const WorkAnswerSchema = answerOf({ said: SaidSchema });
+/** The answer to `mode`: one mode, in kolu's own word for it. */
+export const ModeAnswerSchema = answerOf({ value: WorkModeSchema });
+/** The answer to `on-green`: one of kolu's words for it. */
+export const OnGreenAnswerSchema = answerOf({ value: OnGreenSchema });
+/** HOW AN ANSWER TO ONE OF KOLU'S OWN QUESTIONS WAS CHOSEN — picked from what
+ *  kolu drew (the harnesses it carries, the models the host listed, a model
+ *  this person picked before), or TYPED by the person. It decides how the
+ *  answer is judged, when it is recorded and again when its role starts: a
+ *  picked model must be one the host lists, whenever the host can list; a
+ *  typed one goes to the harness as typed (omp matches a short name like
+ *  `opus` itself), and only upstream's one-word rule applies to it. */
+export const CHOSEN = ["picked", "typed"] as const;
+export const ChosenSchema = Schema.Literals(CHOSEN);
+export type Chosen = typeof ChosenSchema.Type;
+
+/** AN ANSWER TO ONE OF KOLU'S OWN QUESTIONS — one value, never words beside
+ *  it: a harness kolu carries, or a model — and how it was chosen. */
+export const KoluChoiceAnswerSchema = answerOf({
+  value: Schema.NonEmptyString,
+  chosen: ChosenSchema,
+});
+
+/** What a face sends for one question: the values it judged by the
+ *  question's options (a value among them is a pick), or — for one of kolu's
+ *  own questions — the one answer the person TYPED, which is never a pick
+ *  whatever it happens to match. */
+export const TypedAnswerSchema = Schema.Struct({ typed: TypedSchema });
+export type TypedAnswer = typeof TypedAnswerSchema.Type;
+
+/** THE SHORT HEADER a question about the work is drawn under — the asker's
+ *  two or three words, or none given (then a few words of the question stand
+ *  in, which is a face's reading, not the record's). */
+export const HeaderSchema = Schema.Union([
+  Schema.Struct({ kind: Schema.Literal("none") }),
+  Schema.Struct({
+    kind: Schema.Literal("header"),
+    text: Schema.NonEmptyString,
+  }),
+]);
+export type Header = typeof HeaderSchema.Type;
+
+/** THE FILE A QUESTION IS ABOUT — worktree-relative, exactly as the work's
+ *  own `file` events spell it (`.waterfall/plan.md`) — or none. A plan
+ *  approval carries the plan, so every face that draws the question can offer
+ *  the one thing a person must read before answering it. */
+export const QuestionFileSchema = Schema.Union([
+  Schema.Struct({ kind: Schema.Literal("none") }),
+  Schema.Struct({
+    kind: Schema.Literal("file"),
+    path: Schema.NonEmptyString,
+  }),
+]);
+export type QuestionFile = typeof QuestionFileSchema.Type;
+
+/** What every decision carries, asked or settled. One ask (a form) can hold
  *  several questions — the setup is one form — so `ask` is the form's id and
  *  `id` is this question's own. */
-const decisionFields = {
+const questionFields = {
   id: Schema.String,
   ask: Schema.String,
   /** When it was asked. */
   at: Schema.String,
-  /** The setup question this answers, or `null` for any other. */
-  key: Schema.NullOr(SetupKeySchema),
-  /** THE QUESTION'S SHORT HEADER — two or three words, which is the label a
-   *  decision is DRAWN under on the card: the question's own words are behind
-   *  a press. `""` for a setup question, whose label is its key's own name,
-   *  and for a question whose asker gave none (then a few words of the
-   *  question stand in). */
-  header: Schema.String,
   question: Schema.String,
+};
+
+/** WHAT A QUESTION IS ABOUT, by arm. A setup question is labelled by its
+ *  key's own name and answered in kolu's words; a question about the work is
+ *  the asker's, with its header, its options and the file it is about. */
+const modeFields = {
+  ...questionFields,
+  topic: Schema.Literal("setup"),
+  key: Schema.Literal("mode"),
+  options: Schema.Array(WorkModeSchema),
+};
+const onGreenFields = {
+  ...questionFields,
+  topic: Schema.Literal("setup"),
+  key: Schema.Literal("on-green"),
+  options: Schema.Array(OnGreenSchema),
+};
+/** A question whose options are KOLU'S ({@link KOLU_CHOICE_KEYS}): no options
+ *  and no `multiple` — there is nowhere to write either, so a stored copy of
+ *  a model list is not a value. */
+const koluChoiceFields = {
+  ...questionFields,
+  topic: Schema.Literal("setup"),
+  key: KoluChoiceKeySchema,
+};
+const aboutWorkFields = {
+  ...questionFields,
+  topic: Schema.Literal("work"),
+  header: HeaderSchema,
   options: Schema.Array(Schema.String),
   /** Whether more than one option may be picked. */
   multiple: Schema.Boolean,
-  /** THE FILE THIS QUESTION IS ABOUT — worktree-relative, exactly as the
-   *  work's own `file` events spell it (`.waterfall/plan.md`), or `""` for a
-   *  question about no file. A plan approval carries the plan, so every face
-   *  that draws the question can offer the one thing a person must read
-   *  before answering it. */
-  file: Schema.String.pipe(Schema.withDecodingDefaultKey(Effect.succeed(""))),
+  file: QuestionFileSchema,
 };
 
-/** ONE QUESTION PUT TO THE HUMAN, and its answer — as a SUM.
+const asked = <F extends Schema.Struct.Fields>(fields: F) =>
+  Schema.Struct({ kind: Schema.Literal("asked"), ...fields });
+const settled = <F extends Schema.Struct.Fields, A extends Schema.Top>(
+  fields: F,
+  answer: A,
+) => Schema.Struct({ kind: Schema.Literal("settled"), ...fields, answer });
+
+/** ONE QUESTION PUT TO THE HUMAN, and how it ended — as a SUM.
  *
- *  `asked` is a question waiting on somebody; `answered` carries the answer,
- *  and carrying it is the only way to be that arm. The open asks a card draws
- *  are therefore DERIVED (`openAsks`): there is no second list that a restart
- *  could leave disagreeing with the decisions. */
-export const AskedSchema = Schema.Struct({
-  kind: Schema.Literal("asked"),
-  ...decisionFields,
-});
+ *  `asked` is a question waiting on somebody; `settled` carries how it was
+ *  settled ({@link answerOf}: answered with its value, declined, dropped).
+ *  The open asks a card draws are therefore DERIVED (`openAsks`): there is no
+ *  second list that a restart could leave disagreeing with the decisions.
+ *  Each arm is four shapes, by what the question is about. */
+export const AskedSchema = Schema.Union([
+  asked(modeFields),
+  asked(onGreenFields),
+  asked(koluChoiceFields),
+  asked(aboutWorkFields),
+]);
 export type Asked = typeof AskedSchema.Type;
 
-export const AnsweredSchema = Schema.Struct({
-  kind: Schema.Literal("answered"),
-  ...decisionFields,
-  answer: DecisionAnswerSchema,
-});
-export type Answered = typeof AnsweredSchema.Type;
+export const SettledSchema = Schema.Union([
+  settled(modeFields, ModeAnswerSchema),
+  settled(onGreenFields, OnGreenAnswerSchema),
+  settled(koluChoiceFields, KoluChoiceAnswerSchema),
+  settled(aboutWorkFields, WorkAnswerSchema),
+]);
+export type Settled = typeof SettledSchema.Type;
 
-export const DecisionSchema = Schema.Union([AskedSchema, AnsweredSchema]);
+export const DecisionSchema = Schema.Union([AskedSchema, SettledSchema]);
 export type Decision = typeof DecisionSchema.Type;
+
+/** How a decision was settled — answered, declined or dropped. */
+export type DecisionAnswer = Settled["answer"];
+
+/** A setup decision — `mode`, `on-green`, or one of kolu's own questions. */
+export type SetupDecision = Extract<Decision, { readonly topic: "setup" }>;
+/** A decision kolu draws the options for — a role's harness or model. */
+export type KoluChoice = Extract<Decision, { readonly key: KoluChoiceKey }>;
+/** A question about the work — the asker's own. */
+export type AboutWork = Extract<Decision, { readonly topic: "work" }>;
+/** ... and every one whose options the asker gave. */
+export type Offered = Exclude<Decision, KoluChoice>;
+
+export const isSetup = (decision: Decision): decision is SetupDecision =>
+  decision.topic === "setup";
+export const isKoluChoice = (decision: Decision): decision is KoluChoice =>
+  decision.topic === "setup" && isKoluChoiceKey(decision.key);
 
 export const isAsked = (decision: Decision): decision is Asked =>
   decision.kind === "asked";
-export const isAnswered = (decision: Decision): decision is Answered =>
-  decision.kind === "answered";
+export const isSettled = (decision: Decision): decision is Settled =>
+  decision.kind === "settled";
 
 export const WorkSchema = Schema.Struct({
   /** WHAT THIS WORK IS. The map it sits in is keyed by `workIdOf(key)`, and
@@ -394,33 +635,35 @@ export type Work = typeof WorkSchema.Type;
 /** Whether the work is still being done. */
 export const isOpen = (work: Work): boolean => work.state.kind === "open";
 
-/** When it ended, or `null` — the one reading every fold took off `endedAt`
- *  when that was a field of its own. */
-export const endedAt = (work: Work): string | null =>
-  work.state.kind === "ended" ? work.state.at : null;
+/** When it ended — none while it is open. */
+export const endedAt = (work: Work): Option.Option<string> =>
+  work.state.kind === "ended" ? Option.some(work.state.at) : Option.none();
 
-/** How it ended, or `null` while it is open. */
-export const outcomeOf = (work: Work): Outcome | null =>
-  work.state.kind === "ended" ? work.state.outcome : null;
+/** How it ended — none while it is open. */
+export const outcomeOf = (work: Work): Option.Option<Outcome> =>
+  work.state.kind === "ended" ? Option.some(work.state.outcome) : Option.none();
 
 /** The files kolu kept when it ended — none while it is open, by type. */
-export const keptOf = (work: Work): ReadonlyArray<KeptFile> =>
-  work.state.kind === "ended" ? work.state.kept : [];
+export const keptOf = (work: Work): Option.Option<ReadonlyArray<KeptFile>> =>
+  work.state.kind === "ended" ? Option.some(work.state.kept) : Option.none();
 
 /** THE HOST a work runs on — read off its key, never off a decision. A watch
- *  takes its host from the terminal it watches (`<host>/<id>`). */
-export const hostOf = (work: Work): string =>
+ *  takes its host from the terminal it watches (`<host>/<id>`): everything
+ *  before the first `/`. */
+export const hostOf = (work: Pick<Work, "key">): string =>
   work.key.kind === "branch"
     ? work.key.host
-    : (work.key.terminal.split("/")[0] ?? "");
+    : work.key.terminal.replace(/\/.*$/s, "");
 
-/** The repository the work is in, or `""` for a watch. */
-export const repoOf = (work: Work): string =>
-  work.key.kind === "branch" ? work.key.repo : "";
-
-/** The branch, or `""` for a watch. */
-export const branchOf = (work: Work): string =>
-  work.key.kind === "branch" ? work.key.branch : "";
+/** WHERE A MEMBER IS WORKING — not read off its terminal yet, or read. */
+export const WorktreeSchema = Schema.Union([
+  Schema.Struct({ kind: Schema.Literal("unread") }),
+  Schema.Struct({
+    kind: Schema.Literal("read"),
+    path: Schema.NonEmptyString,
+  }),
+]);
+export type Worktree = typeof WorktreeSchema.Type;
 
 /** ONE MEMBER TERMINAL — the whole of what kolu stores about a terminal's
  *  part in a work, in the ONE map keyed by terminal ref.
@@ -442,8 +685,8 @@ export const WorkMemberSchema = Schema.Struct({
   joinedAt: Schema.String,
   /** WHERE IT IS WORKING, as kolu first read it off the terminal's record —
    *  the worktree a work's files are listed from and copied out of when it
-   *  ends. `null` until a reading has said. */
-  worktree: Schema.NullOr(Schema.String),
+   *  ends. `unread` until a reading has said. */
+  worktree: WorktreeSchema,
 });
 export type WorkMember = typeof WorkMemberSchema.Type;
 

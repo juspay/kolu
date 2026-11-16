@@ -26,7 +26,7 @@
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "test:daemon": "vitest run --exclude src/upgradeWindow/previousRelease.e2e.test.ts"
+    "test:daemon": "vitest run --exclude src/upgradeWindow/previousRelease.e2e.test.ts --exclude src/agentDistro/realPackages.e2e.test.ts"
   },
   "dependencies": {
     "@effect/platform-node": "catalog:",
@@ -35,6 +35,7 @@
     "@kolu/agent-distro": "workspace:*",
     "@kolu/padi-client": "workspace:*",
     "@kolu/serve-dir": "workspace:*",
+    "@kolu/shell-quote": "workspace:*",
     "@kolu/surface": "workspace:*",
     "@kolu/surface-daemon": "workspace:*",
     "@kolu/surface-daemon-supervisor": "workspace:*",
@@ -68,7 +69,6 @@
     "@babel/parser": "^7.29.2",
     "@kolu/daemon-test-gate": "workspace:*",
     "@kolu/log": "workspace:*",
-    "@kolu/shell-quote": "workspace:*",
     "@types/columnify": "^1.5.4",
     "@types/node": "^22.0.0",
     "tsx": "^4.19.0",

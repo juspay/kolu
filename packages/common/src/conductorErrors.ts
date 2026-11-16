@@ -49,14 +49,11 @@ export class ConductorUnavailable extends Schema.TaggedError<ConductorUnavailabl
  *  the conversation stays ready and the next message goes to the same agent.
  *  So this is its own tag rather than an arm of {@link ConductorUnavailable},
  *  and the panel draws the agent's own words with a retry that asks for the
- *  same thing that was refused. `auth` marks the one refusal with something
- *  else to do about it — nobody is signed in — which is what turns the row
- *  into the sign-in door instead of a bare *send again*. */
+ *  same thing that was refused. */
 export class ConductorRefused extends Schema.TaggedError<ConductorRefused>(
   "kolu/ConductorRefused",
 )("ConductorRefused", {
   why: Schema.String,
-  auth: Schema.Boolean,
 }) {
   override get message(): string {
     return this.why;

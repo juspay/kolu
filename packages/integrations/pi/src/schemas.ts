@@ -13,6 +13,8 @@ import {
   NODE_CLI_SHIMS,
   SESSION_PATH_OR_UUID_RE,
   TaskProgressSchema,
+  type PaneReading,
+  paneHolds,
 } from "anyagent";
 import { Schema } from "effect";
 
@@ -70,6 +72,17 @@ export const PiInfoSchema = Schema.Struct({
    *  the filename carried no parseable timestamp. Drives the inspector's
    *  "Running for" elapsed display. */
   startedAt: Schema.NullOr(Schema.Number),
+  /** The `id` of the newest `user` message entry in the transcript tail. pi
+   *  writes a steer as a user entry only when the running turn TAKES it, so
+   *  this changing after `agent_say`'s keys is the proof the words landed.
+   *  Null before the first prompt is written. */
+  lastPromptId: Schema.NullOr(Schema.String),
+  /** That entry's TEXT, whitespace-collapsed and cut to
+   *  `LAST_PROMPT_TEXT_CHARS` — what makes a moved `lastPromptId` THIS
+   *  steer's landing rather than an older held steer's or the human's own
+   *  typing. Null when the entry carried no text part, or before the first
+   *  prompt. */
+  lastPromptText: Schema.NullOr(Schema.String),
 });
 
 export type PiInfo = typeof PiInfoSchema.Type;
@@ -82,6 +95,38 @@ const PI_MARK = {
   paint: "fill" as const,
   paths: ["M5 6h14v2.5H16V18h-2.5V8.5h-3V18H8V8.5H5V6z"],
 };
+
+/** pi's steering pane — one `Steering: <message>` row per held message, then
+ *  `↳ Alt+Up to edit all queued messages`; captured from pi 1.5.2 in an
+ *  80-column kolu terminal (2026-11-15). Read over the rows it is GIVEN — the
+ *  caller cuts the screen to the rows it wants read (`agent_say`'s
+ *  `SAY_STEER_SCREEN_TAIL`), where the pane sits above the input box. The
+ *  FOOTER is what makes the pane readable or not: it is drawn only when pi is
+ *  holding something, so a footer with no item row above it is a pane whose
+ *  items this reader could not parse — never a pane without these words. */
+const PI_STEERING_ITEM = /^\s*Steering: (.*)$/;
+const PI_STEERING_FOOTER = /^\s*↳ Alt\+Up to edit all queued messages\s*$/;
+
+/** What pi's steering pane says about THESE words — a steer pi accepted and is
+ *  holding for the running step to end, a pane without them, or a pane this
+ *  reader could not parse. */
+export function piSteerPane(screenText: string, words: string): PaneReading {
+  const rows = screenText.split("\n");
+  const items: string[] = [];
+  for (const line of rows) {
+    const item = PI_STEERING_ITEM.exec(line);
+    if (item !== null) items.push(item[1] ?? "");
+  }
+  if (items.length === 0) {
+    return rows.some((line) => PI_STEERING_FOOTER.test(line))
+      ? {
+          kind: "unreadable",
+          why: `pi's steering pane is open and kolu could read none of the ${rows.length} rows it was given`,
+        }
+      : { kind: "absent" };
+  }
+  return paneHolds(items, words);
+}
 
 /** Pi's vocabulary — display name, brand mark, CLI grammar (including its
  *  resume policy, and wire schema. */
@@ -113,18 +158,31 @@ export const piVocab: AgentVocab<PiInfo> = {
     // id from a fresh invocation, while the absolute path opens unconditionally.
     ref: (info) => info.sessionPath,
   },
-  // Measured: `pi` 1.5.2 in a kolu terminal on 2026-11-13. Idle, text plus one
-  // Enter submits. WHILE WORKING, the same keys put the line in pi's own
-  // steering pane ("Steering: … ↳ Alt+Up to edit all queued messages") and the
-  // running turn picks it up at its next step. The working leg was observed
-  // with pi's provider request held open deliberately (an HTTPS proxy that
-  // accepts and never answers), because this machine's gateway refuses pi's
-  // key — the TUI's acceptance is the fact the recipe needs, and it is the
-  // same steering pane omp (pi's sibling) delivers from mid-turn.
+  // Measured: `pi` 1.5.2 in a kolu terminal on 2026-11-15. Idle, text plus one
+  // Enter submits. WHILE WORKING, the same one Enter puts the line in pi's own
+  // steering pane ("Steering: … ↳ Alt+Up to edit all queued messages"), and pi
+  // holds it until the running step ENDS — a 120-second `bash` call held it to
+  // the end and then handed it over on its own. A second Enter on the empty
+  // prompt does nothing. The user entry lands in the transcript only when the
+  // turn takes the words, which is what `lastPromptId` reads. Measured against
+  // a stand-in OpenAI-compatible model on 127.0.0.1 (a `bash` tool call, then
+  // an echo of the user messages it received), because this machine's gateway
+  // refuses pi's key: the TUI is pi's own, and the model only paces the turn.
   say: {
     idle: ["Enter"],
-    working: { keys: ["Enter"], delivery: "steer" },
-    verified: "ran pi 1.5.2 in a kolu terminal, 2026-11-13",
+    working: {
+      keys: ["Enter"],
+      delivery: "steer",
+      sight: {
+        lastPrompt: (info) =>
+          info.lastPromptId === null
+            ? null
+            : { id: info.lastPromptId, text: info.lastPromptText },
+        pane: piSteerPane,
+      },
+    },
+    verified:
+      "ran pi 1.5.2 in a kolu terminal against a stand-in model, 2026-11-15",
   },
   infoSchema: PiInfoSchema,
 };

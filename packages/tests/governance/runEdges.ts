@@ -181,6 +181,11 @@ export const RUN_EDGE_ALLOWLIST: readonly RunEdge[] = [
     why: "agent delivery's report to a host's padi: `agentDistro.report` is an Effect, but the delivery it serves is driven by Nix child processes and upstream's clock (`./delivery.ts`, `./schedule.ts` — Promise-shaped all the way down, off a timer and the pusher's `onPushed` callback), so `DeliveryHost.report` is the one seam where the padi call is run; it awaits the run, so a padi that refuses the report fails that host's delivery instead of being dropped",
   },
   {
+    path: "packages/server/src/conductor/koluOffer.ts",
+    sites: 1,
+    why: "kolu-conductor's `KoluOffer` port is Promise-shaped and `kolu-conductor` knows nothing of Effect, so this adapter is the boundary where a host's padi reads are run — its `agentDistro.models` answer and its `agentDistroStatus` frame, both through the one `settled` helper that turns a failure into its own words; the same edge, and the same reason, as `workFiles.ts`'s row",
+  },
+  {
     path: "packages/server/src/conductor/watcher.ts",
     sites: 2,
     why: "the Conductor's watcher: the whole watch — every connected host's standing subscription, each watched terminal's record lineage, and the host-map and watch-list triggers that re-scope them — is ONE long-lived stream, forked once when kolu-server boots (`startConductorWatcher` is called from synchronous wiring that hands down no Effect), and interrupted once by `dispose`, which the shutdown awaits as a Promise",

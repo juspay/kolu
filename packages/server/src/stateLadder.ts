@@ -1336,6 +1336,609 @@ export function splitWorkAskRows_1_53_0(stateRoot: string): void {
   );
 }
 
+/** THE FOUR SETUP QUESTIONS KOLU NOW DRAWS THE OPTIONS FOR, as 1.54.0 froze
+ *  them. Copied rather than imported from `kolu-work`: a rung keeps producing
+ *  the bytes it was proven against, whatever that package's key list does
+ *  next. */
+const KOLU_CHOICE_KEYS_1_54_0: ReadonlySet<string> = new Set([
+  "planner.harness",
+  "planner.model",
+  "implementor.harness",
+  "implementor.model",
+]);
+
+/** The 1.54.0 rung — THE CONDUCTOR NO LONGER OFFERS OPTIONS FOR A ROLE'S
+ *  HARNESS OR ITS MODEL, and an answer to one of those questions is now ONE
+ *  VALUE. Two rewrites, same rung: it has not shipped.
+ *
+ *  A decision whose `key` is one of {@link KOLU_CHOICE_KEYS_1_54_0} has no
+ *  `options` and no `multiple` any more: the harnesses are the agent-distro
+ *  listing this kolu carries, and the models are what the work's HOST answers
+ *  for the chosen harness, asked for when the form is drawn and never saved
+ *  (a saved model list goes stale the day that host's agents update). So for
+ *  every decision with one of those keys, ASKED OR ANSWERED, both fields are
+ *  deleted. That is what keeps an OPEN form answerable: a question still
+ *  carrying the Conductor's own options becomes one kolu draws the options
+ *  for, which is the only shape the form can now be answered in.
+ *
+ *  AN ANSWERED one is also normalized, because the kolu-choice answer schema
+ *  now admits at most one `picked` and `text: null`. The value kept is the
+ *  one the 1.53.0 reading took — `answer.picked[0]` if there was one, else
+ *  `answer.text` — written back as `picked: [value]`, `text: null`; a
+ *  declined or dropped answer becomes `picked: [], text: null`. The value is
+ *  kept VERBATIM, neither trimmed nor checked: a typed `"fable 5.2"` stays
+ *  what it was, and kolu refuses it by name when the role starts and asks
+ *  again. `at`, `how` and `from` are untouched, as is every other decision —
+ *  a `mode` or `on-green` decision keeps its options and its typed text.
+ *
+ *  IDEMPOTENT: a decision already in that shape — no `options`, no
+ *  `multiple`, at most one `picked`, `text` null — is returned as the same
+ *  object, and a store with nothing to change is not written back at all. The
+ *  works record is a keyed object at 1.53.0 (`{ [workId]: Work }`) and is read
+ *  as untyped JSON, like every rung before it. The transcript file's row shape
+ *  does not change, so `TRANSCRIPT_FILE_VERSION` stays at 1.53.0.
+ *
+ *  Exported for `stateMigration.test.ts`. */
+export function dropKoluChoiceOptions_1_54_0(
+  store: Conf<PersistedState>,
+): void {
+  const works = recordOf(store.get("works"));
+  if (works === null) return;
+  let changed = false;
+  const next: Record<string, unknown> = {};
+  for (const [id, value] of Object.entries(works)) {
+    const work = recordOf(value);
+    if (work === null || !Array.isArray(work.decisions)) {
+      next[id] = value;
+      continue;
+    }
+    let touched = false;
+    const decisions = work.decisions.map((one: unknown) => {
+      const decision = recordOf(one);
+      if (decision === null) return one;
+      if (typeof decision.key !== "string") return one;
+      if (!KOLU_CHOICE_KEYS_1_54_0.has(decision.key)) return one;
+      const answer =
+        decision.kind === "answered" ? recordOf(decision.answer) : null;
+      const normalized = answer === null ? null : normalizeChoiceAnswer(answer);
+      const strip = "options" in decision || "multiple" in decision;
+      if (!strip && normalized === null) return one;
+      touched = true;
+      const { options: _options, multiple: _multiple, ...rest } = decision;
+      return normalized === null ? rest : { ...rest, answer: normalized };
+    });
+    if (!touched) {
+      next[id] = value;
+      continue;
+    }
+    changed = true;
+    next[id] = { ...work, decisions };
+  }
+  if (!changed) return;
+  store.set("works", next as unknown as PersistedState["works"]);
+}
+
+/** The one-value rewrite of a stored kolu-choice answer, or `null` when it
+ *  already is one. Untyped JSON: anything that is not the shape this reads is
+ *  left to the schema to refuse. */
+function normalizeChoiceAnswer(
+  answer: Record<string, unknown>,
+): Record<string, unknown> | null {
+  const picked = Array.isArray(answer.picked) ? answer.picked : [];
+  const value =
+    answer.how === "answered"
+      ? picked.length > 0
+        ? picked[0]
+        : (answer.text ?? null)
+      : null;
+  const nextPicked = value === null ? [] : [value];
+  if (
+    answer.text === null &&
+    picked.length === nextPicked.length &&
+    picked[0] === nextPicked[0]
+  ) {
+    return null;
+  }
+  return { ...answer, picked: nextPicked, text: null };
+}
+
+/** THE WORDS KOLU ANSWERS ITS OWN SETUP QUESTIONS IN, as 1.55.0 froze them —
+ *  the modes, what to do on green, and the four questions kolu draws the
+ *  options for. Copied rather than imported from `kolu-work`, by this file's
+ *  own rule: a rung keeps producing the bytes it was proven against, whatever
+ *  that package's vocabulary does next. */
+const WORK_MODES_1_55_0: ReadonlySet<string> = new Set([
+  "full",
+  "trivial",
+  "watch",
+]);
+const ON_GREEN_1_55_0: ReadonlySet<string> = new Set(["merge", "hand-over"]);
+const KOLU_CHOICE_KEYS_1_55_0: ReadonlySet<string> = new Set([
+  "planner.harness",
+  "planner.model",
+  "implementor.harness",
+  "implementor.model",
+]);
+
+/** The event kinds whose `why` is an AGENT'S OWN SHORT REASON — the ones that
+ *  become the `none`/`reason` sum. `keep-failed` is deliberately NOT here: its
+ *  `why` is kolu's own sentence about a copy that failed, and it is still a
+ *  plain string. */
+const AGENT_WHY_KINDS_1_55_0: ReadonlySet<string> = new Set([
+  "ready",
+  "stopped",
+  "asking",
+  "exited",
+  "asleep",
+]);
+
+/** The check events, whose `head` becomes the `unreported`/`commit` sum. */
+const CHECK_KINDS_1_55_0: ReadonlySet<string> = new Set([
+  "checks-running",
+  "checks-passed",
+  "checks-failed",
+]);
+
+/** The strings in a stored list, and nothing else. */
+const stringsOf_1_55_0 = (value: unknown): ReadonlyArray<string> =>
+  Array.isArray(value)
+    ? value.filter((one): one is string => typeof one === "string")
+    : [];
+
+/** HOW A 1.54.0 DECISION ENDED, read as the three things that can be true of
+ *  it: nobody has answered it, somebody "answered" it with NO VALUE (the
+ *  state this round deletes), or it is settled and here is the settlement in
+ *  the new shape. */
+type Settlement_1_55_0 =
+  | { readonly how: "asked" }
+  | { readonly how: "none"; readonly at: string }
+  | { readonly how: "settled"; readonly answer: Record<string, unknown> };
+
+/** THE VALUE a 1.54.0 answer carried, by what the question was about — or
+ *  `null` for the answer that carried none.
+ *
+ *  A question about the WORK keeps both halves of what a person said (the
+ *  options they ticked and the words they typed, trimmed) as the `said` sum;
+ *  `mode` and `on-green` must be one of kolu's own words, so anything else
+ *  stored under them is no value at all; one of kolu's four choices is one
+ *  non-empty string, verbatim — a typed model id is kept as typed and judged
+ *  when the role starts, exactly as 1.54.0 left it. */
+const valueOf_1_55_0 = (
+  key: string | null,
+  answer: Record<string, unknown>,
+): Record<string, unknown> | null => {
+  const picked = stringsOf_1_55_0(answer.picked);
+  const typed = typeof answer.text === "string" ? answer.text : "";
+  if (key === null) {
+    const text = typed.trim();
+    if (picked.length > 0 && text !== "")
+      return { said: { kind: "picked-and-typed", picked, text } };
+    if (picked.length > 0) return { said: { kind: "picked", picked } };
+    return text === "" ? null : { said: { kind: "typed", text } };
+  }
+  if (key === "mode" || key === "on-green") {
+    const word = picked[0] ?? typed.trim();
+    const words = key === "mode" ? WORK_MODES_1_55_0 : ON_GREEN_1_55_0;
+    return words.has(word) ? { value: word } : null;
+  }
+  const value = picked[0] ?? typed;
+  return value === "" ? null : { value };
+};
+
+/** ... and the whole settlement: a decline keeps the face it was said on (a
+ *  decline with no face is nobody declining, which is what `dropped` means),
+ *  a drop keeps only its moment, and an answer keeps its value and where it
+ *  came from — `from: null` being the answers kolu CARRIED OVER from the file
+ *  it kept before it stored work, which now say so by name. */
+const settlementOf_1_55_0 = (
+  decision: Record<string, unknown>,
+  key: string | null,
+): Settlement_1_55_0 => {
+  if (decision.kind !== "answered") return { how: "asked" };
+  const answer = recordOf(decision.answer);
+  if (answer === null) return { how: "asked" };
+  const at = text(answer.at);
+  const from = typeof answer.from === "string" ? answer.from : null;
+  if (answer.how === "declined")
+    return from === null
+      ? { how: "settled", answer: { how: "dropped", at } }
+      : { how: "settled", answer: { how: "declined", at, from } };
+  if (answer.how === "dropped")
+    return { how: "settled", answer: { how: "dropped", at } };
+  const value = valueOf_1_55_0(key, answer);
+  if (value === null) return { how: "none", at };
+  return {
+    how: "settled",
+    answer: { how: "answered", at, from: from ?? "carried-over", ...value },
+  };
+};
+
+/** ONE 1.54.0 DECISION as the sum it is now, or the SAME OBJECT when it
+ *  already is one (a decision with a `topic` has walked this rung).
+ *
+ *  `open` is whether the work it sits on is still being done, and it decides
+ *  the one case this rung exists for: an "answered" decision with no value.
+ *  In an OPEN work that question is ASKED AGAIN — same ask, same id, same
+ *  words, no answer — because the human never answered it and the form is
+ *  still theirs to fill in. In an ENDED one there is nobody left to ask, so
+ *  it is settled as `dropped` at the moment the empty answer claimed. */
+const decisionOf_1_55_0 = (value: unknown, open: boolean): unknown => {
+  const decision = recordOf(value);
+  if (decision === null || "topic" in decision) return value;
+  const {
+    kind: _kind,
+    key: storedKey,
+    header,
+    file,
+    options,
+    multiple,
+    answer: _answer,
+    ...rest
+  } = decision;
+  const key = typeof storedKey === "string" ? storedKey : null;
+  const fields =
+    key === null
+      ? {
+          ...rest,
+          topic: "work",
+          header:
+            text(header) === ""
+              ? { kind: "none" }
+              : { kind: "header", text: header },
+          options: stringsOf_1_55_0(options),
+          multiple: multiple === true,
+          file:
+            text(file) === "" ? { kind: "none" } : { kind: "file", path: file },
+        }
+      : KOLU_CHOICE_KEYS_1_55_0.has(key)
+        ? { ...rest, topic: "setup", key }
+        : {
+            ...rest,
+            topic: "setup",
+            key,
+            options: stringsOf_1_55_0(options).filter((one) =>
+              (key === "mode" ? WORK_MODES_1_55_0 : ON_GREEN_1_55_0).has(one),
+            ),
+          };
+  const settlement = settlementOf_1_55_0(decision, key);
+  switch (settlement.how) {
+    case "asked":
+      return { kind: "asked", ...fields };
+    case "none":
+      return open
+        ? { kind: "asked", ...fields }
+        : {
+            kind: "settled",
+            ...fields,
+            answer: { how: "dropped", at: settlement.at },
+          };
+    case "settled":
+      return { kind: "settled", ...fields, answer: settlement.answer };
+  }
+};
+
+/** ONE 1.54.0 EVENT as the arms it is now, or the SAME OBJECT when it already
+ *  carries them (an event with an `about` has walked this rung).
+ *
+ *  `reasked` is the asks that came out of the decision rewrite with a question
+ *  still open in them: an `answered` line about such an ask would say the
+ *  human finished a form they never finished, so it becomes `answered-part` —
+ *  the event kind this round adds for exactly that reading. */
+const eventOf_1_55_0 = (
+  value: unknown,
+  reasked: ReadonlySet<string>,
+): unknown => {
+  const event = recordOf(value);
+  if (event === null || "about" in event) return value;
+  const { terminal, ...rest } = event;
+  const ref = text(terminal);
+  const base: Record<string, unknown> = {
+    ...rest,
+    about: ref === "" ? { kind: "work" } : { kind: "member", terminal: ref },
+  };
+  const kind = text(event.kind);
+  if (kind === "requested") {
+    const { text: words, ...without } = base;
+    return {
+      ...without,
+      request:
+        text(words) === "" ? { kind: "none" } : { kind: "said", text: words },
+    };
+  }
+  if (AGENT_WHY_KINDS_1_55_0.has(kind)) {
+    const why = text(base.why);
+    return {
+      ...base,
+      why: why === "" ? { kind: "none" } : { kind: "reason", text: why },
+    };
+  }
+  if (CHECK_KINDS_1_55_0.has(kind)) {
+    const sha = text(base.head);
+    return {
+      ...base,
+      head: sha === "" ? { kind: "unreported" } : { kind: "commit", sha },
+    };
+  }
+  if (kind === "answered" && reasked.has(text(event.ask)))
+    return { ...base, kind: "answered-part" };
+  return base;
+};
+
+/** The 1.55.0 rung — NO HOLE IN THE WORK MODEL, in the bytes as well as in
+ *  the types (juspay/kolu#2380).
+ *
+ *  A stored decision could say `{"kind":"answered","answer":{"how":"answered",
+ *  "picked":[],"text":null,"from":"chat"}}` — answered, with no answer — and
+ *  three readers each decided for themselves what that meant, so the work it
+ *  was on could neither be started (the setup had "no model") nor asked again
+ *  (the question was "answered"). The model now says a thing that may be
+ *  absent is an ARM saying what the absence means, and this rung takes every
+ *  stored work to that shape:
+ *
+ *  - A DECISION IS `asked` OR `settled`, about the `setup` (with its key) or
+ *    about the `work` (with no key at all — the `key: null` it used to carry
+ *    is deleted). A work question's `header` and `file` become their
+ *    `none`/`header`/`file` arms rather than `""`; a setup question loses
+ *    both, and its `multiple` with them, because its label is its key's own
+ *    name and kolu's four choices take one value. `mode` and `on-green` keep
+ *    only options that are kolu's own words.
+ *  - AN ANSWER CARRIES ITS VALUE, by arm: what a person SAID about the work
+ *    (picked, typed, or both), or the one word a setup question takes. An
+ *    answer `from: null` is one kolu carried over from the file it kept
+ *    before it stored work, and says so.
+ *  - AN ANSWER WITH NO VALUE IS NOT AN ANSWER. In an OPEN work the question
+ *    goes back to `asked` — the same ask, the same words, waiting on the same
+ *    person, which is what the human's own store needs: their two model
+ *    questions come back as the open questions they always were, and the card
+ *    and the Conductor both read them that way. In an ENDED work it is
+ *    settled `dropped`: there is nobody to ask any more.
+ *  - AN EVENT SAYS WHAT IT IS ABOUT (`about`: the work, or one member
+ *    terminal) instead of a nullable `terminal`; `requested` carries the
+ *    human's words or none; an agent-state event carries a reason or none; a
+ *    check event carries the commit it ran on or says the host reported none.
+ *    An `answered` line about an ask this rung has just re-opened becomes
+ *    `answered-part` — part of the form was answered and the rest is still
+ *    asked, which is the true thing to say about it.
+ *  - A MEMBER'S `worktree` is `unread` until something has read the terminal,
+ *    and `read` with its path after.
+ *
+ *  IDEMPOTENT by construction: a decision already carrying a `topic`, an
+ *  event already carrying an `about` and a member whose `worktree` is already
+ *  an object are returned AS THE SAME OBJECT, and a store with nothing to
+ *  change is not written back at all — neither key.
+ *
+ *  Untyped JSON in, as every rung reads its own era's records: the works key
+ *  is the object keyed by work id that 1.53.0 made, the members key is the
+ *  one map keyed by terminal ref, and anything this does not recognise walks
+ *  past to the schema that refuses it by name.
+ *
+ *  THE TRANSCRIPT FILE MOVES IN THE SAME RUNG, for the same reason and by
+ *  this file's own rule ({@link TRANSCRIPT_FILE_VERSION}): a `work-ask` row's
+ *  `ask` used to carry `outcome: null | {how, answers}` beside a `link`, and
+ *  "answered with no answers" was sayable there too. It carries a STANDING
+ *  now ({@link workAskStanding_1_55_0}), so the rows are rewritten and the
+ *  file is stamped 1.55.0.
+ *
+ *  Exported for `stateMigration.test.ts`, which drives it over the human's
+ *  own bytes. */
+export function workArmsNotNulls_1_55_0(store: Conf<PersistedState>): void {
+  const works = recordOf(store.get("works"));
+  if (works !== null) {
+    let changed = false;
+    const next: Record<string, unknown> = {};
+    for (const [id, value] of Object.entries(works)) {
+      const work = recordOf(value);
+      if (work === null) {
+        next[id] = value;
+        continue;
+      }
+      const open = recordOf(work.state)?.kind !== "ended";
+      const decisions = Array.isArray(work.decisions) ? work.decisions : [];
+      const nextDecisions = decisions.map((one: unknown) =>
+        decisionOf_1_55_0(one, open),
+      );
+      // The asks that still hold an open question AFTER the rewrite — what
+      // turns an `answered` line into an `answered-part` one. Only on an OPEN
+      // work: an ended one is nobody's to answer, and the lines on it are the
+      // history of what happened while it ran.
+      const reasked = new Set<string>();
+      if (open)
+        for (const one of nextDecisions) {
+          const decision = recordOf(one);
+          if (decision?.kind === "asked") reasked.add(text(decision.ask));
+        }
+      const events = Array.isArray(work.events) ? work.events : [];
+      const nextEvents = events.map((one: unknown) =>
+        eventOf_1_55_0(one, reasked),
+      );
+      const touched =
+        nextDecisions.some((one, at) => one !== decisions[at]) ||
+        nextEvents.some((one, at) => one !== events[at]);
+      if (!touched) {
+        next[id] = value;
+        continue;
+      }
+      changed = true;
+      next[id] = { ...work, decisions: nextDecisions, events: nextEvents };
+    }
+    if (changed) store.set("works", next as unknown as PersistedState["works"]);
+  }
+  workAskStanding_1_55_0(dirname(store.path));
+  const members = recordOf(store.get("members"));
+  if (members === null) return;
+  let moved = false;
+  const nextMembers: Record<string, unknown> = {};
+  for (const [ref, value] of Object.entries(members)) {
+    const member = recordOf(value);
+    if (member === null || recordOf(member.worktree) !== null) {
+      nextMembers[ref] = value;
+      continue;
+    }
+    moved = true;
+    const path = text(member.worktree);
+    nextMembers[ref] = {
+      ...member,
+      worktree: path === "" ? { kind: "unread" } : { kind: "read", path },
+    };
+  }
+  if (moved)
+    store.set("members", nextMembers as unknown as PersistedState["members"]);
+}
+
+/** THE VERSION 1.55.0 STAMPS INTO THE TRANSCRIPT FILE it rewrites — frozen
+ *  under this rung's own number for the reason {@link TRANSCRIPT_VERSION_1_53_0}
+ *  gives: the live constant moves to the NEXT rung that changes a row, and a
+ *  stamp is refused by name rather than guessed at. */
+const TRANSCRIPT_VERSION_1_55_0 = "1.55.0";
+
+/** A `work-ask` ROW'S ASK CARRIES A STANDING, not an outcome that could be
+ *  `answered` with nothing in it.
+ *
+ *  The row drew kolu's own question about a piece of work, and said how it
+ *  ended with `outcome: null | {how, answers}` — the same hole the decisions
+ *  had, in the conversation's copy of them: a form answered with every box
+ *  left empty read as answered and drew as answered, while the work's own
+ *  question was still waiting on somebody. The standing is a sum
+ *  (`open | part | answered | declined | withdrawn`), so this rewrites each
+ *  stored row into it:
+ *
+ *  - `null` → `{kind:"open"}`: nobody has answered yet.
+ *  - `declined` / `withdrawn` → their own arms, which carry nothing.
+ *  - `answered` → `{kind:"answered", answers}` with the answers that actually
+ *    HAVE values; an "answered" whose answers are all empty is nobody
+ *    answering, and becomes `{kind:"declined"}` — the honest reading of a
+ *    form that settled with nothing in it, and the one that stops the row
+ *    drawing as a question the person already dealt with.
+ *  - `ask.link` is gone and is dropped.
+ *
+ *  A USER ROW'S `auth: true` — "refused, and nobody is signed in" — becomes
+ *  `signIn: "signed-out"`, the one arm of the reason a refusal signing in
+ *  could fix that this build's rows had a spelling for.
+ *
+ *  PLAIN `ask` ROWS (the agent holding a call open on a person) are NOT
+ *  touched: they keep the outcome shape they always had. A row that already
+ *  carries its new shape has walked this rung.
+ *
+ *  THE STAMP MOVES WHETHER OR NOT A ROW DID. The reader takes exactly the
+ *  version it was built with, so a file left at 1.53.0 because nothing in it
+ *  needed rewriting — a transcript after a New session, say — would be
+ *  refused by name on the very boot this rung ran.
+ *
+ *  Exported for `stateMigration.test.ts`. */
+export function workAskStanding_1_55_0(stateRoot: string): void {
+  const path = transcriptFilePath(stateRoot);
+  if (!existsSync(path)) return;
+  let held: unknown;
+  try {
+    held = JSON.parse(readFileSync(path, "utf8"));
+  } catch {
+    // A transcript this build cannot parse is left exactly as it is: the
+    // reader refuses it by name, which is a recovery a person can act on.
+    return;
+  }
+  const record = recordOf(held);
+  const rows = record === null ? null : record.rows;
+  if (!Array.isArray(rows)) return;
+  let changed = record?.version !== TRANSCRIPT_VERSION_1_55_0;
+  const next = rows.map((value: unknown) => {
+    const row = recordOf(value);
+    if (row !== null && row.kind === "user" && "auth" in row) {
+      changed = true;
+      const { auth, ...rest } = row;
+      return auth === true ? { ...rest, signIn: "signed-out" } : rest;
+    }
+    if (row === null || row.kind !== "work-ask") return value;
+    const ask = recordOf(row.ask);
+    if (ask === null || "standing" in ask) return value;
+    changed = true;
+    const { link: _link, outcome, ...rest } = ask;
+    const settled = recordOf(outcome);
+    if (settled === null)
+      return { ...row, ask: { ...rest, standing: { kind: "open" } } };
+    const answers = (Array.isArray(settled.answers) ? settled.answers : [])
+      .map(recordOf)
+      .filter(
+        (one): one is Record<string, unknown> =>
+          one !== null && stringsOf_1_55_0(one.values).length > 0,
+      );
+    const standing =
+      settled.how === "answered" && answers.length > 0
+        ? { kind: "answered", answers }
+        : { kind: settled.how === "withdrawn" ? "withdrawn" : "declined" };
+    return { ...row, ask: { ...rest, standing } };
+  });
+  if (!changed) return;
+  writeTranscriptFile(path, TRANSCRIPT_VERSION_1_55_0, next);
+}
+
+/** The four questions kolu draws the options for, as 1.56.0 froze them —
+ *  copied rather than imported, by this file's own rule. */
+const KOLU_CHOICE_KEYS_1_56_0: ReadonlySet<string> = new Set([
+  "planner.harness",
+  "planner.model",
+  "implementor.harness",
+  "implementor.model",
+]);
+
+/** ONE DECISION as 1.56.0 stores it: an answer to one of kolu's own questions
+ *  gains `chosen`, and every other decision is the SAME OBJECT. A decision
+ *  that already says how it was chosen has walked this rung. */
+const decisionOf_1_56_0 = (value: unknown): unknown => {
+  const decision = recordOf(value);
+  if (
+    decision === null ||
+    decision.kind !== "settled" ||
+    typeof decision.key !== "string" ||
+    !KOLU_CHOICE_KEYS_1_56_0.has(decision.key)
+  )
+    return value;
+  const answer = recordOf(decision.answer);
+  if (answer === null || answer.how !== "answered" || "chosen" in answer)
+    return value;
+  return { ...decision, answer: { ...answer, chosen: "picked" } };
+};
+
+/** The 1.56.0 rung — AN ANSWER TO ONE OF KOLU'S QUESTIONS SAYS HOW IT WAS
+ *  CHOSEN: picked from what kolu drew, or typed by the person. A typed model
+ *  goes to the harness as typed and is never held to the host's list; a
+ *  picked one is, whenever the host can list.
+ *
+ *  Every answer stored before this rung becomes `picked`, and that is what
+ *  each was judged as. A harness answer was always one kolu carries. A model
+ *  answer was held to the host's list whenever its harness had one (the rule
+ *  refused anything else where it was recorded and again at start), and for
+ *  a harness with no list the one-word rule was all that was asked — which
+ *  is exactly how a picked model under such a harness is judged now. So no
+ *  saved answer starts or stops passing because of this rung.
+ *
+ *  Only `works` moves; the transcript file's rows keep their own shape, so
+ *  TRANSCRIPT_FILE_VERSION stays at 1.55.0. Exported for
+ *  `stateMigration.test.ts`. */
+export function koluChoicesSayHowChosen_1_56_0(
+  store: Conf<PersistedState>,
+): void {
+  const works = recordOf(store.get("works"));
+  if (works === null) return;
+  let changed = false;
+  const next: Record<string, unknown> = {};
+  for (const [id, value] of Object.entries(works)) {
+    const work = recordOf(value);
+    const decisions = Array.isArray(work?.decisions) ? work.decisions : null;
+    if (work === null || decisions === null) {
+      next[id] = value;
+      continue;
+    }
+    const nextDecisions = decisions.map(decisionOf_1_56_0);
+    if (nextDecisions.every((one, at) => one === decisions[at])) {
+      next[id] = value;
+      continue;
+    }
+    changed = true;
+    next[id] = { ...work, decisions: nextDecisions };
+  }
+  if (changed) store.set("works", next as unknown as PersistedState["works"]);
+}
+
 /** The migration ladder — hoisted so {@link decodeStateBackup}'s scratch
  *  store walks the REAL ladder on a backup snapshot (which may predate any
  *  rung), never a parallel re-implementation of it. */
@@ -2011,4 +2614,30 @@ export const CONF_MIGRATIONS = {
   // (a work question is its own row kind), which is why
   // TRANSCRIPT_FILE_VERSION reads 1.53.0.
   "1.53.0": foldWorks_1_53_0,
+  // A ROLE'S HARNESS AND ITS MODEL ARE KOLU'S OPTIONS TO DRAW, so those four
+  // decisions lose the `options`/`multiple` the Conductor used to offer —
+  // which is what keeps a work opened before the change, with an OPEN setup
+  // question, answerable at all. `dropKoluChoiceOptions_1_54_0` argues it;
+  // answered decisions keep their `answer.picked`, which is what the readings
+  // read. The transcript file's rows do not change, so
+  // TRANSCRIPT_FILE_VERSION stays at 1.53.0.
+  "1.54.0": dropKoluChoiceOptions_1_54_0,
+  // NO HOLE IN THE WORK MODEL. "Answered, with no answer" was a value a
+  // store could hold — and the human's does — so a work could neither start
+  // nor be asked again. Every decision, every event and every member walks to
+  // the tagged sums that cannot say it: `workArmsNotNulls_1_55_0` argues each
+  // rewrite, and the one that matters is an empty answer on an OPEN work
+  // becoming the question it always was, still ASKED, in the same ask. The
+  // transcript file moves in the same rung — a `work-ask` row's ask carries a
+  // STANDING now (`workAskStanding_1_55_0`) — which is why
+  // TRANSCRIPT_FILE_VERSION reads 1.55.0.
+  "1.55.0": workArmsNotNulls_1_55_0,
+  // HOW A KOLU CHOICE WAS CHOSEN. An answer to one of kolu's own questions
+  // gains `chosen` — `picked` or `typed` — because the two are judged
+  // differently: a typed model goes to the harness as typed and is never
+  // held to the host's list. Every stored answer becomes `picked`, which is
+  // what each was judged as (`koluChoicesSayHowChosen_1_56_0` argues it).
+  // The transcript file is untouched, so TRANSCRIPT_FILE_VERSION stays at
+  // 1.55.0.
+  "1.56.0": koluChoicesSayHowChosen_1_56_0,
 };

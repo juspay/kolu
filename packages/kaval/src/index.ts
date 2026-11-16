@@ -177,3 +177,7 @@ export { assertDaemonSpawnAllowed } from "./daemonSpawnGate.ts";
 // juspay/kolu#2101): a policy two supervisors must agree on cannot live inside
 // one of them.
 export { kavalConvergencePolicy } from "./convergencePolicy.ts";
+// The one materialiser of a spawn's wrapper rcfiles. padi runs a terminal's
+// exact spawn once more, outside kaval, to read the environment its shell ends
+// up with (`padi/src/ptyHost/shellEnv.ts`), and writes those files the same way.
+export { removeInitFiles, writeInitFiles } from "./initFiles.ts";

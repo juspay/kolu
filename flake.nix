@@ -62,7 +62,15 @@
           # and its sourceable env file are re-exposed under kebab CLI spellings
           # for their two callers — `just dev`/`just server` and
           # ci::agent-flake-nix.
-        (removeAttrs kolu [ "agentFlakeSrc" "agentFlakeEnv" "koluEnv" "typecheck" ]) // {
+          #
+          # `agent-distro-pre-models` and `agent-distro-delivery` are the two
+          # CI-lane reads of `default.nix` (their comment there says what each
+          # is), kept out of `packages` because `ci/flake-build` builds — and
+          # odu PUSHES — every package this flake exposes: the first is an old
+          # upstream closure nobody ships, and neither is something a kolu user
+          # installs. `ci::agent-models` / `ci::agent-published` reach them with
+          # `nix build -f default.nix`.
+        (removeAttrs kolu [ "agentFlakeSrc" "agentFlakeEnv" "koluEnv" "typecheck" "agent-distro-pre-models" "agent-distro-delivery" ]) // {
           agent-flake-source = kolu.agentFlakeSrc;
           agent-flake-env = kolu.agentFlakeEnv;
         });

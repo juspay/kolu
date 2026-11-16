@@ -110,6 +110,7 @@ const ready = (
   kind: "ready",
   set: { bundle, profiles: delivered },
   delivering,
+  answers: ["--list", "--models"],
 });
 
 /** The client's relative-time phrase, made visible. */
@@ -1609,6 +1610,7 @@ describe("receiptSet — a receipt paired with the set that landed", () => {
       kind: "ready",
       set: { bundle: "/nix/store/b-agent-distro", profiles: delivered },
       delivering: false,
+      answers: ["--list", "--models"],
     });
     expect(
       receiptSet({
@@ -1638,6 +1640,7 @@ describe("a history line from before agent-distro was one package", () => {
             profiles: [],
           },
           delivering: false,
+          answers: ["--list", "--models"],
         },
         checking: false,
         receipt: {

@@ -33,16 +33,28 @@
  * waiting — and the reader spells it.
  */
 
+import { type AgentModelList, isAgentModelId } from "@kolu/agent-distro/models";
+import { Array as Arr, Option } from "effect";
 import { type Policy, type Waiter, waitingOn } from "./folds.ts";
-import { answerValue } from "./readings.ts";
+import { type Given, type SentAnswer, sentValue } from "./record.ts";
 import {
-  type Decision,
+  type Chosen,
   hostOf,
+  isAbout,
+  isAsked,
+  isKoluChoice,
+  isKoluChoiceKey,
+  isWaterfallRole,
+  type KoluChoice,
+  type KoluChoiceKey,
   ON_GREEN,
+  type OfferedSetupKey,
   type OnGreen,
   SETUP_KEYS,
+  type SetupDecision,
   type SetupKey,
   WORK_MODES,
+  type WaterfallRole,
   WORK_ROLES,
   type Work,
   type WorkMode,
@@ -51,7 +63,15 @@ import {
 
 export {
   hostOf,
+  isKoluChoice,
+  isKoluChoiceKey,
+  KOLU_CHOICE_KEYS,
+  type KoluChoice,
+  type KoluChoiceKey,
   ON_GREEN,
+  OFFERED_SETUP_KEYS,
+  type Offered,
+  type OfferedSetupKey,
   type OnGreen,
   SETUP_KEYS,
   type SetupKey,
@@ -111,24 +131,26 @@ export const MODE_RUNS: Readonly<
   watch: { roles: [], needs: [], driven: false },
 };
 
-/** The roles a mode runs, in the order they come in. */
-export const rolesOf = (mode: WorkMode | null): ReadonlyArray<WorkRole> =>
-  mode === null ? [] : MODE_RUNS[mode].roles;
+/** The roles a mode runs, in the order they come in — none until a mode is
+ *  answered. */
+export const rolesOf = (
+  mode: Option.Option<WorkMode>,
+): ReadonlyArray<WorkRole> =>
+  Option.match(mode, {
+    onNone: () => [],
+    onSome: (one) => MODE_RUNS[one].roles,
+  });
 
-/** THE SETUP KEY for one role's harness or model, BY LOOKUP — `null` for a
- *  role that has none.
- *
- *  A lookup rather than `` `${role}.harness` `` with a cast: `SETUP_KEYS`
- *  enumerates exactly the per-role keys that exist, and `other` has none. The
- *  concatenation was correct only because two tables happened to agree, and a
- *  role added to one of them read back as a harness of `null` with nothing
- *  said about why. */
+/** THE SETUP KEY for one role's harness or model, BY LOOKUP — none for a
+ *  role that has no such key (`other`), rather than a key spelled by joining
+ *  two words: the concatenation was correct only because two tables happened
+ *  to agree. */
 export const setupKeyOf = (
   role: WorkRole,
   what: "harness" | "model",
-): SetupKey | null => {
+): Option.Option<SetupKey> => {
   const spelled = `${role}.${what}`;
-  return SETUP_KEYS.find((key) => key === spelled) ?? null;
+  return Option.fromUndefinedOr(SETUP_KEYS.find((key) => key === spelled));
 };
 
 /** THE ORDER THE ROLES COME IN, as a number — the planner plans, the
@@ -146,35 +168,108 @@ export const WATERFALL_DIR = ".waterfall/";
 export const waterfallFileName = (path: string): string =>
   path.startsWith(WATERFALL_DIR) ? path.slice(WATERFALL_DIR.length) : path;
 
-/** The latest ANSWERED decision for a setup key. */
-const setupDecision = (work: Work, key: SetupKey): Decision | undefined =>
-  work.decisions.findLast(
-    (one) =>
-      one.key === key &&
-      one.kind === "answered" &&
-      one.answer.how === "answered",
+/** WHERE ONE SETUP QUESTION STANDS — THE ONE READING of "is this setup
+ *  question settled", read by everybody: the setup a card and the Conductor
+ *  see ({@link setupOf}), which keys `work_open` asks, whether `startOf`
+ *  refuses and what it says, and the form.
+ *
+ *  - `answered` — the newest answer WITH A VALUE (a decision answered with
+ *    nothing is not a value the record can hold);
+ *  - `open` — no value, and a question for it is in front of the human now:
+ *    the answer will come by itself;
+ *  - `unasked` — no value and nothing open (never asked, declined, dropped):
+ *    nobody will answer it unless it is asked, which is `work_open`'s job. */
+export type SetupStanding<V extends string> =
+  | { readonly kind: "answered"; readonly value: V }
+  | { readonly kind: "open"; readonly ask: string }
+  | { readonly kind: "unasked" };
+
+/** A setup decision that stands ANSWERED — the arm every reading below is
+ *  after, with the value (and, for one of kolu's own, how it was chosen)
+ *  right there on it. */
+type AnsweredSetup = Extract<SetupDecision, { readonly kind: "settled" }> & {
+  readonly answer: { readonly how: "answered" };
+};
+
+/** THE NEWEST ANSWER TO A SETUP QUESTION — the one walk behind every reading
+ *  of what a key stands answered with: the last answer wins, because a key
+ *  asked again is answered again. */
+const newestSetupAnswer = (
+  work: Work,
+  key: SetupKey,
+): Option.Option<AnsweredSetup> =>
+  Option.fromUndefinedOr(
+    work.decisions.findLast(
+      (one): one is AnsweredSetup =>
+        one.topic === "setup" &&
+        one.key === key &&
+        one.kind === "settled" &&
+        one.answer.how === "answered",
+    ),
   );
-const among = <T extends string>(
-  value: string | null,
-  vocabulary: ReadonlyArray<T>,
-): T | null =>
-  value !== null && (vocabulary as ReadonlyArray<string>).includes(value)
-    ? (value as T)
-    : null;
 
-/** THE HOST is part of a work's identity now ({@link hostOf} in
- *  `./schema.ts`, read off the key), not a question the human may leave
- *  unanswered. Re-exported here so a reader of the waterfall's readings
- *  finds it where the others are. */
+export function setupStanding(work: Work, key: "mode"): SetupStanding<WorkMode>;
+export function setupStanding(
+  work: Work,
+  key: "on-green",
+): SetupStanding<OnGreen>;
+export function setupStanding(work: Work, key: SetupKey): SetupStanding<string>;
+export function setupStanding(
+  work: Work,
+  key: SetupKey,
+): SetupStanding<string> {
+  const answered = newestSetupAnswer(work, key);
+  if (Option.isSome(answered))
+    return { kind: "answered", value: answered.value.answer.value };
+  const open = work.decisions.find(
+    (one) => one.topic === "setup" && one.key === key && one.kind === "asked",
+  );
+  return open === undefined
+    ? { kind: "unasked" }
+    : { kind: "open", ask: open.ask };
+}
 
-/** The mode, or `null` until answered (or answered with words that are no
- *  mode). */
-export const modeOf = (work: Work): WorkMode | null =>
-  among(answerValue(setupDecision(work, "mode")), WORK_MODES);
+/** The value a setup question was answered with — none while it is open or
+ *  unasked ({@link setupStanding}, read the one way every reader reads it). */
+export function setupValue(work: Work, key: "mode"): Option.Option<WorkMode>;
+export function setupValue(work: Work, key: "on-green"): Option.Option<OnGreen>;
+export function setupValue(work: Work, key: SetupKey): Option.Option<string>;
+export function setupValue(work: Work, key: SetupKey): Option.Option<string> {
+  const standing = setupStanding(work, key);
+  return standing.kind === "answered"
+    ? Option.some(standing.value)
+    : Option.none();
+}
+
+/** A saved answer to one of kolu's own questions, with how it was chosen —
+ *  none while it is open or unasked. */
+export const koluAnswerOf = (
+  work: Work,
+  key: KoluChoiceKey,
+): Option.Option<Recalled> =>
+  Option.map(
+    Option.filter(
+      newestSetupAnswer(work, key),
+      (one): one is AnsweredSetup & KoluChoice => isKoluChoice(one),
+    ),
+    (one) => ({ value: one.answer.value, chosen: one.answer.chosen }),
+  );
+
+/** A VALUE AND HOW IT WAS CHOSEN — a saved answer to one of kolu's own
+ *  questions, or one this person gave before ({@link SetupMemory}). An answer
+ *  to `mode` or `on-green` is always one of the options pressed: picked. */
+export interface Recalled {
+  readonly value: string;
+  readonly chosen: Chosen;
+}
+
+/** The mode, or none until answered. */
+export const modeOf = (work: Work): Option.Option<WorkMode> =>
+  setupValue(work, "mode");
 
 /** What to do when CI is green — the one place it is written. */
-export const onGreenOf = (work: Work): OnGreen | null =>
-  among(answerValue(setupDecision(work, "on-green")), ON_GREEN);
+export const onGreenOf = (work: Work): Option.Option<OnGreen> =>
+  setupValue(work, "on-green");
 
 /** WHAT THE WATERFALL'S WORDS MEAN FOR THIS WORK, as the folds take it.
  *
@@ -183,16 +278,16 @@ export const onGreenOf = (work: Work): OnGreen | null =>
  *  they need — whether the human asked for a hand-over, and whether this is a
  *  plain watch — are read ONCE here and handed in. */
 export const policyOf = (work: Work): Policy => ({
-  handOver: onGreenOf(work) === "hand-over",
-  watching: modeOf(work) === "watch",
+  handOver: Option.contains(onGreenOf(work), "hand-over"),
+  watching: Option.contains(modeOf(work), "watch"),
 });
 
-/** WHO IS TYPING INTO A MEMBER TERMINAL — the Conductor, or the person who
- *  took it over. `null` for a terminal nothing drives: the work has ended, the
- *  terminal is not an active member of it, or its mode is not one the
- *  Conductor runs ({@link MODE_RUNS}'s `driven`: a `watch` is the human's own
- *  terminal, and a work whose mode nobody has answered yet runs nothing). */
-export type Driver = "conductor" | "you";
+/** WHO IS TYPING INTO A MEMBER TERMINAL — the Conductor, the person who took
+ *  it over, or nobody: the work has ended, the terminal is not an active
+ *  member of it, or its mode is not one the Conductor runs
+ *  ({@link MODE_RUNS}'s `driven`: a `watch` is the human's own terminal, and
+ *  a work whose mode nobody has answered yet runs nothing). */
+export type Driver = "conductor" | "you" | "nobody";
 
 /** The driver, read off the events the way everything else about a work is:
  *  the latest `taken-over`/`handed-back` for that terminal SINCE it last
@@ -202,15 +297,15 @@ export type Driver = "conductor" | "you";
 export const driverOf = (
   work: Work,
   terminal: string,
-  member: { readonly work: string; readonly role: WorkRole } | undefined,
-): Driver | null => {
-  if (work.state.kind !== "open") return null;
+  member: Option.Option<{ readonly work: string; readonly role: WorkRole }>,
+): Driver => {
+  if (work.state.kind !== "open") return "nobody";
   const mode = modeOf(work);
-  if (mode === null || !MODE_RUNS[mode].driven) return null;
-  if (member === undefined) return null;
+  if (Option.isNone(mode) || !MODE_RUNS[mode.value].driven) return "nobody";
+  if (Option.isNone(member)) return "nobody";
   for (let at = work.events.length - 1; at >= 0; at -= 1) {
     const event = work.events[at];
-    if (event === undefined || event.terminal !== terminal) continue;
+    if (event === undefined || !isAbout(event, terminal)) continue;
     // Back to the join THIS membership started at and no further: a terminal
     // that left and came back is driven by the Conductor again, whatever was
     // said about the terminal it used to be.
@@ -221,27 +316,51 @@ export const driverOf = (
   return "conductor";
 };
 
+/** ONE ROLE'S SETUP — nothing chosen, its harness, or its harness and the
+ *  model it runs. A model is only ever a model OF a harness, so "a model with
+ *  no harness" has no arm. */
+export type RoleSetup =
+  | { readonly kind: "not-chosen" }
+  | { readonly kind: "harness"; readonly harness: string }
+  | {
+      readonly kind: "harness-and-model";
+      readonly harness: string;
+      readonly model: string;
+    };
+
 export interface SetupReading {
   readonly host: string;
-  readonly mode: WorkMode | null;
+  readonly mode: Option.Option<WorkMode>;
   readonly roles: ReadonlyArray<{
     readonly role: WorkRole;
-    readonly harness: string | null;
-    readonly model: string | null;
+    readonly setup: RoleSetup;
   }>;
-  readonly onGreen: OnGreen | null;
+  readonly onGreen: Option.Option<OnGreen>;
 }
 
-/** One role's setup answer for `harness` or `model` — `null` both for a role
- *  that has no such key and for one nobody has answered. */
+/** One role's answer for `harness` or `model` — none both for a role that
+ *  has no such key and for one nobody has answered. */
 const roleAnswer = (
   work: Work,
   role: WorkRole,
   what: "harness" | "model",
-): string | null => {
-  const key = setupKeyOf(role, what);
-  return key === null ? null : answerValue(setupDecision(work, key));
-};
+): Option.Option<string> =>
+  Option.flatMap(setupKeyOf(role, what), (key) => setupValue(work, key));
+
+/** One role's setup, off its two answers. */
+export const roleSetupOf = (work: Work, role: WorkRole): RoleSetup =>
+  Option.match(roleAnswer(work, role, "harness"), {
+    onNone: (): RoleSetup => ({ kind: "not-chosen" }),
+    onSome: (harness): RoleSetup =>
+      Option.match(roleAnswer(work, role, "model"), {
+        onNone: (): RoleSetup => ({ kind: "harness", harness }),
+        onSome: (model): RoleSetup => ({
+          kind: "harness-and-model",
+          harness,
+          model,
+        }),
+      }),
+  });
 
 /** The setup, as the decisions say it. */
 export const setupOf = (work: Work): SetupReading => {
@@ -251,21 +370,27 @@ export const setupOf = (work: Work): SetupReading => {
     mode,
     roles: rolesOf(mode).map((role) => ({
       role,
-      harness: roleAnswer(work, role, "harness"),
-      model: roleAnswer(work, role, "model"),
+      setup: roleSetupOf(work, role),
     })),
     onGreen: onGreenOf(work),
   };
 };
 
 /** One setup question as `work_open` carries it — the shape the two checks
- *  below read, stated before any work exists. */
-export interface SetupAsk {
-  readonly key: SetupKey;
-  readonly question: string;
-  readonly options: ReadonlyArray<string>;
-  readonly given?: string | undefined;
-}
+ *  below read, stated before any work exists. The questions kolu draws the
+ *  options for ({@link KOLU_CHOICE_KEYS}) are NAMED, with what the request
+ *  already said: no options and no words, which are kolu's. */
+export type SetupAsk =
+  | {
+      readonly key: OfferedSetupKey;
+      readonly question: string;
+      readonly options: ReadonlyArray<string>;
+      readonly given: Given<string>;
+    }
+  | {
+      readonly key: KoluChoiceKey;
+      readonly given: Given<string>;
+    };
 
 /**
  * WHAT THIS SETUP DOES NOT ASK AND MUST — checked BEFORE the work exists and
@@ -273,14 +398,14 @@ export interface SetupAsk {
  *
  * WHICH MODE'S NEEDS APPLY turns on whether the mode is still a question.
  *
- *  - A mode question carrying `given` is a mode ALREADY DECIDED — the human's
- *    request said it, nobody will be asked, and `modeOf` will read exactly
- *    that word back. So the keys needed are exactly `MODE_RUNS[given].needs`.
- *    Taking the union over its options too is what made `given: "trivial"`
- *    demand `planner.harness` and `planner.model` — two questions about a role
- *    a trivial waterfall does not run, put to a person who had already said
- *    which mode they wanted.
- *  - A mode question with no `given` may still come out as any word it
+ *  - A mode question carrying a given value is a mode ALREADY DECIDED — the
+ *    human's request said it, nobody will be asked, and `modeOf` will read
+ *    exactly that word back. So the keys needed are exactly
+ *    `MODE_RUNS[given].needs`. Taking the union over its options too is what
+ *    made a given `trivial` demand `planner.harness` and `planner.model` — two
+ *    questions about a role a trivial waterfall does not run, put to a person
+ *    who had already said which mode they wanted.
+ *  - A mode question with nothing given may still come out as any word it
  *    OFFERS, so every one of those modes' needs has to be in the same form: a
  *    question that offers `full` means this work may turn out to be a full
  *    waterfall, and asking the planner's two later is the second form this
@@ -295,15 +420,11 @@ export const missingSetup = (
 ): ReadonlyArray<SetupKey> => {
   const asked = new Set(setup.map((one) => one.key));
   const modes = new Set<string>();
-  const decided = setup.find(
-    (one) => one.key === "mode" && one.given !== undefined,
-  )?.given;
-  if (decided !== undefined) modes.add(decided);
-  else
-    for (const one of setup) {
-      if (one.key !== "mode") continue;
-      for (const option of one.options) modes.add(option);
-    }
+  for (const one of setup) {
+    if (one.key !== "mode") continue;
+    if (one.given.kind === "given") modes.add(one.given.value);
+    else for (const option of one.options) modes.add(option);
+  }
   const needed: SetupKey[] = ["mode"];
   for (const mode of WORK_MODES) {
     if (!modes.has(mode)) continue;
@@ -316,12 +437,11 @@ export const missingSetup = (
 /** THE TWO QUESTIONS WHOSE ANSWERS ARE A VOCABULARY, and every word offered
  *  for them that is not one.
  *
- *  {@link modeOf} and {@link onGreenOf} read a decision only when the answer is
- *  one of their words ({@link WORK_MODES}, {@link ON_GREEN}), so a `mode`
- *  question offering "the full thing" would be asked, answered, stored — and
- *  then read as NOTHING: a work with no mode and nobody able to say why. The
- *  fleet face's decoder refuses those options already; this is the backstop
- *  behind it.
+ *  A `mode` or `on-green` answer is one of kolu's words or no answer at all
+ *  (the record has nowhere to put another), so a `mode` question offering
+ *  "the full thing" would be asked and could never be answered. The fleet
+ *  face's decoder refuses those options already; this is the backstop behind
+ *  it.
  *
  *  Answers the offending words, so the refusal can name all of them at once. */
 export const foreignSetupWords = (
@@ -329,16 +449,12 @@ export const foreignSetupWords = (
 ): ReadonlyArray<string> => {
   const foreign: string[] = [];
   for (const one of setup) {
-    const vocabulary: ReadonlyArray<string> | null =
-      one.key === "mode"
-        ? WORK_MODES
-        : one.key === "on-green"
-          ? ON_GREEN
-          : null;
-    if (vocabulary === null) continue;
+    if (!("options" in one)) continue;
+    const vocabulary: ReadonlyArray<string> =
+      one.key === "mode" ? WORK_MODES : ON_GREEN;
     for (const word of [
       ...one.options,
-      ...(one.given === undefined ? [] : [one.given]),
+      ...(one.given.kind === "given" ? [one.given.value] : []),
     ])
       if (!vocabulary.includes(word) && !foreign.includes(word))
         foreign.push(`${one.key}: ${JSON.stringify(word)}`);
@@ -346,16 +462,518 @@ export const foreignSetupWords = (
   return foreign;
 };
 
+/** The role a setup key is about, and which of its two it names — none for
+ *  `mode` and `on-green`, which are about the whole work. */
+export const roleOfSetupKey = (
+  key: SetupKey,
+): Option.Option<{
+  readonly role: WorkRole;
+  readonly what: "harness" | "model";
+}> => {
+  for (const role of WORK_ROLES)
+    for (const what of ["harness", "model"] as const)
+      if (Option.contains(setupKeyOf(role, what), key))
+        return Option.some({ role, what });
+  return Option.none();
+};
+
+/** ... and for one of kolu's own questions, always a waterfall role: total,
+ *  because every kolu-choice key names a planner's or an implementor's
+ *  harness or model. */
+export const roleOfKey = (
+  key: KoluChoiceKey,
+): { readonly role: WaterfallRole; readonly what: "harness" | "model" } =>
+  Option.getOrThrowWith(
+    Option.flatMap(roleOfSetupKey(key), ({ role, what }) =>
+      isWaterfallRole(role) ? Option.some({ role, what }) : Option.none(),
+    ),
+    () =>
+      new Error(`roleOfKey: ${key} names no waterfall role's harness or model`),
+  );
+
+/** THE HARNESS A MODEL QUESTION IS FOR, as this answer leaves it: the one the
+ *  same form is answering for that role, else the one the work already
+ *  recorded, else none (nobody has said yet). A model is only ever a model OF
+ *  a harness, so this is the one place the pair is put together — the form,
+ *  the check and the start command all read it. */
+export const harnessForModel = (
+  work: Work,
+  ask: string,
+  key: KoluChoiceKey,
+  values: ReadonlyMap<string, SentAnswer>,
+): Option.Option<string> => {
+  const { role } = roleOfKey(key);
+  const asked = work.decisions.find(
+    (one) =>
+      one.ask === ask &&
+      one.topic === "setup" &&
+      Option.contains(setupKeyOf(role, "harness"), one.key) &&
+      isAsked(one),
+  );
+  if (asked !== undefined)
+    return Option.flatMap(
+      Option.fromUndefinedOr(values.get(asked.id)),
+      sentValue,
+    );
+  return roleAnswer(work, role, "harness");
+};
+
+/** WHAT ONE HARNESS OFFERS for a model question on a host — one of three,
+ *  and a value every reader matches on: the ids it listed, `unlisted` for a
+ *  harness that has no way to list its models (any model id the person names
+ *  is then the answer), or `unavailable` — the host could not list them just
+ *  now (a gateway down, a key the environment lacks), in its own words. The
+ *  third is not an empty list and not a refusal: the form shows the words
+ *  beside the models used before and a box to type one, and a picked answer
+ *  is not refused for a list nobody could read. */
+export type ModelChoices =
+  | AgentModelList
+  | { readonly kind: "unavailable"; readonly why: string };
+
+/** WHAT KOLU CAN OFFER for its own setup questions on a work's host, read
+ *  live by whoever records or starts an answer: the harnesses this kolu
+ *  carries, and — for each harness a PICKED model is being judged for — what
+ *  the host said it offers. A typed model is never judged against a list, so
+ *  its harness is never asked. */
+export interface KoluChoices {
+  readonly harnesses: ReadonlyArray<string>;
+  readonly models: ReadonlyMap<string, ModelChoices>;
+}
+
+/** WHY A MODEL IS NOT ONE KOLU WOULD RECORD — none when it is. A TYPED model
+ *  goes to the harness as typed, so only upstream's rule applies (one word,
+ *  no whitespace, which every launch takes). A PICKED one must be in the list
+ *  its harness gave, when it gave one; when the harness cannot list, or the
+ *  host could not list just now, the same one-word rule is all there is to
+ *  check. The form reads it as the person types, so it says why before the
+ *  answer is sent. */
+export const modelNotOffered = (
+  value: string,
+  chosen: Chosen,
+  offered: ModelChoices,
+): Option.Option<"not-listed" | "not-a-model-id"> => {
+  if (chosen === "picked" && offered.kind === "listed")
+    return offered.ids.includes(value)
+      ? Option.none()
+      : Option.some("not-listed");
+  return isAgentModelId(value) ? Option.none() : Option.some("not-a-model-id");
+};
+
+/** THE ONE RULE for an answer to one of kolu's questions — the same where an
+ *  answer is recorded, where a saved one is started, and where `work_open`
+ *  decides whether a saved one stands. */
+const judgeAnswer = (
+  answer: KoluAnswer,
+  value: string,
+  choices: KoluChoices,
+): Option.Option<UnofferedAnswer> => {
+  const { key, harness, chosen } = answer;
+  if (roleOfKey(key).what === "harness")
+    return choices.harnesses.includes(value)
+      ? Option.none()
+      : Option.some({ key, value, why: "not-installed" });
+  // A model of no harness — none answered, or one this kolu does not carry
+  // (which its own answer is refused for) — is not a model of anything.
+  if (Option.isNone(harness) || !choices.harnesses.includes(harness.value))
+    return Option.some({ key, value, why: "no-harness" });
+  // A typed model is never held against a list: no list is asked for it.
+  const offered: Option.Option<ModelChoices> =
+    chosen === "typed"
+      ? Option.some({ kind: "unlisted" })
+      : Option.fromUndefinedOr(choices.models.get(harness.value));
+  if (Option.isNone(offered))
+    throw new Error(
+      `judgeAnswer: no model list for ${harness.value} — the caller must ask the host for every installed harness a picked model is judged against`,
+    );
+  return Option.map(
+    modelNotOffered(value, chosen, offered.value),
+    (why): UnofferedAnswer => ({ key, value, why, harness: harness.value }),
+  );
+};
+
+/** ONE ANSWER TO ONE OF KOLU'S QUESTIONS, wherever it comes from — the values
+ *  sent for it (at least one: a question left blank is no answer and is not
+ *  judged), how it was chosen, and, for a model, the harness of its role,
+ *  none when nobody has said. The rule below reads only this, so an answer
+ *  from the form, one the request gave and one the record holds are judged
+ *  alike. */
+export interface KoluAnswer {
+  readonly key: KoluChoiceKey;
+  readonly values: Arr.NonEmptyReadonlyArray<string>;
+  readonly chosen: Chosen;
+  readonly harness: Option.Option<string>;
+}
+
+/** The answers to kolu's questions in one ASK, as the form sent them — only
+ *  the questions it gave a value for. */
+export const askedAnswersOf = (
+  work: Work,
+  ask: string,
+  values: ReadonlyMap<string, SentAnswer>,
+): ReadonlyArray<KoluAnswer> =>
+  work.decisions.flatMap((one) => {
+    if (one.ask !== ask || !isAsked(one) || !isKoluChoice(one)) return [];
+    const sent = values.get(one.id);
+    if (sent === undefined) return [];
+    const filled =
+      "typed" in sent
+        ? Option.toArray(sentValue(sent))
+        : sent.filter((value) => value !== "");
+    if (!Arr.isReadonlyArrayNonEmpty(filled)) return [];
+    return [
+      {
+        key: one.key,
+        values: filled,
+        chosen: "typed" in sent ? "typed" : "picked",
+        harness: harnessForModel(work, ask, one.key, values),
+      },
+    ];
+  });
+
+/** ... the ones the REQUEST gave (`work_open`'s given values), before any
+ *  work exists: a model's harness is the one given beside it, else the one
+ *  the work (if there is one) already recorded. The Conductor relays what
+ *  the human said, and it is held to the host's list like a pick. */
+export const givenAnswersOf = (
+  given: ReadonlyArray<{ readonly key: KoluChoiceKey; readonly value: string }>,
+  before: Option.Option<Work>,
+): ReadonlyArray<KoluAnswer> =>
+  given.map(({ key, value }) => {
+    const { role } = roleOfKey(key);
+    const harnessKey = setupKeyOf(role, "harness");
+    const beside = given.find((one) => Option.contains(harnessKey, one.key));
+    return {
+      key,
+      values: [value],
+      chosen: "picked",
+      harness:
+        beside === undefined
+          ? Option.flatMap(before, (work) => roleAnswer(work, role, "harness"))
+          : Option.some(beside.value),
+    };
+  });
+
+/** ... and the SAVED ones to `keys` — what a start rests on, and what
+ *  `work_open` re-judges. A key with no answer has none. */
+export const savedAnswersOf = (
+  work: Work,
+  keys: ReadonlyArray<KoluChoiceKey>,
+): ReadonlyArray<KoluAnswer> =>
+  keys.flatMap((key) =>
+    Option.match(koluAnswerOf(work, key), {
+      onNone: () => [],
+      onSome: ({ value, chosen }) => [
+        {
+          key,
+          values: [value] as const,
+          chosen,
+          harness: roleAnswer(work, roleOfKey(key).role, "harness"),
+        },
+      ],
+    }),
+  );
+
+/** The harnesses these answers need kolu's model list for — one per PICKED
+ *  model answered — so the caller asks the host for exactly those. A typed
+ *  model asks for no list at all. */
+export const modelHarnessesOf = (
+  answers: ReadonlyArray<KoluAnswer>,
+): ReadonlyArray<string> => [
+  ...new Set(
+    answers.flatMap((one) =>
+      roleOfKey(one.key).what === "model" &&
+      one.chosen === "picked" &&
+      Option.isSome(one.harness)
+        ? [one.harness.value]
+        : [],
+    ),
+  ),
+];
+
+/**
+ * EVERY ANSWER THAT IS NOT ONE OF KOLU'S OPTIONS — the same rule where an
+ * answer is recorded, where a saved one is started, and where `work_open`
+ * decides whether a saved one stands.
+ *
+ *  - A harness must be one this kolu carries.
+ *  - A picked model must be one the host listed for its harness, when the
+ *    host could list; a model id (one word, no spaces) when the harness
+ *    cannot list, or the host could not just now.
+ *  - A typed model is a model id, and nothing else is asked of it.
+ *  - A model whose harness nobody has named is not a model of anything.
+ *  - One answer each: a role does not run on two harnesses.
+ *
+ * Answers one fact per bad answer, so the refusal can name them all.
+ */
+export const unofferedAnswers = (
+  answers: ReadonlyArray<KoluAnswer>,
+  choices: KoluChoices,
+): ReadonlyArray<UnofferedAnswer> =>
+  answers.flatMap((one): UnofferedAnswer[] => {
+    const [value, ...more] = one.values;
+    if (more.length > 0) return [{ key: one.key, value, why: "several" }];
+    return Option.match(judgeAnswer(one, value, choices), {
+      onNone: () => [],
+      onSome: (judged) => [judged],
+    });
+  });
+
+/** One answer kolu's rule found that is not kolu's to record or start — and,
+ *  where the reason is about what a harness offers, that harness. */
+export type UnofferedAnswer =
+  | {
+      readonly key: KoluChoiceKey;
+      readonly value: string;
+      readonly why: "several" | "not-installed" | "no-harness";
+    }
+  | {
+      readonly key: KoluChoiceKey;
+      readonly value: string;
+      readonly why: "not-listed" | "not-a-model-id";
+      readonly harness: string;
+    };
+
+/** WHY, in words — the clause after the value: «"fable 5.2" is not a model
+ *  id …». One spelling for the refusal where an answer is recorded, the
+ *  refusal at start, the question `work_open` asks again and the form. */
+export const unofferedWhy = (
+  bad: UnofferedAnswer,
+  harnesses: ReadonlyArray<string>,
+  host: string,
+): string => {
+  switch (bad.why) {
+    case "several":
+      return "is one of several answers, and a role runs on one";
+    case "not-installed":
+      return `is not a harness this kolu carries (${harnesses.join(", ") || "it carries none"})`;
+    case "no-harness":
+      return "is a model of no harness this kolu carries — the role's harness has no answer, or is not installed";
+    case "not-listed":
+      return `is not a model ${bad.harness} offers on ${host}`;
+    case "not-a-model-id":
+      return "is not a model id — a model id is one word, with no spaces";
+    default:
+      return bad satisfies never;
+  }
+};
+
+/** ... and the whole fact, naming the question: «planner.model: "fable 5.2"
+ *  is not a model id …». */
+export const unofferedWords = (
+  bad: UnofferedAnswer,
+  harnesses: ReadonlyArray<string>,
+  host: string,
+): string =>
+  `${bad.key}: ${JSON.stringify(bad.value)} ${unofferedWhy(bad, harnesses, host)}`;
+
+/** A waterfall role's two kolu questions — what starting it rests on. */
+export const koluKeysOf = (role: WaterfallRole): ReadonlyArray<KoluChoiceKey> =>
+  (["harness", "model"] as const).flatMap((what) =>
+    Option.match(Option.filter(setupKeyOf(role, what), isKoluChoiceKey), {
+      onNone: () => [],
+      onSome: (key) => [key],
+    }),
+  );
+
+/** WHETHER THIS WORK STILL NEEDS A SETUP KEY — every key until the mode is
+ *  answered (the mode decides which the rest are), then the mode and what
+ *  that mode runs on ({@link MODE_RUNS}' `needs`). A planner's harness on a
+ *  trivial waterfall is not a question anybody needs answered. */
+export const needsSetupKey = (work: Work, key: SetupKey): boolean =>
+  Option.match(modeOf(work), {
+    onNone: () => true,
+    onSome: (mode) => key === "mode" || MODE_RUNS[mode].needs.includes(key),
+  });
+
+/** THE SETUP KEYS `work_open` ASKS, of the ones it carries: every key the
+ *  work still needs ({@link needsSetupKey}) with no value
+ *  ({@link setupStanding} — the one reading), and every key whose saved value
+ *  kolu no longer offers (`reasked`, judged by the caller against the host).
+ *  A work that does not exist yet has no value for any. A key whose question
+ *  is already open is asked again, in the new form, and the caller drops the
+ *  old one ({@link openSetupQuestions}), so exactly one question per key is
+ *  ever in front of the human. */
+export const keysToAsk = <K extends SetupKey>(
+  work: Option.Option<Work>,
+  keys: ReadonlyArray<K>,
+  reasked: ReadonlySet<SetupKey>,
+): ReadonlyArray<K> =>
+  keys.filter(
+    (key) =>
+      reasked.has(key) ||
+      Option.match(work, {
+        onNone: () => true,
+        onSome: (one) =>
+          needsSetupKey(one, key) &&
+          setupStanding(one, key).kind !== "answered",
+      }),
+  );
+
+/** The open questions for these setup keys, by decision id — what a new form
+ *  asking the same keys takes the place of. */
+export const openSetupQuestions = (
+  work: Work,
+  keys: ReadonlyArray<SetupKey>,
+): ReadonlySet<string> =>
+  new Set(
+    work.decisions
+      .filter(
+        (one) =>
+          one.kind === "asked" &&
+          one.topic === "setup" &&
+          keys.includes(one.key),
+      )
+      .map((one) => one.id),
+  );
+
+/** THE OPEN SETUP QUESTIONS NOBODY NEEDS ANY MORE — asked before the mode
+ *  was answered, about a role the answered mode does not run. They go away
+ *  with the answer that made them moot, so a trivial waterfall is not left
+ *  waiting on the human for a planner it will never start. */
+export const unneededSetupQuestions = (work: Work): ReadonlySet<string> =>
+  new Set(
+    work.decisions
+      .filter(
+        (one) =>
+          one.kind === "asked" &&
+          one.topic === "setup" &&
+          !needsSetupKey(work, one.key),
+      )
+      .map((one) => one.id),
+  );
+
+/** One setup question a role cannot start without, and where it stands —
+ *  open in front of the human (the answer will come by itself), or asked of
+ *  nobody (only `work_open` puts it). */
+export interface StartBlocker {
+  readonly key: SetupKey;
+  readonly standing:
+    | { readonly kind: "open"; readonly ask: string }
+    | { readonly kind: "unasked" };
+}
+
+/** WHAT STARTING A ROLE WAITS ON — the mode and, when the mode runs that
+ *  role, the role's harness and model, each that has no value, read by the
+ *  one reading. Empty is "nothing is missing": then the role either runs on
+ *  a harness and a model, or the answered mode does not run it at all. */
+export const startBlockers = (
+  work: Work,
+  role: WaterfallRole,
+): ReadonlyArray<StartBlocker> =>
+  (["mode", ...koluKeysOf(role)] as const)
+    .filter((key) => needsSetupKey(work, key))
+    .flatMap((key) => {
+      const standing = setupStanding(work, key);
+      return standing.kind === "answered" ? [] : [{ key, standing }];
+    });
+
+/**
+ * WHAT A PERSON CHOSE LAST TIME, read off the saved works — never off a
+ * conversation's memory, so a new conversation, a restart and another tab all
+ * offer the same thing first. Each comes back WITH HOW IT WAS CHOSEN: a model
+ * the person typed comes back typed, never as a pick a list must hold.
+ *
+ *  - {@link SetupMemory.last}: the most recent answer to a setup question on
+ *    this host. For a model, the most recent model THAT ROLE ran with
+ *    `harness` — a person who plans on one model and implements on another
+ *    gets each back — and only when the role has none, the most recent model
+ *    any role ran with it (a model is a model of its harness).
+ *  - {@link SetupMemory.modelsUsed}: every model a person ran `harness` on,
+ *    on any host, most recent first, each once — what a harness that cannot
+ *    list its own models, or a host that could not list them just now, is
+ *    offered.
+ */
+export interface SetupMemory {
+  readonly last: (
+    key: SetupKey,
+    harness: Option.Option<string>,
+  ) => Option.Option<Recalled>;
+  readonly modelsUsed: (harness: string) => ReadonlyArray<Recalled>;
+}
+
+export const setupMemory = (
+  works: ReadonlyArray<Work>,
+  host: string,
+): SetupMemory => {
+  /** Every setup answer, with the harness its role ran on in that work. */
+  const answers = works
+    .flatMap((work) =>
+      work.decisions.flatMap((one) => {
+        if (
+          one.topic !== "setup" ||
+          one.kind !== "settled" ||
+          one.answer.how !== "answered"
+        )
+          return [];
+        const named = roleOfSetupKey(one.key);
+        return [
+          {
+            host: hostOf(work),
+            key: one.key,
+            at: one.answer.at,
+            value: one.answer.value,
+            chosen:
+              "chosen" in one.answer ? one.answer.chosen : ("picked" as const),
+            harness: Option.flatMap(named, ({ role }) =>
+              roleAnswer(work, role, "harness"),
+            ),
+            model: Option.exists(named, ({ what }) => what === "model"),
+          },
+        ];
+      }),
+    )
+    .sort((a, b) => (a.at < b.at ? 1 : a.at > b.at ? -1 : 0));
+  const sameHarness = (a: Option.Option<string>, b: Option.Option<string>) =>
+    Option.makeEquivalence((x: string, y: string) => x === y)(a, b);
+  const recalled = (one: {
+    readonly value: string;
+    readonly chosen: Chosen;
+  }): Recalled => ({ value: one.value, chosen: one.chosen });
+  return {
+    last: (key, harness) => {
+      const here = answers.filter((one) => one.host === host);
+      const found = Option.exists(
+        roleOfSetupKey(key),
+        ({ what }) => what === "model",
+      )
+        ? (here.find(
+            (one) => one.key === key && sameHarness(one.harness, harness),
+          ) ??
+          here.find((one) => one.model && sameHarness(one.harness, harness)))
+        : here.find((one) => one.key === key);
+      return Option.map(Option.fromUndefinedOr(found), recalled);
+    },
+    // Only what a launch would take: words saved as a model before kolu drew
+    // these options are not offered back. The most recent way a model was
+    // chosen is the one it comes back as.
+    modelsUsed: (harness) => {
+      const seen = new Set<string>();
+      return answers
+        .filter(
+          (one) =>
+            one.model &&
+            Option.contains(one.harness, harness) &&
+            isAgentModelId(one.value),
+        )
+        .flatMap((one) => {
+          if (seen.has(one.value)) return [];
+          seen.add(one.value);
+          return [recalled(one)];
+        });
+    },
+  };
+};
+
 /** What a terminal is, as a member of a work in progress. */
 export interface Membership {
   readonly work: string;
   readonly title: string;
   readonly role: WorkRole;
-  /** Who types into it — `conductor` while kolu drives it, `you` once the
-   *  person has taken it over, `null` for a member of a work the Conductor
+  /** Who types into it — the Conductor while kolu drives it, `you` once the
+   *  person has taken it over, `nobody` for a member of a work the Conductor
    *  does not drive (a `watch`, or a mode nobody has answered yet). The mark
    *  and the input guard read this one answer ({@link driverOf}). */
-  readonly driver: Driver | null;
+  readonly driver: Driver;
 }
 
 /** THE MEMBERSHIP INDEX — terminal (`host/id`) to the work in progress it is
@@ -377,7 +995,7 @@ export const membershipOf = (
       work: member.work,
       title: work.title,
       role: member.role,
-      driver: driverOf(work, terminal, member),
+      driver: driverOf(work, terminal, Option.some(member)),
     });
   }
   return index;

@@ -24,11 +24,16 @@ import {
   stageOmpPrompt,
   updateOmpFixture,
 } from "../support/agent-mock-omp.ts";
+import {
+  FIXTURE_LIST_FAILS,
+  fixtureClaudeRelay,
+} from "../support/agentDistroFixture.ts";
 import { type PrFixture, statePullRequest } from "../support/fake-gh.ts";
 import { restartKoluServer } from "../support/hooks.ts";
 import { pollFor } from "../support/poll.ts";
 import { surfaceCall, surfaceFirstFrame } from "../support/rpcWire.ts";
 import { type KoluWorld, MOD_KEY, POLL_TIMEOUT } from "../support/world.ts";
+import { turnAgentsOnReady } from "./agents_steps.ts";
 
 /** How long a scenario leaves a landed wake alone before claiming it rang ONCE.
  *  Wider than the server's own re-report cadence, so a second ring has time to
@@ -46,6 +51,12 @@ After(() => {
     fs.rmSync(conductorAgentCwd, { recursive: true, force: true });
   }
   conductorAgentCwd = null;
+  // A stand-in left in the floor's relay is SPENT by the `claude` that runs
+  // it — but a scenario that died before kolu typed anything would leave one
+  // behind, and the next scenario's `claude` (an Agents one, say) would run
+  // it instead of printing its line. The relay belongs to the scenario that
+  // wrote it.
+  fs.rmSync(fixtureClaudeRelay(), { force: true });
 });
 
 const PANE = '[data-testid="conductor-pane"]';
@@ -330,6 +341,15 @@ Given(
     // still coming after the drain, the wipe below simply repeats, and it is
     // ITS assertions (an empty transcript, an idle phase) that decide whether
     // this scenario may start.
+    //
+    // AND THE AGENTS ON, before anything is opened: a piece of work names the
+    // harness its planner and implementor run, and kolu refuses to ask that
+    // of a host whose coding agents are off — `agents-not-ready`, before the
+    // work exists. The suite starts every scenario never chosen (a fresh
+    // install), so this is where the conductor's machine gets them. The
+    // helper proves padi is serving the floor, not merely that a switch
+    // moved.
+    await turnAgentsOnReady(this);
     await stopEveryOpenWork();
     // The conversation has to be ON SCREEN to be read — the wipe below opens
     // it anyway, and this step is where a scenario asks for it.
@@ -1810,16 +1830,20 @@ Then("the wake should be one line from kolu", async function (this: KoluWorld) {
   assert.equal(await wake.locator(USER_MARK).count(), 0);
 });
 
-/** THE CONVERSATION STARTS AN AGENT. The fixture's `run <command>` makes a real
- *  `lifecycle_create` on the fleet face with that command typed at the new
- *  terminal's first prompt — and the tool watches what it created, so this one
- *  step produces a watched terminal whose agent comes up on its own.
+/** THE CONVERSATION STARTS AN AGENT. The fixture's `run an agent in <dir>`
+ *  opens a piece of work and makes a real `lifecycle_create` on the fleet
+ *  face — and the tool watches what it created, so this one step produces a
+ *  watched terminal whose agent comes up on its own.
  *
- *  The command is built HERE because only the test process knows the stand-in's
+ *  KOLU TYPES THE COMMAND now (`claude --model …`, built from the work's
+ *  setup), so the stand-in cannot travel in the prompt. It travels in the
+ *  floor's RELAY instead: this step writes the command there, and the floor's
+ *  `claude` execs it (once) in the terminal kolu made. The relay is where the
+ *  command must be built because only the test process knows the stand-in's
  *  absolute path (the harness seeds a renamed bash per worker as
- *  `KOLU_FAKE_OMP_BIN`, so `/proc/<pid>/comm` reads `omp`), and because the
- *  stand-in must be the LAZY one: it writes its breadcrumb at launch and its
- *  session file only when something prompts it. Between those two moments the
+ *  `KOLU_FAKE_OMP_BIN`, so `/proc/<pid>/comm` reads `omp`), and the stand-in
+ *  must be the LAZY one: it writes its breadcrumb at launch and its session
+ *  file only when something prompts it. Between those two moments the
  *  terminal is an agent with no transcript, which is the whole subject of the
  *  scenario.
  *
@@ -1847,8 +1871,11 @@ When(
       transcriptPath: fixture.transcriptPath,
       stagePath,
     });
+    // THE STAND-IN, LEFT WHERE KOLU'S `claude` WILL FIND IT — one run, then
+    // the relay is spent.
+    fs.writeFileSync(fixtureClaudeRelay(), `${bin} -c '${payload}'`);
     await enterConductor(this);
-    await sendPrompt(this, `run ${bin} -c '${payload}'`);
+    await sendPrompt(this, `run an agent in ${conductorAgentCwd}`);
     // The create's own answer names the terminal — read off the row the agent
     // said it in, so the scenario watches the terminal that really was made
     // rather than whichever id the canvas happens to show.
@@ -2527,35 +2554,138 @@ Given("a repo for the work", async function (this: KoluWorld) {
 When(
   "I ask the conductor to open the work {string}",
   async function (this: KoluWorld, title: string) {
-    await enterConductor(this);
-    this.workTitle = title;
-    await sendPrompt(this, openWords(this, title));
-    await showWorkColumn(this);
+    await openWorkSaying(this, title, openWords(this, title));
+  },
+);
+
+/** ... with the IMPLEMENTOR'S MODEL LEFT TO THE HUMAN: a trivial work whose
+ *  every other answer the request gave, so the form is the one model
+ *  question. */
+When(
+  "I ask the conductor to open the work {string} with its model left to me",
+  async function (this: KoluWorld, title: string) {
+    const dir = this.workRepoDir;
+    await openWorkSaying(
+      this,
+      title,
+      `open the model by hand ${title}${dir === undefined ? "" : ` in ${dir}`}`,
+    );
+  },
+);
+
+/** Send the fixture conductor `prompt`, and wait for the card titled `title`
+ *  — the work every later step in the scenario is about. */
+async function openWorkSaying(
+  world: KoluWorld,
+  title: string,
+  prompt: string,
+): Promise<void> {
+  await enterConductor(world);
+  world.workTitle = title;
+  await sendPrompt(world, prompt);
+  await showWorkColumn(world);
+  let inventoryAtTimeout = "(not observed)";
+  const id = await pollFor({
+    observe: () =>
+      world.page
+        .locator(`${WORK_COLUMN} ${WORK_CARD}`)
+        .evaluateAll((cards, want) => {
+          for (const card of cards) {
+            if ((card.textContent ?? "").includes(want)) {
+              return card.getAttribute("data-work");
+            }
+          }
+          return null;
+        }, title),
+    isDone: (found) => found !== null,
+    timeoutMs: POLL_TIMEOUT,
+    onTick: async () => {
+      inventoryAtTimeout = await transcriptInventory(world);
+    },
+    onTimeout: (_last, ms) =>
+      new Error(
+        `no card for ${JSON.stringify(title)} after ${ms}ms; the transcript holds ${inventoryAtTimeout}`,
+      ),
+  });
+  if (id === null) throw new Error("the work card carries no id");
+  world.workId = id;
+}
+
+/** THE WORK'S MODEL QUESTION, inside the opened card — the form a person
+ *  answers it in. */
+async function modelQuestion(world: KoluWorld) {
+  await openWorkCard(world);
+  const ask = workCard(world).locator('[data-testid="work-question"]');
+  await ask.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+  return ask;
+}
+
+/** THE HOST'S OWN WORDS, on the question: it could not list, and says why. */
+Then(
+  "the work's model question should say the host could not list its models",
+  async function (this: KoluWorld) {
+    const ask = await modelQuestion(this);
+    const said = ask.locator('[data-testid="conductor-ask-failed"]');
+    await said.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    assert.ok(
+      (await said.innerText()).includes(FIXTURE_LIST_FAILS),
+      `the question says ${JSON.stringify(await said.innerText())}, not the host's words`,
+    );
+  },
+);
+
+/** ... and beside them, what a harness with no list gets: a model run before,
+ *  already the answer, and a box to type another. */
+Then(
+  "the work's model question should offer {string} from before, and a box",
+  async function (this: KoluWorld, model: string) {
+    const ask = await modelQuestion(this);
+    const chip = ask.locator(
+      `[data-testid="conductor-ask-option"][data-value="${model}"]`,
+    );
+    await chip.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    assert.notEqual(
+      await chip.getAttribute("data-active"),
+      null,
+      `${model}, the model run before, is not already the answer`,
+    );
+    await ask
+      .locator('[data-testid="conductor-ask-other"]')
+      .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+  },
+);
+
+When(
+  "I answer the work's model question by typing {string} on the card",
+  async function (this: KoluWorld, model: string) {
+    const ask = await modelQuestion(this);
+    await ask.locator('[data-testid="conductor-ask-other"]').fill(model);
+    await ask.locator('[data-testid="conductor-ask-submit"]').click();
+  },
+);
+
+/** WHAT KOLU TYPED to start the member — the `ran` its `lifecycle_create`
+ *  answered with, as the conversation was told it. */
+Then(
+  "the conductor should say it ran {string}",
+  async function (this: KoluWorld, command: string) {
     let inventoryAtTimeout = "(not observed)";
-    const id = await pollFor({
+    await pollFor({
       observe: () =>
         this.page
-          .locator(`${WORK_COLUMN} ${WORK_CARD}`)
-          .evaluateAll((cards, want) => {
-            for (const card of cards) {
-              if ((card.textContent ?? "").includes(want)) {
-                return card.getAttribute("data-work");
-              }
-            }
-            return null;
-          }, title),
-      isDone: (found) => found !== null,
+          .locator(`${TRANSCRIPT} ${ROW}[data-row-kind="agent"]`)
+          .evaluateAll((rows) => rows.map((row) => row.textContent ?? "")),
+      isDone: (rows) =>
+        rows.some((text) => text.includes("ran:") && text.includes(command)),
       timeoutMs: POLL_TIMEOUT,
       onTick: async () => {
         inventoryAtTimeout = await transcriptInventory(this);
       },
       onTimeout: (_last, ms) =>
         new Error(
-          `no card for ${JSON.stringify(title)} after ${ms}ms; the transcript holds ${inventoryAtTimeout}`,
+          `the conductor never said it ran ${JSON.stringify(command)} after ${ms}ms; the transcript holds ${inventoryAtTimeout}`,
         ),
     });
-    if (id === null) throw new Error("the work card carries no id");
-    this.workId = id;
   },
 );
 
@@ -2601,9 +2731,12 @@ Then("the work should have no open question", async function (this: KoluWorld) {
 /** THE WORK GETS AN IMPLEMENTOR — a real `lifecycle_create` on the fleet face
  *  carrying the work and the role, in the work's own repo, running the lazy
  *  omp stand-in: an agent that is UP with no transcript at all, which is the
- *  `ready` kolu records for a member coming up. The command is built here
- *  because only the test process knows the stand-in's absolute path (the
- *  harness seeds a renamed bash per worker). */
+ *  `ready` kolu records for a member coming up.
+ *
+ *  kolu builds the implementor's command itself (`claude --model …`, from the
+ *  work's setup) and types it, so the stand-in is left in the floor's RELAY
+ *  for that `claude` to exec — built here because only the test process knows
+ *  its absolute path (the harness seeds a renamed bash per worker). */
 When(
   "I ask the conductor to run the implementor in the work's repo",
   async function (this: KoluWorld) {
@@ -2622,11 +2755,9 @@ When(
       // repo is not, so the worktree stays the work's own files.
       stagePath: path.join(os.tmpdir(), `kolu-work-stage-${process.pid}`),
     });
+    fs.writeFileSync(fixtureClaudeRelay(), `${bin} -c '${payload}'`);
     await enterConductor(this);
-    await sendPrompt(
-      this,
-      `run the implementor in ${repo}: ${bin} -c '${payload}'`,
-    );
+    await sendPrompt(this, `run the implementor in ${repo}`);
     let inventoryAtTimeout = "(not observed)";
     const said = await pollFor({
       observe: async () => {
@@ -3160,31 +3291,52 @@ Then(
 Then(
   "the work's decisions should include {string} answered from the {word}",
   async function (this: KoluWorld, text: string, from: string) {
-    await openWorkCard(this);
-    await pollFor({
-      observe: () =>
-        this.page
-          .locator(
-            `${WORK_COLUMN} [data-testid="work-decision"][data-from="${from}"]`,
-          )
-          .evaluateAll((all) =>
-            all.map(
-              (one) =>
-                // THE ANSWER AS RECORDED, beside the row's own words: the row
-                // reads "On green — hand over" where the human answered
-                // "hand-over", and it is the answer this step is about.
-                `${one.getAttribute("data-answer") ?? ""} ${(one.textContent ?? "").replace(/\s+/g, " ").trim()}`,
-            ),
-          ),
-      isDone: (read) => read.some((one) => one.includes(text)),
-      timeoutMs: POLL_TIMEOUT,
-      onTimeout: (read, ms) =>
-        new Error(
-          `no decision answered from the ${from} reads ${JSON.stringify(text)} after ${ms}ms; the card holds ${JSON.stringify(read)}`,
-        ),
-    });
+    await waitForDecision(
+      this,
+      text,
+      `[data-from="${from}"]`,
+      `from the ${from}`,
+    );
   },
 );
+
+/** ... and one by its recorded answer alone: a role's harness and model are
+ *  ONE line, and the line's source is the whole line's, not the model's. */
+Then(
+  "the work's decisions should include {string}",
+  async function (this: KoluWorld, text: string) {
+    await waitForDecision(this, text, "", "");
+  },
+);
+
+async function waitForDecision(
+  world: KoluWorld,
+  text: string,
+  narrowed: string,
+  said: string,
+): Promise<void> {
+  await openWorkCard(world);
+  await pollFor({
+    observe: () =>
+      world.page
+        .locator(`${WORK_COLUMN} [data-testid="work-decision"]${narrowed}`)
+        .evaluateAll((all) =>
+          all.map(
+            (one) =>
+              // THE ANSWER AS RECORDED, beside the row's own words: the row
+              // reads "On green — hand over" where the human answered
+              // "hand-over", and it is the answer this step is about.
+              `${one.getAttribute("data-answer") ?? ""} ${(one.textContent ?? "").replace(/\s+/g, " ").trim()}`,
+          ),
+        ),
+    isDone: (read) => read.some((one) => one.includes(text)),
+    timeoutMs: POLL_TIMEOUT,
+    onTimeout: (read, ms) =>
+      new Error(
+        `no decision ${said === "" ? "" : `answered ${said} `}reads ${JSON.stringify(text)} after ${ms}ms; the card holds ${JSON.stringify(read)}`,
+      ),
+  });
+}
 
 /** ONE LIST, ONE LINE EACH — the addendum's whole point. The setup is not a
  *  second section saying the same things, and no decision is drawn as the
@@ -3403,5 +3555,126 @@ When(
     await this.page
       .locator('[data-testid="conductor-refusal"]')
       .waitFor({ state: "detached", timeout: POLL_TIMEOUT });
+  },
+);
+
+// ── signing in AGAIN ─────────────────────────────────────────────────────
+
+const IDENTITY = '[data-testid="conductor-identity"]';
+const SIGN_IN_ROW = '[data-testid="conductor-signin"]';
+
+/** The account the Conductor's agent says it is signed in as, off the
+ *  header's chip — the agent's own `_auth/status_update`, read where a person
+ *  reads it. */
+const accountShown = async (world: KoluWorld): Promise<string> =>
+  ((await world.page.locator(IDENTITY).textContent()) ?? "").trim();
+
+When("I note the conductor's account", async function (this: KoluWorld) {
+  await enterConductor(this);
+  await this.page
+    .locator(IDENTITY)
+    .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+  this.notedAccount = await accountShown(this);
+  assert.notEqual(this.notedAccount, "", "the account chip says nothing");
+});
+
+When(
+  "I ask to sign in again from the conductor menu",
+  async function (this: KoluWorld) {
+    await enterConductor(this);
+    await this.page.locator(MENU).click();
+    await waitForAtLeastOne(this, MENU_PANEL);
+    const door = this.page.locator('[data-testid="conductor-menu-signin"]');
+    // SIGNED IN AND STILL A DOOR, named for it.
+    assert.equal((await door.textContent())?.trim(), "Sign in again…");
+    await door.click();
+  },
+);
+
+Then(
+  "the sign-in row I asked for should offer {string}",
+  async function (this: KoluWorld, name: string) {
+    const row = this.page.locator(`${SIGN_IN_ROW}[data-cause="person"]`);
+    await row.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    await row
+      .locator('[data-testid="conductor-signin-method"]', { hasText: name })
+      .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+  },
+);
+
+When("I sign in with {string}", async function (this: KoluWorld, name: string) {
+  await this.page
+    .locator(`${SIGN_IN_ROW} [data-testid="conductor-signin-method"]`, {
+      hasText: name,
+    })
+    .click();
+});
+
+When("I close the sign-in row", async function (this: KoluWorld) {
+  await this.page.locator('[data-testid="conductor-signin-close"]').click();
+});
+
+Then("there should be no sign-in row", async function (this: KoluWorld) {
+  await waitForCount(this, SIGN_IN_ROW, 0);
+});
+
+Then(
+  "the conductor's account should have moved on",
+  async function (this: KoluWorld) {
+    const was = this.notedAccount;
+    assert.ok(was, "no account was noted before the sign-in");
+    await pollFor({
+      observe: () => accountShown(this),
+      isDone: (now) => now !== "" && now !== was,
+      timeoutMs: POLL_TIMEOUT,
+      onTimeout: (now, ms) =>
+        new Error(
+          `after ${ms}ms the account chip still reads ${JSON.stringify(now)} (it read ${JSON.stringify(was)} before the sign-in)`,
+        ),
+    });
+  },
+);
+
+Then(
+  "the conductor's account should be the one I noted",
+  async function (this: KoluWorld) {
+    assert.equal(await accountShown(this), this.notedAccount);
+  },
+);
+
+Then(
+  "the conductor should answer as the account it shows",
+  async function (this: KoluWorld) {
+    const shown = await accountShown(this);
+    await waitForAtLeastOne(
+      this,
+      `${TRANSCRIPT} ${ROW}[data-row-kind="agent"]:has-text(${JSON.stringify(`you are ${shown}`)})`,
+    );
+  },
+);
+
+Then(
+  "the refused message should offer to sign in again",
+  async function (this: KoluWorld) {
+    await this.page
+      .locator(
+        '[data-testid="conductor-user-mark"][data-mark="refused"][data-sign-in="account"]',
+      )
+      .last()
+      .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    await this.page
+      .locator('[data-testid="conductor-mark-signin"]')
+      .last()
+      .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+  },
+);
+
+When(
+  "I press sign in again beside the refused message",
+  async function (this: KoluWorld) {
+    await this.page
+      .locator('[data-testid="conductor-mark-signin"]')
+      .last()
+      .click();
   },
 );

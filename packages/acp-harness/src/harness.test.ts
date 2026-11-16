@@ -34,6 +34,7 @@ import {
 import type {
   ConductorAttachment,
   ConductorRow,
+  ConductorSignIn,
   ConductorWakeEvent,
 } from "./rows.ts";
 
@@ -45,9 +46,9 @@ const FIXTURES = path.join(import.meta.dirname, "fixtures");
 const CONFIG_DIR = "/tmp/kolu-test-home/.claude";
 
 /** The standing prompt, as DATA — padi's words now
- *  (`packages/padi/src/conductor/teaching.ts`), and all this package has to
+ *  (`packages/conductor/src/teaching.ts`), and all this package has to
  *  keep about them is that they ride the first message and no later one. */
-const TEACHING = ["[kolu] you are kolu's conductor on hostname"];
+const TEACHING = "# [kolu] you are kolu's conductor on hostname";
 
 /** How the fixture spells an MCP server's tools — the pinned Claude adapter's
  *  own spelling, which is what makes the auto-allow rule's positive
@@ -95,6 +96,9 @@ const leg: Leg = {
   spelling,
   mcpCall: mcpCallBy(spelling),
   replyIn: () => undefined,
+  // The fixture says "this account cannot" the way the pinned Claude adapter
+  // does: `data.errorKind` on the refusal.
+  accountRefusal: (data) => flag(data, "errorKind") === "rate_limit",
   toolNameIn: (value) => {
     const name = meta(value)?.name;
     return typeof name === "string" ? name : null;
@@ -226,6 +230,17 @@ const open = async (
     rows: () => [...rows.values()].sort((a, b) => a.seq - b.seq),
     states,
   };
+};
+
+/** The agent's own refusal on the sign-in row — which is the AGENT's row: a
+ *  row a person asked for has no refusal to read. */
+const agentWhy = (state: {
+  readonly signIn: ConductorSignIn | null;
+}): string => {
+  const cause = state.signIn?.cause;
+  if (cause?.kind !== "agent")
+    throw new Error(`no sign-in the agent offered: ${JSON.stringify(cause)}`);
+  return cause.why;
 };
 
 /** Wait until the harness is idle again — the turn ran, and whatever it had to
@@ -380,7 +395,7 @@ describe("one conversation with a real agent", () => {
     // the first carries the standing prompt above the word, and the second is
     // the word alone.
     const bodies = (await asked(running, "prompts")) as ReadonlyArray<string>;
-    expect(bodies[0]).toBe(`${TEACHING.join("\n")}\n\nhello`);
+    expect(bodies[0]).toBe(`${TEACHING}\n\nhello`);
     expect(bodies[0]).toContain("hostname");
     expect(bodies[1]).toBe("hello");
   });
@@ -872,7 +887,7 @@ describe("a conversation the agent does not have", () => {
     expect(state.phase).toBe("offline");
     expect(state.sessionId).toBeNull();
     expect(running.harness.alive()).toBe(true);
-    expect(state.signIn?.why).toContain("Authentication required");
+    expect(agentWhy(state)).toContain("Authentication required");
     expect(state.signIn?.methods.map((one) => one.id)).toEqual([
       "subscription",
     ]);
@@ -895,19 +910,22 @@ describe("a conversation the agent does not have", () => {
     const state = running.harness.state();
     expect(state.phase).toBe("offline");
     expect(running.harness.alive()).toBe(true);
-    expect(state.signIn?.why).toContain("Authentication required");
+    expect(agentWhy(state)).toContain("Authentication required");
 
-    // ... and the signature opens the conversation the way it always did —
-    // as a FRESH one, because the id this harness was handed is spent.
+    // ... and the signature CHANGES NOTHING HERE. The conversation this
+    // person ends up in is the restart's, with the session the caller names;
+    // a harness that opened one of its own would be guessing at it out of an
+    // id it was handed before any of this happened.
     expect(await running.harness.signIn("subscription")).toBe("signed-in");
-    expect(running.harness.state().sessionId).toBe("sess-1");
-    expect(running.harness.state().phase).toBe("idle");
+    expect(running.harness.state().sessionId).toBeNull();
+    expect(running.harness.state().phase).toBe("offline");
+    expect(running.harness.state().signIn).toBeNull();
     expect(dividers(running)).toEqual([]);
   });
 });
 
 describe("an agent nobody is signed in to", () => {
-  test("keeps the child, says why, and opens the conversation once signed in", async () => {
+  test("keeps the child, says why, and takes the signature without opening anything", async () => {
     // The open is REFUSED and the harness still resolves: the process that
     // refused is the process the sign-in has to run against, and killing it
     // here is how the only remedy a person is offered becomes unreachable.
@@ -919,7 +937,7 @@ describe("an agent nobody is signed in to", () => {
     // The agent's own sentence, never an empty string: the client draws the
     // row and the button off this, so "" is a signed-out host with nothing to
     // offer.
-    expect(offline.signIn?.why).toContain("Authentication required");
+    expect(agentWhy(offline)).toContain("Authentication required");
     expect(offline.signIn?.attempt).toBeNull();
     // The methods come off the handshake, and the `env_var` one is not among
     // them: this harness offers only sign-ins it can actually run.
@@ -933,13 +951,14 @@ describe("an agent nobody is signed in to", () => {
     // for every one of these CLIs.
     expect(await running.harness.signIn("subscription")).toBe("signed-in");
 
-    // ... and the conversation the refusal cost is open, without anybody
-    // asking for it a second time.
+    // ... and the offer comes down, because the store has been written. The
+    // conversation stays shut: this process read its credential at
+    // `initialize` and a turn in a session it opened now would be refused
+    // again. Re-entering is the caller's restart.
     const after = running.harness.state();
-    expect(after.phase).toBe("idle");
-    expect(after.sessionId).toBe("sess-1");
+    expect(after.phase).toBe("offline");
+    expect(after.sessionId).toBeNull();
     expect(after.signIn).toBeNull();
-    expect(after.refusal).toBeNull();
   });
 
   test("a sign-in nobody offers is refused, and the harness stays up", async () => {
@@ -970,11 +989,11 @@ describe("an agent nobody is signed in to", () => {
     // The agent's own label, and the store its signature was judged against —
     // a path the next person can look at instead of guessing which config dir
     // this server read.
-    expect(state.signIn?.why).toContain("Not logged in");
-    expect(state.signIn?.why).toContain(CONFIG_DIR);
+    expect(agentWhy(state)).toContain("Not logged in");
+    expect(agentWhy(state)).toContain(CONFIG_DIR);
   });
 
-  test("runs the method, takes the code back, and re-opens the conversation", async () => {
+  test("runs the method, takes the code back, and leaves the conversation alone", async () => {
     const running = await open("signed-out-open-agent.ts");
     await waitFor(running, (one) => one.signIn !== null, "nothing was offered");
     const signing = running.harness.signIn("console-login");
@@ -998,14 +1017,15 @@ describe("an agent nobody is signed in to", () => {
     await running.harness.signInInput("ABCD-1234");
     expect(await signing).toBe("signed-in");
     const after = running.harness.state();
-    // THE CONVERSATION IS RE-OPENED rather than kept: the session that existed
-    // was made by a CLI with no credential, and the pinned adapter recreates
-    // that query only under `--hide-claude-auth`, which kolu does not pass.
+    // THE CONVERSATION IS THE ONE IT WAS. The session that exists was made by
+    // a CLI with no credential and is no more usable than before — which is
+    // why the caller restarts; what this end must not do is swap it for
+    // another one behind the person's back.
     expect(after.sessionId).toBe("sess-1");
     expect(after.signIn).toBeNull();
   });
 
-  test("signs in over a conversation the agent no longer has, and opens one", async () => {
+  test("signs in over a conversation the agent no longer has, and opens nothing", async () => {
     // THE WHOLE OF THE OWNER'S RUN, in one fixture: a panel that was signed in
     // once, so padi remembers a session id; a CLI that no longer has it; and
     // nobody signed in. The reopen a successful sign-in does used to send that
@@ -1032,9 +1052,9 @@ describe("an agent nobody is signed in to", () => {
     await running.harness.signInInput("ABCD-1234");
     expect(await signing).toBe("signed-in");
 
-    // WHAT A NEWLY SIGNED-IN PERSON SEES: a conversation. The reopen asked
-    // for a FRESH session rather than the spent id, so nothing was refused
-    // and nothing new was minted to say so.
+    // WHAT A NEWLY SIGNED-IN PERSON SEES: the conversation the bring-up fell
+    // back into, unchanged. Nothing was asked for a second time, so the dead
+    // id was never sent again and nothing new was minted to say so.
     const after = running.harness.state();
     expect(after.phase).toBe("idle");
     expect(after.sessionId).toBe("sess-1");
@@ -1052,7 +1072,7 @@ describe("an agent nobody is signed in to", () => {
     await running.harness.prompt("hello", [], [], false);
     await settled(running, "the turn never ended");
     const state = running.harness.state();
-    expect(state.signIn?.why).toContain("Authentication required");
+    expect(agentWhy(state)).toContain("Authentication required");
     expect(state.signIn?.methods.map((one) => one.id)).toEqual([
       "console-login",
     ]);
@@ -1073,10 +1093,118 @@ describe("an agent nobody is signed in to", () => {
     );
     const state = running.harness.state();
     expect(state.signIn?.methods).toEqual([]);
-    expect(state.signIn?.why).toContain("fixture-agent 0.0.1");
-    expect(state.signIn?.why).toContain("offered no way to sign in");
-    expect(state.signIn?.why).toContain('_meta["terminal-auth"]');
-    expect(state.signIn?.why).toContain(CONFIG_DIR);
+    expect(agentWhy(state)).toContain("fixture-agent 0.0.1");
+    expect(agentWhy(state)).toContain("offered no way to sign in");
+    expect(agentWhy(state)).toContain('_meta["terminal-auth"]');
+    expect(agentWhy(state)).toContain(CONFIG_DIR);
+  });
+});
+
+describe("a person asking to sign in", () => {
+  test("opens the row while signed in, with the advertised methods, and closes again untouched", async () => {
+    const running = await open("agent.ts");
+    await running.harness.prompt("hello", [], [], false);
+    await settled(running, "the turn never ended");
+    const before = running.harness.state();
+    expect(before.signIn).toBeNull();
+
+    running.harness.askSignIn();
+    const asked = running.harness.state().signIn;
+    // A PERSON's row: no refusal to quote, the store the signature is read
+    // from, and the methods the handshake advertised.
+    expect(asked?.cause).toEqual({
+      kind: "person",
+      said: expect.stringContaining(CONFIG_DIR) as unknown as string,
+    });
+    expect(asked?.methods.map((one) => one.id)).toEqual(["subscription"]);
+    expect(asked?.attempt).toBeNull();
+
+    // Thought better of: everything is as it was.
+    expect(await running.harness.signInCancel()).toBe(true);
+    const after = running.harness.state();
+    expect(after.signIn).toBeNull();
+    expect(after.sessionId).toBe(before.sessionId);
+    expect(after.phase).toBe("idle");
+  });
+
+  test("runs a method a person asked for, and the conversation is the same one after", async () => {
+    const running = await open("agent.ts");
+    await running.harness.prompt("hello", [], [], false);
+    await settled(running, "the turn never ended");
+    running.harness.askSignIn();
+    expect(await running.harness.signIn("subscription")).toBe("signed-in");
+    const state = running.harness.state();
+    expect(state.signIn).toBeNull();
+    expect(state.phase).toBe("idle");
+    expect(state.sessionId).not.toBeNull();
+  });
+
+  test("leaves the person in the conversation they are in, not the one they booted in", async () => {
+    // THE DEFECT THIS PINS: a sign-in used to re-enter the conversation out of
+    // the id this process was STARTED with. Somebody who had pressed New
+    // session and typed in it was put back in the one they had left, and the
+    // restart that followed latched that. The harness re-enters nothing; the
+    // caller restarts into the session that was live when the button was
+    // pressed.
+    const running = await open("agent.ts", { resume: "sess-booted" });
+    expect(running.harness.state().sessionId).toBe("sess-booted");
+    await running.harness.newSession();
+    const moved = running.harness.state().sessionId;
+    expect(moved).not.toBe("sess-booted");
+
+    running.harness.askSignIn();
+    expect(await running.harness.signIn("subscription")).toBe("signed-in");
+    expect(running.harness.state().sessionId).toBe(moved);
+  });
+
+  test("a Cancel that lost the race to a login that landed answers `signed-in`", async () => {
+    // The command exited 0 under the cancel's own SIGTERM, which for every one
+    // of these CLIs means the credential store was written. Calling that
+    // `cancelled` leaves the caller with no reason to restart, so the running
+    // agent keeps the old signature against a store that holds the new one —
+    // and nothing on screen says so.
+    const running = await open("signed-out-open-agent.ts", {
+      args: ["--login-outlives-cancel"],
+    });
+    await waitFor(running, (one) => one.signIn !== null, "nothing was offered");
+    const signing = running.harness.signIn("console-login");
+    await waitFor(
+      running,
+      (one) => oauthUrlIn(one.signIn?.attempt?.output ?? "") !== null,
+      "the sign-in printed no URL",
+    );
+
+    expect(await running.harness.signInCancel()).toBe(true);
+    expect(await signing).toBe("signed-in");
+    // The row still comes down — that is what was pressed — and the offer
+    // with it, because there is nothing left to sign in to.
+    expect(running.harness.state().signIn).toBeNull();
+  });
+
+  test("an agent that advertised nothing says so, rather than drawing a button", async () => {
+    const running = await open("text-only-agent.ts");
+    running.harness.askSignIn();
+    const asked = running.harness.state().signIn;
+    expect(asked?.methods).toEqual([]);
+    expect(asked?.cause).toEqual({
+      kind: "person",
+      said: expect.stringContaining(
+        "offered no way to sign in",
+      ) as unknown as string,
+    });
+  });
+
+  test("a turn refused for the ACCOUNT marks the row so, off the agent's data", async () => {
+    const running = await open("agent.ts");
+    const { rowId } = await running.harness.prompt("limit", [], [], false);
+    await settled(running, "the refused turn never ended");
+    const row = running.rows().find((one) => one.id === rowId);
+    expect(row?.kind === "user" ? row.delivery : null).toBe("refused");
+    expect(row?.kind === "user" ? row.signIn : null).toBe("account");
+    // ... and nothing is forced on screen: the account IS signed in, and
+    // waiting for the limit to reset is the other remedy. (A refusal with no
+    // such data stays a plain one: "a turn the agent refuses…" above.)
+    expect(running.harness.state().signIn).toBeNull();
   });
 });
 
@@ -1836,7 +1964,7 @@ describe("kolu's own line — a turn this end started", () => {
     // Whose words they are is the row's kind and nothing else: what crossed
     // the pipe is an ordinary prompt carrying the account.
     const bodies = (await asked(running, "prompts")) as ReadonlyArray<string>;
-    expect(bodies[0]).toBe(`${TEACHING.join("\n")}\n\ntwo terminals need you`);
+    expect(bodies[0]).toBe(`${TEACHING}\n\ntwo terminals need you`);
   });
 
   test("waits behind a running turn with the mark a person's message takes", async () => {

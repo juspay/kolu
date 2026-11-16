@@ -122,8 +122,14 @@ import {
   EMPTY_AGENT_DISTRO_RECEIPT,
   TerminalAgentsSchema,
 } from "@kolu/agent-distro/schema";
+import {
+  AgentLaunchSchema,
+  AgentModelsSchema,
+} from "@kolu/agent-distro/models";
 import type { ClientErrorPolicy } from "./clientPolicy.ts";
 import {
+  AgentLaunchUnavailable,
+  AgentModelsUnavailable,
   FsGitReadErrorSchema,
   KavalContractSkew,
   PreviewTooLarge,
@@ -751,8 +757,48 @@ export * from "./transcriptSchema.ts";
  *  One LOCAL consequence worth stating, since the wire now forbids what the code
  *  used to permit: an attach torn down before kaval answers describes no screen
  *  at all, so padi emits NO snapshot frame for it rather than one carrying an
- *  invented grid. */
-export const PADI_SURFACE_VERSION = "7.5";
+ *  invented grid.
+ *
+ *  7.6 (additive · minor) — WHICH MODELS A HARNESS OFFERS on this host. A new
+ *  procedure, `agentDistro.models` (`{ harness, cwd }` →
+ *  {@link AgentModelsSchema}): padi runs its serving package's
+ *  `agent-distro --models <harness>` in `cwd`, with the profiles a new
+ *  terminal here would get, and answers upstream's word — the ids the harness
+ *  listed, or `unlisted` for one that cannot list, and how a launch takes a
+ *  model. A list command that fails, a host whose agents are not ready, or a
+ *  serving package OLDER than `--models` (it says what it answers itself, in
+ *  its `share/agent-distro/answers`) is the declared
+ *  {@link AgentModelsUnavailable} with the words — never an empty list, and
+ *  never an older picker's error read as one. kolu's setup form fills its
+ *  model question from it, kolu-server checks a model answer against it, and
+ *  the fleet face reads a planner's launch words off it. And the
+ *  `agentDistroStatus` cell's `ready` arm gains `answers` (what the serving
+ *  package answers), so kolu-server refuses a harness question for a host
+ *  whose agents are too old before any form exists. A member added and a
+ *  required field on an emitted arm — the 7.4 and 5.3/7.3 classes: a
+ *  minor.
+ *
+ *  7.7 (additive · minor) — HOW A LAUNCH TAKES A MODEL, asked on its own. A
+ *  new procedure, `agentDistro.launch` (`{ harness }` →
+ *  {@link AgentLaunchSchema}): padi runs its serving package's
+ *  `agent-distro --launch <harness>`, which reads the harness's adapter and
+ *  runs nothing, so a start never depends on a list that fails today — the
+ *  fleet face reads a planner's launch words off this now, not off
+ *  `agentDistro.models`. A host whose agents are not ready, or a package
+ *  older than `--launch`, is the declared {@link AgentLaunchUnavailable}.
+ *  And `agentDistro.models` runs its list in the environment a new terminal
+ *  there ends up with — the person's shell, after their dotfiles — so a key
+ *  only an rc file exports reaches it; a shell that cannot be asked is
+ *  {@link AgentModelsUnavailable} naming it. A member added — the 7.4 class:
+ *  a minor.
+ *
+ *  7.8 (additive · minor) — WHAT THE NEWEST PROMPT SAID. The omp and pi arms of
+ *  the record's `agent` gain `lastPromptText` beside `lastPromptId`: the newest
+ *  user entry's words, whitespace collapsed and cut to 512 characters, or
+ *  `null` when there is none. `agent_say` reports a steer `landed` only when
+ *  the prompt that moved carries the words it sent. A required field on an
+ *  emitted arm — the 5.3/7.3 class: a minor. */
+export const PADI_SURFACE_VERSION = "7.8";
 
 /** The `version` cell payload — padi's self-declared surface contract version. */
 export const PadiVersionSchema = Schema.Struct({
@@ -2840,6 +2886,23 @@ export const padiSurface = defineSurfaceWithPolicy<ClientErrorPolicy>()({
      *  bundle is not here). */
     agentDistro: {
       report: { input: AgentDistroDeliveryReportSchema },
+      /** Which models `harness` offers on this host, run in `cwd` (the
+       *  repository a role will start in, whose own `plugin.json` composes
+       *  over the profiles) in the environment a new terminal there ends up
+       *  with — and how a launch is given one. Read-only; the binder calls it
+       *  and the browser calls it through the re-serve. */
+      models: {
+        input: Schema.Struct({ harness: Schema.String, cwd: Schema.String }),
+        output: AgentModelsSchema,
+        error: AgentModelsUnavailable,
+      },
+      /** How `harness`'s launch takes a model on this host — the adapter's
+       *  word alone, which runs no harness. What a start reads. */
+      launch: {
+        input: Schema.Struct({ harness: Schema.String }),
+        output: AgentLaunchSchema,
+        error: AgentLaunchUnavailable,
+      },
     },
     /** Session restore/import/forfeit — executes host-side (padi as one writer). */
     session: {

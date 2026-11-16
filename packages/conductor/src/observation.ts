@@ -15,7 +15,7 @@
  */
 
 import type { ConductorReadingLevel } from "kolu-common/conductor";
-import type { WorkId } from "kolu-work";
+import type { CheckHead, WorkId } from "kolu-work";
 
 /** What a terminal is doing, as the watcher reads it off its host.
  *
@@ -54,20 +54,31 @@ export interface WatchPr {
   readonly number: number;
   readonly title: string;
   readonly state: "open" | "closed" | "merged";
-  /** How its checks stand, or `null` when none have been reported. The words
-   *  are the forge's; `kolu-work`'s `CHECK_STEP` is the one table that says
-   *  what each becomes on a timeline. */
-  readonly checks: "pending" | "pass" | "fail" | null;
+  /** How its checks stand — unreported, or the forge's own rollup. Two arms
+   *  rather than a nullable word: "the forge reported no checks" is a reading,
+   *  not a hole. `kolu-work`'s `CHECK_STEP` is the one table that says what
+   *  each rollup becomes on a timeline. */
+  readonly checks: WatchChecks;
   /** The names of the checks that are failing, when any are. */
   readonly failing: ReadonlyArray<string>;
   /** THE COMMIT the two fields above are about — the PR's head, off the same
-   *  reading. A check event is news about ONE commit, so a reading of a commit
-   *  the timeline already holds adds nothing and a PUSH adds an event. `null`
-   *  when the reading carries no head (a host whose padi predates the field);
-   *  then the work hears about that PR's checks once per kind, ever, which is
-   *  the honest reading of a source that cannot say which commit it meant. */
-  readonly head: string | null;
+   *  reading, in the record's own two arms (`kolu-work`'s `CheckHead`). A
+   *  check event is news about ONE commit, so a reading of a commit the
+   *  timeline already holds adds nothing and a PUSH adds an event.
+   *  `unreported` is a host whose padi predates the field; then the work
+   *  hears about that PR's checks once per kind, ever, which is the honest
+   *  reading of a source that cannot say which commit it meant. */
+  readonly head: CheckHead;
 }
+
+/** HOW A PULL REQUEST'S CHECKS STAND, as the forge answered — nothing
+ *  reported, or its rollup over them. */
+export type WatchChecks =
+  | { readonly kind: "unreported" }
+  | {
+      readonly kind: "rollup";
+      readonly rollup: "pending" | "pass" | "fail";
+    };
 
 /** A BRANCH WHOSE PULL REQUEST KOLU WATCHES — one per piece of work in
  *  progress that is keyed by a branch. The watch asks the host for the PR of

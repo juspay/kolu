@@ -1,343 +1,125 @@
 /**
- * THE STANDING PROMPT, READ OFF ITS FILE.
+ * THE STANDING PROMPT, CHECKED RULE BY RULE.
  *
- * The words live in `teaching.md`'s wrapped paragraphs so a person can read
- * them, and `teaching.ts` renders them one line per paragraph. Everything the
- * Conductor is told BEFORE the waterfall — who it is, the `host/id` grammar,
- * where to create, that it never waits, what every wake level means, what it
- * watches, how it talks to an agent and how it learns whether that took,
- * questions, briefs, memory, sleeping terminals — is pinned byte for byte
- * against `fixtures/teaching-before-waterfall.zest.json`, so a reword is
- * a deliberate change to the fixture rather than a drift nobody reviewed. The
- * verbs those words name are checked against the tool registry in
- * `conductor.test.ts`.
+ * `teaching.md` is sent as the Markdown it is, so these tests read it as
+ * Markdown: a section by its heading, a table by its rows, a rule by the one
+ * list item or paragraph that states it. Each test names the rule it guards
+ * (the inventory ids, R1…R92, from the change that compacted the script) and
+ * looks for what the rule SAYS, not for a sentence — rewording a rule keeps it
+ * green, deleting it turns it red. Where a list exists in the code (the wake
+ * kinds, the modes, the roles, the setup keys, the served resources), the
+ * test reads that list, so a new entry without its line in the script fails
+ * the build. The tool names the script uses are checked against the fleet
+ * face in `conductor.test.ts`; the rules the script leaves to a tool's own
+ * description are checked on those descriptions in
+ * `packages/kolu-mcp/src/fleet/fleet.test.ts`.
  */
 
-import { readFileSync } from "node:fs";
-import { parseTeaching, teachingLines } from "kolu-conductor";
+import { parseTeaching, teaching } from "kolu-conductor";
+import { ConductorWakeLevelSchema } from "kolu-common/conductor";
 import {
   isKoluFleetAddress,
   KOLU_FLEET_RECORD_ADDRESS,
   KOLU_FLEET_RESOURCES,
 } from "kolu-mcp";
+import { KOLU_CHOICE_KEYS, ON_GREEN, WORK_MODES, WORK_ROLES } from "kolu-work";
 import { describe, expect, it } from "vitest";
 
-const BEFORE: string[] = JSON.parse(
-  readFileSync(
-    new URL("./fixtures/teaching-before-waterfall.zest.json", import.meta.url),
-    "utf8",
-  ),
-);
+const SCRIPT = teaching("zest");
 
-describe("the standing prompt", () => {
-  it("renders the instructions that predate the waterfall exactly as before", () => {
-    expect(teachingLines("zest").slice(0, BEFORE.length)).toEqual(BEFORE);
-  });
-
-  it("fills the host in everywhere and leaves no placeholder behind", () => {
-    const lines = teachingLines("zest");
-    expect(lines.join("\n")).not.toContain("{{");
-    expect(lines.every((line) => line.startsWith("[kolu] "))).toBe(true);
-  });
-
-  it("says what a title is: a few words, no parentheses, no references", () => {
-    // THE DEFECT THIS GUARDS: a real work came out called "Rewrite odu's
-    // docs for human reading (like kolu PR #2375)" — a sentence with its
-    // own provenance in brackets, read on a card beside a dozen others.
-    const script = teachingLines("zest").join("\n");
-    expect(script).toContain("A TITLE IS A FEW WORDS");
-    expect(script).toContain("no parentheses, no issue or PR numbers");
-  });
-});
-
-describe("a piece of work is its branch", () => {
-  const SCRIPT = teachingLines("zest").join("\n");
-
-  it("says to OPEN existing work rather than start a second one", () => {
-    // THE DEFECT THIS GUARDS: one branch drawn as three cards, because a
-    // Conductor woken with "gone" opened a new piece of work each time.
-    expect(SCRIPT).toContain("A PIECE OF WORK IS ITS BRANCH ON ITS MACHINE");
-    expect(SCRIPT).toContain("NEVER start a second piece of work for a branch");
-  });
-
-  it("says `gone` is about the terminal, never about the work", () => {
-    expect(SCRIPT).toContain(
-      "`gone` means THAT TERMINAL is\nreally gone".replace("\n", " "),
-    );
-    expect(SCRIPT).toContain("NO TERMINALS");
-    expect(SCRIPT).toContain("work_stop");
-  });
-
-  it("asks which machine rather than guessing one", () => {
-    expect(SCRIPT).toContain("ask them in your reply and END YOUR TURN");
-  });
-});
-
-describe("the waterfall's two modes", () => {
-  const SCRIPT = teachingLines("zest").join("\n");
-
-  it("names both modes and says the mode is chosen per waterfall", () => {
-    expect(SCRIPT).toContain("FULL");
-    expect(SCRIPT).toContain("TRIVIAL");
-    // The defect this guards: a mode chosen once at setup would make every
-    // later waterfall inherit a shape nobody asked for.
-    expect(SCRIPT).toContain("the mode is chosen for THAT waterfall");
-  });
-
-  it("says a trivial waterfall drops the planner, the approval and the reviews", () => {
-    expect(SCRIPT).toContain(
-      "no planner, no plan, no approval, no review rounds",
-    );
-  });
-
-  it("keeps the planner, approval and review steps marked as the full mode's", () => {
-    const lines = teachingLines("zest");
-    for (const opening of [
-      "[kolu] The planner, in a full waterfall:",
-      "[kolu] Approval, in a full waterfall:",
-      "[kolu] Review rounds, in a full waterfall:",
-    ]) {
-      expect(lines.some((line) => line.startsWith(opening))).toBe(true);
-    }
-  });
-
-  it("gives a trivial waterfall no brief file at all", () => {
-    // The defect this guards: the script used to have the Conductor write
-    // `.waterfall/brief.md` itself, which it cannot do — its hands are kolu's
-    // tools, and none of them writes a file on another host. Trivial says the
-    // brief instead.
-    expect(SCRIPT).toContain("NO BRIEF FILE");
-    expect(SCRIPT).toContain(
-      "you say the request and the standing rules to the implementor yourself",
-    );
-    expect(SCRIPT).not.toContain("you write `.waterfall/brief.md` yourself");
-  });
-
-  it("has the implementor started and briefed in two turns", () => {
-    // A created terminal's agent is not up when the create answers, so the
-    // brief is said on the `ready` wake rather than in the same turn.
-    expect(SCRIPT).toContain("when it wakes you as `ready`");
-  });
-});
-
-describe("the waterfall's setup questions", () => {
-  const SCRIPT = teachingLines("zest").join("\n");
-
-  it("asks the setup for every waterfall rather than once a conversation", () => {
-    // The defect this guards: the script said setup was "once per
-    // conversation", so a second waterfall in the same chat was asked only
-    // for its mode and the planner was launched on the first one's command
-    // line — a harness and a model the human never chose for this work.
-    expect(SCRIPT).toContain("Setup, for EVERY waterfall");
-    expect(SCRIPT).not.toContain("Setup, once per conversation");
-    expect(SCRIPT).toContain(
-      "there is no setup you do once for the conversation",
-    );
-  });
-
-  it("asks the harness and the model as two questions, not one command line", () => {
-    expect(SCRIPT).toContain("which HARNESS runs the implementor");
-    expect(SCRIPT).toContain("which MODEL that harness runs on");
-    expect(SCRIPT).toContain("as a question of its own");
-    // …and the command line is the Conductor's to assemble from the two.
-    expect(SCRIPT).toContain(
-      "YOU build the command line out of the harness and the model",
-    );
-  });
-
-  it("offers the previous answers first and still asks", () => {
-    expect(SCRIPT).toContain("OFFER IT FIRST");
-    expect(SCRIPT).toContain("never skip the asking because you asked before");
-  });
-
-  it("asks WHICH HOST, and never lets a path or its own machine answer that", () => {
-    // The defect this guards: `waterfall ~/code/odu …` was asked mode,
-    // harness, model and on-green, then opened its planner on the machine the
-    // Conductor runs on — where the harness was not even installed — and the
-    // human had to type where it should have gone. The host is part of the
-    // work's key, so it is asked in the reply, never in `work_open`'s form.
-    expect(SCRIPT).toContain(
-      "the HOST is not one of them: it is part of the work",
-    );
-    expect(SCRIPT).toContain(
-      "you ask it in your reply when the request does not name it",
-    );
-    expect(SCRIPT).toContain("a path does not: the same path exists on");
-    expect(SCRIPT).toContain(
-      "NOTHING IS CREATED BEFORE THE WORK IS OPEN AND THE HOST IS KNOWN.",
-    );
-    expect(SCRIPT).toContain(
-      "when you ask which host, offer the hosts connected",
-    );
-    // ... and outside a waterfall too: any terminal it is about to open.
-    expect(SCRIPT).toContain("never default to zest");
-  });
-
-  it("asks what to do on green CI and the mode in that same one form", () => {
-    expect(SCRIPT).toContain("what to do when CI is green");
-    expect(SCRIPT).toContain("and the mode. In a full waterfall");
-    expect(SCRIPT).toContain("The setup questions travel IN `work_open`");
-    expect(SCRIPT).toContain(
-      "all of one waterfall's setup goes in the single `work_open` call",
-    );
-  });
-
-  it("keeps every question optioned, with a box for the human's own answer", () => {
-    // The question tool draws only questions that HAVE options, so a typed
-    // answer still needs them: a question without options is a form the
-    // human never sees.
-    expect(SCRIPT).toContain(
-      "a form may draw only questions that have options",
-    );
-    expect(SCRIPT).toContain(
-      "a box beside them for an answer of the human's own",
-    );
-  });
-});
-
-describe("a choice put to the human", () => {
-  const SCRIPT = teachingLines("zest").join("\n");
-
-  it("goes through the question form everywhere, not only in a waterfall", () => {
-    // The defect this guards: outside the waterfall the Conductor wrote
-    // "Your options: 1, 2, 3" in prose and waited, so the human answered by
-    // typing a number into the composer — a form drawn by hand.
-    const rule = SCRIPT.split("\n").find((line) =>
-      line.includes("CHOICES ARE BUTTONS"),
-    );
-    expect(rule).toBeDefined();
-    expect(rule).toContain("inside a waterfall or not");
-    expect(rule).toContain("it goes through a form: `work_ask`");
-    expect(rule).toContain("Your prose explains the choice; the form asks it.");
-    // ...and it is said BEFORE the waterfall, where it governs every turn
-    // rather than reading as one of the procedure's steps.
-    expect(SCRIPT.indexOf("CHOICES ARE BUTTONS")).toBeLessThan(
-      SCRIPT.indexOf("THE WATERFALL."),
-    );
-  });
-});
-
-describe("the works", () => {
-  const SCRIPT = teachingLines("zest").join("\n");
-
-  it("tells the Conductor to read its own record rather than remember it", () => {
-    // The defect this guards: after a restart it said it was "not certain"
-    // which terminals it watched and then tried to watch two that were gone.
-    // The record is kolu's, and it is readable.
-    expect(SCRIPT).toContain("`works` resource");
-    expect(SCRIPT).toContain("Read it at the start of every conversation");
-    expect(SCRIPT).toContain("after a restart");
-  });
-
-  it("makes a work the thing a terminal is created INTO, with a role", () => {
-    expect(SCRIPT).toContain("EVERYTHING YOU START BELONGS TO A PIECE OF WORK");
-    expect(SCRIPT).toContain("`work` it is for with the `role`");
-    expect(SCRIPT).toContain("refused before");
-  });
-
-  it("keeps the two answers kolu reads back in kolu's own words", () => {
-    // `modeOf` and `onGreenOf` read a decision only when the answer is one of
-    // their words, so a question offering anything else is answered and then
-    // read as nothing.
-    expect(SCRIPT).toContain("Two of those answers are kolu's OWN WORDS");
-    expect(SCRIPT).toContain("`merge` or `hand-over`");
-    expect(SCRIPT).toContain("`full`, `trivial` or `watch`");
-  });
-
-  it("sends every question about a work through `work_ask`, and notes through `work_note`", () => {
-    expect(SCRIPT).toContain("`work_ask`");
-    expect(SCRIPT).toContain(
-      "from the work's card, from this chat or from the reader",
-    );
-    expect(SCRIPT).toContain("`work_note`");
-  });
-
-  it("teaches ask, say what you asked, END YOUR TURN — never wait", () => {
-    // THE RULE THIS WHOLE SHAPE RESTS ON. A Conductor that waits for an
-    // answer is a Conductor whose tool call dies at its client's deadline
-    // while a person is still reading the plan.
-    expect(SCRIPT).toContain("ASK, SAY, END YOUR TURN");
-    expect(SCRIPT).toContain("ASKING NEVER WAITS");
-    expect(SCRIPT).toContain("Never wait for an answer, never poll for one");
-    // ... and the approval carries the plan, so the question can be read
-    // where it is answered.
-    expect(SCRIPT).toContain(".waterfall/plan.md` so the question carries");
-  });
-
-  it("says a terminal the human took over is theirs until a wake says otherwise", () => {
-    expect(SCRIPT).toContain("TAKEN OVER");
-    expect(SCRIPT).toContain("do not send it input");
-    expect(SCRIPT).toContain("HANDED BACK");
-    expect(SCRIPT).toContain("You are always told when it is handed back");
-    expect(SCRIPT).toContain("a `driver`");
-  });
-});
-
-describe("every address the script teaches", () => {
-  const SCRIPT = teachingLines("zest").join("\n");
-  /** Every `surface://…` the Conductor is told, as it is written. */
-  const TAUGHT = [...SCRIPT.matchAll(/surface:\/\/[^\s`"]+/g)].map(
-    ([uri]) => uri,
+/** The text under a heading, up to the next heading of the same or a higher
+ *  level. Throws when the heading is not there: a section that went missing
+ *  is a rule set that went missing. */
+function section(title: string): string {
+  const lines = SCRIPT.split("\n");
+  const at = lines.findIndex(
+    (line) => /^#+ /.test(line) && line.replace(/^#+ /, "") === title,
   );
+  if (at === -1) throw new Error(`teaching.md has no section "${title}"`);
+  const level = (lines[at] ?? "").match(/^#+/)?.[0].length ?? 0;
+  const end = lines.findIndex(
+    (line, i) => i > at && (line.match(/^#+(?= )/)?.[0].length ?? 99) <= level,
+  );
+  return lines.slice(at + 1, end === -1 ? undefined : end).join("\n");
+}
 
-  it("says the address a record is read at, in full and unescaped", () => {
-    // The defect this guards: the script told the Conductor to read a
-    // terminal's record before reading its screen and never said WHERE, so it
-    // invented addresses and each one came back "unknown resource". The
-    // address is the one the FACE builds from its own served template
-    // (`KOLU_FLEET_RECORD_ADDRESS`), not a literal re-typed here — a renamed
-    // collection moves the address and this test, not the Conductor's turn.
-    // The reference is pasted after the collection exactly as every tool and
-    // wake spells one; the percent-escaped spelling is the one no agent
-    // guesses.
-    expect(SCRIPT).toContain(KOLU_FLEET_RECORD_ADDRESS);
-    expect(SCRIPT).toContain(
-      KOLU_FLEET_RECORD_ADDRESS.replace("<host>/<id>", "remote:prod/"),
-    );
-    expect(SCRIPT).not.toContain("%2F");
-  });
-
-  it("names every resource the face serves by its address, where it first names it", () => {
-    // The defect this guards: the script said "the `hosts` resource" and left
-    // the rest to the agent, which read `surface://collections/hosts` — the
-    // roster is a CELL — and was refused. The served list is the FACE's, so a
-    // resource added or renamed there turns this red until the script names
-    // it right.
-    const paragraphs = SCRIPT.split("\n");
-    for (const uri of KOLU_FLEET_RESOURCES) {
-      const name = `\`${uri.split("/").at(-1)}\``;
-      const first = paragraphs.find((line) => line.includes(name));
-      expect(first, `the script never names ${name}`).toBeDefined();
-      expect(first, `${name} is first named without its address`).toContain(
-        `\`${uri}\``,
-      );
-      // ... and named ONCE: a second spelling is a second place to go stale.
-      expect(
-        TAUGHT.filter((taught) => taught === uri),
-        `${uri} is taught more than once`,
-      ).toHaveLength(1);
+/** A section's blocks — each list item, table row or paragraph, its wrapped
+ *  lines joined. A rule is stated in ONE block. */
+function blocks(text: string): string[] {
+  const out: string[] = [];
+  let current: string[] = [];
+  const flush = (): void => {
+    if (current.length > 0) out.push(current.join(" ").replace(/\s+/g, " "));
+    current = [];
+  };
+  for (const line of text.split("\n")) {
+    if (line.trim() === "" || /^#+ /.test(line)) {
+      flush();
+      continue;
     }
+    if (/^\s*(- |\| )/.test(line)) flush();
+    current.push(line.trim());
+  }
+  flush();
+  return out;
+}
+
+/** Does ONE block of the section state every one of these? */
+const says = (text: string, ...patterns: ReadonlyArray<RegExp>): boolean =>
+  blocks(text).some((block) => patterns.every((one) => one.test(block)));
+
+/** A section's first Markdown table: its header cells and its rows. */
+function table(text: string): {
+  header: ReadonlyArray<string>;
+  rows: ReadonlyArray<ReadonlyArray<string>>;
+} {
+  const cells = (line: string): string[] =>
+    line
+      .trim()
+      .replace(/^\||\|$/g, "")
+      .split("|")
+      .map((cell) => cell.trim());
+  const lines = text.split("\n").filter((line) => line.trim().startsWith("|"));
+  const [head, , ...body] = lines;
+  if (head === undefined) throw new Error("no table in this section");
+  return { header: cells(head), rows: body.map(cells) };
+}
+
+const WHO = section("Who you are");
+const FLEET = section("The fleet");
+const WORKS = section("Pieces of work");
+const WAKES = section("Wakes");
+const SPEAKING = section("Speaking to agents");
+const ASKING = section("Asking the human");
+const WATERFALL = section("The waterfall");
+const SETUP = section("Setup");
+const STEPS = table(section("Steps"));
+const BRIEF = section("The brief");
+const NEVER = section("Rules you never break");
+
+/** One row of the waterfall table, by its step, as `{full, trivial}`. */
+const step = (name: string): { full: string; trivial: string } => {
+  const row = STEPS.rows.find((one) => one[0] === name);
+  if (row === undefined) throw new Error(`the waterfall has no "${name}" step`);
+  return { full: row[1] ?? "", trivial: row[2] ?? "" };
+};
+
+describe("the file and its loader", () => {
+  it("fills the host in everywhere and leaves no placeholder behind", () => {
+    expect(SCRIPT).not.toContain("{{");
+    expect(SCRIPT).toContain("zest");
   });
 
-  it("teaches no address the face does not answer", () => {
-    // Built from, or checked against, what the face serves: a resource renamed
-    // there leaves a sentence here that this catches, by the face's own
-    // routing rather than a second copy of it.
-    expect(TAUGHT.length).toBeGreaterThan(0);
-    for (const uri of TAUGHT)
-      expect(isKoluFleetAddress(uri), `${uri} is answered by nothing`).toBe(
-        true,
-      );
+  it("is sent as Markdown: it opens on kolu's heading and keeps its structure", () => {
+    expect(SCRIPT.startsWith("# [kolu] ")).toBe(true);
+    expect(SCRIPT).toMatch(/^## /m);
+    expect(SCRIPT).toMatch(/^\| --- \|/m);
   });
-});
 
-describe("parseTeaching", () => {
-  it("joins a paragraph's wrapped lines and drops the editor's note", () => {
+  it("sends the file as written, minus only the leading note", () => {
     expect(
-      parseTeaching(
-        "<!--\nnot sent\n-->\n\nOne paragraph,\n  wrapped.\n\n\nTwo, on {{host}}.\n",
-      ),
-    ).toEqual(["One paragraph, wrapped.", "Two, on {{host}}."]);
+      parseTeaching("<!--\nnot sent\n-->\n\n# Title\n\n- one,\n  wrapped\n"),
+    ).toBe("# Title\n\n- one,\n  wrapped");
   });
 
   it("refuses a placeholder it would not fill", () => {
@@ -347,14 +129,632 @@ describe("parseTeaching", () => {
   });
 
   it("refuses a file with nothing to say", () => {
-    expect(() => parseTeaching("<!-- only a note -->\n\n")).toThrow(
-      /no paragraphs/,
-    );
+    expect(() => parseTeaching("<!-- only a note -->\n\n")).toThrow(/empty/);
   });
 
   it("refuses a note after the leading one rather than sending it", () => {
     expect(() =>
       parseTeaching("<!-- editor -->\n\nSaid.\n\n<!-- stray -->\n\nAlso said."),
     ).toThrow(/only the leading <!-- note/);
+  });
+});
+
+describe("who the Conductor is", () => {
+  it("R1: runs on its host and reaches every host only through kolu's MCP server", () => {
+    expect(
+      says(WHO, /run on zest/, /every host/, /`kolu` MCP server/, /only/),
+    ).toBe(true);
+  });
+
+  it("R2: never does the work itself; it runs the agents", () => {
+    expect(says(WHO, /never do the work/, /agents/)).toBe(true);
+  });
+
+  it("R3: never waits — says what it set going and ends its turn", () => {
+    expect(says(WHO, /never wait/i, /end your turn/, /wakes you/)).toBe(true);
+  });
+
+  it("R4: one plain sentence per step, never the tool's name", () => {
+    expect(says(WHO, /one plain sentence/, /never name the tool/i)).toBe(true);
+  });
+
+  it("R5: keeps what is worth keeping in a file, not in its memory", () => {
+    expect(
+      says(WHO, /only this conversation/, /file on zest/, /agent writes/),
+    ).toBe(true);
+  });
+});
+
+describe("the fleet", () => {
+  it("R6: a terminal is `host/id`, passed whole and read back", () => {
+    expect(says(FLEET, /`host\/id`/, /whole name/, /read the host back/)).toBe(
+      true,
+    );
+  });
+
+  it("R7, R8, R11, R12, R22: names every resource the face serves, with its address, where it first names it", () => {
+    const lines = SCRIPT.split("\n");
+    for (const uri of KOLU_FLEET_RESOURCES) {
+      const name = `\`${uri.split("/").at(-1)}\``;
+      const first = lines.find((line) => line.includes(name));
+      expect(first, `the script never names ${name}`).toBeDefined();
+      expect(first, `${name} is first named without its address`).toContain(
+        `\`${uri}\``,
+      );
+    }
+  });
+
+  it("R8: says the roster changes while it works, so it is read again", () => {
+    expect(
+      says(FLEET, /`hosts`/, /changes while you work/, /read it again/),
+    ).toBe(true);
+  });
+
+  it("R11: says where one terminal's record is read, in full and unescaped", () => {
+    expect(SCRIPT).toContain(KOLU_FLEET_RECORD_ADDRESS);
+    expect(SCRIPT).toContain(
+      KOLU_FLEET_RECORD_ADDRESS.replace("<host>/<id>", "remote:prod/"),
+    );
+    expect(SCRIPT).not.toContain("%2F");
+  });
+
+  it("teaches no address the face does not answer, and each resource once", () => {
+    const taught = [...SCRIPT.matchAll(/surface:\/\/[^\s`"]+/g)].map(
+      ([uri]) => uri,
+    );
+    expect(taught.length).toBeGreaterThan(0);
+    for (const uri of taught)
+      expect(isKoluFleetAddress(uri), `${uri} is answered by nothing`).toBe(
+        true,
+      );
+    for (const uri of KOLU_FLEET_RESOURCES)
+      expect(
+        taught.filter((one) => one === uri),
+        `${uri} taught twice`,
+      ).toHaveLength(1);
+  });
+
+  it("R9: a host-not-connected refusal is the truth, not something to retry", () => {
+    expect(says(FLEET, /not connected/, /truth/, /retry/)).toBe(true);
+  });
+
+  it("R10: a path never picks a host", () => {
+    expect(says(FLEET, /path/, /several hosts/, /never picks\s+a host/)).toBe(
+      true,
+    );
+  });
+
+  it("R13: an asleep terminal is not gone: never reported missing, never re-read", () => {
+    expect(
+      says(
+        FLEET,
+        /asleep/,
+        /not gone/,
+        /never report it missing/,
+        /never retry/,
+      ),
+    ).toBe(true);
+  });
+
+  it("R14: reads the record first, skips the sleeping, and tells the human how many", () => {
+    expect(
+      says(
+        FLEET,
+        /read its\s+record/,
+        /skip the sleeping/,
+        /how many are asleep/,
+        /wake one/,
+      ),
+    ).toBe(true);
+  });
+});
+
+describe("pieces of work", () => {
+  it("R15: everything belongs to a work, opened first; nothing is created before", () => {
+    expect(
+      says(
+        WORKS,
+        /belongs to a piece of work/,
+        /`work_open`/,
+        /Nothing is created before/,
+      ),
+    ).toBe(true);
+  });
+
+  it("R16, R17: a work is its branch on its machine; never a second one", () => {
+    expect(
+      says(
+        WORKS,
+        /branch on its machine/,
+        /open it/,
+        /Never\s+start a second work/,
+      ),
+    ).toBe(true);
+  });
+
+  it("R18, R19, R73: the machine is the human's call — asked in the reply, never guessed or defaulted", () => {
+    expect(
+      says(
+        WORKS,
+        /Which machine/,
+        /not a setup\s+question/,
+        /ask in your reply/,
+        /hosts connected now/,
+        /end your turn/,
+        /Never guess/,
+        /never default to\s+zest/,
+      ),
+    ).toBe(true);
+  });
+
+  it("R22: reads `works` at the start of every conversation and after every restart", () => {
+    expect(
+      says(WORKS, /`works`/, /start of every conversation/, /restart/),
+    ).toBe(true);
+  });
+
+  it("R24, R26, R30: creates INTO a work with a role, adopts, leaves, and keeps members to its own", () => {
+    expect(
+      says(
+        WORKS,
+        /`lifecycle_create`/,
+        /`work`/,
+        /`role`/,
+        /`work_adopt`/,
+        /`work_leave`/,
+        /responsible for/,
+      ),
+    ).toBe(true);
+    for (const role of WORK_ROLES) expect(WORKS).toContain(`\`${role}\``);
+  });
+
+  it("R28: losing its terminals does not end a work", () => {
+    expect(
+      says(
+        WORKS,
+        /does not end a work/,
+        /no terminals/,
+        /Bring terminals back/,
+      ),
+    ).toBe(true);
+  });
+
+  it("R29: a work ends only by its PR, or by a stop", () => {
+    expect(says(WORKS, /ends only/, /merged or closed/, /`work_stop`/)).toBe(
+      true,
+    );
+  });
+
+  it("R31: about a work it writes only questions and notes", () => {
+    expect(
+      says(
+        WORKS,
+        /only questions \(`work_ask`\) and notes \(`work_note`\)/,
+        /kolu records/,
+      ),
+    ).toBe(true);
+  });
+
+  it("R32: a plain watch is a work with mode `watch`, adopted as `other`", () => {
+    expect(
+      says(WORKS, /`watch`/, /`work_adopt`/, /`other`/, /Nothing is asked/),
+    ).toBe(true);
+  });
+});
+
+describe("the wakes", () => {
+  const WAKE_TABLE = table(WAKES);
+
+  it("R34–R42: has one row for every wake kind kolu sends, and nothing else", () => {
+    const named = WAKE_TABLE.rows.map((row) =>
+      (row[0] ?? "").replace(/`/g, ""),
+    );
+    expect([...named].sort()).toEqual(
+      [...ConductorWakeLevelSchema.literals].sort(),
+    );
+  });
+
+  it("says what happened and what to do for every kind", () => {
+    expect(WAKE_TABLE.header).toEqual(["Wake", "What happened", "What you do"]);
+    for (const row of WAKE_TABLE.rows)
+      expect(
+        row.slice(1).every((cell) => cell.length > 0),
+        row[0],
+      ).toBe(true);
+  });
+
+  const row = (kind: string): string =>
+    (WAKE_TABLE.rows.find((one) => one[0] === `\`${kind}\``) ?? []).join(" | ");
+
+  it("R34: `ready` is when the brief is said", () => {
+    expect(row("ready")).toMatch(/brief/);
+  });
+  it("R35: `stopped` — read what it did, say what is next", () => {
+    expect(row("stopped")).toMatch(/Read what it did/);
+  });
+  it("R36: `asking` — answer it", () => {
+    expect(row("asking")).toMatch(/Answer it/);
+  });
+  it("R37, R27: `gone` is that terminal, never the work, and never a close of its own", () => {
+    expect(row("gone")).toMatch(/Only that terminal/);
+    expect(row("gone")).toMatch(/work is still there/);
+    expect(row("gone")).toMatch(/close yourself never rings/);
+  });
+  it("R38: `asleep` stays in its work", () => {
+    expect(row("asleep")).toMatch(/stays in its work/);
+  });
+  it("R39: `exited` — read the screen, expect nothing more", () => {
+    expect(row("exited")).toMatch(/Read the screen/);
+    expect(row("exited")).toMatch(/Nothing more/);
+  });
+  it("R40: `ended` — read the screen", () => {
+    expect(row("ended")).toMatch(/no agent ever appeared/);
+    expect(row("ended")).toMatch(/Read the screen/);
+  });
+  it("R41: `taken-over` — leave it alone, carry on", () => {
+    expect(row("taken-over")).toMatch(/no input, no `agent_say`/);
+    expect(row("taken-over")).toMatch(/Carry on/);
+  });
+  it("R42: `handed-back` — read its screen before acting", () => {
+    expect(row("handed-back")).toMatch(/Read its screen before you act/);
+  });
+
+  it("R33, R43: a wake names terminals by `host/id`, batches, and rings once per state", () => {
+    expect(
+      says(
+        WAKES,
+        /`\[kolu\]`/,
+        /`host\/id`/,
+        /several terminals/,
+        /when the turn ends/,
+        /once/,
+      ),
+    ).toBe(true);
+  });
+
+  it("R44, R45, R46: a hand-back is always told; the driver is on the record; only the human takes a terminal back", () => {
+    expect(
+      says(
+        WAKES,
+        /always told when a terminal is handed back/,
+        /cannot take a terminal back/,
+        /`driver`/,
+        /`you`/,
+        /`conductor`/,
+      ),
+    ).toBe(true);
+  });
+
+  it("R47: no wake carries an exit status, so the screen says how it went", () => {
+    expect(
+      says(
+        WAKES,
+        /exit status/,
+        /refuses before it starts/,
+        /screen/,
+        /quiet for a long time/,
+      ),
+    ).toBe(true);
+  });
+
+  it("R48: reads a screen when a wake is not enough, and never polls one", () => {
+    expect(says(WAKES, /Read a screen/, /Never poll/)).toBe(true);
+  });
+});
+
+describe("speaking to agents", () => {
+  it("R49, R51, R52: only `agent_say`, no Enter after, read the screen if it did not take, a refusal is an answer", () => {
+    expect(
+      says(
+        SPEAKING,
+        /only with `agent_say`/,
+        /never send an Enter/,
+        /read the screen/,
+        /never say the same thing again/,
+        /refusal is an answer/,
+      ),
+    ).toBe(true);
+  });
+
+  it("R53: raw typing only at a plain shell — text, a short settle, Enter", () => {
+    expect(
+      says(
+        SPEAKING,
+        /plain shell/,
+        /`lifecycle_sendInput`/,
+        /`wait_outputSettled`/,
+        /Enter key/,
+        /`run`/,
+      ),
+    ).toBe(true);
+  });
+
+  it("R54, R55: keeps what it says short; long things go through files agents write", () => {
+    expect(
+      says(
+        SPEAKING,
+        /short/,
+        /one key at a time/,
+        /file/,
+        /written by an agent/,
+        /another host/,
+        /results in a file/,
+      ),
+    ).toBe(true);
+  });
+
+  it("R56: questions flow up, and only the human's decisions reach the human", () => {
+    expect(
+      says(
+        SPEAKING,
+        /Questions flow up/,
+        /from the\s+brief/,
+        /tradeoff/,
+        /destructive step/,
+        /`host\/id`/,
+        /what\s+you would do/,
+      ),
+    ).toBe(true);
+  });
+});
+
+describe("asking the human", () => {
+  it("R57: ask, say what you asked, end your turn — no exception; idle while the human thinks", () => {
+    expect(
+      says(
+        ASKING,
+        /Ask, say what you asked, and end your turn/,
+        /no exception/,
+        /While the human thinks, you are idle, and they can still talk to you\./,
+      ),
+    ).toBe(true);
+  });
+
+  it("R58, R59: the answer is a wake; never wait, poll or ask twice", () => {
+    expect(
+      says(
+        ASKING,
+        /arrives as a wake/,
+        /who answered/,
+        /decline/,
+        /restart/,
+        /Never wait/,
+        /never poll/,
+        /never ask the same thing twice/,
+      ),
+    ).toBe(true);
+  });
+
+  it("R61: every choice is a form — `work_ask` or your own question tool, prose only with neither", () => {
+    expect(
+      says(
+        ASKING,
+        /Every choice/,
+        /form/,
+        /`work_ask`/,
+        /question tool/,
+        /prose only when you have neither/i,
+        /Your options/,
+      ),
+    ).toBe(true);
+  });
+
+  it("R62, R64: prose explains, the form asks, and every question has options", () => {
+    expect(
+      says(
+        ASKING,
+        /prose explains the choice; the form asks it/i,
+        /options/,
+        /typed/,
+      ),
+    ).toBe(true);
+  });
+
+  it("governs every turn, so it comes before the waterfall", () => {
+    expect(SCRIPT.indexOf("## Asking the human")).toBeLessThan(
+      SCRIPT.indexOf("## The waterfall"),
+    );
+  });
+});
+
+describe("the waterfall", () => {
+  it("R66, R92: directs a planner and an implementor, in order, ending its turn after each step that starts or asks", () => {
+    expect(
+      says(
+        WATERFALL,
+        /never write\s+the code/,
+        /planner/,
+        /implementor/,
+        /in order/,
+        /none is optional/,
+        /end\s+your turn/,
+      ),
+    ).toBe(true);
+  });
+
+  it("R67: the steps table has one column for each mode the setup can ask between", () => {
+    const modes = WORK_MODES.filter((mode) => mode !== "watch").map(
+      (mode) => mode[0]?.toUpperCase() + mode.slice(1),
+    );
+    expect(STEPS.header).toEqual(["Step", ...modes]);
+  });
+
+  it("R67: each step exists in both modes, or is marked as the full mode's only", () => {
+    const fullOnly = ["Planner", "Approval", "Review rounds"];
+    for (const row of STEPS.rows) {
+      const [name, full, trivial] = row;
+      expect(full, `${name} has no full-mode cell`).toBeTruthy();
+      expect(trivial, `${name} has no trivial-mode cell`).toBeTruthy();
+      expect(
+        trivial === "None.",
+        `${name}: only ${fullOnly.join(", ")} are full-only`,
+      ).toBe(fullOnly.includes(name ?? ""));
+    }
+    for (const name of [
+      "Open the work",
+      "Brief",
+      "Implementor",
+      "Doubts",
+      "Finish",
+      "On green",
+      "Closing",
+    ])
+      expect(
+        STEPS.rows.some((row) => row[0] === name),
+        name,
+      ).toBe(true);
+  });
+
+  it("R70: asks the setup for every waterfall, never reusing the last silently", () => {
+    expect(
+      says(
+        SETUP,
+        /every waterfall/,
+        /second one/,
+        /last time's answers first/,
+        /never reuse/,
+      ),
+    ).toBe(true);
+  });
+
+  it("R71: names every setup key kolu asks, in the one `work_open` call", () => {
+    expect(says(SETUP, /one `work_open` call/)).toBe(true);
+    for (const key of ["mode", "on-green", ...KOLU_CHOICE_KEYS])
+      expect(SETUP).toContain(`\`${key}\``);
+  });
+
+  it("R68, R69: the mode is the request's, or asked with a reason; trivial only for settled, small work", () => {
+    expect(says(SETUP, /names the mode/, /ask full or trivial/, /why/)).toBe(
+      true,
+    );
+    expect(
+      says(
+        SETUP,
+        /Trivial is for/,
+        /settled/,
+        /small/,
+        /decide for the human is full/,
+      ),
+    ).toBe(true);
+  });
+
+  it("R79, R80, R78: the planner — a fresh worktree; plan and review; plan file; out of git; no question tool", () => {
+    const { full } = step("Planner");
+    for (const said of [
+      /fresh worktree/,
+      /`planner`/,
+      /On `ready`/,
+      /never implement/,
+      /never use a question tool/,
+      /`\.waterfall\/plan\.md`/,
+      /`\.git\/info\/exclude`/,
+      /then stop/,
+    ])
+      expect(full).toMatch(said);
+  });
+
+  it("R81: approval — a summary, `work_ask` with the plan as `file`, nothing built before", () => {
+    const { full } = step("Approval");
+    for (const said of [
+      /read the plan/,
+      /summary/,
+      /`work_ask`/,
+      /`file`/,
+      /`\.waterfall\/plan\.md`/,
+      /ask again/,
+      /Nothing is built before approval/,
+    ])
+      expect(full).toMatch(said);
+  });
+
+  it("R82, R84: the brief is the planner's file in full and said aloud in trivial", () => {
+    expect(step("Brief").full).toMatch(/`\.waterfall\/brief\.md`/);
+    expect(step("Brief").trivial).toMatch(/No brief file/);
+  });
+
+  it("R83, R84: the implementor — a split of the planner in full, its own worktree in trivial, briefed on `ready`", () => {
+    const { full, trivial } = step("Implementor");
+    expect(full).toMatch(/split of the planner/);
+    expect(full).toMatch(/`child-of`/);
+    expect(full).toMatch(/On `ready`, give it the brief's path/);
+    expect(trivial).toMatch(/own fresh worktree/);
+    expect(trivial).toMatch(/On `ready`, say the brief/);
+  });
+
+  it("R85, R78: the brief carries the rules and the PR's shape, and trivial adds the finish", () => {
+    for (const said of [
+      /plan/,
+      /request in full/,
+      /repo's own rules/,
+      /never use a question tool/,
+      /written\s+for\s+a\s+person,\s+not\s+for\s+an\s+AI/,
+      /simple,\s+interesting\s+and\s+never\s+cryptic/,
+      /everyday\s+words/,
+      /no\s+internal\s+names/,
+      /explained\s+once/,
+      /title\s+says\s+what\s+changes\s+for\s+the\s+person\s+using\s+it/,
+      /a\s+few\s+lines\s+they\s+finish/,
+      /Everything\s+else[^;]*comment\s+on\s+the\s+PR/,
+      /stop when the PR is open/,
+      /refactor pass/,
+      /CI/,
+    ])
+      expect(BRIEF).toMatch(said);
+  });
+
+  it("R86: doubts are answered from the plan or the request", () => {
+    expect(step("Doubts").full).toMatch(/plan/);
+    expect(step("Doubts").trivial).toMatch(/request/);
+  });
+
+  it("R87: review rounds — the planner reviews, the implementor addresses, tests once per round", () => {
+    const { full } = step("Review rounds");
+    for (const said of [
+      /planner reviews/,
+      /posts the review/,
+      /implementor addresses/,
+      /repeat/,
+      /once per round/,
+      /waits for the next/,
+    ])
+      expect(full).toMatch(said);
+  });
+
+  it("R88: the implementor finishes — one refactor pass, then CI once", () => {
+    for (const cell of Object.values(step("Finish")).filter(
+      (one) => one !== "The same.",
+    ))
+      for (const said of [
+        /implementor/,
+        /one final refactor pass/,
+        /hickey-lowy/,
+        /CI once/,
+        /green/,
+      ])
+        expect(cell).toMatch(said);
+  });
+
+  it("R77, R89: on green, merges or hands over as `onGreen` in `works` says", () => {
+    expect(step("On green").full).toMatch(/`onGreen`/);
+    expect(step("On green").full).toMatch(/not from memory/);
+    // Both outcomes the `on-green` decision can hold are named.
+    expect(ON_GREEN).toEqual(["merge", "hand-over"]);
+    expect(step("On green").full).toMatch(/Merge the PR/);
+    expect(step("On green").full).toMatch(/hand it over/);
+  });
+
+  it("R90: closes only the terminals it opened, once the PR is merged or closed", () => {
+    expect(step("Closing").full).toMatch(/merged or closed/);
+    expect(step("Closing").full).toMatch(/planner and the implementor/);
+    expect(step("Closing").trivial).toMatch(/implementor, and nothing else/);
+  });
+
+  it("R91, R89: the rules it never breaks", () => {
+    expect(says(NEVER, /never implement/)).toBe(true);
+    expect(says(NEVER, /no new agent/, /no new PR/, /approval/)).toBe(true);
+    expect(says(NEVER, /never close an implementor/, /merged or closed/)).toBe(
+      true,
+    );
+    expect(says(NEVER, /your\s+judgement/, /their own repo/)).toBe(true);
   });
 });

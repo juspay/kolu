@@ -30,6 +30,7 @@ import { prValue } from "anyforge/schemas";
 import { decodeHostKey, isEncodedHostKey } from "kolu-common/hostKey";
 import { DASH } from "kolu-common/surface";
 import { fleetTerminalRef } from "kolu-mcp/fleetRef";
+import { Option } from "effect";
 import {
   hostOf,
   lifetime,
@@ -39,7 +40,15 @@ import {
   type Work,
   type WorkId,
 } from "kolu-work";
-import { type Component, createMemo, createSignal, For, Show } from "solid-js";
+import {
+  type Component,
+  createMemo,
+  createSignal,
+  For,
+  Match,
+  Show,
+  Switch,
+} from "solid-js";
 import { hostLabel } from "../host/hostChipTone";
 import {
   fleetTerminalStanding,
@@ -56,6 +65,8 @@ import { splitMemberRef } from "./memberRef";
 import { fleetMentionCandidates } from "./mentionCandidates";
 import { useConductor } from "./useConductor";
 import { useOpenTile } from "./useOpenTile";
+import { holdsPath } from "./namedFiles";
+import { openReader, readerTarget } from "./reader/useReader";
 import { useMembership, useSeen, useWorkMembers } from "./useWorks";
 import WorkBar from "./WorkBar";
 import WorkFiles from "./WorkFiles";
@@ -70,6 +81,7 @@ import {
   decisionRows,
   EVENT_INK,
   eventReader,
+  type Lock,
   membersIn,
   oneLine,
   outcomeWords,
@@ -223,7 +235,7 @@ const WorkCard: Component<{
     }
     return null;
   });
-  const checks = createMemo(() => checksTally(livePr()));
+  const checks = createMemo(() => checksTally(Option.fromNullishOr(livePr())));
 
   /** WHERE THE FILES COME FROM — the one derivation, shared with the reader a
    *  file row opens (`workFile.ts`): the live worktree while a member reports
@@ -253,8 +265,10 @@ const WorkCard: Component<{
    *  never a question that could go unanswered. */
   const host = createMemo(() => {
     const given = hostOf(props.work);
-    if (given === "") return null;
-    return isEncodedHostKey(given) ? hostLabel(decodeHostKey(given)) : given;
+    if (given === "") return Option.none<string>();
+    return Option.some(
+      isEncodedHostKey(given) ? hostLabel(decodeHostKey(given)) : given,
+    );
   });
 
   /** EVERY DECISION AS ONE ROW — the setup under its keys' names first, then
@@ -315,8 +329,10 @@ const WorkCard: Component<{
           class="m-0 mt-1 flex min-w-0 flex-wrap items-baseline gap-x-1.5 text-[0.7rem]"
         >
           <b class={standingInk()}>{at().lead}</b>
-          <Show when={at().what !== ""}>
-            <span class="min-w-0 truncate text-fg-2">· {at().what}</span>
+          <Show when={Option.getOrUndefined(at().what)}>
+            {(what) => (
+              <span class="min-w-0 truncate text-fg-2">· {what()}</span>
+            )}
           </Show>
           <span class="font-mono text-[0.62rem] tabular-nums text-fg-3">
             · {endedOrElapsed()}
@@ -391,10 +407,14 @@ const WorkCard: Component<{
                           const reading = () => seen().get(one.terminal);
                           /** WHO IS DRIVING THIS MEMBER, from the one
                            *  membership index the tile's own frame reads —
-                           *  `null` for a terminal nothing drives, which has
-                           *  no control here. */
-                          const driver = () =>
-                            membership().get(one.terminal)?.driver ?? null;
+                           *  nothing for a terminal nothing drives
+                           *  (`nobody`), which has no control here. */
+                          const driver = (): Lock | undefined => {
+                            const at = membership().get(one.terminal);
+                            return at === undefined || at.driver === "nobody"
+                              ? undefined
+                              : at.driver;
+                          };
                           return (
                             <li
                               data-testid="work-member"
@@ -549,7 +569,7 @@ const WorkCard: Component<{
             kept={ended() !== undefined}
           />
 
-          <Show when={prOf(props.work)}>
+          <Show when={Option.getOrUndefined(prOf(props.work))}>
             {(pr) => (
               <section data-testid="work-pr" class="mt-2.5">
                 <h4 class="m-0 font-mono text-[0.58rem] uppercase tracking-[0.1em] text-fg-3">
@@ -571,7 +591,7 @@ const WorkCard: Component<{
                       </a>
                     )}
                   </Show>
-                  <Show when={checks()}>
+                  <Show when={Option.getOrUndefined(checks())}>
                     {(tally) => <span> · {checksBreakdown(tally())}</span>}
                   </Show>
                 </p>
@@ -595,8 +615,10 @@ const WorkCard: Component<{
                   {(row) => (
                     <li
                       data-testid="work-decision"
-                      data-key={row.key ?? undefined}
-                      data-from={row.from ?? undefined}
+                      data-key={
+                        row.topic.kind === "setup" ? row.topic.key : undefined
+                      }
+                      data-from={Option.getOrUndefined(row.from)}
                       // The answer AS RECORDED, beside the one a person
                       // reads: the row says "On green — hand over", and what
                       // was actually answered was "hand-over".
@@ -629,7 +651,11 @@ const WorkCard: Component<{
                                 <span class="font-mono text-[0.6rem] text-fg-3">
                                   {" · "}
                                   {answeredWhen(decision, clockOf)}
-                                  <Show when={answerSource(decision)}>
+                                  <Show
+                                    when={Option.getOrUndefined(
+                                      answerSource(decision),
+                                    )}
+                                  >
                                     {(from) => <> · {from()}</>}
                                   </Show>
                                 </span>
@@ -669,29 +695,74 @@ const WorkCard: Component<{
                         aria-hidden="true"
                         class={`h-1.5 w-1.5 shrink-0 translate-y-[-0.1em] rounded-full ${EVENT_INK[event.by]}`}
                       />
-                      {/* ONE LINE, CUT — an event longer than the row says
+                      {/* A FILE THE WORK WROTE OPENS FROM ITS ROW — the event
+                          names the work and the path, so there is nothing to
+                          match; it is a link only where the reader can open
+                          it (for a work that ended, a kept copy). Otherwise:
+                          ONE LINE, CUT — an event longer than the row says
                           the rest on a press rather than wrapping into a
                           paragraph nobody asked to read. */}
-                      <Show
-                        when={cut().rest}
+                      <Switch
                         fallback={
-                          <span class="min-w-0 flex-1 truncate text-fg-2">
-                            {cut().line}
-                          </span>
+                          <Show
+                            when={cut().rest}
+                            fallback={
+                              <span class="min-w-0 flex-1 truncate text-fg-2">
+                                {cut().line}
+                              </span>
+                            }
+                          >
+                            <button
+                              type="button"
+                              data-testid="work-event-more"
+                              aria-expanded={shown(key)}
+                              class="min-w-0 flex-1 cursor-pointer rounded-sm text-start text-fg-2 hover:bg-surface-1"
+                              onClick={() => toggleRow(key)}
+                            >
+                              <span class={shown(key) ? "" : "block truncate"}>
+                                {shown(key) ? whole() : cut().line}
+                              </span>
+                            </button>
+                          </Show>
                         }
                       >
-                        <button
-                          type="button"
-                          data-testid="work-event-more"
-                          aria-expanded={shown(key)}
-                          class="min-w-0 flex-1 cursor-pointer rounded-sm text-start text-fg-2 hover:bg-surface-1"
-                          onClick={() => toggleRow(key)}
+                        <Match
+                          when={
+                            event.kind === "file" &&
+                            holdsPath(props.work, event.path)
+                              ? event.path
+                              : undefined
+                          }
                         >
-                          <span class={shown(key) ? "" : "block truncate"}>
-                            {shown(key) ? whole() : cut().line}
-                          </span>
-                        </button>
-                      </Show>
+                          {(path) => {
+                            const open = () => {
+                              const target = readerTarget();
+                              return (
+                                target !== null &&
+                                target.work === props.id &&
+                                target.path === path()
+                              );
+                            };
+                            return (
+                              <button
+                                type="button"
+                                data-testid="work-event-file"
+                                data-path={path()}
+                                aria-label={`Open ${path()}`}
+                                aria-current={open() ? "true" : undefined}
+                                class={`min-w-0 flex-1 cursor-pointer truncate rounded-sm text-start hover:underline ${
+                                  open() ? "text-accent" : "text-fg-2"
+                                }`}
+                                onClick={() =>
+                                  openReader({ work: props.id, path: path() })
+                                }
+                              >
+                                {cut().line}
+                              </button>
+                            );
+                          }}
+                        </Match>
+                      </Switch>
                       {/* HOW LONG THAT STEP TOOK — the step still running keeps
                           counting, with the ellipsis that says so. */}
                       <span class="shrink-0 font-mono text-[0.6rem] tabular-nums text-fg-3">

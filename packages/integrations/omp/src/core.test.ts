@@ -249,10 +249,50 @@ describe("deriveOmpInfo", () => {
       model: "deepseek-v4.1-flash",
       contextTokens: 16,
       summary: "Fix the flake",
+      lastPromptId: "u-2026-09-14T17:07:20.000Z",
+      lastPromptText: "hi",
     });
   });
 
   it("publishes nothing for a session file that is not on disk yet", () => {
     expect(deriveOmpInfo(session(path.join(tmp, "absent.jsonl")))).toBeNull();
+  });
+});
+
+describe("deriveOmpState — the newest prompt, which a landed steer moves", () => {
+  it("reads the newest user entry's id past a turn of tool calls, and moves when a steer lands", () => {
+    const turn = [
+      user("2026-11-15T22:37:00.000Z"),
+      assistant("toolUse", {
+        usage: { input: 1, cacheRead: 0, cacheWrite: 0 },
+      }),
+      toolResult(),
+      assistant("toolUse"),
+    ];
+    expect(deriveOmpState(turn)?.lastPromptId).toBe(
+      "u-2026-11-15T22:37:00.000Z",
+    );
+    // omp writes the held steer as a user entry when the step ends.
+    expect(
+      deriveOmpState([...turn, toolResult(), user("2026-11-15T22:37:07.023Z")])
+        ?.lastPromptId,
+    ).toBe("u-2026-11-15T22:37:07.023Z");
+  });
+
+  it("reads that entry's TEXT, which is what makes a landing THIS steer's", () => {
+    // Without the text, any prompt moving inside the watch — an older held
+    // steer being handed over, the human typing — reads as the words landing.
+    expect(deriveOmpState([user()])?.lastPromptText).toBe("hi");
+  });
+
+  it("a prompt with no text part carries no text, rather than an empty one", () => {
+    const imageOnly = line({
+      type: "message",
+      id: "u-image",
+      parentId: null,
+      timestamp: "2026-11-15T22:40:00.000Z",
+      message: { role: "user", content: [{ type: "image", url: "x" }] },
+    });
+    expect(deriveOmpState([imageOnly])?.lastPromptText).toBeNull();
   });
 });

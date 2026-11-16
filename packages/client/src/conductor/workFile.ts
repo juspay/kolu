@@ -20,7 +20,7 @@
 
 import { formatBytes } from "@kolu/byte-units";
 import type { FileWithSource, FileWithUrl } from "@kolu/solid-fileview";
-import { Effect } from "effect";
+import { Effect, Option } from "effect";
 import { decodeHostKey } from "kolu-common/hostKey";
 import {
   buildTerminalFileUrl,
@@ -117,15 +117,21 @@ export function workFileSource(
 ): WorkFileSource {
   const place = workPlaceOf(members);
   if (place === null) {
-    const kept = keptOf(work);
     return {
       at: null,
       list: () =>
         Promise.resolve(
-          kept.map((one) => ({
-            path: one.path,
-            note: formatBytes(one.bytes),
-          })),
+          // THE KEPT COPY, which only a work that has ENDED has. A work still
+          // in progress whose members report no worktree has nowhere to read
+          // from at all — that is the `none` arm, not an empty kept copy.
+          Option.match(keptOf(work), {
+            onNone: () => [],
+            onSome: (kept) =>
+              kept.map((one) => ({
+                path: one.path,
+                note: formatBytes(one.bytes),
+              })),
+          }),
         ),
       read: (path) => readKeptFile(id, path),
     };

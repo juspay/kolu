@@ -594,15 +594,35 @@ function UserRow(props: { row: Extract<ConductorRow, { kind: "user" }> }) {
       <Show when={mark()}>
         {(what) => (
           <div class="mt-1 flex items-center justify-end gap-2 font-mono text-[0.62rem] text-fg-3">
-            <span data-testid="conductor-user-mark" data-mark={what()}>
+            <span
+              data-testid="conductor-user-mark"
+              data-mark={what()}
+              data-sign-in={what() === "refused" ? props.row.signIn : undefined}
+            >
               {what() === "queued"
                 ? "queued"
                 : what() === "refused"
-                  ? props.row.auth === true
+                  ? props.row.signIn === "signed-out"
                     ? "not sent — nobody is signed in"
-                    : "not sent"
+                    : props.row.signIn === "account"
+                      ? "not sent — this account cannot run it now"
+                      : "not sent"
                   : "no answer"}
             </span>
+            {/* THE DOOR, BESIDE THE FAILURE IT FIXES: a refusal the agent
+                said (in structure, never in prose) an account could clear.
+                Nobody signed in already has the agent's own row on screen;
+                this is for the account that IS signed in and cannot. */}
+            <Show when={what() === "refused" && props.row.signIn === "account"}>
+              <button
+                type="button"
+                data-testid="conductor-mark-signin"
+                class="text-accent hover:underline cursor-pointer"
+                onClick={() => orch.askSignIn()}
+              >
+                sign in again
+              </button>
+            </Show>
             <Show when={what() === "refused"}>
               <button
                 type="button"

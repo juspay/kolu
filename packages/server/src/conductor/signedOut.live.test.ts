@@ -131,7 +131,7 @@ describe.skipIf(!LIVE)(
         cwd: home,
         configDir,
         mcpServers: [],
-        teaching: ["[kolu] live test"],
+        teaching: "# [kolu] live test",
         log: silent,
         resume,
         onChange: () => {},
@@ -164,7 +164,8 @@ describe.skipIf(!LIVE)(
           state.signIn?.methods.every((one) => one.runs === "client"),
         ).toBe(true);
         // ... and the sentence names the store it was judged against.
-        expect(state.signIn?.why).toContain(configDir);
+        expect(state.signIn?.cause).toMatchObject({ kind: "agent" });
+        expect(JSON.stringify(state.signIn?.cause)).toContain(configDir);
 
         // THE RUN. The method's own command line is spawned and its output is
         // the row: a sign-in that cannot show the URL is one that asks a

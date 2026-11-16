@@ -11,6 +11,7 @@
 
 import { historyLine } from "@juspay/agent-distro/update/history";
 import { versionsFile } from "./bundle.ts";
+import type { AgentModels } from "./models.ts";
 import type { AgentVersion } from "./listing.ts";
 import { type ProfileFile, profileFile } from "./profileFile.ts";
 
@@ -96,3 +97,52 @@ export function standInListJson(harnesses: readonly AgentVersion[]): string {
     "fi",
   ].join("\n");
 }
+
+/** What the stand-in picker answers for one harness: upstream's `Models`, or
+ *  a list command that fails with these words on stderr — a harness whose
+ *  launch still takes a model its own way, which `--launch` answers either
+ *  way. */
+export type StandInModels =
+  | AgentModels
+  | { readonly launch: AgentModels["launch"]; readonly fails: string };
+
+/** The stand-in picker's `--models <harness>` and `--launch <harness>`
+ *  branches (POSIX sh), answering each harness as given — a harness not named
+ *  fails, as upstream's picker refuses one it does not carry. */
+export function standInModels(
+  answers: Readonly<Record<string, StandInModels>>,
+): string {
+  const models = Object.entries(answers).map(([harness, answer]) =>
+    "fails" in answer
+      ? `    ${harness}) printf '%s\\n' ${shellWord(answer.fails)} >&2; exit 1 ;;`
+      : `    ${harness}) printf '%s\\n' ${shellWord(JSON.stringify(answer))}; exit 0 ;;`,
+  );
+  const launches = Object.entries(answers).map(
+    ([harness, answer]) =>
+      `    ${harness}) printf '%s\\n' ${shellWord(JSON.stringify({ model: answer.launch }))}; exit 0 ;;`,
+  );
+  return [
+    'if [ "$1" = "--models" ]; then',
+    '  case "$2" in',
+    ...models,
+    '    *) echo "agent-distro picker: error: --models takes a harness this package carries" >&2; exit 2 ;;',
+    "  esac",
+    "fi",
+    'if [ "$1" = "--launch" ]; then',
+    '  case "$2" in',
+    ...launches,
+    '    *) echo "agent-distro picker: error: --launch takes a harness this package carries" >&2; exit 2 ;;',
+    "  esac",
+    "fi",
+  ].join("\n");
+}
+
+/** What a stand-in package as new as this kolu says in its own
+ *  `share/agent-distro/answers` (`./models.ts`' `PACKAGE_ANSWERS_FILE`) —
+ *  upstream's three flags. A stand-in WITHOUT the file is a package older
+ *  than `--models`, which kolu never asks. */
+export const STAND_IN_ANSWERS = "--list\n--models\n--launch\n";
+
+/** One POSIX single-quoted word. */
+const shellWord = (text: string): string =>
+  `'${text.replaceAll("'", "'\\''")}'`;

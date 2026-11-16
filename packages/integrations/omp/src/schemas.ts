@@ -15,6 +15,7 @@ import {
   TaskProgressSchema,
 } from "anyagent";
 import { Schema } from "effect";
+import { ompSteerPane } from "./screen-scrape.ts";
 
 export type { TaskProgress } from "anyagent";
 export { TaskProgressSchema };
@@ -70,6 +71,17 @@ export const OmpInfoSchema = Schema.Struct({
    *  survives a resume). Null if the filename carried no parseable timestamp.
    *  Drives the inspector's "Running for" elapsed display. */
   startedAt: Schema.NullOr(Schema.Number),
+  /** The `id` of the newest `user` message entry in the transcript tail.
+   *  omp writes a steer as a user entry only when the running turn TAKES it,
+   *  so this changing after `agent_say`'s keys is the proof the words landed.
+   *  Null before the first prompt is written. */
+  lastPromptId: Schema.NullOr(Schema.String),
+  /** That entry's TEXT, whitespace-collapsed and cut to
+   *  `LAST_PROMPT_TEXT_CHARS` — what makes a moved `lastPromptId` THIS
+   *  steer's landing rather than an older held steer's or the human's own
+   *  typing. Null when the entry carried no text part, or before the first
+   *  prompt. */
+  lastPromptText: Schema.NullOr(Schema.String),
 });
 
 export type OmpInfo = typeof OmpInfoSchema.Type;
@@ -135,18 +147,33 @@ export const ompVocab: AgentVocab<OmpInfo> = {
     // hands kolu that path, so it is always available.
     ref: (info) => info.sessionPath,
   },
-  // Measured: `omp` 18.18.8 in a kolu terminal on 2026-11-13. Idle, text plus
-  // ONE Enter submits — including a multiline bracketed paste, which is the
-  // case the "omp needs a second Enter" folklore came from: an Enter sent in
+  // Measured: `omp` 18.20.2 in a kolu terminal on 2026-11-15. Idle, text plus
+  // ONE Enter submits — including a multiline bracketed paste: an Enter sent in
   // the same breath as the paste is swallowed by the TUI's paste debounce, so
   // it is the SETTLE between the two writes that fixes it, never a second key.
-  // WHILE WORKING, the same keys put the line in omp's steering pane
-  // ("Steering · 1"), and the running turn consumed it at its next step — the
-  // answer being written gained what the steer asked for, with no new turn.
+  // WHILE WORKING, the same one Enter puts the words in omp's steering pane
+  // ("Steering · 1") — a short line, a 654-byte line and a multiline paste
+  // alike — and the turn takes them at its next step. During a `bash` call
+  // that is at once (omp backgrounds the command to take the message); during
+  // an eval cell it is when the cell ends, on its own. A SECOND Enter on the
+  // empty prompt delivers a held steer by interrupting the running tool (the
+  // cell died with KeyboardInterrupt and was run again), so it is never part
+  // of the recipe. The user entry lands in the transcript only when the turn
+  // takes the words, which is what `lastPromptId` reads.
   say: {
     idle: ["Enter"],
-    working: { keys: ["Enter"], delivery: "steer" },
-    verified: "ran omp 18.18.8 in a kolu terminal, 2026-11-13",
+    working: {
+      keys: ["Enter"],
+      delivery: "steer",
+      sight: {
+        lastPrompt: (info) =>
+          info.lastPromptId === null
+            ? null
+            : { id: info.lastPromptId, text: info.lastPromptText },
+        pane: ompSteerPane,
+      },
+    },
+    verified: "ran omp 18.20.2 in a kolu terminal, 2026-11-15",
   },
   infoSchema: OmpInfoSchema,
 };

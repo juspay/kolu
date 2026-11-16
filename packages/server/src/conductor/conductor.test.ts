@@ -56,7 +56,10 @@ import {
 } from "@kolu/surface/frame-chunking";
 import { exceedsFrameLimit } from "@kolu/surface/frame-limit";
 import type { CellStore } from "@kolu/surface/server";
+import type { PrResult } from "@kolu/terminal-vocab/schema";
 import { Server as McpServer } from "@modelcontextprotocol/sdk/server/index.js";
+import Conf from "conf";
+import { Option, Result, Schema } from "effect";
 import type { ConductorReadingLevel } from "kolu-common/conductor";
 import {
   ATTACHMENT_BYTE_CAP,
@@ -68,17 +71,18 @@ import {
   DEFAULT_CONDUCTOR_STATE,
   PROMPT_ATTACHMENT_BYTE_CAP,
 } from "kolu-common/conductor";
-import type { PrResult } from "@kolu/terminal-vocab/schema";
 import {
   type ConductorHost,
   EMPTY_PERSISTED_CONDUCTOR,
   type FleetMcpEndpoint,
+  type KoluOffer,
   type MemberDetail,
   type MemberWatch,
   type PersistedConductor,
   type PersistedMembers,
   type PersistedTranscript,
   type PersistedWorks,
+  PersistedWorksSchema,
   startConductorHost,
   UNSENT_ATTACHMENT_MS,
   type WatchGit,
@@ -89,19 +93,34 @@ import {
 } from "kolu-conductor";
 import { KOLU_FLEET_EXPOSE, KOLU_FLEET_TOOL_NAMES } from "kolu-mcp";
 import {
+  ABOUT_WORK,
+  aboutMember,
+  type AskReply,
+  type Decision,
   type DecisionAnswer,
   driverOf,
-  isAnswered,
-  keptOf,
+  isAsked,
+  isKoluChoiceKey,
+  isSettled,
+  isSetup,
   type KeptFile,
+  type KoluChoiceKey,
+  type OnGreen,
+  type WorkMode,
+  keptOf,
+  modeOf,
+  type SentAnswer,
+  type SetupAsk,
   type SetupKey,
   setupOf,
+  setupStanding,
+  setupValue,
   type Work,
   type WorkId,
-  workIdOf,
   type WorkKey,
   WorkRefusal,
   type WorkRole,
+  workIdOf,
 } from "kolu-work";
 import type { Logger } from "pino";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -110,6 +129,8 @@ import {
   proveFleetMcpEndpoint,
   startFleetMcpEndpoint,
 } from "../fleet/mcpEndpoint.ts";
+import { CONF_MIGRATIONS } from "../stateLadder.ts";
+import { CONF_DEFAULTS, SCHEMA_VERSION } from "../stateShape.ts";
 
 const HOME = "/home/tester";
 const HOST = "test-box";
@@ -118,6 +139,13 @@ const HOST = "test-box";
  *  row's `since`. A frozen one, because what these tests compare is order and
  *  membership, never a duration. */
 const T0 = "2026-01-01T00:00:00.000Z";
+
+/** The human's reply to an ask, as the wire turns a form's values into one. */
+const answer = (values: ReadonlyMap<string, SentAnswer>): AskReply => ({
+  kind: "answered",
+  values,
+});
+const DECLINE: AskReply = { kind: "declined" };
 
 const log = {
   debug() {},
@@ -168,6 +196,11 @@ interface Spawned {
    *  what the wipe does with that row is to let a test interleave at the same
    *  point. */
   readonly onNewSession: (run: () => void) => void;
+  /** ... and what it does WHILE a sign-in is running. A real login is minutes
+   *  long and a conversation can move under it — somebody presses New
+   *  session, or the agent opens a different one — which is the whole reason
+   *  the restart is told which conversation to come back to. */
+  readonly onSignIn: (run: () => void) => void;
   /** The attachments this conversation was HANDED, per prompt — what kolu-server
    *  wrote and filled in before the agent was told anything. */
   readonly handed: () => ReadonlyArray<ReadonlyArray<ConductorAttachment>>;
@@ -198,6 +231,7 @@ function fakeSpawner(): {
     let stops = 0;
     let sessions = 0;
     let leaving: (() => void) | null = null;
+    let signingIn: (() => void) | null = null;
     const handed: ReadonlyArray<ConductorAttachment>[] = [];
     const wakes: Array<{
       text: string;
@@ -239,7 +273,11 @@ function fakeSpawner(): {
       // sends one: kolu's questions about a work are decisions on the work,
       // answered through `answerWork` with nothing waiting on them.
       answer: async () => true,
-      signIn: async () => "signed-in",
+      signIn: async () => {
+        signingIn?.();
+        return "signed-in";
+      },
+      askSignIn: () => {},
       signInInput: async () => {},
       signInCancel: async () => false,
       setOption: async () => {},
@@ -288,6 +326,9 @@ function fakeSpawner(): {
       sessions: () => sessions,
       onNewSession: (run) => {
         leaving = run;
+      },
+      onSignIn: (run) => {
+        signingIn = run;
       },
       handed: () => handed,
       wakes: () => wakes,
@@ -403,6 +444,100 @@ interface Remembered {
   readonly root?: string;
 }
 
+/** WHAT KOLU OFFERS these tests for the two setup questions it draws the
+ *  options for — the stand-in for `koluOffer.ts`, whose own half (the
+ *  listing, the host's padi, the readiness gate) is pinned in
+ *  `koluOffer.test.ts`.
+ *
+ *  Three harnesses, because the three answers a harness can give about its
+ *  models are three different behaviours here: {@link OMP} LISTS its models
+ *  (a picked answer off the list is refused), {@link UNLISTING} cannot list
+ *  them at all (any model id is the answer), and {@link BRITTLE}'s host
+ *  COULD NOT list them just now (`unavailable`, in the listing's own words —
+ *  never an empty list, and never a refusal of a model nobody could check). */
+const OMP = "omp";
+const UNLISTING = "claude";
+const BRITTLE = "brittle";
+
+/** The models {@link OMP} lists on the work's host — ids as a launch takes
+ *  them, which is what an answer must be one of. */
+const OMP_MODELS = [
+  "anthropic/claude-fable-5-2",
+  "litellm/open-large",
+] as const;
+
+/** The words {@link BRITTLE}'s listing fails with — a host's own sentence,
+ *  which the form must carry rather than swallow. */
+const BRITTLE_WORDS =
+  "agent-distro brittle: error: cannot list its models: LITELLM_API_KEY is not set";
+
+interface TestOffer {
+  readonly offer: KoluOffer;
+  /** Every model listing it was asked for, as `<harness>@<host>:<repo>` —
+   *  the host is asked about the WORK'S repository, not about kolu's. */
+  readonly modelAsks: () => ReadonlyArray<string>;
+  /** Every launch it was asked for, as `<harness>@<host>`. */
+  readonly launchAsks: () => ReadonlyArray<string>;
+  /** ... and the listing cannot be ASKED AT ALL, throwing these words, until
+   *  it is handed `null` again. Distinct from {@link BRITTLE}, whose host
+   *  answers "I could not list" as a VALUE: a throw is the arm whose message
+   *  comes out of the person's own shell. */
+  readonly failModels: (why: string | null) => void;
+}
+
+/** How every harness of this test offer takes a model — the host's word, the
+ *  part a start reads its launch off. */
+const MODEL_FLAG = { kind: "flag", flag: "--model" } as const;
+
+const koluOffers = (): TestOffer => {
+  const modelAsks: string[] = [];
+  const launchAsks: string[] = [];
+  let modelsFail: string | null = null;
+  return {
+    offer: {
+      harnesses: () => [OMP, UNLISTING, BRITTLE],
+      models: async ({ host, repo, harness }) => {
+        modelAsks.push(`${harness}@${host}:${repo}`);
+        if (modelsFail !== null) throw new Error(modelsFail);
+        if (harness === OMP) return { kind: "listed", ids: OMP_MODELS };
+        if (harness === UNLISTING) return { kind: "unlisted" };
+        if (harness === BRITTLE)
+          return { kind: "unavailable", why: BRITTLE_WORDS };
+        throw new Error(`${host} has no harness called ${harness}`);
+      },
+      launch: async ({ host, harness }) => {
+        launchAsks.push(`${harness}@${host}`);
+        return MODEL_FLAG;
+      },
+      // Every host here has its agents: the gate is `koluOffer.test.ts`'s.
+      requireAgentsReady: async () => {},
+    },
+    modelAsks: () => modelAsks,
+    launchAsks: () => launchAsks,
+    failModels: (why) => {
+      modelsFail = why;
+    },
+  };
+};
+
+/** ONE SETUP QUESTION THE REQUEST ALREADY ANSWERED, in the shape its key
+ *  takes: kolu's own four carry the word and nothing else (kolu words them
+ *  and draws their options), the asker's two carry the words they are put
+ *  in. What the request said is an ARM — a question with nothing given is
+ *  {@link toAsk}, never a missing field. */
+const given = (key: SetupKey, answer: string): SetupAsk =>
+  isKoluChoiceKey(key)
+    ? { key, given: { kind: "given", value: answer } }
+    : {
+        key,
+        question: `${key}?`,
+        options: [answer],
+        given: { kind: "given", value: answer },
+      };
+
+/** ... and one the request said nothing about, so kolu puts it to the human. */
+const toAsk = { kind: "ask" } as const;
+
 interface Rig {
   host: ConductorHost;
   spawns: Spawned[];
@@ -430,6 +565,18 @@ interface Rig {
   /** ... and how many times it said THE WATCH'S SCOPE may have moved: the
    *  member set, or the branches with work in flight. */
   watchScopeMoved: () => number;
+  /** Every model listing this rig's offer was asked for — the offer every
+   *  `openWork`, `answerWork` and `startOf` judges against. */
+  modelAsks: () => ReadonlyArray<string>;
+  /** ... and every launch `startOf` asked it for. */
+  launchAsks: () => ReadonlyArray<string>;
+  /** Make the model listing THROW — the arm whose message comes back out of
+   *  the person's shell. */
+  failModels: (why: string | null) => void;
+  /** TAKE THIS KOLU'S FLEET MCP FACE AWAY, so the NEXT bring-up refuses: the
+   *  only way a respawn fails in this file, and what a restart has to survive
+   *  without rewriting the record. */
+  loseFleetMcp: () => void;
 }
 
 function rig(over: Remembered = {}): Rig {
@@ -452,12 +599,17 @@ function rig(over: Remembered = {}): Rig {
     terminal: string;
     reading: { level: ConductorReadingLevel; since: string } | null;
   }> = [];
+  const offered = koluOffers();
+  let lostFleetMcp = false;
   const host = startConductorHost({
     log,
     home: HOME,
     hostName: HOST,
-    fleetMcp: () =>
-      over.endpoint === undefined ? liveEndpoint : over.endpoint,
+    fleetMcp: () => {
+      if (lostFleetMcp) return null;
+      return over.endpoint === undefined ? liveEndpoint : over.endpoint;
+    },
+    offer: () => offered.offer,
     // THE REAL PROOF, pushed in the way the boot pushes it: the package that
     // owns the conversation does not own the MCP pin, so what it is handed is
     // the server's own prover — which is why every bring-up below exercises
@@ -505,6 +657,12 @@ function rig(over: Remembered = {}): Rig {
     readingsPublished: () => readingsPublished,
     worksMoved: () => worksMoved,
     watchScopeMoved: () => watchScopeMoved,
+    modelAsks: offered.modelAsks,
+    launchAsks: offered.launchAsks,
+    failModels: offered.failModels,
+    loseFleetMcp: () => {
+      lostFleetMcp = true;
+    },
   };
 }
 
@@ -1007,6 +1165,197 @@ describe("a dead adapter (M3)", () => {
     expect(r.spawns[1]?.options.resume).toBe("sess-opened");
   });
 
+  it("RESTARTS the agent into the same conversation after a sign-in, and on a person's reload", async () => {
+    // A running adapter keeps the credential it read at `initialize`, so a
+    // sign-in that succeeded — or one made outside kolu — reaches the next
+    // turn only through a fresh one. The conversation must be the same.
+    const r = rig({
+      record: { sessionId: "sess-1", cwd: HOME, model: null, fleet: [] },
+      rows: [row("agent:1", 1, "an answer")],
+    });
+    await r.host.prompt("first", [], [], false);
+    const first = r.spawns[0];
+    if (first === undefined) throw new Error("the host spawned nothing");
+    first.push({
+      kind: "state",
+      state: { ...DEFAULT_CONDUCTOR_STATE, phase: "idle", sessionId: "sess-1" },
+    });
+
+    expect(await r.host.signIn("subscription")).toEqual({
+      outcome: "signed-in",
+      restart: { kind: "restarted" },
+    });
+    expect(first.stops()).toBe(1);
+    expect(r.spawns).toHaveLength(2);
+    expect(r.spawns[1]?.options.resume).toBe("sess-1");
+
+    // ... and the door for a sign-in made OUTSIDE kolu is the same restart.
+    await r.host.reloadAgent();
+    expect(r.spawns[1]?.stops()).toBe(1);
+    expect(r.spawns).toHaveLength(3);
+    expect(r.spawns[2]?.options.resume).toBe("sess-1");
+  });
+
+  it("restarts into the conversation that was live when the button was pressed", async () => {
+    // THE DEFECT: there were two owners of "re-enter the conversation" — the
+    // harness after a sign-in, out of the id it BOOTED with, and this
+    // restart, which latched whatever that produced. Somebody who had pressed
+    // New session and typed in the new conversation was put back in the one
+    // they left. The session is read ONCE, when the sign-in is asked for.
+    const r = rig({
+      record: { sessionId: "sess-booted", cwd: HOME, model: null, fleet: [] },
+      rows: [row("agent:1", 1, "an answer")],
+    });
+    await r.host.prompt("first", [], [], false);
+    const first = r.spawns[0];
+    if (first === undefined) throw new Error("the host spawned nothing");
+    // New session: the conversation the person is in now.
+    first.push({
+      kind: "state",
+      state: {
+        ...DEFAULT_CONDUCTOR_STATE,
+        phase: "idle",
+        sessionId: "sess-new",
+      },
+    });
+    // ... and an agent that moves the conversation again WHILE the login runs
+    // — which is exactly what the old harness did on its way out of a
+    // successful sign-in.
+    first.onSignIn(() => {
+      first.push({
+        kind: "state",
+        state: {
+          ...DEFAULT_CONDUCTOR_STATE,
+          phase: "idle",
+          sessionId: "sess-booted",
+        },
+      });
+    });
+
+    await r.host.signIn("subscription");
+    expect(r.spawns[1]?.options.resume).toBe("sess-new");
+  });
+
+  it("restarts into a conversation this process started, never a silent fresh one", async () => {
+    // Booted with nothing to resume, several turns into a conversation the
+    // agent opened here. A sign-in used to leave the harness in a FRESH
+    // session — no divider, no notice — while every row stayed on screen and
+    // the toast said it had restarted into the same one.
+    const r = rig();
+    await r.host.prompt("first", [], [], false);
+    const first = r.spawns[0];
+    if (first === undefined) throw new Error("the host spawned nothing");
+    expect(first.options.resume).toBeNull();
+    first.push({
+      kind: "state",
+      state: { ...DEFAULT_CONDUCTOR_STATE, phase: "idle", sessionId: "sess-z" },
+    });
+    first.push({
+      kind: "rows",
+      upserts: [row("agent:1", 1, "an answer")],
+      removes: [],
+      appends: [],
+    });
+    first.onSignIn(() => {
+      first.push({
+        kind: "state",
+        state: {
+          ...DEFAULT_CONDUCTOR_STATE,
+          phase: "idle",
+          sessionId: "sess-somewhere-else",
+        },
+      });
+    });
+
+    await r.host.signIn("subscription");
+    expect(r.spawns[1]?.options.resume).toBe("sess-z");
+  });
+
+  it("REFUSES a restart while a turn is running, and says what to do", async () => {
+    // `stop()` sets `stopped` before it tears anything down, so a restart
+    // mid-turn ends the answer in the middle of a sentence, drops a message
+    // queued behind it, and reports none of it.
+    const r = rig({
+      record: { sessionId: "sess-1", cwd: HOME, model: null, fleet: [] },
+      rows: [row("agent:1", 1, "an answer")],
+    });
+    await r.host.prompt("first", [], [], false);
+    const first = r.spawns[0];
+    if (first === undefined) throw new Error("the host spawned nothing");
+    first.push({
+      kind: "state",
+      state: {
+        ...DEFAULT_CONDUCTOR_STATE,
+        phase: "working",
+        sessionId: "sess-1",
+        busySince: T0,
+      },
+    });
+
+    await expect(r.host.reloadAgent()).rejects.toThrow(/Stop the turn/);
+    expect(first.stops()).toBe(0);
+    expect(r.spawns).toHaveLength(1);
+  });
+
+  it("answers BOTH facts when the login landed and the restart did not", async () => {
+    // The signature is in the store — saying "Sign-in failed" over that is a
+    // lie somebody acts on by signing in twice. The two facts are two fields:
+    // signed in, and the agent did not restart, with the refusal's own words.
+    const r = rig({
+      record: { sessionId: "sess-1", cwd: HOME, model: null, fleet: [] },
+      rows: [row("agent:1", 1, "an answer")],
+    });
+    await r.host.prompt("first", [], [], false);
+    const first = r.spawns[0];
+    if (first === undefined) throw new Error("the host spawned nothing");
+    // The turn a person started while the login was running: the restart is
+    // refused, the sign-in still happened.
+    first.onSignIn(() => {
+      first.push({
+        kind: "state",
+        state: {
+          ...DEFAULT_CONDUCTOR_STATE,
+          phase: "working",
+          sessionId: "sess-1",
+          busySince: T0,
+        },
+      });
+    });
+
+    const ended = await r.host.signIn("subscription");
+    expect(ended.outcome).toBe("signed-in");
+    expect(ended.restart.kind).toBe("did-not-restart");
+    expect(
+      ended.restart.kind === "did-not-restart" ? ended.restart.why : "",
+    ).toContain("Stop the turn");
+    expect(r.spawns).toHaveLength(1);
+  });
+
+  it("keeps the record's session when the respawn FAILS", async () => {
+    // A stop publishes `sessionId: null` and we persist what we are told. A
+    // restart is not a dispose, so the old guard let that land: the record
+    // said there was no conversation while the transcript held its rows, and
+    // a kolu-server that went down in that window came back into a fresh one.
+    const r = rig({
+      record: { sessionId: "sess-1", cwd: HOME, model: null, fleet: [] },
+      rows: [row("agent:1", 1, "an answer")],
+    });
+    await r.host.prompt("first", [], [], false);
+    const first = r.spawns[0];
+    if (first === undefined) throw new Error("the host spawned nothing");
+    first.push({
+      kind: "state",
+      state: { ...DEFAULT_CONDUCTOR_STATE, phase: "idle", sessionId: "sess-1" },
+    });
+
+    r.loseFleetMcp();
+    await expect(r.host.reloadAgent()).rejects.toThrow();
+    expect(first.stops()).toBe(1);
+    expect(r.host.state().sessionId).toBe("sess-1");
+    await r.host.dispose();
+    expect(r.record.value().sessionId).toBe("sess-1");
+  });
+
   it("fences the REPLACEMENT on the rows we still hold (R2)", async () => {
     // A fresh state-root: nothing was restored, so a fence taken at the
     // restore is zero forever.
@@ -1064,12 +1413,12 @@ describe("the standing prompt (M5)", () => {
     const agent = r.spawns[0];
     if (agent === undefined) throw new Error("the host spawned nothing");
     expect(agent.options.cwd).toBe(HOME);
-    expect(agent.options.teaching[0]).toContain(`You run on ${HOST}`);
+    expect(agent.options.teaching).toContain(`You run on ${HOST}`);
     // The old defect, stated as a negative: a directory is not a machine.
-    expect(agent.options.teaching[0]).not.toContain(HOME);
+    expect(agent.options.teaching).not.toContain(HOME);
     // …and the fleet grammar is TAUGHT, not assumed: one conversation over
     // every host is only usable if `host/id` is the identity on the wire.
-    expect(agent.options.teaching.join("\n")).toContain("`host/id`");
+    expect(agent.options.teaching).toContain("`host/id`");
   });
 
   it("names only verbs the session actually has", async () => {
@@ -1093,7 +1442,7 @@ describe("the standing prompt (M5)", () => {
     const agent = r.spawns[0];
     if (agent === undefined) throw new Error("the host spawned nothing");
     const named = new Set(
-      [...agent.options.teaching.join("\n").matchAll(/`([a-z]+_[a-zA-Z]+)`/g)]
+      [...agent.options.teaching.matchAll(/`([a-z]+_[a-zA-Z]+)`/g)]
         .map((hit) => hit[1])
         .filter((name): name is string => name !== undefined),
     );
@@ -1208,6 +1557,7 @@ describe("teardown (B2)", () => {
       home: HOME,
       hostName: HOST,
       fleetMcp: () => liveEndpoint,
+      offer: () => koluOffers().offer,
       proveFleetMcp: proveFleetMcpEndpoint,
       publish: () => {},
       publishWork: () => {},
@@ -1277,6 +1627,7 @@ describe("teardown (B2)", () => {
       home: HOME,
       hostName: HOST,
       fleetMcp: () => liveEndpoint,
+      offer: () => koluOffers().offer,
       proveFleetMcp: proveFleetMcpEndpoint,
       publish: () => {},
       publishWork: () => {},
@@ -1748,7 +2099,7 @@ const storedMembers = (
       Partial<MemberWatch> & {
         work?: WorkId;
         role?: WorkRole;
-        worktree?: string | null;
+        worktree?: string;
       }
     >
   >,
@@ -1763,7 +2114,10 @@ const storedMembers = (
           work: at ?? work,
           role: role ?? "implementor",
           joinedAt: T0,
-          worktree: worktree ?? null,
+          worktree:
+            worktree === undefined
+              ? { kind: "unread" as const }
+              : { kind: "read" as const, path: worktree },
           watch: storedWatch(watch),
         },
       ];
@@ -1870,7 +2224,7 @@ const watchWork = async (
         key: "mode",
         question: "How should kolu run it?",
         options: ["watch"],
-        given: "watch",
+        given: { kind: "given", value: "watch" },
       },
     ],
   });
@@ -1910,11 +2264,32 @@ const theWorkId = (r: Rig): WorkId => {
   return one[0];
 };
 
+/** THE DECISION A TEST JUST PUT, by its words — a fixture that cannot find
+ *  it is a broken fixture, not a case with no answer. */
+const decisionNamed = (work: Work, question: string): Decision => {
+  const one = work.decisions.find((decision) => decision.question === question);
+  if (one === undefined) throw new Error(`nothing was asked: ${question}`);
+  return one;
+};
+
+/** THE DECISION ONE SETUP KEY IS ON, asked or settled — `undefined` when the
+ *  work has never been asked that question at all. A question about the work
+ *  has no key, so it can never be this. */
+const setupDecision = (work: Work, key: SetupKey): Decision | undefined =>
+  work.decisions.find((one) => isSetup(one) && one.key === key);
+
+/** The setup keys this work is still ASKING about, in the order they were
+ *  asked. */
+const askedKeys = (work: Work): ReadonlyArray<SetupKey> =>
+  work.decisions.flatMap((one) =>
+    isAsked(one) && isSetup(one) ? [one.key] : [],
+  );
+
 /** The answer a setup question came to, or `undefined` while it is still
  *  being asked — the sum read as the one thing these tests ask about. */
 const answerOf = (work: Work, key: SetupKey): DecisionAnswer | undefined => {
-  const decision = work.decisions.find((one) => one.key === key);
-  return decision !== undefined && isAnswered(decision)
+  const decision = setupDecision(work, key);
+  return decision !== undefined && isSettled(decision)
     ? decision.answer
     : undefined;
 };
@@ -2002,9 +2377,11 @@ describe("the wipe (`clearSession`)", () => {
     r.host.joinWork(work, A, "implementor", "created");
     const { ask } = r.host.askAboutWork(work, [
       {
-        header: "Plan approval",
+        header: { kind: "header", text: "Plan approval" },
         question: "Approve the plan?",
         options: ["yes", "no"],
+        multiple: false,
+        file: { kind: "none" },
       },
     ]);
     // The question is a row in the chat, under the ask's own id.
@@ -2031,19 +2408,15 @@ describe("the wipe (`clearSession`)", () => {
     // ... and answering it AFTER the wipe still lands, and still wakes the
     // conversation that is there now.
     expect(
-      r.host.answerWork({
+      await r.host.answerWork({
         work,
         ask,
         from: "card",
-        values: new Map([
-          [
-            kept.decisions.find((one) => one.question === "Approve the plan?")
-              ?.id ?? "",
-            ["yes"],
-          ],
-        ]),
+        reply: answer(
+          new Map([[decisionNamed(kept, "Approve the plan?").id, ["yes"]]]),
+        ),
       }),
-    ).toEqual({ settled: true });
+    ).toEqual({ outcome: { kind: "answered" } });
     await vi.waitFor(() => {
       expect(r.spawns.at(-1)?.wakes()).toHaveLength(1);
     });
@@ -2156,37 +2529,27 @@ describe("opening a piece of work", () => {
   /** The setup a full waterfall must carry — every key the mode it offers can
    *  need, asked in the one call, which is what `work_open` refuses without.
    *  The HOST is not among them: a work IS its branch on a machine, so the
-   *  machine is an argument and never a question that may go unanswered. */
-  const fullSetup = [
+   *  machine is an argument and never a question that may go unanswered.
+   *
+   *  The four harness and model questions are NAMED and nothing else: kolu
+   *  words them and draws their options off its own listing and the host, so
+   *  an asker that offered any would be offering a menu it does not know. */
+  const fullSetup: ReadonlyArray<SetupAsk> = [
     {
-      key: "mode" as SetupKey,
+      key: "mode",
       question: "How much of this?",
       options: ["full", "trivial"],
+      given: toAsk,
     },
+    { key: "planner.harness", given: toAsk },
+    { key: "planner.model", given: toAsk },
+    { key: "implementor.harness", given: toAsk },
+    { key: "implementor.model", given: toAsk },
     {
-      key: "planner.harness" as SetupKey,
-      question: "Planner's harness?",
-      options: ["claude-code"],
-    },
-    {
-      key: "planner.model" as SetupKey,
-      question: "Planner's model?",
-      options: ["opus"],
-    },
-    {
-      key: "implementor.harness" as SetupKey,
-      question: "Implementor's harness?",
-      options: ["claude-code"],
-    },
-    {
-      key: "implementor.model" as SetupKey,
-      question: "Implementor's model?",
-      options: ["sonnet"],
-    },
-    {
-      key: "on-green" as SetupKey,
+      key: "on-green",
       question: "And when CI is green?",
       options: ["merge", "hand-over"],
+      given: toAsk,
     },
   ];
 
@@ -2194,7 +2557,7 @@ describe("opening a piece of work", () => {
    *  the key `askForm` gives the choice and the key an answer comes back
    *  under. */
   const fieldOf = (r: Rig, key: SetupKey): string => {
-    const decision = theWork(r).decisions.find((one) => one.key === key);
+    const decision = setupDecision(theWork(r), key);
     if (decision === undefined) throw new Error(`nothing was asked for ${key}`);
     return decision.id;
   };
@@ -2219,7 +2582,7 @@ describe("opening a piece of work", () => {
   it("creates the work AT ONCE, puts the setup as ONE row, and ANSWERS WITHOUT WAITING", async () => {
     const r = rig();
     const agent = await asked(r);
-    const opened = r.host.openWork({
+    const opened = await r.host.openWork({
       key: workKey(),
       title: "fix the parser",
       setup: fullSetup,
@@ -2233,8 +2596,9 @@ describe("opening a piece of work", () => {
     // It CREATED the work: this key was not one kolu held.
     expect(opened.created).toBe(true);
     // The setup reads the HOST off the key and nothing else: the rest is
-    // still open, so it is honestly `null` rather than a guess.
-    expect(opened.setup).toMatchObject({ host: "local", mode: null });
+    // still open, so its mode is honestly none rather than a guess.
+    expect(opened.setup.host).toBe("local");
+    expect(opened.setup.mode).toEqual(Option.none());
 
     // THE WORK EXISTS BEFORE ANYBODY HAS ANSWERED, with the human's own words
     // at the top of its timeline — kolu quotes what it SAW, never the
@@ -2244,7 +2608,7 @@ describe("opening a piece of work", () => {
     expect(open.events[0]).toMatchObject({
       kind: "requested",
       by: "you",
-      text: "fix the parser on prod, please",
+      request: { kind: "said", text: "fix the parser on prod, please" },
     });
     // ... and the chat says it was asked, in a row of the kind that NAMES a
     // work — which is what lets the transcript draw the same question the
@@ -2260,36 +2624,55 @@ describe("opening a piece of work", () => {
     expect(kindsOf(open)).toContain("question");
 
     expect(
-      r.host.answerWork({
+      await r.host.answerWork({
         work: opened.work,
         ask: opened.ask,
         from: "card",
-        values: new Map([
-          [fieldOf(r, "mode"), ["full"]],
-          [fieldOf(r, "planner.harness"), ["claude-code"]],
-          [fieldOf(r, "planner.model"), ["opus"]],
-          [fieldOf(r, "implementor.harness"), ["claude-code"]],
-          [fieldOf(r, "implementor.model"), ["sonnet"]],
-          [fieldOf(r, "on-green"), ["merge"]],
-        ]),
+        reply: answer(
+          new Map([
+            [fieldOf(r, "mode"), ["full"]],
+            [fieldOf(r, "planner.harness"), [OMP]],
+            [fieldOf(r, "planner.model"), [OMP_MODELS[0]]],
+            [fieldOf(r, "implementor.harness"), [OMP]],
+            [fieldOf(r, "implementor.model"), [OMP_MODELS[1]]],
+            [fieldOf(r, "on-green"), ["merge"]],
+          ]),
+        ),
       }),
-    ).toEqual({ settled: true });
+    ).toEqual({ outcome: { kind: "answered" } });
+    // ... and kolu asked the WORK'S HOST, about the work's own repository,
+    // what that harness offers there — once, however many roles run on it.
+    expect(r.modelAsks()).toEqual([`${OMP}@local:/srv/repo`]);
 
     // THE SETUP IS A READING of those decisions — there is no second copy.
     expect(setupOf(theWork(r))).toEqual({
       host: "local",
-      mode: "full",
+      mode: Option.some("full"),
       roles: [
-        { role: "planner", harness: "claude-code", model: "opus" },
-        { role: "implementor", harness: "claude-code", model: "sonnet" },
+        {
+          role: "planner",
+          setup: {
+            kind: "harness-and-model",
+            harness: OMP,
+            model: OMP_MODELS[0],
+          },
+        },
+        {
+          role: "implementor",
+          setup: {
+            kind: "harness-and-model",
+            harness: OMP,
+            model: OMP_MODELS[1],
+          },
+        },
       ],
-      onGreen: "merge",
+      onGreen: Option.some("merge"),
     });
     const answered = theWork(r);
     // ... and the record says WHERE the human was looking when they answered.
     expect(answerOf(answered, "mode")).toMatchObject({
       how: "answered",
-      picked: ["full"],
+      value: "full",
       from: "card",
     });
     expect(kindsOf(answered)).toContain("answered");
@@ -2306,42 +2689,56 @@ describe("opening a piece of work", () => {
     expect(woke).toContain("full");
     // ... and the row in the chat says how it ended.
     expect(served(r.host).find((one) => one.id === opened.ask)).toMatchObject({
-      ask: { outcome: { how: "answered" } },
+      ask: { standing: { kind: "answered" } },
     });
   });
 
-  it("takes the words the human typed instead of an option", async () => {
+  it("takes a model the human TYPED for a harness that cannot list its own", async () => {
     const r = rig();
     await asked(r);
-    const opened = r.host.openWork({
+    const opened = await r.host.openWork({
       key: workKey(),
       title: "fix the parser",
       setup: fullSetup,
     });
-    // Whatever is not one of the question's own options is what they TYPED in
-    // the box beside them, under that same decision's id.
-    r.host.answerWork({
+    // A HARNESS WITH NO WAY TO LIST ITS MODELS takes whatever the person
+    // names — there is no menu to be off. The host is still asked (it is the
+    // host that says "unlisted"), and the words they typed go in as they
+    // typed them.
+    await r.host.answerWork({
       work: opened.work,
       ask: opened.ask,
       from: "chat",
-      values: new Map([
-        [fieldOf(r, "mode"), ["trivial"]],
-        [fieldOf(r, "implementor.model"), ["haiku"]],
-        [fieldOf(r, "implementor.harness"), ["claude-code"]],
-        [fieldOf(r, "on-green"), ["hand-over"]],
-      ]),
+      reply: answer(
+        new Map([
+          [fieldOf(r, "mode"), ["trivial"]],
+          [fieldOf(r, "implementor.harness"), [UNLISTING]],
+          [fieldOf(r, "implementor.model"), ["opus-4-6-20260110"]],
+          [fieldOf(r, "on-green"), ["hand-over"]],
+        ]),
+      ),
     });
+    expect(r.modelAsks()).toEqual([`${UNLISTING}@local:/srv/repo`]);
     const setup = setupOf(theWork(r));
-    expect(setup.mode).toBe("trivial");
-    // Typed rather than picked, and read back all the same.
+    expect(setup.mode).toEqual(Option.some("trivial"));
+    // Typed rather than picked off a menu, and read back all the same.
     expect(setup.roles).toEqual([
-      { role: "implementor", harness: "claude-code", model: "haiku" },
+      {
+        role: "implementor",
+        setup: {
+          kind: "harness-and-model",
+          harness: UNLISTING,
+          model: "opus-4-6-20260110",
+        },
+      },
     ]);
-    expect(setup.onGreen).toBe("hand-over");
+    expect(setup.onGreen).toEqual(Option.some("hand-over"));
+    // ... and RECORDED AS THE ONE VALUE: kolu's own questions carry no
+    // options, so there is no typed-versus-picked split to make on one — the
+    // answer is the one word, whoever drew the box it was typed in.
     expect(answerOf(theWork(r), "implementor.model")).toMatchObject({
       how: "answered",
-      picked: [],
-      text: "haiku",
+      value: "opus-4-6-20260110",
       from: "chat",
     });
   });
@@ -2349,19 +2746,19 @@ describe("opening a piece of work", () => {
   it("REMOVES a work nothing has happened in when the human declines its setup", async () => {
     const r = rig();
     const agent = await asked(r);
-    const opened = r.host.openWork({
+    const opened = await r.host.openWork({
       key: workKey(),
       title: "fix the parser",
       setup: fullSetup,
     });
     expect(
-      r.host.answerWork({
+      await r.host.answerWork({
         work: opened.work,
         ask: opened.ask,
         from: "chat",
-        values: null,
+        reply: DECLINE,
       }),
-    ).toEqual({ settled: true });
+    ).toEqual({ outcome: { kind: "declined" } });
 
     // A setup nobody answered, in a work no terminal ever joined and no PR
     // was ever seen for, is a card nobody wanted: it GOES. It never becomes
@@ -2377,7 +2774,7 @@ describe("opening a piece of work", () => {
   it("KEEPS a work something HAS happened in, with the decline recorded", async () => {
     const r = rig();
     await asked(r);
-    const opened = r.host.openWork({
+    const opened = await r.host.openWork({
       key: workKey(),
       title: "fix the parser",
       setup: fullSetup,
@@ -2385,11 +2782,11 @@ describe("opening a piece of work", () => {
     // A terminal joined: this work has a history now, and a history is not
     // something a declined question may delete.
     r.host.joinWork(opened.work, A, "implementor", "created");
-    r.host.answerWork({
+    await r.host.answerWork({
       work: opened.work,
       ask: opened.ask,
       from: "chat",
-      values: null,
+      reply: DECLINE,
     });
     const kept = theWork(r);
     expect(theWorkId(r)).toBe(opened.work);
@@ -2416,26 +2813,28 @@ describe("opening a piece of work", () => {
   it("is IDEMPOTENT: a key kolu holds comes back as it stands", async () => {
     const r = rig();
     await asked(r);
-    const first = r.host.openWork({
+    const first = await r.host.openWork({
       key: workKey(),
       title: "fix the parser",
       setup: fullSetup,
     });
-    r.host.answerWork({
+    await r.host.answerWork({
       work: first.work,
       ask: first.ask,
       from: "card",
-      values: new Map([
-        [fieldOf(r, "mode"), ["trivial"]],
-        [fieldOf(r, "implementor.harness"), ["claude-code"]],
-        [fieldOf(r, "implementor.model"), ["sonnet"]],
-        [fieldOf(r, "on-green"), ["merge"]],
-      ]),
+      reply: answer(
+        new Map([
+          [fieldOf(r, "mode"), ["trivial"]],
+          [fieldOf(r, "implementor.harness"), [OMP]],
+          [fieldOf(r, "implementor.model"), [OMP_MODELS[1]]],
+          [fieldOf(r, "on-green"), ["merge"]],
+        ]),
+      ),
     });
 
     // THE SAME BRANCH, OPENED AGAIN — by the same caller or another one. A
     // second card for one branch is not something any caller can make.
-    const again = r.host.openWork({
+    const again = await r.host.openWork({
       key: workKey(),
       title: "a different name for the same branch",
       setup: fullSetup,
@@ -2445,47 +2844,65 @@ describe("opening a piece of work", () => {
     expect(r.host.works()).toHaveLength(1);
     // A work already set up asks NOTHING: every setup question has an answer.
     expect(again.asked).toBe(false);
-    expect(again.setup.mode).toBe("trivial");
+    expect(again.setup.mode).toEqual(Option.some("trivial"));
   });
 
-  it("asks only the setup questions that have NO answer", async () => {
+  it("asks only the setup questions that have NO answer — an open one once", async () => {
     const r = rig();
     await asked(r);
-    // A trivial waterfall: the mode and the implementor's two, all given.
-    const given = (key: SetupKey, answer: string) => ({
-      key,
-      question: `${key}?`,
-      options: [answer],
-      given: answer,
-    });
-    const first = r.host.openWork({
+    // A full waterfall the request said almost all of: only the planner's
+    // model goes to the human.
+    const first = await r.host.openWork({
       key: workKey(),
       title: "fix the parser",
       setup: [
-        given("mode", "trivial"),
-        given("implementor.harness", "claude-code"),
-        given("implementor.model", "sonnet"),
+        given("mode", "full"),
+        given("planner.harness", OMP),
+        { key: "planner.model", given: toAsk },
+        given("implementor.harness", OMP),
+        given("implementor.model", OMP_MODELS[0]),
         given("on-green", "merge"),
       ],
     });
-    expect(first.asked).toBe(false);
+    expect(first.asked).toBe(true);
 
-    // The same key, opened again with a form that ALSO asks the planner's
-    // two — which this work has no answer for.
-    const again = r.host.openWork({
+    // The same key, opened again with a form that asks EVERY question: the
+    // five with an answer are not put to anybody a second time, and the one
+    // still open is asked in the new form in place of the old one — never
+    // twice at once.
+    const again = await r.host.openWork({
       key: workKey(),
       title: "fix the parser",
       setup: fullSetup,
     });
     expect(again.work).toBe(first.work);
     expect(again.asked).toBe(true);
-    // The questions still waiting are exactly the ones with no answer: the
-    // four the request gave are not put to anybody a second time.
-    const asking = theWork(r).decisions.filter((one) => one.kind === "asked");
-    expect([...asking].map((one) => one.key).sort()).toEqual([
-      "planner.harness",
-      "planner.model",
-    ]);
+    expect(askedKeys(theWork(r))).toEqual(["planner.model"]);
+    expect(r.host.state().openAsks).toEqual([again.ask]);
+  });
+
+  it("asks NOTHING about a role the answered mode does not run", async () => {
+    const r = rig();
+    await asked(r);
+    await r.host.openWork({
+      key: workKey(),
+      title: "fix the parser",
+      setup: [
+        given("mode", "trivial"),
+        given("implementor.harness", OMP),
+        given("implementor.model", OMP_MODELS[0]),
+        given("on-green", "merge"),
+      ],
+    });
+    // A form that ALSO asks the planner's two: a trivial waterfall runs no
+    // planner, so they are nobody's question.
+    const again = await r.host.openWork({
+      key: workKey(),
+      title: "fix the parser",
+      setup: fullSetup,
+    });
+    expect(again.asked).toBe(false);
+    expect(askedKeys(theWork(r))).toEqual([]);
   });
 
   it("STOPS a work, and OPENING IT AGAIN brings it back with everything kept", async () => {
@@ -2608,10 +3025,11 @@ describe("opening a piece of work", () => {
       const work = await watchWork(r);
       const { ask } = r.host.askAboutWork(work, [
         {
-          header: "Plan approval",
+          header: { kind: "header", text: "Plan approval" },
           question: "Approve the plan?",
           options: ["approve", "change it"],
-          file: ".waterfall/plan.md",
+          multiple: false,
+          file: { kind: "file", path: ".waterfall/plan.md" },
         },
       ]);
       // ANSWERED ALREADY — before a single millisecond has passed.
@@ -2626,18 +3044,23 @@ describe("opening a piece of work", () => {
       expect(agent.wakes()).toEqual([]);
       expect(r.host.state().openAsks).toEqual([ask]);
       const waiting = theWork(r).decisions.find((one) => one.ask === ask);
-      expect(waiting?.kind).toBe("asked");
-      expect(waiting?.file).toBe(".waterfall/plan.md");
+      if (waiting === undefined || waiting.topic !== "work")
+        throw new Error("the plan question is not a question about the work");
+      expect(waiting.kind).toBe("asked");
+      expect(waiting.file).toEqual({
+        kind: "file",
+        path: ".waterfall/plan.md",
+      });
 
       // ... and the answer, whenever it comes, is what starts the next turn.
       expect(
-        r.host.answerWork({
+        await r.host.answerWork({
           work,
           ask,
           from: "reader",
-          values: new Map([[waiting?.id ?? "", ["approve"]]]),
+          reply: answer(new Map([[waiting.id, ["approve"]]])),
         }),
-      ).toEqual({ settled: true });
+      ).toEqual({ outcome: { kind: "answered" } });
       await vi.waitFor(() => {
         expect(agent.wakes()).toHaveLength(1);
       });
@@ -2648,6 +3071,620 @@ describe("opening a piece of work", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  describe("the two questions kolu draws the options for", () => {
+    /** A work with the whole setup still open, and the fields its four kolu
+     *  questions are answered under. */
+    const opening = async (
+      r: Rig,
+    ): Promise<{ readonly work: WorkId; readonly ask: string }> => {
+      const opened = await r.host.openWork({
+        key: workKey(),
+        title: "fix the parser",
+        setup: fullSetup,
+      });
+      return { work: opened.work, ask: opened.ask };
+    };
+
+    /** The questions still waiting on the human — a refused answer must leave
+     *  every one of them exactly here. */
+    const stillAsked = (r: Rig): ReadonlyArray<SetupKey> =>
+      askedKeys(theWork(r));
+
+    it("is worded by KOLU and carries no options", async () => {
+      const r = rig();
+      await asked(r);
+      await opening(r);
+      const work = theWork(r);
+      const harness = setupDecision(work, "planner.harness");
+      const model = setupDecision(work, "implementor.model");
+      // KOLU'S OWN WORDS: the asker named the question, kolu says it — so
+      // every form, every chat and every card asks it the same way.
+      expect(harness?.question).toBe("Which harness runs the planner?");
+      expect(model?.question).toBe("Which model does the implementor run on?");
+      // ... and NO OPTIONS ARE STORED on either: a model list is a live fact
+      // about a host, and a copy in the record is a copy that goes stale the
+      // day that host's agents update. The form reads them live instead.
+      expect(harness).not.toHaveProperty("options");
+      expect(harness).not.toHaveProperty("multiple");
+      expect(model).not.toHaveProperty("options");
+      // The asker's own two still carry the words and the menu it offered.
+      expect(setupDecision(work, "mode")).toMatchObject({
+        question: "How much of this?",
+        options: ["full", "trivial"],
+      });
+    });
+
+    it("refuses a harness this kolu does not carry, and records nothing", async () => {
+      const r = rig();
+      await asked(r);
+      const { work, ask } = await opening(r);
+      // A harness nobody installed. The person did not type this — a face
+      // drawing a stale menu, or an agent answering on their behalf, did —
+      // and a work recorded with it would be one kolu could never start.
+      const refusal = r.host.answerWork({
+        work,
+        ask,
+        from: "card",
+        reply: answer(
+          new Map([
+            [fieldOf(r, "mode"), ["trivial"]],
+            [fieldOf(r, "implementor.harness"), ["claude-code"]],
+            [fieldOf(r, "on-green"), ["merge"]],
+          ]),
+        ),
+      });
+      await expect(refusal).rejects.toBeInstanceOf(WorkRefusal);
+      await expect(refusal).rejects.toMatchObject({ kind: "not-offered" });
+      // The sentence names the answer AND what there was to choose from.
+      await expect(refusal).rejects.toThrow(
+        /"claude-code" is not a harness this kolu carries/,
+      );
+      await expect(refusal).rejects.toThrow(
+        new RegExp(`${OMP}, ${UNLISTING}, ${BRITTLE}`),
+      );
+      // NOTHING WAS RECORDED — not the bad harness, and not the two answers
+      // beside it that were perfectly good. One form, one outcome.
+      expect(stillAsked(r)).toEqual([
+        "mode",
+        "planner.harness",
+        "planner.model",
+        "implementor.harness",
+        "implementor.model",
+        "on-green",
+      ]);
+      expect(setupOf(theWork(r)).mode).toEqual(Option.none());
+    });
+
+    it("refuses a model the host did not list for its harness", async () => {
+      const r = rig();
+      await asked(r);
+      const { work, ask } = await opening(r);
+      const refusal = r.host.answerWork({
+        work,
+        ask,
+        from: "card",
+        reply: answer(
+          new Map([
+            [fieldOf(r, "mode"), ["trivial"]],
+            [fieldOf(r, "implementor.harness"), [OMP]],
+            [fieldOf(r, "implementor.model"), ["anthropic/sonnet-9"]],
+            [fieldOf(r, "on-green"), ["merge"]],
+          ]),
+        ),
+      });
+      await expect(refusal).rejects.toMatchObject({ kind: "not-offered" });
+      // Named with the harness and the HOST, because a model is a model of a
+      // harness on a machine: the same word is an answer on one box and not
+      // on another.
+      await expect(refusal).rejects.toThrow(
+        new RegExp(
+          `"anthropic/sonnet-9" is not a model ${OMP} offers on local`,
+        ),
+      );
+      // kolu asked that host what it offers — the check is a live read, not
+      // a table in kolu.
+      expect(r.modelAsks()).toEqual([`${OMP}@local:/srv/repo`]);
+      expect(stillAsked(r)).toHaveLength(6);
+    });
+
+    it("records a model the host could not list, and starts it without that list", async () => {
+      const r = rig();
+      await asked(r);
+      const { work, ask } = await opening(r);
+      // THE HOST COULD NOT LIST just now. The form showed its words beside
+      // the models used before; the person chose one knowingly, and nobody
+      // could check it — so it is recorded, not refused for a list nobody
+      // could read.
+      await r.host.answerWork({
+        work,
+        ask,
+        from: "card",
+        reply: answer(
+          new Map([
+            [fieldOf(r, "mode"), ["trivial"]],
+            [fieldOf(r, "implementor.harness"), [BRITTLE]],
+            [fieldOf(r, "implementor.model"), ["litellm/used-before"]],
+            [fieldOf(r, "on-green"), ["merge"]],
+          ]),
+        ),
+      });
+      expect(answerOf(theWork(r), "implementor.model")).toMatchObject({
+        how: "answered",
+        value: "litellm/used-before",
+        chosen: "picked",
+      });
+      // ... and the implementor STARTS: how its harness takes a model is the
+      // host's `--launch` word, which never depended on the list.
+      await expect(r.host.startOf(work, "implementor")).resolves.toEqual({
+        host: "local",
+        harness: BRITTLE,
+        model: "litellm/used-before",
+        launch: MODEL_FLAG,
+      });
+      expect(r.launchAsks()).toEqual([`${BRITTLE}@local`]);
+    });
+
+    it("records a typed model as typed, holds it to no list, and starts it asking for none", async () => {
+      const r = rig();
+      await asked(r);
+      const { work, ask } = await opening(r);
+      // `opus` is not among the ids omp lists — omp matches a short name
+      // itself. Typed, it goes to the harness as typed.
+      await r.host.answerWork({
+        work,
+        ask,
+        from: "card",
+        reply: answer(
+          new Map<string, SentAnswer>([
+            [fieldOf(r, "mode"), ["trivial"]],
+            [fieldOf(r, "implementor.harness"), [OMP]],
+            [fieldOf(r, "implementor.model"), { typed: "opus" }],
+            [fieldOf(r, "on-green"), ["merge"]],
+          ]),
+        ),
+      });
+      expect(answerOf(theWork(r), "implementor.model")).toMatchObject({
+        value: "opus",
+        chosen: "typed",
+      });
+      expect(r.modelAsks()).toEqual([]);
+      await expect(r.host.startOf(work, "implementor")).resolves.toEqual({
+        host: "local",
+        harness: OMP,
+        model: "opus",
+        launch: MODEL_FLAG,
+      });
+      // No list was asked for, when it was recorded or when it started.
+      expect(r.modelAsks()).toEqual([]);
+      expect(r.launchAsks()).toEqual([`${OMP}@local`]);
+    });
+
+    it("checks a harness the REQUEST named before any work exists", async () => {
+      const r = rig();
+      await asked(r);
+      // `given` is answered on the human's behalf, so it goes through exactly
+      // the same check — and BEFORE anything is created, because a work
+      // recorded with a harness kolu cannot run is a card nobody can fix.
+      const refusal = r.host.openWork({
+        key: workKey(),
+        title: "fix the parser",
+        setup: [
+          given("mode", "trivial"),
+          given("implementor.harness", "claude-code"),
+          // The model is left for the human — so what this refusal is
+          // about is the harness alone.
+          { key: "implementor.model", given: toAsk },
+          given("on-green", "merge"),
+        ],
+      });
+      await expect(refusal).rejects.toBeInstanceOf(WorkRefusal);
+      await expect(refusal).rejects.toMatchObject({ kind: "not-offered" });
+      await expect(refusal).rejects.toThrow(
+        /"claude-code" is not a harness this kolu carries/,
+      );
+      // NO WORK WAS CREATED, and no row went to the chat.
+      expect(r.host.works()).toEqual([]);
+      expect(
+        served(r.host).some(
+          (one) => one.kind === "ask" || one.kind === "work-ask",
+        ),
+      ).toBe(false);
+    });
+
+    it("names the harness and the host when the listing fails, and quotes nothing", async () => {
+      // A model listing runs in the environment the person's own terminal
+      // ends up with, so what comes back when it fails carries the tail of
+      // their shell's output — a `set -x` line, a misquoted
+      // `export KEY=$(…)`. This refusal is handed to the CONDUCTOR: sent to a
+      // model provider and kept in the transcript. The reason stays on the
+      // screen of the person whose shell printed it.
+      const r = rig();
+      await asked(r);
+      r.failModels(
+        "agent-distro omp: error: + export LITELLM_API_KEY=sk-live-9ab3c7d1e5f00042",
+      );
+      const refusal = r.host.openWork({
+        key: workKey(),
+        title: "fix the parser",
+        setup: [
+          given("mode", "trivial"),
+          given("implementor.harness", OMP),
+          given("implementor.model", OMP_MODELS[1]),
+          given("on-green", "merge"),
+        ],
+      });
+      await expect(refusal).rejects.toMatchObject({ kind: "not-offered" });
+      const why = await refusal.then(
+        () => "",
+        (err: unknown) => (err instanceof Error ? err.message : String(err)),
+      );
+      expect(why).not.toContain("sk-live-9ab3c7d1e5f00042");
+      expect(why).not.toContain("LITELLM_API_KEY");
+      // What it DOES say: which harness, which host, and that the reason is
+      // somewhere only the human can read it.
+      expect(why).toContain(OMP);
+      expect(why).toContain("local");
+      expect(why).toContain("human");
+    });
+
+    it("checks a MODEL the request named against the harness it named with it", async () => {
+      const r = rig();
+      await asked(r);
+      const refusal = r.host.openWork({
+        key: workKey(),
+        title: "fix the parser",
+        setup: [
+          given("mode", "trivial"),
+          given("implementor.harness", OMP),
+          given("implementor.model", "anthropic/sonnet-9"),
+          given("on-green", "merge"),
+        ],
+      });
+      await expect(refusal).rejects.toMatchObject({ kind: "not-offered" });
+      await expect(refusal).rejects.toThrow(
+        new RegExp(
+          `"anthropic/sonnet-9" is not a model ${OMP} offers on local`,
+        ),
+      );
+      expect(r.host.works()).toEqual([]);
+
+      // ... and the SAME two words, with the model the host does list, open
+      // the work with nothing put to anybody.
+      const opened = await r.host.openWork({
+        key: workKey(),
+        title: "fix the parser",
+        setup: [
+          given("mode", "trivial"),
+          given("implementor.harness", OMP),
+          given("implementor.model", OMP_MODELS[1]),
+          given("on-green", "merge"),
+        ],
+      });
+      expect(opened.asked).toBe(false);
+      expect(setupOf(theWork(r)).roles).toEqual([
+        {
+          role: "implementor",
+          setup: {
+            kind: "harness-and-model",
+            harness: OMP,
+            model: OMP_MODELS[1],
+          },
+        },
+      ]);
+    });
+
+    it("refuses a typed model that is not a model id, and says why", async () => {
+      const r = rig();
+      await asked(r);
+      const { work, ask } = await opening(r);
+      // ANY MODEL for a harness that cannot list — but a model id, which is
+      // one word: words with a space in them are no launch's argument, so
+      // they are refused here rather than at the terminal.
+      const refusal = r.host.answerWork({
+        work,
+        ask,
+        from: "card",
+        reply: answer(
+          new Map([
+            [fieldOf(r, "mode"), ["trivial"]],
+            [fieldOf(r, "implementor.harness"), [UNLISTING]],
+            [fieldOf(r, "implementor.model"), ["fable 5.2"]],
+            [fieldOf(r, "on-green"), ["merge"]],
+          ]),
+        ),
+      });
+      await expect(refusal).rejects.toMatchObject({ kind: "not-offered" });
+      await expect(refusal).rejects.toThrow(
+        /implementor\.model: "fable 5\.2" is not a model id — a model id is one word, with no spaces/,
+      );
+      expect(stillAsked(r)).toHaveLength(6);
+    });
+  });
+
+  describe("a saved setup kolu no longer offers", () => {
+    /** One setup answer as a store written before kolu drew these options
+     *  holds it, once the ladder has made it one value. A setup question is
+     *  named by its key, so it carries no header and no file; kolu's own four
+     *  carry no options either. */
+    const saved = (key: KoluChoiceKey, value: string): Decision => ({
+      kind: "settled",
+      id: `old-${key}`,
+      ask: "old-setup",
+      at: T0,
+      topic: "setup",
+      key,
+      question: `${key}?`,
+      answer: {
+        at: T0,
+        how: "answered",
+        value,
+        chosen: "picked",
+        from: "card",
+      },
+    });
+
+    /** ... and the two whose options the asker offered, in kolu's words. */
+    const savedMode = (mode: WorkMode): Decision => ({
+      kind: "settled",
+      id: "old-mode",
+      ask: "old-setup",
+      at: T0,
+      topic: "setup",
+      key: "mode",
+      question: "mode?",
+      options: [mode],
+      answer: { at: T0, how: "answered", value: mode, from: "card" },
+    });
+    const savedOnGreen = (onGreen: OnGreen): Decision => ({
+      kind: "settled",
+      id: "old-on-green",
+      ask: "old-setup",
+      at: T0,
+      topic: "setup",
+      key: "on-green",
+      question: "on-green?",
+      options: [onGreen],
+      answer: { at: T0, how: "answered", value: onGreen, from: "card" },
+    });
+
+    /** THE HUMAN'S OWN OPEN WORK, as their store holds it: a planner model
+     *  they TYPED as words (`fable 5.2`), and an implementor model in the
+     *  spelling it had before the harness listed it with its provider. */
+    const legacy = (): Work =>
+      storedWork({
+        decisions: [
+          savedMode("full"),
+          saved("planner.harness", UNLISTING),
+          saved("planner.model", "fable 5.2"),
+          saved("implementor.harness", OMP),
+          saved("implementor.model", "claude-opus-5-5"),
+          savedOnGreen("hand-over"),
+        ],
+      });
+
+    /** The field a question still waiting on the human is answered under —
+     *  the NEW ask, beside the old answer it replaces. */
+    const openField = (r: Rig, key: SetupKey): string => {
+      const decision = theWork(r).decisions.find(
+        (one) => isSetup(one) && one.key === key && isAsked(one),
+      );
+      if (decision === undefined) throw new Error(`${key} is not being asked`);
+      return decision.id;
+    };
+
+    it("is refused at start, asked again by `work_open`, and starts once answered", async () => {
+      const r = rig({ works: storedWorks(legacy()) });
+      await asked(r);
+      const id = theWorkId(r);
+
+      // REFUSED AT START, in words: which answer, and why — never a command
+      // typed into a terminal, never a defect.
+      const planner = r.host.startOf(id, "planner");
+      await expect(planner).rejects.toBeInstanceOf(WorkRefusal);
+      await expect(planner).rejects.toMatchObject({ kind: "not-offered" });
+      await expect(planner).rejects.toThrow(
+        /planner\.model: "fable 5\.2" is not a model id/,
+      );
+      await expect(planner).rejects.toThrow(/Call `work_open`/);
+      await expect(r.host.startOf(id, "implementor")).rejects.toThrow(
+        new RegExp(
+          `implementor\\.model: "claude-opus-5-5" is not a model ${OMP} offers on local`,
+        ),
+      );
+
+      // ASKED AGAIN — only the two that no longer stand, each with what it
+      // was and why. The harnesses and the mode are still answers.
+      const opened = await r.host.openWork({
+        key: workKey(),
+        title: "fix the parser",
+        setup: fullSetup,
+      });
+      expect(opened.created).toBe(false);
+      expect(opened.asked).toBe(true);
+      const reasked = theWork(r).decisions.filter((one) => isAsked(one));
+      expect(askedKeys(theWork(r))).toEqual([
+        "planner.model",
+        "implementor.model",
+      ]);
+      expect(reasked[0]?.question).toBe(
+        'Which model does the planner run on? It was "fable 5.2", which is not a model id — a model id is one word, with no spaces.',
+      );
+      expect(reasked[1]?.question).toBe(
+        `Which model does the implementor run on? It was "claude-opus-5-5", which is not a model ${OMP} offers on local.`,
+      );
+
+      await r.host.answerWork({
+        work: opened.work,
+        ask: opened.ask,
+        from: "card",
+        reply: answer(
+          new Map([
+            [openField(r, "planner.model"), ["claude-fable-5-2"]],
+            [openField(r, "implementor.model"), [OMP_MODELS[0]]],
+          ]),
+        ),
+      });
+
+      // ... and STARTS, on the new answer and the host's launch.
+      await expect(r.host.startOf(id, "planner")).resolves.toEqual({
+        host: "local",
+        harness: UNLISTING,
+        model: "claude-fable-5-2",
+        launch: MODEL_FLAG,
+      });
+      await expect(r.host.startOf(id, "implementor")).resolves.toMatchObject({
+        harness: OMP,
+        model: OMP_MODELS[0],
+      });
+
+      // A work whose answers all stand asks nothing more.
+      const again = await r.host.openWork({
+        key: workKey(),
+        title: "fix the parser",
+        setup: fullSetup,
+      });
+      expect(again.asked).toBe(false);
+    });
+  });
+
+  describe("the human's own store — answered, with no answer", () => {
+    /** THE BYTES THAT STARTED THIS ROUND, as the human's `config.json` holds
+     *  them at 1.54.0: an OPEN work whose two model questions were recorded
+     *  "answered" with nothing picked and nothing typed, beside three answers
+     *  that really landed. The work could neither start (no model) nor be
+     *  asked again (the question was "answered").
+     *
+     *  Walked through the REAL ladder rather than hand-written in today's
+     *  shape: what this case is about is a person's file reaching this build
+     *  and the card they are looking at coming back. */
+    const walkedWorks = (): PersistedWorks => {
+      const at = "2026-11-01T09:00:00.000Z";
+      const id = workIdOf(workKey());
+      const old = (
+        key: SetupKey,
+        picked: ReadonlyArray<string>,
+        question: string,
+      ) => ({
+        kind: "answered",
+        id: `d-${key}`,
+        ask: "ask-setup",
+        at,
+        key,
+        header: "",
+        question,
+        file: "",
+        ...(key === "mode" || key === "on-green"
+          ? {
+              options: key === "mode" ? ["full"] : ["merge", "hand-over"],
+              multiple: false,
+            }
+          : {}),
+        answer: { how: "answered", picked, text: null, from: "chat", at },
+      });
+      const dir = mkdtempSync(join(tmpdir(), "kolu-human-store-"));
+      writeFileSync(
+        join(dir, "config.json"),
+        JSON.stringify({
+          works: {
+            [id]: {
+              key: workKey(),
+              title: "fix the parser",
+              startedAt: at,
+              decisions: [
+                old("mode", ["full"], "How should this run?"),
+                old("planner.harness", [OMP], "Which harness plans?"),
+                old("planner.model", [], "Which model should plan?"),
+                old("implementor.harness", [OMP], "Which harness implements?"),
+                old("implementor.model", [], "Which model implements?"),
+                old("on-green", ["merge"], "And when CI is green?"),
+              ],
+              events: [
+                {
+                  at,
+                  by: "you",
+                  kind: "answered",
+                  terminal: null,
+                  ask: "ask-setup",
+                },
+              ],
+              state: { kind: "open" },
+            },
+          },
+          __internal__: { migrations: { version: "1.54.0" } },
+        }),
+      );
+      const store = new Conf<Record<string, unknown>>({
+        cwd: dir,
+        projectVersion: SCHEMA_VERSION,
+        defaults: CONF_DEFAULTS as unknown as Record<string, unknown>,
+        migrations: CONF_MIGRATIONS as never,
+      });
+      const decoded = Schema.decodeUnknownResult(PersistedWorksSchema)(
+        store.get("works"),
+      );
+      if (Result.isFailure(decoded))
+        throw new Error(`the walked store did not decode: ${decoded.failure}`);
+      return decoded.success;
+    };
+
+    it("comes back as the two questions it always was, and starts once they are answered", async () => {
+      const r = rig({ works: walkedWorks() });
+      await asked(r);
+      const id = theWorkId(r);
+      const work = theWork(r);
+
+      // THE CARD'S READING: the form is open, and so is each model question
+      // on it — one reading, the one every face uses.
+      expect(r.host.state().openAsks).toContain("ask-setup");
+      expect(setupStanding(work, "planner.model").kind).toBe("open");
+      expect(setupStanding(work, "implementor.model").kind).toBe("open");
+      // ... while what they DID answer stands.
+      expect(setupValue(work, "planner.harness")).toEqual(Option.some(OMP));
+      expect(modeOf(work)).toEqual(Option.some("full"));
+
+      // THE START SAYS WHAT IS TRUE: the question is with the human, so the
+      // Conductor is told to WAIT for them rather than to ask again.
+      const planner = r.host.startOf(id, "planner");
+      await expect(planner).rejects.toBeInstanceOf(WorkRefusal);
+      await expect(planner).rejects.toMatchObject({ kind: "missing-setup" });
+      await expect(planner).rejects.toThrow(/planner\.model/);
+      await expect(planner).rejects.toThrow(/wait for their answer/);
+
+      // ANSWERING THEM — the same ask, from the card, as the form offers.
+      await r.host.answerWork({
+        work: id,
+        ask: "ask-setup",
+        from: "card",
+        reply: answer(
+          new Map([
+            [
+              decisionNamed(work, "Which model should plan?").id,
+              [OMP_MODELS[0]],
+            ],
+            [
+              decisionNamed(work, "Which model implements?").id,
+              [OMP_MODELS[1]],
+            ],
+          ]),
+        ),
+      });
+      expect(answerOf(theWork(r), "planner.model")).toMatchObject({
+        how: "answered",
+        value: OMP_MODELS[0],
+        from: "card",
+      });
+      expect(r.host.state().openAsks).toEqual([]);
+
+      // ... and the planner starts, on the answers and the host's launch.
+      await expect(r.host.startOf(id, "planner")).resolves.toEqual({
+        host: "local",
+        harness: OMP,
+        model: OMP_MODELS[0],
+        launch: MODEL_FLAG,
+      });
+    });
   });
 });
 
@@ -2676,7 +3713,14 @@ describe("a call about a work that is refused", () => {
         // same form: a work half set up is a planner launched on a model
         // nobody chose, and the Conductor cannot fix that with a second form
         // later.
-        setup: [{ key: "mode", question: "How much?", options: ["full"] }],
+        setup: [
+          {
+            key: "mode",
+            question: "How much?",
+            options: ["full"],
+            given: toAsk,
+          },
+        ],
       }),
     );
     expect(refused.kind).toBe("missing-setup");
@@ -2723,9 +3767,11 @@ describe("a call about a work that is refused", () => {
         await refusalOf(() =>
           r.host.askAboutWork(work, [
             {
-              header: "Plan approval",
+              header: { kind: "header", text: "Plan approval" },
               question: "Approve?",
               options: ["yes"],
+              multiple: false,
+              file: { kind: "none" },
             },
           ]),
         )
@@ -2914,7 +3960,7 @@ describe("the watch across a restart", () => {
               at: T0,
               by: "agent",
               kind: "question",
-              terminal: null,
+              about: { kind: "work" },
               ask: "kolu:ask:1",
             },
           ],
@@ -2924,12 +3970,12 @@ describe("the watch across a restart", () => {
               id: "d-1",
               ask: "kolu:ask:1",
               at: T0,
-              key: null,
-              header: "Plan approval",
+              topic: "work",
+              header: { kind: "header", text: "Plan approval" },
               question: "Approve the plan?",
               options: ["yes", "no"],
               multiple: false,
-              file: "",
+              file: { kind: "none" },
             },
           ],
         }),
@@ -3040,7 +4086,7 @@ describe("the timeline a reading writes", () => {
     expect(theWork(r).events.at(-1)).toMatchObject({
       kind: "stopped",
       by: "agent",
-      terminal: A,
+      about: aboutMember(A),
     });
 
     // ... and a command that ran with no agent ever in it is spelled as an
@@ -3060,7 +4106,7 @@ describe("the timeline a reading writes", () => {
     expect(theWork(second).events.at(-1)).toMatchObject({
       kind: "exited",
       by: "kolu",
-      why: "ended without an agent",
+      why: { kind: "reason", text: "ended without an agent" },
     });
   });
 
@@ -3080,7 +4126,7 @@ describe("the timeline a reading writes", () => {
     expect(theWork(r).events.at(-1)).toMatchObject({
       kind: "file",
       by: "agent",
-      terminal: A,
+      about: aboutMember(A),
       path: ".waterfall/plan.md",
     });
     expect(r.files.listed()).toEqual([
@@ -3149,7 +4195,7 @@ describe("the timeline a reading writes", () => {
       kind: "pr-opened",
       pr: 412,
       title: "fix the parser",
-      terminal: null,
+      about: ABOUT_WORK,
     });
 
     // Its checks start, and pass — by CI, which is who the time bar colours it
@@ -3224,9 +4270,9 @@ describe("the timeline a reading writes", () => {
     expect(theWork(r).events.at(-1)).toMatchObject({
       kind: "checks-failed",
       by: "ci",
-      terminal: null,
+      about: ABOUT_WORK,
       pr: 7,
-      head: HEAD,
+      head: { kind: "commit", sha: HEAD },
       failing: ["build", "unit"],
     });
     // The work is still in progress: a pull request's checks going red is not
@@ -3269,7 +4315,7 @@ describe("the timeline a reading writes", () => {
     expect(theWork(r).events.at(-1)).toMatchObject({
       kind: "note",
       by: "agent",
-      terminal: null,
+      about: ABOUT_WORK,
       text: "the planner is re-reading the brief",
     });
   });
@@ -3310,12 +4356,19 @@ describe("a work that has ended", () => {
       ".waterfall/review.md",
     ]);
     await vi.waitFor(() => {
-      expect(keptOf(theWork(r))).toHaveLength(2);
+      expect(Option.map(keptOf(theWork(r)), (one) => one.length)).toEqual(
+        Option.some(2),
+      );
     });
     expect(kindsOf(theWork(r))).toContain("kept");
     // ... and the work is on disk the moment it ends, not a throttle window
     // later.
-    expect(keptOf(Object.values(r.works.value())[0] as Work)).toHaveLength(2);
+    expect(
+      Option.map(
+        keptOf(Object.values(r.works.value())[0] as Work),
+        (one) => one.length,
+      ),
+    ).toEqual(Option.some(2));
   });
 
   it("drops the OLDEST finished work past the twenty it keeps, files and all", async () => {
@@ -3372,9 +4425,11 @@ describe("a work that has ended", () => {
     });
     // The listing failed, so what is kept is what kolu SAW appear — the files
     // are the half of a work that outlives its worktree.
-    expect(keptOf(theWork(r))).toEqual([
-      { path: ".waterfall/plan.md", bytes: ".waterfall/plan.md".length },
-    ]);
+    expect(keptOf(theWork(r))).toEqual(
+      Option.some([
+        { path: ".waterfall/plan.md", bytes: ".waterfall/plan.md".length },
+      ]),
+    );
   });
 });
 
@@ -3578,21 +4633,15 @@ const refused = (run: () => unknown): WorkRefusal => {
  *  terminal: the Conductor never types into one, so there is nothing to take
  *  over. That is the refusal below.) */
 const drivenWork = async (r: Rig, member = A): Promise<WorkId> => {
-  const given = (key: SetupKey, answer: string) => ({
-    key,
-    question: `${key}?`,
-    options: [answer],
-    given: answer,
-  });
   const opened = await r.host.openWork({
     key: workKey("driven"),
     title: "fix the parser",
     setup: [
       given("mode", "full"),
-      given("planner.harness", "omp"),
-      given("planner.model", "Fable 5.2"),
-      given("implementor.harness", "omp"),
-      given("implementor.model", "Opus 5.5"),
+      given("planner.harness", OMP),
+      given("planner.model", OMP_MODELS[0]),
+      given("implementor.harness", OMP),
+      given("implementor.model", OMP_MODELS[1]),
       given("on-green", "merge"),
     ],
   });
@@ -3601,14 +4650,18 @@ const drivenWork = async (r: Rig, member = A): Promise<WorkId> => {
 };
 
 /** The member row the driver reading takes beside the work — the ONE map,
- *  read by terminal. */
+ *  read by terminal. None when this terminal is in no work: a lookup that
+ *  may find nothing says so. */
 const memberAt = (
   r: Rig,
   ref: string,
-): { readonly work: string; readonly role: WorkRole } | undefined => {
-  const one = r.host.membersDetail().find((member) => member.ref === ref);
-  return one === undefined ? undefined : { work: one.work, role: one.role };
-};
+): Option.Option<{ readonly work: string; readonly role: WorkRole }> =>
+  Option.map(
+    Option.fromUndefinedOr(
+      r.host.membersDetail().find((member) => member.ref === ref),
+    ),
+    (one) => ({ work: one.work, role: one.role }),
+  );
 
 describe("taking a driven terminal over, and handing it back", () => {
   it("writes it on the work, and tells the Conductor to keep its hands off", async () => {
@@ -3683,7 +4736,7 @@ describe("taking a driven terminal over, and handing it back", () => {
     r.host.joinWork(work, A, "other", "asked");
 
     expect(refused(() => r.host.takeOver(A)).kind).toBe("not-driven");
-    expect(driverOf(theWork(r), A, memberAt(r, A))).toBeNull();
+    expect(driverOf(theWork(r), A, memberAt(r, A))).toBe("nobody");
   });
 });
 
@@ -3707,12 +4760,12 @@ describe("a restored backup of the works", () => {
               id: "d1",
               ask: "ask:gone",
               at: T0,
-              key: null,
-              header: "Plan approval",
+              topic: "work",
+              header: { kind: "header", text: "Plan approval" },
               question: "Approve the plan?",
               options: ["Approve"],
               multiple: false,
-              file: ".waterfall/plan.md",
+              file: { kind: "file", path: ".waterfall/plan.md" },
             },
           ],
         }),

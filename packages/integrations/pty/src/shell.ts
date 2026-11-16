@@ -765,6 +765,14 @@ function selectShellInit(shell: string): ShellInit | null {
   return null;
 }
 
+/** Whether kolu WRAPS `shell` — whether {@link prepareShellInit} plans an
+ *  rcfile for it, read off that same selector rather than a second list. A
+ *  caller that must ASK a shell something rather than merely spawn it (padi's
+ *  environment capture, which appends `-i -c`) refuses every shell this says
+ *  no to, instead of letting it fail on the flags. */
+export const isShellKoluWraps = (shell: string): boolean =>
+  selectShellInit(shell) !== null;
+
 /**
  * Plan the wrapper rcfile for the user's shell: return the spawn args + env
  * override + the init-file specs that go alongside it. **Pure** — it writes

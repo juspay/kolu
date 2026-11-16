@@ -68,15 +68,32 @@ vocab (`AgentVocab.say` in `packages/integrations/<agent>/src/schemas.ts`), and
 every one of them was **established by running the agent or from its own docs**
 — never guessed. The answer says what happened, including the two things a
 caller cannot see. `delivery` is `"submitted"` (it was idle, the words start a
-turn), `"steer"` (the words reach the turn that is running — codex, omp, pi,
-xyne) or `"queue"` (they wait for the current turn to end — claude-code,
+turn), `"steer"` (the words join the running turn at its next step — codex,
+omp, pi, xyne) or `"queue"` (they wait for the current turn to end — claude-code,
 opencode, grok). `took` is whether the words LANDED: for an agent that was
 idle, kolu then watches its state for a hard-capped few seconds
 (`SAY_TAKE_CAP_MS`) and answers `began-working`, `submit-landed` or `did-not-begin` — the keys
 were sent either way, so a say that did not take is an ANSWER naming the screen
 read that settles it, never a refusal that invites typing the prompt a second
-time. For an agent that was already working there is no state change to watch,
-so `took` is `not-observable` and the delivery is the whole story. Refused as
+time. For a STEER whose landing the recipe can see (`SteerSight`: omp, pi),
+kolu watches the record for `SAY_STEER_CAP_MS` for the transcript's newest
+prompt to become THESE words — `landed`; a prompt that moves carrying someone
+else's words (an older held steer handed over, the human typing) is not this
+steer landing. Otherwise it reads the screen once and then waits the record's
+own lag out (`SAY_RECORD_LAG_MS`: the session watcher polls the transcript on a
+1 s floor and coalesces, so a steer taken in the last moment of the cap has
+left the pane before the record catches up). The words in the agent's steering
+pane are `held` (a step it cannot interrupt is running, and the agent hands
+them over when it ends); a pane WITHOUT them plus a transcript without them is
+`did-not-land` — both facts read, never inferred from silence. A pane the
+reader could not parse, or a prompt whose text kolu cannot compare, is
+`cannot-tell` with a `why`, and a terminal that went away after the keys is
+`lost-sight`: kolu never reports a non-delivery it did not see, because a
+caller acts on one by saying it again. A held
+steer is never "fixed" with a second Enter: in omp that delivers it by killing
+the running tool. An agent that queues, or whose steer is unmeasured (codex,
+xyne), has nothing to watch, so `took` is `not-observable` and the delivery is
+the whole story. Refused as
 data, never guessed: `no-agent` (a plain shell), `agent-cannot-be-told` (kolu
 detects the agent but has no verified recipe), `agent-cannot-be-told-while-working`,
 `agent-starting` (the agent is up but its screen is still being drawn — wait
@@ -260,6 +277,12 @@ linked to that work, records the answers as decisions, and answers `{ work,
 host, mode, roles, onGreen, declined }`, all of it READ back off those
 decisions. The setup keys it must cover are validated BEFORE anything is
 asked, so a missing one is a refusal naming it rather than a half-opened work.
+A role's **harness and model are kolu's to offer**: their setup entries are
+`{ key, given? }`, and an `options` or `question` there is refused by the
+schema, not ignored (`Schema.Never`). kolu-server refuses the whole call when
+the setup asks a harness for a host whose coding agents are not ready, naming
+the host and what to do, and checks a `given` harness or model against what
+it offers.
 `work_ask { work, questions }` is every other question about a work — the ask
 NAMES the work, so the answer lands on it as a decision instead of being
 inferred from timing; a question about no work is the agent's own question
@@ -277,7 +300,19 @@ nothing reads a note to decide anything.
 **A terminal this face CREATES joins the work it was created for**: on the
 fleet face `lifecycle_create` REQUIRES `work` and `role`, and an unknown or
 ended work is refused *before* anything is created, so a member whose part
-nobody stated cannot exist.
+nobody stated cannot exist. **A planner or implementor runs kolu's command,
+not the caller's**: `run` is refused for those two roles, and the face's
+`prepare` step (`src/fleet/start.ts`) builds it from what `FleetWorks.startOf`
+answers — the work's saved harness and model, judged again by kolu-server
+against what that host offers now, and the host's word on how that harness
+takes a model (padi's `agentDistro.launch`, which runs no harness, so a start
+never waits on a model list) — through
+`@kolu/agent-distro/models`' `modelLaunchWords`: `omp --model
+anthropic/claude-fable-5-2`, or `OPENCODE_CONFIG_CONTENT='{"model":…}'
+opencode`, answered as `ran`. A setup not answered yet, a saved answer kolu no
+longer offers (`not-offered`, naming which and why — `work_open` asks it
+again), a work on another host, or a host that cannot say refuses with nothing
+created. `other` keeps `run`.
 
 Every member says HOW it joined (`FleetWatchJoin`): `created` for a bare shell
 this face opened, `created-run` when a command was typed at that shell (only
@@ -286,8 +321,8 @@ for a terminal that was already running when the conductor asked for it. The
 works themselves belong to kolu-server (they are persisted beside the
 conversation rather than inside it, and read by the server's watcher); this
 face reaches them through the
-`FleetWorks` port (`rows` · `subscribe` · `open` · `ask` · `join` · `leave` ·
-`note` · `said` · `closed` · `check`), for the same
+`FleetWorks` port (`rows` · `subscribe` · `open` · `startOf` · `ask` · `join` ·
+`leave` · `note` · `said` · `closed` · `check`), for the same
 reason `FleetHosts` is a port. `agent_say` calls `said` once its keys land: the
 conductor has just acted on whatever that terminal was doing, so news held
 about it is stale. `lifecycle_kill` calls `closed` once the kill lands: a

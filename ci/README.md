@@ -99,6 +99,16 @@ The `daemon` node is separate from `unit` because it forks real padi and kaval
 processes. Keeping it explicit prevents the default-off daemon suites from
 silently disappearing from CI.
 
+`agent-models` and `agent-published` are lanes rather than Nix checks because
+each needs something the build sandbox withholds. `agent-models` runs padi's
+model call against two real agent-distro packages — this tree's floor and
+upstream's package from the commit before `--models` existed — and real
+launchers want a writable `HOME`, with a listing harness asking its own
+catalogue. `agent-published` reads upstream's published index over HTTPS and
+pulls that closure from upstream's binary cache, because the package a host
+serves is the one kolu delivered, never this tree's floor; it is red while
+kolu's contract calls something the published package cannot answer.
+
 ## The cache is warmed by the run
 
 Linux CI builds for kolu's own binary cache. `ci/flake-build --link` leaves

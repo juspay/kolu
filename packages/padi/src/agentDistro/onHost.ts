@@ -15,6 +15,10 @@ import {
   type DeliveredSet,
   parseDeliveredSet,
 } from "@kolu/agent-distro/landing";
+import {
+  PACKAGE_ANSWERS_FILE,
+  parsePackageAnswers,
+} from "@kolu/agent-distro/models";
 import { profileFile } from "@kolu/agent-distro/profileFile";
 import type { AgentDistroBake } from "./bake.ts";
 
@@ -50,6 +54,33 @@ export function readOrUndefined(path: string): string | undefined {
     throw err;
   }
 }
+
+/** THE PACKAGE ON THIS HOST IS BROKEN — its own `share/agent-distro/answers`
+ *  is there and names no flag, which no published package is. Its own class,
+ *  so a caller says "broken" where it would otherwise say "too old" and send
+ *  somebody to wait for an update that has already landed. */
+export class AgentPackageUnreadable extends Error {
+  override readonly name = "AgentPackageUnreadable";
+}
+
+/** THE FLAGS `bundle`'s picker answers — its own
+ *  `share/agent-distro/answers` (`@kolu/agent-distro/models`). NO FILE is an
+ *  AGE: upstream added it with `--models`, so a package without it predates
+ *  that call and answers none, which is what the empty list says here. A file
+ *  that IS there and names nothing is a different fact — a truncated or
+ *  half-written package — and it is thrown
+ *  ({@link AgentPackageUnreadable}), never read as an age. */
+export const packageAnswers = (bundle: string): ReadonlyArray<string> => {
+  const file = join(bundle, PACKAGE_ANSWERS_FILE);
+  const text = readOrUndefined(file);
+  if (text === undefined) return [];
+  const answers = parsePackageAnswers(text);
+  if (answers.length === 0)
+    throw new AgentPackageUnreadable(
+      `the agents delivered to this host are broken: ${file} names no call kolu can make, and every published package names at least one`,
+    );
+  return answers;
+};
 
 /** Throw unless every path of `set` is in this host's store: the package's
  *  `bin/` and each profile's `profile.json`. kolu-server rooted them here, so

@@ -164,6 +164,9 @@ export class KoluWorld extends World {
    *  presses the tool card's *open tile* can assert the focus landed on THAT
    *  terminal rather than on whichever tile happened to be active. */
   adoptedTerminalId?: string;
+  /** The account the Conductor's agent said it was signed in as, noted before
+   *  a sign-in, so the step after it can tell the account really moved. */
+  notedAccount?: string;
   /** The terminal id the conductor was asked to WATCH — the one it adopted
    *  into a work — so a wake, the work card's member row and its Look can each
    *  be checked against THAT terminal. */

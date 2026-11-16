@@ -29,8 +29,10 @@
  */
 
 import type { PrResult } from "@kolu/terminal-vocab/schema";
-import { Schema } from "effect";
+import { Option, Schema } from "effect";
 import {
+  ABOUT_WORK,
+  aboutMember,
   CHECK_STEP,
   checkKey,
   checksSeen,
@@ -41,6 +43,7 @@ import {
   type Work,
   type WorkEvent,
   type WorkId,
+  type Worktree,
 } from "kolu-work";
 import type { ConductorWakeEvent } from "kolu-common/conductor";
 import type { Logger } from "pino";
@@ -57,7 +60,8 @@ import type { WorkStore } from "./workStore.ts";
  *  it decides is whether the `members` key is owed a write. */
 const sameWatch = Schema.toEquivalence(MemberWatchSchema);
 
-/** WHAT A RING PUTS ON THE TIMELINE, beside waking the conversation.
+/** WHAT A RING PUTS ON THE TIMELINE, beside waking the conversation — none
+ *  for the two readings that put nothing on it.
  *
  *  The same word in both places wherever there is one: a reader of the card
  *  and the agent reading its wake are told the same thing happened. The two
@@ -66,38 +70,52 @@ export const ringEvent = (
   ref: string,
   level: ConductorWakeEvent["level"],
   at: string,
-): WorkEvent | null => {
+): Option.Option<WorkEvent> => {
   switch (level) {
     case "ready":
     case "stopped":
     case "asking":
     case "exited":
-      return { at, by: "agent", kind: level, terminal: ref, why: "" };
+      return Option.some({
+        at,
+        by: "agent",
+        kind: level,
+        about: aboutMember(ref),
+        why: { kind: "none" },
+      });
     case "asleep":
       // Nothing an agent did: a person (or kolu) put the terminal away, and
       // the agent in it went with it.
-      return { at, by: "kolu", kind: "asleep", terminal: ref, why: "" };
+      return Option.some({
+        at,
+        by: "kolu",
+        kind: "asleep",
+        about: aboutMember(ref),
+        why: { kind: "none" },
+      });
     case "ended":
       // The command ran and gave the prompt back with NO agent ever in the
       // terminal — the agent the Conductor asked for never came up. For a
       // reader of the timeline that is the same ending as an exit, so it is
       // spelled as one, with the reason saying which kind it was.
-      return {
+      return Option.some({
         at,
         by: "kolu",
         kind: "exited",
-        terminal: ref,
-        why: "ended without an agent",
-      };
+        about: aboutMember(ref),
+        why: { kind: "reason", text: "ended without an agent" },
+      });
     case "gone":
       // Not an event of its own: a terminal that went away LEFT the work,
       // and `leaveWork` writes that with its reason.
-      return null;
+      return Option.none();
     case "taken-over":
     case "handed-back":
       // Not a reading at all: a person took the keys, and the event for
       // that was written where it happened (`./workStore.ts`'s `handover`).
-      return null;
+      return Option.none();
+    default:
+      return level satisfies never;
   }
 };
 
@@ -135,16 +153,15 @@ export const ringEvent = (
  *  on the same key, is the way back. */
 export const prEvents = (work: Work, pr: WatchPr, at: string): Work => {
   let next = work;
-  const known = prOf(next);
   // THE FORGE'S ANSWER FOR THIS BRANCH IS THIS WORK'S PULL REQUEST. A number
   // the timeline has not got yet is a PR opening — the first one, or the next
   // one on a branch whose last was closed while kolu was not looking.
-  if (known === null || known.number !== pr.number) {
+  if (!Option.exists(prOf(next), (one) => one.number === pr.number)) {
     next = recordEvent(next, {
       at,
       by: "kolu",
       kind: "pr-opened",
-      terminal: null,
+      about: ABOUT_WORK,
       pr: pr.number,
       title: pr.title,
     });
@@ -152,36 +169,42 @@ export const prEvents = (work: Work, pr: WatchPr, at: string): Work => {
   // ONE TABLE for the check correspondence (`kolu-work`'s `CHECK_STEP`): the
   // event this rollup becomes and what the timeline would then read back are
   // the same row, so they cannot disagree about a check.
-  if (pr.checks !== null) {
-    const step = CHECK_STEP[pr.checks];
+  if (pr.checks.kind === "rollup") {
+    const step = CHECK_STEP[pr.checks.rollup];
     if (!checksSeen(next).has(checkKey(step.kind, pr.number, pr.head))) {
       next = recordEvent(next, {
         at,
         by: "ci",
         kind: step.kind,
-        terminal: null,
+        about: ABOUT_WORK,
         pr: pr.number,
         head: pr.head,
-        failing: pr.checks === "fail" ? [...pr.failing] : [],
+        failing: pr.checks.rollup === "fail" ? [...pr.failing] : [],
       });
     }
   }
-  if (pr.state === "merged" && prOf(next)?.state !== "merged") {
+  if (
+    pr.state === "merged" &&
+    !Option.exists(prOf(next), (one) => one.state === "merged")
+  ) {
     next = recordEvent(next, {
       at,
       by: "kolu",
       kind: "merged",
-      terminal: null,
+      about: ABOUT_WORK,
       pr: pr.number,
     });
     next = endWork(next, { outcome: { kind: "merged", pr: pr.number }, at });
   }
-  if (pr.state === "closed" && prOf(next)?.state !== "closed") {
+  if (
+    pr.state === "closed" &&
+    !Option.exists(prOf(next), (one) => one.state === "closed")
+  ) {
     next = recordEvent(next, {
       at,
       by: "kolu",
       kind: "pr-closed",
-      terminal: null,
+      about: ABOUT_WORK,
       pr: pr.number,
     });
     next = endWork(next, { outcome: { kind: "closed", pr: pr.number }, at });
@@ -205,7 +228,7 @@ export const fileEvents = (
       at,
       by: "agent",
       kind: "file",
-      terminal: ref,
+      about: aboutMember(ref),
       path,
     });
   }
@@ -277,8 +300,9 @@ export const observing = (deps: {
     void deps.workFiles
       .list(at)
       .then((paths) => {
-        const work = deps.store.get(id);
-        if (work === undefined || work.state.kind !== "open") return;
+        const found = deps.store.get(id);
+        if (Option.isNone(found) || found.value.state.kind !== "open") return;
+        const work = found.value;
         const next = fileEvents(work, ref, paths, nowIso());
         if (next === work) return;
         deps.store.save(id, next);
@@ -313,17 +337,27 @@ export const observing = (deps: {
         // WHERE IT IS WORKING, kept on the MEMBER the first time a record
         // says it: a work's files outlive the terminal that wrote them, and
         // the member row is where the path belongs now that membership is a
-        // map of its own. The first answer sticks.
-        const worktree = was.worktree ?? one.git?.worktree ?? null;
+        // map of its own. The first answer sticks — an `unread` member takes
+        // the path this reading has, and nothing moves it afterwards.
+        const learnt =
+          was.worktree.kind === "unread" && one.git !== null
+            ? Option.some<Worktree>({
+                kind: "read",
+                path: one.git.worktree,
+              })
+            : Option.none<Worktree>();
         // ONE ROW IN, ONE ROW OUT — `observed` carries the whole member, so
         // the model's half is never re-attached by hand here (a field added
         // to it would have been silently dropped on the next host read).
         const sighting = observed(
-          worktree === was.worktree ? was : { ...was, worktree },
+          Option.match(learnt, {
+            onNone: () => was,
+            onSome: (worktree) => ({ ...was, worktree }),
+          }),
           one,
         );
         deps.members.set(one.ref, sighting.member);
-        if (worktree !== was.worktree) watched = true;
+        if (Option.isSome(learnt)) watched = true;
         // THE LEVEL CHANGED, as THIS PROCESS saw it.
         const changed = was.last?.level !== one.level;
         if (changed) read = true;
@@ -342,8 +376,11 @@ export const observing = (deps: {
         if (one.level === "working" && !deps.handoverHeld(one.ref))
           deps.withdraw(one.ref);
         if (changed && sighting.ring !== null) {
-          const event = ringEvent(one.ref, sighting.ring, stamp);
-          if (event !== null) work = recordEvent(work, event);
+          const ring = sighting.ring;
+          work = Option.match(ringEvent(one.ref, ring, stamp), {
+            onNone: () => work,
+            onSome: (event) => recordEvent(work, event),
+          });
         }
         // THE PULL REQUEST IS NOT READ HERE. It belongs to the work's branch
         // and the work's own watch reads it ({@link Observing.observedPr}) —
@@ -362,8 +399,12 @@ export const observing = (deps: {
         // THE FILES, off a level change: the moment an agent stops, asks or
         // comes up is the moment its `.waterfall/` has just changed, and a
         // member that has gone has no worktree left to read.
-        if (changed && !sighting.drop && worktree !== null)
-          listFiles(found.id, one.ref, { host: one.host, worktree });
+        const where = sighting.member.worktree;
+        if (changed && !sighting.drop && where.kind === "read")
+          listFiles(found.id, one.ref, {
+            host: one.host,
+            worktree: where.path,
+          });
         if (sighting.ring !== null) {
           deps.ring(sighting.member, one, sighting.ring);
           saidSomethingNew = true;
@@ -389,16 +430,17 @@ export const observing = (deps: {
       // would not answer — and a work must never learn its PR closed because
       // the forge stopped answering.
       const pr = prReading(reading);
-      if (pr === null) return;
-      const work = deps.store.get(id);
-      if (work === undefined) return;
+      if (Option.isNone(pr)) return;
+      const found = deps.store.get(id);
+      if (Option.isNone(found)) return;
+      const work = found.value;
       // A READING MOVES A WORK IN PROGRESS, and nothing else. A finished
       // work's branch is not watched at all (`./workStore.ts`'s `prWatches`
       // is the one statement of that scope), so the only reading that reaches
       // here for one is a frame already in flight when it ended — and the
       // forge is never the way back: Reopen on the card is.
       if (work.state.kind !== "open") return;
-      const next = prEvents(work, pr, nowIso());
+      const next = prEvents(work, pr.value, nowIso());
       // IDEMPOTENT BY CONSTRUCTION: the reading is compared with the TIMELINE,
       // so the same reading twice — the next poll, the first look after a
       // restart — is the same work value back and nothing is written.

@@ -44,6 +44,7 @@ import {
   TerminalNotActive,
   WatchSubscriptionNotFound,
 } from "@kolu/padi-client/surface";
+import type { AgentModelLaunch } from "@kolu/agent-distro/models";
 import { surfaceTag } from "@kolu/surface/define";
 import { directDispatch } from "@kolu/surface/links/direct";
 import type { SurfaceHandlers } from "@kolu/surface/server";
@@ -52,8 +53,11 @@ import type { TerminalId } from "@kolu/terminal-vocab/schema";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { ResourceUpdatedNotificationSchema } from "@modelcontextprotocol/sdk/types.js";
-import { Effect, Queue, Stream } from "effect";
+import { Effect, Option, Queue, Stream } from "effect";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { type SetupAsk, WorkRefusal } from "kolu-work";
+import { normalisePromptText } from "kolu-agents/vocab";
+import { SAY_STEER_CAP_MS } from "../say.ts";
 import { KOLU_FLEET_EXPOSE, KOLU_MCP_EXPOSE } from "../expose.ts";
 import { KOLU_MCP_TOOLS } from "../tools.ts";
 import { fleetSurface } from "./fleetSurface.ts";
@@ -63,6 +67,7 @@ import { serveKoluFleetMcp } from "./serve.ts";
 import type {
   FleetWatchJoin,
   FleetWorkMemberRow,
+  FleetWorkOpened,
   FleetWorkRow,
   FleetWorks,
 } from "./works.ts";
@@ -120,12 +125,35 @@ const terminalRecord = (title: string, parentId?: TerminalId): PadiTerminal =>
   }) as unknown as PadiTerminal;
 
 /** The same record with a live agent in it — what `agent_say` reads to decide
- *  whose keys to press. */
-const withAgent = (title: string, kind: string, state: string): PadiTerminal =>
+ *  whose keys to press. The agent carries EVERY field its wire schema has —
+ *  padi serves a whole `AgentInfo` and `agent_say` decodes one — with
+ *  `fields` for the facts a test is about (omp's `lastPromptId` /
+ *  `lastPromptText`, which a steer's landing is read off). A superset: a key
+ *  another agent's schema does not have is ignored by the decode. */
+const withAgent = (
+  title: string,
+  kind: string,
+  state: string,
+  fields: object = {},
+): PadiTerminal =>
   ({
     state: "active",
     title,
-    agent: { kind, state },
+    agent: {
+      kind,
+      state,
+      sessionId: `${kind}-session`,
+      sessionPath: `/w/${kind}.jsonl`,
+      model: null,
+      summary: null,
+      taskProgress: null,
+      workflow: null,
+      contextTokens: null,
+      startedAt: null,
+      lastPromptId: null,
+      lastPromptText: null,
+      ...fields,
+    },
   }) as unknown as PadiTerminal;
 
 const EMPTY_URGENCY: PadiUrgency = {
@@ -140,11 +168,24 @@ interface FakePadi {
   readonly calls: string[];
   add(id: TerminalId, title: string, parentId?: TerminalId): void;
   /** Put a live agent of `kind` in `state` into that terminal's record. */
-  runAgent(id: TerminalId, kind: string, state: string): void;
+  runAgent(id: TerminalId, kind: string, state: string, fields?: object): void;
   /** Arm that terminal's agent to BEGIN WORKING when a submit key (`\r`)
    *  reaches it — a TUI accepting a prompt, which is what `agent_say`'s "did
    *  it take" wait watches for. */
   startsWorkingOnSubmit(id: TerminalId, kind: string): void;
+  /** Arm that terminal's WORKING omp to answer a steer's Enter as omp 18.20.2
+   *  did when measured: `holds` — a step it cannot interrupt is running, so
+   *  the words are DRAWN in its steering pane and its transcript gains
+   *  nothing; `takes` — the turn took them, so its transcript gains a new
+   *  prompt carrying them; `takes-late` — the turn took them as the watch ran
+   *  out, so the pane is already empty and the record only catches up
+   *  afterwards; `steals` — a DIFFERENT message landed in the window (an
+   *  older held steer handed over, the human typing); `dies` — the terminal
+   *  went away on the keys. Unarmed, the Enter does nothing at all. */
+  steersLike(
+    id: TerminalId,
+    behaviour: "holds" | "takes" | "takes-late" | "steals" | "dies",
+  ): void;
   /** Put that terminal to sleep IN ITS RECORD — padi's `state` arm, which is
    *  what any reader of the roster sees (distinct from `sleep`, which is the
    *  screen-read gate). */
@@ -204,6 +245,15 @@ function fakePadi(host: string, seeded: readonly TerminalId[]): FakePadi {
   /** Terminals whose agent begins WORKING when its submit key arrives, by the
    *  agent kind that is in them. */
   const startsOnSubmit = new Map<TerminalId, string>();
+  /** Terminals whose working omp answers a steer, and how. */
+  const steers = new Map<
+    TerminalId,
+    "holds" | "takes" | "takes-late" | "steals" | "dies"
+  >();
+  /** What each terminal's screen draws, when a steer has changed it. */
+  const screens = new Map<TerminalId, string>();
+  /** The last TEXT written to each terminal — what a submit hands over. */
+  const typed = new Map<TerminalId, string>();
   /** The one terminal this padi reports as ASLEEP, if any. */
   let sleeping: TerminalId | null = null;
 
@@ -241,7 +291,9 @@ function fakePadi(host: string, seeded: readonly TerminalId[]): FakePadi {
           ? Effect.fail(
               new TerminalNotActive({ id: input.id, state: "sleeping" }),
             )
-          : Effect.succeed(`screen of ${host}/${input.id}`);
+          : Effect.succeed(
+              screens.get(input.id) ?? `screen of ${host}/${input.id}`,
+            );
       }),
     [at("screen", "history")]: (input: { id: TerminalId; max: number }) =>
       Effect.sync(() => {
@@ -271,8 +323,59 @@ function fakePadi(host: string, seeded: readonly TerminalId[]): FakePadi {
         const { id, data } = input as { id: TerminalId; data: string };
         const starting = startsOnSubmit.get(id);
         const record = records.get(id);
+        if (data !== "\r") typed.set(id, data);
         if (data === "\r" && starting !== undefined && record !== undefined) {
           record.set(withAgent(`${host} agent`, starting, "thinking"));
+        }
+        // A steer's Enter on a working omp, as measured: held in the pane,
+        // taken into the transcript as a new prompt (at once, or a beat after
+        // the watch's cap — the record is derived from a POLLED transcript
+        // read, so it lags the pane), or a terminal that dies on the keys.
+        const steer = steers.get(id);
+        if (data === "\r" && steer !== undefined && record !== undefined) {
+          const words = typed.get(id) ?? "";
+          const took = (): void => {
+            record.set(
+              withAgent(`${host} agent`, "omp", "thinking", {
+                lastPromptId: "p-steer",
+                lastPromptText: normalisePromptText(words),
+              }),
+            );
+          };
+          if (steer === "holds") {
+            screens.set(
+              id,
+              [
+                " Steering · 1 ",
+                `   1. ${words} `,
+                "   └ Alt+↑ to edit ",
+                "╰─",
+              ].join("\n"),
+            );
+          } else if (steer === "takes") {
+            took();
+          } else if (steer === "takes-late") {
+            // The turn took the words in the last moment of the cap: they
+            // have LEFT the pane and the record has not caught up. A REAL
+            // timer, deliberately: what is under test is a wait against the
+            // host clock inside a live surface mirror, which a fake clock
+            // cannot drive (the same reason this suite's steer tests already
+            // run at 15 s).
+            setTimeout(took, SAY_STEER_CAP_MS + 200).unref();
+          } else if (steer === "steals") {
+            // Someone else's words landed in the window — an older held steer
+            // handed over, or the human typing in that terminal.
+            record.set(
+              withAgent(`${host} agent`, "omp", "thinking", {
+                lastPromptId: "p-someone-else",
+                lastPromptText: "what the human typed instead",
+              }),
+            );
+          } else {
+            // The terminal died on the keys.
+            records.delete(id);
+            keys.set([...records.keys()]);
+          }
         }
         return Effect.void;
       }),
@@ -358,15 +461,18 @@ function fakePadi(host: string, seeded: readonly TerminalId[]): FakePadi {
     calls,
     openedWatches,
     closedWatches,
-    runAgent(id, kind, state) {
+    runAgent(id, kind, state, fields) {
       const held = records.get(id);
-      const next = withAgent(`${host} agent`, kind, state);
+      const next = withAgent(`${host} agent`, kind, state, fields);
       if (held === undefined) records.set(id, cell(next));
       else held.set(next);
       keys.set([...records.keys()]);
     },
     startsWorkingOnSubmit(id, kind) {
       startsOnSubmit.set(id, kind);
+    },
+    steersLike(id, behaviour) {
+      steers.set(id, behaviour);
     },
     park(id, state) {
       const held = records.get(id);
@@ -477,6 +583,17 @@ const jsonOf = (result: {
   readonly contents: readonly Record<string, unknown>[];
 }): unknown => JSON.parse(String(result.contents[0]?.text));
 
+/** A waterfall role's start, as kolu-server answers it for a setup it still
+ *  offers: the saved harness and model, and the host's launch. */
+interface SetUpStart {
+  readonly harness: string;
+  readonly model: string;
+  readonly launch: AgentModelLaunch;
+}
+
+/** omp's launch, as its adapter answers it: a flag before its arguments. */
+const MODEL_FLAG: AgentModelLaunch = { kind: "flag", flag: "--model" };
+
 /** kolu's pieces of work, as a test holds them: one work opened per
  *  `work_open`, add-ordered members, in memory, recording HOW each joined,
  *  every terminal the conductor has spoken to, and what the server's watcher
@@ -501,35 +618,49 @@ function fakeWorks(): FleetWorks & {
   readonly saids: string[];
   /** Every `closed` the face told the record, in order. */
   readonly closeds: string[];
-  /** Every `work_open` that reached the port, and every note. */
-  readonly opened: { title: string; setup: readonly string[] }[];
+  /** Every `work_open` that reached the port — with the setup AS THE RECORD
+   *  TAKES IT, which is what the tool's edge conversion is about — every
+   *  `work_ask`, and every note. */
+  readonly opened: { title: string; setup: ReadonlyArray<SetupAsk> }[];
+  readonly asks: {
+    work: string;
+    questions: Parameters<FleetWorks["ask"]>[1];
+  }[];
   readonly notes: { work: string; text: string }[];
+  /** What a waterfall role of a seeded work starts on — what `startOf`
+   *  answers once kolu-server has judged the saved setup against its offer
+   *  and read the host's launch — or the refusal it answers instead. */
+  setUp(
+    work: string,
+    role: "planner" | "implementor",
+    start: SetUpStart | WorkRefusal,
+  ): void;
 } {
   const works = new Map<string, FleetWorkRow>();
   const ended = new Map<string, string>();
   const listeners = new Set<() => void>();
   const saids: string[] = [];
   const closeds: string[] = [];
-  const opened: { title: string; setup: readonly string[] }[] = [];
+  const opened: { title: string; setup: ReadonlyArray<SetupAsk> }[] = [];
+  const asks: {
+    work: string;
+    questions: Parameters<FleetWorks["ask"]>[1];
+  }[] = [];
   const notes: { work: string; text: string }[] = [];
+  const starts = new Map<string, SetUpStart | WorkRefusal>();
   const moved = (): void => {
     for (const one of listeners) one();
   };
   const blank = (id: string, title: string): FleetWorkRow => ({
     id,
     title,
-    repo: "/repo",
-    branch: "work",
+    key: { kind: "branch", host: "local", repo: "/repo", branch: "work" },
     host: "local",
-    mode: "full",
-    onGreen: "merge",
+    mode: Option.some("full"),
+    onGreen: Option.some("merge"),
     standing: {
-      who: "agent",
       why: "working",
-      what: "",
-      ref: null,
       since: "2026-01-01",
-      outcome: null,
     },
     members: [],
     openQuestions: [],
@@ -550,32 +681,68 @@ function fakeWorks(): FleetWorks & {
         listeners.delete(cb);
       };
     },
-    open: (intent: Parameters<FleetWorks["open"]>[0]) => {
+    open: async (intent: Parameters<FleetWorks["open"]>[0]) => {
       opened.push({
         title: intent.title,
-        setup: intent.setup.map((one) => one.key),
+        setup: intent.setup,
       });
       const id = `work:${works.size + 1}`;
       works.set(id, blank(id, intent.title));
       moved();
-      return {
+      const answer: FleetWorkOpened = {
         work: id,
-        host: "local",
-        mode: "full" as const,
-        roles: [
-          { role: "planner" as const, harness: "omp", model: "opus" },
-          { role: "implementor" as const, harness: "omp", model: "sonnet" },
-        ],
-        onGreen: "merge" as const,
+        setup: {
+          host: "local",
+          mode: Option.some("full"),
+          roles: [
+            {
+              role: "planner",
+              setup: {
+                kind: "harness-and-model",
+                harness: "omp",
+                model: "opus",
+              },
+            },
+            {
+              role: "implementor",
+              setup: {
+                kind: "harness-and-model",
+                harness: "omp",
+                model: "sonnet",
+              },
+            },
+          ],
+          onGreen: Option.some("merge"),
+        },
         ask: `ask:${id}`,
         asked: true,
         created: true,
         reopened: false,
       };
+      return answer;
     },
-    ask: (_work: string, _questions: Parameters<FleetWorks["ask"]>[1]) => ({
-      ask: `ask:${works.size}`,
-    }),
+    startOf: async (work: string, role: "planner" | "implementor") => {
+      const one = works.get(work);
+      const start = starts.get(`${work}#${role}`);
+      if (start instanceof WorkRefusal) throw start;
+      if (one === undefined || start === undefined)
+        throw new WorkRefusal(
+          "missing-setup",
+          `The ${role} of ${work} has no harness and model answered yet. Nothing was created.`,
+        );
+      return { host: one.host, ...start };
+    },
+    setUp(
+      work: string,
+      role: "planner" | "implementor",
+      start: SetUpStart | WorkRefusal,
+    ) {
+      starts.set(`${work}#${role}`, start);
+    },
+    ask: (work: string, questions: Parameters<FleetWorks["ask"]>[1]) => {
+      asks.push({ work, questions });
+      return { ask: `ask:${works.size}` };
+    },
     join(
       ref: string,
       work: string,
@@ -620,12 +787,10 @@ function fakeWorks(): FleetWorks & {
       closeds.push(ref);
       if (self.leave(ref)) moved();
     },
-    check: (work: string) =>
+    check: (work: string): Option.Option<"unknown-work" | "work-ended"> =>
       works.has(work)
-        ? null
-        : ended.has(work)
-          ? ("work-ended" as const)
-          : ("unknown-work" as const),
+        ? Option.none()
+        : Option.some(ended.has(work) ? "work-ended" : "unknown-work"),
     seed(id: string, title = "a piece of work") {
       works.set(id, blank(id, title));
       moved();
@@ -668,6 +833,7 @@ function fakeWorks(): FleetWorks & {
     saids,
     closeds,
     opened,
+    asks,
     notes,
   };
   return self;
@@ -943,7 +1109,7 @@ describe("the fleet face over two hosts", () => {
         host: "remote:box",
         placement: { kind: "toplevel" },
         work: "work:1",
-        role: "implementor",
+        role: "other",
       },
     });
     expect(res.isError ?? false).toBe(false);
@@ -965,7 +1131,7 @@ describe("the fleet face over two hosts", () => {
         placement: { kind: "toplevel" },
         run: "pnpm test",
         work: "work:1",
-        role: "implementor",
+        role: "other",
       },
     });
     expect(res.isError).toBe(true);
@@ -994,7 +1160,7 @@ describe("the fleet face over two hosts", () => {
         host: "remote:box",
         placement: { kind: "child-of", parentId: `local/${ALPHA_1}` },
         work: "work:1",
-        role: "implementor",
+        role: "other",
       },
     });
     expect(res.isError).toBe(true);
@@ -1137,6 +1303,79 @@ describe("`agent_say` over the fleet", () => {
     });
   });
 
+  /** A steer into a WORKING omp, through the whole face: the record says what
+   *  its transcript's newest prompt is, and the stand-in TUI answers the one
+   *  Enter as omp 18.20.2 did when measured. */
+  async function steerOmp(
+    behaviour: "holds" | "takes" | "takes-late" | "steals" | "dies" | "drops",
+    words: string,
+  ) {
+    const { alpha, fleet } = twoHostFleet();
+    alpha.runAgent(ALPHA_1, "omp", "tool_use", { lastPromptId: "p-brief" });
+    if (behaviour !== "drops") alpha.steersLike(ALPHA_1, behaviour);
+    const mcp = await servedFleet(fleet.hosts);
+    const res = await mcp.callTool({
+      name: "agent_say",
+      arguments: { id: `local/${ALPHA_1}`, text: words },
+    });
+    expect(res.isError ?? false, JSON.stringify(res.content)).toBe(false);
+    const writes = alpha.calls.filter((one) =>
+      one.startsWith("lifecycle.sendInput:"),
+    );
+    return { took: (res.structuredContent as { took: unknown }).took, writes };
+  }
+
+  it("a steer HELD behind a step omp cannot interrupt is reported as held, after ONE Enter", async () => {
+    // The bug: a steer sent while omp ran a long tool call sat in its
+    // steering pane, and `agent_say` answered "steer" — words it never saw
+    // land. Measured, a held steer is delivered when the step ends, and a
+    // second Enter would deliver it by killing the step: so the answer names
+    // the hold, and the keys stay ONE Enter.
+    const { took, writes } = await steerOmp(
+      "holds",
+      "STEER-FOUR: also say the word LYCHEE.",
+    );
+    expect(took).toMatchObject({ observed: "held" });
+    expect(writes).toEqual([
+      `lifecycle.sendInput:{"id":"${ALPHA_1}","data":"STEER-FOUR: also say the word LYCHEE."}`,
+      `lifecycle.sendInput:{"id":"${ALPHA_1}","data":"\\r"}`,
+    ]);
+  }, 15_000);
+
+  it("a steer the turn TOOK is reported as landed, off the transcript's newest prompt", async () => {
+    const { took } = await steerOmp("takes", "skip the review");
+    expect(took).toMatchObject({ observed: "landed" });
+  });
+
+  it("a steer neither taken nor held is reported as did-not-land — never as delivered", async () => {
+    const { took } = await steerOmp("drops", "skip the review");
+    expect(took).toMatchObject({ observed: "did-not-land" });
+  }, 15_000);
+
+  it("a steer the turn took AS THE WATCH RAN OUT is landed, not did-not-land", async () => {
+    // The record a verdict reads is derived from a polled, coalesced
+    // transcript read, so a steer taken in the last moment of the cap has
+    // left the pane and is not in the record yet. Reading the two
+    // back-to-back answered `did-not-land` for words that had landed — and
+    // the caller is told to go say it again.
+    const { took } = await steerOmp("takes-late", "skip the review");
+    expect(took).toMatchObject({ observed: "landed" });
+  }, 20_000);
+
+  it("SOMEONE ELSE'S prompt landing in the window is not this steer landing", async () => {
+    // An older held steer handed over, or the human typing in that terminal:
+    // the newest prompt moves while what was said is still in the input box.
+    const { took } = await steerOmp("steals", "skip the review");
+    expect(took).toMatchObject({ observed: "did-not-land" });
+  }, 20_000);
+
+  it("a terminal that DIES after the keys answers lost-sight, never an error", async () => {
+    // The keys were pressed. A failure here reads as "say it again", and
+    // there is nothing left to say it to.
+    const { took } = await steerOmp("dies", "skip the review");
+    expect(took).toMatchObject({ observed: "lost-sight", why: "gone" });
+  }, 20_000);
+
   it("refuses a plain shell, at a reference this face can name", async () => {
     const { fleet } = twoHostFleet();
     const mcp = await servedFleet(fleet.hosts);
@@ -1197,28 +1436,60 @@ describe("the conductor's pieces of work", () => {
     return mcp;
   }
 
+  it("states the rules the Conductor's script leaves to the tools themselves", async () => {
+    // `teaching.md` says a rule once, and a rule about one tool is said in
+    // THAT tool's description, which the model reads with the tool. These are
+    // the rules the script relies on finding here (its inventory ids beside
+    // each), read off the face the Conductor is actually handed.
+    const { fleet } = twoHostFleet();
+    const mcp = await servedFleet(fleet.hosts, fakeWorks());
+    const { tools } = await mcp.listTools();
+    const said = (name: string): string => {
+      const tool = tools.find((one) => one.name === name);
+      if (tool === undefined) throw new Error(`the face serves no ${name}`);
+      return `${tool.description ?? ""} ${JSON.stringify(tool.inputSchema)}`;
+    };
+    const rules: ReadonlyArray<readonly [string, string, RegExp]> = [
+      ["R16", "work_open", /returns THAT work/],
+      ["R20", "work_open", /no parentheses, no issue or PR numbers/],
+      ["R21", "work_open", /DECISION/],
+      ["R72", "work_open", /kolu OFFERS the harness and model questions/],
+      ["R74", "work_open", /the way out when `lifecycle_create` refuses/],
+      ["R75", "work_open", /kolu's own words/],
+      [
+        "R76",
+        "work_open",
+        /Use `given` for anything the human's request already said/,
+      ],
+      ["R24", "lifecycle_create", /open the work FIRST/],
+      ["R25", "work_adopt", /BASELINE/],
+      ["R27", "work_leave", /leaves in silence/],
+      ["R29", "work_stop", /ONLY ways a work ends/],
+      ["R60", "work_ask", /any of them settles/],
+      ["R62", "work_ask", /reasoning about the choice in your PROSE/],
+      ["R63", "work_ask", /`header` of two or three words/],
+      ["R65", "work_ask", /Give `file`/],
+      ["R50", "agent_say", /"began-working"/],
+      ["R52", "agent_say", /REFUSED, never guessed/],
+    ];
+    for (const [rule, tool, pattern] of rules)
+      expect(
+        said(tool),
+        `${rule} is no longer in ${tool}'s description`,
+      ).toMatch(pattern);
+  });
+
   const SETUP = [
     { key: "mode", question: "Which mode?", options: ["full", "trivial"] },
-    {
-      key: "planner.harness",
-      question: "Which harness plans?",
-      options: ["omp"],
-    },
-    { key: "planner.model", question: "On which model?", options: ["opus"] },
-    {
-      key: "implementor.harness",
-      question: "Which harness builds?",
-      options: ["omp"],
-    },
-    {
-      key: "implementor.model",
-      question: "On which model?",
-      options: ["sonnet"],
-    },
+    // kolu's own four: NAMED, never offered.
+    { key: "planner.harness" },
+    { key: "planner.model" },
+    { key: "implementor.harness" },
+    { key: "implementor.model" },
     {
       key: "on-green",
       question: "On green?",
-      options: ["merge it", "hand it over"],
+      options: ["merge", "hand-over"],
     },
   ];
 
@@ -1239,20 +1510,283 @@ describe("the conductor's pieces of work", () => {
     });
 
     expect(res.isError ?? false, JSON.stringify(res.content)).toBe(false);
-    // The answer is the setup READ BACK off the decisions, flattened — plus
-    // the ask the rest went out as. NOTHING WAITED for the human: the call
-    // answered with `asked`, and their answers arrive as a wake.
+    // The answer is the setup READ BACK off the decisions, each answer as an
+    // ARM — plus the ask the rest went out as. NOTHING WAITED for the human:
+    // the call answered with `asked`, and their answers arrive as a wake.
     expect(res.structuredContent).toMatchObject({
       work: "work:1",
-      host: "local",
-      mode: "full",
-      onGreen: "merge",
+      setup: {
+        host: "local",
+        mode: { kind: "answered", value: "full" },
+        onGreen: { kind: "answered", value: "merge" },
+        roles: [
+          {
+            role: "planner",
+            setup: {
+              kind: "harness-and-model",
+              harness: "omp",
+              model: "opus",
+            },
+          },
+          {
+            role: "implementor",
+            setup: {
+              kind: "harness-and-model",
+              harness: "omp",
+              model: "sonnet",
+            },
+          },
+        ],
+      },
       ask: "ask:work:1",
       asked: true,
     });
+    // THE EDGE: what reached the port is the RECORD's shape — every question
+    // carries `given: {kind: "ask"}`, because this call gave no answers. The
+    // tool's wire leaves `given` out; nothing below the tool sees that.
     expect(works.opened).toEqual([
-      { title: "a stored piece of work", setup: SETUP.map((one) => one.key) },
+      {
+        title: "a stored piece of work",
+        setup: SETUP.map((one) =>
+          "options" in one
+            ? {
+                key: one.key,
+                question: one.question,
+                options: one.options,
+                given: { kind: "ask" },
+              }
+            : { key: one.key, given: { kind: "ask" } },
+        ),
+      },
     ]);
+  });
+
+  it("a `given` answer reaches the record as the arm that says the request gave it", async () => {
+    const { fleet } = twoHostFleet();
+    const works = fakeWorks();
+    const mcp = await servedFleet(fleet.hosts, works);
+
+    const res = await mcp.callTool({
+      name: "work_open",
+      arguments: {
+        title: "a stored piece of work",
+        host: "local",
+        repo: "/repo",
+        branch: "work",
+        setup: [
+          {
+            key: "mode",
+            question: "Which mode?",
+            options: ["full", "trivial"],
+            given: "full",
+          },
+          { key: "planner.harness", given: "omp" },
+          { key: "planner.model" },
+        ],
+      },
+    });
+
+    expect(res.isError ?? false, JSON.stringify(res.content)).toBe(false);
+    expect(works.opened.at(0)?.setup).toEqual([
+      {
+        key: "mode",
+        question: "Which mode?",
+        options: ["full", "trivial"],
+        given: { kind: "given", value: "full" },
+      },
+      { key: "planner.harness", given: { kind: "given", value: "omp" } },
+      { key: "planner.model", given: { kind: "ask" } },
+    ]);
+  });
+
+  it("the Conductor CANNOT offer a harness or a model — options for kolu's four questions are refused, and nothing opens", async () => {
+    const { fleet } = twoHostFleet();
+    const works = fakeWorks();
+    const mcp = await servedFleet(fleet.hosts, works);
+    for (const key of [
+      "planner.harness",
+      "planner.model",
+      "implementor.harness",
+      "implementor.model",
+    ]) {
+      const res = await mcp.callTool({
+        name: "work_open",
+        arguments: {
+          title: "a stored piece of work",
+          host: "local",
+          repo: "/repo",
+          branch: "work",
+          setup: SETUP.map((one) =>
+            one.key === key
+              ? { key, question: "Which one?", options: ["omp", "claude"] }
+              : one,
+          ),
+        },
+      });
+      expect(res.isError, `${key}: ${JSON.stringify(res.content)}`).toBe(true);
+    }
+    expect(works.opened).toEqual([]);
+  });
+
+  it("a planner is STARTED BY KOLU from the work's saved harness and model, in the harness's own launch words", async () => {
+    const alpha = fakePadi("local", [ALPHA_1]);
+    const fleet = fakeFleet([
+      { key: "local", display: "this machine", padi: alpha },
+    ]);
+    const works = fakeWorks();
+    works.seed("work:1");
+    works.setUp("work:1", "planner", {
+      harness: "omp",
+      model: "anthropic/claude-fable-5-2",
+      launch: MODEL_FLAG,
+    });
+    works.setUp("work:1", "implementor", {
+      harness: "opencode",
+      model: "litellm/open-large",
+      launch: {
+        kind: "config",
+        variable: "OPENCODE_CONFIG_CONTENT",
+        key: "model",
+      },
+    });
+    const mcp = await servedFleet(fleet.hosts, works);
+
+    const planner = await mcp.callTool({
+      name: "lifecycle_create",
+      arguments: {
+        host: "local",
+        placement: { kind: "toplevel" },
+        work: "work:1",
+        role: "planner",
+      },
+    });
+    expect(planner.isError ?? false, JSON.stringify(planner.content)).toBe(
+      false,
+    );
+    // What was typed IS the saved setup, in the flag omp's adapter names.
+    expect(planner.structuredContent).toMatchObject({
+      ran: "omp --model anthropic/claude-fable-5-2",
+    });
+    expect(
+      alpha.calls.filter((one) => one.startsWith("lifecycle.sendInput")),
+    ).toEqual([
+      `lifecycle.sendInput:${JSON.stringify({ id: BETA_1, data: "omp --model anthropic/claude-fable-5-2\r" })}`,
+    ]);
+    expect(works.joinOf(`local/${BETA_1}`)).toBe("created-run");
+
+    // A harness that takes its model in a config layer gets it there.
+    const implementor = await mcp.callTool({
+      name: "lifecycle_create",
+      arguments: {
+        host: "local",
+        placement: { kind: "toplevel" },
+        work: "work:1",
+        role: "implementor",
+      },
+    });
+    expect(implementor.structuredContent).toMatchObject({
+      ran: `OPENCODE_CONFIG_CONTENT='{"model":"litellm/open-large"}' opencode`,
+    });
+  });
+
+  it("a planner given its own `run` is refused with NOTHING created — the command has one source", async () => {
+    const alpha = fakePadi("local", [ALPHA_1]);
+    const fleet = fakeFleet([
+      { key: "local", display: "this machine", padi: alpha },
+    ]);
+    const works = fakeWorks();
+    works.seed("work:1");
+    works.setUp("work:1", "planner", {
+      harness: "omp",
+      model: "anthropic/claude-fable-5-2",
+      launch: MODEL_FLAG,
+    });
+    const mcp = await servedFleet(fleet.hosts, works);
+
+    const res = await mcp.callTool({
+      name: "lifecycle_create",
+      arguments: {
+        host: "local",
+        placement: { kind: "toplevel" },
+        run: "omp --model anthropic/claude-fable-5-1",
+        work: "work:1",
+        role: "planner",
+      },
+    });
+    expect(res.isError).toBe(true);
+    expect(res.structuredContent).toMatchObject({ kind: "run-is-kolus" });
+    expect(
+      alpha.calls.filter((one) => one.startsWith("lifecycle.create")),
+    ).toEqual([]);
+    expect(works.refs()).toEqual([]);
+  });
+
+  it("a planner whose saved setup kolu no longer offers is refused in kolu's words, NOTHING created", async () => {
+    const alpha = fakePadi("local", [ALPHA_1]);
+    const fleet = fakeFleet([
+      { key: "local", display: "this machine", padi: alpha },
+    ]);
+    const works = fakeWorks();
+    works.seed("work:1");
+    // What kolu-server answers for a planner model saved as words: the
+    // answer, and why — `startOf` judged it, and the face passes it on.
+    works.setUp(
+      "work:1",
+      "planner",
+      new WorkRefusal(
+        "not-offered",
+        'The planner of «work:1» cannot start on its saved setup: planner.model: "fable 5.2" is not a model id — a model id is one word, with no spaces. Call `work_open` for this work again — kolu asks the human again for every answer it no longer offers. Nothing was created.',
+      ),
+    );
+    const mcp = await servedFleet(fleet.hosts, works);
+
+    const res = await mcp.callTool({
+      name: "lifecycle_create",
+      arguments: {
+        host: "local",
+        placement: { kind: "toplevel" },
+        work: "work:1",
+        role: "planner",
+      },
+    });
+    expect(res.isError).toBe(true);
+    expect(res.structuredContent).toMatchObject({ kind: "not-offered" });
+    expect(JSON.stringify(res.content)).toContain(
+      '\\"fable 5.2\\" is not a model id',
+    );
+    // Nothing reached the host: no terminal, and nothing typed.
+    expect(
+      alpha.calls.filter(
+        (one) =>
+          one.startsWith("lifecycle.create") ||
+          one.startsWith("lifecycle.sendInput"),
+      ),
+    ).toEqual([]);
+  });
+
+  it("a planner whose setup is not answered yet is refused, NOTHING created", async () => {
+    const alpha = fakePadi("local", [ALPHA_1]);
+    const fleet = fakeFleet([
+      { key: "local", display: "this machine", padi: alpha },
+    ]);
+    const works = fakeWorks();
+    works.seed("work:1");
+    const mcp = await servedFleet(fleet.hosts, works);
+
+    const res = await mcp.callTool({
+      name: "lifecycle_create",
+      arguments: {
+        host: "local",
+        placement: { kind: "toplevel" },
+        work: "work:1",
+        role: "planner",
+      },
+    });
+    expect(res.isError).toBe(true);
+    expect(res.structuredContent).toMatchObject({ kind: "missing-setup" });
+    expect(
+      alpha.calls.filter((one) => one.startsWith("lifecycle.create")),
+    ).toEqual([]);
   });
 
   it("`lifecycle_create` puts what it created INTO the work, in the role it was given", async () => {
@@ -1270,7 +1804,7 @@ describe("the conductor's pieces of work", () => {
         host: "local",
         placement: { kind: "toplevel" },
         work: "work:1",
-        role: "implementor",
+        role: "other",
       },
     });
 
@@ -1279,7 +1813,7 @@ describe("the conductor's pieces of work", () => {
     // tools that only accept `<host>/<id>`, so a bare id here would be a
     // member nothing on this face can name.
     expect(works.refs()).toEqual([`local/${BETA_1}`]);
-    expect(works.roleOf(`local/${BETA_1}`)).toBe("implementor");
+    expect(works.roleOf(`local/${BETA_1}`)).toBe("other");
     // A bare shell: nothing was asked to run in it, so there is no bring-up
     // that can end without an agent.
     expect(works.joinOf(`local/${BETA_1}`)).toBe("created");
@@ -1301,7 +1835,7 @@ describe("the conductor's pieces of work", () => {
         placement: { kind: "toplevel" },
         run: "omp",
         work: "work:1",
-        role: "planner",
+        role: "other",
       },
     });
 
@@ -1381,7 +1915,7 @@ describe("the conductor's pieces of work", () => {
         placement: { kind: "toplevel" },
         run: "claude",
         work: "work:1",
-        role: "implementor",
+        role: "other",
       },
     });
 
@@ -1587,15 +2121,17 @@ describe("the conductor's pieces of work", () => {
       name: "work_leave",
       arguments: { id: `local/${ALPHA_1}` },
     });
-    expect(left.structuredContent).toEqual({ left: true, work: "work:1" });
+    expect(left.structuredContent).toEqual({
+      left: { kind: "left", work: "work:1" },
+    });
 
     // A terminal that already died has left by itself, so letting it go again
-    // is a plain `false` — never an error a conductor has to handle.
+    // says `not-a-member` — never an error a conductor has to handle.
     const again = await mcp.callTool({
       name: "work_leave",
       arguments: { id: `local/${ALPHA_1}` },
     });
-    expect(again.structuredContent).toEqual({ left: false, work: null });
+    expect(again.structuredContent).toEqual({ left: { kind: "not-a-member" } });
   });
 
   it("letting go of a terminal that is GONE still works — the roster is not consulted", async () => {
@@ -1615,7 +2151,9 @@ describe("the conductor's pieces of work", () => {
     });
 
     expect(res.isError ?? false).toBe(false);
-    expect(res.structuredContent).toEqual({ left: true, work: "work:1" });
+    expect(res.structuredContent).toEqual({
+      left: { kind: "left", work: "work:1" },
+    });
   });
 
   it("`work_ask` puts questions about a work and answers AT ONCE", async () => {
@@ -1648,6 +2186,55 @@ describe("the conductor's pieces of work", () => {
     expect(asked.ask).toMatch(/^ask:/);
     expect(asked.said).toContain("END YOUR TURN");
     expect(asked).not.toHaveProperty("answers");
+    // ... and what reached the record: the ARMS. The tool's wire leaves out
+    // what it was not told (`multiple`, `file`), and the question put on the
+    // work says which of the two it is instead.
+    expect(works.asks).toEqual([
+      {
+        work: "work:1",
+        questions: [
+          {
+            header: { kind: "header", text: "Plan approval" },
+            question: "Approve the plan?",
+            options: ["approve", "revise"],
+            multiple: false,
+            file: { kind: "file", path: ".waterfall/plan.md" },
+          },
+        ],
+      },
+    ]);
+  });
+
+  it("a question about no file and no multiple pick says so in its own arms", async () => {
+    const { fleet } = twoHostFleet();
+    const works = fakeWorks();
+    works.seed("work:1");
+    const mcp = await servedFleet(fleet.hosts, works);
+
+    await mcp.callTool({
+      name: "work_ask",
+      arguments: {
+        work: "work:1",
+        questions: [
+          {
+            header: "Failing check",
+            question: "What now?",
+            options: ["retry", "revert"],
+            multiple: true,
+          },
+        ],
+      },
+    });
+
+    expect(works.asks.at(0)?.questions).toEqual([
+      {
+        header: { kind: "header", text: "Failing check" },
+        question: "What now?",
+        options: ["retry", "revert"],
+        multiple: true,
+        file: { kind: "none" },
+      },
+    ]);
   });
 
   it("`work_note` writes one line on the timeline and nothing else", async () => {
@@ -1699,11 +2286,15 @@ describe("the conductor's pieces of work", () => {
         {
           id: "work:1",
           title: "a stored piece of work",
-          repo: "/repo",
-          branch: "work",
+          key: {
+            kind: "branch",
+            host: "local",
+            repo: "/repo",
+            branch: "work",
+          },
           host: "local",
-          mode: "full",
-          onGreen: "merge",
+          mode: { kind: "answered", value: "full" },
+          onGreen: { kind: "answered", value: "merge" },
           standing: {
             who: "agent",
             what: "agents at work",

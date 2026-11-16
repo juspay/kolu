@@ -97,10 +97,13 @@ export const codexVocab: AgentVocab<CodexInfo> = {
   // Idle, text plus one Enter submits. WHILE WORKING, the message is appended
   // to the transcript as a user row INSIDE the running turn and the same turn
   // carries on past it under one "Worked for 55s" footer — codex hands it to
-  // the model at the turn's next step rather than opening a new turn.
+  // the model at the turn's next step rather than opening a new turn. How a
+  // steer that is HELD looks (and whether its transcript row lands only when
+  // taken) has not been measured, so `agent_say` reports a steer to codex as
+  // not observable rather than guess at it.
   say: {
     idle: ["Enter"],
-    working: { keys: ["Enter"], delivery: "steer" },
+    working: { keys: ["Enter"], delivery: "steer", sight: "unmeasured" },
     verified: "ran codex-cli 0.167.1 in a kolu terminal, 2026-11-13",
   },
   infoSchema: CodexInfoSchema,

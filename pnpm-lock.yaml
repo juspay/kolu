@@ -511,6 +511,9 @@ importers:
       '@kolu/acp-harness':
         specifier: workspace:*
         version: link:../acp-harness
+      '@kolu/agent-distro':
+        specifier: workspace:*
+        version: link:../agent-distro
       '@kolu/padi-client':
         specifier: workspace:*
         version: link:../padi-client
@@ -1235,12 +1238,18 @@ importers:
       '@effect/platform-node':
         specifier: 4.1.4
         version: 4.1.4(effect@4.1.4)(redis@6.2.1)
+      '@kolu/agent-distro':
+        specifier: workspace:*
+        version: link:../agent-distro
       '@kolu/padi':
         specifier: workspace:*
         version: link:../padi
       '@kolu/padi-client':
         specifier: workspace:*
         version: link:../padi-client
+      '@kolu/shell-quote':
+        specifier: workspace:*
+        version: link:../shell-quote
       '@kolu/surface':
         specifier: workspace:*
         version: link:../surface
@@ -1330,6 +1339,9 @@ importers:
       '@kolu/serve-dir':
         specifier: workspace:*
         version: link:../serve-dir
+      '@kolu/shell-quote':
+        specifier: workspace:*
+        version: link:../shell-quote
       '@kolu/surface':
         specifier: workspace:*
         version: link:../surface
@@ -1424,9 +1436,6 @@ importers:
       '@kolu/log':
         specifier: workspace:*
         version: link:../log
-      '@kolu/shell-quote':
-        specifier: workspace:*
-        version: link:../shell-quote
       '@types/columnify':
         specifier: ^1.5.4
         version: 1.5.4
@@ -2862,10 +2871,16 @@ importers:
 
   packages/work:
     dependencies:
+      '@kolu/agent-distro':
+        specifier: workspace:*
+        version: link:../agent-distro
       effect:
         specifier: 4.1.4
         version: 4.1.4
     devDependencies:
+      '@types/node':
+        specifier: ^22.0.0
+        version: 22.19.15
       typescript:
         specifier: ^7.0.2
         version: 7.0.2

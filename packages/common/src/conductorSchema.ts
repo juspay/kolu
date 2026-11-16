@@ -46,7 +46,7 @@ import {
 } from "@kolu/acp/wire";
 import { formatBytes, MIB } from "@kolu/byte-units";
 import { TerminalIdSchema } from "@kolu/terminal-vocab/schema";
-import { AnsweredFromFaceSchema } from "kolu-work";
+import { AnsweredFromFaceSchema, TypedAnswerSchema } from "kolu-work";
 import { Effect, Schema } from "effect";
 
 /** `YES_NO` is a VALUE, not a schema, and it is the one piece of this
@@ -189,6 +189,14 @@ export const promptAttachmentsTooBig = (bytes: number): string =>
 export const attachmentGone = (name: string): string =>
   `“${name}” is no longer on this host, so the message was not sent. Attach it again.`;
 
+/** WHY SIGNING IN COULD FIX A REFUSED MESSAGE — nobody is signed in, or the
+ *  account that is cannot run it. */
+export const ConductorSignInReasonSchema = Schema.Literals([
+  "signed-out",
+  "account",
+]);
+export type ConductorSignInReason = typeof ConductorSignInReasonSchema.Type;
+
 /** What a person typed. Never markdown — it is quoted, not rendered. */
 export const ConductorUserRowSchema = Schema.Struct({
   ...rowHead,
@@ -200,9 +208,11 @@ export const ConductorUserRowSchema = Schema.Struct({
    *  than `false`, because the writer only ever writes `true`. */
   queued: Schema.optionalKey(Schema.Literal(true)),
   delivery: Schema.optionalKey(ConductorDeliverySchema),
-  /** ...and why, on the one refusal with something to do about it: nobody is
-   *  signed in. The panel offers the sign-in row rather than a bare retry. */
-  auth: Schema.optionalKey(Schema.Literal(true)),
+  /** ...and, on a refusal SIGNING IN could fix, which kind: nobody is signed
+   *  in, or the account that is cannot run it (its limit, its billing, its
+   *  organisation). Read off what the agent sent as structure, never off its
+   *  words; the panel puts the sign-in door beside *send again*. */
+  signIn: Schema.optionalKey(ConductorSignInReasonSchema),
   /** What rode along with the words. A DECODING DEFAULT rather than an
    *  optional key, because this row is read back off `config.json` as well as
    *  off the wire: a transcript persisted before attachments existed has no
@@ -420,6 +430,59 @@ export const ConductorAskRowSchema = Schema.Struct({
   parent: Schema.optionalKey(Schema.String),
 });
 
+/** WHAT A PERSON FILLED IN for one of kolu's work questions, as the chat's
+ *  copy of the ask carries it: the DECISION's own id, and what was said for
+ *  it. Never empty — a question left blank is not an answer, it is a question
+ *  still being asked ({@link ConductorWorkAskStandingSchema}'s `part`). */
+export const ConductorWorkAnswerSchema = Schema.Struct({
+  key: Schema.String,
+  values: Schema.NonEmptyArray(Schema.String),
+});
+export type ConductorWorkAnswer = typeof ConductorWorkAnswerSchema.Type;
+
+/** WHERE ONE OF KOLU'S WORK FORMS STANDS IN THE CHAT, as a SUM — the same
+ *  fact the work's own decisions hold, said in the row the question was asked
+ *  in.
+ *
+ *  An elicitation's outcome ({@link ConductorAskSchema}) cannot say this: it
+ *  is an all-or-nothing settlement of a call the agent is holding open, and a
+ *  work form is several questions a person may answer ONE of. `part` is that
+ *  state — what they filled in is recorded, the rest is still in front of
+ *  them, in the same form — and it is an arm rather than a nullable outcome
+ *  with a flag beside it because "answered with nothing" and "answered the
+ *  lot" were the two readings that disagreed.
+ *
+ *   - `open` — nobody has said anything yet;
+ *   - `part` — some questions are answered, the rest are still asked;
+ *   - `answered` — nothing is open any more, and this is what was filled in;
+ *   - `declined` — they would not say, and nothing was filled in;
+ *   - `withdrawn` — the questions went away unanswered (the work ended under
+ *     them, or the conversation that asked them is gone). */
+export const ConductorWorkAskStandingSchema = Schema.Union([
+  Schema.Struct({ kind: Schema.Literal("open") }),
+  Schema.Struct({
+    kind: Schema.Literal("part"),
+    answers: Schema.NonEmptyArray(ConductorWorkAnswerSchema),
+  }),
+  Schema.Struct({
+    kind: Schema.Literal("answered"),
+    answers: Schema.NonEmptyArray(ConductorWorkAnswerSchema),
+  }),
+  Schema.Struct({ kind: Schema.Literal("declined") }),
+  Schema.Struct({ kind: Schema.Literal("withdrawn") }),
+]);
+export type ConductorWorkAskStanding =
+  typeof ConductorWorkAskStandingSchema.Type;
+
+/** KOLU'S OWN FORM, as the chat holds it: the fields it put and where it
+ *  stands. No `link`: a url to visit is an ACP elicitation's other mode, and
+ *  kolu's questions about a piece of work are never one. */
+export const ConductorWorkAskSchema = Schema.Struct({
+  fields: Schema.Array(AskField),
+  standing: ConductorWorkAskStandingSchema,
+});
+export type ConductorWorkAsk = typeof ConductorWorkAskSchema.Type;
+
 /** KOLU asking a person something ABOUT A PIECE OF WORK — its own row kind,
  *  not an `ask` row with a work field bolted on.
  *
@@ -433,7 +496,7 @@ export const ConductorWorkAskRowSchema = Schema.Struct({
   ...rowHead,
   kind: Schema.Literal("work-ask"),
   text: Schema.String,
-  ask: ConductorAskSchema,
+  ask: ConductorWorkAskSchema,
   parent: Schema.optionalKey(Schema.String),
   /** THE WORK this question is about — stated when it was asked (kolu's own
    *  `work_ask` / `work_open` put it), never inferred from timing. The work's
@@ -815,11 +878,29 @@ export const ConductorAuthMethodSchema = Schema.Struct({
   runs: Schema.Literals(["client", "agent"]),
 });
 
+/** WHO PUT THE SIGN-IN ON SCREEN — the agent, in its own refusal, or a person
+ *  who asked for it (a limit reached, the wrong account, a login that went
+ *  stale). Two arms rather than an empty sentence for "nobody refused":
+ *  which one it is decides whether the row can simply be closed again. */
+export const ConductorSignInCauseSchema = Schema.Union([
+  Schema.Struct({
+    kind: Schema.Literal("agent"),
+    /** The agent's own refusal, in its own words. */
+    why: Schema.String,
+  }),
+  Schema.Struct({
+    kind: Schema.Literal("person"),
+    /** What the harness has to say about signing in here: where the
+     *  signature is read from, or that the agent offered no way at all. */
+    said: Schema.String,
+  }),
+]);
+export type ConductorSignInCause = typeof ConductorSignInCauseSchema.Type;
+
 /** One sign-in per agent: a second press on the same method ATTACHES to the
  *  attempt already running rather than starting a second process. */
 export const ConductorSignInSchema = Schema.Struct({
-  /** The agent's own refusal, in its own words. */
-  why: Schema.String,
+  cause: ConductorSignInCauseSchema,
   methods: Schema.Array(ConductorAuthMethodSchema),
   attempt: Schema.NullOr(
     Schema.Struct({
@@ -1072,12 +1153,18 @@ export const ConductorAnswerOutputSchema = Schema.Struct({
 export const ConductorAnswerWorkInputSchema = Schema.Struct({
   work: Schema.String,
   ask: Schema.String,
-  /** Per decision id: the options picked, and/or the words typed. A bare
-   *  string is the one-value spelling of the same thing. */
+  /** Per decision id: the options picked, and/or the words typed — a bare
+   *  string is the one-value spelling of the same thing — or, for one of
+   *  kolu's own questions, `{ typed }`: the one answer the person TYPED,
+   *  which the record keeps as typed and never judges as a pick. */
   answers: Schema.NullOr(
     Schema.Record(
       Schema.String,
-      Schema.Union([Schema.Array(Schema.String), Schema.String]),
+      Schema.Union([
+        Schema.Array(Schema.String),
+        Schema.String,
+        TypedAnswerSchema,
+      ]),
     ),
   ),
   /** WHERE the human was when they answered: the work's card, the chat, the
@@ -1087,19 +1174,66 @@ export const ConductorAnswerWorkInputSchema = Schema.Struct({
   from: AnsweredFromFaceSchema,
 });
 
+/** WHAT THE ANSWER DID TO THE ASK — a SUM, because a reply may settle only
+ *  PART of a form: a question left blank stays asked, in the same ask, and
+ *  the face that sent this must know whether to keep the form in front of the
+ *  person (`part`, naming the decisions still open) or to close it.
+ *
+ *  `nothing-open` is the two-tab race and the work that ended under the
+ *  question: there was nothing left to settle. A reported state, not a fault
+ *  — a reply that fills in nothing at all is refused by the conductor
+ *  (`nothing-answered`) and never reaches here. */
+export const ConductorAnswerWorkOutcomeSchema = Schema.Union([
+  Schema.Struct({ kind: Schema.Literal("answered") }),
+  Schema.Struct({
+    kind: Schema.Literal("part"),
+    /** The decisions of that ask still waiting on them, by decision id. */
+    open: Schema.NonEmptyArray(Schema.String),
+  }),
+  Schema.Struct({ kind: Schema.Literal("declined") }),
+  Schema.Struct({ kind: Schema.Literal("nothing-open") }),
+]);
+export type ConductorAnswerWorkOutcome =
+  typeof ConductorAnswerWorkOutcomeSchema.Type;
+
 export const ConductorAnswerWorkOutputSchema = Schema.Struct({
-  /** `false` when that ask had nothing open any more — somebody else answered
-   *  it first, or the work ended under it. A reported state, not a fault. */
-  settled: Schema.Boolean,
+  outcome: ConductorAnswerWorkOutcomeSchema,
 });
 
 export const ConductorSignInInputSchema = Schema.Struct({
   method: Schema.String,
 });
 
+/**
+ * WHAT THE RESTART AFTER A SIGNATURE DID — the second half of what a sign-in
+ * answers.
+ *
+ * A running adapter keeps the credential it read at `initialize`, so a login
+ * that landed is only half the job: the agent is restarted into the
+ * conversation that was live when the button was pressed. That restart can be
+ * REFUSED (a turn is running) or fail, and when it does the person has two
+ * facts to be told, not one — they ARE signed in, and the next turn is still
+ * the old account's. Rejecting the call instead is how a sign-in that worked
+ * reached the screen as "Sign-in failed".
+ */
+export const ConductorRestartAfterSignInSchema = Schema.Union([
+  /** Nothing was signed in, so no restart was owed. */
+  Schema.Struct({ kind: Schema.Literal("not-due") }),
+  Schema.Struct({ kind: Schema.Literal("restarted") }),
+  Schema.Struct({
+    kind: Schema.Literal("did-not-restart"),
+    /** The refusal's own sentence, shown as it is. */
+    why: Schema.String,
+  }),
+]);
+export type ConductorRestartAfterSignIn =
+  typeof ConductorRestartAfterSignInSchema.Type;
+
 export const ConductorSignInOutputSchema = Schema.Struct({
   outcome: Schema.Literals(["signed-in", "failed", "cancelled", "attached"]),
+  restart: ConductorRestartAfterSignInSchema,
 });
+export type ConductorSignInResult = typeof ConductorSignInOutputSchema.Type;
 
 export const ConductorSetOptionInputSchema = Schema.Struct({
   id: Schema.String,

@@ -26,12 +26,13 @@
 
 import type {
   AskAnswer,
+  ConductorAnswerWorkOutcome,
   ConductorAttachment,
   ConductorMention,
   ConductorState,
   ConductorStoreKey,
 } from "kolu-common/conductor";
-import type { AnsweredFromFace, WorkId } from "kolu-work";
+import type { AnsweredFromFace, SentAnswer, WorkId } from "kolu-work";
 import { Effect } from "effect";
 import type { Accessor } from "solid-js";
 import { toast } from "solid-sonner";
@@ -88,12 +89,19 @@ export interface Conductor {
    *  Nothing is waiting on this: the Conductor was told its question had been
    *  put and ended its turn, so this writes the decision and kolu WAKES it
    *  with what was said. That is also why it works while the conversation is
-   *  down — the only failure it can raise is the work's own refusal. */
+   *  down — the only failure it can raise is the work's own refusal.
+   *
+   *  `recorded` is told WHAT THE RECORD TOOK: the whole ask, a decline, or
+   *  only part of it — and `part` names the questions still asked. A form
+   *  that sent some of its questions blank keeps THEIR drafts and forgets
+   *  only what was written down, so nothing a person typed is lost to a
+   *  value the record would not take. */
   answerWork(
     work: WorkId,
     ask: string,
-    answers: Readonly<Record<string, readonly string[]>> | null,
+    answers: Readonly<Record<string, SentAnswer>> | null,
     from: AnsweredFromFace,
+    recorded?: (outcome: ConductorAnswerWorkOutcome) => void,
   ): void;
   /** END A PIECE OF WORK ON PURPOSE — the card's **Stop**, behind its
    *  confirm. One of only two ways a work ends that is not the forge saying
@@ -107,6 +115,11 @@ export interface Conductor {
    *  why this never asks anything a second time. */
   reopenWork(work: WorkId): void;
   signIn(method: string): void;
+  /** Ask for the sign-in row — signed in or not. */
+  askSignIn(): void;
+  /** Restart the agent into the same conversation, to pick up a signature
+   *  that changed outside it. */
+  reloadAgent(): void;
   signInInput(text: string): void;
   signInCancel(): void;
   setOption(id: string, value: string): void;
@@ -217,7 +230,7 @@ export const useConductor = createSharedRoot<Conductor>(() => {
           if (!result.settled) toast.info("That question was already answered");
         },
       ),
-    answerWork: (work, askId, answers, from) =>
+    answerWork: (work, askId, answers, from, recorded) =>
       ask(
         "Could not answer",
         app.procedures.conductor.answerWork({
@@ -227,17 +240,28 @@ export const useConductor = createSharedRoot<Conductor>(() => {
             answers === null
               ? null
               : Object.fromEntries(
-                  Object.entries(answers).map(([decision, values]) => [
+                  Object.entries(answers).map(([decision, sent]) => [
                     decision,
-                    [...values],
+                    "typed" in sent ? { typed: sent.typed } : [...sent],
                   ]),
                 ),
           from,
         }),
         (result) => {
-          // Two faces of one question — a card and a popped-out reader, say —
-          // and the second one to press is told so rather than failing.
-          if (!result.settled) toast.info("That question was already answered");
+          recorded?.(result.outcome);
+          switch (result.outcome.kind) {
+            case "answered":
+            case "declined":
+            case "part":
+              return;
+            // Two faces of one question — a card and a popped-out reader, say
+            // — and the second one to press is told so rather than failing.
+            case "nothing-open":
+              toast.info("That question was already answered");
+              return;
+            default:
+              return result.outcome satisfies never;
+          }
         },
       ),
     signIn: (method) =>
@@ -245,9 +269,24 @@ export const useConductor = createSharedRoot<Conductor>(() => {
         "Sign-in failed",
         app.procedures.conductor.signIn({ method }),
         (result) => {
-          if (result.outcome === "signed-in") toast.success("Signed in");
-          if (result.outcome === "failed")
+          if (result.outcome === "failed") {
             toast.error("Sign-in did not complete");
+            return;
+          }
+          if (result.outcome !== "signed-in") return;
+          // TWO FACTS, TWO SENTENCES. The signature landed — that is the
+          // success — and the restart it needs to reach the agent may not
+          // have happened: a turn was running, or the agent would not come
+          // back. A person told only "Signed in" would send the next message
+          // as the OLD account and never know why.
+          if (result.restart.kind === "did-not-restart") {
+            toast.warning(
+              `Signed in, but the agent did not restart: ${result.restart.why}`,
+              { duration: 10_000 },
+            );
+            return;
+          }
+          toast.success("Signed in — the agent restarted");
         },
       ),
     signInInput: (text) =>
@@ -259,6 +298,15 @@ export const useConductor = createSharedRoot<Conductor>(() => {
       ask(
         "Could not cancel sign-in",
         app.procedures.conductor.signInCancel({}),
+      ),
+    askSignIn: () =>
+      ask("Could not open sign-in", app.procedures.conductor.askSignIn({})),
+    reloadAgent: () =>
+      ask(
+        "Could not restart the agent",
+        app.procedures.conductor.reloadAgent({}),
+        () =>
+          toast.success("Restarted — the next message uses the new sign-in"),
       ),
     setOption: (id, value) =>
       ask(

@@ -73,15 +73,13 @@ const NOUN: Record<ConductorStoreKey, string> = {
   transcript: "the Conductor's saved transcript",
 };
 
-/** The refusal every no here is said with. `auth: false` — nothing about an
- *  unreadable record is a sign-in, and there is no agent to sign into: that is
- *  why this screen is up.
+/** The refusal every no here is said with.
  *
  *  The TYPE is on the binding rather than on the arrow so TypeScript reads a
  *  call to it as never-returning: that is what lets each refusal below be a
  *  statement, with nothing dead written after it to convince the compiler. */
 const refuse: (why: string) => never = (why) => {
-  throw new ConductorRefused({ why, auth: false });
+  throw new ConductorRefused({ why });
 };
 
 /** THE WALK — every snapshot in the ring, newest first, decoded through the

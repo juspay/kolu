@@ -28,7 +28,16 @@ import {
   serializeRestart,
 } from "@kolu/surface-daemon-supervisor";
 import { processStateReader } from "@kolu/surface-daemon-supervisor";
-import { Cause, Context, Effect, Fiber, MutableRef, Ref } from "effect";
+import {
+  Cache,
+  Cause,
+  Context,
+  Duration,
+  Effect,
+  Fiber,
+  MutableRef,
+  Ref,
+} from "effect";
 import {
   DEFAULT_MIRROR_SCROLLBACK,
   kavalConvergencePolicy,
@@ -78,6 +87,11 @@ import {
   type ConvergeVerdict,
   convergeAndReconcile,
 } from "./reconcileConverged.ts";
+import {
+  readShellEnv,
+  SHELL_ENV_TIMEOUT_MS,
+  shellEnvSpawnId,
+} from "./shellEnv.ts";
 
 type Identity = PtyHostIdentity;
 
@@ -785,5 +799,81 @@ export function buildTerminalSpawnInput(args: {
         serverVersion: requireSpawnServerVersion(),
       },
     );
+  });
+}
+
+/** WHAT A CAPTURE'S ANSWER DEPENDS ON — the directory it runs in and the
+ *  agent layer it runs with. The cache below is keyed by this value ITSELF:
+ *  effect compares and hashes a plain struct by its fields, so two calls for
+ *  the same pair are the same key without a string to build and read back. */
+interface ShellEnvAsk {
+  readonly cwd: string;
+  readonly agents: AgentLayer;
+}
+
+type Captures = Cache.Cache<ShellEnvAsk, Record<string, string>, unknown>;
+
+const capturesCell: Ref.Ref<Captures | undefined> = Ref.makeUnsafe<
+  Captures | undefined
+>(undefined);
+
+/** ONE CAPTURE PER DIRECTORY AND LAYER, for as long as it is in flight. A
+ *  form asks for every role's harness, asks again on each change and again
+ *  when the answer is checked, and replaying a person's dotfiles for each of
+ *  those is seconds of their time per question. `Cache` shares a PENDING
+ *  lookup among its callers and, with a zero time to live, keeps nothing once
+ *  it answers: a capture is a reading of the person's dotfiles AS THEY ARE
+ *  NOW, never a remembered one. It also counts the callers, so the shell is
+ *  interrupted — and its group killed — only when the last of them is gone.
+ *
+ *  Made on the first question and held for the process, like `cachedInfo`
+ *  above: a `Cache` is made BY an Effect, and composing that Effect into the
+ *  one caller is what keeps this module off an `Effect.run*` edge (PLAN #25). */
+const captures: Effect.Effect<Captures> = Effect.gen(function* () {
+  const existing = Ref.getUnsafe(capturesCell);
+  if (existing !== undefined) return existing;
+  const made = yield* Cache.make({
+    capacity: 16,
+    timeToLive: Duration.zero,
+    lookup: captureShellEnv,
+  });
+  setRef(capturesCell, made);
+  return made;
+});
+
+/** THE ENVIRONMENT A NEW TERMINAL IN `cwd` WOULD HAVE, with `agents`, once its
+ *  shell has read the person's dotfiles: that terminal's own spawn
+ *  ({@link buildTerminalSpawnInput}), run once to the command, its wrapper
+ *  files written where a terminal's are (`./shellEnv.ts`). Fails with
+ *  {@link ShellEnvUnreadable} when the shell cannot be asked. Calls in flight
+ *  for the same directory and layer share the one shell. */
+export function terminalShellEnv(
+  args: ShellEnvAsk,
+): Effect.Effect<Record<string, string>, unknown> {
+  return Effect.flatMap(captures, (cache) => Cache.get(cache, args));
+}
+
+/** The one shell a {@link terminalShellEnv} call runs. Interrupting it aborts
+ *  the capture, which kills the shell's process group: a superseded question
+ *  (the harness changed in the form, the tab closed) leaves nothing replaying
+ *  dotfiles behind it. */
+function captureShellEnv(
+  args: ShellEnvAsk,
+): Effect.Effect<Record<string, string>, unknown> {
+  return Effect.gen(function* () {
+    const input = yield* buildTerminalSpawnInput({
+      id: shellEnvSpawnId(),
+      cwd: args.cwd,
+      agents: args.agents,
+    });
+    const { rcDir } = yield* endpointState.info;
+    return yield* Effect.tryPromise({
+      try: (signal) =>
+        readShellEnv(input, rcDir, {
+          timeoutMs: SHELL_ENV_TIMEOUT_MS,
+          signal,
+        }),
+      catch: (err: unknown) => err,
+    });
   });
 }

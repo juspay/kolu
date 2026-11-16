@@ -32,6 +32,19 @@
  * - `not-driven` — a hand-over was asked for a terminal the Conductor does not
  *   drive: it is not an active member of a work in progress, or that work is a
  *   `watch` (the person's own terminal) or has no mode decided yet.
+ * - `agents-not-ready` — the setup asks which harness runs a role on a host
+ *   whose agents are switched off, not there yet, or failed to land. Refused
+ *   before anything exists, naming the host and what to do: there is no
+ *   harness on it to choose.
+ * - `not-offered` — an answer to a question kolu draws the options for
+ *   (a role's harness or model) is not one of those options: a harness this
+ *   kolu does not carry, a model the host did not list. Refused where it is
+ *   recorded, so a work never holds a setup it cannot start. The mode and
+ *   what to do on green are refused the same way when the answer is not one
+ *   of kolu's words for them.
+ * - `nothing-answered` — an answer that fills in no question of the ask. A
+ *   question left blank stays asked, so an answer with every question blank
+ *   would record nothing; it is refused rather than reported as settled.
  * - `already-yours` / `already-conductors` — the terminal is already in the
  *   state the call would put it in. Said rather than shrugged off, because two
  *   tabs looking at the same tile is the ordinary way to get here.
@@ -51,6 +64,9 @@ export const WORK_REFUSALS = [
   "not-driven",
   "already-yours",
   "already-conductors",
+  "agents-not-ready",
+  "not-offered",
+  "nothing-answered",
 ] as const;
 
 /** Why a call about a work was refused. */

@@ -28,6 +28,7 @@ import type { Work, WorkMember } from "kolu-work";
 import {
   type ConductorHost,
   type FleetMcpEndpoint,
+  type KoluOffer,
   type PersistedConductor,
   type PersistedMembers,
   type PersistedWorks,
@@ -80,6 +81,12 @@ let onWatchScope: (() => void) | null = null;
  *  conversation, so a file read that finds it null is a boot-order fault, not
  *  a host being away (that is `hosts.state`'s answer). */
 let fleetHosts: (() => FleetHosts) | null = null;
+
+/** ... and WHAT KOLU OFFERS for a work's harness and model questions
+ *  (`./koluOffer.ts`): built by `index.ts` once it has read the agent-distro
+ *  listing, before the surface is served — `null` at a read is the same
+ *  boot-order fault. */
+let offer: KoluOffer | null = null;
 
 let live: ConductorHost | undefined;
 
@@ -157,6 +164,12 @@ function requireFleet(): FleetHosts {
   return fleetHosts();
 }
 
+/** Hand over the offer — `index.ts`, once it holds the listing and the
+ *  fleet. */
+export function setConductorOffer(next: KoluOffer): void {
+  offer = next;
+}
+
 /**
  * This process's one conversation, built on the first call.
  *
@@ -180,6 +193,13 @@ export function liveServerConductor(): ConductorHost {
     // it quotes back when it reports what it did somewhere else.
     hostName: hostname(),
     fleetMcp: () => endpoint(),
+    offer: () => {
+      if (offer === null)
+        throw new Error(
+          "a work was opened, answered or started before index.ts handed the conductor kolu's offer — setConductorOffer must run before the surface is served",
+        );
+      return offer;
+    },
     // The PROOF is the server's, not the conversation's: it is one MCP
     // `initialize` routed by a session header, and those spellings move with
     // the SDK — a pin `kolu-conductor` never talks to. The door that owns it

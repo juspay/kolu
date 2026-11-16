@@ -50,7 +50,7 @@ import {
 } from "@kolu/acp-harness";
 import { confStore } from "@kolu/surface/server";
 import { Server as McpServer } from "@modelcontextprotocol/sdk/server/index.js";
-import { Schema } from "effect";
+import { Option, Schema } from "effect";
 import {
   type ConductorFrame,
   type ConductorRow,
@@ -74,8 +74,8 @@ import {
   type Decision,
   hostOf,
   modeOf,
-  type SetupKey,
   type WorkKey,
+  type WorkMode,
   workIdOf,
   type WorkRole,
 } from "kolu-work";
@@ -87,7 +87,12 @@ import {
   startFleetMcpEndpoint,
 } from "../fleet/mcpEndpoint.ts";
 import { decodeStateBackup, store } from "../state.ts";
-import { foldWorksByKey_1_53_0 } from "../stateLadder.ts";
+import {
+  dropKoluChoiceOptions_1_54_0,
+  foldWorksByKey_1_53_0,
+  koluChoicesSayHowChosen_1_56_0,
+  workArmsNotNulls_1_55_0,
+} from "../stateLadder.ts";
 import { TRANSCRIPT_FILE_VERSION } from "../stateShape.ts";
 import { transcriptFilePath, transcriptFileStore } from "./transcriptFile.ts";
 
@@ -132,8 +137,13 @@ const OTHER_KEY = {
  * transcript into a file of its own; 1.51.0 sweeps the check ping-pong out of
  * the works that rung carried; 1.52.0 moves a member's watch bookkeeping out of
  * a work written by an earlier deployed build of this branch; 1.53.0 folds
- * every work onto its KEY and moves the transcript file's stamp with it. */
-const STATE_SCHEMA_VERSION = "1.53.0";
+ * every work onto its KEY and moves the transcript file's stamp with it; and
+ * 1.54.0 drops the `options`/`multiple` the Conductor used to offer for a
+ * role's harness and model, which are kolu's options to draw now; 1.55.0
+ * takes every decision, event and member to the arms that cannot say
+ * "answered with no answer"; and 1.56.0 says how each answer to one of kolu's
+ * own questions was chosen. */
+const STATE_SCHEMA_VERSION = "1.56.0";
 
 const log = {
   debug() {},
@@ -226,12 +236,18 @@ function stored(
         startedAt: at,
         decisions,
         events: [
-          { at, by: "you", kind: "requested", terminal: null, text: title },
+          {
+            at,
+            by: "you",
+            kind: "requested",
+            about: { kind: "work" },
+            request: { kind: "said", text: title },
+          },
           ...members.map((one) => ({
             at,
             by: "kolu" as const,
             kind: "joined" as const,
-            terminal: one.ref,
+            about: { kind: "member" as const, terminal: one.ref },
             role: one.role,
           })),
         ],
@@ -245,7 +261,7 @@ function stored(
           work: id,
           role: one.role,
           joinedAt: at,
-          worktree: null,
+          worktree: { kind: "unread" as const },
           watch: one.watch,
         },
       ]),
@@ -254,23 +270,22 @@ function stored(
 }
 
 /** The setup answer a reader shows, as a decision — the ONE place a work's
- *  mode is written. */
-const answered = (key: SetupKey, value: string): Decision => ({
-  kind: "answered",
-  id: `d-${key}`,
+ *  mode is written. A setup question is labelled by its key's own name, so it
+ *  carries no header and no file, and its answer is ONE value, in kolu's own
+ *  words for that key. */
+const answered = (mode: WorkMode): Decision => ({
+  kind: "settled",
+  id: "d-mode",
   ask: "setup",
   at: "2026-01-01T00:00:00.000Z",
-  key,
-  header: key,
-  question: key,
+  topic: "setup",
+  key: "mode",
+  question: "mode",
   options: [],
-  multiple: false,
-  file: "",
   answer: {
     at: "2026-01-01T00:00:00.000Z",
     how: "answered",
-    picked: [value],
-    text: null,
+    value: mode,
     from: "card",
   },
 });
@@ -336,6 +351,9 @@ function hostOver(): {
     home: HOME,
     hostName: "test-box",
     fleetMcp: () => liveEndpoint,
+    offer: () => {
+      throw new Error("no test here opens a work, so none reads kolu's offer");
+    },
     proveFleetMcp: proveFleetMcpEndpoint,
     publish: () => {},
     ...recordDeps(),
@@ -356,6 +374,7 @@ function hostOver(): {
         cancel: async () => {},
         answer: async () => true,
         signIn: async () => "signed-in",
+        askSignIn: () => {},
         signInInput: async () => {},
         signInCancel: async () => false,
         setOption: async () => {},
@@ -505,7 +524,7 @@ describe("the conversation survives a restart", () => {
           },
         },
       ],
-      [answered("mode", "full")],
+      [answered("full")],
     );
     worksStore.set(carried.works);
     membersStore.set(carried.members);
@@ -522,7 +541,7 @@ describe("the conversation survives a restart", () => {
     expect(host.memberRefs()).toEqual([FLEET_REF, OTHER_REF]);
     // ...and the setup a reader shows is read back off the decisions, not off
     // a second copy of it, while the HOST is read off the key.
-    expect(modeOf(work)).toBe("full");
+    expect(modeOf(work)).toEqual(Option.some("full"));
     expect(hostOf(work)).toBe("local");
     // THE HELD NEWS IS MEMORY ONLY: a restart re-reads the world rather than
     // replaying a queue about one that has moved on, so there is no such key
@@ -822,7 +841,10 @@ describe("the conductor's rungs", () => {
     ]);
     // The mode is a DECISION, so a card reads it the same way it reads an
     // answer a person gave; the HOST is the key's own, never a decision.
-    expect(all.map((one) => modeOf(one))).toEqual(["watch", "watch"]);
+    expect(all.map((one) => modeOf(one))).toEqual([
+      Option.some("watch"),
+      Option.some("watch"),
+    ]);
     expect(all.map((one) => hostOf(one))).toEqual(["local", "remote:box"]);
     // ...and the timeline opens with the carry-over rather than with nothing.
     expect(all[0]?.events[0]?.kind).toBe("carried-over");
@@ -1037,6 +1059,11 @@ describe("a session nobody spoke into, across a restart", () => {
       home,
       hostName: "test-box",
       fleetMcp: () => liveEndpoint,
+      offer: () => {
+        throw new Error(
+          "no test here opens a work, so none reads kolu's offer",
+        );
+      },
       proveFleetMcp: proveFleetMcpEndpoint,
       publish: (next) => {
         state = next;
@@ -1154,9 +1181,10 @@ describe("the human's real store, one observation later", () => {
    *  Conductor closed both terminals fourteen seconds after merging and the
    *  only observers of that pull request went with them.
    *
-   *  Through the REAL ladder rung (`foldWorksByKey_1_53_0`) the three become
-   *  ONE work, open, keyed by its branch. What this test is about is the
-   *  NEXT thing kolu does: look. */
+   *  Through the REAL ladder rungs (`foldWorksByKey_1_53_0`, then
+   *  `dropKoluChoiceOptions_1_54_0`, which leaves its harness and model
+   *  answers one value each) the three become ONE work, open, keyed by its
+   *  branch. What this test is about is the NEXT thing kolu does: look. */
   const DEPLOYED = JSON.parse(
     readFileSync(
       new URL("../fixtures/deployed-1.52.0-all-ended.json", import.meta.url),
@@ -1168,6 +1196,9 @@ describe("the human's real store, one observation later", () => {
     const folded = foldWorksByKey_1_53_0(DEPLOYED.works, DEPLOYED.members);
     worksStore.set(folded.works as unknown as PersistedWorks);
     membersStore.set(folded.members as unknown as PersistedMembers);
+    dropKoluChoiceOptions_1_54_0(store);
+    workArmsNotNulls_1_55_0(store);
+    koluChoicesSayHowChosen_1_56_0(store);
     const id = Object.keys(folded.works)[0] ?? "";
 
     const over = hostOver();

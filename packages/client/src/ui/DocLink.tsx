@@ -19,6 +19,7 @@ export const DOC_SLUGS = [
   "canvas",
   "clipboard",
   "code-tab",
+  "conductor-setup",
   "concepts",
   "deployment",
   "dock",

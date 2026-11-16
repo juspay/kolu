@@ -50,9 +50,7 @@ import {
 import { type FleetWorks, serveKoluFleetMcp } from "kolu-mcp";
 import {
   driverOf,
-  branchOf,
   hostOf,
-  repoOf,
   modeOf,
   onGreenOf,
   policyOf,
@@ -60,12 +58,14 @@ import {
 } from "kolu-work";
 import { dirname } from "node:path";
 import type { KoluBootFlags } from "./bootFlags.ts";
+import { koluOfferOver } from "./conductor/koluOffer.ts";
 import { fleetHostsOver } from "./fleet/fleetHosts.ts";
 import { startFleetMcpEndpoint } from "./fleet/mcpEndpoint.ts";
 import {
   disposeServerConductor,
   liveServerConductor,
   setConductorFleetHosts,
+  setConductorOffer,
   setFleetMcpEndpoint,
   setWatchScopeListener,
   setWorksListener,
@@ -696,8 +696,7 @@ export async function bootKoluWeb(flags: KoluBootFlags): Promise<void> {
           .map(([id, work]) => ({
             id,
             title: work.title,
-            repo: repoOf(work),
-            branch: branchOf(work),
+            key: work.key,
             host: hostOf(work),
             mode: modeOf(work),
             onGreen: onGreenOf(work),
@@ -714,7 +713,7 @@ export async function bootKoluWeb(flags: KoluBootFlags): Promise<void> {
                 agent: one.agent,
                 joined: one.joined,
                 // WHOSE KEYBOARD IT IS — a reading of the work's own timeline.
-                driver: driverOf(work, one.ref, one),
+                driver: driverOf(work, one.ref, Option.some(one)),
               })),
             // The questions still standing, in the words they were put in: an
             // agent reading its own work must see what the human has not
@@ -745,14 +744,20 @@ export async function bootKoluWeb(flags: KoluBootFlags): Promise<void> {
     },
     // The host answers with the SETUP READING (host, mode, roles, on-green —
     // all of it read back off the decisions recorded so far) and the ask the
-    // questions went out as; the face's answer is that reading flattened, so
-    // the agent is told what it asked for without a second shape in between.
+    // questions went out as; the face's answer carries that reading WHOLE,
+    // so the agent is told what it asked for without a second shape in
+    // between — and without a flattening that would have to invent a value
+    // for a role nobody has chosen one for.
     // NOTHING WAITS: the human's answers arrive later, as a wake.
-    open: (intent) => {
+    open: async (intent) => {
       const { work, setup, ask, asked, created, reopened } =
-        liveServerConductor().openWork(intent);
-      return { work, ...setup, ask, asked, created, reopened };
+        await liveServerConductor().openWork(intent);
+      return { work, setup, ask, asked, created, reopened };
     },
+    // WHAT A PLANNER OR IMPLEMENTOR STARTS, read off the work's own answers
+    // and judged again — the face builds the command from this, so there is
+    // one source for it.
+    startOf: (work, role) => liveServerConductor().startOf(work, role),
     stop: (work) => {
       liveServerConductor().stopWork(work, "conductor");
     },
@@ -774,13 +779,15 @@ export async function bootKoluWeb(flags: KoluBootFlags): Promise<void> {
     // The PRE-CHECK `lifecycle_create` runs before anything is created, off
     // the same record every other row is read from: a work the face cannot
     // find, or one that has ended, is a refusal with nothing spawned behind
-    // it.
+    // it. None means there is nothing to refuse.
     check: (work) => {
       const found = liveServerConductor()
         .works()
         .find(([id]) => id === work)?.[1];
-      if (found === undefined) return "unknown-work";
-      return found.state.kind === "ended" ? "work-ended" : null;
+      if (found === undefined) return Option.some("unknown-work");
+      return found.state.kind === "ended"
+        ? Option.some("work-ended")
+        : Option.none();
     },
   };
   const fleetMcp = await startFleetMcpEndpoint({
@@ -1056,6 +1063,12 @@ export async function bootKoluWeb(flags: KoluBootFlags): Promise<void> {
   // from source has no delivery bake and delivers nothing (its hosts read
   // `undelivered`).
   const agentDistroListing = readAgentDistroListing();
+  // WHAT KOLU OFFERS for a work's harness and model questions — this listing
+  // and every host's own word on its models — handed to the conversation
+  // before the surface is served, so every work is checked against one thing.
+  setConductorOffer(
+    koluOfferOver({ listing: agentDistroListing, hosts: fleetHosts }),
+  );
   const deliveryBake = readAgentDistroDeliveryBake();
   // The delivery itself is installed BELOW, once kolu's surface — whose
   // `agentProfiles` cell it writes — is served: installing it delivers at once

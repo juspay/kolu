@@ -1357,6 +1357,21 @@ export const koluSurface = defineSurfaceWithPolicy<ToastOnlyPolicy>()({
         input: ConductorEmptySchema,
         error: Schema.Union([ConductorUnavailable]),
       },
+      /** A PERSON ASKS TO SIGN IN — signed in or not: a limit reached, the
+       *  wrong account, a login that went stale. Puts the sign-in row on
+       *  screen with the methods the agent's handshake advertised (or the
+       *  sentence saying it advertised none). */
+      askSignIn: {
+        input: ConductorEmptySchema,
+        error: Schema.Union([ConductorUnavailable]),
+      },
+      /** PICK UP A SIGN-IN MADE ELSEWHERE — restart the agent so it reads the
+       *  signature afresh, back into the same conversation. A running agent
+       *  keeps the credential it started with. */
+      reloadAgent: {
+        input: ConductorEmptySchema,
+        error: Schema.Union([ConductorUnavailable, ConductorRefused]),
+      },
       /** Change one adapter-advertised option (the model included — it is just
        *  the option whose id the agent's leg names). A refusal leaves the
        *  confirmed value where it was. */

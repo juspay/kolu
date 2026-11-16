@@ -131,7 +131,7 @@ export function readPersistedRecord(
  * Must be valid semver. `conf` runs all migration handlers
  * whose keys are > the last-seen version and ≤ this value.
  */
-export const SCHEMA_VERSION = "1.53.0";
+export const SCHEMA_VERSION = "1.56.0";
 
 /** THE VERSION STAMPED INTO THE TRANSCRIPT FILE
  *  (`<stateDir>/conductor/transcript.json`), and the one a reader accepts.
@@ -151,8 +151,11 @@ export const SCHEMA_VERSION = "1.53.0";
  *  and for the same reason: these two constants are what version the state
  *  root is at, and the ladder is written against them. A rung that stamped a
  *  file keeps its OWN frozen copy of the number it stamped
- *  (`TRANSCRIPT_VERSION_1_53_0`) — this one is the live head. */
-export const TRANSCRIPT_FILE_VERSION = "1.53.0";
+ *  (`TRANSCRIPT_VERSION_1_53_0`, `TRANSCRIPT_VERSION_1_55_0`) — this one is
+ *  the live head. It reads 1.55.0 because that rung rewrote every `work-ask`
+ *  row's ask: an outcome that could say "answered" with nothing in it became
+ *  a standing that cannot. */
+export const TRANSCRIPT_FILE_VERSION = "1.55.0";
 
 /** The store's `defaults` — hoisted so {@link decodeStateBackup}'s scratch
  *  store merges the same seed the live store does. */

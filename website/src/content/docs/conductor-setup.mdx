@@ -1,0 +1,109 @@
+---
+title: The Setup Form
+description: "The form that sets up a piece of work: the mode, what happens when CI goes green, and the harness and model each agent runs."
+order: 52.55
+section: "Agents & Attention"
+koluHero:
+  eyebrow: before the first agent starts
+  headline: |
+    One form,
+    {answered once}.
+---
+
+import LinkCard from "../../components/docs/LinkCard.astro";
+import CardGrid from "../../components/docs/CardGrid.astro";
+
+Every piece of work [the Conductor](/conductor) opens starts with one form. You
+say how it runs, what happens when CI goes green, and which agent CLI (the
+harness) and model run the planner and the implementor.
+
+## What it asks
+
+| Question | What you choose |
+| --- | --- |
+| **Mode** | Full: a planner, your approval, an implementor and review rounds. Trivial: one implementor. |
+| **Planner**, **Implementor** | The harness that runs each agent, and the model it runs on. |
+| **On green** | What to do when CI passes: merge the pull request, or hand it to you. |
+
+The host is not in the form: it is part of the work itself. When your request
+does not name the machine, the Conductor asks in its reply, because a path like
+`~/code/app` can exist on several machines.
+
+A question your request already answers is not asked. Each question takes one
+answer, and a form you fill in whole is settled with one press of **Answer**.
+
+## A question left blank stays open
+
+Pressing **Answer** records the questions you filled in. One you left blank is
+not answered: it stays open in the same form, on the card and in the chat,
+until you answer it. A question whose options are still loading says so on it
+and stays open the same way. **Answer** stays disabled until at least one
+question is filled in, and **I'd rather not say** declines whatever is still
+open.
+
+Nothing starts on a missing answer. An agent waits for a question that is open
+in front of you, and the Conductor asks again for one that is not.
+
+## Where the harnesses and models come from
+
+kolu offers both, not the Conductor, and starts each agent on exactly what you
+chose.
+
+- The harnesses are the ones this kolu carries.
+- The models are the ones that harness offers on the work's host, asked of the
+  host as the form is drawn. A long list has a search box.
+- The host asks in the same environment a new terminal there gets, after your
+  shell has read its startup files. A key your `~/.bashrc` exports reaches the
+  list, as it reaches an agent you start by hand.
+- kolu asks bash and zsh. A host whose login shell is neither says so in the
+  question, rather than guessing at a list.
+- Claude Code and Codex cannot list their models. For those you get the models
+  you have run before, and a box to type one.
+- That box takes one model id: one word, no spaces. Anything else is refused
+  with a line saying why.
+
+## When the host cannot list its models
+
+A list can fail: the gateway is down, or a key is missing. The question then
+shows the host's own words, and below them the models you have run before with
+that harness and a box to type one. You can still answer, knowing the list was
+not read.
+
+kolu records how you chose each model:
+
+| You | kolu records | When the agent starts |
+| --- | --- | --- |
+| Pick from the host's list | A pick | Checked against the list, if the host can list then |
+| Type in the box | A typed model | Started as typed; never checked against a list |
+
+A typed model goes to the harness as you wrote it, so a short name the
+harness matches itself, like `opus` for omp, works. Next time it comes back
+in the box, still typed. Starting an agent never waits on the list: how a
+harness takes a model is a fixed fact kolu reads separately.
+
+## One press repeats your last setup
+
+Every question comes with your last answer already selected, read off your
+saved works. For a model that is the same role's own last model with that
+harness, falling back to the other role's model with it. A setup you are happy
+with is one press of **Answer**.
+
+## When kolu refuses an answer
+
+- A host whose coding agents are switched off, still arriving, failed to land,
+  or older than this kolu needs is named, with what to do about it, before any
+  harness question is asked.
+- An answer is checked where it is recorded. A harness this kolu does not
+  carry, or a picked model the host did not list, is refused there, so a work
+  never holds a setup it cannot start.
+- The pair is checked again when the agent starts. kolu refuses in words that
+  say which answer and why, rather than starting the agent on something else.
+- A saved answer kolu no longer offers is asked again when the work opens. The
+  question says what the old answer was, and why it is not on offer now.
+
+## Next
+
+<CardGrid>
+  <LinkCard title="The Conductor" href="/conductor" description="the chat that opens the work and runs the waterfall" />
+  <LinkCard title="Agents" href="/agents" description="the harnesses kolu carries, and the profiles a terminal starts with" />
+</CardGrid>

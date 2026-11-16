@@ -39,7 +39,9 @@ const WorkMark: Component<{
           // WHO DRIVES IT, on the mark itself — a dock row is where a person
           // looks to see what is happening across the fleet, and a terminal
           // they took over reads as theirs there as well as on its tile.
-          data-driver={at().driver ?? undefined}
+          // `nobody` is a word of its own: a member of a watch is marked, and
+          // nothing drives it.
+          data-driver={at().driver}
           title={`${ROLE_WORD[at().role]} of “${at().title}”${
             at().driver === "you" ? " · taken over by you" : ""
           }`}

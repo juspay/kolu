@@ -439,6 +439,21 @@ export interface Leg {
    */
   readonly provisionalTitle?: (update: unknown) => boolean;
   /**
+   * Whether a request the agent REFUSED with this error `data` is one the
+   * ACCOUNT signed in cannot run — its usage limit, its billing, an
+   * organisation that is not allowed — so that signing in again, perhaps as
+   * someone else, is a remedy worth offering beside the refusal.
+   *
+   * ONE AGENT'S VOCABULARY, which is why it is a leg's answer: the protocol
+   * has a code for "nobody is signed in" and none for "this account cannot",
+   * and an agent that says the second does so in structure of its own.
+   * Absent for an agent that says nothing of the kind — optional, like every
+   * agent-specific reading here, because olai vendors this interface and a
+   * required member would break its legs at the next bump. Nothing here is
+   * ever read off the agent's sentence.
+   */
+  readonly accountRefusal?: (data: unknown) => boolean;
+  /**
    * The PROGRAMMATIC name of the tool, out of what a FRAME said — or `null`
    * when this agent says it somewhere else, or not at all.
    *

@@ -105,12 +105,18 @@ function storedWork(branch: string, name: string): PersistedWorks {
       startedAt: AT,
       decisions: [],
       events: [
-        { at: AT, by: "you", kind: "requested", terminal: null, text: name },
+        {
+          at: AT,
+          by: "you",
+          kind: "requested",
+          about: { kind: "work" },
+          request: { kind: "said", text: name },
+        },
         {
           at: AT,
           by: "kolu",
           kind: "joined",
-          terminal: "local/t1",
+          about: { kind: "member", terminal: "local/t1" },
           role: "implementor",
         },
       ],
@@ -131,7 +137,7 @@ function storedMembers(branch: string, name: string): PersistedMembers {
       }),
       role: "implementor",
       joinedAt: AT,
-      worktree: null,
+      worktree: { kind: "unread" },
       watch: {
         name,
         agent: null,

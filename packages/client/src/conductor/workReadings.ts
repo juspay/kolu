@@ -24,21 +24,24 @@
 
 import { dualPhrase } from "@kolu/terminal-vocab/duration";
 import type { PrInfo } from "anyforge/schemas";
+import { Option } from "effect";
 import {
   type AnswerFrom,
-  branchOf,
   type Decision,
+  type Driver,
+  type EventAbout,
   type EventBy,
-  isAnswered,
+  isAbout,
   isCheckEvent,
+  isOnGreen,
   isOpen,
+  isSettled,
   type Membership,
-  ON_GREEN,
   type OnGreen,
   type Outcome,
   policyOf,
   prOf,
-  repoOf,
+  type Said,
   roleRank,
   setupKeyOf,
   type SetupKey,
@@ -48,6 +51,7 @@ import {
   timeBar,
   timeSpent,
   type Waiter,
+  WAITER_OF,
   type Work,
   type WorkEvent,
   type WorkId,
@@ -114,9 +118,12 @@ export const SETUP_LABEL: Record<SetupKey, string> = {
 export const SETUP_ROWS: ReadonlyArray<ReadonlyArray<SetupKey>> = [
   ["mode"],
   ...WORK_ROLES.map((role) =>
-    (["harness", "model"] as const)
-      .map((what) => setupKeyOf(role, what))
-      .filter((key): key is SetupKey => key !== null),
+    (["harness", "model"] as const).flatMap((what) =>
+      Option.match(setupKeyOf(role, what), {
+        onNone: (): ReadonlyArray<SetupKey> => [],
+        onSome: (key): ReadonlyArray<SetupKey> => [key],
+      }),
+    ),
   ).filter((keys) => keys.length > 0),
   ["on-green"],
 ];
@@ -155,11 +162,25 @@ export function oneLine(text: string, limit: number = LINE_LIMIT): OneLine {
  *  header the asker gave it, else the first few words of the question. The
  *  question itself is never the label — a Conductor that reasons inside its
  *  question ("Full or trivial? I'd pick full: …") would otherwise have its
- *  prose drawn as a heading. */
+ *  prose drawn as a heading.
+ *
+ *  A question about the work whose header is `none` stands in a few words of
+ *  its own question: that stand-in is this FACE's reading, which is why the
+ *  record has an arm saying there is no header rather than an empty one. */
 export function decisionLabel(decision: Decision): string {
-  if (decision.key !== null) return SETUP_LABEL[decision.key];
-  const header = decision.header.trim();
-  return oneLine(header === "" ? decision.question : header, LABEL_LIMIT).line;
+  switch (decision.topic) {
+    case "setup":
+      return SETUP_LABEL[decision.key];
+    case "work":
+      return oneLine(
+        decision.header.kind === "header"
+          ? decision.header.text
+          : decision.question,
+        LABEL_LIMIT,
+      ).line;
+    default:
+      return decision satisfies never;
+  }
 }
 
 /** ONE MEMBER of a piece of work: the terminal's ref, and what the one
@@ -185,18 +206,22 @@ export function membersIn(
   return rows.sort((a, b) => roleRank(a.member.role) - roleRank(b.member.role));
 }
 
+/** THE TWO DRIVERS THAT ARE A LOCK. `nobody` — a watch, a mode nobody has
+ *  answered yet — is not one: there is no banner to draw for it, so the
+ *  faces below cannot be asked for one. */
+export type Lock = Exclude<Driver, "nobody">;
+
 /** THE LOCK'S BANNER — who drives this terminal, the part it plays and the
  *  work it plays it in, in the tile's title area and above the phone's key
  *  bar. The same sentence in both places, from the same membership reading,
  *  so a person who takes a terminal over on the phone and reads it on the
  *  desktop is told one thing.
  *
- *  A driver of `null` is not a lock at all (a watch, a mode nobody has
- *  answered yet) and nothing is drawn for it — which is why this answers `""`
- *  rather than inventing words for a banner that has no reason to exist. */
-export function lockWords(at: Membership): string {
-  if (at.driver === null) return "";
-  const who = at.driver === "you" ? "Taken over" : "Driven by the Conductor";
+ *  The driver is handed in NARROWED ({@link Lock}): the caller has already
+ *  decided there is a lock to draw, so this has no "nothing to say" answer
+ *  to invent. */
+export function lockWords(at: Membership, driver: Lock): string {
+  const who = driver === "you" ? "Taken over" : "Driven by the Conductor";
   return `${who} · ${ROLE_WORD[at.role]} · ${at.title}`;
 }
 
@@ -207,27 +232,25 @@ export function lockWords(at: Membership): string {
  *  saying why reads as broken — and never the work's title either, which is
  *  a sentence the card's own terminal already sits inside.
  *
- *  A driver of `null` raises no card (nothing is gated), so this is only
+ *  A driver of `nobody` raises no card (nothing is gated), so this is only
  *  ever asked about a terminal the Conductor drives. */
 export function lockCardWords(at: Membership): string {
   return `The Conductor is driving this terminal · ${ROLE_WORD[at.role]}`;
 }
 
-/** MAY A PERSON TYPE into a terminal with this driver? The lock's whole rule,
- *  in one place: the Conductor DRIVING a terminal is the only thing that
- *  blocks a person's input. A terminal they have taken over is theirs, a
- *  terminal whose work drives nothing (a watch, a mode nobody has answered
- *  yet) never left their hands, and a terminal in no work at all was never
- *  the Conductor's.
+/** MAY A PERSON TYPE into this terminal? The lock's whole rule, in one
+ *  place: the Conductor DRIVING a terminal is the only thing that blocks a
+ *  person's input. A terminal they have taken over is theirs, a terminal
+ *  whose work drives nothing (`nobody`: a watch, a mode nobody has answered
+ *  yet) never left their hands, and a terminal the membership index does not
+ *  name at all — the ordinary case, and the `none` here — was never the
+ *  Conductor's.
  *
  *  Here rather than beside the guard that calls it (`personInput.ts`, which
  *  reaches the wire for the active host) so the rule is statable — and
- *  tested — without a browser. `undefined` is the ordinary case: a terminal
- *  the membership index does not name at all. */
-export function inputAllowed(
-  driver: Membership["driver"] | undefined,
-): boolean {
-  return driver !== "conductor";
+ *  tested — without a browser. */
+export function inputAllowed(at: Option.Option<Membership>): boolean {
+  return !Option.exists(at, (one) => one.driver === "conductor");
 }
 
 /** The repository as a person names it: the last segment of its path. */
@@ -243,19 +266,18 @@ export function repoName(repo: string): string {
  *  or a dash. */
 export function workSubtitle(
   work: Work,
-  hostName: string | null,
+  hostName: Option.Option<string>,
 ): ReadonlyArray<string> {
   const setup = setupOf(work);
-  const pr = prOf(work);
   const where =
     work.key.kind === "branch"
-      ? [repoName(repoOf(work)), branchOf(work)]
+      ? [repoName(work.key.repo), work.key.branch]
       : ["watching"];
   return [
     ...where,
-    hostName ?? "",
-    setup.mode ?? "",
-    pr === null ? "" : `PR #${pr.number}`,
+    ...Option.toArray(hostName),
+    ...Option.toArray(setup.mode),
+    ...Option.toArray(Option.map(prOf(work), (pr) => `PR #${pr.number}`)),
   ].filter((part) => part !== "");
 }
 
@@ -270,11 +292,15 @@ export interface ChecksTally {
   readonly total: number;
 }
 
-export function checksTally(pr: PrInfo | null): ChecksTally | null {
-  if (pr === null || pr.checkRuns.length === 0) return null;
-  const tally = { pass: 0, pending: 0, fail: 0 };
-  for (const run of pr.checkRuns) tally[run.outcome] += 1;
-  return { ...tally, total: pr.checkRuns.length };
+export function checksTally(
+  pr: Option.Option<PrInfo>,
+): Option.Option<ChecksTally> {
+  return Option.flatMap(pr, (one) => {
+    if (one.checkRuns.length === 0) return Option.none<ChecksTally>();
+    const tally = { pass: 0, pending: 0, fail: 0 };
+    for (const run of one.checkRuns) tally[run.outcome] += 1;
+    return Option.some({ ...tally, total: one.checkRuns.length });
+  });
 }
 
 /** `14 of 23 checks` — what the standing line says while CI runs. */
@@ -318,7 +344,10 @@ export function outcomeWords(outcome: Outcome): string {
 export interface StandingLine {
   readonly who: Waiter | "done";
   readonly lead: string;
-  readonly what: string;
+  /** The detail after the lead — none for a wait that has none to give (the
+   *  agents are simply at work), which the card draws as nothing at all
+   *  rather than as an empty clause. */
+  readonly what: Option.Option<string>;
   readonly since: string;
 }
 
@@ -339,42 +368,41 @@ const WHY_LEAD: Record<StandingWhy, string> = {
 
 export function standingLine(
   work: Work,
-  checks: ChecksTally | null,
+  checks: Option.Option<ChecksTally>,
 ): StandingLine {
   const at = standing(work, policyOf(work));
-  const lead = WHY_LEAD[at.why];
-  if (at.who === "done")
-    return {
-      who: "done",
-      lead,
-      // HOW it ended, which for a stopped work is the whole fact: a person
-      // reading "Stopped" wants to know whether they did it.
-      what: at.outcome === null ? "" : outcomeWords(at.outcome),
-      since: at.since,
-    };
-  if (at.who === "ci")
-    return {
-      who: "ci",
-      lead,
-      // The LIVE tally is the only honest detail while checks run: the
-      // timeline says they are running, how many have landed is true only for
-      // the instant it is read.
-      what: checks === null ? "" : checksProgress(checks),
-      since: at.since,
-    };
-  if (at.who === "you")
-    return {
-      who: "you",
-      lead,
-      what:
-        at.why === "question"
-          ? at.what
-          : at.ref === null
-            ? "merge the PR"
-            : `merge PR #${at.ref}`,
-      since: at.since,
-    };
-  return { who: "agent", lead, what: "", since: at.since };
+  const line = (what: Option.Option<string>): StandingLine => ({
+    who: WAITER_OF[at.why],
+    lead: WHY_LEAD[at.why],
+    what,
+    since: at.since,
+  });
+  switch (at.why) {
+    case "question":
+      return line(Option.some(at.question));
+    case "merge":
+      return line(
+        Option.some(
+          Option.match(at.pr, {
+            onNone: () => "merge the PR",
+            onSome: (pr) => `merge PR #${pr}`,
+          }),
+        ),
+      );
+    // The LIVE tally is the only honest detail while checks run: the timeline
+    // says they are running, how many have landed is true only for the
+    // instant it is read.
+    case "ci":
+      return line(Option.map(checks, checksProgress));
+    // The agents are simply at work: no detail to give.
+    case "watching":
+    case "working":
+      return line(Option.none());
+    // HOW it ended, which for a stopped work is the whole fact: a person
+    // reading "Stopped" wants to know whether they did it.
+    default:
+      return line(Option.some(outcomeWords(at.outcome)));
+  }
 }
 
 /** One stretch of the drawn bar, as a share of the whole life. Percentages
@@ -414,25 +442,26 @@ export function timeSpentWords(work: Work, now: string): string {
     .join(" · ");
 }
 
-/** The role a member terminal held, for an event that names it — read off the
- *  TIMELINE's own `joined` events rather than the members map.
+/** The role a member terminal held, for an event that is ABOUT one — read
+ *  off the TIMELINE's own `joined` events rather than the members map.
  *
  *  A terminal that has left is not in the map at all (leaving is removal and
  *  an event), and the timeline must still be able to say "Implementor left":
  *  the part it played is a fact about what happened, which is what the
- *  timeline is. */
-function roleOf(work: Work, terminal: string | null): string {
-  if (terminal === null) return "";
+ *  timeline is. None for an event about the work itself, and for a terminal
+ *  no `joined` event on this timeline names. */
+function roleOf(work: Work, about: EventAbout): Option.Option<string> {
+  if (about.kind === "work") return Option.none();
   for (let at = work.events.length - 1; at >= 0; at -= 1) {
     const event = work.events[at];
     if (
       event !== undefined &&
       event.kind === "joined" &&
-      event.terminal === terminal
+      isAbout(event, about.terminal)
     )
-      return ROLE_WORD[event.role];
+      return Option.some(ROLE_WORD[event.role]);
   }
-  return "";
+  return Option.none();
 }
 
 /** The first decision of an ask that was actually PUT to the human — what a
@@ -440,28 +469,65 @@ function roleOf(work: Work, terminal: string | null): string {
  *  gave rides the same ask but nobody was asked it, so it never names the
  *  ask. The timeline never copies the words; it holds the ask's id and reads
  *  them here, so a question and the Decisions section can never disagree. */
-function askedIn(work: Work, ask: string): Decision | undefined {
-  return work.decisions.find(
-    (one) =>
-      one.ask === ask && !(isAnswered(one) && one.answer.from === "request"),
+function askedIn(work: Work, ask: string): Option.Option<Decision> {
+  return Option.fromUndefinedOr(
+    work.decisions.find(
+      (one) =>
+        one.ask === ask &&
+        !(
+          isSettled(one) &&
+          one.answer.how !== "dropped" &&
+          one.answer.from === "request"
+        ),
+    ),
   );
 }
 
-/** What an answer came to, in one phrase: the options picked, then the words
- *  typed — or how it ended when nobody answered. */
-export function answerWords(decision: Decision): string {
-  if (!isAnswered(decision)) return "waiting";
-  const answer = decision.answer;
-  if (answer.how !== "answered") return answer.how;
-  return [...answer.picked, ...(answer.text === null ? [] : [answer.text])]
-    .filter((part) => part !== "")
-    .join(" · ");
+/** WHAT A PERSON SAID to a question about the work, in one phrase: the
+ *  options they picked, then the words they typed. Total over the three arms,
+ *  because "said nothing" is not one of them. */
+function saidWords(said: Said): string {
+  switch (said.kind) {
+    case "picked":
+      return said.picked.join(" · ");
+    case "typed":
+      return said.text;
+    case "picked-and-typed":
+      return [...said.picked, said.text].join(" · ");
+    default:
+      return said satisfies never;
+  }
 }
 
-/** WHERE AN ANSWER CAME FROM, said plainly — the card, the chat, the reader
- *  or the request itself. `null` for one nobody answered. */
-export function answerSource(decision: Decision): string | null {
-  return isAnswered(decision) ? `from the ${decision.answer.from}` : null;
+/** What a decision came to, in one phrase: the value a setup question was
+ *  answered with, what was said to a question about the work — or how it
+ *  ended when nobody answered it, and `waiting` while it is still asked. */
+export function answerWords(decision: Decision): string {
+  if (!isSettled(decision)) return "waiting";
+  switch (decision.topic) {
+    case "setup": {
+      const answer = decision.answer;
+      return answer.how === "answered" ? answer.value : answer.how;
+    }
+    case "work": {
+      const answer = decision.answer;
+      return answer.how === "answered" ? saidWords(answer.said) : answer.how;
+    }
+    default:
+      return decision satisfies never;
+  }
+}
+
+/** WHERE AN ANSWER CAME FROM, said plainly — the card, the chat, the reader,
+ *  the request itself or an earlier record it was carried over from. None for
+ *  a question still asked, and for one that was DROPPED: nobody answered it,
+ *  so there is no face it came from. */
+export function answerSource(decision: Decision): Option.Option<string> {
+  if (!isSettled(decision)) return Option.none();
+  const answer = decision.answer;
+  return answer.how === "dropped"
+    ? Option.none()
+    : Option.some(`from the ${answer.from}`);
 }
 
 /** WHEN A DECISION SETTLED — the answer's own time, or when it was put for
@@ -471,15 +537,18 @@ export function answeredWhen(
   decision: Decision,
   clock: (at: string) => string,
 ): string {
-  return isAnswered(decision)
+  return isSettled(decision)
     ? `answered ${clock(decision.answer.at)}`
     : `asked ${clock(decision.at)}`;
 }
 
-/** The head commit a check event is about, or `null` for every other kind —
- *  the one reader of that field, so the switch below stays about words. */
-function headOf(event: WorkEvent): string | null {
-  return isCheckEvent(event) ? event.head : null;
+/** The head commit a check event is about — none for every other kind, and
+ *  none for a host whose record reported no commit at all. The one reader of
+ *  that field, so the switch below stays about words. */
+function headOf(event: WorkEvent): Option.Option<string> {
+  return isCheckEvent(event) && event.head.kind === "commit"
+    ? Option.some(event.head.sha)
+    : Option.none();
 }
 
 /** THE COMMIT A CHECK EVENT NAMES, as a person reads it — ` · 4f21a9c`, and
@@ -492,9 +561,11 @@ function headOf(event: WorkEvent): string | null {
  *  `heads` is the TIMELINE'S fact, not the row's: it is computed once for the
  *  whole card ({@link eventReader}) rather than walked per row. */
 function commitWords(heads: ReadonlySet<string>, event: WorkEvent): string {
-  const head = headOf(event);
-  if (head === null || heads.size < 2) return "";
-  return ` · ${head.slice(0, 7)}`;
+  if (heads.size < 2) return "";
+  return Option.match(headOf(event), {
+    onNone: () => "",
+    onSome: (head) => ` · ${head.slice(0, 7)}`,
+  });
 }
 
 /** WHY A MEMBER'S TERMINAL IS NO LONGER IN THE WORK, in words. `gone` is the
@@ -516,11 +587,18 @@ const LEFT_WORD: Record<"closed" | "released" | "gone", string> = {
  *  calls it per row. */
 export function eventReader(work: Work): (event: WorkEvent) => string {
   const heads = new Set(
-    work.events.map(headOf).filter((one): one is string => one !== null),
+    work.events.flatMap((one) => Option.toArray(headOf(one))),
   );
   return (event: WorkEvent): string => {
-    const role = roleOf(work, event.terminal);
-    const who = role === "" ? "A terminal" : role;
+    /** The part the terminal an event is about plays — "A terminal" for one
+     *  no `joined` event names, and for an event about the work itself,
+     *  which none of the arms below that use it can be. */
+    const who = Option.getOrElse(roleOf(work, event.about), () => "A terminal");
+    /** ... the same, in a sentence about the lock. */
+    const part = Option.match(roleOf(work, event.about), {
+      onNone: () => "terminal",
+      onSome: (role) => role.toLowerCase(),
+    });
     switch (event.kind) {
       case "requested":
         return "You asked for it";
@@ -537,9 +615,9 @@ export function eventReader(work: Work): (event: WorkEvent) => string {
       case "asking":
         return `${who} is asking`;
       case "exited":
-        return event.why === ""
-          ? `${who} exited`
-          : `${who} exited · ${event.why}`;
+        return event.why.kind === "reason"
+          ? `${who} exited · ${event.why.text}`
+          : `${who} exited`;
       case "asleep":
         return `${who} went to sleep`;
       case "file":
@@ -548,16 +626,22 @@ export function eventReader(work: Work): (event: WorkEvent) => string {
       // label the Decisions list draws it under — and the answer. The
       // question's own words are one press away in that list, and saying them
       // here was how one sentence came to be on the card three times.
-      case "question": {
-        const decision = askedIn(work, event.ask);
-        return `Asked: ${decision === undefined ? "something" : decisionLabel(decision)}`;
-      }
-      case "answered": {
-        const decision = askedIn(work, event.ask);
-        return decision === undefined
-          ? "You answered"
-          : `You: ${answerWords(decision)}`;
-      }
+      case "question":
+        return `Asked: ${Option.match(askedIn(work, event.ask), {
+          onNone: () => "something",
+          onSome: decisionLabel,
+        })}`;
+      case "answered":
+        return Option.match(askedIn(work, event.ask), {
+          onNone: () => "You answered",
+          onSome: (decision) => `You: ${answerWords(decision)}`,
+        });
+      // PART OF A FORM, and the rest of it still open — what a person pressing
+      // Answer with one question blank does. The ask stays on screen with the
+      // blank ones on it, so the timeline says so rather than claiming the
+      // question was answered.
+      case "answered-part":
+        return `You answered part of it · the rest is still open`;
       case "question-dropped":
         return "The question went away unanswered";
       case "pr-opened":
@@ -578,9 +662,9 @@ export function eventReader(work: Work): (event: WorkEvent) => string {
       // the part the terminal plays rather than its ref — the same words the
       // tile's banner says, in the past tense.
       case "taken-over":
-        return `You took over the ${role === "" ? "terminal" : role.toLowerCase()}`;
+        return `You took over the ${part}`;
       case "handed-back":
-        return `You handed the ${role === "" ? "terminal" : role.toLowerCase()} back`;
+        return `You handed the ${part} back`;
       // The bound: a stretch of agent-state events kolu dropped, counted where
       // they happened, so the timeline still says WHEN the quiet stretch was.
       case "folded":
@@ -595,6 +679,8 @@ export function eventReader(work: Work): (event: WorkEvent) => string {
         return `${event.count} files kept`;
       case "keep-failed":
         return `Could not keep the files · ${event.why}`;
+      default:
+        return event satisfies never;
     }
   };
 }
@@ -609,14 +695,21 @@ export function eventReader(work: Work): (event: WorkEvent) => string {
 export interface DecisionRow {
   /** The row's own id (its first decision's), for the open-state set. */
   readonly id: string;
-  readonly key: SetupKey | null;
+  /** WHAT THE ROW IS ABOUT — one of the setup's keys, or a question about
+   *  the work, which has no key at all. The row's own arm rather than a key
+   *  that may be missing: "this row is the mode" and "this row is a question
+   *  somebody asked" are two different things. */
+  readonly topic:
+    | { readonly kind: "setup"; readonly key: SetupKey }
+    | { readonly kind: "work" };
   readonly label: string;
   /** The answer, already cut to one line. */
   readonly answer: string;
   /** Whether the answer was cut — the rest is behind the press. */
   readonly rest: boolean;
-  /** Where the answer came from, for the row's own mark. */
-  readonly from: AnswerFrom | null;
+  /** Where the answer came from, for the row's own mark — none while nobody
+   *  has answered any of the questions this row stands for. */
+  readonly from: Option.Option<AnswerFrom>;
   /** What the press opens: the question(s) this row stands for, in full. */
   readonly decisions: ReadonlyArray<Decision>;
 }
@@ -625,38 +718,44 @@ export interface DecisionRow {
  *  rest of the card uses. */
 function setupAnswer(decision: Decision): string {
   const words = answerWords(decision);
-  if (!isAnswered(decision) || decision.answer.how !== "answered") return words;
-  if (decision.key === "on-green" && isOnGreen(words))
-    return ON_GREEN_WORD[words];
-  return words;
+  if (!isSettled(decision) || decision.topic !== "setup") return words;
+  if (decision.answer.how !== "answered") return words;
+  const value = decision.answer.value;
+  return decision.key === "on-green" && isOnGreen(value)
+    ? ON_GREEN_WORD[value]
+    : words;
 }
 
-function isOnGreen(word: string): word is OnGreen {
-  return (ON_GREEN as ReadonlyArray<string>).includes(word);
+/** WHERE THE ROW'S ANSWER CAME FROM — the first of its decisions anybody
+ *  answered or declined. None while they are all still asked (and for one
+ *  that was dropped, which nobody answered). */
+function rowFrom(
+  decisions: ReadonlyArray<Decision>,
+): Option.Option<AnswerFrom> {
+  for (const one of decisions)
+    if (isSettled(one) && one.answer.how !== "dropped")
+      return Option.some(one.answer.from);
+  return Option.none();
 }
 
 /** ONE ROW, OVER THE DECISIONS IT STANDS FOR — at least one, said in the
- *  type: a row IS its first decision (its id, its key, where the answer came
- *  from), and the caller that groups them already holds the witness that the
- *  group is not empty. */
+ *  type: a row IS its first decision (its id, where the answer came from),
+ *  and the caller that groups them already holds the witness that the group
+ *  is not empty. */
 function decisionRow(
+  topic: DecisionRow["topic"],
   label: string,
   answer: string,
   decisions: NonEmpty<Decision>,
 ): DecisionRow {
-  const first = decisions[0];
   const cut = oneLine(answer);
-  const answered = decisions.find((one) => isAnswered(one));
   return {
-    id: first.id,
-    key: first.key,
+    id: decisions[0].id,
+    topic,
     label,
     answer: cut.line,
     rest: cut.rest,
-    from:
-      answered !== undefined && isAnswered(answered)
-        ? answered.answer.from
-        : null,
+    from: rowFrom(decisions),
     decisions,
   };
 }
@@ -670,10 +769,11 @@ export function decisionRows(work: Work): ReadonlyArray<DecisionRow> {
   const rows: DecisionRow[] = [];
   for (const group of SETUP_ROWS) {
     // The KEY comes with the decision it found, so the row's label is read
-    // off the key the group was walked by rather than off the decision's own
-    // nullable one.
+    // off the key the group was walked by rather than off the decision.
     const found = group.flatMap((key) => {
-      const one = work.decisions.findLast((decision) => decision.key === key);
+      const one = work.decisions.findLast(
+        (decision) => decision.topic === "setup" && decision.key === key,
+      );
       return one === undefined ? [] : [{ key, decision: one }];
     });
     const head = found[0];
@@ -681,6 +781,7 @@ export function decisionRows(work: Work): ReadonlyArray<DecisionRow> {
     if (head === undefined || decisions === null) continue;
     rows.push(
       decisionRow(
+        { kind: "setup", key: head.key },
         SETUP_LABEL[head.key],
         found.map((one) => setupAnswer(one.decision)).join(" · "),
         decisions,
@@ -688,9 +789,14 @@ export function decisionRows(work: Work): ReadonlyArray<DecisionRow> {
     );
   }
   for (const decision of work.decisions)
-    if (decision.key === null)
+    if (decision.topic === "work")
       rows.push(
-        decisionRow(decisionLabel(decision), answerWords(decision), [decision]),
+        decisionRow(
+          { kind: "work" },
+          decisionLabel(decision),
+          answerWords(decision),
+          [decision],
+        ),
       );
   return rows;
 }

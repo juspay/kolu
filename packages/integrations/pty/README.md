@@ -40,6 +40,10 @@ dependencies.
   override suppresses. Drop an entry from the replay list and those settings
   vanish from every terminal whose parent environment is empty.
 - Only bash and zsh get a plan. Everything else gets the environment prepend
-  alone, and that bound is stated rather than widened quietly.
+  alone, and that bound is stated rather than widened quietly. The same bound
+  is exported as `isShellKoluWraps` — read off the planner's own selector — for
+  a caller that must ASK a shell something rather than merely spawn it (padi's
+  environment capture appends `-i -c`, which only a wrapped shell takes), so
+  the reading lives here once.
 
 `src/shell.test.ts` holds the contract.

@@ -141,6 +141,10 @@ const WEB_SHELL_FILES = [
   "agentDelivery/install",
   "agentDelivery/ops",
   "agentDelivery/profiles",
+  // ...and the CI check that the package upstream's index publishes answers
+  // every call kolu makes (`just test-agent-published`): the same index read
+  // and cache, from this machine; no terminal domain.
+  "agentDelivery/publishedAnswers",
   "agentDelivery/schedule",
   "agentDelivery/timer",
   // ── the serving shell + true leaves (top-level) ──
@@ -211,6 +215,11 @@ const WEB_SHELL_FILES = [
   "wireCall",
   "wireCallMain",
   // ── the conductor's MOUNT (packages/server/src/conductor/) ──
+  // WHAT KOLU OFFERS for the setup's harness and model questions: this kolu's
+  // agent-distro listing, and a host's own `agentDistro.models` answer asked
+  // over its padi client — plus the readiness gate in front of them. Shell
+  // code: it holds no PTY and reads every host over the wire.
+  "conductor/koluOffer",
   // kolu's ONE supervising conversation lives in `kolu-conductor` now — the
   // host, the record, the standing prompt and the surface members are that
   // package's, and the dependency arrow points out of this one. What stays

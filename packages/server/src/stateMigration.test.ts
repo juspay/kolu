@@ -28,10 +28,15 @@ import {
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import Conf from "conf";
+import { Result, Schema } from "effect";
 import { DEFAULT_PREFERENCES } from "kolu-common/surface";
-import { readPersistedTranscript, workDirOf } from "kolu-conductor";
+import {
+  PersistedWorksSchema,
+  readPersistedTranscript,
+  workDirOf,
+} from "kolu-conductor";
 import { workIdOf } from "kolu-work";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   transcriptFilePath,
   transcriptFileStore,
@@ -44,15 +49,24 @@ import {
 import { decodeStateBackup } from "./state.ts";
 import {
   collapseFlappingChecks_1_51_0,
+  CONF_MIGRATIONS,
+  dropKoluChoiceOptions_1_54_0,
   foldWorksByKey_1_53_0,
   memberWatchOutOfWorks_1_52_0,
   migrateConductorToWorks_1_50_0,
+  koluChoicesSayHowChosen_1_56_0,
   moveKeptFiles_1_53_0,
   splitWorkAskRows_1_53_0,
   stripLegacyStateKeys_1_31_0,
+  workArmsNotNulls_1_55_0,
+  workAskStanding_1_55_0,
   worksFromWatched_1_50_0,
 } from "./stateLadder.ts";
-import { TRANSCRIPT_FILE_VERSION } from "./stateShape.ts";
+import {
+  CONF_DEFAULTS,
+  SCHEMA_VERSION,
+  TRANSCRIPT_FILE_VERSION,
+} from "./stateShape.ts";
 
 const dirs: string[] = [];
 
@@ -552,12 +566,18 @@ describe("the 1.52.0 rung — a store this branch wrote before the member bookke
       [
         PLANNER,
         "planner",
-        "/home/person/code/odu/.worktrees/docs-human-reading",
+        {
+          kind: "read",
+          path: "/home/person/code/odu/.worktrees/docs-human-reading",
+        },
       ],
       [
         IMPL,
         "implementor",
-        "/home/person/code/odu/.worktrees/docs-human-reading",
+        {
+          kind: "read",
+          path: "/home/person/code/odu/.worktrees/docs-human-reading",
+        },
       ],
     ]);
     expect(decoded.members[PLANNER]?.watch).toEqual({
@@ -580,11 +600,13 @@ describe("the 1.52.0 rung — a store this branch wrote before the member bookke
     const kinds = work?.events.map((one) => one.kind) ?? [];
     expect(kinds.filter((kind) => kind === "checks-running")).toHaveLength(1);
     expect(kinds.filter((kind) => kind === "checks-passed")).toHaveLength(1);
-    // Decisions: every one of them an arm of the sum, and the `host` ones
-    // dropped — the host is the key now.
+    // Decisions: every one of them an arm of the sum. The `host` ones the
+    // 1.53.0 rung dropped are not even sayable any more — a setup key is one
+    // of the six the live schema names, which is what this decode proves —
+    // and 1.55.0 left the rest as setup questions about the work's own run.
     expect(
-      work?.decisions.every((one) => (one.key as string | null) !== "host"),
-    ).toBe(true);
+      work?.decisions.filter((one) => one.topic === "setup").length,
+    ).toBeGreaterThan(0);
     expect(work?.decisions.length).toBeGreaterThanOrEqual(7);
   });
 
@@ -765,14 +787,20 @@ describe("what an EARLIER COMMIT of this branch wrote, read by head", () => {
     // The 1.53.0 rung re-keyed the works by their branch, so there is one
     // value rather than one row.
     const work = Object.values(decoded.works)[0];
-    // 1.52.0 backfilled the two fields the decision was written without …
-    expect(work?.decisions[0]?.header).toBe("");
-    expect(work?.decisions[0]?.file).toBe("");
+    // 1.52.0 backfilled the two fields the decision was written without, and
+    // 1.55.0 took them back off a SETUP question — whose label is its key's
+    // own name, so there is nowhere to write either.
+    expect(work?.decisions[0]?.topic).toBe("setup");
+    expect("header" in (work?.decisions[0] ?? {})).toBe(false);
+    expect("file" in (work?.decisions[0] ?? {})).toBe(false);
     // … and left everything the commit DID write exactly as it was.
     expect(work?.decisions[0]?.question).toBe("How should this run?");
     // … and 1.53.0 moved the membership into the one map, where the watch
     // bookkeeping already was.
-    expect(decoded.members[REF]?.worktree).toBe("/home/person/code/odu");
+    expect(decoded.members[REF]?.worktree).toEqual({
+      kind: "read",
+      path: "/home/person/code/odu",
+    });
     expect(decoded.members[REF]?.watch.name).toBe("Planner: odu docs");
     // The 1.51.0 sweep read the old detail grammar as "names no commit", so
     // the two failures collapse to the first and the running one stands.
@@ -885,9 +913,11 @@ describe("what an EARLIER COMMIT of this branch wrote, read by head", () => {
       },
     ]);
 
-    // THE RUNG: the work-carrying ask row becomes its own kind and the stamp
-    // moves, so the reader of today accepts the file it leaves behind.
+    // THE RUNGS: the work-carrying ask row becomes its own kind (1.53.0), its
+    // outcome becomes where it stands (1.55.0), and the stamp moves, so the
+    // reader of today accepts the file they leave behind.
     splitWorkAskRows_1_53_0(root);
+    workAskStanding_1_55_0(root);
     expect(
       JSON.parse(readFileSync(path, "utf8")) as { version: string },
     ).toMatchObject({ version: TRANSCRIPT_FILE_VERSION });
@@ -1130,3 +1160,1169 @@ describe("the 1.53.0 rung — the human's store as it stands, and its kept files
 
 const recordLike = (value: unknown): boolean =>
   typeof value === "object" && value !== null;
+
+describe("the 1.54.0 rung — a role's harness and model are kolu's options", () => {
+  const AT_54 = "2026-11-01T00:00:00.000Z";
+
+  /** A real store stamped at 1.53.0, holding the works record below, reopened
+   *  through the LIVE ladder AS FAR AS `to` — 1.54.0 by default, so this
+   *  describe reads what THAT rung produces rather than what a later one does
+   *  to its output. (1.55.0 takes these same decisions to their arms; it has
+   *  its own describe below, and its own walk to the live head.) */
+  const walk = (
+    works: Record<string, unknown>,
+    to = "1.54.0",
+  ): Record<string, unknown> => {
+    const dir = mkdtempSync(join(tmpdir(), "kolu-kolu-choice-"));
+    dirs.push(dir);
+    writeFileSync(
+      join(dir, "config.json"),
+      JSON.stringify({
+        preferences: DEFAULT_PREFERENCES,
+        works,
+        __internal__: { migrations: { version: "1.53.0" } },
+      }),
+    );
+    const store = new Conf<Record<string, unknown>>({
+      cwd: dir,
+      projectVersion: to,
+      defaults: CONF_DEFAULTS as unknown as Record<string, unknown>,
+      migrations: CONF_MIGRATIONS as never,
+    });
+    expect(store.get("__internal__" as never)).toBeDefined();
+    return readJson(store.path).works as Record<string, unknown>;
+  };
+
+  const ID = "branch:local/%2Frepo/setup-choices";
+
+  const WORKS = {
+    [ID]: {
+      key: { kind: "branch", host: "local", repo: "/repo", branch: "setup" },
+      title: "the setup form",
+      startedAt: AT_54,
+      decisions: [
+        // (a) an OPEN question the Conductor offered its own model list for.
+        {
+          kind: "asked",
+          id: "d-model",
+          ask: "ask-1",
+          at: AT_54,
+          key: "planner.model",
+          header: "",
+          question: "Which model should plan?",
+          options: ["opus", "sonnet"],
+          multiple: false,
+          file: "",
+        },
+        // (b) an ANSWERED harness question, options and all.
+        {
+          kind: "answered",
+          id: "d-harness",
+          ask: "ask-1",
+          at: AT_54,
+          key: "implementor.harness",
+          header: "",
+          question: "Which harness implements?",
+          options: ["claude", "omp"],
+          multiple: false,
+          file: "",
+          answer: {
+            at: AT_54,
+            how: "answered",
+            picked: ["omp"],
+            text: null,
+            from: "card",
+          },
+        },
+        // ... and a question whose options are still the asker's.
+        {
+          kind: "asked",
+          id: "d-mode",
+          ask: "ask-1",
+          at: AT_54,
+          key: "mode",
+          header: "",
+          question: "How should this run?",
+          options: ["full", "trivial"],
+          multiple: false,
+          file: "",
+        },
+        // (c) a LEGACY TYPED answer: the value lived in `text`.
+        {
+          kind: "answered",
+          id: "d-typed",
+          ask: "ask-1",
+          at: AT_54,
+          key: "planner.harness",
+          header: "",
+          question: "Which harness plans?",
+          options: ["claude", "omp"],
+          multiple: true,
+          file: "",
+          answer: {
+            at: AT_54,
+            how: "answered",
+            picked: [],
+            text: "omp",
+            from: "card",
+          },
+        },
+        // (d) a legacy MULTIPLE answer, with a typed value beside it: the
+        // reading took `picked[0]`, so that is the one value kept.
+        {
+          kind: "answered",
+          id: "d-many",
+          ask: "ask-1",
+          at: AT_54,
+          key: "implementor.model",
+          header: "",
+          question: "Which model implements?",
+          options: ["opus", "sonnet"],
+          multiple: true,
+          file: "",
+          answer: {
+            at: AT_54,
+            how: "answered",
+            picked: ["omp", "claude"],
+            text: "codex",
+            from: "card",
+          },
+        },
+        // (e) a typed value kolu will refuse at start — kept VERBATIM here.
+        {
+          kind: "answered",
+          id: "d-fable",
+          ask: "ask-2",
+          at: AT_54,
+          key: "planner.model",
+          header: "",
+          question: "Which model plans?",
+          file: "",
+          answer: {
+            at: AT_54,
+            how: "answered",
+            picked: [],
+            text: "fable 5.2",
+            from: "card",
+          },
+        },
+        // (f) a DECLINED kolu-choice answer: no value at all.
+        {
+          kind: "answered",
+          id: "d-declined",
+          ask: "ask-2",
+          at: AT_54,
+          key: "implementor.harness",
+          header: "",
+          question: "Which harness implements?",
+          file: "",
+          answer: {
+            at: AT_54,
+            how: "declined",
+            picked: [],
+            text: "never mind",
+            from: "card",
+          },
+        },
+        // (g) an ANSWERED `mode` question, typed: not kolu's to narrow.
+        {
+          kind: "answered",
+          id: "d-mode-answered",
+          ask: "ask-2",
+          at: AT_54,
+          key: "on-green",
+          header: "",
+          question: "What on green?",
+          options: ["merge", "stop"],
+          multiple: true,
+          file: "",
+          answer: {
+            at: AT_54,
+            how: "answered",
+            picked: ["merge", "stop"],
+            text: "and tell me",
+            from: "card",
+          },
+        },
+        // (h) a KEYLESS answered question: nothing here names it.
+        {
+          kind: "answered",
+          id: "d-keyless",
+          ask: "ask-2",
+          at: AT_54,
+          key: null,
+          header: "",
+          question: "Anything else?",
+          options: ["yes", "no"],
+          multiple: true,
+          file: "",
+          answer: {
+            at: AT_54,
+            how: "answered",
+            picked: [],
+            text: "carry on",
+            from: "card",
+          },
+        },
+      ],
+      events: [],
+      state: { kind: "open" },
+    },
+  };
+
+  const decisionsOf = (works: Record<string, unknown>) =>
+    (
+      (works[ID] as { decisions: Array<Record<string, unknown>> }).decisions ??
+      []
+    ).reduce<Record<string, Record<string, unknown>>>((all, one) => {
+      all[one.id as string] = one;
+      return all;
+    }, {});
+
+  it("drops options and multiple from the four kolu-choice decisions only", () => {
+    const after = decisionsOf(walk(structuredClone(WORKS)));
+
+    // The open question becomes one kolu draws the options for — which is
+    // what makes it answerable at all after this change.
+    expect(after["d-model"]).toBeDefined();
+    expect("options" in (after["d-model"] ?? {})).toBe(false);
+    expect("multiple" in (after["d-model"] ?? {})).toBe(false);
+    expect(after["d-model"]?.question).toBe("Which model should plan?");
+
+    // The answered one loses the same two fields and keeps its answer: that
+    // `picked` is what the readings read.
+    expect("options" in (after["d-harness"] ?? {})).toBe(false);
+    expect("multiple" in (after["d-harness"] ?? {})).toBe(false);
+    expect(after["d-harness"]?.answer).toEqual({
+      at: AT_54,
+      how: "answered",
+      picked: ["omp"],
+      text: null,
+      from: "card",
+    });
+
+    // A question whose options are the asker's keeps them.
+    expect(after["d-mode"]?.options).toEqual(["full", "trivial"]);
+    expect(after["d-mode"]?.multiple).toBe(false);
+  });
+
+  it("narrows every kolu-choice answer to the one value the reading took", () => {
+    const after = decisionsOf(walk(structuredClone(WORKS)));
+
+    // A legacy TYPED answer: the value moves out of `text` into `picked`.
+    expect(after["d-typed"]?.answer).toEqual({
+      at: AT_54,
+      how: "answered",
+      picked: ["omp"],
+      text: null,
+      from: "card",
+    });
+    // A legacy MULTIPLE answer keeps the first pick — what was read before —
+    // and the typed text beside it goes.
+    expect(after["d-many"]?.answer).toEqual({
+      at: AT_54,
+      how: "answered",
+      picked: ["omp"],
+      text: null,
+      from: "card",
+    });
+    // A typed value kolu cannot offer is kept VERBATIM: refusing it is the
+    // start's job, not the rung's.
+    expect(after["d-fable"]?.answer).toEqual({
+      at: AT_54,
+      how: "answered",
+      picked: ["fable 5.2"],
+      text: null,
+      from: "card",
+    });
+    // Declined: no value, and the text that came with it goes too.
+    expect(after["d-declined"]?.answer).toEqual({
+      at: AT_54,
+      how: "declined",
+      picked: [],
+      text: null,
+      from: "card",
+    });
+  });
+
+  it("leaves an answer kolu does not draw the options for alone", () => {
+    const after = decisionsOf(walk(structuredClone(WORKS)));
+
+    expect(after["d-mode-answered"]).toEqual(
+      (WORKS[ID].decisions as Array<Record<string, unknown>>).find(
+        (one) => one.id === "d-mode-answered",
+      ),
+    );
+    expect(after["d-keyless"]?.answer).toEqual({
+      at: AT_54,
+      how: "answered",
+      picked: [],
+      text: "carry on",
+      from: "card",
+    });
+  });
+
+  it("writes nothing when every decision is already in the new shape", () => {
+    const once = walk(structuredClone(WORKS));
+    const dir = mkdtempSync(join(tmpdir(), "kolu-kolu-choice-again-"));
+    dirs.push(dir);
+    const store = new Conf<Record<string, unknown>>({
+      cwd: dir,
+      projectVersion: SCHEMA_VERSION,
+      defaults: CONF_DEFAULTS as unknown as Record<string, unknown>,
+    });
+    store.set("works", once);
+    const set = vi.spyOn(store, "set");
+    dropKoluChoiceOptions_1_54_0(store as never);
+    expect(set).not.toHaveBeenCalled();
+    expect(store.get("works")).toEqual(once);
+  });
+
+  it("decodes through the live works schema once the ladder is walked out, and runs again as a no-op", () => {
+    // The live schema is the HEAD's, so the record is taken to the head: what
+    // 1.54.0 leaves is 1.55.0's input, and the two together are what a
+    // person's store does on the boot after this change.
+    const once = walk(structuredClone(WORKS), SCHEMA_VERSION);
+    const decoded = Schema.decodeUnknownResult(PersistedWorksSchema)(once);
+    expect(Result.isSuccess(decoded)).toBe(true);
+    // Idempotent: the walked record fed back through the rungs is unchanged.
+    expect(walk(structuredClone(once), SCHEMA_VERSION)).toEqual(once);
+  });
+});
+
+describe("the 1.55.0 rung — no hole in the work model", () => {
+  const AT = "2026-11-10T00:00:00.000Z";
+  const ID = "branch:local/%2Frepo/setup-choices";
+  const REF = "local/aaaa";
+
+  /** A real store stamped at 1.54.0, walked to the LIVE head — what the boot
+   *  after this change does to a person's file, transcript and all. Answers
+   *  the whole config plus the state root, so a case can read the transcript
+   *  the rung rewrote beside it. */
+  const walk = (
+    seed: Record<string, unknown>,
+  ): { readonly state: Record<string, unknown> } => {
+    const dir = mkdtempSync(join(tmpdir(), "kolu-no-null-"));
+    dirs.push(dir);
+    writeFileSync(
+      join(dir, "config.json"),
+      JSON.stringify({
+        preferences: DEFAULT_PREFERENCES,
+        ...seed,
+        __internal__: { migrations: { version: "1.54.0" } },
+      }),
+    );
+    const store = new Conf<Record<string, unknown>>({
+      cwd: dir,
+      projectVersion: SCHEMA_VERSION,
+      defaults: CONF_DEFAULTS as unknown as Record<string, unknown>,
+      migrations: CONF_MIGRATIONS as never,
+    });
+    return { state: readJson(store.path) };
+  };
+
+  /** One work's decisions after the walk, by their own ids. */
+  const decisionsOf = (
+    state: Record<string, unknown>,
+  ): Record<string, Record<string, unknown>> => {
+    const works = state.works as Record<string, { decisions: unknown[] }>;
+    const all: Record<string, Record<string, unknown>> = {};
+    for (const one of works[ID]?.decisions ?? []) {
+      const decision = one as Record<string, unknown>;
+      all[decision.id as string] = decision;
+    }
+    return all;
+  };
+
+  /** A 1.54.0 work, open unless the case ends it. */
+  const workWith = (
+    decisions: ReadonlyArray<Record<string, unknown>>,
+    events: ReadonlyArray<Record<string, unknown>> = [],
+    state: Record<string, unknown> = { kind: "open" },
+  ) => ({
+    [ID]: {
+      key: { kind: "branch", host: "local", repo: "/repo", branch: "setup" },
+      title: "the setup form",
+      startedAt: AT,
+      decisions,
+      events,
+      state,
+    },
+  });
+
+  /** The shape a 1.54.0 decision has: every field, including the two a setup
+   *  question has no use for and the `key: null` a work question carried. */
+  const decision = (fields: Record<string, unknown>) => ({
+    kind: "asked",
+    ask: "ask-1",
+    at: AT,
+    key: null,
+    header: "",
+    question: "?",
+    file: "",
+    ...fields,
+  });
+
+  it("takes a question about the work to its header, file and said arms", () => {
+    const { state } = walk({
+      works: workWith([
+        decision({
+          id: "d-plan",
+          kind: "answered",
+          header: "The plan",
+          question: "Approve the plan?",
+          options: ["Approve", "Change it"],
+          multiple: false,
+          file: ".waterfall/plan.md",
+          answer: {
+            at: AT,
+            how: "answered",
+            picked: ["Approve"],
+            text: "  ship it  ",
+            from: "reader",
+          },
+        }),
+        decision({
+          id: "d-typed",
+          kind: "answered",
+          question: "Anything else?",
+          options: [],
+          multiple: false,
+          answer: {
+            at: AT,
+            how: "answered",
+            picked: [],
+            text: "carry on",
+            from: null,
+          },
+        }),
+        decision({
+          id: "d-open",
+          question: "Still thinking?",
+          options: ["yes"],
+          multiple: true,
+        }),
+      ]),
+    });
+    const after = decisionsOf(state);
+
+    expect(after["d-plan"]).toEqual({
+      kind: "settled",
+      id: "d-plan",
+      ask: "ask-1",
+      at: AT,
+      topic: "work",
+      question: "Approve the plan?",
+      header: { kind: "header", text: "The plan" },
+      options: ["Approve", "Change it"],
+      multiple: false,
+      file: { kind: "file", path: ".waterfall/plan.md" },
+      answer: {
+        how: "answered",
+        at: AT,
+        from: "reader",
+        said: {
+          kind: "picked-and-typed",
+          picked: ["Approve"],
+          text: "ship it",
+        },
+      },
+    });
+    // No key at all on a question about the work — and an answer kolu
+    // carried over from the file it kept says so by name.
+    expect("key" in (after["d-typed"] ?? {})).toBe(false);
+    expect(after["d-typed"]?.header).toEqual({ kind: "none" });
+    expect(after["d-typed"]?.file).toEqual({ kind: "none" });
+    expect(after["d-typed"]?.answer).toEqual({
+      how: "answered",
+      at: AT,
+      from: "carried-over",
+      said: { kind: "typed", text: "carry on" },
+    });
+    expect(after["d-open"]?.kind).toBe("asked");
+    expect("answer" in (after["d-open"] ?? {})).toBe(false);
+  });
+
+  it("takes a setup question to its key's own words, with no header, file or multiple", () => {
+    const { state } = walk({
+      works: workWith([
+        decision({
+          id: "d-mode",
+          kind: "answered",
+          key: "mode",
+          header: "How",
+          question: "How should this run?",
+          // `stop` is nobody's word for a mode: it cannot be offered.
+          options: ["full", "trivial", "stop"],
+          multiple: true,
+          answer: {
+            at: AT,
+            how: "answered",
+            picked: ["full"],
+            text: "and quickly",
+            from: "card",
+          },
+        }),
+        decision({
+          id: "d-green",
+          kind: "answered",
+          key: "on-green",
+          options: ["merge", "hand-over"],
+          multiple: false,
+          answer: {
+            at: AT,
+            how: "answered",
+            picked: [],
+            text: " merge ",
+            from: "chat",
+          },
+        }),
+        decision({
+          id: "d-harness",
+          kind: "answered",
+          key: "planner.harness",
+          answer: {
+            at: AT,
+            how: "answered",
+            picked: ["omp"],
+            text: null,
+            from: "card",
+          },
+        }),
+        decision({
+          id: "d-declined",
+          kind: "answered",
+          key: "implementor.harness",
+          answer: {
+            at: AT,
+            how: "declined",
+            picked: [],
+            text: null,
+            from: "card",
+          },
+        }),
+        decision({
+          id: "d-faceless",
+          kind: "answered",
+          key: "implementor.model",
+          answer: {
+            at: AT,
+            how: "declined",
+            picked: [],
+            text: null,
+            from: null,
+          },
+        }),
+      ]),
+    });
+    const after = decisionsOf(state);
+
+    expect(after["d-mode"]).toEqual({
+      kind: "settled",
+      id: "d-mode",
+      ask: "ask-1",
+      at: AT,
+      topic: "setup",
+      key: "mode",
+      question: "How should this run?",
+      options: ["full", "trivial"],
+      answer: { how: "answered", at: AT, from: "card", value: "full" },
+    });
+    // A typed on-green answer is one of kolu's words once it is trimmed.
+    expect(after["d-green"]?.answer).toEqual({
+      how: "answered",
+      at: AT,
+      from: "chat",
+      value: "merge",
+    });
+    // Kolu's own choices carry no options at all — and, walked on to head,
+    // say how they were chosen (1.56.0).
+    expect("options" in (after["d-harness"] ?? {})).toBe(false);
+    expect(after["d-harness"]?.answer).toEqual({
+      how: "answered",
+      at: AT,
+      from: "card",
+      value: "omp",
+      chosen: "picked",
+    });
+    // A decline keeps the face it was said on; a decline with no face is
+    // nobody declining, which is what `dropped` means.
+    expect(after["d-declined"]?.answer).toEqual({
+      how: "declined",
+      at: AT,
+      from: "card",
+    });
+    expect(after["d-faceless"]?.answer).toEqual({ how: "dropped", at: AT });
+  });
+
+  it("asks an empty answer again in an open work, and drops it in an ended one", () => {
+    const empty = (id: string, key: string) =>
+      decision({
+        id,
+        kind: "answered",
+        key,
+        question: `Which model for ${key}?`,
+        answer: {
+          at: AT,
+          how: "answered",
+          picked: [],
+          text: null,
+          from: "chat",
+        },
+      });
+
+    const open = decisionsOf(
+      walk({ works: workWith([empty("d", "planner.model")]) }).state,
+    );
+    expect(open.d?.kind).toBe("asked");
+    expect(open.d?.ask).toBe("ask-1");
+    expect("answer" in (open.d ?? {})).toBe(false);
+
+    const ended = decisionsOf(
+      walk({
+        works: workWith([empty("d", "planner.model")], [], {
+          kind: "ended",
+          at: AT,
+          outcome: { kind: "stopped", by: "you" },
+          kept: [],
+        }),
+      }).state,
+    );
+    expect(ended.d?.kind).toBe("settled");
+    expect(ended.d?.answer).toEqual({ how: "dropped", at: AT });
+  });
+
+  it("takes every event to what it is about, and says a part-answered form is part-answered", () => {
+    const { state } = walk({
+      works: workWith(
+        [
+          decision({
+            id: "d-open",
+            key: "planner.model",
+            kind: "answered",
+            answer: {
+              at: AT,
+              how: "answered",
+              picked: [],
+              text: null,
+              from: "chat",
+            },
+          }),
+        ],
+        [
+          {
+            at: AT,
+            by: "you",
+            kind: "requested",
+            terminal: null,
+            text: "fix the thing",
+          },
+          { at: AT, by: "kolu", kind: "carried-over", terminal: null },
+          { at: AT, by: "agent", kind: "stopped", terminal: REF, why: "" },
+          {
+            at: AT,
+            by: "agent",
+            kind: "asking",
+            terminal: REF,
+            why: "needs a model",
+          },
+          {
+            at: AT,
+            by: "ci",
+            kind: "checks-running",
+            terminal: null,
+            pr: 7,
+            head: null,
+            failing: [],
+          },
+          {
+            at: AT,
+            by: "ci",
+            kind: "checks-failed",
+            terminal: null,
+            pr: 7,
+            head: "abc1234",
+            failing: ["build"],
+          },
+          { at: AT, by: "you", kind: "answered", terminal: null, ask: "ask-1" },
+        ],
+      ),
+    });
+    const events = (
+      state.works as Record<string, { events: Record<string, unknown>[] }>
+    )[ID]?.events as Record<string, unknown>[];
+
+    expect(events[0]).toEqual({
+      at: AT,
+      by: "you",
+      kind: "requested",
+      about: { kind: "work" },
+      request: { kind: "said", text: "fix the thing" },
+    });
+    expect(events[1]?.about).toEqual({ kind: "work" });
+    expect(events[2]?.about).toEqual({ kind: "member", terminal: REF });
+    expect(events[2]?.why).toEqual({ kind: "none" });
+    expect(events[3]?.why).toEqual({ kind: "reason", text: "needs a model" });
+    expect(events[4]?.head).toEqual({ kind: "unreported" });
+    expect(events[5]?.head).toEqual({ kind: "commit", sha: "abc1234" });
+    // The ask this rung just re-opened was never finished, so the line that
+    // said it was says what is true instead.
+    expect(events[6]?.kind).toBe("answered-part");
+  });
+
+  it("says whether a member's worktree has been read", () => {
+    const { state } = walk({
+      works: workWith([]),
+      members: {
+        [REF]: {
+          work: ID,
+          role: "planner",
+          joinedAt: AT,
+          worktree: null,
+          watch: {
+            name: "",
+            agent: null,
+            told: null,
+            joined: "asked",
+            spoken: false,
+            ran: false,
+          },
+        },
+        "local/bbbb": {
+          work: ID,
+          role: "implementor",
+          joinedAt: AT,
+          worktree: "/repo",
+          watch: {
+            name: "",
+            agent: null,
+            told: null,
+            joined: "asked",
+            spoken: false,
+            ran: false,
+          },
+        },
+      },
+    });
+    const members = state.members as Record<string, Record<string, unknown>>;
+    expect(members[REF]?.worktree).toEqual({ kind: "unread" });
+    expect(members["local/bbbb"]?.worktree).toEqual({
+      kind: "read",
+      path: "/repo",
+    });
+  });
+
+  it("takes a work-ask row's outcome to a standing, and leaves a plain ask row alone", () => {
+    const dir = mkdtempSync(join(tmpdir(), "kolu-no-null-rows-"));
+    dirs.push(dir);
+    const plain = {
+      key: "r-0",
+      at: AT,
+      by: "agent",
+      kind: "ask",
+      text: "May I?",
+      ask: { fields: [], link: null, outcome: null },
+    };
+    writeTranscriptFile(transcriptFilePath(dir), "1.53.0", [
+      plain,
+      {
+        key: "r-1",
+        at: AT,
+        by: "kolu",
+        kind: "work-ask",
+        text: "Which model?",
+        work: ID,
+        ask: { fields: [], link: null, outcome: null },
+      },
+      {
+        key: "r-2",
+        at: AT,
+        by: "kolu",
+        kind: "work-ask",
+        text: "Which model?",
+        work: ID,
+        ask: {
+          fields: [],
+          link: { href: "x", label: "x" },
+          outcome: {
+            how: "answered",
+            answers: [
+              { key: "planner.model", values: [] },
+              { key: "planner.harness", values: ["omp"] },
+            ],
+          },
+        },
+      },
+      {
+        key: "r-3",
+        at: AT,
+        by: "kolu",
+        kind: "work-ask",
+        text: "Which model?",
+        work: ID,
+        ask: {
+          fields: [],
+          link: null,
+          outcome: { how: "answered", answers: [{ key: "mode", values: [] }] },
+        },
+      },
+      {
+        key: "r-4",
+        at: AT,
+        by: "kolu",
+        kind: "work-ask",
+        text: "Which model?",
+        work: ID,
+        ask: {
+          fields: [],
+          link: null,
+          outcome: { how: "withdrawn", answers: [] },
+        },
+      },
+    ] as never);
+
+    workAskStanding_1_55_0(dir);
+
+    const file = readJson(transcriptFilePath(dir));
+    expect(file.version).toBe(TRANSCRIPT_FILE_VERSION);
+    const rows = file.rows as Array<Record<string, unknown>>;
+    // A plain ask — the agent holding a call open on a person — is not this
+    // rung's business.
+    expect(rows[0]).toEqual(plain);
+    const askOf = (at: number) => rows[at]?.ask as Record<string, unknown>;
+    expect(askOf(1)).toEqual({ fields: [], standing: { kind: "open" } });
+    // The link goes, and only the answers that HAVE values are answers.
+    expect(askOf(2)).toEqual({
+      fields: [],
+      standing: {
+        kind: "answered",
+        answers: [{ key: "planner.harness", values: ["omp"] }],
+      },
+    });
+    // "Answered" with nothing in it is nobody answering.
+    expect(askOf(3)).toEqual({ fields: [], standing: { kind: "declined" } });
+    expect(askOf(4)).toEqual({ fields: [], standing: { kind: "withdrawn" } });
+
+    // Idempotent, and a file with nothing left to do is not rewritten.
+    const again = readFileSync(transcriptFilePath(dir), "utf8");
+    workAskStanding_1_55_0(dir);
+    expect(readFileSync(transcriptFilePath(dir), "utf8")).toBe(again);
+  });
+
+  it("restamps a transcript with no work-ask row, and names why a refusal was signed out", () => {
+    // A transcript after a New session holds no form at all — and the reader
+    // takes exactly the stamp it was built with, so leaving this at 1.53.0
+    // would refuse the file on the boot that ran the rung.
+    const dir = mkdtempSync(join(tmpdir(), "kolu-transcript-stamp-"));
+    dirs.push(dir);
+    writeTranscriptFile(transcriptFilePath(dir), "1.53.0", [
+      {
+        key: "u-1",
+        at: AT,
+        kind: "user",
+        text: "hi",
+        delivery: "refused",
+        auth: true,
+      },
+      {
+        key: "u-2",
+        at: AT,
+        kind: "user",
+        text: "and you",
+        delivery: "refused",
+      },
+    ] as never);
+
+    workAskStanding_1_55_0(dir);
+
+    const file = readJson(transcriptFilePath(dir));
+    expect(file.version).toBe(TRANSCRIPT_FILE_VERSION);
+    expect(file.rows).toEqual([
+      {
+        key: "u-1",
+        at: AT,
+        kind: "user",
+        text: "hi",
+        delivery: "refused",
+        signIn: "signed-out",
+      },
+      {
+        key: "u-2",
+        at: AT,
+        kind: "user",
+        text: "and you",
+        delivery: "refused",
+      },
+    ]);
+    const again = readFileSync(transcriptFilePath(dir), "utf8");
+    workAskStanding_1_55_0(dir);
+    expect(readFileSync(transcriptFilePath(dir), "utf8")).toBe(again);
+  });
+
+  it("writes nothing when every work is already in the new shape", () => {
+    const { state } = walk({ works: workWith([decision({ id: "d" })]) });
+    const dir = mkdtempSync(join(tmpdir(), "kolu-no-null-again-"));
+    dirs.push(dir);
+    const store = new Conf<Record<string, unknown>>({
+      cwd: dir,
+      projectVersion: SCHEMA_VERSION,
+      defaults: CONF_DEFAULTS as unknown as Record<string, unknown>,
+    });
+    store.set("works", state.works);
+    store.set("members", state.members);
+    const set = vi.spyOn(store, "set");
+    workArmsNotNulls_1_55_0(store as never);
+    expect(set).not.toHaveBeenCalled();
+  });
+
+  describe("the human's own bytes", () => {
+    /** THE DECISION THIS ROUND EXISTS FOR, exactly as it sits in the human's
+     *  store: "answered", from the chat, with nothing picked and nothing
+     *  typed. Two of them — one model question per role — on an OPEN work
+     *  whose harness, mode and on-green answers all landed. */
+    const emptyModel = (role: string) => ({
+      id: `d-${role}-model`,
+      ask: "ask-setup",
+      at: AT,
+      kind: "answered",
+      key: `${role}.model`,
+      header: "",
+      question: `Which model should ${role}?`,
+      file: "",
+      answer: {
+        how: "answered",
+        picked: [],
+        text: null,
+        from: "chat",
+        at: AT,
+      },
+    });
+    const answered = (id: string, key: string, value: string) => ({
+      id,
+      ask: "ask-setup",
+      at: AT,
+      kind: "answered",
+      key,
+      header: "",
+      question: key,
+      file: "",
+      ...(key === "mode" || key === "on-green"
+        ? {
+            options:
+              key === "mode" ? ["full", "trivial"] : ["merge", "hand-over"],
+            multiple: false,
+          }
+        : {}),
+      answer: {
+        how: "answered",
+        picked: [value],
+        text: null,
+        from: "chat",
+        at: AT,
+      },
+    });
+
+    const SEED = {
+      works: workWith(
+        [
+          answered("d-mode", "mode", "full"),
+          answered("d-planner-harness", "planner.harness", "omp"),
+          emptyModel("planner"),
+          answered("d-implementor-harness", "implementor.harness", "omp"),
+          emptyModel("implementor"),
+          answered("d-green", "on-green", "merge"),
+        ],
+        [
+          {
+            at: AT,
+            by: "you",
+            kind: "answered",
+            terminal: null,
+            ask: "ask-setup",
+          },
+        ],
+      ),
+    };
+
+    it("brings both model questions back to ASKED, in the same ask, and decodes", () => {
+      const { state } = walk(structuredClone(SEED));
+      const after = decisionsOf(state);
+
+      for (const role of ["planner", "implementor"]) {
+        const one = after[`d-${role}-model`];
+        expect(one?.kind).toBe("asked");
+        expect(one?.ask).toBe("ask-setup");
+        expect(one?.topic).toBe("setup");
+        expect(one?.key).toBe(`${role}.model`);
+        expect("answer" in (one ?? {})).toBe(false);
+      }
+      // What they DID answer is still answered.
+      expect(after["d-mode"]?.answer).toEqual({
+        how: "answered",
+        at: AT,
+        from: "chat",
+        value: "full",
+      });
+      expect(after["d-planner-harness"]?.answer).toEqual({
+        how: "answered",
+        at: AT,
+        from: "chat",
+        value: "omp",
+        chosen: "picked",
+      });
+      // The form was not finished, so the line that said it was does not say
+      // it any more.
+      const events = (
+        state.works as Record<
+          string,
+          { events: Array<Record<string, unknown>> }
+        >
+      )[ID]?.events;
+      expect(events?.[0]?.kind).toBe("answered-part");
+
+      // ... and the whole record reads back through the live schema.
+      const decoded = Schema.decodeUnknownResult(PersistedWorksSchema)(
+        state.works,
+      );
+      expect(Result.isSuccess(decoded)).toBe(true);
+    });
+
+    it("runs again as a no-op", () => {
+      const once = walk(structuredClone(SEED)).state;
+      const twice = walk({
+        works: once.works as Record<string, unknown>,
+        members: once.members as Record<string, unknown>,
+      }).state;
+      expect(twice.works).toEqual(once.works);
+      expect(twice.members).toEqual(once.members);
+    });
+  });
+});
+
+describe("the 1.56.0 rung — an answer to one of kolu's questions says how it was chosen", () => {
+  const AT = "2026-11-15T00:00:00.000Z";
+  const ID = "branch:local/%2Frepo/setup-choices";
+
+  /** One 1.55.0 decision: settled, in the shape that rung left. */
+  const settled = (id: string, key: string, answer: Record<string, unknown>) =>
+    key === "mode" || key === "on-green"
+      ? {
+          kind: "settled",
+          id,
+          ask: "ask-setup",
+          at: AT,
+          topic: "setup",
+          key,
+          question: key,
+          options: key === "mode" ? ["trivial"] : ["merge"],
+          answer,
+        }
+      : {
+          kind: "settled",
+          id,
+          ask: "ask-setup",
+          at: AT,
+          topic: "setup",
+          key,
+          question: key,
+          answer,
+        };
+
+  const SEED = {
+    [ID]: {
+      key: { kind: "branch", host: "local", repo: "/repo", branch: "setup" },
+      title: "the setup form",
+      startedAt: AT,
+      decisions: [
+        settled("d-mode", "mode", {
+          how: "answered",
+          at: AT,
+          from: "card",
+          value: "trivial",
+        }),
+        settled("d-harness", "implementor.harness", {
+          how: "answered",
+          at: AT,
+          from: "card",
+          value: "omp",
+        }),
+        settled("d-model", "implementor.model", {
+          how: "answered",
+          at: AT,
+          from: "card",
+          value: "anthropic/claude-fable-5-2",
+        }),
+        settled("d-declined", "planner.model", {
+          how: "declined",
+          at: AT,
+          from: "card",
+        }),
+      ],
+      events: [],
+      state: { kind: "open" },
+    },
+  };
+
+  /** A real store stamped at 1.55.0 — the shape the human's store holds —
+   *  walked to the live head. */
+  const walk = (works: Record<string, unknown>) => {
+    const dir = mkdtempSync(join(tmpdir(), "kolu-how-chosen-"));
+    dirs.push(dir);
+    writeFileSync(
+      join(dir, "config.json"),
+      JSON.stringify({
+        preferences: DEFAULT_PREFERENCES,
+        works,
+        __internal__: { migrations: { version: "1.55.0" } },
+      }),
+    );
+    const store = new Conf<Record<string, unknown>>({
+      cwd: dir,
+      projectVersion: SCHEMA_VERSION,
+      defaults: CONF_DEFAULTS as unknown as Record<string, unknown>,
+      migrations: CONF_MIGRATIONS as never,
+    });
+    return { store, state: readJson(store.path) };
+  };
+
+  it("makes every answered kolu choice a pick, leaves everything else, and decodes", () => {
+    const { state } = walk(structuredClone(SEED));
+    const decisions = (
+      state.works as Record<string, { decisions: Record<string, unknown>[] }>
+    )[ID]?.decisions;
+    const answerOf = (id: string) =>
+      decisions?.find((one) => one.id === id)?.answer;
+    expect(answerOf("d-harness")).toEqual({
+      how: "answered",
+      at: AT,
+      from: "card",
+      value: "omp",
+      chosen: "picked",
+    });
+    expect(answerOf("d-model")).toMatchObject({ chosen: "picked" });
+    // Not one of kolu's choices, or not answered: the same bytes.
+    expect(answerOf("d-mode")).toEqual({
+      how: "answered",
+      at: AT,
+      from: "card",
+      value: "trivial",
+    });
+    expect(answerOf("d-declined")).toEqual({
+      how: "declined",
+      at: AT,
+      from: "card",
+    });
+    expect(
+      Result.isSuccess(
+        Schema.decodeUnknownResult(PersistedWorksSchema)(state.works),
+      ),
+    ).toBe(true);
+  });
+
+  it("writes nothing to a store already in the new shape", () => {
+    const { store } = walk(structuredClone(SEED));
+    const set = vi.spyOn(store, "set");
+    koluChoicesSayHowChosen_1_56_0(store as never);
+    expect(set).not.toHaveBeenCalled();
+  });
+});

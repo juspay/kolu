@@ -26,6 +26,7 @@ import {
 } from "solid-js";
 import { Dynamic } from "solid-js/web";
 import { highlightCode, loadHighlighter } from "./highlight";
+import { decorateInlineCode, type InlineCodeAction } from "./inlineCode";
 import { renderMarkdownToRawHtml } from "./render";
 import { sanitizeHtml } from "./sanitize";
 
@@ -63,6 +64,9 @@ type LinkHandlers = {
    *  popover anchored to the marker. `anchor` is the clicked `[n]` marker;
    *  `definition` is its resolved `<li>` in the bottom footnotes list. */
   onFootnote?: (anchor: HTMLElement, definition: HTMLElement) => void;
+  /** A press on an inline code span the host answered for (`inlineCode`):
+   *  its exact text, and the button pressed, to anchor a menu to. */
+  onInlineCode?: (text: string, anchor: HTMLElement) => void;
 };
 
 /** Own the click-dispatch over `.kolu-md` DOM: code-copy buttons, in-page
@@ -85,6 +89,17 @@ export function bindMarkdownLinks(
   const onClick = (e: MouseEvent) => {
     const target = e.target as Element | null;
     if (!target) return;
+
+    const codeAction = target.closest<HTMLElement>("[data-md-code-action]");
+    if (codeAction) {
+      e.preventDefault();
+      e.stopPropagation();
+      handlers.onInlineCode?.(
+        codeAction.getAttribute("data-md-code-action") ?? "",
+        codeAction,
+      );
+      return;
+    }
 
     const copyButton = target.closest<HTMLElement>("[data-md-copy]");
     if (copyButton) {
@@ -186,7 +201,7 @@ function bindInteractions(el: HTMLElement, handlers: LinkHandlers): void {
   bindMarkdownLinks(el, handlers);
   const onPointerDown = (e: Event) => {
     const target = e.target as Element | null;
-    if (target?.closest?.("a, [data-md-copy]")) {
+    if (target?.closest?.("a, [data-md-copy], [data-md-code-action]")) {
       e.stopPropagation();
     }
   };
@@ -218,6 +233,15 @@ export const Markdown: Component<{
    *  ⇒ a footnote ref keeps its default jump-to-definition scroll. Document
    *  variant only. */
   onFootnote?: (anchor: HTMLElement, definition: HTMLElement) => void;
+  /** INLINE CODE THE HOST CAN ACT ON. `action` answers for one span's exact
+   *  text — a name for pressing it and whether it is the one open now — or
+   *  `undefined` to leave it plain code; `onPress` gets a press on one it
+   *  answered for. Read reactively: a span becomes pressable the moment the
+   *  host can act on it. Code blocks are never touched (`./inlineCode`). */
+  inlineCode?: {
+    readonly action: (text: string) => InlineCodeAction | undefined;
+    readonly onPress: (text: string, anchor: HTMLElement) => void;
+  };
 }> = (props) => {
   const variant = (): MarkdownVariant => props.variant ?? "document";
   const isDocument = () => variant() === "document";
@@ -250,8 +274,8 @@ export const Markdown: Component<{
       }),
   );
 
-  const html = createMemo(() =>
-    sanitizeHtml(
+  const html = createMemo(() => {
+    const sanitized = sanitizeHtml(
       renderMarkdownToRawHtml(props.markdown, {
         inline: variant() === "inline",
         // GitHub folds a single newline to a space; chat/dock want it as a
@@ -276,8 +300,12 @@ export const Markdown: Component<{
         highlightCode:
           isDocument() && highlighter() != null ? highlightCode : undefined,
       },
-    ),
-  );
+    );
+    const inlineCode = props.inlineCode;
+    return inlineCode === undefined
+      ? sanitized
+      : decorateInlineCode(sanitized, inlineCode.action);
+  });
 
   return (
     <Dynamic
@@ -292,6 +320,9 @@ export const Markdown: Component<{
           },
           get onFootnote() {
             return props.onFootnote;
+          },
+          get onInlineCode() {
+            return props.inlineCode?.onPress;
           },
         })
       }

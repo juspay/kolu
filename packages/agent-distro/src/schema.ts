@@ -82,7 +82,11 @@ export function agentDistroSettingEqual(
  *     lands: a terminal never starts without a profile the setting names.
  *   - `ready` — new terminals get `set` (the package's exact store path and
  *     the built profiles, in stack order; its stack is theirs) — `delivering`
- *     while kolu-server delivers a newer set and this one keeps serving.
+ *     while kolu-server delivers a newer set and this one keeps serving — and
+ *     `answers`, the flags that package's picker answers (its own
+ *     `share/agent-distro/answers`, `[]` for one older than the file): a
+ *     package older than kolu's calls (`./models.ts`' `missingPackageCalls`)
+ *     still serves terminals, but no model can be asked of it.
  *   - `error` — the delivery failed and nothing serves: `message` states its
  *     cause (kolu-server's words) on its first line, and Nix's own output on
  *     the lines after it (`./failure.ts`). New terminals get no agents.
@@ -104,6 +108,7 @@ export const AgentDistroStatusSchema = Schema.Union([
     kind: Schema.Literal("ready"),
     set: DeliveredSetSchema,
     delivering: Schema.Boolean,
+    answers: Schema.Array(Schema.String),
   }),
   Schema.Struct({
     kind: Schema.Literal("error"),

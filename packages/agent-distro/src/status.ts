@@ -530,6 +530,39 @@ function displayVersion(version: string): string {
 export const AGENTS_OFF_MEANS =
   "New terminals use only the agents you installed yourself.";
 
+/** WHY A HOST HAS NO HARNESS TO CHOOSE, and what to do about it — for any
+ *  status but `ready`. One sentence, said wherever kolu would otherwise ask
+ *  which harness runs on `where`: a work's setup refuses with it, and so does
+ *  a model list asked of that host. A failure carries its own words (its
+ *  first line), never a summary of them. */
+export function agentsNotReadyWords(
+  status: Exclude<AgentDistroStatus, { readonly kind: "ready" }>,
+  where: string,
+): string {
+  switch (status.kind) {
+    case "off":
+      return `The coding agents are switched off for ${where}. Turn Agents on for ${where} in Settings, then ask again.`;
+    case "unavailable":
+      return `${where} runs a kolu built without agent-distro, so it has no coding agents to choose from.`;
+    case "undelivered":
+      return `The coding agents have not been delivered to ${where} yet. Check that machine from its host details, wait for its agents to arrive, then ask again.`;
+    case "downloading":
+      return `The coding agents are still being delivered to ${where}. Wait for the download to finish, then ask again.`;
+    case "error":
+      return `The coding agents could not be delivered to ${where}: ${failureWords(status.message).headline}`;
+    default:
+      return status satisfies never;
+  }
+}
+
+/** ... and for a host whose agents are READY but OLDER THAN THIS KOLU NEEDS:
+ *  the package it serves does not answer every call kolu makes of it
+ *  (`@kolu/agent-distro/models`' `missingPackageCalls`), so no harness's
+ *  models can be asked there. Said by the setup's refusal, the model list,
+ *  the answer check and the start alike. */
+export const agentsTooOldWords = (where: string): string =>
+  `The coding agents on ${where} are older than this kolu needs: they cannot say which models a harness offers. Check that machine from its host details for newer agents, then ask again.`;
+
 /** How many profile references the field remembers the user added before. */
 export const RECENT_PROFILES_CAP = 8;
 

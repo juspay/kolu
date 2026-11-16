@@ -20,6 +20,8 @@ import {
   type ToolCallLocation,
 } from "@agentclientprotocol/sdk";
 import { relativeTo } from "@kolu/acp";
+import type { Leg } from "@kolu/acp/engine";
+import type { ConductorSignInReason } from "kolu-common/conductor";
 import type { ConductorAuthMethod } from "./rows.ts";
 
 /**
@@ -73,6 +75,23 @@ const AUTH_REQUIRED = -32000;
  */
 export const authOf = (cause: unknown): boolean =>
   cause instanceof RequestError && cause.code === AUTH_REQUIRED;
+
+/**
+ * WHETHER SIGNING IN COULD FIX A REFUSAL, and which kind — `signed-out` off
+ * ACP's own code, `account` when the agent's error DATA says the account that
+ * is signed in cannot run it (a usage limit, billing, an organisation that is
+ * not allowed). Which data says that is the agent's own vocabulary, so the
+ * leg answers it (`Leg.accountRefusal`); nothing is read off the prose.
+ */
+export const signInOf = (
+  cause: unknown,
+  leg: Pick<Leg, "accountRefusal">,
+): ConductorSignInReason | "no" =>
+  authOf(cause)
+    ? "signed-out"
+    : cause instanceof RequestError && leg.accountRefusal?.(cause.data) === true
+      ? "account"
+      : "no";
 
 /** WHAT ANYTHING THAT WENT WRONG SAID — an `Error`'s own sentence, and
  *  anything else as the string it prints as. Spelled ONCE, because every place

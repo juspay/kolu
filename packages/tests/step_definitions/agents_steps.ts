@@ -35,12 +35,12 @@ import {
   type AgentHostDetail,
   agentHostDetail,
   agentMarkOf,
-  agentToast,
-  type HostAgentStatus,
-  agentUpdateFailedLine,
   agentsChosenLabel,
   agentsResolvedLine,
   agentsStepHint,
+  agentToast,
+  agentUpdateFailedLine,
+  type HostAgentStatus,
   JUSPAY_PROFILE,
   restartedLabel,
 } from "@kolu/agent-distro/status";
@@ -52,11 +52,11 @@ import {
   FIXTURE_PICKER_SAYS,
   fixtureHistoryLog,
 } from "../support/agentDistroFixture.ts";
+import { readBufferText, waitForBufferContains } from "../support/buffer.ts";
 import { stateHomeDir } from "../support/hooks.ts";
 import { waitForPadiCell } from "../support/padiCellWait.ts";
 import { escapeRegExp } from "../support/regexp.ts";
 import { type KoluWorld, POLL_TIMEOUT } from "../support/world.ts";
-import { readBufferText, waitForBufferContains } from "../support/buffer.ts";
 
 /** The focused tile — the one a just-created terminal lands in. */
 const FOCUSED_TILE = '[data-testid="canvas-tile"]:has([data-focused])';
@@ -116,6 +116,42 @@ async function setSwitch(world: KoluWorld, on: boolean): Promise<void> {
   if ((await switchOn(world)) !== on)
     await world.page.click(`${IN_SETTINGS} [data-testid="agents-switch"]`);
   await waitForSwitch(world, on);
+}
+
+/** AGENTS ON FOR THIS MACHINE, and PROVED on — the arrangement any scenario
+ *  needs before a harness can be chosen for a piece of work (kolu refuses to
+ *  ask which harness runs a role on a host whose agents are not ready).
+ *
+ *  The same gestures the Agents scenarios make: Settings' own switch, then
+ *  padi's own word that the floor is serving. The setting is a HOP (browser →
+ *  kolu-server's preference → padi's cell), so the switch reading `on` is not
+ *  the arrangement — `readyWithNoProfiles` is, and it is what makes a later
+ *  `agents-not-ready` refusal a real failure rather than a race. Settings is
+ *  left closed, as the scenario found it.
+ *
+ *  On a PHONE the settings button lives in the pull-down chrome sheet, so the
+ *  handle is pulled first and the sheet is gone again before this returns —
+ *  the same gestures a person makes (`enterConductor` reaches the
+ *  conversation's tab the same way). */
+export async function turnAgentsOnReady(world: KoluWorld): Promise<void> {
+  const handle = world.page.locator('[data-testid="mobile-pull-handle"]');
+  const onPhone = await handle.isVisible();
+  if (onPhone) await handle.click();
+  await world.page.click('[data-testid="settings-trigger"]');
+  await setSwitch(world, true);
+  await readyWithNoProfiles();
+  await world.page.keyboard.press("Escape");
+  await world.page
+    .locator(IN_SETTINGS)
+    .waitFor({ state: "hidden", timeout: POLL_TIMEOUT });
+  if (!onPhone) return;
+  // The one Escape above closes the popover AND the sheet it was opened
+  // from; a sheet still standing gets its own. Either way this does not
+  // return until the canvas is clear, because the scenario's next gesture is
+  // on the canvas.
+  const sheet = world.page.locator('[data-testid="mobile-chrome-sheet"]');
+  if (await sheet.isVisible()) await world.page.keyboard.press("Escape");
+  await sheet.waitFor({ state: "hidden", timeout: POLL_TIMEOUT });
 }
 
 Then(

@@ -12,9 +12,10 @@
  * look exactly right.
  *
  * The rest are the menu's own rules — one confirm in front of the wipe, and
- * rows that exist only while they mean something (`Stop` needs a running turn,
- * `Sign in…` needs an agent that is not signed in). Absent rather than
- * disabled: a greyed row is still a row a person reaches for.
+ * rows that exist only while they mean something (`Stop` needs a running
+ * turn). Absent rather than disabled: a greyed row is still a row a person
+ * reaches for. Signing in is the one door that is ALWAYS there, named for the
+ * state it is in.
  *
  * The last block is the ROW'S ONE LINE-HEIGHT. There is no layout in this
  * environment — happy-dom has no boxes to measure — so what is pinned is the
@@ -40,6 +41,7 @@ const verbs = vi.hoisted(() => ({
   newSession: vi.fn(),
   cancel: vi.fn(),
   setOption: vi.fn(),
+  signIn: vi.fn(),
 }));
 vi.mock("./useConductor", () => ({
   useConductor: () => verbs,
@@ -93,7 +95,7 @@ function mount(
         <ConductorHeader
           state={{ ...DEFAULT_CONDUCTOR_STATE, phase: "idle", ...over }}
           rows={ROWS}
-          onSignIn={() => {}}
+          onSignIn={() => verbs.signIn()}
         />
       </Shown.Provider>
     ),
@@ -171,7 +173,7 @@ describe("the header's ⋯", () => {
     expect(verbs.cancel).toHaveBeenCalledTimes(1);
   });
 
-  it("offers `Sign in…` only while the agent is not signed in", () => {
+  it("always offers a sign-in, named `Sign in again…` while signed in, and asks the harness", () => {
     const out = mount({
       identity: {
         kind: "none",
@@ -181,10 +183,12 @@ describe("the header's ⋯", () => {
       },
     });
     open(out.at);
-    expect(out.at("conductor-menu-signin")).toBeDefined();
+    expect(out.at("conductor-menu-signin")?.textContent).toBe("Sign in…");
     dispose?.();
     root?.remove();
 
+    // SIGNED IN AND STILL A DOOR: an account at its limit, the wrong account
+    // and a stale login are all signed in, and the agent offers nothing.
     const inside = mount({
       identity: {
         kind: "account",
@@ -194,7 +198,10 @@ describe("the header's ⋯", () => {
       },
     });
     open(inside.at);
-    expect(inside.at("conductor-menu-signin")).toBeUndefined();
+    const door = inside.at("conductor-menu-signin");
+    expect(door?.textContent).toBe("Sign in again…");
+    door?.click();
+    expect(verbs.signIn).toHaveBeenCalledTimes(1);
   });
 
   it("copies the transcript through the repo's clipboard path", () => {

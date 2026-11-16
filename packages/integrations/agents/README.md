@@ -45,8 +45,8 @@ needs per-agent key knowledge again (a human having to tell a conductor that
 between the paste and the Enter, which `agent_say` performs).
 
 Each recipe carries `verified` — how it is known to be true. Measured by
-**running the agent in a kolu terminal on 2026-11-13**, except grok, which is
-not installed here and is taken from xAI's own keyboard reference.
+**running the agent in a kolu terminal**, except grok, which is not installed
+here and is taken from xAI's own keyboard reference.
 
 | Agent | Idle | Working | What working delivery does | Verified |
 | --- | --- | --- | --- | --- |
@@ -54,14 +54,23 @@ not installed here and is taken from xAI's own keyboard reference.
 | codex | `Enter` | `Enter` | **steer** — the words join the turn that is running | ran `codex-cli` 0.167.1 |
 | opencode | `Enter` | `Enter` | **queue** — the generation completes, then it answers the message | ran `opencode` 2.2.7 |
 | grok | `Enter` | `Enter` | **queue** — "the turn picks up the prompt at its next tool or model step" (its send-now chord CANCELS the turn, so it is deliberately not the recipe) | [docs.x.ai/build/keyboard-shortcuts](https://docs.x.ai/build/keyboard-shortcuts) |
-| pi | `Enter` | `Enter` | **steer** — the line enters pi's steering pane and the turn takes it at its next step | ran `pi` 1.5.2 |
-| omp | `Enter` | `Enter` | **steer** — "Steering · 1", consumed mid-turn (the running answer changed) | ran `omp` 18.18.8 |
+| pi | `Enter` | `Enter` | **steer** — the line enters pi's "Steering:" pane and is held until the running step (any tool) ENDS, then handed over on its own; a second Enter does nothing | ran `pi` 1.5.2 on a stand-in model, 2026-11-15 |
+| omp | `Enter` | `Enter` | **steer** — "Steering · 1"; taken at once during `bash` (omp backgrounds it), held until an eval cell ends otherwise; a second Enter interrupts the running tool | ran `omp` 18.20.2, 2026-11-15 |
 | xyne | `Enter` | `Enter` | **steer** — the pi-derived "Steering:" pane | ran `xyne-cli` 0.4.8-dev |
 
 `working: null` is the honest answer for an agent whose TUI drops input
 mid-turn; `say: null` for one kolu cannot talk to at all. Both are REFUSALS at
 the tool, naming the agent — never a guessed keystroke landing in someone's
 half-finished work.
+
+A `steer` also names how kolu **sees** it land (`SteerSight`): the newest
+prompt in the agent's transcript — its id AND its text, which omp and pi write
+only when the turn takes the words — plus a reader for the agent's steering
+pane that answers `holds`, `absent` or `unreadable`. `agent_say` answers
+`landed` (a new prompt carrying these words), `held`, `did-not-land` (pane and
+transcript both read, neither has them) or `cannot-tell` from them. codex and
+xyne carry `sight: "unmeasured"` — nobody has measured how they hold a steer,
+so their answer stays `not-observable`.
 
 ## Design
 

@@ -26,8 +26,9 @@
  * that "already knows" its values are good.
  */
 
+import { Option } from "effect";
 import {
-  UNIQUE_ROLES,
+  isWaterfallRole,
   type Work,
   type WorkId,
   type WorkMember,
@@ -84,45 +85,48 @@ export interface WorkStoreValue<M extends WorkMember> {
   readonly members: ReadonlyMap<string, M>;
 }
 
-/** THE CHECK, as a {@link StoreFault} or nothing — the half {@link parseStore}
- *  throws with, exported for a caller that wants to ask before it writes. */
+/** THE CHECK, as a {@link StoreFault} — none for a legal store — the half
+ *  {@link parseStore} throws with, exported for a caller that wants to ask
+ *  before it writes. */
 export const storeFault = <M extends WorkMember>(
   works: Readonly<Record<WorkId, Work>> | ReadonlyMap<WorkId, Work>,
   members: Readonly<Record<string, M>> | ReadonlyMap<string, M>,
-): StoreFault | null => {
+): Option.Option<StoreFault> => {
   const workRows = works instanceof Map ? [...works] : Object.entries(works);
   const memberRows =
     members instanceof Map ? [...members] : Object.entries(members);
   for (const [id, work] of workRows) {
     const own = workIdOf(work.key);
-    if (own !== id) return { kind: "key-mismatch", filedAs: id, says: own };
+    if (own !== id)
+      return Option.some({ kind: "key-mismatch", filedAs: id, says: own });
   }
   const byId = new Map(workRows);
   const byWork = new Map<WorkId, Map<string, string>>();
   for (const [terminal, member] of memberRows) {
     const work = byId.get(member.work);
     if (work === undefined)
-      return { kind: "no-such-work", terminal, work: member.work };
+      return Option.some({
+        kind: "no-such-work",
+        terminal,
+        work: member.work,
+      });
     if (work.state.kind !== "open")
-      return { kind: "work-ended", terminal, title: work.title };
+      return Option.some({ kind: "work-ended", terminal, title: work.title });
     const roles = byWork.get(member.work) ?? new Map<string, string>();
     const taken = roles.get(member.role);
-    if (
-      taken !== undefined &&
-      (UNIQUE_ROLES as ReadonlyArray<string>).includes(member.role)
-    ) {
-      return {
+    if (taken !== undefined && isWaterfallRole(member.role)) {
+      return Option.some({
         kind: "role-taken",
         title: work.title,
         role: member.role,
         held: taken,
         second: terminal,
-      };
+      });
     }
     roles.set(member.role, terminal);
     byWork.set(member.work, roles);
   }
-  return null;
+  return Option.none();
 };
 
 /** The works and their members, as a value nothing can have built wrong — or
@@ -132,7 +136,7 @@ export const parseStore = <M extends WorkMember>(
   members: Readonly<Record<string, M>> | ReadonlyMap<string, M>,
 ): WorkStoreValue<M> => {
   const fault = storeFault(works, members);
-  if (fault !== null) throw new InvalidWorkStore(fault);
+  if (Option.isSome(fault)) throw new InvalidWorkStore(fault.value);
   return {
     works:
       works instanceof Map ? new Map(works) : new Map(Object.entries(works)),

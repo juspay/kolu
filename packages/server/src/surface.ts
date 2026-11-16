@@ -335,8 +335,7 @@ export interface StoreCellWriters {
  *  one declared failure they carry. The work refuses with a sentence (not a
  *  driven member, already yours, already the Conductor's); anything else is a
  *  bug in the bookkeeping and dies loudly, the same line the conductor's own
- *  fragment draws for its verbs. `auth: false` — nothing about a hand-over is
- *  a sign-in. */
+ *  fragment draws for its verbs. */
 function handOver(act: () => void): Effect.Effect<void, ConductorRefused> {
   return Effect.suspend(() => {
     try {
@@ -344,7 +343,7 @@ function handOver(act: () => void): Effect.Effect<void, ConductorRefused> {
       return Effect.void;
     } catch (err) {
       return err instanceof WorkRefusal
-        ? Effect.fail(new ConductorRefused({ why: err.message, auth: false }))
+        ? Effect.fail(new ConductorRefused({ why: err.message }))
         : Effect.die(err);
     }
   });
@@ -637,8 +636,9 @@ export function implementKoluSurface(deps: KoluSurfaceDeps) {
         // minutes answers it the same way they would in ten seconds.
         //
         // The values arrive keyed by decision id, a bare string being the
-        // one-value spelling; they are normalised to lists HERE, at the wire,
-        // so the record only ever sees one shape.
+        // one-value spelling and `{ typed }` a model the person typed, and
+        // `null` for a decline; they become the record's own reply HERE, at
+        // the wire, so the record only ever sees one shape.
         answerWork: ({
           input,
         }: {
@@ -646,39 +646,43 @@ export function implementKoluSurface(deps: KoluSurfaceDeps) {
             work: string;
             ask: string;
             answers: Readonly<
-              Record<string, ReadonlyArray<string> | string>
+              Record<
+                string,
+                ReadonlyArray<string> | string | { readonly typed: string }
+              >
             > | null;
             from: "card" | "chat" | "reader" | "popout";
           };
         }) =>
-          Effect.suspend(() => {
-            try {
-              return Effect.succeed(
-                liveServerConductor().answerWork({
-                  work: input.work,
-                  ask: input.ask,
-                  from: input.from,
-                  values:
-                    input.answers === null
-                      ? null
-                      : new Map(
+          Effect.tryPromise({
+            try: () =>
+              liveServerConductor().answerWork({
+                work: input.work,
+                ask: input.ask,
+                from: input.from,
+                reply:
+                  input.answers === null
+                    ? { kind: "declined" }
+                    : {
+                        kind: "answered",
+                        values: new Map(
                           Object.entries(input.answers).map(
-                            ([decision, values]) => [
+                            ([decision, sent]) => [
                               decision,
-                              typeof values === "string" ? [values] : values,
+                              typeof sent === "string" ? [sent] : sent,
                             ],
                           ),
                         ),
-                }),
-              );
-            } catch (err) {
-              return err instanceof WorkRefusal
-                ? Effect.fail(
-                    new ConductorRefused({ why: err.message, auth: false }),
-                  )
-                : Effect.die(err);
-            }
-          }),
+                      },
+              }),
+            catch: (err: unknown) => err,
+          }).pipe(
+            Effect.catch((err: unknown) =>
+              err instanceof WorkRefusal
+                ? Effect.fail(new ConductorRefused({ why: err.message }))
+                : Effect.die(err),
+            ),
+          ),
       },
     },
   };

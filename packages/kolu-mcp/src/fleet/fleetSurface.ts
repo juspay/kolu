@@ -60,6 +60,7 @@ import {
 } from "kolu-git/schemas";
 import {
   OnGreenSchema,
+  WorkKeySchema,
   WorkModeSchema,
   OutcomeSchema,
   WorkRoleSchema,
@@ -201,8 +202,9 @@ export const FleetWatchJoinSchema = Schema.Literals([...FLEET_WATCH_JOINS]);
  *
  *  `driver` is WHOSE KEYBOARD IT IS: `conductor` for one this conversation
  *  drives, `you` for one the person has TAKEN OVER (do not type into it until
- *  it is handed back — a wake will say when), `null` for a member nothing
- *  drives (a `watch`-mode work is the person's own terminal). */
+ *  it is handed back — a wake will say when), `nobody` for a member nothing
+ *  drives (a `watch`-mode work is the person's own terminal). An arm of
+ *  `kolu-work`'s own reading, which has no "no driver" hole to fill. */
 export const FleetWorkMemberSchema = Schema.Struct({
   ref: Schema.String.annotate({
     description:
@@ -214,9 +216,9 @@ export const FleetWorkMemberSchema = Schema.Struct({
   joined: FleetWatchJoinSchema,
   hostName: Schema.NullOr(Schema.String),
   hostState: Schema.NullOr(FleetHostStateSchema),
-  driver: Schema.NullOr(Schema.Literals(["conductor", "you"])).annotate({
+  driver: Schema.Literals(["conductor", "you", "nobody"]).annotate({
     description:
-      "Who is typing into it: `conductor` (yours to drive), `you` (the person took it over — do not send it input until it is handed back), or null (nothing drives it).",
+      "Who is typing into it: `conductor` (yours to drive), `you` (the person took it over — do not send it input until it is handed back), or `nobody` (a watch is the person's own terminal, and a work with no mode decided runs nothing).",
   }),
 });
 export type FleetWorkMember = typeof FleetWorkMemberSchema.Type;
@@ -229,6 +231,17 @@ export const FleetWorkStandingSchema = Schema.Struct({
   what: Schema.String,
   since: Schema.String,
 });
+
+/** ONE SETUP ANSWER on the wire — the value, or the fact that its question
+ *  has none yet. Two arms rather than a nullable value: "nobody has answered
+ *  the mode" is a state of the question, and an agent handed `null` cannot
+ *  tell it from a mode called nothing. Parameterised by the vocabulary the
+ *  answer is in, so `mode` and `onGreen` are each typed as their own words. */
+const FleetSetupAnswerSchema = <S extends Schema.Top>(value: S) =>
+  Schema.Union([
+    Schema.Struct({ kind: Schema.Literal("unanswered") }),
+    Schema.Struct({ kind: Schema.Literal("answered"), value }),
+  ]);
 
 /** ONE PIECE OF WORK IN PROGRESS, as the Conductor reads its own work back.
  *
@@ -244,11 +257,14 @@ export const FleetWorkStandingSchema = Schema.Struct({
 export const FleetWorkSchema = Schema.Struct({
   id: Schema.String,
   title: Schema.String,
-  repo: Schema.String,
-  branch: Schema.String,
+  /** WHAT THE WORK IS — a branch on a machine, or the terminal being
+   *  watched. The key itself rather than a repo and a branch flattened out of
+   *  it: a watch has neither, and two empty strings standing in for them is
+   *  the hole this round removes. */
+  key: WorkKeySchema,
   host: Schema.String,
-  mode: Schema.NullOr(WorkModeSchema),
-  onGreen: Schema.NullOr(OnGreenSchema),
+  mode: FleetSetupAnswerSchema(WorkModeSchema),
+  onGreen: FleetSetupAnswerSchema(OnGreenSchema),
   standing: FleetWorkStandingSchema,
   members: Schema.Array(FleetWorkMemberSchema),
   openQuestions: Schema.Array(Schema.String),

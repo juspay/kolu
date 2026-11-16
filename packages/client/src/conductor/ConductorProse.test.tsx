@@ -1,11 +1,12 @@
 // @vitest-environment happy-dom
 /**
- * LONG LISTS IN THE PROSE — what a reader sees, and what survives.
+ * THE CONDUCTOR'S PROSE — long lists folded, and the files it names opening.
  *
  * The assertions are about the reading: how many items are on screen, what the
- * one extra line says, and whether an opened list is still open after the
- * thing that drew it was rebuilt. No class names and no pixel sizes — those
- * are the look, and the look is allowed to change.
+ * one extra line says, whether an opened list is still open after the thing
+ * that drew it was rebuilt, and where a named file's press lands. No class
+ * names and no pixel sizes — those are the look, and the look is allowed to
+ * change.
  *
  * `@kolu/solid-markdown` is scripted here rather than run for real, for a
  * platform reason, not a convenience one: its sanitize stage is a DOMPurify
@@ -16,11 +17,15 @@
  * on happy-dom for the rest of its browser tests.) What the mock keeps is the
  * part of the package's contract this component depends on: the prose arrives
  * as HTML written through a RENDER effect, which is what puts the DOM in place
- * before the user effect that folds it. So the tests feed HTML where the app
- * feeds Markdown, and everything else here — the fold, the control, the
- * remembered open state — is the real thing.
+ * before the user effect that folds it — and the package's OWN inline-code
+ * step and click seam (`decorateInlineCode`, `bindMarkdownLinks`), run for
+ * real. So the tests feed HTML where the app feeds Markdown, and everything
+ * else here — the fold, the control, the remembered open state, the links —
+ * is the real thing.
  */
 
+import type * as SolidMarkdown from "@kolu/solid-markdown";
+import { ABOUT_WORK, type Work, type WorkId } from "kolu-work";
 import { createSignal } from "solid-js";
 import { render } from "solid-js/web";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -30,29 +35,53 @@ vi.mock("@kolu/solid-markdown", async () => {
   // primitive it needs is reached from inside it — a static import would not
   // have been evaluated yet when the factory runs.
   const solid = await import("solid-js");
+  const actual = await vi.importActual<typeof SolidMarkdown>(
+    "@kolu/solid-markdown",
+  );
   // What the compiled `innerHTML={html()}` binding does inside the real
   // component: a render effect, so the prose lands in the update's pure phase,
   // before the user effect that folds it.
   return {
-    Markdown: (props: { markdown: string }) => {
+    ...actual,
+    Markdown: (props: {
+      markdown: string;
+      inlineCode?: {
+        action: Parameters<typeof actual.decorateInlineCode>[1];
+        onPress: (text: string, anchor: HTMLElement) => void;
+      };
+    }) => {
       const el = document.createElement("div");
       el.className = "kolu-md";
       solid.createRenderEffect(() => {
-        el.innerHTML = props.markdown;
+        const inlineCode = props.inlineCode;
+        el.innerHTML =
+          inlineCode === undefined
+            ? props.markdown
+            : actual.decorateInlineCode(props.markdown, inlineCode.action);
+      });
+      actual.bindMarkdownLinks(el, {
+        onInlineCode: (text, anchor) => props.inlineCode?.onPress(text, anchor),
       });
       return el;
     },
   };
 });
 
+/** The works the prose names files of — the live collection, scripted. */
+const [works, setWorks] = createSignal<ReadonlyMap<WorkId, Work>>(new Map());
+vi.mock("./useWorks", () => ({ useWorkMap: () => works }));
+
 import ConductorProse from "./ConductorProse";
 import { PROSE_LIST_FOLD_OVER, PROSE_LIST_FOLD_SHOWS } from "./proseListFold";
+import { closeReader, readerTarget } from "./reader/useReader";
 
 const disposers: (() => void)[] = [];
 
 afterEach(() => {
   for (const dispose of disposers.splice(0)) dispose();
   document.body.innerHTML = "";
+  setWorks(new Map());
+  closeReader();
 });
 
 /** Mount the prose and hand back its host element. */
@@ -205,5 +234,93 @@ describe("the Conductor's prose folds a long list", () => {
 
     expect(visibleItems(first)).toHaveLength(PROSE_LIST_FOLD_SHOWS);
     expect(visibleItems(second)).toHaveLength(7);
+  });
+});
+
+describe("a file the Conductor names", () => {
+  const AT = "2026-11-16T00:00:00.000Z";
+
+  /** A work in progress that has seen `paths` appear in its `.waterfall/`. */
+  const workWith = (title: string, paths: readonly string[]): Work => ({
+    key: {
+      kind: "branch",
+      host: "local",
+      repo: "/src/app",
+      branch: title.replaceAll(" ", "-"),
+    },
+    title,
+    startedAt: AT,
+    decisions: [],
+    events: paths.map((path) => ({
+      at: AT,
+      by: "kolu",
+      about: ABOUT_WORK,
+      kind: "file",
+      path,
+    })),
+    state: { kind: "open" },
+  });
+
+  const PLAN = ".waterfall/plan.md";
+  const SAID = `<p>Its plan is at <code>${PLAN}</code>.</p>`;
+
+  /** The link a named path became, found by its accessible name. */
+  const link = (host: HTMLElement): HTMLButtonElement | null =>
+    host.querySelector<HTMLButtonElement>(`button[aria-label="Open ${PLAN}"]`);
+
+  it("opens the reader on the one work that holds it, and reads as open", () => {
+    setWorks(new Map([["w-parser" as WorkId, workWith("parser", [PLAN])]]));
+    const host = mount("row-plan", () => SAID);
+
+    link(host)?.click();
+
+    expect(readerTarget()).toEqual({ work: "w-parser", path: PLAN });
+    expect(link(host)?.getAttribute("aria-current")).toBe("true");
+  });
+
+  it("offers the works by title when several hold it, and opens the one chosen", () => {
+    setWorks(
+      new Map([
+        ["w-parser" as WorkId, workWith("rewrite the parser", [PLAN])],
+        ["w-login" as WorkId, workWith("fix the login", [PLAN])],
+      ]),
+    );
+    const host = mount("row-two", () => SAID);
+
+    link(host)?.click();
+    // NOTHING OPENED YET — no guess at which one the sentence meant.
+    expect(readerTarget()).toBeNull();
+    const offered = Array.from(
+      document.querySelectorAll('[data-testid^="named-file-option-"]'),
+    ).map((one) => one.textContent?.trim());
+    expect(offered).toEqual(["rewrite the parser", "fix the login"]);
+
+    document
+      .querySelector<HTMLButtonElement>(
+        '[data-testid="named-file-option-w-login"]',
+      )
+      ?.click();
+    expect(readerTarget()).toEqual({ work: "w-login", path: PLAN });
+  });
+
+  it("leaves a path no work holds as plain code", () => {
+    setWorks(new Map([["w-parser" as WorkId, workWith("parser", [PLAN])]]));
+    const host = mount(
+      "row-other",
+      () => "<p>See <code>.waterfall/brief.md</code>.</p>",
+    );
+
+    expect(host.querySelector("button[data-md-code-action]")).toBeNull();
+    expect(host.querySelector("code")?.textContent).toBe(".waterfall/brief.md");
+  });
+
+  it("becomes a link once the file appears, after the sentence was written", () => {
+    setWorks(new Map([["w-parser" as WorkId, workWith("parser", [])]]));
+    const host = mount("row-later", () => SAID);
+    expect(link(host)).toBeNull();
+
+    setWorks(new Map([["w-parser" as WorkId, workWith("parser", [PLAN])]]));
+
+    expect(link(host)).not.toBeNull();
   });
 });
