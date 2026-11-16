@@ -151,6 +151,7 @@ function terminal(git: {
         isWorktree: git.isWorktree ?? false,
         mainRepoRoot: `/home/srid/code/${git.repoName}`,
         remoteUrl: null,
+        isBare: false,
       },
     },
     location: LOCAL_LOCATION,

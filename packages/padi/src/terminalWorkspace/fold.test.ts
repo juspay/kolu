@@ -32,6 +32,7 @@ const gitInfo = (branch: string) =>
       isWorktree: false,
       mainRepoRoot: "/r",
       remoteUrl: null,
+      isBare: false,
     },
   }) as const;
 

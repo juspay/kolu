@@ -114,6 +114,7 @@ export async function resolveGitInfo(
         isWorktree: false,
         mainRepoRoot: repoRoot,
         remoteUrl: await resolveRemoteUrl(git, log),
+        isBare: true,
       });
     }
     const repoRoot = (await git.revparse(["--show-toplevel"])).trim();
@@ -143,6 +144,7 @@ export async function resolveGitInfo(
       isWorktree,
       mainRepoRoot,
       remoteUrl: await resolveRemoteUrl(git, log),
+      isBare: false,
     });
   } catch (e) {
     // Log so unexpected failures (permission errors, missing git binary)
@@ -166,7 +168,8 @@ export function gitInfoEqual(a: GitInfo | null, b: GitInfo | null): boolean {
     a.repoRoot === b.repoRoot &&
     a.branch === b.branch &&
     a.worktreePath === b.worktreePath &&
-    a.remoteUrl === b.remoteUrl
+    a.remoteUrl === b.remoteUrl &&
+    a.isBare === b.isBare
   );
 }
 

@@ -36,6 +36,7 @@ function makeGit(overrides: Partial<GitInfo> = {}): GitFact {
       isWorktree: false,
       mainRepoRoot: "/home/user/repo",
       remoteUrl: null,
+      isBare: false,
       ...overrides,
     },
   };

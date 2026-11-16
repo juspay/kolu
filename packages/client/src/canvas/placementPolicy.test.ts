@@ -24,6 +24,7 @@ function git(overrides: Partial<GitInfo>): GitInfo {
     isWorktree: false,
     mainRepoRoot: "/r",
     remoteUrl: null,
+    isBare: false,
     ...overrides,
   };
 }

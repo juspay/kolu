@@ -11638,6 +11638,30 @@
       "exampleRows": [],
       "executions": 1,
       "firstSeenSha": "15ab65c6037129ed00f46b746cd8de4998c37765"
+    },
+    {
+      "revisionId": "revision-b9d662ecb0b2d5487844",
+      "scenarioKey": "scenario-c1680d4233cab497adcf",
+      "feature": "features/code-tab.feature",
+      "scenario": "A bare repository's folder is browsed from disk",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "b5b6173d9b0900774ff1c0efbbe596586db5ce1f62f0b7e6ff57b7c6e6547ebd",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "65bf85478dc3800ea769e1027016d9d16d8d66d2"
+    },
+    {
+      "revisionId": "revision-4e01d7dce6307e933b74",
+      "scenarioKey": "scenario-8ad9f070d4fe9bbf34d3",
+      "feature": "features/code-tab.feature",
+      "scenario": "Branch view names the missing base branch and how to fetch it",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "fd8512fbd000beb73e8884743a6d3a2cb2ac209b8badaeffc6e31fc07bb10f0b",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "65bf85478dc3800ea769e1027016d9d16d8d66d2"
     }
   ]
 }

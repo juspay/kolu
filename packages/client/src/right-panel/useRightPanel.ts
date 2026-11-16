@@ -76,6 +76,7 @@ import {
   preferences,
   updatePreferences,
 } from "../wire";
+import { codeLister } from "./codeLister";
 
 /** A spot in the Code tab's navigable space — the unit `@kolu/solid-browser`'s
  *  history records. `mode` is the All/Local/Branch sub-view, carried *inside*
@@ -311,6 +312,18 @@ export function useRightPanel() {
     return stateOf(store.focusedTerminalId());
   }
 
+  /** The focused pane's EFFECTIVE Code-tab mode. A root git cannot list (a
+   *  bare repository's folder, {@link codeLister} `"disk"`) has nothing to
+   *  diff, so it answers `"browse"` whatever mode is stored. The stored mode
+   *  is not written, so it comes back when the pane moves into a working tree.
+   *  Every reader of the mode goes through here, so the Code tab, its queries,
+   *  the per-mode selection and `openInCodeTab` all agree. */
+  function paneCodeMode(): CodeTabView {
+    const id = store.focusedTerminalId();
+    const git = id === null ? undefined : store.getMetadata(id)?.git;
+    return codeLister(git) === "disk" ? "browse" : paneState().codeMode;
+  }
+
   /** All panel writes share local initialization, mutation, and persistence.
    *  The host is explicit so an in-flight create can retain its destination.
    *
@@ -455,15 +468,20 @@ export function useRightPanel() {
     // ── Per-pane task state ──────────────────────────────────────────
     /** DU view of the FOCUSED PANE's active tab — `{ kind: "inspector" }` or
      *  `{ kind: "code", mode }`. Matches `match(...).with(...).exhaustive()`. */
-    activeTab: (): RightPanelTab => rightPanelView(paneState()),
+    activeTab: (): RightPanelTab =>
+      rightPanelView({
+        activeTab: paneState().activeTab,
+        codeMode: paneCodeMode(),
+      }),
     /** Persisted Code-tab sub-mode regardless of which tab is active.
      *  CodeTab needs the mode even when the user has flipped over to
      *  Inspector — selection / filter state is keyed by it, and the
      *  fallback behaviour of reading `activeTab` would mask a "browse"
      *  selection as "local" while Inspector is active and trigger a
      *  spurious reset on the round-trip back. Read per focused pane, so a
-     *  split's own mode is what the Code tab renders when focus lands there. */
-    codeMode: (): CodeTabView => paneState().codeMode,
+     *  split's own mode is what the Code tab renders when focus lands there.
+     *  Always `"browse"` on a root git cannot list — see `paneCodeMode`. */
+    codeMode: (): CodeTabView => paneCodeMode(),
     /** Switch the focused pane to Inspector. `codeMode` is preserved so toggling
      *  back to Code restores the user's last sub-mode. */
     showInspector: () => mutatePane({ activeTab: "inspector" }),

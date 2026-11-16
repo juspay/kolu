@@ -27,6 +27,7 @@ const git = (path: string, repoName: string, branch: string) =>
       isWorktree: false,
       mainRepoRoot: path,
       remoteUrl: null,
+      isBare: false,
     },
   }) as const;
 

@@ -24,6 +24,10 @@
  *  hand-driven, procedure-and-input-keyed pulse (`unenrolledStreamCall` mocked)
  *  requeries the matching ACTIVE instance. */
 
+import {
+  GitFailed,
+  WorktreeBaseBranchMissing,
+} from "@kolu/padi-client/surface";
 import { Effect } from "effect";
 import type { HostKey } from "kolu-common/hostKey";
 import { encodeHostKey } from "kolu-common/hostKey";
@@ -49,6 +53,8 @@ const pulseCtl = vi.hoisted(() => ({
 vi.mock("@kolu/surface/client", async () => {
   const { makeControllableStream } = await import("./streamMock.testlib");
   return {
+    // `isDeclared` asks it; no failure in this suite is a transport loss.
+    isTransportError: () => false,
     unenrolledStreamCall: (proc: unknown, input: unknown) => {
       const sub: {
         proc: unknown;
@@ -75,6 +81,12 @@ const bag = vi.hoisted(() => ({
   // getStatus poll count, keyed by mode, so a "refresh" is observable per query.
   counts: {} as Record<string, number>,
   previewTagInputs: [] as Array<{ repoPath: string; filePath: string }>,
+  // Whether the focused pane's repo has no working tree (a bare repo's folder).
+  bare: (() => false) as () => boolean,
+  listDirectoryInputs: [] as Array<{ repoPath: string; dirPath: string }>,
+  // When set, a BRANCH status read fails with this instead of answering.
+  branchFailure: null as Error | null,
+  toastError: vi.fn(),
 }));
 
 vi.mock("../wire", async () => {
@@ -85,13 +97,15 @@ vi.mock("../wire", async () => {
   const activePadiRpc = {
     git: {
       getStatus: (i: { repoPath: string; mode: string }) =>
-        Effect.sync(() => {
+        Effect.suspend(() => {
           bag.counts[i.mode] = (bag.counts[i.mode] ?? 0) + 1;
-          return {
+          if (i.mode === "branch" && bag.branchFailure)
+            return Effect.fail(bag.branchFailure);
+          return Effect.succeed({
             files: [],
             label: `${encodeHostKey(bag.activeHost())}:${i.mode}`,
             n: bag.counts[i.mode],
-          };
+          });
         }),
       getDiff: () => Effect.succeed({ hunks: [] }),
     },
@@ -107,6 +121,11 @@ vi.mock("../wire", async () => {
           return { paths: ["node_modules/"] };
         }),
       readFile: () => Effect.succeed({ content: "", truncated: false }),
+      listDirectory: (input: { repoPath: string; dirPath: string }) =>
+        Effect.sync(() => {
+          bag.listDirectoryInputs.push(input);
+          return { paths: [".git/", ".worktrees/", "notes.md"] };
+        }),
       filePreviewTag: (input: { repoPath: string; filePath: string }) =>
         Effect.sync(() => {
           bag.previewTagInputs.push(input);
@@ -128,12 +147,19 @@ vi.mock("../wire", async () => {
   };
 });
 
+vi.mock("solid-sonner", () => ({ toast: { error: bag.toastError } }));
+
 vi.mock("../terminal/useTerminalStore", () => ({
   useTerminalStore: () => ({
     focused: () => ({
       id: bag.termId(),
       meta: bag.repoRoot()
-        ? { git: { kind: "repo", info: { repoRoot: bag.repoRoot() } } }
+        ? {
+            git: {
+              kind: "repo",
+              info: { repoRoot: bag.repoRoot(), isBare: bag.bare() },
+            },
+          }
         : null,
     }),
   }),
@@ -153,7 +179,9 @@ import {
 } from "../hostScope/mockHostMap.testlib";
 import {
   leaseCodeQueries,
+  codeActiveStatus,
   codeAllPaths,
+  codeDiskRootLevel,
   codeFileContent,
   codeLocalStatus,
 } from "./hostCodeTab";
@@ -216,6 +244,10 @@ beforeEach(async () => {
   setDriveRepo("/repo");
   bag.counts = {};
   bag.previewTagInputs = [];
+  bag.bare = () => false;
+  bag.listDirectoryInputs = [];
+  bag.branchFailure = null;
+  bag.toastError.mockClear();
   bag.mode = () => "browse";
   bag.selected = () => null;
   setCodeShown(true);
@@ -539,4 +571,81 @@ it("one hidden or disposed consumer cannot pause another shown Code view", async
   pulse();
   await flush();
   expect(bag.counts.listAll).toBe(paused);
+});
+
+describe("a folder git cannot list (a bare repository's)", () => {
+  it("reads the root level from disk and never asks git for a list or a status", async () => {
+    bag.bare = () => true;
+    setShowIgnoredFiles(true);
+    switchTo(HOST_A);
+    void codeDiskRootLevel.pending();
+    void codeAllPaths.pending();
+    await flush();
+    pulse();
+    await flush();
+
+    expect(codeDiskRootLevel()).toEqual({
+      repoRoot: "/repo",
+      paths: [".git/", ".worktrees/", "notes.md"],
+    });
+    expect(bag.listDirectoryInputs).toEqual([
+      { repoPath: "/repo", dirPath: "" },
+    ]);
+    // The three git calls that fail on a root with no working tree.
+    expect(bag.counts.listAll).toBeUndefined();
+    expect(bag.counts.listIgnored).toBeUndefined();
+    expect(bag.counts.local).toBeUndefined();
+    expect(bag.counts.branch).toBeUndefined();
+    expect(bag.toastError).not.toHaveBeenCalled();
+
+    // A pane switch inside that root re-dispatches nothing and never blanks.
+    const reads = bag.listDirectoryInputs.length;
+    setDriveTermId("t2");
+    await flush();
+    expect(bag.listDirectoryInputs.length).toBe(reads);
+    expect(codeDiskRootLevel.pending()).toBe(false);
+    setShowIgnoredFiles(false);
+  });
+
+  it("a checkout never reads its root from disk", async () => {
+    switchTo(HOST_A);
+    void codeDiskRootLevel.pending();
+    void codeAllPaths.pending();
+    await flush();
+    pulse();
+    await flush();
+    expect(codeAllPaths()?.paths).toEqual(["src/app.ts"]);
+    expect(bag.listDirectoryInputs).toEqual([]);
+  });
+});
+
+describe("a Branch comparison whose base branch was never fetched", () => {
+  const sentence =
+    "No base branch found — origin/master doesn't exist. Run: git fetch origin && git remote set-head origin --auto";
+
+  it("raises no toast, and the Branch view reports the sentence instead of loading forever", async () => {
+    bag.branchFailure = new WorktreeBaseBranchMissing({ detail: sentence });
+    bag.mode = () => "branch";
+    switchTo(HOST_A);
+    void codeActiveStatus.pending();
+    await flush();
+    pulse();
+    await flush();
+
+    expect(codeActiveStatus.error()?.message).toBe(sentence);
+    expect(codeActiveStatus.pending()).toBe(false);
+    expect(bag.toastError).not.toHaveBeenCalled();
+  });
+
+  it("any other branch failure still toasts", async () => {
+    bag.branchFailure = new GitFailed({ detail: "fatal: bad object" });
+    switchTo(HOST_A);
+    void codeActiveStatus.pending();
+    await flush();
+    pulse();
+    await flush();
+    expect(bag.toastError).toHaveBeenCalledWith(
+      "Git status stream: fatal: bad object",
+    );
+  });
 });
