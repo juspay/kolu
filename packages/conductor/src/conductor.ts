@@ -99,7 +99,7 @@
  */
 
 import type { NotHere } from "@kolu/acp/engine";
-import type { AgentModels } from "@kolu/agent-distro/models";
+import type { AgentModelLaunch } from "@kolu/agent-distro/models";
 import {
   type Harness,
   type HarnessOptions,
@@ -148,6 +148,7 @@ import {
   isWorkMode,
   type KoluChoiceKey,
   type KoluChoices,
+  type ModelChoices,
   keysToAsk,
   koluKeysOf,
   missingSetup,
@@ -162,7 +163,9 @@ import {
   roleOfKey,
   roleSetupOf,
   rolesOf,
+  type SentAnswer,
   type SetupAsk,
+  sentValue,
   type SetupKey,
   type SetupReading,
   type StartBlocker,
@@ -219,15 +222,24 @@ export type ConductorFrameSink = (frame: ConductorFrame) => void;
  *  role's harness and model), read LIVE by whoever hosts the conductor:
  *  kolu-server reads the harnesses off its agent-distro listing and asks the
  *  work's host, through padi, what a harness offers there and how a launch
- *  gives it a model. `models` REJECTS with the host's own words when it
- *  cannot answer — a failed listing is never an empty one. */
+ *  gives it a model.
+ *
+ *  Two questions, because they fail differently. `models` answers the host's
+ *  word on the list — `unavailable` with its own words when the host could
+ *  not list just now, never an empty list and never a refusal for that.
+ *  `launch` reads the harness's adapter and runs nothing, so a start never
+ *  waits on a list. */
 export interface KoluOffer {
   readonly harnesses: () => ReadonlyArray<string>;
   readonly models: (where: {
     readonly host: string;
     readonly repo: string;
     readonly harness: string;
-  }) => Promise<AgentModels>;
+  }) => Promise<ModelChoices>;
+  readonly launch: (where: {
+    readonly host: string;
+    readonly harness: string;
+  }) => Promise<AgentModelLaunch>;
   /** Refuses ({@link WorkRefusal} `agents-not-ready`) unless `host` has a
    *  harness to choose: this kolu carries agent-distro, and the host's agents
    *  are ready. */
@@ -241,7 +253,7 @@ export interface WaterfallStart {
   readonly host: string;
   readonly harness: string;
   readonly model: string;
-  readonly launch: AgentModels["launch"];
+  readonly launch: AgentModelLaunch;
 }
 
 /** The words kolu asks its own questions in — the asker names the question,
@@ -255,25 +267,22 @@ const KOLU_QUESTION: Readonly<Record<KoluChoiceKey, string>> = {
 
 /** WHAT KOLU OFFERS RIGHT NOW on `where`'s host: the harnesses it carries,
  *  and what each of `harnesses` it carries offers there — one question to the
- *  host per harness, whose whole answer (the launch too) is kept. A harness
- *  kolu does not carry is never asked about: the rule refuses it by name. A
- *  host that cannot answer refuses ({@link WorkRefusal} `not-offered`) in its
- *  own words, ending with what that left undone (`nothing`). */
+ *  host per harness. A harness kolu does not carry is never asked about: the
+ *  rule refuses it by name. A host that could not list is `unavailable` in
+ *  its own words, a value the rule reads; a host that cannot be asked at all
+ *  refuses ({@link WorkRefusal} `not-offered`), ending with what that left
+ *  undone (`nothing`). */
 async function choicesFor(
   where: Pick<Work, "key">,
   harnesses: ReadonlyArray<string>,
   offer: KoluOffer,
   nothing: string,
-): Promise<{
-  readonly choices: KoluChoices;
-  readonly answers: ReadonlyMap<string, AgentModels>;
-}> {
+): Promise<KoluChoices> {
   const host = hostOf(where);
   const installed = offer.harnesses();
-  const answers = new Map<string, AgentModels>();
+  const models = new Map<string, ModelChoices>();
   const asking = harnesses.filter((one) => installed.includes(one));
-  if (asking.length === 0)
-    return { choices: chosen(installed, answers), answers };
+  if (asking.length === 0) return { harnesses: installed, models };
   // A MODEL IS ASKED FOR IN THE WORK'S REPOSITORY, with the profiles a new
   // terminal there gets — and a watch has none, so nothing about a model is
   // judged for one.
@@ -285,7 +294,7 @@ async function choicesFor(
   const repo = where.key.repo;
   for (const harness of asking) {
     try {
-      answers.set(harness, await offer.models({ host, repo, harness }));
+      models.set(harness, await offer.models({ host, repo, harness }));
     } catch (err) {
       throw new WorkRefusal(
         "not-offered",
@@ -293,17 +302,8 @@ async function choicesFor(
       );
     }
   }
-  return { choices: chosen(installed, answers), answers };
+  return { harnesses: installed, models };
 }
-
-/** What the host's answers make the choices — the model lists by harness. */
-const chosen = (
-  installed: ReadonlyArray<string>,
-  answers: ReadonlyMap<string, AgentModels>,
-): KoluChoices => ({
-  harnesses: installed,
-  models: new Map([...answers].map(([harness, one]) => [harness, one.models])),
-});
 
 /** Every bad answer, in the words a refusal names them by. */
 const unofferedSentence = (
@@ -336,12 +336,14 @@ const givenAs = <V extends string>(
 const foreignAnswers = (
   work: Work,
   ask: string,
-  values: ReadonlyMap<string, ReadonlyArray<string>>,
+  values: ReadonlyMap<string, SentAnswer>,
 ): ReadonlyArray<string> =>
   work.decisions.flatMap((one) => {
     if (one.ask !== ask || one.kind !== "asked" || one.topic !== "setup")
       return [];
-    const [value] = (values.get(one.id) ?? []).filter((each) => each !== "");
+    const sent = values.get(one.id);
+    const value =
+      sent === undefined ? undefined : Option.getOrUndefined(sentValue(sent));
     if (value === undefined) return [];
     switch (one.key) {
       case "mode":
@@ -1920,7 +1922,7 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
             ),
           ),
       });
-      const { choices } = await choicesFor(
+      const choices = await choicesFor(
         intent,
         modelHarnessesOf([...given, ...saved]),
         offer,
@@ -2069,7 +2071,7 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
             `${foreign.join("; ")}. Answer with one of kolu's words for it. Nothing was recorded.`,
           );
         const answers = askedAnswersOf(found, ask, reply.values);
-        const { choices } = await choicesFor(
+        const choices = await choicesFor(
           found,
           modelHarnessesOf(answers),
           deps.offer(),
@@ -2174,13 +2176,15 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
           `startOf: the ${role} of ${id} waits on nothing, yet its setup is ${setup.kind}`,
         );
       // THE SAVED PAIR, JUDGED AGAIN — by the rule that records an answer,
-      // against what the host says now. The same answer the launch is read
-      // off, so the check costs no second question to the host.
+      // against what the host says now: a PICKED model against its list (a
+      // list the host cannot read just now refuses nothing), a TYPED one by
+      // upstream's one-word rule alone, with no list asked for.
       const saved = savedAnswersOf(found, koluKeysOf(role));
-      const { choices, answers } = await choicesFor(
+      const offer = deps.offer();
+      const choices = await choicesFor(
         found,
         modelHarnessesOf(saved),
-        deps.offer(),
+        offer,
         "Nothing was created.",
       );
       const bad = unofferedAnswers(saved, choices);
@@ -2189,17 +2193,19 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
           "not-offered",
           `The ${role} of «${found.title}» cannot start on its saved setup: ${unofferedSentence(bad, choices, found)}. Call \`work_open\` for this work again — kolu asks the human again for every answer it no longer offers. Nothing was created.`,
         );
-      const models = answers.get(setup.harness);
-      if (models === undefined)
-        throw new Error(
-          `startOf: ${setup.harness} passed the rule with no model list read for it`,
-        );
-      return {
-        host: found.key.host,
-        harness: setup.harness,
-        model: setup.model,
-        launch: models.launch,
-      };
+      // HOW THE HARNESS TAKES A MODEL is its adapter's word, which runs no
+      // harness — so a start never depends on whether its list works today.
+      const host = found.key.host;
+      const launch = await offer
+        .launch({ host, harness: setup.harness })
+        .catch((err: unknown) => {
+          if (err instanceof WorkRefusal) throw err;
+          throw new WorkRefusal(
+            "agents-not-ready",
+            `kolu could not ask how ${setup.harness} takes a model on ${host}: ${err instanceof Error ? err.message : String(err)}. Nothing was created.`,
+          );
+        });
+      return { host, harness: setup.harness, model: setup.model, launch };
     },
     stopWork: (id, by) => {
       remembered();

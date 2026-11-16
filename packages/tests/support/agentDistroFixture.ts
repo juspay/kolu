@@ -124,9 +124,34 @@ export function ageOutFixturePackage(): void {
 }
 
 /** The floor as this kolu builds it again — idempotent, so an After hook may
- *  call it for a scenario that never aged anything out. */
+ *  call it for a scenario that never aged anything out. Its list command
+ *  answers again, too. */
 export function restoreFixturePackage(): void {
   fs.writeFileSync(answersFile(), STAND_IN_ANSWERS);
+  fs.rmSync(listFailsFile(), { force: true });
+}
+
+/** What the floor's list command says when it cannot list — the words a host
+ *  whose gateway key lives only in a person's shell used to answer with. */
+export const FIXTURE_LIST_FAILS =
+  "agent-distro claude: error: cannot list its models: claude models exited 1: LITELLM_API_KEY is not set";
+
+/** Where the floor's picker looks to know its list command fails: present,
+ *  `--models` fails with {@link FIXTURE_LIST_FAILS}; absent, it answers. */
+function listFailsFile(): string {
+  const { KOLU_AGENT_DISTRO_BUNDLE: root } = agentDistroFixtureEnv();
+  if (root === undefined)
+    throw new Error("the agent-distro fixture was built without a bundle");
+  return path.join(root, "list-fails");
+}
+
+/** THE FLOOR'S LIST COMMAND FAILS — a host that cannot list its models just
+ *  now (a gateway down, a key the environment lacks), while every other call
+ *  answers: `--launch` still says how a launch takes a model. The worker's
+ *  floor is shared, so whoever breaks it puts it back
+ *  ({@link restoreFixturePackage}). */
+export function failFixtureModelList(): void {
+  fs.writeFileSync(listFailsFile(), `${FIXTURE_LIST_FAILS}\n`);
 }
 
 let memo: Record<string, string> | undefined;
@@ -184,6 +209,10 @@ function buildFixture(): Record<string, string> {
     path.join(bin, "agent-distro"),
     [
       standInListJson([FIXTURE_HARNESS]),
+      `if [ "$1" = "--models" ] && [ -f ${JSON.stringify(path.join(root, "list-fails"))} ]; then`,
+      `  cat ${JSON.stringify(path.join(root, "list-fails"))} >&2`,
+      "  exit 1",
+      "fi",
       standInModels({ [FIXTURE_HARNESS.name]: FIXTURE_MODELS }),
       `echo "${FIXTURE_PICKER_SAYS}"`,
     ].join("\n"),

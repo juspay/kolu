@@ -6,7 +6,11 @@
  *    (`./agentDistroListing.ts`);
  *  - a harness's MODELS are the work's host's own answer, asked through its
  *    padi (`agentDistro.models`, which runs upstream's `agent-distro --models`
- *    in the work's repository with the profiles a new terminal there gets).
+ *    in the work's repository, in the environment a new terminal there ends
+ *    up with). A list the host could not read is `unavailable` in its words —
+ *    a value the rule and the form read, not a refusal;
+ *  - HOW A LAUNCH TAKES A MODEL is the host's `agentDistro.launch`, which
+ *    reads the harness's adapter and runs nothing — what a start reads.
  *
  * And the gate in front of both (`requireAgentsReady`): a host whose coding
  * agents are switched off, not delivered yet, still downloading or failed to
@@ -25,12 +29,12 @@ import {
   agentsNotReadyWords,
   agentsTooOldWords,
 } from "@kolu/agent-distro/status";
+import { AgentModelsUnavailable } from "@kolu/padi-client/surface";
 import { firstFrameOrThrow } from "@kolu/surface/first-frame";
 import { Cause, Effect, Exit } from "effect";
 import type { KoluOffer } from "kolu-conductor";
 import type { FleetHosts } from "kolu-mcp";
 import { WorkRefusal } from "kolu-work";
-
 /** An Effect's value, or its failure's own words as an Error. */
 async function settled<A>(effect: Effect.Effect<A, unknown>): Promise<A> {
   const exit = await Effect.runPromiseExit(effect);
@@ -61,10 +65,24 @@ export function koluOfferOver(deps: {
       listing.kind === "available"
         ? listing.harnesses.map((one) => one.name)
         : [],
-    models: async ({ host, repo, harness }) =>
-      await settled(
-        padiOf(host).surface.agentDistro.models({ harness, cwd: repo }),
-      ),
+    models: async ({ host, repo, harness }) => {
+      try {
+        const answer = await settled(
+          padiOf(host).surface.agentDistro.models({ harness, cwd: repo }),
+        );
+        return answer.models;
+      } catch (err) {
+        // THE HOST'S OWN WORD that it could not list — a value, so the form
+        // can show it beside the models used before and a box to type one.
+        // Anything else (a host that is not connected) stays a refusal.
+        if (err instanceof AgentModelsUnavailable)
+          return { kind: "unavailable", why: err.why };
+        throw err;
+      }
+    },
+    launch: async ({ host, harness }) =>
+      (await settled(padiOf(host).surface.agentDistro.launch({ harness })))
+        .model,
     requireAgentsReady: async (host) => {
       if (listing.kind === "unavailable")
         throw new WorkRefusal(

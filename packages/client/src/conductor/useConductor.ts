@@ -32,7 +32,7 @@ import type {
   ConductorState,
   ConductorStoreKey,
 } from "kolu-common/conductor";
-import type { AnsweredFromFace, WorkId } from "kolu-work";
+import type { AnsweredFromFace, SentAnswer, WorkId } from "kolu-work";
 import { Effect } from "effect";
 import type { Accessor } from "solid-js";
 import { toast } from "solid-sonner";
@@ -99,7 +99,7 @@ export interface Conductor {
   answerWork(
     work: WorkId,
     ask: string,
-    answers: Readonly<Record<string, readonly string[]>> | null,
+    answers: Readonly<Record<string, SentAnswer>> | null,
     from: AnsweredFromFace,
     recorded?: (outcome: ConductorAnswerWorkOutcome) => void,
   ): void;
@@ -240,9 +240,9 @@ export const useConductor = createSharedRoot<Conductor>(() => {
             answers === null
               ? null
               : Object.fromEntries(
-                  Object.entries(answers).map(([decision, values]) => [
+                  Object.entries(answers).map(([decision, sent]) => [
                     decision,
-                    [...values],
+                    "typed" in sent ? { typed: sent.typed } : [...sent],
                   ]),
                 ),
           from,

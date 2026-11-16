@@ -1,11 +1,20 @@
 /**
  * The models a harness offers on a host, and how a launch is given one —
- * upstream's `agent-distro --models <harness>` (`@juspay/agent-distro/models`),
- * read with upstream's own parser. Each harness says both in its own adapter
- * upstream; kolu never re-describes a harness, so there is no table here of
- * list commands, model flags or model names.
+ * upstream's `agent-distro --models <harness>` and `agent-distro --launch
+ * <harness>` (`@juspay/agent-distro/models`), read with upstream's own
+ * parsers. Each harness says both in its own adapter upstream; kolu never
+ * re-describes a harness, so there is no table here of list commands, model
+ * flags or model names.
  *
- * Three answers, and kolu keeps them apart all the way to the screen:
+ * TWO QUESTIONS, because they fail differently. How a launch takes a model is
+ * a fixed fact about the harness: `--launch` reads the adapter and runs
+ * nothing, so it answers wherever the package is installed — it is what a
+ * start reads. Which models the harness offers from here is asked of the
+ * harness itself (`--models`), and fails whenever that does (a gateway down,
+ * a key the environment lacks) — it is read only to offer or check a model.
+ *
+ * `--models` answers one of three, and kolu keeps them apart all the way to
+ * the screen:
  *
  *  - `listed` — the ids the harness listed (possibly none). An id is exactly
  *    what the launch takes (`anthropic/claude-fable-5`), so the same model
@@ -16,7 +25,7 @@
  *    never an answer: whoever runs the command raises it.
  */
 
-import { parseModels } from "@juspay/agent-distro/models";
+import { parseLaunchAnswer, parseModels } from "@juspay/agent-distro/models";
 import { Schema } from "effect";
 
 /** Upstream's own two rules, read from where they are written:
@@ -61,17 +70,29 @@ export const AgentModelsSchema = Schema.Struct({
 });
 export type AgentModels = typeof AgentModelsSchema.Type;
 
+/** How one harness's launch takes a model on one host — upstream's `Launch`,
+ *  `--launch`'s answer. */
+export const AgentLaunchSchema = Schema.Struct({
+  model: AgentModelLaunchSchema,
+});
+export type AgentLaunch = typeof AgentLaunchSchema.Type;
+
 /** The flag kolu asks a host's package for a harness's models. */
 const MODELS_FLAG = "--models";
+/** ... and the one it asks for how a launch takes a model. */
+const LAUNCH_FLAG = "--launch";
 
 /** EVERY FLAG KOLU ASKS A HOST'S PACKAGE — the package a host serves is the
  *  one kolu DELIVERED (upstream's newest published), not the one kolu was
  *  built with, so it may be older than this contract. */
-export const HOST_PACKAGE_CALLS: ReadonlyArray<string> = [MODELS_FLAG];
+export const HOST_PACKAGE_CALLS: ReadonlyArray<string> = [
+  MODELS_FLAG,
+  LAUNCH_FLAG,
+];
 
 /** Where a package names the flags its picker answers, one per line —
  *  upstream's `share/agent-distro/answers`. A package without it predates
- *  `--models`. */
+ *  `--models`; one whose file lacks a flag predates that flag. */
 export const PACKAGE_ANSWERS_FILE = "share/agent-distro/answers";
 
 /** The flags in that file's text. */
@@ -93,9 +114,21 @@ export const modelsArgs = (harness: string): readonly string[] => [
   harness,
 ];
 
+/** ... and how `harness`'s launch takes a model. */
+export const launchArgs = (harness: string): readonly string[] => [
+  LAUNCH_FLAG,
+  harness,
+];
+
 /** The answer in `--models`' stdout, checked by upstream's own parser — a
  *  throw for anything out of its format, which is a format change upstream
  *  must be loud about. */
 export function parseAgentModels(stdout: string): AgentModels {
   return parseModels(JSON.parse(stdout));
+}
+
+/** The answer in `--launch`'s stdout, checked by upstream's own parser — a
+ *  throw for anything out of its format. */
+export function parseAgentLaunch(stdout: string): AgentLaunch {
+  return parseLaunchAnswer(JSON.parse(stdout));
 }

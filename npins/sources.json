@@ -9,9 +9,9 @@
       },
       "branch": "main",
       "submodules": false,
-      "revision": "4e1272ab2a3843bf50d1dd00e909b0e55643866e",
-      "url": "https://github.com/juspay/agent-distro/archive/4e1272ab2a3843bf50d1dd00e909b0e55643866e.tar.gz",
-      "hash": "sha256-Kk8nuVmgJWA5vKtxzmuL6nl8vj4kffDsHh14/4zsnv0="
+      "revision": "369cd5b67c36094b4aec961eed25cab7f8786268",
+      "url": "https://github.com/juspay/agent-distro/archive/369cd5b67c36094b4aec961eed25cab7f8786268.tar.gz",
+      "hash": "sha256-/D8b7SJ1RxwvoVprhNT4TLKwLusVa/DgnxFDni+DV4M="
     },
     "agent-distro-pre-models": {
       "type": "Git",

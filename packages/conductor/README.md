@@ -91,22 +91,27 @@ appending what it observes.
   harness and model questions and nothing more: kolu words them, the form draws
   their options live, and `openWork` / `answerWork` / `startOf` judge against
   `ConductorDeps.offer` — a `KoluOffer`: the harnesses this kolu carries, what
-  a harness offers on the work's host and how it takes a model, and whether
-  that host has a harness to choose at all, which kolu-server reads off its
-  agent-distro listing and that host's padi. A setup asking a harness for a
+  a harness offers on the work's host (`models`, the host's word — `listed`,
+  `unlisted`, or `unavailable` in its own words when it could not list just
+  now), how that harness takes a model (`launch`, which runs no harness), and
+  whether that host has a harness to choose at all, which kolu-server reads off
+  its agent-distro listing and that host's padi. A setup asking a harness for a
   host whose agents are not ready is refused `agents-not-ready` before
   anything exists. A `given` harness or model, and every answer to one, is
   judged where it is recorded (`kolu-work`'s `unofferedAnswers`), refused
-  `not-offered` naming each answer that is not an option; a host whose listing
-  FAILED refuses with its own words and records nothing.
+  `not-offered` naming each answer that is not an option. A list the host
+  could not read refuses nothing: the person chose knowingly, beside its
+  words. A typed model asks for no list at all.
 - **A saved answer is judged again, by the same rule.** `startOf` is what a
   planner or implementor starts on: its saved harness and model judged against
-  the offer, with the host's launch for that harness from the same read — or
-  `not-offered`, naming which answer and why, so nothing is typed into a
-  terminal on an answer kolu no longer offers. `openWork` asks such a question
-  AGAIN (only unanswered keys are asked otherwise), its words saying what the
-  old answer was and why it no longer stands; one `work_open` reads the host
-  once for its `given` answers and its saved ones together.
+  the offer — or `not-offered`, naming which answer and why, so nothing is
+  typed into a terminal on an answer kolu no longer offers — and the host's
+  `launch` for that harness. A start never depends on a list: a picked model
+  is checked against one only when the host can read it, and how the harness
+  takes a model is `launch`'s word. `openWork` asks a refused question AGAIN
+  (only unanswered keys are asked otherwise), its words saying what the old
+  answer was and why it no longer stands; one `work_open` reads the host once
+  for its `given` answers and its saved ones together.
 - **What is waiting on you is ONE list.** `publishState` composes the frame a
   browser reads: the conversation's own open elicitations, plus every question
   still open on a work in progress, together in `ConductorState.openAsks`. So

@@ -78,6 +78,7 @@ import {
   type ConvergeVerdict,
   convergeAndReconcile,
 } from "./reconcileConverged.ts";
+import { readShellEnv, shellEnvSpawnId } from "./shellEnv.ts";
 
 type Identity = PtyHostIdentity;
 
@@ -785,5 +786,28 @@ export function buildTerminalSpawnInput(args: {
         serverVersion: requireSpawnServerVersion(),
       },
     );
+  });
+}
+
+/** THE ENVIRONMENT A NEW TERMINAL IN `cwd` WOULD HAVE, with `agents`, once its
+ *  shell has read the person's dotfiles: that terminal's own spawn
+ *  ({@link buildTerminalSpawnInput}), run once to the command, its wrapper
+ *  files written where a terminal's are (`./shellEnv.ts`). Fails with
+ *  {@link ShellEnvUnreadable} when the shell cannot be asked. */
+export function terminalShellEnv(args: {
+  cwd: string;
+  agents: AgentLayer;
+}): Effect.Effect<Record<string, string>, unknown> {
+  return Effect.gen(function* () {
+    const input = yield* buildTerminalSpawnInput({
+      id: shellEnvSpawnId(),
+      cwd: args.cwd,
+      agents: args.agents,
+    });
+    const { rcDir } = yield* endpointState.info;
+    return yield* Effect.tryPromise({
+      try: () => readShellEnv(input, rcDir),
+      catch: (err: unknown) => err,
+    });
   });
 }

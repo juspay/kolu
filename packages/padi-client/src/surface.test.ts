@@ -169,7 +169,9 @@ describe("padiSurface contract", () => {
     // and therefore a minor.
     // 7.6 ADDS the `agentDistro.models` procedure — which models a harness
     // offers on this host. Another member added: a minor.
-    expect(PADI_SURFACE_VERSION).toBe("7.6");
+    // 7.7 ADDS `agentDistro.launch` — how a harness's launch takes a model,
+    // which runs no harness. Another member added: a minor.
+    expect(PADI_SURFACE_VERSION).toBe("7.7");
     expect(DEFAULT_PADI_VERSION.contractVersion).toBe(PADI_SURFACE_VERSION);
     expect(
       Schema.decodeUnknownSync(PadiVersionSchema)(DEFAULT_PADI_VERSION),
@@ -684,6 +686,9 @@ describe("the declared error vocabulary (PLAN D4)", () => {
     // `preview.repoRootForTerminal`, `session.*`) cannot quietly lose one.
     expect(declared.sort()).toEqual(
       [
+        // `agentDistro.launch` refuses for a host whose agents are not ready
+        // or whose package is older than `--launch`.
+        "agentDistro.launch",
         // `agentDistro.models` refuses with the host's own words: agents not
         // ready here, or the harness's list command failed.
         "agentDistro.models",

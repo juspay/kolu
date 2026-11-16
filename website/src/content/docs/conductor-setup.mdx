@@ -36,10 +36,10 @@ answer, and a form you fill in whole is settled with one press of **Answer**.
 
 Pressing **Answer** records the questions you filled in. One you left blank is
 not answered: it stays open in the same form, on the card and in the chat,
-until you answer it. A question whose options are still loading, or could not
-be read, says so on it and stays open the same way. **Answer** stays disabled
-until at least one question is filled in, and **I'd rather not say** declines
-whatever is still open.
+until you answer it. A question whose options are still loading says so on it
+and stays open the same way. **Answer** stays disabled until at least one
+question is filled in, and **I'd rather not say** declines whatever is still
+open.
 
 Nothing starts on a missing answer. An agent waits for a question that is open
 in front of you, and the Conductor asks again for one that is not.
@@ -52,10 +52,32 @@ chose.
 - The harnesses are the ones this kolu carries.
 - The models are the ones that harness offers on the work's host, asked of the
   host as the form is drawn. A long list has a search box.
+- The host asks in the same environment a new terminal there gets, after your
+  shell has read its startup files. A key your `~/.bashrc` exports reaches the
+  list, as it reaches an agent you start by hand.
 - Claude Code and Codex cannot list their models. For those you get the models
   you have run before, and a box to type one.
 - That box takes one model id: one word, no spaces. Anything else is refused
   with a line saying why.
+
+## When the host cannot list its models
+
+A list can fail: the gateway is down, or a key is missing. The question then
+shows the host's own words, and below them the models you have run before with
+that harness and a box to type one. You can still answer, knowing the list was
+not read.
+
+kolu records how you chose each model:
+
+| You | kolu records | When the agent starts |
+| --- | --- | --- |
+| Pick from the host's list | A pick | Checked against the list, if the host can list then |
+| Type in the box | A typed model | Started as typed; never checked against a list |
+
+A typed model goes to the harness as you wrote it, so a short name the
+harness matches itself, like `opus` for omp, works. Next time it comes back
+in the box, still typed. Starting an agent never waits on the list: how a
+harness takes a model is a fixed fact kolu reads separately.
 
 ## One press repeats your last setup
 
@@ -69,9 +91,9 @@ with is one press of **Answer**.
 - A host whose coding agents are switched off, still arriving, failed to land,
   or older than this kolu needs is named, with what to do about it, before any
   harness question is asked.
-- An answer is checked where it is recorded. A harness this kolu does not carry,
-  or a model the host did not list, is refused there, so a work never holds a
-  setup it cannot start.
+- An answer is checked where it is recorded. A harness this kolu does not
+  carry, or a picked model the host did not list, is refused there, so a work
+  never holds a setup it cannot start.
 - The pair is checked again when the agent starts. kolu refuses in words that
   say which answer and why, rather than starting the agent on something else.
 - A saved answer kolu no longer offers is asked again when the work opens. The

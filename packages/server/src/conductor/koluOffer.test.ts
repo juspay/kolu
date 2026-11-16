@@ -33,6 +33,7 @@ import {
 } from "@kolu/agent-distro/status";
 import { type PadiSurfaceClient, padiClientOver } from "@kolu/padi-client/dial";
 import {
+  AgentLaunchUnavailable,
   AgentModelsUnavailable,
   padiSurfaceSibling,
 } from "@kolu/padi-client/surface";
@@ -73,7 +74,7 @@ const READY: AgentDistroStatus = {
     ],
   },
   delivering: false,
-  answers: ["--list", "--models"],
+  answers: ["--list", "--models", "--launch"],
 };
 
 /** What `omp` lists where it can list. */
@@ -132,6 +133,25 @@ function fakePadi(over: {
             }),
           );
         return Effect.succeed(answer);
+      }),
+    // HOW A LAUNCH TAKES A MODEL — the adapter's word, which never depends
+    // on the list: a harness whose listing fails here still answers.
+    [at("agentDistro", "launch")]: (input: { harness: string }) =>
+      Effect.suspend(() => {
+        const answer = over.models?.[input.harness];
+        if (answer === undefined)
+          return Effect.fail(
+            new AgentLaunchUnavailable({
+              harness: input.harness,
+              why: `${input.harness} is not a harness on this host`,
+            }),
+          );
+        return Effect.succeed({
+          model:
+            typeof answer === "string"
+              ? { kind: "flag", flag: "--model" }
+              : answer.launch,
+        });
       }),
   } as unknown as SurfaceHandlers;
   return {
@@ -255,6 +275,18 @@ describe("the gate in front of a harness question", () => {
     expect(refused.why).toBe(agentsTooOldWords("the build box"));
   });
 
+  it("refuses a package that lists models but cannot say how a launch takes one", async () => {
+    // Between the two upstream releases: `--models` but no `--launch`. A form
+    // could be answered, and then nothing could start on it — so it is
+    // refused before any form, in the same words.
+    const { requireAgentsReady } = offerOver(
+      fakePadi({ status: { ...READY, answers: ["--list", "--models"] } }),
+    );
+    const refused = await refusalOf(requireAgentsReady("build-box"));
+    expect(refused.kind).toBe("agents-not-ready");
+    expect(refused.why).toBe(agentsTooOldWords("the build box"));
+  });
+
   it("refuses when THIS kolu was built without agent-distro, before asking the host", async () => {
     const padi = fakePadi({ status: READY });
     const { requireAgentsReady } = offerOver(padi, {
@@ -309,38 +341,39 @@ describe("the options kolu draws", () => {
       models: { omp: OMP_MODELS, claude: CLAUDE_MODELS },
     });
     const offer = offerOver(padi);
-    // The host's WHOLE answer — the list and how the harness takes a model,
-    // which a start reads its launch off.
     expect(
       await offer.models({ host: "build-box", repo: REPO, harness: "omp" }),
-    ).toEqual(OMP_MODELS);
+    ).toEqual(OMP_MODELS.models);
     // A harness with no way to list its models says so — and that is an
     // ANSWER: whatever model id the person names is then the model.
     expect(
       await offer.models({ host: "build-box", repo: REPO, harness: "claude" }),
-    ).toEqual(CLAUDE_MODELS);
+    ).toEqual(CLAUDE_MODELS.models);
     // Both asked of the host, about the work's own repository.
     expect(padi.modelCalls()).toEqual([`omp@${REPO}`, `claude@${REPO}`]);
   });
 
-  it("REJECTS with the host's own words when the listing failed", async () => {
+  it("answers a listing that failed as UNAVAILABLE, in the host's own words", async () => {
     const offer = offerOver(
       fakePadi({ status: READY, models: { omp: LIST_FAILED } }),
     );
-    // NEVER an empty list. The recorder turns this into its `not-offered`
-    // refusal carrying these same words, so the person reads why the box they
-    // are looking at has nothing in it.
-    await expect(
-      offer.models({ host: "build-box", repo: REPO, harness: "omp" }),
-    ).rejects.toThrow(LIST_FAILED);
+    // NEVER an empty list, and not a refusal: the form shows these words
+    // beside the models used before and a box to type one.
+    expect(
+      await offer.models({ host: "build-box", repo: REPO, harness: "omp" }),
+    ).toEqual({ kind: "unavailable", why: LIST_FAILED });
   });
 
-  it("REJECTS for a harness the host does not have, in the host's words", async () => {
+  it("says how a launch takes a model even where the listing fails", async () => {
     const offer = offerOver(
-      fakePadi({ status: READY, models: { omp: OMP_MODELS } }),
+      fakePadi({ status: READY, models: { omp: LIST_FAILED } }),
     );
+    expect(await offer.launch({ host: "build-box", harness: "omp" })).toEqual({
+      kind: "flag",
+      flag: "--model",
+    });
     await expect(
-      offer.models({ host: "build-box", repo: REPO, harness: "claude" }),
+      offer.launch({ host: "build-box", harness: "claude" }),
     ).rejects.toThrow("claude is not a harness on this host");
   });
 

@@ -109,6 +109,7 @@ import {
   type WorkMode,
   keptOf,
   modeOf,
+  type SentAnswer,
   type SetupAsk,
   type SetupKey,
   setupOf,
@@ -140,9 +141,10 @@ const HOST = "test-box";
 const T0 = "2026-01-01T00:00:00.000Z";
 
 /** The human's reply to an ask, as the wire turns a form's values into one. */
-const answer = (
-  values: ReadonlyMap<string, ReadonlyArray<string>>,
-): AskReply => ({ kind: "answered", values });
+const answer = (values: ReadonlyMap<string, SentAnswer>): AskReply => ({
+  kind: "answered",
+  values,
+});
 const DECLINE: AskReply = { kind: "declined" };
 
 const log = {
@@ -437,9 +439,10 @@ interface Remembered {
  *
  *  Three harnesses, because the three answers a harness can give about its
  *  models are three different behaviours here: {@link OMP} LISTS its models
- *  (an answer off the list is refused), {@link UNLISTING} cannot list them at
- *  all (any typed word is the answer), and {@link BRITTLE} FAILS to list them
- *  (a refusal in the listing's own words, never an empty list). */
+ *  (a picked answer off the list is refused), {@link UNLISTING} cannot list
+ *  them at all (any model id is the answer), and {@link BRITTLE}'s host
+ *  COULD NOT list them just now (`unavailable`, in the listing's own words —
+ *  never an empty list, and never a refusal of a model nobody could check). */
 const OMP = "omp";
 const UNLISTING = "claude";
 const BRITTLE = "brittle";
@@ -452,15 +455,17 @@ const OMP_MODELS = [
 ] as const;
 
 /** The words {@link BRITTLE}'s listing fails with — a host's own sentence,
- *  which a refusal must carry rather than swallow. */
+ *  which the form must carry rather than swallow. */
 const BRITTLE_WORDS =
-  "`agent-distro --models brittle` exited 2: no such harness here";
+  "agent-distro brittle: error: cannot list its models: LITELLM_API_KEY is not set";
 
 interface TestOffer {
   readonly offer: KoluOffer;
   /** Every model listing it was asked for, as `<harness>@<host>:<repo>` —
    *  the host is asked about the WORK'S repository, not about kolu's. */
   readonly modelAsks: () => ReadonlyArray<string>;
+  /** Every launch it was asked for, as `<harness>@<host>`. */
+  readonly launchAsks: () => ReadonlyArray<string>;
 }
 
 /** How every harness of this test offer takes a model — the host's word, the
@@ -469,25 +474,27 @@ const MODEL_FLAG = { kind: "flag", flag: "--model" } as const;
 
 const koluOffers = (): TestOffer => {
   const modelAsks: string[] = [];
+  const launchAsks: string[] = [];
   return {
     offer: {
       harnesses: () => [OMP, UNLISTING, BRITTLE],
       models: async ({ host, repo, harness }) => {
         modelAsks.push(`${harness}@${host}:${repo}`);
-        if (harness === OMP)
-          return {
-            launch: MODEL_FLAG,
-            models: { kind: "listed", ids: OMP_MODELS },
-          };
-        if (harness === UNLISTING)
-          return { launch: MODEL_FLAG, models: { kind: "unlisted" } };
-        if (harness === BRITTLE) throw new Error(BRITTLE_WORDS);
+        if (harness === OMP) return { kind: "listed", ids: OMP_MODELS };
+        if (harness === UNLISTING) return { kind: "unlisted" };
+        if (harness === BRITTLE)
+          return { kind: "unavailable", why: BRITTLE_WORDS };
         throw new Error(`${host} has no harness called ${harness}`);
+      },
+      launch: async ({ host, harness }) => {
+        launchAsks.push(`${harness}@${host}`);
+        return MODEL_FLAG;
       },
       // Every host here has its agents: the gate is `koluOffer.test.ts`'s.
       requireAgentsReady: async () => {},
     },
     modelAsks: () => modelAsks,
+    launchAsks: () => launchAsks,
   };
 };
 
@@ -539,6 +546,8 @@ interface Rig {
   /** Every model listing this rig's offer was asked for — the offer every
    *  `openWork`, `answerWork` and `startOf` judges against. */
   modelAsks: () => ReadonlyArray<string>;
+  /** ... and every launch `startOf` asked it for. */
+  launchAsks: () => ReadonlyArray<string>;
 }
 
 function rig(over: Remembered = {}): Rig {
@@ -617,6 +626,7 @@ function rig(over: Remembered = {}): Rig {
     worksMoved: () => worksMoved,
     watchScopeMoved: () => watchScopeMoved,
     modelAsks: offered.modelAsks,
+    launchAsks: offered.launchAsks,
   };
 }
 
@@ -2980,15 +2990,15 @@ describe("opening a piece of work", () => {
       expect(stillAsked(r)).toHaveLength(6);
     });
 
-    it("refuses in the LISTING'S OWN WORDS when the host could not list at all", async () => {
+    it("records a model the host could not list, and starts it without that list", async () => {
       const r = rig();
       await asked(r);
       const { work, ask } = await opening(r);
-      // A LISTING THAT FAILED IS NOT AN EMPTY ONE. Treating it as empty would
-      // refuse every model the person could possibly name — or, worse, accept
-      // anything — and either way hide the host's own sentence about why it
-      // could not answer.
-      const refusal = r.host.answerWork({
+      // THE HOST COULD NOT LIST just now. The form showed its words beside
+      // the models used before; the person chose one knowingly, and nobody
+      // could check it — so it is recorded, not refused for a list nobody
+      // could read.
+      await r.host.answerWork({
         work,
         ask,
         from: "card",
@@ -2996,16 +3006,60 @@ describe("opening a piece of work", () => {
           new Map([
             [fieldOf(r, "mode"), ["trivial"]],
             [fieldOf(r, "implementor.harness"), [BRITTLE]],
-            [fieldOf(r, "implementor.model"), ["whatever-it-offers"]],
+            [fieldOf(r, "implementor.model"), ["litellm/used-before"]],
             [fieldOf(r, "on-green"), ["merge"]],
           ]),
         ),
       });
-      await expect(refusal).rejects.toMatchObject({ kind: "not-offered" });
-      await expect(refusal).rejects.toThrow(BRITTLE_WORDS);
-      await expect(refusal).rejects.toThrow("Nothing was recorded");
-      expect(stillAsked(r)).toHaveLength(6);
-      expect(setupOf(theWork(r)).roles).toEqual([]);
+      expect(answerOf(theWork(r), "implementor.model")).toMatchObject({
+        how: "answered",
+        value: "litellm/used-before",
+        chosen: "picked",
+      });
+      // ... and the implementor STARTS: how its harness takes a model is the
+      // host's `--launch` word, which never depended on the list.
+      await expect(r.host.startOf(work, "implementor")).resolves.toEqual({
+        host: "local",
+        harness: BRITTLE,
+        model: "litellm/used-before",
+        launch: MODEL_FLAG,
+      });
+      expect(r.launchAsks()).toEqual([`${BRITTLE}@local`]);
+    });
+
+    it("records a typed model as typed, holds it to no list, and starts it asking for none", async () => {
+      const r = rig();
+      await asked(r);
+      const { work, ask } = await opening(r);
+      // `opus` is not among the ids omp lists — omp matches a short name
+      // itself. Typed, it goes to the harness as typed.
+      await r.host.answerWork({
+        work,
+        ask,
+        from: "card",
+        reply: answer(
+          new Map<string, SentAnswer>([
+            [fieldOf(r, "mode"), ["trivial"]],
+            [fieldOf(r, "implementor.harness"), [OMP]],
+            [fieldOf(r, "implementor.model"), { typed: "opus" }],
+            [fieldOf(r, "on-green"), ["merge"]],
+          ]),
+        ),
+      });
+      expect(answerOf(theWork(r), "implementor.model")).toMatchObject({
+        value: "opus",
+        chosen: "typed",
+      });
+      expect(r.modelAsks()).toEqual([]);
+      await expect(r.host.startOf(work, "implementor")).resolves.toEqual({
+        host: "local",
+        harness: OMP,
+        model: "opus",
+        launch: MODEL_FLAG,
+      });
+      // No list was asked for, when it was recorded or when it started.
+      expect(r.modelAsks()).toEqual([]);
+      expect(r.launchAsks()).toEqual([`${OMP}@local`]);
     });
 
     it("checks a harness the REQUEST named before any work exists", async () => {
@@ -3127,7 +3181,13 @@ describe("opening a piece of work", () => {
       topic: "setup",
       key,
       question: `${key}?`,
-      answer: { at: T0, how: "answered", value, from: "card" },
+      answer: {
+        at: T0,
+        how: "answered",
+        value,
+        chosen: "picked",
+        from: "card",
+      },
     });
 
     /** ... and the two whose options the asker offered, in kolu's words. */

@@ -54,6 +54,7 @@ import {
   foldWorksByKey_1_53_0,
   memberWatchOutOfWorks_1_52_0,
   migrateConductorToWorks_1_50_0,
+  koluChoicesSayHowChosen_1_56_0,
   moveKeptFiles_1_53_0,
   splitWorkAskRows_1_53_0,
   stripLegacyStateKeys_1_31_0,
@@ -1734,13 +1735,15 @@ describe("the 1.55.0 rung — no hole in the work model", () => {
       from: "chat",
       value: "merge",
     });
-    // Kolu's own choices carry no options at all.
+    // Kolu's own choices carry no options at all — and, walked on to head,
+    // say how they were chosen (1.56.0).
     expect("options" in (after["d-harness"] ?? {})).toBe(false);
     expect(after["d-harness"]?.answer).toEqual({
       how: "answered",
       at: AT,
       from: "card",
       value: "omp",
+      chosen: "picked",
     });
     // A decline keeps the face it was said on; a decline with no face is
     // nobody declining, which is what `dropped` means.
@@ -2165,6 +2168,7 @@ describe("the 1.55.0 rung — no hole in the work model", () => {
         at: AT,
         from: "chat",
         value: "omp",
+        chosen: "picked",
       });
       // The form was not finished, so the line that said it was does not say
       // it any more.
@@ -2192,5 +2196,133 @@ describe("the 1.55.0 rung — no hole in the work model", () => {
       expect(twice.works).toEqual(once.works);
       expect(twice.members).toEqual(once.members);
     });
+  });
+});
+
+describe("the 1.56.0 rung — an answer to one of kolu's questions says how it was chosen", () => {
+  const AT = "2026-11-15T00:00:00.000Z";
+  const ID = "branch:local/%2Frepo/setup-choices";
+
+  /** One 1.55.0 decision: settled, in the shape that rung left. */
+  const settled = (id: string, key: string, answer: Record<string, unknown>) =>
+    key === "mode" || key === "on-green"
+      ? {
+          kind: "settled",
+          id,
+          ask: "ask-setup",
+          at: AT,
+          topic: "setup",
+          key,
+          question: key,
+          options: key === "mode" ? ["trivial"] : ["merge"],
+          answer,
+        }
+      : {
+          kind: "settled",
+          id,
+          ask: "ask-setup",
+          at: AT,
+          topic: "setup",
+          key,
+          question: key,
+          answer,
+        };
+
+  const SEED = {
+    [ID]: {
+      key: { kind: "branch", host: "local", repo: "/repo", branch: "setup" },
+      title: "the setup form",
+      startedAt: AT,
+      decisions: [
+        settled("d-mode", "mode", {
+          how: "answered",
+          at: AT,
+          from: "card",
+          value: "trivial",
+        }),
+        settled("d-harness", "implementor.harness", {
+          how: "answered",
+          at: AT,
+          from: "card",
+          value: "omp",
+        }),
+        settled("d-model", "implementor.model", {
+          how: "answered",
+          at: AT,
+          from: "card",
+          value: "anthropic/claude-fable-5-2",
+        }),
+        settled("d-declined", "planner.model", {
+          how: "declined",
+          at: AT,
+          from: "card",
+        }),
+      ],
+      events: [],
+      state: { kind: "open" },
+    },
+  };
+
+  /** A real store stamped at 1.55.0 — the shape the human's store holds —
+   *  walked to the live head. */
+  const walk = (works: Record<string, unknown>) => {
+    const dir = mkdtempSync(join(tmpdir(), "kolu-how-chosen-"));
+    dirs.push(dir);
+    writeFileSync(
+      join(dir, "config.json"),
+      JSON.stringify({
+        preferences: DEFAULT_PREFERENCES,
+        works,
+        __internal__: { migrations: { version: "1.55.0" } },
+      }),
+    );
+    const store = new Conf<Record<string, unknown>>({
+      cwd: dir,
+      projectVersion: SCHEMA_VERSION,
+      defaults: CONF_DEFAULTS as unknown as Record<string, unknown>,
+      migrations: CONF_MIGRATIONS as never,
+    });
+    return { store, state: readJson(store.path) };
+  };
+
+  it("makes every answered kolu choice a pick, leaves everything else, and decodes", () => {
+    const { state } = walk(structuredClone(SEED));
+    const decisions = (
+      state.works as Record<string, { decisions: Record<string, unknown>[] }>
+    )[ID]?.decisions;
+    const answerOf = (id: string) =>
+      decisions?.find((one) => one.id === id)?.answer;
+    expect(answerOf("d-harness")).toEqual({
+      how: "answered",
+      at: AT,
+      from: "card",
+      value: "omp",
+      chosen: "picked",
+    });
+    expect(answerOf("d-model")).toMatchObject({ chosen: "picked" });
+    // Not one of kolu's choices, or not answered: the same bytes.
+    expect(answerOf("d-mode")).toEqual({
+      how: "answered",
+      at: AT,
+      from: "card",
+      value: "trivial",
+    });
+    expect(answerOf("d-declined")).toEqual({
+      how: "declined",
+      at: AT,
+      from: "card",
+    });
+    expect(
+      Result.isSuccess(
+        Schema.decodeUnknownResult(PersistedWorksSchema)(state.works),
+      ),
+    ).toBe(true);
+  });
+
+  it("writes nothing to a store already in the new shape", () => {
+    const { store } = walk(structuredClone(SEED));
+    const set = vi.spyOn(store, "set");
+    koluChoicesSayHowChosen_1_56_0(store as never);
+    expect(set).not.toHaveBeenCalled();
   });
 });

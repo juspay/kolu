@@ -90,6 +90,7 @@ import { decodeStateBackup, store } from "../state.ts";
 import {
   dropKoluChoiceOptions_1_54_0,
   foldWorksByKey_1_53_0,
+  koluChoicesSayHowChosen_1_56_0,
   workArmsNotNulls_1_55_0,
 } from "../stateLadder.ts";
 import { TRANSCRIPT_FILE_VERSION } from "../stateShape.ts";
@@ -138,10 +139,11 @@ const OTHER_KEY = {
  * a work written by an earlier deployed build of this branch; 1.53.0 folds
  * every work onto its KEY and moves the transcript file's stamp with it; and
  * 1.54.0 drops the `options`/`multiple` the Conductor used to offer for a
- * role's harness and model, which are kolu's options to draw now; and 1.55.0
+ * role's harness and model, which are kolu's options to draw now; 1.55.0
  * takes every decision, event and member to the arms that cannot say
- * "answered with no answer". */
-const STATE_SCHEMA_VERSION = "1.55.0";
+ * "answered with no answer"; and 1.56.0 says how each answer to one of kolu's
+ * own questions was chosen. */
+const STATE_SCHEMA_VERSION = "1.56.0";
 
 const log = {
   debug() {},
@@ -1196,6 +1198,7 @@ describe("the human's real store, one observation later", () => {
     membersStore.set(folded.members as unknown as PersistedMembers);
     dropKoluChoiceOptions_1_54_0(store);
     workArmsNotNulls_1_55_0(store);
+    koluChoicesSayHowChosen_1_56_0(store);
     const id = Object.keys(folded.works)[0] ?? "";
 
     const over = hostOver();

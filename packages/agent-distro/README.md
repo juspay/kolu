@@ -43,8 +43,9 @@ Each piece is imported where it is used:
 
 - **this package** — the history line's reader (`update/history`), the
   versions file and `changes()` (`update/versions`), the `--list --json`
-  value and its words (`listing`), and the `--models` value, its checker and
-  a launch's words for a model (`models`: `parseModels`, `launchWords`);
+  value and its words (`listing`), and the `--models` and `--launch` values,
+  their checkers and a launch's words for a model (`models`: `parseModels`,
+  `parseLaunchAnswer`, `launchWords`);
 - **padi** — the history line's writer (`historyLine`), the history log's one
   writer (`appendHistory`, `update/history-log`, which keeps it trimmed under
   upstream's lock), the state directory's `current` and `last-success`
@@ -67,19 +68,24 @@ The **TypeScript half**, as data and pure functions:
   `undefined` when none is in effect, a throw for output out of format. padi
   asks it once per terminal; kolu never re-derives it.
 - `./models` — which models a harness offers on a host, and how a launch is
-  given one: upstream's `agent-distro --models <harness>` (`modelsArgs`), read
-  with upstream's `parseModels` (`parseAgentModels`) into
-  `AgentModelsSchema` — `listed` ids (exactly what the launch takes, so one
-  model under two providers is two ids), `unlisted` (the harness has no list
-  command), and `launch`, a flag or a config layer — the start of a launch
-  for a model, upstream's `launchWords` (`modelLaunchWords`), and what a model
-  id is, upstream's `isModelId` (`isAgentModelId`: one word, no whitespace),
-  which `kolu-work` checks a typed model by so it never records one a launch
-  would refuse. Each harness says all of it in its own adapter upstream; kolu
-  holds no table of list commands, model flags or model names. padi runs it
-  (`agentDistro.models`); a failure is the runner's error, never an empty list.
-  The package a host serves is the one kolu DELIVERED, which may be older than
-  this contract: `HOST_PACKAGE_CALLS` is every flag kolu asks a host's package,
+  given one, as TWO questions because they fail differently: upstream's
+  `agent-distro --models <harness>` (`modelsArgs`), read with upstream's
+  `parseModels` (`parseAgentModels`) into `AgentModelsSchema` — `listed` ids
+  (exactly what the launch takes, so one model under two providers is two
+  ids), `unlisted` (the harness has no list command) — and `agent-distro
+  --launch <harness>` (`launchArgs`), read with upstream's `parseLaunchAnswer`
+  (`parseAgentLaunch`) into `AgentLaunchSchema`: a flag or a config layer,
+  answered from the adapter alone, so a start reads it whether or not the
+  list works today. The start of a launch for a model is upstream's
+  `launchWords` (`modelLaunchWords`), and what a model id is, upstream's
+  `isModelId` (`isAgentModelId`: one word, no whitespace), which `kolu-work`
+  checks a typed model by so it never records one a launch would refuse. Each
+  harness says all of it in its own adapter upstream; kolu holds no table of
+  list commands, model flags or model names. padi runs both
+  (`agentDistro.models`, `agentDistro.launch`); a failure is the runner's
+  error, never an empty list. The package a host serves is the one kolu
+  DELIVERED, which may be older than this contract: `HOST_PACKAGE_CALLS` is
+  every flag kolu asks a host's package (`--models`, `--launch`),
   `PACKAGE_ANSWERS_FILE` / `parsePackageAnswers` read what a package says it
   answers (upstream's `share/agent-distro/answers`), and `missingPackageCalls`
   names what it cannot take — read off the package, never off an older
@@ -178,8 +184,9 @@ The **TypeScript half**, as data and pure functions:
   `readText` over them), `failedUpdateLine` (a failed run's line in a host's
   update log, by upstream's writer), `standInListJson` (a stand-in picker's
   `--list --json`, upstream's shape), `standInModels` (its `--models
-  <harness>`: an answer, or a list command that fails) and `STAND_IN_ANSWERS`
-  (the answers file a stand-in that knows `--models` ships). Every test that fakes a package or a
+  <harness>` — an answer, or a list command that fails — and its `--launch
+  <harness>`) and `STAND_IN_ANSWERS` (the answers file a stand-in as new as
+  this kolu ships). Every test that fakes a package or a
   profile — this package's, padi's, kolu-server's boot read, the e2e fixture —
   goes through it.
 - `./solid` — agent-distro's logo (`doc/logo.svg`, vendored byte-identical from

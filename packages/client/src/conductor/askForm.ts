@@ -29,6 +29,7 @@
  */
 
 import { Option } from "effect";
+import type { Recalled } from "kolu-work";
 import { type Accessor, batch, createEffect, createMemo } from "solid-js";
 import { type AskOption, defaultFirst } from "./AskOptions";
 import { askDraft, dropAskFields, setAskDraft } from "./drafts";
@@ -64,7 +65,9 @@ export function typeOnly(ask: string, field: string, text: string): void {
  *  `value` is what this person answered last time AND can be answered again
  *  here (an option that is drawn, or any word for a question that takes
  *  words) — none when there is no such answer, which seeds the question
- *  empty rather than leaving it to be seeded later by something stale.
+ *  empty rather than leaving it to be seeded later by something stale. A
+ *  default that was PICKED goes in as the pick; one that was TYPED goes back
+ *  in the box, so it is sent as typed again.
  *
  *  It is called only once the options ARE known: a question seeded against a
  *  list that has not arrived would mark itself done and never offer the
@@ -74,13 +77,20 @@ function seedAskDefault(
   ask: string,
   field: string,
   context: string,
-  value: Option.Option<string>,
+  value: Option.Option<Recalled>,
 ): void {
   if (askDraft(ask, seededKey(field))[0] === context) return;
+  const as = (chosen: Recalled["chosen"]) =>
+    Option.toArray(
+      Option.map(
+        Option.filter(value, (one) => one.chosen === chosen),
+        (one) => one.value,
+      ),
+    );
   batch(() => {
     setAskDraft(ask, seededKey(field), [context]);
-    setAskDraft(ask, field, Option.toArray(value));
-    setAskDraft(ask, typedKey(field), []);
+    setAskDraft(ask, field, as("picked"));
+    setAskDraft(ask, typedKey(field), as("typed"));
   });
 }
 
@@ -99,7 +109,7 @@ export function seededChips(
   field: string,
   context: () => Option.Option<string>,
   options: () => ReadonlyArray<AskOption>,
-  standing: () => Option.Option<string>,
+  standing: () => Option.Option<Recalled>,
 ): Accessor<ReadonlyArray<AskOption>> {
   createEffect(() => {
     Option.match(context(), {
@@ -107,7 +117,12 @@ export function seededChips(
       onSome: (now) => seedAskDefault(ask, field, now, standing()),
     });
   });
-  return createMemo(() => defaultFirst(options(), standing()));
+  return createMemo(() =>
+    defaultFirst(
+      options(),
+      Option.map(standing(), (one) => one.value),
+    ),
+  );
 }
 
 /** THE QUESTIONS WHOSE DRAFT IS NO LONGER ANYBODY'S UNSENT TEXT — the ones

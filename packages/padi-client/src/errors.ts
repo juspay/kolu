@@ -304,6 +304,19 @@ export class AgentModelsUnavailable extends Schema.TaggedError<AgentModelsUnavai
   }
 }
 
+/** `agentDistro.launch` could not say how a harness's launch takes a model on
+ *  this host — its agents are not ready here, its package is older than
+ *  `--launch`, or the package printed what kolu cannot read. `why` is the
+ *  whole sentence. `--launch` runs no harness, so a list command failing
+ *  never lands here: a start is never refused for a list it does not need. */
+export class AgentLaunchUnavailable extends Schema.TaggedError<AgentLaunchUnavailable>(
+  "padi/AgentLaunchUnavailable",
+)("AgentLaunchUnavailable", { harness: Schema.String, why: Schema.String }) {
+  override get message(): string {
+    return this.why;
+  }
+}
+
 // ── kaval supervision ─────────────────────────────────────────────────────
 
 /** A PROVEN kaval contract skew, refused by `lifecycle.recycleKaval` (SK6).
@@ -441,6 +454,7 @@ const PADI_ERROR_CLASSES = [
   WorktreeNameCollision,
   GitFailed,
   AgentModelsUnavailable,
+  AgentLaunchUnavailable,
 ] as const;
 
 /** The whole padi error vocabulary, as one closed union — the value a consumer

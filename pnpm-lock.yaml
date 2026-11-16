@@ -1339,6 +1339,9 @@ importers:
       '@kolu/serve-dir':
         specifier: workspace:*
         version: link:../serve-dir
+      '@kolu/shell-quote':
+        specifier: workspace:*
+        version: link:../shell-quote
       '@kolu/surface':
         specifier: workspace:*
         version: link:../surface
@@ -1433,9 +1436,6 @@ importers:
       '@kolu/log':
         specifier: workspace:*
         version: link:../log
-      '@kolu/shell-quote':
-        specifier: workspace:*
-        version: link:../shell-quote
       '@types/columnify':
         specifier: ^1.5.4
         version: 1.5.4

@@ -770,23 +770,35 @@ and one spawn layer carry it; the module is `src/agentDistro/`.
   upstream's schedule, on every bind, and on the user's check. Binder-only; not
   on the MCP face.
 - **`agentDistro.models` (procedure, `padiSurface` 7.6)** — which models a
-  harness offers on THIS host, for kolu's setup form, its answer check and the
-  command the fleet face starts a planner or implementor with
+  harness offers on THIS host, for kolu's setup form and its answer check
   (`src/agentDistro/models.ts`). padi runs the serving package's
   `bin/agent-distro --models <harness>` (`@kolu/agent-distro/models`) in the
   `cwd` it is given — the work's repository, whose own `plugin.json` composes
-  over the profiles — with the environment a terminal spawned here now gets
-  (the plugin dir and `AI_PROFILE`), and answers upstream's word unchanged: the
-  ids the harness listed or `unlisted`, and how a launch takes a model. A host
-  whose agents are not ready, a serving package OLDER than `--models` (read off
-  its own `share/agent-distro/answers`, so its picker is never run for it), a
-  list command that fails, or output kolu cannot read is the declared
-  `AgentModelsUnavailable` with the words (`@kolu/agent-distro/status`'s
-  `agentsNotReadyWords` / `agentsTooOldWords`, the failure's own stderr) —
-  never an empty list. The `agentDistroStatus` `ready` arm carries the serving
-  package's `answers`, so kolu-server refuses a harness question for such a
-  host before any form exists. Read-only; denied on the MCP face,
-  because the harness and model are kolu's to offer.
+  over the profiles — in THE ENVIRONMENT A NEW TERMINAL THERE ENDS UP WITH:
+  that terminal's own spawn (`composeSpawnInput`: the plugin dir,
+  `AI_PROFILE`, the toolchain), run once as `<shell> -i -c` so the person's
+  dotfiles are read the way a terminal reads them
+  (`src/ptyHost/shellEnv.ts`, its wrapper files written by kaval's
+  `writeInitFiles`). A key only `~/.bashrc` exports reaches the list, as it
+  reaches a launch. It answers upstream's word unchanged: the ids the harness
+  listed or `unlisted`. A host whose agents are not ready, a serving package
+  OLDER than kolu's calls (read off its own `share/agent-distro/answers`, so
+  its picker is never run for it), a shell that cannot be asked (named, never
+  a quiet fall back to padi's own environment), a list command that fails, or
+  output kolu cannot read is the declared `AgentModelsUnavailable` with the
+  words (`@kolu/agent-distro/status`'s `agentsNotReadyWords` /
+  `agentsTooOldWords`, the failure's own stderr) — never an empty list. The
+  `agentDistroStatus` `ready` arm carries the serving package's `answers`, so
+  kolu-server refuses a harness question for such a host before any form
+  exists. Read-only; denied on the MCP face, because the harness and model
+  are kolu's to offer.
+- **`agentDistro.launch` (procedure, `padiSurface` 7.7)** — how a harness's
+  launch takes a model on THIS host: the serving package's `agent-distro
+  --launch <harness>`, which reads the harness's adapter and runs nothing, so
+  it answers whether or not the list works today. It is what the fleet face
+  starts a planner or implementor with. A host whose agents are not ready, or
+  a package older than `--launch`, is the declared `AgentLaunchUnavailable`.
+  Read-only; denied on the MCP face.
 - **Keeping it current** — kolu-server's job, not padi's: it delivers on
   upstream's schedule (02/08/14/20 UTC, retries on a failed run), whenever this
   padi binds or takes a changed setting, and when the user asks — re-reading the

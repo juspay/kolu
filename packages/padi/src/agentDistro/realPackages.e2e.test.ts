@@ -33,12 +33,13 @@ import {
   manifestFile,
   parseAgentDistroManifest,
 } from "@kolu/agent-distro/manifest";
+import { floorListing } from "@kolu/agent-distro/listing";
 import { isAgentModelId, missingPackageCalls } from "@kolu/agent-distro/models";
 import { agentsTooOldWords } from "@kolu/agent-distro/status";
 import { AgentModelsUnavailable } from "@kolu/padi-client/surface";
 import { readFileSync } from "node:fs";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { runAgentModels } from "./models.ts";
+import { runAgentLaunch, runAgentModels } from "./models.ts";
 import { packageAnswers } from "./onHost.ts";
 
 /** The floor's bundle (`nix build .#agent-distro-bundle`), whose manifest
@@ -97,6 +98,27 @@ describe("the floor package this tree builds", () => {
     expect(missingPackageCalls(packageAnswers(floor))).toEqual([]);
   });
 
+  it("says how a launch takes a model for every harness it carries — running none", async () => {
+    const bundle = required(FLOOR_BUNDLE_ENV);
+    const manifest = parseAgentDistroManifest(
+      readFileSync(manifestFile(bundle), "utf8"),
+    );
+    const listing = floorListing(manifest, (path) =>
+      readFileSync(path, "utf8"),
+    );
+    const names =
+      listing.kind === "available"
+        ? listing.harnesses.map((one) => one.name)
+        : [];
+    expect(names.length).toBeGreaterThan(0);
+    for (const harness of names) {
+      // Read by kolu's own parser; a harness the adapter has no word for
+      // would throw here, never answer an empty launch.
+      const answer = await runAgentLaunch({ bundle: manifest.dir, harness });
+      expect(["flag", "config"]).toContain(answer.model.kind);
+    }
+  });
+
   it(
     "claude: a real launcher with no list — `unlisted`, and `--model` to launch with",
     async () => {
@@ -138,7 +160,10 @@ describe("the package from before upstream's `--models`", () => {
   it("says it answers nothing kolu calls", () => {
     const old = required(PRE_MODELS_PACKAGE_ENV);
     expect(packageAnswers(old)).toEqual([]);
-    expect(missingPackageCalls(packageAnswers(old))).toEqual(["--models"]);
+    expect(missingPackageCalls(packageAnswers(old))).toEqual([
+      "--models",
+      "--launch",
+    ]);
   });
 
   it(

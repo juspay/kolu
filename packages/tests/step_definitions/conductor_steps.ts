@@ -24,7 +24,10 @@ import {
   stageOmpPrompt,
   updateOmpFixture,
 } from "../support/agent-mock-omp.ts";
-import { fixtureClaudeRelay } from "../support/agentDistroFixture.ts";
+import {
+  FIXTURE_LIST_FAILS,
+  fixtureClaudeRelay,
+} from "../support/agentDistroFixture.ts";
 import { type PrFixture, statePullRequest } from "../support/fake-gh.ts";
 import { restartKoluServer } from "../support/hooks.ts";
 import { pollFor } from "../support/poll.ts";
@@ -2551,35 +2554,138 @@ Given("a repo for the work", async function (this: KoluWorld) {
 When(
   "I ask the conductor to open the work {string}",
   async function (this: KoluWorld, title: string) {
-    await enterConductor(this);
-    this.workTitle = title;
-    await sendPrompt(this, openWords(this, title));
-    await showWorkColumn(this);
+    await openWorkSaying(this, title, openWords(this, title));
+  },
+);
+
+/** ... with the IMPLEMENTOR'S MODEL LEFT TO THE HUMAN: a trivial work whose
+ *  every other answer the request gave, so the form is the one model
+ *  question. */
+When(
+  "I ask the conductor to open the work {string} with its model left to me",
+  async function (this: KoluWorld, title: string) {
+    const dir = this.workRepoDir;
+    await openWorkSaying(
+      this,
+      title,
+      `open the model by hand ${title}${dir === undefined ? "" : ` in ${dir}`}`,
+    );
+  },
+);
+
+/** Send the fixture conductor `prompt`, and wait for the card titled `title`
+ *  — the work every later step in the scenario is about. */
+async function openWorkSaying(
+  world: KoluWorld,
+  title: string,
+  prompt: string,
+): Promise<void> {
+  await enterConductor(world);
+  world.workTitle = title;
+  await sendPrompt(world, prompt);
+  await showWorkColumn(world);
+  let inventoryAtTimeout = "(not observed)";
+  const id = await pollFor({
+    observe: () =>
+      world.page
+        .locator(`${WORK_COLUMN} ${WORK_CARD}`)
+        .evaluateAll((cards, want) => {
+          for (const card of cards) {
+            if ((card.textContent ?? "").includes(want)) {
+              return card.getAttribute("data-work");
+            }
+          }
+          return null;
+        }, title),
+    isDone: (found) => found !== null,
+    timeoutMs: POLL_TIMEOUT,
+    onTick: async () => {
+      inventoryAtTimeout = await transcriptInventory(world);
+    },
+    onTimeout: (_last, ms) =>
+      new Error(
+        `no card for ${JSON.stringify(title)} after ${ms}ms; the transcript holds ${inventoryAtTimeout}`,
+      ),
+  });
+  if (id === null) throw new Error("the work card carries no id");
+  world.workId = id;
+}
+
+/** THE WORK'S MODEL QUESTION, inside the opened card — the form a person
+ *  answers it in. */
+async function modelQuestion(world: KoluWorld) {
+  await openWorkCard(world);
+  const ask = workCard(world).locator('[data-testid="work-question"]');
+  await ask.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+  return ask;
+}
+
+/** THE HOST'S OWN WORDS, on the question: it could not list, and says why. */
+Then(
+  "the work's model question should say the host could not list its models",
+  async function (this: KoluWorld) {
+    const ask = await modelQuestion(this);
+    const said = ask.locator('[data-testid="conductor-ask-failed"]');
+    await said.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    assert.ok(
+      (await said.innerText()).includes(FIXTURE_LIST_FAILS),
+      `the question says ${JSON.stringify(await said.innerText())}, not the host's words`,
+    );
+  },
+);
+
+/** ... and beside them, what a harness with no list gets: a model run before,
+ *  already the answer, and a box to type another. */
+Then(
+  "the work's model question should offer {string} from before, and a box",
+  async function (this: KoluWorld, model: string) {
+    const ask = await modelQuestion(this);
+    const chip = ask.locator(
+      `[data-testid="conductor-ask-option"][data-value="${model}"]`,
+    );
+    await chip.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    assert.notEqual(
+      await chip.getAttribute("data-active"),
+      null,
+      `${model}, the model run before, is not already the answer`,
+    );
+    await ask
+      .locator('[data-testid="conductor-ask-other"]')
+      .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+  },
+);
+
+When(
+  "I answer the work's model question by typing {string} on the card",
+  async function (this: KoluWorld, model: string) {
+    const ask = await modelQuestion(this);
+    await ask.locator('[data-testid="conductor-ask-other"]').fill(model);
+    await ask.locator('[data-testid="conductor-ask-submit"]').click();
+  },
+);
+
+/** WHAT KOLU TYPED to start the member — the `ran` its `lifecycle_create`
+ *  answered with, as the conversation was told it. */
+Then(
+  "the conductor should say it ran {string}",
+  async function (this: KoluWorld, command: string) {
     let inventoryAtTimeout = "(not observed)";
-    const id = await pollFor({
+    await pollFor({
       observe: () =>
         this.page
-          .locator(`${WORK_COLUMN} ${WORK_CARD}`)
-          .evaluateAll((cards, want) => {
-            for (const card of cards) {
-              if ((card.textContent ?? "").includes(want)) {
-                return card.getAttribute("data-work");
-              }
-            }
-            return null;
-          }, title),
-      isDone: (found) => found !== null,
+          .locator(`${TRANSCRIPT} ${ROW}[data-row-kind="agent"]`)
+          .evaluateAll((rows) => rows.map((row) => row.textContent ?? "")),
+      isDone: (rows) =>
+        rows.some((text) => text.includes("ran:") && text.includes(command)),
       timeoutMs: POLL_TIMEOUT,
       onTick: async () => {
         inventoryAtTimeout = await transcriptInventory(this);
       },
       onTimeout: (_last, ms) =>
         new Error(
-          `no card for ${JSON.stringify(title)} after ${ms}ms; the transcript holds ${inventoryAtTimeout}`,
+          `the conductor never said it ran ${JSON.stringify(command)} after ${ms}ms; the transcript holds ${inventoryAtTimeout}`,
         ),
     });
-    if (id === null) throw new Error("the work card carries no id");
-    this.workId = id;
   },
 );
 
@@ -3185,31 +3291,52 @@ Then(
 Then(
   "the work's decisions should include {string} answered from the {word}",
   async function (this: KoluWorld, text: string, from: string) {
-    await openWorkCard(this);
-    await pollFor({
-      observe: () =>
-        this.page
-          .locator(
-            `${WORK_COLUMN} [data-testid="work-decision"][data-from="${from}"]`,
-          )
-          .evaluateAll((all) =>
-            all.map(
-              (one) =>
-                // THE ANSWER AS RECORDED, beside the row's own words: the row
-                // reads "On green — hand over" where the human answered
-                // "hand-over", and it is the answer this step is about.
-                `${one.getAttribute("data-answer") ?? ""} ${(one.textContent ?? "").replace(/\s+/g, " ").trim()}`,
-            ),
-          ),
-      isDone: (read) => read.some((one) => one.includes(text)),
-      timeoutMs: POLL_TIMEOUT,
-      onTimeout: (read, ms) =>
-        new Error(
-          `no decision answered from the ${from} reads ${JSON.stringify(text)} after ${ms}ms; the card holds ${JSON.stringify(read)}`,
-        ),
-    });
+    await waitForDecision(
+      this,
+      text,
+      `[data-from="${from}"]`,
+      `from the ${from}`,
+    );
   },
 );
+
+/** ... and one by its recorded answer alone: a role's harness and model are
+ *  ONE line, and the line's source is the whole line's, not the model's. */
+Then(
+  "the work's decisions should include {string}",
+  async function (this: KoluWorld, text: string) {
+    await waitForDecision(this, text, "", "");
+  },
+);
+
+async function waitForDecision(
+  world: KoluWorld,
+  text: string,
+  narrowed: string,
+  said: string,
+): Promise<void> {
+  await openWorkCard(world);
+  await pollFor({
+    observe: () =>
+      world.page
+        .locator(`${WORK_COLUMN} [data-testid="work-decision"]${narrowed}`)
+        .evaluateAll((all) =>
+          all.map(
+            (one) =>
+              // THE ANSWER AS RECORDED, beside the row's own words: the row
+              // reads "On green — hand over" where the human answered
+              // "hand-over", and it is the answer this step is about.
+              `${one.getAttribute("data-answer") ?? ""} ${(one.textContent ?? "").replace(/\s+/g, " ").trim()}`,
+          ),
+        ),
+    isDone: (read) => read.some((one) => one.includes(text)),
+    timeoutMs: POLL_TIMEOUT,
+    onTimeout: (read, ms) =>
+      new Error(
+        `no decision ${said === "" ? "" : `answered ${said} `}reads ${JSON.stringify(text)} after ${ms}ms; the card holds ${JSON.stringify(read)}`,
+      ),
+  });
+}
 
 /** ONE LIST, ONE LINE EACH — the addendum's whole point. The setup is not a
  *  second section saying the same things, and no decision is drawn as the

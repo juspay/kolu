@@ -44,6 +44,7 @@ import {
   roleRank,
   savedAnswersOf,
   SETUP_KEYS,
+  type SentAnswer,
   type SetupAsk,
   setupMemory,
   setupOf,
@@ -491,6 +492,7 @@ describe("kolu's own setup questions — the harness and the model", () => {
       {
         key: "planner.model",
         values: ["x"],
+        chosen: "picked",
         harness: Option.some("claude"),
       },
     ]);
@@ -523,7 +525,13 @@ describe("kolu's own setup questions — the harness and the model", () => {
     });
     const model = work.decisions.find((one) => one.id === "q-im");
     expect(model !== undefined && isSettled(model) ? model.answer : {}).toEqual(
-      { how: "answered", at: T(2), from: "card", value: "claude-opus-4-6" },
+      {
+        how: "answered",
+        at: T(2),
+        from: "card",
+        value: "claude-opus-4-6",
+        chosen: "picked",
+      },
     );
     expect(got(setupValue(work, "implementor.model"))).toBe("claude-opus-4-6");
   });
@@ -563,25 +571,57 @@ describe("kolu's own setup questions — the harness and the model", () => {
       answered(elsewhere, 20, ["litellm/open-large", "claude-sonnet-4-6"]),
     ];
     const memory = setupMemory(works, KEY.host);
-    expect(got(memory.last("planner.harness", Option.none()))).toBe("omp");
-    expect(got(memory.last("on-green", Option.none()))).toBe("hand-over");
+    expect(got(memory.last("planner.harness", Option.none())).value).toBe(
+      "omp",
+    );
+    expect(got(memory.last("on-green", Option.none())).value).toBe("hand-over");
     // The newest on THIS host, not the newest anywhere.
-    expect(got(memory.last("planner.model", Option.some("omp")))).toBe(
+    expect(got(memory.last("planner.model", Option.some("omp"))).value).toBe(
       "anthropic/claude-fable-5-2",
     );
     // A model is a model of its harness, whichever role ran it.
-    expect(got(memory.last("planner.model", Option.some("claude")))).toBe(
+    expect(got(memory.last("planner.model", Option.some("claude"))).value).toBe(
       "claude-opus-4-6",
     );
     expect(
       Option.isNone(memory.last("implementor.model", Option.some("codex"))),
     ).toBe(true);
-    // What a harness that cannot list offers: every model it ran, newest first.
+    // What a harness that cannot list offers: every model it ran, newest
+    // first, each as it was chosen.
     expect(memory.modelsUsed("claude")).toEqual([
-      "claude-sonnet-4-6",
-      "claude-opus-4-6",
-      "claude-opus-4-5",
+      { value: "claude-sonnet-4-6", chosen: "picked" },
+      { value: "claude-opus-4-6", chosen: "picked" },
+      { value: "claude-opus-4-5", chosen: "picked" },
     ]);
+  });
+
+  it("remembers a TYPED model as typed, and offers it back that way", () => {
+    const work = answerAsk(asked(), {
+      ask: "ask-1",
+      at: T(2),
+      from: "card",
+      reply: {
+        kind: "answered",
+        values: new Map<string, SentAnswer>([
+          ["q-ph", ["omp"]],
+          ["q-pm", { typed: "opus" }],
+        ]),
+      },
+    });
+    const memory = setupMemory([work], KEY.host);
+    expect(memory.last("planner.model", Option.some("omp"))).toEqual(
+      Option.some({ value: "opus", chosen: "typed" }),
+    );
+    expect(memory.modelsUsed("omp")).toEqual([
+      { value: "opus", chosen: "typed" },
+    ]);
+    // ... and the rule holds it to no list: `opus` is not one omp lists.
+    expect(
+      unofferedAnswers(savedAnswersOf(work, ["planner.model"]), {
+        harnesses: ["omp"],
+        models: new Map(),
+      }),
+    ).toEqual([]);
   });
 
   it("gives each ROLE its own last model on a harness both run", () => {
@@ -602,12 +642,12 @@ describe("kolu's own setup questions — the harness and the model", () => {
       },
     });
     const memory = setupMemory([work], KEY.host);
-    expect(got(memory.last("planner.model", Option.some("omp")))).toBe(
+    expect(got(memory.last("planner.model", Option.some("omp"))).value).toBe(
       "anthropic/claude-fable-5-2",
     );
-    expect(got(memory.last("implementor.model", Option.some("omp")))).toBe(
-      "litellm/claude-fable-5-2",
-    );
+    expect(
+      got(memory.last("implementor.model", Option.some("omp"))).value,
+    ).toBe("litellm/claude-fable-5-2");
     // A role that never ran that harness falls back to the model another
     // role ran it on.
     const plannerOnly = answerAsk(asked(), {
@@ -628,7 +668,7 @@ describe("kolu's own setup questions — the harness and the model", () => {
           "implementor.model",
           Option.some("omp"),
         ),
-      ),
+      ).value,
     ).toBe("anthropic/claude-fable-5-2");
   });
 });
@@ -683,7 +723,13 @@ describe("an answer HAS a value — the states that cannot be written down", () 
     // ... while the same decision WITH a value is a value.
     expect(
       decode(
-        koluChoice({ how: "answered", at: T(2), from: "chat", value: "omp" }),
+        koluChoice({
+          how: "answered",
+          at: T(2),
+          from: "chat",
+          value: "omp",
+          chosen: "picked",
+        }),
       ),
     ).toMatchObject({
       decisions: [{ kind: "settled", answer: { value: "omp" } }],

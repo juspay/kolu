@@ -5,9 +5,10 @@
  * The harness and the model are the human's answers on the work, judged
  * again against what kolu offers on the work's host, and how that harness
  * takes a model is the host's own word — upstream's adapter answering
- * `agent-distro --models` through padi ({@link FleetWorks.startOf}). So the
- * one place a model flag is spelled is the harness's adapter in agent-distro,
- * and the one source of a waterfall agent's command is this module: a planner
+ * `agent-distro --launch` through padi ({@link FleetWorks.startOf}), which
+ * runs no harness, so a start never waits on a model list. So the one place
+ * a model flag is spelled is the harness's adapter in agent-distro, and the
+ * one source of a waterfall agent's command is this module: a planner
  * started with a command that disagrees with its setup, or on a saved answer
  * kolu no longer offers, is not something `lifecycle_create` can be asked
  * for.

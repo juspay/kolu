@@ -4,7 +4,7 @@
       "dir": "juspay/agent-distro",
       "pin": {
         "name": "agent-distro",
-        "revision": "4e1272ab2a3843bf50d1dd00e909b0e55643866e",
+        "revision": "369cd5b67c36094b4aec961eed25cab7f8786268",
         "subdir": "src"
       },
       "vendored": true,
@@ -101,6 +101,7 @@
         "@kolu/detect",
         "@kolu/padi-client",
         "@kolu/serve-dir",
+        "@kolu/shell-quote",
         "@kolu/surface",
         "@kolu/surface-daemon",
         "@kolu/surface-daemon-supervisor",

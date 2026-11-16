@@ -67,7 +67,7 @@ import {
   onAgentDistroReport,
   onAgentDistroSettingWrite,
 } from "./agentDistro/agentDistro.ts";
-import { listAgentModels } from "./agentDistro/models.ts";
+import { agentModelLaunch, listAgentModels } from "./agentDistro/models.ts";
 import { agentDistroBake } from "./agentDistro/bake.ts";
 import { createEventSeq } from "./attention/eventSeq.ts";
 import { createFleetGate, setServingFleetGate } from "./attention/fleetGate.ts";
@@ -1301,10 +1301,12 @@ export function buildPadiSurfaceDeps(deps: {
       // kolu-server's word on a delivery to this host — the only way agents
       // reach it: padi records the set that landed, points `current` at its
       // package, and publishes. `models` asks the serving package which models
-      // a harness offers here — the setup form's model question.
+      // a harness offers here — the setup form's model question — and
+      // `launch` how a launch takes one, which is all a start reads.
       agentDistro: {
         report: ({ input }) => handle(() => onAgentDistroReport(input)),
-        models: ({ input }) => handle(() => listAgentModels(input)),
+        models: ({ input }) => handleEffect(listAgentModels(input)),
+        launch: ({ input }) => handle(() => agentModelLaunch(input)),
       },
       session: {
         restore: ({ input }) => handle(() => restoreSession(input)),

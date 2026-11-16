@@ -512,7 +512,7 @@ let lastWork: string | null = null;
  *  lists none ({@link FIXTURE_MODELS}). */
 const setupFor = (
   mode: "full" | "trivial" | "watch",
-  over: { host?: string; askOnGreen?: boolean } = {},
+  over: { host?: string; askOnGreen?: boolean; askModel?: boolean } = {},
 ): Array<Record<string, unknown>> => {
   const given = (
     key: string,
@@ -536,7 +536,11 @@ const setupFor = (
   }
   setup.push(
     chosen("implementor.harness", FIXTURE_HARNESS.name),
-    chosen("implementor.model", IMPLEMENTOR_MODEL),
+    // THE MODEL LEFT TO THE HUMAN, when the scenario is about the form's
+    // model question: named, with nothing given, so kolu asks it.
+    over.askModel === true
+      ? { key: "implementor.model" }
+      : chosen("implementor.model", IMPLEMENTOR_MODEL),
   );
   // THE ONE QUESTION LEFT FOR THE HUMAN, when the scenario wants a card with
   // something to answer: the options are kolu's own words, which is what the
@@ -574,6 +578,7 @@ const openWork = async (
     host?: string;
     repo?: string;
     askOnGreen?: boolean;
+    askModel?: boolean;
     watch?: string;
   } = {},
 ): Promise<string | null> => {
@@ -626,6 +631,20 @@ const turn = async (
     if (answered !== null) say(`answered: ${answered}`);
     else if (whole.includes("the human DECLINED")) say("declined");
     say(`woke: ${[...new Set(refs)].join(", ")}`);
+    endTurn(id);
+    return;
+  }
+  if (text.startsWith("open the model by hand ")) {
+    // A TRIVIAL WORK WHOSE MODEL IS THE HUMAN'S TO NAME: everything else is
+    // given, so the form is the one model question — what a person sees on a
+    // host that could not list its models.
+    const said = text.slice("open the model by hand ".length).trim();
+    const at = said.lastIndexOf(" in /");
+    const title = at === -1 ? said : said.slice(0, at).trim();
+    const repo = at === -1 ? "/tmp/kolu-e2e" : said.slice(at + 4).trim();
+    say(`opening: ${title}`);
+    const work = await openWork(title, "trivial", { repo, askModel: true });
+    say(work === null ? `nothing opened: ${lastOpenSaid}` : `opened: ${work}`);
     endTurn(id);
     return;
   }

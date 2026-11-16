@@ -78,19 +78,25 @@ every step.
 **Two kinds of setup question, by who offers the options.** A decision whose
 key is one of `KOLU_CHOICE_KEYS` — a role's harness or model — is one kolu
 draws the options for, live: the harnesses this kolu carries, and what that
-harness offers on the work's host. Its decision has no `options`, and its
-answer is ONE value, so a stored model list (one that goes stale the day the
-host's agents update) or a role run on two harnesses is not a value. `mode`
-and `on-green` keep the asker's options, and their answer is one of kolu's own
-words for them, by type. ONE RULE judges a kolu answer (`unofferedAnswers`): a
-harness this kolu carries; a model its harness listed, or — for a harness that
-cannot list — a model id, upstream agent-distro's own rule
-(`modelNotOffered`). It reads one shape, `KoluAnswer` (a key, its values, its
-role's harness), built from wherever the answer is: the form
-(`askedAnswersOf`), the request (`givenAnswersOf`) or the record
-(`savedAnswersOf`, when its agent starts and when `work_open` decides what to
-ask). The words are `unofferedWhy` / `unofferedWords`. The last answers a form
-preselects are read off the saved works (`setupMemory`), never off a
+harness offers on the work's host (`ModelChoices`: `listed` ids, `unlisted`,
+or `unavailable` with the host's words when it could not list just now). Its
+decision has no `options`, and its answer is ONE value and HOW IT WAS CHOSEN
+(`chosen`: `picked` or `typed`), so a stored model list (one that goes stale
+the day the host's agents update) or a role run on two harnesses is not a
+value. `mode` and `on-green` keep the asker's options, and their answer is one
+of kolu's own words for them, by type. ONE RULE judges a kolu answer
+(`unofferedAnswers`): a harness this kolu carries; a PICKED model its harness
+listed, or — when the harness cannot list, or the host could not just now — a
+model id, upstream agent-distro's own rule; a TYPED model a model id and
+nothing more, never held to a list (`modelNotOffered`). It reads one shape,
+`KoluAnswer` (a key, its values, how it was chosen, its role's harness), built
+from wherever the answer is: the form (`askedAnswersOf`, where a face sends a
+typed model as `{ typed }` — `SentAnswer`), the request (`givenAnswersOf`,
+held to the list like a pick) or the record (`savedAnswersOf`, when its agent
+starts and when `work_open` decides what to ask). `modelHarnessesOf` names the
+lists those need: one per picked model, none for a typed one. The words are
+`unofferedWhy` / `unofferedWords`. The last answers a form preselects are read
+off the saved works (`setupMemory`), each as it was chosen, never off a
 conversation — a model is that role's own last one with that harness first.
 
 ## What is here

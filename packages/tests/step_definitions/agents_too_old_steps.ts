@@ -24,6 +24,7 @@ import type { AgentDistroStatus } from "@kolu/agent-distro/schema";
 import { agentsTooOldWords } from "@kolu/agent-distro/status";
 import {
   ageOutFixturePackage,
+  failFixtureModelList,
   restoreFixturePackage,
 } from "../support/agentDistroFixture.ts";
 import { waitForPadiCell } from "../support/padiCellWait.ts";
@@ -38,6 +39,13 @@ const TOO_OLD_HERE = agentsTooOldWords(os.hostname());
 
 Given("this machine's agents are older than this kolu needs", () => {
   ageOutFixturePackage();
+});
+
+/** A HOST THAT CANNOT LIST ITS MODELS JUST NOW — the floor's list command
+ *  fails, as one whose gateway key lives only in a person's shell did, while
+ *  `--launch` still answers. Put back by the same After hook. */
+Given("this machine cannot list its models", () => {
+  failFixtureModelList();
 });
 
 After(() => {

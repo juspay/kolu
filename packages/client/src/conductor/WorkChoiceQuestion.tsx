@@ -18,9 +18,16 @@
  *     is one of three, and all three are kept apart on screen: the ids the
  *     harness listed, `unlisted` (a harness with no way to list them — the
  *     model is whatever the person names, and what they have named before is
- *     offered), or a failure, which is shown IN THE HOST'S OWN WORDS. A
+ *     offered), or `unavailable`: the host could not list them just now, and
+ *     says so IN ITS OWN WORDS — and beside those words the person gets what
+ *     an unlisted harness gets, the models used before and a box to type
+ *     one, so they can still choose, knowing the list was not read. A
  *     failure is never an empty menu: "this harness offers nothing" and "we
  *     could not ask" are different things to a person deciding what to run.
+ *
+ *  EACH ANSWER SAYS HOW IT WAS CHOSEN. A chip from the host's list is a
+ *  pick; a model in the box is typed, and is sent as typed; a model used
+ *  before comes back as it was chosen then — a typed one into the box.
  *
  *  The read is owned by this component, so a question that goes off screen
  *  takes its in-flight call with it, and a harness changed in the same form
@@ -31,12 +38,15 @@
 import { Option } from "effect";
 import { decodeHostKey } from "kolu-common/hostKey";
 import {
+  type Chosen,
   harnessForModel,
   hostOf,
   type KoluChoice,
   type ModelChoices,
   modelNotOffered,
+  type Recalled,
   roleOfKey,
+  type SentAnswer,
   type SetupMemory,
   unofferedWhy,
   type Work,
@@ -52,14 +62,28 @@ import {
 import { agentDistroListing } from "../agents/useAgentDistro";
 import { runActionPromise } from "../runAction";
 import { padiRpcOf } from "../wire";
-import AskOptions, { type AskOption, askOption } from "./AskOptions";
+import AskOptions, { type AskOption } from "./AskOptions";
 import { pickOnly, seededChips, typedKey, typeOnly } from "./askForm";
 import { askDraft } from "./drafts";
 
+/** One option as this question draws it — and how answering with it is
+ *  chosen: a pick, or a model typed before, which goes back in the box. */
+interface Choice extends AskOption {
+  readonly chosen: Chosen;
+}
+
+/** A choice that is its own name. */
+const choiceOf = (value: string, chosen: Chosen): Choice => ({
+  value,
+  note: "",
+  chosen,
+});
+
 /** WHAT THERE IS TO PICK, as this question stands. One sum, because the three
- *  states a person must tell apart — we are still finding out, we could not
- *  find out, here is the list — are three different things to be told, and a
- *  nullable list would say the first two the same way (nothing). */
+ *  states a person must tell apart — we are still finding out, there is
+ *  nothing to ask, here is what you can answer with — are three different
+ *  things to be told, and a nullable list would say the first two the same
+ *  way (nothing). */
 type Offer =
   | { readonly kind: "waiting"; readonly words: string }
   | { readonly kind: "failed"; readonly words: string }
@@ -68,11 +92,12 @@ type Offer =
       /** What this list is OF — the harness, for a model. The draft's default
        *  is seeded once per context ({@link seededChips}). */
       readonly context: string;
-      readonly options: ReadonlyArray<AskOption>;
+      readonly options: ReadonlyArray<Choice>;
       /** What the list is the offer OF, as the rule that judges an answer
        *  reads it ({@link modelNotOffered}): a harness question offers the
-       *  harnesses by name, and `unlisted` is the harness that cannot list
-       *  its models — so any model id may be typed instead. */
+       *  harnesses by name; `unlisted` is the harness that cannot list its
+       *  models and `unavailable` the host that could not list them just
+       *  now — for both, any model id may be typed instead. */
       readonly offered: ModelChoices;
       /** What to say when the list is empty — the host answered, and the
        *  answer was nothing. */
@@ -100,8 +125,8 @@ const WorkChoiceQuestion: Component<{
 
   /** This form's picks so far, as {@link harnessForModel} reads them: the
    *  harness answered beside this question counts before it is sent. */
-  const drafted = (): ReadonlyMap<string, ReadonlyArray<string>> => {
-    const values = new Map<string, ReadonlyArray<string>>();
+  const drafted = (): ReadonlyMap<string, SentAnswer> => {
+    const values = new Map<string, SentAnswer>();
     for (const one of props.work.decisions)
       if (one.ask === props.ask)
         values.set(one.id, askDraft(props.ask, one.id));
@@ -176,18 +201,28 @@ const WorkChoiceQuestion: Component<{
         empty:
           "This kolu was built without agent-distro: it carries no agent to run.",
       };
-    const names = listing.harnesses.map((one) => one.name);
     return {
       kind: "choices",
       context: "listing",
       options: listing.harnesses.map((one) => ({
         value: one.name,
         note: one.title,
+        chosen: "picked",
       })),
-      offered: { kind: "listed", ids: names },
+      offered: {
+        kind: "listed",
+        ids: listing.harnesses.map((one) => one.name),
+      },
       empty: "",
     };
   };
+
+  /** The models this person ran `harness` on before, each as it was chosen
+   *  then — what a question with no list to pick from offers. */
+  const usedBefore = (harness: string): ReadonlyArray<Choice> =>
+    props.memory
+      .modelsUsed(harness)
+      .map((one) => choiceOf(one.value, one.chosen));
 
   const modelOffer = (): Offer => {
     const one = Option.getOrUndefined(harness());
@@ -203,8 +238,17 @@ const WorkChoiceQuestion: Component<{
       };
     if (models.loading)
       return { kind: "waiting", words: `Asking what ${one} offers here…` };
-    const failed = models.error as Error | undefined;
-    if (failed !== undefined) return { kind: "failed", words: failed.message };
+    // THE HOST COULD NOT LIST — said in its own words, beside what a harness
+    // with no list gets: the models used before and a box to type one.
+    const unread = models.error as Error | undefined;
+    if (unread !== undefined)
+      return {
+        kind: "choices",
+        context: one,
+        options: usedBefore(one),
+        offered: { kind: "unavailable", why: unread.message },
+        empty: `No model was run with ${one} before — type the one to run.`,
+      };
     const answer = models();
     if (answer === undefined)
       return { kind: "waiting", words: `Asking what ${one} offers here…` };
@@ -212,14 +256,14 @@ const WorkChoiceQuestion: Component<{
       return {
         kind: "choices",
         context: one,
-        options: props.memory.modelsUsed(one).map(askOption),
+        options: usedBefore(one),
         offered: answer.models,
         empty: `${one} cannot list its models — type the one to run.`,
       };
     return {
       kind: "choices",
       context: one,
-      options: answer.models.ids.map(askOption),
+      options: answer.models.ids.map((id) => choiceOf(id, "picked")),
       offered: answer.models,
       empty: `${one} lists no models on this host.`,
     };
@@ -243,35 +287,40 @@ const WorkChoiceQuestion: Component<{
     return now.kind === "choices" ? now : null;
   };
 
+  /** Whether this question takes a model typed into a box: a harness that
+   *  cannot list, or a host that could not list just now. */
+  const takesTyped = (offered: ModelChoices): boolean =>
+    offered.kind !== "listed";
+
   /** What this person answered last, if it is still something they can answer
-   *  here: an option that is drawn, or — for a harness that takes a typed
-   *  model — a model id kolu would record (words saved as a model before kolu
-   *  drew these options are not put back under their hands). */
-  const standing = (): Option.Option<string> => {
+   *  here, as it was chosen: a pick that is still drawn (or, with no list to
+   *  hold it to, still a model id), or a typed model where there is a box to
+   *  put it back in (words saved as a model before kolu drew these options
+   *  are not put back under their hands). */
+  const standing = (): Option.Option<Recalled> => {
     const now = choices();
     if (now === null) return Option.none();
     return Option.filter(
       props.memory.last(props.decision.key, harness()),
       (want) =>
-        now.options.some((one) => one.value === want) ||
-        Option.isNone(modelNotOffered(want, now.offered)),
+        (want.chosen === "picked" || takesTyped(now.offered)) &&
+        Option.isNone(modelNotOffered(want.value, want.chosen, now.offered)),
     );
   };
 
   /** WHY THE MODEL TYPED IN THE BOX IS NOT ONE KOLU WOULD RECORD — the rule
    *  the answer is checked by where it is recorded, said as it is typed, so a
    *  refusal is never the first a person hears of it. None while the box is
-   *  empty or holds a model id — and for a question with no list yet, which
-   *  draws no box at all. */
+   *  empty or holds a model id — and for a question with no box. */
   const typedWhy = (): Option.Option<string> => {
     const now = choices();
     const typed = askDraft(props.ask, typedKey(props.decision.id))[0] ?? "";
     if (now === null || typed === "") return Option.none();
     return Option.map(
-      modelNotOffered(typed, now.offered),
+      modelNotOffered(typed, "typed", now.offered),
       (why) =>
-        // The box is only ever drawn for a harness that cannot list its
-        // models, so the list's own context IS that harness.
+        // The box is only ever drawn for a model question, so the list's own
+        // context IS its harness.
         `${JSON.stringify(typed)} ${unofferedWhy(
           { key: props.decision.key, value: typed, why, harness: now.context },
           [],
@@ -289,6 +338,25 @@ const WorkChoiceQuestion: Component<{
     () => choices()?.options ?? [],
     standing,
   );
+
+  /** How answering with `value` is chosen — a pick, unless it is a model this
+   *  person typed before, which goes back in the box as typed. */
+  const chosenOf = (value: string): Chosen =>
+    choices()?.options.find((one) => one.value === value)?.chosen ?? "picked";
+
+  /** A chip pressed: a pick goes in as the pick; a model typed before goes
+   *  back in the box, so it is sent as typed again. */
+  const press = (value: string): void => {
+    if (chosenOf(value) === "typed")
+      typeOnly(props.ask, props.decision.id, value);
+    else pickOnly(props.ask, props.decision.id, value);
+  };
+
+  /** Whether a chip reads as the answer: the pick, or the words in the box. */
+  const isPressed = (value: string): boolean =>
+    chosenOf(value) === "typed"
+      ? (askDraft(props.ask, typedKey(props.decision.id))[0] ?? "") === value
+      : askDraft(props.ask, props.decision.id).includes(value);
 
   /** THE ONE THING A PERSON MUST BE TOLD about a question they cannot answer
    *  yet: pressing Answer does not answer it, and it will still be there
@@ -339,16 +407,31 @@ const WorkChoiceQuestion: Component<{
       <Match when={choices()}>
         {(now) => (
           <>
+            {/* THE HOST COULD NOT LIST: its own words, ABOVE what can still
+                be chosen — a person answering this does so knowing the list
+                was not read. */}
+            <Show
+              when={(() => {
+                const offered = now().offered;
+                return offered.kind === "unavailable" ? offered : null;
+              })()}
+            >
+              {(unread) => (
+                <p
+                  data-testid="conductor-ask-failed"
+                  data-field={props.decision.id}
+                  class="mt-1.5 m-0 rounded-md border border-alert/55 bg-alert/[0.08] px-2 py-1 text-alert"
+                >
+                  {unread().why}
+                </p>
+              )}
+            </Show>
             <Show when={now().options.length > 0}>
               <AskOptions
                 field={props.decision.id}
                 options={chips()}
-                picked={(value) =>
-                  askDraft(props.ask, props.decision.id).includes(value)
-                }
-                onPick={(value) =>
-                  pickOnly(props.ask, props.decision.id, value)
-                }
+                picked={isPressed}
+                onPick={press}
                 searchLabel={what() === "model" ? "models" : "harnesses"}
               />
             </Show>
@@ -361,7 +444,7 @@ const WorkChoiceQuestion: Component<{
                 {now().empty}
               </p>
             </Show>
-            <Show when={now().offered.kind === "unlisted"}>
+            <Show when={takesTyped(now().offered)}>
               <input
                 type="text"
                 data-testid="conductor-ask-other"

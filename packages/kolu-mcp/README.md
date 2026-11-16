@@ -295,7 +295,8 @@ not the caller's**: `run` is refused for those two roles, and the face's
 `prepare` step (`src/fleet/start.ts`) builds it from what `FleetWorks.startOf`
 answers — the work's saved harness and model, judged again by kolu-server
 against what that host offers now, and the host's word on how that harness
-takes a model (padi's `agentDistro.models`) — through
+takes a model (padi's `agentDistro.launch`, which runs no harness, so a start
+never waits on a model list) — through
 `@kolu/agent-distro/models`' `modelLaunchWords`: `omp --model
 anthropic/claude-fable-5-2`, or `OPENCODE_CONFIG_CONTENT='{"model":…}'
 opencode`, answered as `ran`. A setup not answered yet, a saved answer kolu no

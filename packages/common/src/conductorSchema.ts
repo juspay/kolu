@@ -46,7 +46,7 @@ import {
 } from "@kolu/acp/wire";
 import { formatBytes, MIB } from "@kolu/byte-units";
 import { TerminalIdSchema } from "@kolu/terminal-vocab/schema";
-import { AnsweredFromFaceSchema } from "kolu-work";
+import { AnsweredFromFaceSchema, TypedAnswerSchema } from "kolu-work";
 import { Effect, Schema } from "effect";
 
 /** `YES_NO` is a VALUE, not a schema, and it is the one piece of this
@@ -1153,12 +1153,18 @@ export const ConductorAnswerOutputSchema = Schema.Struct({
 export const ConductorAnswerWorkInputSchema = Schema.Struct({
   work: Schema.String,
   ask: Schema.String,
-  /** Per decision id: the options picked, and/or the words typed. A bare
-   *  string is the one-value spelling of the same thing. */
+  /** Per decision id: the options picked, and/or the words typed — a bare
+   *  string is the one-value spelling of the same thing — or, for one of
+   *  kolu's own questions, `{ typed }`: the one answer the person TYPED,
+   *  which the record keeps as typed and never judges as a pick. */
   answers: Schema.NullOr(
     Schema.Record(
       Schema.String,
-      Schema.Union([Schema.Array(Schema.String), Schema.String]),
+      Schema.Union([
+        Schema.Array(Schema.String),
+        Schema.String,
+        TypedAnswerSchema,
+      ]),
     ),
   ),
   /** WHERE the human was when they answered: the work's card, the chat, the

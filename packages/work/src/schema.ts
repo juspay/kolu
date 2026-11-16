@@ -471,12 +471,30 @@ export const WorkAnswerSchema = answerOf({ said: SaidSchema });
 export const ModeAnswerSchema = answerOf({ value: WorkModeSchema });
 /** The answer to `on-green`: one of kolu's words for it. */
 export const OnGreenAnswerSchema = answerOf({ value: OnGreenSchema });
+/** HOW AN ANSWER TO ONE OF KOLU'S OWN QUESTIONS WAS CHOSEN — picked from what
+ *  kolu drew (the harnesses it carries, the models the host listed, a model
+ *  this person picked before), or TYPED by the person. It decides how the
+ *  answer is judged, when it is recorded and again when its role starts: a
+ *  picked model must be one the host lists, whenever the host can list; a
+ *  typed one goes to the harness as typed (omp matches a short name like
+ *  `opus` itself), and only upstream's one-word rule applies to it. */
+export const CHOSEN = ["picked", "typed"] as const;
+export const ChosenSchema = Schema.Literals(CHOSEN);
+export type Chosen = typeof ChosenSchema.Type;
+
 /** AN ANSWER TO ONE OF KOLU'S OWN QUESTIONS — one value, never words beside
- *  it: a harness kolu carries, or a model its host offers (or, for a harness
- *  that cannot list its models, the one model id typed). */
+ *  it: a harness kolu carries, or a model — and how it was chosen. */
 export const KoluChoiceAnswerSchema = answerOf({
   value: Schema.NonEmptyString,
+  chosen: ChosenSchema,
 });
+
+/** What a face sends for one question: the values it judged by the
+ *  question's options (a value among them is a pick), or — for one of kolu's
+ *  own questions — the one answer the person TYPED, which is never a pick
+ *  whatever it happens to match. */
+export const TypedAnswerSchema = Schema.Struct({ typed: TypedSchema });
+export type TypedAnswer = typeof TypedAnswerSchema.Type;
 
 /** THE SHORT HEADER a question about the work is drawn under — the asker's
  *  two or three words, or none given (then a few words of the question stand

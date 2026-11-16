@@ -169,7 +169,7 @@ const choice = (
 ): Settled => ({
   ...choiceAsked(key, over),
   kind: "settled",
-  answer: { how: "answered", at: AT, from: "chat", value },
+  answer: { how: "answered", at: AT, from: "chat", value, chosen: "picked" },
 });
 
 const work = (over: Partial<Work> = {}): Work => ({

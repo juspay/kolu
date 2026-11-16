@@ -32,6 +32,7 @@ import {
   type RequestWords,
   type Said,
   type Settled,
+  type TypedAnswer,
   type Work,
   type WorkEvent,
   type WorkMode,
@@ -207,13 +208,26 @@ export const askQuestions = (
     : asking;
 };
 
+/** What a face sent for ONE question — values judged by the question's own
+ *  options (a value among them is a pick), or the one answer the person typed
+ *  to one of kolu's own questions ({@link TypedAnswer}), which is never read
+ *  as a pick. */
+export type SentAnswer = ReadonlyArray<string> | TypedAnswer;
+
+/** The one value `sent` gives a single-answer question — the first non-empty
+ *  value, or the words typed — none when it gives none. */
+export const sentValue = (sent: SentAnswer): Option.Option<string> =>
+  "typed" in sent
+    ? Option.liftPredicate(sent.typed.trim(), (text) => text !== "")
+    : Arr.findFirst(sent, (value) => value !== "");
+
 /** WHAT THE HUMAN DID WITH ONE ASK: declined the whole of it, or answered
- *  with values per question id. */
+ *  with what was sent per question id. */
 export type AskReply =
   | { readonly kind: "declined" }
   | {
       readonly kind: "answered";
-      readonly values: ReadonlyMap<string, ReadonlyArray<string>>;
+      readonly values: ReadonlyMap<string, SentAnswer>;
     };
 
 /** The human's reply to one ask.
@@ -340,29 +354,33 @@ const saidOf = (
     : Option.some({ kind: "typed", text: typed });
 };
 
-/** AN ASKED DECISION, ANSWERED WITH `values` — or none, when the values give
- *  it no value, which leaves it asked. A question kolu drew the options for
- *  has ONE answer, already checked where it arrived (`unofferedAnswers`); the
- *  mode and what to do on green are kolu's own words or no answer; for a
- *  question about the work a value among its options is a PICK and anything
- *  else is words typed. */
+/** AN ASKED DECISION, ANSWERED WITH WHAT WAS SENT — or none, when it gives
+ *  the question no value, which leaves it asked. A question kolu drew the
+ *  options for has ONE answer, already checked where it arrived
+ *  (`unofferedAnswers`), and records how it was chosen: typed when the person
+ *  typed it, picked otherwise; the mode and what to do on green are kolu's
+ *  own words or no answer; for a question about the work a value among its
+ *  options is a PICK and anything else is words typed. */
 export const answeredWith = (
   one: Asked,
   at: string,
   from: AnswerFrom,
-  values: ReadonlyArray<string>,
+  sent: SentAnswer,
 ): Option.Option<Settled> => {
   if (one.topic === "work")
     return Option.map(
-      saidOf(one.options, values),
+      "typed" in sent
+        ? Option.map(sentValue(sent), (text): Said => ({ kind: "typed", text }))
+        : saidOf(one.options, sent),
       (said): Settled => ({
         ...one,
         kind: "settled",
         answer: { how: "answered", at, from, said },
       }),
     );
-  const [value] = values;
-  if (value === undefined || value === "") return Option.none();
+  const given = sentValue(sent);
+  if (Option.isNone(given)) return Option.none();
+  const value = given.value;
   switch (one.key) {
     case "mode":
       return isWorkMode(value)
@@ -384,7 +402,13 @@ export const answeredWith = (
       return Option.some({
         ...one,
         kind: "settled",
-        answer: { how: "answered", at, from, value },
+        answer: {
+          how: "answered",
+          at,
+          from,
+          value,
+          chosen: "typed" in sent ? "typed" : "picked",
+        },
       });
   }
 };

@@ -637,9 +637,9 @@ export function implementKoluSurface(deps: KoluSurfaceDeps) {
         // minutes answers it the same way they would in ten seconds.
         //
         // The values arrive keyed by decision id, a bare string being the
-        // one-value spelling, and `null` for a decline; they become the
-        // record's own reply HERE, at the wire, so the record only ever sees
-        // one shape.
+        // one-value spelling and `{ typed }` a model the person typed, and
+        // `null` for a decline; they become the record's own reply HERE, at
+        // the wire, so the record only ever sees one shape.
         answerWork: ({
           input,
         }: {
@@ -647,7 +647,10 @@ export function implementKoluSurface(deps: KoluSurfaceDeps) {
             work: string;
             ask: string;
             answers: Readonly<
-              Record<string, ReadonlyArray<string> | string>
+              Record<
+                string,
+                ReadonlyArray<string> | string | { readonly typed: string }
+              >
             > | null;
             from: "card" | "chat" | "reader" | "popout";
           };
@@ -665,9 +668,9 @@ export function implementKoluSurface(deps: KoluSurfaceDeps) {
                         kind: "answered",
                         values: new Map(
                           Object.entries(input.answers).map(
-                            ([decision, values]) => [
+                            ([decision, sent]) => [
                               decision,
-                              typeof values === "string" ? [values] : values,
+                              typeof sent === "string" ? [sent] : sent,
                             ],
                           ),
                         ),

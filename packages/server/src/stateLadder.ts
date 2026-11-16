@@ -1871,6 +1871,74 @@ export function workAskStanding_1_55_0(stateRoot: string): void {
   writeTranscriptFile(path, TRANSCRIPT_VERSION_1_55_0, next);
 }
 
+/** The four questions kolu draws the options for, as 1.56.0 froze them —
+ *  copied rather than imported, by this file's own rule. */
+const KOLU_CHOICE_KEYS_1_56_0: ReadonlySet<string> = new Set([
+  "planner.harness",
+  "planner.model",
+  "implementor.harness",
+  "implementor.model",
+]);
+
+/** ONE DECISION as 1.56.0 stores it: an answer to one of kolu's own questions
+ *  gains `chosen`, and every other decision is the SAME OBJECT. A decision
+ *  that already says how it was chosen has walked this rung. */
+const decisionOf_1_56_0 = (value: unknown): unknown => {
+  const decision = recordOf(value);
+  if (
+    decision === null ||
+    decision.kind !== "settled" ||
+    typeof decision.key !== "string" ||
+    !KOLU_CHOICE_KEYS_1_56_0.has(decision.key)
+  )
+    return value;
+  const answer = recordOf(decision.answer);
+  if (answer === null || answer.how !== "answered" || "chosen" in answer)
+    return value;
+  return { ...decision, answer: { ...answer, chosen: "picked" } };
+};
+
+/** The 1.56.0 rung — AN ANSWER TO ONE OF KOLU'S QUESTIONS SAYS HOW IT WAS
+ *  CHOSEN: picked from what kolu drew, or typed by the person. A typed model
+ *  goes to the harness as typed and is never held to the host's list; a
+ *  picked one is, whenever the host can list.
+ *
+ *  Every answer stored before this rung becomes `picked`, and that is what
+ *  each was judged as. A harness answer was always one kolu carries. A model
+ *  answer was held to the host's list whenever its harness had one (the rule
+ *  refused anything else where it was recorded and again at start), and for
+ *  a harness with no list the one-word rule was all that was asked — which
+ *  is exactly how a picked model under such a harness is judged now. So no
+ *  saved answer starts or stops passing because of this rung.
+ *
+ *  Only `works` moves; the transcript file's rows keep their own shape, so
+ *  TRANSCRIPT_FILE_VERSION stays at 1.55.0. Exported for
+ *  `stateMigration.test.ts`. */
+export function koluChoicesSayHowChosen_1_56_0(
+  store: Conf<PersistedState>,
+): void {
+  const works = recordOf(store.get("works"));
+  if (works === null) return;
+  let changed = false;
+  const next: Record<string, unknown> = {};
+  for (const [id, value] of Object.entries(works)) {
+    const work = recordOf(value);
+    const decisions = Array.isArray(work?.decisions) ? work.decisions : null;
+    if (work === null || decisions === null) {
+      next[id] = value;
+      continue;
+    }
+    const nextDecisions = decisions.map(decisionOf_1_56_0);
+    if (nextDecisions.every((one, at) => one === decisions[at])) {
+      next[id] = value;
+      continue;
+    }
+    changed = true;
+    next[id] = { ...work, decisions: nextDecisions };
+  }
+  if (changed) store.set("works", next as unknown as PersistedState["works"]);
+}
+
 /** The migration ladder — hoisted so {@link decodeStateBackup}'s scratch
  *  store walks the REAL ladder on a backup snapshot (which may predate any
  *  rung), never a parallel re-implementation of it. */
@@ -2564,4 +2632,12 @@ export const CONF_MIGRATIONS = {
   // STANDING now (`workAskStanding_1_55_0`) — which is why
   // TRANSCRIPT_FILE_VERSION reads 1.55.0.
   "1.55.0": workArmsNotNulls_1_55_0,
+  // HOW A KOLU CHOICE WAS CHOSEN. An answer to one of kolu's own questions
+  // gains `chosen` — `picked` or `typed` — because the two are judged
+  // differently: a typed model goes to the harness as typed and is never
+  // held to the host's list. Every stored answer becomes `picked`, which is
+  // what each was judged as (`koluChoicesSayHowChosen_1_56_0` argues it).
+  // The transcript file is untouched, so TRANSCRIPT_FILE_VERSION stays at
+  // 1.55.0.
+  "1.56.0": koluChoicesSayHowChosen_1_56_0,
 };

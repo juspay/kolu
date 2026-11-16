@@ -65,6 +65,8 @@ import {
   isKoluChoice,
   isSettled,
   type Offered,
+  type Recalled,
+  type SentAnswer,
   setupMemory,
   type Work,
   type WorkId,
@@ -186,11 +188,11 @@ const WorkQuestion: Component<{
     /** The last answer, when it is one of the options drawn here. A question
      *  about the work has no last time to open on: it is this work's own
      *  question, asked once. */
-    const standing = (): Option.Option<string> => {
+    const standing = (): Option.Option<Recalled> => {
       const decision = one.decision;
       if (decision.topic !== "setup") return Option.none();
       return Option.filter(memory().last(decision.key, Option.none()), (want) =>
-        (decision.options as ReadonlyArray<string>).includes(want),
+        (decision.options as ReadonlyArray<string>).includes(want.value),
       );
     };
     const chips = seededChips(
@@ -231,25 +233,33 @@ const WorkQuestion: Component<{
 
   /** WHAT ONE QUESTION SENDS: what they picked, plus what they typed — and,
    *  from the reader, the comments that go with the answer appended to those
-   *  words. Empty is a question they left alone, which is sent as nothing at
+   *  words. None is a question they left alone, which is sent as nothing at
    *  all and STAYS ASKED.
    *
    *  A setup question sends EXACTLY ONE value and no rider: its answer is one
-   *  of kolu's words (or, for a harness or a model, one name the host
-   *  offers), so there is nothing in it for a page of comments to ride on. */
-  const valuesOf = (decision: Asked, rider: string): ReadonlyArray<string> => {
+   *  of kolu's words (or, for a harness or a model, one name). A model the
+   *  person TYPED is sent as typed — the record keeps how it was chosen, and
+   *  a typed model is never held to the host's list. */
+  const sentOf = (
+    decision: Asked,
+    rider: string,
+  ): Option.Option<SentAnswer> => {
     const chosen = askDraft(props.ask, decision.id);
     const typed = askDraft(props.ask, typedKey(decision.id))[0] ?? "";
     switch (decision.topic) {
       case "setup": {
-        // Only a question kolu drew the options for takes a typed answer —
-        // the model of a harness that cannot list its models.
-        const one = isKoluChoice(decision) && typed !== "" ? typed : chosen[0];
-        return one === undefined || one === "" ? [] : [one];
+        // Only a question kolu drew the options for takes a typed answer.
+        if (isKoluChoice(decision) && typed.trim() !== "")
+          return Option.some({ typed: typed.trim() });
+        const one = chosen[0];
+        return one === undefined || one === ""
+          ? Option.none()
+          : Option.some([one]);
       }
       case "work": {
         const words = [typed, rider].filter((part) => part !== "").join("\n\n");
-        return [...chosen, ...(words === "" ? [] : [words])];
+        const values = [...chosen, ...(words === "" ? [] : [words])];
+        return values.length === 0 ? Option.none() : Option.some(values);
       }
       default:
         return decision satisfies never;
@@ -258,12 +268,12 @@ const WorkQuestion: Component<{
 
   /** The whole form, as it is sent: only the questions that have something in
    *  them. */
-  const answers = createMemo((): Record<string, ReadonlyArray<string>> => {
-    const sending: Record<string, ReadonlyArray<string>> = {};
+  const answers = createMemo((): Record<string, SentAnswer> => {
+    const sending: Record<string, SentAnswer> = {};
     const rider = props.attach?.text() ?? "";
     for (const decision of open()) {
-      const values = valuesOf(decision, rider);
-      if (values.length > 0) sending[decision.id] = values;
+      const sent = sentOf(decision, rider);
+      if (Option.isSome(sent)) sending[decision.id] = sent.value;
     }
     return sending;
   });
@@ -275,7 +285,7 @@ const WorkQuestion: Component<{
   /** ANSWER. What the record TOOK is forgotten; what it left open keeps its
    *  draft, so a question whose value the record would not take is still
    *  there with the words that were in it. */
-  const send = (values: Record<string, ReadonlyArray<string>>): void => {
+  const send = (values: Record<string, SentAnswer>): void => {
     const sent = Object.keys(values);
     orch.answerWork(props.id, props.ask, values, props.from, (outcome) => {
       switch (outcome.kind) {

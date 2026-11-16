@@ -8,12 +8,13 @@
  * pinned here is what a person sees and what one press of Answer sends:
  *
  *  - a harness that cannot list its models offers the ones this person has
- *    run on it before, and takes a typed one — and the typed one is what
- *    travels, alone;
+ *    run on it before, and takes a typed one — and the typed one travels,
+ *    alone, AS TYPED;
  *  - the last answers are already selected, so Answer with nothing touched
  *    sends the whole setup;
- *  - a model list that FAILED says so in the host's own words and offers
- *    nothing — an empty menu would read as "this harness has no models";
+ *  - a model list that FAILED says so in the host's own words, and beside
+ *    them offers what a harness with no list gets — the models used before
+ *    and a box — so the person can still answer, knowingly;
  *  - the model question is of the harness being answered BESIDE it, not of
  *    the one the record happens to hold.
  *
@@ -26,6 +27,7 @@
 import { Effect } from "effect";
 import type {
   Asked,
+  Chosen,
   Decision,
   KoluChoiceKey,
   Said,
@@ -166,12 +168,13 @@ const koluAnswered = (
   key: KoluChoiceKey,
   value: string,
   at = AT,
+  chosen: Chosen = "picked",
 ): Decision => ({
   ...koluAsked(id, key),
   ask: `${id}-ask`,
   at,
   kind: "settled",
-  answer: { how: "answered", at, from: "card", value },
+  answer: { how: "answered", at, from: "card", value, chosen },
 });
 
 const modeAnswered = (id: string, value: WorkMode, at = AT): Decision => ({
@@ -192,8 +195,11 @@ const workOf = (branch: string, decisions: readonly Decision[]): Work => ({
 });
 
 /** The work this person answered LAST TIME, in the saved works: a mode, a
- *  harness and the model they ran on it. */
-const earlier = (model = "sonnet-4"): ReadonlyMap<WorkId, Work> =>
+ *  harness and the model they ran on it, as they chose it. */
+const earlier = (
+  model = "sonnet-4",
+  chosen: Chosen = "picked",
+): ReadonlyMap<WorkId, Work> =>
   new Map([
     [
       "branch:local/src/before",
@@ -205,7 +211,13 @@ const earlier = (model = "sonnet-4"): ReadonlyMap<WorkId, Work> =>
           "claude",
           "2025-12-01T00:00:01Z",
         ),
-        koluAnswered("p-model", "planner.model", model, "2025-12-01T00:00:02Z"),
+        koluAnswered(
+          "p-model",
+          "planner.model",
+          model,
+          "2025-12-01T00:00:02Z",
+          chosen,
+        ),
       ]),
     ],
   ]);
@@ -319,8 +331,8 @@ const fields = (el: HTMLElement): string[] =>
   );
 
 /** What the last Answer press sent, by field. */
-const sent = (): Record<string, readonly string[]> =>
-  answerWork.mock.calls.at(-1)?.[2] as Record<string, readonly string[]>;
+const sent = (): Record<string, unknown> =>
+  answerWork.mock.calls.at(-1)?.[2] as Record<string, unknown>;
 
 describe("a harness that cannot list its models", () => {
   it("offers the models used before and takes a typed one", async () => {
@@ -348,7 +360,7 @@ describe("a harness that cannot list its models", () => {
     expect(selected(el, "ask-model")).toEqual([]);
 
     press(el, "conductor-ask-submit");
-    expect(sent()).toEqual({ "ask-model": ["opus-4.9"] });
+    expect(sent()).toEqual({ "ask-model": { typed: "opus-4.9" } });
   });
 
   it("says why typed words are not a model, and never offers saved ones back", async () => {
@@ -439,7 +451,7 @@ describe("the answers from last time", () => {
 
     expect(selected(el, "ask-model")).toEqual([]);
     press(el, "conductor-ask-submit");
-    expect(sent()).toEqual({ "ask-model": ["opus-4.9"] });
+    expect(sent()).toEqual({ "ask-model": { typed: "opus-4.9" } });
   });
 
   it("offers no box at all for a question answered in kolu's own words", async () => {
@@ -458,11 +470,13 @@ describe("the answers from last time", () => {
 });
 
 describe("a model list that could not be read", () => {
-  it("says so in the host's own words and offers nothing", async () => {
+  it("says so in the host's own words, and still offers the models used before and a box", async () => {
     setWorks(earlier());
     host.reply = () =>
       Effect.fail(
-        new Error("agent-distro is not ready on this machine: no bundle"),
+        new Error(
+          "agent-distro claude: error: cannot list its models: LITELLM_API_KEY is not set",
+        ),
       );
     const el = mount(
       workOf("now", [
@@ -472,22 +486,48 @@ describe("a model list that could not be read", () => {
     );
     await settle();
 
-    const failed = el.querySelector('[data-testid="conductor-ask-failed"]');
-    expect(failed?.textContent).toContain(
-      "agent-distro is not ready on this machine: no bundle",
-    );
-    expect(options(el, "ask-model")).toEqual([]);
-    // AND THAT IT STAYS OPEN. A question nobody can answer yet must not read
-    // as answered after the press, so the form says so on the question
-    // itself — and the press has nothing to send.
+    // THE HOST'S OWN WORDS, on the question — not an empty menu.
+    expect(
+      el.querySelector('[data-testid="conductor-ask-failed"]')?.textContent,
+    ).toContain("LITELLM_API_KEY is not set");
+    // ... and beside them, what a harness with no list gets: the model run
+    // before, already selected, and a box to type another.
+    expect(options(el, "ask-model")).toEqual(["sonnet-4"]);
+    expect(selected(el, "ask-model")).toEqual(["sonnet-4"]);
     expect(
       el.querySelector(
-        '[data-testid="conductor-ask-stays-open"][data-field="ask-model"]',
-      )?.textContent,
-    ).toContain("stays open");
-    expect(submit(el).disabled).toBe(true);
+        '[data-testid="conductor-ask-other"][data-field="ask-model"]',
+      ),
+    ).not.toBeNull();
+    // It is answerable: nothing says it stays open.
+    expect(
+      el.querySelector('[data-testid="conductor-ask-stays-open"]'),
+    ).toBeNull();
     press(el, "conductor-ask-submit");
-    expect(answerWork).not.toHaveBeenCalled();
+    expect(sent()).toEqual({ "ask-model": ["sonnet-4"] });
+  });
+
+  it("brings a model typed before back into the box, to be sent as typed", async () => {
+    setWorks(earlier("opus", "typed"));
+    host.reply = () =>
+      Effect.fail(new Error("agent-distro claude: error: gateway down"));
+    const el = mount(
+      workOf("now", [
+        koluAnswered("now-harness", "planner.harness", "claude"),
+        koluAsked("ask-model", "planner.model"),
+      ]),
+    );
+    await settle();
+
+    const box = el.querySelector(
+      '[data-testid="conductor-ask-other"][data-field="ask-model"]',
+    ) as HTMLInputElement;
+    expect(box.value).toBe("opus");
+    // Its chip reads as the answer, and pressing Answer sends it typed — a
+    // typed model is never held to a list.
+    expect(selected(el, "ask-model")).toEqual(["opus"]);
+    press(el, "conductor-ask-submit");
+    expect(sent()).toEqual({ "ask-model": { typed: "opus" } });
   });
 });
 
