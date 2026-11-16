@@ -34,10 +34,8 @@
  *
  * ## One derivation, once
  *
- * The address is derived ONCE per request and carried. A second copy of the
- * same walk for subscriptions, and a collection-item reader that re-parsed the
- * URI, re-looked-up the template and re-decoded the key, were each a duplicated
- * derivation, not a safety net.
+ * The address is derived ONCE per request and carried: nothing downstream
+ * re-parses the URI, re-looks-up the template or re-decodes the key.
  *
  * ## What a URI is to a generation, in three outcomes
  *
@@ -466,10 +464,8 @@ function readFirstFrameSnapshot(
  *  request's abort signal, and a Promise edge in the middle would detach the
  *  subscriptions from that interruption.
  *
- *  It takes the ADDRESS it was resolved from, so there is no second parse of the
- *  URI, no second template lookup and no second `decodeKey` — and therefore no
- *  `Effect.die` guard whose only job was to prove the second derivation agreed
- *  with the first.
+ *  It takes the ADDRESS it was resolved from, so the URI is not parsed a second
+ *  time, the template not looked up again and the key not decoded again.
  *
  *  Whether there IS a membership signal is the CONTRACT's answer, carried on the
  *  address (`listable`, resolved from `resolveCollectionVerbs` at expose time),
