@@ -17,9 +17,11 @@ change what the behaviour means. A red build at the next bump is the point.
 The patch and the shim beside it are **vendored from
 [olai](https://github.com/juspay/olai)** (`packages/plugins/claude/acp/`) at
 this same 0.81.2 pin, where they were written, reviewed and measured against
-real adapter runs. Only the shim's package name differs (`kolu-acp-claude`),
-which is why `npmDepsHash` is kolu's own value for an otherwise identical
-dependency set. The added lines still say `olai patch (…)` in their comments:
+real adapter runs. The shim's package name differs (`kolu-acp-claude`), and so
+does one forced line — kolu's shim carries zod's 4.6.7 over the adapter's own
+4.6.5 pin (see the `//overrides` note in `../shim/package.json`) — which is why
+`npmDepsHash` is kolu's own value for a dependency set that is no longer
+olai's. The added lines still say `olai patch (…)` in their comments:
 that is whose patch it is, and rewriting the attribution would make the two
 copies diverge for nothing.
 
