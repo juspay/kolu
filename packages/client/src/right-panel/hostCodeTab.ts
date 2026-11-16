@@ -136,14 +136,12 @@ function buildHostCodeTab(ctx: { isActive: () => boolean }) {
     const git = store.focused().meta?.git;
     return git?.kind === "repo" ? git.info.repoRoot : null;
   };
-  // Who lists the shown root: git, or the disk when git cannot (a bare repo's
-  // folder). Every git read below is idle unless git can answer — the failing
+  // The shown root, when `by` is who lists it: git, or the disk when git cannot
+  // (a bare repo's folder). Every git read below asks for "git", so the failing
   // `git ls-files` / `git status` calls on a root with no working tree are
-  // simply never made — and the one disk read is idle unless it is the disk.
-  const shownLister = (): CodeLister | null =>
-    codeLister(store.focused().meta?.git);
-  const gitRepoPath = (): string | null =>
-    shownLister() === "git" ? shownRepoPath() : null;
+  // simply never made; the one disk read asks for "disk".
+  const rootListedBy = (by: CodeLister): string | null =>
+    codeLister(store.focused().meta?.git) === by ? shownRepoPath() : null;
   const codeView = (): CodeTabView => rightPanel.codeMode();
   const codeDiffMode = (): GitDiffMode | undefined =>
     codeView() === "browse" ? undefined : (codeView() as GitDiffMode);
@@ -182,7 +180,7 @@ function buildHostCodeTab(ctx: { isActive: () => boolean }) {
   // independent of the active view (see CodeTab for the passive-vs-active-view split).
   const localStatus = repoQuery({
     input: () => {
-      const p = gitRepoPath();
+      const p = rootListedBy("git");
       return p ? { repoPath: p, mode: "local" as const } : null;
     },
     query: (i) => activePadiRpc.git.getStatus(i),
@@ -196,7 +194,7 @@ function buildHostCodeTab(ctx: { isActive: () => boolean }) {
   // through `activeStatus.error`; any other failure toasts.
   const branchStatus = repoQuery({
     input: () => {
-      const p = gitRepoPath();
+      const p = rootListedBy("git");
       return p ? { repoPath: p, mode: "branch" as const } : null;
     },
     query: (i) => activePadiRpc.git.getStatus(i),
@@ -226,7 +224,7 @@ function buildHostCodeTab(ctx: { isActive: () => boolean }) {
   // one repo blanked the tree and re-dispatched `fs.listAll` for a fact that had
   // not changed.
   const browseInput = (): { repoPath: string } | null => {
-    const repoPath = gitRepoPath();
+    const repoPath = rootListedBy("git");
     return repoPath === null ? null : { repoPath };
   };
 
@@ -254,7 +252,7 @@ function buildHostCodeTab(ctx: { isActive: () => boolean }) {
   const diskRootLevel = repoQuery({
     enabled: () => codeView() === "browse",
     input: () => {
-      const repoPath = shownLister() === "disk" ? shownRepoPath() : null;
+      const repoPath = rootListedBy("disk");
       return repoPath === null ? null : { repoPath };
     },
     query: (i) =>
@@ -297,7 +295,7 @@ function buildHostCodeTab(ctx: { isActive: () => boolean }) {
   // find the file's `oldPath` (a cross-query dependency that rides one owner).
   const diff = repoQuery({
     input: () => {
-      const p = gitRepoPath();
+      const p = rootListedBy("git");
       const s = codeSelectedPath();
       const m = codeDiffMode();
       if (!p || !s || !m) return null;
