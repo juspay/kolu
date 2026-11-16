@@ -60,10 +60,11 @@ npmAdapter rec {
   entry = "dist/index.js";
   bin = "claude-agent-acp";
   # The hash covers the shim's own name too (the npm cache `prefetch-npm-deps`
-  # builds is keyed off the lockfile it reads, root entry included), so this is
-  # NOT olai's value for the same pin even though the dependency set is byte
-  # for byte the same one.
-  npmDepsHash = "sha256-ZAcK++CCn1IesEHoVhxB/BZ6T+ChyoM/uVBKS0nxMGg=";
+  # builds is keyed off the lockfile it reads, root entry included), and it
+  # covers the shim's `overrides` — zod rides the 4.6.7 line on a pin whose
+  # adapter declares 4.6.5 — so it is kolu's own value and never olai's, whose
+  # shim keeps the adapter's exact pins.
+  npmDepsHash = "sha256-+9kyd25sTLvzZElWarbWBPqplLjJqfSse0RIIV4yU2M=";
   patches = acp + "/patches";
   # Node is pinned and so is the CLI the SDK drives (the adapter reads
   # CLAUDE_CODE_EXECUTABLE before it goes looking); nothing here resolves off

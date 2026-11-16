@@ -7,8 +7,9 @@
   "dependencies": {
     "@agentclientprotocol/claude-agent-acp": "0.81.2"
   },
-  "//overrides": "GHSA-6qxp-vccf-f47h: @anthropic-ai/claude-agent-sdk (peer of @agentclientprotocol/claude-agent-acp) declares @modelcontextprotocol/sdk ^1.29.0, which resolves to a version before 1.31.0. This override forces the patched line rather than adding a phantom direct dependency.",
+  "//overrides": "Two forced lines, neither of them a phantom direct dependency. GHSA-6qxp-vccf-f47h: @anthropic-ai/claude-agent-sdk (peer of @agentclientprotocol/claude-agent-acp) declares @modelcontextprotocol/sdk ^1.29.0, which resolves to a version before 1.31.0. And zod is pinned EXACTLY by the adapter (4.6.5 at 0.81.2), so npm cannot move it on its own; this override carries the 4.6.7 line without moving the adapter pin, which is a hand-managed pin whose patch (../patches/) is measured against 0.81.2 only — see that directory's README, `Bumping the pin`.",
   "overrides": {
-    "@modelcontextprotocol/sdk": "^1.32.1"
+    "@modelcontextprotocol/sdk": "^1.32.1",
+    "zod": "4.6.7"
   }
 }
