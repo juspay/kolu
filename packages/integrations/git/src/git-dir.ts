@@ -24,6 +24,7 @@ import { execFile } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { promisify } from "node:util";
+import { err, type GitResult, ok } from "./errors.ts";
 
 const execFileAsync = promisify(execFile);
 
@@ -76,18 +77,31 @@ export function resolveGitCommonDir(cwd: string): Promise<string | null> {
 /** Whether `cwd` is inside a working tree, by git's own answer to `git
  *  rev-parse --is-inside-work-tree`: `false` for a bare repo's folder (and
  *  anything under it that is not itself a worktree), `true` inside a checkout.
- *  Null when git cannot answer — `cwd` is not a repo, git refuses it, git is
- *  missing, or the bounded call is killed — the same "could not resolve"
- *  meaning `revParseDir` gives null. */
-export async function isInsideWorkTree(cwd: string): Promise<boolean | null> {
+ *  A `GIT_FAILED` carrying git's message when git cannot answer — `cwd` is not
+ *  a repo, git refuses it, git is missing, or the bounded call is killed — and
+ *  when git answers anything but `true` or `false`. */
+export async function isInsideWorkTree(
+  cwd: string,
+): Promise<GitResult<boolean>> {
+  let stdout: string;
   try {
-    const { stdout } = await execFileAsync(
+    ({ stdout } = await execFileAsync(
       "git",
       ["rev-parse", "--is-inside-work-tree"],
       { cwd, encoding: "utf-8", timeout: GIT_QUERY_TIMEOUT_MS },
-    );
-    return stdout.trim() === "true";
-  } catch {
-    return null;
+    ));
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : String(e);
+    return err({
+      code: "GIT_FAILED",
+      message: `Failed to tell whether the root has a working tree: ${msg}`,
+    });
   }
+  const answer = stdout.trim();
+  if (answer === "true") return ok(true);
+  if (answer === "false") return ok(false);
+  return err({
+    code: "GIT_FAILED",
+    message: `git rev-parse --is-inside-work-tree answered ${JSON.stringify(answer)}`,
+  });
 }

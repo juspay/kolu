@@ -536,19 +536,17 @@ function installSharedWorkingTreeWatcher(
    *  anything. Runs once per entry: rebuilds and ignore refreshes reuse the
    *  answer. */
   async function install(): Promise<void> {
-    const insideWorkTree = await isInsideWorkTree(repoRoot);
+    const probe = await isInsideWorkTree(repoRoot);
     if (cancelled) return;
-    if (insideWorkTree === null) {
+    if (!probe.ok) {
+      const { error } = probe;
       log?.error(
-        {
-          err: "git could not tell whether the root has a working tree",
-          repoRoot,
-        },
+        { err: "message" in error ? error.message : error.code, repoRoot },
         "git: working-tree watcher install failed",
       );
       return;
     }
-    if (!insideWorkTree) {
+    if (!probe.value) {
       log?.info(
         { repoRoot },
         "git: working-tree watcher not installed, no working tree",
