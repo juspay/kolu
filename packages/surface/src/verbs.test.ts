@@ -13,7 +13,7 @@
  * divergences live beside the volatility they hold.
  */
 
-import { Option, Schema } from "effect";
+import { Result, Schema } from "effect";
 import { describe, expect, it } from "vitest";
 import { admitsNoArgument, decodeTextValue, toolName } from "./verbs";
 
@@ -40,7 +40,7 @@ describe("toolName", () => {
 describe("decodeTextValue", () => {
   it("lands a string token verbatim, in BOTH readings", () => {
     const got = decodeTextValue(wire(Schema.String), "42");
-    expect(Option.getOrThrow(got)).toEqual({ encoded: "42", decoded: "42" });
+    expect(Result.getOrThrow(got)).toEqual({ encoded: "42", decoded: "42" });
   });
 
   it("falls back to the JSON reading for a numeric schema — and the ENCODED half is the PARSED value, not the token", () => {
@@ -50,20 +50,40 @@ describe("decodeTextValue", () => {
     // face publishes. Neither reading can be re-derived from the other, which is
     // why both travel.
     const got = decodeTextValue(wire(Schema.Int), "42");
-    expect(Option.getOrThrow(got)).toEqual({ encoded: 42, decoded: 42 });
+    expect(Result.getOrThrow(got)).toEqual({ encoded: 42, decoded: 42 });
   });
 
   it("admits a literal by its verbatim reading, and refuses a token that lands in neither", () => {
     expect(
-      Option.isSome(decodeTextValue(wire(Schema.Literals(["a", "b"])), "a")),
+      Result.isSuccess(decodeTextValue(wire(Schema.Literals(["a", "b"])), "a")),
     ).toBe(true);
     expect(
-      Option.isNone(decodeTextValue(wire(Schema.Int), "not-a-number")),
+      Result.isFailure(decodeTextValue(wire(Schema.Int), "not-a-number")),
     ).toBe(true);
     // Not JSON at all, and not a string schema: undecodable by both paths.
     expect(
-      Option.isNone(decodeTextValue(wire(Schema.Literals(["a"])), "b")),
+      Result.isFailure(decodeTextValue(wire(Schema.Literals(["a"])), "b")),
     ).toBe(true);
+  });
+
+  it("a refusal carries the VERBATIM reading's own failure — a filter's sentence, as the token was written", () => {
+    // What a face quotes back to the caller: MCP refuses an item address with
+    // it, so a consumer's key schema is where it teaches what a name looks like.
+    const named = Schema.String.check(
+      Schema.makeFilter((name: string) =>
+        name.includes("/") ? undefined : "a reference is <host>/<id>",
+      ),
+    );
+    const refused = decodeTextValue(wire(named), "bogus");
+    if (Result.isSuccess(refused)) throw new Error("expected a refusal");
+    expect(refused.failure.message).toContain("a reference is <host>/<id>");
+
+    // A token that IS valid JSON still answers the verbatim failure, not the
+    // JSON reading's: `"7"` parses to the number 7, which a string filter
+    // rejects for a reason the caller never typed.
+    const numeric = decodeTextValue(wire(named), "7");
+    if (Result.isSuccess(numeric)) throw new Error("expected a refusal");
+    expect(numeric.failure.message).toContain("a reference is <host>/<id>");
   });
 });
 

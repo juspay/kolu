@@ -58,7 +58,7 @@
  */
 
 import type { Effect } from "effect";
-import { Option, Schema } from "effect";
+import { Option, Result, Schema } from "effect";
 import type { WireSchemaAny } from "./define";
 
 // ── The bridge, re-exported ──────────────────────────────────────────────
@@ -162,33 +162,40 @@ export interface TextValue {
  *  string-accepting schema. If the verbatim decode fails, falls back to
  *  `JSON.parse` and re-decodes, which covers numeric (`Schema.Finite`,
  *  `Schema.Int`) and boolean values whose text form is their JSON form (`"42"`
- *  → `42`). A token that fails both paths is `Option.none`.
+ *  → `42`).
+ *
+ *  A token that fails both paths answers the VERBATIM reading's own
+ *  `SchemaError`: the token as written is what the caller typed, so its failure
+ *  is the one a refusal can quote — a filter's own sentence, or the type the
+ *  schema expected. The JSON reading is a fallback, and its failure (or a token
+ *  that is not JSON at all) says nothing the caller can act on.
  *
  *  ONE rule, shared, because the two faces address the SAME items by it: the
- *  `<id>` segment of `surface://collections/processes/42` and the argv token in
+ *  name in `surface://collections/processes/42` and the argv token in
  *  `surface get processes 42` must decode to the same key, or the two faces
  *  address different items with the same spelling. What each face DOES with a
- *  `none` differs — MCP treats it as an unaddressable URI, the CLI raises a
- *  usage error naming the argument — so the answer is an `Option` and the
+ *  failure differs — MCP refuses the address with the reason, the CLI raises a
+ *  usage error naming the argument — so the answer is a `Result` and the
  *  policy stays at the face. */
 export function decodeTextValue(
   schema: WireSchemaAny,
   text: string,
-): Option.Option<TextValue> {
-  const decode = Schema.decodeUnknownOption(schema);
-  const direct = decode(text);
-  if (Option.isSome(direct))
-    return Option.some({ encoded: text, decoded: direct.value });
+): Result.Result<TextValue, Schema.SchemaError> {
+  const decode = Schema.decodeUnknownResult(schema);
+  const verbatim = decode(text);
+  if (Result.isSuccess(verbatim))
+    return Result.succeed({ encoded: text, decoded: verbatim.success });
+  const refused = Result.fail(verbatim.failure);
   let parsed: unknown;
   try {
     parsed = JSON.parse(text);
   } catch {
-    return Option.none(); // not JSON — undecodable for a non-string schema
+    return refused; // not JSON — only the verbatim reading was possible
   }
-  return Option.map(decode(parsed), (decoded) => ({
-    encoded: parsed,
-    decoded,
-  }));
+  const viaJson = decode(parsed);
+  return Result.isSuccess(viaJson)
+    ? Result.succeed({ encoded: parsed, decoded: viaJson.success })
+    : refused;
 }
 
 /** Does this member's declared input admit "no argument at all"?
@@ -205,7 +212,7 @@ export function decodeTextValue(
  *  addressable at all: one would refuse at boot while the other accepted and
  *  hung. What each face DOES with a `false` stays the face's own policy — a
  *  boot refusal there, a usage error here — exactly as {@link decodeTextValue}'s
- *  `Option` already leaves it. */
+ *  `Result` already leaves it. */
 export function admitsNoArgument(schema: WireSchemaAny): boolean {
   return Option.isSome(Schema.decodeUnknownOption(schema)(undefined));
 }

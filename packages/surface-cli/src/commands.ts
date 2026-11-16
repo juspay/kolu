@@ -20,7 +20,7 @@
  * | --- | --- | --- |
  * | both | a bundle with neither a core nor a sibling | the shared fold |
  * | both | an `expose` key naming nothing on its own spec | `classifyExpose` |
- * | MCP only | a sibling key equal to a CORE COLLECTION's key | `surface://collections/<k>/{id}` would be that collection's items and that sibling's whole space at once; argv reads `get <k> <key>` and `<k> …` as different words |
+ * | MCP only | a sibling key equal to a CORE COLLECTION's key | `surface://collections/<k>/{+id}` would be that collection's items and that sibling's whole space at once; argv reads `get <k> <key>` and `<k> …` as different words |
  * | MCP only | two tools colliding in the `_`-joined namespace (a bundle-root `a_x` beside sibling `a`'s `x`) | argv mounts them as `a_x` and `a x`, which do not collide |
  * | CLI only | a sibling key equal to a reader command (`get`/`keys`/`watch`/`list`) or a root verb | MCP has no reader commands and no argv word to shadow |
  * | CLI only | a sibling that exposes nothing | argv would mount a word with no subcommand under it; MCP just contributes no names, and an empty row is load-bearing there (a plugin on its way out — juspay/olai#546) |
@@ -1546,14 +1546,14 @@ function collectionKey<F extends FlagRecord, R>(
     );
   }
   const landed = decodeTextValue(member.keySchema, raw);
-  return Option.isNone(landed)
+  return Result.isFailure(landed)
     ? Effect.fail(
         usage(
           opts.info.name,
           `"${raw}" is not a key of "${member.name}" — it does not match the collection's declared key type.`,
         ),
       )
-    : Effect.succeed(landed.value.decoded);
+    : Effect.succeed(landed.success.decoded);
 }
 
 /** What to call a stream's or event's `get` with: the decoded `[arg]`, or the
@@ -1587,8 +1587,8 @@ function streamInput<F extends FlagRecord, R>(
   // handed the string "42" throws at the call site — a DEFECT, outside every arm
   // of the exit contract. `decodeTextValue` already knows which reading landed;
   // this takes it rather than assuming the token was its own encoding.
-  return Option.isSome(landed)
-    ? Effect.succeed(landed.value.encoded)
+  return Result.isSuccess(landed)
+    ? Effect.succeed(landed.success.encoded)
     : Effect.fail(
         usage(
           opts.info.name,

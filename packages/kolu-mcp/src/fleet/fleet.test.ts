@@ -64,6 +64,7 @@ import { fleetSurface } from "./fleetSurface.ts";
 import type { FleetHosts } from "./hosts.ts";
 import { FLEET_SETTLE_CAP_MS, KOLU_FLEET_TOOL_NAMES } from "./lift.ts";
 import { serveKoluFleetMcp } from "./serve.ts";
+import { notAFleetRef } from "./ref.ts";
 import type {
   FleetWatchJoin,
   FleetWorkMemberRow,
@@ -905,8 +906,8 @@ describe("the fleet face over two hosts", () => {
     // a record carries a second id of its own.
     beta.add(BETA_1, "box worker", ALPHA_1);
     const mcp = await servedFleet(fleet.hosts);
-    // The id segment is percent-encoded: a fleet reference carries a slash, and
-    // the adapter addresses a collection item by SEGMENT.
+    // The ESCAPED spelling of a reference (`encodeURIComponent`, what an `{id}`
+    // expansion writes) names the same record as the one handed out.
     const record = jsonOf(
       await mcp.readResource({
         uri: `surface://collections/terminals/${encodeURIComponent(`remote:box/${BETA_1}`)}`,
@@ -926,35 +927,10 @@ describe("the fleet face over two hosts", () => {
     expect(killed.isError ?? false, JSON.stringify(killed.content)).toBe(false);
   });
 
-  it("pins the SDK internal a record read is lifted from — a bump that moves it fails HERE", async () => {
-    // Serving this face LIFTS the adapter's own `resources/read` out of the
-    // SDK's private `_requestHandlers` map (`./recordRead.ts`), because the
-    // SDK publishes no getter for a registered handler. An SDK that keeps it
-    // somewhere else makes the next line THROW, naming the assumption — in
-    // `ci::unit`, rather than at a person's kolu-server boot, where the first
-    // symptom would be a Conductor that can read no terminal's record at all.
-    const { fleet } = twoHosts();
-    const mcp = await servedFleet(fleet.hosts);
-    // And what was lifted is the adapter's real reader: the record this face
-    // re-addressed and handed on comes back answered.
-    expect(
-      jsonOf(
-        await mcp.readResource({
-          uri: `surface://collections/terminals/local/${ALPHA_1}`,
-        }),
-      ),
-      "the face served, so the delegate was found — but the record read did not come back through it",
-    ).toMatchObject({ id: `local/${ALPHA_1}` });
-  });
-
   it("reads a record at the reference the face hands out — local and remote, unescaped", async () => {
-    // THE BUG a human hit in a real session: a reference is `host/id`, so the
-    // URI an agent writes by pasting one after the collection has a slash in
-    // its last part — which the adapter's segment rule reads as a SIBLING's
-    // collection and refuses as an unknown resource. Reading one terminal's
-    // record therefore never worked on this face, while the standing prompt
-    // tells the Conductor to do exactly that before it reads a screen. Both
-    // arms, because `local/<id>` carries the slash too.
+    // A reference is `host/id`, so the URI an agent writes by pasting one
+    // after the collection has a slash in its name. Both arms, because
+    // `local/<id>` carries the slash too.
     const { fleet } = twoHosts();
     const mcp = await servedFleet(fleet.hosts);
     const asked = (ref: string) => `surface://collections/terminals/${ref}`;
@@ -974,24 +950,63 @@ describe("the fleet face over two hosts", () => {
     ).toMatchObject({ id: `remote:box/${BETA_1}`, host: "remote:box" });
   });
 
-  it("refuses a reference that names nothing, and says what a record address looks like", async () => {
+  it("subscribes to a record at the reference the face hands out, and hears it change there", async () => {
+    const { beta, fleet } = twoHosts();
+    const mcp = await servedFleet(fleet.hosts);
+    const uri = `surface://collections/terminals/remote:box/${BETA_1}`;
+    const updates: string[] = [];
+    mcp.setNotificationHandler(ResourceUpdatedNotificationSchema, (note) => {
+      updates.push(note.params.uri);
+    });
+    await mcp.subscribeResource({ uri });
+    // The opening snapshot is announced too, after the pusher's debounce — so
+    // wait until it has been heard, and only then clear: what arrives after the
+    // change is the change.
+    await vi.waitFor(() => {
+      expect(updates).toContain(uri);
+    });
+    updates.length = 0;
+
+    beta.runAgent(BETA_1, "claude-code", "thinking");
+
+    await vi.waitFor(() => {
+      expect(updates).toContain(uri);
+    });
+    expect(jsonOf(await mcp.readResource({ uri }))).toMatchObject({
+      agent: { kind: "claude-code" },
+    });
+  });
+
+  it("a reference that names no terminal gets the host's own answer", async () => {
     const { fleet } = twoHosts();
     const mcp = await servedFleet(fleet.hosts);
+    // A well-formed reference, to a terminal that is on the OTHER host: the
+    // address is right in shape, so it is read, and the read finds nothing.
     const uri = `surface://collections/terminals/local/${BETA_1}`;
     const refusal = await mcp.readResource({ uri }).then(
       () => null,
       (e: unknown) => String(e),
     );
-    // A reference for a terminal that is not on the host it names is an
-    // answer, not a crash — and the sentence has to carry both halves: that
-    // there is no such record, and the shape of an address that would have
-    // one.
-    expect(refusal).toContain("no terminal record at");
-    expect(refusal).toContain(uri);
-    expect(refusal).toContain('"surface://collections/terminals/<host>/<id>"');
+    expect(refusal).toContain(
+      `resource "${uri}" has no value yet — its collection key is not present`,
+    );
   });
 
-  it("refuses an address this face does not serve by teaching the record address", async () => {
+  it("refuses a name that is not a reference in the reference grammar's own words", async () => {
+    const { fleet } = twoHosts();
+    const mcp = await servedFleet(fleet.hosts);
+    const uri = "surface://collections/terminals/bogus";
+    const refusal = await mcp.readResource({ uri }).then(
+      () => null,
+      (e: unknown) => String(e),
+    );
+    expect(refusal).toContain(
+      `names no item of "surface://collections/terminals"`,
+    );
+    expect(refusal).toContain(notAFleetRef("bogus"));
+  });
+
+  it("refuses an address this face does not serve by naming what it does", async () => {
     const { fleet } = twoHosts();
     const mcp = await servedFleet(fleet.hosts);
     const refusal = await mcp
@@ -1001,8 +1016,7 @@ describe("the fleet face over two hosts", () => {
         (e: unknown) => String(e),
       );
     expect(refusal).toContain("unknown resource");
-    expect(refusal).toContain('"surface://collections/terminals/<host>/<id>"');
-    // And it names what IS there, so the next read is a right one.
+    expect(refusal).toContain('"surface://collections/terminals/{+id}"');
     expect(refusal).toContain('"surface://cells/hosts"');
   });
 

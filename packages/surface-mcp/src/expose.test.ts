@@ -233,7 +233,8 @@ describe("resolveExpose", () => {
     if (tmpl === undefined) throw new Error("expected one item template");
     expect(tmpl.key).toBe("rows");
     // The schema round-trips a numeric key from its JSON form, and refuses the
-    // raw URI segment — which is exactly why `decodeKey` needs the JSON fallback.
+    // raw name in the address — which is exactly why `decodeTextValue` needs the
+    // JSON fallback.
     const decode = Schema.decodeUnknownOption(tmpl.keySchema);
     expect(Option.isSome(decode(42))).toBe(true);
     expect(Option.isSome(decode("42"))).toBe(false);
