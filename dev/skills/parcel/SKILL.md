@@ -165,8 +165,8 @@ the watcher came up in production:
 - `info  git: working-tree watcher rebuilding` ← resubscribe; `reason` is
   `"new subtree parcel cannot see"` or `"ignore rules changed"`
 - `error git: working-tree watcher install failed` ← parcel `subscribe()`
-  rejected, git could not tell whether the root has a working tree (`err`
-  carries git's own message), or git could not enumerate ignored paths
+  rejected, git could not tell whether the root has a working tree, or git
+  could not enumerate ignored paths; for a git failure `err` is git's message
 - `error git: working-tree watcher callback error` ← parcel reported event-stream error
 - `error git: working-tree late-unsubscribe failed`
 - `error git: working-tree unsubscribe failed`

@@ -25,29 +25,12 @@ import type { Logger } from "kolu-shared";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { SKIP_DARWIN_FSWATCH } from "./fs-watch-delivery.testlib.ts";
 import { _resetIgnoreRulesWatchers } from "./ignore-rules-watcher.ts";
-import { subscribeInstalled } from "./working-tree-watcher.testlib.ts";
-
-const sleep = (ms: number): Promise<void> =>
-  new Promise((resolve) => setTimeout(resolve, ms));
-
-/** Poll `cond` until it holds or `ms` elapses; answers whether it held. */
-async function waitFor(cond: () => boolean, ms = 5000): Promise<boolean> {
-  for (let waited = 0; waited < ms; waited += 50) {
-    if (cond()) return true;
-    await sleep(50);
-  }
-  return cond();
-}
-
-/** Wait until `count` has stopped moving for a quiet window longer than any
- *  debounce in the chain, so the next pulse is caused by what the caller does
- *  next, not by a reconcile tick still in flight. */
-async function quiesce(count: () => number): Promise<void> {
-  for (let seen = -1; seen !== count(); ) {
-    seen = count();
-    await sleep(500);
-  }
-}
+import {
+  quiesce,
+  sleep,
+  subscribeInstalled,
+  waitFor,
+} from "./working-tree-watcher.testlib.ts";
 
 function git(cwd: string, ...args: string[]): void {
   execFileSync("git", args, { cwd, stdio: "pipe" });

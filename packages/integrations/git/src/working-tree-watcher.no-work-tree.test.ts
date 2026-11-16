@@ -27,27 +27,7 @@ import {
   _sharedWorkingTreeWatcherCount,
   watchWorkingTree,
 } from "./working-tree-watcher.ts";
-
-const sleep = (ms: number): Promise<void> =>
-  new Promise((resolve) => setTimeout(resolve, ms));
-
-/** Poll `cond` until it holds or `ms` elapses; answers whether it held. */
-async function waitFor(cond: () => boolean, ms = 5000): Promise<boolean> {
-  for (let waited = 0; waited < ms; waited += 50) {
-    if (cond()) return true;
-    await sleep(50);
-  }
-  return cond();
-}
-
-/** Wait until `count` has stopped moving for a quiet window longer than any
- *  debounce in the chain. */
-async function quiesce(count: () => number): Promise<void> {
-  for (let seen = -1; seen !== count(); ) {
-    seen = count();
-    await sleep(500);
-  }
-}
+import { quiesce, sleep, waitFor } from "./working-tree-watcher.testlib.ts";
 
 function git(cwd: string, ...args: string[]): void {
   execFileSync("git", args, { cwd, stdio: "pipe" });

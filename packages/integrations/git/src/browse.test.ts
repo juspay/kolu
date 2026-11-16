@@ -102,8 +102,9 @@ describe("listIgnored", () => {
     // as a plain absolute directory path (which prunes the whole subtree).
     // Asserted here rather than at a slash-stripping listing variant, which no
     // consumer could tell apart from `listIgnored`.
-    const ignore = await _computeIgnore(tmpDir);
-    if (ignore === null) throw new Error("git could not list ignored paths");
+    const result = await _computeIgnore(tmpDir);
+    if (!result.ok) throw new Error(`git could not list: ${result.error.code}`);
+    const ignore = result.value;
     expect(ignore).toContain(path.join(tmpDir, "build"));
     expect(ignore).toContain(path.join(tmpDir, "secret.log"));
     expect(ignore).toContain(path.join(tmpDir, ".git"));
