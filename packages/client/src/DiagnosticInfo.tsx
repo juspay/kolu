@@ -16,6 +16,9 @@ import type { KoluBuildInfo } from "kolu-common/surface";
 import { attentionDiagnostic } from "./attention/attentionDiagnostics";
 import CopyDiagnosticsButton from "./CopyDiagnosticsButton";
 import WireDiagnosticsSection from "./WireDiagnosticsSection";
+import PadiDiagnosticsSection, {
+  createPadiDiagnosticsFetch,
+} from "./PadiDiagnosticsSection";
 import { frameClassOf, hostActiveIds } from "@kolu/padi-client/attention";
 import { bindStatePip } from "@kolu/solid-dockrow/rowValues";
 import { hostFrame } from "./attention/attentionMarks";
@@ -84,6 +87,10 @@ const DiagnosticInfoContent: Component<{ activeId: TerminalId | null }> = (
   // read here and handed down, so the snapshot builder opens no subscription of
   // its own (it promises to make no network call).
   const pwa = useSurfaceApp<KoluBuildInfo>();
+  // padi's own diagnostics for the active host — asked once as the dialog
+  // opens, and again on the section's Refresh. The dump below carries the
+  // same answer, with its fetch state, so a bug report has it.
+  const padiDiagnostics = createPadiDiagnosticsFetch();
 
   /** The attention snapshot — every terminal's paint inputs beside the counts'
    *  inputs, plus this host's mirrored urgency frame, so a "why does the tab
@@ -233,6 +240,7 @@ const DiagnosticInfoContent: Component<{ activeId: TerminalId | null }> = (
       }),
       attention: attention(),
       webgl,
+      padi: padiDiagnostics.state(),
     };
   });
 
@@ -604,6 +612,8 @@ const DiagnosticInfoContent: Component<{ activeId: TerminalId | null }> = (
         </Section>
 
         <WireDiagnosticsSection serverBuild={pwa.server()} />
+
+        <PadiDiagnosticsSection fetch={padiDiagnostics} />
 
         {/* Debug-only instrumentation for #591 (WebGL zombie-context leak).
             Remove this section when the leak is root-caused and fixed. */}

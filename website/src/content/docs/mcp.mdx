@@ -149,6 +149,7 @@ loopback HTTP listener.
 | `lifecycle_create` | opens one here | takes the host to open on, answers a fleet reference, and is refused without a `work` and a `role`; kolu writes a planner's or implementor's command |
 | the repo tools — `git_getStatus` · `git_getDiff` · `fs_listAll` · `fs_readFile` | a repo path | a repo path and the host it is on |
 | the waits and the watch | `wait_outputSettled` · `wait_agentState` · `watch_open` · `watch_next` · `watch_close`, all as below | `wait_outputSettled`, hard-capped at a few seconds, plus the work tools below. The rest are not served |
+| `diagnostics_read` | served | not served |
 | live views | `terminals` · `urgency` · `daemonStatus` · `status` · `identity` | `terminals` · `urgency` · `hosts` · `works` |
 
 </div>
@@ -295,9 +296,9 @@ kolu-server stores: it is woken rather than waiting.
 | `work_stop` | End a work: its terminals stop being members and its open questions go. The record stays, and the card offers **Reopen**. |
 | `work_note` | Put a line of plain text on a work's timeline. |
 
-A member terminal starts a new Conductor turn when its agent comes up, stops,
-asks, goes or sleeps, and so does an answer of yours and a work losing its last
-terminal. [The Conductor](/conductor) has the rest.
+A new Conductor turn starts when a member terminal's agent comes up, stops,
+asks, goes or sleeps, when you answer, and when a work loses its last terminal.
+[The Conductor](/conductor) has the rest.
 
 ### Read the screen and the code
 
@@ -308,14 +309,15 @@ terminal. [The Conductor](/conductor) has the rest.
 | `screen_history` | Read the older scrollback above the current screen. |
 | `git_getStatus` · `git_getDiff` | The git status and diff for a terminal's repo. |
 | `fs_listAll` · `fs_readFile` | List and read files in a terminal's project. |
+| `diagnostics_read` | [Why kolu is slow here](/troubleshooting#kolu-feels-slow). |
 
-Your agent's host has to show images for `screen_image`, and CJK and emoji
-render as empty boxes.
+Your agent's host must show images for `screen_image`; CJK and emoji render as
+empty boxes.
 
-A terminal you put to [sleep](/sessions) has no live screen. A read or a wait
-aimed at one answers "Terminal … is asleep — wake it before reading its screen",
-with the id and whether it is `sleeping` or `parked`. An agent either asks you
-to wake it or tells you how many are asleep.
+A [sleeping](/sessions) terminal has no live screen. A read or a wait aimed at
+one answers "Terminal … is asleep — wake it before reading its screen", naming
+the id and whether it is `sleeping` or `parked`. An agent then asks you to wake
+it, or tells you how many are asleep.
 
 ### Live views
 

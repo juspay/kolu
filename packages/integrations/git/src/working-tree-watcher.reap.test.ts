@@ -64,7 +64,7 @@ describe("watchWorkingTree child-process lifetime", () => {
 
     const CYCLES = 12;
     for (let i = 0; i < CYCLES; i++) {
-      const unsubscribe = watchWorkingTree(repo, () => {});
+      const unsubscribe = watchWorkingTree(repo, "test", () => {});
       // Let the async parcel install (and its backend selection) complete
       // before tearing down — that is where the leaking probe fires.
       await sleep(80);

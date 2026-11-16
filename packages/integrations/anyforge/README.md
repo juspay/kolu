@@ -7,7 +7,7 @@ The forge-neutral PR kernel — what stays stable while forges vary, and **nothi
 | Module         | Exports                                                                          | Purpose                                                                       |
 | -------------- | --------------------------------------------------------------------------------- | ----------------------------------------------------------------------------- |
 | `schemas.ts`   | `PrInfoSchema`, `CheckRunSchema`, `PrStateSchema`, `ReviewDecisionSchema`, `MergeStateStatusSchema`, the generic `PrResult<S>` + `PrUnavailableSourceBase`, `prResultEqual`, `prValue`, `prLabel` | Neutral wire shapes + generic result type + display/equality helpers (browser-safe) |
-| `adapter.ts`  | `ForgeAdapter<S>`, `PrGitContext`                                                    | The adapter contract — `kind: string` + a pure `resolve(git)`                  |
+| `adapter.ts`  | `ForgeAdapter<S>`, `PrGitContext`, `PrResolveCause`                                  | The adapter contract — `kind: string` + a pure `resolve(git, cause, log?)`. `cause` says why the watcher asked: `context` (the git context changed), `poll` (the 30 s recheck) or `refresh` (a caller's `refresh()`, the repo changed). An adapter may ignore it; padi meters the `gh` it starts under that cause |
 | `subscribe.ts` | `subscribePr`, `PrWatcher`                                                         | Generic poll/dedup/pending/emit-guard loop; takes one injected `ForgeAdapter`    |
 
 ## Design

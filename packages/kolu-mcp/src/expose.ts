@@ -122,6 +122,12 @@ export const KOLU_MCP_EXPOSE = {
   // `watch.drain` is NOT exposed raw: it never blocks (by design — padi holds no
   // handler open), so an agent handed only that verb would poll. The bespoke
   // `watch_next` tool is the drain, and it parks on the pulse instead.
+
+  // ── Why this host's kolu is slow (this face only) ────────────────────────
+  // Read-only. Per host, like `identity`: the fleet face would need a
+  // `fleetSurface` member taking a host, and nobody asked for one.
+  /** Children, event-loop stalls, file watchers, memory, call times. */
+  "diagnostics.read": { tool: { mutates: false } },
 } as const satisfies ExposeMap<PadiSurfaceSpec>;
 
 /** The FLEET projection — the same terminal verbs over `fleetSurface`, where a

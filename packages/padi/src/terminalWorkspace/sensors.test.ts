@@ -62,11 +62,14 @@ describe("dispatchingForgeAdapter", () => {
   it("resolves a Codeberg remote to `unsupported` without consulting gh", async () => {
     // `unsupported` can only come from the non-gh arm — the gh adapter never
     // returns it — so this result proves `gh` was never spawned for Codeberg.
-    const result = await dispatchingForgeAdapter.resolve({
-      repoRoot: "/tmp/repo",
-      branch: "main",
-      remoteUrl: "https://codeberg.org/owner/repo.git",
-    });
+    const result = await dispatchingForgeAdapter.resolve(
+      {
+        repoRoot: "/tmp/repo",
+        branch: "main",
+        remoteUrl: "https://codeberg.org/owner/repo.git",
+      },
+      "context",
+    );
     expect(result).toEqual({ kind: "unsupported" });
   });
 });

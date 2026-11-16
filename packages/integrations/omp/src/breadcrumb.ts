@@ -28,7 +28,7 @@
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
-import { stampedCache } from "kolu-io";
+import { meterSyncChild, stampedCache } from "kolu-io";
 import type { Logger } from "kolu-shared";
 
 /** `<timestamp>_<uuid>.jsonl`. omp forked pi's session-file naming, so the
@@ -99,9 +99,10 @@ export function ttyIdForPid(pid: number, log?: Logger): string | null {
       return renderTtyId(link);
     }
     if (process.platform === "darwin") {
-      const out = execFileSync("ps", ["-o", "tty=", "-p", String(pid)], {
-        encoding: "utf8",
-      }).trim();
+      const argv = ["ps", "-o", "tty=", "-p", String(pid)];
+      const out = meterSyncChild(argv, () =>
+        execFileSync("ps", argv.slice(1), { encoding: "utf8" }),
+      ).trim();
       if (out.length === 0 || out === "??" || out.startsWith("-")) return null;
       return renderTtyId(out);
     }

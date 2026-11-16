@@ -125,6 +125,14 @@ re-enable watchman deliberately (with a `WATCHMAN_SOCK` that avoids the probe).
   The answer is read once per entry, not per rebuild.
 - **Refcounted shared singleton per `repoRoot`** — N callers → one parcel
   subscription, listener-side filtering by optional `filePath`.
+- **Every listener names who asked** (a required `WatchAsker`), and the entry
+  keeps what its diagnostic row needs: state (`installing` · `watching` ·
+  `no-working-tree` · `failed`), askers, ignore-path count, rebuild count and
+  last rebuild reason, and the duration of the last attach (the queued parcel
+  unsubscribe plus subscribe). `listWorkingTreeWatcherRows()` reads them for
+  padi's `diagnostics.read`. Recording them changes nothing about when or how
+  parcel is called; the entry's ignore-rules watch passes the entry's live
+  askers down, so its `info/exclude` and global-ignore rows name the real asker.
 - **Trailing-edge debounce** at `WATCHER_DEBOUNCE_MS` (150ms) coalesces bursts
   into one fire per listener.
 - **Ignore set derived from git** (`_computeIgnore`) — `.git` plus every entry

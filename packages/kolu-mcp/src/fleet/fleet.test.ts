@@ -2447,6 +2447,9 @@ describe("one expose map, two projections", () => {
   it("both projections mint the same TERMINAL verbs", () => {
     const { stdio, fleet } = resolved();
     expect(names(stdio)).toEqual([
+      // Stdio only — it reads one host's padi, and `fleetSurface` declares no
+      // per-host member to hang it on.
+      "diagnostics_read",
       "fs_listAll",
       "fs_readFile",
       "git_getDiff",

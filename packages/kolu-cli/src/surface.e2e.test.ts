@@ -151,10 +151,11 @@ describeDaemon(
         "fs_readFile",
         "git_getStatus",
         "git_getDiff",
+        "diagnostics_read",
       ]) {
         expect(verbs.has(name), name).toBe(true);
       }
-      expect(verbs.size).toBe(16);
+      expect(verbs.size).toBe(17);
       // And both shapes of introspection answer: the staggered resources, one
       // row per ADDRESS a caller can type rather than one per member. A
       // collection is reachable two ways and says so — `get terminals` for an
@@ -179,6 +180,27 @@ describeDaemon(
         "status",
         "identity",
       ]);
+    });
+
+    it("`diagnostics_read` on a running padi prints children, stalls and watchers", {
+      timeout: 60000,
+    }, async () => {
+      const padi = await startPadi();
+      const answer = (await surfaceJson(padi.socketPath, [
+        "diagnostics_read",
+      ])) as {
+        children?: { rows: { kind: string }[] };
+        stalls?: { resolutionMs: number };
+        watchers?: { rows: unknown[] };
+      };
+      // A daemon that booted has started children (osfacts, kaval), so the
+      // meter has rows; the other two sections are always present.
+      expect(
+        answer.children?.rows.length,
+        JSON.stringify(answer),
+      ).toBeGreaterThan(0);
+      expect(answer.stalls?.resolutionMs).toBeGreaterThan(0);
+      expect(Array.isArray(answer.watchers?.rows)).toBe(true);
     });
 
     it("a refusal from the live padi is exit 1, typed, on STDERR — stdout holds no lie", {

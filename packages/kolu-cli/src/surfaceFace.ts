@@ -208,6 +208,10 @@ export const KOLU_SURFACE_HELP = {
       title: "Reach into the worktree",
       verbs: ["fs_listAll", "fs_readFile", "git_getStatus", "git_getDiff"],
     },
+    {
+      title: "Ask why it is slow",
+      verbs: ["diagnostics_read"],
+    },
   ],
   examples: {
     lifecycle_create: `lifecycle_create --input '{"placement":{"kind":"toplevel"},"run":"claude"}'`,
@@ -229,6 +233,7 @@ export const KOLU_SURFACE_HELP = {
     fs_listAll: "fs_listAll /path/to/repo",
     fs_readFile: "fs_readFile /path/to/repo src/index.ts",
     git_getStatus: "git_getStatus /path/to/repo --mode branch",
+    diagnostics_read: "diagnostics_read",
     git_getDiff: "git_getDiff /path/to/repo src/index.ts --mode branch",
   },
   flags: [

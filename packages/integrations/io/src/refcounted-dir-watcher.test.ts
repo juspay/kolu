@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   createDirFilenameWatcher,
   DIR_FILENAME_POLL_MS,
+  listDirWatcherRows,
 } from "./refcounted-dir-watcher.ts";
 
 /** A promise plus its resolver — lets a test hold a `resolveDir` open and
@@ -67,7 +68,7 @@ describe("createDirFilenameWatcher async install", () => {
     // If `watch()` awaited `resolveDir`, this line would never be reached
     // until the gate opened. It returns an unsubscribe immediately, and the
     // install has not happened yet (the resolver hasn't resolved).
-    const stop = w.watch(tmpDir, () => {});
+    const stop = w.watch(tmpDir, "test", () => {});
     expect(typeof stop).toBe("function");
     expect(w._watcherCount()).toBe(0);
 
@@ -97,7 +98,7 @@ describe("createDirFilenameWatcher async install", () => {
       logLabel: "test",
     });
 
-    const stop = w.watch(tmpDir, () => {
+    const stop = w.watch(tmpDir, "test", () => {
       fires++;
     });
     // Nothing fires synchronously — the resolve hasn't settled yet.
@@ -121,7 +122,7 @@ describe("createDirFilenameWatcher async install", () => {
       logLabel: "test",
     });
 
-    const stop = w.watch(tmpDir, onChange);
+    const stop = w.watch(tmpDir, "test", onChange);
     await w._whenSettled();
     expect(onChange).toHaveBeenCalledTimes(1); // install reconciliation
     onChange.mockClear();
@@ -150,6 +151,7 @@ describe("createDirFilenameWatcher async install", () => {
 
     const stop = w.watch(
       tmpDir,
+      "test",
       () => {
         throw new Error("reconcile boom");
       },
@@ -172,7 +174,7 @@ describe("createDirFilenameWatcher async install", () => {
       logLabel: "test",
     });
 
-    const stop = w.watch(tmpDir, () => {});
+    const stop = w.watch(tmpDir, "test", () => {});
     stop(); // cancel while the resolver is still pending
 
     gate.resolve(tmpDir);
@@ -189,19 +191,51 @@ describe("createDirFilenameWatcher async install", () => {
       logLabel: "test",
     });
 
-    const stop1 = w.watch(tmpDir, () => {});
+    const stop1 = w.watch(tmpDir, "test", () => {});
     await w._whenSettled();
     expect(w._watcherCount()).toBe(1);
     stop1();
     expect(w._watcherCount()).toBe(0);
 
-    const stop2 = w.watch(tmpDir, () => {});
+    const stop2 = w.watch(tmpDir, "test", () => {});
     await w._whenSettled();
     expect(w._watcherCount()).toBe(1);
     stop2();
     expect(w._watcherCount()).toBe(0);
 
     expect(fs.watch).toHaveBeenCalledTimes(2);
+  });
+
+  it("lists one row for a directory two askers share, gone with the last", async () => {
+    const w = createDirFilenameWatcher({
+      resolveDir: async (cwd) => cwd,
+      filename: "HEAD",
+      debounceMs: 10,
+      logLabel: "rows-test",
+    });
+    const rowsHere = () =>
+      listDirWatcherRows().filter((r) => r.kind === "rows-test");
+
+    const stopA = w.watch(tmpDir, "terminal a", () => {});
+    const stopB = w.watch(
+      tmpDir,
+      () => ["stream b"],
+      () => {},
+    );
+    await w._whenSettled();
+    const rows = rowsHere();
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      dir: tmpDir,
+      file: "HEAD",
+      askers: ["terminal a", "stream b"],
+    });
+    expect(rows[0]?.installMs).toBeGreaterThanOrEqual(0);
+
+    stopA();
+    expect(rowsHere()[0]?.askers).toEqual(["stream b"]);
+    stopB();
+    expect(rowsHere()).toEqual([]);
   });
 
   it("a resolveDir that rejects is caught and logged, never thrown", async () => {
@@ -214,7 +248,7 @@ describe("createDirFilenameWatcher async install", () => {
     });
 
     // Must not throw synchronously...
-    const stop = w.watch(tmpDir, () => {}, log as never);
+    const stop = w.watch(tmpDir, "test", () => {}, log as never);
     // ...nor reject the in-flight install (otherwise an unhandled rejection).
     await w._whenSettled();
 
@@ -232,7 +266,7 @@ describe("createDirFilenameWatcher async install", () => {
       logLabel: "test",
     });
 
-    w.watch(tmpDir, () => {});
+    w.watch(tmpDir, "test", () => {});
     w._reset(); // bumps the generation while the resolution is in flight
 
     gate.resolve(tmpDir);

@@ -11626,6 +11626,18 @@
       "exampleRows": [],
       "executions": 1,
       "firstSeenSha": "8617def069d82fca3a76290c264da81d2e5ed087"
+    },
+    {
+      "revisionId": "revision-6109d7672e4251a29583",
+      "scenarioKey": "scenario-2ba99b6688e0184211da",
+      "feature": "features/diagnostics.feature",
+      "scenario": "The dialog shows padi's child processes and file watchers",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "aa3750a0b9ea047aa522d835edbfe7b283688e4f795748d830f491414fbc0bea",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "15ab65c6037129ed00f46b746cd8de4998c37765"
     }
   ]
 }

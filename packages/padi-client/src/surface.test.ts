@@ -173,7 +173,9 @@ describe("padiSurface contract", () => {
     // which runs no harness. Another member added: a minor.
     // 7.8 ADDS `lastPromptText` to the omp and pi agent arms — a required
     // field on an emitted arm, the 5.3/7.3 case: a minor.
-    expect(PADI_SURFACE_VERSION).toBe("7.8");
+    // 7.9 ADDS the `diagnostics` procedure namespace (`diagnostics.read`): a
+    // member an older consumer never asks for, so a minor.
+    expect(PADI_SURFACE_VERSION).toBe("7.9");
     expect(DEFAULT_PADI_VERSION.contractVersion).toBe(PADI_SURFACE_VERSION);
     expect(
       Schema.decodeUnknownSync(PadiVersionSchema)(DEFAULT_PADI_VERSION),
@@ -269,6 +271,7 @@ describe("padiSurface contract", () => {
       "agentDistro",
       "session",
       "backups",
+      "diagnostics",
     ]);
   });
 
@@ -636,6 +639,7 @@ describe("padiDaemonContract — the composed tag set (D1 / #16)", () => {
       "surface/padi/agentDistroStatus/get",
       "surface/padi/agentDistroReceipt/get",
       "surface/padi/agentDistro/report",
+      "surface/padi/diagnostics/read",
       "surface/control/core/hello",
       "surface/control/core/drain",
       "surface/control/core/clockNow",

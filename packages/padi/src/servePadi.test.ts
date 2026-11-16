@@ -47,7 +47,7 @@ import {
   noopPadiSurfaceCtxForTest,
   setPadiSurfaceCtx,
 } from "./padiSurfaceCtx.ts";
-import { fakeEndpoint, stubLog } from "./servePadi.testlib.ts";
+import { fakeEndpoint, stubLog, testDiagnostics } from "./servePadi.testlib.ts";
 import { buildPadiSurfaceDeps } from "./servePadi.ts";
 import { setPadiSessionStore } from "./session/confStores.ts";
 import { getSavedSession, setSavedSession } from "./session/session.ts";
@@ -161,6 +161,7 @@ function terminalsBacking(): {
   const deps = buildPadiSurfaceDeps({
     endpoint: fakeEndpoint,
     log: stubLog,
+    diagnostics: testDiagnostics,
     startedAt: 0,
     commit: "",
     lifetime: { kind: "forever" },
@@ -200,6 +201,7 @@ describe("padi's own `identity` cell — the per-host hello twin (W4 host-scopin
     const deps = buildPadiSurfaceDeps({
       endpoint: fakeEndpoint,
       log: stubLog,
+      diagnostics: testDiagnostics,
       startedAt: opts.startedAt,
       commit: opts.commit,
       lifetime: { kind: "forever" },
@@ -243,6 +245,7 @@ describe("padi's `status` cell — the expected-kaval axis, OFF-NIX (#17 audit)"
     const deps = buildPadiSurfaceDeps({
       endpoint: fakeEndpoint,
       log: stubLog,
+      diagnostics: testDiagnostics,
       startedAt: 0,
       commit: "",
       lifetime: { kind: "forever" },
@@ -336,6 +339,7 @@ function scratchWrite(): ScratchWriteFn {
   const deps = buildPadiSurfaceDeps({
     endpoint: fakeEndpoint,
     log: stubLog,
+    diagnostics: testDiagnostics,
     startedAt: 0,
     commit: "",
     lifetime: { kind: "forever" },
@@ -591,6 +595,7 @@ describe("padi session cell backing is non-recursive + normalizes (review #2)", 
     const deps = buildPadiSurfaceDeps({
       endpoint: fakeEndpoint,
       log: stubLog,
+      diagnostics: testDiagnostics,
       startedAt: 0,
       commit: "",
       lifetime: { kind: "forever" },
@@ -719,6 +724,7 @@ describe("padi restore forfeit — create preserves, session.forfeit discards (K
     const deps = buildPadiSurfaceDeps({
       endpoint: fakeEndpoint,
       log: stubLog,
+      diagnostics: testDiagnostics,
       startedAt: 0,
       commit: "",
       lifetime: { kind: "forever" },
@@ -799,6 +805,7 @@ describe("padi new-terminal theme — lifecycle.create resolves the pushed polic
     const deps = buildPadiSurfaceDeps({
       endpoint: fakeEndpoint,
       log: stubLog,
+      diagnostics: testDiagnostics,
       startedAt: 0,
       commit: "",
       lifetime: { kind: "forever" },

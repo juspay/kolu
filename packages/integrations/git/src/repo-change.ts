@@ -33,6 +33,7 @@
  * `subscribeRepoChange` speculatively.
  */
 
+import { distinctAskerLabels, type WatchAsker } from "kolu-io";
 import type { Logger } from "kolu-shared";
 import { WATCHER_DEBOUNCE_MS } from "./git-dir.ts";
 import { watchGitHead } from "./head-watcher.ts";
@@ -54,8 +55,21 @@ import { watchWorkingTree } from "./working-tree-watcher.ts";
 export const WATCHER_RETIRE_GRACE_MS = 30_000;
 
 interface SharedComposed {
-  subscribe(onChange: () => void): () => void;
+  subscribe(onChange: () => void, asker: WatchAsker): () => void;
 }
+
+interface ComposedListener {
+  readonly onChange: () => void;
+  readonly asker: WatchAsker;
+}
+
+/** One upstream leaf watcher a composed entry installs. It is handed the
+ *  entry's LIVE view of its own askers, so the leaf's diagnostic row names the
+ *  terminal or stream at the top, never the composer. */
+type UpstreamInstall = (
+  askers: () => readonly string[],
+  onChange: () => void,
+) => () => void;
 
 const repoChangeWatchers = new Map<string, SharedComposed>();
 const fileChangeWatchers = new Map<string, SharedComposed>();
@@ -73,13 +87,13 @@ const fileChangeWatchers = new Map<string, SharedComposed>();
  *  retiring twice would unsubscribe the upstreams twice and double-log the
  *  retire line #2286's measurement greps for. */
 function compose(
-  upstreamInstalls: ((onChange: () => void) => () => void)[],
+  upstreamInstalls: UpstreamInstall[],
   onLast: () => void,
   logLabel: string,
   logFields: Record<string, unknown>,
   log?: Logger,
 ): SharedComposed {
-  const listeners = new Set<() => void>();
+  const listeners = new Set<ComposedListener>();
   let timer: NodeJS.Timeout | undefined;
   let retireTimer: NodeJS.Timeout | undefined;
   let retired = false;
@@ -88,9 +102,9 @@ function compose(
     clearTimeout(timer);
     timer = setTimeout(() => {
       timer = undefined;
-      for (const cb of [...listeners]) {
+      for (const listener of [...listeners]) {
         try {
-          cb();
+          listener.onChange();
         } catch (e) {
           log?.error(
             { err: e instanceof Error ? e.message : String(e), ...logFields },
@@ -101,7 +115,17 @@ function compose(
     }, WATCHER_DEBOUNCE_MS);
   }
 
-  const upstreamUnsubs = upstreamInstalls.map((install) => install(tick));
+  /** Who this entry is held for, right now. In its retire grace it has no
+   *  listener, and says so rather than naming nobody. */
+  const askers = (): readonly string[] =>
+    listeners.size === 0
+      ? [
+          `${logLabel} (no subscriber; retiring within ${WATCHER_RETIRE_GRACE_MS / 1000} s)`,
+        ]
+      : distinctAskerLabels([...listeners].map((listener) => listener.asker));
+  const upstreamUnsubs = upstreamInstalls.map((install) =>
+    install(askers, tick),
+  );
   log?.info(logFields, `${logLabel} watcher installed`);
 
   /** A reference arrived — cancel any pending retirement, because the upstreams
@@ -131,11 +155,12 @@ function compose(
   }
 
   return {
-    subscribe(onChange) {
+    subscribe(onChange, asker) {
       acquired();
-      listeners.add(onChange);
+      const listener: ComposedListener = { onChange, asker };
+      listeners.add(listener);
       return () => {
-        if (!listeners.delete(onChange)) return;
+        if (!listeners.delete(listener)) return;
         released();
       };
     },
@@ -152,10 +177,10 @@ function repoChangeEntry(repoRoot: string, log?: Logger): SharedComposed {
   if (!entry) {
     entry = compose(
       [
-        (cb) => watchGitHead(repoRoot, cb, log),
-        (cb) => watchGitReflog(repoRoot, cb, log),
-        (cb) => watchGitIndex(repoRoot, cb, log),
-        (cb) => watchWorkingTree(repoRoot, cb, log),
+        (askers, cb) => watchGitHead(repoRoot, askers, cb, log),
+        (askers, cb) => watchGitReflog(repoRoot, askers, cb, log),
+        (askers, cb) => watchGitIndex(repoRoot, askers, cb, log),
+        (askers, cb) => watchWorkingTree(repoRoot, askers, cb, log),
       ],
       () => repoChangeWatchers.delete(repoRoot),
       "git: repo-change",
@@ -180,10 +205,11 @@ function repoChangeEntry(repoRoot: string, log?: Logger): SharedComposed {
  */
 export function subscribeRepoChange(
   repoRoot: string,
+  asker: WatchAsker,
   onChange: () => void,
   log?: Logger,
 ): () => void {
-  return repoChangeEntry(repoRoot, log).subscribe(onChange);
+  return repoChangeEntry(repoRoot, log).subscribe(onChange, asker);
 }
 
 /**
@@ -199,6 +225,7 @@ export function subscribeRepoChange(
 export function subscribeFileChange(
   repoRoot: string,
   filePath: string,
+  asker: WatchAsker,
   onChange: () => void,
   log?: Logger,
 ): () => void {
@@ -207,8 +234,9 @@ export function subscribeFileChange(
   if (!entry) {
     entry = compose(
       [
-        (cb) => watchGitHead(repoRoot, cb, log),
-        (cb) => watchWorkingTree(repoRoot, cb, log, { filePath }),
+        (askers, cb) => watchGitHead(repoRoot, askers, cb, log),
+        (askers, cb) =>
+          watchWorkingTree(repoRoot, askers, cb, log, { filePath }),
       ],
       () => fileChangeWatchers.delete(key),
       "git: file-change",
@@ -217,7 +245,7 @@ export function subscribeFileChange(
     );
     fileChangeWatchers.set(key, entry);
   }
-  return entry.subscribe(onChange);
+  return entry.subscribe(onChange, asker);
 }
 
 /** Test-only — number of LIVE (repoRoot) entries: every entry whose upstream

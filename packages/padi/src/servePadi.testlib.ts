@@ -8,6 +8,7 @@
  */
 
 import type { Logger } from "pino";
+import { startPadiDiagnostics } from "./diagnostics/index.ts";
 import type { TerminalEndpoint } from "./endpoint.ts";
 
 /** A stub logger — constructing the deps threads it through, but the read
@@ -19,6 +20,10 @@ export const stubLog = {
   debug: () => {},
   child: () => stubLog,
 } as unknown as Logger;
+
+/** The real diagnostics handle the deps require, started once per test file.
+ *  Its stall timer is unref'd, so it never holds a test worker open. */
+export const testDiagnostics = startPadiDiagnostics(stubLog);
 
 /** A fake endpoint — the members under test read neither `fs` nor `git`, so
  *  the wrapper (`fsGitSurfaceDeps`) only needs the shape to construct. */

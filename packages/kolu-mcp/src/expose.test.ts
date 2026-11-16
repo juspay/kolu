@@ -55,6 +55,7 @@ describe("KOLU_MCP_EXPOSE — the ratified v1 map", () => {
       "urgency",
     ]);
     expect(resolved.tools.map((t) => t.name).sort()).toEqual([
+      "diagnostics_read",
       "fs_listAll",
       "fs_readFile",
       "git_getDiff",
@@ -204,6 +205,7 @@ describe("the served face — default deny at the wire", () => {
     const { tools } = await mcp.listTools();
     expect(tools.map((t) => t.name).sort()).toEqual([
       "agent_say",
+      "diagnostics_read",
       "fs_listAll",
       "fs_readFile",
       "git_getDiff",

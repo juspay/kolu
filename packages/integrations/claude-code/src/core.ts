@@ -27,7 +27,7 @@ import path from "node:path";
 import { getSessionInfo } from "@anthropic-ai/claude-agent-sdk";
 import { classifyByAwaiting } from "anyagent";
 import { Effect, Result, Schema, SchemaGetter } from "effect";
-import { stampedCache } from "kolu-io";
+import { meterSyncChild, stampedCache } from "kolu-io";
 import { type Logger, readTailLines } from "kolu-shared";
 import { parseIsoTimestamp } from "kolu-transcript-core";
 import { match } from "ts-pattern";
@@ -1250,11 +1250,14 @@ export interface ProcEntry {
 export function snapshotProcessTree(): ProcEntry[] | null {
   let out: string;
   try {
-    out = execFileSync("ps", ["-A", "-o", "pid=,ppid="], {
-      encoding: "utf8",
-      timeout: 2_000,
-      maxBuffer: 16 * 1024 * 1024,
-    });
+    const argv = ["ps", "-A", "-o", "pid=,ppid="];
+    out = meterSyncChild(argv, () =>
+      execFileSync("ps", argv.slice(1), {
+        encoding: "utf8",
+        timeout: 2_000,
+        maxBuffer: 16 * 1024 * 1024,
+      }),
+    );
   } catch {
     return null;
   }

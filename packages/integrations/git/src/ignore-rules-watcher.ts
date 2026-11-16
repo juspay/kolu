@@ -19,7 +19,11 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
-import { createDirFilenameWatcher, type DirFilenameWatcher } from "kolu-io";
+import {
+  createDirFilenameWatcher,
+  type DirFilenameWatcher,
+  type WatchAsker,
+} from "kolu-io";
 import type { Logger } from "kolu-shared";
 import {
   GIT_QUERY_TIMEOUT_MS,
@@ -133,17 +137,19 @@ let generation = 0;
  */
 export function watchGitIgnoreRules(
   repoRoot: string,
+  asker: WatchAsker,
   onChange: () => void,
   log?: Logger,
 ): () => void {
   const startGeneration = generation;
   let cancelled = false;
-  const offs = [excludeWatcher.watch(repoRoot, onChange, log)];
+  const offs = [excludeWatcher.watch(repoRoot, asker, onChange, log)];
   void resolveGlobalIgnoreFile(repoRoot, log).then((file) => {
     if (cancelled || startGeneration !== generation || file === null) return;
     offs.push(
       globalIgnoreWatcherFor(path.basename(file)).watch(
         path.dirname(file),
+        asker,
         onChange,
         log,
       ),

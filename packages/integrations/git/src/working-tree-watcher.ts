@@ -93,6 +93,13 @@ import {
   type BackendType,
   subscribe as parcelSubscribe,
 } from "@parcel/watcher";
+import {
+  distinctAskerLabels,
+  type Measured,
+  measured,
+  unmeasured,
+  type WatchAsker,
+} from "kolu-io";
 import type { Logger } from "kolu-shared";
 import { listIgnored } from "./browse.ts";
 import { type GitError, type GitResult, ok } from "./errors.ts";
@@ -184,10 +191,42 @@ interface Listener {
    *  every event (no filter). */
   matchAbs: string | null;
   onChange: () => void;
+  asker: WatchAsker;
+}
+
+/** Where an entry stands. `no-working-tree` is a root git says has none (a
+ *  bare repo's folder): nothing is installed for it, by design. */
+export type WorkingTreeWatcherState =
+  | { readonly kind: "installing" }
+  | { readonly kind: "watching" }
+  | { readonly kind: "no-working-tree" }
+  | { readonly kind: "failed"; readonly message: string };
+
+/** One live working-tree entry, as a diagnostic row. */
+export interface WorkingTreeWatcherRow {
+  /** The watcher's label, the way the dir+filename watchers carry theirs. */
+  readonly kind: "git: working-tree";
+  readonly repoRoot: string;
+  /** Directories covered. Parcel reports none for a recursive subscription,
+   *  and counting would walk the tree again, so it is always unmeasured. */
+  readonly directories: Measured<number>;
+  readonly askers: readonly string[];
+  readonly state: WorkingTreeWatcherState;
+  /** Paths handed to parcel as ignored, from the latest successful listing. */
+  readonly ignoredPaths: Measured<number>;
+  readonly rebuilds: number;
+  readonly lastRebuildReason: string | null;
+  /** The last completed attach: parcel's unsubscribe plus subscribe. */
+  readonly lastInstallMs: Measured<number>;
 }
 
 interface SharedWorkingTreeWatcher {
-  subscribe(matchAbs: string | null, onChange: () => void): () => void;
+  subscribe(
+    matchAbs: string | null,
+    onChange: () => void,
+    asker: WatchAsker,
+  ): () => void;
+  row(): WorkingTreeWatcherRow;
 }
 
 const sharedWorkingTreeWatchers = new Map<string, SharedWorkingTreeWatcher>();
@@ -276,6 +315,17 @@ function installSharedWorkingTreeWatcher(
   /** Stops the ignore-rules watch; installed only once git confirms a
    *  working tree, so a root without one never has it. */
   let stopIgnoreRules: (() => void) | undefined;
+  /** What the entry's row reports — kept on the entry so the registry can
+   *  describe it without reaching into a closure. */
+  let state: WorkingTreeWatcherState = { kind: "installing" };
+  let ignoredCount: number | undefined;
+  let rebuilds = 0;
+  let lastRebuildReason: string | null = null;
+  let lastInstallMs: number | undefined;
+  /** Every current listener's asker, live — handed to the ignore-rules watch
+   *  so its rows name whoever asked for this entry. */
+  const askers = (): readonly string[] =>
+    distinctAskerLabels([...listeners].map((listener) => listener.asker));
 
   /** Fire all current listeners after a debounce. Both real events and the
    *  post-install reconciliation share this dispatch path. */
@@ -341,6 +391,8 @@ function installSharedWorkingTreeWatcher(
       rebuildTimer = undefined;
       if (cancelled) return;
       log?.info({ repoRoot, reason }, "git: working-tree watcher rebuilding");
+      rebuilds++;
+      lastRebuildReason = reason;
       startAttach();
     }, WATCHER_DEBOUNCE_MS);
   };
@@ -463,18 +515,21 @@ function installSharedWorkingTreeWatcher(
     const derived = await ignoreSet;
     if (cancelled) return;
     if (!derived.ok) {
-      logInstallFailed(derived.error);
+      installFailed(derived.error);
       return;
     }
     const ignore = derived.value;
+    ignoredCount = ignore.length;
     await sequenceParcelCall(repoRoot, async () => {
       if (cancelled) return;
+      const attachStartedAt = performance.now();
       // Retire the outgoing subscription first, in this same queued call —
       // parcel's per-key bookkeeping only stays coherent when its calls don't
       // overlap, and a rebuild is exactly the overlap that would otherwise
       // leave the replacement holding no watches at all.
       const outgoing = subscription;
       subscription = null;
+      state = { kind: "installing" };
       if (outgoing) {
         await outgoing.unsubscribe().catch((e: Error) => {
           log?.error(
@@ -506,6 +561,8 @@ function installSharedWorkingTreeWatcher(
           return;
         }
         subscription = sub;
+        lastInstallMs = performance.now() - attachStartedAt;
+        state = { kind: "watching" };
         log?.info({ repoRoot }, "git: working-tree watcher installed");
 
         // Reconcile any mutations that landed in the (re)install window —
@@ -520,8 +577,10 @@ function installSharedWorkingTreeWatcher(
           scheduleFire();
         }
       } catch (e) {
+        const message = e instanceof Error ? e.message : String(e);
+        state = { kind: "failed", message };
         log?.error(
-          { err: e instanceof Error ? e.message : String(e), repoRoot },
+          { err: message, repoRoot },
           "git: working-tree watcher install failed",
         );
       }
@@ -533,10 +592,14 @@ function installSharedWorkingTreeWatcher(
     void attach(derivedIgnore);
   }
 
-  /** The one install-failed line for a git failure, carrying git's message. */
-  function logInstallFailed(error: GitError): void {
+  /** The one install-failed line for a git failure, carrying git's message.
+   *  A live subscription stays as it is (and the row says it is watching);
+   *  without one, the entry is failed. */
+  function installFailed(error: GitError): void {
+    const message = "message" in error ? error.message : error.code;
+    if (subscription === null) state = { kind: "failed", message };
     log?.error(
-      { err: "message" in error ? error.message : error.code, repoRoot },
+      { err: message, repoRoot },
       "git: working-tree watcher install failed",
     );
   }
@@ -548,10 +611,11 @@ function installSharedWorkingTreeWatcher(
     const probe = await isInsideWorkTree(repoRoot);
     if (cancelled) return;
     if (!probe.ok) {
-      logInstallFailed(probe.error);
+      installFailed(probe.error);
       return;
     }
     if (!probe.value) {
+      state = { kind: "no-working-tree" };
       log?.info(
         { repoRoot },
         "git: working-tree watcher not installed, no working tree",
@@ -559,14 +623,46 @@ function installSharedWorkingTreeWatcher(
       return;
     }
     startAttach();
-    stopIgnoreRules = watchGitIgnoreRules(repoRoot, scheduleIgnoreRefresh, log);
+    stopIgnoreRules = watchGitIgnoreRules(
+      repoRoot,
+      askers,
+      scheduleIgnoreRefresh,
+      log,
+    );
   }
 
   void install();
 
+  /** Why the entry has no install time or ignore count to report, by state. */
+  const notMeasuredBecause = (): string =>
+    state.kind === "no-working-tree"
+      ? "no working tree, so nothing is installed"
+      : state.kind === "failed"
+        ? `install failed: ${state.message}`
+        : "first install still in progress";
+
   return {
-    subscribe(matchAbs, onChange) {
-      const listener: Listener = { matchAbs, onChange };
+    row: () => ({
+      kind: "git: working-tree",
+      repoRoot,
+      directories: unmeasured(
+        "a recursive @parcel/watcher subscription reports no directory count; counting would walk the tree again (see the kernel's count)",
+      ),
+      askers: askers(),
+      state,
+      ignoredPaths:
+        ignoredCount === undefined
+          ? unmeasured(notMeasuredBecause())
+          : measured(ignoredCount),
+      rebuilds,
+      lastRebuildReason,
+      lastInstallMs:
+        state.kind !== "failed" && lastInstallMs !== undefined
+          ? measured(lastInstallMs)
+          : unmeasured(notMeasuredBecause()),
+    }),
+    subscribe(matchAbs, onChange, asker) {
+      const listener: Listener = { matchAbs, onChange, asker };
       listeners.add(listener);
       return () => {
         if (!listeners.delete(listener)) return;
@@ -612,6 +708,7 @@ export interface WatchWorkingTreeOptions {
  */
 export function watchWorkingTree(
   repoRoot: string,
+  asker: WatchAsker,
   onChange: () => void,
   log?: Logger,
   options?: WatchWorkingTreeOptions,
@@ -631,11 +728,16 @@ export function watchWorkingTree(
     );
     sharedWorkingTreeWatchers.set(repoRoot, entry);
   }
-  return entry.subscribe(matchAbs, onChange);
+  return entry.subscribe(matchAbs, onChange, asker);
 }
 
 /** Test-only inspector — number of distinct repoRoots with active shared
  *  working-tree watchers. Mirrors `_sharedHeadWatcherCount`. */
 export function _sharedWorkingTreeWatcherCount(): number {
   return sharedWorkingTreeWatchers.size;
+}
+
+/** One row per live working-tree entry in this process. */
+export function listWorkingTreeWatcherRows(): WorkingTreeWatcherRow[] {
+  return [...sharedWorkingTreeWatchers.values()].map((entry) => entry.row());
 }

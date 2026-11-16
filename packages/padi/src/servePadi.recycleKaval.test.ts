@@ -24,7 +24,7 @@ import { Cause, Effect, Exit } from "effect";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { setDaemonProcessId } from "./koluRoot.ts";
 import { recycleLocalKaval } from "./ptyHost/restartLocal.ts";
-import { fakeEndpoint, stubLog } from "./servePadi.testlib.ts";
+import { fakeEndpoint, stubLog, testDiagnostics } from "./servePadi.testlib.ts";
 import { buildPadiSurfaceDeps } from "./servePadi.ts";
 
 // The RPC delegates the recycle itself to the SHARED routine (#2101 N1) — the
@@ -59,6 +59,7 @@ function recycleKavalHandler() {
   const deps = buildPadiSurfaceDeps({
     endpoint: fakeEndpoint,
     log: stubLog,
+    diagnostics: testDiagnostics,
     startedAt: 0,
     commit: "",
     lifetime: { kind: "forever" },
