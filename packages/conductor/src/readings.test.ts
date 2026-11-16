@@ -298,7 +298,7 @@ describe("what a host's frames say about each watched terminal", () => {
   });
 });
 
-describe("a pull request is green only when it can merge", () => {
+describe("what a pull request reading says about checks and merging", () => {
   /** One resolved PR, as padi's `pullRequest` stream carries it. */
   const resolved = (
     checks: "pending" | "pass" | "fail" | null,
@@ -310,7 +310,8 @@ describe("a pull request is green only when it can merge", () => {
       | "DRAFT"
       | "HAS_HOOKS"
       | "UNKNOWN"
-      | "UNSTABLE",
+      | "UNSTABLE"
+      | null,
     reviewDecision:
       | "APPROVED"
       | "CHANGES_REQUESTED"
@@ -332,57 +333,64 @@ describe("a pull request is green only when it can merge", () => {
           headSha: "4c3f17ea2",
         },
       }),
-    ).checks;
+    );
 
-  it("passes a rollup that passed on a PR that can merge", () => {
-    for (const state of ["CLEAN", "HAS_HOOKS", "UNSTABLE"] as const)
-      expect(resolved("pass", state)).toEqual({
-        kind: "rollup",
-        rollup: "pass",
-      });
-  });
-
-  it("reads required checks that have not reported as CI still running", () => {
-    // THE CASE THAT WOKE THE HUMAN TOO EARLY: two checks passed, twenty-three
-    // required ones had not started, and GitHub said the PR was blocked.
-    expect(resolved("pass", "BLOCKED")).toEqual({
+  it("keeps the checks as the rollup says them, whatever the merge state", () => {
+    // THE CASE THAT WOKE THE HUMAN TOO EARLY: the checks that had reported
+    // passed, twenty-three required ones had not started. The checks say
+    // passed — nothing is running — and the merge state says blocked.
+    expect(resolved("pass", "BLOCKED").checks).toEqual({
       kind: "rollup",
-      rollup: "pending",
+      rollup: "pass",
     });
-    expect(resolved("pass", "BLOCKED", "APPROVED")).toEqual({
-      kind: "rollup",
-      rollup: "pending",
-    });
-    // ... and before any check has reported at all.
-    expect(resolved(null, "BLOCKED")).toEqual({
-      kind: "rollup",
-      rollup: "pending",
-    });
-  });
-
-  it("never calls a PR waiting on a review CI's time", () => {
-    for (const review of ["REVIEW_REQUIRED", "CHANGES_REQUESTED"] as const) {
-      expect(resolved("pass", "BLOCKED", review)).toEqual({
-        kind: "rollup",
-        rollup: "pass",
-      });
-      expect(resolved(null, "BLOCKED", review)).toEqual({ kind: "unreported" });
-    }
-  });
-
-  it("records nothing for a PR that is behind, conflicted, a draft, or not worked out yet", () => {
-    for (const state of ["BEHIND", "DIRTY", "DRAFT", "UNKNOWN"] as const)
-      expect(resolved("pass", state)).toEqual({ kind: "unreported" });
-  });
-
-  it("keeps a failing or running rollup whatever the merge state says", () => {
-    expect(resolved("fail", "CLEAN")).toEqual({
+    expect(resolved(null, "CLEAN").checks).toEqual({ kind: "unreported" });
+    expect(resolved("fail", "CLEAN").checks).toEqual({
       kind: "rollup",
       rollup: "fail",
     });
-    expect(resolved("pending", "DIRTY")).toEqual({
-      kind: "rollup",
-      rollup: "pending",
+  });
+
+  it("says the PR can merge only when GitHub says so", () => {
+    for (const state of ["CLEAN", "HAS_HOOKS", "UNSTABLE"] as const)
+      expect(resolved("pass", state).merge).toEqual({ kind: "can" });
+    expect(resolved("pass", "BLOCKED").merge).toEqual({
+      kind: "cannot",
+      why: "blocked",
     });
+    expect(resolved("pass", "BLOCKED", "APPROVED").merge).toEqual({
+      kind: "cannot",
+      why: "blocked",
+    });
+    expect(resolved("pass", "BEHIND").merge).toEqual({
+      kind: "cannot",
+      why: "behind",
+    });
+    expect(resolved("pass", "DIRTY").merge).toEqual({
+      kind: "cannot",
+      why: "conflicts",
+    });
+    expect(resolved("pass", "DRAFT").merge).toEqual({
+      kind: "cannot",
+      why: "draft",
+    });
+  });
+
+  it("names a required review as the block, never as CI", () => {
+    for (const review of ["REVIEW_REQUIRED", "CHANGES_REQUESTED"] as const)
+      expect(resolved("pass", "BLOCKED", review).merge).toEqual({
+        kind: "cannot",
+        why: "review",
+      });
+  });
+
+  it("tells GitHub not having worked it out apart from a host that did not say", () => {
+    expect(resolved("pass", "UNKNOWN").merge).toEqual({ kind: "unsettled" });
+    expect(resolved("pass", null).merge).toEqual({ kind: "unreported" });
+  });
+
+  it("carries the address the forge gave", () => {
+    expect(resolved("pass", "CLEAN").url).toBe(
+      "https://github.com/juspay/kolu/pull/2388",
+    );
   });
 });

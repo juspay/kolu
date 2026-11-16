@@ -38,8 +38,8 @@ import type { PrResult } from "@kolu/terminal-vocab/schema";
 import { Option } from "effect";
 import { fleetTerminalRef } from "kolu-mcp/fleetRef";
 import type {
-  WatchChecks,
   WatchGit,
+  WatchMerge,
   WatchObservation,
   WatchPr,
 } from "./observation.ts";
@@ -149,49 +149,43 @@ const gitOf = (record: PadiTerminal | undefined): WatchGit | null => {
 /** A pull request as the forge resolved it — the `ok` arm's value. */
 type PrValue = Extract<PrResult, { readonly kind: "ok" }>["value"];
 
-/** THE ONE RULE FOR "GREEN": a PR's checks are green only when the PR can
- *  merge. Every reader of a work — the card, its timeline, its stages and the
- *  wake that tells the Conductor a hand-over is due — reads the check events
- *  this rule decides, so none of them asks the question again.
+/** WHETHER THE FORGE WOULD MERGE IT — GitHub's merge state, in the record's
+ *  words. This is the fact that decides "green"; the checks' rollup only says
+ *  what the checks that have REPORTED say, and a required check that has not
+ *  started is not among them.
  *
- *  The forge's rollup covers only the checks that have REPORTED. A required
- *  check that has not started yet is not in it, so a rollup can pass while
- *  GitHub says the PR is blocked — and the merge state is the forge's own
- *  answer to whether it can merge:
- *
- *  - a failing or pending rollup is that;
- *  - `CLEAN`, `HAS_HOOKS` and `UNSTABLE` can merge, so a passing rollup is a
- *    pass;
- *  - `BLOCKED` while no review is wanted is required checks the forge is
- *    still waiting for: CI's time, so pending — even before any check has
- *    reported;
- *  - `BLOCKED` while a review is required or changes were requested is a
- *    PERSON'S to settle, never CI's: a passing rollup there is a pass;
- *  - `BEHIND`, `DIRTY` (conflicts), `DRAFT` and `UNKNOWN` (the forge has not
- *    worked it out yet) are not a pass, and not CI running either: nothing is
- *    recorded until the forge says something this rule can act on. The fix
- *    for the first three is a push, which is a new commit and reads as one. */
-export const greenChecks = (value: PrValue): WatchChecks => {
-  if (value.checks === "pending" || value.checks === "fail")
-    return { kind: "rollup", rollup: value.checks };
-  const passed: WatchChecks =
-    value.checks === "pass"
-      ? { kind: "rollup", rollup: "pass" }
-      : { kind: "unreported" };
+ *  - `CLEAN`, `HAS_HOOKS` and `UNSTABLE` can merge;
+ *  - `BLOCKED` cannot: on a review when one is required or changes were
+ *    requested, otherwise on whatever else the branch's protection still
+ *    wants (a required check that has not passed, a conversation);
+ *  - `BEHIND`, `DIRTY` and `DRAFT` cannot, for those reasons;
+ *  - `UNKNOWN` is the forge not having worked it out yet, and a reading that
+ *    carries no merge state at all is a host that did not say: neither is an
+ *    answer, so neither is recorded. */
+export const mergeOf = (value: PrValue): WatchMerge => {
   switch (value.mergeStateStatus) {
     case "CLEAN":
     case "HAS_HOOKS":
     case "UNSTABLE":
-      return passed;
+      return { kind: "can" };
     case "BLOCKED":
-      return value.reviewDecision === "REVIEW_REQUIRED" ||
-        value.reviewDecision === "CHANGES_REQUESTED"
-        ? passed
-        : { kind: "rollup", rollup: "pending" };
+      return {
+        kind: "cannot",
+        why:
+          value.reviewDecision === "REVIEW_REQUIRED" ||
+          value.reviewDecision === "CHANGES_REQUESTED"
+            ? "review"
+            : "blocked",
+      };
     case "BEHIND":
+      return { kind: "cannot", why: "behind" };
     case "DIRTY":
+      return { kind: "cannot", why: "conflicts" };
     case "DRAFT":
+      return { kind: "cannot", why: "draft" };
     case "UNKNOWN":
+      return { kind: "unsettled" };
+    case null:
       return { kind: "unreported" };
     default:
       return value.mergeStateStatus satisfies never;
@@ -205,11 +199,12 @@ export const greenChecks = (value: PrValue): WatchChecks => {
  *  carries in its `pr` field — and answers what a timeline can learn from it.
  *  Only the RESOLVED arm says anything: `pending`, `absent`, `unsupported` and
  *  `unavailable` are all "kolu does not know", and a work's timeline must not
- *  learn a PR closed because the forge stopped answering. Its checks are read
- *  through {@link greenChecks}. The failing check NAMES come off the same
- *  per-check breakdown the rollup is folded from, so the `checks-failed`
- *  event says which gates are red rather than that some are — and the head
- *  commit comes off the same reading, so a check says WHICH push it is about.
+ *  learn a PR closed because the forge stopped answering. The checks are the
+ *  forge's rollup as it is; whether it can merge is {@link mergeOf}. The
+ *  failing check NAMES come off the same per-check breakdown the rollup is
+ *  folded from, so the `checks-failed` event says which gates are red rather
+ *  than that some are — and the head commit comes off the same reading, so a
+ *  check says WHICH push it is about.
  *
  *  Pure, and the ONE translation: the watcher subscribes, this says what the
  *  frame means, and `./observing.ts` decides what the work learns from it. */
@@ -219,8 +214,13 @@ export const prReading = (pr: PrResult): Option.Option<WatchPr> => {
   return Option.some({
     number: value.number,
     title: value.title,
+    url: value.url,
     state: value.state,
-    checks: greenChecks(value),
+    checks:
+      value.checks === null
+        ? { kind: "unreported" }
+        : { kind: "rollup", rollup: value.checks },
+    merge: mergeOf(value),
     failing: value.checkRuns
       .filter((one) => one.outcome === "fail")
       .map((one) => one.name),

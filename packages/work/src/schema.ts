@@ -231,7 +231,13 @@ export type WorkState = typeof WorkStateSchema.Type;
  *  reader re-parsed: a check event names the PR it is about (so a check event
  *  with no PR cannot be written), a `pr-opened` carries a number and not
  *  `"#181 …"`, a `joined` carries a {@link WorkRole} and not a word that
- *  happened to be spelled like one. */
+ *  happened to be spelled like one.
+ *
+ *  Two facts about a pull request are kept apart because they are two
+ *  things the forge says: what the checks that have REPORTED say (the three
+ *  check events) and whether the forge would let the PR merge
+ *  (`merge-state`). A required check that has not started is in neither the
+ *  rollup nor the checks' events; it is why a PR cannot merge. */
 export const EVENT_KINDS = [
   "requested",
   "carried-over",
@@ -251,6 +257,7 @@ export const EVENT_KINDS = [
   "checks-running",
   "checks-passed",
   "checks-failed",
+  "merge-state",
   "merged",
   "pr-closed",
   "note",
@@ -341,6 +348,44 @@ const checkFields = {
   failing: Schema.Array(Schema.String),
 };
 
+/** WHERE A PULL REQUEST LIVES — its address as the forge gave it, or a PR
+ *  recorded before kolu kept the address (the 1.57.0 rung's word for those).
+ *  Never a guessed URL. */
+export const PrLinkSchema = Schema.Union([
+  Schema.Struct({ kind: Schema.Literal("unrecorded") }),
+  Schema.Struct({
+    kind: Schema.Literal("link"),
+    href: Schema.NonEmptyString,
+  }),
+]);
+export type PrLink = typeof PrLinkSchema.Type;
+
+/** WHY THE FORGE WILL NOT MERGE A PULL REQUEST — GitHub's own reasons, in
+ *  kolu's words: something the branch's protection still wants (`blocked`:
+ *  a required check that has not passed, an unresolved conversation), a
+ *  review it requires (`review`), a base that has moved on (`behind`), a
+ *  conflict (`conflicts`), or a draft. */
+export const MERGE_BLOCKS = [
+  "blocked",
+  "review",
+  "behind",
+  "conflicts",
+  "draft",
+] as const;
+export type MergeBlock = (typeof MERGE_BLOCKS)[number];
+
+/** WHETHER THE FORGE WOULD LET THE PULL REQUEST MERGE, as one recorded
+ *  answer: it can, or it cannot and why. "The forge has not worked it out" is
+ *  no answer, and is never recorded. */
+export const MergeStateSchema = Schema.Union([
+  Schema.Struct({ kind: Schema.Literal("can") }),
+  Schema.Struct({
+    kind: Schema.Literal("cannot"),
+    why: Schema.Literals(MERGE_BLOCKS),
+  }),
+]);
+export type MergeState = typeof MergeStateSchema.Type;
+
 /** WHAT THE HUMAN ASKED FOR, as kolu saw them say it — their words, or a work
  *  opened off something else, where there were none. */
 export const RequestWordsSchema = Schema.Union([
@@ -368,10 +413,20 @@ export const WorkEventSchema = Schema.Union([
   /** Part of an ask answered: the questions left blank are still asked. */
   eventOf("answered-part", { ask: Schema.String }),
   eventOf("question-dropped", { ask: Schema.String }),
-  eventOf("pr-opened", { pr: Schema.Int, title: Schema.String }),
+  eventOf("pr-opened", {
+    pr: Schema.Int,
+    title: Schema.String,
+    url: PrLinkSchema,
+  }),
   eventOf("checks-running", checkFields),
   eventOf("checks-passed", checkFields),
   eventOf("checks-failed", checkFields),
+  /** The forge's answer to "can this PR merge", recorded when it changes. */
+  eventOf("merge-state", {
+    pr: Schema.Int,
+    head: CheckHeadSchema,
+    merge: MergeStateSchema,
+  }),
   eventOf("merged", { pr: Schema.Int }),
   eventOf("pr-closed", { pr: Schema.Int }),
   eventOf("note", { text: Schema.String }),

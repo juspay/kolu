@@ -44,7 +44,7 @@ import {
   unneededSetupQuestions,
   waitingOn,
 } from "./index.ts";
-import { seeded as random } from "./seeded.ts";
+import { seeded as random } from "../test/seeded.ts";
 
 const at = (step: number): string =>
   new Date(Date.UTC(2026, 10, 15, 9, 0, step)).toISOString();

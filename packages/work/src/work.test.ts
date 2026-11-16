@@ -54,7 +54,6 @@ import {
   startBlockers,
   type StoreFault,
   takeOver,
-  timeBar,
   timeSpent,
   took,
   unofferedAnswers,
@@ -1152,6 +1151,7 @@ describe("the readings", () => {
       about: aboutMember("local/a"),
       pr: 181,
       title: "The docs are 24 pages",
+      url: { kind: "link", href: "https://github.com/juspay/kolu/pull/181" },
     });
     work = recordEvent(work, {
       at: T(5),
@@ -1174,10 +1174,12 @@ describe("the readings", () => {
   };
 
   it("reads the PR off typed events rather than prose", () => {
-    expect(got(prOf(worked()))).toEqual({
+    expect(got(prOf(worked()))).toMatchObject({
       number: 181,
       state: "open",
       checks: "passed",
+      link: { kind: "link", href: "https://github.com/juspay/kolu/pull/181" },
+      merge: { kind: "unknown" },
     });
     expect(Option.isNone(prOf(opened()))).toBe(true);
   });
@@ -1285,11 +1287,11 @@ describe("the readings", () => {
     expect(folded).toMatchObject({ kind: "folded", count: 5 });
   });
 
-  it("measures the time bar and what each step took", () => {
+  it("measures where the time went and what each step took", () => {
     const work = worked();
-    const bar = timeBar(work, policyOf(work), T(10));
-    expect(bar.reduce((sum, one) => sum + one.ms, 0)).toBe(10 * 60_000);
-    expect(timeSpent(work, policyOf(work), T(10)).ci).toBeGreaterThan(0);
+    const spent = timeSpent(work, policyOf(work), T(10));
+    expect(spent.agent + spent.you + spent.ci).toBe(10 * 60_000);
+    expect(spent.ci).toBeGreaterThan(0);
     expect(took(work, T(10)).at(-1)?.open).toBe(true);
   });
 });

@@ -35,7 +35,7 @@
 
 import { type AgentModelList, isAgentModelId } from "@kolu/agent-distro/models";
 import { Array as Arr, Option } from "effect";
-import { type Policy, type Waiter, waitingOn } from "./folds.ts";
+import { type Policy, type Run, type Waiter, waitingOn } from "./folds.ts";
 import { type Given, type SentAnswer, sentValue } from "./record.ts";
 import {
   type Chosen,
@@ -275,17 +275,21 @@ export const onGreenOf = (work: Work): Option.Option<OnGreen> =>
  *
  *  The folds compute from the timeline and must not re-read the setup three
  *  times over (and could not, without importing this module): the facts they
- *  need — whether the human asked for a hand-over, whether this is a plain
- *  watch, and whether a planner runs before the implementor — are read ONCE
- *  here and handed in. A work whose mode nobody has answered yet is planned:
- *  until somebody says otherwise, the time before an implementor is the plan
- *  and its approval. */
+ *  need — whether the human asked for a hand-over, and how the work is run —
+ *  are read ONCE here and handed in. How it is run is read off
+ *  {@link MODE_RUNS}: a mode that runs an implementor is a waterfall (with a
+ *  planner when it runs one), any other is a plain watch, and a work whose
+ *  mode nobody has answered is neither yet. */
 export const policyOf = (work: Work): Policy => ({
   handOver: Option.contains(onGreenOf(work), "hand-over"),
-  watching: Option.contains(modeOf(work), "watch"),
-  planned: Option.match(modeOf(work), {
-    onNone: () => true,
-    onSome: (mode) => MODE_RUNS[mode].roles.includes("planner"),
+  run: Option.match(modeOf(work), {
+    onNone: (): Run => ({ kind: "unset" }),
+    onSome: (mode): Run => {
+      const roles = MODE_RUNS[mode].roles;
+      return roles.includes("implementor")
+        ? { kind: "waterfall", planner: roles.includes("planner") }
+        : { kind: "watch" };
+    },
   }),
 });
 

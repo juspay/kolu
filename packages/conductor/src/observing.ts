@@ -34,10 +34,12 @@ import {
   ABOUT_WORK,
   aboutMember,
   CHECK_STEP,
+  type CheckHead,
   checkKey,
   checksSeen,
   endWork,
   filesSeen,
+  type MergeState,
   prOf,
   recordEvent,
   type Work,
@@ -119,6 +121,16 @@ export const ringEvent = (
   }
 };
 
+/** Two merge answers say the same thing. */
+const sameMerge = (a: MergeState, b: MergeState): boolean =>
+  a.kind === b.kind &&
+  (a.kind === "can" || (b.kind === "cannot" && a.why === b.why));
+
+/** Two readings are about the same commit. */
+const sameHead = (a: CheckHead, b: CheckHead): boolean =>
+  a.kind === b.kind &&
+  (a.kind === "unreported" || (b.kind === "commit" && a.sha === b.sha));
+
 /** THE PR, as the timeline learns it — ONE pull request, observed ONCE, by the
  *  WORK.
  *
@@ -155,7 +167,9 @@ export const prEvents = (work: Work, pr: WatchPr, at: string): Work => {
   let next = work;
   // THE FORGE'S ANSWER FOR THIS BRANCH IS THIS WORK'S PULL REQUEST. A number
   // the timeline has not got yet is a PR opening — the first one, or the next
-  // one on a branch whose last was closed while kolu was not looking.
+  // one on a branch whose last was closed while kolu was not looking. Its
+  // address is kept with it, so the number is a link for as long as the
+  // work is kept.
   if (!Option.exists(prOf(next), (one) => one.number === pr.number)) {
     next = recordEvent(next, {
       at,
@@ -164,6 +178,8 @@ export const prEvents = (work: Work, pr: WatchPr, at: string): Work => {
       about: ABOUT_WORK,
       pr: pr.number,
       title: pr.title,
+      url:
+        pr.url === "" ? { kind: "unrecorded" } : { kind: "link", href: pr.url },
     });
   }
   // ONE TABLE for the check correspondence (`kolu-work`'s `CHECK_STEP`): the
@@ -182,6 +198,32 @@ export const prEvents = (work: Work, pr: WatchPr, at: string): Work => {
         failing: pr.checks.rollup === "fail" ? [...pr.failing] : [],
       });
     }
+  }
+  // WHETHER THE FORGE WOULD MERGE IT, recorded when the answer CHANGES — for
+  // another commit, or the same one gone from mergeable to behind and back.
+  // Only while the PR is open, and only an answer: "not worked out yet" says
+  // nothing, and the last answer stands until there is a new one.
+  const merge = pr.merge;
+  if (
+    pr.state === "open" &&
+    (merge.kind === "can" || merge.kind === "cannot") &&
+    !Option.exists(
+      Option.flatMap(prOf(next), (one) => one.lastMerge),
+      (last) =>
+        last.pr === pr.number &&
+        sameHead(last.head, pr.head) &&
+        sameMerge(last.merge, merge),
+    )
+  ) {
+    next = recordEvent(next, {
+      at,
+      by: "kolu",
+      kind: "merge-state",
+      about: ABOUT_WORK,
+      pr: pr.number,
+      head: pr.head,
+      merge,
+    });
   }
   if (
     pr.state === "merged" &&

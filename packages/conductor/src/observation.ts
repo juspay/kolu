@@ -15,7 +15,7 @@
  */
 
 import type { ConductorReadingLevel } from "kolu-common/conductor";
-import type { CheckHead, WorkId } from "kolu-work";
+import type { CheckHead, MergeState, WorkId } from "kolu-work";
 
 /** What a terminal is doing, as the watcher reads it off its host.
  *
@@ -53,16 +53,22 @@ export interface WatchGit {
 export interface WatchPr {
   readonly number: number;
   readonly title: string;
+  /** Where it lives, as the forge spelled it — recorded on `pr-opened`, so a
+   *  finished work's PR is still a link. */
+  readonly url: string;
   readonly state: "open" | "closed" | "merged";
-  /** How its checks stand — nothing to record, or the rollup read against
-   *  the merge state ({@link WatchChecks}). Two arms rather than a nullable
-   *  word: "nothing to record" is a reading, not a hole. `kolu-work`'s
-   *  `CHECK_STEP` is the one table that says what each word becomes on a
-   *  timeline. */
+  /** How its checks stand — none reported, or the forge's rollup over the
+   *  ones that have. Two arms rather than a nullable word: "the forge
+   *  reported no checks" is a reading, not a hole. `kolu-work`'s `CHECK_STEP`
+   *  is the one table that says what each word becomes on a timeline. */
   readonly checks: WatchChecks;
+  /** Whether the forge would merge it ({@link WatchMerge}) — the second fact,
+   *  kept apart from the checks because a required check that has not
+   *  started is in no rollup. */
+  readonly merge: WatchMerge;
   /** The names of the checks that are failing, when any are. */
   readonly failing: ReadonlyArray<string>;
-  /** THE COMMIT the two fields above are about — the PR's head, off the same
+  /** THE COMMIT the fields above are about — the PR's head, off the same
    *  reading, in the record's own two arms (`kolu-work`'s `CheckHead`). A
    *  check event is news about ONE commit, so a reading of a commit the
    *  timeline already holds adds nothing and a PUSH adds an event.
@@ -72,18 +78,23 @@ export interface WatchPr {
   readonly head: CheckHead;
 }
 
-/** HOW A PULL REQUEST'S CHECKS STAND, as far as a work's timeline is
- *  concerned — nothing to record, or one of the three words a check event is
- *  spelled from. The forge's own rollup counts only the checks that have
- *  reported, so it is read against the PR's merge state first
- *  (`readings.ts`'s `greenChecks`, the one rule for "green"): `pass` here
- *  means the PR can merge. */
+/** HOW A PULL REQUEST'S CHECKS STAND — none reported, or the forge's own
+ *  rollup over the checks that have reported. */
 export type WatchChecks =
   | { readonly kind: "unreported" }
   | {
       readonly kind: "rollup";
       readonly rollup: "pending" | "pass" | "fail";
     };
+
+/** WHETHER THE FORGE WOULD MERGE IT — an answer (`kolu-work`'s
+ *  `MergeState`), the forge not having worked it out yet (`unsettled`), or a
+ *  reading that carries no merge state at all (`unreported`). Only an answer
+ *  is ever recorded. */
+export type WatchMerge =
+  | MergeState
+  | { readonly kind: "unsettled" }
+  | { readonly kind: "unreported" };
 
 /** A BRANCH WHOSE PULL REQUEST KOLU WATCHES — one per piece of work in
  *  progress that is keyed by a branch. The watch asks the host for the PR of

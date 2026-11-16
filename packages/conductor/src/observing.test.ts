@@ -77,12 +77,20 @@ const checksOf = (one: Work): Option.Option<PrReading["checks"]> =>
 const pr = (over: Partial<WatchPr> = {}): WatchPr => ({
   number: 7,
   title: "Fix the parser",
+  url: "https://github.com/kolu-e2e/parser/pull/7",
   state: "open",
   checks: { kind: "unreported" },
+  merge: { kind: "unsettled" },
   failing: [],
   head: HEAD,
   ...over,
 });
+
+/** The merge answers on the timeline, in order. */
+const merges = (one: Work) =>
+  one.events.flatMap((event) =>
+    event.kind === "merge-state" ? [event.merge] : [],
+  );
 
 const kinds = (one: Work): ReadonlyArray<string> =>
   one.events.map((event) => event.kind);
@@ -138,6 +146,7 @@ describe("the PR the work's own watch reads", () => {
       by: "kolu",
       about: ABOUT_WORK,
       pr: 7,
+      url: { kind: "link", href: "https://github.com/kolu-e2e/parser/pull/7" },
     });
     // The comparison is against the TIMELINE, so the next poll — and the
     // first look after a restart — records nothing.
@@ -197,6 +206,42 @@ describe("the PR the work's own watch reads", () => {
     expect(
       prEvents(one, pr({ checks: rolled("pending"), head: PUSHED }), AT),
     ).toBe(one);
+  });
+
+  it("records whether the forge would merge it, once per change", () => {
+    // Quick checks passed, required ones not started: the checks say passed
+    // and the forge says it cannot merge — two facts, two events.
+    let one = prEvents(
+      work(),
+      pr({
+        checks: rolled("pass"),
+        merge: { kind: "cannot", why: "blocked" },
+      }),
+      AT,
+    );
+    for (let poll = 0; poll < 20; poll += 1)
+      one = prEvents(
+        one,
+        pr({
+          checks: rolled("pass"),
+          merge: { kind: "cannot", why: "blocked" },
+        }),
+        AT,
+      );
+    expect(merges(one)).toEqual([{ kind: "cannot", why: "blocked" }]);
+    one = prEvents(one, pr({ merge: { kind: "can" } }), AT);
+    // The base moved on: the green is taken back, then given again.
+    one = prEvents(one, pr({ merge: { kind: "cannot", why: "behind" } }), AT);
+    one = prEvents(one, pr({ merge: { kind: "unsettled" } }), AT);
+    one = prEvents(one, pr({ merge: { kind: "can" } }), AT);
+    expect(merges(one)).toEqual([
+      { kind: "cannot", why: "blocked" },
+      { kind: "can" },
+      { kind: "cannot", why: "behind" },
+      { kind: "can" },
+    ]);
+    // ... and nothing more for a host that never says.
+    expect(prEvents(one, pr({ merge: { kind: "unreported" } }), AT)).toBe(one);
   });
 
   it("hears a reading with NO head once per kind, ever", () => {

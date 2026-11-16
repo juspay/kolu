@@ -1939,6 +1939,89 @@ export function koluChoicesSayHowChosen_1_56_0(
   if (changed) store.set("works", next as unknown as PersistedState["works"]);
 }
 
+/** ONE TIMELINE as 1.57.0 stores it — the SAME ARRAY when nothing moves.
+ *
+ *  - A `pr-opened` gains `url`: `unrecorded`, because kolu did not keep the
+ *    address before this rung and inventing one (a guess from the
+ *    repository's remote) would be a link that may lead nowhere. Its number
+ *    reads as plain text from here on.
+ *  - Every `checks-passed` is followed by a `merge-state` saying the PR
+ *    could merge, at the same instant, for the same PR and commit. Before
+ *    this rung a passing check WAS green — that is what the hand-over read
+ *    — and the fold now reads green off the forge's merge answer, so this
+ *    gives each saved timeline the reading it had: a finished work's Merge
+ *    time stays Merge rather than turning into Review. A later
+ *    `checks-running` or `checks-failed` still takes it back, as it did.
+ *    A `checks-passed` already followed by its answer has walked this rung. */
+const eventsOf_1_57_0 = (
+  events: ReadonlyArray<unknown>,
+): ReadonlyArray<unknown> => {
+  let changed = false;
+  const next: unknown[] = [];
+  events.forEach((value, at) => {
+    const event = recordOf(value);
+    if (event?.kind === "pr-opened" && !("url" in event)) {
+      changed = true;
+      next.push({ ...event, url: { kind: "unrecorded" } });
+      return;
+    }
+    next.push(value);
+    if (event?.kind !== "checks-passed") return;
+    const following = recordOf(events[at + 1]);
+    if (
+      following?.kind === "merge-state" &&
+      following.pr === event.pr &&
+      JSON.stringify(following.head) === JSON.stringify(event.head)
+    )
+      return;
+    changed = true;
+    next.push({
+      at: event.at,
+      by: "kolu",
+      about: { kind: "work" },
+      kind: "merge-state",
+      pr: event.pr,
+      head: event.head,
+      merge: { kind: "can" },
+    });
+  });
+  return changed ? next : events;
+};
+
+/** The 1.57.0 rung — A PULL REQUEST'S ADDRESS AND THE FORGE'S MERGE ANSWER
+ *  ARE ON THE TIMELINE. `pr-opened` carries the PR's `url`, so a finished
+ *  work's PR is still a link, and a new event kind, `merge-state`, records
+ *  whether the forge would merge the PR — the fact "green" is read off now,
+ *  kept apart from what the checks that have reported say.
+ *  {@link eventsOf_1_57_0} says what each saved timeline gets. Only `works`
+ *  moves; the transcript file's rows keep their shape, so
+ *  TRANSCRIPT_FILE_VERSION stays at 1.55.0. Exported for
+ *  `stateMigration.test.ts`. */
+export function prFactsOnTheTimeline_1_57_0(
+  store: Conf<PersistedState>,
+): void {
+  const works = recordOf(store.get("works"));
+  if (works === null) return;
+  let changed = false;
+  const next: Record<string, unknown> = {};
+  for (const [id, value] of Object.entries(works)) {
+    const work = recordOf(value);
+    const events = Array.isArray(work?.events) ? work.events : null;
+    if (work === null || events === null) {
+      next[id] = value;
+      continue;
+    }
+    const nextEvents = eventsOf_1_57_0(events);
+    if (nextEvents === events) {
+      next[id] = value;
+      continue;
+    }
+    changed = true;
+    next[id] = { ...work, events: nextEvents };
+  }
+  if (changed) store.set("works", next as unknown as PersistedState["works"]);
+}
+
 /** The migration ladder — hoisted so {@link decodeStateBackup}'s scratch
  *  store walks the REAL ladder on a backup snapshot (which may predate any
  *  rung), never a parallel re-implementation of it. */
@@ -2640,4 +2723,11 @@ export const CONF_MIGRATIONS = {
   // The transcript file is untouched, so TRANSCRIPT_FILE_VERSION stays at
   // 1.55.0.
   "1.56.0": koluChoicesSayHowChosen_1_56_0,
+  // A PULL REQUEST'S ADDRESS AND THE FORGE'S MERGE ANSWER. `pr-opened` gains
+  // `url` (`unrecorded` for every saved one: nothing to take it from), and
+  // each saved `checks-passed` is followed by the `merge-state` it then
+  // meant, so green reads as it did (`prFactsOnTheTimeline_1_57_0` argues
+  // both). The transcript file is untouched, so TRANSCRIPT_FILE_VERSION
+  // stays at 1.55.0.
+  "1.57.0": prFactsOnTheTimeline_1_57_0,
 };

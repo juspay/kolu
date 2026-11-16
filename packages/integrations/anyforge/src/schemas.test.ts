@@ -86,7 +86,8 @@ describe("PrInfo wire format", () => {
       checks: "pending",
       checkRuns: [],
       reviewDecision: null,
-      mergeStateStatus: "UNKNOWN",
+      // No merge state said — not GitHub's own UNKNOWN.
+      mergeStateStatus: null,
       headSha: null,
     });
   });
@@ -103,7 +104,7 @@ describe("PrInfo wire format", () => {
       '{"number":7,"title":"old server",' +
         '"url":"https://example.invalid/pull/7","state":"open",' +
         '"checks":"pending","checkRuns":[],' +
-        '"reviewDecision":null,"mergeStateStatus":"UNKNOWN","headSha":null}',
+        '"reviewDecision":null,"mergeStateStatus":null,"headSha":null}',
     );
   });
 
