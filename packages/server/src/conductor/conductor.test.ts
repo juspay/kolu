@@ -4192,7 +4192,9 @@ describe("the timeline a reading writes", () => {
         theWork(r).events.filter((one) => one.kind === "pr-opened"),
       ).toHaveLength(1);
     });
-    expect(theWork(r).events.at(-1)).toMatchObject({
+    expect(
+      theWork(r).events.find((one) => one.kind === "pr-opened"),
+    ).toMatchObject({
       kind: "pr-opened",
       pr: 412,
       title: "fix the parser",
@@ -4268,7 +4270,9 @@ describe("the timeline a reading writes", () => {
     await vi.waitFor(() => {
       expect(kindsOf(theWork(r))).toContain("checks-failed");
     });
-    expect(theWork(r).events.at(-1)).toMatchObject({
+    expect(
+      theWork(r).events.find((one) => one.kind === "checks-failed"),
+    ).toMatchObject({
       kind: "checks-failed",
       by: "ci",
       about: ABOUT_WORK,

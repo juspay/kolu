@@ -14,9 +14,10 @@
  */
 
 import { Option } from "effect";
-import { prOf } from "./readings.ts";
+import { prOf, sameHead } from "./readings.ts";
 import {
   type Asked,
+  type CheckHead,
   endedAt,
   type Outcome,
   type Work,
@@ -62,13 +63,21 @@ type Part = "before" | "build" | "after";
  *
  *  The two PR facts are kept apart, as the record keeps them: `checks` is
  *  what the checks that have reported say, `merge` is whether the forge
- *  would let the PR merge. Only both together make it green. */
+ *  would let the PR merge. Only both together make it green — and only when
+ *  they are about the SAME commit: each keeps the head it was said about, and
+ *  a fact about another head makes the other one unknown. */
 interface Running {
   readonly openAsks: ReadonlySet<string>;
   readonly checks: "none" | "running" | "passed" | "failed";
   readonly merge: "unknown" | "can" | "cannot";
+  /** The PR and commit `checks` and `merge` were last said about. */
+  readonly checksAbout: Option.Option<About>;
+  readonly mergeAbout: Option.Option<About>;
   readonly ended: boolean;
   readonly part: Part;
+  /** A planner has joined — before that there is no plan to approve, so a
+   *  wait on the human (the setup's questions) is still the planning. */
+  readonly planned: boolean;
   /** An implementor has joined at some point — where a reopened work with
    *  no PR goes back to. */
   readonly implemented: boolean;
@@ -78,16 +87,43 @@ interface Running {
   readonly merged: boolean;
 }
 
+/** Which PR, at which commit, a fact was about. */
+interface About {
+  readonly pr: number;
+  readonly head: CheckHead;
+}
+
+const sameAbout = (a: Option.Option<About>, b: About): boolean =>
+  Option.exists(a, (one) => one.pr === b.pr && sameHead(one.head, b.head));
+
 const START: Running = {
   openAsks: new Set(),
   checks: "none",
   merge: "unknown",
+  checksAbout: Option.none(),
+  mergeAbout: Option.none(),
   ended: false,
   part: "before",
+  planned: false,
   implemented: false,
   prOpen: false,
   merged: false,
 };
+
+/** A check event's move: the checks it says, and the merge answer forgotten
+ *  when it was about another commit. */
+const checksSay = (
+  at: Running,
+  about: About,
+  checks: Running["checks"],
+): Running => ({
+  ...at,
+  part: "after",
+  prOpen: true,
+  checks,
+  checksAbout: Option.some(about),
+  merge: sameAbout(at.mergeAbout, about) ? at.merge : "unknown",
+});
 
 const step = (at: Running, event: WorkEvent): Running => {
   switch (event.kind) {
@@ -100,6 +136,7 @@ const step = (at: Running, event: WorkEvent): Running => {
       return { ...at, openAsks: open };
     }
     case "joined":
+      if (event.role === "planner") return { ...at, planned: true };
       return event.role === "implementor"
         ? {
             ...at,
@@ -118,19 +155,25 @@ const step = (at: Running, event: WorkEvent): Running => {
         merged: false,
         checks: "none",
         merge: "unknown",
+        checksAbout: Option.none(),
+        mergeAbout: Option.none(),
       };
     case "checks-running":
-      return { ...at, part: "after", prOpen: true, checks: "running" };
+      return checksSay(at, event, "running");
     case "checks-passed":
-      return { ...at, part: "after", prOpen: true, checks: "passed" };
+      return checksSay(at, event, "passed");
     case "checks-failed":
-      return { ...at, part: "after", prOpen: true, checks: "failed" };
+      return checksSay(at, event, "failed");
+    // `unsettled` is GitHub not having worked out a new commit yet: no
+    // answer, so the last commit's does not stand for this one.
     case "merge-state":
       return {
         ...at,
         part: "after",
         prOpen: true,
-        merge: event.merge.kind,
+        merge: event.merge.kind === "unsettled" ? "unknown" : event.merge.kind,
+        mergeAbout: Option.some(event),
+        checks: sameAbout(at.checksAbout, event) ? at.checks : "none",
       };
     case "merged":
       return {
@@ -152,12 +195,18 @@ const step = (at: Running, event: WorkEvent): Running => {
     case "ended":
       return { ...at, ended: true };
     // THE ONE WAY BACK. Reopened with its PR still open, the work is where it
-    // was; with none, it is a new attempt on the branch.
+    // was; with none, it is a new attempt on the branch. Either way what was
+    // said about the checks and the merge was true when it stopped, not now:
+    // it waits for the next reading.
     case "reopened":
       return {
         ...at,
         ended: false,
         merged: false,
+        checks: "none",
+        merge: "unknown",
+        checksAbout: Option.none(),
+        mergeAbout: Option.none(),
         part: at.prOpen ? "after" : at.implemented ? "build" : "before",
       };
     default:
@@ -432,11 +481,18 @@ export interface Stage {
 
 /** THE STAGES OF A WORK, as a sum: a plain watch is not a waterfall and has
  *  none; a work whose mode nobody has answered has none yet; a waterfall has
- *  all six. */
+ *  all six, and files every event of its timeline under one of them
+ *  (`events`, one per event, in the timeline's order) — the stage of the
+ *  stretch that event begins, by the same walk that files the time, so an
+ *  event and the time after it are never in two stages. */
 export type Stages =
   | { readonly kind: "watch" }
   | { readonly kind: "unset" }
-  | { readonly kind: "waterfall"; readonly stages: ReadonlyArray<Stage> };
+  | {
+      readonly kind: "waterfall";
+      readonly stages: ReadonlyArray<Stage>;
+      readonly events: ReadonlyArray<StageName>;
+    };
 
 /** How long a stage has had: its time, or none for a stage that has had
  *  none. */
@@ -450,15 +506,20 @@ type AfterStage = Extract<StageName, "review" | "checks" | "merge">;
 /** THE STAGES: the same walk as {@link timeSpent}, each stretch filed under
  *  the stage it belongs to.
  *
- *  Before the implementor joins, the agents' time is the plan and a wait on
- *  the human the approval; a waterfall with no planner builds from the
- *  start. From the implementor joining until the PR opens it is all the
- *  build. After the PR opens, CI running is the checks, a green PR handed to
- *  the human (or one the forge merged) is the merge, and the rest is the
- *  review. A question to the human never moves the work: it stays in the
- *  stage it is in, which is then the human's. A stage the work was in for no
- *  time — two events stamped at one instant — still happened. The stages'
- *  times add up to {@link lifetime}. */
+ *  Before the implementor joins, a waterfall with a planner is planning — the
+ *  setup's questions included, which come before there is anything to approve
+ *  — and, once the planner has joined, a wait on the human is the approval. A
+ *  waterfall with no planner builds from the start. From the implementor
+ *  joining until the PR opens it is all the build. After the PR opens, CI
+ *  running is the checks, a green PR handed to the human (or one the forge
+ *  merged) is the merge, and the rest is the review. A question to the human
+ *  never moves the work: it stays in the stage it is in, which is then the
+ *  human's. A stage the work was in for no time — two events stamped at one
+ *  instant — still happened. The stages' times add up to {@link lifetime}.
+ *
+ *  Each event is filed under the stage of the stretch it begins; one that
+ *  leaves the work ended (or begins a stretch of it ended) stays in the stage
+ *  the work was last in. */
 export const stages = (work: Work, policy: Policy, now: string): Stages => {
   const run = policy.run;
   if (run.kind !== "waterfall") return { kind: run.kind };
@@ -476,7 +537,7 @@ export const stages = (work: Work, policy: Policy, now: string): Stages => {
     switch (at.part) {
       case "before":
         if (!run.planner) return "build";
-        return who === "you" ? "approve" : "plan";
+        return who === "you" && at.planned ? "approve" : "plan";
       case "build":
         return "build";
       case "after":
@@ -487,14 +548,22 @@ export const stages = (work: Work, policy: Policy, now: string): Stages => {
         return at.part satisfies never;
     }
   };
+  const events: StageName[] = [];
+  let current: StageName = run.planner ? "plan" : "build";
+  let visits = 0;
   const last = walk(work, now, (at, length) => {
     const who = waiterOf(policy.handOver, at);
-    if (who === "done") return;
-    const stage = place(at, who);
-    if (stage === "review" || stage === "checks" || stage === "merge")
-      after = stage;
-    spent[stage] += length;
-    entered.add(stage);
+    if (who !== "done") {
+      current = place(at, who);
+      if (current === "review" || current === "checks" || current === "merge")
+        after = current;
+      spent[current] += length;
+      entered.add(current);
+    }
+    // The first stretch is the one before any event; each after it is the
+    // one the event before it began.
+    if (visits > 0) events.push(current);
+    visits += 1;
   });
   // WHERE IT IS NOW — none for a finished work. An OPEN work is waiting on
   // somebody whatever its timeline's last `ended` event said, as
@@ -507,6 +576,7 @@ export const stages = (work: Work, policy: Policy, now: string): Stages => {
       : STAGES.length;
   return {
     kind: "waterfall",
+    events,
     stages: STAGES.map((name, index): Stage => {
       const ms = spent[name];
       if (index === at) return { name, state: { kind: "now", ms, who } };

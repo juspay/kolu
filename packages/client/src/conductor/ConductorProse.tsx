@@ -34,10 +34,11 @@
 
 import { type InlineCodeAction, Markdown } from "@kolu/solid-markdown";
 import type { Work, WorkId } from "kolu-work";
-import { type NonEmpty, nonEmpty } from "nonempty";
+import type { NonEmpty } from "nonempty";
 import {
   type Component,
   createEffect,
+  createMemo,
   createSignal,
   For,
   Show,
@@ -87,61 +88,90 @@ const ConductorProse: Component<{
     readonly path: string;
     readonly works: NonEmpty<Named>;
   } | null>(null);
-  /** The sentence a press left saying the turn's work has no such file. */
-  const [missing, setMissing] = createSignal<{
-    readonly path: string;
-    readonly works: NonEmpty<Named>;
-  } | null>(null);
+  /** The path a press found missing from the turn's work — what the note
+   *  under the reply is about. */
+  const [missingPath, setMissingPath] = createSignal<string | null>(null);
 
   /** The works named, with their records as they stand now. Every id came
-   *  out of the holders index or the turn, both read off this same map. */
-  const named = (ids: NonEmpty<WorkId>): NonEmpty<Named> | null =>
-    nonEmpty(
-      ids.flatMap((id) => {
-        const work = works().get(id);
-        return work === undefined ? [] : [{ id, work }];
-      }),
-    );
+   *  out of the holders index or the turn, both read off this same map in
+   *  this same update, so an id it does not hold is a defect, said loudly. */
+  const named = (ids: NonEmpty<WorkId>): NonEmpty<Named> => {
+    const one = (id: WorkId): Named => {
+      const work = works().get(id);
+      if (work === undefined)
+        throw new Error(`a file link named work ${id}, which is not held`);
+      return { id, work };
+    };
+    const [first, ...rest] = ids;
+    return [one(first), ...rest.map(one)];
+  };
 
-  /** What a code span is, as a link: none for a path no work holds. Open
-   *  ("current") only when it names one file and the reader is on it. */
+  /** THE NOTE, read off the live target every time: it says the turn's
+   *  work has no such file only for as long as that is true. Once the work
+   *  writes it, the note goes and the link opens the file. */
+  const missing = createMemo(() => {
+    const path = missingPath();
+    if (path === null) return undefined;
+    const target = fileTarget(props.holders, props.works, path);
+    return target.kind === "missing"
+      ? { path, works: named(target.works) }
+      : undefined;
+  });
+
+  /** What a code span is, as a link: none for a path no work holds. Its name
+   *  says what a press does — opens the file, offers the works that hold it,
+   *  or says the turn's work has none yet. Open ("current") only when it
+   *  names one file and the reader is on it. */
   const action = (path: string): InlineCodeAction | undefined => {
     const target = fileTarget(props.holders, props.works, path);
-    if (target.kind === "plain") return undefined;
-    const open = readerTarget();
-    return {
-      label: `Open ${path}`,
-      current:
-        target.kind === "open" &&
-        open !== null &&
-        open.work === target.work &&
-        open.path === path,
-    };
+    switch (target.kind) {
+      case "plain":
+        return undefined;
+      case "missing":
+        return { label: `${path}: not written yet`, current: false };
+      case "choose":
+        return { label: `${path}: choose a work`, current: false };
+      case "open": {
+        const open = readerTarget();
+        return {
+          label: `Open ${path}`,
+          current:
+            open !== null && open.work === target.work && open.path === path,
+        };
+      }
+      default:
+        return target satisfies never;
+    }
   };
 
   const press = (path: string, anchor: HTMLElement): void => {
     const target = fileTarget(props.holders, props.works, path);
-    setMissing(null);
+    setMissingPath(null);
     switch (target.kind) {
       case "plain":
         return;
       case "open":
         openReader({ work: target.work, path });
         return;
-      case "missing": {
-        const these = named(target.works);
-        if (these !== null) setMissing({ path, works: these });
+      case "missing":
+        setMissingPath(path);
         return;
-      }
-      case "choose": {
-        const these = named(target.works);
-        if (these !== null) setChoosing({ anchor, path, works: these });
+      case "choose":
+        setChoosing({ anchor, path, works: named(target.works) });
         return;
-      }
       default:
         target satisfies never;
     }
   };
+
+  /** The menu's rows, built once per press rather than per read. */
+  const choices = createMemo(() => {
+    const works = choosing()?.works ?? [];
+    return {
+      options: works.map((one) => ({ value: one.id, label: one.work.title })),
+      byId: new Map(works.map((one) => [one.id, one.work])),
+    };
+  });
 
   const [rewrites, setRewrites] = createSignal(0);
 
@@ -179,13 +209,10 @@ const ConductorProse: Component<{
             <code class="font-mono">{choosing()?.path}</code> of which work?
           </>
         }
-        options={(choosing()?.works ?? []).map((one) => ({
-          value: one.id,
-          label: one.work.title,
-        }))}
+        options={choices().options}
         renderOption={(option) => (
-          <Show when={choosing()?.works.find((one) => one.id === option.value)}>
-            {(one) => <WorkChipFace work={one().work} />}
+          <Show when={choices().byId.get(option.value)}>
+            {(work) => <WorkChipFace work={work()} />}
           </Show>
         )}
         onSelect={(work) => {
@@ -198,8 +225,8 @@ const ConductorProse: Component<{
         flip
         focusFirst
       />
-      {/* THE TURN'S WORK HAS NO SUCH FILE YET — said where the link is, and
-          announced: never another work's file in its place. */}
+      {/* THE TURN'S WORK HAS NO SUCH FILE YET — said under the reply that
+          named it, and announced: never another work's file in its place. */}
       <Show when={missing()}>
         {(note) => (
           <p
@@ -209,18 +236,21 @@ const ConductorProse: Component<{
           >
             <Show
               when={note().works.length === 1}
-              fallback={<span>None of these works has</span>}
+              fallback={
+                <>
+                  <span>None of</span>
+                  <For each={note().works}>
+                    {(one) => <WorkChipFace work={one.work} />}
+                  </For>
+                  <span>has</span>
+                </>
+              }
             >
               <WorkChipFace work={note().works[0].work} />
               <span>has no</span>
             </Show>
             <code class="font-mono">{note().path}</code>
             <span>yet.</span>
-            <Show when={note().works.length > 1}>
-              <For each={note().works}>
-                {(one) => <WorkChipFace work={one.work} />}
-              </For>
-            </Show>
           </p>
         )}
       </Show>

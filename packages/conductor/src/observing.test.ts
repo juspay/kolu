@@ -20,12 +20,14 @@ import {
   openWork,
   outcomeOf,
   type PrReading,
+  prLinks,
   prOf,
   recordEvent,
   type Work,
 } from "kolu-work";
 import { fileEvents, prEvents, ringEvent } from "./observing.ts";
 import type { WatchChecks, WatchPr } from "./observation.ts";
+import { prReading } from "./readings.ts";
 
 const AT = "2026-02-01T10:00:00.000Z";
 const A = "local/aaaa";
@@ -141,7 +143,9 @@ describe("the PR the work's own watch reads", () => {
   it("records the pull request ONCE, and says so with no terminal", () => {
     const opened = prEvents(work(), pr(), AT);
     expect(kinds(opened)).toContain("pr-opened");
-    expect(opened.events.at(-1)).toMatchObject({
+    expect(
+      opened.events.find((event) => event.kind === "pr-opened"),
+    ).toMatchObject({
       kind: "pr-opened",
       by: "kolu",
       about: ABOUT_WORK,
@@ -151,6 +155,44 @@ describe("the PR the work's own watch reads", () => {
     // The comparison is against the TIMELINE, so the next poll — and the
     // first look after a restart — records nothing.
     expect(prEvents(opened, pr(), AT)).toBe(opened);
+  });
+
+  it("learns the address of a PR recorded before kolu kept one", () => {
+    const before = recordEvent(work(), {
+      at: AT,
+      by: "kolu",
+      kind: "pr-opened",
+      about: ABOUT_WORK,
+      pr: 7,
+      title: "Fix the parser",
+      url: { kind: "unrecorded" },
+    });
+    const learned = prEvents(before, pr(), AT);
+    expect(prLinks(learned).get(7)).toBe(
+      "https://github.com/kolu-e2e/parser/pull/7",
+    );
+    expect(kinds(learned).filter((kind) => kind === "pr-opened")).toHaveLength(
+      1,
+    );
+  });
+
+  it("refuses a reading whose PR has no address", () => {
+    expect(() =>
+      prReading({
+        kind: "ok",
+        value: {
+          number: 7,
+          title: "t",
+          url: "",
+          state: "open",
+          checks: null,
+          checkRuns: [],
+          reviewDecision: null,
+          mergeStateStatus: null,
+          headSha: null,
+        },
+      }),
+    ).toThrow(/no address/);
   });
 
   it("steps the checks through the ONE table, and names the failures", () => {
@@ -182,13 +224,36 @@ describe("the PR the work's own watch reads", () => {
   // they disagreed — 429 of the human's real work's 465 events. There is ONE
   // reader now, and the poll is what repeats.
   it("writes a HANDFUL of events for five hundred polls of one PR", () => {
-    let one = prEvents(work(), pr({ checks: rolled("pending") }), AT);
-    for (let poll = 0; poll < 500; poll += 1) {
+    let one = work();
+    for (let poll = 0; poll < 250; poll += 1)
       one = prEvents(one, pr({ checks: rolled("pending") }), AT);
+    for (let poll = 0; poll < 250; poll += 1)
       one = prEvents(one, pr({ checks: rolled("pass") }), AT);
-    }
     expect(one.events.filter((event) => event.by === "ci")).toHaveLength(2);
     expect(kinds(one).filter((kind) => kind === "pr-opened")).toHaveLength(1);
+  });
+
+  it("records a change of the rollup's word on ONE commit, every time", () => {
+    // The quick checks pass, then the real CI run makes the rollup pending
+    // again on the same commit; it fails, and passes on a re-run.
+    let one = work();
+    for (const word of ["pending", "pass", "pending", "fail", "pass"] as const)
+      one = prEvents(
+        one,
+        pr({
+          checks: rolled(word),
+          failing: word === "fail" ? ["build"] : [],
+        }),
+        AT,
+      );
+    expect(kinds(one).filter((kind) => kind.startsWith("checks-"))).toEqual([
+      "checks-running",
+      "checks-passed",
+      "checks-running",
+      "checks-failed",
+      "checks-passed",
+    ]);
+    expect(checksOf(one)).toEqual(Option.some("passed"));
   });
 
   it("says WHICH COMMIT a check event is about, so a push reads as one", () => {
@@ -244,17 +309,30 @@ describe("the PR the work's own watch reads", () => {
     expect(prEvents(one, pr({ merge: { kind: "unreported" } }), AT)).toBe(one);
   });
 
-  it("hears a reading with NO head once per kind, ever", () => {
+  it("records GitHub working out a NEW commit, so the last one's answer does not stand", () => {
+    let one = prEvents(work(), pr({ merge: { kind: "can" } }), AT);
+    // A push: GitHub has not worked the new commit out yet.
+    one = prEvents(one, pr({ head: PUSHED, merge: { kind: "unsettled" } }), AT);
+    expect(merges(one)).toEqual([{ kind: "can" }, { kind: "unsettled" }]);
+    expect(Option.map(prOf(one), (reading) => reading.merge.kind)).toEqual(
+      Option.some("unsettled"),
+    );
+    // ... once: the next poll still unsettled is no news.
+    expect(
+      prEvents(one, pr({ head: PUSHED, merge: { kind: "unsettled" } }), AT),
+    ).toBe(one);
+  });
+
+  it("hears a reading with NO head when its word moves", () => {
     // A host whose padi predates the field says nothing about commits, so
-    // there is nothing to tell two readings apart with — and the honest
-    // reading of that is one event per kind, not one per poll.
+    // there is nothing to tell two readings apart with but the word.
     let one = prEvents(
       work(),
       pr({ checks: rolled("pending"), head: NO_HEAD }),
       AT,
     );
-    one = prEvents(one, pr({ checks: rolled("pass"), head: NO_HEAD }), AT);
     one = prEvents(one, pr({ checks: rolled("pending"), head: NO_HEAD }), AT);
+    one = prEvents(one, pr({ checks: rolled("pass"), head: NO_HEAD }), AT);
     one = prEvents(one, pr({ checks: rolled("pass"), head: NO_HEAD }), AT);
     expect(one.events.filter((event) => event.by === "ci")).toHaveLength(2);
   });
@@ -330,10 +408,11 @@ describe("the PR the work's own watch reads", () => {
   });
 
   // THE PROPERTY: an observation is a question about what the timeline
-  // already says, so replaying every reading a work ever had adds nothing.
-  // A deterministic sweep rather than a random one — the repo has no
-  // fast-check — over every reading the watch can make about one PR.
-  it("appends NOTHING when the same readings are fed again", () => {
+  // already says, so a reading the timeline already says adds nothing — the
+  // next poll, or the first look after a restart. A deterministic sweep
+  // rather than a random one — the repo has no fast-check — over every
+  // reading the watch can make about one PR.
+  it("appends NOTHING for a reading the timeline already says", () => {
     const checks: ReadonlyArray<WatchChecks> = [
       rolled("pending"),
       rolled("pass"),
@@ -341,25 +420,26 @@ describe("the PR the work's own watch reads", () => {
       { kind: "unreported" },
     ];
     const heads = [HEAD, PUSHED, NO_HEAD];
-    const readings = checks.flatMap((check) =>
-      heads.map((head) =>
-        pr({
-          checks: check,
-          head,
-          failing:
-            check.kind === "rollup" && check.rollup === "fail" ? ["ci"] : [],
-        }),
-      ),
-    );
+    const answers: ReadonlyArray<WatchPr["merge"]> = [
+      { kind: "can" },
+      { kind: "cannot", why: "behind" },
+      { kind: "unsettled" },
+      { kind: "unreported" },
+    ];
     let settled = work();
-    for (const one of readings) settled = prEvents(settled, one, AT);
-    const events = settled.events.length;
-    // Every reading again, twice, in a different order — the work is the very
-    // value that went in.
-    for (const one of [...readings].reverse())
-      settled = prEvents(settled, one, AT);
-    for (const one of readings) settled = prEvents(settled, one, AT);
-    expect(settled.events).toHaveLength(events);
+    for (const check of checks)
+      for (const head of heads)
+        for (const merge of answers) {
+          const one = pr({
+            checks: check,
+            head,
+            merge,
+            failing:
+              check.kind === "rollup" && check.rollup === "fail" ? ["ci"] : [],
+          });
+          settled = prEvents(settled, one, AT);
+          expect(prEvents(settled, one, AT)).toBe(settled);
+        }
   });
 });
 

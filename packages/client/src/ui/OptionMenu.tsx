@@ -74,6 +74,37 @@ export const OptionMenu = <T extends string>(props: {
     panelMinWidth: 180,
   });
   const headingId = createUniqueId();
+  /** THE KEYS A MENU PROMISES: ↑/↓ move between its items (wrapping),
+   *  Home/End go to the ends. Escape and an outside press are the popover's
+   *  own dismissal. */
+  const onKeyDown = (event: KeyboardEvent & { currentTarget: HTMLElement }) => {
+    const items = Array.from(
+      event.currentTarget.querySelectorAll<HTMLButtonElement>(
+        '[role^="menuitem"]',
+      ),
+    );
+    if (items.length === 0) return;
+    const at = items.indexOf(document.activeElement as HTMLButtonElement);
+    const to = (() => {
+      switch (event.key) {
+        case "ArrowDown":
+          return at < 0 ? 0 : (at + 1) % items.length;
+        case "ArrowUp":
+          return at < 0
+            ? items.length - 1
+            : (at - 1 + items.length) % items.length;
+        case "Home":
+          return 0;
+        case "End":
+          return items.length - 1;
+        default:
+          return undefined;
+      }
+    })();
+    if (to === undefined) return;
+    event.preventDefault();
+    items[to]?.focus();
+  };
 
   const chrome = surface({ radius: "lg", shadow: "light", portalled: true });
   // When truncation is on, cap the panel width too — an ellipsised label needs
@@ -91,12 +122,10 @@ export const OptionMenu = <T extends string>(props: {
             if (props.focusFirst)
               queueMicrotask(() =>
                 el
-                  .querySelector<HTMLButtonElement>('[role="menuitem"]')
+                  .querySelector<HTMLButtonElement>('[role^="menuitem"]')
                   ?.focus(),
               );
           }}
-          role="menu"
-          aria-labelledby={props.heading === undefined ? undefined : headingId}
           data-testid={`${props.testIdPrefix}-menu`}
           class={`fixed z-50 flex flex-col ${chrome.class} p-1 ${widthClass} ${props.maxHeight !== undefined ? "overflow-y-auto" : ""}`}
           style={{
@@ -107,6 +136,8 @@ export const OptionMenu = <T extends string>(props: {
               : {}),
           }}
         >
+          {/* The heading names the menu, beside it rather than inside it:
+              a menu holds only its items. */}
           <Show when={props.heading}>
             {(heading) => (
               <p
@@ -117,31 +148,62 @@ export const OptionMenu = <T extends string>(props: {
               </p>
             )}
           </Show>
-          <For each={props.options}>
-            {(opt) => (
-              <button
-                type="button"
-                role="menuitem"
-                aria-label={props.renderOption ? opt.label : undefined}
-                data-testid={`${props.testIdPrefix}-option-${opt.value}`}
-                data-selected={props.value === opt.value ? "" : undefined}
-                title={props.truncate ? opt.label : undefined}
-                class="text-left text-xs px-2 py-1.5 rounded-md transition-colors cursor-pointer"
-                classList={{
-                  "truncate whitespace-nowrap": props.truncate,
-                  "bg-accent/20 text-accent": props.value === opt.value,
-                  "text-fg-2 hover:bg-surface-3 hover:text-fg":
-                    props.value !== opt.value,
-                }}
-                onClick={() => {
-                  props.onSelect(opt.value);
-                  props.onDismiss();
-                }}
-              >
-                {props.renderOption ? props.renderOption(opt) : opt.label}
-              </button>
-            )}
-          </For>
+          <div
+            role="menu"
+            aria-labelledby={
+              props.heading === undefined ? undefined : headingId
+            }
+            class="flex flex-col"
+            onKeyDown={onKeyDown}
+          >
+            <For each={props.options}>
+              {(opt) => {
+                /** What both kinds of item share: their name, their look and
+                 *  their press. */
+                const item = () => ({
+                  type: "button" as const,
+                  "aria-label": props.renderOption ? opt.label : undefined,
+                  "data-testid": `${props.testIdPrefix}-option-${opt.value}`,
+                  "data-selected": props.value === opt.value ? "" : undefined,
+                  title: props.truncate ? opt.label : undefined,
+                  class:
+                    "text-left text-xs px-2 py-1.5 rounded-md transition-colors cursor-pointer",
+                  classList: {
+                    "truncate whitespace-nowrap": props.truncate === true,
+                    "bg-accent/20 text-accent": props.value === opt.value,
+                    "text-fg-2 hover:bg-surface-3 hover:text-fg":
+                      props.value !== opt.value,
+                  },
+                  onClick: () => {
+                    props.onSelect(opt.value);
+                    props.onDismiss();
+                  },
+                });
+                const face = () =>
+                  props.renderOption ? props.renderOption(opt) : opt.label;
+                // A SETTING (a value is passed) is a set of radio items, the
+                // current one checked; a CHOICE among things is plain items.
+                return (
+                  <Show
+                    when={props.value !== undefined}
+                    fallback={
+                      <button role="menuitem" {...item()}>
+                        {face()}
+                      </button>
+                    }
+                  >
+                    <button
+                      role="menuitemradio"
+                      aria-checked={props.value === opt.value}
+                      {...item()}
+                    >
+                      {face()}
+                    </button>
+                  </Show>
+                );
+              }}
+            </For>
+          </div>
         </div>
       </Portal>
     </Show>

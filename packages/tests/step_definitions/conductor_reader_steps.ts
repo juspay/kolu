@@ -20,6 +20,7 @@ import { pollFor } from "../support/poll.ts";
 import { type KoluWorld, POLL_TIMEOUT } from "../support/world.ts";
 import {
   enterConductor,
+  keepWorkCardOpen,
   openWorkCard,
   sendPrompt,
   showWorkColumn,
@@ -117,12 +118,14 @@ When(
 );
 
 /** THE NAMED FILE, pressed where it was said — a real button in the chat,
- *  found by the name a screen reader reads ("Open <path>"). */
+ *  found by the path it shows: its accessible name says what a press does
+ *  (opens it, offers a choice, or says the turn's work has none yet). */
 When(
   "I press the file the conductor named, {string}",
   async function (this: KoluWorld, file: string) {
     const link = this.page
-      .locator(`${CHAT} button[aria-label="Open ${file}"]`)
+      .locator(`${CHAT} button[data-md-code-action]`)
+      .filter({ hasText: file })
       .last();
     await link.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
     await link.click();
@@ -148,6 +151,7 @@ When(
   async function (this: KoluWorld, file: string) {
     await showWorkColumn(this);
     await openWorkCard(this);
+    await keepWorkCardOpen(this);
     const row = this.page
       .locator(
         `${WORK_COLUMN} [data-testid="work-timeline"] button[aria-label="Open ${file}"]`,

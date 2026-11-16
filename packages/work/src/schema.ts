@@ -60,7 +60,7 @@ export const WorkModeSchema = Schema.Literals(WORK_MODES);
 export type WorkMode = typeof WorkModeSchema.Type;
 export const isWorkMode = Schema.is(WorkModeSchema);
 
-/** What to do when CI is green. The ONE place this is written: kolu's
+/** What to do when the PR is green. The ONE place this is written: kolu's
  *  standing reads it, the card shows it, and the Conductor reads it back. */
 export const ON_GREEN = ["merge", "hand-over"] as const;
 export const OnGreenSchema = Schema.Literals(ON_GREEN);
@@ -375,14 +375,16 @@ export const MERGE_BLOCKS = [
 export type MergeBlock = (typeof MERGE_BLOCKS)[number];
 
 /** WHETHER THE FORGE WOULD LET THE PULL REQUEST MERGE, as one recorded
- *  answer: it can, or it cannot and why. "The forge has not worked it out" is
- *  no answer, and is never recorded. */
+ *  answer: it can; it cannot, and why; or it has not worked that out yet for
+ *  a commit it has not answered about before (`unsettled`, recorded once per
+ *  new head so the last commit's answer does not stand for a push). */
 export const MergeStateSchema = Schema.Union([
   Schema.Struct({ kind: Schema.Literal("can") }),
   Schema.Struct({
     kind: Schema.Literal("cannot"),
     why: Schema.Literals(MERGE_BLOCKS),
   }),
+  Schema.Struct({ kind: Schema.Literal("unsettled") }),
 ]);
 export type MergeState = typeof MergeStateSchema.Type;
 

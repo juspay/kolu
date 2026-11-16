@@ -51,8 +51,11 @@ import {
   livePrOf,
   membersIn,
   oneLine,
+  otherDecisions,
   outcomeWords,
   prSection,
+  setupLine,
+  timelineShown,
   repoName,
   SETUP_ROWS,
   stagesOf,
@@ -417,9 +420,10 @@ describe("the Pull request section", () => {
         number: 9,
         state: "open",
         checks: "Checks failed · ci::nix, ci::biome",
-        merge: Option.some(
-          "GitHub cannot merge it yet · the branch is behind its base",
-        ),
+        merge: Option.some({
+          words: "GitHub cannot merge it yet · the branch is behind its base",
+          reason: "behind",
+        }),
       }),
     );
   });
@@ -432,9 +436,33 @@ describe("the Pull request section", () => {
       ),
     );
     expect(section.checks).toBe("3 passed · 1 running · 0 failed");
-    expect(section.merge).toEqual(
-      Option.some("GitHub has not said whether it can merge it"),
+    expect(Option.map(section.merge, (merge) => merge.reason)).toEqual(
+      Option.some("unknown"),
     );
+  });
+
+  it("forgets GitHub's answer once checks name another commit", () => {
+    const pushed = event({
+      kind: "checks-running",
+      by: "ci",
+      pr: 9,
+      head: { kind: "commit", sha: "def5678" },
+      failing: [],
+    });
+    const section = Option.getOrThrow(
+      prSection(
+        handingOver([opened, passed, mergeSays({ kind: "can" }), pushed]),
+        Option.none(),
+      ),
+    );
+    expect(Option.map(section.merge, (merge) => merge.reason)).toEqual(
+      Option.some("unknown"),
+    );
+    expect(
+      waitsOnYou(
+        handingOver([opened, passed, mergeSays({ kind: "can" }), pushed]),
+      ),
+    ).toBe(false);
   });
 
   it("drops the merge answer once the PR is merged", () => {
@@ -451,6 +479,64 @@ describe("the Pull request section", () => {
 
   it("is absent for a work with no PR", () => {
     expect(prSection(work(), Option.none())).toEqual(Option.none());
+  });
+});
+
+describe("what an open card shows of the setup and the decisions", () => {
+  it("says the setup in one line, each part carrying what was recorded", () => {
+    const one = work({
+      decisions: [
+        mode("full"),
+        choice("planner.harness", "omp"),
+        choice("planner.model", "fable-5.2"),
+        onGreen("hand-over"),
+        picked("Approve", { id: "w1", ask: "a1" }),
+      ],
+    });
+    const line = setupLine(one);
+    expect(line.map((part) => part.text)).toEqual([
+      "full",
+      "planner omp/fable-5.2",
+      "on green: hand over",
+    ]);
+    expect(line.find((part) => part.key === "on-green")?.answer).toBe(
+      "hand-over",
+    );
+    // ... and a question about the work is not part of it.
+    expect(otherDecisions(one).map((row) => row.answer)).toEqual(["Approve"]);
+  });
+});
+
+describe("which events an open card shows", () => {
+  const timeline = [
+    event({ kind: "requested", by: "you" }),
+    joined("local/p", "planner"),
+    joined("local/i", "implementor"),
+    opened,
+  ];
+  const one = work({ decisions: [mode("full")], events: timeline });
+
+  it("shows the stage the work is in, until a stage is pressed", () => {
+    const read = stagesOf(one, "2026-01-01T10:30:00.000Z");
+    expect(timelineShown(one, read, undefined, false)).toEqual({
+      view: { kind: "stage", stage: "review" },
+      indices: [3],
+    });
+    expect(timelineShown(one, read, "plan", false)).toEqual({
+      view: { kind: "stage", stage: "plan" },
+      indices: [0, 1],
+    });
+    expect(timelineShown(one, read, "plan", true).indices).toHaveLength(4);
+  });
+
+  it("shows a watch's latest few, a watch having no stages", () => {
+    const watch = work({
+      decisions: [mode("watch")],
+      events: Array.from({ length: 9 }, () => joined()),
+    });
+    const shown = timelineShown(watch, stagesOf(watch, AT), undefined, false);
+    expect(shown.view).toEqual({ kind: "latest" });
+    expect(shown.indices).toEqual([4, 5, 6, 7, 8]);
   });
 });
 

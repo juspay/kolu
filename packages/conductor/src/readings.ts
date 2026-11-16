@@ -159,9 +159,12 @@ type PrValue = Extract<PrResult, { readonly kind: "ok" }>["value"];
  *    requested, otherwise on whatever else the branch's protection still
  *    wants (a required check that has not passed, a conversation);
  *  - `BEHIND`, `DIRTY` and `DRAFT` cannot, for those reasons;
- *  - `UNKNOWN` is the forge not having worked it out yet, and a reading that
- *    carries no merge state at all is a host that did not say: neither is an
- *    answer, so neither is recorded. */
+ *  - `UNKNOWN` is the forge not having worked it out yet (`unsettled`):
+ *    recorded once for a commit it has said nothing about, so a push never
+ *    inherits the last commit's answer;
+ *  - a reading with no merge state at all (`unreported`) is a padi older than
+ *    the field, which never says: nothing is recorded, and the card says
+ *    GitHub has not answered. */
 export const mergeOf = (value: PrValue): WatchMerge => {
   switch (value.mergeStateStatus) {
     case "CLEAN":
@@ -207,10 +210,17 @@ export const mergeOf = (value: PrValue): WatchMerge => {
  *  check says WHICH push it is about.
  *
  *  Pure, and the ONE translation: the watcher subscribes, this says what the
- *  frame means, and `./observing.ts` decides what the work learns from it. */
+ *  frame means, and `./observing.ts` decides what the work learns from it.
+ *  A resolved PR with no address is a broken reading, and it throws: the
+ *  forge always spells one, and a work must not learn its PR as a number it
+ *  can never link. */
 export const prReading = (pr: PrResult): Option.Option<WatchPr> => {
   if (pr.kind !== "ok") return Option.none();
   const value = pr.value;
+  if (value.url === "")
+    throw new Error(
+      `the forge's reading of PR #${value.number} carries no address`,
+    );
   return Option.some({
     number: value.number,
     title: value.title,

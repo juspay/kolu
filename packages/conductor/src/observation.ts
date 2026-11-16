@@ -48,13 +48,14 @@ export interface WatchGit {
  *  for as long as the work is open, whether or not any terminal is left
  *  (`readings.ts`'s {@link prReading} folds padi's reading into this). What
  *  becomes an EVENT is decided against the work's own timeline (`kolu-work`'s
- *  `prOf`, `checksSeen`), never against the last reading: a restart must record
- *  nothing twice. */
+ *  `prOf`: what it last said about this PR at this commit), never against the
+ *  last reading: a restart must record nothing twice. */
 export interface WatchPr {
   readonly number: number;
   readonly title: string;
-  /** Where it lives, as the forge spelled it — recorded on `pr-opened`, so a
-   *  finished work's PR is still a link. */
+  /** Where it lives, as the forge spelled it — never empty ({@link
+   *  prReading} refuses a reading without one) — recorded on `pr-opened`, so
+   *  a finished work's PR is still a link. */
   readonly url: string;
   readonly state: "open" | "closed" | "merged";
   /** How its checks stand — none reported, or the forge's rollup over the
@@ -71,9 +72,9 @@ export interface WatchPr {
   /** THE COMMIT the fields above are about — the PR's head, off the same
    *  reading, in the record's own two arms (`kolu-work`'s `CheckHead`). A
    *  check event is news about ONE commit, so a reading of a commit the
-   *  timeline already holds adds nothing and a PUSH adds an event.
-   *  `unreported` is a host whose padi predates the field; then the work
-   *  hears about that PR's checks once per kind, ever, which is the honest
+   *  timeline already holds says nothing new unless its word moved, and a
+   *  PUSH adds an event. `unreported` is a host whose padi predates the
+   *  field; then the work cannot tell its commits apart, which is the honest
    *  reading of a source that cannot say which commit it meant. */
   readonly head: CheckHead;
 }
@@ -87,14 +88,13 @@ export type WatchChecks =
       readonly rollup: "pending" | "pass" | "fail";
     };
 
-/** WHETHER THE FORGE WOULD MERGE IT — an answer (`kolu-work`'s
- *  `MergeState`), the forge not having worked it out yet (`unsettled`), or a
- *  reading that carries no merge state at all (`unreported`). Only an answer
- *  is ever recorded. */
-export type WatchMerge =
-  | MergeState
-  | { readonly kind: "unsettled" }
-  | { readonly kind: "unreported" };
+/** WHETHER THE FORGE WOULD MERGE IT — an answer, or "not worked out yet for
+ *  this commit" (`kolu-work`'s `MergeState`, each of them recorded when it is
+ *  news), or a reading that carries no merge state at all (`unreported`): a
+ *  padi older than the field. That one is never recorded, and a work read
+ *  through it is never green — which the card says, as "GitHub has not said
+ *  whether it can merge it". */
+export type WatchMerge = MergeState | { readonly kind: "unreported" };
 
 /** A BRANCH WHOSE PULL REQUEST KOLU WATCHES — one per piece of work in
  *  progress that is keyed by a branch. The watch asks the host for the PR of

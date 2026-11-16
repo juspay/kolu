@@ -115,6 +115,7 @@ const mergeState = (
   merge: MergeState,
   minute: number,
   pr = 7,
+  sha = "a1",
 ): Work =>
   recordEvent(work, {
     at: at(minute),
@@ -122,7 +123,7 @@ const mergeState = (
     kind: "merge-state",
     about: ABOUT_WORK,
     pr,
-    head: { kind: "commit", sha: "a1" },
+    head: { kind: "commit", sha },
     merge,
   });
 
@@ -148,10 +149,52 @@ const TRIVIAL: Policy = {
 };
 
 /** The six stages of a waterfall, or a failure saying the policy gave none. */
-const strip = (work: Work, policy: Policy, now: string) => {
+const strip = (work: Work, policy: Policy, now: string) =>
+  waterfall(work, policy, now).stages;
+
+const waterfall = (work: Work, policy: Policy, now: string) => {
   const read = stages(work, policy, now);
   if (read.kind !== "waterfall") throw new Error(`no stages: ${read.kind}`);
-  return read.stages;
+  return read;
+};
+
+/** THE TIME AFTER EACH EVENT, put in the stage that event was filed under —
+ *  measured from the events alone, as {@link lifeOf} measures the life, so
+ *  it holds only if each event and the stretch it begins share a stage. */
+const timeByEventStage = (
+  work: Work,
+  filed: ReadonlyArray<StageName>,
+  now: string,
+): Record<StageName, number> => {
+  const sums: Record<StageName, number> = {
+    plan: 0,
+    approve: 0,
+    build: 0,
+    review: 0,
+    checks: 0,
+    merge: 0,
+  };
+  const start = Date.parse(work.startedAt);
+  const end = Math.max(
+    start,
+    Date.parse(work.state.kind === "ended" ? work.state.at : now),
+  );
+  const clamped: number[] = [];
+  let clock = start;
+  for (const event of work.events) {
+    clock = Math.min(Math.max(Date.parse(event.at), clock), end);
+    clamped.push(clock);
+  }
+  let ended = false;
+  work.events.forEach((event, index) => {
+    if (event.kind === "ended") ended = true;
+    if (event.kind === "reopened") ended = false;
+    const from = clamped[index] ?? start;
+    const until = clamped[index + 1] ?? end;
+    const stage = filed[index];
+    if (!ended && stage !== undefined) sums[stage] += until - from;
+  });
+  return sums;
 };
 
 const byName = (all: ReadonlyArray<Stage>) =>
@@ -236,19 +279,21 @@ const chaotic = (seed: number, steps: number): Work => {
         kinds[Math.floor(pick() * kinds.length)] ?? "checks-running",
         when,
         pr,
-        `h${step}`,
+        pick() < 0.6 ? "a1" : `h${step}`,
       );
     } else if (roll < 0.6) {
       const answers: ReadonlyArray<MergeState> = [
         { kind: "can" },
         { kind: "cannot", why: "blocked" },
         { kind: "cannot", why: "behind" },
+        { kind: "unsettled" },
       ];
       work = mergeState(
         work,
         answers[Math.floor(pick() * answers.length)] ?? { kind: "can" },
         when,
         pr,
+        pick() < 0.6 ? "a1" : `h${step}`,
       );
     } else if (roll < 0.64 && live) {
       work = merged(work, when, pr);
@@ -305,6 +350,22 @@ describe("on chaotic records", () => {
     expect(all.filter((one) => one.state.kind === "now").length).toBe(
       work.state.kind === "open" ? 1 : 0,
     );
+    // EVERY EVENT IS FILED where the time after it went: one stage per
+    // event, and each stage holds exactly the time after its events (the
+    // record opens with an event at its start, so there is no time before
+    // the first). An open work's last event is in the stage it is in now.
+    const read = waterfall(work, policy, now);
+    expect(read.events, `seed ${seed}: one per event`).toHaveLength(
+      work.events.length,
+    );
+    const filed = timeByEventStage(work, read.events, now);
+    for (const one of read.stages)
+      expect(filed[one.name], `seed ${seed}: ${one.name}`).toBe(
+        stageMs(one.state),
+      );
+    const current = read.stages.find((one) => one.state.kind === "now");
+    if (current !== undefined)
+      expect(read.events.at(-1), `seed ${seed}: last event`).toBe(current.name);
     // What did not happen, or has not started, had no time.
     for (const one of all)
       if (one.state.kind === "skipped" || one.state.kind === "not-started")
@@ -428,6 +489,25 @@ describe("where a work's stages stand", () => {
     ]);
   });
 
+  it("files the setup's questions under the plan, before there is one to approve", () => {
+    // The setup form is answered at 6; the planner joins then, and asks for
+    // approval at 20.
+    let work = ask(opened(), "setup", 0);
+    work = answer(work, "setup", 6);
+    work = join(work, "planner", 6);
+    work = ask(work, "approve", 20);
+    const read = waterfall(work, FULL, at(30));
+    const named = byName(read.stages);
+    expect(named.plan).toEqual({ kind: "done", ms: 20 * MINUTE });
+    expect(named.approve).toEqual({ kind: "now", ms: 10 * MINUTE, who: "you" });
+    // ... and the events say so: everything up to the approval's ask, the
+    // setup's ask and answer included, is the plan's.
+    expect(read.events).toEqual([
+      ...Array.from({ length: work.events.length - 1 }, () => "plan"),
+      "approve",
+    ]);
+  });
+
   it("names no stages for a plain watch, and none yet before the mode is chosen", () => {
     const work = join(opened(), "implementor", 3);
     expect(
@@ -514,6 +594,59 @@ describe("green is the forge saying it can merge", () => {
     work = prOpened(work, 10);
     work = mergeState(work, { kind: "can" }, 10);
     expect(byName(strip(work, FULL, at(15))).merge.kind).toBe("now");
+  });
+
+  it("does not let one commit's answer stand for a push", () => {
+    let work = join(opened(), "implementor", 0);
+    work = prOpened(work, 10);
+    work = check(work, "checks-passed", 12);
+    work = mergeState(work, { kind: "can" }, 12);
+    expect(byName(strip(work, FULL, at(14))).merge.kind).toBe("now");
+    // A push GitHub has not worked out yet: not green, back to review.
+    work = mergeState(work, { kind: "unsettled" }, 20, 7, "b2");
+    expect(byName(strip(work, FULL, at(22))).review.kind).toBe("now");
+    // ... and checks about the new commit take the old answer away too.
+    let checked = mergeState(blocked(), { kind: "can" }, 14);
+    checked = check(checked, "checks-passed", 20, 7, "b2");
+    expect(byName(strip(checked, FULL, at(22))).review.kind).toBe("now");
+  });
+
+  it("forgets the checks and the answer when a work stopped green is reopened", () => {
+    let work = mergeState(blocked(), { kind: "can" }, 14);
+    work = endWork(work, {
+      outcome: { kind: "stopped", by: "you" },
+      at: at(16),
+    });
+    work = reopenWork(work, at(60));
+    // Four minutes of review before it went green, then ten since the reopen
+    // — not a merge waiting on you off an answer from before it stopped.
+    const named = byName(strip(work, FULL, at(70)));
+    expect(named.review).toEqual({
+      kind: "now",
+      ms: 14 * MINUTE,
+      who: "agent",
+    });
+  });
+
+  it("keeps one answer per check run, and every answer outside one", () => {
+    let work = join(opened(), "implementor", 0);
+    work = prOpened(work, 10);
+    work = check(work, "checks-running", 11);
+    // GitHub flips while the required checks land: one row stands for them.
+    for (let flip = 0; flip < 20; flip += 1)
+      work = mergeState(
+        work,
+        flip % 2 === 0 ? { kind: "can" } : { kind: "cannot", why: "blocked" },
+        12 + flip,
+      );
+    const answers = () =>
+      work.events.filter((one) => one.kind === "merge-state").length;
+    expect(answers()).toBe(1);
+    // The run ends; what GitHub says after it is each its own row.
+    work = check(work, "checks-passed", 40);
+    work = mergeState(work, { kind: "can" }, 41);
+    work = mergeState(work, { kind: "cannot", why: "behind" }, 50);
+    expect(answers()).toBe(3);
   });
 });
 

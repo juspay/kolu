@@ -96,7 +96,7 @@ export {
  *  - `needs` — the setup keys this mode cannot be opened without, BEYOND the
  *    ONE every work needs (`mode`; the host is the work's identity, not a
  *    question). A waterfall mode needs the
- *    implementor's harness and model and what to do when CI is green; `full`
+ *    implementor's harness and model and what to do when the PR is green; `full`
  *    needs the planner's two as well.
  *  - `driven` — whether kolu types into its member terminals. A `watch` is the
  *    person's own terminal and kolu never drives it, so nothing there is ever
@@ -267,7 +267,7 @@ export interface Recalled {
 export const modeOf = (work: Work): Option.Option<WorkMode> =>
   setupValue(work, "mode");
 
-/** What to do when CI is green — the one place it is written. */
+/** What to do when the PR is green (GitHub would merge it, and no check is running or failing) — the one place it is written. */
 export const onGreenOf = (work: Work): Option.Option<OnGreen> =>
   setupValue(work, "on-green");
 

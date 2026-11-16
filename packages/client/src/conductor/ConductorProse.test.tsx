@@ -350,9 +350,9 @@ describe("a file the Conductor names", () => {
   const PLAN = ".waterfall/plan.md";
   const SAID = `<p>Its plan is at <code>${PLAN}</code>.</p>`;
 
-  /** The link a named path became, found by its accessible name. */
+  /** The link a named path became — whatever a press on it does. */
   const link = (host: HTMLElement): HTMLButtonElement | null =>
-    host.querySelector<HTMLButtonElement>(`button[aria-label="Open ${PLAN}"]`);
+    host.querySelector<HTMLButtonElement>("button[data-md-code-action]");
 
   it("opens the reader on the one work that holds it, and reads as open", () => {
     setWorks(new Map([["w-parser" as WorkId, workWith("parser", [PLAN])]]));
@@ -436,6 +436,20 @@ describe("a file the Conductor names", () => {
     expect(
       document.querySelector('[data-testid="named-file-menu"]'),
     ).toBeNull();
+    // The link's name says what a press does there: it does not open.
+    expect(link(host)?.getAttribute("aria-label")).not.toMatch(/^Open /);
+    // THE WORK WRITES IT: the note goes, and the link opens that file.
+    setWorks(
+      new Map([
+        ["w-parser" as WorkId, workWith("rewrite the parser", [PLAN])],
+        ["w-split" as WorkId, workWith("split the column", [PLAN])],
+      ]),
+    );
+    expect(
+      document.querySelector('[data-testid="named-file-missing"]'),
+    ).toBeNull();
+    link(host)?.click();
+    expect(readerTarget()).toEqual({ work: "w-split", path: PLAN });
   });
 
   it("leaves a path no work holds as plain code", () => {

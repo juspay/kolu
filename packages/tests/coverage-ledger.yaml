@@ -4400,7 +4400,7 @@ retirements:
     defectSurface: [conductor, user-journey]
     destinationLayer: L5
     replacements: []
-    survivorRevisionIds: [revision-666d9b111da58ed6ce01]
+    survivorRevisionIds: [revision-12f77c4e4e311ca03048]
     sameCodePathEvidence:
       file: packages/tests/features/conductor-work.feature
       symbol: "Scenario: A waterfall's card, from the request to the merge"
@@ -4413,7 +4413,7 @@ retirements:
     defectSurface: [conductor, user-journey]
     destinationLayer: L5
     replacements: []
-    survivorRevisionIds: [revision-666d9b111da58ed6ce01]
+    survivorRevisionIds: [revision-12f77c4e4e311ca03048]
     sameCodePathEvidence:
       file: packages/tests/features/conductor-work.feature
       symbol: "Scenario: A waterfall's card, from the request to the merge"
@@ -4673,7 +4673,7 @@ retirements:
     defectSurface: [conductor, user-journey]
     destinationLayer: L5
     replacements: []
-    survivorRevisionIds: [revision-666d9b111da58ed6ce01]
+    survivorRevisionIds: [revision-12f77c4e4e311ca03048]
     sameCodePathEvidence:
       file: packages/tests/features/conductor-work.feature
       symbol: "Scenario: A waterfall's card, from the request to the merge"
@@ -4691,3 +4691,16 @@ retirements:
       file: packages/tests/features/conductor-reader.feature
       symbol: "Scenario: A file the Conductor names in the chat opens in the reader"
       test: The same press on the same link, asserted the same way — the reader opens on the file, the link reads as open, and the timeline row opens it too. The reply now looks at the work's implementor before naming the file, so the link opens this work's copy whatever other works an earlier scenario left on the worker's server; the old reply named no work and opened a menu once a second work held the same plan.
+  - id: revise-666d9b111da58ed6ce01
+    revisionId: revision-666d9b111da58ed6ce01
+    action: revised
+    status: landed
+    promise: A waterfall's card, from the request to the merge
+    defectSurface: [conductor, user-journey]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-12f77c4e4e311ca03048]
+    sameCodePathEvidence:
+      file: packages/tests/features/conductor-work.feature
+      symbol: "Scenario: A waterfall's card, from the request to the merge"
+      test: Every claim of this revision is still asserted on the same journey. GitHub's merge answers are now asserted by the reason word the timeline row and the Pull request section carry ("review", "can") instead of by their sentences, and the survivor adds the stage strip following the work (build, checks, review, merge) and two presses on the strip, each showing only that stage's events on the open card.

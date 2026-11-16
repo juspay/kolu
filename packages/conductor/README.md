@@ -130,10 +130,13 @@ appending what it observes.
   check event means the rollup and nothing else; whether GitHub would merge
   the PR is GitHub's `mergeStateStatus`, read into `can` or `cannot` with a
   reason (`blocked`, `review` when the review decision wants one, `behind`,
-  `conflicts`, `draft`), and `observing.ts` records a `merge-state` event
-  when the answer for a PR and head commit changes. `UNKNOWN` (not worked out
-  yet) and a reading with no merge state at all (an older padi) record
-  nothing. Green is read by `kolu-work` off both facts — merge `can` and no
+  `conflicts`, `draft`), or `unsettled` for `UNKNOWN`. `observing.ts`
+  records a `merge-state` event when the answer for a PR at a commit
+  changes, and `unsettled` once for a commit nothing was answered about yet,
+  so a push never inherits the last commit's answer. A reading with no merge
+  state at all (`unreported`, a padi older than the field) records nothing,
+  and a reading whose PR has no address throws: it is broken. Green is read
+  by `kolu-work` off both facts, about the same commit — merge `can` and no
   check running or red — so the card, the timeline, the stages and the
   Conductor's `works` resource agree without asking again.
 - **The decision** (`./members.ts`, pure) — one reading of one member becomes
@@ -164,10 +167,13 @@ appending what it observes.
   ONE per work, read ONCE from the work's own branch (`observedPr`, fed by
   kolu-server's per-work leg over padi's `pullRequest` stream) — is compared
   with the TIMELINE and never with the last reading: `prOf(work)` for the
-  number and its state, `checksSeen(work)` for the checks, which the timeline
-  holds one of per kind per HEAD COMMIT. So a poll that says what kolu already
-  knows records nothing, a restart records nothing twice, and a push — a new
-  head — records a run of its own. A work with NO terminals is still watched,
+  number, its state and what it last said about the checks and the merge at
+  which commit. A check event is recorded when the rollup's word CHANGES for
+  that PR at that commit (the real CI run turning a passed rollup pending
+  again is news; the next poll of the same word is not), and a PR recorded
+  before kolu kept addresses learns its own (`linkPr`). So a poll that says
+  what kolu already knows records nothing, a restart records nothing twice,
+  and a push — a new head — records a run of its own. A work with NO terminals is still watched,
   which is what makes a Conductor-merged work end: the script merges and
   closes its terminals seconds later (#2376). THE ONLY ENDINGS are the forge's
   two — merged or closed — and a **Stop** (the card's button, the Conductor's

@@ -133,7 +133,8 @@ export function helpSections(
         [text("One card per branch: opening it again is the same work")],
         [text("Its stages: plan, approve, build, review, checks, merge")],
         [text("Each coloured by whose time: agents, you, CI")],
-        [text("Open it for the timeline, decisions and the PR")],
+        [text("Click a stage to see its part of the timeline")],
+        [text("Open it for the PR, the setup and the latest decisions")],
         [
           screen("Stop"),
           text(" ends it, "),

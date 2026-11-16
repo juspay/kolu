@@ -146,6 +146,12 @@ const ConductorLook: Component<{
    *  the words are the caller's and this component only gives them their
    *  place. */
   clock?: JSX.Element;
+  /** What leads the line, before the state's dot — a work card's member
+   *  row puts the terminal's role, its name and its harness here, so the
+   *  member is ONE line with its Look on it. */
+  lead?: JSX.Element;
+  /** ... and what ends it, after the Look — that row's Take over. */
+  trail?: JSX.Element;
 }> = (props) => {
   const standing = createMemo(() =>
     fleetTerminalStanding(props.host, props.id),
@@ -252,7 +258,16 @@ const ConductorLook: Component<{
       data-standing={standing().kind}
       class="col-span-full min-w-0"
     >
-      <div class="flex min-w-0 items-center gap-2">
+      {/* A row with a lead or a trail (a work card's member) wraps rather
+          than squeezing its controls out of a narrow column. */}
+      <div
+        class={`flex min-w-0 items-center gap-2 ${
+          props.lead === undefined && props.trail === undefined
+            ? ""
+            : "flex-wrap gap-y-0.5"
+        }`}
+      >
+        {props.lead}
         <span class={`h-2 w-2 shrink-0 rounded-full ${DOT[status().tone]}`} />
         <span
           data-testid="conductor-look-status"
@@ -291,6 +306,7 @@ const ConductorLook: Component<{
             {open() ? "Hide" : "Look"}
           </button>
         </Show>
+        {props.trail}
       </div>
       <Show when={open() && lookable()}>
         <LookTail host={props.host} id={props.id} />

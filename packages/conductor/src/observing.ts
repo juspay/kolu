@@ -35,13 +35,14 @@ import {
   aboutMember,
   CHECK_STEP,
   type CheckHead,
-  checkKey,
-  checksSeen,
   endWork,
+  linkPr,
   filesSeen,
   type MergeState,
   prOf,
+  type PrReading,
   recordEvent,
+  sameHead,
   type Work,
   type WorkEvent,
   type WorkId,
@@ -122,14 +123,17 @@ export const ringEvent = (
 };
 
 /** Two merge answers say the same thing. */
-const sameMerge = (a: MergeState, b: MergeState): boolean =>
-  a.kind === b.kind &&
-  (a.kind === "can" || (b.kind === "cannot" && a.why === b.why));
-
-/** Two readings are about the same commit. */
-const sameHead = (a: CheckHead, b: CheckHead): boolean =>
-  a.kind === b.kind &&
-  (a.kind === "unreported" || (b.kind === "commit" && a.sha === b.sha));
+const sameMerge = (a: MergeState, b: MergeState): boolean => {
+  switch (a.kind) {
+    case "can":
+    case "unsettled":
+      return b.kind === a.kind;
+    case "cannot":
+      return b.kind === "cannot" && a.why === b.why;
+    default:
+      return a satisfies never;
+  }
+};
 
 /** THE PR, as the timeline learns it — ONE pull request, observed ONCE, by the
  *  WORK.
@@ -142,13 +146,13 @@ const sameHead = (a: CheckHead, b: CheckHead): boolean =>
  *  them (juspay/kolu#2376: 429 of one real work's 465 events) has no source
  *  left.
  *
- *  A CHECK EVENT IS ABOUT A COMMIT, and the timeline holds at most one per
- *  kind per PR per commit (`kolu-work`'s {@link checkKey}). That is what makes
- *  a reading kolu has already recorded — the same reading after a restart, the
- *  same checks re-run on the same commit — add nothing, while a PUSH adds an
- *  event: a new head's `checks-running` after the old head's `checks-passed`
- *  reads as what it is. The event carries the PR, the head and the failing
- *  gates as FIELDS.
+ *  A CHECK EVENT IS ABOUT A COMMIT, and one is recorded when the rollup's
+ *  word CHANGES for that PR at that commit — the same rule the merge answer
+ *  below follows. So a reading kolu has already recorded (the next poll, the
+ *  first look after a restart) adds nothing, while the real CI run turning a
+ *  passed rollup back to pending, or a pass → fail → pass on one commit, is
+ *  each news; and a PUSH is news because it names another commit. The event
+ *  carries the PR, the head and the failing gates as FIELDS.
  *
  *  The events are BY kolu / BY ci and name no terminal (`terminal: null`):
  *  nobody's terminal said this, the forge did.
@@ -164,12 +168,16 @@ const sameHead = (a: CheckHead, b: CheckHead): boolean =>
  *  again on the forge says nothing here. Reopen on the card, or `work_open`
  *  on the same key, is the way back. */
 export const prEvents = (work: Work, pr: WatchPr, at: string): Work => {
+  // A finished work learns nothing from the forge: it is not even watched,
+  // and Reopen is the one way back.
+  if (work.state.kind === "ended") return work;
   let next = work;
   // THE FORGE'S ANSWER FOR THIS BRANCH IS THIS WORK'S PULL REQUEST. A number
   // the timeline has not got yet is a PR opening — the first one, or the next
   // one on a branch whose last was closed while kolu was not looking. Its
   // address is kept with it, so the number is a link for as long as the
-  // work is kept.
+  // work is kept; a PR recorded before kolu kept addresses learns its own
+  // from the first reading that has it (`linkPr`).
   if (!Option.exists(prOf(next), (one) => one.number === pr.number)) {
     next = recordEvent(next, {
       at,
@@ -178,16 +186,29 @@ export const prEvents = (work: Work, pr: WatchPr, at: string): Work => {
       about: ABOUT_WORK,
       pr: pr.number,
       title: pr.title,
-      url:
-        pr.url === "" ? { kind: "unrecorded" } : { kind: "link", href: pr.url },
+      url: { kind: "link", href: pr.url },
     });
-  }
+  } else next = linkPr(next, pr.number, pr.url);
+  const reading = prOf(next);
+  /** What the timeline last said about THIS PR at THIS commit. */
+  const about = <E extends { readonly pr: number; readonly head: CheckHead }>(
+    last: (one: PrReading) => Option.Option<E>,
+  ): Option.Option<E> =>
+    Option.filter(
+      Option.flatMap(reading, last),
+      (one) => one.pr === pr.number && sameHead(one.head, pr.head),
+    );
   // ONE TABLE for the check correspondence (`kolu-work`'s `CHECK_STEP`): the
   // event this rollup becomes and what the timeline would then read back are
   // the same row, so they cannot disagree about a check.
   if (pr.checks.kind === "rollup") {
     const step = CHECK_STEP[pr.checks.rollup];
-    if (!checksSeen(next).has(checkKey(step.kind, pr.number, pr.head))) {
+    if (
+      !Option.exists(
+        about((one) => one.lastCheck),
+        (last) => last.kind === step.kind,
+      )
+    ) {
       next = recordEvent(next, {
         at,
         by: "ci",
@@ -201,20 +222,20 @@ export const prEvents = (work: Work, pr: WatchPr, at: string): Work => {
   }
   // WHETHER THE FORGE WOULD MERGE IT, recorded when the answer CHANGES — for
   // another commit, or the same one gone from mergeable to behind and back.
-  // Only while the PR is open, and only an answer: "not worked out yet" says
-  // nothing, and the last answer stands until there is a new one.
+  // Only while the PR is open. "Not worked out yet" is recorded once per
+  // commit (`unsettled`), so the last commit's answer never stands for a
+  // push; after that the last answer stands until there is a new one. A
+  // reading with no merge state at all (`unreported`) is a padi older than
+  // the field: it says nothing, and the card says GitHub has not answered.
   const merge = pr.merge;
-  if (
-    pr.state === "open" &&
-    (merge.kind === "can" || merge.kind === "cannot") &&
-    !Option.exists(
-      Option.flatMap(prOf(next), (one) => one.lastMerge),
-      (last) =>
-        last.pr === pr.number &&
-        sameHead(last.head, pr.head) &&
-        sameMerge(last.merge, merge),
-    )
-  ) {
+  const lastMerge = about((one) => one.lastMerge);
+  const news =
+    merge.kind === "unreported"
+      ? false
+      : merge.kind === "unsettled"
+        ? Option.isNone(lastMerge)
+        : !Option.exists(lastMerge, (last) => sameMerge(last.merge, merge));
+  if (pr.state === "open" && news && merge.kind !== "unreported") {
     next = recordEvent(next, {
       at,
       by: "kolu",

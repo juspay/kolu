@@ -190,7 +190,7 @@ your turn.
 | Doubts | Answer from the plan, or ask the planner. | Answer from the request. |
 | Review rounds | When the PR is open, the planner reviews it by the repo's guidelines and posts the review; the implementor addresses it; repeat until the planner is satisfied. The planner refuses a workaround and asks for the fix at its source. Tests run once per round. A request mid-round waits for the next. | None. |
 | Finish | The implementor makes one final refactor pass (https://kolu.dev/blog/hickey-lowy/), then runs CI once, the repo's way, fixing until green. | The same. |
-| On green | Merge the PR, or hand it over, as `onGreen` in `works` says. Read it there, not from memory. | The same. |
+| On green | Green is GitHub saying it would merge the PR, with no check running or failing; `standing` in `works` says when. Merge the PR, or hand it over, as `onGreen` in `works` says. Read it there, not from memory. | The same. |
 | Closing | Once the PR is merged or closed, close the planner and the implementor, and nothing else. | Close the implementor, and nothing else. |
 
 ### The brief

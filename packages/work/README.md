@@ -105,8 +105,8 @@ conversation — a model is that role's own last one with that harness first.
 | --- | --- |
 | `schema.ts` | the KEY (`WorkKey`, `workIdOf`, `workKeyOf`), the record, the `state`/`outcome` sums and their readings (`isOpen`, `endedAt`, `outcomeOf`, `keptOf`), the `Asked \| Settled` decision sum (each arm split by topic: `mode`, `on-green`, a kolu choice, or a question about the work) and its answer sums, the event union typed by kind with its `about` / `why` / `head` / `request` arms, and the waterfall's WORDS (`WORK_ROLES`, `WORK_MODES`, `ON_GREEN`, `SETUP_KEYS`, `KOLU_CHOICE_KEYS`, `OFFERED_SETUP_KEYS`) — declared here because the record's schema embeds them |
 | `store.ts` | the ONE smart constructor over works + members: `parseStore` (what the decoder and the single writer both go through), `storeFault` and the `InvalidWorkStore` carrying the `StoreFault` that names the rule that broke and the rows that break it — a VALUE, because the sentence belongs to the face that shows it |
-| `record.ts` | the transitions: `openWork`, `askQuestions`, `answerAsk` (a blank question stays asked; `answered` or `answered-part` on the timeline), `answeredWith`, `dropAsk`, `dropQuestions`, `joinWork`, `leaveWork`, `recordEvent`, `takeOver`/`handBack`, `endWork`, `reopenWork`, `keepFiles`/`keepFailed` — the record only grows, bounded by `AGENT_STATES_KEPT`; `openAsks`/`hasOpenAsk` derive what is still waiting on a person |
-| `readings.ts` | the MECHANISM of a reading: the decisions of one ask, the PR as the timeline last said it (`prOf`: its state, its recorded link, the last check reading and GitHub's last merge answer) with the one check table (`CHECK_STEP`), `prLinks` (each PR number the timeline opened, to the URL recorded with it), the key a timeline holds at most one of (`checkKey`, `checksSeen` — one per kind per head commit, off the event's own `pr` and `head` fields), the files seen |
+| `record.ts` | the transitions: `openWork`, `askQuestions`, `answerAsk` (a blank question stays asked; `answered` or `answered-part` on the timeline), `answeredWith`, `dropAsk`, `dropQuestions`, `joinWork`, `leaveWork`, `recordEvent`, `linkPr` (a PR recorded before kolu kept addresses learns its own), `takeOver`/`handBack`, `endWork`, `reopenWork`, `keepFiles`/`keepFailed` — the record only grows, within the two bounds below; `openAsks`/`hasOpenAsk` derive what is still waiting on a person |
+| `readings.ts` | the MECHANISM of a reading: the decisions of one ask, the PR as the timeline last said it (`prOf`: its state, its recorded link, the last check event and the last merge answer — what the observer compares a reading with, so it records only a CHANGE for that PR at that commit) with the one check table (`CHECK_STEP`), `sameHead` (two facts about one commit, by kind and sha), `prLinks` (each PR number the timeline opened, to the URL recorded with it), the files seen |
 | `folds.ts` | `waitingOn`, `standing` (a sum: a question, a merge, CI, the agents, or done), `timeSpent`, `stages` (a `Stages` sum: `watch` has none, `unset` none yet, `waterfall` the six, each a `StageState` sum), `took`, `lifetime`, `inProgress`/`finished` over `WorkRow`, `capFinished` — each taking a `Policy` (`handOver`, and how the work is `run`: `watch`, `unset`, or a `waterfall` with or without a planner) rather than reading the setup itself |
 | `waterfall.ts` | the WORDS and every rule over them: `MODE_RUNS` (what each mode runs, needs and drives), `rolesOf`, `setupKeyOf`, `roleOfKey`, `roleRank`, the one setup reading (`setupStanding`, `setupValue`, `modeOf`/`onGreenOf`/`setupOf`/`roleSetupOf`, `keysToAsk`, `openSetupQuestions`, `startBlockers`), `missingSetup` + `foreignSetupWords`, the kolu-choice rules (`harnessForModel`, `askedAnswersOf`/`givenAnswersOf`/`savedAnswersOf`, `modelHarnessesOf`, `modelNotOffered`, `unofferedAnswers`, `koluKeysOf`, `unofferedWhy`/`unofferedWords`, `setupMemory`), `driverOf`, `membershipOf`, `waitingOnYou`, `policyOf`, and where a work's files live (`WATERFALL_DIR`, `waterfallFileName`) |
 | `refusal.ts` | why a call about a work is refused — `WORK_REFUSALS` and the `WorkRefusal` every face `instanceof`s |
@@ -140,22 +140,30 @@ members of a work whose mode is `full` or `trivial`; a person takes one over
 the lock survives a restart, every reader sees one answer, and it ends by
 itself when the member leaves or the work ends.
 
-**One thing is bounded.** An agent that stops and comes up for days would
+**Two things are bounded.** An agent that stops and comes up for days would
 otherwise grow a work without limit. The `append` every transition goes
 through keeps the most recent `AGENT_STATES_KEPT` (30) agent-state events
 (`ready`, `stopped`, `asking`, `exited`, `asleep`) and counts the rest into ONE
-`folded` event, sitting where the oldest one it stands for sat. Nothing else is
-ever folded, and the folds above cannot tell the difference.
+`folded` event, sitting where the oldest one it stands for sat. And GitHub
+flips its merge answer while required checks land, so a `merge-state` given
+while its commit's checks are running REPLACES the one before it from the same
+run: CI holds the work while its checks run, so none of those answers decided
+anything, and a run leaves one row however often GitHub changed its mind.
+Nothing else is bounded, and the folds cannot tell the difference.
 
 Nothing computed is stored: "where it stands" and the durations are folds
 over the events at a clock reading the caller passes in.
 
-**Green is two facts.** A `checks-*` event is the rollup and nothing else; a
-`merge-state` event is GitHub's answer to "would you merge it", `can` or
-`cannot` with a reason. A PR is green when the answer is `can` and no check
-is running or red, so a PR with no checks that GitHub would merge is green,
-and one still waiting on a required review (`cannot · review`) is the
-agents' time, in Review.
+**Green is two facts, about one commit.** A `checks-*` event is the rollup and
+nothing else, recorded when its word changes for that PR at that commit; a
+`merge-state` event is GitHub's answer to "would you merge it" — `can`,
+`cannot` with a reason, or `unsettled` (not worked out yet for a commit it
+has said nothing about, so the last commit's answer never stands for a
+push). A PR is green when the answer is `can` and no check is running or
+red, both about the same commit, so a PR with no checks that GitHub would
+merge is green, and one still waiting on a required review (`cannot ·
+review`) is the agents' time, in Review. Reopening forgets both until the
+next reading.
 
 **One walk, so the time adds up.** `timeSpent`, `stages` and `lifetime` step
 through the events with the same running state `standing` uses, and the
@@ -164,14 +172,19 @@ ahead of it is held to the walk's clock, and time a reopened work spent
 ended is nobody's and counts in none of them. The stages are cut by two
 moments the record already holds — the implementor joining and the PR
 opening — and inside each part by who the work waited on: before the
-implementor the agents' time is Plan and yours Approve (a waterfall with no
-planner builds from the start, and its Plan and Approve read "did not
-happen"); then all of it is Build; after the PR the agents' time is Review,
-CI's Checks and yours Merge. A stage the work entered is done, even if it
-took no time. `stages.test.ts` checks, over generated records walked by its
-own independent fold, that the stages and the waiters each add up to
-`lifetime`; the seeded generator it and `work.test.ts` share lives in
-`test/seeded.ts`, outside `src/`, so it is never shipped.
+implementor it is Plan, and a wait on you once a planner has joined is
+Approve (the setup's questions come before there is a plan, so they are
+Plan's, yours); a waterfall with no planner builds from the start, and its
+Plan and Approve read "did not happen". Then all of it is Build; after the
+PR the agents' time is Review, CI's Checks and yours Merge. A stage the work
+entered is done, even if it took no time. The same walk files EVERY EVENT
+under the stage of the stretch it begins (`Stages`' `events`), which is what
+lets a card show one stage's events: an event and the time after it are
+never in two stages. `stages.test.ts` checks, over generated records walked
+by its own independent fold, that the stages and the waiters each add up to
+`lifetime` and that each stage holds exactly the time after its events; the
+seeded generator it and `work.test.ts` share lives in `test/seeded.ts`,
+outside `src/`, so it is never shipped.
 
 ## Why a package of its own
 

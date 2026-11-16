@@ -99,28 +99,13 @@ export const CHECKS_READ_BACK = Object.fromEntries(
 export const isCheckEvent = (event: WorkEvent): event is EventOf<CheckKind> =>
   CHECK_KINDS.has(event.kind);
 
-/** WHAT A CHECK EVENT IS ABOUT, as one key: its kind, the PR and the commit
- *  it names.
- *
- *  The thing a work's timeline holds at most one of. A check event is news
- *  about ONE PULL REQUEST AT ONE COMMIT, and the work hears about it from
- *  every member that can see it — so the key is what each of them would
- *  produce, and the second member to say it adds nothing. Checks RE-RUN on
- *  the same commit are not news either: nothing about the work moved. A push
- *  is, and it carries a different commit. */
-export const checkKey = (
-  kind: CheckKind,
-  pr: number,
-  head: CheckHead,
-): string =>
-  `${kind}#${pr}@${head.kind === "commit" ? head.sha : "unreported"}`;
-
-export const checksSeen = (work: Work): ReadonlySet<string> => {
-  const keys = new Set<string>();
-  for (const one of work.events)
-    if (isCheckEvent(one)) keys.add(checkKey(one.kind, one.pr, one.head));
-  return keys;
-};
+/** WHETHER TWO READINGS ARE ABOUT THE SAME COMMIT — by kind and sha, never
+ *  by spelling. Two heads a source could not report are the same: there is
+ *  nothing to tell them apart by. */
+export const sameHead = (a: CheckHead, b: CheckHead): boolean =>
+  a.kind === "commit"
+    ? b.kind === "commit" && a.sha === b.sha
+    : b.kind === a.kind;
 
 /** One event's move on the PR reading — none for a work no PR was opened
  *  for yet, which only `pr-opened` changes. */
@@ -139,15 +124,34 @@ const prStep = (
       lastMerge: Option.none(),
     });
   return Option.map(pr, (was): PrReading => {
+    // A FACT ABOUT ANOTHER COMMIT makes the other one's stale: checks about a
+    // new head say nothing of whether GitHub would merge it, and a merge
+    // answer about a new head says nothing of the old head's checks.
     if (isCheckEvent(event))
       return {
         ...was,
         checks: CHECKS_READ_BACK[event.kind],
         lastCheck: Option.some(event),
+        merge: Option.exists(
+          was.lastMerge,
+          (last) => last.pr === event.pr && sameHead(last.head, event.head),
+        )
+          ? was.merge
+          : { kind: "unknown" },
       };
     switch (event.kind) {
       case "merge-state":
-        return { ...was, merge: event.merge, lastMerge: Option.some(event) };
+        return {
+          ...was,
+          merge: event.merge,
+          lastMerge: Option.some(event),
+          checks: Option.exists(
+            was.lastCheck,
+            (last) => last.pr === event.pr && sameHead(last.head, event.head),
+          )
+            ? was.checks
+            : "none",
+        };
       case "merged":
         return {
           ...was,
@@ -163,10 +167,18 @@ const prStep = (
           merge: { kind: "unknown" },
         };
       // A person pressing Reopen, or `work_open` on the same key: the reading
-      // goes back to open, so the next frame of the same reading is not news
-      // again.
+      // goes back to open and FORGETS what it said about the checks and the
+      // merge — they were true when the work stopped, maybe a week ago — so
+      // the next reading of the PR is news again and says how it stands now.
       case "reopened":
-        return { ...was, state: "open" };
+        return {
+          ...was,
+          state: "open",
+          checks: "none",
+          merge: { kind: "unknown" },
+          lastCheck: Option.none(),
+          lastMerge: Option.none(),
+        };
       default:
         return was;
     }

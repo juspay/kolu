@@ -3068,13 +3068,15 @@ function timelineEvents(
     );
 }
 
-/** KEEP THE CARD OPEN while something is waited for. A work that ENDS while
- *  a poll runs is re-drawn below the line, in the collapsed `Finished`
- *  section — so a card that was open a moment ago has no timeline on screen
- *  at all, and the wait would time out saying the event never arrived when
- *  what moved was the card. Cheap and silent: nothing here waits, it only
- *  presses what is already there. */
-async function keepWorkCardOpen(world: KoluWorld): Promise<void> {
+/** KEEP THE CARD OPEN, ITS WHOLE TIMELINE OUT, while something is waited
+ *  for. A work that ENDS while a poll runs is re-drawn below the line, in the
+ *  collapsed `Finished` section — so a card that was open a moment ago has no
+ *  timeline on screen at all, and the wait would time out saying the event
+ *  never arrived when what moved was the card. And an open card shows ONE
+ *  stage of its timeline, so a step about the timeline unfolds the whole of
+ *  it. Cheap and silent: nothing here waits, it only presses what is already
+ *  there. */
+export async function keepWorkCardOpen(world: KoluWorld): Promise<void> {
   const card = workCard(world);
   if (await card.isVisible().catch(() => false)) {
     if ((await card.getAttribute("data-open")) === null) {
@@ -3083,6 +3085,12 @@ async function keepWorkCardOpen(world: KoluWorld): Promise<void> {
         .click()
         .catch(() => {});
     }
+    const whole = card.locator('[data-testid="work-timeline-whole"]');
+    if (
+      (await whole.count()) > 0 &&
+      (await whole.getAttribute("aria-expanded").catch(() => null)) === "false"
+    )
+      await whole.click().catch(() => {});
     return;
   }
   const toggle = world.page.locator(
@@ -3102,6 +3110,7 @@ async function waitForTimelineEvent(
   contains: string,
 ): Promise<void> {
   await openWorkCard(world);
+  await keepWorkCardOpen(world);
   let inventoryAtTimeout = "(not observed)";
   await pollFor({
     observe: () => timelineEvents(world, kind, contains),
@@ -3138,6 +3147,7 @@ Then(
   "the work's timeline should show no {string} event",
   async function (this: KoluWorld, kind: string) {
     await openWorkCard(this);
+    await keepWorkCardOpen(this);
     assert.equal(
       await timelineEvents(this, kind, ""),
       0,
@@ -3153,6 +3163,7 @@ Then(
   "the work's timeline should show {int} {string} events",
   async function (this: KoluWorld, many: number, kind: string) {
     await openWorkCard(this);
+    await keepWorkCardOpen(this);
     let inventoryAtTimeout = "(not observed)";
     await pollFor({
       observe: () => timelineEvents(this, kind, ""),
@@ -3199,29 +3210,121 @@ Then(
   },
 );
 
-/** THE PULL REQUEST SECTION's words — how the PR stands, its checks, and
- *  whether GitHub would merge it — polled until they hold `says`. */
+/** GITHUB'S MERGE ANSWER, as the Pull request section carries it: the
+ *  reason word on the line (`can`, `review`, `behind`, `unsettled`, …), never
+ *  the sentence. */
 Then(
-  "the work's pull request section should say {string}",
-  async function (this: KoluWorld, says: string) {
+  "the work's pull request section should give GitHub's merge answer as {string}",
+  async function (this: KoluWorld, reason: string) {
     await openWorkCard(this);
     await pollFor({
       observe: async () =>
-        (
-          (await workCard(this)
-            .locator('[data-testid="work-pr"]')
-            .textContent({ timeout: 1_000 })
-            .catch(() => null)) ?? "(no pull request on the card)"
-        )
-          .replace(/\s+/g, " ")
-          .trim(),
-      isDone: (seen) => seen.includes(says),
+        (await workCard(this)
+          .locator('[data-testid="work-pr"] [data-testid="work-pr-merge"]')
+          .getAttribute("data-merge", { timeout: 1_000 })
+          .catch(() => null)) ?? "(no merge answer on the card)",
+      isDone: (seen) => seen === reason,
       timeoutMs: POLL_TIMEOUT,
       onTimeout: (last, ms) =>
         new Error(
-          `the pull request section never said ${JSON.stringify(says)}; after ${ms}ms it said ${JSON.stringify(last)}`,
+          `the pull request section never gave ${JSON.stringify(reason)}; after ${ms}ms it gave ${JSON.stringify(last)}`,
         ),
     });
+  },
+);
+
+/** ... and the timeline row for it, by the same reason word. */
+Then(
+  "the work's timeline should show GitHub's merge answer as {string}",
+  async function (this: KoluWorld, reason: string) {
+    await openWorkCard(this);
+    let inventoryAtTimeout = "(not observed)";
+    await pollFor({
+      observe: async () => {
+        await keepWorkCardOpen(this);
+        return workCard(this)
+          .locator(
+            `[data-testid="work-event"][data-kind="merge-state"][data-merge="${reason}"]`,
+          )
+          .count();
+      },
+      isDone: (seen) => seen > 0,
+      timeoutMs: POLL_TIMEOUT,
+      onTick: async () => {
+        inventoryAtTimeout = await timelineInventory(this);
+      },
+      onTimeout: (_last, ms) =>
+        new Error(
+          `no merge answer ${JSON.stringify(reason)} after ${ms}ms; the timeline holds ${inventoryAtTimeout}`,
+        ),
+    });
+  },
+);
+
+/** THE STRIP SAYS WHERE THE WORK IS: the cell outlined as `now`. */
+Then(
+  "the work's stage strip should be at {string}",
+  async function (this: KoluWorld, stage: string) {
+    await showWorkColumn(this);
+    const strip = workCard(this).locator('[data-testid="stage-strip"]');
+    await pollFor({
+      observe: () =>
+        strip
+          .locator('[data-testid="stage"][data-state="now"]')
+          .getAttribute("data-stage", { timeout: 1_000 })
+          .catch(() => null),
+      isDone: (seen) => seen === stage,
+      timeoutMs: POLL_TIMEOUT,
+      onTimeout: (last, ms) =>
+        new Error(
+          `the strip was at ${JSON.stringify(last)} after ${ms}ms, not ${JSON.stringify(stage)}`,
+        ),
+    });
+  },
+);
+
+/** THE STRIP IS THE TIMELINE'S INDEX: a press on a cell shows that stage. */
+When(
+  "I press the {string} stage on the work's strip",
+  async function (this: KoluWorld, stage: string) {
+    await showWorkColumn(this);
+    await workCard(this)
+      .locator(
+        `[data-testid="stage-strip"] [data-testid="stage"][data-stage="${stage}"] [data-testid="stage-cell"]`,
+      )
+      .click();
+  },
+);
+
+/** ... and the open card shows that stage's events and no other's: fewer
+ *  than the whole timeline, and the cell pressed. */
+Then(
+  "the work card should show only its {string} events",
+  async function (this: KoluWorld, stage: string) {
+    const card = workCard(this);
+    const timeline = card.locator(
+      `[data-testid="work-timeline"][data-view="stage"][data-stage="${stage}"]`,
+    );
+    await timeline.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    const shown = await timeline.locator('[data-testid="work-event"]').count();
+    assert.ok(shown > 0, `the ${stage} stage shows no events`);
+    const whole = (
+      (await timeline
+        .locator('[data-testid="work-timeline-whole"]')
+        .textContent()) ?? ""
+    ).match(/(\d+) events/);
+    assert.ok(
+      whole !== null && shown < Number(whole[1]),
+      `the ${stage} stage shows ${shown} events, not fewer than the whole timeline`,
+    );
+    assert.equal(
+      await card
+        .locator(
+          `[data-testid="stage"][data-stage="${stage}"] [data-testid="stage-cell"]`,
+        )
+        .getAttribute("aria-pressed"),
+      "true",
+    );
   },
 );
 
@@ -3546,8 +3649,14 @@ async function waitForDecision(
 ): Promise<void> {
   await openWorkCard(world);
   await pollFor({
-    observe: () =>
-      world.page
+    observe: async () => {
+      // A card shows its latest three decisions; the one asked about may be
+      // older, so the list is unfolded first.
+      const unfold = workCard(world).locator(
+        '[data-testid="work-decisions-all"][aria-expanded="false"]',
+      );
+      if ((await unfold.count()) > 0) await unfold.click().catch(() => {});
+      return world.page
         .locator(`${WORK_COLUMN} [data-testid="work-decision"]${narrowed}`)
         .evaluateAll((all) =>
           all.map(
@@ -3557,7 +3666,8 @@ async function waitForDecision(
               // "hand-over", and it is the answer this step is about.
               `${one.getAttribute("data-answer") ?? ""} ${(one.textContent ?? "").replace(/\s+/g, " ").trim()}`,
           ),
-        ),
+        );
+    },
     isDone: (read) => read.some((one) => one.includes(text)),
     timeoutMs: POLL_TIMEOUT,
     onTimeout: (read, ms) =>
@@ -3567,41 +3677,34 @@ async function waitForDecision(
   });
 }
 
-/** ONE LIST, ONE LINE EACH — the addendum's whole point. The setup is not a
- *  second section saying the same things, and no decision is drawn as the
- *  paragraph its question was written in: a row that wrapped is a row whose
- *  label came from prose. */
+/** ONE LINE EACH. The setup the human answered at the start is ONE line on
+ *  the card, and no other decision is drawn as the paragraph its question
+ *  was written in: a line that wrapped is a line whose label came from
+ *  prose. */
 Then(
   "the work's decisions should be one line each",
   async function (this: KoluWorld) {
     await openWorkCard(this);
-    const rows = this.page.locator(
-      `${WORK_COLUMN} [data-testid="work-decision-row"]`,
-    );
-    await rows.first().waitFor({ state: "visible", timeout: POLL_TIMEOUT });
-    const wrapped = await rows.evaluateAll((all) =>
-      all
-        .map((one) => {
-          const style = getComputedStyle(one);
-          const line =
-            Number.parseFloat(style.lineHeight) ||
-            Number.parseFloat(style.fontSize) * 1.5;
-          return one.getBoundingClientRect().height > line * 1.5
-            ? (one.textContent ?? "").replace(/\s+/g, " ").trim()
-            : "";
-        })
-        .filter((one) => one !== ""),
-    );
+    const setup = workCard(this).locator('[data-testid="work-setup"]');
+    await setup.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    const wrapped = await workCard(this)
+      .locator('[data-testid="work-setup"], [data-testid="work-decision-row"]')
+      .evaluateAll((all) =>
+        all
+          .map((one) => {
+            const style = getComputedStyle(one);
+            const line =
+              Number.parseFloat(style.lineHeight) ||
+              Number.parseFloat(style.fontSize) * 1.5;
+            return one.getBoundingClientRect().height > line * 1.5
+              ? (one.textContent ?? "").replace(/\s+/g, " ").trim()
+              : "";
+          })
+          .filter((one) => one !== ""),
+      );
     if (wrapped.length > 0)
       throw new Error(
-        `these decision rows take more than one line: ${JSON.stringify(wrapped)}`,
-      );
-    const setup = await this.page
-      .locator(`${WORK_COLUMN} [data-testid="work-setup"]`)
-      .count();
-    if (setup > 0)
-      throw new Error(
-        "the card still draws a separate Setup section; the setup's answers are decision rows now",
+        `these decision lines take more than one line: ${JSON.stringify(wrapped)}`,
       );
   },
 );

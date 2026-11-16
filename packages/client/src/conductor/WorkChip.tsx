@@ -31,6 +31,7 @@ import {
   checksTally,
   livePrOf,
   membersIn,
+  stagesOf,
   standingLine,
   workHost,
   workSubtitle,
@@ -77,7 +78,11 @@ const WorkChipCard: Component<{ id: WorkId; work: Work }> = (props) => {
         now={now()}
         testId="work-chip-standing"
       />
-      <StageStrip work={props.work} now={now()} size="mini" />
+      <StageStrip
+        stages={stagesOf(props.work, new Date(now()).toISOString())}
+        size="mini"
+        testId="chip-stage-strip"
+      />
     </>
   );
 };

@@ -352,7 +352,6 @@ const ChipRow: Component<{
           onDismiss={() => setMenuOpen(false)}
           anchor="bottom-end"
           options={hidden().map((c) => ({ value: c.label, label: c.label }))}
-          value=""
           onSelect={(label) => {
             const chip = hidden().find((c) => c.label === label);
             if (chip === undefined)

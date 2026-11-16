@@ -13,9 +13,11 @@
  *  A plain watch is not a waterfall and draws no strip at all; a work whose
  *  mode nobody has answered draws six quiet cells until it is known.
  *
- *  ONE COMPONENT, TWO SIZES: `full` on a card's shut face, `mini` inside a
- *  work chip's hover card. Read aloud it is a list named "Stages", each cell
- *  its stage, its time, whose time it is and where it stands.
+ *  ONE COMPONENT, TWO SIZES: `full` on a card, `mini` inside a work chip's
+ *  hover card. Read aloud it is a list named "Stages", each cell its stage,
+ *  its time, whose time it is and where it stands. On a card it is also the
+ *  INDEX INTO THE TIMELINE: a cell that has happened is a button showing that
+ *  stage's events, and the stage shown is pressed.
  *
  *  `<Index>`, because a cell's POSITION is its identity — the six stages
  *  never move — and the fold mints fresh objects every tick of the clock. */
@@ -25,12 +27,13 @@ import {
   STAGE_WAITER,
   STAGES,
   type Stage,
+  type StageName,
+  type Stages,
   type StageState,
   type Waiter,
-  type Work,
 } from "kolu-work";
 import { type Component, createMemo, Index, Show } from "solid-js";
-import { STAGE_LABEL, stagesOf, WAITER_INK } from "./workReadings";
+import { STAGE_LABEL, WAITER_INK } from "./workReadings";
 
 /** The cell's colours, by where its stage stands. */
 const cellInk = (state: StageState, own: Waiter): string => {
@@ -87,16 +90,22 @@ const QUIET: ReadonlyArray<Stage> = STAGES.map((name) => ({
 }));
 
 const StageStrip: Component<{
-  work: Work;
-  /** The clock the stages are measured to. */
-  now: number;
+  /** The work's stages, read once by the face that draws the strip. */
+  stages: Stages;
   size: "full" | "mini";
+  /** What the strip is found by: a card's own, or the copy in a chip's
+   *  hover card — never one test id in two places on one screen. */
+  testId: "stage-strip" | "chip-stage-strip";
+  /** ON A CARD, THE STRIP IS THE INDEX INTO THE TIMELINE: a cell that has
+   *  happened is a button showing that stage's events, and the one shown is
+   *  pressed. Absent in a chip's hover card, where the cells stay plain. */
+  index?: {
+    readonly shown: () => StageName | undefined;
+    readonly show: (stage: StageName) => void;
+  };
 }> = (props) => {
-  const read = createMemo(() =>
-    stagesOf(props.work, new Date(props.now).toISOString()),
-  );
   const cells = createMemo((): ReadonlyArray<Stage> | undefined => {
-    const one = read();
+    const one = props.stages;
     switch (one.kind) {
       case "watch":
         return undefined;
@@ -113,9 +122,9 @@ const StageStrip: Component<{
     <Show when={cells()}>
       {(all) => (
         <ol
-          data-testid="stage-strip"
+          data-testid={props.testId}
           data-size={props.size}
-          data-run={read().kind}
+          data-run={props.stages.kind}
           aria-label="Stages"
           class={`m-0 grid list-none grid-cols-6 gap-[3px] p-0 ${full() ? "mt-2" : "mt-1.5"}`}
         >
@@ -132,17 +141,13 @@ const StageStrip: Component<{
                   ? now.who
                   : STAGE_WAITER[stage().name];
               };
-              return (
-                <li
-                  data-testid="stage"
-                  data-stage={stage().name}
-                  data-state={state().kind}
-                  data-who={who()}
-                  class={`block min-w-0 rounded-md border text-center ${cellInk(
-                    state(),
-                    STAGE_WAITER[stage().name],
-                  )} ${full() ? "py-0.5" : "py-px"}`}
-                >
+              const cellClass = () =>
+                `block w-full min-w-0 rounded-md border text-center ${cellInk(
+                  state(),
+                  STAGE_WAITER[stage().name],
+                )} ${full() ? "py-0.5" : "py-px"}`;
+              const face = () => (
+                <>
                   <small
                     class={`block truncate leading-tight ${
                       full() ? "text-[0.6rem]" : "text-[0.55rem]"
@@ -161,6 +166,39 @@ const StageStrip: Component<{
                     {ran() ? `, ${WHOSE[who()]}, ` : ", "}
                     {STATE_WORD[state().kind]}
                   </span>
+                </>
+              );
+              return (
+                <li
+                  data-testid="stage"
+                  data-stage={stage().name}
+                  data-state={state().kind}
+                  data-who={who()}
+                  data-shown={
+                    props.index?.shown() === stage().name ? "" : undefined
+                  }
+                  class="min-w-0"
+                >
+                  <Show
+                    when={ran() ? props.index : undefined}
+                    fallback={<span class={cellClass()}>{face()}</span>}
+                  >
+                    {(index) => (
+                      <button
+                        type="button"
+                        data-testid="stage-cell"
+                        aria-pressed={index().shown() === stage().name}
+                        class={`${cellClass()} cursor-pointer hover:brightness-110 ${
+                          index().shown() === stage().name
+                            ? "shadow-[0_2px_0_0_currentColor]"
+                            : ""
+                        }`}
+                        onClick={() => index().show(stage().name)}
+                      >
+                        {face()}
+                      </button>
+                    )}
+                  </Show>
                 </li>
               );
             }}

@@ -1939,22 +1939,34 @@ export function koluChoicesSayHowChosen_1_56_0(
   if (changed) store.set("works", next as unknown as PersistedState["works"]);
 }
 
+/** Two saved heads name the same commit — by `kind` and `sha`, never by how
+ *  the object happens to be spelled. */
+const sameHead_1_57_0 = (a: unknown, b: unknown): boolean => {
+  const one = recordOf(a);
+  const two = recordOf(b);
+  if (one === null || two === null || one.kind !== two.kind) return false;
+  return one.kind !== "commit" || one.sha === two.sha;
+};
+
 /** ONE TIMELINE as 1.57.0 stores it — the SAME ARRAY when nothing moves.
  *
  *  - A `pr-opened` gains `url`: `unrecorded`, because kolu did not keep the
  *    address before this rung and inventing one (a guess from the
- *    repository's remote) would be a link that may lead nowhere. Its number
- *    reads as plain text from here on.
- *  - Every `checks-passed` is followed by a `merge-state` saying the PR
- *    could merge, at the same instant, for the same PR and commit. Before
- *    this rung a passing check WAS green — that is what the hand-over read
- *    — and the fold now reads green off the forge's merge answer, so this
- *    gives each saved timeline the reading it had: a finished work's Merge
- *    time stays Merge rather than turning into Review. A later
- *    `checks-running` or `checks-failed` still takes it back, as it did.
- *    A `checks-passed` already followed by its answer has walked this rung. */
+ *    repository's remote) would be a link that may lead nowhere. A work still
+ *    in progress learns the real one from its next PR reading.
+ *  - On a FINISHED work, every `checks-passed` is followed by a
+ *    `merge-state` saying the PR could merge, at the same instant, for the
+ *    same PR and commit. Before this rung a passing check WAS green — that is
+ *    what the hand-over read — and the fold now reads green off the forge's
+ *    merge answer, so this gives each finished timeline the reading it had:
+ *    its Merge time stays Merge rather than turning into Review. A work in
+ *    progress gets none: its next PR reading records GitHub's real answer,
+ *    and until then it is not green, rather than green off a pass that may
+ *    have been too early. A `checks-passed` already followed by a merge
+ *    answer for its commit has walked this rung. */
 const eventsOf_1_57_0 = (
   events: ReadonlyArray<unknown>,
+  finished: boolean,
 ): ReadonlyArray<unknown> => {
   let changed = false;
   const next: unknown[] = [];
@@ -1966,12 +1978,12 @@ const eventsOf_1_57_0 = (
       return;
     }
     next.push(value);
-    if (event?.kind !== "checks-passed") return;
+    if (!finished || event?.kind !== "checks-passed") return;
     const following = recordOf(events[at + 1]);
     if (
       following?.kind === "merge-state" &&
       following.pr === event.pr &&
-      JSON.stringify(following.head) === JSON.stringify(event.head)
+      sameHead_1_57_0(following.head, event.head)
     )
       return;
     changed = true;
@@ -2009,7 +2021,10 @@ export function prFactsOnTheTimeline_1_57_0(store: Conf<PersistedState>): void {
       next[id] = value;
       continue;
     }
-    const nextEvents = eventsOf_1_57_0(events);
+    const nextEvents = eventsOf_1_57_0(
+      events,
+      recordOf(work.state)?.kind === "ended",
+    );
     if (nextEvents === events) {
       next[id] = value;
       continue;

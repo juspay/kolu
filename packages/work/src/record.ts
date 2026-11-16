@@ -13,6 +13,7 @@
  */
 
 import { Array as Arr, Option } from "effect";
+import { isCheckEvent, sameHead } from "./readings.ts";
 import {
   ABOUT_WORK,
   type AnsweredFromFace,
@@ -80,9 +81,71 @@ const foldOldest = (events: Array<WorkEvent>): void => {
   });
 };
 
+/** WHETHER A NEW MERGE ANSWER REPLACES THE LAST ONE rather than joining the
+ *  timeline: both are about the same PR at the same commit, and that commit's
+ *  checks were already running when the last one was recorded and still are.
+ *  GitHub flips between blocked and mergeable while required checks land, and
+ *  none of those answers decides anything — CI holds the work while its checks
+ *  run (`./folds.ts`), so a running check outranks any merge answer — so the
+ *  run keeps only its latest. Anything between the two that moves the PR
+ *  (a check, the PR opening, merging or closing, a reopen) keeps both. */
+const replacesLastMerge = (
+  events: ReadonlyArray<WorkEvent>,
+  event: WorkEvent,
+): number => {
+  if (event.kind !== "merge-state") return -1;
+  for (let index = events.length - 1; index >= 0; index -= 1) {
+    const one = events[index];
+    if (one === undefined) return -1;
+    switch (one.kind) {
+      case "merge-state": {
+        if (one.pr !== event.pr || !sameHead(one.head, event.head)) return -1;
+        // The check reading it was recorded under: the last check event
+        // before it, which must be this commit's checks running.
+        for (let back = index - 1; back >= 0; back -= 1) {
+          const earlier = events[back];
+          if (earlier === undefined) return -1;
+          if (isCheckEvent(earlier))
+            return earlier.kind === "checks-running" &&
+              earlier.pr === event.pr &&
+              sameHead(earlier.head, event.head)
+              ? index
+              : -1;
+          if (MOVES_A_PR.has(earlier.kind)) return -1;
+        }
+        return -1;
+      }
+      default:
+        if (isCheckEvent(one) || MOVES_A_PR.has(one.kind)) return -1;
+    }
+  }
+  return -1;
+};
+
+/** The events that move a PR other than its checks and merge answers. */
+const MOVES_A_PR: ReadonlySet<string> = new Set([
+  "pr-opened",
+  "merged",
+  "pr-closed",
+  "reopened",
+]);
+
 /** THE ONE APPEND. Every transition in this module goes through it, so the
- *  bound cannot be forgotten by a caller or by a transition added later. */
+ *  two bounds cannot be forgotten by a caller or by a transition added
+ *  later: agent states fold past {@link AGENT_STATES_KEPT}, and a merge
+ *  answer given while its commit's checks run replaces the last one
+ *  ({@link replacesLastMerge}). */
 const append = (work: Work, event: WorkEvent): Work => {
+  const replaced = replacesLastMerge(work.events, event);
+  if (replaced >= 0)
+    return {
+      ...work,
+      events: [
+        ...work.events.slice(0, replaced),
+        ...work.events.slice(replaced + 1),
+        event,
+      ],
+    };
   const events = [...work.events, event];
   if (AGENT_STATE.has(event.kind)) {
     let states = events.filter((one) => AGENT_STATE.has(one.kind)).length;
@@ -510,6 +573,24 @@ export const leaveWork = (
 /** Append one observation. */
 export const recordEvent = (work: Work, event: WorkEvent): Work =>
   append(work, event);
+
+/** A PR'S ADDRESS, LEARNED LATE: a `pr-opened` recorded before kolu kept the
+ *  address (the 1.57.0 rung's `unrecorded`) takes the one the forge now gives.
+ *  Nothing else about the event moves, and a recorded address is never
+ *  replaced. The same work back when there is nothing to learn. */
+export const linkPr = (work: Work, pr: number, href: string): Work => {
+  const at = work.events.findIndex(
+    (one) =>
+      one.kind === "pr-opened" &&
+      one.pr === pr &&
+      one.url.kind === "unrecorded",
+  );
+  const opened = work.events[at];
+  if (opened === undefined || opened.kind !== "pr-opened") return work;
+  const events = [...work.events];
+  events[at] = { ...opened, url: { kind: "link", href } };
+  return { ...work, events };
+};
 
 /** THE PERSON TOOK THE KEYS to a member terminal: from here on it is theirs
  *  to type into and the Conductor keeps its hands off, until they hand it

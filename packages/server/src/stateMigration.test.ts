@@ -2386,6 +2386,68 @@ describe("the 1.57.0 rung — a PR's address and the forge's merge answer", () =
     },
   };
 
+  const OPEN = "branch:local/%2Frepo/in-flight";
+  const TWO = "branch:local/%2Frepo/second-attempt";
+  const OTHER = { kind: "commit", sha: "9b7e3d1" };
+  const opened = (pr: number) => ({
+    at: AT,
+    by: "kolu",
+    about: WORK,
+    kind: "pr-opened",
+    pr,
+    title: "t",
+  });
+  const passed = (pr: number, head: unknown) => ({
+    at: AT,
+    by: "ci",
+    about: WORK,
+    kind: "checks-passed",
+    pr,
+    head,
+    failing: [],
+  });
+  /** A work still in flight whose checks passed, a finished one that had two
+   *  PRs, and a pass already followed by the forge saying it cannot merge. */
+  const MORE = {
+    [OPEN]: {
+      key: { kind: "branch", host: "local", repo: "/repo", branch: "o" },
+      title: "in flight at the upgrade",
+      startedAt: AT,
+      decisions: [],
+      events: [opened(4), passed(4, HEAD)],
+      state: { kind: "open" },
+    },
+    [TWO]: {
+      key: { kind: "branch", host: "local", repo: "/repo", branch: "t" },
+      title: "two attempts",
+      startedAt: AT,
+      decisions: [],
+      events: [
+        opened(9),
+        passed(9, HEAD),
+        { at: AT, by: "kolu", about: WORK, kind: "pr-closed", pr: 9 },
+        opened(10),
+        passed(10, OTHER),
+        {
+          at: AT,
+          by: "kolu",
+          about: WORK,
+          kind: "merge-state",
+          pr: 10,
+          head: OTHER,
+          merge: { kind: "cannot", why: "review" },
+        },
+        { at: LATER, by: "kolu", about: WORK, kind: "merged", pr: 10 },
+      ],
+      state: {
+        kind: "ended",
+        at: LATER,
+        outcome: { kind: "merged", pr: 10 },
+        kept: [],
+      },
+    },
+  };
+
   /** A real store stamped at 1.56.0, walked to the live head. */
   const walk = (works: Record<string, unknown>) => {
     const dir = mkdtempSync(join(tmpdir(), "kolu-pr-facts-"));
@@ -2429,6 +2491,43 @@ describe("the 1.57.0 rung — a PR's address and the forge's merge answer", () =
       pr: 9,
       head: HEAD,
       merge: { kind: "can" },
+    });
+    expect(
+      Result.isSuccess(
+        Schema.decodeUnknownResult(PersistedWorksSchema)(state.works),
+      ),
+    ).toBe(true);
+  });
+
+  it("answers only a finished work's passes, once per pass, and every PR its own", () => {
+    const { state } = walk(structuredClone({ ...SEED, ...MORE }));
+    const works = state.works as Record<
+      string,
+      { events: Record<string, unknown>[] }
+    >;
+    // IN FLIGHT: an address it will learn, and no answer it never had — its
+    // next reading records GitHub's.
+    expect(works[OPEN]?.events).toEqual([
+      { ...opened(4), url: { kind: "unrecorded" } },
+      passed(4, HEAD),
+    ]);
+    // FINISHED, TWO PRs: the first pass is answered for its own PR and
+    // commit; the second already had its answer, which stands.
+    const two = works[TWO]?.events ?? [];
+    expect(two.map((one) => one.kind)).toEqual([
+      "pr-opened",
+      "checks-passed",
+      "merge-state",
+      "pr-closed",
+      "pr-opened",
+      "checks-passed",
+      "merge-state",
+      "merged",
+    ]);
+    expect(two[2]).toMatchObject({ pr: 9, head: HEAD, merge: { kind: "can" } });
+    expect(two[6]).toMatchObject({
+      pr: 10,
+      merge: { kind: "cannot", why: "review" },
     });
     expect(
       Result.isSuccess(

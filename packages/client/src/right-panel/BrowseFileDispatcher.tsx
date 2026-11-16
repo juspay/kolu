@@ -538,7 +538,6 @@ const BrowseFileDispatcher: Component<BrowseFileDispatcherProps> = (props) => {
         onDismiss={() => setWikiMenu(null)}
         anchor="bottom-start"
         options={wikiMenuOptions()}
-        value=""
         onSelect={openPreviewPath}
         testIdPrefix="wikilink-disambiguation"
         maxHeight={280}

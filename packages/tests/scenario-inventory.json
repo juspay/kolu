@@ -11734,6 +11734,18 @@
       "exampleRows": [],
       "executions": 1,
       "firstSeenSha": "07e686fc1516898e913afce986d34704cc657cdb"
+    },
+    {
+      "revisionId": "revision-12f77c4e4e311ca03048",
+      "scenarioKey": "scenario-0e4c0afb060bb3ec7b14",
+      "feature": "features/conductor-work.feature",
+      "scenario": "A waterfall's card, from the request to the merge",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "d9d0df26405b7cb73eb4c4f9f8fec1fa56ea9c091e4f1fa5cbdcf08dff1a704e",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "9ddb4cec9236d04e56687625e686efc29124bcdd"
     }
   ]
 }

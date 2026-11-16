@@ -8,40 +8,42 @@
  *  `#n` the work has no PR of. */
 
 import { prLinks, type Work } from "kolu-work";
-import { type Component, createMemo, For } from "solid-js";
+import { type Component, createMemo, Index, Show } from "solid-js";
 
 const PR_NUMBER = /(#\d+)/;
 
 const PrText: Component<{ work: Work; text: string }> = (props) => {
   const links = createMemo(() => prLinks(props.work));
   const parts = createMemo(() => props.text.split(PR_NUMBER));
+  // `<Index>`: a part is a string, so its POSITION is its identity.
   return (
-    <For each={parts()}>
-      {(part) => {
-        const href = () =>
-          PR_NUMBER.test(part) ? links().get(Number(part.slice(1))) : undefined;
-        return (
-          <>
-            {href() === undefined ? (
-              part
-            ) : (
-              <a
-                data-testid="work-pr-link"
-                href={href()}
-                target="_blank"
-                rel="noopener noreferrer"
-                // Clickable through a face whose own press is a button laid
-                // under its text (the card's head), and never that press.
-                class="pointer-events-auto relative text-accent hover:underline"
-                onClick={(event) => event.stopPropagation()}
-              >
-                {part}
-              </a>
-            )}
-          </>
-        );
-      }}
-    </For>
+    <Index each={parts()}>
+      {(part) => (
+        <Show
+          when={
+            PR_NUMBER.test(part())
+              ? links().get(Number(part().slice(1)))
+              : undefined
+          }
+          fallback={part()}
+        >
+          {(href) => (
+            <a
+              data-testid="work-pr-link"
+              href={href()}
+              target="_blank"
+              rel="noopener noreferrer"
+              // Clickable through a face whose own press is a button laid
+              // under its text (the card's head), and never that press.
+              class="pointer-events-auto relative text-accent hover:underline"
+              onClick={(event) => event.stopPropagation()}
+            >
+              {part()}
+            </a>
+          )}
+        </Show>
+      )}
+    </Index>
   );
 };
 

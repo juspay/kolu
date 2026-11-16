@@ -49,6 +49,7 @@ import {
   prOf,
   type Said,
   roleRank,
+  roleSetupOf,
   setupKeyOf,
   type SetupKey,
   type StandingWhy,
@@ -418,13 +419,31 @@ const BLOCK_WORDS: Record<MergeBlock, string> = {
   draft: "it is a draft",
 };
 
+/** A merge answer, or none recorded for the PR's current commit. */
+type MergeKnown = MergeState | { readonly kind: "unknown" };
+
 /** WHETHER GITHUB WOULD MERGE IT, in one phrase — a timeline row, and the
  *  Pull request section's last line. */
-export function mergeWords(merge: MergeState): string {
-  return merge.kind === "can"
-    ? "GitHub can merge it"
-    : `GitHub cannot merge it yet · ${BLOCK_WORDS[merge.why]}`;
+export function mergeWords(merge: MergeKnown): string {
+  switch (merge.kind) {
+    case "can":
+      return "GitHub can merge it";
+    case "cannot":
+      return `GitHub cannot merge it yet · ${BLOCK_WORDS[merge.why]}`;
+    case "unsettled":
+      return "GitHub is still working out whether it can merge it";
+    case "unknown":
+      return "GitHub has not said whether it can merge it";
+    default:
+      return merge satisfies never;
+  }
 }
+
+/** THE SAME ANSWER AS ONE WORD — `can`, a reason it cannot (`review`,
+ *  `behind`, …), `unsettled` or `unknown` — what a face carries as data, so
+ *  nothing reading it has to parse the sentence. */
+export const mergeReason = (merge: MergeKnown): string =>
+  merge.kind === "cannot" ? merge.why : merge.kind;
 
 /** THE PULL REQUEST SECTION of a card: the PR and how it stands, what its
  *  checks say, and — while it is open — whether GitHub would merge it.
@@ -437,7 +456,10 @@ export interface PrSection {
   readonly number: number;
   readonly state: "open" | "merged" | "closed";
   readonly checks: string;
-  readonly merge: Option.Option<string>;
+  readonly merge: Option.Option<{
+    readonly words: string;
+    readonly reason: string;
+  }>;
 }
 
 const RECORDED_CHECKS: Record<CheckKind, string> = {
@@ -467,11 +489,10 @@ export function prSection(
     merge:
       pr.state !== "open"
         ? Option.none()
-        : Option.some(
-            pr.merge.kind === "unknown"
-              ? "GitHub has not said whether it can merge it"
-              : mergeWords(pr.merge),
-          ),
+        : Option.some({
+            words: mergeWords(pr.merge),
+            reason: mergeReason(pr.merge),
+          }),
   }));
 }
 
@@ -945,6 +966,114 @@ export function decisionRows(work: Work): ReadonlyArray<DecisionRow> {
         ),
       );
   return rows;
+}
+
+/** ONE PART OF THE SETUP LINE — `full`, `planner omp/Fable 5.2`, `on green:
+ *  hand over` — with what was recorded and where it came from, which the
+ *  line carries as data. */
+export interface SetupPart {
+  readonly key: SetupKey;
+  readonly text: string;
+  /** The answers AS RECORDED (`hand-over`, not "hand over"). */
+  readonly answer: string;
+  readonly from: Option.Option<AnswerFrom>;
+}
+
+/** THE SETUP, AS ONE LINE: the mode, each role's harness and model, and what
+ *  happens on green — the setup's own rows ({@link decisionRows}), each said
+ *  in a few words, so the card spends one line on what the human answered
+ *  once at the start. */
+export function setupLine(work: Work): ReadonlyArray<SetupPart> {
+  return decisionRows(work).flatMap((row): ReadonlyArray<SetupPart> => {
+    if (row.topic.kind !== "setup") return [];
+    const key = row.topic.key;
+    const said = row.decisions.map(setupAnswer);
+    const text =
+      key === "mode"
+        ? said.join(" · ")
+        : key === "on-green"
+          ? `on green: ${said.join(" · ")}`
+          : `${row.label.toLowerCase()} ${said.join("/")}`;
+    return [
+      {
+        key,
+        text,
+        answer: row.decisions.map((one) => answerWords(one)).join(" · "),
+        from: row.from,
+      },
+    ];
+  });
+}
+
+/** EVERY OTHER DECISION — the questions put about the work, in the order
+ *  they were put. A card shows the latest three. */
+export function otherDecisions(work: Work): ReadonlyArray<DecisionRow> {
+  return decisionRows(work).filter((row) => row.topic.kind === "work");
+}
+
+/** The hour and minute an event or a decision carries — the one clock
+ *  format a card speaks. */
+export const clockOf = (at: string): string =>
+  new Date(at).toLocaleTimeString([], {
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  });
+
+/** WHAT A ROLE RUNS, as the setup chose it — `omp/Opus 5.5`, or just the
+ *  harness while no model is chosen — for a member's row. None for a role
+ *  the setup chose nothing for. */
+export function roleRuns(work: Work, role: WorkRole): Option.Option<string> {
+  const chosen = roleSetupOf(work, role);
+  switch (chosen.kind) {
+    case "not-chosen":
+      return Option.none();
+    case "harness":
+      return Option.some(chosen.harness);
+    case "harness-and-model":
+      return Option.some(`${chosen.harness}/${chosen.model}`);
+    default:
+      return chosen satisfies never;
+  }
+}
+
+/** How many of a watch's latest events its card shows: a watch has no
+ *  stages to index its timeline by. */
+export const WATCH_EVENTS_SHOWN = 5;
+
+/** WHAT AN OPEN CARD'S TIMELINE SHOWS, and which events that is (their
+ *  indices in the timeline):
+ *
+ *  - `stage` — one stage's events: the one pressed on the strip, else the
+ *    stage the work is in (for a finished work, the stage it ended in) —
+ *    read off `kolu-work`'s own filing of each event (`Stages`' `events`);
+ *  - `latest` — a work with no stages (a watch, or a mode not chosen yet):
+ *    its last {@link WATCH_EVENTS_SHOWN} events;
+ *  - `whole` — all of it, once "whole timeline" is pressed. */
+export type TimelineView =
+  | { readonly kind: "stage"; readonly stage: StageName }
+  | { readonly kind: "latest" }
+  | { readonly kind: "whole" };
+
+export function timelineShown(
+  work: Work,
+  stages: Stages,
+  pressed: StageName | undefined,
+  whole: boolean,
+): { readonly view: TimelineView; readonly indices: ReadonlyArray<number> } {
+  const all = work.events.map((_, index) => index);
+  if (whole) return { view: { kind: "whole" }, indices: all };
+  if (stages.kind !== "waterfall")
+    return {
+      view: { kind: "latest" },
+      indices: all.slice(-WATCH_EVENTS_SHOWN),
+    };
+  const stage = pressed ?? stages.events.at(-1);
+  if (stage === undefined) return { view: { kind: "latest" }, indices: [] };
+  return {
+    view: { kind: "stage", stage },
+    indices: all.filter((index) => stages.events[index] === stage),
+  };
 }
 
 /** EVERY ASK ANY WORK OWNS. A question about a work is recorded as that
