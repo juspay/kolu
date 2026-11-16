@@ -8,17 +8,20 @@
  * with its own tally, and records one sample when its Effect exits.
  *
  * A body only lands in that scope if it RUNS there. `servePadi`'s `handle()`
- * runs its body later, on the fiber, so it captures the scope in force when
- * the handler is built and runs the body inside it — and marks the Effect it
- * returns with {@link markRunsInCallScope}. A procedure whose Effect is not
- * marked (an Effect program, like `lifecycle.recycleKaval`) still has its total
- * timed, but its child time is reported unmeasured, never zero.
+ * runs its body later, on the fiber, so it goes through {@link callScoped},
+ * which captures the scope in force when the handler is built, runs the body
+ * inside it, and marks the Effect it returns — one act, so a mark without the
+ * capture (a false measured zero) cannot be spelled. A procedure whose Effect
+ * is not marked (an Effect program, like `lifecycle.recycleKaval` or
+ * `agentDistro.models`) still has its total timed, but its child time is
+ * reported unmeasured, never zero.
  *
  * A call slower than {@link SLOW_CALL_MS} logs one `warn` line. Everything
  * faster is in the table. Streams are not calls: their children are in the
  * children table, not here.
  */
 
+import { AsyncLocalStorage } from "node:async_hooks";
 import type { PadiCallRow } from "@kolu/padi-client/surface";
 import { Effect } from "effect";
 import {
@@ -38,9 +41,22 @@ const WINDOW_MS = 60_000;
 
 const runsInCallScope = new WeakSet<object>();
 
-/** Mark an Effect whose body runs inside the call scope captured when it was
- *  built, so its children are attributed to the call. */
-export function markRunsInCallScope<T extends object>(effect: T): T {
+/** Build a procedure's Effect around a promise-shaped `body` that runs, when
+ *  the fiber gets to it, inside the async context in force NOW — the call
+ *  scope {@link timeProcedures} opened — and mark the result as attributable.
+ *  `classify` turns the attempt's failure into the procedure's own error
+ *  channel; the Effect it returns is the one marked and handed back. */
+export function callScoped<A, E>(
+  body: (signal: AbortSignal) => A | Promise<A>,
+  classify: (attempt: Effect.Effect<A, unknown>) => Effect.Effect<A, E>,
+): Effect.Effect<A, E> {
+  const inCallScope = AsyncLocalStorage.snapshot();
+  const effect = classify(
+    Effect.tryPromise({
+      try: async (signal) => inCallScope(() => body(signal)),
+      catch: (err: unknown) => err,
+    }),
+  );
   runsInCallScope.add(effect);
   return effect;
 }
@@ -158,8 +174,14 @@ function timeLeaf(
               {
                 procedure,
                 totalMs: Math.round(totalMs),
-                childMs: attributed ? Math.round(tally.runMs) : "unattributed",
-                children: attributed ? tally.children : "unattributed",
+                // Absent, not a placeholder, when the body ran outside the
+                // call scope: a log query reads a missing field honestly.
+                ...(attributed
+                  ? {
+                      childMs: Math.round(tally.runMs),
+                      children: tally.children,
+                    }
+                  : {}),
               },
               "padi: slow call",
             );

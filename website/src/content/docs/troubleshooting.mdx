@@ -210,8 +210,8 @@ tab is active, and **Refresh** asks again.
 | --- | --- | --- |
 | Child processes | Each kind of command padi ran, such as `git status` or `gh pr view`: how many, the time inside the start call, and how long each ran. | A long start call froze padi for that long. Many runs of one kind point at whatever keeps asking. |
 | Stalls | How late padi ran work that was already due, for the last full minute and the minute in progress. | A worst of a few hundred milliseconds is a freeze you feel as typing lag. |
-| File watchers | One row per watch: its kind, folder, who asked for it, and how long it took to install. | A `git: working-tree` row with a long install walked a large folder. |
-| Watches | The file watches the kernel says padi holds, on Linux. | A number in the hundreds of thousands is a folder tree being watched whole. |
+| File watchers | One row per watch: its kind, folder, how many folders it covers, who asked for it, and how long it took to install. | A `git: working-tree` row with a long install walked a large folder. |
+| Watches | The file watches the kernel says padi holds, for each inotify instance, on Linux. | A number in the hundreds of thousands is a folder tree being watched whole. |
 | Memory | padi's resident memory, its JavaScript heap, and what lies outside the heap. | Growth outside the heap is native memory, such as file watches. |
 | Calls | Each request padi answered: its total time, and the part spent waiting on child processes. | A slow call whose time is all in children is waiting on a command, not on padi. |
 
@@ -226,11 +226,14 @@ padi's log, naming the request, its time and its child processes.
 | `stream subscribeRepoChange` | A browser's **Code** tab, following a repository. |
 | `stream subscribeFileChange (<file>)` | A file open in a browser's **Code** tab. |
 | `stream pullRequest (branch <b>)` | A [Conductor](/conductor) work following the pull request of branch `<b>`. |
+| `grok session detection` | kolu itself, following Grok's list of running sessions. One watch serves every terminal running `grok`. |
+| `git: repo-change (no subscriber; retiring within 30 s)`, or the same for `git: file-change` | Nobody, for now. Whoever followed this repository or file stopped, and the watch waits 30 seconds in case they come back. |
 
 A row whose state is `no-working-tree` is a bare repository's folder. kolu
 installs nothing there on purpose. A `git: working-tree` row gives no folder
 count, because its watcher reports none and counting would walk the folder
-again. The **Watches** line is the total instead.
+again. The **Watches** line has the kernel's count instead, for each inotify
+instance padi holds.
 
 Agent session watchers, for Claude Code, pi, Xyne and Codex, have no rows.
 Their watches are still in the **Watches** count. macOS has no such count, and

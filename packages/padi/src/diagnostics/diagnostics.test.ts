@@ -6,7 +6,6 @@
  * that matters most here.
  */
 
-import { AsyncLocalStorage } from "node:async_hooks";
 import { execFile } from "node:child_process";
 import { PadiDiagnosticsSchema } from "@kolu/padi-client/surface";
 import { describeDaemon } from "@kolu/daemon-test-gate";
@@ -15,10 +14,11 @@ import { installChildMeter } from "kolu-io";
 import type { Logger } from "pino";
 import { beforeAll, describe, expect, it } from "vitest";
 import { buildPadiSurfaceDeps } from "../servePadi.ts";
+import type { TerminalEndpoint } from "../endpoint.ts";
 import { fakeEndpoint, stubLog } from "../servePadi.testlib.ts";
 import {
+  callScoped,
   createCallsTable,
-  markRunsInCallScope,
   SLOW_CALL_MS,
   timeProcedures,
 } from "./calls.ts";
@@ -31,11 +31,9 @@ function sleepChild(seconds: string): Promise<void> {
   return promise;
 }
 
-/** What `servePadi`'s `handle()` does with a body: run it, later, inside the
- *  scope in force when the Effect was built. */
-function handled<A>(body: () => Promise<A>): Effect.Effect<A> {
-  const inScope = AsyncLocalStorage.snapshot();
-  return markRunsInCallScope(Effect.promise(() => inScope(body)));
+/** A body through the same helper `servePadi`'s `handle()` uses. */
+function handled<A>(body: () => Promise<A>): Effect.Effect<A, unknown> {
+  return callScoped(body, (attempt) => attempt);
 }
 
 function warnSpy(): { log: Logger; warns: unknown[] } {
@@ -168,6 +166,53 @@ describeDaemon("diagnostics with the child meter installed", () => {
       );
       expect(self?.count).toBe(1);
       expect(self?.inChildren.kind).toBe("measured");
+    } finally {
+      diagnostics.dispose();
+    }
+  });
+
+  it("attributes a child to the procedure that started it, through servePadi's own handle()", async () => {
+    // `git.getStatus` is an ordinary `handle()` procedure; its endpoint starts
+    // a real 200 ms child. Without the scope capture in `handle()` the child
+    // runs outside the call's scope and the row reads "no children" — a
+    // measured zero that is false.
+    const slowEndpoint = {
+      ...fakeEndpoint,
+      git: {
+        ...fakeEndpoint.git,
+        getStatus: async () => {
+          await sleepChild("0.2");
+          return {};
+        },
+      },
+    } as unknown as TerminalEndpoint;
+    const diagnostics = startPadiDiagnostics(stubLog);
+    try {
+      const deps = buildPadiSurfaceDeps({
+        endpoint: slowEndpoint,
+        log: stubLog,
+        diagnostics,
+        startedAt: 0,
+        commit: "",
+        lifetime: { kind: "forever" },
+        stateRoot: "/tmp/padi-diagnostics-test-state-root",
+      });
+      const getStatus = deps.procedures?.git?.getStatus as unknown as (opts: {
+        input: { repoPath: string; mode: string };
+      }) => Effect.Effect<unknown>;
+      await Effect.runPromise(
+        getStatus({ input: { repoPath: "/tmp/repo", mode: "local" } }),
+      );
+
+      const answer = await diagnostics.read();
+      const row = answer.calls.rows.find(
+        (r) => r.procedure === "git.getStatus",
+      );
+      expect(row?.inChildren.kind).toBe("measured");
+      if (row?.inChildren.kind === "measured") {
+        expect(row.inChildren.value.children).toBe(1);
+        expect(row.inChildren.value.summary.maxMs).toBeGreaterThanOrEqual(200);
+      }
     } finally {
       diagnostics.dispose();
     }

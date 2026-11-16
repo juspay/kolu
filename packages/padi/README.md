@@ -312,13 +312,16 @@ flag and no environment switch.
   kernel count and the row assembly run only on a read.
 - **A slow call logs once.** A call slower than 500 ms writes one `warn` line,
   `padi: slow call`, with the procedure, its total, its time in children and
-  its child count. Faster calls are only in the table, so the 30 MB log is not
-  flooded during an incident.
+  its child count (the last two absent when its children are not attributed).
+  Faster calls are only in the table, so the 30 MB log is not flooded during
+  an incident.
 - **`handle()` captures the call scope.** Its body runs later, on the fiber, so
-  it snapshots the async context when the handler is built and runs the body in
-  it — without that every call would report zero child time. A body that is an
-  Effect program (`lifecycle.recycleKaval`) is timed, and its child time is
-  reported unmeasured with the reason, never zero.
+  it goes through `callScoped` (`src/diagnostics/calls.ts`), which snapshots
+  the async context when the handler is built, runs the body in it, and marks
+  the Effect attributable — one act, so a mark without the capture cannot be
+  written. A body that is an Effect program (`lifecycle.recycleKaval`,
+  `agentDistro.models`, through `handleEffect`; `preview.read`) is timed, and
+  its child time is reported unmeasured with the reason, never zero.
 - **`gh` says why it ran.** anyforge's watcher names each resolve `context`,
   `poll` or `refresh`, and `dispatchingForgeAdapter` runs it in a scope carrying
   that cause, so the `gh pr view` row counts its causes.

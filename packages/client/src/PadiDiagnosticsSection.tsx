@@ -135,11 +135,20 @@ const Answer: Component<{ answer: PadiDiagnostics }> = (props) => (
         </span>
       </Row>
       <Row label="Watches">
-        <span class="font-mono">
+        <span class="font-mono" data-testid="padi-diagnostics-kernel-watches">
           {measuredText(
             props.answer.kernelWatches,
             (v) =>
-              `${v.total} in the kernel, ${v.perInstance.length} inotify instance${v.perInstance.length === 1 ? "" : "s"}`,
+              `${v.total.toLocaleString("en-US")} in the kernel${
+                v.perInstance.length === 0
+                  ? ", no inotify instance"
+                  : `: ${v.perInstance
+                      .map(
+                        (i) =>
+                          `fd ${i.fd} holds ${i.watches.toLocaleString("en-US")}`,
+                      )
+                      .join(" · ")}`
+              }`,
           )}
         </span>
       </Row>
@@ -275,11 +284,27 @@ const Answer: Component<{ answer: PadiDiagnostics }> = (props) => (
                 <span class="ml-auto text-right text-fg-2">
                   {measuredText(row.lastInstallMs, (v) => `${num(v)} ms`)}
                   <Show when={row.rebuilds > 0}>
-                    <span class="text-fg-3/70"> · {row.rebuilds} rebuilds</span>
+                    <span class="text-fg-3/70">
+                      {" "}
+                      · {row.rebuilds} rebuilds
+                      {row.detail.kind === "tree" &&
+                      row.detail.lastRebuildReason !== null
+                        ? ` (${row.detail.lastRebuildReason})`
+                        : ""}
+                    </span>
                   </Show>
                 </span>
               </div>
-              <div class="text-fg-3 break-all">{row.root}</div>
+              <div class="text-fg-3 break-all">
+                {row.root}
+                <span class="text-fg-3/70">
+                  {" · "}
+                  {measuredText(
+                    row.directories,
+                    (v) => `${v} director${v === 1 ? "y" : "ies"}`,
+                  )}
+                </span>
+              </div>
               <div class="text-fg-3/70">asked by {row.askers.join(", ")}</div>
             </div>
           )}

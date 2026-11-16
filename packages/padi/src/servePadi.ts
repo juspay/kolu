@@ -17,7 +17,6 @@
  * `setPadiActivityFeedStore`, see `./confStores.ts`); the wire members live here.
  */
 
-import { AsyncLocalStorage } from "node:async_hooks";
 import { rmSync } from "node:fs";
 import {
   DEFAULT_PADI_ROSTER,
@@ -93,7 +92,7 @@ import {
   samplePadiMemory,
 } from "./memorySampler.ts";
 import type { PadiDiagnosticsHandle } from "./diagnostics/index.ts";
-import { markRunsInCallScope } from "./diagnostics/calls.ts";
+import { callScoped } from "./diagnostics/calls.ts";
 import {
   newTerminalPolicyStore,
   resolveNewTerminalTheme,
@@ -192,24 +191,18 @@ type PadiDeps = ImplementSurfaceDeps<typeof padiSurface.spec>;
  * `signal` on the handler options (D10/#18).
  *
  * The body runs LATER, on the fiber, outside whatever async context built the
- * handler. So the context in force NOW — the call scope `diagnostics/calls.ts`
- * opened around this handler — is captured here and the body runs inside it;
- * without that every call would report zero time in children.
+ * handler. `callScoped` (`diagnostics/calls.ts`) captures the call scope in
+ * force NOW, runs the body inside it and marks the Effect, as one act; without
+ * the capture every call would report zero time in children.
  */
 function handle<A, E>(
   body: (signal: AbortSignal) => A | Promise<A>,
 ): Effect.Effect<A, E> {
-  const inCallScope = AsyncLocalStorage.snapshot();
-  return markRunsInCallScope(
-    Effect.catch(
-      Effect.tryPromise({
-        try: async (signal) => inCallScope(() => body(signal)),
-        catch: (err: unknown) => err,
-      }),
-      (err) =>
-        isPadiDeclaredError(err)
-          ? Effect.fail(err as E)
-          : (Effect.die(err) as Effect.Effect<A, E>),
+  return callScoped(body, (attempt) =>
+    Effect.catch(attempt, (err) =>
+      isPadiDeclaredError(err)
+        ? Effect.fail(err as E)
+        : (Effect.die(err) as Effect.Effect<A, E>),
     ),
   );
 }

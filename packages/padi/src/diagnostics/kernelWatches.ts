@@ -49,9 +49,11 @@ export async function readKernelWatches(): Promise<
     let target: string;
     try {
       target = await fs.promises.readlink(`/proc/self/fd/${name}`);
-    } catch {
+    } catch (err) {
       // The fd closed between the listing and the read — it holds nothing now.
-      continue;
+      // Anything else is a real failure and surfaces.
+      if ((err as NodeJS.ErrnoException).code === "ENOENT") continue;
+      throw err;
     }
     if (target !== "anon_inode:inotify") continue;
     let watches: number;

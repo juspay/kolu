@@ -40,7 +40,10 @@ export type TimingSummary = typeof TimingSummarySchema.Type;
 
 const MeasuredTimingSchema = measuredSchema(TimingSummarySchema);
 
-/** Event-loop delay: how late the loop ran a timer that was due. */
+/** Event-loop delay: how late the loop ran a timer that was due. Node's
+ *  histogram keeps no per-sample values, so each summary's `sumMs` is an
+ *  estimate — (mean − resolution) × count — where every other field is read
+ *  off the histogram. */
 export const PadiStallsSchema = Schema.Struct({
   /** The monitor's sampling interval; a reading is already net of it. */
   resolutionMs: Schema.Number,
@@ -114,6 +117,8 @@ export const PadiWatcherRowSchema = Schema.Struct({
     Schema.Struct({
       kind: Schema.Literal("tree"),
       ignoredPaths: measuredSchema(Schema.Number),
+      /** The reason of the last rebuild. `null` means the entry has never
+       *  rebuilt — a fact, not an unknown. */
       lastRebuildReason: Schema.NullOr(Schema.String),
     }),
   ]),

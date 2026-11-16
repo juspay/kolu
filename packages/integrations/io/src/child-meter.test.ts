@@ -1,4 +1,4 @@
-import { execFile, spawn } from "node:child_process";
+import { execFile, execFileSync, spawn } from "node:child_process";
 import { describeDaemon } from "@kolu/daemon-test-gate";
 import { beforeAll, describe, expect, it } from "vitest";
 import {
@@ -6,6 +6,7 @@ import {
   childKind,
   createChildTally,
   installChildMeter,
+  meterSyncChild,
   readChildren,
   runInChildScope,
 } from "./child-meter.ts";
@@ -96,6 +97,21 @@ describeDaemon("child meter at the spawn seam", () => {
     const row = rowOf("kolu-no-such-program-xyz");
     expect(row.failedToStart).toBe(1);
     expect(row.running).toBe(0);
+  });
+
+  it("counts a sync child whose program is missing as failed, and one that exits non-zero as run", () => {
+    const missing = ["kolu-no-such-sync-program-xyz"];
+    expect(() =>
+      meterSyncChild(missing, () => execFileSync(missing[0] as string)),
+    ).toThrow();
+    expect(rowOf("kolu-no-such-sync-program-xyz").failedToStart).toBe(1);
+
+    expect(() =>
+      meterSyncChild(["false"], () => execFileSync("false")),
+    ).toThrow();
+    const ran = rowOf("false");
+    expect(ran.failedToStart).toBe(0);
+    expect(ran.run.kind).toBe("measured");
   });
 
   it("adds a scoped child to the scope's tally and carries its cause", async () => {

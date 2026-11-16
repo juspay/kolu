@@ -247,17 +247,23 @@ export function installChildMeter(): void {
 /** Run a SYNCHRONOUS child (`execFileSync`, `spawnSync`) and record it as one
  *  child of the kind {@link childKind} derives from `argv` — the same kind the
  *  spawn seam would give it. Its whole run blocks the loop, so the start call
- *  and the run are the same time. A throw is rethrown as-is. */
+ *  and the run are the same time. A throw is rethrown as-is; one that says the
+ *  program does not exist (`ENOENT`) is a child that failed to start, any
+ *  other (a non-zero exit, a timeout) a child that ran. */
 export function meterSyncChild<T>(argv: readonly string[], fn: () => T): T {
   const kind = childKind(argv);
   const startedAt = performance.now();
+  let failedToStart = false;
   try {
     return fn();
+  } catch (err) {
+    failedToStart = (err as NodeJS.ErrnoException).code === "ENOENT";
+    throw err;
   } finally {
     const ms = performance.now() - startedAt;
     if (installed) {
-      const rec = record(kind, startedAt, ms, false);
-      exited(rec, scopeStorage.getStore()?.tally);
+      const rec = record(kind, startedAt, ms, failedToStart);
+      if (!failedToStart) exited(rec, scopeStorage.getStore()?.tally);
     }
   }
 }
