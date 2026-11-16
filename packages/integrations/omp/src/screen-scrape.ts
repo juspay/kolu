@@ -44,7 +44,7 @@
  *  VT-resolved text `readScreenText` returns) on any omp UI change — never from
  *  a guess. */
 
-import { paneItemIs } from "anyagent";
+import { type PaneReading, paneHolds } from "anyagent";
 import type { OmpInfo } from "./schemas.ts";
 
 /** How many lines of the screen tail the gate inspects. The dialog renders at
@@ -77,25 +77,48 @@ export function screenHasOmpPrompt(screenText: string): boolean {
   return PROMPT_MARKERS.some((re) => re.test(tail));
 }
 
-/** omp's steering pane header — `Steering · <count>` on a row of its own,
- *  captured from omp 18.20.2 in an 80-column kolu terminal (2026-11-15). The
- *  items follow it, one per row, as `<n>. <message>`; `└ Alt+↑ to edit` closes
- *  the pane. */
-const STEERING_HEADER = /^\s*Steering · \d+\s*$/;
+/** omp's steering pane — `Steering · <count>` on a row of its own, captured
+ *  from omp 18.20.2 in an 80-column kolu terminal (2026-11-15). The items
+ *  follow it, one per row, as `<n>. <message>`; `└ Alt+↑ to edit` closes the
+ *  pane. The header's COUNT is what makes the pane readable or not: omp says
+ *  how many messages it holds, so rows kolu could not parse into that many
+ *  items (a wrapped item, a layout a new version changed) are a pane kolu
+ *  cannot read rather than a pane without these words. */
+const STEERING_HEADER = /^\s*Steering · (\d+)\s*$/;
 const STEERING_ITEM = /^\s*\d+\.\s(.*)$/;
+const STEERING_CLOSER = /^\s*└ Alt\+↑ to edit\s*$/;
 
-/** Whether omp's steering pane, in the screen tail, holds THESE words — a
- *  steer omp accepted and is holding for a step it cannot interrupt to end. */
-export function ompSteerHeld(screenText: string, words: string): boolean {
+/** What omp's steering pane, in the screen tail, says about THESE words — a
+ *  steer omp accepted and is holding for a step it cannot interrupt to end,
+ *  a pane without them, or a pane this reader could not parse. */
+export function ompSteerPane(screenText: string, words: string): PaneReading {
   const tail = tailRegion(screenText);
   const header = tail.findIndex((line) => STEERING_HEADER.test(line));
-  if (header === -1) return false;
+  if (header === -1) {
+    // The pane's CLOSER with no header above it: the pane is taller than the
+    // rows kolu read, so its items are off the top of the tail. Seeing part of
+    // a pane is not seeing an absence.
+    return tail.some((line) => STEERING_CLOSER.test(line))
+      ? {
+          kind: "unreadable",
+          why: `omp's steering pane runs past the ${TAIL_REGION_LINES} rows kolu read, so its items are above them`,
+        }
+      : { kind: "absent" };
+  }
+  const held = Number(STEERING_HEADER.exec(tail[header] ?? "")?.[1]);
+  const items: string[] = [];
   for (const line of tail.slice(header + 1)) {
     const item = STEERING_ITEM.exec(line);
     if (item === null) break;
-    if (paneItemIs(item[1] ?? "", words)) return true;
+    items.push(item[1] ?? "");
   }
-  return false;
+  if (items.length !== held) {
+    return {
+      kind: "unreadable",
+      why: `omp's steering pane says it holds ${held} message(s) and kolu could read ${items.length} of its rows`,
+    };
+  }
+  return paneHolds(items, words);
 }
 
 // --- Promote-only policy (the seam the orchestrator's poller drives) ---

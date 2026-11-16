@@ -63,12 +63,14 @@ mid-turn; `say: null` for one kolu cannot talk to at all. Both are REFUSALS at
 the tool, naming the agent — never a guessed keystroke landing in someone's
 half-finished work.
 
-A `steer` also names how kolu **sees** it land (`SteerSight`): the id of the
-newest prompt in the agent's transcript, which omp and pi write only when the
-turn takes the words, and a reader for the agent's steering pane. `agent_say`
-answers `landed`, `held` or `did-not-land` from them. codex and xyne carry
-`sight: "unmeasured"` — nobody has measured how they hold a steer, so their
-answer stays `not-observable`.
+A `steer` also names how kolu **sees** it land (`SteerSight`): the newest
+prompt in the agent's transcript — its id AND its text, which omp and pi write
+only when the turn takes the words — plus a reader for the agent's steering
+pane that answers `holds`, `absent` or `unreadable`. `agent_say` answers
+`landed` (a new prompt carrying these words), `held`, `did-not-land` (pane and
+transcript both read, neither has them) or `cannot-tell` from them. codex and
+xyne carry `sight: "unmeasured"` — nobody has measured how they hold a steer,
+so their answer stays `not-observable`.
 
 ## Design
 

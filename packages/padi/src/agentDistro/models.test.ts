@@ -37,6 +37,34 @@ import { listAgentModels, runAgentLaunch, runAgentModels } from "./models.ts";
 
 setSpawnServerVersion("9.9.9-test");
 
+/** The daemon's log, as a record of what was handed to it: what a run printed
+ *  is capped BEFORE it reaches a file that outlives the question, and that is
+ *  only observable where the log is. */
+const logged = vi.hoisted(() => ({ warn: vi.fn(), error: vi.fn() }));
+vi.mock("../log.ts", () => {
+  const one = {
+    debug: vi.fn(),
+    info: vi.fn(),
+    warn: logged.warn,
+    error: logged.error,
+    child: () => one,
+  };
+  return { log: one };
+});
+
+/** The longest string in the newest call of `said` — what a run printed, as
+ *  the log got it. */
+const saidInLog = (said: typeof logged.warn): number => {
+  const call = said.mock.calls.at(-1);
+  if (call === undefined) throw new Error("nothing was logged");
+  const fields = call[0] as Record<string, unknown>;
+  return Math.max(
+    ...Object.values(fields)
+      .filter((value) => typeof value === "string")
+      .map((value) => value.length),
+  );
+};
+
 let bundle: string;
 
 /** A package whose picker runs `script` (POSIX sh). */
@@ -136,6 +164,53 @@ describe("runAgentModels", () => {
     );
     expect(existsSync(join(bundle, "ran"))).toBe(false);
   });
+
+  it("an answers file that is THERE and names nothing is broken, not old", async () => {
+    // A truncated or half-written package. "Too old" would send somebody to
+    // wait for an update that has already landed, so the two are told apart.
+    writeFileSync(join(bundle, PACKAGE_ANSWERS_FILE), "\n");
+    picker("touch ran; exit 1");
+    const failed = await run("omp").catch((err: unknown) => err);
+    expect(failed).toBeInstanceOf(AgentModelsUnavailable);
+    const why = (failed as AgentModelsUnavailable).why;
+    expect(why).not.toBe(agentsTooOldWords("this host"));
+    expect(why).toContain("broken");
+    expect(why).toContain(PACKAGE_ANSWERS_FILE);
+    expect(existsSync(join(bundle, "ran"))).toBe(false);
+  });
+
+  /** A quarter-megabyte of one letter, with shell builtins alone: the run
+   *  gets the environment it is given and nothing else, so `head` and `tr`
+   *  are not there to be called. */
+  const flood = (letter: string): string =>
+    [
+      `s=${letter.repeat(32)}`,
+      "i=0",
+      'while [ $i -lt 13 ]; do s="$s$s"; i=$((i+1)); done',
+    ].join("\n");
+
+  it("caps what a flooding list command puts in a refusal and in the log", async () => {
+    // The run carries the environment the person's dotfiles built — their
+    // keys are in it — so neither the refusal nor the daemon's log file
+    // keeps a megabyte of whatever it printed.
+    picker([flood("z"), 'echo "$s" >&2', "exit 1"].join("\n"));
+    const failed = await run("omp").catch((err: unknown) => err);
+    expect(failed).toBeInstanceOf(AgentModelsUnavailable);
+    const why = (failed as AgentModelsUnavailable).why;
+    expect(why.length).toBeLessThan(2_200);
+    expect(why).toContain("characters in all");
+    expect(saidInLog(logged.warn)).toBeLessThan(2_200);
+  });
+
+  it("caps what it logs of output it cannot read", async () => {
+    picker([flood("q"), 'echo "$s"'].join("\n"));
+    const failed = await run("omp").catch((err: unknown) => err);
+    expect(failed).toBeInstanceOf(AgentModelsUnavailable);
+    expect((failed as AgentModelsUnavailable).why).toContain(
+      "printed something kolu cannot read",
+    );
+    expect(saidInLog(logged.error)).toBeLessThan(2_200);
+  });
 });
 
 describe("listAgentModels", () => {
@@ -216,6 +291,13 @@ describe("the environment a list runs in", () => {
     encoding: "utf8",
   }).trim();
 
+  /** What a capture here is bounded by: a generous deadline (these shells
+   *  answer in milliseconds) and a question nobody withdraws. */
+  const CAPTURE = {
+    timeoutMs: 20_000,
+    signal: new AbortController().signal,
+  };
+
   it("a key only the person's rc file exports reaches the list", async () => {
     needsKey();
     const { input, rcDir } = terminalSpawn(bash, homeWithKey(), bundle);
@@ -232,7 +314,7 @@ describe("the environment a list runs in", () => {
       "LITELLM_API_KEY is not set",
     );
     // ... and in the environment the terminal's shell ends up with, it does.
-    const env = await readShellEnv(input, rcDir);
+    const env = await readShellEnv(input, rcDir, CAPTURE);
     expect(env.LITELLM_API_KEY).toBe("sk-from-bashrc");
     expect(
       await runAgentModels({ bundle, cwd: bundle, env, harness: "omp" }),
@@ -240,14 +322,16 @@ describe("the environment a list runs in", () => {
   });
 
   it("a shell that cannot be asked is a failure naming it, never the bare environment", async () => {
-    const broken = join(bundle, "broken-shell");
+    // Named `bash`, because a shell kolu cannot ask at all is refused before
+    // it is run (see `shellEnv.test.ts`); this one is asked, and fails.
+    const broken = join(bundle, "bash");
     writeFileSync(
       broken,
       "#!/bin/sh\necho 'broken-shell: cannot read /etc/hostile' >&2\nexit 3\n",
       { mode: 0o755 },
     );
     const { input, rcDir } = terminalSpawn(broken, homeWithKey(), bundle);
-    const failed = await readShellEnv(input, rcDir).catch(
+    const failed = await readShellEnv(input, rcDir, CAPTURE).catch(
       (err: unknown) => err,
     );
     expect(failed).toBeInstanceOf(ShellEnvUnreadable);

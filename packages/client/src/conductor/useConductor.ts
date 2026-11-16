@@ -269,9 +269,24 @@ export const useConductor = createSharedRoot<Conductor>(() => {
         "Sign-in failed",
         app.procedures.conductor.signIn({ method }),
         (result) => {
-          if (result.outcome === "signed-in") toast.success("Signed in");
-          if (result.outcome === "failed")
+          if (result.outcome === "failed") {
             toast.error("Sign-in did not complete");
+            return;
+          }
+          if (result.outcome !== "signed-in") return;
+          // TWO FACTS, TWO SENTENCES. The signature landed — that is the
+          // success — and the restart it needs to reach the agent may not
+          // have happened: a turn was running, or the agent would not come
+          // back. A person told only "Signed in" would send the next message
+          // as the OLD account and never know why.
+          if (result.restart.kind === "did-not-restart") {
+            toast.warning(
+              `Signed in, but the agent did not restart: ${result.restart.why}`,
+              { duration: 10_000 },
+            );
+            return;
+          }
+          toast.success("Signed in — the agent restarted");
         },
       ),
     signInInput: (text) =>

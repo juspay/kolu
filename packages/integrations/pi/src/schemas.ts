@@ -13,7 +13,8 @@ import {
   NODE_CLI_SHIMS,
   SESSION_PATH_OR_UUID_RE,
   TaskProgressSchema,
-  paneItemIs,
+  type PaneReading,
+  paneHolds,
 } from "anyagent";
 import { Schema } from "effect";
 
@@ -76,6 +77,12 @@ export const PiInfoSchema = Schema.Struct({
    *  this changing after `agent_say`'s keys is the proof the words landed.
    *  Null before the first prompt is written. */
   lastPromptId: Schema.NullOr(Schema.String),
+  /** That entry's TEXT, whitespace-collapsed and cut to
+   *  `LAST_PROMPT_TEXT_CHARS` — what makes a moved `lastPromptId` THIS
+   *  steer's landing rather than an older held steer's or the human's own
+   *  typing. Null when the entry carried no text part, or before the first
+   *  prompt. */
+  lastPromptText: Schema.NullOr(Schema.String),
 });
 
 export type PiInfo = typeof PiInfoSchema.Type;
@@ -91,20 +98,34 @@ const PI_MARK = {
 
 /** pi's steering pane — one `Steering: <message>` row per held message, then
  *  `↳ Alt+Up to edit all queued messages`; captured from pi 1.5.2 in an
- *  80-column kolu terminal (2026-11-15). Read over the screen's last 40 rows,
- *  where the pane sits above the input box. */
+ *  80-column kolu terminal (2026-11-15). Read over the screen's last
+ *  {@link PI_STEERING_ROWS} rows, where the pane sits above the input box. The
+ *  FOOTER is what makes the pane readable or not: it is drawn only when pi is
+ *  holding something, so a footer with no item row above it is a pane whose
+ *  items this reader could not parse — never a pane without these words. */
 const PI_STEERING_ITEM = /^\s*Steering: (.*)$/;
+const PI_STEERING_FOOTER = /^\s*↳ Alt\+Up to edit all queued messages\s*$/;
+const PI_STEERING_ROWS = 40;
 
-/** Whether pi's steering pane holds THESE words — a steer pi accepted and is
- *  holding for the running step to end. */
-export function piSteerHeld(screenText: string, words: string): boolean {
-  return screenText
-    .split("\n")
-    .slice(-40)
-    .some((line) => {
-      const item = PI_STEERING_ITEM.exec(line);
-      return item !== null && paneItemIs(item[1] ?? "", words);
-    });
+/** What pi's steering pane says about THESE words — a steer pi accepted and is
+ *  holding for the running step to end, a pane without them, or a pane this
+ *  reader could not parse. */
+export function piSteerPane(screenText: string, words: string): PaneReading {
+  const rows = screenText.split("\n").slice(-PI_STEERING_ROWS);
+  const items: string[] = [];
+  for (const line of rows) {
+    const item = PI_STEERING_ITEM.exec(line);
+    if (item !== null) items.push(item[1] ?? "");
+  }
+  if (items.length === 0) {
+    return rows.some((line) => PI_STEERING_FOOTER.test(line))
+      ? {
+          kind: "unreadable",
+          why: `pi's steering pane is open and kolu could read none of its rows in the ${PI_STEERING_ROWS} it looked at`,
+        }
+      : { kind: "absent" };
+  }
+  return paneHolds(items, words);
 }
 
 /** Pi's vocabulary — display name, brand mark, CLI grammar (including its
@@ -153,8 +174,11 @@ export const piVocab: AgentVocab<PiInfo> = {
       keys: ["Enter"],
       delivery: "steer",
       sight: {
-        lastPrompt: (info) => info.lastPromptId,
-        held: piSteerHeld,
+        lastPrompt: (info) =>
+          info.lastPromptId === null
+            ? null
+            : { id: info.lastPromptId, text: info.lastPromptText },
+        pane: piSteerPane,
       },
     },
     verified:

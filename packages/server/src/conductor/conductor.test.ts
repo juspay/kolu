@@ -196,6 +196,11 @@ interface Spawned {
    *  what the wipe does with that row is to let a test interleave at the same
    *  point. */
   readonly onNewSession: (run: () => void) => void;
+  /** ... and what it does WHILE a sign-in is running. A real login is minutes
+   *  long and a conversation can move under it — somebody presses New
+   *  session, or the agent opens a different one — which is the whole reason
+   *  the restart is told which conversation to come back to. */
+  readonly onSignIn: (run: () => void) => void;
   /** The attachments this conversation was HANDED, per prompt — what kolu-server
    *  wrote and filled in before the agent was told anything. */
   readonly handed: () => ReadonlyArray<ReadonlyArray<ConductorAttachment>>;
@@ -226,6 +231,7 @@ function fakeSpawner(): {
     let stops = 0;
     let sessions = 0;
     let leaving: (() => void) | null = null;
+    let signingIn: (() => void) | null = null;
     const handed: ReadonlyArray<ConductorAttachment>[] = [];
     const wakes: Array<{
       text: string;
@@ -267,7 +273,10 @@ function fakeSpawner(): {
       // sends one: kolu's questions about a work are decisions on the work,
       // answered through `answerWork` with nothing waiting on them.
       answer: async () => true,
-      signIn: async () => "signed-in",
+      signIn: async () => {
+        signingIn?.();
+        return "signed-in";
+      },
       askSignIn: () => {},
       signInInput: async () => {},
       signInCancel: async () => false,
@@ -317,6 +326,9 @@ function fakeSpawner(): {
       sessions: () => sessions,
       onNewSession: (run) => {
         leaving = run;
+      },
+      onSignIn: (run) => {
+        signingIn = run;
       },
       handed: () => handed,
       wakes: () => wakes,
@@ -466,6 +478,11 @@ interface TestOffer {
   readonly modelAsks: () => ReadonlyArray<string>;
   /** Every launch it was asked for, as `<harness>@<host>`. */
   readonly launchAsks: () => ReadonlyArray<string>;
+  /** ... and the listing cannot be ASKED AT ALL, throwing these words, until
+   *  it is handed `null` again. Distinct from {@link BRITTLE}, whose host
+   *  answers "I could not list" as a VALUE: a throw is the arm whose message
+   *  comes out of the person's own shell. */
+  readonly failModels: (why: string | null) => void;
 }
 
 /** How every harness of this test offer takes a model — the host's word, the
@@ -475,11 +492,13 @@ const MODEL_FLAG = { kind: "flag", flag: "--model" } as const;
 const koluOffers = (): TestOffer => {
   const modelAsks: string[] = [];
   const launchAsks: string[] = [];
+  let modelsFail: string | null = null;
   return {
     offer: {
       harnesses: () => [OMP, UNLISTING, BRITTLE],
       models: async ({ host, repo, harness }) => {
         modelAsks.push(`${harness}@${host}:${repo}`);
+        if (modelsFail !== null) throw new Error(modelsFail);
         if (harness === OMP) return { kind: "listed", ids: OMP_MODELS };
         if (harness === UNLISTING) return { kind: "unlisted" };
         if (harness === BRITTLE)
@@ -495,6 +514,9 @@ const koluOffers = (): TestOffer => {
     },
     modelAsks: () => modelAsks,
     launchAsks: () => launchAsks,
+    failModels: (why) => {
+      modelsFail = why;
+    },
   };
 };
 
@@ -548,6 +570,13 @@ interface Rig {
   modelAsks: () => ReadonlyArray<string>;
   /** ... and every launch `startOf` asked it for. */
   launchAsks: () => ReadonlyArray<string>;
+  /** Make the model listing THROW — the arm whose message comes back out of
+   *  the person's shell. */
+  failModels: (why: string | null) => void;
+  /** TAKE THIS KOLU'S FLEET MCP FACE AWAY, so the NEXT bring-up refuses: the
+   *  only way a respawn fails in this file, and what a restart has to survive
+   *  without rewriting the record. */
+  loseFleetMcp: () => void;
 }
 
 function rig(over: Remembered = {}): Rig {
@@ -571,12 +600,15 @@ function rig(over: Remembered = {}): Rig {
     reading: { level: ConductorReadingLevel; since: string } | null;
   }> = [];
   const offered = koluOffers();
+  let lostFleetMcp = false;
   const host = startConductorHost({
     log,
     home: HOME,
     hostName: HOST,
-    fleetMcp: () =>
-      over.endpoint === undefined ? liveEndpoint : over.endpoint,
+    fleetMcp: () => {
+      if (lostFleetMcp) return null;
+      return over.endpoint === undefined ? liveEndpoint : over.endpoint;
+    },
     offer: () => offered.offer,
     // THE REAL PROOF, pushed in the way the boot pushes it: the package that
     // owns the conversation does not own the MCP pin, so what it is handed is
@@ -627,6 +659,10 @@ function rig(over: Remembered = {}): Rig {
     watchScopeMoved: () => watchScopeMoved,
     modelAsks: offered.modelAsks,
     launchAsks: offered.launchAsks,
+    failModels: offered.failModels,
+    loseFleetMcp: () => {
+      lostFleetMcp = true;
+    },
   };
 }
 
@@ -1145,7 +1181,10 @@ describe("a dead adapter (M3)", () => {
       state: { ...DEFAULT_CONDUCTOR_STATE, phase: "idle", sessionId: "sess-1" },
     });
 
-    expect(await r.host.signIn("subscription")).toBe("signed-in");
+    expect(await r.host.signIn("subscription")).toEqual({
+      outcome: "signed-in",
+      restart: { kind: "restarted" },
+    });
     expect(first.stops()).toBe(1);
     expect(r.spawns).toHaveLength(2);
     expect(r.spawns[1]?.options.resume).toBe("sess-1");
@@ -1155,6 +1194,166 @@ describe("a dead adapter (M3)", () => {
     expect(r.spawns[1]?.stops()).toBe(1);
     expect(r.spawns).toHaveLength(3);
     expect(r.spawns[2]?.options.resume).toBe("sess-1");
+  });
+
+  it("restarts into the conversation that was live when the button was pressed", async () => {
+    // THE DEFECT: there were two owners of "re-enter the conversation" — the
+    // harness after a sign-in, out of the id it BOOTED with, and this
+    // restart, which latched whatever that produced. Somebody who had pressed
+    // New session and typed in the new conversation was put back in the one
+    // they left. The session is read ONCE, when the sign-in is asked for.
+    const r = rig({
+      record: { sessionId: "sess-booted", cwd: HOME, model: null, fleet: [] },
+      rows: [row("agent:1", 1, "an answer")],
+    });
+    await r.host.prompt("first", [], [], false);
+    const first = r.spawns[0];
+    if (first === undefined) throw new Error("the host spawned nothing");
+    // New session: the conversation the person is in now.
+    first.push({
+      kind: "state",
+      state: {
+        ...DEFAULT_CONDUCTOR_STATE,
+        phase: "idle",
+        sessionId: "sess-new",
+      },
+    });
+    // ... and an agent that moves the conversation again WHILE the login runs
+    // — which is exactly what the old harness did on its way out of a
+    // successful sign-in.
+    first.onSignIn(() => {
+      first.push({
+        kind: "state",
+        state: {
+          ...DEFAULT_CONDUCTOR_STATE,
+          phase: "idle",
+          sessionId: "sess-booted",
+        },
+      });
+    });
+
+    await r.host.signIn("subscription");
+    expect(r.spawns[1]?.options.resume).toBe("sess-new");
+  });
+
+  it("restarts into a conversation this process started, never a silent fresh one", async () => {
+    // Booted with nothing to resume, several turns into a conversation the
+    // agent opened here. A sign-in used to leave the harness in a FRESH
+    // session — no divider, no notice — while every row stayed on screen and
+    // the toast said it had restarted into the same one.
+    const r = rig();
+    await r.host.prompt("first", [], [], false);
+    const first = r.spawns[0];
+    if (first === undefined) throw new Error("the host spawned nothing");
+    expect(first.options.resume).toBeNull();
+    first.push({
+      kind: "state",
+      state: { ...DEFAULT_CONDUCTOR_STATE, phase: "idle", sessionId: "sess-z" },
+    });
+    first.push({
+      kind: "rows",
+      upserts: [row("agent:1", 1, "an answer")],
+      removes: [],
+      appends: [],
+    });
+    first.onSignIn(() => {
+      first.push({
+        kind: "state",
+        state: {
+          ...DEFAULT_CONDUCTOR_STATE,
+          phase: "idle",
+          sessionId: "sess-somewhere-else",
+        },
+      });
+    });
+
+    await r.host.signIn("subscription");
+    expect(r.spawns[1]?.options.resume).toBe("sess-z");
+  });
+
+  it("REFUSES a restart while a turn is running, and says what to do", async () => {
+    // `stop()` sets `stopped` before it tears anything down, so a restart
+    // mid-turn ends the answer in the middle of a sentence, drops a message
+    // queued behind it, and reports none of it.
+    const r = rig({
+      record: { sessionId: "sess-1", cwd: HOME, model: null, fleet: [] },
+      rows: [row("agent:1", 1, "an answer")],
+    });
+    await r.host.prompt("first", [], [], false);
+    const first = r.spawns[0];
+    if (first === undefined) throw new Error("the host spawned nothing");
+    first.push({
+      kind: "state",
+      state: {
+        ...DEFAULT_CONDUCTOR_STATE,
+        phase: "working",
+        sessionId: "sess-1",
+        busySince: T0,
+      },
+    });
+
+    await expect(r.host.reloadAgent()).rejects.toThrow(/Stop the turn/);
+    expect(first.stops()).toBe(0);
+    expect(r.spawns).toHaveLength(1);
+  });
+
+  it("answers BOTH facts when the login landed and the restart did not", async () => {
+    // The signature is in the store — saying "Sign-in failed" over that is a
+    // lie somebody acts on by signing in twice. The two facts are two fields:
+    // signed in, and the agent did not restart, with the refusal's own words.
+    const r = rig({
+      record: { sessionId: "sess-1", cwd: HOME, model: null, fleet: [] },
+      rows: [row("agent:1", 1, "an answer")],
+    });
+    await r.host.prompt("first", [], [], false);
+    const first = r.spawns[0];
+    if (first === undefined) throw new Error("the host spawned nothing");
+    // The turn a person started while the login was running: the restart is
+    // refused, the sign-in still happened.
+    first.onSignIn(() => {
+      first.push({
+        kind: "state",
+        state: {
+          ...DEFAULT_CONDUCTOR_STATE,
+          phase: "working",
+          sessionId: "sess-1",
+          busySince: T0,
+        },
+      });
+    });
+
+    const ended = await r.host.signIn("subscription");
+    expect(ended.outcome).toBe("signed-in");
+    expect(ended.restart.kind).toBe("did-not-restart");
+    expect(
+      ended.restart.kind === "did-not-restart" ? ended.restart.why : "",
+    ).toContain("Stop the turn");
+    expect(r.spawns).toHaveLength(1);
+  });
+
+  it("keeps the record's session when the respawn FAILS", async () => {
+    // A stop publishes `sessionId: null` and we persist what we are told. A
+    // restart is not a dispose, so the old guard let that land: the record
+    // said there was no conversation while the transcript held its rows, and
+    // a kolu-server that went down in that window came back into a fresh one.
+    const r = rig({
+      record: { sessionId: "sess-1", cwd: HOME, model: null, fleet: [] },
+      rows: [row("agent:1", 1, "an answer")],
+    });
+    await r.host.prompt("first", [], [], false);
+    const first = r.spawns[0];
+    if (first === undefined) throw new Error("the host spawned nothing");
+    first.push({
+      kind: "state",
+      state: { ...DEFAULT_CONDUCTOR_STATE, phase: "idle", sessionId: "sess-1" },
+    });
+
+    r.loseFleetMcp();
+    await expect(r.host.reloadAgent()).rejects.toThrow();
+    expect(first.stops()).toBe(1);
+    expect(r.host.state().sessionId).toBe("sess-1");
+    await r.host.dispose();
+    expect(r.record.value().sessionId).toBe("sess-1");
   });
 
   it("fences the REPLACEMENT on the rows we still hold (R2)", async () => {
@@ -3092,6 +3291,42 @@ describe("opening a piece of work", () => {
           (one) => one.kind === "ask" || one.kind === "work-ask",
         ),
       ).toBe(false);
+    });
+
+    it("names the harness and the host when the listing fails, and quotes nothing", async () => {
+      // A model listing runs in the environment the person's own terminal
+      // ends up with, so what comes back when it fails carries the tail of
+      // their shell's output — a `set -x` line, a misquoted
+      // `export KEY=$(…)`. This refusal is handed to the CONDUCTOR: sent to a
+      // model provider and kept in the transcript. The reason stays on the
+      // screen of the person whose shell printed it.
+      const r = rig();
+      await asked(r);
+      r.failModels(
+        "agent-distro omp: error: + export LITELLM_API_KEY=sk-live-9ab3c7d1e5f00042",
+      );
+      const refusal = r.host.openWork({
+        key: workKey(),
+        title: "fix the parser",
+        setup: [
+          given("mode", "trivial"),
+          given("implementor.harness", OMP),
+          given("implementor.model", OMP_MODELS[1]),
+          given("on-green", "merge"),
+        ],
+      });
+      await expect(refusal).rejects.toMatchObject({ kind: "not-offered" });
+      const why = await refusal.then(
+        () => "",
+        (err: unknown) => (err instanceof Error ? err.message : String(err)),
+      );
+      expect(why).not.toContain("sk-live-9ab3c7d1e5f00042");
+      expect(why).not.toContain("LITELLM_API_KEY");
+      // What it DOES say: which harness, which host, and that the reason is
+      // somewhere only the human can read it.
+      expect(why).toContain(OMP);
+      expect(why).toContain("local");
+      expect(why).toContain("human");
     });
 
     it("checks a MODEL the request named against the harness it named with it", async () => {

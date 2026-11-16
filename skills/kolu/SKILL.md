@@ -75,10 +75,14 @@ terminal can move under — that gap is a race, not a formality.
   (an agent that had written nothing yet: kolu saw the Enter reach it; its reply
   comes later — do not say it again), or `"did-not-begin"` within a few
   seconds, in which case **read the screen rather than saying it again**. A
-  steer to omp or pi answers `"landed"` (in the running turn's transcript),
-  `"held"` (in its steering pane until a long tool call ends — it is delivered
-  then on its own; **never press Enter to hurry it**, which in omp kills the
-  running tool) or `"did-not-land"` (read the screen). It
+  steer to omp or pi answers `"landed"` (the running turn's transcript gained a
+  prompt carrying those exact words), `"held"` (in its steering pane until a
+  long tool call ends — it is delivered then on its own; **never press Enter to
+  hurry it**, which in omp kills the running tool), `"did-not-land"` (kolu read
+  both an empty-of-them pane and a transcript without them — read the screen),
+  `"cannot-tell"` (one of those two could not be read; what became of the words
+  is unknown, so read the screen and never resend blind) or `"lost-sight"` (the
+  terminal went away after the keys). It
   REFUSES rather than guessing: a terminal with no agent (a plain shell), an
   agent still **starting** (its screen is being drawn — wait for `fresh`), an
   agent with no verified recipe, a terminal that is asleep, empty text.

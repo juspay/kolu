@@ -483,4 +483,13 @@ describe("derivePiState — the newest prompt, which a landed steer moves", () =
       "1930b347",
     );
   });
+
+  it("reads that entry's TEXT, which is what makes a landing THIS steer's", () => {
+    // Without it, any prompt moving inside `agent_say`'s watch — an older
+    // held steer being handed over, the human typing — reads as the words
+    // landing.
+    expect(derivePiState([header, user("ship it")])?.lastPromptText).toBe(
+      "ship it",
+    );
+  });
 });

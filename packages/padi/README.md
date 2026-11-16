@@ -780,14 +780,34 @@ and one spawn layer carry it; the module is `src/agentDistro/`.
   dotfiles are read the way a terminal reads them
   (`src/ptyHost/shellEnv.ts`, its wrapper files written by kaval's
   `writeInitFiles`). A key only `~/.bashrc` exports reaches the list, as it
-  reaches a launch. It answers upstream's word unchanged: the ids the harness
+  reaches a launch.
+
+  THE CAPTURE'S OWN RULES, since asking a shell is not spawning one. Only a
+  shell kolu wraps can be asked (`kolu-pty`'s `SHELLS_KOLU_WRAPS`: bash and
+  zsh) — any other is named as such before anything is spawned. It runs in
+  its own session, so an rc file's `/dev/tty` prompt cannot hang it and what
+  it started dies with it: a capture that does not answer in time, or whose
+  caller withdrew the question, ends by SIGTERM→SIGKILL on the whole group
+  and settles either way. What is printed on fd 3 is DECODED, never cast, and
+  neither it nor the shell's stderr is kept past its cap. The answer is what
+  the person's shell contributed: this spawn's own plumbing (`ZDOTDIR` naming
+  a wrapper directory already removed, `KAVAL_TERMINAL_ID`) is dropped, so
+  nothing started from it is told it lives in a terminal that never existed.
+  Calls in flight for the same directory and layer share ONE capture (an
+  Effect `Cache` that keeps nothing once it answers), so a two-role form
+  replays the dotfiles once rather than per question.
+
+  It answers upstream's word unchanged: the ids the harness
   listed or `unlisted`. A host whose agents are not ready, a serving package
   OLDER than kolu's calls (read off its own `share/agent-distro/answers`, so
-  its picker is never run for it), a shell that cannot be asked (named, never
+  its picker is never run for it) or one whose answers file is there and
+  names nothing (BROKEN, not old: `AgentPackageUnreadable`, which also turns
+  the host's status to `error`), a shell that cannot be asked (named, never
   a quiet fall back to padi's own environment), a list command that fails, or
   output kolu cannot read is the declared `AgentModelsUnavailable` with the
   words (`@kolu/agent-distro/status`'s `agentsNotReadyWords` /
-  `agentsTooOldWords`, the failure's own stderr) — never an empty list. The
+  `agentsTooOldWords`, the failure's own stderr, capped) — never an empty
+  list. The
   `agentDistroStatus` `ready` arm carries the serving package's `answers`, so
   kolu-server refuses a harness question for such a host before any form
   exists. Read-only; denied on the MCP face, because the harness and model

@@ -28,7 +28,17 @@ import {
   serializeRestart,
 } from "@kolu/surface-daemon-supervisor";
 import { processStateReader } from "@kolu/surface-daemon-supervisor";
-import { Cause, Context, Effect, Fiber, MutableRef, Ref } from "effect";
+import {
+  Cache,
+  Cause,
+  Context,
+  Duration,
+  Effect,
+  Fiber,
+  MutableRef,
+  Ref,
+  Schema,
+} from "effect";
 import {
   DEFAULT_MIRROR_SCROLLBACK,
   kavalConvergencePolicy,
@@ -53,6 +63,7 @@ import {
 } from "osfacts-client";
 import type { AgentLayer } from "../agentDistro/layer.ts";
 import { agentBinDir } from "@kolu/agent-distro/bundle";
+import { DeliveredProfileSchema } from "@kolu/agent-distro/landing";
 import {
   AGENT_DISTRO_PLUGINS_ENV,
   AI_PROFILE_ENV,
@@ -78,7 +89,11 @@ import {
   type ConvergeVerdict,
   convergeAndReconcile,
 } from "./reconcileConverged.ts";
-import { readShellEnv, shellEnvSpawnId } from "./shellEnv.ts";
+import {
+  readShellEnv,
+  SHELL_ENV_TIMEOUT_MS,
+  shellEnvSpawnId,
+} from "./shellEnv.ts";
 
 type Identity = PtyHostIdentity;
 
@@ -789,15 +804,74 @@ export function buildTerminalSpawnInput(args: {
   });
 }
 
+/** WHAT A CAPTURE'S ANSWER DEPENDS ON — the directory it runs in and the
+ *  agent layer it runs with — as one string, so two calls in flight for the
+ *  same pair share one shell. Built field by field, in a fixed order, so the
+ *  same pair is the same key; read back by the lookup below, which is why it
+ *  carries the layer whole. */
+const AskSchema = Schema.Struct({
+  cwd: Schema.String,
+  agents: Schema.Struct({
+    bundle: Schema.String,
+    plugins: Schema.String,
+    profiles: Schema.Array(DeliveredProfileSchema),
+  }),
+});
+
+type ShellEnvAsk = typeof AskSchema.Type;
+
+const readAsk = Schema.decodeUnknownSync(AskSchema);
+
+const askKey = (ask: ShellEnvAsk): string =>
+  JSON.stringify({
+    cwd: ask.cwd,
+    agents: {
+      bundle: ask.agents.bundle,
+      plugins: ask.agents.plugins,
+      profiles: ask.agents.profiles.map((one) => ({
+        reference: one.reference,
+        name: one.name,
+        path: one.path,
+        ...(one.rev === undefined ? {} : { rev: one.rev }),
+      })),
+    },
+  });
+
+/** ONE CAPTURE PER DIRECTORY AND LAYER, for as long as it is in flight. A
+ *  form asks for every role's harness, asks again on each change and again
+ *  when the answer is checked, and replaying a person's dotfiles for each of
+ *  those is seconds of their time per question. `Cache` shares a PENDING
+ *  lookup among its callers and, with a zero time to live, keeps nothing once
+ *  it answers: a capture is a reading of the person's dotfiles AS THEY ARE
+ *  NOW, never a remembered one. It also counts the callers, so the shell is
+ *  interrupted — and its group killed — only when the last of them is gone. */
+const captures = Effect.runSync(
+  Cache.make({
+    capacity: 16,
+    timeToLive: Duration.zero,
+    lookup: (key: string) => captureShellEnv(readAsk(JSON.parse(key))),
+  }),
+);
+
 /** THE ENVIRONMENT A NEW TERMINAL IN `cwd` WOULD HAVE, with `agents`, once its
  *  shell has read the person's dotfiles: that terminal's own spawn
  *  ({@link buildTerminalSpawnInput}), run once to the command, its wrapper
  *  files written where a terminal's are (`./shellEnv.ts`). Fails with
- *  {@link ShellEnvUnreadable} when the shell cannot be asked. */
-export function terminalShellEnv(args: {
-  cwd: string;
-  agents: AgentLayer;
-}): Effect.Effect<Record<string, string>, unknown> {
+ *  {@link ShellEnvUnreadable} when the shell cannot be asked. Calls in flight
+ *  for the same directory and layer share the one shell. */
+export function terminalShellEnv(
+  args: ShellEnvAsk,
+): Effect.Effect<Record<string, string>, unknown> {
+  return Cache.get(captures, askKey(args));
+}
+
+/** The one shell a {@link terminalShellEnv} call runs. Interrupting it aborts
+ *  the capture, which kills the shell's process group: a superseded question
+ *  (the harness changed in the form, the tab closed) leaves nothing replaying
+ *  dotfiles behind it. */
+function captureShellEnv(
+  args: ShellEnvAsk,
+): Effect.Effect<Record<string, string>, unknown> {
   return Effect.gen(function* () {
     const input = yield* buildTerminalSpawnInput({
       id: shellEnvSpawnId(),
@@ -806,7 +880,11 @@ export function terminalShellEnv(args: {
     });
     const { rcDir } = yield* endpointState.info;
     return yield* Effect.tryPromise({
-      try: () => readShellEnv(input, rcDir),
+      try: (signal) =>
+        readShellEnv(input, rcDir, {
+          timeoutMs: SHELL_ENV_TIMEOUT_MS,
+          signal,
+        }),
       catch: (err: unknown) => err,
     });
   });

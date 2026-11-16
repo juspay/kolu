@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   isOmpScreenPollable,
-  ompSteerHeld,
+  ompSteerPane,
   promoteOmpFromScreen,
   screenHasOmpPrompt,
   TAIL_REGION_LINES,
@@ -61,6 +61,7 @@ const info = (state: OmpInfo["state"]): OmpInfo => ({
   contextTokens: 1234,
   startedAt: Date.now(),
   lastPromptId: null,
+  lastPromptText: null,
 });
 
 describe("screenHasOmpPrompt", () => {
@@ -161,29 +162,65 @@ const TYPED_ONLY = [
   "╰─ STEER-FOUR: also say the word LYCHEE.                                       ",
 ].join("\n");
 
-describe("ompSteerHeld", () => {
+describe("ompSteerPane", () => {
   it("finds a short line, a line cut at the width, and a multiline paste in the pane", () => {
-    expect(ompSteerHeld(HELD, "STEER-FOUR: also say the word LYCHEE.")).toBe(
-      true,
+    expect(ompSteerPane(HELD, "STEER-FOUR: also say the word LYCHEE.")).toEqual(
+      {
+        kind: "holds",
+      },
     );
     expect(
-      ompSteerHeld(
+      ompSteerPane(
         HELD_LONG,
         `STEER-THREE: this is a deliberately long single line, the length of a real brief, ${"padding ".repeat(60)}`,
       ),
-    ).toBe(true);
+    ).toEqual({ kind: "holds" });
     expect(
-      ompSteerHeld(
+      ompSteerPane(
         HELD_MULTILINE,
         "STEER-FIVE, a multiline steer.\nLine two of it.\nWhen you reply, also say the word GUAVA.",
       ),
-    ).toBe(true);
+    ).toEqual({ kind: "holds" });
   });
 
-  it("does not count words still in the input box, or another message in the pane", () => {
+  it("words still in the input box, or another message in the pane, are ABSENT", () => {
     expect(
-      ompSteerHeld(TYPED_ONLY, "STEER-FOUR: also say the word LYCHEE."),
-    ).toBe(false);
-    expect(ompSteerHeld(HELD, "a different message entirely")).toBe(false);
+      ompSteerPane(TYPED_ONLY, "STEER-FOUR: also say the word LYCHEE."),
+    ).toEqual({ kind: "absent" });
+    expect(ompSteerPane(HELD, "a different message entirely")).toEqual({
+      kind: "absent",
+    });
+  });
+
+  it("a pane whose rows do not parse into the count it states is UNREADABLE", () => {
+    // omp says it holds two and only one row reads as an item — a wrapped
+    // item, or a layout a new omp draws differently. Not an empty pane: an
+    // `absent` here would be `agent_say` reporting a non-delivery nobody saw.
+    const WRAPPED = [
+      " Steering · 2 ",
+      "   1. the first message, which wrapped onto ",
+      "      a second row the item pattern cannot read ",
+      "   └ Alt+↑ to edit ",
+    ].join("\n");
+    const reading = ompSteerPane(WRAPPED, "ship it");
+    expect(reading.kind).toBe("unreadable");
+    expect(reading.kind === "unreadable" && reading.why).toContain("2");
+  });
+
+  it("a pane whose header is above the rows kolu reads is UNREADABLE", () => {
+    const tall = [
+      ...Array.from(
+        { length: TAIL_REGION_LINES },
+        (_, i) => `   ${i + 1}. a message kolu never sees the header of `,
+      ),
+      "   └ Alt+↑ to edit ",
+    ].join("\n");
+    expect(ompSteerPane(tall, "ship it").kind).toBe("unreadable");
+  });
+
+  it("no pane at all is ABSENT", () => {
+    expect(ompSteerPane("ordinary output\n", "ship it")).toEqual({
+      kind: "absent",
+    });
   });
 });

@@ -138,38 +138,135 @@ export interface AgentResumePolicy<Info> {
  *  held steer by INTERRUPTING the running tool, which kills the step. */
 export type AgentSayDelivery = "steer" | "queue";
 
+/** The newest user message in an agent's transcript, as a steer sight reads
+ *  it: its id, and the text it carries. The TEXT is what makes a landing this
+ *  steer's rather than anyone's — an older held steer being taken, or the
+ *  human typing in that terminal, moves the id too. `text` is null when the
+ *  entry carried no readable text (no text part at all): a prompt kolu cannot
+ *  compare, which `agent_say` says it cannot tell about rather than claiming. */
+export interface SteerPrompt {
+  readonly id: string;
+  readonly text: string | null;
+}
+
+/** What a steering pane says about THESE words. Three-valued on purpose: a
+ *  pane the reader could not parse (wrapped rows, a label a new agent version
+ *  changed, an item the cut left unidentifiable) is NOT an empty pane, and
+ *  reporting it as one would be `agent_say` claiming kolu saw an absence it
+ *  never saw. `why` names what the reader could not do with it. */
+export type PaneReading =
+  | { readonly kind: "holds" }
+  | { readonly kind: "absent" }
+  | { readonly kind: "unreadable"; readonly why: string };
+
 /** How kolu SEES a steer — what lets `agent_say` answer whether the words
  *  reached the running turn instead of naming a delivery it never saw.
  *
  *  Both halves are the agent's own records, read rather than inferred:
  *
- *   - `lastPrompt` — the id of the newest user message in the transcript. A
- *     steer is written there when the turn TAKES it and not before (measured:
- *     omp 18.20.2 and pi 1.5.2 append the user entry at the step boundary that
- *     hands it over), so a new id after the keys is the words having landed.
- *   - `held` — whether the screen shows these words in the agent's steering
- *     pane: typed, accepted, and waiting for a step that cannot be interrupted
- *     to end. Measured, a held steer is delivered on its own when the step
- *     ends; nothing needs pressing. */
+ *   - `lastPrompt` — the newest user message in the transcript ({@link
+ *     SteerPrompt}). A steer is written there when the turn TAKES it and not
+ *     before (measured: omp 18.20.2 and pi 1.5.2 append the user entry at the
+ *     step boundary that hands it over), so a new id whose text IS these words
+ *     is the words having landed.
+ *   - `pane` — what the agent's steering pane shows about these words: typed,
+ *     accepted, and waiting for a step that cannot be interrupted to end.
+ *     Measured, a held steer is delivered on its own when the step ends;
+ *     nothing needs pressing. */
 export interface SteerSight<Info> {
-  readonly lastPrompt: (info: Info) => string | null;
-  readonly held: (screen: string, words: string) => boolean;
+  readonly lastPrompt: (info: Info) => SteerPrompt | null;
+  readonly pane: (screen: string, words: string) => PaneReading;
 }
 
-/** Whether one item a steering pane draws is THESE words — the comparison
- *  every pane reader shares, so a sight states only how its own pane is drawn.
+/** How much of a prompt's text a sight carries, and the one normalisation both
+ *  sides of the comparison pass through. A whole prompt can be a pasted file,
+ *  and it rides every record upsert for that terminal, so what is carried is
+ *  the whitespace-collapsed text CUT to this many characters. Both sides are
+ *  cut at the same place, so the comparison stays an equality — never "one is
+ *  a prefix of the other", which is the ambiguity {@link paneHolds} exists to
+ *  refuse. */
+export const LAST_PROMPT_TEXT_CHARS = 512;
+
+/** A prompt's text as a sight carries and compares it. */
+export function normalisePromptText(text: string): string {
+  return text.replace(/\s+/g, " ").trim().slice(0, LAST_PROMPT_TEXT_CHARS);
+}
+
+/** Is the text of a transcript's newest prompt THESE words? Equality over
+ *  {@link normalisePromptText}, so a prompt that moved because someone else's
+ *  words landed is not read as this steer landing. */
+export function promptTextIs(stored: string, words: string): boolean {
+  const kept = normalisePromptText(stored);
+  return kept !== "" && kept === normalisePromptText(words);
+}
+
+/** The TEXT of a transcript user entry's `content` parts, normalised the way a
+ *  sight carries it — omp and pi write the same shape
+ *  (`[{ "type": "text", "text": … }]`), so the reader is shared rather than
+ *  copied into each fold. Null when the entry carried no text part at all: a
+ *  prompt kolu cannot compare, said as that rather than as an empty string. */
+export function promptTextOfParts(parts: unknown): string | null {
+  if (!Array.isArray(parts)) return null;
+  const texts: string[] = [];
+  for (const part of parts) {
+    if (part === null || typeof part !== "object") continue;
+    const { type, text } = part as { type?: unknown; text?: unknown };
+    if (type === "text" && typeof text === "string") texts.push(text);
+  }
+  if (texts.length === 0) return null;
+  const kept = normalisePromptText(texts.join("\n"));
+  return kept === "" ? null : kept;
+}
+
+/** What a steering pane's ITEMS say about these words — the comparison every
+ *  pane reader shares, so a sight states only how its own pane is drawn and
+ *  hands the rows here.
  *
  *  A pane draws an item on one row: cut to the width with a trailing `…`, a
- *  multiline message joined (omp's `↵`). So the item is compared against the
- *  words' FIRST line, each with its whitespace collapsed, in whichever
- *  direction the cut leaves: the item a prefix of that line, or that line a
- *  prefix of the item. An item the cut left empty matches nothing. */
-export function paneItemIs(item: string, words: string): boolean {
-  const collapse = (s: string): string => s.replace(/\s+/g, " ").trim();
-  const drawn = collapse(item.replace(/…\s*$/, ""));
-  const first = collapse(words.trim().split(/\r?\n/)[0] ?? "");
-  if (drawn === "" || first === "") return false;
-  return first.startsWith(drawn) || drawn.startsWith(first);
+ *  multiline message joined by a newline mark (omp's `↵`). So the WHOLE of the
+ *  words — every line, the marks dropped and the whitespace collapsed — must be
+ *  the whole of an item. A prefix counts only where the pane CUT the item, and
+ *  only when exactly one item can be it. Two cut items that could both be these
+ *  words, or an item the cut left empty, are `unreadable`: kolu saw a pane it
+ *  cannot read, which is not an empty one. */
+export function paneHolds(
+  items: readonly string[],
+  words: string,
+): PaneReading {
+  const collapse = (s: string): string =>
+    s.replace(/↵/g, " ").replace(/\s+/g, " ").trim();
+  const want = collapse(words);
+  if (want === "")
+    return { kind: "unreadable", why: "the words collapse to nothing" };
+  let cutCandidates = 0;
+  let uncomparable = 0;
+  for (const item of items) {
+    const cut = /…\s*$/.test(item);
+    const drawn = collapse(item.replace(/…\s*$/, ""));
+    if (drawn === "") {
+      uncomparable++;
+      continue;
+    }
+    if (!cut) {
+      if (drawn === want) return { kind: "holds" };
+      continue;
+    }
+    if (want.startsWith(drawn)) cutCandidates++;
+  }
+  if (cutCandidates === 1) return { kind: "holds" };
+  if (cutCandidates > 1) {
+    return {
+      kind: "unreadable",
+      why: `${cutCandidates} items in the pane are cut short and any of them could be these words`,
+    };
+  }
+  if (uncomparable > 0) {
+    return {
+      kind: "unreadable",
+      why: `${uncomparable} item(s) in the pane were drawn with no readable text`,
+    };
+  }
+  return { kind: "absent" };
 }
 
 /** How to hand this agent words while it is WORKING: which keys submit, and

@@ -171,7 +171,9 @@ describe("padiSurface contract", () => {
     // offers on this host. Another member added: a minor.
     // 7.7 ADDS `agentDistro.launch` — how a harness's launch takes a model,
     // which runs no harness. Another member added: a minor.
-    expect(PADI_SURFACE_VERSION).toBe("7.7");
+    // 7.8 ADDS `lastPromptText` to the omp and pi agent arms — a required
+    // field on an emitted arm, the 5.3/7.3 case: a minor.
+    expect(PADI_SURFACE_VERSION).toBe("7.8");
     expect(DEFAULT_PADI_VERSION.contractVersion).toBe(PADI_SURFACE_VERSION);
     expect(
       Schema.decodeUnknownSync(PadiVersionSchema)(DEFAULT_PADI_VERSION),

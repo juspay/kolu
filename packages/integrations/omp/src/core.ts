@@ -34,6 +34,7 @@ import fs from "node:fs";
 import { watchDirWhenReady } from "kolu-io";
 import type { Logger } from "kolu-shared";
 import { readTailLines } from "kolu-shared";
+import { promptTextOfParts } from "anyagent";
 import type { OmpInfo } from "./schemas.ts";
 import type { OmpSession } from "./breadcrumb.ts";
 
@@ -53,6 +54,9 @@ interface OmpEntry {
     role?: string;
     model?: string;
     stopReason?: string;
+    /** A user entry's parts — the text `agent_say` compares a landing against
+     *  (`promptTextOfParts`). */
+    content?: unknown;
     usage?: {
       input?: number;
       cacheRead?: number;
@@ -80,10 +84,11 @@ interface OmpEntry {
  *   - contextTokens: newest assistant entry's usage
  *     (`input + cacheRead + cacheWrite`). Read on every entry, so the turn's own
  *     assistant record accounts rather than one hop back.
- *   - lastPromptId: the newest `user` message entry's `id`. omp writes a steer
- *     as a user entry only when the running turn TAKES it (measured, 18.20.2:
- *     one held behind an eval cell was written when the cell ended), so a new
- *     id is the proof a steer landed — `agent_say` reads it.
+ *   - lastPromptId / lastPromptText: the newest `user` message entry's `id`
+ *     and its text. omp writes a steer as a user entry only when the running
+ *     turn TAKES it (measured, 18.20.2: one held behind an eval cell was
+ *     written when the cell ended), so a new id whose text is the words said
+ *     is the proof a steer landed — `agent_say` reads both.
  *
  *  Pure — unit-testable without touching the filesystem. Returns null when the
  *  tail carries no turn entry at all (a file with only its title slot and
@@ -93,11 +98,13 @@ export function deriveOmpState(lines: string[]): {
   model: string | null;
   contextTokens: number | null;
   lastPromptId: string | null;
+  lastPromptText: string | null;
 } | null {
   let state: OmpInfo["state"] | null = null;
   let model: string | null = null;
   let contextTokens: number | null = null;
   let lastPromptId: string | null = null;
+  let lastPromptText: string | null = null;
 
   for (let i = lines.length - 1; i >= 0; i--) {
     const raw = lines[i];
@@ -151,6 +158,10 @@ export function deriveOmpState(lines: string[]): {
       typeof entry.id === "string"
     ) {
       lastPromptId = entry.id;
+      // The TEXT of that entry, in the same step: `agent_say` compares it to
+      // what it said, so a prompt that moved for someone ELSE's words is not
+      // read as this steer landing.
+      lastPromptText = promptTextOfParts(entry.message.content);
     }
 
     if (state === null && entry.type === "message") {
@@ -184,7 +195,7 @@ export function deriveOmpState(lines: string[]): {
   }
 
   if (state === null) return null;
-  return { state, model, contextTokens, lastPromptId };
+  return { state, model, contextTokens, lastPromptId, lastPromptText };
 }
 
 // --- Tail reading ---
@@ -258,7 +269,12 @@ export function deriveOmpInfo(
   log?: Logger,
 ): Pick<
   OmpInfo,
-  "state" | "model" | "contextTokens" | "summary" | "lastPromptId"
+  | "state"
+  | "model"
+  | "contextTokens"
+  | "summary"
+  | "lastPromptId"
+  | "lastPromptText"
 > | null {
   let size: number;
   try {

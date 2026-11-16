@@ -217,7 +217,7 @@ export function agentSayRecipe(
     working: {
       ...working,
       sight: {
-        held: sight.held,
+        pane: sight.pane,
         lastPrompt: (info) =>
           info.kind !== kind || isAgentPresence(info)
             ? null
@@ -318,10 +318,18 @@ export type {
   AgentSayDelivery,
   AgentSayRecipe,
   AgentSayWhileWorking,
+  PaneReading,
+  SteerPrompt,
   SteerSight,
   AgentVocab,
 } from "anyagent";
-export { agentNameHint, stableFlagTokens } from "anyagent";
+export {
+  agentNameHint,
+  normalisePromptText,
+  paneHolds,
+  promptTextIs,
+  stableFlagTokens,
+} from "anyagent";
 
 // The per-agent info types, re-exported so consumers that used to import them
 // from `@kolu/terminal-vocab/schema` (which no longer depends on the agent

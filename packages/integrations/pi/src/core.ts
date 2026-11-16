@@ -33,6 +33,7 @@
 
 import fs from "node:fs";
 import path from "node:path";
+import { promptTextOfParts } from "anyagent";
 import { watchDirWhenReady } from "kolu-io";
 import type { Logger } from "kolu-shared";
 import { readTailLines } from "kolu-shared";
@@ -257,6 +258,9 @@ interface PiEntry {
     role?: string;
     model?: string;
     stopReason?: string;
+    /** A user entry's parts — the text `agent_say` compares a landing against
+     *  (`promptTextOfParts`). */
+    content?: unknown;
     usage?: {
       input?: number;
       cacheRead?: number;
@@ -287,10 +291,11 @@ const TURN_ENDED = new Set(["stop", "length", "error", "aborted"]);
  *     (`input + cacheRead + cacheWrite`). Tracked separately because the
  *     newest turn entry (a fresh `user` prompt) carries no usage, while the
  *     meaningful running total lives one hop back.
- *   - lastPromptId: the newest `user` message entry's `id`. pi writes a steer
- *     as a user entry only when the running turn TAKES it (measured, 1.5.2:
- *     one held behind a `bash` call was written when the call ended), so a new
- *     id is the proof a steer landed — `agent_say` reads it.
+ *   - lastPromptId / lastPromptText: the newest `user` message entry's `id`
+ *     and its text. pi writes a steer as a user entry only when the running
+ *     turn TAKES it (measured, 1.5.2: one held behind a `bash` call was
+ *     written when the call ended), so a new id whose text is the words said
+ *     is the proof a steer landed — `agent_say` reads both.
  *
  *  Pure — unit-testable without touching the filesystem. */
 export function derivePiState(lines: string[]): {
@@ -299,12 +304,14 @@ export function derivePiState(lines: string[]): {
   contextTokens: number | null;
   summary: string | null;
   lastPromptId: string | null;
+  lastPromptText: string | null;
 } | null {
   let state: PiInfo["state"] | null = null;
   let model: string | null = null;
   let contextTokens: number | null = null;
   let summary: string | null = null;
   let lastPromptId: string | null = null;
+  let lastPromptText: string | null = null;
 
   for (let i = lines.length - 1; i >= 0; i--) {
     const raw = lines[i];
@@ -396,6 +403,10 @@ export function derivePiState(lines: string[]): {
       typeof entry.id === "string"
     ) {
       lastPromptId = entry.id;
+      // The TEXT of that entry, in the same step: `agent_say` compares it to
+      // what it said, so a prompt that moved for someone ELSE's words is not
+      // read as this steer landing.
+      lastPromptText = promptTextOfParts(entry.message.content);
     }
 
     if (state === null && entry.type === "message") {
@@ -420,7 +431,14 @@ export function derivePiState(lines: string[]): {
   }
 
   if (state === null) return null;
-  return { state, model, contextTokens, summary, lastPromptId };
+  return {
+    state,
+    model,
+    contextTokens,
+    summary,
+    lastPromptId,
+    lastPromptText,
+  };
 }
 
 // --- Tail reading ---
@@ -442,7 +460,12 @@ export function derivePiInfo(
   log?: Logger,
 ): Pick<
   PiInfo,
-  "state" | "model" | "contextTokens" | "summary" | "lastPromptId"
+  | "state"
+  | "model"
+  | "contextTokens"
+  | "summary"
+  | "lastPromptId"
+  | "lastPromptText"
 > | null {
   let size: number;
   try {

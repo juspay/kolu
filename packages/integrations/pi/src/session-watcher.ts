@@ -74,6 +74,7 @@ export function createPiWatcher(
       contextTokens: derived.contextTokens,
       startedAt: session.startedAt,
       lastPromptId: derived.lastPromptId,
+      lastPromptText: derived.lastPromptText,
     };
     if (lastInfo !== null && samePiInfo(info, lastInfo)) return;
     lastInfo = info;

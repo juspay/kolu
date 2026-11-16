@@ -40,10 +40,12 @@
  *      hard-capped wait ({@link SAY_TAKE_CAP_MS}) for its state to turn
  *      `working`; for a WORKING agent that steers and whose steer kolu can
  *      see, a hard-capped watch ({@link SAY_STEER_CAP_MS}) for the newest
- *      prompt in its transcript to change, then one screen read for its
- *      steering pane. A dropped Enter is the whole reason this verb exists,
- *      so "the keys were sent" is not a good enough answer; and because a
- *      refusal here would invite a blind resend, every outcome is an answer.
+ *      prompt in its transcript to become THESE WORDS, then one screen read
+ *      for its steering pane and one record read once the record's own lag
+ *      has passed ({@link SAY_RECORD_LAG_MS}). A dropped Enter is the whole
+ *      reason this verb exists, so "the keys were sent" is not a good enough
+ *      answer; and because a refusal here would invite a blind resend, every
+ *      outcome is an answer.
  *
  * Then it ANSWERS what it did: which agent, whether that agent was working, the
  * keys pressed, and — the fact a caller actually needs — whether those keys
@@ -51,6 +53,14 @@
  * agent began working, a steer LANDED in the turn or is HELD for the running
  * step to end. "I said it" and "it heard it" are different claims, and this
  * tool reports both rather than letting one stand for the other.
+ *
+ * And it never reports what it did not SEE. `did-not-land` is said only when
+ * kolu read a steering pane without these words AND a transcript whose newest
+ * prompt is not them; a pane it could not parse, a prompt whose text it cannot
+ * compare, a record that would not decode are `cannot-tell`, and a terminal
+ * that went away after the keys is `lost-sight`. A caller acts on a
+ * non-delivery by saying it again, so a guessed one is the costliest answer
+ * this tool can give.
  */
 
 import { terminalAsleepRefusal } from "./asleep.ts";
@@ -58,7 +68,6 @@ import { padiOf } from "./bundleClient.ts";
 // `PadiSurfaceClient` is a TYPE import of the dial entry — erased, so the
 // table's static-load fence (`tools.test.ts`) is untouched by it.
 import type { PadiSurfaceClient } from "@kolu/padi-client/dial";
-import type { PadiTerminal } from "@kolu/padi-client/surface";
 // The agent-state wait's OUTCOME type, for the verdict mapper below — a type
 // import of the banned `…/watch` entry, which the fence exempts because it is
 // erased. The wait itself is pulled at call time, in the handler.
@@ -67,7 +76,11 @@ import type { AgentStateOutcome } from "@kolu/padi-client/watch";
 // `terminalVocab.ts` exists for exactly this: `tools.test.ts`'s fence bans
 // `@kolu/padi-client/dial` and `…/watch`, not the vocabulary below them).
 import { activeAgent } from "@kolu/padi-client/terminalVocab";
-import { firstFrameOrThrow } from "@kolu/surface/first-frame";
+import {
+  firstFrameOfCollectionItem,
+  firstFrameOrThrow,
+  ITEM_READ_DEADLINE_MS,
+} from "@kolu/surface/first-frame";
 import { type BespokeTool, ToolFailure } from "@kolu/surface-mcp/tools";
 import {
   encodeSend,
@@ -80,9 +93,15 @@ import {
 } from "@kolu/terminal-vocab/agentProjection";
 import type { AgentInfo } from "@kolu/terminal-vocab/schema";
 import { TerminalIdSchema } from "@kolu/terminal-vocab/schema";
-import { Effect, Schema } from "effect";
+import { Effect, Result, Schema } from "effect";
 import type { AgentSayRecipe, SteerSight } from "kolu-agents/vocab";
-import { agentSayRecipe, agentVocab, isAgentPresence } from "kolu-agents/vocab";
+import {
+  AgentInfoSchema,
+  agentSayRecipe,
+  agentVocab,
+  isAgentPresence,
+  promptTextIs,
+} from "kolu-agents/vocab";
 import { rosterStandingOf, stillSettling } from "./rosterEvidence.ts";
 
 export const AgentSayArgsSchema = Schema.Struct({
@@ -145,6 +164,23 @@ export const SAY_STEER_CAP_MS = 5_000;
  *  the input box, at the bottom of the screen. */
 export const SAY_STEER_SCREEN_TAIL = 40;
 
+/** How long kolu keeps watching the record AFTER the steer cap before it will
+ *  say the words are not in the transcript.
+ *
+ *  The record a verdict reads is derived by the agent's session watcher, which
+ *  polls the transcript on a 1 s floor (`DEFAULT_APPEND_POLL_MS`) and
+ *  coalesces its edges under a 500 ms cap (`COALESCE_MAX_WAIT_MS`). A steer
+ *  the turn takes in the last moment of {@link SAY_STEER_CAP_MS} has already
+ *  LEFT the steering pane and is not in the record yet: reading the two
+ *  back-to-back would answer `did-not-land` for a steer that landed. The
+ *  screen is read at the cap and this lag is waited out before the record is
+ *  read, so both halves of that verdict are facts.
+ *
+ *  A NUMBER here rather than an import of the two constants: kolu-mcp does not
+ *  depend on the integrations' io package, and the lag is a property of what
+ *  the watcher PUBLISHES, not of this tool's wiring. */
+export const SAY_RECORD_LAG_MS = 1_500;
+
 /** Why `agent_say` would not say it. Each kind is a different recovery:
  *
  *   - `text-refused` — the shared encoder refused the words (today: empty).
@@ -182,7 +218,41 @@ export type SayRefusal =
       readonly kind: "agent-starting";
       readonly id: string;
       readonly agent: string;
-    };
+    }
+  | { readonly kind: "record-unreadable"; readonly id: string };
+
+/** The SLICE of padi's terminal record this tool reads: which arm it is in,
+ *  and — when it is live — the agent in it, as padi's own `AgentInfo` union.
+ *
+ *  A SLICE rather than `PadiTerminalSchema` on purpose. What must be CHECKED
+ *  is what `agent_say` reads: an `agent` of an unknown shape is a frame this
+ *  tool would otherwise have read fields off after a cast, while the rest of
+ *  a live record (its pty, its git, its foreground) is padi's business and
+ *  grows on padi's schedule — a tool that refused to speak because padi added
+ *  a field would be a worse answer than the cast was. */
+const SayRecordSchema = Schema.Union([
+  Schema.Struct({
+    state: Schema.Literal("active"),
+    agent: Schema.NullOr(AgentInfoSchema),
+  }),
+  Schema.Struct({ state: Schema.Literals(["sleeping", "parked"]) }),
+]);
+export type SayRecord = typeof SayRecordSchema.Type;
+
+const decodeSayRecord = Schema.decodeUnknownResult(SayRecordSchema);
+
+/** padi's frame, decoded — never asserted. Nothing has been typed when this
+ *  runs, so a frame that does not decode is a refusal naming the terminal. */
+export function terminalRecord(id: string, frame: unknown): SayRecord {
+  const decoded = decodeSayRecord(frame);
+  if (Result.isFailure(decoded)) {
+    throw new ToolFailure<SayRefusal>(
+      `terminal ${id} answered a record kolu could not read (${String(decoded.failure)}) — nothing was typed. This is a kolu/padi version mismatch, not something to retry blind.`,
+      { kind: "record-unreadable", id },
+    );
+  }
+  return decoded.success;
+}
 
 /** What the keys did, as the answer reports it.
  *
@@ -258,12 +328,17 @@ export const SAY_TAKES: ReadonlySet<WaitState> = new Set<WaitState>([
  *     to watch (it queues, or its steer is unmeasured); what happens to the
  *     words is the recipe's `delivery`, which the answer carries.
  *   - `landed` — a steer: the running turn's transcript gained a new prompt
- *     after the keys. The words are in the turn.
+ *     after the keys, and its text IS these words. They are in the turn.
  *   - `held` — a steer: not in the transcript yet, and the screen shows them
  *     in the agent's steering pane. The TUI took them and is holding them for
  *     the running step to end, which it then hands them over at on its own.
- *   - `did-not-land` — a steer: neither in the transcript nor held. The keys
- *     WERE sent.
+ *   - `did-not-land` — a steer: kolu read a steering pane WITHOUT them and a
+ *     transcript whose newest prompt is not them. Both facts were seen. The
+ *     keys WERE sent.
+ *   - `cannot-tell` — a steer kolu could not read a verdict for: a steering
+ *     pane the reader could not parse, a prompt whose text it cannot compare,
+ *     a record that would not decode. NOT a non-delivery — reporting one would
+ *     be claiming an absence nobody saw — and `why` names what stopped it.
  *   - `lost-sight` — the watch ended for its own reason (the terminal went
  *     away, the subscription dropped, the call was interrupted) before either
  *     verdict. */
@@ -300,16 +375,42 @@ export type SayTook =
       readonly note: string;
     }
   | {
+      readonly observed: "cannot-tell";
+      readonly waitedMs: number;
+      readonly why: string;
+      readonly note: string;
+    }
+  | {
       readonly observed: "lost-sight";
       readonly why: "gone" | "closed" | "interrupted";
       readonly note: string;
     };
 
-/** Where a steer stands once the watch is over. */
+/** Where a steer stands once the watch is over.
+ *
+ *  Four arms, because three of them are CLAIMS kolu made about what it saw and
+ *  the fourth is the honest absence of one: `did-not-land` is reported only
+ *  when kolu read a steering pane that did not hold these words AND a record
+ *  whose newest prompt is not them. A pane the reader could not parse, a
+ *  prompt with no readable text, a record that would not decode — every one of
+ *  those is `cannot-tell`, never a non-delivery kolu did not witness.
+ *  `lost-sight` is the terminal going away after the keys were pressed: the
+ *  same fact the start arm reports, and for the same reason — a steer whose
+ *  terminal died must not reach the caller as an error that invites a resend. */
 export type SteerOutcome =
   | { readonly kind: "landed"; readonly elapsedMs: number }
   | { readonly kind: "held"; readonly waitedMs: number }
-  | { readonly kind: "did-not-land"; readonly waitedMs: number };
+  | { readonly kind: "did-not-land"; readonly waitedMs: number }
+  | {
+      readonly kind: "cannot-tell";
+      readonly waitedMs: number;
+      readonly why: string;
+    }
+  | {
+      readonly kind: "lost-sight";
+      readonly why: "gone" | "closed" | "interrupted";
+      readonly detail: string;
+    };
 
 /** What the watch after the keys saw, by the {@link SayWatch} it ran. */
 export type SayWatched =
@@ -317,21 +418,33 @@ export type SayWatched =
   | { readonly kind: "start"; readonly outcome: AgentStateOutcome }
   | { readonly kind: "steer"; readonly outcome: SteerOutcome };
 
-/** Has the newest prompt in this agent's transcript MOVED since `before`? A
- *  prompt id appearing where there was none counts; none at all does not. */
-function promptMoved(
+/** What the newest prompt in this agent's transcript says about THESE words:
+ *
+ *   - `took` — the prompt moved past `before` and its text IS these words.
+ *     That is the only reading that proves this steer landed: an older held
+ *     steer being handed over, or the human typing in that terminal, moves the
+ *     id too, and the words would still be sitting in the input box.
+ *   - `other` — it moved, and carries someone else's words.
+ *   - `unreadable` — it moved and carries no text kolu can compare.
+ *   - `unmoved` — no prompt, or the same one the keys were pressed behind. */
+export type PromptReading = "took" | "other" | "unreadable" | "unmoved";
+
+export function promptReading(
   sight: SteerSight<AgentInfo>,
   before: string | null,
   agent: AgentInfo,
-): boolean {
+  words: string,
+): PromptReading {
   const now = sight.lastPrompt(agent);
-  return now !== null && now !== before;
+  if (now === null || now.id === before) return "unmoved";
+  if (now.text === null) return "unreadable";
+  return promptTextIs(now.text, words) ? "took" : "other";
 }
 
 /** The steer's verdict once the watch ran out without seeing it land — pure,
  *  over the screen and the record read AFTER it (in that order, so a step that
- *  ends between the two reads is caught by the record: the words left the
- *  pane because the turn took them). */
+ *  ends between the two reads is caught by the record: the words left the pane
+ *  because the turn took them). */
 export function steerVerdict(input: {
   readonly sight: SteerSight<AgentInfo>;
   readonly before: string | null;
@@ -341,12 +454,34 @@ export function steerVerdict(input: {
   readonly waitedMs: number;
 }): SteerOutcome {
   const { sight, before, after, screen, words, waitedMs } = input;
-  if (after !== null && promptMoved(sight, before, after)) {
-    return { kind: "landed", elapsedMs: waitedMs };
+  if (after === null) {
+    return {
+      kind: "cannot-tell",
+      waitedMs,
+      why: "its record no longer carries a live agent, so kolu could not read the transcript the words would have landed in",
+    };
   }
-  return sight.held(screen, words)
-    ? { kind: "held", waitedMs }
-    : { kind: "did-not-land", waitedMs };
+  const prompt = promptReading(sight, before, after, words);
+  if (prompt === "took") return { kind: "landed", elapsedMs: waitedMs };
+  if (prompt === "unreadable") {
+    return {
+      kind: "cannot-tell",
+      waitedMs,
+      why: "its transcript gained a prompt whose text kolu cannot read, so whether it is these words is unknown",
+    };
+  }
+  const pane = sight.pane(screen, words);
+  switch (pane.kind) {
+    case "holds":
+      return { kind: "held", waitedMs };
+    case "unreadable":
+      return { kind: "cannot-tell", waitedMs, why: pane.why };
+    case "absent":
+      // BOTH facts seen: a pane that does not hold them and a transcript whose
+      // newest prompt is not them. Only here is a non-delivery kolu's own
+      // sighting rather than a guess from silence.
+      return { kind: "did-not-land", waitedMs };
+  }
 }
 
 /** The watch's outcome, read as the answer's verdict — pure, so every arm is
@@ -383,7 +518,23 @@ function steerTook(outcome: SteerOutcome): SayTook {
       return {
         observed: "did-not-land",
         waitedMs: outcome.waitedMs,
-        note: `The keys were sent, but ${outcome.waitedMs} ms later the words are neither in its transcript nor held in its steering pane. Do NOT say it again blind — read the screen (screen_text): they may still be in its input box, or a dialog may have taken the keys.`,
+        note: `The keys were sent, but ${outcome.waitedMs} ms later the words are neither in its transcript nor held in its steering pane — kolu read both. Do NOT say it again blind — read the screen (screen_text): they may still be in its input box, or a dialog may have taken the keys.`,
+      };
+    case "cannot-tell":
+      return {
+        observed: "cannot-tell",
+        waitedMs: outcome.waitedMs,
+        why: outcome.why,
+        note: `The keys were sent, and ${outcome.waitedMs} ms later kolu could not tell what became of them: ${outcome.why}. This is NOT "they did not arrive" — read the screen (screen_text) before saying anything again, because a second copy of a steer that DID land is a second instruction to the agent.`,
+      };
+    case "lost-sight":
+      return {
+        observed: "lost-sight",
+        why: outcome.why,
+        note:
+          outcome.why === "gone"
+            ? "The keys were sent, and then the terminal went away — whatever was said died with it. Nothing is running there."
+            : `The keys were sent; the watch over this terminal ended before kolu could tell what became of them (${outcome.detail}) — the terminal is not known to be dead. Read the screen.`,
       };
   }
 }
@@ -434,9 +585,9 @@ function startTook(outcome: AgentStateOutcome): SayTook {
 /** The live agent in a record, or the refusal that says why there is none to
  *  talk to — dormant terminal and plain shell are different facts and get
  *  different sentences. */
-function sayableAgent(id: string, record: PadiTerminal): AgentInfo {
+function sayableAgent(id: string, record: SayRecord): AgentInfo {
   if (record.state !== "active") throw terminalAsleepRefusal(id, record.state);
-  const agent = activeAgent(record);
+  const agent = record.agent;
   if (agent === null) {
     throw new ToolFailure<SayRefusal>(
       `Terminal ${id} has no agent — it is a plain shell, and a sentence meant for an agent typed at a shell prompt is a command nobody wrote. Use lifecycle_sendInput if you meant to type into the shell.`,
@@ -533,7 +684,7 @@ export function sayableRecipe(
         : {
             kind: "steer",
             sight: working.sight,
-            before: working.sight.lastPrompt(agent),
+            before: working.sight.lastPrompt(agent)?.id ?? null,
           },
   };
 }
@@ -544,7 +695,7 @@ export function sayableRecipe(
 export function resolveSay(
   id: string,
   text: string,
-  record: PadiTerminal,
+  record: SayRecord,
   vocabOf: SayVocabularyOf = registryVocabulary,
 ): SayPerformance {
   // The words are encoded FIRST: an empty `text` is refused before the record
@@ -608,23 +759,29 @@ function pressKey(
   );
 }
 
-/** Watch the record until this agent's newest prompt MOVES past `before`, or
- *  the cap passes. Answers the milliseconds it took, or `null` at the cap.
- *  The watch kit is lifted at CALL time — the table's static-load fence, the
- *  same as the settle's. A record that leaves the collection simply never
- *  lands; the verdict that follows reads the screen and says so. */
-async function awaitPromptMoved(
+/** What the transcript watch ended with: these words in a new prompt, the
+ *  terminal leaving the roster, or the cap. */
+type SteerWatchEnd =
+  | { readonly kind: "took"; readonly elapsedMs: number }
+  | { readonly kind: "gone" }
+  | { readonly kind: "ran-out" };
+
+/** Watch the record until this agent's newest prompt is THESE words, the
+ *  terminal goes away, or `capMs` passes. The watch kit is lifted at CALL
+ *  time — the table's static-load fence, the same as the settle's. */
+async function awaitPromptTook(
   padi: PadiSurfaceClient,
   id: AgentSayArgs["id"],
-  sight: SteerSight<AgentInfo>,
-  before: string | null,
+  watch: Extract<SayWatch, { kind: "steer" }>,
+  words: string,
+  capMs: number,
   signal: AbortSignal,
-): Promise<number | null> {
+): Promise<SteerWatchEnd> {
   const { watchTerminals } = await import("@kolu/padi-client/watch");
   const started = Date.now();
   const stop = new AbortController();
-  const timer = setTimeout(() => stop.abort(), SAY_STEER_CAP_MS);
-  let landedAfter: number | null = null;
+  const timer = setTimeout(() => stop.abort(), capMs);
+  let end: SteerWatchEnd = { kind: "ran-out" };
   try {
     await watchTerminals(padi, {
       signal: AbortSignal.any([stop.signal, signal]),
@@ -632,62 +789,188 @@ async function awaitPromptMoved(
         onUpsert: (key, value) => {
           if (key !== id) return;
           const agent = activeAgent(value);
-          if (agent === null || !promptMoved(sight, before, agent)) return;
-          landedAfter = Date.now() - started;
+          if (agent === null) return;
+          // THESE words, not merely a new prompt id: an older held steer
+          // being handed over, or the human typing in that terminal, moves
+          // the id while what was said sits in the input box.
+          if (promptReading(watch.sight, watch.before, agent, words) !== "took")
+            return;
+          end = { kind: "took", elapsedMs: Date.now() - started };
           stop.abort();
         },
-        onRemove: () => {},
+        // THE TERMINAL LEFT THE ROSTER after the keys were pressed — an
+        // answer, not an error. A thrown failure here would read to a caller
+        // as "say it again", which is the one thing this tool exists to stop.
+        onRemove: (key) => {
+          if (key !== id) return;
+          end = { kind: "gone" };
+          stop.abort();
+        },
       },
+      // The id this watch is about, so a terminal that went away BEFORE the
+      // subscription opened (it died on the very keys this tool pressed) is
+      // reported gone on the first frame — the mirror's departed-while-away
+      // sweep, the same seed `awaitAgentState` passes.
+      initialKeys: () => [id],
     });
   } finally {
     clearTimeout(timer);
   }
-  return landedAfter;
+  return end;
+}
+
+/** The record after the keys, DECODED — or the outcome that says why there is
+ *  none to read. Never a failure: the keys are already pressed, so every
+ *  ending here is an answer rather than something that reads as "say it
+ *  again".
+ *
+ *  The BOUNDED collection read, not a bare first frame: a collection `get`
+ *  holds open until the key is a member, so a terminal that died on the keys
+ *  would hang this read forever — the one hang
+ *  {@link firstFrameOfCollectionItem} exists to make unspellable. Membership
+ *  answers `gone`; the deadline answers `cannot-tell`, because a padi that
+ *  said nothing is not a terminal that lost the words. */
+function recordAfterSteer(
+  padi: PadiSurfaceClient,
+  id: AgentSayArgs["id"],
+  waitedMs: number,
+): Effect.Effect<
+  | { readonly kind: "record"; readonly record: SayRecord }
+  | { readonly kind: "outcome"; readonly outcome: SteerOutcome },
+  never
+> {
+  const outcome = (
+    one: SteerOutcome,
+  ): { readonly kind: "outcome"; readonly outcome: SteerOutcome } => ({
+    kind: "outcome",
+    outcome: one,
+  });
+  return Effect.catch(
+    Effect.map(
+      firstFrameOfCollectionItem(
+        padi.surface.terminals.get({ key: id }),
+        padi.surface.terminals.keys(undefined),
+        id,
+        `terminal ${id} answered no record after the steer`,
+        ITEM_READ_DEADLINE_MS,
+      ),
+      (frame) => {
+        if (!frame.present) {
+          return frame.reason === "absent"
+            ? outcome({
+                kind: "lost-sight",
+                why: "gone",
+                detail: `terminal ${id} is no longer in this host's roster`,
+              })
+            : outcome({
+                kind: "cannot-tell",
+                waitedMs,
+                why: `terminal ${id} did not answer its record within ${ITEM_READ_DEADLINE_MS} ms`,
+              });
+        }
+        const decoded = decodeSayRecord(frame.value);
+        return Result.isSuccess(decoded)
+          ? ({ kind: "record", record: decoded.success } as const)
+          : outcome({
+              kind: "cannot-tell",
+              waitedMs,
+              why: `terminal ${id} answered a record kolu could not decode (${String(decoded.failure)})`,
+            });
+      },
+    ),
+    (cause) =>
+      Effect.succeed(
+        outcome({
+          kind: "lost-sight",
+          why: "closed",
+          detail: String(cause),
+        }),
+      ),
+  );
 }
 
 /** Did the steer land: the transcript watch, then — only if it ran out — one
- *  screen read and one record read for {@link steerVerdict}. */
+ *  screen read, the record's own lag waited out, and one record read for
+ *  {@link steerVerdict}.
+ *
+ *  The SCREEN is read first and the record last, in that order on purpose: a
+ *  step that ends between the two is caught by the record (the words left the
+ *  pane because the turn took them), and a steer the turn takes in the last
+ *  moment of the cap is caught by {@link SAY_RECORD_LAG_MS} — the record is
+ *  derived from a polled, coalesced transcript read and lags the pane. */
 function watchSteer(
   padi: PadiSurfaceClient,
   id: AgentSayArgs["id"],
   watch: Extract<SayWatch, { kind: "steer" }>,
   words: string,
   signal: AbortSignal | undefined,
-): Effect.Effect<SteerOutcome, unknown> {
-  return Effect.flatMap(
-    Effect.tryPromise((fiberSignal) =>
-      awaitPromptMoved(
-        padi,
+): Effect.Effect<SteerOutcome, never> {
+  const waitedMs = SAY_STEER_CAP_MS + SAY_RECORD_LAG_MS;
+  const gone = {
+    kind: "lost-sight",
+    why: "gone",
+    detail: `terminal ${id} left the roster after the keys`,
+  } satisfies SteerOutcome;
+  return Effect.catch(
+    Effect.gen(function* () {
+      const first = yield* Effect.tryPromise((fiberSignal) =>
+        awaitPromptTook(
+          padi,
+          id,
+          watch,
+          words,
+          SAY_STEER_CAP_MS,
+          signal ?? fiberSignal,
+        ),
+      );
+      if (first.kind === "took") {
+        return {
+          kind: "landed",
+          elapsedMs: first.elapsedMs,
+        } satisfies SteerOutcome;
+      }
+      if (first.kind === "gone") return gone;
+      const screen = yield* padi.surface.screen.text({
         id,
-        watch.sight,
-        watch.before,
-        signal ?? fiberSignal,
-      ),
-    ),
-    (landedAfter) =>
-      landedAfter !== null
-        ? Effect.succeed<SteerOutcome>({
-            kind: "landed",
-            elapsedMs: landedAfter,
-          })
-        : Effect.map(
-            Effect.all([
-              padi.surface.screen.text({ id, tail: SAY_STEER_SCREEN_TAIL }),
-              firstFrameOrThrow(
-                padi.surface.terminals.get({ key: id }),
-                `terminal ${id} answered no record after the steer — read the screen.`,
-              ),
-            ]),
-            ([screen, record]) =>
-              steerVerdict({
-                sight: watch.sight,
-                before: watch.before,
-                after: activeAgent(record as PadiTerminal),
-                screen,
-                words,
-                waitedMs: SAY_STEER_CAP_MS,
-              }),
-          ),
+        tail: SAY_STEER_SCREEN_TAIL,
+      });
+      const late = yield* Effect.tryPromise((fiberSignal) =>
+        awaitPromptTook(
+          padi,
+          id,
+          watch,
+          words,
+          SAY_RECORD_LAG_MS,
+          signal ?? fiberSignal,
+        ),
+      );
+      if (late.kind === "took") {
+        return {
+          kind: "landed",
+          elapsedMs: SAY_STEER_CAP_MS + late.elapsedMs,
+        } satisfies SteerOutcome;
+      }
+      if (late.kind === "gone") return gone;
+      const read = yield* recordAfterSteer(padi, id, waitedMs);
+      if (read.kind === "outcome") return read.outcome;
+      return steerVerdict({
+        sight: watch.sight,
+        before: watch.before,
+        after: read.record.state === "active" ? read.record.agent : null,
+        screen,
+        words,
+        waitedMs,
+      });
+    }),
+    // The keys are already pressed, so a link that drops or a call that is
+    // interrupted is reported as what kolu stopped being able to SEE — never
+    // as a failure of the say.
+    (cause) =>
+      Effect.succeed<SteerOutcome>({
+        kind: "lost-sight",
+        why: signal?.aborted === true ? "interrupted" : "closed",
+        detail: String(cause),
+      }),
   );
 }
 
@@ -730,7 +1013,7 @@ export const agentSayTool: BespokeTool = {
   mutates: true,
   title: "Say something to the agent in a terminal",
   description:
-    'Say this to the agent running in that terminal — kolu knows which agent it is and presses that agent\'s own submit keys, so you never send Enter yourself. Types the text, waits for the terminal to settle (hard-capped), then submits. Answers what it did: the agent, whether it was WORKING, the keys pressed, and the delivery — "steer" (the words join the running turn at its next step), "queue" (they wait for the current turn to end) or "submitted" (it was idle or freshly up, so they start a turn) — AND whether it took. For an agent that was not working kolu watches a few seconds and reports "began-working" (its transcript started a turn), "submit-landed" (an agent that has written nothing yet: kolu saw the Enter reach it, and its reply comes with its transcript — do not say it again) or "did-not-begin". For a steer kolu can see, it reports "landed" (the words are in the running turn\'s transcript), "held" (its TUI is holding them in its steering pane until the running step — a long tool call — ends, then hands them over on its own: do not say it again and do not press Enter, which in omp interrupts the running tool) or "did-not-land". The keys were sent either way — read the screen rather than saying it again. REFUSED, never guessed: a terminal with no agent (a plain shell), an agent with no verified recipe, an agent that cannot be told anything mid-turn, an agent that is still COMING UP (its screen is still being drawn — wait until it is ready), a terminal that is asleep, and empty text.',
+    'Say this to the agent running in that terminal — kolu knows which agent it is and presses that agent\'s own submit keys, so you never send Enter yourself. Types the text, waits for the terminal to settle (hard-capped), then submits. Answers what it did: the agent, whether it was WORKING, the keys pressed, and the delivery — "steer" (the words join the running turn at its next step), "queue" (they wait for the current turn to end) or "submitted" (it was idle or freshly up, so they start a turn) — AND whether it took. For an agent that was not working kolu watches a few seconds and reports "began-working" (its transcript started a turn), "submit-landed" (an agent that has written nothing yet: kolu saw the Enter reach it, and its reply comes with its transcript — do not say it again) or "did-not-begin". For a steer kolu can see, it reports "landed" (the running turn\'s transcript gained a prompt CARRYING these words), "held" (its TUI is holding them in its steering pane until the running step — a long tool call — ends, then hands them over on its own: do not say it again and do not press Enter, which in omp interrupts the running tool), "did-not-land" (kolu read BOTH a steering pane without them and a transcript without them), "cannot-tell" (one of those two could not be read — a pane kolu cannot parse, a prompt whose text it cannot compare — so what became of the words is unknown; read the screen, never resend blind) or "lost-sight" (the terminal went away, or the watch dropped, after the keys). The keys were sent either way — read the screen rather than saying it again. REFUSED, never guessed: a terminal with no agent (a plain shell), an agent with no verified recipe, an agent that cannot be told anything mid-turn, an agent that is still COMING UP (its screen is still being drawn — wait until it is ready), a terminal that is asleep, a record kolu could not decode, and empty text.',
   handler: (args, client, signal) => {
     const { id, text } = args as AgentSayArgs;
     const padi = padiOf(client);
@@ -762,7 +1045,7 @@ export const agentSayTool: BespokeTool = {
         // the agent, but naming a bare id no tool on that face accepts.
         Effect.flatMap(
           Effect.try({
-            try: () => resolveSay(id, text, record as PadiTerminal),
+            try: () => resolveSay(id, text, terminalRecord(id, record)),
             catch: (refusal) => refusal,
           }),
           (say) =>

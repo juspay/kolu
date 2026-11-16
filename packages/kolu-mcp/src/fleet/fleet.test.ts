@@ -56,6 +56,8 @@ import { ResourceUpdatedNotificationSchema } from "@modelcontextprotocol/sdk/typ
 import { Effect, Option, Queue, Stream } from "effect";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { type SetupAsk, WorkRefusal } from "kolu-work";
+import { normalisePromptText } from "kolu-agents/vocab";
+import { SAY_STEER_CAP_MS } from "../say.ts";
 import { KOLU_FLEET_EXPOSE, KOLU_MCP_EXPOSE } from "../expose.ts";
 import { KOLU_MCP_TOOLS } from "../tools.ts";
 import { fleetSurface } from "./fleetSurface.ts";
@@ -123,8 +125,11 @@ const terminalRecord = (title: string, parentId?: TerminalId): PadiTerminal =>
   }) as unknown as PadiTerminal;
 
 /** The same record with a live agent in it — what `agent_say` reads to decide
- *  whose keys to press. `fields` are the agent's own facts beyond kind and
- *  state (omp's `lastPromptId`, which a steer's landing is read off). */
+ *  whose keys to press. The agent carries EVERY field its wire schema has —
+ *  padi serves a whole `AgentInfo` and `agent_say` decodes one — with
+ *  `fields` for the facts a test is about (omp's `lastPromptId` /
+ *  `lastPromptText`, which a steer's landing is read off). A superset: a key
+ *  another agent's schema does not have is ignored by the decode. */
 const withAgent = (
   title: string,
   kind: string,
@@ -134,7 +139,21 @@ const withAgent = (
   ({
     state: "active",
     title,
-    agent: { kind, state, ...fields },
+    agent: {
+      kind,
+      state,
+      sessionId: `${kind}-session`,
+      sessionPath: `/w/${kind}.jsonl`,
+      model: null,
+      summary: null,
+      taskProgress: null,
+      workflow: null,
+      contextTokens: null,
+      startedAt: null,
+      lastPromptId: null,
+      lastPromptText: null,
+      ...fields,
+    },
   }) as unknown as PadiTerminal;
 
 const EMPTY_URGENCY: PadiUrgency = {
@@ -158,8 +177,15 @@ interface FakePadi {
    *  did when measured: `holds` — a step it cannot interrupt is running, so
    *  the words are DRAWN in its steering pane and its transcript gains
    *  nothing; `takes` — the turn took them, so its transcript gains a new
-   *  prompt. Unarmed, the Enter does nothing at all. */
-  steersLike(id: TerminalId, behaviour: "holds" | "takes"): void;
+   *  prompt carrying them; `takes-late` — the turn took them as the watch ran
+   *  out, so the pane is already empty and the record only catches up
+   *  afterwards; `steals` — a DIFFERENT message landed in the window (an
+   *  older held steer handed over, the human typing); `dies` — the terminal
+   *  went away on the keys. Unarmed, the Enter does nothing at all. */
+  steersLike(
+    id: TerminalId,
+    behaviour: "holds" | "takes" | "takes-late" | "steals" | "dies",
+  ): void;
   /** Put that terminal to sleep IN ITS RECORD — padi's `state` arm, which is
    *  what any reader of the roster sees (distinct from `sleep`, which is the
    *  screen-read gate). */
@@ -220,7 +246,10 @@ function fakePadi(host: string, seeded: readonly TerminalId[]): FakePadi {
    *  agent kind that is in them. */
   const startsOnSubmit = new Map<TerminalId, string>();
   /** Terminals whose working omp answers a steer, and how. */
-  const steers = new Map<TerminalId, "holds" | "takes">();
+  const steers = new Map<
+    TerminalId,
+    "holds" | "takes" | "takes-late" | "steals" | "dies"
+  >();
   /** What each terminal's screen draws, when a steer has changed it. */
   const screens = new Map<TerminalId, string>();
   /** The last TEXT written to each terminal — what a submit hands over. */
@@ -299,10 +328,20 @@ function fakePadi(host: string, seeded: readonly TerminalId[]): FakePadi {
           record.set(withAgent(`${host} agent`, starting, "thinking"));
         }
         // A steer's Enter on a working omp, as measured: held in the pane,
-        // or taken into the transcript as a new prompt.
+        // taken into the transcript as a new prompt (at once, or a beat after
+        // the watch's cap — the record is derived from a POLLED transcript
+        // read, so it lags the pane), or a terminal that dies on the keys.
         const steer = steers.get(id);
         if (data === "\r" && steer !== undefined && record !== undefined) {
           const words = typed.get(id) ?? "";
+          const took = (): void => {
+            record.set(
+              withAgent(`${host} agent`, "omp", "thinking", {
+                lastPromptId: "p-steer",
+                lastPromptText: normalisePromptText(words),
+              }),
+            );
+          };
           if (steer === "holds") {
             screens.set(
               id,
@@ -313,12 +352,29 @@ function fakePadi(host: string, seeded: readonly TerminalId[]): FakePadi {
                 "╰─",
               ].join("\n"),
             );
-          } else {
+          } else if (steer === "takes") {
+            took();
+          } else if (steer === "takes-late") {
+            // The turn took the words in the last moment of the cap: they
+            // have LEFT the pane and the record has not caught up. A REAL
+            // timer, deliberately: what is under test is a wait against the
+            // host clock inside a live surface mirror, which a fake clock
+            // cannot drive (the same reason this suite's steer tests already
+            // run at 15 s).
+            setTimeout(took, SAY_STEER_CAP_MS + 200).unref();
+          } else if (steer === "steals") {
+            // Someone else's words landed in the window — an older held steer
+            // handed over, or the human typing in that terminal.
             record.set(
               withAgent(`${host} agent`, "omp", "thinking", {
-                lastPromptId: "p-steer",
+                lastPromptId: "p-someone-else",
+                lastPromptText: "what the human typed instead",
               }),
             );
+          } else {
+            // The terminal died on the keys.
+            records.delete(id);
+            keys.set([...records.keys()]);
           }
         }
         return Effect.void;
@@ -1252,7 +1308,7 @@ describe("`agent_say` over the fleet", () => {
    *  its transcript's newest prompt is, and the stand-in TUI answers the one
    *  Enter as omp 18.20.2 did when measured. */
   async function steerOmp(
-    behaviour: "holds" | "takes" | "drops",
+    behaviour: "holds" | "takes" | "takes-late" | "steals" | "dies" | "drops",
     words: string,
   ) {
     const { alpha, fleet } = twoHostFleet();
@@ -1296,6 +1352,30 @@ describe("`agent_say` over the fleet", () => {
     const { took } = await steerOmp("drops", "skip the review");
     expect(took).toMatchObject({ observed: "did-not-land" });
   }, 15_000);
+
+  it("a steer the turn took AS THE WATCH RAN OUT is landed, not did-not-land", async () => {
+    // The record a verdict reads is derived from a polled, coalesced
+    // transcript read, so a steer taken in the last moment of the cap has
+    // left the pane and is not in the record yet. Reading the two
+    // back-to-back answered `did-not-land` for words that had landed — and
+    // the caller is told to go say it again.
+    const { took } = await steerOmp("takes-late", "skip the review");
+    expect(took).toMatchObject({ observed: "landed" });
+  }, 20_000);
+
+  it("SOMEONE ELSE'S prompt landing in the window is not this steer landing", async () => {
+    // An older held steer handed over, or the human typing in that terminal:
+    // the newest prompt moves while what was said is still in the input box.
+    const { took } = await steerOmp("steals", "skip the review");
+    expect(took).toMatchObject({ observed: "did-not-land" });
+  }, 20_000);
+
+  it("a terminal that DIES after the keys answers lost-sight, never an error", async () => {
+    // The keys were pressed. A failure here reads as "say it again", and
+    // there is nothing left to say it to.
+    const { took } = await steerOmp("dies", "skip the review");
+    expect(took).toMatchObject({ observed: "lost-sight", why: "gone" });
+  }, 20_000);
 
   it("refuses a plain shell, at a reference this face can name", async () => {
     const { fleet } = twoHostFleet();

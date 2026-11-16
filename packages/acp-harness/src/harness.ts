@@ -328,6 +328,9 @@ export interface Harness {
     askId: string,
     answers: ReadonlyArray<AskAnswer> | null,
   ): Promise<boolean>;
+  /** RUN ONE OF THE ADVERTISED METHODS. `signed-in` means the credential
+   *  store was written and NOTHING here changed conversation: the caller
+   *  restarts this harness so the new process's `initialize` reads it. */
   signIn(method: string): Promise<SignedIn>;
   /** A person asks to sign in — signed in or not. Puts the sign-in row on
    *  screen unless one is there already. */
@@ -345,10 +348,11 @@ export interface Harness {
 
 /**
  * How a sign-in ended. Four values because four different things are done about
- * them and none is a failure of the VERB: `signed-in` reopens the conversation,
+ * them and none is a failure of the VERB: `signed-in` is a credential store
+ * that was written and so a caller that must restart this agent against it,
  * `failed` is already on screen as the attempt's own output, `cancelled` is
- * somebody's press and needs nobody told, and `attached` is a second press that
- * joined the first.
+ * somebody's press with nothing written and needs nobody told, and `attached`
+ * is a second press that joined the first.
  */
 export type SignedIn = "signed-in" | "failed" | "cancelled" | "attached";
 
@@ -505,8 +509,10 @@ interface Attempt {
  * THE ONE REFUSAL THAT RESOLVES is `auth`. Nobody being signed in is the
  * failure with something to DO about it, the process that refused is the
  * process a sign-in runs against, and so the harness comes back alive and
- * offline with `state.signIn` filled in — the conversation opens itself once
- * the signature lands ({@link Harness.signIn}).
+ * offline with `state.signIn` filled in. The conversation itself waits for the
+ * caller's RESTART ({@link Harness.signIn}): a signature reaches an adapter
+ * only through a fresh `initialize`, so a conversation opened by this process
+ * after a sign-in would be one the new credential never reached.
  */
 export const startHarness = async (
   options: HarnessOptions,
@@ -602,18 +608,6 @@ export const startHarness = async (
   let usage: Usage | null = null;
   let identity: AuthStatus | null = null;
   let refusal: string | null = null;
-  /**
-   * THE CONVERSATION THIS HARNESS WAS TOLD TO COME BACK TO, for as long as
-   * there is one to come back to.
-   *
-   * Starts as the caller's `resume` and goes null the moment the agent says
-   * it does not know that id ({@link load}) — because the two doors into an
-   * open are the same door ({@link openConversation}), and a sign-in that
-   * succeeds after a refused load would otherwise send the SAME dead id back
-   * down the wire and take the same refusal a second time.
-   */
-  let resumable: string | null =
-    typeof options.resume === "string" ? options.resume : null;
   let commands: ReadonlyArray<ConductorCommand> = [];
   let settings: ReadonlyArray<ConductorOption> = [];
   let labels: ReadonlyMap<string, string> = new Map();
@@ -1696,10 +1690,9 @@ export const startHarness = async (
       }
     }
     if (lost !== null) {
-      // NOTHING LEFT TO COME BACK TO: the id is spent, so every later open in
-      // this process — the one a sign-in asks for, above all — is a fresh one
-      // rather than this refusal again.
-      resumable = null;
+      // NOTHING LEFT TO COME BACK TO: the id is spent, and the open this
+      // harness was asked for is over — a later re-entry is the CALLER's
+      // restart, with a fresh process and a fresh `resume`.
       log.warn(
         { session: id, why: lost },
         "the remembered conversation is not one this agent has; opening a new one",
@@ -1869,17 +1862,16 @@ export const startHarness = async (
     publish();
   };
 
-  /** The conversation this harness was asked for — the one padi named, or a
-   *  fresh one. ONE DOOR, because a sign-in that succeeds opens the same
-   *  conversation the refused bring-up was going to.
-   *
-   *  {@link resumable} rather than the caller's option, so that a signature
-   *  taken after a load the agent refused opens the conversation it CAN open:
-   *  the id is already known not to be there, and asking for it again would
-   *  make `Sign-in failed` the first thing somebody who has just signed in
-   *  reads. */
+  /** THE CONVERSATION THIS HARNESS WAS ASKED FOR — the one the caller named,
+   *  or a fresh one. The BRING-UP's only, and called once: re-entering a
+   *  conversation after that has exactly one owner, and it is the caller that
+   *  restarts this harness (kolu-server's conductor) with the session it
+   *  wants back on the new process's `resume`. A second door here — the one a
+   *  sign-in used to open — is how a signature taken in a conversation the
+   *  person had moved on from put them back in the one they left. */
   const openConversation = async (): Promise<void> => {
-    if (resumable !== null) await load(resumable);
+    const named = typeof options.resume === "string" ? options.resume : null;
+    if (named !== null) await load(named);
     else await fresh();
   };
 
@@ -2581,43 +2573,24 @@ export const startHarness = async (
     // cancel withdraws. A runner crosses five awaits and a person can press
     // the button at any of them; re-pairing the ending with its clean-up at
     // each boundary was five chances to pair them wrong.
-    if (claim.stopping) {
+    //
+    // A CANCEL THAT LOST THE RACE IS NOT AN ENDING. The login command exited
+    // 0, which means the credential store has already been written: calling
+    // that `cancelled` tells the caller there is nothing to restart for, and
+    // the running agent then keeps the signature it started with for ever
+    // while the store holds a different one. The row comes down either way —
+    // the person asked for that — but the ANSWER is what happened.
+    if (claim.stopping && ended !== "signed-in") {
       clearAttempt();
       ended = "cancelled";
     }
-    // ... AND THE CONVERSATION THE REFUSAL COST, opened here rather than by
-    // whoever pressed the button. The thing that knows what to open — this
-    // session id or a fresh one, these servers, this `_meta` — is the harness
-    // that was refused. A caller told to "start again" would have to spawn a
-    // second adapter to reach a conversation this process is one request away
-    // from.
-    //
-    // FRESH EVEN WHEN ONE IS ALREADY OPEN, because an open conversation is not
-    // evidence of a usable one: a signed-out `session/new` SUCCEEDS on the
-    // pinned pair, and the SDK query behind that session was created by a
-    // `claude` with no credential. The adapter recreates such a query only
-    // under `--hide-claude-auth` (`markSessionForSignOutRespawn` returns at
-    // once without the flag, and kolu passes no flag), and its own note says
-    // the credential that replaced the cached one "is invisible until a new
-    // `initialize` runs". Left alone, every turn in the conversation somebody
-    // just signed into would go on being refused.
-    if (ended === "signed-in" && !stopped) {
-      const left = activeSession;
-      if (left !== null) {
-        leaving();
-        activeSession = null;
-        await release(left);
-      }
-      try {
-        await openConversation();
-      } catch (cause) {
-        // The signature was taken and the conversation still would not open.
-        // That belongs on the panel rather than under the button, which has
-        // already done the job it was pressed for.
-        refusedOpen(cause);
-        notice(`the conversation could not be opened: ${refusal ?? ""}`);
-      }
-    }
+    // NOTHING IS RE-ENTERED HERE. A signature only reaches the agent through a
+    // fresh `initialize`, so the conversation somebody signed into is opened
+    // by the restart the CALLER runs — with the session that was live when
+    // the button was pressed. This end used to open one too, out of a
+    // `resume` frozen at boot, which put a person back in the conversation
+    // they had left (or silently into a fresh one) before the restart then
+    // latched whatever that produced.
     return ended;
   };
 

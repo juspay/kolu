@@ -15,7 +15,7 @@ import {
   TaskProgressSchema,
 } from "anyagent";
 import { Schema } from "effect";
-import { ompSteerHeld } from "./screen-scrape.ts";
+import { ompSteerPane } from "./screen-scrape.ts";
 
 export type { TaskProgress } from "anyagent";
 export { TaskProgressSchema };
@@ -76,6 +76,12 @@ export const OmpInfoSchema = Schema.Struct({
    *  so this changing after `agent_say`'s keys is the proof the words landed.
    *  Null before the first prompt is written. */
   lastPromptId: Schema.NullOr(Schema.String),
+  /** That entry's TEXT, whitespace-collapsed and cut to
+   *  `LAST_PROMPT_TEXT_CHARS` — what makes a moved `lastPromptId` THIS
+   *  steer's landing rather than an older held steer's or the human's own
+   *  typing. Null when the entry carried no text part, or before the first
+   *  prompt. */
+  lastPromptText: Schema.NullOr(Schema.String),
 });
 
 export type OmpInfo = typeof OmpInfoSchema.Type;
@@ -160,8 +166,11 @@ export const ompVocab: AgentVocab<OmpInfo> = {
       keys: ["Enter"],
       delivery: "steer",
       sight: {
-        lastPrompt: (info) => info.lastPromptId,
-        held: ompSteerHeld,
+        lastPrompt: (info) =>
+          info.lastPromptId === null
+            ? null
+            : { id: info.lastPromptId, text: info.lastPromptText },
+        pane: ompSteerPane,
       },
     },
     verified: "ran omp 18.20.2 in a kolu terminal, 2026-11-15",

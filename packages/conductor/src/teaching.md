@@ -145,7 +145,7 @@ rings once for each time a terminal reaches it.
 ## Asking the human
 
 - Ask, say what you asked, and end your turn. This has no exception. While the
-  human thinks you are idle, and they can still talk to you.
+  human thinks, you are idle, and they can still talk to you.
 - The answer arrives as a wake, saying who answered, from where and what.
   Several can arrive together, a question they decline arrives the same way,
   and an answer can come after a restart. Never wait for an answer, never poll

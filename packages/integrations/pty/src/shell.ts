@@ -765,6 +765,18 @@ function selectShellInit(shell: string): ShellInit | null {
   return null;
 }
 
+/** THE SHELLS KOLU WRAPS, as a person reads them — the two
+ *  {@link prepareShellInit} plans an rcfile for. Named here, beside the
+ *  selector, so a caller that must ASK a shell something rather than merely
+ *  spawn it (padi's environment capture, which appends `-i -c`) can refuse
+ *  every other shell by name instead of letting it fail on the flags. */
+export const SHELLS_KOLU_WRAPS: readonly string[] = ["bash", "zsh"];
+
+/** Whether `shell` is one of {@link SHELLS_KOLU_WRAPS} — the same reading
+ *  `prepareShellInit` makes, never a second one. */
+export const isShellKoluWraps = (shell: string): boolean =>
+  selectShellInit(shell) !== null;
+
 /**
  * Plan the wrapper rcfile for the user's shell: return the spawn args + env
  * override + the init-file specs that go alongside it. **Pure** — it writes

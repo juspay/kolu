@@ -66,6 +66,7 @@ export function createOmpWatcher(
       contextTokens: derived.contextTokens,
       startedAt: session.startedAt,
       lastPromptId: derived.lastPromptId,
+      lastPromptText: derived.lastPromptText,
     };
     if (lastInfo !== null && sameOmpInfo(info, lastInfo)) return;
     lastInfo = info;

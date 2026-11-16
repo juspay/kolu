@@ -53,6 +53,14 @@ const mute = process.argv.includes("--no-methods");
  *  thing that ever asks for a signature. */
 const silent = process.argv.includes("--no-status");
 
+/** Whether the login command this run hands over OUTLIVES a cancel: it prints
+ *  the URL, and on the SIGTERM a cancel sends it finishes the exchange and
+ *  exits 0 — a credential already written by the time somebody pressed the
+ *  button. Measured behaviour, not a contrivance: a vendor CLI that has
+ *  already taken the token is not undone by a signal, and the harness's answer
+ *  has to be what happened rather than what was pressed. */
+const stubborn = process.argv.includes("--login-outlives-cancel");
+
 /** The method the real adapter hands over, in its shape: a command line in the
  *  `_meta` corner, which the harness RUNS. This one prints a URL and then
  *  reads a line from its stdin — the two halves of a terminal sign-in a person
@@ -73,6 +81,9 @@ const METHODS = [
           "-e",
           "process.stdout.write('visit https://example.invalid/oauth\\nPaste code here if prompted > ');" +
             "process.stdin.setEncoding('utf8');" +
+            (stubborn
+              ? "process.on('SIGTERM', () => { process.stdout.write('\\nsigned in\\n'); process.exit(0); });"
+              : "") +
             "process.stdin.once('data', () => { process.stdout.write('\\nsigned in\\n'); process.exit(0); });",
         ],
         label: "Anthropic Console Login",

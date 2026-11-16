@@ -295,11 +295,14 @@ describe("the gate in front of a harness question", () => {
     const refused = await refusalOf(requireAgentsReady("build-box"));
     expect(refused.kind).toBe("agents-not-ready");
     expect(refused.why).toContain("built without agent-distro");
-    // ... and `harnesses` is honestly empty rather than a list of nothing
-    // that reads like a host problem.
-    expect(
-      offerOver(padi, { listing: { kind: "unavailable" } }).harnesses(),
-    ).toEqual([]);
+    // ... and the OPTIONS say the same thing in the same words. An empty
+    // list here reads like a host with nothing installed, and sends somebody
+    // to look at the host for a fact about this kolu's own build.
+    const { harnesses } = offerOver(padi, {
+      listing: { kind: "unavailable" },
+    });
+    expect(harnesses).toThrow(WorkRefusal);
+    expect(harnesses).toThrow("built without agent-distro");
   });
 
   it("refuses a host that is NOT CONNECTED, by name and by state", async () => {

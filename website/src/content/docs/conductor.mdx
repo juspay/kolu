@@ -189,9 +189,9 @@ There are two limits: 10 MiB per file and 20 MiB per message. The message box sa
 
 ## Sign in
 
-Without a sign-in the agent cannot run a turn, and the Conductor shows its own ways to sign in. **Sign in again…** opens the same row while signed in, and a message refused for the account (a usage limit, billing) offers it beside the refusal.
+Without a sign-in the agent cannot run a turn, and the Conductor offers its own ways in. **Sign in again…** opens the same row while signed in; a refusal for the account (a usage limit, billing) offers it too.
 
-For Claude, kolu runs Claude's sign-in command, shows its links, and takes the code. Then it restarts the agent into the same conversation, so the next message runs as the new account; **Signed in elsewhere** does that for a sign-in made outside kolu. There is no box for an API key.
+kolu runs Claude's sign-in command, shows the links, takes the code, then restarts the agent into the conversation you were in. **Signed in elsewhere** does that for a login made outside kolu, on every row. A restart is refused while a turn runs; one that fails leaves you signed in, and says so. There is no box for an API key.
 
 ## Run a waterfall
 

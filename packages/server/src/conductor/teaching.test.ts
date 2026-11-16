@@ -499,12 +499,13 @@ describe("speaking to agents", () => {
 });
 
 describe("asking the human", () => {
-  it("R57: ask, say what you asked, end your turn — no exception", () => {
+  it("R57: ask, say what you asked, end your turn — no exception; idle while the human thinks", () => {
     expect(
       says(
         ASKING,
         /Ask, say what you asked, and end your turn/,
         /no exception/,
+        /While the human thinks, you are idle, and they can still talk to you\./,
       ),
     ).toBe(true);
   });

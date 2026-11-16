@@ -77,9 +77,19 @@ were sent either way, so a say that did not take is an ANSWER naming the screen
 read that settles it, never a refusal that invites typing the prompt a second
 time. For a STEER whose landing the recipe can see (`SteerSight`: omp, pi),
 kolu watches the record for `SAY_STEER_CAP_MS` for the transcript's newest
-prompt to change — `landed` — and otherwise reads the screen once: the words in
-the agent's steering pane are `held` (a step it cannot interrupt is running, and
-the agent hands them over when it ends), anything else is `did-not-land`. A held
+prompt to become THESE words — `landed`; a prompt that moves carrying someone
+else's words (an older held steer handed over, the human typing) is not this
+steer landing. Otherwise it reads the screen once and then waits the record's
+own lag out (`SAY_RECORD_LAG_MS`: the session watcher polls the transcript on a
+1 s floor and coalesces, so a steer taken in the last moment of the cap has
+left the pane before the record catches up). The words in the agent's steering
+pane are `held` (a step it cannot interrupt is running, and the agent hands
+them over when it ends); a pane WITHOUT them plus a transcript without them is
+`did-not-land` — both facts read, never inferred from silence. A pane the
+reader could not parse, or a prompt whose text kolu cannot compare, is
+`cannot-tell` with a `why`, and a terminal that went away after the keys is
+`lost-sight`: kolu never reports a non-delivery it did not see, because a
+caller acts on one by saying it again. A held
 steer is never "fixed" with a second Enter: in omp that delivers it by killing
 the running tool. An agent that queues, or whose steer is unmeasured (codex,
 xyne), has nothing to watch, so `took` is `not-observable` and the delivery is

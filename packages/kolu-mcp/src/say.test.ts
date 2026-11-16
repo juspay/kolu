@@ -20,13 +20,19 @@ import { ToolFailure } from "@kolu/surface-mcp";
 import { describe, expect, it } from "vitest";
 import type { AgentStateOutcome } from "@kolu/padi-client/watch";
 import type { AgentInfo } from "@kolu/terminal-vocab/schema";
-import { agentPresence, agentVocab, type SteerSight } from "kolu-agents/vocab";
+import {
+  agentPresence,
+  agentVocab,
+  type PaneReading,
+  type SteerSight,
+} from "kolu-agents/vocab";
 import {
   resolveSay,
   type SayRefusal,
   type SayVocabulary,
   sayTook,
   steerVerdict,
+  terminalRecord,
 } from "./say.ts";
 
 const ID = "11111111-1111-4111-8111-111111111111";
@@ -355,44 +361,119 @@ describe("sayTook — did the keys take, and what the answer says either way", (
 });
 
 describe("steerVerdict — where a steer stands when the watch runs out", () => {
-  const sight = (held: boolean): SteerSight<AgentInfo> => ({
-    lastPrompt: (info) =>
-      (info as unknown as { lastPromptId: string | null }).lastPromptId,
-    held: () => held,
+  const WORDS = "also check the staging logs";
+  const sight = (pane: PaneReading): SteerSight<AgentInfo> => ({
+    lastPrompt: (info) => {
+      const { lastPromptId, lastPromptText } = info as unknown as {
+        lastPromptId: string | null;
+        lastPromptText: string | null;
+      };
+      return lastPromptId === null
+        ? null
+        : { id: lastPromptId, text: lastPromptText };
+    },
+    pane: () => pane,
   });
-  const omp = (lastPromptId: string | null): AgentInfo =>
-    ({ kind: "omp", state: "thinking", lastPromptId }) as unknown as AgentInfo;
-  const verdict = (after: AgentInfo | null, held: boolean) =>
+  const omp = (
+    lastPromptId: string | null,
+    lastPromptText: string | null = WORDS,
+  ): AgentInfo =>
+    ({
+      kind: "omp",
+      state: "thinking",
+      lastPromptId,
+      lastPromptText,
+    }) as unknown as AgentInfo;
+  const verdict = (after: AgentInfo | null, pane: PaneReading) =>
     steerVerdict({
-      sight: sight(held),
+      sight: sight(pane),
       before: "686ac209",
       after,
       screen: "",
-      words: "w",
-      waitedMs: 5000,
+      words: WORDS,
+      waitedMs: 6500,
     });
+  const ABSENT: PaneReading = { kind: "absent" };
 
-  it("a new prompt in the record read after the screen is LANDED, held or not", () => {
+  it("a new prompt CARRYING THESE WORDS is LANDED, held or not", () => {
     // The step ended between the two reads: the pane emptied because the turn
     // took the words.
-    expect(verdict(omp("7d8bf8bc"), false)).toEqual({
+    expect(verdict(omp("7d8bf8bc"), ABSENT)).toEqual({
       kind: "landed",
-      elapsedMs: 5000,
+      elapsedMs: 6500,
     });
+  });
+
+  it("a new prompt carrying SOMEONE ELSE'S words is not landed", () => {
+    // An older held steer handed over, or the human typing in that terminal,
+    // inside the watch. The id moved; what was said is still in the input
+    // box, and a caller told `landed` would never send it again.
+    expect(
+      verdict(omp("7d8bf8bc", "whatever the human just typed"), ABSENT),
+    ).toEqual({ kind: "did-not-land", waitedMs: 6500 });
+  });
+
+  it("a new prompt whose text kolu cannot read is CANNOT-TELL", () => {
+    const outcome = verdict(omp("7d8bf8bc", null), ABSENT);
+    expect(outcome.kind).toBe("cannot-tell");
   });
 
   it("the same prompt and the words in the pane is HELD", () => {
-    expect(verdict(omp("686ac209"), true)).toEqual({
+    expect(verdict(omp("686ac209"), { kind: "holds" })).toEqual({
       kind: "held",
-      waitedMs: 5000,
+      waitedMs: 6500,
     });
   });
 
-  it("the same prompt and no pane is DID-NOT-LAND", () => {
-    expect(verdict(omp("686ac209"), false)).toEqual({
+  it("the same prompt and an EMPTY pane is DID-NOT-LAND — both facts seen", () => {
+    expect(verdict(omp("686ac209"), ABSENT)).toEqual({
       kind: "did-not-land",
-      waitedMs: 5000,
+      waitedMs: 6500,
     });
-    expect(verdict(null, false).kind).toBe("did-not-land");
+  });
+
+  it("a pane kolu could not parse is CANNOT-TELL, never did-not-land", () => {
+    const outcome = verdict(omp("686ac209"), {
+      kind: "unreadable",
+      why: "its steering pane runs past the rows kolu read",
+    });
+    expect(outcome).toEqual({
+      kind: "cannot-tell",
+      waitedMs: 6500,
+      why: "its steering pane runs past the rows kolu read",
+    });
+  });
+
+  it("no live agent in the record after the keys is CANNOT-TELL", () => {
+    // Nothing was read that says the words did not arrive — saying they did
+    // not would be reporting an absence kolu never saw.
+    expect(verdict(null, ABSENT).kind).toBe("cannot-tell");
+  });
+});
+
+describe("terminalRecord — padi's frame is decoded, never asserted", () => {
+  it("a malformed frame is a named refusal, and nothing is typed", () => {
+    try {
+      terminalRecord(ID, { state: "active", agent: { kind: 42 } });
+      throw new Error("expected the decode to refuse");
+    } catch (e) {
+      expect(e).toBeInstanceOf(ToolFailure);
+      expect((e as ToolFailure<SayRefusal>).detail).toEqual({
+        kind: "record-unreadable",
+        id: ID,
+      });
+      expect((e as ToolFailure<SayRefusal>).message).toContain(
+        "nothing was typed",
+      );
+    }
+  });
+
+  it("a real record decodes to padi's own shape", () => {
+    const record = terminalRecord(ID, {
+      state: "active",
+      title: "worker",
+      agent: null,
+    });
+    expect(record.state).toBe("active");
   });
 });

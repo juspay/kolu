@@ -790,8 +790,15 @@ export * from "./transcriptSchema.ts";
  *  there ends up with — the person's shell, after their dotfiles — so a key
  *  only an rc file exports reaches it; a shell that cannot be asked is
  *  {@link AgentModelsUnavailable} naming it. A member added — the 7.4 class:
- *  a minor. */
-export const PADI_SURFACE_VERSION = "7.7";
+ *  a minor.
+ *
+ *  7.8 (additive · minor) — WHAT THE NEWEST PROMPT SAID. The omp and pi arms of
+ *  the record's `agent` gain `lastPromptText` beside `lastPromptId`: the newest
+ *  user entry's words, whitespace collapsed and cut to 512 characters, or
+ *  `null` when there is none. `agent_say` reports a steer `landed` only when
+ *  the prompt that moved carries the words it sent. A required field on an
+ *  emitted arm — the 5.3/7.3 class: a minor. */
+export const PADI_SURFACE_VERSION = "7.8";
 
 /** The `version` cell payload — padi's self-declared surface contract version. */
 export const PadiVersionSchema = Schema.Struct({

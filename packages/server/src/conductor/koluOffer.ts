@@ -60,11 +60,22 @@ export function koluOfferOver(deps: {
       );
     return padi;
   };
+  /** THE ONE SENTENCE for a kolu that carries no agent-distro — said
+   *  wherever that state is met (the gate, and the options themselves), so
+   *  the two can never drift into "no harnesses here" and "none at all". */
+  const noAgentDistro = () =>
+    new WorkRefusal(
+      "agents-not-ready",
+      "This kolu was built without agent-distro, so it has no harness to offer for a planner or an implementor.",
+    );
   return {
-    harnesses: () =>
-      listing.kind === "available"
-        ? listing.harnesses.map((one) => one.name)
-        : [],
+    // A LIST OF NOTHING IS NOT AN ANSWER: a kolu built without agent-distro
+    // has no harness to offer at all, which is a refusal in words — never an
+    // empty menu that reads like a host with nothing installed.
+    harnesses: () => {
+      if (listing.kind === "unavailable") throw noAgentDistro();
+      return listing.harnesses.map((one) => one.name);
+    },
     models: async ({ host, repo, harness }) => {
       try {
         const answer = await settled(
@@ -84,11 +95,7 @@ export function koluOfferOver(deps: {
       (await settled(padiOf(host).surface.agentDistro.launch({ harness })))
         .model,
     requireAgentsReady: async (host) => {
-      if (listing.kind === "unavailable")
-        throw new WorkRefusal(
-          "agents-not-ready",
-          "This kolu was built without agent-distro, so it has no harness to offer for a planner or an implementor.",
-        );
+      if (listing.kind === "unavailable") throw noAgentDistro();
       const where = hosts.display(host);
       const status = await settled(
         firstFrameOrThrow(

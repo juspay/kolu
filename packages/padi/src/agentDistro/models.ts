@@ -51,7 +51,7 @@ import { log } from "../log.ts";
 import { terminalShellEnv } from "../ptyHost/index.ts";
 import { ShellEnvUnreadable } from "../ptyHost/shellEnv.ts";
 import { agentDistroSettingStore, assessAgentDistro } from "./agentDistro.ts";
-import { packageAnswers } from "./onHost.ts";
+import { AgentPackageUnreadable, packageAnswers } from "./onHost.ts";
 
 /** A harness reading a repository's `plugin.json` for the first time fetches
  *  its plugin references, as a terminal's first launch there would. */
@@ -63,6 +63,17 @@ const LAUNCH_TIMEOUT_MS = 30_000;
 /** How this host is named in its own refusal: padi does not know what the
  *  person calls it, and the asker does. */
 const HERE = "this host";
+
+/** THE MOST OF A RUN'S OWN OUTPUT KOLU KEEPS — in the daemon's log and in the
+ *  words a refusal carries. The run holds the environment the person's
+ *  dotfiles built, so its output can hold their keys; a megabyte of it in a
+ *  log file that outlives the question is a leak with no reader. */
+const OUTPUT_CAP = 2_000;
+
+const capOutput = (text: string): string =>
+  text.length <= OUTPUT_CAP
+    ? text
+    : `${text.slice(0, OUTPUT_CAP)}… (${text.length} characters in all)`;
 
 /** `harness`'s models on this host, asked from `cwd` in the environment a new
  *  terminal there gets. */
@@ -79,14 +90,12 @@ export const listAgentModels = (input: {
           why: agentsNotReadyWords(assessed, HERE),
         }),
       );
-    // A package that cannot answer is never run — nor is the shell asked for
-    // an environment nothing will use.
-    if (tooOld(assessed.layer.bundle))
+    // A package that cannot be asked is never run — nor is the shell asked
+    // for an environment nothing will use.
+    const cannot = cannotAsk(assessed.layer.bundle);
+    if (cannot !== undefined)
       return yield* Effect.fail(
-        new AgentModelsUnavailable({
-          harness: input.harness,
-          why: agentsTooOldWords(HERE),
-        }),
+        new AgentModelsUnavailable({ harness: input.harness, why: cannot }),
       );
     const env = yield* terminalShellEnv({
       cwd: input.cwd,
@@ -131,12 +140,24 @@ export function agentModelLaunch(input: {
   });
 }
 
-/** Whether `bundle`'s package is older than this kolu's contract — it says
- *  what it answers itself ({@link packageAnswers}), and one that does not
- *  answer every call kolu makes is never run: its picker would take the flag
- *  for a launch. */
-const tooOld = (bundle: string): boolean =>
-  missingPackageCalls(packageAnswers(bundle)).length > 0;
+/** WHY `bundle`'s picker cannot be asked at all, in the words a refusal
+ *  carries — `undefined` when it can. Two readings, never one: a package that
+ *  does not answer every call this kolu makes is OLD (its picker would take
+ *  the flag for a launch, so it is never run), and one whose answers file is
+ *  there and names nothing is BROKEN ({@link AgentPackageUnreadable}) — only
+ *  the first is something a person waits out. */
+function cannotAsk(bundle: string): string | undefined {
+  let answers: ReadonlyArray<string>;
+  try {
+    answers = packageAnswers(bundle);
+  } catch (err) {
+    if (!(err instanceof AgentPackageUnreadable)) throw err;
+    return err.message;
+  }
+  return missingPackageCalls(answers).length > 0
+    ? agentsTooOldWords(HERE)
+    : undefined;
+}
 
 /** ONE RUN of `bundle`'s picker with `args` — its answer, read by `parse`, or
  *  `Unavailable` with the words the run failed in. */
@@ -152,10 +173,9 @@ function askPackage<A, E extends Error>(input: {
 }): Promise<A> {
   const { harness, Unavailable } = input;
   const said = `agent-distro ${input.args.join(" ")}`;
-  if (tooOld(input.bundle))
-    return Promise.reject(
-      new Unavailable({ harness, why: agentsTooOldWords(HERE) }),
-    );
+  const cannot = cannotAsk(input.bundle);
+  if (cannot !== undefined)
+    return Promise.reject(new Unavailable({ harness, why: cannot }));
   const command = join(agentBinDir(input.bundle), "agent-distro");
   const mlog = log.child({ harness, cwd: input.cwd, args: input.args });
   const { promise, resolve, reject } = Promise.withResolvers<A>();
@@ -170,7 +190,7 @@ function askPackage<A, E extends Error>(input: {
     },
     (err, stdout, stderr) => {
       if (err !== null) {
-        const words = stderr.trim();
+        const words = capOutput(stderr.trim());
         mlog.warn({ err, stderr: words }, `${said} failed`);
         reject(
           new Unavailable({
@@ -184,7 +204,7 @@ function askPackage<A, E extends Error>(input: {
         resolve(input.parse(stdout));
       } catch (parseErr) {
         mlog.error(
-          { err: parseErr, stdout },
+          { err: parseErr, stdout: capOutput(stdout) },
           `${said} printed something kolu cannot read`,
         );
         reject(

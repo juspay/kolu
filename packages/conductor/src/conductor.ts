@@ -122,6 +122,7 @@ import {
   type ConductorFrame,
   type ConductorReadingLevel,
   type ConductorRow,
+  type ConductorSignInResult,
   type ConductorState,
   ConductorStateSchema,
   type ConductorWorkAskStanding,
@@ -130,6 +131,7 @@ import {
 import {
   ConductorRefused,
   ConductorUnavailable,
+  isConductorDeclaredError,
 } from "kolu-common/conductorErrors";
 import type { MemberReading } from "kolu-common/works";
 import { splitFleetTerminalRef } from "kolu-mcp/fleetRef";
@@ -295,10 +297,18 @@ async function choicesFor(
   for (const harness of asking) {
     try {
       models.set(harness, await offer.models({ host, repo, harness }));
-    } catch (err) {
+    } catch {
+      // WHAT A PERSON'S SHELL PRINTED IS SHOWN TO THAT PERSON AND GOES
+      // NOWHERE ELSE. The listing reads a harness's models out of the
+      // terminal's own environment, so what comes back when it fails carries
+      // the tail of that shell's output — a `set -x` line, a misquoted
+      // `export KEY=$(…)` — and this sentence is handed to the CONDUCTOR:
+      // sent to a model provider and kept in the transcript for ever. So the
+      // refusal names the harness and the host, and the reason stays on the
+      // screen of the one person entitled to read it.
       throw new WorkRefusal(
         "not-offered",
-        `kolu could not ask what ${harness} offers on ${host}: ${err instanceof Error ? err.message : String(err)}. ${nothing}`,
+        `kolu could not ask what ${harness} offers on ${host}. The reason is the human's to read on their own screen — it can carry their shell's output, so it is not repeated here. ${nothing}`,
       );
     }
   }
@@ -703,13 +713,14 @@ export interface ConductorHost {
       values: ReadonlyArray<string>;
     }> | null,
   ) => Promise<boolean>;
-  /** RUN A SIGN-IN METHOD. One that succeeds RESTARTS the agent into the same
-   *  conversation ({@link ConductorHost.reloadAgent}): a running agent keeps
-   *  the credential it started with, and the next turn must be the new
-   *  account's. */
-  readonly signIn: (
-    method: string,
-  ) => Promise<"signed-in" | "failed" | "cancelled" | "attached">;
+  /** RUN A SIGN-IN METHOD, and say what BOTH halves did. One that succeeds
+   *  restarts the agent into the conversation that was live when it was
+   *  asked for ({@link ConductorHost.reloadAgent} is the same restart for a
+   *  signature made outside kolu): a running agent keeps the credential it
+   *  started with, and the next turn must be the new account's. A restart
+   *  that was refused or failed rides on the ANSWER rather than replacing
+   *  it — the login still landed. */
+  readonly signIn: (method: string) => Promise<ConductorSignInResult>;
   /** A PERSON ASKS TO SIGN IN — signed in already or not. Puts the sign-in
    *  row on screen with the methods the agent advertised. */
   readonly askSignIn: () => Promise<void>;
@@ -718,7 +729,8 @@ export interface ConductorHost {
   /** PICK UP A SIGNATURE THAT CHANGED UNDER THE AGENT — signed in again here,
    *  or outside kolu. The adapter is stopped and started again, which is the
    *  fresh `initialize` its new credential needs, and it comes back into the
-   *  SAME conversation (`resume`, the session it is in now). */
+   *  SAME conversation (`resume`, the session it is in now). REFUSED while a
+   *  turn runs: a restart ends it with nothing on screen saying so. */
   readonly reloadAgent: () => Promise<void>;
   readonly setOption: (id: string, value: string) => Promise<void>;
   /** A NEW CONVERSATION OVER THE SAME TRANSCRIPT. The agent's memory is
@@ -1063,6 +1075,18 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
   let harness: Harness | null = null;
   let starting: Promise<Harness> | null = null;
   let disposed = false;
+  /**
+   * WHICH SPAWN'S NEWS IS THE CONVERSATION'S — bumped the moment a harness is
+   * retired, and compared by every `onChange` against the number its own spawn
+   * was given.
+   *
+   * A teardown's last breath says `sessionId: null`, and we persist what we
+   * are told. `disposed` covered only the shutdown; a RESTART retires a
+   * harness too, and the record would otherwise say there is no conversation
+   * while the transcript holds its rows — for as long as the respawn takes,
+   * and for ever if the respawn fails or kolu-server goes down in that window.
+   */
+  let generation = 0;
 
   // What a restart starts from — read ONCE, on the first reader's edge. The
   // records are this module's to write from here on, and re-reading them would
@@ -1562,6 +1586,9 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
       // `starting` assignment below: a second caller arriving mid-await would
       // see no harness and no bring-up in flight, and spawn a second adapter.
       harness = null;
+      // ... and its dying state is not this conversation's: the stop below
+      // publishes `sessionId: null` for a conversation whose rows we keep.
+      generation += 1;
       void running.stop().catch((err: unknown) => {
         log.warn(
           { err },
@@ -1577,6 +1604,10 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
       });
     }
     remembered();
+    // THIS SPAWN'S NUMBER, taken before the bring-up starts so the harness's
+    // very first publish can be told apart from a retired one's last.
+    generation += 1;
+    const mine = generation;
     // THE WHOLE BRING-UP IS ONE PROMISE, assigned to `starting` on the line
     // after it is made and never awaited before then — so two readers arriving
     // in the same tick share it rather than spawning two adapters. It has to
@@ -1629,14 +1660,16 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
         model: chosenModel,
         onChange: (change) => {
           if (change.kind === "state") {
-            // A TEARDOWN'S LAST BREATH IS NOT NEWS. `stop()` nulls the live
-            // session and publishes one final state saying so, and we persist
-            // what we are told — so a drain or an upgrade would write
-            // `sessionId: null` beside the rows it just kept, and the next
-            // boot would restore the transcript into a conversation it never
-            // resumed. What the file must hold is the conversation as it stood
-            // when the process let go of it.
-            if (disposed) return;
+            // A RETIRED HARNESS'S LAST BREATH IS NOT NEWS. `stop()` nulls the
+            // live session and publishes one final state saying so, and we
+            // persist what we are told — so a drain, an upgrade or a RESTART
+            // would write `sessionId: null` beside the rows it just kept, and
+            // the next boot would restore the transcript into a conversation
+            // it never resumed. What the file must hold is the conversation as
+            // it stood when the process let go of it. The number, not a
+            // `disposed` flag: a restart retires a harness without disposing
+            // of anything, and the respawn can fail.
+            if (disposed || mine !== generation) return;
             // The harness answers for the conversation; `seen`, `work` and
             // `held` are this module's and are folded back on by
             // `publishState`.
@@ -1730,13 +1763,36 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
     }
   };
 
-  /** THE AGENT, STARTED AGAIN into the conversation it is in. `live()` spawns
-   *  with `resume` — the session id the last state named — so the restart is
-   *  the same conversation with a fresh `initialize`, which is when the
-   *  adapter reads its signature. */
-  const reload = async (): Promise<void> => {
+  /**
+   * THE AGENT, STARTED AGAIN into the conversation named here — the one that
+   * was live when whoever asked for this pressed the button, carried in rather
+   * than re-read, because a sign-in takes minutes and the conversation is the
+   * one the person was looking at. `live()` spawns with it as `resume`, so the
+   * restart is that conversation with a fresh `initialize`, which is when the
+   * adapter reads its signature.
+   *
+   * A TURN IN FLIGHT REFUSES IT. `stop()` sets `stopped` before it tears
+   * anything down, so a restart over a running turn ends the answer
+   * mid-sentence, drops whatever was queued behind it, and reports none of it:
+   * every row on screen stays exactly as it was. There is already a verb for
+   * ending a turn, and this says to use it.
+   */
+  const reload = async (into: string | null): Promise<void> => {
+    if (state.phase === "working" || state.phase === "asking") {
+      throw new ConductorRefused({
+        why:
+          state.phase === "asking"
+            ? "the agent is in the middle of a turn, waiting on a question. Answer it, or stop the turn, and restart the agent then — a restart now would end the turn mid-sentence with nothing on screen saying so."
+            : "the agent is in the middle of a turn. Stop the turn, or wait for it to end, and restart the agent then — a restart now would end the answer mid-sentence and drop anything queued behind it, with nothing on screen saying so.",
+        auth: false,
+      });
+    }
+    resume = into;
     const running = harness;
     harness = null;
+    // WHAT THE OLD HARNESS SAYS NEXT IS NOT THIS CONVERSATION'S: the stop
+    // below publishes `sessionId: null`, and the record must not learn it.
+    generation += 1;
     if (running !== null) await stopQuietly(running);
     await ask(async () => undefined);
   };
@@ -2312,17 +2368,41 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
     cancel: () => ask((agent) => agent.cancel()),
     answer: (askId, answers) => ask((agent) => agent.answer(askId, answers)),
     signIn: async (method) => {
-      const ended = await ask((agent) => agent.signIn(method));
+      // THE CONVERSATION THIS PERSON IS IN, read BEFORE the login runs. A
+      // sign-in is minutes of somebody finding a password and a phone, and
+      // the conversation to come back to is the one that was on screen when
+      // they pressed the button — not whatever the agent's state says by the
+      // time the restart gets its turn.
+      const into = state.sessionId;
+      const outcome = await ask((agent) => agent.signIn(method));
       // THE NEW SIGNATURE IS THE ONE THE NEXT TURN USES. The adapter caches
       // the account it read at `initialize`; its own note says a credential
       // that replaces it "is invisible until a new `initialize` runs".
-      if (ended === "signed-in") await reload();
-      return ended;
+      if (outcome !== "signed-in")
+        return { outcome, restart: { kind: "not-due" as const } };
+      try {
+        await reload(into);
+        return { outcome, restart: { kind: "restarted" as const } };
+      } catch (err) {
+        // TWO FACTS, TWO ANSWERS. The signature landed — the store has been
+        // written and saying "Sign-in failed" over that is a lie somebody
+        // acts on by signing in twice — and the agent is still the old one,
+        // which the person must know because the next turn is the old
+        // account's. A DEFECT still crashes: only the declared refusals are
+        // facts about this restart.
+        if (!isConductorDeclaredError(err)) throw err;
+        return {
+          outcome,
+          restart: { kind: "did-not-restart" as const, why: err.why },
+        };
+      }
     },
     askSignIn: () => ask(async (agent) => agent.askSignIn()),
     signInInput: (text) => ask((agent) => agent.signInInput(text)),
     signInCancel: () => ask((agent) => agent.signInCancel()),
-    reloadAgent: () => reload(),
+    // The conversation the agent is in NOW: nothing has been waited for
+    // between the press and here.
+    reloadAgent: () => reload(state.sessionId),
     setOption: (id, value) => ask((agent) => agent.setOption(id, value)),
     newSession: () => ask((agent) => agent.newSession()),
     clearSession: () =>

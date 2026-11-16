@@ -50,7 +50,11 @@ import {
   pruneGcRoots,
 } from "./deliveries.ts";
 import type { AgentLayer } from "./layer.ts";
-import { packageAnswers, servedSetOnHost } from "./onHost.ts";
+import {
+  AgentPackageUnreadable,
+  packageAnswers,
+  servedSetOnHost,
+} from "./onHost.ts";
 import { readReceipt } from "./receipt.ts";
 
 /** The backing store of the `agentDistro` cell, shared by the cell declaration
@@ -150,22 +154,38 @@ export function newTerminalLayer(): AgentLayer | undefined {
 
 /** Publish `setting`'s status on this host — a ready one with what its
  *  package answers, which is how kolu-server tells agents too old to be
- *  asked for a model from ones that can be, before asking. */
+ *  asked for a model from ones that can be, before asking. A package whose
+ *  own answers file is there and names nothing is BROKEN, not old: it is
+ *  this host's `error`, in the same arm a set this host cannot hold takes,
+ *  so nobody is told to wait for an update that has already landed. */
 function settle(setting: AgentDistroSetting): void {
   const assessed = assessAgentDistro(setting);
-  padiSurfaceCtx.cells.agentDistroStatus.set(
-    assessed.kind === "ready"
-      ? {
-          kind: "ready",
-          set: {
-            bundle: assessed.layer.bundle,
-            profiles: assessed.layer.profiles,
-          },
-          delivering: assessed.delivering,
-          answers: [...packageAnswers(assessed.layer.bundle)],
-        }
-      : assessed,
-  );
+  if (assessed.kind !== "ready") {
+    padiSurfaceCtx.cells.agentDistroStatus.set(assessed);
+    return;
+  }
+  let answers: ReadonlyArray<string>;
+  try {
+    answers = packageAnswers(assessed.layer.bundle);
+  } catch (err) {
+    if (!(err instanceof AgentPackageUnreadable)) throw err;
+    log.error({ err }, "agent-distro package on this host could not be read");
+    padiSurfaceCtx.cells.agentDistroStatus.set({
+      kind: "error",
+      profiles: setting.profiles,
+      message: err.message,
+    });
+    return;
+  }
+  padiSurfaceCtx.cells.agentDistroStatus.set({
+    kind: "ready",
+    set: {
+      bundle: assessed.layer.bundle,
+      profiles: assessed.layer.profiles,
+    },
+    delivering: assessed.delivering,
+    answers: [...answers],
+  });
 }
 
 /** The `agentDistro` cell's `onWrite`: a CHANGED setting (the cell's `equals`

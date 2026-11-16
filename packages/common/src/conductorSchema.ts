@@ -1204,9 +1204,36 @@ export const ConductorSignInInputSchema = Schema.Struct({
   method: Schema.String,
 });
 
+/**
+ * WHAT THE RESTART AFTER A SIGNATURE DID — the second half of what a sign-in
+ * answers.
+ *
+ * A running adapter keeps the credential it read at `initialize`, so a login
+ * that landed is only half the job: the agent is restarted into the
+ * conversation that was live when the button was pressed. That restart can be
+ * REFUSED (a turn is running) or fail, and when it does the person has two
+ * facts to be told, not one — they ARE signed in, and the next turn is still
+ * the old account's. Rejecting the call instead is how a sign-in that worked
+ * reached the screen as "Sign-in failed".
+ */
+export const ConductorRestartAfterSignInSchema = Schema.Union([
+  /** Nothing was signed in, so no restart was owed. */
+  Schema.Struct({ kind: Schema.Literal("not-due") }),
+  Schema.Struct({ kind: Schema.Literal("restarted") }),
+  Schema.Struct({
+    kind: Schema.Literal("did-not-restart"),
+    /** The refusal's own sentence, shown as it is. */
+    why: Schema.String,
+  }),
+]);
+export type ConductorRestartAfterSignIn =
+  typeof ConductorRestartAfterSignInSchema.Type;
+
 export const ConductorSignInOutputSchema = Schema.Struct({
   outcome: Schema.Literals(["signed-in", "failed", "cancelled", "attached"]),
+  restart: ConductorRestartAfterSignInSchema,
 });
+export type ConductorSignInResult = typeof ConductorSignInOutputSchema.Type;
 
 export const ConductorSetOptionInputSchema = Schema.Struct({
   id: Schema.String,
