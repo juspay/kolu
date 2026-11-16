@@ -266,13 +266,13 @@ export const Markdown: Component<{
     readonly action: (text: string) => InlineCodeAction | undefined;
     readonly onPress: (text: string, anchor: HTMLElement) => void;
   };
-  /** Called with the container after EVERY write of rendered HTML into it —
-   *  the first paint, a text change, and a re-render with the same text (a
-   *  diagram landing, the highlighter warming up). This is where a host
-   *  re-applies its own passes over the rendered DOM: each write replaces
-   *  everything inside the container. Runs after the DOM is in place, in the
-   *  same update, untracked. */
-  onRendered?: (el: HTMLElement) => void;
+  /** Called after EVERY write of rendered HTML into the container — the first
+   *  paint, a text change, and a re-render with the same text (a diagram
+   *  landing, the highlighter warming up). This is where a host re-applies its
+   *  own passes over the rendered DOM: each write replaces everything inside
+   *  the container. Runs after the DOM is in place, in the same update,
+   *  untracked. */
+  onRendered?: () => void;
 }> = (props) => {
   const variant = (): MarkdownVariant => props.variant ?? "document";
   const isDocument = () => variant() === "document";
@@ -369,20 +369,17 @@ export const Markdown: Component<{
       : decorateInlineCode(sanitized, inlineCode.action);
   });
 
-  let container: HTMLElement | undefined;
   // A user effect, so it runs after the `innerHTML` render effect of the same
-  // update: the host's callback always sees the DOM it is told about.
+  // update: the host is told once the DOM it hears about is in place.
   createEffect(() => {
     html();
-    const el = container;
-    if (el) untrack(() => props.onRendered?.(el));
+    untrack(() => props.onRendered?.());
   });
 
   return (
     <Dynamic
       component={variant() === "inline" ? "span" : "div"}
-      ref={(el: HTMLElement) => {
-        container = el;
+      ref={(el: HTMLElement) =>
         bindInteractions(el, {
           get onNavigateRelative() {
             return props.onNavigateRelative;
@@ -396,8 +393,8 @@ export const Markdown: Component<{
           get onInlineCode() {
             return props.inlineCode?.onPress;
           },
-        });
-      }}
+        })
+      }
       class="kolu-md"
       data-md-variant={variant()}
       innerHTML={html()}

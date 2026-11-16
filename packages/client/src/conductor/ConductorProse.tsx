@@ -45,9 +45,12 @@ const ConductorProse: Component<{
   rowId: string;
   /** The agent's Markdown, as it stands this chunk. */
   text: string;
-  /** The prose's DOM was rewritten while its text stayed the same — a
-   *  diagram landed — so the row may have changed height with no new text.
-   *  Never called for a press on "and N more". */
+  /** The prose's DOM was rewritten — a chunk, a diagram landing (which grows
+   *  the row with no new text), a named file becoming a link. Whether the text
+   *  changed is not asked here: the closing-fence chunk renders the same HTML
+   *  as the chunk before it, so the text a rewrite carries cannot tell what
+   *  caused it. Never called for a press on "and N more", which writes no
+   *  HTML. */
   onRedrawn?: () => void;
 }> = (props) => {
   let host!: HTMLDivElement;
@@ -91,8 +94,6 @@ const ConductorProse: Component<{
   };
 
   const [rewrites, setRewrites] = createSignal(0);
-  /** The text at the previous rewrite, to tell a redraw from a new chunk. */
-  let renderedText: string | undefined;
 
   createEffect(() => {
     rewrites();
@@ -112,8 +113,7 @@ const ConductorProse: Component<{
           // The fold is queued first, so a transcript re-pinning on
           // `onRedrawn` measures the folded row.
           setRewrites((n) => n + 1);
-          if (props.text === renderedText) props.onRedrawn?.();
-          renderedText = props.text;
+          props.onRedrawn?.();
         }}
       />
       <OptionMenu<WorkId>

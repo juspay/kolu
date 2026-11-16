@@ -40,8 +40,9 @@ export class DiagramSyntaxError extends Error {
   override name = "DiagramSyntaxError";
 }
 
-/** Marks a renderer frame in the DOM, so its lifetime can be checked. */
-export const RENDERER_FRAME_ATTR = "data-md-diagram-renderer";
+/** Marks a renderer frame in the DOM. The e2e suite selects on this literal
+ *  to prove no frame outlives its diagram; rename both together. */
+const RENDERER_FRAME_ATTR = "data-md-diagram-renderer";
 
 // Gantt and timeline diagrams size themselves to the frame's width, so the
 // frame is as wide as the document reading column (`max-w-3xl` minus its

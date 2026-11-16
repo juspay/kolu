@@ -44,9 +44,9 @@ The host wires the parts that are its concern: `resolveImageSrc` for a
 repo-relative image, `onNavigateRelative` for a repo-relative link,
 `onNavigateWikilink` for `[[Note]]`, and `onFootnote` for a footnote popover.
 Each one unwired leaves that link kind inert, never navigating the app origin.
-`onRendered` is called with the container after every write of rendered HTML,
-including a re-render with unchanged text when a diagram lands. It is where a
-host re-applies its own passes over the rendered DOM.
+`onRendered` is called after every write of rendered HTML, including a
+re-render with unchanged text when a diagram lands. It is where a host
+re-applies its own passes over the rendered DOM.
 
 `inlineCode` makes inline code a host can act on pressable. The host answers
 for one span's exact text (`action`: a name for the press and whether it is

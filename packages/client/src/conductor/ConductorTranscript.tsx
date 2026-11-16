@@ -134,13 +134,14 @@ const ConductorTranscript: Component<{
     return `${rows.length}:${last === undefined || last.kind === "plan" ? 0 : last.text.length}`;
   });
 
-  /** How many times a row's prose was redrawn with its text unchanged — a
-   *  diagram landing, which changes the row's height but adds nothing new.
-   *  Its own dep of the follow effect below, and deliberately NOT part of
-   *  `signature`: the pill's "something new down there" ring compares
-   *  `signature`, and a diagram replacing its own source is not new. Opening
-   *  a folded list never bumps it (`ConductorProse` calls `onRedrawn` only
-   *  for a rewrite), so a press does not start re-pinning the view. */
+  /** How many times a row's prose DOM was rewritten. It matters for the one
+   *  rewrite no text change announces — a diagram landing, which grows the
+   *  row a second after its fence closed — and is harmless for the others (a
+   *  re-pin is idempotent). Its own dep of the follow effect below, and
+   *  deliberately NOT part of `signature`: the pill's "something new down
+   *  there" ring compares `signature`, and a diagram replacing its own source
+   *  is not new. Opening a folded list writes no HTML and never bumps it, so a
+   *  press does not start re-pinning the view. */
   const [redraws, setRedraws] = createSignal(0);
   const noteRedrawn = () => setRedraws((n) => n + 1);
 

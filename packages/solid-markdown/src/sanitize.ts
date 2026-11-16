@@ -344,7 +344,7 @@ function highlightInto(
  *  `.kolu-md-code` container and append a copy button. The button + wrapper are
  *  elements we mint here, not from the document, so they need no allowlist
  *  entry. */
-function wrapWithCopyButton(block: Element): Element {
+function wrapWithCopyButton(block: Element): void {
   const wrap = document.createElement("div");
   wrap.className = "kolu-md-code";
   block.replaceWith(wrap);
@@ -356,19 +356,17 @@ function wrapWithCopyButton(block: Element): Element {
   button.setAttribute("data-md-copy", "");
   button.setAttribute("aria-label", "Copy code");
   wrap.appendChild(button);
-  return wrap;
 }
 
 /** Highlight (when a highlighter is supplied) and decorate a fenced code
  *  block: replace the plain `<pre>` with Shiki's themed markup, then wrap it in
- *  a `.kolu-md-code` container carrying a copy button. Returns the element now
- *  standing where the `<pre>` was. */
+ *  a `.kolu-md-code` container carrying a copy button. */
 function enhanceCodeBlock(
   pre: Element,
   highlight?: (code: string, lang: string) => string | undefined,
-): Element {
-  if (!pre.querySelector(":scope > code")) return pre;
-  return wrapWithCopyButton(highlightInto(pre, highlight));
+): void {
+  if (!pre.querySelector(":scope > code")) return;
+  wrapWithCopyButton(highlightInto(pre, highlight));
 }
 
 /** The drawn diagram, as the sanitizer's own elements: a `<figure>` holding
@@ -439,15 +437,15 @@ export function sanitizeHtml(rawHtml: string, opts: SanitizeOptions): string {
       pre.replaceWith(diagramFigure(diagram));
       continue;
     }
-    const block = opts.richHtml
-      ? enhanceCodeBlock(pre, opts.highlightCode)
-      : pre;
     if (diagram) {
+      // Placed while the `<pre>` still stands where it was: the decoration
+      // below replaces it in place, so the note ends up after the wrapper.
       const error = document.createElement("p");
       error.setAttribute("data-md-diagram-error", "");
       error.textContent = diagram.message;
-      block.after(error);
+      pre.after(error);
     }
+    if (opts.richHtml) enhanceCodeBlock(pre, opts.highlightCode);
   }
 
   // Resolve images (markdown- or inline-HTML-sourced alike): absolute http(s)/

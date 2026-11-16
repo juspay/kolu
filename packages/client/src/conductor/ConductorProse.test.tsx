@@ -48,7 +48,7 @@ vi.mock("@kolu/solid-markdown", async () => {
   markdownMock.redraw = () => setRedraws((n) => n + 1);
   // What the real component does: the compiled `innerHTML={html()}` binding
   // is a render effect, so the prose lands in the update's pure phase; then a
-  // user effect hands the container to `onRendered`, untracked.
+  // user effect tells `onRendered`, untracked.
   return {
     ...actual,
     Markdown: (props: {
@@ -57,7 +57,7 @@ vi.mock("@kolu/solid-markdown", async () => {
         action: Parameters<typeof actual.decorateInlineCode>[1];
         onPress: (text: string, anchor: HTMLElement) => void;
       };
-      onRendered?: (el: HTMLElement) => void;
+      onRendered?: () => void;
     }) => {
       const el = document.createElement("div");
       el.className = "kolu-md";
@@ -79,7 +79,7 @@ vi.mock("@kolu/solid-markdown", async () => {
       });
       solid.createEffect(() => {
         html();
-        solid.untrack(() => props.onRendered?.(el));
+        solid.untrack(() => props.onRendered?.());
       });
       actual.bindMarkdownLinks(el, {
         onInlineCode: (text, anchor) => props.inlineCode?.onPress(text, anchor),
@@ -294,17 +294,23 @@ describe("the Conductor's prose folds a long list", () => {
     expect(visibleItems(firstList(host))).toHaveLength(7);
   });
 
-  it("reports a redraw of unchanged text, and nothing else, as redrawn", () => {
-    const [text, setText] = createSignal(bullets(6));
+  it("reports every rewrite of the prose, and never a press on the fold", () => {
     let redrawn = 0;
-    const host = mount("row-report", text, () => redrawn++);
+    const host = mount(
+      "row-report",
+      () => bullets(6),
+      () => redrawn++,
+    );
+    const afterMount = redrawn;
 
-    setText(`${bullets(6)}<p>more</p>`);
+    // A press writes no HTML: reporting it would re-pin a reader who just
+    // opened a list.
     control(host)?.click();
-    expect(redrawn).toBe(0);
+    expect(redrawn).toBe(afterMount);
 
+    // A diagram landing rewrites the DOM with the text unchanged.
     markdownMock.redraw();
-    expect(redrawn).toBe(1);
+    expect(redrawn).toBe(afterMount + 1);
   });
 });
 

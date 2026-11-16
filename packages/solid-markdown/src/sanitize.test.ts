@@ -142,6 +142,9 @@ describe("sanitizeHtml — mermaid diagrams", () => {
 
         expect(root.querySelector("pre")?.textContent).toBe(SOURCE);
         expect(error?.textContent).toBe(FAILURE);
+        // The note sits under its block (in the document scope, under the
+        // copy-button wrapper), never above it.
+        expect(error?.previousElementSibling?.textContent).toContain(SOURCE);
         expect(error?.querySelector("img")).toBeNull();
         expect(root.querySelector("figure")).toBeNull();
         expect(root.querySelector("[data-md-copy]") !== null).toBe(scope.rich);
