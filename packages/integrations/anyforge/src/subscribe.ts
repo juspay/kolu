@@ -16,7 +16,7 @@
  *  `startAgentSensor` takes one `AgentAdapter`. */
 
 import type { Logger } from "@kolu/log";
-import type { PrGitContext, ForgeAdapter } from "./adapter.ts";
+import type { ForgeAdapter, PrGitContext, PrResolveCause } from "./adapter.ts";
 import {
   type PrResult,
   prResultEqual,
@@ -87,9 +87,12 @@ export function subscribePr<S extends PrUnavailableSourceBase>(
     }
   }
 
-  async function fetchAndEmit(git: PrGitContext): Promise<void> {
+  async function fetchAndEmit(
+    git: PrGitContext,
+    cause: PrResolveCause,
+  ): Promise<void> {
     try {
-      const pr = await adapter.resolve(git, log);
+      const pr = await adapter.resolve(git, cause, log);
       // Drop a result whose git context is no longer current. A resolve is
       // async, so a branch/repo switch (or leaving the repo via
       // `setGit(null)`) can land `lastGit` on a different context — or null —
@@ -119,20 +122,20 @@ export function subscribePr<S extends PrUnavailableSourceBase>(
     // flight. If we already last-emitted pending, dedup inside `emit`
     // makes this a no-op.
     emit({ kind: "pending" });
-    if (git) void fetchAndEmit(git);
+    if (git) void fetchAndEmit(git, "context");
   }
 
   const pollTimer = setInterval(() => {
     if (lastGit) {
       log?.debug({ branch: lastGit.branch }, "poll tick");
-      void fetchAndEmit(lastGit);
+      void fetchAndEmit(lastGit, "poll");
     }
   }, POLL_INTERVAL_MS);
 
   return {
     setGit,
     refresh: () => {
-      if (!stopped && lastGit) void fetchAndEmit(lastGit);
+      if (!stopped && lastGit) void fetchAndEmit(lastGit, "refresh");
     },
     stop: () => {
       stopped = true;

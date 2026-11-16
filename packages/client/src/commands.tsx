@@ -629,7 +629,7 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
         {
           kind: "action",
           name: "Diagnostic info",
-          description: "Runtime state — renderer, WS, terminals",
+          description: "Runtime state — renderer, WS, terminals, padi",
           onSelect: () => diagnosticDialog.openDialog(),
         },
         // The state-backup rings (#1658) — the palette flattens leaves, so

@@ -15,6 +15,7 @@ export async function subscribeInstalled(
   let seenReconcile = false;
   const off = watchWorkingTree(
     repo,
+    "test",
     () => {
       if (!seenReconcile) {
         seenReconcile = true;

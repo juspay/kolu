@@ -96,5 +96,6 @@ export async function resolveGitHubPr(
  *  and is intentionally distinct from this in-process `kind`. */
 export const githubForgeAdapter = {
   kind: "github" as const,
-  resolve: resolveGitHubPr,
+  // The cause (why the watcher asked) changes nothing about how gh is asked.
+  resolve: (git, _cause, log) => resolveGitHubPr(git, log),
 } satisfies ForgeAdapter<GhUnavailableSource>;

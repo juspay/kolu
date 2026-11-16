@@ -31,12 +31,20 @@ Functions accept `log?: Logger` (from `anyagent`). Pass a pino child logger in p
 | `browse.ts`    | `listAll`, `listIgnored`, `listDirectory`, `readFile`, `filePreviewTag`           | Code-tab listings + file reads (`listDirectory` opens a collapsed ignored dir) |
 | `safe-path.ts` | `resolveUnder`                                                                    | Path traversal guard                                                     |
 | `errors.ts`    | `GitError`, `GitResult`, `ok`, `err`                                              | Sum-type error types and constructors                                    |
+| `repo-change.ts` | `subscribeRepoChange`, `subscribeFileChange`                                    | The Code tab's composed watchers (HEAD, reflog, index, working tree)     |
+| `working-tree-watcher.ts` | `watchWorkingTree`, `listWorkingTreeWatcherRows`                       | The shared `@parcel/watcher` subscription per repo, and its diagnostic rows |
+
+## Who asked for a watch
+
+Every watch takes a required asker: `subscribeGitInfo(cwd, asker, onChange)`, `subscribeRepoChange(repo, asker, onChange)`, `subscribeFileChange(repo, file, asker, onChange)`, `watchWorkingTree(repo, asker, onChange)` and the leaf `watchGit*` watchers. The asker is an opaque label (`kolu-io`'s `WatchAsker`); padi spells its labels in one module. A composed watcher hands its leaf watchers a live view of its own askers, so a HEAD or working-tree row names the terminal or stream at the top. In its 30 s retire grace a composed entry's view says it has no subscriber, so no row is ever left naming nobody.
+
+`listWorkingTreeWatcherRows()` reports one row per working-tree entry: its askers, its state, the number of ignored paths handed to parcel, its rebuild count and last rebuild reason, and the time of the last completed attach. The state is one of `installing`, `watching`, `no-working-tree` (a bare repo's folder, where nothing is installed) and `failed` with git's or parcel's message. A row in `no-working-tree` or `failed` has no install time and says why.
 
 ## Server integration
 
 The server's `meta/git.ts` is a thin adapter around `subscribeGitInfo`:
 
-1. Calls `subscribeGitInfo(cwd, onChange)` — the integration owns the resolve + `.git/HEAD` watch + re-resolve loop, including dedup via `gitInfoEqual` and `git init` detection (same-cwd `setCwd` on a not-yet-a-repo checks `.git` and re-resolves if it appeared)
+1. Calls `subscribeGitInfo(cwd, asker, onChange)` — the integration owns the resolve + `.git/HEAD` watch + re-resolve loop, including dedup via `gitInfoEqual` and `git init` detection (same-cwd `setCwd` on a not-yet-a-repo checks `.git` and re-resolves if it appeared)
 2. On change, bridges results into the metadata event system (`updateServerMetadata`, `publishForTerminal("git", …)`) and tracks the repo in the recents list
 3. On terminal cwd change (via the `cwd:` channel), calls `watcher.setCwd(next)` — the integration swaps the watched directory
 

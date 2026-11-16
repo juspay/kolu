@@ -35,7 +35,11 @@ describe("padiFsGitDeps watcher pulses", () => {
     const installed: Array<() => void> = [];
     const fakeEndpoint = {
       fs: {
-        subscribeRepoChange: (_repoPath: string, onChange: () => void) => {
+        subscribeRepoChange: (
+          _repoPath: string,
+          _asker: string,
+          onChange: () => void,
+        ) => {
           installed.push(onChange);
           return () => {};
         },

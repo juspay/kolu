@@ -7,6 +7,8 @@ description: Diagnose Kolu client-side performance issues (memory leaks, high GP
 
 Full historical context + fix details: `docs/perf-investigations/memory-learnings.md`. Master tracking issue: [#610](https://github.com/juspay/kolu/issues/610). This file is the runbook.
 
+**Server-side slowness starts somewhere else.** If what is slow is padi — typing lag on every tab, a Code tab that takes seconds, a host's dot going amber — this runbook is the wrong one. Read `kolu surface diagnostics_read` on that host (or **Debug → Diagnostic info → padi**) first: the child processes padi ran in the last minute and their start-call time, event-loop stalls, every file watcher with who asked for it, padi's memory split by heap, and per-procedure call time. `website/src/content/docs/troubleshooting.mdx` → "kolu feels slow" reads each part.
+
 ## Ground rule: facts over guesses
 
 **Every claim must cite evidence from a live measurement: Chrome Task Manager screenshot, Diagnostic-info JSON, `window.__kolu` console reading, or a parsed heap snapshot.** No reasoning from xterm source, no reasoning from WebGL spec, no "probably" / "likely" / "should".

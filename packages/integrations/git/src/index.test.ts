@@ -810,7 +810,7 @@ describe("watchGitHead", () => {
   it("returns a no-op for non-git directories", async () => {
     const dir = path.join(tmpDir, "no-git");
     fs.mkdirSync(dir, { recursive: true });
-    const stop = watchGitHead(dir, () => {});
+    const stop = watchGitHead(dir, "test", () => {});
     await settleWatchers();
     expect(_sharedHeadWatcherCount()).toBe(0);
     stop(); // must not throw
@@ -818,8 +818,8 @@ describe("watchGitHead", () => {
 
   it("two subscribers in the same repo share one fs.watch entry", async () => {
     const { dir } = await initRepo("shared-one-repo");
-    const stop1 = watchGitHead(dir, () => {});
-    const stop2 = watchGitHead(dir, () => {});
+    const stop1 = watchGitHead(dir, "test", () => {});
+    const stop2 = watchGitHead(dir, "test", () => {});
     await settleWatchers();
     expect(_sharedHeadWatcherCount()).toBe(1);
     stop1();
@@ -835,8 +835,8 @@ describe("watchGitHead", () => {
     const sub = path.join(dir, "src", "deep");
     fs.mkdirSync(sub, { recursive: true });
 
-    const stop1 = watchGitHead(dir, () => {});
-    const stop2 = watchGitHead(sub, () => {});
+    const stop1 = watchGitHead(dir, "test", () => {});
+    const stop2 = watchGitHead(sub, "test", () => {});
     await settleWatchers();
     expect(_sharedHeadWatcherCount()).toBe(1);
     stop1();
@@ -847,8 +847,8 @@ describe("watchGitHead", () => {
   it("different repos get independent shared watchers", async () => {
     const a = await initRepo("repo-a");
     const b = await initRepo("repo-b");
-    const stopA = watchGitHead(a.dir, () => {});
-    const stopB = watchGitHead(b.dir, () => {});
+    const stopA = watchGitHead(a.dir, "test", () => {});
+    const stopB = watchGitHead(b.dir, "test", () => {});
     await settleWatchers();
     expect(_sharedHeadWatcherCount()).toBe(2);
     stopA();
@@ -858,8 +858,8 @@ describe("watchGitHead", () => {
 
   it("double-cleanup from the same subscriber is a safe no-op", async () => {
     const { dir } = await initRepo("idempotent-repo");
-    const stop1 = watchGitHead(dir, () => {});
-    const stop2 = watchGitHead(dir, () => {});
+    const stop1 = watchGitHead(dir, "test", () => {});
+    const stop2 = watchGitHead(dir, "test", () => {});
     await settleWatchers();
     stop1();
     stop1(); // must not double-tear-down or affect stop2's subscription
@@ -903,10 +903,10 @@ describe("watchGitHead", () => {
       const { dir, git, gitDir } = await initRepo("dispatch-repo");
       let aFires = 0;
       let bFires = 0;
-      const stopA = watchGitHead(dir, () => {
+      const stopA = watchGitHead(dir, "test", () => {
         aFires++;
       });
-      const stopB = watchGitHead(dir, () => {
+      const stopB = watchGitHead(dir, "test", () => {
         bFires++;
       });
       await settleWatchers();
@@ -931,10 +931,10 @@ describe("watchGitHead", () => {
     async () => {
       const { dir, git, gitDir } = await initRepo("fault-isolation-repo");
       let bFires = 0;
-      const stopA = watchGitHead(dir, () => {
+      const stopA = watchGitHead(dir, "test", () => {
         throw new Error("boom");
       });
-      const stopB = watchGitHead(dir, () => {
+      const stopB = watchGitHead(dir, "test", () => {
         bFires++;
       });
       await settleWatchers();
@@ -988,7 +988,7 @@ describe("watchGitConfig", () => {
   it("returns a no-op for non-git directories", async () => {
     const dir = path.join(tmpDir, "no-git");
     fs.mkdirSync(dir, { recursive: true });
-    const stop = watchGitConfig(dir, () => {});
+    const stop = watchGitConfig(dir, "test", () => {});
     await settleWatchers();
     expect(_sharedConfigWatcherCount()).toBe(0);
     stop(); // must not throw
@@ -997,7 +997,7 @@ describe("watchGitConfig", () => {
   it("refcount goes 0→1→0 across subscribe/unsubscribe", async () => {
     const { dir } = await initRepo("config-refcount");
     expect(_sharedConfigWatcherCount()).toBe(0);
-    const stop = watchGitConfig(dir, () => {});
+    const stop = watchGitConfig(dir, "test", () => {});
     await settleWatchers();
     expect(_sharedConfigWatcherCount()).toBe(1);
     stop();
@@ -1012,8 +1012,8 @@ describe("watchGitConfig", () => {
     const worktreeDir = path.join(tmpDir, "config-shared-worktree");
     await git.raw(["worktree", "add", "-b", "feature", worktreeDir]);
 
-    const stopMain = watchGitConfig(dir, () => {});
-    const stopWorktree = watchGitConfig(worktreeDir, () => {});
+    const stopMain = watchGitConfig(dir, "test", () => {});
+    const stopWorktree = watchGitConfig(worktreeDir, "test", () => {});
     await settleWatchers();
     expect(_sharedConfigWatcherCount()).toBe(1);
     stopMain();
@@ -1079,7 +1079,7 @@ describe.skipIf(SKIP_DARWIN_FSWATCH)("subscribeGitInfo dual watcher", () => {
     const { dir } = await initRepo("dual-in-repo");
 
     const updates: (GitInfo | null)[] = [];
-    const sub = subscribeGitInfo(dir, (info) => {
+    const sub = subscribeGitInfo(dir, "test", (info) => {
       updates.push(info);
     });
 
@@ -1200,6 +1200,7 @@ describe.skipIf(SKIP_DARWIN_FSWATCH)("subscribeGitInfo watcher churn", () => {
     const updates: (GitInfo | null)[] = [];
     const sub = subscribeGitInfo(
       nonGitDir,
+      "test",
       (info) => {
         updates.push(info);
       },
@@ -1238,7 +1239,7 @@ describe.skipIf(SKIP_DARWIN_FSWATCH)("subscribeGitInfo watcher churn", () => {
     fs.mkdirSync(dir, { recursive: true });
 
     const updates: (GitInfo | null)[] = [];
-    const sub = subscribeGitInfo(dir, (info) => {
+    const sub = subscribeGitInfo(dir, "test", (info) => {
       updates.push(info);
     });
 
@@ -1274,6 +1275,7 @@ describe.skipIf(SKIP_DARWIN_FSWATCH)("subscribeGitInfo watcher churn", () => {
     const updates: (GitInfo | null)[] = [];
     const sub = subscribeGitInfo(
       gone,
+      "test",
       (info) => {
         updates.push(info);
       },
@@ -1295,6 +1297,7 @@ describe.skipIf(SKIP_DARWIN_FSWATCH)("subscribeGitInfo watcher churn", () => {
     const updates: (GitInfo | null)[] = [];
     const sub = subscribeGitInfo(
       dir,
+      "test",
       (info) => {
         updates.push(info);
       },
@@ -1345,6 +1348,7 @@ describe.skipIf(SKIP_DARWIN_FSWATCH)("subscribeGitInfo watcher churn", () => {
     const updates: (GitInfo | null)[] = [];
     const sub = subscribeGitInfo(
       dir,
+      "test",
       (info) => {
         updates.push(info);
       },
@@ -1386,6 +1390,7 @@ describe.skipIf(SKIP_DARWIN_FSWATCH)("subscribeGitInfo watcher churn", () => {
     const updates: (GitInfo | null)[] = [];
     const sub = subscribeGitInfo(
       a.dir,
+      "test",
       (info) => {
         updates.push(info);
       },
@@ -1426,6 +1431,7 @@ describe.skipIf(SKIP_DARWIN_FSWATCH)("subscribeGitInfo watcher churn", () => {
     const updates: (GitInfo | null)[] = [];
     const sub = subscribeGitInfo(
       dir,
+      "test",
       (info) => {
         updates.push(info);
       },

@@ -17,6 +17,7 @@
  * `setPadiActivityFeedStore`, see `./confStores.ts`); the wire members live here.
  */
 
+import { AsyncLocalStorage } from "node:async_hooks";
 import { rmSync } from "node:fs";
 import {
   DEFAULT_PADI_ROSTER,
@@ -91,6 +92,8 @@ import {
   MEMORY_SAMPLE_INTERVAL_MS,
   samplePadiMemory,
 } from "./memorySampler.ts";
+import type { PadiDiagnosticsHandle } from "./diagnostics/index.ts";
+import { markRunsInCallScope } from "./diagnostics/calls.ts";
 import {
   newTerminalPolicyStore,
   resolveNewTerminalTheme,
@@ -187,19 +190,27 @@ type PadiDeps = ImplementSurfaceDeps<typeof padiSurface.spec>;
  * it receives the AbortSignal the call's fiber owns, which is how a superseded
  * read (`fs.filePreviewTag`) still aborts mid-flight now that there is no
  * `signal` on the handler options (D10/#18).
+ *
+ * The body runs LATER, on the fiber, outside whatever async context built the
+ * handler. So the context in force NOW — the call scope `diagnostics/calls.ts`
+ * opened around this handler — is captured here and the body runs inside it;
+ * without that every call would report zero time in children.
  */
 function handle<A, E>(
   body: (signal: AbortSignal) => A | Promise<A>,
 ): Effect.Effect<A, E> {
-  return Effect.catch(
-    Effect.tryPromise({
-      try: async (signal) => body(signal),
-      catch: (err: unknown) => err,
-    }),
-    (err) =>
-      isPadiDeclaredError(err)
-        ? Effect.fail(err as E)
-        : (Effect.die(err) as Effect.Effect<A, E>),
+  const inCallScope = AsyncLocalStorage.snapshot();
+  return markRunsInCallScope(
+    Effect.catch(
+      Effect.tryPromise({
+        try: async (signal) => inCallScope(() => body(signal)),
+        catch: (err: unknown) => err,
+      }),
+      (err) =>
+        isPadiDeclaredError(err)
+          ? Effect.fail(err as E)
+          : (Effect.die(err) as Effect.Effect<A, E>),
+    ),
   );
 }
 
@@ -318,8 +329,13 @@ export function buildPadiSurfaceDeps(deps: {
   /** padi's resolved state-root — the `hostInventory` poll read resolves the
    *  held-kaval fallback address from it (`samplePadiHostInventory`). */
   stateRoot: string;
+  /** padi's diagnostics (`./diagnostics/index.ts`) — times every procedure
+   *  call and answers `diagnostics.read`. Started by the daemon boot, which
+   *  owns its lifetime. */
+  diagnostics: PadiDiagnosticsHandle;
 }): PadiDeps {
-  const { endpoint, log, startedAt, commit, lifetime, stateRoot } = deps;
+  const { endpoint, log, startedAt, commit, lifetime, stateRoot, diagnostics } =
+    deps;
   // Read the agent-distro bake NOW so a broken one (a half bake, a listing that
   // does not parse) crashes the daemon at boot rather than at the first spawn.
   agentDistroBake();
@@ -789,7 +805,8 @@ export function buildPadiSurfaceDeps(deps: {
       },
     },
 
-    procedures: {
+    // Every leaf is timed under its dotted path (`diagnostics/calls.ts`).
+    procedures: diagnostics.timeProcedures({
       // Standing settle-event subscriptions. All three verbs are INSTANT — the
       // waiting happens on the caller's side, parked on `watchPulse`, so no
       // handler is held open for the minutes or hours a supervisor may idle
@@ -1328,6 +1345,12 @@ export function buildPadiSurfaceDeps(deps: {
         restore: ({ input }) =>
           handle(() => restorePadiStateBackup(stateRoot, input)),
       },
-    },
+
+      // Why this padi is slow — assembled when asked, from instruments that
+      // are always on (`./diagnostics/index.ts`).
+      diagnostics: {
+        read: () => handle(() => diagnostics.read()),
+      },
+    }),
   };
 }

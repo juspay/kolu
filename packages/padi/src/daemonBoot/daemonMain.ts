@@ -86,6 +86,8 @@ import {
 } from "../ptyHost/index.ts";
 import { publisher } from "../publisher.ts";
 import { buildPadiSurfaceDeps } from "../servePadi.ts";
+import { startPadiDiagnostics } from "../diagnostics/index.ts";
+import { installChildMeter } from "kolu-io";
 import {
   captureFinalSession,
   initAutosaveGate,
@@ -374,6 +376,9 @@ function serveDaemonSurfaces(params: {
 } {
   const { stateRoot, onDrain, log, lifetime, boot } = params;
   const localEndpoint = resolveTerminalEndpoint(LOCAL_LOCATION);
+  // Always on: the stall monitor and the call table run for the daemon's
+  // life, and `close` below stops them with the surfaces they serve.
+  const diagnostics = startPadiDiagnostics(padiLog);
   const runtime = implementSurfacesOnPublisher(
     padiDaemonSurfaces,
     {
@@ -409,6 +414,7 @@ function serveDaemonSurfaces(params: {
         // The `hostInventory` derived poll cell resolves its held-kaval fallback
         // address from this state-root.
         stateRoot,
+        diagnostics,
       }),
       control: buildControlCoreDeps({
         stateRoot,
@@ -473,6 +479,7 @@ function serveDaemonSurfaces(params: {
     close: async () => {
       await odu.close();
       await runtime.close();
+      diagnostics.dispose();
     },
     faultSignal,
   };
@@ -897,6 +904,10 @@ function padiDaemonProgram(
  *  here would mint a second authority for the same fact and split the two daemons
  *  that deliberately share one. `bin.ts` keeps its `parseArgs` front unchanged. */
 export function runPadiDaemon(opts: PadiDaemonOptions): Promise<DaemonExit> {
+  // Before anything can start a child: every child padi starts from here on —
+  // through child_process, simple-git or osfacts-client — is metered for
+  // `diagnostics.read`. Once per process; a second install throws.
+  installChildMeter();
   return Effect.runPromise(
     // The gate's refusal arms are honest EXITS, not faults — map them straight
     // back to the `DaemonExit` the spine expects.

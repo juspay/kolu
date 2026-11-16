@@ -8,7 +8,30 @@ export {
   createDirFilenameWatcher,
   type DirFilenameWatcher,
   type DirFilenameWatcherConfig,
+  type DirWatcherRow,
+  distinctAskerLabels,
+  listDirWatcherRows,
+  type WatchAsker,
 } from "./refcounted-dir-watcher.ts";
+
+export {
+  CHILD_WINDOW_MS,
+  type ChildCauseCount,
+  type ChildKindRow,
+  childKind,
+  type ChildrenReading,
+  type ChildTally,
+  createChildTally,
+  installChildMeter,
+  type Measured,
+  measured,
+  meterSyncChild,
+  readChildren,
+  runInChildScope,
+  summarizeTimings,
+  type TimingSummary,
+  unmeasured,
+} from "./child-meter.ts";
 
 export {
   DEFAULT_APPEND_POLL_MS,

@@ -289,6 +289,45 @@ handful of habits that paid for nothing; each is now a rule rather than a tuning
   so the Code tab's focus-driven re-key is an attach where it used to tear down
   and rebuild four inotify watchers, 120 of each per 5 minutes.
 
+## Diagnostics — `diagnostics.read`, padi says why it is slow
+
+One read-only, input-less procedure, `diagnostics.read` (#2387), answers what
+padi has been doing for the last minute. It is reachable as `kolu surface
+diagnostics_read`, as the `diagnostics_read` MCP tool on `kolu mcp`, and in the
+browser's **Debug → Diagnostic info** dialog. A procedure rather than a cell:
+it costs nothing until somebody asks. The instruments are always on, with no
+flag and no environment switch.
+
+| Section | Measured by | Lives in |
+| --- | --- | --- |
+| `children` | the child meter, wrapped around Node's `ChildProcess.prototype.spawn` (every async child, whether `child_process`, `simple-git` or `osfacts-client` started it) plus `meterSyncChild` at the three `execFileSync` sites | `kolu-io` `child-meter.ts`, installed once in `runPadiDaemon` |
+| `stalls` | one `monitorEventLoopDelay` histogram, reset every minute; the last full minute and the minute in progress, net of the sampling resolution | `src/diagnostics/stalls.ts` |
+| `watchers` | the dir+filename registry (`kolu-io`) and the working-tree registry (`kolu-git`), each row naming who asked — labels spelled once, in `src/diagnostics/askers.ts` | `src/diagnostics/index.ts` |
+| `kernelWatches` | `/proc/self/fdinfo` inotify lines, counted as a stream when asked (Linux only; unmeasured elsewhere) | `src/diagnostics/kernelWatches.ts` |
+| `memory` | `process.memoryUsage()` | `src/diagnostics/index.ts` |
+| `calls` | one wrapper over the whole procedure table, each call in a child-meter scope with its own tally | `src/diagnostics/calls.ts` |
+
+- **Always-on cost.** One spawn-seam record per child, dropped after 60 s; one
+  event-loop histogram; one sample per procedure call, dropped after 60 s. The
+  kernel count and the row assembly run only on a read.
+- **A slow call logs once.** A call slower than 500 ms writes one `warn` line,
+  `padi: slow call`, with the procedure, its total, its time in children and
+  its child count. Faster calls are only in the table, so the 30 MB log is not
+  flooded during an incident.
+- **`handle()` captures the call scope.** Its body runs later, on the fiber, so
+  it snapshots the async context when the handler is built and runs the body in
+  it — without that every call would report zero child time. A body that is an
+  Effect program (`lifecycle.recycleKaval`) is timed, and its child time is
+  reported unmeasured with the reason, never zero.
+- **`gh` says why it ran.** anyforge's watcher names each resolve `context`,
+  `poll` or `refresh`, and `dispatchingForgeAdapter` runs it in a scope carrying
+  that cause, so the `gh pr view` row counts its causes.
+- **Nothing is zero for unknown.** Every number that cannot be measured is a
+  `{kind: "unmeasured", reason}`; a working-tree row's directory count is one,
+  because parcel reports none and counting would walk the tree again.
+- **`buildPadiSurfaceDeps` requires the handle.** `daemonMain` starts it with the
+  surfaces and disposes it with them; there is no optional stand-in.
+
 ## The export map
 
 - **The CONTRACT is [`@kolu/padi-client`](../padi-client)** — `padiSurface`

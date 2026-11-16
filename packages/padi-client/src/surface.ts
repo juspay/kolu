@@ -109,6 +109,7 @@ import {
   CanvasLayoutSchema,
   RightPanelPerTerminalStateSchema,
 } from "./chromeVocab.ts";
+import { PadiDiagnosticsSchema } from "./diagnostics.ts";
 import {
   AgentDistroReceiptSchema,
   AgentDistroSettingSchema,
@@ -180,6 +181,8 @@ import {
 // (`./chromeVocab.ts`, split out in L17) rides the same entry, so the export set is
 // unchanged — a chrome schema is still `@kolu/padi-client/surface`'s to give.
 export * from "./chromeVocab.ts";
+// `diagnostics.read`'s answer (`./diagnostics.ts`) rides the same entry.
+export * from "./diagnostics.ts";
 // kolu's app-owned client-error-policy union (SR11) — declared here (not kolu-common)
 // so `padiSurface`'s per-host members below can reference it without `@kolu/padi`
 // importing `kolu-common` (the seal forbids that arrow); `kolu-common/surface`
@@ -797,8 +800,22 @@ export * from "./transcriptSchema.ts";
  *  user entry's words, whitespace collapsed and cut to 512 characters, or
  *  `null` when there is none. `agent_say` reports a steer `landed` only when
  *  the prompt that moved carries the words it sent. A required field on an
- *  emitted arm — the 5.3/7.3 class: a minor. */
-export const PADI_SURFACE_VERSION = "7.8";
+ *  emitted arm — the 5.3/7.3 class: a minor.
+ *
+ *  7.9 (additive · minor) — PADI SAYS WHY IT IS SLOW. A new procedure
+ *  namespace, `diagnostics`, with one input-less verb: `diagnostics.read`
+ *  answers {@link PadiDiagnosticsSchema} — the child processes padi started in
+ *  the last minute (per kind: runs, still running, time inside the start call,
+ *  start-to-exit, and why each `gh` ran), event-loop stalls, one row per file
+ *  watcher with who asked for it, padi's memory, and per-procedure call time
+ *  with the part spent in children (#2387). A procedure rather than a cell: it
+ *  costs nothing until somebody asks.
+ *
+ *  A MEMBER ADDED, so the `pullRequest` class: a newer binder against a
+ *  surviving 7.8 padi drains it before consuming its surface, so nobody asks a
+ *  7.8 padi for a verb it does not serve, and a 7.8 consumer never asks. No
+ *  existing member changes shape. */
+export const PADI_SURFACE_VERSION = "7.9";
 
 /** The `version` cell payload — padi's self-declared surface contract version. */
 export const PadiVersionSchema = Schema.Struct({
@@ -2928,6 +2945,12 @@ export const padiSurface = defineSurfaceWithPolicy<ClientErrorPolicy>()({
       // reads.
       restore: { input: PadiBackupsRestoreInputSchema },
     },
+    /** Why this host's padi is slow — children, stalls, watchers, memory and
+     *  call times, measured always and assembled when asked. Read-only, and
+     *  it cannot refuse, so it declares no error. */
+    diagnostics: {
+      read: { output: PadiDiagnosticsSchema },
+    },
   },
 });
 
@@ -3007,6 +3030,8 @@ export const PADI_FORWARDING_POLICY = {
   // merged onto one wire node — this single entry annotates the merged member.
   session: "value",
   backups: "value",
+  // A read-only request/response answer, like `backups`.
+  diagnostics: "value",
 } as const satisfies Record<string, ForwardingPolicy>;
 
 /** Every top-level member key `padiSurface` declares — the union of cell,

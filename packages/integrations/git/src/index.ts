@@ -97,7 +97,12 @@ export {
   WorktreeRemoveInputSchema,
 } from "./schemas.ts";
 // Working-tree watcher (axis 4, parcel-watcher backed)
-export { watchWorkingTree } from "./working-tree-watcher.ts";
+export {
+  listWorkingTreeWatcherRows,
+  watchWorkingTree,
+  type WorkingTreeWatcherRow,
+  type WorkingTreeWatcherState,
+} from "./working-tree-watcher.ts";
 // Worktree operations
 export {
   detectDefaultBranch,

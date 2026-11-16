@@ -43,7 +43,10 @@ default-deny with named, tested denials:
   a text dump flattens into indistinguishable characters. `screen_text` stays
   the default read, because characters cost a fraction of the context and
   answer "did it finish?" on their own) · `screen_history` ·
-  `git_getStatus`/`git_getDiff` · `fs_listAll`/`fs_readFile`, the two composite
+  `git_getStatus`/`git_getDiff` · `fs_listAll`/`fs_readFile` ·
+  `diagnostics_read` (why this host's padi is slow: children, stalls, watchers,
+  memory, call times — this face only; the fleet face has no per-host member
+  for it), the two composite
   done-signals `wait_outputSettled` / `wait_agentState` (the /orchestrator·/kolu
   dispatch loop's load-bearing verbs), and `watch_next` (below);
 - **mutating tools**: `lifecycle_create` (bespoke: `kolu create` parity in one
