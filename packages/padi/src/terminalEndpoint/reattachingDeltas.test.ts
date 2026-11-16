@@ -26,6 +26,16 @@ function framesIter(frames: PtyHostDataMsg[]): AsyncIterator<PtyHostDataMsg> {
 
 const delta = (data: string): PtyHostDataMsg => ({ kind: "delta", data });
 const overflow: PtyHostDataMsg = { kind: "overflow" };
+/** kaval saying its mirror changed size HERE, between the frame before and the
+ *  frame after (contract 9.0). */
+const resized = (cols: number, rows: number): PtyHostDataMsg => ({
+  kind: "resized",
+  grid: { cols, rows },
+});
+/** The grid every scripted re-open's snapshot is laid out at. Required on the
+ *  wire since contract 9.0 — a snapshot that states no grid is a snapshot a
+ *  consumer cannot size itself to. */
+const GRID = { cols: 80, rows: 24 };
 
 async function collect(
   gen: AsyncGenerator<TerminalAttachFrame>,
@@ -35,8 +45,18 @@ async function collect(
   return out;
 }
 /** The `data` field of each frame — the byte-stream projection the tests assert
- *  on for the string outputs. */
-const data = (out: TerminalAttachFrame[]) => out.map((f) => f.data);
+ *  on for the string outputs. A `resized` carries no bytes and reads as
+ *  `undefined`. */
+const data = (out: TerminalAttachFrame[]) =>
+  out.map((f) => (f.kind === "resized" ? undefined : f.data));
+/** The whole frame sequence as tags — for the tests whose subject is ORDER,
+ *  which is the entire content of a `resized` frame. */
+const tags = (out: TerminalAttachFrame[]) =>
+  out.map((f) =>
+    f.kind === "resized"
+      ? `resized:${f.grid.cols}x${f.grid.rows}`
+      : `${f.kind}:${f.data}`,
+  );
 /** The re-seed anchor per frame: a `snapshot` frame's `topLine`, `undefined` for
  *  a plain `delta` (the discriminated-union projection of the old optional field). */
 const topLines = (out: TerminalAttachFrame[]) =>
@@ -102,6 +122,7 @@ describe("reattachingDeltas", () => {
       return Promise.resolve({
         snapshot: "FRESH",
         topLine: 7,
+        grid: GRID,
         iter: framesIter([delta("after")]),
       });
     };
@@ -128,6 +149,7 @@ describe("reattachingDeltas", () => {
       return Promise.resolve({
         snapshot: "EMPTY",
         topLine: 0,
+        grid: GRID,
         iter: framesIter([]),
       });
     };
@@ -148,6 +170,7 @@ describe("reattachingDeltas", () => {
       return Promise.resolve({
         snapshot: `S${opened}`,
         topLine: opened,
+        grid: GRID,
         iter: framesIter([delta(`d${opened}`)]),
       });
     };
@@ -169,6 +192,7 @@ describe("reattachingDeltas", () => {
       return Promise.resolve({
         snapshot: "FRESH",
         topLine: 42,
+        grid: GRID,
         iter: framesIter([delta("after")]),
       });
     };
@@ -193,6 +217,7 @@ describe("reattachingDeltas", () => {
       return Promise.resolve({
         snapshot: `S${leg}`,
         topLine: leg * 10,
+        grid: GRID,
         iter: framesIter(legs[leg++] as PtyHostDataMsg[]),
       });
     };
@@ -239,5 +264,93 @@ describe("reattachingDeltas", () => {
     expect(data(await collect(reattachingDeltas(open, initial, ctx)))).toEqual([
       "x",
     ]);
+  });
+
+  // ── The `resized` frame (kaval contract 9.0, padi 7.5) ──────────────────
+  //
+  // Its POSITION is its content: every byte before it was laid out for the old
+  // grid, every byte after it for the new one. A relay is allowed to forward
+  // it or to end, and nothing else — reordering it, coalescing two of them, or
+  // dropping one re-creates the divergence it exists to close, one hop further
+  // from the pty.
+
+  it("relays a resize in its place in the byte stream", async () => {
+    const initial = framesIter([
+      delta("before"),
+      resized(100, 30),
+      delta("after"),
+    ]);
+    const out = await collect(reattachingDeltas(ptyGone, initial, ctx));
+    expect(tags(out)).toEqual([
+      "delta:before",
+      "resized:100x30",
+      "delta:after",
+    ]);
+  });
+
+  it("keeps successive resizes distinct and in order", async () => {
+    // A divider drag walks a pty through several sizes. Collapsing them to the
+    // last would parse the bytes between them at a width they were never
+    // written for.
+    const initial = framesIter([
+      resized(100, 30),
+      delta("a"),
+      resized(70, 20),
+      delta("b"),
+    ]);
+    const out = await collect(reattachingDeltas(ptyGone, initial, ctx));
+    expect(tags(out)).toEqual([
+      "resized:100x30",
+      "delta:a",
+      "resized:70x20",
+      "delta:b",
+    ]);
+  });
+
+  it("relays resizes on both sides of an overflow re-attach", async () => {
+    // The re-attach is the one place the relay SYNTHESISES a frame (the reset
+    // plus the fresh snapshot). A resize must not jump that seam in either
+    // direction: the one before it describes the screen being thrown away, and
+    // the one after it describes the screen the snapshot painted.
+    const initial = framesIter([resized(100, 30), delta("before"), overflow]);
+    let opened = 0;
+    const open = (): Promise<OpenedAttach> => {
+      if (opened++ > 0) return ptyGone();
+      return Promise.resolve({
+        snapshot: "FRESH",
+        topLine: 42,
+        grid: { cols: 100, rows: 30 },
+        iter: framesIter([delta("after"), resized(70, 20), delta("tail")]),
+      });
+    };
+    const out = await collect(reattachingDeltas(open, initial, ctx));
+    expect(tags(out)).toEqual([
+      "resized:100x30",
+      "delta:before",
+      `snapshot:${TERMINAL_RESET}FRESH`,
+      "delta:after",
+      "resized:70x20",
+      "delta:tail",
+    ]);
+    // The re-attach snapshot states the grid its bytes are laid out at, so a
+    // consumer sizes to it rather than guessing.
+    const snapshot = out.find((f) => f.kind === "snapshot");
+    expect(snapshot).toMatchObject({ grid: { cols: 100, rows: 30 } });
+  });
+
+  it("ends when a re-open describes no screen (the consumer aborted mid-open)", async () => {
+    // `local.ts` answers an attach torn down before kaval replied with
+    // `grid: null` — "there is no screen here". Yielding a snapshot frame for it
+    // would put a grid on the wire that nothing was ever serialized at.
+    const initial = framesIter([delta("x"), overflow]);
+    const open = (): Promise<OpenedAttach> =>
+      Promise.resolve({
+        snapshot: "",
+        topLine: 0,
+        grid: null,
+        iter: framesIter([delta("never")]),
+      });
+    const out = await collect(reattachingDeltas(open, initial, ctx));
+    expect(tags(out)).toEqual(["delta:x"]);
   });
 });

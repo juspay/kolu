@@ -65,6 +65,12 @@ split of that tile, you are left where you are.
 To move a split, drag a Dock row's grip onto another row to make it a split of
 that one, or onto its repo card's header to give it its own tile.
 
+A split's shape is kept on the terminal, not in your browser: whether the
+panel is collapsed, and where you dragged the divider. Reload the page, switch
+hosts and come back, or open kolu on a second device, and the tile comes back
+the way you left it. The program inside it is not resized on the way, because
+the tile never lays itself out any way but the saved one.
+
 ## Restarting a terminal in place
 
 The **↻** button on the title bar, or **Restart terminal** in the command
@@ -103,21 +109,34 @@ only the focused tile and is remembered per terminal.
 ## Output and resizing
 
 You never need a keypress or a reload to see output that already happened. A
-dropped connection reconnects on its own, and a repaint queued while the window
-was in the background runs when you come back. A terminal printing faster than
-your link can carry costs you one screen, not the whole flood.
+dropped connection reconnects on its own, and a repaint queued while the
+window was in the background runs when you come back. A terminal printing
+faster than your link can carry costs you one screen, not the whole flood.
 
-A pane whose output keeps coming back empty says so instead of sitting blank: a
-message names the pane and tells you kolu is still retrying, and the retries
-continue until output reaches the pane again.
+A pane whose output keeps coming back empty says so instead of sitting blank,
+and kolu keeps retrying until output reaches it. A split you open later (a
+collapsed panel, a background tab) stays empty until you reveal it, then
+paints once at its real size.
 
-A split you open later, such as a collapsed panel or a background tab, stays
-empty until you reveal it, and then paints once at its real size.
+Resize a tile and the pane states the size it wants. Dragging a divider,
+zooming the font, or raising the soft keyboard publishes one size, once the
+layout stops moving. The terminal changes size only when the machine running
+your shell says its own screen did, so the pane and the shell are never laid
+out differently — and a terminal is told a size only when its own box moved.
 
-Dragging a divider or opening the soft keyboard resizes the terminal once, after
-the layout stops moving. Programs redraw their whole screen at a new size, so
-kolu hands you the finished screen instead of the terminal scrolling through the
-session to reach it.
+A pane states nothing until the tile around it knows its shape, so reloading
+the page, coming back to a host, or opening a second kolu resizes nothing.
+Opening a split takes its share of the tile once; collapsing it gives the
+share back once.
+
+Until a resize lands, about a quarter of a second later, the text keeps the
+size it has, against the bottom left of the pane. A pane you made bigger shows
+a blank band along the top.
+
+Scroll up and the pane holds output rather than moving the text you are
+reading. A resize waits with it: the terminal keeps the size it had until you
+return to the bottom. The "new output" dot counts only output, so a resize
+never lights it.
 
 ## Which tiles are live
 
@@ -134,18 +153,22 @@ tab, and every tile while the [Conductor](/conductor) covers the canvas are left
 alone. This is about the canvas, not the window: a kolu tab in the background of
 your browser keeps its tiles live.
 
-On the desktop, a tile that leaves your view keeps its feed for five minutes. A
-short trip away changes nothing, and you come back to the place you were
-reading. After five minutes the tile lets go, and coming back puts you at the
-end of its output. Scrolling up still fetches the older history. Leaving
-maximized gives every tile then in view its feed back at once.
+On the desktop, a tile that leaves your view keeps its feed for an hour. Come
+back within the hour and nothing changed: you are where you were reading, with
+no pause while the tile fetches a screen. The cost is the other side of that —
+a tile you looked away from keeps receiving output for the whole hour. After
+the hour it lets go, and coming back puts you at the end of its output.
+
+Maximizing leaves the tiles behind it alone: they keep their own size, and
+their programs are told nothing going in or coming back out. The tile you are
+looking at is told the window's size when you maximize it, and its own size
+again when you restore. Leaving maximized gives every tile then in view its
+feed back at once.
 
 A tile that is not live does not tell its terminal how big it is, so opening
-kolu on a second device does not reshape every terminal on the host. Coming back
-to a pane keeps the old screen up until the current one arrives. The activity
-dot tells you a terminal changed while you were elsewhere. A server URL the tile
-printed meanwhile reaches [Ports](/right-panel#servers-that-detached) when you
-look at the tile again.
+kolu on a second device does not reshape every terminal on the host. Coming
+back to a pane keeps the old screen up until the current one arrives, and the
+activity dot tells you a terminal changed while you were elsewhere.
 
 ## A tip under the title bar
 

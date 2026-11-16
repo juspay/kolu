@@ -19,40 +19,59 @@ import { type JSX, For, Show, onCleanup, untrack } from "solid-js";
 import { createStore } from "solid-js/store";
 import { Portal } from "solid-js/web";
 
-/** A mounted destination: where the body goes, and whether its shell can see
- *  it. One record so the two can never disagree about which shell is live. */
+/** A mounted destination: where the body goes, whether its shell can SEE it,
+ *  and whether the box that shell put it in is one the shell's layout DECIDED.
+ *  One record so the facts can never disagree about which shell is live. */
 interface Destination {
   readonly el: HTMLDivElement;
   readonly seen: () => boolean;
+  readonly boxDecided: () => boolean;
 }
 
 export function WorkspaceTerminals(props: {
   ids: TerminalId[];
-  renderBody: (id: TerminalId, seen: () => boolean) => JSX.Element;
+  renderBody: (
+    id: TerminalId,
+    seen: () => boolean,
+    boxDecided: () => boolean,
+  ) => JSX.Element;
   children: (
-    outlet: (id: TerminalId, seen: () => boolean) => JSX.Element,
+    outlet: (
+      id: TerminalId,
+      seen: () => boolean,
+      boxDecided?: () => boolean,
+    ) => JSX.Element,
   ) => JSX.Element;
 }): JSX.Element {
   const [destinations, setDestinations] = createStore<
     Record<string, Destination | undefined>
   >({});
-  const outlet = (id: TerminalId, seen: () => boolean) => (
+  const outlet = (
+    id: TerminalId,
+    seen: () => boolean,
+    // A shell that places one tile at a time, at the window's size, has no
+    // other answer to give (see `App.renderTerminalBody`).
+    boxDecided: () => boolean = () => true,
+  ) => (
     <div
       class="flex flex-col h-full w-full min-h-0"
       ref={(el) => {
         // Wrapped in a record: a bare function value would be read as a store
         // UPDATER rather than stored.
-        setDestinations(id, { el, seen });
+        setDestinations(id, { el, seen, boxDecided });
         onCleanup(() => {
           if (destinations[id]?.el === el) setDestinations(id, undefined);
         });
       }}
     />
   );
-  /** The body's live view of its CURRENT shell's answer. Read through the
-   *  store (not captured), so a shell swap re-points it in place. A body with
-   *  no destination is a body nobody is placing: not seen. */
+  /** The body's live view of its CURRENT shell's answers. Read through the
+   *  store (not captured), so a shell swap re-points them in place. A body with
+   *  no destination is a body nobody is placing: not seen, and in nobody's
+   *  layout. */
   const seenOf = (id: TerminalId) => () => destinations[id]?.seen() ?? false;
+  const boxDecidedOf = (id: TerminalId) => () =>
+    destinations[id]?.boxDecided() ?? false;
   return (
     <>
       {untrack(() => props.children(outlet))}
@@ -67,7 +86,7 @@ export function WorkspaceTerminals(props: {
                 el.className = "flex flex-col h-full w-full min-h-0";
               }}
             >
-              {props.renderBody(id, seenOf(id))}
+              {props.renderBody(id, seenOf(id), boxDecidedOf(id))}
             </Portal>
           </Show>
         )}

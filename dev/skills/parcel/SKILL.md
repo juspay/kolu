@@ -116,15 +116,30 @@ re-enable watchman deliberately (with a `WATCHMAN_SOCK` that avoids the probe).
 
 `packages/integrations/git/src/working-tree-watcher.ts`:
 
+- **No working tree, no watch.** Before installing anything, an entry asks
+  git `rev-parse --is-inside-work-tree` once (`isInsideWorkTree` in
+  `git-dir.ts`). A root that answers `false` — a bare repo's folder, with its
+  linked worktrees beside it — gets no parcel subscription and no
+  ignore-rules watch; one where git cannot answer gets nothing either, and
+  the failure is logged. The HEAD/reflog/index watchers still cover the repo.
+  The answer is read once per entry, not per rebuild.
 - **Refcounted shared singleton per `repoRoot`** — N callers → one parcel
   subscription, listener-side filtering by optional `filePath`.
 - **Trailing-edge debounce** at `WATCHER_DEBOUNCE_MS` (150ms) coalesces bursts
   into one fire per listener.
-- **Hard-coded `IGNORE_GLOBS`** — `.git`, `node_modules`, `dist`, `build`,
-  `target`, `.next`, `.turbo`, `.cache`, `.parcel-cache`, `.kolu-dev`,
-  `.kolu-state`, `.DS_Store`. Not gitignore-aware. Over-firing on user build
-  outputs is absorbed by the snapshot-equality check in
-  `streamSnapshots(...)` upstream.
+- **Ignore set derived from git** (`_computeIgnore`) — `.git` plus every entry
+  of `git ls-files --others --ignored --exclude-standard --directory`, the same
+  listing the Code tab's show-ignored overlay reads, so whatever the tree shows
+  is watched. It follows rule changes from all three places git reads them:
+  a `.gitignore` at any depth (a parcel event on a file of that name), and the
+  common git dir's `info/exclude` plus the global ignore file
+  (`core.excludesFile`, else `$XDG_CONFIG_HOME/git/ignore`), both watched by
+  `ignore-rules-watcher.ts`. A change re-derives the set; only a set that
+  differs from the last attach's rebuilds the subscription, and a failed
+  enumeration leaves the live watch alone. There is no guessed ignore set: if
+  git cannot enumerate when an attach runs, that attach makes no parcel call
+  and logs `install failed`, and the next successful listing (any ignore-rule
+  trigger) rebuilds.
 - **Post-install reconciliation tick** (line 176) — `parcelSubscribe` is
   async. Filesystem mutations between `subscribe()` call and parcel resolving
   are invisible to parcel; the streaming endpoint already yielded its initial
@@ -144,8 +159,14 @@ Watcher lifecycle through `Logger` (kolu-shared). Grep these strings to verify
 the watcher came up in production:
 
 - `info  git: working-tree watcher installed` ← parcel resolved successfully
+- `info  git: working-tree watcher not installed, no working tree` ← git says
+  the root has no working tree (a bare repo's folder); nothing is installed
 - `info  git: working-tree watcher retired` ← last subscriber gone
-- `error git: working-tree watcher install failed` ← parcel `subscribe()` rejected
+- `info  git: working-tree watcher rebuilding` ← resubscribe; `reason` is
+  `"new subtree parcel cannot see"` or `"ignore rules changed"`
+- `error git: working-tree watcher install failed` ← parcel `subscribe()`
+  rejected, git could not tell whether the root has a working tree, or git
+  could not enumerate ignored paths; for a git failure `err` is git's message
 - `error git: working-tree watcher callback error` ← parcel reported event-stream error
 - `error git: working-tree late-unsubscribe failed`
 - `error git: working-tree unsubscribe failed`

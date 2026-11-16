@@ -24,16 +24,17 @@ import { execFile } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { promisify } from "node:util";
+import { err, type GitResult, ok } from "./errors.ts";
 
 const execFileAsync = promisify(execFile);
 
 export const WATCHER_DEBOUNCE_MS = 150;
 
-/** Hard ceiling on a single git-dir resolution. `git rev-parse` is
- *  near-instant on a healthy repo; this bound exists only so a wedged
- *  worktree filesystem or a stuck git child is killed and surfaces as
- *  "not resolvable" (`null`) rather than hanging a watcher install. */
-const GIT_REV_PARSE_TIMEOUT_MS = 5_000;
+/** Hard ceiling on a git query a watcher install waits on (`git rev-parse`,
+ *  `git config`). Both are near-instant on a healthy repo; this bound exists
+ *  only so a wedged worktree filesystem or a stuck git child is killed and
+ *  surfaces as "not resolvable" rather than hanging a watcher install. */
+export const GIT_QUERY_TIMEOUT_MS = 5_000;
 
 /** Resolve a `git rev-parse` git-dir flag to a canonical absolute path, or
  *  null when `cwd` isn't a repo (git fails or the bounded call is killed).
@@ -47,7 +48,7 @@ async function revParseDir(cwd: string, flag: string): Promise<string | null> {
     const { stdout } = await execFileAsync("git", ["rev-parse", flag], {
       cwd,
       encoding: "utf-8",
-      timeout: GIT_REV_PARSE_TIMEOUT_MS,
+      timeout: GIT_QUERY_TIMEOUT_MS,
     });
     return await fs.promises.realpath(path.resolve(cwd, stdout.trim()));
   } catch {
@@ -71,4 +72,36 @@ export function resolveGitDir(cwd: string): Promise<string | null> {
  *  target for watching remote-URL changes across all of a repo's worktrees. */
 export function resolveGitCommonDir(cwd: string): Promise<string | null> {
   return revParseDir(cwd, "--git-common-dir");
+}
+
+/** Whether `cwd` is inside a working tree, by git's own answer to `git
+ *  rev-parse --is-inside-work-tree`: `false` for a bare repo's folder (and
+ *  anything under it that is not itself a worktree), `true` inside a checkout.
+ *  A `GIT_FAILED` carrying git's message when git cannot answer — `cwd` is not
+ *  a repo, git refuses it, git is missing, or the bounded call is killed — and
+ *  when git answers anything but `true` or `false`. */
+export async function isInsideWorkTree(
+  cwd: string,
+): Promise<GitResult<boolean>> {
+  let stdout: string;
+  try {
+    ({ stdout } = await execFileAsync(
+      "git",
+      ["rev-parse", "--is-inside-work-tree"],
+      { cwd, encoding: "utf-8", timeout: GIT_QUERY_TIMEOUT_MS },
+    ));
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : String(e);
+    return err({
+      code: "GIT_FAILED",
+      message: `Failed to tell whether the root has a working tree: ${msg}`,
+    });
+  }
+  const answer = stdout.trim();
+  if (answer === "true") return ok(true);
+  if (answer === "false") return ok(false);
+  return err({
+    code: "GIT_FAILED",
+    message: `git rev-parse --is-inside-work-tree answered ${JSON.stringify(answer)}`,
+  });
 }

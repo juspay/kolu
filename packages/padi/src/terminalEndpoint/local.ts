@@ -2008,7 +2008,12 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
         // OMIT `reflowEpoch` rather than spelling `undefined`: "this attachment
         // reports no reflow generation" is an ABSENT key, and an explicit
         // `undefined` is the one spelling nothing downstream can honestly carry.
-        if (signal?.aborted) return { snapshot: "", topLine: 0, iter };
+        // `grid: null` is the stronger statement the same path has to make now:
+        // this attachment describes NO SCREEN, so no snapshot frame may be built
+        // from it (`TerminalAttachment.grid`). A grid invented here would tell a
+        // consumer to resize to a size nothing was ever serialized at.
+        if (signal?.aborted)
+          return { snapshot: "", topLine: 0, grid: null, iter };
         throw new Error(
           `attach(${id}): stream ended before its mandatory snapshot frame`,
         );
@@ -2022,10 +2027,10 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
       // current grid (last-attach-wins), and kaval answers with the grid it
       // actually serialized at. Publish it here rather than at the call site so
       // EVERY open is covered — the initial attach and each overflow re-attach
-      // — and so the other attached clients, who cannot see this resize in
-      // their byte stream, observe it on the record. Absent from an older
-      // kaval, and absent is honest: nothing here can invent the grid.
-      if (first.value.grid) this.noteGrid(id, first.value.grid);
+      // — and so the other attached clients, who cannot see this resize on
+      // their OWN record, observe it there. Required since kaval contract 9.0,
+      // so there is no absent case left to be honest about.
+      this.noteGrid(id, first.value.grid);
       return {
         snapshot: first.value.data,
         topLine: first.value.topLine,

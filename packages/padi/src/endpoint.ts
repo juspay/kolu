@@ -91,11 +91,16 @@ export interface TerminalAttachment {
    *  cursor a no-splice `stale` reply (F3). Undefined only from an older kaval
    *  that predates the field (fail-open — no gate). */
   reflowEpoch?: number;
-  /** The grid the snapshot was SERIALIZED at — for the OBSERVE-ONLY attach,
-   *  which passes no `resizeTo` and so otherwise never learns what size it
-   *  received. Undefined only from an older kaval that predates the field
-   *  (fail-open — a consumer sizes as it did before). */
-  grid?: EndpointGrid;
+  /** The grid the snapshot was LAID OUT at — required since kaval contract 9.0,
+   *  so a consumer (including an OBSERVE-ONLY one, which passes no `resizeTo`
+   *  and asserts no size) sizes its renderer to the bytes instead of guessing.
+   *
+   *  `null` for the ONE attachment that describes no screen: the consumer tore
+   *  the attach down before kaval answered, so there is no snapshot and no grid
+   *  it was laid out at. A relay MUST emit no snapshot frame for it — inventing
+   *  a grid here would tell a consumer to resize to a size nothing was ever
+   *  serialized at. */
+  grid: EndpointGrid | null;
   /** Live output deltas after the snapshot. Ends on iterator return,
    *  signal abort, or PTY exit. Each re-attach frame (after an overflow drop)
    *  carries its own fresh `topLine`, so a mid-stream re-seed stays anchored. */
@@ -108,7 +113,9 @@ export interface TerminalAttachment {
  *  discriminated union" for snapshot-vs-delta, `dev/skills/streaming/SKILL.md` §2).
  *  A `delta` is just bytes to write. A `snapshot` frame — the stream's first
  *  frame and every overflow-driven re-attach — carries the fresh `topLine` seed
- *  for the client's backfill cursor. Modelling it as a union makes the two
+ *  for the client's backfill cursor and the grid those bytes are laid out at. A
+ *  `resized` frame says the pty's mirror changed size HERE, between the byte
+ *  before it and the byte after. Modelling it as a union makes the two
  *  malformed states the old `{ data, topLine? }` shape permitted (a snapshot
  *  without its anchor, a delta carrying one) unrepresentable, so the consumer
  *  discriminates on `kind`, never on field presence. */
@@ -123,11 +130,18 @@ export type TerminalAttachFrame =
        *  halts backfill rather than corrupting it (F3). Undefined from a kaval
        *  predating contract 5.2 (fail-open). */
       reflowEpoch?: number;
-      /** The grid this snapshot was SERIALIZED at. Undefined from a kaval
-       *  predating the additive add (fail-open: a consumer sizes as it did
-       *  before). Its reason for existing is the OBSERVE-ONLY attach — one that
-       *  passes no `resizeTo` and so never learns what size it received. */
-      grid?: EndpointGrid;
+      /** The grid these bytes are LAID OUT at. Required since kaval contract
+       *  9.0: a consumer sets its terminal to this grid and then paints, so a
+       *  snapshot can no longer be painted into a screen of the wrong size. */
+      grid: EndpointGrid;
+    }
+  | {
+      /** The pty's mirror changed size at this point in the stream (kaval
+       *  contract 9.0). A consumer resizes its own terminal HERE — after every
+       *  byte that preceded this frame and before every byte that follows it —
+       *  and its screen then matches the mirror's. */
+      kind: "resized";
+      grid: EndpointGrid;
     };
 
 /** One older-scrollback reply for the client's in-place backfill — the padi

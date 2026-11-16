@@ -21,9 +21,11 @@ Feature: Per-terminal viewport grid
     And I snapshot each terminal's cols
     # Widen the viewport while staying below the 640px mobile breakpoint,
     # so MobileTileView is not torn down and remounted. Only the active
-    # terminal fits the new width.
+    # terminal fits the new width — and "fits" is now a round trip: the pane
+    # states the grid its box can hold and adopts it when the daemon's mirror
+    # does, so the wait below is for the answer, not for a local reflow.
     When I resize the viewport to 620x844
-    And I wait for the active terminal to refit
+    And I wait for the active terminal's grid to come back from the daemon
     Then the active terminal cols should differ from its snapshot
     And the hidden terminal cols should match its snapshot
     And there should be no page errors

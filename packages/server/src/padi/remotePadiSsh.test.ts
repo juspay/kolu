@@ -314,7 +314,11 @@ describeSsh("padiSurface consumed over ssh — the W3.1 named path", () => {
     )[Symbol.asyncIterator]();
     const first = await attach.next();
     const firstFrame = first.value as TerminalAttachFrame;
-    expect(firstFrame.kind).toBe("snapshot");
+    // Narrowing, not equality: the union has an arm with no `data`.
+    if (firstFrame.kind !== "snapshot")
+      throw new Error(
+        `terminalAttach answered "${firstFrame.kind}" where the contract promises a snapshot first`,
+      );
     expect(typeof firstFrame.data).toBe("string");
 
     await Effect.runPromise(

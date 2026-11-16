@@ -402,9 +402,13 @@ describeDaemon("createPtyHost", () => {
           const { deltas } = yield* host.attach(id);
           const frames = subscribeFrames(deltas);
           let seen = "";
-          // Drain chunks until the marker appears (or the stream stalls).
-          while (!seen.includes("live delta"))
-            seen += yield* Effect.promise(() => frames.next(2000));
+          // Drain chunks until the marker appears (or the stream stalls). The
+          // feed carries two kinds of item in one order; only the BYTES are
+          // output, and nothing here resizes, so nothing else can arrive.
+          while (!seen.includes("live delta")) {
+            const item = yield* Effect.promise(() => frames.next(2000));
+            if (item.kind === "bytes") seen += item.data;
+          }
           frames.close();
           expect(seen).toContain("live delta");
         }),
@@ -1049,8 +1053,10 @@ describeDaemon("device-query contract — suppressed ⇄ answered pairing", () =
           const { deltas } = yield* host.attach(id);
           const frames = subscribeFrames(deltas);
           let raw = "";
-          while (!raw.includes("OSC_SENTINEL"))
-            raw += yield* Effect.promise(() => frames.next(2500));
+          while (!raw.includes("OSC_SENTINEL")) {
+            const item = yield* Effect.promise(() => frames.next(2500));
+            if (item.kind === "bytes") raw += item.data;
+          }
           frames.close();
           expect(raw).toContain("OSC_SENTINEL");
           expect(raw).not.toContain("rgb:");

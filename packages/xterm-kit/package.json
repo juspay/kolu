@@ -13,7 +13,8 @@
     ".": "./src/index.ts",
     "./backfill": "./src/scrollbackBackfill.ts",
     "./internals": "./src/internals.ts",
-    "./solid": "./src/solid/index.ts"
+    "./solid": "./src/solid/index.ts",
+    "./write-door": "./src/solid/writeDoor.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",

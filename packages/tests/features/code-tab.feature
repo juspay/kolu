@@ -1347,6 +1347,38 @@ Feature: Code tab (review + browse)
     When I click the directory "lib" in the file browser
     Then the file browser should show a file "lib/util.ts"
 
+  # Regression: a gitignored folder snapped shut the moment you opened a file
+  # inside it. The host hands the tree one props object that it rebuilds on
+  # every tick, so a selection re-notified `lazyEpoch` — the "forget which lazy
+  # directories are open" signal — with the same epoch. The already-open folder
+  # then read as a FRESH expansion on the next store tick and its level was
+  # re-read; that read superseded (aborted, hence rejected) the one before it,
+  # and the rejection collapsed the row. The user saw their file load and the
+  # folder fold away under it.
+  #
+  # `.git/info/exclude` rather than `.gitignore`, because that is where the
+  # report came from — and an excluded path is invisible to `git ls-files`
+  # exactly like a `.gitignore`d one, so it needs the eye toggle to appear.
+  Scenario: A gitignored folder stays open when you open a file inside it
+    When I run "rm -rf /tmp/kolu-ignored-stay && git init /tmp/kolu-ignored-stay && cd /tmp/kolu-ignored-stay"
+    And I run "mkdir -p .waterfall && printf 'brief-marker\n' > .waterfall/brief.txt && printf 'notes\n' > .waterfall/notes.txt"
+    And I run "printf 'tracked\n' > kept.md && git add kept.md && git commit -m init"
+    And I run "printf '.waterfall/\n' >> .git/info/exclude"
+    And I click the Code tab
+    And I click the Code tab mode "browse"
+    Then the file browser should show a file "kept.md"
+    When I click the show-gitignored toggle
+    Then the file browser should show a directory ".waterfall"
+    When I click the directory ".waterfall" in the file browser
+    Then the file browser should show a file ".waterfall/brief.txt"
+    When I click the file ".waterfall/brief.txt" in the file browser
+    Then the file content should contain "brief-marker"
+    And the directory ".waterfall" should stay expanded in the file browser
+    And the file browser should show a file ".waterfall/notes.txt"
+    And the file ".waterfall/brief.txt" should be selected in the file browser
+    And the file content should contain "brief-marker"
+    And there should be no page errors
+
   # Regression: expanding several directories and then clicking a file to
   # preview it used to collapse every directory that wasn't an ancestor of
   # the clicked file. Selection drove a full `resetPaths` in the Pierre

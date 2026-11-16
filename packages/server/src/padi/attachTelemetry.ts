@@ -222,6 +222,13 @@ interface AttachRecord {
   /** `snapshot` frames seen. The first is the attachment's own; every further
    *  one is an overflow re-sync, so the end line reports `snapshots - 1`. */
   snapshots: number;
+  /** `resized` frames SERVED to this attachment — the pty telling it the grid
+   *  moved, at a point in its byte stream (padi contract 7.5). Distinct from
+   *  `resizes` below, which counts grids ASKED FOR: one is what this viewer
+   *  requested, the other is what every viewer was told, including the resizes
+   *  somebody else caused. Carries no bytes, so it touches neither
+   *  `deltaChars` nor `snapshotChars`. */
+  servedResizes: number;
   /** The terminal's resize counters, bound at open and held by REFERENCE — so
    *  an attachment outliving its map entry's eviction still reports the
    *  counters it was counting into, rather than a fresh row of zeroes. */
@@ -531,6 +538,7 @@ export function withAttachTelemetry(
           0,
         ),
         resizes: endedResizes(g.items),
+        servedResizes: g.items.reduce((n, a) => n + a.servedResizes, 0),
         livedMs: quantiles(
           g.items.map((a) => (a.endedAt as number) - a.openedAt),
         ),
@@ -568,6 +576,7 @@ export function withAttachTelemetry(
       snapshotChars: 0,
       deltaChars: 0,
       snapshots: 0,
+      servedResizes: 0,
       resizes,
       endedAt: undefined,
       endedBy: undefined,
@@ -591,6 +600,9 @@ export function withAttachTelemetry(
     // attachment's running cost, and they are reported when it ends.
     if (kind === "delta") rec.deltaChars += chars;
     else if (kind === "snapshot") rec.snapshots += 1;
+    // A `resized` carries no `data`, so it adds nothing to either byte count —
+    // counted on its own axis instead of being silently invisible.
+    else if (kind === "resized") rec.servedResizes += 1;
     if (rec.firstFrameAt !== undefined) return;
     const t = now();
     rec.firstFrameAt = t;
@@ -634,6 +646,10 @@ export function withAttachTelemetry(
         // The TERMINAL's cumulative count, not this attachment's share: the
         // bytes above and the resizes that caused them read together.
         resizes: { ...rec.resizes.tally },
+        // …and what the pty told THIS viewer, which includes the moves another
+        // viewer caused. Zero bytes each; they explain repaints the byte
+        // counts above cannot.
+        servedResizes: rec.servedResizes,
         livedMs: t - rec.openedAt,
         endedBy: rec.endedBy,
       },

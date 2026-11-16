@@ -49,9 +49,44 @@ buffer ones in tandem.
 ## `@kolu/xterm-kit/solid` — the SolidJS browser adapter
 
 Retained panes should keep explicit host dimensions while hidden. Revealing a
-pane refits its current geometry without resetting its scroll lock or jumping
-to the bottom. Callback props are read at event time. Document pointer-release
+pane re-measures its geometry without resetting its scroll lock or jumping to
+the bottom. Callback props are read at event time. Document pointer-release
 listeners exist only while that pane holds a pointer gesture.
+
+**Two grids, never one.** `<Xterm>` measures the grid its own BOX can hold —
+the WANTED grid, what the consumer publishes — and does NOT resize the terminal
+from it. The terminal's grid changes only when the consumer applies the size its
+STREAM states, and that resize goes through the same single write door as the
+bytes (`handle.write`), so it lands in stream order: never ahead of output the
+unfocused coalescer is still holding, never ahead of a scroll lock's queue.
+That is what keeps a pane's buffer identical to the daemon's mirror, which
+resizes at the same point in the same sequence of events; a terminal that
+resized when its box moved diverged for as long as the publish took, and the
+program's next relative repaint erased the wrong rows in the pane only. While
+the two grids differ, the terminal is drawn at ITS grid, at natural size,
+clipped by the pane — no scaling. The mount box is a flex COLUMN whose item is
+left to stretch: only the VERTICAL anchor moves, so the terminal keeps the
+pane's full width and the scrollbar stays on the pane's edge, where
+`gridForBox` reserves the pixels for it. Vertically the last row's bottom is
+the pane's floor whether or not the grids agree — one anchor, so a resize
+landing never jumps the text — and a box that is not a whole number of rows
+tall leaves its leftover strip at the TOP.
+
+**A pane measures only a box its OWNER has decided.** `boxDecided` is a
+required prop and it gates the measurement itself, not the use of it: while it
+is false `<Xterm>` does not fit at all, so `wantedGrid` cannot come to hold a
+reading of a box the owner was still making up its mind about — a tile that
+does not yet know whether it has a split, or one parked behind a maximized
+sibling. When the owner flips it true the pane fits once, synchronously in
+that same update, so the first grid a consumer can act on is a reading of the
+decided box rather than a stand-in the next animation frame would correct.
+
+**`@kolu/xterm-kit/write-door`** is that door on its own: the coalescer and the
+scroll lock, without the component, the renderer or a DOM. It exists because
+the door is the thing with the ORDERING CONTRACT, and a consumer that wants to
+hold that contract to account should not have to load JSX to do it — kaval's
+`lockstepMirror.test.ts` replays one real PTY attachment through it and compares
+the result with the daemon's own mirror.
 
 - `<Xterm>` — the whole hazard set as one JSX element: it composes lifecycle,
   WebGL, scroll-lock, render-recovery, write coalesce (via `fullRate`), and touch,

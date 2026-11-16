@@ -144,7 +144,7 @@ vi.mock("solid-sonner", () => ({
 
 vi.mock("./rpc/rpc", () => ({ lifecycle: () => ({ kind: "connected" }) }));
 vi.mock("./right-panel/useRightPanel", () => ({
-  useRightPanel: () => ({ seedPanel: () => {} }),
+  useRightPanel: () => ({ seedHistory: () => {} }),
 }));
 
 import { addHost, resetHosts } from "./hostScope/mockHostMap.testlib";

@@ -38,7 +38,12 @@ import { currentPtyHostIdentity } from "./buildId.ts";
 import type { SubscriberOverflow } from "./fanOut.ts";
 import { removeInitFiles, writeInitFiles } from "./initFiles.ts";
 import type { DaemonLifetimeInfo, Logger } from "@kolu/surface-daemon";
-import { createPtyHost, type PtyId, type PtyListEntry } from "./ptyHost.ts";
+import {
+  createPtyHost,
+  type PtyDataItem,
+  type PtyId,
+  type PtyListEntry,
+} from "./ptyHost.ts";
 import {
   PTY_HOST_CONTRACT_VERSION,
   PtyNotFound,
@@ -251,7 +256,17 @@ export function servePtyHost(deps: InProcessPtyHostDeps) {
               }).pipe(
                 Stream.concat(
                   att.deltas.pipe(
-                    Stream.map((data) => ({ kind: "delta" as const, data })),
+                    // An EXHAUSTIVE map, not a default fall-through: the data
+                    // feed carries two kinds of item in one order (bytes and
+                    // the mirror's own resizes), and each becomes its own wire
+                    // frame in that same order. A third kind added upstream
+                    // must fail the type here rather than be silently relayed
+                    // as bytes.
+                    Stream.map((item: PtyDataItem) =>
+                      item.kind === "bytes"
+                        ? { kind: "delta" as const, data: item.data }
+                        : { kind: "resized" as const, grid: item.grid },
+                    ),
                     Stream.catchTag("SubscriberOverflow", () =>
                       Stream.make({ kind: "overflow" as const }),
                     ),

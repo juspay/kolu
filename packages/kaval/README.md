@@ -40,7 +40,7 @@ knows nothing about shell-environment preparation: callers hand it a ready
 | foreground pid | `tcgetpgrp(3)` at the tty       | `getForegroundPid`        |
 | foreground process | node-pty `argv[0]` basename; a dynamic-loader `argv[0]` (`ld-linux…` / `ld-musl-…` / `ld.so`) is resolved to the program it loads, read from `/proc/<fgpid>/cmdline` | `getProcess` · `foreground` stream |
 
-## Four load-bearing properties
+## Five load-bearing properties
 
 **The snapshot is serialized at the consumer's grid — and `attach()` is a
 write.** A serialized screen is bytes laid out *for a specific cols×rows* —
@@ -157,6 +157,22 @@ mistaking the drop for a dead terminal and freezing its scrollback. No new frame
 kind and no contract bump: the error carries a `reason` (`items` / `bytes` /
 `invalidated`) for the log, and the wire sees what it has seen since contract 5.0.
 
+**A resize is a point in the byte stream.** `resize()` publishes a typed
+`resized` frame carrying the new grid to every data subscriber, through the same
+ordered channel the bytes travel: everything parsed before the size change, then
+the frame, then everything parsed after. A consumer resizes its own terminal AT
+the frame instead of when its own box moves, so its screen takes exactly the
+events this mirror took, in the same order. Without it the two resize at two
+different points in one stream of bytes, everything written in the gap is laid
+out for one grid and parsed at the other, and a full-screen program's relative
+repaint ("up N, erase below, redraw") erases the wrong rows on the consumer's
+side only. It is a CONTROL frame like `overflow`: it carries no bytes, the
+resize window never withholds it (a viewer must learn the new size even while
+the repaint is held), and it costs nothing against the per-subscriber byte
+budget. A same-size `resize()` stays a no-op and emits nothing. It is typed
+rather than an escape sequence inside a `delta`, because PTY output is untrusted
+and an in-band marker would be forgeable by the program on the other end.
+
 ## Usage
 
 ```ts
@@ -227,15 +243,24 @@ verified the pid it names. The constant still bumps because it remains the
 **in-epoch** skew mechanism — see its note in `ptyHostSurface.ts`. It has since
 moved to **8.0** (major): `commandRun` lost the REQUIRED `replayed` field, which a
 7.x consumer cannot decode, and a minor (7.2) would have read as compatible in
-the old-consumer direction. `terminal.getScreenCells` came in at 7.1.
+the old-consumer direction. `terminal.getScreenCells` came in at 7.1. It is now
+**9.0** (major) for the `resized` frame above and for the attach `snapshot`'s
+`grid`, which became REQUIRED: a new emitted variant an 8.x consumer cannot
+discriminate, plus a field an 8.x daemon omits and a 9.0 consumer's decode
+rejects, so only a major refuses both directions. The price is the one this
+package otherwise refuses — every surviving kaval is recycled on deploy, so a
+host's terminals park and restore — and it is paid because the alternative is a
+pane silently painting a screen the program never drew. No optional field can
+buy it back: absence would mean "resize whenever you like", which is the defect.
 
-That verb is the one place a reader might expect kaval to have grown a feature
-it deliberately did not. It returns the screen as **attributed cells** —
-characters plus "palette 4", "rgb 0x78c8ff", "default" — and nothing more.
-Turning `palette 4` into a colour needs a theme, and a picture needs a font and
-a rasteriser; kaval owns the PTYs and the screen mirror and should own none of
-those, so the render happens in padi (`screen.image`, behind `kolu screenshot`
-and the `screen_image` MCP tool) where the per-terminal theme already lives.
+`terminal.getScreenCells` is the one place a reader might expect kaval to have
+grown a feature it deliberately did not. It returns the screen as **attributed
+cells** — characters plus "palette 4", "rgb 0x78c8ff", "default" — and nothing
+more. Turning `palette 4` into a colour needs a theme, and a picture needs a
+font and a rasteriser; kaval owns the PTYs and the screen mirror and should own
+none of those, so the render happens in padi (`screen.image`, behind `kolu
+screenshot` and the `screen_image` MCP tool) where the per-terminal theme
+already lives.
 This host stays free of a wasm rasteriser and several megabytes of font. Its
 extent is deliberately NARROWER than `getScreenText`'s — a viewport or a tail
 of at most `SCREEN_CELLS_MAX_ROWS` rows, never the whole scrollback, because a

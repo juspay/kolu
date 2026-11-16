@@ -155,11 +155,14 @@ export interface OpenedAttach {
    *  the re-attach frame so the client re-seeds its backfill epoch (F3).
    *  Undefined from a kaval predating the field (fail-open). */
   reflowEpoch?: number;
-  /** The grid the fresh snapshot was SERIALIZED at — carried onto the re-attach
-   *  frame so a consumer that never asserts a size still knows what shape the
-   *  screen it just received is. Undefined from a kaval predating the field
-   *  (fail-open). */
-  grid?: EndpointGrid;
+  /** The grid the fresh snapshot was LAID OUT at — carried onto the re-attach
+   *  frame so a consumer sizes its terminal to the bytes before painting them.
+   *  Required since kaval contract 9.0.
+   *
+   *  `null` only on the one open that describes no screen: the consumer aborted
+   *  before kaval answered. The loop ENDS on it rather than yielding a snapshot
+   *  frame nothing was serialized for. */
+  grid: EndpointGrid | null;
   iter: AsyncIterator<PtyHostDataMsg>;
 }
 
@@ -284,9 +287,27 @@ export async function* reattachingDeltas(
     // consume the already-advanced iterator (its snapshot was read by `open`).
     for await (const msg of { [Symbol.asyncIterator]: () => cur }) {
       delivered = true;
+      // EXHAUSTIVE, never a default fall-through: three frame kinds can arrive
+      // on a live attach and each means something different downstream. The
+      // relay's whole job for the two that are forwarded is to keep their
+      // ORDER — a `resized` that overtook the bytes written before it would
+      // reproduce, one hop further out, the very divergence it exists to close.
       if (msg.kind === "overflow") {
         overflowed = true;
         break;
+      }
+      if (msg.kind === "resized") {
+        yield { kind: "resized", grid: msg.grid };
+        continue;
+      }
+      if (msg.kind === "snapshot") {
+        // kaval sends a snapshot as the FIRST frame only, and `open()` has
+        // already consumed it. One arriving here means the host contract moved
+        // under us — relaying it as a delta would paint a whole screen into the
+        // middle of a live stream with no reset and no re-seed.
+        throw new Error(
+          `attach(${ctx.id}): kaval sent a mid-stream snapshot frame, which the attach contract does not allow`,
+        );
       }
       yield { kind: "delta", data: msg.data };
     }
@@ -339,8 +360,13 @@ export async function* reattachingDeltas(
       if (isPtyNotFound(err)) return;
       throw err;
     }
-    // A fresh snapshot: reset the screen (RIS) AND re-seed the backfill cursor
-    // with this re-attach's own `topLine` + reflow generation.
+    // The re-open describes no screen: the consumer aborted while it was in
+    // flight, so kaval ended the stream before its snapshot. There is nothing
+    // to paint and nobody to paint it for.
+    if (next.grid === null) return;
+    // A fresh snapshot: reset the screen (RIS), re-seed the backfill cursor with
+    // this re-attach's own `topLine` + reflow generation, and state the grid
+    // these bytes are laid out at so the consumer sizes to them before painting.
     yield {
       kind: "snapshot",
       data: TERMINAL_RESET + next.snapshot,

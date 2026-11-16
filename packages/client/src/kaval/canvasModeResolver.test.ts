@@ -303,6 +303,54 @@ describe("resolveCanvasMode connected-arm precedence (#1034)", () => {
     });
   });
 
+  it("keeps the WORKSPACE mounted while the census catches up — a creation must not unmount it", () => {
+    // `recordsAwaited > 0` with tiles composed is every terminal creation: the
+    // key list carries the new id a beat before its record does. `App.tsx`
+    // mounts the terminal bodies only under `workspace`, so any other surface
+    // here disposes every xterm on the host and re-attaches it when the record
+    // lands — scroll position, selection and focus thrown away because
+    // somebody opened a tile. The incomplete census is a CLOCK, not a surface.
+    const mid = connected({ terminalCount: 3, recordsAwaited: 1 });
+    expect(mode(mid)).toEqual({ kind: "workspace" });
+    // …and not an immediate escape either: the ceiling has not elapsed.
+    expect(mode(mid, false)).toEqual({ kind: "workspace" });
+  });
+
+  it("a record that never composes escapes to the boot-stalled card rather than wedging the canvas silently", () => {
+    // The hazard `useTerminalMetadata.ts` names: a per-key record stream can
+    // wedge without erroring, leaving `awaited` above zero on a channel that
+    // reads as healthy. Since every tile's measurement waits on the census
+    // (`TerminalContent`'s `boxDecided`), that is a canvas of terminals that
+    // can never size themselves — so it is reported, at the same ceiling and
+    // with the same Retry as every other stalled leg.
+    const wedged = connected({ terminalCount: 3, recordsAwaited: 1 });
+    expect(tag(wedged)).toMatchObject({ accrual: "accrue", leg: "session" });
+    expect(mode(wedged, true)).toEqual({
+      kind: "boot-stalled",
+      recovery: { via: "client", leg: "session" },
+    });
+  });
+
+  it("a census over a DEAD channel is unchanged from master — retained, never certified", () => {
+    // A stall we cannot watch is not one we may certify (#1568 SHAPE A): the
+    // transport overlay owns the screen, and the clock does not run.
+    const blind = connected({
+      terminalCount: 0,
+      recordsAwaited: 7,
+      channelLive: false,
+    });
+    expect(tag(blind)).toEqual({ accrual: "retain" });
+    expect(mode(blind, true)).toEqual({ kind: "connecting" });
+
+    const blindWithTiles = connected({
+      terminalCount: 3,
+      recordsAwaited: 1,
+      channelLive: false,
+    });
+    expect(tag(blindWithTiles)).toEqual({ accrual: "clear" });
+    expect(mode(blindWithTiles, true)).toEqual({ kind: "workspace" });
+  });
+
   it("reboot: records all settled (parked) with zero tiles resolves to `empty`/restore", () => {
     expect(mode(connected({ terminalCount: 0, recordsAwaited: 0 }))).toEqual({
       kind: "empty",
@@ -514,8 +562,15 @@ describe("resolveCanvasMode — #1763 R2 exclusions (retain overlays never escap
     });
   });
 
-  it("a records-awaited connecting is `retain` and does NOT escape past the deadline", () => {
-    const records = connected({ terminalCount: 0, recordsAwaited: 7 });
+  it("a records-awaited connecting over a DEAD channel is `retain` and does NOT escape", () => {
+    // The stall we cannot watch. Over a live channel this leg accrues (below);
+    // over a dead one the transport overlay owns the screen and certifying a
+    // record stall from here would be an invention.
+    const records = connected({
+      terminalCount: 0,
+      recordsAwaited: 7,
+      channelLive: false,
+    });
     expect(tag(records)).toEqual({ accrual: "retain" });
     expect(mode(records, true)).toEqual({ kind: "connecting" });
   });
@@ -917,12 +972,19 @@ describe("resolveCanvasMode — while unobservable, no anchor: one rule, every v
   // things — unreachable in production, spellable in the type — so the rule is stated for
   // every variant and this pins it, rather than leaving a cross-package invariant in prose.
   it("a `retain` frame over a dead link releases the anchor like any other", () => {
-    // recordsAwaited > 0 is a `retain` return site.
-    const retained = connected({ terminalCount: 0, recordsAwaited: 7 });
+    // A kaval-restart warming is a `retain` return site.
+    const retained = connected({
+      terminalCount: 0,
+      warming: true,
+      daemonState: "restarting",
+    });
     expect(tag(retained)).toEqual({ accrual: "retain" });
     expect(tagOffline(retained)).toEqual({ accrual: "clear" });
     // The surface is unchanged either way — the floor governs the clock, never the screen.
-    expect(modeOffline(retained)).toEqual({ kind: "connecting" });
+    expect(modeOffline(retained)).toEqual({
+      kind: "warming",
+      daemonState: "restarting",
+    });
   });
 
   it("a settled `clear` frame over a dead link is still just clear", () => {

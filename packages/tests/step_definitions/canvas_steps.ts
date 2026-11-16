@@ -1550,39 +1550,66 @@ Then(
   },
 );
 
-// The load-bearing invariant of #988/#989: a covered tile's border-box is
-// byte-identical to the maximized tile's, so an active-id switch in maximized
-// posture is a pure visibility/z-index swap and `Terminal`'s ResizeObserver
-// never fires `fit()`. Pin it here so a future edit that drifts the
-// maximized/covered geometry apart (e.g. giving one a border or rounded corner
-// the other lacks) re-introduces the per-switch reflow with a RED test instead
-// of silently. Match each axis within 1px using the same idiom as line 267.
+// A COVERED TILE IS LEFT WHERE IT WAS. Until kolu#2362 its box was the
+// maximized tile's, which made switching which tile is maximized free and made
+// ENTERING the posture cost one resize per covered tile — and another on the
+// way out, for a screen nobody saw. Now the canvas holds a covered tile at its
+// own rect and its panes measure nothing while it holds, so the trip costs the
+// tiles behind it nothing at all. Pin the box ACROSS the posture change: a
+// future edit that stretches a covered tile again re-introduces that cost with
+// a RED test rather than silently.
+//
+// `offsetWidth`/`offsetHeight`, not `getBoundingClientRect`: the tile's LAYOUT
+// box is the one its pane measures and the one that decides its program's
+// grid. Entering the posture moves the canvas viewport (the dock becomes a
+// flex sibling), so every tiled tile's SCREEN rect shifts under the camera
+// without its layout box moving at all — a fact about the camera, not about
+// the tile.
+const notedTileBoxes = new Map<string, { width: number; height: number }>();
+
+When("I note every canvas tile's box", async function (this: KoluWorld) {
+  const boxes = await this.page.evaluate(
+    (sel: string) =>
+      [...document.querySelectorAll(sel)].map((t) => ({
+        id: t.getAttribute("data-terminal-id") ?? "",
+        width: (t as HTMLElement).offsetWidth,
+        height: (t as HTMLElement).offsetHeight,
+      })),
+    CANVAS_TILE_SELECTOR,
+  );
+  notedTileBoxes.clear();
+  for (const { id, ...box } of boxes) notedTileBoxes.set(id, box);
+  assert.ok(notedTileBoxes.size > 0, "no canvas tiles to note");
+});
+
 Then(
-  "every covered canvas tile should occupy the maximized tile's box",
+  "every covered canvas tile should keep the box it had",
   async function (this: KoluWorld) {
+    const noted = [...notedTileBoxes.entries()].map(([id, box]) => ({
+      id,
+      ...box,
+    }));
     await this.page.waitForFunction(
-      (sel: string) => {
+      ({ sel, noted }) => {
         const tiles = [...document.querySelectorAll(sel)] as HTMLElement[];
         const maximized = tiles.find(
           (t) => t.getAttribute("data-maximized") === "true",
         );
         if (!maximized) return false;
-        const m = maximized.getBoundingClientRect();
         const covered = tiles.filter((t) => t !== maximized);
-        return (
-          covered.length > 0 &&
-          covered.every((t) => {
-            const r = t.getBoundingClientRect();
-            return (
-              Math.abs(r.left - m.left) <= 1 &&
-              Math.abs(r.top - m.top) <= 1 &&
-              Math.abs(r.width - m.width) <= 1 &&
-              Math.abs(r.height - m.height) <= 1
-            );
-          })
-        );
+        if (covered.length === 0) return false;
+        return covered.every((t) => {
+          const was = noted.find(
+            (n) => n.id === t.getAttribute("data-terminal-id"),
+          );
+          if (!was) return false;
+          return (
+            Math.abs(t.offsetWidth - was.width) <= 1 &&
+            Math.abs(t.offsetHeight - was.height) <= 1
+          );
+        });
       },
-      CANVAS_TILE_SELECTOR,
+      { sel: CANVAS_TILE_SELECTOR, noted },
       { timeout: POLL_TIMEOUT },
     );
   },
@@ -1766,13 +1793,16 @@ When("I take over the page clock", async function (this: KoluWorld) {
   await this.page.clock.install();
 });
 
+/** The client's `tileSeen.ts` hold, restated: the test package does not depend
+ *  on `kolu-client`, so the number cannot be imported. Stated WITH its source
+ *  so a change there is visibly a change here too. */
+const SEEN_HOLD_MS = 60 * 60_000;
+
 When("the grace period passes", async function (this: KoluWorld) {
-  // Past `tileSeen.ts`'s SEEN_HOLD_MS, which is five minutes — stated here
-  // as its own literal because the test package cannot import the client's
-  // source; what matters is only that it is LONGER. `fastForward` is the
+  // Past the hold above, with a minute to spare. `fastForward` is the
   // laptop-lid jump: a due timer fires at most once, so a one-second
   // interval does not fire three hundred times on the way.
-  await this.page.clock.fastForward("06:00");
+  await this.page.clock.fastForward(SEEN_HOLD_MS + 60_000);
 });
 
 When(

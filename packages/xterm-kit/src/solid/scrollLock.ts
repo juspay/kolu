@@ -34,6 +34,7 @@
  */
 
 import type { Terminal } from "@xterm/xterm";
+import { resizeTerminal } from "../internals";
 import {
   type Accessor,
   createEffect,
@@ -87,6 +88,17 @@ export interface ScrollLockEvent {
   stack: string | undefined;
 }
 
+/** One thing the lock is holding back, in stream order.
+ *
+ *  `data` is bytes to write (with the callback that fires when they parse);
+ *  `resize` is the grid the pty's mirror moved to at that point between two
+ *  bytes. They share one queue because what the resize MEANS is its position
+ *  relative to the bytes around it — applied early, it reflows a screen the
+ *  held bytes were never written for. */
+export type PendingItem =
+  | { kind: "data"; data: string; onParsed?: () => void }
+  | { kind: "resize"; cols: number; rows: number };
+
 /** Current document visibility, as a small testable seam (the unit suite runs
  *  in a Node environment with no `document`). Production reads the real DOM. */
 function defaultVisibility(): string {
@@ -115,18 +127,22 @@ export function createScrollLock(
   } | null>(null);
   const isLocked = () => lockState() !== null;
 
-  /** Data buffered while scroll-locked — flushed on unlock. Each entry keeps its
-   *  own `onParsed` write callback: a chunk's callback fires only when its bytes
+  /** What the lock is holding back, IN ORDER — flushed on unlock.
+   *
+   *  Two kinds of item, because two kinds of thing travel the write door and
+   *  the ORDER between them is load-bearing. A `data` entry keeps its own
+   *  `onParsed` write callback: a chunk's callback fires only when its bytes
    *  reach xterm's buffer, and a snapshot frame's backfill re-seed rides one
-   *  (Terminal.tsx). The reactive source for the buffer; `pendingChunks` is
-   *  derived from its length, so there is exactly one write surface
-   *  (`setPending`) and no parallel count to keep in sync. `hasNewOutput` is in
-   *  turn a boolean projection of that same count — derived, not a separate
-   *  signal to clear at every flush. */
-  const [pending, setPending] = createSignal<
-    { data: string; onParsed?: () => void }[]
-  >([]);
-  const pendingChunks = () => pending().length;
+   *  (Terminal.tsx). A `resize` entry is the pty telling us its mirror changed
+   *  size at that exact point in the byte stream — held here so it cannot
+   *  overtake bytes the user's scroll-up is keeping unparsed, which would
+   *  reflow a screen those bytes were not written for.
+   *
+   *  The reactive source for the buffer; `pendingChunks` counts the DATA items
+   *  only — it means "output you have not seen", and a resize is not output. */
+  const [pending, setPending] = createSignal<PendingItem[]>([]);
+  const pendingChunks = () =>
+    pending().reduce((n, item) => (item.kind === "data" ? n + 1 : n), 0);
   const hasNewOutput = () => pendingChunks() > 0;
 
   /** Terminal reference, set on attach. */
@@ -210,31 +226,65 @@ export function createScrollLock(
     }
   }
 
-  /** Flush all buffered data to the terminal. Writes the joined chunks in one
-   *  shot, then fires every buffered chunk's `onParsed` callback once that write
-   *  has PARSED — so a backfill re-seed (or render-stall `noteData`) that rode a
-   *  chunk's callback still runs after the flush lands, instead of being dropped.
-   *  A callback-less flush is what silently lost a snapshot frame's seed under
+  /** Replay everything the lock is holding, IN ORDER.
+   *
+   *  Consecutive data items are joined and written in ONE shot — that is the
+   *  whole reason the buffer exists — but a held resize CUTS the run: the bytes
+   *  before it are written, then the terminal is resized, then the run after it
+   *  starts. `resizeTerminal` flush-parses the queued write at the OLD grid
+   *  before reflowing, so the cut needs no await and no scheduling: the bytes
+   *  land at the width they were written for and the next run lands at the new
+   *  one. Collapsing the resizes to "apply them all at the end" would be the
+   *  original defect in miniature — a screen reflowed under bytes laid out for
+   *  a size it no longer has.
+   *
+   *  Each run's `onParsed` callbacks fire once that run has PARSED — so a
+   *  backfill re-seed (or render-stall `noteData`) that rode a chunk's callback
+   *  still runs after the flush lands, instead of being dropped. A
+   *  callback-less flush is what silently lost a snapshot frame's seed under
    *  scroll lock, leaving a stale backfill cursor against the reset buffer. */
   function flush(): void {
     const buffered = pending();
-    if (buffered.length === 0 || !termRef) return;
-    const data = buffered.map((c) => c.data).join("");
-    const callbacks = buffered
-      .map((c) => c.onParsed)
-      .filter((cb): cb is () => void => cb !== undefined);
+    const term = termRef;
+    if (buffered.length === 0 || !term) return;
     setPending([]);
-    termRef.write(
-      data,
-      callbacks.length === 0
-        ? undefined
-        : () => {
-            for (const cb of callbacks) cb();
-          },
-    );
+    let run: string[] = [];
+    let callbacks: (() => void)[] = [];
+    const writeRun = (): void => {
+      if (run.length === 0 && callbacks.length === 0) return;
+      const data = run.join("");
+      const cbs = callbacks;
+      run = [];
+      callbacks = [];
+      // A run of callback-only entries (an empty chunk carrying a seed) has
+      // nothing to parse, so its callbacks fire now rather than never.
+      if (data.length === 0) {
+        for (const cb of cbs) cb();
+        return;
+      }
+      term.write(
+        data,
+        cbs.length === 0
+          ? undefined
+          : () => {
+              for (const cb of cbs) cb();
+            },
+      );
+    };
+    for (const item of buffered) {
+      if (item.kind === "data") {
+        run.push(item.data);
+        if (item.onParsed) callbacks.push(item.onParsed);
+        continue;
+      }
+      writeRun();
+      resizeTerminal(term, item.cols, item.rows);
+    }
+    writeRun();
   }
 
-  /** Drop buffered chunks without writing them (snapshot / re-attach reset). */
+  /** Drop everything the lock is holding, bytes and resizes alike, without
+   *  applying any of it (snapshot / re-attach reset). */
   function dropPending(): void {
     setPending([]);
   }
@@ -381,7 +431,35 @@ export function createScrollLock(
     // Stash the callback WITH the chunk (not invoked now — no paint yet); flush()
     // fires it once the buffered write parses on unlock, so a re-seed that rides
     // the callback survives the lock instead of being silently dropped.
-    setPending((buffered) => [...buffered, { data, onParsed }]);
+    setPending((buffered) => [...buffered, { kind: "data", data, onParsed }]);
+  }
+
+  /**
+   * The pty's mirror changed size HERE, between the byte before this call and
+   * the byte after it. Resize the terminal at that same point.
+   *
+   * Unlocked, that point is now. LOCKED, it is wherever the held bytes are:
+   * the resize joins the queue instead of jumping it, because applying it now
+   * would reflow a screen made of bytes that have not been parsed yet — and
+   * the user is reading that screen, which is why the lock is engaged. This is
+   * the hazard the old `applyFit` named and declined to fix ("a resize
+   * overtaking bytes held by scroll lock"); the resize travelling the same
+   * door as the bytes is the fix.
+   *
+   * It takes NO terminal, unlike `writeData` beside it: a queued resize is
+   * applied by `flush`, which resizes `termRef`, so a terminal passed in here
+   * would be the one resized while unlocked and ignored while locked — two
+   * sources for "which terminal" on the one path whose whole point is that
+   * nothing gets out of order.
+   */
+  function resizeInOrder(cols: number, rows: number): void {
+    const term = termRef;
+    if (!term) return;
+    if (!isLocked()) {
+      resizeTerminal(term, cols, rows);
+      return;
+    }
+    setPending((buffered) => [...buffered, { kind: "resize", cols, rows }]);
   }
 
   /**
@@ -432,6 +510,7 @@ export function createScrollLock(
     dropPending,
     attachToTerminal,
     writeData,
+    resizeInOrder,
     scrollToBottom,
   };
 }

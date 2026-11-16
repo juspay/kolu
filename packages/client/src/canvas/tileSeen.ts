@@ -38,16 +38,19 @@ import type { CanvasTileMode } from "./CanvasTile";
 /** How long a tile that has left the view keeps its attach.
  *
  *  WHAT A DETACH COSTS is the place you were reading: the tile comes back
- *  showing the END of its output, so a scrolled-up position in it is gone.
- *  That is the whole scale here. A SHORT trip — glance at another tile,
- *  answer an agent, come back — expects to find your place where you left
- *  it, and five seconds lost it almost every time. After a LONG absence you
- *  are coming back to see what is new, and landing at the end is what you
- *  wanted anyway. Much past five minutes and a tile you revisit through the
- *  day would never detach at all, which is the bug.
+ *  showing the END of its output, so a scrolled-up position in it is gone —
+ *  and the return itself is slow, because the pane re-fetches a screen and
+ *  repaints it. That is the whole scale here. A trip away — glance at another
+ *  tile, answer an agent, go to lunch, come back — expects to find the tile
+ *  as it was, and five seconds lost it almost every time.
+ *
+ *  AN HOUR, so a tile you come back to within the hour was never disconnected
+ *  at all. What it costs is stated plainly: a tile you look away from keeps
+ *  receiving its output for an hour, and a tile you never return to that day
+ *  still lets go.
  *
  *  One baked constant — a knob here would be a way to turn the fix off. */
-export const SEEN_HOLD_MS = 5 * 60_000;
+export const SEEN_HOLD_MS = 60 * 60_000;
 
 /** The live facts a canvas tile's visibility is decided from. */
 export interface TileSeenFacts {

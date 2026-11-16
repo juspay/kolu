@@ -20,12 +20,12 @@
  *     dying on them executed healthy panes (kolu#2101 K1).
  *  2. **TYPED FAILURE — a recoverable condition, retried through `onReattach`.**
  *     Spelled as a value in the error channel: a stream failure (a mid-chain padi
- *     death), a frame the consumer REFUSES ({@link StaleSnapshotGrid}), the
- *     first unexpected clean end, or the first SILENT open (an attach that opened
- *     and owed a snapshot it never sent — {@link FIRST_FRAME_DEADLINE_MS}). All
- *     of them take the SAME road — reset the screen,
- *     wait {@link REATTACH_BACKOFF_MS}, re-subscribe through a freshly-entered
- *     `streamFn` that reads the CURRENT grid. The retry is unbounded here and that
+ *     death), the first unexpected clean end, or the first SILENT open (an attach
+ *     that opened and owed a snapshot it never sent —
+ *     {@link FIRST_FRAME_DEADLINE_MS}). All of them take the SAME road — reset
+ *     the screen, wait {@link REATTACH_BACKOFF_MS}, re-subscribe through a
+ *     freshly-entered `streamFn` that reads the CURRENT grid. The retry is
+ *     unbounded here and that
  *     is not a new unbounded thing: every member of this channel is driven by an
  *     external cause that stops (a resize settles, a re-bound padi comes back),
  *     each attempt re-reads live inputs so it makes progress rather than repeating
@@ -56,18 +56,18 @@
  *  - **This loop's channel-2 retry** (the three members above plus the deadline).
  *    Governed by the budgets, the fruitless-cycle counter, and one loudness
  *    policy — {@link FRUITLESS_CYCLE_VERDICT}.
- *  - **The stale-grid reopen** (`Terminal.tsx`'s `reopenForStaleGrid`, the
- *    xterm-write-callback arm). It exists because the second grid check runs in
- *    a write callback, not in the iterator, so there is no return value the loop
- *    would read and no error channel to enter — the attempt is superseded and a
- *    successor opened explicitly instead. It is grid-correctness-driven and
- *    RTT-rate-limited by nature (one reopen per snapshot that actually landed),
- *    and since kolu#2101 K5 it takes the SAME {@link REATTACH_BACKOFF_MS} as
- *    every other reopen, so no lane jumps the queue. Its episode accounting
- *    needs no special case: it fires only after a snapshot has been WRITTEN, and
- *    a delivered frame refills both budgets ({@link FIRST_FRAME_DEADLINE_MS}),
- *    so its fresh loop legitimately starts a fresh episode rather than escaping
- *    an old one's accounting.
+ *  - **The RE-ASSERT lane** (`Terminal.tsx`'s `reassertWantedGrid`, pulled by
+ *    the served-grid watcher). It exists because nothing has FAILED: the frames
+ *    are arriving and the screen is correct, the pty is simply at a size this
+ *    pane did not ask for and has stayed there past a settle window. So there is
+ *    no error to enter the channel with — the attempt is superseded and a
+ *    successor opened at the wanted grid, which re-asserts it (`resizeTo` is
+ *    last-attach-wins, so the attach IS the assertion). Rate-limited by the
+ *    watcher's own settle and, since kolu#2101 K5, taking the SAME
+ *    {@link REATTACH_BACKOFF_MS} as every other reopen, so no lane jumps the
+ *    queue. Its episode accounting needs no special case: a delivered frame
+ *    refills both budgets ({@link FIRST_FRAME_DEADLINE_MS}), and this lane can
+ *    only fire for a pane that is receiving frames.
  *  - **The tile remount** (`h.onceMeasured`). One per mounted pane; not a retry.
  *
  * The rule that keeps this honest: **no message may claim a re-attach unless one
@@ -87,10 +87,10 @@ import { isDeclared, TERMINAL_NOT_FOUND } from "../rpc/declaredErrors";
  *  tile then unmounts, interrupting the fiber and ending the loop).
  *
  *  EXPORTED for the one reopen lane that lives outside this file —
- *  `Terminal.tsx`'s `reopenForStaleGrid` (kolu#2101 K5). It reopens from an
- *  xterm write callback where the loop's own error channel is unreachable, and
- *  it takes this same spacing so the module header's four-lane list has one
- *  backoff, not two. */
+ *  `Terminal.tsx`'s `reassertWantedGrid` (kolu#2101 K5). It reopens from the
+ *  served-grid watcher, where nothing has failed and the loop's own error
+ *  channel would be a lie, and it takes this same spacing so the module
+ *  header's four-lane list has one backoff, not two. */
 export const REATTACH_BACKOFF_MS = 300;
 
 /** How long a CLEAN end waits for the tile's own exit facts to land before it
@@ -322,54 +322,6 @@ class AttachFirstFrameDeadline extends Error {
   }
 }
 
-/** Just the two numbers this module needs off a terminal grid — structural, so
- *  the loop does not take a dependency on the kit's `TerminalGrid` to render a
- *  message about one. */
-interface Grid {
-  cols: number;
-  rows: number;
-}
-
-/** The consumer REFUSES this frame: the snapshot is laid out for a grid the
- *  pane does not have, so painting it would wrap scrollback at the wrong width
- *  — damage a later repaint cannot undo.
- *
- *  A RETURNED value, not a throw, and that is the whole point (kolu#2101 G8). The
- *  refusal is a recoverable race — a resize between the request and the answer,
- *  a `STREAM_RETRY` replaying the original captured grid, another client
- *  attaching at its own size — whose documented repair has always been "reset and
- *  reopen at the current grid". While it was spelled as a `throw` inside the
- *  handler that this loop runs, it was a DEFECT (channel 1): the retry never
- *  fired, the pane died with a `failed unexpectedly` toast whose text still said
- *  "reopening", and the agent underneath kept running into a screen nobody would
- *  ever see again. Returning it puts the channel in the TYPE — the compiler now
- *  routes it, so the two channels cannot be conflated again by an edit that does
- *  not mention them. Anything the handler still THROWS stays a defect, unchanged
- *  and deliberate.
- *
- *  Carries both grids because the message is the only forensic record a user's
- *  screenshot preserves. */
-export class StaleSnapshotGrid extends Error {
-  constructor(args: {
-    terminalId: string;
-    /** The grid the refused snapshot was LAID OUT at — the frame's own `grid`
-     *  when it states one (padi contract 5.5), and otherwise the grid this
-     *  attempt asked at. Absent only before the first request, against a daemon
-     *  that states no grid. */
-    laidOutAt: Grid | null | undefined;
-    /** The grid the pane has NOW. Absent when the pane has been disposed and
-     *  released its measurement. */
-    current: Grid | null | undefined;
-  }) {
-    const at = (g: Grid | null | undefined) =>
-      g ? `${g.cols}x${g.rows}` : "unmeasured";
-    super(
-      `terminal ${args.terminalId}: snapshot was laid out at ${at(args.laidOutAt)}, pane is now ${at(args.current)} — refusing it and re-attaching at the current grid`,
-    );
-    this.name = "StaleSnapshotGrid";
-  }
-}
-
 /** The tile facts this loop reads back before acting on an end. */
 export interface AttachTileFacts {
   /** Does this tile KNOW its PTY is gone (a `terminalExit`/metadata arm that has
@@ -428,17 +380,19 @@ export interface AttachTileFacts {
  *  `TerminalNotFound`), so a `PtyNotFound` surfacing on this wire would mean
  *  padi's registry and kaval's table disagree — a real fault that must be loud.
  *
- *  **A REFUSED frame (kolu#2101, deploy #2 incident #3).** `onItem` may hand back
- *  a {@link StaleSnapshotGrid} instead of consuming its frame — the snapshot
- *  answers a grid the pane no longer has. That is channel 2: it fails the
- *  attempt, so the screen is reset and the stream reopened through a
- *  freshly-entered `streamFn` that reads the CURRENT grid, and a pane that has
- *  stopped resizing converges on its first reopen. It reached production as
- *  channel 1 instead — a `throw` inside the handler this loop ran under
- *  `Effect.sync` — which the retry (failures only) never saw: three panes died at
- *  once after a reload, on a one-column layout settle, with a toast that promised
- *  a reopen that could not come. The channel now rides in the RETURN TYPE, where
- *  it cannot be silently flipped again.
+ *  **A REFUSED frame — RETIRED.** `onItem` used to be able to hand back a
+ *  `StaleSnapshotGrid` instead of consuming a frame: the snapshot answered a
+ *  grid the pane no longer had, so painting it would wrap scrollback at a width
+ *  nothing could rebuild. (It reached production as channel 1 — a `throw`
+ *  inside the handler this loop ran under `Effect.sync` — which the retry, which
+ *  retries failures only, never saw: three panes died at once after a reload, on
+ *  a one-column layout settle, with a toast that promised a reopen that could
+ *  not come.) The channel is gone because the CONDITION is: a snapshot now
+ *  states the grid its bytes are laid out at and the pane sets its terminal to
+ *  that grid before painting, so no frame can be the wrong shape for the screen
+ *  it lands in. A pty sitting at a size the pane did not ASK for is a different
+ *  thing — a standing fact on the terminal record, repaired by the re-assert
+ *  lane below, not by refusing correct bytes.
  *
  *  **A SILENT open (kolu#2101 H3, narrowed by J1, re-derived at K1).** The three
  *  cases above all rest on an EVENT — a failure, an end, a refused frame. The
@@ -488,14 +442,12 @@ export interface AttachTileFacts {
  *  deliberate and is what the caller's measured-grid assertion relies on:
  *  retrying an impossible-state breach every 300ms would wipe the user's screen
  *  three times a second (each retry runs `onReattach`) instead of surfacing the
- *  bug. A condition that SHOULD recover says so by returning
- *  {@link StaleSnapshotGrid}, never by throwing. */
+ *  bug. */
 export function consumeReattachingStream<T>(
   streamFn: () => Stream.Stream<T, unknown>,
-  /** Consume the frame — or REFUSE it by returning a {@link StaleSnapshotGrid},
-   *  which fails the attempt into the re-attach path. A throw here remains a
-   *  defect (channel 1). */
-  onItem: (item: T) => StaleSnapshotGrid | undefined,
+  /** Consume the frame. A throw here is a defect (channel 1) — there is no
+   *  refusal channel, because there is nothing left for a consumer to refuse. */
+  onItem: (item: T) => void,
   onReattach: () => void,
   label: string,
   tile: AttachTileFacts,
@@ -616,22 +568,17 @@ export function consumeReattachingStream<T>(
   const oneAttempt = Effect.suspend(() => {
     attemptSawFrame = false;
     const consume = Stream.runForEach(Stream.suspend(streamFn), (item) =>
-      // `Effect.suspend`, not `Effect.sync`: the handler's REFUSAL has to land in
-      // the error channel, and a value returned out of `Effect.sync` would just be
-      // a success the loop ignores — the exact conflation this shape replaces. A
-      // throw still escapes as a defect, which is channel 1 and stays that way.
-      Effect.suspend(() => {
-        // A REFUSED frame still counts as a frame: the chain delivered, and the
-        // refusal has its own (channel 2) road. Which is also why a refusal
-        // refills the budgets — a stale-grid ping-pong is a WRAPPING artifact
-        // over a working chain, and must never walk a pane into a verdict meant
-        // for a chain that delivers nothing.
+      // `Effect.sync`: the handler consumes and nothing more. A throw escapes as
+      // a defect, which is channel 1 and stays that way.
+      Effect.sync(() => {
+        // A frame ARRIVED, so the chain is proven end to end: refill the budgets
+        // before the handler runs, not after, so a handler that throws still
+        // leaves an honest "this attempt delivered" behind it.
         if (!attemptSawFrame) {
           attemptSawFrame = true;
           startFreshEpisode();
         }
-        const refused = onItem(item);
-        return refused ? Effect.fail(refused) : Effect.void;
+        onItem(item);
       }),
     );
     const firstFrameWatch = Effect.sleep(FIRST_FRAME_DEADLINE_MS).pipe(

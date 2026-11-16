@@ -24,7 +24,13 @@ import { describeDaemon } from "@kolu/daemon-test-gate";
 import { silentLogger as silentLog } from "@kolu/log/loggerStubs.testutil";
 import { Effect } from "effect";
 import { afterEach, expect, it } from "vitest";
-import { createPtyHost, type PtyHost, type PtyId } from "./ptyHost.ts";
+import {
+  createPtyHost,
+  type PtyDataItem,
+  type PtyGrid,
+  type PtyHost,
+  type PtyId,
+} from "./ptyHost.ts";
 import { type FrameStream, subscribeFrames } from "./streamFrame.testlib.ts";
 
 const shellEnv = {
@@ -83,17 +89,34 @@ function counterValues(text: string): number[] {
  *  stream FAILURE carries a `_tag`; the testlib's deadline throws a plain
  *  `Error`, which is a stalled test rather than a drop. */
 async function drain(
-  frames: FrameStream<string>,
+  frames: FrameStream<PtyDataItem>,
   ms: number,
-): Promise<{ text: string; drop: { _tag?: string } | undefined }> {
+): Promise<{
+  text: string;
+  /** Every `resized` item the subscription saw, in order. */
+  resizes: PtyGrid[];
+  /** The whole item sequence as tags, for the tests whose subject is ORDER. */
+  order: string[];
+  drop: { _tag?: string } | undefined;
+}> {
   let text = "";
+  const resizes: PtyGrid[] = [];
+  const order: string[] = [];
   for (;;) {
     try {
-      text += await frames.next(ms);
+      const item = await frames.next(ms);
+      if (item.kind === "bytes") {
+        text += item.data;
+        order.push(`bytes:${item.data}`);
+        continue;
+      }
+      resizes.push(item.grid);
+      order.push(`resized:${item.grid.cols}x${item.grid.rows}`);
     } catch (err) {
       const tagged = err as { _tag?: string };
-      if (tagged._tag === undefined) return { text, drop: undefined };
-      return { text, drop: tagged };
+      if (tagged._tag === undefined)
+        return { text, resizes, order, drop: undefined };
+      return { text, resizes, order, drop: tagged };
     }
   }
 }
@@ -197,7 +220,8 @@ describeDaemon("PtyHost resize window", () => {
           host.resize(id, 100, 30);
           let text = "";
           while (!text.includes("SMALLREPAINT")) {
-            text += yield* Effect.promise(() => frames.next(4000));
+            const item = yield* Effect.promise(() => frames.next(4000));
+            if (item.kind === "bytes") text += item.data;
           }
           frames.close();
           return t0;
@@ -235,7 +259,11 @@ describeDaemon("PtyHost resize window", () => {
           const frames = subscribeFrames(deltas);
           const t0 = Date.now();
           host.resize(id, 100, 30);
-          yield* Effect.promise(() => frames.next(5000));
+          // The `resized` item lands FIRST and immediately — it is never
+          // withheld — so what this measures is when the OUTPUT arrives.
+          yield* Effect.promise(() =>
+            frames.until((item) => item.kind === "bytes", 5000),
+          );
           frames.close();
           return t0;
         }),
@@ -264,7 +292,8 @@ describeDaemon("PtyHost resize window", () => {
           const frames = subscribeFrames(attached.deltas);
           let delta = "";
           while (!delta.includes("COUNTDONE")) {
-            delta += yield* Effect.promise(() => frames.next(8000));
+            const item = yield* Effect.promise(() => frames.next(8000));
+            if (item.kind === "bytes") delta += item.data;
           }
           frames.close();
           return { snapshot: attached.snapshot, delta };
