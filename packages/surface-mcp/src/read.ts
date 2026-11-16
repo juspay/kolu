@@ -34,11 +34,17 @@
  *
  * ## One derivation, once
  *
- * The address is derived ONCE per request and carried. `isSubscribable` was a
- * second copy of the same walk; the collection-item reader re-parsed the URI,
- * re-looked-up the template and re-decoded the key, guarded by an `Effect.die`
- * that existed only to prove the recomputation agreed with the original — which
- * is the fingerprint of a duplicated derivation, not a safety net.
+ * The address is derived ONCE per request and carried. A second copy of the
+ * same walk for subscriptions, and a collection-item reader that re-parsed the
+ * URI, re-looked-up the template and re-decoded the key, were each a duplicated
+ * derivation, not a safety net.
+ *
+ * ## What a URI is to a generation, in three outcomes
+ *
+ * {@link addressOf} answers SERVED (with the address), NOT A KEY (the URI falls
+ * under a served collection and its name fails that collection's key schema,
+ * with the schema's own sentence), or UNSERVED. {@link refusalOf} words the two
+ * refusals, once, for both `resources/read` and `resources/subscribe`.
  */
 
 import {
@@ -53,10 +59,12 @@ import {
   ITEM_READ_DEADLINE_MS,
 } from "@kolu/surface/first-frame";
 import type { WireSchemaAny } from "@kolu/surface/define";
+import { messageOf } from "@kolu/surface/errors";
 import { decodeTextValue } from "@kolu/surface/verbs";
-import { Effect, Option, Stream } from "effect";
+import { Effect, Option, Result, Schema, Stream } from "effect";
 import { match, P } from "ts-pattern";
 import type { ResolvedBundle } from "./bundle";
+import type { DepartedNames } from "./departed";
 import {
   collectionUri,
   parseCollectionItem,
@@ -68,8 +76,8 @@ import {
  *  Cells/streams/events are read via `.get(undefined)` (their input is either
  *  absent or `Schema.Void` — an empty `{}` is not that value); a collection's
  *  key-set via `.keys(undefined)`; a collection item via `.get({ key })`, where
- *  `key` is the URI's `<id>` segment already decoded through the collection's key
- *  schema (so a `Schema.Finite` key addresses item `42`, not `"42"`). */
+ *  `key` is the item's name already decoded through the collection's key schema
+ *  (so a `Schema.Finite` key addresses item `42`, not `"42"`). */
 export type Address =
   | {
       readonly kind: ResourceEntry["kind"];
@@ -90,7 +98,7 @@ export type Address =
        *  reader: `bind` and {@link unreachableDetail} each used to ask
        *  `kind === "collection-item" ? "get" : address.verb` for the same fact. */
       readonly verb: "get";
-      /** The URI's `<id>`, decoded against the collection's key schema. Decoded
+      /** The item's name, decoded against the collection's key schema. Decoded
        *  HERE, once, and carried — the reader downstream used to decode it a
        *  second time from the same URI. */
       readonly itemKey: unknown;
@@ -102,53 +110,107 @@ export type Address =
       readonly mimeType: string;
     };
 
-/** Resolve a URI against one generation's tables. `undefined` means ONE thing —
- *  this generation serves no such address — and nothing else. */
-export function addressOf(
-  uri: string,
-  gen: ResolvedBundle,
-): Address | undefined {
+/** What a URI is to one generation — see the module header. */
+export type Resolution =
+  | { readonly at: "served"; readonly address: Address }
+  /** The URI falls under a served collection, and its name is not a key of it. */
+  | {
+      readonly at: "not-a-key";
+      /** The collection's own address. */
+      readonly collection: string;
+      /** The key schema's own failure, verbatim. */
+      readonly why: string;
+    }
+  | { readonly at: "unserved" };
+
+/** Resolve a URI against one generation's tables. */
+export function addressOf(uri: string, gen: ResolvedBundle): Resolution {
   const entry = gen.byUri.get(uri);
   if (entry !== undefined) {
     return {
-      kind: entry.kind,
-      uri,
-      sibling: entry.sibling,
-      key: entry.key,
-      verb: entry.kind === "collection" ? "keys" : "get",
-      mimeType: entry.mimeType,
+      at: "served",
+      address: {
+        kind: entry.kind,
+        uri,
+        sibling: entry.sibling,
+        key: entry.key,
+        verb: entry.kind === "collection" ? "keys" : "get",
+        mimeType: entry.mimeType,
+      },
     };
   }
-  const item = parseCollectionItem(uri);
-  if (item === null) return undefined;
-  // The TEMPLATE is looked up first, and it is what proves the collection is
-  // exposed at that address at all: keyed by the composed collection URI, two
-  // siblings exposing the same member key cannot answer for each other's items.
-  const template = gen.templateByCollection.get(
-    collectionUri(item.sibling, item.key),
-  );
-  if (template === undefined) return undefined;
-  // A value that fails its key schema is an ADDRESSING error — the URI names
-  // nothing this generation can serve, so it resolves to nothing rather than
-  // calling `.get` with a wrong-typed key.
-  const itemKey = decodeKey(template.keySchema, item.id);
-  if (itemKey === undefined) return undefined;
+  // Looked up by COLLECTION address: keyed so, two siblings exposing the same
+  // member key cannot answer for each other's items.
+  const item = parseCollectionItem(uri, gen.templateByCollection);
+  if (item === null) return { at: "unserved" };
+  const { collection: template, name } = item;
+  // A name that fails its key schema names nothing this generation can serve,
+  // so `.get` is never called with a wrong-typed key — and the refusal carries
+  // the schema's own sentence, which is where a consumer teaches what a name of
+  // that collection looks like.
+  const decoded = decodeKey(template.keySchema, name);
+  if ("why" in decoded) {
+    return {
+      at: "not-a-key",
+      collection: collectionUri(template.sibling, template.key),
+      why: decoded.why,
+    };
+  }
   return {
-    kind: "collection-item",
-    uri,
-    sibling: item.sibling,
-    key: item.key,
-    verb: "get",
-    itemKey,
-    listable: template.listable,
-    mimeType: "application/json",
+    at: "served",
+    address: {
+      kind: "collection-item",
+      uri,
+      sibling: template.sibling,
+      key: template.key,
+      verb: "get",
+      itemKey: decoded.key,
+      listable: template.listable,
+      mimeType: "application/json",
+    },
   };
 }
 
-/** Whether `uri` resolves to something the pusher can subscribe to — the SAME
- *  derivation a read uses, asked without a client. */
-export function isSubscribable(uri: string, gen: ResolvedBundle): boolean {
-  return addressOf(uri, gen) !== undefined;
+/** Whether this generation serves `uri` — for a read and a subscription alike.
+ *  The SAME derivation a read uses, asked without a client. */
+export function servesAddress(uri: string, gen: ResolvedBundle): boolean {
+  return addressOf(uri, gen).at === "served";
+}
+
+/** THE sentence for a URI this generation does not serve — one wording for
+ *  `resources/read` and `resources/subscribe`, so the two cannot disagree.
+ *
+ *  Three answers: a name the collection's key schema refuses carries that
+ *  schema's sentence; an address a departed sibling served says so
+ *  (`./departed.ts`); anything else names every static resource and item
+ *  template this generation serves, so the next request can be a right one.
+ *  The list is not cut short: a cut list reads as a whole one. */
+export function refusalOf(
+  uri: string,
+  resolution: Exclude<Resolution, { at: "served" }>,
+  gen: ResolvedBundle,
+  departed: DepartedNames,
+): string {
+  if (resolution.at === "not-a-key") {
+    return `resource "${uri}" names no item of "${resolution.collection}" — ${resolution.why}`;
+  }
+  const retired = departed.resourceRetired(uri, gen.siblings);
+  if (retired !== undefined) return retired;
+  const quoted = (uris: readonly string[]): string =>
+    uris.map((one) => `"${one}"`).join(", ");
+  const statics = gen.resources.map((r) => r.uri);
+  const templates = gen.resourceTemplates.map((t) => t.uriTemplate);
+  return [
+    `unknown resource "${uri}".`,
+    statics.length === 0
+      ? "No resource is served here."
+      : `The resources served here are ${quoted(statics)}.`,
+    ...(templates.length === 0
+      ? []
+      : [
+          `An item of a collection is read at ${quoted(templates)}, its name written as the collection lists it.`,
+        ]),
+  ].join(" ");
 }
 
 /** What a served address is on a particular dialled bundle. Three outcomes, and
@@ -257,8 +319,9 @@ export function streamForUri(
   uri: string,
   gen: ResolvedBundle,
 ): Stream.Stream<unknown, unknown> | undefined {
-  const address = addressOf(uri, gen);
-  if (address === undefined) return undefined;
+  const resolved = addressOf(uri, gen);
+  if (resolved.at !== "served") return undefined;
+  const address = resolved.address;
   const bound = bind(bundle, address);
   return bound.at === "call"
     ? bound.open()
@@ -515,17 +578,23 @@ function asStream(
   return source as Stream.Stream<unknown, unknown>;
 }
 
-/** Decode a collection item URI's string `<id>` segment into the collection's
- *  declared key type — {@link decodeTextValue}'s rule ("a schema-less caller
- *  hands scalars over as text"), at this face's policy: a token that lands in
- *  neither the verbatim nor the JSON reading returns `undefined`, so the caller
- *  treats it as an unaddressable item rather than calling `.get` with a
+/** Decode a collection item's name into the collection's declared key type —
+ *  {@link decodeTextValue}'s rule ("a schema-less caller hands scalars over as
+ *  text"). A name that lands in neither the verbatim nor the JSON reading comes
+ *  back with the key schema's own failure for the verbatim name, so the caller
+ *  refuses it in that schema's words rather than calling `.get` with a
  *  wrong-typed key.
  *
  *  The DECODED key is what comes back, which is what the face's collection
  *  payloads are built from (`{ key }` carries decoded keys — client.ts). */
-function decodeKey(keySchema: WireSchemaAny, id: string): unknown {
-  return Option.getOrUndefined(
-    Option.map(decodeTextValue(keySchema, id), (landed) => landed.decoded),
-  );
+function decodeKey(
+  keySchema: WireSchemaAny,
+  name: string,
+): { readonly key: unknown } | { readonly why: string } {
+  const verbatim = Schema.decodeUnknownResult(keySchema)(name);
+  if (Result.isSuccess(verbatim)) return { key: verbatim.success };
+  const landed = decodeTextValue(keySchema, name);
+  return Option.isSome(landed)
+    ? { key: landed.value.decoded }
+    : { why: messageOf(verbatim.failure) };
 }

@@ -15,11 +15,12 @@ repo profile; read the matching one before a task in its area.
 
 ## Design philosophy
 
-Three principles the codebase is built on. Honor them **by default** when writing code — a violation is a defect to fix now, not a style preference or a follow-up.
+Four principles the codebase is built on. Honor them **by default** when writing code — a violation is a defect to fix now, not a style preference or a follow-up.
 
 - **Fail fast — no fallbacks, no backward-compat, no override knobs.** An override / knob / graceful-degradation path is a defect, not a feature ("being able to *override* is never a feature"). Bake required values in (e.g. via Nix) and **crash loudly** if one is absent rather than silently degrading. A caught error must surface, never collapse to an empty or default state.
 - **Volatility boundaries ("electricity").** A domain-agnostic capability that hides a *hard* volatility (transport, reconnect, persistence, GPU-context loss) is its own `@kolu/*` workspace package, with the dependency arrow pointing **out** — never folded into an app / browse / terminal module, however generic the code reads (location *is* structure). Apply the three tests in `docs/atlas/src/content/atlas/electricity.mdx` before extracting; a tidy generic helper that hides only a bounded algorithm is a *leaf*, not a receptacle.
 - **Reuse the existing source of truth.** Prefer the repo's canonical mechanism or an existing code path over a parallel hand-rolled one — `.gitignore` / `@parcel/watcher` ignore globs over a hardcoded ignore list, an existing extension/MIME table over a duplicated constant, a maintained library (the rule above) over custom code. When unsure, grep for the existing path before writing a new one.
+- **Fix a defect where it lives — a workaround is not a fix.** When the cause of a problem is in another package or another repository, fix it there: in the same PR for a package in this repo, in a paired PR for another repo. Code that steps around someone else's defect is a defect of its own, and "known limit" is not a place to park it. In review, refuse a workaround and ask for the fix at its source.
 
 ## Feature discoverability (tips)
 

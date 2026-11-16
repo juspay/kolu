@@ -30,7 +30,7 @@
  */
 
 import type { ResolvedBundle } from "./bundle";
-import { collectionUri, parseCollectionItem } from "./expose";
+import { parseCollectionItem } from "./expose";
 import type { SiblingKey } from "@kolu/surface/client";
 import { siblingDroppedDetail } from "@kolu/surface/server";
 
@@ -134,10 +134,16 @@ export class DepartedNames {
       : `tool "${name}" is no longer served — ${retiredNote(owner, standing.has(owner))}`;
   }
 
-  resourceMessage(uri: string, standing: ReadonlySet<string>): string {
+  /** The sentence for a resource address a departed sibling served, or
+   *  `undefined` when none did — the wording of every other refusal is
+   *  `./read.ts`'s `refusalOf`, which asks this first. */
+  resourceRetired(
+    uri: string,
+    standing: ReadonlySet<string>,
+  ): string | undefined {
     const owner = this.ownerOfUri(uri);
     return owner === undefined
-      ? `unknown resource "${uri}"`
+      ? undefined
       : `resource "${uri}" is no longer served — ${retiredNote(owner, standing.has(owner))}`;
   }
 
@@ -145,13 +151,13 @@ export class DepartedNames {
    *
    *  A static resource is looked up by its whole address. A collection ITEM is not
    *  in the table — it is a template instance, never a listed resource — so it is
-   *  answered through its COLLECTION's address, which is: the same
-   *  `(sibling, key)` pair, composed by the same builder that minted it. */
+   *  answered through its COLLECTION's address, found by the same reader a served
+   *  item goes through, over this table. A name with a slash in it therefore
+   *  still says "no longer served". */
   private ownerOfUri(uri: string): string | undefined {
-    const direct = this.resources.get(uri);
-    if (direct !== undefined) return direct;
-    const item = parseCollectionItem(uri);
-    if (item === null) return undefined;
-    return this.resources.get(collectionUri(item.sibling, item.key));
+    return (
+      this.resources.get(uri) ??
+      parseCollectionItem(uri, this.resources)?.collection
+    );
   }
 }

@@ -720,6 +720,12 @@ describe("the waterfall", () => {
       expect(full).toMatch(said);
   });
 
+  it("R93: review refuses a workaround and asks for the fix at its source", () => {
+    const { full } = step("Review rounds");
+    for (const said of [/workaround/, /fix/, /source/])
+      expect(full).toMatch(said);
+  });
+
   it("R88: the implementor finishes — one refactor pass, then CI once", () => {
     for (const cell of Object.values(step("Finish")).filter(
       (one) => one !== "The same.",

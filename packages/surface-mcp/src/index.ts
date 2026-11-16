@@ -36,6 +36,11 @@ export {
   type ResolvedBundle,
   resolveBundle,
 } from "./bundle";
+// WHETHER A GENERATION SERVES AN ADDRESS — the reader `resources/read` and
+// `resources/subscribe` resolve through, asked without a client. Published so a
+// consumer that states its own addresses (kolu's Conductor script) checks them
+// against this package's reader rather than a second router of its own.
+export { servesAddress } from "./read";
 // `OwnedSurfaceConnection` IS this type at the adapter's client shape, and the
 // public doc links to it — so a consumer reading that doc has to be able to
 // import the name it names.
