@@ -25,6 +25,7 @@ import { agentsTooOldWords } from "@kolu/agent-distro/status";
 import {
   ageOutFixturePackage,
   failFixtureModelList,
+  listFixtureModels,
   restoreFixturePackage,
 } from "../support/agentDistroFixture.ts";
 import { waitForPadiCell } from "../support/padiCellWait.ts";
@@ -47,6 +48,20 @@ Given("this machine's agents are older than this kolu needs", () => {
 Given("this machine cannot list its models", () => {
   failFixtureModelList();
 });
+
+/** A HOST THAT LISTS DOZENS OF MODELS, as a gateway does: `model-01` … and
+ *  `model` among them, sorted the way a listing is. Put back by the same
+ *  After hook. */
+Given(
+  "this machine lists {int} models, {string} among them",
+  (count: number, model: string) => {
+    const ids = Array.from(
+      { length: count - 1 },
+      (_, n) => `model-${String(n + 1).padStart(2, "0")}`,
+    );
+    listFixtureModels([...ids, model].sort());
+  },
+);
 
 After(() => {
   // Unconditional and idempotent: the floor is shared by every scenario this

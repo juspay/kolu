@@ -210,6 +210,10 @@ const WorkQuestion: Component<{
         <AskOptions
           field={one.decision.id}
           options={chips()}
+          usedBefore={Option.match(standing(), {
+            onSome: (last) => [last.value],
+            onNone: () => [],
+          })}
           picked={(value) => picked(one.decision.id, value)}
           onPick={(value) => pick(one.decision, value)}
           searchLabel="options"

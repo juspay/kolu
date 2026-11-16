@@ -50,7 +50,7 @@ import {
   type StandingWhy,
   setupOf,
   standing,
-  type StageName,
+  type Filed,
   type Stages,
   stages,
   timeSpent,
@@ -113,8 +113,10 @@ export const WORK_DOT: Record<Waiter | "done", string> = {
   done: "bg-ok",
 };
 
-/** What each stage is called on the strip. */
-export const STAGE_LABEL: Record<StageName, string> = {
+/** What each stage is called on the strip — and what a timeline calls the
+ *  setup, which no cell holds. */
+export const STAGE_LABEL: Record<Filed, string> = {
+  setup: "Setup",
   plan: "Plan",
   approve: "Approve",
   build: "Build",
@@ -392,16 +394,17 @@ export interface StandingLine {
 /** THE WORDS FOR WHERE A WORK STANDS — the lead beside the dot, by the reason
  *  `standing()` gives. `question` and `merge` share "Waiting on you": what
  *  differs is the detail after it, which is the question's own words or the PR
- *  to merge. The last three are the three ways a work can be over. */
-const WHY_LEAD: Record<StandingWhy, string> = {
+ *  to merge. A work that is over is led by how it ended ({@link outcomeWords}),
+ *  once, so it has no word here. */
+const WHY_LEAD: Record<
+  Exclude<StandingWhy, "merged" | "closed" | "stopped">,
+  string
+> = {
   question: "Waiting on you",
   merge: "Waiting on you",
   ci: "CI running",
   watching: "Watching",
   working: "Agents at work",
-  merged: "Merged",
-  closed: "Closed",
-  stopped: "Stopped",
 };
 
 export function standingLine(
@@ -409,17 +412,18 @@ export function standingLine(
   checks: Option.Option<ChecksTally>,
 ): StandingLine {
   const at = standing(work, policyOf(work));
-  const line = (what: Option.Option<string>): StandingLine => ({
+  const line = (lead: string, what: Option.Option<string>): StandingLine => ({
     who: WAITER_OF[at.why],
-    lead: WHY_LEAD[at.why],
+    lead,
     what,
     since: at.since,
   });
   switch (at.why) {
     case "question":
-      return line(Option.some(at.question));
+      return line(WHY_LEAD[at.why], Option.some(at.question));
     case "merge":
       return line(
+        WHY_LEAD[at.why],
         Option.some(
           Option.match(at.pr, {
             onNone: () => "merge the PR",
@@ -431,15 +435,15 @@ export function standingLine(
     // says they are running, how many have landed is true only for the
     // instant it is read.
     case "ci":
-      return line(Option.map(checks, checksProgress));
+      return line(WHY_LEAD[at.why], Option.map(checks, checksProgress));
     // The agents are simply at work: no detail to give.
     case "watching":
     case "working":
-      return line(Option.none());
+      return line(WHY_LEAD[at.why], Option.none());
     // HOW it ended, which for a stopped work is the whole fact: a person
     // reading "Stopped" wants to know whether they did it.
     default:
-      return line(Option.some(outcomeWords(at.outcome)));
+      return line(outcomeWords(at.outcome), Option.none());
   }
 }
 

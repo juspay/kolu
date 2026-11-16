@@ -386,6 +386,14 @@ export const STAGES = [
 ] as const;
 export type StageName = (typeof STAGES)[number];
 
+/** WHERE A STRETCH, AND THE EVENT THAT BEGINS IT, IS FILED: one of the six
+ *  stages, or `setup` — time before the first stage a mode has, in a mode
+ *  with no Plan to hold it: a trivial work's setup form, and the Conductor
+ *  starting its implementor. It is somebody's time (it counts in
+ *  {@link timeSpent}) but no cell's: nothing was built yet. A full waterfall
+ *  has no `setup` stretch — its setup's questions are Plan's. */
+export type Filed = StageName | "setup";
+
 /** WHERE A STAGE STANDS, as a sum — each arm carries only what is true of it:
  *
  *  - `done` — the work was in it (for `ms`, which may be none) and is not
@@ -412,19 +420,19 @@ export interface Stage {
  *  work whose mode nobody has answered has none yet (`unset`); a mode that
  *  declares none (a plain watch) has none (`none`); any other has all six
  *  cells, the ones its mode does not declare reading "did not happen". It
- *  files every event of its timeline under one of them (`events`, one per
- *  event, in the timeline's order: the stage of the stretch that event
- *  begins, by the same walk that files the time, so an event and the time
- *  after it are never in two stages), and says once which stage the work is
- *  in (`current`: the one it is in now, or the one it ended in). */
+ *  files every event of its timeline (`events`, one per event, in the
+ *  timeline's order: where the stretch that event begins is {@link Filed},
+ *  by the same walk that files the time, so an event and the time after it
+ *  are never in two places), and says once where the work is (`current`:
+ *  where it is now, or where it ended). */
 export type Stages =
   | { readonly kind: "unset" }
   | { readonly kind: "none" }
   | {
       readonly kind: "staged";
       readonly stages: ReadonlyArray<Stage>;
-      readonly events: ReadonlyArray<StageName>;
-      readonly current: StageName;
+      readonly events: ReadonlyArray<Filed>;
+      readonly current: Filed;
     };
 
 /** How long a stage has had: its time, or none for a stage that has had
@@ -443,7 +451,7 @@ export const stageMs = (state: StageState): number =>
  *    (the setup's own questions) before that;
  *  - the agents' time is the plan before the implementor joins, the build
  *    until the PR it opens, and the review after. */
-const placeOf = (at: Running, who: Waiter, current: StageName): StageName => {
+const placeOf = (at: Running, who: Waiter, current: Filed): Filed => {
   if (prIs(at, "merged")) return "merge";
   if (who === "ci") return "checks";
   if (who === "you") {
@@ -467,41 +475,43 @@ const placeOf = (at: Running, who: Waiter, current: StageName): StageName => {
  *  the stage it belongs to ({@link placeOf}) — and a stage the work's mode
  *  does not have is never written to: its time goes to the nearest stage
  *  before it that the mode has (a trivial work's agents build, before the
- *  PR and after it), else the mode's first. A stage the work was in for no
- *  time (two events stamped at one instant) still happened. The stages'
- *  times add up to {@link lifetime}.
+ *  PR and after it), else to no stage at all (`setup`, {@link Filed}). A
+ *  stage the work was in for no time (two events stamped at one instant)
+ *  still happened. The stages' times and the setup's add up to
+ *  {@link lifetime}.
  *
- *  Each event is filed under the stage of the stretch it begins; one that
- *  leaves the work ended (or begins a stretch of it ended) stays in the stage
- *  the work was last in. */
+ *  Each event is filed where the stretch it begins is; one that leaves the
+ *  work ended (or begins a stretch of it ended) stays where the work was
+ *  last. */
 export const stages = (work: Work, policy: Policy, now: string): Stages => {
   const run = policy.run;
   if (run.kind === "unset") return { kind: "unset" };
-  const [first, ...more] = run.stages;
-  if (first === undefined) return { kind: "none" };
-  const declared = new Set<StageName>([first, ...more]);
-  /** The stage a stretch is filed under in THIS mode. */
-  const file = (stage: StageName): StageName =>
-    declared.has(stage)
-      ? stage
-      : (STAGES.slice(0, STAGES.indexOf(stage))
+  if (run.stages.length === 0) return { kind: "none" };
+  const declared = new Set<StageName>(run.stages);
+  /** Where a stretch is filed in THIS mode. */
+  const file = (place: Filed): Filed =>
+    place === "setup" || declared.has(place)
+      ? place
+      : (STAGES.slice(0, STAGES.indexOf(place))
           .filter((one) => declared.has(one))
-          .at(-1) ?? first);
+          .at(-1) ?? "setup");
   /** Each stage's time by whose it was, and who it began with — what a
    *  stage entered for no time is coloured by. */
   const held = new Map<StageName, Record<Waiter, number>>();
   const began = new Map<StageName, Waiter>();
-  const events: StageName[] = [];
-  let current: StageName = file("plan");
+  const events: Filed[] = [];
+  let current: Filed = file("plan");
   let visits = 0;
   const last = walk(work, now, (at, length) => {
     const who = waiterOf(policy.handOver, at);
     if (who !== "done") {
       current = file(placeOf(at, who, current));
-      const into = held.get(current) ?? { agent: 0, you: 0, ci: 0 };
-      into[who] += length;
-      held.set(current, into);
-      if (!began.has(current)) began.set(current, who);
+      if (current !== "setup") {
+        const into = held.get(current) ?? { agent: 0, you: 0, ci: 0 };
+        into[who] += length;
+        held.set(current, into);
+        if (!began.has(current)) began.set(current, who);
+      }
     }
     // The first stretch is the one before any event; each after it is the
     // one the event before it began.
@@ -510,12 +520,16 @@ export const stages = (work: Work, policy: Policy, now: string): Stages => {
   });
   // WHERE IT IS NOW. An OPEN work is waiting on somebody whatever its
   // timeline's last `ended` event said, as {@link standing} reads it; a
-  // finished one is where it ended.
+  // finished one is where it ended. A work still in its setup is in no cell.
   const open = work.state.kind === "open";
   const waiter = waiterOf(policy.handOver, last);
   const nowWho: Waiter = waiter === "done" ? "agent" : waiter;
   if (open) current = file(placeOf(last, nowWho, current));
-  const at = open ? STAGES.indexOf(current) : STAGES.length;
+  const at = !open
+    ? STAGES.length
+    : current === "setup"
+      ? -1
+      : STAGES.indexOf(current);
   return {
     kind: "staged",
     events,

@@ -38,7 +38,7 @@ import {
   type TerminalMetadata,
 } from "@kolu/padi-client/surface";
 import { describe, expect, it } from "vitest";
-import { checksTally, livePrOf, prSection } from "./prReadings";
+import { checksTally, failingLine, livePrOf, prSection } from "./prReadings";
 import { timelineShown } from "./timelineView";
 import {
   answerWords,
@@ -418,13 +418,29 @@ describe("the Pull request section", () => {
       Option.some({
         number: 9,
         state: "open",
-        checks: "Checks failed · ci::nix, ci::biome",
+        checks: "Checks failed",
+        failing: ["ci::nix", "ci::biome"],
         merge: Option.some({
           words: "GitHub cannot merge it yet · the branch is behind its base",
           reason: "behind",
         }),
       }),
     );
+  });
+
+  it("names the first red gates in one line and counts the rest", () => {
+    expect(
+      failingLine([
+        "ci::nix",
+        "ci::unit",
+        "ci::e2e",
+        "ci::biome",
+        "ci::docs",
+        "ci::home",
+        "ci::mcp",
+      ]),
+    ).toBe("7 failing: ci::nix, ci::unit, +5");
+    expect(failingLine(["ci::nix"])).toBe("1 failing: ci::nix");
   });
 
   it("prefers the live tally, and says when GitHub has not answered", () => {
@@ -542,6 +558,22 @@ describe("which events an open card shows", () => {
     expect(shown.view).toEqual({ kind: "latest" });
     expect(shown.indices).toEqual([4, 5, 6, 7, 8]);
   });
+
+  it("draws one row where the forge merged a PR and the work ended merged", () => {
+    const outcome = { kind: "merged", pr: 9 } as const;
+    const done = work({
+      state: { kind: "ended", at: AT, outcome, kept: [] },
+      decisions: [mode("watch")],
+      events: [
+        opened,
+        event({ kind: "merged", by: "kolu", pr: 9 }),
+        event({ kind: "ended", outcome }),
+      ],
+    });
+    const shown = timelineShown(done, stagesOf(done, AT), undefined, true);
+    expect(shown.indices).toEqual([0, 1]);
+    expect(shown.total).toBe(2);
+  });
 });
 
 describe("where it stands", () => {
@@ -588,10 +620,11 @@ describe("where it stands", () => {
       state: { kind: "ended", at: AT, outcome, kept: [] },
       events: [event({ kind: "ended", outcome })],
     });
+    // Said once: "Merged #7", never "Merged · Merged #7".
     expect(standingLine(over, Option.none())).toMatchObject({
       who: "done",
-      lead: "Merged",
-      what: Option.some("Merged #7"),
+      lead: "Merged #7",
+      what: Option.none(),
     });
   });
 

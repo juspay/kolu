@@ -148,12 +148,15 @@ through keeps the most recent `AGENT_STATES_KEPT` (30) agent-state events
 its merge answer while required checks land, so a `merge-state` given while
 its commit's checks are running REPLACES the one before it from the same
 run: CI holds the work while its checks run, so none of those answers
-decided anything. And a commit keeps at most `CHECKS_PER_COMMIT` (8) check
-results: past that its newest replaces its last, so two suites reporting out
-of phase cannot write a row per poll (#2376's shape), and the word it ends on
-is still the one the work reads. Nothing else is bounded, and the folds
-cannot tell the difference. The only other rewrite of a past row is
-`linkPr`'s, above.
+decided anything. And a commit keeps at most `PR_FACTS_PER_COMMIT` (8) check
+results, and as many merge answers: past that, the oldest one between its
+first and its newest goes. Two suites reporting out of phase cannot write a
+row per poll (#2376's shape), GitHub recomputing every time the base moves
+cannot either, and the newest — the word the work reads, and what a green
+PR's wait is filed under — is never the one that goes. The stretch a dropped
+flip began is read by the fact before it, so an old flip loses its detail and
+the time still adds up. Nothing else is bounded. The only other rewrite of a
+past row is `linkPr`'s, above.
 
 Nothing computed is stored: "where it stands" and the durations are folds
 over the events at a clock reading the caller passes in.
@@ -185,14 +188,17 @@ the implementor: Approve once a planner has joined, Plan before that — the
 setup's own questions); the agents' time is Plan before the implementor, Build
 until a PR the IMPLEMENTOR opens (a PR that was already there, such as one a
 bot opened, ends nothing), Review after — and files it under the nearest
-stage the mode has. So "a trivial work in Review" cannot be written down. A
+stage at or before that the mode has. So "a trivial work in Review" cannot be
+written down. A stretch with no such stage — a trivial work's setup form and
+the Conductor starting its implementor — is filed as `setup` (`Filed`): it is
+still somebody's time spent, but no cell's, because nothing was built. A
 stage the work entered is done, even if it took no time, and says whose time
-it mostly was. The same walk files EVERY EVENT under the stage of the stretch
-it begins (`Stages`' `events`) and says which stage the work is in
-(`current`), which is what lets a card show one stage's events.
-`stages.test.ts` checks, over generated records walked by its own independent
-fold, that the stages and the waiters each add up to `lifetime` and that each
-stage holds exactly the time after its events, and reads the cells of the
+it mostly was. The same walk files EVERY EVENT where the stretch it begins is
+(`Stages`' `events`) and says where the work is (`current`), which is what
+lets a card show one stage's events. `stages.test.ts` checks, over generated
+records walked by its own independent fold, that the stages and the setup
+add up to `lifetime`, that so do the waiters, and that each stage holds
+exactly the time after its events, and reads the cells of the
 shapes real works have taken, each by name; the seeded generator it and
 `work.test.ts` share lives in `test/seeded.ts`, outside `src/`, so it is
 never shipped.

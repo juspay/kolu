@@ -2785,6 +2785,85 @@ When(
   },
 );
 
+/** A LONG LIST AT REST: exactly these models drawn, in this order, the first
+ *  one already the answer, and one line saying how many more there are. */
+Then(
+  "the work's model question should show only {string}, and {int} more",
+  async function (this: KoluWorld, models: string, more: number) {
+    const want = models.split(",").map((one) => one.trim());
+    const ask = await modelQuestion(this);
+    let last = { drawn: [] as string[], active: [] as string[], more: "" };
+    await pollFor({
+      observe: async () => {
+        last = {
+          drawn: await ask
+            .locator('[data-testid="conductor-ask-option"]')
+            .evaluateAll((all) =>
+              all.map((one) => one.getAttribute("data-value") ?? ""),
+            ),
+          active: await ask
+            .locator('[data-testid="conductor-ask-option"][data-active]')
+            .evaluateAll((all) =>
+              all.map((one) => one.getAttribute("data-value") ?? ""),
+            ),
+          more:
+            (await ask
+              .locator('[data-testid="conductor-ask-more"]')
+              .getAttribute("data-hidden", { timeout: 1_000 })
+              .catch(() => null)) ?? "",
+        };
+        return last;
+      },
+      isDone: (now) =>
+        JSON.stringify(now.drawn) === JSON.stringify(want) &&
+        now.active.length === 1 &&
+        want.includes(now.active[0] ?? "") &&
+        now.more === String(more),
+      timeoutMs: POLL_TIMEOUT,
+      onTimeout: (_last, ms) =>
+        new Error(
+          `the model question never drew only ${JSON.stringify(want)} with ${more} more after ${ms}ms; it drew ${JSON.stringify(last)}`,
+        ),
+    });
+  },
+);
+
+When(
+  "I search the work's model question for {string}",
+  async function (this: KoluWorld, text: string) {
+    const ask = await modelQuestion(this);
+    await ask.locator('[data-testid="conductor-ask-search"]').fill(text);
+  },
+);
+
+Then(
+  "the work's model question should find {string}",
+  async function (this: KoluWorld, model: string) {
+    const ask = await modelQuestion(this);
+    await ask
+      .locator(`[data-testid="conductor-ask-option"][data-value="${model}"]`)
+      .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+  },
+);
+
+/** A MODEL THE REST STATE DID NOT DRAW, reached through the search and
+ *  picked; then the box is cleared, as a person does once they have it. */
+When(
+  "I pick {string} from the search of the work's model question",
+  async function (this: KoluWorld, model: string) {
+    const ask = await modelQuestion(this);
+    await ask
+      .locator(`[data-testid="conductor-ask-option"][data-value="${model}"]`)
+      .click({ timeout: POLL_TIMEOUT });
+    await ask.locator('[data-testid="conductor-ask-search"]').fill("");
+  },
+);
+
+When("I send the work's model question", async function (this: KoluWorld) {
+  const ask = await modelQuestion(this);
+  await ask.locator('[data-testid="conductor-ask-submit"]').click();
+});
+
 /** WHAT KOLU TYPED to start the member — the `ran` its `lifecycle_create`
  *  answered with, as the conversation was told it. */
 Then(

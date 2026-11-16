@@ -149,6 +149,16 @@ export function failFixtureModelList(): void {
   writePicker({ launch: FIXTURE_MODELS.launch, fails: FIXTURE_LIST_FAILS });
 }
 
+/** THE FLOOR'S HARNESS LISTS ITS MODELS — `ids`, as a gateway answers with
+ *  dozens — while `--launch` says what it always does. Put back by the same
+ *  {@link restoreFixturePackage}. */
+export function listFixtureModels(ids: ReadonlyArray<string>): void {
+  writePicker({
+    launch: FIXTURE_MODELS.launch,
+    models: { kind: "listed", ids: [...ids] },
+  });
+}
+
 let memo: Record<string, string> | undefined;
 let relay: string | undefined;
 

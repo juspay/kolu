@@ -88,7 +88,7 @@ const WorkTimeline: Component<{
    *  or fold back to the part the card shows when folded. */
   const unfold = (): string => {
     if (shown().view.kind !== "whole")
-      return `whole timeline · ${props.work.events.length} events`;
+      return `whole timeline · ${shown().total} events`;
     const folded = shown().folded;
     return folded.kind === "stage"
       ? `only ${viewWord(folded)}`
@@ -227,7 +227,7 @@ const WorkTimeline: Component<{
       <Show
         when={
           shown().view.kind === "whole" ||
-          shown().indices.length < props.work.events.length
+          shown().indices.length < shown().total
         }
       >
         <button

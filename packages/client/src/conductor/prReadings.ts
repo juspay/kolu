@@ -97,6 +97,10 @@ export interface PrSection {
   readonly number: number;
   readonly state: "open" | "merged" | "closed";
   readonly checks: string;
+  /** The gates the last recorded check reading named red — none while the
+   *  live tally speaks, or when nothing failed. Drawn as {@link failingLine}
+   *  until the whole list is asked for. */
+  readonly failing: ReadonlyArray<string>;
   readonly merge: Option.Option<{
     readonly words: string;
     readonly reason: string;
@@ -109,32 +113,48 @@ const RECORDED_CHECKS: Record<CheckKind, string> = {
   "checks-failed": "Checks failed",
 };
 
+/** How many red gates the one line names before it counts the rest. */
+const FAILING_NAMED = 2;
+
+/** THE RED GATES IN ONE LINE: how many, the first few by name, and a count
+ *  of the rest — `7 failing: ci::nix, ci::unit, +5`. */
+export const failingLine = (names: ReadonlyArray<string>): string => {
+  const rest = names.length - FAILING_NAMED;
+  return `${names.length} failing: ${names.slice(0, FAILING_NAMED).join(", ")}${
+    rest > 0 ? `, +${rest}` : ""
+  }`;
+};
+
 export function prSection(
   work: Work,
   live: Option.Option<ChecksTally>,
 ): Option.Option<PrSection> {
-  return Option.map(prOf(work), (pr) => ({
-    number: pr.number,
-    state: pr.state,
-    checks: Option.match(live, {
-      onSome: checksBreakdown,
-      onNone: () =>
-        Option.match(pr.lastCheck, {
-          onNone: () => "No checks reported",
-          onSome: (last) =>
-            `${RECORDED_CHECKS[last.kind]}${
-              last.failing.length === 0 ? "" : ` · ${last.failing.join(", ")}`
-            }`,
-        }),
-    }),
-    merge:
-      pr.state !== "open"
-        ? Option.none()
-        : Option.some({
-            words: mergeWords(pr.merge),
-            reason: mergeReason(pr.merge),
+  return Option.map(prOf(work), (pr) => {
+    const last = Option.isSome(live) ? Option.none() : pr.lastCheck;
+    return {
+      number: pr.number,
+      state: pr.state,
+      checks: Option.match(live, {
+        onSome: checksBreakdown,
+        onNone: () =>
+          Option.match(last, {
+            onNone: () => "No checks reported",
+            onSome: (one) => RECORDED_CHECKS[one.kind],
           }),
-  }));
+      }),
+      failing: Option.match(last, {
+        onNone: () => [],
+        onSome: (one) => one.failing,
+      }),
+      merge:
+        pr.state !== "open"
+          ? Option.none()
+          : Option.some({
+              words: mergeWords(pr.merge),
+              reason: mergeReason(pr.merge),
+            }),
+    };
+  });
 }
 
 /** THE PR, LIVE — off whichever member terminal's record carries one. The

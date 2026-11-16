@@ -81,7 +81,7 @@ import {
   toggleCard,
   wantedCard,
 } from "./workListing";
-import { checksTally, livePrOf, prSection } from "./prReadings";
+import { checksTally, failingLine, livePrOf, prSection } from "./prReadings";
 import { timelineShown } from "./timelineView";
 import WorkStanding from "./WorkStanding";
 import {
@@ -249,10 +249,13 @@ const WorkCard: Component<{
    *  time it opens it follows the work again. */
   const [pressed, setPressed] = createSignal<StageName | undefined>();
   const [whole, setWhole] = createSignal(false);
+  /** Whether the PR's red gates are unfolded from their one line. */
+  const [allFailing, setAllFailing] = createSignal(false);
   createEffect(() => {
     if (isOpen()) return;
     setPressed(undefined);
     setWhole(false);
+    setAllFailing(false);
   });
   /** ... read ONCE per redraw, for the strip and the timeline both. */
   const view = createMemo(() =>
@@ -262,7 +265,9 @@ const WorkCard: Component<{
    *  shows, none while it is shut or the whole timeline is out. */
   const shownStage = (): StageName | undefined => {
     const shown = view().view;
-    return isOpen() && shown.kind === "stage" ? shown.stage : undefined;
+    return isOpen() && shown.kind === "stage" && shown.stage !== "setup"
+      ? shown.stage
+      : undefined;
   };
 
   return (
@@ -631,6 +636,23 @@ const WorkCard: Component<{
                 >
                   {pr().checks}
                 </p>
+                {/* THE RED GATES: one line, cut, with the count — the whole
+                    list in place on a click, and back. */}
+                <Show when={pr().failing.length > 0}>
+                  <button
+                    type="button"
+                    data-testid="work-pr-failing"
+                    aria-expanded={allFailing()}
+                    class={`m-0 block w-full cursor-pointer text-left text-[0.68rem] text-danger hover:underline ${
+                      allFailing() ? "whitespace-normal" : "truncate"
+                    }`}
+                    onClick={() => setAllFailing((was) => !was)}
+                  >
+                    {allFailing()
+                      ? pr().failing.join(", ")
+                      : failingLine(pr().failing)}
+                  </button>
+                </Show>
                 <Show when={Option.getOrUndefined(pr().merge)}>
                   {(merge) => (
                     <p

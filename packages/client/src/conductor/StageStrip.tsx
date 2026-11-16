@@ -23,7 +23,7 @@
  *  `<Index>`, because a cell's POSITION is its identity — the six stages
  *  never move — and the fold mints fresh objects every tick of the clock. */
 
-import { dualPhrase } from "@kolu/terminal-vocab/duration";
+import { compactPhrase, dualPhrase } from "@kolu/terminal-vocab/duration";
 import {
   STAGES,
   type Stage,
@@ -68,13 +68,14 @@ const WHOSE: Record<Waiter, string> = {
   ci: "CI's time",
 };
 
-/** The time a cell shows: how long it has taken, a dash for a stage that did
- *  not happen, nothing for one not reached yet. */
+/** The time a cell shows: how long it has taken, in ONE unit (`14h`, so
+ *  every cell is one line), a dash for a stage that did not happen, nothing
+ *  for one not reached yet. The exact time is {@link exactOf}. */
 const timeOf = (state: StageState): string => {
   switch (state.kind) {
     case "done":
     case "now":
-      return dualPhrase(state.ms);
+      return compactPhrase(state.ms);
     case "skipped":
       return "–";
     case "not-started":
@@ -83,6 +84,13 @@ const timeOf = (state: StageState): string => {
       return state satisfies never;
   }
 };
+
+/** The exact time a stage took (`14h 20m`), for the cell's title and what a
+ *  screen reader hears; none for a stage that had no time. */
+const exactOf = (state: StageState): string | undefined =>
+  state.kind === "done" || state.kind === "now"
+    ? dualPhrase(state.ms)
+    : undefined;
 
 /** Six quiet cells, for a work whose mode is not known yet. */
 const QUIET: ReadonlyArray<Stage> = STAGES.map((name) => ({
@@ -153,6 +161,7 @@ const StageStrip: Component<{
                     {STAGE_LABEL[stage().name]}
                   </small>
                   <b
+                    aria-hidden="true"
                     class={`block min-h-[1.3em] font-mono font-semibold leading-snug tabular-nums ${
                       full() ? "text-[0.66rem]" : "text-[0.6rem]"
                     } ${who() === undefined ? "text-fg-3" : "text-fg"}`}
@@ -160,6 +169,7 @@ const StageStrip: Component<{
                     {timeOf(state())}
                   </b>
                   <span class="sr-only">
+                    {exactOf(state()) ?? ""}
                     {(() => {
                       const whose = who();
                       return whose === undefined ? ", " : `, ${WHOSE[whose]}, `;
@@ -174,6 +184,12 @@ const StageStrip: Component<{
                   data-stage={stage().name}
                   data-state={state().kind}
                   data-who={who()}
+                  title={(() => {
+                    const exact = exactOf(state());
+                    return exact === undefined
+                      ? undefined
+                      : `${STAGE_LABEL[stage().name]} ${exact}`;
+                  })()}
                   data-shown={
                     props.index?.shown() === stage().name ? "" : undefined
                   }

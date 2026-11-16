@@ -7,7 +7,7 @@
  *  `events`, from the walk that files the time), and which stage the work is
  *  in is its `current` — never a rule of this face's. */
 
-import type { StageName, Stages, Work } from "kolu-work";
+import type { Filed, StageName, Stages, Work } from "kolu-work";
 
 /** How many of a watch's latest events its card shows: a watch has no
  *  stages to index its timeline by. */
@@ -21,17 +21,36 @@ export const WATCH_EVENTS_SHOWN = 5;
  *    its last {@link WATCH_EVENTS_SHOWN} events;
  *  - `whole` — all of it, once "whole timeline" is pressed. */
 export type TimelineView =
-  | { readonly kind: "stage"; readonly stage: StageName }
+  | { readonly kind: "stage"; readonly stage: Filed }
   | { readonly kind: "latest" }
   | { readonly kind: "whole" };
 
-/** The view shown, the events in it (their indices in the timeline), and
- *  the view the card folds back to from the whole one. */
+/** The view shown, the events in it (their indices in the timeline), the
+ *  view the card folds back to from the whole one, and how many rows the
+ *  whole one draws. */
 export interface TimelineShown {
   readonly view: TimelineView;
   readonly folded: Exclude<TimelineView, { readonly kind: "whole" }>;
   readonly indices: ReadonlyArray<number>;
+  readonly total: number;
 }
+
+/** WHETHER AN EVENT SAYS AGAIN WHAT THE ONE BEFORE IT SAID: a work ending as
+ *  merged (or closed) right after the forge merged (or closed) that PR. The
+ *  timeline draws one row for the two — the forge's, which comes first. */
+const repeats = (work: Work, index: number): boolean => {
+  const one = work.events[index];
+  const before = work.events[index - 1];
+  if (one?.kind !== "ended" || before === undefined) return false;
+  switch (one.outcome.kind) {
+    case "merged":
+      return before.kind === "merged" && before.pr === one.outcome.pr;
+    case "closed":
+      return before.kind === "pr-closed" && before.pr === one.outcome.pr;
+    case "stopped":
+      return false;
+  }
+};
 
 export function timelineShown(
   work: Work,
@@ -39,19 +58,28 @@ export function timelineShown(
   pressed: StageName | undefined,
   whole: boolean,
 ): TimelineShown {
-  const all = work.events.map((_, index) => index);
+  const all = work.events
+    .map((_, index) => index)
+    .filter((index) => !repeats(work, index));
+  const total = all.length;
   if (stages.kind !== "staged") {
     const folded = { kind: "latest" } as const;
     return whole
-      ? { view: { kind: "whole" }, folded, indices: all }
-      : { view: folded, folded, indices: all.slice(-WATCH_EVENTS_SHOWN) };
+      ? { view: { kind: "whole" }, folded, indices: all, total }
+      : {
+          view: folded,
+          folded,
+          indices: all.slice(-WATCH_EVENTS_SHOWN),
+          total,
+        };
   }
   const folded = { kind: "stage", stage: pressed ?? stages.current } as const;
   return whole
-    ? { view: { kind: "whole" }, folded, indices: all }
+    ? { view: { kind: "whole" }, folded, indices: all, total }
     : {
         view: folded,
         folded,
         indices: all.filter((index) => stages.events[index] === folded.stage),
+        total,
       };
 }

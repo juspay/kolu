@@ -47,7 +47,11 @@ const WorkFiles: Component<{
         fallback={
           <p class="m-0 mt-1 font-mono text-[0.62rem] text-fg-3">
             {files.error() === undefined
-              ? "Nothing written yet."
+              ? // A kept list is final: "yet" is only true of a work in
+                // progress.
+                props.kept
+                ? "Nothing was written."
+                : "Nothing written yet."
               : `Could not read the worktree — ${files.error()?.message}`}
           </p>
         }

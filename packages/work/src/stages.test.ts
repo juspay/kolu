@@ -28,6 +28,7 @@ import {
   type Policy,
   recordEvent,
   reopenWork,
+  type Filed,
   type Stage,
   type StageName,
   stageMs,
@@ -35,7 +36,7 @@ import {
   timeSpent,
   took,
   type Work,
-  CHECKS_PER_COMMIT,
+  PR_FACTS_PER_COMMIT,
   MODE_RUNS,
 } from "./index.ts";
 
@@ -180,15 +181,16 @@ const cells = (work: Work, policy: Policy, now: string): string =>
     })
     .join(", ");
 
-/** THE TIME AFTER EACH EVENT, put in the stage that event was filed under —
- *  measured from the events alone, as {@link lifeOf} measures the life, so
- *  it holds only if each event and the stretch it begins share a stage. */
+/** THE TIME AFTER EACH EVENT, put where that event was filed — measured from
+ *  the events alone, as {@link lifeOf} measures the life, so it holds only if
+ *  each event and the stretch it begins are filed in one place. */
 const timeByEventStage = (
   work: Work,
-  filed: ReadonlyArray<StageName>,
+  filed: ReadonlyArray<Filed>,
   now: string,
-): Record<StageName, number> => {
-  const sums: Record<StageName, number> = {
+): Record<Filed, number> => {
+  const sums: Record<Filed, number> = {
+    setup: 0,
     plan: 0,
     approve: 0,
     build: 0,
@@ -361,19 +363,11 @@ describe("on chaotic records", () => {
     const life = lifeOf(work, now);
     const all = strip(work, policy, now);
     const spent = timeSpent(work, policy, now);
-    expect(lifetime(work, now), `seed ${seed}: lifetime`).toBe(life);
-    expect(total(all), `seed ${seed}: stages`).toBe(life);
-    expect(spent.agent + spent.you + spent.ci, `seed ${seed}: spent`).toBe(
-      life,
-    );
-    expect(all.filter((one) => one.state.kind === "now").length).toBe(
-      work.state.kind === "open" ? 1 : 0,
-    );
-    // EVERY EVENT IS FILED where the time after it went: one stage per
+    const read = waterfall(work, policy, now);
+    // EVERY EVENT IS FILED where the time after it went: one place per
     // event, and each stage holds exactly the time after its events (the
     // record opens with an event at its start, so there is no time before
-    // the first). An open work's last event is in the stage it is in now.
-    const read = waterfall(work, policy, now);
+    // the first). An open work's last event is where it is now.
     expect(read.events, `seed ${seed}: one per event`).toHaveLength(
       work.events.length,
     );
@@ -382,8 +376,20 @@ describe("on chaotic records", () => {
       expect(filed[one.name], `seed ${seed}: ${one.name}`).toBe(
         stageMs(one.state),
       );
-    // ONE answer to "where is it now": the strip's outlined cell is the
-    // stage the fold says it is in.
+    // ... so the stages and the setup add up to the life, and the setup is
+    // only ever a mode's with no Plan to hold it.
+    expect(lifetime(work, now), `seed ${seed}: lifetime`).toBe(life);
+    expect(total(all) + filed.setup, `seed ${seed}: stages`).toBe(life);
+    if (policy.run.kind === "set" && policy.run.stages.includes("plan"))
+      expect(filed.setup, `seed ${seed}: setup`).toBe(0);
+    expect(spent.agent + spent.you + spent.ci, `seed ${seed}: spent`).toBe(
+      life,
+    );
+    expect(all.filter((one) => one.state.kind === "now").length).toBe(
+      work.state.kind === "open" && read.current !== "setup" ? 1 : 0,
+    );
+    // ONE answer to "where is it now": the strip's outlined cell is where
+    // the fold says it is.
     const current = read.stages.find((one) => one.state.kind === "now");
     if (current !== undefined)
       expect(read.current, `seed ${seed}: current`).toBe(current.name);
@@ -683,6 +689,21 @@ describe("the shapes of real works", () => {
     });
   });
 
+  it("a trivial work's setup form, which no stage holds", () => {
+    // A trivial work has no Plan, and answering its setup is not building:
+    // the five minutes are yours (time spent) but in no cell.
+    const asking = ask(opened(), "setup", 0);
+    expect(cells(asking, TRIVIAL, at(5))).toBe(
+      "plan –, approve –, build ·, review –, checks ·, merge ·",
+    );
+    expect(waterfall(asking, TRIVIAL, at(5)).current).toBe("setup");
+    let work = answer(asking, "setup", 5);
+    work = join(work, "implementor", 5);
+    const named = byName(strip(work, TRIVIAL, at(20)));
+    expect(named.build).toEqual({ kind: "now", ms: 15 * MINUTE, who: "agent" });
+    expect(timeSpent(work, TRIVIAL, at(20)).you).toBe(5 * MINUTE);
+  });
+
   it("a work stopped after the plan, before any implementor", () => {
     let work = join(opened(), "planner", 0);
     work = ask(work, "approve", 30);
@@ -805,7 +826,7 @@ describe("green is the forge saying it can merge", () => {
     expect(answers()).toBe(3);
   });
 
-  it("keeps at most a bounded number of check results for one commit", () => {
+  it("keeps at most a bounded number of check results for one commit, never losing the newest", () => {
     let work = join(opened(), "implementor", 0);
     work = prOpened(work, 10);
     // Two suites out of phase: the word flips on every poll.
@@ -818,10 +839,51 @@ describe("green is the forge saying it can merge", () => {
     const kept = work.events.filter(
       (one) => one.kind === "checks-running" || one.kind === "checks-passed",
     );
-    expect(kept).toHaveLength(CHECKS_PER_COMMIT);
-    // ... and the word it ended on is the one the work reads.
+    expect(kept).toHaveLength(PR_FACTS_PER_COMMIT);
+    // The first says when the checks began; the newest is the word it reads.
+    expect(kept.at(0)?.at).toBe(at(11));
+    expect(kept.at(-1)?.at).toBe(at(50));
     expect(kept.at(-1)?.kind).toBe("checks-passed");
     expect(byName(strip(work, FULL, at(60))).checks.kind).not.toBe("now");
+  });
+
+  it("keeps a hand-over's time when a ninth check result arrives", () => {
+    // Eight flips ending green, GitHub says it can merge, and the PR waits on
+    // you for half an hour — then a re-run reports. The green the wait was
+    // filed under must still be on the record.
+    let work = join(opened(), "implementor", 0);
+    work = prOpened(work, 10);
+    for (let poll = 0; poll < PR_FACTS_PER_COMMIT; poll += 1)
+      work = check(
+        work,
+        poll % 2 === 0 ? "checks-running" : "checks-passed",
+        11 + poll,
+      );
+    work = mergeState(work, { kind: "can" }, 20);
+    work = check(work, "checks-running", 50);
+    const cells = byName(strip(work, FULL, at(55)));
+    expect(cells.merge).toEqual({ kind: "done", ms: 30 * 60_000, who: "you" });
+    expect(cells.checks.kind).toBe("now");
+    expect(
+      work.events.filter((one) => one.kind === "checks-passed").at(-1)?.at,
+    ).toBe(at(18));
+  });
+
+  it("keeps at most a bounded number of merge answers for one commit, never losing the newest", () => {
+    // The base moves for days: GitHub works it out again, then can again.
+    let work = join(opened(), "implementor", 0);
+    work = prOpened(work, 10);
+    work = check(work, "checks-passed", 11);
+    for (let move = 0; move < 30; move += 1)
+      work = mergeState(
+        work,
+        move % 2 === 0 ? { kind: "can" } : { kind: "unsettled" },
+        12 + move,
+      );
+    const answers = work.events.filter((one) => one.kind === "merge-state");
+    expect(answers).toHaveLength(PR_FACTS_PER_COMMIT);
+    expect(answers.at(0)?.at).toBe(at(12));
+    expect(answers.at(-1)?.at).toBe(at(41));
   });
 });
 
