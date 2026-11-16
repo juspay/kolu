@@ -72,3 +72,22 @@ export function resolveGitDir(cwd: string): Promise<string | null> {
 export function resolveGitCommonDir(cwd: string): Promise<string | null> {
   return revParseDir(cwd, "--git-common-dir");
 }
+
+/** Whether `cwd` is inside a working tree, by git's own answer to `git
+ *  rev-parse --is-inside-work-tree`: `false` for a bare repo's folder (and
+ *  anything under it that is not itself a worktree), `true` inside a checkout.
+ *  Null when git cannot answer — `cwd` is not a repo, git refuses it, git is
+ *  missing, or the bounded call is killed — the same "could not resolve"
+ *  meaning `revParseDir` gives null. */
+export async function isInsideWorkTree(cwd: string): Promise<boolean | null> {
+  try {
+    const { stdout } = await execFileAsync(
+      "git",
+      ["rev-parse", "--is-inside-work-tree"],
+      { cwd, encoding: "utf-8", timeout: GIT_QUERY_TIMEOUT_MS },
+    );
+    return stdout.trim() === "true";
+  } catch {
+    return null;
+  }
+}
