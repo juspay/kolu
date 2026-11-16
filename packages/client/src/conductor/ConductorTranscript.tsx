@@ -134,13 +134,24 @@ const ConductorTranscript: Component<{
     return `${rows.length}:${last === undefined || last.kind === "plan" ? 0 : last.text.length}`;
   });
 
+  /** How many times a row's prose was redrawn with its text unchanged — a
+   *  diagram landing, which changes the row's height but adds nothing new.
+   *  Its own dep of the follow effect below, and deliberately NOT part of
+   *  `signature`: the pill's "something new down there" ring compares
+   *  `signature`, and a diagram replacing its own source is not new. Opening
+   *  a folded list never bumps it (`ConductorProse` calls `onRedrawn` only
+   *  for a rewrite), so a press does not start re-pinning the view. */
+  const [redraws, setRedraws] = createSignal(0);
+  const noteRedrawn = () => setRedraws((n) => n + 1);
+
   const shown = useShown();
   createEffect(
     // `on`, so the body's reads of the ELEMENT are not dependencies and the
-    // deps are exactly these three: what was drawn, whether the reader is
-    // following, and whether the conversation is the view being read. The pin
-    // is a dep because the pill and a sent message re-pin with no row
-    // arriving, and the view must move then too.
+    // deps are exactly these four: what was drawn, a row redrawn in place,
+    // whether the reader is following, and whether the conversation is the
+    // view being read. The pin is a dep because the pill and a sent message
+    // re-pin with no row arriving, and the view must move then too; a redraw
+    // is one because a diagram landing grows its row with no text arriving.
     //
     // SHOWN is a dep rather than a guard that returns early for a reason: a
     // hidden pane has no layout at all (`content-visibility: hidden` skips the
@@ -150,8 +161,8 @@ const ConductorTranscript: Component<{
     // remembered offset alone, and coming back re-runs this with the column
     // laid out again.
     on(
-      [signature, transcriptPinned, shown],
-      ([drawn, pinned, visible], prev) => {
+      [signature, redraws, transcriptPinned, shown],
+      ([drawn, , pinned, visible], prev) => {
         if (!visible) return;
         if (!placed) {
           applyTranscriptScroll(scroller);
@@ -251,7 +262,11 @@ const ConductorTranscript: Component<{
               </Match>
               <Match when={entryOf(item())}>
                 {(entry) => (
-                  <TranscriptRow row={entry().row} repeat={entry().repeat} />
+                  <TranscriptRow
+                    row={entry().row}
+                    repeat={entry().repeat}
+                    onRedrawn={noteRedrawn}
+                  />
                 )}
               </Match>
             </Switch>
@@ -340,7 +355,13 @@ function TranscriptFailures(props: {
   );
 }
 
-function TranscriptRow(props: { row: ConductorRow; repeat: number }) {
+/** One row. `onRedrawn` reaches the agent row's prose (see `redraws` in the
+ *  transcript); a row inside a tool fold is never prose, so those omit it. */
+function TranscriptRow(props: {
+  row: ConductorRow;
+  repeat: number;
+  onRedrawn?: () => void;
+}) {
   return (
     <div
       data-testid="conductor-row"
@@ -369,7 +390,11 @@ function TranscriptRow(props: { row: ConductorRow; repeat: number }) {
         <Match when={props.row.kind === "agent" && props.row}>
           {(row) => (
             <div class="text-fg">
-              <ConductorProse rowId={row().id} text={row().text} />
+              <ConductorProse
+                rowId={row().id}
+                text={row().text}
+                onRedrawn={props.onRedrawn}
+              />
             </div>
           )}
         </Match>

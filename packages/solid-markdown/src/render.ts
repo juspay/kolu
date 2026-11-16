@@ -4,10 +4,12 @@
  *  inline HTML through verbatim, so `<details>`, `<kbd>`, `<img>`, alignment
  *  wrappers and friends survive to the sanitizer.
  *
- *  What this renderer does NOT support — math/LaTeX, mermaid, emoji
- *  shortcodes, @mentions, #issue/SHA autolinks, and the non-GitHub ecosystem
- *  syntaxes — is catalogued in ../LIMITATIONS.md. Keep it in sync when adding
- *  or dropping a feature here.
+ *  What this renderer does NOT support — math/LaTeX, emoji shortcodes,
+ *  @mentions, #issue/SHA autolinks, and the non-GitHub ecosystem syntaxes — is
+ *  catalogued in ../LIMITATIONS.md. Keep it in sync when adding or dropping a
+ *  feature here. A ` ```mermaid ` fence still renders here as a plain code
+ *  block; `mermaidSources` lists the finished ones so the component can have
+ *  them drawn (./diagram) and the sanitizer can swap the drawing in.
  *
  *  Link *and* image policy are deliberately *not* applied here. This layer is
  *  purely structural: it emits the default `<a href=…>` / `<img src=…>` tags,
@@ -24,7 +26,7 @@
  *  absent. */
 
 import { escapeHtml } from "@kolu/html-escape";
-import { Marked } from "marked";
+import { Marked, type Tokens } from "marked";
 import markedAlert from "marked-alert";
 import markedFootnote from "marked-footnote";
 import { gfmHeadingId } from "marked-gfm-heading-id";
@@ -138,9 +140,21 @@ function useWikilinkExtension(inst: Marked): void {
   });
 }
 
+/** The fence language a code block is labelled with: the first word of its
+ *  info string, or "" when unlabelled. Shared by the renderer (which stamps it
+ *  on `data-lang`) and `mermaidSources`, so both agree on what a mermaid block
+ *  is. */
+function fenceLang(token: Tokens.Code): string {
+  return (token.lang ?? "").trim().split(/\s+/)[0] ?? "";
+}
+
+/** The fence language that draws as a diagram. */
+export const DIAGRAM_LANG = "mermaid";
+
 // The per-slot renderer override — the only thing the parser config varies on.
 // Just the code fence today: carry the fence language on `data-lang` so the
-// sanitize pass can find + syntax-highlight the block (see ./highlight).
+// sanitize pass can find + syntax-highlight the block (see ./highlight), or
+// swap a drawn diagram in for it (see ./diagram).
 function useCodeFenceRenderer(inst: Marked): void {
   inst.use({
     renderer: {
@@ -148,7 +162,7 @@ function useCodeFenceRenderer(inst: Marked): void {
         // The sanitizer allowlists `data-lang` but strips `class`, so this is
         // what survives to drive highlighting. The body is escaped here;
         // highlighting replaces it with trusted markup downstream.
-        const lang = (token.lang ?? "").trim().split(/\s+/)[0] ?? "";
+        const lang = fenceLang(token);
         const attr = lang ? ` data-lang="${escapeHtml(lang)}"` : "";
         return `<pre><code${attr}>${escapeHtml(token.text)}</code></pre>\n`;
       },
@@ -387,4 +401,58 @@ export function renderMarkdownToRawHtml(
   const meta =
     (opts.frontMatter ?? true) && yaml !== null ? renderFrontMatter(yaml) : "";
   return meta + rewriteFootnotes(rewriteAlerts(inst.parse(body) as string));
+}
+
+// A fence line: up to three spaces of indent, then a run of three or more
+// backticks or tildes. The closer allows only trailing spaces/tabs after it.
+const FENCE_OPENER_RE = /^ {0,3}(`{3,}|~{3,})/;
+const FENCE_CLOSER_RE = /^ {0,3}(`{3,}|~{3,})[ \t]*$/;
+
+/** Whether a fenced code token's closing fence has arrived. Its `text` cannot
+ *  tell: an unclosed fence at the end of the input is still a `code` token,
+ *  and one character before the closer completes its text equals the finished
+ *  text. Its `raw` can: a finished block's last line is a closing fence — the
+ *  same character as the opener, at least as many of them, nothing else. */
+function isFinishedFence(token: Tokens.Code): boolean {
+  const lines = token.raw.replace(/\n+$/, "").split("\n");
+  if (lines.length < 2) return false;
+  const opener = FENCE_OPENER_RE.exec(lines[0] ?? "")?.[1];
+  const closer = FENCE_CLOSER_RE.exec(lines[lines.length - 1] ?? "")?.[1];
+  return (
+    opener !== undefined &&
+    closer !== undefined &&
+    closer[0] === opener[0] &&
+    closer.length >= opener.length
+  );
+}
+
+/** The text of every FINISHED ` ```mermaid ` block in the document, in order —
+ *  the ones the component asks to have drawn. A block whose closing fence has
+ *  not arrived (a chat answer still streaming, an intent being typed, a file
+ *  still being written) is not listed, so it stays an ordinary code block and
+ *  never reaches mermaid. Each entry equals the `textContent` the sanitizer
+ *  reads from that block's `<code>`, which is how a drawing finds its block.
+ *
+ *  Lexed with the package's own parser (front-matter split off, as the render
+ *  does), walking into lists and quotes. Block structure does not depend on
+ *  the `breaks` / `rawHtml` switches the instances differ by, so one instance
+ *  serves every variant. */
+export function mermaidSources(markdown: string): string[] {
+  const inst = instance(false, true);
+  // The extensions' own token walk runs too, exactly as `parse` runs it:
+  // `marked-footnote` resets its per-document state there, and a lex without
+  // that reset would break footnotes in the next render on this instance.
+  const extensionWalk = inst.defaults.walkTokens;
+  const sources: string[] = [];
+  inst.walkTokens(inst.lexer(splitFrontMatter(markdown).body), (token) => {
+    extensionWalk?.call(inst, token);
+    if (
+      token.type === "code" &&
+      fenceLang(token as Tokens.Code) === DIAGRAM_LANG &&
+      isFinishedFence(token as Tokens.Code)
+    ) {
+      sources.push((token as Tokens.Code).text);
+    }
+  });
+  return sources;
 }

@@ -22,10 +22,10 @@
  *  WHY A DOM PASS AND NOT JSX. The prose arrives as one sanitized HTML string
  *  through the package's `innerHTML`: there is no Solid component per list to
  *  hang a button off. So this is a pass over the rendered DOM, re-run by its
- *  caller's effect. It is idempotent — called again it re-derives the same
- *  state and, when nothing changed, writes nothing — and it REUSES the control
- *  element it already made, so opening the list with the keyboard does not
- *  throw away the focus that pressed it.
+ *  caller after every rewrite of that DOM. It is idempotent — called again it
+ *  re-derives the same state and, when nothing changed, writes nothing — and
+ *  it REUSES the control element it already made, so opening the list with
+ *  the keyboard does not throw away the focus that pressed it.
  *
  *  NESTED LISTS: only a top-level list folds, and only its own direct items
  *  count. A list inside an `<li>` is part of its item's text — folding it
@@ -61,9 +61,12 @@ const [opened, setOpened] = createStore<Record<string, true | undefined>>({});
 
 /** Fold every over-long top-level list in `host`'s rendered prose.
  *
- *  Call this from a reactive effect that also reads the prose text: the read
- *  of `opened[key]` below is tracked, so pressing a control re-runs the effect
- *  and this pass repaints the one list that changed. */
+ *  Call this from a reactive effect that re-runs after every rewrite of the
+ *  prose's DOM (`<Markdown onRendered>` — a new chunk OR a diagram landing in
+ *  unchanged text): a rewrite discards the fold, and may bring lists the last
+ *  run never saw. The read of `opened[key]` below is tracked, so pressing a
+ *  control re-runs the effect and this pass repaints the one list that
+ *  changed. */
 export function applyProseListFold(host: HTMLElement, rowId: string): void {
   topLevelLists(host).forEach((list, index) => {
     const items = directItems(list);

@@ -15,8 +15,8 @@
  *      — alignment wrappers (`<p align>`), `<details>`/`<summary>`, `<kbd>`,
  *      `<sub>`/`<sup>`, task-list `<input>`s, images;
  *    - the *intent* surfaces (compact / inline chat slots) get a stricter scope
- *      with no raw block HTML and no images, since those are clickable UI rows,
- *      not documents.
+ *      with no raw block HTML and no authored images, since those are
+ *      clickable UI rows, not documents.
  *
  *  Sanitizing to a detached DOM (rather than a string) lets us run a few small
  *  passes on the *result*, where markdown-rendered and inline HTML have
@@ -26,9 +26,17 @@
  *      href for in-app interception, else force an external link to
  *      `target="_blank" rel="noopener noreferrer"`;
  *    - swap any image whose src can't load here (a repo-relative README image)
- *      for a labelled fallback chip instead of a broken-image icon. */
+ *      for a labelled fallback chip instead of a broken-image icon;
+ *    - swap a drawn ` ```mermaid ` block for its diagram (both scopes). The
+ *      `<figure>` and its two `<img>`s are minted here, after DOMPurify, like
+ *      the copy button — so the intent scope still admits no image an author
+ *      wrote. The diagram's SVG reaches the DOM only as a `data:` image URL,
+ *      never as markup: browsers run no script and apply no style from an
+ *      `<img>`. */
 
 import DOMPurify from "dompurify";
+import type { Diagram } from "./diagram";
+import { DIAGRAM_LANG } from "./render";
 import { hasOwnScheme, isLoadableImage, safeHref } from "./url-policy";
 
 /** Per-slot policy for the sanitize pass — mirrors the renderer's
@@ -51,6 +59,11 @@ export type SanitizeOptions = {
    *  output of escaped code text) or `undefined` to leave the block plain.
    *  Wired only for the document preview, once the highlighter is warm. */
   highlightCode?: (code: string, lang: string) => string | undefined;
+  /** The drawn diagram for a ` ```mermaid ` block's source text, or
+   *  `undefined` while it has none (unfinished, not asked yet, still drawing),
+   *  in which case the block renders exactly as any code block. Honoured in
+   *  both scopes. */
+  diagram?: (source: string) => Diagram | undefined;
 };
 
 // The README inline-HTML subset, plus the tags `marked` emits for GFM. No
@@ -206,7 +219,10 @@ const DOCUMENT_ATTR = [
   "data-md-footnote",
   "data-md-footnote-backref",
 ];
-const INTENT_ATTR = ["href", "title"];
+// `data-lang` marks a fenced block's language, which is how a mermaid block is
+// recognised. Safe here: this scope escapes raw HTML at parse time, so only the
+// parser's own fence renderer can produce the attribute.
+const INTENT_ATTR = ["href", "title", "data-lang"];
 
 function configFor(opts: SanitizeOptions) {
   // An explicit `ALLOWED_TAGS`/`ALLOWED_ATTR` *array* replaces DOMPurify's
@@ -328,7 +344,7 @@ function highlightInto(
  *  `.kolu-md-code` container and append a copy button. The button + wrapper are
  *  elements we mint here, not from the document, so they need no allowlist
  *  entry. */
-function wrapWithCopyButton(block: Element): void {
+function wrapWithCopyButton(block: Element): Element {
   const wrap = document.createElement("div");
   wrap.className = "kolu-md-code";
   block.replaceWith(wrap);
@@ -340,17 +356,44 @@ function wrapWithCopyButton(block: Element): void {
   button.setAttribute("data-md-copy", "");
   button.setAttribute("aria-label", "Copy code");
   wrap.appendChild(button);
+  return wrap;
 }
 
 /** Highlight (when a highlighter is supplied) and decorate a fenced code
  *  block: replace the plain `<pre>` with Shiki's themed markup, then wrap it in
- *  a `.kolu-md-code` container carrying a copy button. */
+ *  a `.kolu-md-code` container carrying a copy button. Returns the element now
+ *  standing where the `<pre>` was. */
 function enhanceCodeBlock(
   pre: Element,
   highlight?: (code: string, lang: string) => string | undefined,
-): void {
-  if (!pre.querySelector(":scope > code")) return;
-  wrapWithCopyButton(highlightInto(pre, highlight));
+): Element {
+  if (!pre.querySelector(":scope > code")) return pre;
+  return wrapWithCopyButton(highlightInto(pre, highlight));
+}
+
+/** The drawn diagram, as the sanitizer's own elements: a `<figure>` holding
+ *  the light and the dark image (the stylesheet shows one by the app's
+ *  `.dark` class). Each image states its size so a re-render of the
+ *  surrounding text — a chat message rewrites its DOM on every piece — never
+ *  collapses the row, and decodes synchronously so the re-created image
+ *  paints in the same frame. */
+function diagramFigure(diagram: Extract<Diagram, { ok: true }>): Element {
+  const figure = document.createElement("figure");
+  figure.setAttribute("data-md-diagram", "");
+  for (const [scheme, image] of [
+    ["light", diagram.light],
+    ["dark", diagram.dark],
+  ] as const) {
+    const img = document.createElement("img");
+    img.setAttribute("data-md-scheme", scheme);
+    img.setAttribute("src", image.src);
+    img.setAttribute("width", String(image.width));
+    img.setAttribute("height", String(image.height));
+    img.setAttribute("alt", "Mermaid diagram");
+    img.setAttribute("decoding", "sync");
+    figure.appendChild(img);
+  }
+  return figure;
 }
 
 /** Sanitize `marked`-produced HTML into DOM-safe markup under the given
@@ -382,11 +425,28 @@ export function sanitizeHtml(rawHtml: string, opts: SanitizeOptions): string {
     }
   }
 
-  // Code blocks: syntax-highlight (when a highlighter is supplied) and wrap
-  // each in a copy-button affordance. Only for the document scope.
-  if (opts.richHtml) {
-    for (const pre of Array.from(root.querySelectorAll("pre"))) {
-      enhanceCodeBlock(pre, opts.highlightCode);
+  // Code blocks. A drawn mermaid block becomes its diagram; an undrawable one
+  // keeps its source and gains the reason below it (both scopes). Otherwise,
+  // in the document scope only, syntax-highlight (when a highlighter is
+  // supplied) and wrap each in a copy-button affordance.
+  for (const pre of Array.from(root.querySelectorAll("pre"))) {
+    const code = pre.querySelector(":scope > code");
+    const diagram =
+      code?.getAttribute("data-lang") === DIAGRAM_LANG
+        ? opts.diagram?.(code.textContent ?? "")
+        : undefined;
+    if (diagram?.ok) {
+      pre.replaceWith(diagramFigure(diagram));
+      continue;
+    }
+    const block = opts.richHtml
+      ? enhanceCodeBlock(pre, opts.highlightCode)
+      : pre;
+    if (diagram) {
+      const error = document.createElement("p");
+      error.setAttribute("data-md-diagram-error", "");
+      error.textContent = diagram.message;
+      block.after(error);
     }
   }
 

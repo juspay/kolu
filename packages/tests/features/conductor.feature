@@ -492,3 +492,20 @@ Feature: The Conductor
     Then the conductor transcript should be scrolled to the bottom
     And the conductor should not offer the way back to the bottom
     And there should be no page errors
+
+  Scenario: A mermaid block in an answer draws once it is complete
+    # The fixture streams a six-item list, then a mermaid block over several
+    # pieces (the closing fence on its own), then words for a few seconds more.
+    # The block is code while it grows and a diagram once its fence closes; the
+    # diagram landing rewrites the row with its text unchanged, which must
+    # neither unfold the list above it nor leave the end of the conversation
+    # below the fold.
+    When I create a terminal
+    And I enter conductor mode
+    And I send the conductor the prompt "draw a diagram"
+    Then the conductor transcript should show a row of kind "agent" saying "it stay put."
+    And the conductor agent row saying "after the diagram" should show a painted diagram
+    And the conductor agent row saying "after the diagram" should show no diagram error
+    And the conductor agent row saying "after the diagram" should still fold its long list
+    And the conductor transcript should be scrolled to the bottom
+    And there should be no page errors

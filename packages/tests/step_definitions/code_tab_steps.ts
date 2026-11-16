@@ -2,6 +2,7 @@ import { readFile } from "node:fs/promises";
 import { Given, Then, When } from "@cucumber/cucumber";
 import type { Locator } from "playwright";
 import { waitForBufferContains } from "../support/buffer.ts";
+import { waitForPaintedDiagram } from "../support/diagram.ts";
 import { nudgeDir, nudgeFiles } from "../support/nudge.ts";
 import { pollFor } from "../support/poll.ts";
 import {
@@ -1350,6 +1351,20 @@ Then(
       .locator('[data-testid="browse-preview-markdown"] pre.shiki')
       .first()
       .waitFor({ state: "visible", timeout: HYDRATION_TIMEOUT });
+  },
+);
+
+// A drawn ` ```mermaid ` block is an <img> whose source is the SVG the
+// sandboxed renderer produced. Its DOM says nothing about whether that SVG is
+// a valid picture — only the browser decoding it does, so this waits for the
+// shown image's natural width.
+Then(
+  "the markdown preview should show a painted diagram",
+  async function (this: KoluWorld) {
+    await waitForPaintedDiagram(
+      this.page.locator('[data-testid="browse-preview-markdown"]'),
+      "the markdown preview",
+    );
   },
 );
 

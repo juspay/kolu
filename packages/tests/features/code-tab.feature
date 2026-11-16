@@ -980,6 +980,37 @@ Feature: Code tab (review + browse)
     And the markdown preview should render a "input[type=checkbox][disabled]" element
     And the markdown preview should not render a "input[data-md-task]" element
 
+  # ── Rendered Markdown: mermaid diagrams ──
+  # A finished ```mermaid fence is drawn in a sandboxed frame and shown as an
+  # image — never as SVG markup in the page. The painted-image step is the one
+  # check jsdom cannot make: that the browser decoded the drawing.
+
+  Scenario: Markdown preview draws a mermaid block as a diagram
+    When I run "rm -rf /tmp/kolu-md-mermaid && git init /tmp/kolu-md-mermaid && cd /tmp/kolu-md-mermaid"
+    And I run "printf '# Diagram Doc\n\n```mermaid\nflowchart TD\n  A[Start] --> B[Finish]\n```\n' > README.md"
+    And I run "git add . && git commit -m init"
+    And I click the Code tab
+    And I click the Code tab mode "browse"
+    When I click the file "README.md" in the file browser
+    Then the markdown preview should be visible
+    And the markdown preview should contain "Diagram Doc"
+    And the markdown preview should show a painted diagram
+    And the markdown preview should not contain "flowchart TD"
+    And the markdown preview should not render a "svg" element
+    And there should be no page errors
+
+  Scenario: A mermaid block that cannot be drawn says why and keeps its source
+    When I run "rm -rf /tmp/kolu-md-mermaid-bad && git init /tmp/kolu-md-mermaid-bad && cd /tmp/kolu-md-mermaid-bad"
+    And I run "printf '# Broken Diagram\n\n```mermaid\nflowchart TD\n  A[unclosed --> B\n```\n' > README.md"
+    And I run "git add . && git commit -m init"
+    And I click the Code tab
+    And I click the Code tab mode "browse"
+    When I click the file "README.md" in the file browser
+    Then the markdown preview should be visible
+    And the markdown preview should contain "Parse error"
+    And the markdown preview should contain "A[unclosed --> B"
+    And the markdown preview should not render a "figure[data-md-diagram]" element
+
   Scenario: Markdown source toggle reveals the raw markdown
     When I run "rm -rf /tmp/kolu-md-src && git init /tmp/kolu-md-src && cd /tmp/kolu-md-src"
     And I run "printf '# Heading One\n\nbody text\n' > notes.md"

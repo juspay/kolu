@@ -13,24 +13,48 @@
  *
  *  `variant` selects the parse mode + the styling scale:
  *    - "inline"   — inline-only parse, no block wrapper (annotation slots).
- *    - "compact"  — block parse at chat/dock scale (kolu's intent body).
+ *      A one-line parse cannot hold a code block, so it never draws diagrams.
+ *    - "compact"  — block parse at chat/dock scale (kolu's intent body, the
+ *      Conductor's messages). Draws finished ` ```mermaid ` blocks.
  *    - "document" — full-pane preview: GitHub-faithful soft breaks, Shiki code
- *      highlighting + copy buttons, and read-only (presentational) task-list
- *      checkboxes. The preview never writes back to the file. */
+ *      highlighting + copy buttons, read-only (presentational) task-list
+ *      checkboxes, and finished ` ```mermaid ` blocks drawn as diagrams. The
+ *      preview never writes back to the file.
+ *
+ *  Diagrams are drawn in a sandboxed frame (./diagram-frame) and shown as
+ *  images; a block counts only once its closing fence has arrived
+ *  (`mermaidSources`), so text that is still streaming in shows it as code
+ *  and never as an error. */
 
 import {
   type Component,
+  createEffect,
   createMemo,
   createResource,
   onCleanup,
+  untrack,
 } from "solid-js";
 import { Dynamic } from "solid-js/web";
+import { type Diagram, diagrams as diagramCache } from "./diagram";
 import { highlightCode, loadHighlighter } from "./highlight";
 import { decorateInlineCode, type InlineCodeAction } from "./inlineCode";
-import { renderMarkdownToRawHtml } from "./render";
+import {
+  DIAGRAM_LANG,
+  mermaidSources,
+  renderMarkdownToRawHtml,
+} from "./render";
 import { sanitizeHtml } from "./sanitize";
 
 export type MarkdownVariant = "inline" | "compact" | "document";
+
+const NO_SOURCES: readonly string[] = [];
+
+/** Two diagram source lists are the same when they hold the same texts in the
+ *  same order — what keeps the diagram resource from re-asking on every
+ *  streamed piece. */
+function sameSources(a: readonly string[], b: readonly string[]): boolean {
+  return a.length === b.length && a.every((source, i) => source === b[i]);
+}
 
 /** Copy a code block's text to the clipboard and flash the button. */
 function copyCodeBlock(button: HTMLElement): void {
@@ -242,6 +266,13 @@ export const Markdown: Component<{
     readonly action: (text: string) => InlineCodeAction | undefined;
     readonly onPress: (text: string, anchor: HTMLElement) => void;
   };
+  /** Called with the container after EVERY write of rendered HTML into it —
+   *  the first paint, a text change, and a re-render with the same text (a
+   *  diagram landing, the highlighter warming up). This is where a host
+   *  re-applies its own passes over the rendered DOM: each write replaces
+   *  everything inside the container. Runs after the DOM is in place, in the
+   *  same update, untracked. */
+  onRendered?: (el: HTMLElement) => void;
 }> = (props) => {
   const variant = (): MarkdownVariant => props.variant ?? "document";
   const isDocument = () => variant() === "document";
@@ -274,7 +305,37 @@ export const Markdown: Component<{
       }),
   );
 
+  // Diagrams: the finished ` ```mermaid ` blocks' sources, compared by
+  // content, so a streaming message only asks again when a block finishes —
+  // not on every piece. The substring test spares text without one the lex.
+  const sources = createMemo(
+    (): readonly string[] =>
+      variant() === "inline" || !props.markdown.includes(DIAGRAM_LANG)
+        ? NO_SOURCES
+        : mermaidSources(props.markdown),
+    NO_SOURCES,
+    { equals: sameSources },
+  );
+  // Source → drawn diagram (or why not) for the current blocks. When every one
+  // was drawn earlier in this tab, the map is returned synchronously, so the
+  // first paint already shows them. `load` never rejects, so neither can this
+  // resource; while it reloads it keeps answering with the previous map, so a
+  // drawn diagram stays drawn while the next block is being drawn.
+  const [diagrams] = createResource(
+    () => (sources().length > 0 ? sources() : false),
+    (list): Map<string, Diagram> | Promise<Map<string, Diagram>> => {
+      const known = list.map((s) => [s, diagramCache.peek(s)] as const);
+      if (known.every(([, d]) => d !== undefined)) {
+        return new Map(known as (readonly [string, Diagram])[]);
+      }
+      return Promise.all(
+        list.map(async (s) => [s, await diagramCache.load(s)] as const),
+      ).then((entries) => new Map(entries));
+    },
+  );
+
   const html = createMemo(() => {
+    const drawn = diagrams();
     const sanitized = sanitizeHtml(
       renderMarkdownToRawHtml(props.markdown, {
         inline: variant() === "inline",
@@ -299,6 +360,7 @@ export const Markdown: Component<{
         resolveImageSrc: props.resolveImageSrc,
         highlightCode:
           isDocument() && highlighter() != null ? highlightCode : undefined,
+        diagram: (source) => drawn?.get(source),
       },
     );
     const inlineCode = props.inlineCode;
@@ -307,10 +369,20 @@ export const Markdown: Component<{
       : decorateInlineCode(sanitized, inlineCode.action);
   });
 
+  let container: HTMLElement | undefined;
+  // A user effect, so it runs after the `innerHTML` render effect of the same
+  // update: the host's callback always sees the DOM it is told about.
+  createEffect(() => {
+    html();
+    const el = container;
+    if (el) untrack(() => props.onRendered?.(el));
+  });
+
   return (
     <Dynamic
       component={variant() === "inline" ? "span" : "div"}
-      ref={(el: HTMLElement) =>
+      ref={(el: HTMLElement) => {
+        container = el;
         bindInteractions(el, {
           get onNavigateRelative() {
             return props.onNavigateRelative;
@@ -324,8 +396,8 @@ export const Markdown: Component<{
           get onInlineCode() {
             return props.inlineCode?.onPress;
           },
-        })
-      }
+        });
+      }}
       class="kolu-md"
       data-md-variant={variant()}
       innerHTML={html()}

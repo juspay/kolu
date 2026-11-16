@@ -61,6 +61,13 @@ Feature: Terminal intent
     And the active terminal annotation slot should render no anchor
     And there should be no page errors
 
+  Scenario: A mermaid block typed into the intent editor previews as a diagram
+    When I click the active terminal annotation slot
+    And I type "📈 flow\n\n```mermaid\nflowchart LR\n  A --> B\n```" into the intent editor
+    Then the intent editor preview should show a painted diagram
+    And the intent editor preview should show no diagram error
+    And there should be no page errors
+
   Scenario: Edit intent via the command palette
     When I open the command palette
     And I select "Edit intent" in the palette

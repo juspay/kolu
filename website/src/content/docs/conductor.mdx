@@ -166,7 +166,8 @@ In the transcript:
 
 - Tool calls between two messages fold into one **Details** line with a count. Running calls, failed calls, questions and your messages stay outside it.
 - A card for a terminal the Conductor created shows the agent's state, **Look**, and **open tile**, which takes you there.
-- **Look** shows the last 40 lines of its screen, refreshed about every two seconds while you can see it.
+- **Look** shows the last 40 lines of its screen, refreshed about every two seconds while visible.
+- A ` ```mermaid ` block draws as a [diagram](/code-tab#markdown-and-artifacts) once complete, and shows as code until then.
 - A `— new session —` line means kolu could not resume the conversation after a restart. The agent remembers nothing above it.
 
 ## When it asks you
@@ -223,7 +224,7 @@ The Conductor never implements anything itself, never starts an agent or opens a
 
 kolu-server restarts when it is upgraded. The conversation comes back with its transcript and its model, and so does every piece of work, because a work is stored in its own right rather than inside the conversation.
 
-An agent that finished while kolu-server was down still wakes the Conductor, and nothing wakes it twice. A running turn and held wakes are lost. While the Conductor is alpha, an upgrade can still start an empty conversation instead (see the note at the top).
+An agent that finished while kolu-server was down still wakes the Conductor, and nothing wakes it twice. A running turn and held wakes are lost.
 
 ### What a backup of kolu holds
 
