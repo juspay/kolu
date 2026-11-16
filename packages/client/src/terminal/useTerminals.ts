@@ -154,7 +154,7 @@ export function useTerminals() {
     restorePhase: () => activeScope()?.restore.phase ?? "pending",
     ports: {
       expandPanel: subPanel.expandPanel,
-      activeSubTab: (parentId) => subPanel.peekSubPanel(parentId).activeSubTab,
+      activeSubTab: (parentId) => subPanel.paneChrome(parentId).activeSubTab,
       setActiveSubTab: subPanel.setActiveSubTab,
       // The funnel knows the split's own parent, which is the source it has.
       seedSplitTab: (subId, parentId) =>

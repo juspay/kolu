@@ -120,4 +120,82 @@ describe("CanvasTile shell selection", () => {
     expect(titlebar?.nextElementSibling).toBe(bar);
     expect(bar?.nextElementSibling).toBe(body);
   });
+
+  it("tells a covered tile it is still attached but has no decided box", () => {
+    // The two facts a tile states about its body, and the whole of kolu#2362
+    // §3: a tile parked behind a maximized sibling keeps its feed (a reader's
+    // place in the output survives the trip) and states NO size, because the
+    // canvas is not laying it out — it is holding it.
+    const answers: Array<{ seen: boolean; boxDecided: boolean }> = [];
+    dispose = render(
+      () => (
+        <CanvasTile
+          id="tile"
+          active={false}
+          mode="covered"
+          theme={{ bg: "black", fg: "white" }}
+          repoColor="white"
+          onSelect={vi.fn()}
+          onClose={vi.fn()}
+          onToggleMaximize={vi.fn()}
+          renderTitle={() => <span>Tile</span>}
+          renderBody={(seen, boxDecided) => {
+            answers.push({ seen: seen(), boxDecided: boxDecided() });
+            return <div data-testid="body" />;
+          }}
+          getLayout={() => ({ x: 10, y: 20, w: 100, h: 100 })}
+          startResize={vi.fn()}
+          panX={() => 0}
+          panY={() => 0}
+          zoom={() => 1}
+          viewportSize={() => ({ width: 500, height: 500 })}
+          viewShown={() => true}
+          cameraSettled={() => true}
+        />
+      ),
+      host,
+    );
+
+    expect(answers).toEqual([{ seen: false, boxDecided: false }]);
+    const tile = host.querySelector<HTMLElement>("[data-testid=canvas-tile]");
+    // And its box is its OWN rect, not the maximized tile's: there is nothing
+    // to measure differently when the posture ends.
+    expect(tile?.style.visibility).toBe("hidden");
+    expect(tile?.style.left).toBe("10px");
+    expect(tile?.style.width).toBe("100px");
+  });
+
+  it("tells a tiled tile its box is decided", () => {
+    const answers: boolean[] = [];
+    dispose = render(
+      () => (
+        <CanvasTile
+          id="tile"
+          active
+          mode="tiled"
+          theme={{ bg: "black", fg: "white" }}
+          repoColor="white"
+          onSelect={vi.fn()}
+          onClose={vi.fn()}
+          onToggleMaximize={vi.fn()}
+          renderTitle={() => <span>Tile</span>}
+          renderBody={(_seen, boxDecided) => {
+            answers.push(boxDecided());
+            return <div data-testid="body" />;
+          }}
+          getLayout={() => ({ x: 0, y: 0, w: 100, h: 100 })}
+          startResize={vi.fn()}
+          panX={() => 0}
+          panY={() => 0}
+          zoom={() => 1}
+          viewportSize={() => ({ width: 500, height: 500 })}
+          viewShown={() => true}
+          cameraSettled={() => true}
+        />
+      ),
+      host,
+    );
+
+    expect(answers).toEqual([true]);
+  });
 });

@@ -46,9 +46,12 @@ is no separate edit mode, so the canvas is always live.
 ## Maximize
 
 Double-click a tile's title bar to maximize it. That posture persists across
-reloads. Switching terminals while maximized, from the dock, with
-<kbd>Cmd</kbd>/<kbd>Ctrl</kbd> + <kbd>1</kbd>…<kbd>9</kbd>, or by cycling, is a pure
-show/hide: no reflow, no repaint, no shell resize.
+reloads. The tile you maximize is told the window's size; the tiles behind it
+keep their own size and are not resized at all, going in or coming back out.
+Switching terminals while maximized (from the dock, with
+<kbd>Cmd</kbd>/<kbd>Ctrl</kbd> + <kbd>1</kbd>…<kbd>9</kbd>, or by cycling)
+shows the tile you switch to at the window's size, once. The one you came from
+is left as it was.
 
 ## Canvas, maximized, and the Conductor
 
@@ -61,7 +64,7 @@ takes the whole window when you select it (<kbd>Cmd</kbd>/<kbd>Super</kbd> +
 No canvas is shown while the Conductor is open, so the posture control and the
 dock and inspector toggles are not drawn. The canvas stays as you left it. Its
 tiles stop receiving live output after the same
-[five-minute wait](/tiles#which-tiles-are-live) as any other trip away, and pick
+[one-hour wait](/tiles#which-tiles-are-live) as any other trip away, and pick
 it up again, repainted, when you return to that host. **Open tile** on one of
 the agent's tool cards brings you back to the host tab that terminal is on,
 focused on it.

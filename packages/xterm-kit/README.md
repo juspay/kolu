@@ -72,6 +72,15 @@ the pane's floor whether or not the grids agree — one anchor, so a resize
 landing never jumps the text — and a box that is not a whole number of rows
 tall leaves its leftover strip at the TOP.
 
+**A pane measures only a box its OWNER has decided.** `boxDecided` is a
+required prop and it gates the measurement itself, not the use of it: while it
+is false `<Xterm>` does not fit at all, so `wantedGrid` cannot come to hold a
+reading of a box the owner was still making up its mind about — a tile that
+does not yet know whether it has a split, or one parked behind a maximized
+sibling. When the owner flips it true the pane fits once, synchronously in
+that same update, so the first grid a consumer can act on is a reading of the
+decided box rather than a stand-in the next animation frame would correct.
+
 **`@kolu/xterm-kit/write-door`** is that door on its own: the coalescer and the
 scroll lock, without the component, the renderer or a DOM. It exists because
 the door is the thing with the ORDERING CONTRACT, and a consumer that wants to
