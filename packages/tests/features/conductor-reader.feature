@@ -136,8 +136,9 @@ Feature: A plan is read, not glimpsed
 
   Scenario: A file the Conductor names in the chat opens in the reader
     # NO COOPERATION FROM THE MODEL. The Conductor just writes the path in
-    # backticks; kolu knows the files of the works it holds, and a path that
-    # is exactly one of them is a link — here one work holds it, so it opens.
+    # backticks; kolu knows the files of the works it holds, and a path one of
+    # them holds is a link — on the copy of the work the reply is about, so it
+    # opens whatever earlier scenarios left on the same server.
     Given a repo for the work
     When I ask the conductor to open the work "name the plan"
     And I answer the work's question with "hand-over" in the chat
@@ -146,7 +147,7 @@ Feature: A plan is read, not glimpsed
     And the implementor's agent starts working
     And the implementor's agent stops
     Then the work's timeline should show a "file" event saying ".waterfall/plan.md"
-    When the conductor says where the plan is
+    When the conductor looks at the implementor and says where its plan is
     And I press the file the conductor named, ".waterfall/plan.md"
     Then the reader should be open on ".waterfall/plan.md"
     And the file the conductor named, ".waterfall/plan.md", should read as open
@@ -156,4 +157,55 @@ Feature: A plan is read, not glimpsed
     Then the reader should be closed
     When I press the work's timeline row for ".waterfall/plan.md"
     Then the reader should be open on ".waterfall/plan.md"
+    And there should be no page errors
+
+  Scenario: A file named in a reply about one work opens that work's copy, with no menu
+    # EVERY WORK HAS A PLAN, so the path alone names none of them: two works
+    # here each hold `.waterfall/plan.md`. The reply looks at the second work's
+    # implementor before it names the file — that is what the turn is about —
+    # so the press opens the second work's plan at once and offers no choice.
+    Given a repo for the work
+    When I ask the conductor to open the work "the first plan"
+    And I answer the work's question with "hand-over" in the chat
+    And I ask the conductor to run the implementor in the work's repo
+    And the implementor writes a plan with a table into the work's repo
+    And the implementor's agent starts working
+    And the implementor's agent stops
+    Then the work's timeline should show a "file" event saying ".waterfall/plan.md"
+    Given a repo for the work
+    When I ask the conductor to open the work "the second plan"
+    And I answer the work's question with "hand-over" in the chat
+    And I ask the conductor to run the implementor in the work's repo
+    And the implementor writes a plan with a table into the work's repo
+    And the implementor's agent starts working
+    And the implementor's agent stops
+    Then the work's timeline should show a "file" event saying ".waterfall/plan.md"
+    When the conductor looks at the implementor and says where its plan is
+    And I press the file the conductor named, ".waterfall/plan.md"
+    Then the reader should be open on the work's ".waterfall/plan.md"
+    And no menu of works should have opened
+    And there should be no page errors
+
+  Scenario: A file named in a reply about a work that has no copy says so, and opens nothing
+    # THE PATH IS A LINK because another work holds it — but the reply looks
+    # at the second work's implementor, which has written no plan. The press
+    # says so where the link is, and never opens the first work's plan as if
+    # it were this one's.
+    Given a repo for the work
+    When I ask the conductor to open the work "the planned work"
+    And I answer the work's question with "hand-over" in the chat
+    And I ask the conductor to run the implementor in the work's repo
+    And the implementor writes a plan with a table into the work's repo
+    And the implementor's agent starts working
+    And the implementor's agent stops
+    Then the work's timeline should show a "file" event saying ".waterfall/plan.md"
+    Given a repo for the work
+    When I ask the conductor to open the work "the unplanned work"
+    And I answer the work's question with "hand-over" in the chat
+    And I ask the conductor to run the implementor in the work's repo
+    When the conductor looks at the implementor and says where its plan is
+    And I press the file the conductor named, ".waterfall/plan.md"
+    Then the conductor should say the work has no ".waterfall/plan.md" yet
+    And the reader should be closed
+    And no menu of works should have opened
     And there should be no page errors

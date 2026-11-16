@@ -34,12 +34,15 @@ import {
   ABOUT_WORK,
   aboutMember,
   CHECK_STEP,
-  checkKey,
-  checksSeen,
+  type CheckHead,
   endWork,
+  linkPr,
   filesSeen,
+  type MergeState,
   prOf,
+  type PrReading,
   recordEvent,
+  sameHead,
   type Work,
   type WorkEvent,
   type WorkId,
@@ -119,6 +122,19 @@ export const ringEvent = (
   }
 };
 
+/** Two merge answers say the same thing. */
+const sameMerge = (a: MergeState, b: MergeState): boolean => {
+  switch (a.kind) {
+    case "can":
+    case "unsettled":
+      return b.kind === a.kind;
+    case "cannot":
+      return b.kind === "cannot" && a.why === b.why;
+    default:
+      return a satisfies never;
+  }
+};
+
 /** THE PR, as the timeline learns it — ONE pull request, observed ONCE, by the
  *  WORK.
  *
@@ -130,13 +146,13 @@ export const ringEvent = (
  *  them (juspay/kolu#2376: 429 of one real work's 465 events) has no source
  *  left.
  *
- *  A CHECK EVENT IS ABOUT A COMMIT, and the timeline holds at most one per
- *  kind per PR per commit (`kolu-work`'s {@link checkKey}). That is what makes
- *  a reading kolu has already recorded — the same reading after a restart, the
- *  same checks re-run on the same commit — add nothing, while a PUSH adds an
- *  event: a new head's `checks-running` after the old head's `checks-passed`
- *  reads as what it is. The event carries the PR, the head and the failing
- *  gates as FIELDS.
+ *  A CHECK EVENT IS ABOUT A COMMIT, and one is recorded when the rollup's
+ *  word CHANGES for that PR at that commit — the same rule the merge answer
+ *  below follows. So a reading kolu has already recorded (the next poll, the
+ *  first look after a restart) adds nothing, while the real CI run turning a
+ *  passed rollup back to pending, or a pass → fail → pass on one commit, is
+ *  each news; and a PUSH is news because it names another commit. The event
+ *  carries the PR, the head and the failing gates as FIELDS.
  *
  *  The events are BY kolu / BY ci and name no terminal (`terminal: null`):
  *  nobody's terminal said this, the forge did.
@@ -152,10 +168,16 @@ export const ringEvent = (
  *  again on the forge says nothing here. Reopen on the card, or `work_open`
  *  on the same key, is the way back. */
 export const prEvents = (work: Work, pr: WatchPr, at: string): Work => {
+  // A finished work learns nothing from the forge: it is not even watched,
+  // and Reopen is the one way back.
+  if (work.state.kind === "ended") return work;
   let next = work;
   // THE FORGE'S ANSWER FOR THIS BRANCH IS THIS WORK'S PULL REQUEST. A number
   // the timeline has not got yet is a PR opening — the first one, or the next
-  // one on a branch whose last was closed while kolu was not looking.
+  // one on a branch whose last was closed while kolu was not looking. Its
+  // address is kept with it, so the number is a link for as long as the
+  // work is kept; a PR recorded before kolu kept addresses learns its own
+  // from the first reading that has it (`linkPr`).
   if (!Option.exists(prOf(next), (one) => one.number === pr.number)) {
     next = recordEvent(next, {
       at,
@@ -164,14 +186,29 @@ export const prEvents = (work: Work, pr: WatchPr, at: string): Work => {
       about: ABOUT_WORK,
       pr: pr.number,
       title: pr.title,
+      url: { kind: "link", href: pr.url },
     });
-  }
+  } else next = linkPr(next, pr.number, pr.url);
+  const reading = prOf(next);
+  /** What the timeline last said about THIS PR at THIS commit. */
+  const about = <E extends { readonly pr: number; readonly head: CheckHead }>(
+    last: (one: PrReading) => Option.Option<E>,
+  ): Option.Option<E> =>
+    Option.filter(
+      Option.flatMap(reading, last),
+      (one) => one.pr === pr.number && sameHead(one.head, pr.head),
+    );
   // ONE TABLE for the check correspondence (`kolu-work`'s `CHECK_STEP`): the
   // event this rollup becomes and what the timeline would then read back are
   // the same row, so they cannot disagree about a check.
   if (pr.checks.kind === "rollup") {
     const step = CHECK_STEP[pr.checks.rollup];
-    if (!checksSeen(next).has(checkKey(step.kind, pr.number, pr.head))) {
+    if (
+      !Option.exists(
+        about((one) => one.lastCheck),
+        (last) => last.kind === step.kind,
+      )
+    ) {
       next = recordEvent(next, {
         at,
         by: "ci",
@@ -182,6 +219,31 @@ export const prEvents = (work: Work, pr: WatchPr, at: string): Work => {
         failing: pr.checks.rollup === "fail" ? [...pr.failing] : [],
       });
     }
+  }
+  // WHETHER THE FORGE WOULD MERGE IT, recorded when the answer CHANGES for
+  // this PR at this commit — `unsettled` included, so GitHub recomputing a
+  // commit (the base moved) takes back the `can` it had, and a push never
+  // inherits the last commit's answer. Only while the PR is open. A reading
+  // with no merge state at all (`unreported`) is a padi older than the field:
+  // it says nothing, and the card says GitHub has not answered.
+  const merge = pr.merge;
+  if (
+    pr.state === "open" &&
+    merge.kind !== "unreported" &&
+    !Option.exists(
+      about((one) => one.lastMerge),
+      (last) => sameMerge(last.merge, merge),
+    )
+  ) {
+    next = recordEvent(next, {
+      at,
+      by: "kolu",
+      kind: "merge-state",
+      about: ABOUT_WORK,
+      pr: pr.number,
+      head: pr.head,
+      merge,
+    });
   }
   if (
     pr.state === "merged" &&
@@ -428,19 +490,19 @@ export const observing = (deps: {
       // WHAT THE FORGE SAID, or nothing. Every arm but `ok` is "kolu does not
       // know" — a resolve in flight, a remote no adapter serves, a `gh` that
       // would not answer — and a work must never learn its PR closed because
-      // the forge stopped answering.
-      const pr = prReading(reading);
-      if (Option.isNone(pr)) return;
+      // the forge stopped answering. A BROKEN reading is refused for this
+      // one work, as an error: the watch goes on serving every other.
+      const read = prReading(reading);
+      if (read.kind === "unknown") return;
+      if (read.kind === "broken") {
+        deps.log.error({ work: id, why: read.why }, "refused a PR reading");
+        return;
+      }
       const found = deps.store.get(id);
       if (Option.isNone(found)) return;
       const work = found.value;
-      // A READING MOVES A WORK IN PROGRESS, and nothing else. A finished
-      // work's branch is not watched at all (`./workStore.ts`'s `prWatches`
-      // is the one statement of that scope), so the only reading that reaches
-      // here for one is a frame already in flight when it ended — and the
-      // forge is never the way back: Reopen on the card is.
-      if (work.state.kind !== "open") return;
-      const next = prEvents(work, pr.value, nowIso());
+      // A READING MOVES A WORK IN PROGRESS, and nothing else (`prEvents`).
+      const next = prEvents(work, read.pr, nowIso());
       // IDEMPOTENT BY CONSTRUCTION: the reading is compared with the TIMELINE,
       // so the same reading twice — the next poll, the first look after a
       // restart — is the same work value back and nothing is written.

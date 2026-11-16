@@ -75,6 +75,7 @@ const ReaderWindow: Component = () => {
                 // reload, bookmark and the browser's own Back all do what
                 // they say.
                 from="popout"
+                listing={false}
                 onOpen={(next) => {
                   location.hash = readerHash(next);
                 }}

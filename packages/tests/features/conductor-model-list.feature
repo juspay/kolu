@@ -28,3 +28,21 @@ Feature: A host that cannot list its models
     When I ask the conductor to run the implementor in the work's repo
     Then the conductor should say it ran "claude --model opus-by-hand"
     And there should be no page errors
+
+  Scenario: A long model list rests on the models used before, and search reaches the rest
+    # A GATEWAY LISTS DOZENS. The form draws the one model this person ran
+    # with this harness before, already the answer, and says how many more
+    # there are; the search box reaches every one of them, and a model picked
+    # from it stays drawn once the box is cleared.
+    Given a repo for the work
+    And I ask the conductor to open the work "list the models"
+    And this machine lists 30 models, "sonnet" among them
+    When I ask the conductor to open the work "pick from many" with its model left to me
+    Then the work's model question should show only "sonnet", and 29 more
+    When I search the work's model question for "model-17"
+    Then the work's model question should find "model-17"
+    When I pick "model-17" from the search of the work's model question
+    Then the work's model question should show only "sonnet, model-17", and 28 more
+    When I send the work's model question
+    Then the work's decisions should include "model-17"
+    And there should be no page errors

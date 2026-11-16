@@ -47,6 +47,12 @@ export interface PrFixture {
    *  work's timeline holds one check event per kind per commit). Defaults to
    *  one commit, so a scenario that never mentions a push never has to. */
   readonly head?: string;
+  /** Whether GitHub would merge it — gh's own `mergeStateStatus`. Defaults
+   *  to `CLEAN` while open (nothing in the way), as a repo with no branch
+   *  rules reports it. */
+  readonly mergeState?: "BLOCKED" | "BEHIND" | "CLEAN" | "DIRTY";
+  /** The review decision, gh's own word; none unless a scenario says. */
+  readonly review?: "APPROVED" | "CHANGES_REQUESTED" | "REVIEW_REQUIRED";
 }
 
 /** gh's `statusCheckRollup` entry for one check — a `CheckRun`, the shape
@@ -85,8 +91,9 @@ export function statePullRequest(repoRoot: string, pr: PrFixture): void {
     statusCheckRollup: (pr.checks ?? []).map(rollupEntry),
     // gh's CLI serialization of "no review decision" — the empty string, not
     // JSON null (`prInfoFromGhView` maps it back to null).
-    reviewDecision: "",
-    mergeStateStatus: pr.state === "open" ? "CLEAN" : "UNKNOWN",
+    reviewDecision: pr.review ?? "",
+    mergeStateStatus:
+      pr.state === "open" ? (pr.mergeState ?? "CLEAN") : "UNKNOWN",
     // The commit gh says the PR is at. A scenario that says nothing about
     // pushes gets the same one every time, which is what makes a second
     // reading of the same checks the same news.

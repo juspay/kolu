@@ -35,9 +35,13 @@ import type { PadiTerminal, PadiUrgency } from "@kolu/padi-client/surface";
 // for them and not this module's.
 import { agentBucket } from "@kolu/terminal-vocab/agentProjection";
 import type { PrResult } from "@kolu/terminal-vocab/schema";
-import { Option } from "effect";
 import { fleetTerminalRef } from "kolu-mcp/fleetRef";
-import type { WatchGit, WatchObservation, WatchPr } from "./observation.ts";
+import type {
+  WatchGit,
+  WatchMerge,
+  WatchObservation,
+  WatchPr,
+} from "./observation.ts";
 
 /** padi's own terminal-id type, read off the urgency cell this module already
  *  takes — the watch list carries plain strings, and the one place they are
@@ -141,6 +145,55 @@ const gitOf = (record: PadiTerminal | undefined): WatchGit | null => {
   };
 };
 
+/** A pull request as the forge resolved it — the `ok` arm's value. */
+type PrValue = Extract<PrResult, { readonly kind: "ok" }>["value"];
+
+/** WHETHER THE FORGE WOULD MERGE IT — GitHub's merge state, in the record's
+ *  words. This is the fact that decides "green"; the checks' rollup only says
+ *  what the checks that have REPORTED say, and a required check that has not
+ *  started is not among them.
+ *
+ *  - `CLEAN`, `HAS_HOOKS` and `UNSTABLE` can merge;
+ *  - `BLOCKED` cannot: on a review when one is required or changes were
+ *    requested, otherwise on whatever else the branch's protection still
+ *    wants (a required check that has not passed, a conversation);
+ *  - `BEHIND`, `DIRTY` and `DRAFT` cannot, for those reasons;
+ *  - `UNKNOWN` is the forge not having worked it out yet (`unsettled`):
+ *    recorded once for a commit it has said nothing about, so a push never
+ *    inherits the last commit's answer;
+ *  - a reading with no merge state at all (`unreported`) is a padi older than
+ *    the field, which never says: nothing is recorded, and the card says
+ *    GitHub has not answered. */
+export const mergeOf = (value: PrValue): WatchMerge => {
+  switch (value.mergeStateStatus) {
+    case "CLEAN":
+    case "HAS_HOOKS":
+    case "UNSTABLE":
+      return { kind: "can" };
+    case "BLOCKED":
+      return {
+        kind: "cannot",
+        why:
+          value.reviewDecision === "REVIEW_REQUIRED" ||
+          value.reviewDecision === "CHANGES_REQUESTED"
+            ? "review"
+            : "blocked",
+      };
+    case "BEHIND":
+      return { kind: "cannot", why: "behind" };
+    case "DIRTY":
+      return { kind: "cannot", why: "conflicts" };
+    case "DRAFT":
+      return { kind: "cannot", why: "draft" };
+    case "UNKNOWN":
+      return { kind: "unsettled" };
+    case null:
+      return { kind: "unreported" };
+    default:
+      return value.mergeStateStatus satisfies never;
+  }
+};
+
 /** THE PULL REQUEST OF A BRANCH, as the work's own watch reads it.
  *
  *  Takes padi's reading — the value its `pullRequest` stream carries for the
@@ -148,33 +201,53 @@ const gitOf = (record: PadiTerminal | undefined): WatchGit | null => {
  *  carries in its `pr` field — and answers what a timeline can learn from it.
  *  Only the RESOLVED arm says anything: `pending`, `absent`, `unsupported` and
  *  `unavailable` are all "kolu does not know", and a work's timeline must not
- *  learn a PR closed because the forge stopped answering. The failing check
- *  NAMES come off the same per-check breakdown the rollup is folded from, so
- *  the `checks-failed` event says which gates are red rather than that some
- *  are — and the head commit comes off the same reading, so a check says WHICH
- *  push it is about.
+ *  learn a PR closed because the forge stopped answering. The checks are the
+ *  forge's rollup as it is; whether it can merge is {@link mergeOf}. The
+ *  failing check NAMES come off the same per-check breakdown the rollup is
+ *  folded from, so the `checks-failed` event says which gates are red rather
+ *  than that some are — and the head commit comes off the same reading, so a
+ *  check says WHICH push it is about.
  *
  *  Pure, and the ONE translation: the watcher subscribes, this says what the
- *  frame means, and `./observing.ts` decides what the work learns from it. */
-export const prReading = (pr: PrResult): Option.Option<WatchPr> => {
-  if (pr.kind !== "ok") return Option.none();
+ *  frame means, and `./observing.ts` decides what the work learns from it.
+ *  Three answers ({@link PrRead}): nothing known, the PR, or a BROKEN reading
+ *  — a resolved PR with no address, which the forge always spells. A broken
+ *  reading is said loudly by the one work it was about, and never thrown into
+ *  the watch that serves every other work. */
+export type PrRead =
+  | { readonly kind: "unknown" }
+  | { readonly kind: "pr"; readonly pr: WatchPr }
+  | { readonly kind: "broken"; readonly why: string };
+
+export const prReading = (pr: PrResult): PrRead => {
+  if (pr.kind !== "ok") return { kind: "unknown" };
   const value = pr.value;
-  return Option.some({
-    number: value.number,
-    title: value.title,
-    state: value.state,
-    checks:
-      value.checks === null
-        ? { kind: "unreported" }
-        : { kind: "rollup", rollup: value.checks },
-    failing: value.checkRuns
-      .filter((one) => one.outcome === "fail")
-      .map((one) => one.name),
-    head:
-      value.headSha === null
-        ? { kind: "unreported" }
-        : { kind: "commit", sha: value.headSha },
-  });
+  if (value.url === "")
+    return {
+      kind: "broken",
+      why: `the forge's reading of PR #${value.number} carries no address`,
+    };
+  return {
+    kind: "pr",
+    pr: {
+      number: value.number,
+      title: value.title,
+      url: value.url,
+      state: value.state,
+      checks:
+        value.checks === null
+          ? { kind: "unreported" }
+          : { kind: "rollup", rollup: value.checks },
+      merge: mergeOf(value),
+      failing: value.checkRuns
+        .filter((one) => one.outcome === "fail")
+        .map((one) => one.name),
+      head:
+        value.headSha === null
+          ? { kind: "unreported" }
+          : { kind: "commit", sha: value.headSha },
+    },
+  };
 };
 
 /**

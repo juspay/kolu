@@ -23,14 +23,15 @@
  *  sentence here is testable without a browser. */
 
 import { dualPhrase } from "@kolu/terminal-vocab/duration";
-import type { PrInfo } from "anyforge/schemas";
 import { Option } from "effect";
+import { decodeHostKey, isEncodedHostKey } from "kolu-common/hostKey";
 import {
   type AnswerFrom,
   type Decision,
   type Driver,
   type EventAbout,
   type EventBy,
+  hostOf,
   isAbout,
   isCheckEvent,
   isOnGreen,
@@ -43,12 +44,15 @@ import {
   prOf,
   type Said,
   roleRank,
+  roleSetupOf,
   setupKeyOf,
   type SetupKey,
   type StandingWhy,
   setupOf,
   standing,
-  timeBar,
+  type Filed,
+  type Stages,
+  stages,
   timeSpent,
   type Waiter,
   WAITER_OF,
@@ -62,16 +66,75 @@ import {
   waitingOnYou,
 } from "kolu-work";
 import { type NonEmpty, nonEmpty } from "nonempty";
+import { hostLabel } from "../host/hostChipTone";
+import { type ChecksTally, checksProgress, mergeWords } from "./prReadings";
 
 /** THE THREE INKS, by who is being waited on — violet for you, amber for CI,
- *  teal for the agents. One table, read by the standing line, the time bar,
- *  the timeline's dots and the legend, so a stretch of bar and the sentence
- *  over it are never two different colours of the same wait. */
-export const WAITER_INK: Record<Waiter, { text: string; fill: string }> = {
-  agent: { text: "text-accent", fill: "bg-accent" },
-  you: { text: "text-alert", fill: "bg-alert" },
-  ci: { text: "text-attention", fill: "bg-attention" },
+ *  teal for the agents. One table, read by the standing line, the stage
+ *  strip, the work chip's dot, the timeline's dots and the legend, so a stage
+ *  and the sentence over it are never two different colours of the same
+ *  wait. `tint` is a stage that had that waiter's time; `now` is the stage
+ *  the work is in, outlined. */
+export const WAITER_INK: Record<
+  Waiter,
+  {
+    readonly text: string;
+    readonly fill: string;
+    readonly tint: string;
+    readonly now: string;
+  }
+> = {
+  agent: {
+    text: "text-accent",
+    fill: "bg-accent",
+    tint: "bg-accent/15",
+    now: "bg-accent/30 border-accent",
+  },
+  you: {
+    text: "text-alert",
+    fill: "bg-alert",
+    tint: "bg-alert/15",
+    now: "bg-alert/30 border-alert",
+  },
+  ci: {
+    text: "text-attention",
+    fill: "bg-attention",
+    tint: "bg-attention/15",
+    now: "bg-attention/30 border-attention",
+  },
 };
+
+/** A WORK'S DOT, by who it waits on — the waiter's fill, pulsing when it is
+ *  you, and the finished colour once it is over. */
+export const WORK_DOT: Record<Waiter | "done", string> = {
+  agent: WAITER_INK.agent.fill,
+  you: `${WAITER_INK.you.fill} motion-safe:animate-pulse`,
+  ci: WAITER_INK.ci.fill,
+  done: "bg-ok",
+};
+
+/** What each stage is called on the strip — and what a timeline calls the
+ *  setup, which no cell holds. */
+export const STAGE_LABEL: Record<Filed, string> = {
+  setup: "Setup",
+  plan: "Plan",
+  approve: "Approve",
+  build: "Build",
+  review: "Review",
+  checks: "Checks",
+  merge: "Merge",
+};
+
+/** THE STAGES of a work, under its own policy. */
+export function stagesOf(work: Work, now: string): Stages {
+  return stages(work, policyOf(work), now);
+}
+
+/** IS THIS WORK WAITING ON YOU — by the same `standing` the card's line
+ *  reads, so the group a card sits in and the words on it cannot disagree. */
+export function waitsOnYou(work: Work): boolean {
+  return WAITER_OF[standing(work, policyOf(work)).why] === "you";
+}
 
 /** The same three, plus kolu's own — the ink of a timeline dot, by who the
  *  event is BY. kolu's own events (membership, the end, files kept) are the
@@ -259,6 +322,17 @@ export function repoName(repo: string): string {
   return trimmed === "" ? "" : trimmed.slice(trimmed.lastIndexOf("/") + 1);
 }
 
+/** THE HOST a work runs on, as a person says it — read off the work's KEY,
+ *  which is where the machine lives: it identifies the work, so it was never
+ *  a question that could go unanswered. None for a key with no host. */
+export function workHost(work: Work): Option.Option<string> {
+  const given = hostOf(work);
+  if (given === "") return Option.none();
+  return Option.some(
+    isEncodedHostKey(given) ? hostLabel(decodeHostKey(given)) : given,
+  );
+}
+
 /** The line under a card's title: WHERE the work is — which is now its
  *  identity, `repo · branch` for a branch work and "watching" for a watch —
  *  the host as a person names it, the mode, and the PR once there is one.
@@ -279,40 +353,6 @@ export function workSubtitle(
     ...Option.toArray(setup.mode),
     ...Option.toArray(Option.map(prOf(work), (pr) => `PR #${pr.number}`)),
   ].filter((part) => part !== "");
-}
-
-/** A PR's checks, counted — the one LIVE fact the column mixes into a stored
- *  record. It arrives from the member terminal's own record (the fleet index),
- *  never from the timeline: the timeline says checks are running, and how many
- *  of them have landed is only true for the instant it is read. */
-export interface ChecksTally {
-  readonly pass: number;
-  readonly pending: number;
-  readonly fail: number;
-  readonly total: number;
-}
-
-export function checksTally(
-  pr: Option.Option<PrInfo>,
-): Option.Option<ChecksTally> {
-  return Option.flatMap(pr, (one) => {
-    if (one.checkRuns.length === 0) return Option.none<ChecksTally>();
-    const tally = { pass: 0, pending: 0, fail: 0 };
-    for (const run of one.checkRuns) tally[run.outcome] += 1;
-    return Option.some({ ...tally, total: one.checkRuns.length });
-  });
-}
-
-/** `14 of 23 checks` — what the standing line says while CI runs. */
-export function checksProgress(tally: ChecksTally): string {
-  return `${tally.pass + tally.fail} of ${tally.total} checks`;
-}
-
-/** `14 passed · 9 running · 0 failed` — the Pull request section's own line,
- *  which states every bucket including the empty ones: a zero failed is the
- *  fact a reader came for. */
-export function checksBreakdown(tally: ChecksTally): string {
-  return `${tally.pass} passed · ${tally.pending} running · ${tally.fail} failed`;
 }
 
 /** HOW A WORK ENDED, in the words the card says it in. There are three ways
@@ -354,16 +394,17 @@ export interface StandingLine {
 /** THE WORDS FOR WHERE A WORK STANDS — the lead beside the dot, by the reason
  *  `standing()` gives. `question` and `merge` share "Waiting on you": what
  *  differs is the detail after it, which is the question's own words or the PR
- *  to merge. The last three are the three ways a work can be over. */
-const WHY_LEAD: Record<StandingWhy, string> = {
+ *  to merge. A work that is over is led by how it ended ({@link outcomeWords}),
+ *  once, so it has no word here. */
+const WHY_LEAD: Record<
+  Exclude<StandingWhy, "merged" | "closed" | "stopped">,
+  string
+> = {
   question: "Waiting on you",
   merge: "Waiting on you",
   ci: "CI running",
   watching: "Watching",
   working: "Agents at work",
-  merged: "Merged",
-  closed: "Closed",
-  stopped: "Stopped",
 };
 
 export function standingLine(
@@ -371,17 +412,18 @@ export function standingLine(
   checks: Option.Option<ChecksTally>,
 ): StandingLine {
   const at = standing(work, policyOf(work));
-  const line = (what: Option.Option<string>): StandingLine => ({
+  const line = (lead: string, what: Option.Option<string>): StandingLine => ({
     who: WAITER_OF[at.why],
-    lead: WHY_LEAD[at.why],
+    lead,
     what,
     since: at.since,
   });
   switch (at.why) {
     case "question":
-      return line(Option.some(at.question));
+      return line(WHY_LEAD[at.why], Option.some(at.question));
     case "merge":
       return line(
+        WHY_LEAD[at.why],
         Option.some(
           Option.match(at.pr, {
             onNone: () => "merge the PR",
@@ -393,37 +435,21 @@ export function standingLine(
     // says they are running, how many have landed is true only for the
     // instant it is read.
     case "ci":
-      return line(Option.map(checks, checksProgress));
+      return line(WHY_LEAD[at.why], Option.map(checks, checksProgress));
     // The agents are simply at work: no detail to give.
     case "watching":
     case "working":
-      return line(Option.none());
+      return line(WHY_LEAD[at.why], Option.none());
     // HOW it ended, which for a stopped work is the whole fact: a person
     // reading "Stopped" wants to know whether they did it.
     default:
-      return line(Option.some(outcomeWords(at.outcome)));
+      return line(outcomeWords(at.outcome), Option.none());
   }
 }
 
-/** One stretch of the drawn bar, as a share of the whole life. Percentages
- *  rather than milliseconds because what the eye reads is the proportion;
- *  a work with no measurable life yet draws nothing at all. */
-export interface BarSegment {
-  readonly who: Waiter;
-  readonly percent: number;
-}
-
-export function barSegments(
-  work: Work,
-  now: string,
-): ReadonlyArray<BarSegment> {
-  const bar = timeBar(work, policyOf(work), now);
-  const total = bar.reduce((sum, stretch) => sum + stretch.ms, 0);
-  if (total === 0) return [];
-  return bar.map((stretch) => ({
-    who: stretch.who,
-    percent: (stretch.ms / total) * 100,
-  }));
+/** ALL THE TIME A WORK HAS WAITED ON YOU — the card's "you 12m". */
+export function timeSpentOnYou(work: Work, now: string): number {
+  return timeSpent(work, policyOf(work), now).you;
 }
 
 /** WHERE THE TIME WENT, for a finished card — the three figures in one line,
@@ -656,6 +682,8 @@ export function eventReader(work: Work): (event: WorkEvent) => string {
         return `Merged #${event.pr}`;
       case "pr-closed":
         return `Closed #${event.pr}`;
+      case "merge-state":
+        return `${mergeWords(event.merge)}${commitWords(heads, event)}`;
       case "note":
         return event.text;
       // THE LOCK, as the timeline tells it: an act of the person's, named by
@@ -799,6 +827,75 @@ export function decisionRows(work: Work): ReadonlyArray<DecisionRow> {
         ),
       );
   return rows;
+}
+
+/** ONE PART OF THE SETUP LINE — `full`, `planner omp/Fable 5.2`, `on green:
+ *  hand over` — with what was recorded and where it came from, which the
+ *  line carries as data. */
+export interface SetupPart {
+  readonly key: SetupKey;
+  readonly text: string;
+  /** The answers AS RECORDED (`hand-over`, not "hand over"). */
+  readonly answer: string;
+  readonly from: Option.Option<AnswerFrom>;
+}
+
+/** THE SETUP, AS ONE LINE: the mode, each role's harness and model, and what
+ *  happens on green — the setup's own rows ({@link decisionRows}), each said
+ *  in a few words, so the card spends one line on what the human answered
+ *  once at the start. */
+export function setupLine(work: Work): ReadonlyArray<SetupPart> {
+  return decisionRows(work).flatMap((row): ReadonlyArray<SetupPart> => {
+    if (row.topic.kind !== "setup") return [];
+    const key = row.topic.key;
+    const said = row.decisions.map(setupAnswer);
+    const text =
+      key === "mode"
+        ? said.join(" · ")
+        : key === "on-green"
+          ? `on green: ${said.join(" · ")}`
+          : `${row.label.toLowerCase()} ${said.join("/")}`;
+    return [
+      {
+        key,
+        text,
+        answer: row.decisions.map((one) => answerWords(one)).join(" · "),
+        from: row.from,
+      },
+    ];
+  });
+}
+
+/** EVERY OTHER DECISION — the questions put about the work, in the order
+ *  they were put. A card shows the latest three. */
+export function otherDecisions(work: Work): ReadonlyArray<DecisionRow> {
+  return decisionRows(work).filter((row) => row.topic.kind === "work");
+}
+
+/** The hour and minute an event or a decision carries — the one clock
+ *  format a card speaks. */
+export const clockOf = (at: string): string =>
+  new Date(at).toLocaleTimeString([], {
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  });
+
+/** WHAT A ROLE RUNS, as the setup chose it — `omp/Opus 5.5`, or just the
+ *  harness while no model is chosen — for a member's row. None for a role
+ *  the setup chose nothing for. */
+export function roleRuns(work: Work, role: WorkRole): Option.Option<string> {
+  const chosen = roleSetupOf(work, role);
+  switch (chosen.kind) {
+    case "not-chosen":
+      return Option.none();
+    case "harness":
+      return Option.some(chosen.harness);
+    case "harness-and-model":
+      return Option.some(`${chosen.harness}/${chosen.model}`);
+    default:
+      return chosen satisfies never;
+  }
 }
 
 /** EVERY ASK ANY WORK OWNS. A question about a work is recorded as that

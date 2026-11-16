@@ -20,7 +20,12 @@ import {
 } from "@kolu/padi-client/vocab";
 import { type AgentPresence, agentPresence } from "kolu-agents/vocab";
 import { describe, expect, it } from "vitest";
-import { type HostView, readingsOf, recordName } from "./readings.ts";
+import {
+  type HostView,
+  prReading,
+  readingsOf,
+  recordName,
+} from "./readings.ts";
 
 const HOST = "local";
 const PLANNER = "11111111-1111-4111-8111-111111111111";
@@ -289,5 +294,103 @@ describe("what a host's frames say about each watched terminal", () => {
         level: "asking",
       },
     ]);
+  });
+});
+
+describe("what a pull request reading says about checks and merging", () => {
+  /** One resolved PR, as padi's `pullRequest` stream carries it. */
+  const resolved = (
+    checks: "pending" | "pass" | "fail" | null,
+    mergeStateStatus:
+      | "BEHIND"
+      | "BLOCKED"
+      | "CLEAN"
+      | "DIRTY"
+      | "DRAFT"
+      | "HAS_HOOKS"
+      | "UNKNOWN"
+      | "UNSTABLE"
+      | null,
+    reviewDecision:
+      | "APPROVED"
+      | "CHANGES_REQUESTED"
+      | "REVIEW_REQUIRED"
+      | null = null,
+  ) => {
+    const read = prReading({
+      kind: "ok",
+      value: {
+        number: 2388,
+        title: "Mermaid diagrams",
+        url: "https://github.com/juspay/kolu/pull/2388",
+        state: "open",
+        checks,
+        checkRuns: [],
+        reviewDecision,
+        mergeStateStatus,
+        headSha: "4c3f17ea2",
+      },
+    });
+    if (read.kind !== "pr") throw new Error(`no PR: ${read.kind}`);
+    return read.pr;
+  };
+
+  it("keeps the checks as the rollup says them, whatever the merge state", () => {
+    // THE CASE THAT WOKE THE HUMAN TOO EARLY: the checks that had reported
+    // passed, twenty-three required ones had not started. The checks say
+    // passed — nothing is running — and the merge state says blocked.
+    expect(resolved("pass", "BLOCKED").checks).toEqual({
+      kind: "rollup",
+      rollup: "pass",
+    });
+    expect(resolved(null, "CLEAN").checks).toEqual({ kind: "unreported" });
+    expect(resolved("fail", "CLEAN").checks).toEqual({
+      kind: "rollup",
+      rollup: "fail",
+    });
+  });
+
+  it("says the PR can merge only when GitHub says so", () => {
+    for (const state of ["CLEAN", "HAS_HOOKS", "UNSTABLE"] as const)
+      expect(resolved("pass", state).merge).toEqual({ kind: "can" });
+    expect(resolved("pass", "BLOCKED").merge).toEqual({
+      kind: "cannot",
+      why: "blocked",
+    });
+    expect(resolved("pass", "BLOCKED", "APPROVED").merge).toEqual({
+      kind: "cannot",
+      why: "blocked",
+    });
+    expect(resolved("pass", "BEHIND").merge).toEqual({
+      kind: "cannot",
+      why: "behind",
+    });
+    expect(resolved("pass", "DIRTY").merge).toEqual({
+      kind: "cannot",
+      why: "conflicts",
+    });
+    expect(resolved("pass", "DRAFT").merge).toEqual({
+      kind: "cannot",
+      why: "draft",
+    });
+  });
+
+  it("names a required review as the block, never as CI", () => {
+    for (const review of ["REVIEW_REQUIRED", "CHANGES_REQUESTED"] as const)
+      expect(resolved("pass", "BLOCKED", review).merge).toEqual({
+        kind: "cannot",
+        why: "review",
+      });
+  });
+
+  it("tells GitHub not having worked it out apart from a host that did not say", () => {
+    expect(resolved("pass", "UNKNOWN").merge).toEqual({ kind: "unsettled" });
+    expect(resolved("pass", null).merge).toEqual({ kind: "unreported" });
+  });
+
+  it("carries the address the forge gave", () => {
+    expect(resolved("pass", "CLEAN").url).toBe(
+      "https://github.com/juspay/kolu/pull/2388",
+    );
   });
 });

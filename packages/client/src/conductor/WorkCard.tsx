@@ -1,15 +1,18 @@
 /** ONE PIECE OF WORK, as a card.
  *
- *  SHUT, it is four lines and answers the only question a person has while
+ *  SHUT, it is a few lines and answers the only question a person has while
  *  something is running: what is this, who is it waiting on, and for how long.
- *  The thin bar under those lines is where the time has actually gone.
+ *  The stage strip under those lines is where the time has gone, stage by
+ *  stage, and which stage the work is in now.
  *
- *  OPEN, it is the whole of what kolu knows, in the order a person asks for
- *  it: the questions waiting on you (the SAME form as in the chat — answering
- *  either settles the one question); what you have decided so far; the
- *  timeline of everything observed; the terminals by the part they play; the
- *  files, opened in place; the pull request; and **Stop**, which is one of the
- *  two ways a piece of work can be ended on purpose.
+ *  OPEN, IT STAYS SHORT however long the work runs: it answers "what needs
+ *  me, and where is it", and the whole history is one press further. The
+ *  questions waiting on you (the SAME form as in the chat — answering either
+ *  settles the one question); one row per terminal; the files; the pull
+ *  request; the setup as one line and the latest three decisions; and the
+ *  timeline of ONE stage — the strip is its index: pressing a cell shows that
+ *  stage's events, and "whole timeline" unfolds all of it in place. Then
+ *  **Stop**, one of the two ways a piece of work is ended on purpose.
  *
  *  A CARD IS DRAWN FROM THE STATE SUM, and the two faces are built from
  *  different values ({@link CardFace}). An ENDED work says how it ended, what
@@ -20,36 +23,34 @@
  *  is unspellable.
  *
  *  NOTHING HERE IS STORED TWICE. The card reads `kolu-work`'s folds over the
- *  record (`standing`, `timeBar`, `took`) and the three live facts a browser
+ *  record (`standing`, `stages`, `took`) and the three live facts a browser
  *  has anyway — how a member terminal stands, which agent is in it, and a PR's
- *  check runs. A number that moves every second is never written down. */
+ *  check runs. A number that moves every second is never written down.
+ *
+ *  A WORK CHIP ELSEWHERE CAN ASK FOR THIS CARD (`./workListing.ts`'s
+ *  `showWork`): it opens, and once it is on screen it scrolls itself into
+ *  view and flashes once. */
 
 import { activeArm } from "@kolu/padi-client/surface";
 import { dualPhrase } from "@kolu/terminal-vocab/duration";
-import { prValue } from "anyforge/schemas";
-import { decodeHostKey, isEncodedHostKey } from "kolu-common/hostKey";
-import { DASH } from "kolu-common/surface";
 import { fleetTerminalRef } from "kolu-mcp/fleetRef";
 import { Option } from "effect";
 import {
-  hostOf,
   lifetime,
   openAsks,
-  prOf,
-  took,
+  type StageName,
   type Work,
   type WorkId,
 } from "kolu-work";
 import {
   type Component,
+  createEffect,
   createMemo,
   createSignal,
   For,
-  Match,
+  onCleanup,
   Show,
-  Switch,
 } from "solid-js";
-import { hostLabel } from "../host/hostChipTone";
 import {
   fleetTerminalStanding,
   useFleetTerminalIndex,
@@ -57,7 +58,7 @@ import {
 import { elapsedSince } from "../time/duration";
 import { agentName } from "../ui/agentDisplay";
 import InlineConfirmButton from "../ui/InlineConfirmButton";
-import { useShownClock } from "../ui/shown";
+import { useShown, useShownClock } from "../ui/shown";
 import Tip from "../ui/Tip";
 import ConductorLook from "./ConductorLook";
 import WorkQuestion from "./WorkQuestion";
@@ -65,30 +66,36 @@ import { splitMemberRef } from "./memberRef";
 import { fleetMentionCandidates } from "./mentionCandidates";
 import { useConductor } from "./useConductor";
 import { useOpenTile } from "./useOpenTile";
-import { holdsPath } from "./namedFiles";
-import { openReader, readerTarget } from "./reader/useReader";
 import { useMembership, useSeen, useWorkMembers } from "./useWorks";
-import WorkBar from "./WorkBar";
+import PrText from "./PrText";
+import StageStrip from "./StageStrip";
+import WorkDecisions from "./WorkDecisions";
 import WorkFiles from "./WorkFiles";
+import WorkTimeline from "./WorkTimeline";
 import { LEVEL_WORD } from "./wake";
 import { workFileSource } from "./workFile";
 import {
-  answerSource,
-  answeredWhen,
-  answerWords,
-  checksBreakdown,
-  checksTally,
-  decisionRows,
-  EVENT_INK,
-  eventReader,
+  cardShown,
+  isCardOpen,
+  openCard,
+  toggleCard,
+  wantedCard,
+} from "./workListing";
+import { checksTally, failingLine, livePrOf, prSection } from "./prReadings";
+import { timelineShown } from "./timelineView";
+import WorkStanding from "./WorkStanding";
+import {
+  clockOf,
   type Lock,
   membersIn,
-  oneLine,
   outcomeWords,
   ROLE_WORD,
+  roleRuns,
+  stagesOf,
   standingLine,
+  timeSpentOnYou,
   timeSpentWords,
-  WAITER_INK,
+  workHost,
   workSubtitle,
 } from "./workReadings";
 
@@ -102,33 +109,6 @@ const MEMBER_CONTROL =
  *  there on the card afterwards. */
 const STOP_COPY =
   "The work is marked stopped and its terminals are released. Nothing is deleted — its decisions and its timeline stay, and you can open it again.";
-
-/** The hour and minute an event or a decision carries, as the timeline draws
- *  it — the one clock format the card speaks. */
-const clockOf = (at: string): string =>
-  new Date(at).toLocaleTimeString([], {
-    hour: "2-digit",
-    minute: "2-digit",
-    hourCycle: "h23",
-  });
-
-/** WHICH CARDS ARE OPEN — module state, keyed by the work's id.
- *
- *  Module rather than component state for the reason `ConductorLook`'s open
- *  set is: the column is drawn in two placements (the side column on a wide
- *  window, the band the status line opens below it) and a resize moves it
- *  between them. A card a person opened must still be open on the other side
- *  of that move; a signal inside the card would say the opposite. */
-const [openCards, setOpenCards] = createSignal<ReadonlySet<string>>(new Set());
-
-/** Open a shut card, or shut an open one. */
-function toggleCard(id: string): void {
-  setOpenCards((was) => {
-    const next = new Set(was);
-    if (!next.delete(id)) next.add(id);
-    return next;
-  });
-}
 
 /** THE TWO FACES, each built from the arm of the state sum it belongs to —
  *  {@link live} for a work in progress (its members, its open questions) and
@@ -154,20 +134,39 @@ const WorkCard: Component<{
   const allMembers = useWorkMembers();
   const conductor = useConductor();
 
-  /** WHICH ROWS INSIDE THIS CARD ARE OPEN — a decision's full question, or
-   *  an event's words that did not fit its line. Component state, unlike the
-   *  card's own: a row opened to read one question is not worth carrying
-   *  across a resize, and the set dies with the card that drew it. */
-  const [openRows, setOpenRows] = createSignal<ReadonlySet<string>>(new Set());
-  const shown = (key: string): boolean => openRows().has(key);
-  const toggleRow = (key: string): void => {
-    setOpenRows((was) => {
-      const next = new Set(was);
-      if (!next.delete(key)) next.add(key);
-      return next;
+  const isOpen = () => isCardOpen(props.id);
+
+  /** A CHIP ASKED FOR THIS CARD: once it is on screen, scroll it into view
+   *  and flash it once. Asked of `shown`, as every retained view asks before
+   *  touching the page — a request made while the column is hidden waits for
+   *  it to come back. */
+  let card!: HTMLElement;
+  const onScreen = useShown();
+  const [flash, setFlash] = createSignal(false);
+  let unflash: number | undefined;
+  let frame: number | undefined;
+  onCleanup(() => {
+    clearTimeout(unflash);
+    if (frame !== undefined) cancelAnimationFrame(frame);
+  });
+  createEffect(() => {
+    const want = wantedCard();
+    if (want === null || want.id !== props.id || !onScreen()) return;
+    cardShown(want.seq);
+    // A second ask while the first still flashes starts it over: the mark
+    // comes off now and goes back on in the next frame.
+    setFlash(false);
+    clearTimeout(unflash);
+    if (frame !== undefined) cancelAnimationFrame(frame);
+    // After the frame that laid the card out: a card the listing has just
+    // opened, or a band that has just come out, has no box until then.
+    frame = requestAnimationFrame(() => {
+      frame = undefined;
+      card.scrollIntoView({ block: "nearest" });
+      setFlash(true);
+      unflash = window.setTimeout(() => setFlash(false), 1200);
     });
-  };
-  const isOpen = () => openCards().has(props.id);
+  });
 
   /** HOW IT ENDED, or `undefined` while it is in flight. The state's own arm,
    *  narrowed — not a copy of it. */
@@ -222,20 +221,14 @@ const WorkCard: Component<{
   const name = (ref: string): string =>
     names().get(ref) ?? splitMemberRef(ref)?.id.slice(0, 8) ?? ref;
 
-  /** THE PR, LIVE — off whichever member's record carries it. The timeline
-   *  says the checks are running; how many have landed is only true for the
-   *  instant it is read, so it is never stored. */
-  const livePr = createMemo(() => {
-    for (const one of members()) {
-      const meta =
-        one.standing?.kind === "here" ? one.standing.meta : undefined;
-      const arm = meta === undefined ? undefined : activeArm(meta);
-      const pr = arm === undefined ? null : prValue(arm.pr);
-      if (pr !== null) return pr;
-    }
-    return null;
-  });
+  const livePr = createMemo(() => livePrOf(members()));
   const checks = createMemo(() => checksTally(Option.fromNullishOr(livePr())));
+  /** All the time this work has waited on you, while it is still running. */
+  const onYou = createMemo(() =>
+    props.work.state.kind === "open"
+      ? timeSpentOnYou(props.work, new Date(now()).toISOString())
+      : 0,
+  );
 
   /** WHERE THE FILES COME FROM — the one derivation, shared with the reader a
    *  file row opens (`workFile.ts`): the live worktree while a member reports
@@ -245,52 +238,46 @@ const WorkCard: Component<{
   );
 
   const at = createMemo(() => standingLine(props.work, checks()));
-  /** How long the current wait has run — or, once the work has ended, how
-   *  long ago it ended ("just now" inside the first second, where the
-   *  elapsed readout has no figure to give). */
-  const endedOrElapsed = (): string => {
-    const elapsed = elapsedSince(at().since, now());
-    if (at().who !== "done") return elapsed;
-    return elapsed === DASH ? "just now" : `${elapsed} ago`;
-  };
-  /** The lead's ink: the waiter's own colour, and the quiet one for a work
-   *  that is over — "done" is not a waiter, so it has no stretch of bar and
-   *  no colour in that table. */
-  const standingInk = (): string => {
-    const who = at().who;
-    return who === "done" ? "text-fg-2" : WAITER_INK[who].text;
-  };
-  /** The host, as a person says it — read off the work's KEY, which is where
-   *  the machine a work runs on lives now: it identifies the work, so it was
-   *  never a question that could go unanswered. */
-  const host = createMemo(() => {
-    const given = hostOf(props.work);
-    if (given === "") return Option.none<string>();
-    return Option.some(
-      isEncodedHostKey(given) ? hostLabel(decodeHostKey(given)) : given,
-    );
-  });
 
-  /** EVERY DECISION AS ONE ROW — the setup under its keys' names first, then
-   *  the rest. */
-  const decided = createMemo(() => decisionRows(props.work));
-
-  /** THE TIMELINE'S WORDS, built once per move of the record rather than per
-   *  row: the two facts a row needs about the WHOLE timeline (which commits
-   *  its check events name, which decision an ask points at) are computed
-   *  once by the reader this returns. */
-  const words = createMemo(() => eventReader(props.work));
-
-  const steps = createMemo(() =>
-    took(props.work, new Date(now()).toISOString()),
+  /** THE STAGES, read once for the strip and the timeline it indexes. */
+  const read = createMemo(() =>
+    stagesOf(props.work, new Date(now()).toISOString()),
   );
+  /** WHAT THE OPEN CARD SHOWS OF ITS TIMELINE — the stage a person pressed
+   *  on the strip (none: the stage the work is in) and whether the whole
+   *  timeline is out. The card's own: a shut card forgets both, so the next
+   *  time it opens it follows the work again. */
+  const [pressed, setPressed] = createSignal<StageName | undefined>();
+  const [whole, setWhole] = createSignal(false);
+  /** Whether the PR's red gates are unfolded from their one line. */
+  const [allFailing, setAllFailing] = createSignal(false);
+  createEffect(() => {
+    if (isOpen()) return;
+    setPressed(undefined);
+    setWhole(false);
+    setAllFailing(false);
+  });
+  /** ... read ONCE per redraw, for the strip and the timeline both. */
+  const view = createMemo(() =>
+    timelineShown(props.work, read(), pressed(), whole()),
+  );
+  /** The cell pressed on the strip: the stage whose events the open card
+   *  shows, none while it is shut or the whole timeline is out. */
+  const shownStage = (): StageName | undefined => {
+    const shown = view().view;
+    return isOpen() && shown.kind === "stage" && shown.stage !== "setup"
+      ? shown.stage
+      : undefined;
+  };
 
   return (
     <article
+      ref={card}
       data-testid="work-card"
       data-work={props.id}
       data-who={at().who}
       data-open={isOpen() ? "" : undefined}
+      data-flash={flash() ? "" : undefined}
       data-state={props.work.state.kind}
       data-outcome={
         props.work.state.kind === "ended"
@@ -299,47 +286,83 @@ const WorkCard: Component<{
       }
       // The needs-you edge is the one piece of colour a shut card carries: a
       // column of five works must say which one is on you without being read.
-      class={`min-w-0 overflow-hidden rounded-xl border bg-surface-0 ${
+      // A card a chip asked for flashes once (`index.css`, `.work-card`).
+      class={`work-card min-w-0 scroll-m-3 overflow-hidden rounded-xl border bg-surface-0 ${
         at().who === "you" ? "border-alert/55" : "border-edge"
       }`}
     >
-      <button
-        type="button"
-        data-testid="work-card-head"
-        aria-expanded={isOpen()}
-        class="block w-full cursor-pointer px-2.5 py-2 text-start"
-        onClick={() => toggleCard(props.id)}
-      >
-        <div class="flex min-w-0 items-baseline gap-2">
-          <span class="min-w-0 flex-1 truncate text-[0.78rem] font-semibold text-fg">
-            {props.work.title}
-          </span>
-          <Tip class="shrink-0" label="How long this piece of work has run">
-            <span class="shrink-0 font-mono text-[0.62rem] tabular-nums text-fg-3">
-              {dualPhrase(lifetime(props.work, new Date(now()).toISOString()))}
+      {/* THE SHUT FACE. Its press is a button laid UNDER the text rather than
+          wrapped round it, so the PR number it names can be a link of its
+          own: the text lets presses through to the button, and only the
+          links (and the age's tooltip) take them. */}
+      <div class="relative px-2.5 py-2">
+        <button
+          type="button"
+          data-testid="work-card-head"
+          aria-expanded={isOpen()}
+          aria-label={props.work.title}
+          class="absolute inset-0 cursor-pointer rounded-xl"
+          onClick={() => toggleCard(props.id)}
+        />
+        <div class="pointer-events-none relative">
+          <div class="flex min-w-0 items-baseline gap-2">
+            <span class="min-w-0 flex-1 truncate text-[0.78rem] font-semibold text-fg">
+              {props.work.title}
             </span>
-          </Tip>
+            <Tip
+              class="pointer-events-auto shrink-0"
+              label="How long this piece of work has run"
+            >
+              <span class="shrink-0 font-mono text-[0.62rem] tabular-nums text-fg-3">
+                {dualPhrase(
+                  lifetime(props.work, new Date(now()).toISOString()),
+                )}
+              </span>
+            </Tip>
+          </div>
+          <p class="m-0 mt-0.5 flex min-w-0 gap-2 font-mono text-[0.62rem] text-fg-3">
+            <span class="min-w-0 flex-1 truncate">
+              <PrText
+                work={props.work}
+                text={workSubtitle(props.work, workHost(props.work)).join(
+                  " · ",
+                )}
+              />
+            </span>
+            {/* HOW LONG IT HAS WAITED ON YOU, all told — from a whole second,
+                so a setup answered in a blink does not read "you 0s". */}
+            <Show when={onYou() >= 1000}>
+              <span data-testid="work-on-you" class="shrink-0 text-alert">
+                you {dualPhrase(onYou())}
+              </span>
+            </Show>
+          </p>
+          <WorkStanding
+            work={props.work}
+            line={at()}
+            now={now()}
+            testId="work-standing"
+          />
         </div>
-        <p class="m-0 mt-0.5 truncate font-mono text-[0.62rem] text-fg-3">
-          {workSubtitle(props.work, host()).join(" · ")}
-        </p>
-        <p
-          data-testid="work-standing"
-          data-who={at().who}
-          class="m-0 mt-1 flex min-w-0 flex-wrap items-baseline gap-x-1.5 text-[0.7rem]"
-        >
-          <b class={standingInk()}>{at().lead}</b>
-          <Show when={Option.getOrUndefined(at().what)}>
-            {(what) => (
-              <span class="min-w-0 truncate text-fg-2">· {what()}</span>
-            )}
-          </Show>
-          <span class="font-mono text-[0.62rem] tabular-nums text-fg-3">
-            · {endedOrElapsed()}
-          </span>
-        </p>
-        <WorkBar work={props.work} now={now()} />
-      </button>
+      </div>
+      {/* THE STRIP, ITS OWN ROW under the head: on a card each cell that has
+          happened is a button that opens the card on that stage's events —
+          the index into the timeline below. */}
+      <div class="px-2.5 pb-2">
+        <StageStrip
+          stages={read()}
+          size="full"
+          testId="stage-strip"
+          index={{
+            shown: shownStage,
+            show: (stage) => {
+              setPressed(stage);
+              setWhole(false);
+              openCard(props.id);
+            },
+          }}
+        />
+      </div>
 
       <Show when={isOpen()}>
         {/* WHAT CHANGES MOST, FIRST. A person opens a card to answer the
@@ -389,21 +412,29 @@ const WorkCard: Component<{
                     <h4 class="m-0 font-mono text-[0.58rem] uppercase tracking-[0.1em] text-fg-3">
                       Terminals
                     </h4>
-                    <ul class="m-0 mt-1 flex list-none flex-col gap-1.5 p-0">
+                    <ul class="m-0 mt-1 flex list-none flex-col gap-1 p-0">
                       <For each={members()}>
                         {(one) => {
                           const meta = () =>
                             one.standing?.kind === "here"
                               ? one.standing.meta
                               : undefined;
-                          const agent = () => {
-                            const here = meta();
-                            const kind =
-                              here === undefined
-                                ? undefined
-                                : activeArm(here)?.agent?.kind;
-                            return kind === undefined ? null : agentName(kind);
-                          };
+                          /** WHAT IT RUNS: the setup's harness and model for
+                           *  the role, else the agent kolu sees in it. */
+                          const runs = () =>
+                            Option.getOrElse(
+                              roleRuns(props.work, one.member.role),
+                              () => {
+                                const here = meta();
+                                const kind =
+                                  here === undefined
+                                    ? undefined
+                                    : activeArm(here)?.agent?.kind;
+                                return kind === undefined
+                                  ? ""
+                                  : agentName(kind);
+                              },
+                            );
                           const reading = () => seen().get(one.terminal);
                           /** WHO IS DRIVING THIS MEMBER, from the one
                            *  membership index the tile's own frame reads —
@@ -415,6 +446,86 @@ const WorkCard: Component<{
                               ? undefined
                               : at.driver;
                           };
+                          /** The row's head: its role, its name (the way to
+                           *  its tile, while this browser can reach it) and
+                           *  what it runs. */
+                          const lead = (
+                            <>
+                              <span class="shrink-0 rounded-sm bg-conductor/15 px-1 font-mono text-[0.56rem] font-semibold uppercase tracking-[0.08em] text-conductor">
+                                {ROLE_WORD[one.member.role]}
+                              </span>
+                              <Show
+                                when={
+                                  one.standing?.kind === "here"
+                                    ? one.split
+                                    : null
+                                }
+                                fallback={
+                                  <span
+                                    data-testid="work-member-name"
+                                    class="min-w-[3rem] max-w-[40%] truncate font-semibold text-fg-3"
+                                  >
+                                    {name(one.terminal)}
+                                  </span>
+                                }
+                              >
+                                {(target) => (
+                                  <button
+                                    type="button"
+                                    data-testid="work-member-name"
+                                    data-opens-tile="true"
+                                    aria-label={`Go to ${name(one.terminal)}`}
+                                    class="min-w-[3rem] max-w-[40%] cursor-pointer truncate rounded-sm font-semibold text-fg underline-offset-2 hover:text-accent hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-accent"
+                                    onClick={() => openTileAt(target())}
+                                  >
+                                    {name(one.terminal)}
+                                  </button>
+                                )}
+                              </Show>
+                              <Show when={runs() !== ""}>
+                                <span
+                                  data-testid="work-member-runs"
+                                  class="min-w-0 max-w-[30%] shrink truncate font-mono text-[0.6rem] text-fg-2"
+                                >
+                                  {runs()}
+                                </span>
+                              </Show>
+                            </>
+                          );
+                          /** THE KEYS, WITHOUT TYPING FIRST — the same two
+                           *  calls the terminal's own control makes. */
+                          const trail = (
+                            <Show when={driver()}>
+                              {(who) => (
+                                <Show
+                                  when={who() === "conductor"}
+                                  fallback={
+                                    <button
+                                      type="button"
+                                      data-testid="work-member-hand-back"
+                                      class={`${MEMBER_CONTROL} bg-alert/20 text-alert hover:bg-alert/30`}
+                                      onClick={() =>
+                                        conductor.handBack(one.terminal)
+                                      }
+                                    >
+                                      Hand back
+                                    </button>
+                                  }
+                                >
+                                  <button
+                                    type="button"
+                                    data-testid="work-member-take-over"
+                                    class={`${MEMBER_CONTROL} bg-conductor/20 text-conductor hover:bg-conductor/30`}
+                                    onClick={() =>
+                                      conductor.takeOver(one.terminal)
+                                    }
+                                  >
+                                    Take over
+                                  </button>
+                                </Show>
+                              )}
+                            </Show>
+                          );
                           return (
                             <li
                               data-testid="work-member"
@@ -422,115 +533,44 @@ const WorkCard: Component<{
                               data-ref={one.terminal}
                               class="min-w-0 text-[0.7rem]"
                             >
-                              <div class="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5">
-                                <span class="shrink-0 rounded-sm bg-conductor/15 px-1 font-mono text-[0.56rem] font-semibold uppercase tracking-[0.08em] text-conductor">
-                                  {ROLE_WORD[one.member.role]}
-                                </span>
-                                {/* THE NAME IS THE WAY THERE — the same words
-                                    the `@` menu would offer for that terminal,
-                                    and the same navigation a `create` card's
-                                    "open tile" takes. A member this browser
-                                    cannot reach (its host is away) keeps its
-                                    name and loses the press: offering a tile
-                                    that may not exist is worse than offering
-                                    it a moment later. */}
-                                <Show
-                                  when={
-                                    one.standing?.kind === "here"
-                                      ? one.split
-                                      : null
-                                  }
-                                  fallback={
-                                    <span
-                                      data-testid="work-member-name"
-                                      class="min-w-0 max-w-full truncate font-semibold text-fg-3"
-                                    >
-                                      {name(one.terminal)}
-                                    </span>
-                                  }
-                                >
-                                  {(target) => (
-                                    <button
-                                      type="button"
-                                      data-testid="work-member-name"
-                                      data-opens-tile="true"
-                                      aria-label={`Go to ${name(one.terminal)}`}
-                                      class="min-w-0 max-w-full cursor-pointer truncate rounded-sm font-semibold text-fg underline-offset-2 hover:text-accent hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-accent"
-                                      onClick={() => openTileAt(target())}
-                                    >
-                                      {name(one.terminal)}
-                                    </button>
-                                  )}
-                                </Show>
-                                <Show when={agent()}>
-                                  {(which) => (
-                                    <span class="shrink-0 font-mono text-[0.6rem] text-fg-2">
-                                      {which()}
-                                    </span>
-                                  )}
-                                </Show>
-                                {/* THE KEYS, WITHOUT TYPING FIRST. The same
-                                    two calls the terminal's own control makes
-                                    — so a person who wants the keyboard of a
-                                    driven terminal can take it from the
-                                    card. */}
-                                <Show when={driver()}>
-                                  {(who) => (
-                                    <Show
-                                      when={who() === "conductor"}
-                                      fallback={
-                                        <button
-                                          type="button"
-                                          data-testid="work-member-hand-back"
-                                          class={`${MEMBER_CONTROL} bg-alert/20 text-alert hover:bg-alert/30`}
-                                          onClick={() =>
-                                            conductor.handBack(one.terminal)
-                                          }
-                                        >
-                                          Hand back
-                                        </button>
-                                      }
-                                    >
-                                      <button
-                                        type="button"
-                                        data-testid="work-member-take-over"
-                                        class={`${MEMBER_CONTROL} bg-conductor/20 text-conductor hover:bg-conductor/30`}
-                                        onClick={() =>
-                                          conductor.takeOver(one.terminal)
-                                        }
-                                      >
-                                        Take over
-                                      </button>
-                                    </Show>
-                                  )}
-                                </Show>
-                              </div>
-                              <Show when={one.split}>
-                                {(split) => (
-                                  <div class="mt-0.5">
-                                    <ConductorLook
-                                      rowId={`work:${one.terminal}`}
-                                      host={split().host}
-                                      id={split().id}
-                                      toggleTestId="work-member-look"
-                                      clock={
-                                        <Show when={reading()}>
-                                          {(read) => (
-                                            <span
-                                              data-testid="work-member-since"
-                                              class="shrink-0 font-mono text-[0.6rem] tabular-nums text-fg-3"
-                                            >
-                                              {LEVEL_WORD[read().level]}{" "}
-                                              {elapsedSince(
-                                                read().since,
-                                                now(),
-                                              )}
-                                            </span>
-                                          )}
-                                        </Show>
-                                      }
-                                    />
+                              {/* ONE ROW: role, name, what it runs, how it
+                                  stands and since when, Look, Take over —
+                                  the screen Look opens goes under it. */}
+                              <Show
+                                when={one.split}
+                                fallback={
+                                  <div class="flex min-w-0 items-center gap-2">
+                                    {lead}
+                                    {trail}
                                   </div>
+                                }
+                              >
+                                {(split) => (
+                                  <ConductorLook
+                                    rowId={`work:${one.terminal}`}
+                                    host={split().host}
+                                    id={split().id}
+                                    toggleTestId="work-member-look"
+                                    lead={lead}
+                                    trail={trail}
+                                    clock={
+                                      /* SINCE WHEN, and only that: the state
+                                         itself is the status just before it,
+                                         and a second word for it is what a
+                                         phone's row has no room for. */
+                                      <Show when={reading()}>
+                                        {(read) => (
+                                          <span
+                                            data-testid="work-member-since"
+                                            title={`${LEVEL_WORD[read().level]} for ${elapsedSince(read().since, now())}`}
+                                            class="shrink-0 font-mono text-[0.6rem] tabular-nums text-fg-3"
+                                          >
+                                            {elapsedSince(read().since, now())}
+                                          </span>
+                                        )}
+                                      </Show>
+                                    }
+                                  />
                                 )}
                               </Show>
                             </li>
@@ -553,7 +593,10 @@ const WorkCard: Component<{
                   Outcome
                 </h4>
                 <p class="m-0 mt-1 text-[0.7rem] text-fg">
-                  {outcomeWords(done().outcome)}
+                  <PrText
+                    work={props.work}
+                    text={outcomeWords(done().outcome)}
+                  />
                   <span class="font-mono text-[0.62rem] text-fg-3">
                     {" · "}
                     {clockOf(done().at)}
@@ -569,217 +612,71 @@ const WorkCard: Component<{
             kept={ended() !== undefined}
           />
 
-          <Show when={Option.getOrUndefined(prOf(props.work))}>
+          {/* THE PULL REQUEST: its number (a link, off the record), how it
+              stands, its checks — the live tally while a member's record has
+              one, else the last reading the timeline kept — and, while it is
+              open, whether GitHub would merge it. */}
+          <Show when={Option.getOrUndefined(prSection(props.work, checks()))}>
             {(pr) => (
               <section data-testid="work-pr" class="mt-2.5">
                 <h4 class="m-0 font-mono text-[0.58rem] uppercase tracking-[0.1em] text-fg-3">
                   Pull request
                 </h4>
-                <p class="m-0 mt-1 text-[0.68rem] text-fg-2">
-                  <Show
-                    when={livePr()?.url}
-                    fallback={<span class="text-fg">#{pr().number}</span>}
-                  >
-                    {(url) => (
-                      <a
-                        href={url()}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        class="text-accent hover:underline"
-                      >
-                        #{pr().number}
-                      </a>
-                    )}
-                  </Show>
-                  <Show when={Option.getOrUndefined(checks())}>
-                    {(tally) => <span> · {checksBreakdown(tally())}</span>}
-                  </Show>
+                <p
+                  data-testid="work-pr-state"
+                  data-state={pr().state}
+                  class="m-0 mt-1 text-[0.68rem] text-fg"
+                >
+                  <PrText work={props.work} text={`#${pr().number}`} />
+                  <span class="text-fg-2"> · {pr().state}</span>
                 </p>
+                <p
+                  data-testid="work-pr-checks"
+                  class="m-0 text-[0.68rem] text-fg-2"
+                >
+                  {pr().checks}
+                </p>
+                {/* THE RED GATES: one line, cut, with the count — the whole
+                    list in place on a click, and back. */}
+                <Show when={pr().failing.length > 0}>
+                  <button
+                    type="button"
+                    data-testid="work-pr-failing"
+                    aria-expanded={allFailing()}
+                    class={`m-0 block w-full cursor-pointer text-left text-[0.68rem] text-danger hover:underline ${
+                      allFailing() ? "whitespace-normal" : "truncate"
+                    }`}
+                    onClick={() => setAllFailing((was) => !was)}
+                  >
+                    {allFailing()
+                      ? pr().failing.join(", ")
+                      : failingLine(pr().failing)}
+                  </button>
+                </Show>
+                <Show when={Option.getOrUndefined(pr().merge)}>
+                  {(merge) => (
+                    <p
+                      data-testid="work-pr-merge"
+                      data-merge={merge().reason}
+                      class="m-0 text-[0.68rem] text-fg-2"
+                    >
+                      {merge().words}
+                    </p>
+                  )}
+                </Show>
               </section>
             )}
           </Show>
 
-          {/* THE DECISIONS — the setup's answers first, under their keys'
-              own names, then every other question. One line each: the full
-              question, when it was answered and where from are behind the
-              press, never on the card's face. They outlive the end: a work
-              that was stopped and opened again still says what was decided
-              about it. */}
-          <Show when={decided().length > 0}>
-            <section data-testid="work-decisions" class="mt-2.5">
-              <h4 class="m-0 font-mono text-[0.58rem] uppercase tracking-[0.1em] text-fg-3">
-                Decisions
-              </h4>
-              <ul class="m-0 mt-1 flex list-none flex-col gap-0.5 p-0">
-                <For each={decided()}>
-                  {(row) => (
-                    <li
-                      data-testid="work-decision"
-                      data-key={
-                        row.topic.kind === "setup" ? row.topic.key : undefined
-                      }
-                      data-from={Option.getOrUndefined(row.from)}
-                      // The answer AS RECORDED, beside the one a person
-                      // reads: the row says "On green — hand over", and what
-                      // was actually answered was "hand-over".
-                      data-answer={row.decisions
-                        .map((one) => answerWords(one))
-                        .join(" · ")}
-                      class="min-w-0 text-[0.7rem]"
-                    >
-                      <button
-                        type="button"
-                        data-testid="work-decision-row"
-                        aria-expanded={shown(`d:${row.id}`)}
-                        class="flex w-full min-w-0 cursor-pointer items-baseline gap-1 rounded-sm text-start hover:bg-surface-1"
-                        onClick={() => toggleRow(`d:${row.id}`)}
-                      >
-                        <span class="shrink-0 text-fg-3">{row.label}</span>
-                        <span class="min-w-0 flex-1 truncate text-fg">
-                          — {row.answer}
-                        </span>
-                      </button>
-                      <Show when={shown(`d:${row.id}`)}>
-                        <div
-                          data-testid="work-decision-detail"
-                          class="mb-1 mt-0.5 border-s border-edge ps-1.5"
-                        >
-                          <For each={row.decisions}>
-                            {(decision) => (
-                              <p class="m-0 text-[0.65rem] text-fg-2">
-                                {decision.question}
-                                <span class="font-mono text-[0.6rem] text-fg-3">
-                                  {" · "}
-                                  {answeredWhen(decision, clockOf)}
-                                  <Show
-                                    when={Option.getOrUndefined(
-                                      answerSource(decision),
-                                    )}
-                                  >
-                                    {(from) => <> · {from()}</>}
-                                  </Show>
-                                </span>
-                              </p>
-                            )}
-                          </For>
-                        </div>
-                      </Show>
-                    </li>
-                  )}
-                </For>
-              </ul>
-            </section>
-          </Show>
+          <WorkDecisions work={props.work} />
 
-          <section data-testid="work-timeline" class="mt-2.5">
-            <h4 class="m-0 font-mono text-[0.58rem] uppercase tracking-[0.1em] text-fg-3">
-              Timeline
-            </h4>
-            <ul class="m-0 mt-1 flex list-none flex-col gap-0.5 p-0">
-              <For each={props.work.events}>
-                {(event, index) => {
-                  const whole = () => words()(event);
-                  const cut = () => oneLine(whole());
-                  const key = `e:${index()}`;
-                  return (
-                    <li
-                      data-testid="work-event"
-                      data-kind={event.kind}
-                      data-by={event.by}
-                      class="flex min-w-0 items-baseline gap-1.5 text-[0.7rem]"
-                    >
-                      <span class="w-9 shrink-0 whitespace-nowrap font-mono text-[0.6rem] tabular-nums text-fg-3">
-                        {clockOf(event.at)}
-                      </span>
-                      <span
-                        aria-hidden="true"
-                        class={`h-1.5 w-1.5 shrink-0 translate-y-[-0.1em] rounded-full ${EVENT_INK[event.by]}`}
-                      />
-                      {/* A FILE THE WORK WROTE OPENS FROM ITS ROW — the event
-                          names the work and the path, so there is nothing to
-                          match; it is a link only where the reader can open
-                          it (for a work that ended, a kept copy). Otherwise:
-                          ONE LINE, CUT — an event longer than the row says
-                          the rest on a press rather than wrapping into a
-                          paragraph nobody asked to read. */}
-                      <Switch
-                        fallback={
-                          <Show
-                            when={cut().rest}
-                            fallback={
-                              <span class="min-w-0 flex-1 truncate text-fg-2">
-                                {cut().line}
-                              </span>
-                            }
-                          >
-                            <button
-                              type="button"
-                              data-testid="work-event-more"
-                              aria-expanded={shown(key)}
-                              class="min-w-0 flex-1 cursor-pointer rounded-sm text-start text-fg-2 hover:bg-surface-1"
-                              onClick={() => toggleRow(key)}
-                            >
-                              <span class={shown(key) ? "" : "block truncate"}>
-                                {shown(key) ? whole() : cut().line}
-                              </span>
-                            </button>
-                          </Show>
-                        }
-                      >
-                        <Match
-                          when={
-                            event.kind === "file" &&
-                            holdsPath(props.work, event.path)
-                              ? event.path
-                              : undefined
-                          }
-                        >
-                          {(path) => {
-                            const open = () => {
-                              const target = readerTarget();
-                              return (
-                                target !== null &&
-                                target.work === props.id &&
-                                target.path === path()
-                              );
-                            };
-                            return (
-                              <button
-                                type="button"
-                                data-testid="work-event-file"
-                                data-path={path()}
-                                aria-label={`Open ${path()}`}
-                                aria-current={open() ? "true" : undefined}
-                                class={`min-w-0 flex-1 cursor-pointer truncate rounded-sm text-start hover:underline ${
-                                  open() ? "text-accent" : "text-fg-2"
-                                }`}
-                                onClick={() =>
-                                  openReader({ work: props.id, path: path() })
-                                }
-                              >
-                                {cut().line}
-                              </button>
-                            );
-                          }}
-                        </Match>
-                      </Switch>
-                      {/* HOW LONG THAT STEP TOOK — the step still running keeps
-                          counting, with the ellipsis that says so. */}
-                      <span class="shrink-0 font-mono text-[0.6rem] tabular-nums text-fg-3">
-                        <Show when={steps()[index()]}>
-                          {(step) =>
-                            step().ms === 0 && !step().open
-                              ? ""
-                              : `${dualPhrase(step().ms)}${step().open ? "…" : ""}`
-                          }
-                        </Show>
-                      </span>
-                    </li>
-                  );
-                }}
-              </For>
-            </ul>
-          </section>
+          <WorkTimeline
+            id={props.id}
+            work={props.work}
+            shown={view()}
+            onWhole={() => setWhole((was) => !was)}
+            now={now()}
+          />
 
           {/* WHERE THE TIME WENT, for a work that is over: the bar above says
               it in colour, this says it in figures. */}

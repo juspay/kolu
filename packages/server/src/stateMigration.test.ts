@@ -56,6 +56,7 @@ import {
   migrateConductorToWorks_1_50_0,
   koluChoicesSayHowChosen_1_56_0,
   moveKeptFiles_1_53_0,
+  prFactsOnTheTimeline_1_57_0,
   splitWorkAskRows_1_53_0,
   stripLegacyStateKeys_1_31_0,
   workArmsNotNulls_1_55_0,
@@ -2323,6 +2324,220 @@ describe("the 1.56.0 rung — an answer to one of kolu's questions says how it w
     const { store } = walk(structuredClone(SEED));
     const set = vi.spyOn(store, "set");
     koluChoicesSayHowChosen_1_56_0(store as never);
+    expect(set).not.toHaveBeenCalled();
+  });
+});
+
+describe("the 1.57.0 rung — a PR's address and the forge's merge answer", () => {
+  const AT = "2026-11-16T00:00:00.000Z";
+  const LATER = "2026-11-16T00:10:00.000Z";
+  const ID = "branch:local/%2Frepo/merged-before";
+  const HEAD = { kind: "commit", sha: "4f21a9c" };
+  const WORK = { kind: "work" };
+
+  /** A finished work as 1.56.0 stores it: a PR opened with no address, its
+   *  checks passed (which then WAS green) and the forge merged it. */
+  const SEED = {
+    [ID]: {
+      key: { kind: "branch", host: "local", repo: "/repo", branch: "b" },
+      title: "merged before the rung",
+      startedAt: AT,
+      decisions: [],
+      events: [
+        {
+          at: AT,
+          by: "you",
+          about: WORK,
+          kind: "requested",
+          request: { kind: "none" },
+        },
+        {
+          at: AT,
+          by: "kolu",
+          about: WORK,
+          kind: "pr-opened",
+          pr: 9,
+          title: "t",
+        },
+        {
+          at: AT,
+          by: "ci",
+          about: WORK,
+          kind: "checks-passed",
+          pr: 9,
+          head: HEAD,
+          failing: [],
+        },
+        { at: LATER, by: "kolu", about: WORK, kind: "merged", pr: 9 },
+        {
+          at: LATER,
+          by: "kolu",
+          about: WORK,
+          kind: "ended",
+          outcome: { kind: "merged", pr: 9 },
+        },
+      ],
+      state: {
+        kind: "ended",
+        at: LATER,
+        outcome: { kind: "merged", pr: 9 },
+        kept: [],
+      },
+    },
+  };
+
+  const OPEN = "branch:local/%2Frepo/in-flight";
+  const TWO = "branch:local/%2Frepo/second-attempt";
+  const OTHER = { kind: "commit", sha: "9b7e3d1" };
+  const opened = (pr: number) => ({
+    at: AT,
+    by: "kolu",
+    about: WORK,
+    kind: "pr-opened",
+    pr,
+    title: "t",
+  });
+  const passed = (pr: number, head: unknown) => ({
+    at: AT,
+    by: "ci",
+    about: WORK,
+    kind: "checks-passed",
+    pr,
+    head,
+    failing: [],
+  });
+  /** A work still in flight whose checks passed, a finished one that had two
+   *  PRs, and a pass already followed by the forge saying it cannot merge. */
+  const MORE = {
+    [OPEN]: {
+      key: { kind: "branch", host: "local", repo: "/repo", branch: "o" },
+      title: "in flight at the upgrade",
+      startedAt: AT,
+      decisions: [],
+      events: [opened(4), passed(4, HEAD)],
+      state: { kind: "open" },
+    },
+    [TWO]: {
+      key: { kind: "branch", host: "local", repo: "/repo", branch: "t" },
+      title: "two attempts",
+      startedAt: AT,
+      decisions: [],
+      events: [
+        opened(9),
+        passed(9, HEAD),
+        { at: AT, by: "kolu", about: WORK, kind: "pr-closed", pr: 9 },
+        opened(10),
+        passed(10, OTHER),
+        {
+          at: AT,
+          by: "kolu",
+          about: WORK,
+          kind: "merge-state",
+          pr: 10,
+          head: OTHER,
+          merge: { kind: "cannot", why: "review" },
+        },
+        { at: LATER, by: "kolu", about: WORK, kind: "merged", pr: 10 },
+      ],
+      state: {
+        kind: "ended",
+        at: LATER,
+        outcome: { kind: "merged", pr: 10 },
+        kept: [],
+      },
+    },
+  };
+
+  /** A real store stamped at 1.56.0, walked to the live head. */
+  const walk = (works: Record<string, unknown>) => {
+    const dir = mkdtempSync(join(tmpdir(), "kolu-pr-facts-"));
+    dirs.push(dir);
+    writeFileSync(
+      join(dir, "config.json"),
+      JSON.stringify({
+        preferences: DEFAULT_PREFERENCES,
+        works,
+        __internal__: { migrations: { version: "1.56.0" } },
+      }),
+    );
+    const store = new Conf<Record<string, unknown>>({
+      cwd: dir,
+      projectVersion: SCHEMA_VERSION,
+      defaults: CONF_DEFAULTS as unknown as Record<string, unknown>,
+      migrations: CONF_MIGRATIONS as never,
+    });
+    return { store, state: readJson(store.path) };
+  };
+
+  it("records no invented address, keeps a passing check green, and decodes", () => {
+    const { state } = walk(structuredClone(SEED));
+    const events = (
+      state.works as Record<string, { events: Record<string, unknown>[] }>
+    )[ID]?.events;
+    expect(events?.map((one) => one.kind)).toEqual([
+      "requested",
+      "pr-opened",
+      "checks-passed",
+      "merge-state",
+      "merged",
+      "ended",
+    ]);
+    expect(events?.[1]).toMatchObject({ url: { kind: "unrecorded" } });
+    expect(events?.[3]).toEqual({
+      at: AT,
+      by: "kolu",
+      about: WORK,
+      kind: "merge-state",
+      pr: 9,
+      head: HEAD,
+      merge: { kind: "can" },
+    });
+    expect(
+      Result.isSuccess(
+        Schema.decodeUnknownResult(PersistedWorksSchema)(state.works),
+      ),
+    ).toBe(true);
+  });
+
+  it("answers only a finished work's passes, never a closed PR's, and none twice", () => {
+    const { state } = walk(structuredClone({ ...SEED, ...MORE }));
+    const works = state.works as Record<
+      string,
+      { events: Record<string, unknown>[] }
+    >;
+    // IN FLIGHT: an address it will learn, and no answer it never had — its
+    // next reading records GitHub's.
+    expect(works[OPEN]?.events).toEqual([
+      { ...opened(4), url: { kind: "unrecorded" } },
+      passed(4, HEAD),
+    ]);
+    // FINISHED, TWO PRs: the first was closed unmerged, so its pass gets no
+    // answer; the second's pass already had its answer, which stands.
+    const two = works[TWO]?.events ?? [];
+    expect(two.map((one) => one.kind)).toEqual([
+      "pr-opened",
+      "checks-passed",
+      "pr-closed",
+      "pr-opened",
+      "checks-passed",
+      "merge-state",
+      "merged",
+    ]);
+    expect(two[5]).toMatchObject({
+      pr: 10,
+      merge: { kind: "cannot", why: "review" },
+    });
+    expect(
+      Result.isSuccess(
+        Schema.decodeUnknownResult(PersistedWorksSchema)(state.works),
+      ),
+    ).toBe(true);
+  });
+
+  it("writes nothing to a store already in the new shape", () => {
+    const { store } = walk(structuredClone(SEED));
+    const set = vi.spyOn(store, "set");
+    prFactsOnTheTimeline_1_57_0(store as never);
     expect(set).not.toHaveBeenCalled();
   });
 });

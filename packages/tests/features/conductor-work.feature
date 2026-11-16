@@ -43,6 +43,7 @@ Feature: A piece of work is a stored thing
     Then the work column should list the terminal as a member
     And the work's timeline should show a "joined" event
     And the work's timeline should show a "ready" event
+    And the work's stage strip should be at "build"
     # A file lands in the worktree's `.waterfall/`; kolu lists that directory
     # when the member's state changes, so the plan becomes an event without
     # anybody announcing it.
@@ -55,8 +56,30 @@ Feature: A piece of work is a stored thing
     And the work card should name the pull request "#7"
     When the work's pull request starts its checks
     Then the work's timeline should show a "checks-running" event
-    When the work's pull request goes green
+    And the work's stage strip should be at "checks"
+    # GREEN IS GITHUB'S ANSWER, not the checks alone: while the branch's
+    # rules still want a review the checks have passed but nothing is handed
+    # over, and the card says why. The answer is its own timeline row.
+    When the work's pull request goes green but GitHub still wants a review
     Then the work's timeline should show a "checks-passed" event
+    And the work's timeline should show GitHub's merge answer as "review"
+    And the work should not be waiting on you
+    And the work's stage strip should be at "review"
+    And the work's pull request section should give GitHub's merge answer as "review"
+    And the work card should link the pull request "#7"
+    # The open PR's first answer was "can" (nothing in the way yet), then
+    # "cannot"; the review makes it the third.
+    When GitHub lets the work's pull request merge
+    Then the work's timeline should show 3 "merge-state" events
+    And the work should be waiting on you
+    And the work's stage strip should be at "merge"
+    And the work's pull request section should give GitHub's merge answer as "can"
+    # THE STRIP IS THE INDEX INTO THE TIMELINE: an open card shows one
+    # stage's events, and a press on a cell shows another's.
+    When I press the "checks" stage on the work's strip
+    Then the work card should show only its "checks" events
+    When I press the "build" stage on the work's strip
+    Then the work card should show only its "build" events
     # A PUSH IS NEWS; LOOKING AGAIN IS NOT. A check event says which commit
     # it is about, so the new head's run is a second "checks-running" — and
     # the first commit's, read again on every frame by every member, is not.

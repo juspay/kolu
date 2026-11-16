@@ -20,6 +20,7 @@ import { pollFor } from "../support/poll.ts";
 import { type KoluWorld, POLL_TIMEOUT } from "../support/world.ts";
 import {
   enterConductor,
+  keepWorkCardOpen,
   openWorkCard,
   sendPrompt,
   showWorkColumn,
@@ -104,20 +105,27 @@ When(
   },
 );
 
-/** THE CONDUCTOR NAMES THE FILE in its prose — no question, no card: just a
- *  sentence with the path in backticks. */
-When("the conductor says where the plan is", async function (this: KoluWorld) {
-  await enterConductor(this);
-  await sendPrompt(this, "say where the plan is");
-});
+/** THE CONDUCTOR NAMES THE FILE in a reply that is ABOUT ONE WORK: it looks
+ *  at that work's implementor first (a kolu tool card naming the terminal),
+ *  then writes the path in backticks. The sentence says no work; the turn
+ *  does. */
+When(
+  "the conductor looks at the implementor and says where its plan is",
+  async function (this: KoluWorld) {
+    await enterConductor(this);
+    await sendPrompt(this, "look at the implementor and say where its plan is");
+  },
+);
 
 /** THE NAMED FILE, pressed where it was said — a real button in the chat,
- *  found by the name a screen reader reads ("Open <path>"). */
+ *  found by the path it shows: its accessible name says what a press does
+ *  (opens it, offers a choice, or says the turn's work has none yet). */
 When(
   "I press the file the conductor named, {string}",
   async function (this: KoluWorld, file: string) {
     const link = this.page
-      .locator(`${CHAT} button[aria-label="Open ${file}"]`)
+      .locator(`${CHAT} button[data-md-code-action]`)
+      .filter({ hasText: file })
       .last();
     await link.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
     await link.click();
@@ -143,6 +151,7 @@ When(
   async function (this: KoluWorld, file: string) {
     await showWorkColumn(this);
     await openWorkCard(this);
+    await keepWorkCardOpen(this);
     const row = this.page
       .locator(
         `${WORK_COLUMN} [data-testid="work-timeline"] button[aria-label="Open ${file}"]`,
@@ -180,6 +189,50 @@ Then(
       // here — the pane's reader is `reader`, the pop-out is `popout`.
       .locator(`${READER}[data-path="${file}"][data-from="reader"]`)
       .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+  },
+);
+
+/** ... and on THIS scenario's work — the one the reply was about — rather
+ *  than whichever other work happens to hold a file of the same name. */
+Then(
+  "the reader should be open on the work's {string}",
+  async function (this: KoluWorld, file: string) {
+    const work = this.workId;
+    assert.ok(work, "this scenario never opened a work");
+    await this.page
+      .locator(
+        `${READER}[data-path="${file}"][data-from="reader"][data-work="${work}"]`,
+      )
+      .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+  },
+);
+
+/** NO CHOICE WAS PUT: the press opened a file outright. */
+Then("no menu of works should have opened", async function (this: KoluWorld) {
+  assert.equal(
+    await this.page.locator('[data-testid="named-file-menu"]').count(),
+    0,
+    "pressing the file put a menu of works up",
+  );
+});
+
+/** THE TURN'S WORK HAS NO SUCH FILE: a status note under the reply that
+ *  named it, naming this scenario's work by its chip face and the path. */
+Then(
+  "the conductor should say the work has no {string} yet",
+  async function (this: KoluWorld, file: string) {
+    const title = this.workTitle;
+    assert.ok(title, "this scenario never named the work it opened");
+    const note = this.page
+      .locator(`${CHAT} [data-testid="named-file-missing"][role="status"]`)
+      .last();
+    await note.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    await note
+      .locator('[data-testid="work-chip-face"]')
+      .filter({ hasText: title })
+      .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    const says = (await note.textContent()) ?? "";
+    assert.ok(says.includes(file), `the note says ${JSON.stringify(says)}`);
   },
 );
 

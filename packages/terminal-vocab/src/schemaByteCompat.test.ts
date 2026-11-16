@@ -217,7 +217,9 @@ describe("TerminalSnapshot — the persisted + served producer emission", () => 
         checks: null,
         checkRuns: [],
         reviewDecision: null,
-        mergeStateStatus: "UNKNOWN",
+        // No merge state said — not GitHub's own UNKNOWN (anyforge's
+        // `PrInfoSchema` backfills `null` for a sender older than the field).
+        mergeStateStatus: null,
         headSha: null,
       },
     });

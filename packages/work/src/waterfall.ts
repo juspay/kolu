@@ -35,7 +35,14 @@
 
 import { type AgentModelList, isAgentModelId } from "@kolu/agent-distro/models";
 import { Array as Arr, Option } from "effect";
-import { type Policy, type Waiter, waitingOn } from "./folds.ts";
+import {
+  type Policy,
+  type Run,
+  STAGES,
+  type StageName,
+  type Waiter,
+  waitingOn,
+} from "./folds.ts";
 import { type Given, type SentAnswer, sentValue } from "./record.ts";
 import {
   type Chosen,
@@ -96,11 +103,15 @@ export {
  *  - `needs` — the setup keys this mode cannot be opened without, BEYOND the
  *    ONE every work needs (`mode`; the host is the work's identity, not a
  *    question). A waterfall mode needs the
- *    implementor's harness and model and what to do when CI is green; `full`
+ *    implementor's harness and model and what to do when the PR is green; `full`
  *    needs the planner's two as well.
  *  - `driven` — whether kolu types into its member terminals. A `watch` is the
  *    person's own terminal and kolu never drives it, so nothing there is ever
  *    locked.
+ *  - `stages` — the stages a work in this mode HAS, in order: the only ones
+ *    its time is ever filed under (`./folds.ts`'s `stages`). `full` has all
+ *    six; `trivial` has nobody to plan, approve or review, so Build, Checks
+ *    and Merge; a `watch` has none, and no strip.
  */
 export const MODE_RUNS: Readonly<
   Record<
@@ -109,6 +120,7 @@ export const MODE_RUNS: Readonly<
       readonly roles: ReadonlyArray<WorkRole>;
       readonly needs: ReadonlyArray<SetupKey>;
       readonly driven: boolean;
+      readonly stages: ReadonlyArray<StageName>;
     }
   >
 > = {
@@ -122,13 +134,15 @@ export const MODE_RUNS: Readonly<
       "planner.model",
     ],
     driven: true,
+    stages: STAGES,
   },
   trivial: {
     roles: ["implementor"],
     needs: ["implementor.harness", "implementor.model", "on-green"],
     driven: true,
+    stages: ["build", "checks", "merge"],
   },
-  watch: { roles: [], needs: [], driven: false },
+  watch: { roles: [], needs: [], driven: false, stages: [] },
 };
 
 /** The roles a mode runs, in the order they come in — none until a mode is
@@ -267,19 +281,28 @@ export interface Recalled {
 export const modeOf = (work: Work): Option.Option<WorkMode> =>
   setupValue(work, "mode");
 
-/** What to do when CI is green — the one place it is written. */
+/** What to do when the PR is green (GitHub would merge it, and no check is running or failing) — the one place it is written. */
 export const onGreenOf = (work: Work): Option.Option<OnGreen> =>
   setupValue(work, "on-green");
 
 /** WHAT THE WATERFALL'S WORDS MEAN FOR THIS WORK, as the folds take it.
  *
  *  The folds compute from the timeline and must not re-read the setup three
- *  times over (and could not, without importing this module): the two facts
- *  they need — whether the human asked for a hand-over, and whether this is a
- *  plain watch — are read ONCE here and handed in. */
+ *  times over (and could not, without importing this module): the facts they
+ *  need — whether the human asked for a hand-over, and how the work is run —
+ *  are read ONCE here and handed in. How it is run is the mode's own row of
+ *  {@link MODE_RUNS} (whether it is driven, and which stages it has), or
+ *  nothing yet for a work whose mode nobody has answered. */
 export const policyOf = (work: Work): Policy => ({
   handOver: Option.contains(onGreenOf(work), "hand-over"),
-  watching: Option.contains(modeOf(work), "watch"),
+  run: Option.match(modeOf(work), {
+    onNone: (): Run => ({ kind: "unset" }),
+    onSome: (mode): Run => ({
+      kind: "set",
+      driven: MODE_RUNS[mode].driven,
+      stages: MODE_RUNS[mode].stages,
+    }),
+  }),
 });
 
 /** WHO IS TYPING INTO A MEMBER TERMINAL — the Conductor, the person who took

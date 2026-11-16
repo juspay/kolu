@@ -342,6 +342,7 @@ const ConductorPane: Component<{
                     // about this pane, kept in its module signal — the
                     // workspace's own hash is not the reader's to write.
                     from="reader"
+                    listing
                     onOpen={openReader}
                     chrome={<ReaderChrome target={target()} />}
                     class="border-s border-edge"

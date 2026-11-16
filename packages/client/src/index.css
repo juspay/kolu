@@ -687,6 +687,27 @@ body {
   animation: none;
 }
 
+/* ── Work card, brought into view by a work chip ────────────────────────────
+ * One ring in the accent that fades, so the eye lands on the card a chip in
+ * the chat asked for. Reduced motion skips it: the card is scrolled to
+ * either way. */
+@keyframes work-card-flash {
+  0% {
+    box-shadow: 0 0 0 3px var(--color-accent);
+  }
+  100% {
+    box-shadow: 0 0 0 3px transparent;
+  }
+}
+.work-card[data-flash] {
+  animation: work-card-flash 1.1s ease-out;
+}
+@media (prefers-reduced-motion: reduce) {
+  .work-card[data-flash] {
+    animation: none;
+  }
+}
+
 /* Reduced motion: hold the rotating rails / comet still — the themed ring
  * still reads, it just stops moving. The `[data-aura]` qualifier is
  * load-bearing: the per-state animations are declared at

@@ -48,6 +48,8 @@ import { commentsForTerminal } from "../../comments/useComments";
 import BrowseFileDispatcher from "../../right-panel/BrowseFileDispatcher";
 import { useColorScheme } from "../../settings/useColorScheme";
 import { useWorkMap, useWorkMembers } from "../useWorks";
+import WorkChip from "../WorkChip";
+import WorkChipFace from "../WorkChipFace";
 import WorkQuestion from "../WorkQuestion";
 import {
   createWorkFiles,
@@ -70,6 +72,10 @@ const WorkReader: Component<{
   /** The owner's own controls in the header — "← Work", fill, pop out. A
    *  window that is nothing but the reader has none. */
   chrome?: JSX.Element;
+  /** Whether this window has a work listing to bring the work into. The
+   *  pane does; a reader popped out on its own does not, so its work chip
+   *  names the work without being a button. */
+  listing: boolean;
   /** The frame's own placement classes — the grid cell's edge in the pane,
    *  the window's `flex-1` in a pop-out. The reader has no position of its
    *  own, for the reason the pane has none. */
@@ -159,11 +165,16 @@ const WorkReader: Component<{
         </span>
         <Show when={work()}>
           {(one) => (
-            <span
-              data-testid="reader-of"
-              class="min-w-0 flex-1 truncate text-[0.72rem] text-fg-3"
-            >
-              {one().title}
+            // THE WAY BACK TO THE WORK: the chip that brings its card, where
+            // this window has a listing to bring it into — and the same face,
+            // not pressed, in a pop-out that has none.
+            <span data-testid="reader-of" class="min-w-0 flex-1">
+              <Show
+                when={props.listing}
+                fallback={<WorkChipFace work={one()} />}
+              >
+                <WorkChip id={props.target.work} work={one()} />
+              </Show>
             </span>
           )}
         </Show>

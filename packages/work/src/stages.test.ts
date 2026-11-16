@@ -1,0 +1,903 @@
+/**
+ * THE SIX STAGES, checked against numbers computed without the folds.
+ *
+ * Two kinds of generated record. The CHAOTIC ones throw every event the
+ * timeline can hold at a work — questions, members joining and leaving, two
+ * pull requests, checks, the forge's merge answers, merges, closes, stops,
+ * reopens, events stamped out of order — and check what must hold whatever
+ * happens: the stages add up to the work's life, measured here from the
+ * events directly, and the strip names a current stage exactly while the work
+ * is open. The SCRIPTED ones walk a waterfall through its stages with random
+ * durations, and check each stage's time against the duration that was put
+ * there. Seeded, so a failure names the seed that reproduces it.
+ */
+
+import { describe, expect, it } from "vitest";
+import { seeded } from "../test/seeded.ts";
+import {
+  ABOUT_WORK,
+  answerAsk,
+  askQuestions,
+  endWork,
+  joinWork,
+  leaveWork,
+  lifetime,
+  type MergeState,
+  openAsks,
+  openWork,
+  type Policy,
+  recordEvent,
+  reopenWork,
+  type Filed,
+  type Stage,
+  type StageName,
+  stageMs,
+  stages,
+  timeSpent,
+  took,
+  type Work,
+  PR_FACTS_PER_COMMIT,
+  MODE_RUNS,
+} from "./index.ts";
+
+const T0 = Date.UTC(2026, 10, 16, 9, 0, 0);
+const MINUTE = 60_000;
+const at = (minute: number): string =>
+  new Date(T0 + minute * MINUTE).toISOString();
+
+const opened = (): Work =>
+  openWork({
+    key: { kind: "branch", host: "local", repo: "/r", branch: "b" },
+    title: "stages",
+    at: at(0),
+    request: { kind: "said", text: "waterfall it" },
+  });
+
+const ask = (work: Work, id: string, minute: number): Work =>
+  askQuestions(work, {
+    ask: id,
+    questions: [
+      {
+        id: `${id}-q`,
+        question: "Approve the plan?",
+        topic: "work",
+        header: { kind: "none" },
+        options: ["Approve", "Change something"],
+        multiple: false,
+        file: { kind: "none" },
+      },
+    ],
+    at: at(minute),
+  });
+
+const answer = (work: Work, id: string, minute: number): Work =>
+  answerAsk(work, {
+    ask: id,
+    at: at(minute),
+    from: "card",
+    reply: { kind: "answered", values: new Map([[`${id}-q`, ["Approve"]]]) },
+  });
+
+const join = (
+  work: Work,
+  role: "planner" | "implementor",
+  minute: number,
+  terminal = `local/${role}`,
+): Work => joinWork(work, { terminal, role, at: at(minute) });
+
+const prOpened = (work: Work, minute: number, pr = 7): Work =>
+  recordEvent(work, {
+    at: at(minute),
+    by: "kolu",
+    kind: "pr-opened",
+    about: ABOUT_WORK,
+    pr,
+    title: "the PR",
+    url: { kind: "link", href: `https://forge.example/pr/${pr}` },
+  });
+
+const check = (
+  work: Work,
+  kind: "checks-running" | "checks-passed" | "checks-failed",
+  minute: number,
+  pr = 7,
+  sha = "a1",
+): Work =>
+  recordEvent(work, {
+    at: at(minute),
+    by: "ci",
+    kind,
+    about: ABOUT_WORK,
+    pr,
+    head: { kind: "commit", sha },
+    failing: [],
+  });
+
+const mergeState = (
+  work: Work,
+  merge: MergeState,
+  minute: number,
+  pr = 7,
+  sha = "a1",
+): Work =>
+  recordEvent(work, {
+    at: at(minute),
+    by: "kolu",
+    kind: "merge-state",
+    about: ABOUT_WORK,
+    pr,
+    head: { kind: "commit", sha },
+    merge,
+  });
+
+const merged = (work: Work, minute: number, pr = 7): Work =>
+  endWork(
+    recordEvent(work, {
+      at: at(minute),
+      by: "kolu",
+      kind: "merged",
+      about: ABOUT_WORK,
+      pr,
+    }),
+    { outcome: { kind: "merged", pr }, at: at(minute) },
+  );
+
+/** A policy for a mode, read off its own row of `MODE_RUNS`, as `policyOf`
+ *  reads it. */
+const policyFor = (mode: "full" | "trivial", handOver = true): Policy => ({
+  handOver,
+  run: {
+    kind: "set",
+    driven: MODE_RUNS[mode].driven,
+    stages: MODE_RUNS[mode].stages,
+  },
+});
+const FULL = policyFor("full");
+const TRIVIAL = policyFor("trivial");
+
+/** The six stages of a waterfall, or a failure saying the policy gave none. */
+const strip = (work: Work, policy: Policy, now: string) =>
+  waterfall(work, policy, now).stages;
+
+const waterfall = (work: Work, policy: Policy, now: string) => {
+  const read = stages(work, policy, now);
+  if (read.kind !== "staged") throw new Error(`no stages: ${read.kind}`);
+  return read;
+};
+
+/** THE STRIP AS A PERSON READS IT: each cell's stage and what it shows —
+ *  `now`, `done`, `–` for a stage that did not happen, `·` for one not
+ *  reached. */
+const cells = (work: Work, policy: Policy, now: string): string =>
+  strip(work, policy, now)
+    .map((one) => {
+      const word = {
+        now: "now",
+        done: "done",
+        skipped: "–",
+        "not-started": "·",
+      }[one.state.kind];
+      return `${one.name} ${word}`;
+    })
+    .join(", ");
+
+/** THE TIME AFTER EACH EVENT, put where that event was filed — measured from
+ *  the events alone, as {@link lifeOf} measures the life, so it holds only if
+ *  each event and the stretch it begins are filed in one place. */
+const timeByEventStage = (
+  work: Work,
+  filed: ReadonlyArray<Filed>,
+  now: string,
+): Record<Filed, number> => {
+  const sums: Record<Filed, number> = {
+    setup: 0,
+    plan: 0,
+    approve: 0,
+    build: 0,
+    review: 0,
+    checks: 0,
+    merge: 0,
+  };
+  const start = Date.parse(work.startedAt);
+  const end = Math.max(
+    start,
+    Date.parse(work.state.kind === "ended" ? work.state.at : now),
+  );
+  const clamped: number[] = [];
+  let clock = start;
+  for (const event of work.events) {
+    clock = Math.min(Math.max(Date.parse(event.at), clock), end);
+    clamped.push(clock);
+  }
+  let ended = false;
+  work.events.forEach((event, index) => {
+    if (event.kind === "ended") ended = true;
+    if (event.kind === "reopened") ended = false;
+    const from = clamped[index] ?? start;
+    const until = clamped[index + 1] ?? end;
+    const stage = filed[index];
+    if (!ended && stage !== undefined) sums[stage] += until - from;
+  });
+  return sums;
+};
+
+const byName = (all: ReadonlyArray<Stage>) =>
+  Object.fromEntries(all.map((one) => [one.name, one.state])) as Record<
+    StageName,
+    Stage["state"]
+  >;
+
+const total = (all: ReadonlyArray<Stage>): number =>
+  all.reduce((sum, one) => sum + stageMs(one.state), 0);
+
+/** HOW LONG THE WORK RAN, from its events alone: start to end (or now), each
+ *  event held to the clock as it goes, less every stretch it spent ended. No
+ *  fold of the package is called. */
+const lifeOf = (work: Work, now: string): number => {
+  const start = Date.parse(work.startedAt);
+  const end = Math.max(
+    start,
+    Date.parse(work.state.kind === "ended" ? work.state.at : now),
+  );
+  let clock = start;
+  let ended = false;
+  let life = 0;
+  for (const event of work.events) {
+    const t = Math.min(Math.max(Date.parse(event.at), clock), end);
+    if (!ended) life += t - clock;
+    clock = t;
+    if (event.kind === "ended") ended = true;
+    if (event.kind === "reopened") ended = false;
+  }
+  if (!ended) life += end - clock;
+  return life;
+};
+
+/** One chaotic record, built through the package's own transitions. */
+const chaotic = (seed: number, steps: number): Work => {
+  const pick = seeded(seed);
+  let work = opened();
+  let minute = 0;
+  let asks = 0;
+  let pr = 7;
+  const members: string[] = [];
+  for (let step = 0; step < steps; step += 1) {
+    minute += Math.floor(pick() * 12);
+    const when = pick() < 0.08 ? minute - 3 : minute;
+    const roll = pick();
+    const open = openAsks(work);
+    const live = work.state.kind === "open";
+    if (roll < 0.1) {
+      asks += 1;
+      work = ask(work, `a${asks}`, when);
+    } else if (roll < 0.18 && open[0] !== undefined) {
+      work = answer(work, open[0], when);
+    } else if (roll < 0.26) {
+      const terminal = `local/t${step}`;
+      members.push(terminal);
+      work = join(
+        work,
+        pick() < 0.5 ? "planner" : "implementor",
+        when,
+        terminal,
+      );
+    } else if (roll < 0.3 && members.length > 0) {
+      work = leaveWork(work, {
+        terminal: members.shift() ?? "local/none",
+        why: "closed",
+        at: at(when),
+      });
+    } else if (roll < 0.36) {
+      // A second PR is a new number: the first one was closed, or this is a
+      // reading of a branch whose PR moved.
+      if (pick() < 0.3) pr += 1;
+      work = prOpened(work, when, pr);
+    } else if (roll < 0.52) {
+      const kinds = [
+        "checks-running",
+        "checks-passed",
+        "checks-failed",
+      ] as const;
+      work = check(
+        work,
+        kinds[Math.floor(pick() * kinds.length)] ?? "checks-running",
+        when,
+        pr,
+        pick() < 0.6 ? "a1" : `h${step}`,
+      );
+    } else if (roll < 0.6) {
+      const answers: ReadonlyArray<MergeState> = [
+        { kind: "can" },
+        { kind: "cannot", why: "blocked" },
+        { kind: "cannot", why: "behind" },
+        { kind: "unsettled" },
+      ];
+      work = mergeState(
+        work,
+        answers[Math.floor(pick() * answers.length)] ?? { kind: "can" },
+        when,
+        pr,
+        pick() < 0.6 ? "a1" : `h${step}`,
+      );
+    } else if (roll < 0.64 && live) {
+      work = merged(work, when, pr);
+    } else if (roll < 0.68 && live) {
+      work = endWork(
+        recordEvent(work, {
+          at: at(when),
+          by: "kolu",
+          kind: "pr-closed",
+          about: ABOUT_WORK,
+          pr,
+        }),
+        { outcome: { kind: "closed", pr }, at: at(when) },
+      );
+    } else if (roll < 0.72 && live) {
+      work = endWork(work, {
+        outcome: { kind: "stopped", by: "you" },
+        at: at(when),
+      });
+    } else if (roll < 0.8) {
+      work = reopenWork(work, at(when));
+    } else {
+      work = recordEvent(work, {
+        at: at(when),
+        by: "agent",
+        kind: "stopped",
+        about: { kind: "member", terminal: "local/t0" },
+        why: { kind: "none" },
+      });
+    }
+  }
+  return work;
+};
+
+describe("on chaotic records", () => {
+  it.each(
+    Array.from({ length: 300 }, (_, one) => one + 1),
+  )("the stages add up to the life measured from the events, record %i", (seed) => {
+    const work = chaotic(seed, 34);
+    const pick = seeded(seed * 7919);
+    const policy = policyFor(pick() < 0.6 ? "full" : "trivial", pick() < 0.5);
+    const now = at(34 * 12 + Math.floor(pick() * 60));
+    const life = lifeOf(work, now);
+    const all = strip(work, policy, now);
+    const spent = timeSpent(work, policy, now);
+    const read = waterfall(work, policy, now);
+    // EVERY EVENT IS FILED where the time after it went: one place per
+    // event, and each stage holds exactly the time after its events (the
+    // record opens with an event at its start, so there is no time before
+    // the first). An open work's last event is where it is now.
+    expect(read.events, `seed ${seed}: one per event`).toHaveLength(
+      work.events.length,
+    );
+    const filed = timeByEventStage(work, read.events, now);
+    for (const one of read.stages)
+      expect(filed[one.name], `seed ${seed}: ${one.name}`).toBe(
+        stageMs(one.state),
+      );
+    // ... so the stages and the setup add up to the life, and the setup is
+    // only ever a mode's with no Plan to hold it.
+    expect(lifetime(work, now), `seed ${seed}: lifetime`).toBe(life);
+    expect(total(all) + filed.setup, `seed ${seed}: stages`).toBe(life);
+    if (policy.run.kind === "set" && policy.run.stages.includes("plan"))
+      expect(filed.setup, `seed ${seed}: setup`).toBe(0);
+    expect(spent.agent + spent.you + spent.ci, `seed ${seed}: spent`).toBe(
+      life,
+    );
+    expect(all.filter((one) => one.state.kind === "now").length).toBe(
+      work.state.kind === "open" && read.current !== "setup" ? 1 : 0,
+    );
+    // ONE answer to "where is it now": the strip's outlined cell is where
+    // the fold says it is.
+    const current = read.stages.find((one) => one.state.kind === "now");
+    if (current !== undefined)
+      expect(read.current, `seed ${seed}: current`).toBe(current.name);
+    // What did not happen, or has not started, had no time — and a stage
+    // the mode does not have never did.
+    for (const one of all) {
+      if (one.state.kind === "skipped" || one.state.kind === "not-started")
+        expect(stageMs(one.state)).toBe(0);
+      if (policy.run.kind === "set" && !policy.run.stages.includes(one.name))
+        expect(one.state, `seed ${seed}: ${one.name}`).toEqual({
+          kind: "skipped",
+        });
+    }
+  });
+});
+
+describe("on scripted waterfalls", () => {
+  it.each(
+    Array.from({ length: 200 }, (_, one) => one + 1),
+  )("each stage holds the time put in it, waterfall %i", (seed) => {
+    const pick = seeded(seed);
+    const span = (): number => Math.floor(pick() * 30);
+    const planner = pick() < 0.6;
+    const want: Record<StageName, number> = {
+      plan: 0,
+      approve: 0,
+      build: 0,
+      review: 0,
+      checks: 0,
+      merge: 0,
+    };
+    let minute = 0;
+    let work = opened();
+    if (planner) {
+      work = join(work, "planner", 0);
+      want.plan = span();
+      minute += want.plan;
+      work = ask(work, "approve", minute);
+      want.approve = span();
+      minute += want.approve;
+      work = answer(work, "approve", minute);
+    }
+    work = join(work, "implementor", minute);
+    want.build = span();
+    minute += want.build;
+    work = prOpened(work, minute);
+    want.review = span();
+    minute += want.review;
+    // A question during the review keeps the work in the review.
+    if (pick() < 0.5) {
+      const asked = span();
+      work = ask(work, "mid", minute);
+      work = answer(work, "mid", minute + asked);
+      want.review += asked;
+      minute += asked;
+    }
+    work = check(work, "checks-running", minute);
+    want.checks = span();
+    minute += want.checks;
+    work = check(work, "checks-passed", minute);
+    work = mergeState(work, { kind: "can" }, minute);
+    want.merge = span();
+    minute += want.merge;
+    work = merged(work, minute);
+    const named = byName(strip(work, planner ? FULL : TRIVIAL, at(minute)));
+    // A TRIVIAL WORK HAS NOBODY TO REVIEW: its agents' time after the PR is
+    // still the build, and its Plan, Approve and Review did not happen.
+    if (!planner) {
+      want.build += want.review;
+      want.review = 0;
+    }
+    for (const name of Object.keys(want) as StageName[]) {
+      if (
+        !planner &&
+        (name === "plan" || name === "approve" || name === "review")
+      ) {
+        expect(named[name], `seed ${seed}: ${name}`).toEqual({
+          kind: "skipped",
+        });
+        continue;
+      }
+      // Every stage of this waterfall happened, however long it took.
+      expect(named[name], `seed ${seed}: ${name}`).toMatchObject({
+        kind: "done",
+        ms: want[name] * MINUTE,
+      });
+    }
+  });
+});
+
+describe("where a work's stages stand", () => {
+  it("plans, then waits on you to approve", () => {
+    let work = join(opened(), "planner", 0);
+    work = ask(work, "approve", 22);
+    const named = byName(strip(work, FULL, at(34)));
+    expect(named.plan).toEqual({ kind: "done", ms: 22 * MINUTE, who: "agent" });
+    expect(named.approve).toEqual({ kind: "now", ms: 12 * MINUTE, who: "you" });
+    expect(named.build).toEqual({ kind: "not-started" });
+  });
+
+  it("is the human's while the build stops on a question", () => {
+    let work = join(opened(), "implementor", 5);
+    work = ask(work, "which", 20);
+    expect(byName(strip(work, FULL, at(25))).build).toEqual({
+      kind: "now",
+      ms: 20 * MINUTE,
+      who: "you",
+    });
+  });
+
+  it("keeps a question after the PR opens in the review, the human's", () => {
+    let work = join(opened(), "implementor", 0);
+    work = prOpened(work, 10);
+    work = ask(work, "which", 14);
+    const named = byName(strip(work, FULL, at(20)));
+    expect(named.review).toEqual({ kind: "now", ms: 10 * MINUTE, who: "you" });
+    expect(named.merge).toEqual({ kind: "not-started" });
+  });
+
+  it("has no plan, approval or review when no planner runs", () => {
+    const work = join(opened(), "implementor", 3);
+    expect(cells(work, TRIVIAL, at(10))).toBe(
+      "plan –, approve –, build now, review –, checks ·, merge ·",
+    );
+  });
+
+  it("files the setup's questions under the plan, before there is one to approve", () => {
+    // The setup form is answered at 6; the planner joins then, and asks for
+    // approval at 20.
+    let work = ask(opened(), "setup", 0);
+    work = answer(work, "setup", 6);
+    work = join(work, "planner", 6);
+    work = ask(work, "approve", 20);
+    const read = waterfall(work, FULL, at(30));
+    const named = byName(read.stages);
+    // Mostly the planner's: 14 of its 20 minutes.
+    expect(named.plan).toEqual({ kind: "done", ms: 20 * MINUTE, who: "agent" });
+    expect(named.approve).toEqual({ kind: "now", ms: 10 * MINUTE, who: "you" });
+    // ... and the events say so: everything up to the approval's ask, the
+    // setup's ask and answer included, is the plan's.
+    expect(read.events).toEqual([
+      ...Array.from({ length: work.events.length - 1 }, () => "plan"),
+      "approve",
+    ]);
+  });
+
+  it("draws the setup's wait as yours once it was most of the plan", () => {
+    let work = ask(opened(), "setup", 0);
+    work = answer(work, "setup", 12);
+    work = join(work, "planner", 12);
+    work = ask(work, "approve", 15);
+    expect(byName(strip(work, FULL, at(20))).plan).toEqual({
+      kind: "done",
+      ms: 15 * MINUTE,
+      who: "you",
+    });
+  });
+
+  it("names no stages for a mode that declares none, and none yet before the mode is chosen", () => {
+    const work = join(opened(), "implementor", 3);
+    expect(
+      stages(
+        work,
+        {
+          handOver: false,
+          run: {
+            kind: "set",
+            driven: MODE_RUNS.watch.driven,
+            stages: MODE_RUNS.watch.stages,
+          },
+        },
+        at(9),
+      ),
+    ).toEqual({ kind: "none" });
+    expect(
+      stages(work, { handOver: false, run: { kind: "unset" } }, at(9)),
+    ).toEqual({ kind: "unset" });
+  });
+
+  it("counts a review that took no time as done, and a merge kolu made itself", () => {
+    // `pr-opened` and the first check event land at one instant, as the
+    // observer stamps them; the forge merged it with nobody handed anything.
+    let work = join(opened(), "implementor", 0);
+    work = prOpened(work, 40);
+    work = check(work, "checks-running", 40);
+    work = check(work, "checks-passed", 52);
+    work = merged(work, 52);
+    const named = byName(strip(work, policyFor("full", false), at(90)));
+    expect(named.review).toMatchObject({ kind: "done", ms: 0 });
+    expect(named.checks).toMatchObject({ kind: "done", ms: 12 * MINUTE });
+    expect(named.merge).toMatchObject({ kind: "done", ms: 0 });
+  });
+
+  it("builds again on a second attempt after the first PR was closed", () => {
+    let work = join(opened(), "implementor", 0);
+    work = prOpened(work, 10);
+    work = endWork(
+      recordEvent(work, {
+        at: at(20),
+        by: "kolu",
+        kind: "pr-closed",
+        about: ABOUT_WORK,
+        pr: 7,
+      }),
+      { outcome: { kind: "closed", pr: 7 }, at: at(20) },
+    );
+    work = reopenWork(work, at(30));
+    work = prOpened(work, 45, 8);
+    const named = byName(strip(work, FULL, at(50)));
+    // 10 before the first PR, 15 after the reopen before the second.
+    expect(named.build).toMatchObject({ kind: "done", ms: 25 * MINUTE });
+    expect(named.review).toEqual({
+      kind: "now",
+      ms: 15 * MINUTE,
+      who: "agent",
+    });
+  });
+});
+
+/** THE SHAPES OF REAL WORKS, each by name, as their cards must read. */
+describe("the shapes of real works", () => {
+  /** An instant `seconds` into the work. */
+  const second = (seconds: number): string =>
+    new Date(T0 + seconds * 1000).toISOString();
+
+  it("a full waterfall that opens its own PR, is reviewed, runs CI and is merged", () => {
+    let work = join(opened(), "planner", 0);
+    work = ask(work, "approve", 20);
+    work = answer(work, "approve", 25);
+    work = join(work, "implementor", 25);
+    work = prOpened(work, 60);
+    work = check(work, "checks-running", 80);
+    work = check(work, "checks-passed", 95);
+    work = mergeState(work, { kind: "can" }, 95);
+    work = merged(work, 100);
+    expect(cells(work, FULL, at(120))).toBe(
+      "plan done, approve done, build done, review done, checks done, merge done",
+    );
+  });
+
+  it("a trivial work that takes up a PR that already existed (the dependabot card)", () => {
+    // The human's record, second by second: the PR was there before the
+    // implementor, so it ends no build, and nobody reviews a trivial work.
+    let work = openWork({
+      key: { kind: "branch", host: "local", repo: "/r", branch: "dependabot" },
+      title: "land the dependabot PR",
+      at: second(0),
+      request: { kind: "said", text: "land it" },
+    });
+    work = recordEvent(work, {
+      at: second(1),
+      by: "kolu",
+      kind: "pr-opened",
+      about: ABOUT_WORK,
+      pr: 2391,
+      title: "bump",
+      url: { kind: "link", href: "https://forge.example/pr/2391" },
+    });
+    work = recordEvent(work, {
+      at: second(1),
+      by: "ci",
+      kind: "checks-failed",
+      about: ABOUT_WORK,
+      pr: 2391,
+      head: { kind: "commit", sha: "d1" },
+      failing: ["lint"],
+    });
+    work = joinWork(work, {
+      terminal: "local/implementor",
+      role: "implementor",
+      at: second(6),
+    });
+    work = recordEvent(work, {
+      at: second(16),
+      by: "agent",
+      kind: "ready",
+      about: { kind: "member", terminal: "local/implementor" },
+      why: { kind: "none" },
+    });
+    expect(cells(work, TRIVIAL, second(43))).toBe(
+      "plan –, approve –, build now, review –, checks ·, merge ·",
+    );
+  });
+
+  it("a work stopped while its setup form was still open", () => {
+    const work = endWork(ask(opened(), "setup", 0), {
+      outcome: { kind: "stopped", by: "you" },
+      at: at(4),
+    });
+    expect(cells(work, FULL, at(10))).toBe(
+      "plan done, approve –, build –, review –, checks –, merge –",
+    );
+    expect(byName(strip(work, FULL, at(10))).plan).toEqual({
+      kind: "done",
+      ms: 4 * MINUTE,
+      who: "you",
+    });
+  });
+
+  it("a trivial work's setup form, which no stage holds", () => {
+    // A trivial work has no Plan, and answering its setup is not building:
+    // the five minutes are yours (time spent) but in no cell.
+    const asking = ask(opened(), "setup", 0);
+    expect(cells(asking, TRIVIAL, at(5))).toBe(
+      "plan –, approve –, build ·, review –, checks ·, merge ·",
+    );
+    expect(waterfall(asking, TRIVIAL, at(5)).current).toBe("setup");
+    let work = answer(asking, "setup", 5);
+    work = join(work, "implementor", 5);
+    const named = byName(strip(work, TRIVIAL, at(20)));
+    expect(named.build).toEqual({ kind: "now", ms: 15 * MINUTE, who: "agent" });
+    expect(timeSpent(work, TRIVIAL, at(20)).you).toBe(5 * MINUTE);
+  });
+
+  it("a work stopped after the plan, before any implementor", () => {
+    let work = join(opened(), "planner", 0);
+    work = ask(work, "approve", 30);
+    work = answer(work, "approve", 35);
+    work = endWork(work, {
+      outcome: { kind: "stopped", by: "you" },
+      at: at(40),
+    });
+    expect(cells(work, FULL, at(50))).toBe(
+      "plan done, approve done, build –, review –, checks –, merge –",
+    );
+  });
+
+  it("a full waterfall whose PR existed before the implementor joined", () => {
+    let work = prOpened(opened(), 0);
+    work = join(work, "planner", 0);
+    work = ask(work, "approve", 20);
+    work = answer(work, "approve", 25);
+    work = join(work, "implementor", 25);
+    work = check(work, "checks-running", 70);
+    work = check(work, "checks-passed", 85);
+    work = mergeState(work, { kind: "can" }, 85);
+    const named = byName(strip(work, FULL, at(90)));
+    // All the implementor's time is the build, before and after a push.
+    expect(named.build).toMatchObject({ kind: "done", ms: 45 * MINUTE });
+    expect(cells(work, FULL, at(90))).toBe(
+      "plan done, approve done, build done, review –, checks done, merge now",
+    );
+  });
+});
+
+describe("green is the forge saying it can merge", () => {
+  const blocked = (): Work => {
+    let work = join(opened(), "implementor", 0);
+    work = prOpened(work, 10);
+    // Quick checks pass; the required ones have not started.
+    work = check(work, "checks-passed", 12);
+    return mergeState(work, { kind: "cannot", why: "blocked" }, 12);
+  };
+
+  it("leaves a PR the forge will not merge with the agents, in review", () => {
+    const named = byName(strip(blocked(), FULL, at(30)));
+    expect(named.review).toEqual({
+      kind: "now",
+      ms: 20 * MINUTE,
+      who: "agent",
+    });
+    expect(named.checks).toEqual({ kind: "not-started" });
+  });
+
+  it("hands it over once the forge says it can merge, and takes it back when it cannot", () => {
+    let work = mergeState(blocked(), { kind: "can" }, 30);
+    expect(byName(strip(work, FULL, at(40))).merge).toEqual({
+      kind: "now",
+      ms: 10 * MINUTE,
+      who: "you",
+    });
+    // The base moved on: the stale green is gone.
+    work = mergeState(work, { kind: "cannot", why: "behind" }, 40);
+    expect(byName(strip(work, FULL, at(45))).review.kind).toBe("now");
+  });
+
+  it("is green with no checks at all", () => {
+    let work = join(opened(), "implementor", 0);
+    work = prOpened(work, 10);
+    work = mergeState(work, { kind: "can" }, 10);
+    expect(byName(strip(work, FULL, at(15))).merge.kind).toBe("now");
+  });
+
+  it("does not let one commit's answer stand for a push", () => {
+    let work = join(opened(), "implementor", 0);
+    work = prOpened(work, 10);
+    work = check(work, "checks-passed", 12);
+    work = mergeState(work, { kind: "can" }, 12);
+    expect(byName(strip(work, FULL, at(14))).merge.kind).toBe("now");
+    // A push GitHub has not worked out yet: not green, back to review.
+    work = mergeState(work, { kind: "unsettled" }, 20, 7, "b2");
+    expect(byName(strip(work, FULL, at(22))).review.kind).toBe("now");
+    // ... and checks about the new commit take the old answer away too.
+    let checked = mergeState(blocked(), { kind: "can" }, 14);
+    checked = check(checked, "checks-passed", 20, 7, "b2");
+    expect(byName(strip(checked, FULL, at(22))).review.kind).toBe("now");
+  });
+
+  it("forgets the checks and the answer when a work stopped green is reopened", () => {
+    let work = mergeState(blocked(), { kind: "can" }, 14);
+    work = endWork(work, {
+      outcome: { kind: "stopped", by: "you" },
+      at: at(16),
+    });
+    work = reopenWork(work, at(60));
+    // Four minutes of review before it went green, then ten since the reopen
+    // — not a merge waiting on you off an answer from before it stopped.
+    const named = byName(strip(work, FULL, at(70)));
+    expect(named.review).toEqual({
+      kind: "now",
+      ms: 14 * MINUTE,
+      who: "agent",
+    });
+  });
+
+  it("keeps one answer per check run, and every answer outside one", () => {
+    let work = join(opened(), "implementor", 0);
+    work = prOpened(work, 10);
+    work = check(work, "checks-running", 11);
+    // GitHub flips while the required checks land: one row stands for them.
+    for (let flip = 0; flip < 20; flip += 1)
+      work = mergeState(
+        work,
+        flip % 2 === 0 ? { kind: "can" } : { kind: "cannot", why: "blocked" },
+        12 + flip,
+      );
+    const answers = () =>
+      work.events.filter((one) => one.kind === "merge-state").length;
+    expect(answers()).toBe(1);
+    // The run ends; what GitHub says after it is each its own row.
+    work = check(work, "checks-passed", 40);
+    work = mergeState(work, { kind: "can" }, 41);
+    work = mergeState(work, { kind: "cannot", why: "behind" }, 50);
+    expect(answers()).toBe(3);
+  });
+
+  it("keeps at most a bounded number of check results for one commit, never losing the newest", () => {
+    let work = join(opened(), "implementor", 0);
+    work = prOpened(work, 10);
+    // Two suites out of phase: the word flips on every poll.
+    for (let poll = 0; poll < 40; poll += 1)
+      work = check(
+        work,
+        poll % 2 === 0 ? "checks-running" : "checks-passed",
+        11 + poll,
+      );
+    const kept = work.events.filter(
+      (one) => one.kind === "checks-running" || one.kind === "checks-passed",
+    );
+    expect(kept).toHaveLength(PR_FACTS_PER_COMMIT);
+    // The first says when the checks began; the newest is the word it reads.
+    expect(kept.at(0)?.at).toBe(at(11));
+    expect(kept.at(-1)?.at).toBe(at(50));
+    expect(kept.at(-1)?.kind).toBe("checks-passed");
+    expect(byName(strip(work, FULL, at(60))).checks.kind).not.toBe("now");
+  });
+
+  it("keeps a hand-over's time when a ninth check result arrives", () => {
+    // Eight flips ending green, GitHub says it can merge, and the PR waits on
+    // you for half an hour — then a re-run reports. The green the wait was
+    // filed under must still be on the record.
+    let work = join(opened(), "implementor", 0);
+    work = prOpened(work, 10);
+    for (let poll = 0; poll < PR_FACTS_PER_COMMIT; poll += 1)
+      work = check(
+        work,
+        poll % 2 === 0 ? "checks-running" : "checks-passed",
+        11 + poll,
+      );
+    work = mergeState(work, { kind: "can" }, 20);
+    work = check(work, "checks-running", 50);
+    const cells = byName(strip(work, FULL, at(55)));
+    expect(cells.merge).toEqual({ kind: "done", ms: 30 * 60_000, who: "you" });
+    expect(cells.checks.kind).toBe("now");
+    expect(
+      work.events.filter((one) => one.kind === "checks-passed").at(-1)?.at,
+    ).toBe(at(18));
+  });
+
+  it("keeps at most a bounded number of merge answers for one commit, never losing the newest", () => {
+    // The base moves for days: GitHub works it out again, then can again.
+    let work = join(opened(), "implementor", 0);
+    work = prOpened(work, 10);
+    work = check(work, "checks-passed", 11);
+    for (let move = 0; move < 30; move += 1)
+      work = mergeState(
+        work,
+        move % 2 === 0 ? { kind: "can" } : { kind: "unsettled" },
+        12 + move,
+      );
+    const answers = work.events.filter((one) => one.kind === "merge-state");
+    expect(answers).toHaveLength(PR_FACTS_PER_COMMIT);
+    expect(answers.at(0)?.at).toBe(at(12));
+    expect(answers.at(-1)?.at).toBe(at(41));
+  });
+});
+
+describe("the work's life", () => {
+  it("leaves out the time a work spent ended before it was reopened", () => {
+    let work = endWork(opened(), {
+      outcome: { kind: "stopped", by: "you" },
+      at: at(5),
+    });
+    work = reopenWork(work, at(8));
+    // 5 minutes, then 3 closed, then 2 more.
+    expect(lifetime(work, at(10))).toBe(7 * MINUTE);
+    expect(took(work, at(10)).reduce((sum, one) => sum + one.ms, 0)).toBe(
+      7 * MINUTE,
+    );
+  });
+});

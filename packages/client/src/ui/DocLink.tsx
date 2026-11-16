@@ -49,6 +49,7 @@ export const DOC_SLUGS = [
   "theming",
   "tiles",
   "troubleshooting",
+  "work-card",
 ] as const;
 
 export type DocSlug = (typeof DOC_SLUGS)[number];

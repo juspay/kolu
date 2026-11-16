@@ -17,6 +17,8 @@ import type {
   Decision,
   EventKind,
   EventOf,
+  MergeState,
+  PrLink,
   Work,
   WorkEvent,
 } from "./schema.ts";
@@ -33,9 +35,20 @@ export const decisionsOfAsk = (
 export interface PrReading {
   readonly number: number;
   readonly state: "open" | "merged" | "closed";
+  /** Where it lives, as its `pr-opened` recorded it. */
+  readonly link: PrLink;
   /** What the timeline last said about its checks — `none` until a check
    *  event since it was opened (or since it merged or closed). */
   readonly checks: "none" | "running" | "passed" | "failed";
+  /** The forge's last recorded answer to "can it merge" — `unknown` until a
+   *  `merge-state` since it was opened, and again once it merged or closed. */
+  readonly merge: MergeState | { readonly kind: "unknown" };
+  /** The last check event about it, with the gates that were red — what a
+   *  card says about its checks once nobody is reading them live. */
+  readonly lastCheck: Option.Option<EventOf<CheckKind>>;
+  /** The commit and answer of its last `merge-state`, for the observer to
+   *  record a merge state only when it CHANGES. */
+  readonly lastMerge: Option.Option<EventOf<"merge-state">>;
 }
 
 /** THE CHECK CORRESPONDENCE, in ONE table: a forge's rollup word, the event
@@ -86,50 +99,90 @@ export const CHECKS_READ_BACK = Object.fromEntries(
 export const isCheckEvent = (event: WorkEvent): event is EventOf<CheckKind> =>
   CHECK_KINDS.has(event.kind);
 
-/** WHAT A CHECK EVENT IS ABOUT, as one key: its kind, the PR and the commit
- *  it names.
- *
- *  The thing a work's timeline holds at most one of. A check event is news
- *  about ONE PULL REQUEST AT ONE COMMIT, and the work hears about it from
- *  every member that can see it — so the key is what each of them would
- *  produce, and the second member to say it adds nothing. Checks RE-RUN on
- *  the same commit are not news either: nothing about the work moved. A push
- *  is, and it carries a different commit. */
-export const checkKey = (
-  kind: CheckKind,
-  pr: number,
-  head: CheckHead,
-): string =>
-  `${kind}#${pr}@${head.kind === "commit" ? head.sha : "unreported"}`;
+/** WHETHER TWO READINGS ARE ABOUT THE SAME COMMIT — by kind and sha, never
+ *  by spelling. Two heads a source could not report are the same: there is
+ *  nothing to tell them apart by. */
+export const sameHead = (a: CheckHead, b: CheckHead): boolean =>
+  a.kind === "commit"
+    ? b.kind === "commit" && a.sha === b.sha
+    : b.kind === a.kind;
 
-export const checksSeen = (work: Work): ReadonlySet<string> => {
-  const keys = new Set<string>();
-  for (const one of work.events)
-    if (isCheckEvent(one)) keys.add(checkKey(one.kind, one.pr, one.head));
-  return keys;
-};
-
-/** One event's move on the PR reading — none for a work no PR was opened
- *  for yet, which only `pr-opened` changes. */
-const prStep = (
+/** ONE EVENT'S MOVE ON THE PR READING — the one statement of the PR-fact
+ *  rule: a check result or a merge answer about another commit makes the
+ *  other fact unknown, and opening, merging, closing and reopening each say
+ *  what is forgotten. None for a work no PR was opened for yet, which only
+ *  `pr-opened` changes. The observer reads it (through {@link prOf}) to tell
+ *  news from a repeat, and the folds carry it to tell green. */
+export const prStep = (
   pr: Option.Option<PrReading>,
   event: WorkEvent,
 ): Option.Option<PrReading> => {
   if (event.kind === "pr-opened")
-    return Option.some({ number: event.pr, state: "open", checks: "none" });
+    return Option.some({
+      number: event.pr,
+      state: "open",
+      link: event.url,
+      checks: "none",
+      merge: { kind: "unknown" },
+      lastCheck: Option.none(),
+      lastMerge: Option.none(),
+    });
   return Option.map(pr, (was): PrReading => {
+    // A FACT ABOUT ANOTHER COMMIT makes the other one's stale: checks about a
+    // new head say nothing of whether GitHub would merge it, and a merge
+    // answer about a new head says nothing of the old head's checks.
     if (isCheckEvent(event))
-      return { ...was, checks: CHECKS_READ_BACK[event.kind] };
+      return {
+        ...was,
+        checks: CHECKS_READ_BACK[event.kind],
+        lastCheck: Option.some(event),
+        merge: Option.exists(
+          was.lastMerge,
+          (last) => last.pr === event.pr && sameHead(last.head, event.head),
+        )
+          ? was.merge
+          : { kind: "unknown" },
+      };
     switch (event.kind) {
+      case "merge-state":
+        return {
+          ...was,
+          merge: event.merge,
+          lastMerge: Option.some(event),
+          checks: Option.exists(
+            was.lastCheck,
+            (last) => last.pr === event.pr && sameHead(last.head, event.head),
+          )
+            ? was.checks
+            : "none",
+        };
       case "merged":
-        return { ...was, state: "merged", checks: "none" };
+        return {
+          ...was,
+          state: "merged",
+          checks: "none",
+          merge: { kind: "unknown" },
+        };
       case "pr-closed":
-        return { ...was, state: "closed", checks: "none" };
+        return {
+          ...was,
+          state: "closed",
+          checks: "none",
+          merge: { kind: "unknown" },
+        };
       // A person pressing Reopen, or `work_open` on the same key: the reading
-      // goes back to open, so the next frame of the same reading is not news
-      // again.
+      // goes back to open and FORGETS what it said about the checks and the
+      // merge — they were true when the work stopped, maybe a week ago — so
+      // the next reading of the PR is news again and says how it stands now.
       case "reopened":
-        return { ...was, state: "open" };
+        return {
+          ...was,
+          state: "open",
+          checks: "none",
+          merge: { kind: "unknown" },
+          lastCheck: Option.none(),
+          lastMerge: Option.none(),
+        };
       default:
         return was;
     }
@@ -137,11 +190,22 @@ const prStep = (
 };
 
 /** THE PR, as the timeline last said it — none until one was opened. The
- *  reading moves on five kinds and nothing else, and every one of them
- *  carries its own PR number, so there is no parsing and no event that is
- *  about a pull request nobody named. */
+ *  reading moves on the PR's own events and nothing else, and every one of
+ *  them carries its own PR number, so there is no parsing and no event that
+ *  is about a pull request nobody named. */
 export const prOf = (work: Work): Option.Option<PrReading> =>
   work.events.reduce(prStep, Option.none<PrReading>());
+
+/** WHERE EACH PULL REQUEST THIS WORK EVER HAD LIVES, by number — what turns
+ *  `#2393` into a link wherever the work names it, a finished work included.
+ *  A PR recorded before kolu kept the address has no entry. */
+export const prLinks = (work: Work): ReadonlyMap<number, string> => {
+  const links = new Map<number, string>();
+  for (const one of work.events)
+    if (one.kind === "pr-opened" && one.url.kind === "link")
+      links.set(one.pr, one.url.href);
+  return links;
+};
 
 /** The worktree-relative paths of every file kolu has seen appear. */
 export const filesSeen = (work: Work): ReadonlySet<string> =>

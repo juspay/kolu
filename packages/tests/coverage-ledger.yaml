@@ -4314,7 +4314,7 @@ retirements:
     defectSurface: [conductor, mobile, user-journey]
     destinationLayer: L5
     replacements: []
-    survivorRevisionIds: [revision-acafa01d341788f26998]
+    survivorRevisionIds: [revision-ee6cea0dba9e20397579]
     sameCodePathEvidence:
       file: packages/tests/features/conductor-lock.feature
       symbol: "Scenario: The phone's key bar raises the same card"
@@ -4374,7 +4374,7 @@ retirements:
     defectSurface: [conductor, mobile, user-journey]
     destinationLayer: L5
     replacements: []
-    survivorRevisionIds: [revision-acafa01d341788f26998]
+    survivorRevisionIds: [revision-ee6cea0dba9e20397579]
     sameCodePathEvidence:
       file: packages/tests/features/conductor-lock.feature
       symbol: "Scenario: The phone's key bar raises the same card"
@@ -4400,7 +4400,7 @@ retirements:
     defectSurface: [conductor, user-journey]
     destinationLayer: L5
     replacements: []
-    survivorRevisionIds: [revision-6fc5a36ab7cdb4605f84]
+    survivorRevisionIds: [revision-12f77c4e4e311ca03048]
     sameCodePathEvidence:
       file: packages/tests/features/conductor-work.feature
       symbol: "Scenario: A waterfall's card, from the request to the merge"
@@ -4413,7 +4413,7 @@ retirements:
     defectSurface: [conductor, user-journey]
     destinationLayer: L5
     replacements: []
-    survivorRevisionIds: [revision-6fc5a36ab7cdb4605f84]
+    survivorRevisionIds: [revision-12f77c4e4e311ca03048]
     sameCodePathEvidence:
       file: packages/tests/features/conductor-work.feature
       symbol: "Scenario: A waterfall's card, from the request to the merge"
@@ -4665,3 +4665,55 @@ retirements:
       file: packages/tests/features/code-tab.feature
       symbol: "Scenario: Markdown preview draws a mermaid block as a diagram"
       test: The revised scenario also asserts that no renderer frame remains once the diagram has painted, since each frame is now single-use.
+  - id: revise-6fc5a36ab7cdb4605f84
+    revisionId: revision-6fc5a36ab7cdb4605f84
+    action: revised
+    status: landed
+    promise: A waterfall's card, from the request to the merge
+    defectSurface: [conductor, user-journey]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-12f77c4e4e311ca03048]
+    sameCodePathEvidence:
+      file: packages/tests/features/conductor-work.feature
+      symbol: "Scenario: A waterfall's card, from the request to the merge"
+      test: Every claim of this revision is still asserted on the same journey — request, joining, the .waterfall file, pr-opened, checks-running, checks-passed, the push counted as a second checks-running, merged, finished as merged. The one step that went green with nothing in GitHub's way now goes green with GitHub still wanting a review, and the survivor adds what that means — a merge-state event saying why, the card not waiting on you, the Pull request section saying so and linking the PR — then lets GitHub merge it and asserts the third merge-state event and the card waiting on you.
+  - id: revise-92cde8fdc1eceddd2342
+    revisionId: revision-92cde8fdc1eceddd2342
+    action: revised
+    status: landed
+    promise: A file the Conductor names in the chat opens in the reader
+    defectSurface: [conductor, user-journey]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-e22207e3f0792f8b975b]
+    sameCodePathEvidence:
+      file: packages/tests/features/conductor-reader.feature
+      symbol: "Scenario: A file the Conductor names in the chat opens in the reader"
+      test: The same press on the same link, asserted the same way — the reader opens on the file, the link reads as open, and the timeline row opens it too. The reply now looks at the work's implementor before naming the file, so the link opens this work's copy whatever other works an earlier scenario left on the worker's server; the old reply named no work and opened a menu once a second work held the same plan.
+  - id: revise-666d9b111da58ed6ce01
+    revisionId: revision-666d9b111da58ed6ce01
+    action: revised
+    status: landed
+    promise: A waterfall's card, from the request to the merge
+    defectSurface: [conductor, user-journey]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-12f77c4e4e311ca03048]
+    sameCodePathEvidence:
+      file: packages/tests/features/conductor-work.feature
+      symbol: "Scenario: A waterfall's card, from the request to the merge"
+      test: Every claim of this revision is still asserted on the same journey. GitHub's merge answers are now asserted by the reason word the timeline row and the Pull request section carry ("review", "can") instead of by their sentences, and the survivor adds the stage strip following the work (build, checks, review, merge) and two presses on the strip, each showing only that stage's events on the open card.
+  - id: revise-acafa01d341788f26998
+    revisionId: revision-acafa01d341788f26998
+    action: revised
+    status: landed
+    promise: The phone's key bar is gated by the band above it
+    defectSurface: [conductor, mobile, user-journey]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-ee6cea0dba9e20397579]
+    sameCodePathEvidence:
+      file: packages/tests/features/conductor-lock.feature
+      symbol: "Scenario: The phone's key bar raises the same card"
+      test: Every step of this revision is still asserted on the same phone journey. The survivor adds one check once the terminal is listed — each of the work's terminal rows on the phone's card is one line with nothing pushed past its edge.

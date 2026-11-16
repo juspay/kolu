@@ -2,9 +2,16 @@
  * HOW A WORK CHANGES — every transition, as a pure function of the record.
  *
  * Each takes a work and answers the work it becomes: nothing here reads a
- * clock, a filesystem or a host, and nothing mutates what it was given. The
- * timeline is append-only and BOUNDED here, in the one `append` below, so a
- * transition added later cannot forget the bound.
+ * clock, a filesystem or a host, and nothing mutates what it was given.
+ *
+ * THE TIMELINE ONLY GROWS, with three exceptions, each here and each with
+ * its reason: the one `append` below keeps it BOUNDED (old agent states fold
+ * into one count; a merge answer within one check run replaces the one
+ * before it; past {@link PR_FACTS_PER_COMMIT} check results, or merge
+ * answers, on one commit, the oldest of them between its first and its
+ * newest goes), and {@link linkPr} amends a `pr-opened` recorded before kolu
+ * kept PR addresses with the address it learns later. Nothing else rewrites a
+ * past row.
  *
  * MEMBERSHIP IS NOT HERE any more. A member is a row in the one map keyed by
  * terminal (`./store.ts`), so joining and leaving are a map movement plus the
@@ -13,6 +20,7 @@
  */
 
 import { Array as Arr, Option } from "effect";
+import { isCheckEvent, sameHead } from "./readings.ts";
 import {
   ABOUT_WORK,
   type AnsweredFromFace,
@@ -37,8 +45,8 @@ import {
   type WorkRole,
 } from "./schema.ts";
 
-/** HOW A TERMINAL'S AGENT STANDS, as events — the only kinds a work produces
- *  over and over for as long as it runs, and so the only ones bounded. */
+/** HOW A TERMINAL'S AGENT STANDS, as events — what a work produces over and
+ *  over for as long as it runs, so it is folded past a count. */
 export const AGENT_STATE_KINDS = [
   "ready",
   "stopped",
@@ -80,10 +88,108 @@ const foldOldest = (events: Array<WorkEvent>): void => {
   });
 };
 
+/** WHETHER A NEW MERGE ANSWER REPLACES THE LAST ONE rather than joining the
+ *  timeline: both are about the same PR at the same commit, and that commit's
+ *  checks were already running when the last one was recorded and still are.
+ *  GitHub flips between blocked and mergeable while required checks land, and
+ *  none of those answers decides anything — CI holds the work while its checks
+ *  run (`./folds.ts`), so a running check outranks any merge answer — so the
+ *  run keeps only its latest. Anything between the two that moves the PR
+ *  (a check, the PR opening, merging or closing, a reopen) keeps both. */
+const replacesLastMerge = (
+  events: ReadonlyArray<WorkEvent>,
+  event: WorkEvent,
+): number => {
+  if (event.kind !== "merge-state") return -1;
+  for (let index = events.length - 1; index >= 0; index -= 1) {
+    const one = events[index];
+    if (one === undefined) return -1;
+    switch (one.kind) {
+      case "merge-state": {
+        if (one.pr !== event.pr || !sameHead(one.head, event.head)) return -1;
+        // The check reading it was recorded under: the last check event
+        // before it, which must be this commit's checks running.
+        for (let back = index - 1; back >= 0; back -= 1) {
+          const earlier = events[back];
+          if (earlier === undefined) return -1;
+          if (isCheckEvent(earlier))
+            return earlier.kind === "checks-running" &&
+              earlier.pr === event.pr &&
+              sameHead(earlier.head, event.head)
+              ? index
+              : -1;
+          if (MOVES_A_PR.has(earlier.kind)) return -1;
+        }
+        return -1;
+      }
+      default:
+        if (isCheckEvent(one) || MOVES_A_PR.has(one.kind)) return -1;
+    }
+  }
+  return -1;
+};
+
+/** The events that move a PR other than its checks and merge answers. */
+const MOVES_A_PR: ReadonlySet<string> = new Set([
+  "pr-opened",
+  "merged",
+  "pr-closed",
+  "reopened",
+]);
+
+/** HOW MANY CHECK RESULTS, AND HOW MANY MERGE ANSWERS, ONE COMMIT KEEPS. A
+ *  commit's checks change a few times — the quick ones pass, the real run
+ *  starts, it fails, a re-run passes — and two suites reporting out of phase
+ *  would otherwise write a row per poll (juspay/kolu#2376's shape). GitHub
+ *  recomputes its merge answer every time the base moves (`unsettled`, then
+ *  `can` again), on a work that may sit for days. */
+export const PR_FACTS_PER_COMMIT = 8;
+
+/** THE ROW A NEW CHECK RESULT OR MERGE ANSWER CROWDS OUT, if its commit
+ *  already holds {@link PR_FACTS_PER_COMMIT} of that kind: the oldest one
+ *  between the commit's first and its newest. Never the newest — it is the
+ *  word the work reads now, and the time since it (a green PR waiting on a
+ *  person) is filed by it — and never the first, which says when the commit's
+ *  checks, or GitHub's answers, began. What goes is a flip in the middle that
+ *  a later one already superseded. */
+const crowdedOut = (
+  events: ReadonlyArray<WorkEvent>,
+  event: WorkEvent,
+): number => {
+  if (!isCheckEvent(event) && event.kind !== "merge-state") return -1;
+  const factOf = (one: WorkEvent) => (isCheckEvent(one) ? "check" : one.kind);
+  const mine = events.flatMap((one, index) =>
+    (isCheckEvent(one) || one.kind === "merge-state") &&
+    factOf(one) === factOf(event) &&
+    one.pr === event.pr &&
+    sameHead(one.head, event.head)
+      ? [index]
+      : [],
+  );
+  return mine.length >= PR_FACTS_PER_COMMIT ? (mine[1] ?? -1) : -1;
+};
+
 /** THE ONE APPEND. Every transition in this module goes through it, so the
- *  bound cannot be forgotten by a caller or by a transition added later. */
+ *  bounds cannot be forgotten by a caller or by a transition added later:
+ *  agent states fold past {@link AGENT_STATES_KEPT}, a merge answer given
+ *  while its commit's checks run replaces the last one
+ *  ({@link replacesLastMerge}), and a commit's check results or merge answers
+ *  past {@link PR_FACTS_PER_COMMIT} lose one from the middle
+ *  ({@link crowdedOut}). */
 const append = (work: Work, event: WorkEvent): Work => {
+  const merge = replacesLastMerge(work.events, event);
+  if (merge >= 0)
+    return {
+      ...work,
+      events: [
+        ...work.events.slice(0, merge),
+        ...work.events.slice(merge + 1),
+        event,
+      ],
+    };
   const events = [...work.events, event];
+  const crowded = crowdedOut(work.events, event);
+  if (crowded >= 0) events.splice(crowded, 1);
   if (AGENT_STATE.has(event.kind)) {
     let states = events.filter((one) => AGENT_STATE.has(one.kind)).length;
     while (states > AGENT_STATES_KEPT) {
@@ -510,6 +616,24 @@ export const leaveWork = (
 /** Append one observation. */
 export const recordEvent = (work: Work, event: WorkEvent): Work =>
   append(work, event);
+
+/** A PR'S ADDRESS, LEARNED LATE: a `pr-opened` recorded before kolu kept the
+ *  address (the 1.57.0 rung's `unrecorded`) takes the one the forge now gives.
+ *  Nothing else about the event moves, and a recorded address is never
+ *  replaced. The same work back when there is nothing to learn. */
+export const linkPr = (work: Work, pr: number, href: string): Work => {
+  const at = work.events.findIndex(
+    (one) =>
+      one.kind === "pr-opened" &&
+      one.pr === pr &&
+      one.url.kind === "unrecorded",
+  );
+  const opened = work.events[at];
+  if (opened === undefined || opened.kind !== "pr-opened") return work;
+  const events = [...work.events];
+  events[at] = { ...opened, url: { kind: "link", href } };
+  return { ...work, events };
+};
 
 /** THE PERSON TOOK THE KEYS to a member terminal: from here on it is theirs
  *  to type into and the Conductor keeps its hands off, until they hand it

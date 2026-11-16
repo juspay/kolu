@@ -358,6 +358,19 @@ const WorkChoiceQuestion: Component<{
       ? (askDraft(props.ask, typedKey(props.decision.id))[0] ?? "") === value
       : askDraft(props.ask, props.decision.id).includes(value);
 
+  /** WHAT THIS PERSON ANSWERED THIS BEFORE, most recent first — what a long
+   *  list rests on: every model they ran this harness on, or the harness they
+   *  last chose for this role. */
+  const usedValues = (): ReadonlyArray<string> =>
+    Option.match(harness(), {
+      onSome: (one) => usedBefore(one).map((model) => model.value),
+      onNone: () =>
+        Option.match(props.memory.last(props.decision.key, Option.none()), {
+          onSome: (last) => [last.value],
+          onNone: () => [],
+        }),
+    });
+
   /** THE ONE THING A PERSON MUST BE TOLD about a question they cannot answer
    *  yet: pressing Answer does not answer it, and it will still be there
    *  afterwards. Said ON the question — the form does not invite a blank it
@@ -429,6 +442,7 @@ const WorkChoiceQuestion: Component<{
               <AskOptions
                 field={props.decision.id}
                 options={chips()}
+                usedBefore={usedValues()}
                 picked={isPressed}
                 onPick={press}
                 searchLabel={what() === "model" ? "models" : "harnesses"}

@@ -697,10 +697,32 @@ const turn = async (
     endTurn(id);
     return;
   }
-  if (text === "say where the plan is") {
-    // THE CONDUCTOR NAMES A FILE IN ITS OWN WORDS, as a real one does after
-    // a planner writes — plain prose with the path in backticks. Nothing
-    // here says which work: kolu reads that off the files it holds.
+  if (text === "look at the implementor and say where its plan is") {
+    // THE CONDUCTOR NAMES A FILE IN ITS OWN WORDS, in a turn that is about
+    // one work: a real kolu tool card naming the implementor this fixture
+    // last started (a screen read), then plain prose with the path in
+    // backticks. The card is what tells kolu which work the reply is about —
+    // the sentence names none.
+    if (lastStarted === null) {
+      say("no implementor was started");
+      endTurn(id);
+      return;
+    }
+    update({
+      sessionUpdate: "tool_call",
+      toolCallId: "call-look",
+      title: "screen_text",
+      kind: "read",
+      status: "in_progress",
+      rawInput: { id: lastStarted },
+      _meta: { claudeCode: { toolName: "mcp__kolu__screen_text" } },
+    });
+    update({
+      sessionUpdate: "tool_call_update",
+      toolCallId: "call-look",
+      status: "completed",
+      rawOutput: { text: "plan written" },
+    });
     say("Its plan is at `.waterfall/plan.md`.");
     endTurn(id);
     return;

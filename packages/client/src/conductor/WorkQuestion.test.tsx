@@ -612,7 +612,7 @@ describe("a kolu built without agent-distro", () => {
 });
 
 describe("a long list of models", () => {
-  it("gets a box that narrows it", async () => {
+  it("rests on what was used before, searches all of it, and unfolds", async () => {
     const many = Array.from({ length: 12 }, (_, at) => `model-${at}`);
     host.reply = () =>
       Effect.succeed({
@@ -627,7 +627,18 @@ describe("a long list of models", () => {
     );
     await settle();
 
-    expect(options(el, "ask-model")).toHaveLength(12);
+    // Nothing used before with this harness: no chips at rest, only the
+    // box and the line that counts the rest.
+    const more = () =>
+      el.querySelector(
+        '[data-testid="conductor-ask-more"][data-field="ask-model"]',
+      );
+    const all = () =>
+      el.querySelector(
+        '[data-testid="conductor-ask-all"][data-field="ask-model"]',
+      ) as HTMLElement;
+    expect(options(el, "ask-model")).toEqual([]);
+    expect(more()?.getAttribute("data-hidden")).toBe("12");
     const search = el.querySelector(
       '[data-testid="conductor-ask-search"][data-field="ask-model"]',
     ) as HTMLInputElement;
@@ -637,6 +648,16 @@ describe("a long list of models", () => {
       "model-10",
       "model-11",
     ]);
+    // A pick from the search stays drawn, and selected, once it is cleared.
+    chip(el, "ask-model", "model-10").click();
+    typeInto(search, "");
+    expect(options(el, "ask-model")).toEqual(["model-10"]);
+    expect(selected(el, "ask-model")).toEqual(["model-10"]);
+    // "show all" unfolds the whole list in place, and folds back.
+    all().click();
+    expect(options(el, "ask-model")).toHaveLength(12);
+    all().click();
+    expect(options(el, "ask-model")).toEqual(["model-10"]);
   });
 });
 

@@ -33,6 +33,22 @@ Feature: The Conductor never blocks
     And the conductor transcript should show a row of kind "agent" saying "woke"
     And there should be no page errors
 
+  Scenario: A wake-up names its piece of work, and the name takes you to it
+    # WHICH WORK RANG is the first thing a person needs from a wake: the line
+    # carries that work as a chip, read off the terminal the wake is about,
+    # and pressing the chip opens the work's card where it can be seen.
+    When I leave the conductor for the host tab
+    And I create a terminal
+    And a Claude Code session is mocked with state "thinking"
+    And I ask the conductor to watch the terminal
+    Then the conductor status should say 1 piece of work
+    When the Claude Code session state changes to "awaiting_user"
+    Then the conductor transcript should show a wake about the watched terminal
+    And the wake should name the watched work with a chip
+    When I press the wake's work chip
+    Then the watched work's card should be open
+    And there should be no page errors
+
   Scenario: A session the Conductor finds idle rings once as ready
     # The INFERRED reading of ready, and the only case left for it: a session
     # kolu did not watch come up — an adopted or resumed one, written here

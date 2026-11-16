@@ -1,6 +1,6 @@
 ---
 title: The Setup Form
-description: "The form that sets up a piece of work: the mode, what happens when CI goes green, and the harness and model each agent runs."
+description: "The form that sets up a piece of work: the mode, what happens when its PR is green, and the harness and model each agent runs."
 order: 52.55
 section: "Agents & Attention"
 koluHero:
@@ -14,7 +14,7 @@ import LinkCard from "../../components/docs/LinkCard.astro";
 import CardGrid from "../../components/docs/CardGrid.astro";
 
 Every piece of work [the Conductor](/conductor) opens starts with one form. You
-say how it runs, what happens when CI goes green, and which agent CLI (the
+say how it runs, what happens when its PR is green, and which agent CLI (the
 harness) and model run the planner and the implementor.
 
 ## What it asks
@@ -23,7 +23,7 @@ harness) and model run the planner and the implementor.
 | --- | --- |
 | **Mode** | Full: a planner, your approval, an implementor and review rounds. Trivial: one implementor. |
 | **Planner**, **Implementor** | The harness that runs each agent, and the model it runs on. |
-| **On green** | What to do when CI passes: merge the pull request, or hand it to you. |
+| **On green** | What to do once the PR is green, meaning GitHub would let it merge and no check is running or failing: merge it, or hand it to you. |
 
 The host is not in the form: it is part of the work itself. When your request
 does not name the machine, the Conductor asks in its reply, because a path like
@@ -51,7 +51,7 @@ chose.
 
 - The harnesses are the ones this kolu carries.
 - The models are the ones that harness offers on the work's host, asked of the
-  host as the form is drawn. A long list has a search box.
+  host as the form is drawn.
 - The host asks in the same environment a new terminal there gets, after your
   shell has read its startup files. A key your `~/.bashrc` exports reaches the
   list, as it reaches an agent you start by hand.
@@ -61,6 +61,18 @@ chose.
   you have run before, and a box to type one.
 - That box takes one model id: one word, no spaces. Anything else is refused
   with a line saying why.
+
+### A long list
+
+A list of more than eight options, such as a gateway's models, is drawn short:
+
+- Only the options you have used before show, the last one you chose first and
+  already selected. With none, no options show.
+- One line says how many more there are, such as **87 more · search, or show
+  all**. Click **show all** to unfold the whole list, and **show fewer** to
+  fold it back.
+- The search box searches the whole list, not only what is shown.
+- An option you pick from a search stays shown once you clear the box.
 
 ## When the host cannot list its models
 

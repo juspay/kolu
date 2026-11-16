@@ -33,8 +33,10 @@ import type {
   ConductorWorkAskRow,
 } from "kolu-common/conductor";
 import { Key } from "@solid-primitives/keyed";
+import type { WorkId } from "kolu-work";
 import {
   type Component,
+  createContext,
   createEffect,
   createMemo,
   createSignal,
@@ -44,6 +46,7 @@ import {
   onMount,
   Show,
   Switch,
+  useContext,
 } from "solid-js";
 import ScrollToBottom from "../terminal/ScrollToBottom";
 import ConductorAsk from "./ConductorAsk";
@@ -64,10 +67,85 @@ import {
   transcriptPinned,
   unpinTranscript,
 } from "./transcriptScroll";
+import { type FileHolders, fileHolders } from "./namedFiles";
+import { joinsOf, type Turn, turnWorks } from "./turnWorks";
 import { useConductor } from "./useConductor";
 import { wakeHeadline, wakeWhen } from "./wake";
 import { useWorkMap } from "./useWorks";
+import WorkChip from "./WorkChip";
 import WorkQuestion from "./WorkQuestion";
+
+const NO_WORKS: ReadonlyArray<WorkId> = [];
+
+/** WHAT EVERY ROW READS ABOUT ITS TURN — the turn (`./turnWorks.ts`: the row
+ *  that starts it, and the works it is about), and which works hold which
+ *  files, for the prose's file links. A context rather than a prop, because
+ *  the rows folded under a Details are drawn by the same row component. It
+ *  has no default: a row drawn outside a transcript is a mistake to see, not
+ *  a row that quietly shows no works. */
+interface Turns {
+  readonly turnOf: (rowId: string) => Turn;
+  readonly holders: () => FileHolders;
+}
+const TurnsContext = createContext<Turns>();
+
+const useTurns = (): Turns => {
+  const turns = useContext(TurnsContext);
+  if (turns === undefined)
+    throw new Error("a transcript row was drawn outside its transcript");
+  return turns;
+};
+
+/** The same works, in the same order: what keeps a row's chips from being
+ *  redrawn on every streamed chunk of its turn. */
+const sameWorks = (
+  a: ReadonlyArray<WorkId>,
+  b: ReadonlyArray<WorkId>,
+): boolean => a.length === b.length && a.every((one, i) => one === b[i]);
+
+/** A TURN'S WORKS, AS CHIPS, on a line of their own — the ones this browser
+ *  has the record of. */
+const TurnChips: Component<{ works: ReadonlyArray<WorkId> }> = (props) => {
+  const map = useWorkMap();
+  return (
+    <div
+      data-testid="conductor-turn-works"
+      class="flex min-w-0 flex-wrap items-center gap-1.5"
+    >
+      <For each={props.works}>
+        {(id) => (
+          <Show when={map().get(id)}>
+            {(work) => <WorkChip id={id} work={work()} />}
+          </Show>
+        )}
+      </For>
+    </div>
+  );
+};
+
+/** THE WORKS OF A TURN WITH NO PROMPT ROW to carry them — rows before the
+ *  first message — drawn above the item that holds the turn's first row,
+ *  whether that is a row, a fold or a run of failures. A turn that starts
+ *  with your message or a wake-up draws them there instead. */
+const TurnHead: Component<{ rows: ReadonlyArray<ConductorRow> }> = (props) => {
+  const turns = useTurns();
+  const works = createMemo(
+    () => {
+      const first = props.rows[0];
+      if (first === undefined || first.kind === "user" || first.kind === "wake")
+        return NO_WORKS;
+      const turn = turns.turnOf(first.id);
+      return turn.first === first.id ? turn.works : NO_WORKS;
+    },
+    NO_WORKS,
+    { equals: sameWorks },
+  );
+  return (
+    <Show when={works().length > 0}>
+      <TurnChips works={works()} />
+    </Show>
+  );
+};
 
 /** A QUESTION KOLU ASKED ABOUT A PIECE OF WORK, where it was asked.
  *
@@ -112,6 +190,24 @@ const ConductorTranscript: Component<{
   const items = createMemo(() =>
     foldFailureRuns(foldToolRuns(foldNoticeRuns(props.rows))),
   );
+  /** Each row's turn — one walk of the rows per change — over the two
+   *  indexes of the works, each built once per change of the works: which
+   *  terminal joined which work, and which work holds which file. */
+  const workMap = useWorkMap();
+  const joins = createMemo(() => joinsOf(workMap()));
+  const holders = createMemo(() => fileHolders(workMap()));
+  const turns = createMemo(() => turnWorks(props.rows, workMap(), joins()));
+  const turnsContext: Turns = {
+    // Every row of `props.rows` has a turn, and every row drawn is one of
+    // them: both lists are read off the same rows in the same tick.
+    turnOf: (rowId) => {
+      const turn = turns().get(rowId);
+      if (turn === undefined)
+        throw new Error(`transcript row ${rowId} has no turn`);
+      return turn;
+    },
+    holders,
+  };
 
   // BEFORE the follow effect below, and that order is the fix: declared first,
   // so Solid runs it first and the first follow check measures a container
@@ -246,33 +342,38 @@ const ConductorTranscript: Component<{
             id; a fold's is the id of the boundary that opens its run. Both are
             stable for the thing's life, and an item never changes kind under
             its key. */}
-        <Key each={items()} by={(item) => item.key}>
-          {(item) => (
-            <Switch>
-              <Match when={foldRowsOf(item())}>
-                {(rows) => <TranscriptFold rows={rows()} />}
-              </Match>
-              <Match when={failuresOf(item())}>
-                {(run) => (
-                  <TranscriptFailures
-                    tool={run().tool}
-                    reason={run().reason}
-                    rows={run().rows}
-                  />
-                )}
-              </Match>
-              <Match when={entryOf(item())}>
-                {(entry) => (
-                  <TranscriptRow
-                    row={entry().row}
-                    repeat={entry().repeat}
-                    onRedrawn={noteRedrawn}
-                  />
-                )}
-              </Match>
-            </Switch>
-          )}
-        </Key>
+        <TurnsContext.Provider value={turnsContext}>
+          <Key each={items()} by={(item) => item.key}>
+            {(item) => (
+              <>
+                <TurnHead rows={rowsOf(item())} />
+                <Switch>
+                  <Match when={foldRowsOf(item())}>
+                    {(rows) => <TranscriptFold rows={rows()} />}
+                  </Match>
+                  <Match when={failuresOf(item())}>
+                    {(run) => (
+                      <TranscriptFailures
+                        tool={run().tool}
+                        reason={run().reason}
+                        rows={run().rows}
+                      />
+                    )}
+                  </Match>
+                  <Match when={entryOf(item())}>
+                    {(entry) => (
+                      <TranscriptRow
+                        row={entry().row}
+                        repeat={entry().repeat}
+                        onRedrawn={noteRedrawn}
+                      />
+                    )}
+                  </Match>
+                </Switch>
+              </>
+            )}
+          </Key>
+        </TurnsContext.Provider>
       </div>
       {/* THE TERMINAL'S OWN PILL, not a second one that looks like it: the
           affordance for "you are not following, here is the way back" already
@@ -297,6 +398,9 @@ const failuresOf = (item: TranscriptItem) =>
   item.kind === "failures" ? item : undefined;
 const entryOf = (item: TranscriptItem) =>
   item.kind === "entry" ? item.entry : undefined;
+/** The rows an item draws, in order — what its turn's head is read from. */
+const rowsOf = (item: TranscriptItem): ReadonlyArray<ConductorRow> =>
+  item.kind === "entry" ? [item.entry.row] : item.rows;
 
 /** A run of the Conductor's tool calls, folded. A plain `<details>`, CLOSED
  *  until somebody opens it, and owned by the DOM: the list keys it by the
@@ -363,108 +467,124 @@ function TranscriptRow(props: {
   repeat: number;
   onRedrawn?: () => void;
 }) {
+  const turns = useTurns();
+  /** The works this row's turn is about — the same list, by value, until the
+   *  turn names another. */
+  const works = createMemo(() => turns.turnOf(props.row.id).works, NO_WORKS, {
+    equals: sameWorks,
+  });
   return (
-    <div
-      data-testid="conductor-row"
-      data-row-kind={props.row.kind}
-      data-row-id={props.row.id}
-      // A row is a flex item of the column above, so it needs the same floor
-      // released — without it the row passes its card's content width straight
-      // up and the `min-w-0` above has nothing to do.
-      //
-      // THE GAP BETWEEN TURNS, as a margin on the row that STARTS one: a
-      // person's message, and a wake, are each the top of a new exchange.
-      // Everything else in a turn keeps the column's smaller `gap-2`, so the
-      // page reads as a few blocks rather than one evenly-spaced list — which
-      // is how a reply and the message it answers came to look equally far
-      // apart from everything around them.
-      class="min-w-0"
-      classList={{
-        "self-end max-w-[86%]": props.row.kind === "user",
-        "mt-4": props.row.kind === "user" || props.row.kind === "wake",
-      }}
-    >
-      <Switch>
-        <Match when={props.row.kind === "user" && props.row}>
-          {(row) => <UserRow row={row()} />}
-        </Match>
-        <Match when={props.row.kind === "agent" && props.row}>
-          {(row) => (
-            <div class="text-fg">
-              <ConductorProse
-                rowId={row().id}
-                text={row().text}
-                onRedrawn={props.onRedrawn}
-              />
-            </div>
-          )}
-        </Match>
-        <Match when={props.row.kind === "plan" && props.row}>
-          {(row) => (
-            <ul class="list-none m-0 pl-2.5 border-l-2 border-edge-bright font-mono text-[0.72rem] text-fg-3">
-              <For each={row().steps}>
-                {(step) => (
-                  <li
-                    data-testid="conductor-plan-step"
-                    data-status={step.status}
-                    classList={{ "text-fg": step.status === "in_progress" }}
-                  >
-                    {step.status === "completed"
-                      ? "● "
-                      : step.status === "in_progress"
-                        ? "◐ "
-                        : "○ "}
-                    {step.content}
-                  </li>
-                )}
-              </For>
-            </ul>
-          )}
-        </Match>
-        <Match when={props.row.kind === "tool" && props.row}>
-          {(row) => <ConductorToolCard row={row()} />}
-        </Match>
-        {/* A QUESTION ABOUT A PIECE OF WORK is drawn off the WORK, not off
+    <>
+      <div
+        data-testid="conductor-row"
+        data-row-kind={props.row.kind}
+        data-row-id={props.row.id}
+        // A row is a flex item of the column above, so it needs the same floor
+        // released — without it the row passes its card's content width straight
+        // up and the `min-w-0` above has nothing to do.
+        //
+        // THE GAP BETWEEN TURNS, as a margin on the row that STARTS one: a
+        // person's message, and a wake, are each the top of a new exchange.
+        // Everything else in a turn keeps the column's smaller `gap-2`, so the
+        // page reads as a few blocks rather than one evenly-spaced list — which
+        // is how a reply and the message it answers came to look equally far
+        // apart from everything around them.
+        class="min-w-0"
+        classList={{
+          "self-end max-w-[86%]": props.row.kind === "user",
+          "mt-4": props.row.kind === "user" || props.row.kind === "wake",
+        }}
+      >
+        <Switch>
+          <Match when={props.row.kind === "user" && props.row}>
+            {(row) => <UserRow row={row()} />}
+          </Match>
+          <Match when={props.row.kind === "agent" && props.row}>
+            {(row) => (
+              <div class="text-fg">
+                <ConductorProse
+                  rowId={row().id}
+                  text={row().text}
+                  works={works()}
+                  holders={turns.holders()}
+                  onRedrawn={props.onRedrawn}
+                />
+              </div>
+            )}
+          </Match>
+          <Match when={props.row.kind === "plan" && props.row}>
+            {(row) => (
+              <ul class="list-none m-0 pl-2.5 border-l-2 border-edge-bright font-mono text-[0.72rem] text-fg-3">
+                <For each={row().steps}>
+                  {(step) => (
+                    <li
+                      data-testid="conductor-plan-step"
+                      data-status={step.status}
+                      classList={{ "text-fg": step.status === "in_progress" }}
+                    >
+                      {step.status === "completed"
+                        ? "● "
+                        : step.status === "in_progress"
+                          ? "◐ "
+                          : "○ "}
+                      {step.content}
+                    </li>
+                  )}
+                </For>
+              </ul>
+            )}
+          </Match>
+          <Match when={props.row.kind === "tool" && props.row}>
+            {(row) => <ConductorToolCard row={row()} />}
+          </Match>
+          {/* A QUESTION ABOUT A PIECE OF WORK is drawn off the WORK, not off
             this row: the row says it was asked here (and goes when the chat
             goes), while the decision behind it is the thing a person
             answers — here, on the card, or in the reader. */}
-        <Match when={props.row.kind === "work-ask" && props.row}>
-          {(row) => <ChatWorkQuestion row={row()} />}
-        </Match>
-        <Match when={props.row.kind === "ask" && props.row}>
-          {(row) => <ConductorAsk row={row()} />}
-        </Match>
-        <Match when={props.row.kind === "notice" && props.row}>
-          {(row) => (
-            <p class="font-mono text-[0.68rem] text-fg-3">
-              {row().text}
-              {/* The count is the whole point of folding the run: ONE row, and
+          <Match when={props.row.kind === "work-ask" && props.row}>
+            {(row) => <ChatWorkQuestion row={row()} />}
+          </Match>
+          <Match when={props.row.kind === "ask" && props.row}>
+            {(row) => <ConductorAsk row={row()} />}
+          </Match>
+          <Match when={props.row.kind === "notice" && props.row}>
+            {(row) => (
+              <p class="font-mono text-[0.68rem] text-fg-3">
+                {row().text}
+                {/* The count is the whole point of folding the run: ONE row, and
                   it still says how many times the thing happened. */}
-              <Show when={props.repeat > 1}>
-                <span
-                  data-testid="conductor-notice-repeat"
-                  class="ml-1.5 rounded-sm bg-fg-3/15 px-1 tabular-nums"
-                >
-                  ×{props.repeat}
-                </span>
-              </Show>
-            </p>
-          )}
-        </Match>
-        <Match when={props.row.kind === "wake" && props.row}>
-          {(row) => <WakeRow row={row()} />}
-        </Match>
-        <Match when={props.row.kind === "divider" && props.row}>
-          {(row) => (
-            <div class="flex items-center gap-2 text-fg-3 font-mono text-[0.62rem] uppercase tracking-[0.12em]">
-              <span class="flex-1 border-t border-edge" />
-              <span>{row().text}</span>
-              <span class="flex-1 border-t border-edge" />
-            </div>
-          )}
-        </Match>
-      </Switch>
-    </div>
+                <Show when={props.repeat > 1}>
+                  <span
+                    data-testid="conductor-notice-repeat"
+                    class="ml-1.5 rounded-sm bg-fg-3/15 px-1 tabular-nums"
+                  >
+                    ×{props.repeat}
+                  </span>
+                </Show>
+              </p>
+            )}
+          </Match>
+          <Match when={props.row.kind === "wake" && props.row}>
+            {(row) => <WakeRow row={row()} works={works()} />}
+          </Match>
+          <Match when={props.row.kind === "divider" && props.row}>
+            {(row) => (
+              <div class="flex items-center gap-2 text-fg-3 font-mono text-[0.62rem] uppercase tracking-[0.12em]">
+                <span class="flex-1 border-t border-edge" />
+                <span>{row().text}</span>
+                <span class="flex-1 border-t border-edge" />
+              </div>
+            )}
+          </Match>
+        </Switch>
+      </div>
+      {/* THE WORKS YOUR MESSAGE'S TURN IS ABOUT, at the head of the reply — on
+        the reply's side of the column, not inside your bubble. A wake-up
+        carries its own under its line. */}
+      <Show when={props.row.kind === "user" && works().length > 0}>
+        <TurnChips works={works()} />
+      </Show>
+    </>
   );
 }
 
@@ -488,7 +608,11 @@ function TranscriptRow(props: {
  *  The `queued` / `delivery` marks are the user row's, minus the retry: a turn
  *  kolu started can wait behind one, be refused, or go unanswered exactly as a
  *  typed message can. */
-function WakeRow(props: { row: Extract<ConductorRow, { kind: "wake" }> }) {
+function WakeRow(props: {
+  row: Extract<ConductorRow, { kind: "wake" }>;
+  /** The works this wake-up's turn is about, drawn under its line. */
+  works: ReadonlyArray<WorkId>;
+}) {
   const mark = (): "queued" | "refused" | "unanswered" | undefined =>
     props.row.queued === true ? "queued" : props.row.delivery;
   const when = createMemo(() => wakeWhen(props.row.since));
@@ -533,6 +657,15 @@ function WakeRow(props: { row: Extract<ConductorRow, { kind: "wake" }> }) {
           {props.row.text}
         </p>
       </details>
+      {/* THE WORKS IT IS ABOUT, as chips on a line of their own under the
+          wake-up — which piece of work rang is the first thing a person
+          needs from it, and a chip is a button, which a summary must not
+          hold. */}
+      <Show when={props.works.length > 0}>
+        <div data-testid="conductor-wake-works" class="mt-1 font-sans">
+          <TurnChips works={props.works} />
+        </div>
+      </Show>
       <Show when={mark()}>
         {(what) => (
           <div class="mt-1 font-mono text-[0.62rem] text-fg-3">

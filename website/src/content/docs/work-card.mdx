@@ -1,0 +1,78 @@
+---
+title: The work card
+description: "One card per piece of work the Conductor runs: where it stands, its stages, and the part of its history you need, one click from the rest."
+order: 52.6
+section: "Agents & Attention"
+---
+
+Every piece of work the [Conductor](/conductor) runs has a card. A shut card says where the work stands and where its time went. An open card shows what needs you and stays short, with the full history one click away.
+
+## Where the cards are
+
+On a wide window the cards stand in a column beside the chat, giving way to [the reader](/read-a-plan) while a file is open. On a narrow window and on a phone, the status line's **N pieces of work** opens them above the line, and so does clicking a work chip in the chat.
+
+The column has three groups:
+
+| Group | What is in it |
+| --- | --- |
+| **Waiting on you** | Works stopped on a question of yours, or a green PR handed over to you. |
+| **In progress** | Every other work that has not finished. |
+| **Finished** | Works that ended, collapsed until you click it. |
+
+With nothing in progress the column says **Nothing in progress.**
+
+## The shut card
+
+| Line | What it says |
+| --- | --- |
+| Title and age | What the work is, and how long it has run. |
+| **repo · host · mode** | Where it is, then `PR #n` as a link once there is a PR. While the work is in progress, **you 12m** is its total wait on you, from the first whole second. |
+| Where it stands | Who it waits on and why, coloured by them, and for how long. |
+| Stage strip | Its six stages, below. |
+
+A PR recorded before kolu kept PR addresses shows its number as plain text. A work still in progress gets the link the next time kolu reads its PR.
+
+## The stage strip
+
+The strip has six cells, always in this order: **Plan**, **Approve**, **Build**, **Review**, **Checks**, **Merge**. Each cell shows how long that stage took in one unit, such as `14h`, coloured by whose time it mostly was: violet you, amber CI, teal the agents. Hover a cell for the exact time.
+
+Which stages a work has comes from its mode:
+
+| Mode | Its stages |
+| --- | --- |
+| Full | All six. |
+| Trivial | **Build**, **Checks** and **Merge**. Nobody plans, approves or reviews, so those cells read as not happening. |
+| Watch | None, and no strip. |
+
+- The stage the work is in is outlined, in the colour of who it waits on now.
+- A dashed cell with a dash is a stage that did not happen.
+- An empty cell is a stage not reached yet.
+- In a full work, answering the setup form counts as Plan time, since there is no plan to approve yet. A trivial work has no Plan, so its setup, and the Conductor starting its implementor, are in no cell. That time still counts in **you 12m** when it was yours.
+- The build ends when the implementor opens a PR. A PR that was already there when the implementor joined, such as one a bot opened, does not end it.
+- CI's time is always **Checks**, and a green PR handed to you is always **Merge**.
+
+A work whose mode is not chosen yet shows six quiet cells.
+
+On a card, the strip is the index into the timeline. Clicking a cell that has happened opens the card on that stage's events.
+
+## The open card
+
+Click the card's head and it opens:
+
+| Part | What you get |
+| --- | --- |
+| The question waiting for you | The same decision the chat and the reader show. Answering it in any of them answers it. |
+| Terminals | One row each: role, name (click it to go to the tile), what it runs, how it stands and since when, **Look**, and **Take over** or **Hand back**. |
+| Files | The worktree's `.waterfall/` files and the copies kolu kept. Click one to open it in [the reader](/read-a-plan). |
+| Pull request | Its number as a link, and whether it is open, merged or closed. The checks, or the last result, with failed checks in one line (`7 failing: ci::nix, ci::unit, +5`) to click. While open, whether GitHub would merge it. |
+| Setup | One line: the mode, each role's harness and model, and what happens on green. |
+| Decisions | The latest three, one line each. **all N** shows the rest. Click a row for the question. |
+| Timeline | The events of one stage, with their time and duration. |
+
+The timeline shows the stage the work is in, or the one you clicked on the strip, and a finished work's last stage. **whole timeline · N events** unfolds all of it in place. A watch, which has no stages, shows its latest five events. A question reads **Asked:** and your answer **You:**. A line too long for the row is cut, with **more** beside it.
+
+## How a work ends
+
+A work ends three ways: the forge merges or closes its pull request, you click **Stop** on the card and confirm, or the Conductor stops it. Declining the setup of a work nothing has happened in removes it.
+
+An ended card's line says how it ended, such as **Merged #181 · 1d ago**. Open, it shows where the time went, the kept files, the decisions and the timeline, where the merge and the end it caused are one row. It never shows terminals, a lock or a question, and it offers **Reopen**.

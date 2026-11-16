@@ -18,6 +18,7 @@ import {
   type Decision,
   handBack,
   type KoluChoiceKey,
+  type MergeState,
   membershipOf,
   ON_GREEN,
   type OnGreen,
@@ -31,10 +32,16 @@ import {
   type WorkMember,
   type WorkMode,
 } from "kolu-work";
+import type { PrInfo } from "anyforge/schemas";
+import {
+  LOCAL_LOCATION,
+  type TerminalMetadata,
+} from "@kolu/padi-client/surface";
 import { describe, expect, it } from "vitest";
+import { checksTally, failingLine, livePrOf, prSection } from "./prReadings";
+import { timelineShown } from "./timelineView";
 import {
   answerWords,
-  checksTally,
   decisionLabel,
   decisionRows,
   eventReader,
@@ -44,11 +51,17 @@ import {
   lockWords,
   membersIn,
   oneLine,
+  otherDecisions,
   outcomeWords,
   repoName,
   SETUP_ROWS,
+  setupLine,
+  stagesOf,
   standingLine,
+  timeSpentOnYou,
   waitingCount,
+  waitsOnYou,
+  workHost,
   workSubtitle,
   worksStatusWords,
 } from "./workReadings";
@@ -233,7 +246,13 @@ describe("what a card's head says", () => {
         work({
           decisions: [mode("trivial")],
           events: [
-            event({ kind: "pr-opened", pr: 178, title: "Slim it", by: "kolu" }),
+            event({
+              kind: "pr-opened",
+              pr: 178,
+              title: "Slim it",
+              url: { kind: "unrecorded" },
+              by: "kolu",
+            }),
           ],
         }),
         Option.some("naiveintent"),
@@ -251,14 +270,323 @@ describe("what a card's head says", () => {
   });
 });
 
+/** A PR's life on the timeline: opened, checks passed on one commit, and
+ *  then what GitHub said about merging it. */
+const HEAD = { kind: "commit", sha: "abc1234" } as const;
+const opened = event({
+  kind: "pr-opened",
+  pr: 9,
+  title: "Slim it",
+  url: { kind: "link", href: "https://github.com/o/r/pull/9" },
+  by: "agent",
+});
+const passed = event({
+  kind: "checks-passed",
+  by: "ci",
+  pr: 9,
+  head: HEAD,
+  failing: [],
+});
+const failed = event({
+  kind: "checks-failed",
+  by: "ci",
+  pr: 9,
+  head: HEAD,
+  failing: ["ci::nix", "ci::biome"],
+});
+const mergeSays = (merge: MergeState): WorkEvent =>
+  event({ kind: "merge-state", by: "ci", pr: 9, head: HEAD, merge });
+const handingOver = (events: ReadonlyArray<WorkEvent>): Work =>
+  work({ decisions: [mode("trivial"), onGreen("hand-over")], events });
+
+describe("the stages a card draws", () => {
+  it("draws none for a plain watch, and quiet ones before the mode is known", () => {
+    expect(stagesOf(work({ decisions: [mode("watch")] }), AT).kind).toBe(
+      "none",
+    );
+    expect(stagesOf(work(), AT).kind).toBe("unset");
+  });
+
+  it("says a trivial work did not plan, approve or review: its mode has no such stages", () => {
+    const read = stagesOf(work({ decisions: [mode("trivial")] }), AT);
+    if (read.kind !== "staged") throw new Error(`read ${read.kind}`);
+    expect(
+      read.stages
+        .filter((one) => one.state.kind === "skipped")
+        .map((one) => one.name),
+    ).toEqual(["plan", "approve", "review"]);
+  });
+});
+
+describe("whether a work waits on you", () => {
+  it("does not hand a green PR over while GitHub still will not merge it", () => {
+    const blocked = handingOver([
+      opened,
+      passed,
+      mergeSays({ kind: "cannot", why: "review" }),
+    ]);
+    expect(waitsOnYou(blocked)).toBe(false);
+    const clean = handingOver([opened, passed, mergeSays({ kind: "can" })]);
+    expect(waitsOnYou(clean)).toBe(true);
+  });
+
+  it("never waits on you to merge a work that merges itself", () => {
+    const merging = work({
+      decisions: [mode("trivial"), onGreen("merge")],
+      events: [opened, passed, mergeSays({ kind: "can" })],
+    });
+    expect(waitsOnYou(merging)).toBe(false);
+  });
+
+  it("counts the time it has waited on you, to the clock it is read at", () => {
+    const asking = work({
+      decisions: [asked()],
+      events: [event({ kind: "question", by: "agent", ask: "ask-1" })],
+    });
+    expect(timeSpentOnYou(asking, "2026-01-01T10:05:00.000Z")).toBe(300_000);
+  });
+});
+
+describe("where a work runs", () => {
+  it("names the host a work's key carries, and none for a key with none", () => {
+    expect(workHost(work())).toEqual(Option.some("local"));
+    expect(
+      workHost(
+        work({
+          key: { kind: "branch", host: "", repo: "/r", branch: "b" },
+        }),
+      ),
+    ).toEqual(Option.none());
+  });
+});
+
+describe("the live PR a card reads", () => {
+  const pr = (number: number): PrInfo => ({
+    number,
+    title: "Slim it",
+    url: `https://github.com/o/r/pull/${number}`,
+    state: "open",
+    checks: "pending",
+    checkRuns: [],
+    reviewDecision: null,
+    mergeStateStatus: null,
+    headSha: null,
+  });
+  const here = (result: TerminalMetadata["pr"]) => ({
+    standing: {
+      kind: "here" as const,
+      meta: {
+        state: "active",
+        cwd: "/tmp/work",
+        git: { kind: "none" },
+        location: LOCAL_LOCATION,
+        pr: result,
+        agent: null,
+        foreground: null,
+        ports: { status: "unknown" },
+        lastActivityAt: 1,
+        promptedAt: null,
+      } satisfies TerminalMetadata,
+    },
+  });
+
+  it("takes the first member that reports one, past those that cannot", () => {
+    expect(
+      livePrOf([
+        { standing: undefined },
+        { standing: { kind: "gone" } },
+        here({ kind: "absent" }),
+        here({ kind: "ok", value: pr(12) }),
+        here({ kind: "ok", value: pr(13) }),
+      ])?.number,
+    ).toBe(12);
+    expect(livePrOf([here({ kind: "pending" })])).toBeNull();
+  });
+});
+
+describe("the Pull request section", () => {
+  it("says the last check reading, its red gates, and why GitHub will not merge", () => {
+    const section = prSection(
+      handingOver([
+        opened,
+        failed,
+        mergeSays({ kind: "cannot", why: "behind" }),
+      ]),
+      Option.none(),
+    );
+    expect(section).toEqual(
+      Option.some({
+        number: 9,
+        state: "open",
+        checks: "Checks failed",
+        failing: ["ci::nix", "ci::biome"],
+        merge: Option.some({
+          words: "GitHub cannot merge it yet · the branch is behind its base",
+          reason: "behind",
+        }),
+      }),
+    );
+  });
+
+  it("names the first red gates in one line and counts the rest", () => {
+    expect(
+      failingLine([
+        "ci::nix",
+        "ci::unit",
+        "ci::e2e",
+        "ci::biome",
+        "ci::docs",
+        "ci::home",
+        "ci::mcp",
+      ]),
+    ).toBe("7 failing: ci::nix, ci::unit, +5");
+    expect(failingLine(["ci::nix"])).toBe("1 failing: ci::nix");
+  });
+
+  it("prefers the live tally, and says when GitHub has not answered", () => {
+    const section = Option.getOrThrow(
+      prSection(
+        handingOver([opened, passed]),
+        Option.some({ pass: 3, pending: 1, fail: 0, total: 4 }),
+      ),
+    );
+    expect(section.checks).toBe("3 passed · 1 running · 0 failed");
+    expect(Option.map(section.merge, (merge) => merge.reason)).toEqual(
+      Option.some("unknown"),
+    );
+  });
+
+  it("forgets GitHub's answer once checks name another commit", () => {
+    const pushed = event({
+      kind: "checks-running",
+      by: "ci",
+      pr: 9,
+      head: { kind: "commit", sha: "def5678" },
+      failing: [],
+    });
+    const section = Option.getOrThrow(
+      prSection(
+        handingOver([opened, passed, mergeSays({ kind: "can" }), pushed]),
+        Option.none(),
+      ),
+    );
+    expect(Option.map(section.merge, (merge) => merge.reason)).toEqual(
+      Option.some("unknown"),
+    );
+    expect(
+      waitsOnYou(
+        handingOver([opened, passed, mergeSays({ kind: "can" }), pushed]),
+      ),
+    ).toBe(false);
+  });
+
+  it("drops the merge answer once the PR is merged", () => {
+    const done = handingOver([
+      opened,
+      passed,
+      mergeSays({ kind: "can" }),
+      event({ kind: "merged", by: "agent", pr: 9 }),
+    ]);
+    const section = Option.getOrThrow(prSection(done, Option.none()));
+    expect(section.state).toBe("merged");
+    expect(section.merge).toEqual(Option.none());
+  });
+
+  it("is absent for a work with no PR", () => {
+    expect(prSection(work(), Option.none())).toEqual(Option.none());
+  });
+});
+
+describe("what an open card shows of the setup and the decisions", () => {
+  it("says the setup in one line, each part carrying what was recorded", () => {
+    const one = work({
+      decisions: [
+        mode("full"),
+        choice("planner.harness", "omp"),
+        choice("planner.model", "fable-5.2"),
+        onGreen("hand-over"),
+        picked("Approve", { id: "w1", ask: "a1" }),
+      ],
+    });
+    const line = setupLine(one);
+    expect(line.map((part) => part.text)).toEqual([
+      "full",
+      "planner omp/fable-5.2",
+      "on green: hand over",
+    ]);
+    expect(line.find((part) => part.key === "on-green")?.answer).toBe(
+      "hand-over",
+    );
+    // ... and a question about the work is not part of it.
+    expect(otherDecisions(one).map((row) => row.answer)).toEqual(["Approve"]);
+  });
+});
+
+describe("which events an open card shows", () => {
+  const timeline = [
+    event({ kind: "requested", by: "you" }),
+    joined("local/p", "planner"),
+    joined("local/i", "implementor"),
+    opened,
+  ];
+  const one = work({ decisions: [mode("full")], events: timeline });
+
+  it("shows the stage the work is in, until a stage is pressed", () => {
+    const read = stagesOf(one, "2026-01-01T10:30:00.000Z");
+    expect(timelineShown(one, read, undefined, false)).toMatchObject({
+      view: { kind: "stage", stage: "review" },
+      indices: [3],
+    });
+    expect(timelineShown(one, read, "plan", false)).toMatchObject({
+      view: { kind: "stage", stage: "plan" },
+      indices: [0, 1],
+    });
+    // ... and the whole of it folds back to the stage it came from.
+    expect(timelineShown(one, read, "plan", true).folded).toEqual({
+      kind: "stage",
+      stage: "plan",
+    });
+    expect(timelineShown(one, read, "plan", true).indices).toHaveLength(4);
+  });
+
+  it("shows a watch's latest few, a watch having no stages", () => {
+    const watch = work({
+      decisions: [mode("watch")],
+      events: Array.from({ length: 9 }, () => joined()),
+    });
+    const shown = timelineShown(watch, stagesOf(watch, AT), undefined, false);
+    expect(shown.view).toEqual({ kind: "latest" });
+    expect(shown.indices).toEqual([4, 5, 6, 7, 8]);
+  });
+
+  it("draws one row where the forge merged a PR and the work ended merged", () => {
+    const outcome = { kind: "merged", pr: 9 } as const;
+    const done = work({
+      state: { kind: "ended", at: AT, outcome, kept: [] },
+      decisions: [mode("watch")],
+      events: [
+        opened,
+        event({ kind: "merged", by: "kolu", pr: 9 }),
+        event({ kind: "ended", outcome }),
+      ],
+    });
+    const shown = timelineShown(done, stagesOf(done, AT), undefined, true);
+    expect(shown.indices).toEqual([0, 1]);
+    expect(shown.total).toBe(2);
+  });
+});
+
 describe("where it stands", () => {
   it("leads with the waiter, and puts the live check tally after CI", () => {
+    // A check is about a PR the timeline opened: the one PR rule reads no
+    // check of a PR it never saw open.
     const ci = work({
       events: [
+        opened,
         event({
           kind: "checks-running",
           by: "ci",
-          pr: 7,
+          pr: 9,
           head: { kind: "unreported" },
           failing: [],
         }),
@@ -292,10 +620,11 @@ describe("where it stands", () => {
       state: { kind: "ended", at: AT, outcome, kept: [] },
       events: [event({ kind: "ended", outcome })],
     });
+    // Said once: "Merged #7", never "Merged · Merged #7".
     expect(standingLine(over, Option.none())).toMatchObject({
       who: "done",
-      lead: "Merged",
-      what: Option.some("Merged #7"),
+      lead: "Merged #7",
+      what: Option.none(),
     });
   });
 

@@ -94,6 +94,7 @@ const [works, setWorks] = createSignal<ReadonlyMap<WorkId, Work>>(new Map());
 vi.mock("./useWorks", () => ({ useWorkMap: () => works }));
 
 import ConductorProse from "./ConductorProse";
+import { fileHolders } from "./namedFiles";
 import { PROSE_LIST_FOLD_OVER, PROSE_LIST_FOLD_SHOWS } from "./proseListFold";
 import { closeReader, readerTarget } from "./reader/useReader";
 
@@ -106,18 +107,26 @@ afterEach(() => {
   closeReader();
 });
 
-/** Mount the prose and hand back its host element. */
+/** Mount the prose and hand back its host element. `turn` is the works the
+ *  chat turn it sits in is about — none, unless a case says. */
 function mount(
   rowId: string,
   text: () => string,
   onRedrawn?: () => void,
+  turn: ReadonlyArray<WorkId> = [],
 ): HTMLElement {
   const host = document.createElement("div");
   document.body.append(host);
   disposers.push(
     render(
       () => (
-        <ConductorProse rowId={rowId} text={text()} onRedrawn={onRedrawn} />
+        <ConductorProse
+          rowId={rowId}
+          text={text()}
+          works={turn}
+          holders={fileHolders(works())}
+          onRedrawn={onRedrawn}
+        />
       ),
       host,
     ),
@@ -341,9 +350,9 @@ describe("a file the Conductor names", () => {
   const PLAN = ".waterfall/plan.md";
   const SAID = `<p>Its plan is at <code>${PLAN}</code>.</p>`;
 
-  /** The link a named path became, found by its accessible name. */
+  /** The link a named path became — whatever a press on it does. */
   const link = (host: HTMLElement): HTMLButtonElement | null =>
-    host.querySelector<HTMLButtonElement>(`button[aria-label="Open ${PLAN}"]`);
+    host.querySelector<HTMLButtonElement>("button[data-md-code-action]");
 
   it("opens the reader on the one work that holds it, and reads as open", () => {
     setWorks(new Map([["w-parser" as WorkId, workWith("parser", [PLAN])]]));
@@ -355,7 +364,7 @@ describe("a file the Conductor names", () => {
     expect(link(host)?.getAttribute("aria-current")).toBe("true");
   });
 
-  it("offers the works by title when several hold it, and opens the one chosen", () => {
+  it("offers the works as chips when several hold it, and opens the one chosen", () => {
     setWorks(
       new Map([
         ["w-parser" as WorkId, workWith("rewrite the parser", [PLAN])],
@@ -368,7 +377,9 @@ describe("a file the Conductor names", () => {
     // NOTHING OPENED YET — no guess at which one the sentence meant.
     expect(readerTarget()).toBeNull();
     const offered = Array.from(
-      document.querySelectorAll('[data-testid^="named-file-option-"]'),
+      document.querySelectorAll(
+        '[data-testid="named-file-menu"] [data-testid^="named-file-option-"] [data-testid="work-chip-face"]',
+      ),
     ).map((one) => one.textContent?.trim());
     expect(offered).toEqual(["rewrite the parser", "fix the login"]);
 
@@ -378,6 +389,67 @@ describe("a file the Conductor names", () => {
       )
       ?.click();
     expect(readerTarget()).toEqual({ work: "w-login", path: PLAN });
+    expect(
+      document.querySelector('[data-testid="named-file-menu"]'),
+    ).toBeNull();
+  });
+
+  it("opens the turn's own work's file without asking, whoever else has one", () => {
+    setWorks(
+      new Map([
+        ["w-parser" as WorkId, workWith("rewrite the parser", [PLAN])],
+        ["w-login" as WorkId, workWith("fix the login", [PLAN])],
+      ]),
+    );
+    const host = mount("row-turn", () => SAID, undefined, [
+      "w-login" as WorkId,
+    ]);
+
+    link(host)?.click();
+
+    expect(readerTarget()).toEqual({ work: "w-login", path: PLAN });
+    expect(
+      document.querySelector('[data-testid="named-file-menu"]'),
+    ).toBeNull();
+  });
+
+  it("says in place that the turn's work has no such file, and offers no other", () => {
+    setWorks(
+      new Map([
+        ["w-parser" as WorkId, workWith("rewrite the parser", [PLAN])],
+        ["w-split" as WorkId, workWith("split the column", [])],
+      ]),
+    );
+    const host = mount("row-missing", () => SAID, undefined, [
+      "w-split" as WorkId,
+    ]);
+
+    link(host)?.click();
+
+    // The reader stays shut, the note names the turn's own work — and no
+    // other work's file is offered in its place.
+    expect(readerTarget()).toBeNull();
+    const note = document.querySelector('[data-testid="named-file-missing"]');
+    expect(note?.getAttribute("role")).toBe("status");
+    expect(note?.textContent).toContain("split the column");
+    expect(note?.textContent).not.toContain("rewrite the parser");
+    expect(
+      document.querySelector('[data-testid="named-file-menu"]'),
+    ).toBeNull();
+    // The link's name says what a press does there: it does not open.
+    expect(link(host)?.getAttribute("aria-label")).not.toMatch(/^Open /);
+    // THE WORK WRITES IT: the note goes, and the link opens that file.
+    setWorks(
+      new Map([
+        ["w-parser" as WorkId, workWith("rewrite the parser", [PLAN])],
+        ["w-split" as WorkId, workWith("split the column", [PLAN])],
+      ]),
+    );
+    expect(
+      document.querySelector('[data-testid="named-file-missing"]'),
+    ).toBeNull();
+    link(host)?.click();
+    expect(readerTarget()).toEqual({ work: "w-split", path: PLAN });
   });
 
   it("leaves a path no work holds as plain code", () => {

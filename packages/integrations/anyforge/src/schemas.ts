@@ -96,11 +96,14 @@ export const PrInfoSchema = Schema.Struct({
   reviewDecision: Schema.NullOr(ReviewDecisionSchema).pipe(
     Schema.withDecodingDefaultKey(Effect.succeed(null)),
   ),
-  /** Merge state as gh reports it. Decoding default `UNKNOWN` is gh's own
-   *  "cannot currently be determined" — the honest reading of a payload
-   *  that never asked for the field. Encoding never omits. */
-  mergeStateStatus: MergeStateStatusSchema.pipe(
-    Schema.withDecodingDefaultKey(Effect.succeed("UNKNOWN" as const)),
+  /** Merge state as gh reports it — or `null`, "this reading carries no
+   *  merge state": a payload from a sender older than the field, the
+   *  rolling-deploy tolerance `headSha` spells below. Kept apart from gh's
+   *  own `UNKNOWN` ("not worked out yet"), which is an answer a consumer
+   *  waits out, while `null` is a sender that will never say. Encoding never
+   *  omits. */
+  mergeStateStatus: Schema.NullOr(MergeStateStatusSchema).pipe(
+    Schema.withDecodingDefaultKey(Effect.succeed(null)),
   ),
   /** THE COMMIT THE REST OF THIS VALUE IS ABOUT — the PR's head oid, as the
    *  forge spells it. The one field that makes a check reading comparable
