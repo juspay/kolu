@@ -6,10 +6,11 @@ DOMPurify sanitizes it (`src/sanitize.ts`), and the `Markdown` component mounts
 the result in a `.kolu-md` container.
 
 Finished ` ```mermaid ` blocks take a side path. `render.ts` lists them
-(`mermaidSources`), `src/diagram.ts` draws each distinct source once in a
-hidden sandboxed iframe (`src/diagram-frame.ts`, running
-`src/diagram-frame-program.js`) and remembers the result, and the sanitize pass
-swaps each drawn block for a `<figure>` holding a light and a dark `<img>`.
+(`mermaidSources`), `src/diagram.ts` draws each distinct source once, in a
+hidden sandboxed iframe built for that one block and removed when it answers
+(`src/diagram-frame.ts`, running `src/diagram-frame-program.js`; at most three
+at a time), and remembers the result. The sanitize pass swaps each drawn block
+for a `<figure>` holding a light and a dark `<img>`.
 
 | Entry | What it holds |
 | --- | --- |
@@ -74,9 +75,14 @@ the text and the button. kolu's Conductor uses it to open a file it names.
 - `decorateInlineCode` runs after the sanitizer and only moves the `<code>`
   nodes the sanitizer produced into buttons it builds itself, so a span's text
   can never become markup. Code inside `<pre>` is never touched.
-- Mermaid runs only inside the sandboxed frame (`sandbox="allow-scripts"`, a
-  CSP with no network). Never import `mermaid` into the page; the only
-  reference is the `?url` asset path in `diagram-frame.ts`.
+- Mermaid runs only inside a sandboxed frame (`sandbox="allow-scripts"`, so it
+  cannot reach kolu). Its CSP blocks fetches, images and sockets, but a script
+  in it can still navigate the frame or use WebRTC, so a frame draws exactly
+  one block and is removed: it must never hold more than the block it is
+  drawing. Never import `mermaid` into the page; the only reference is the
+  `?url` asset path in `diagram-frame.ts`.
+- A frame's answer is untrusted: its reported sizes are checked
+  (`parseFrameImage`) before they reach the `<img>`.
 - A diagram's SVG reaches the page only as an `<img>` source (a `data:` URL),
   and an error message only as `textContent`. Never parse either as markup.
 - Only a block whose closing fence has arrived is a diagram. An unfinished

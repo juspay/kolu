@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { createDiagramCache } from "./diagram";
-import { DiagramSyntaxError, type FrameResult } from "./diagram-frame";
+import {
+  DiagramSyntaxError,
+  type FrameResult,
+  parseFrameImage,
+} from "./diagram-frame";
 
 const DRAWN: FrameResult = {
   light: { svg: "<svg>light</svg>", width: 10, height: 20 },
@@ -80,5 +84,28 @@ describe("createDiagramCache", () => {
 
     expect(a).toBe(b);
     expect(fake.calls).toEqual(["graph LR"]);
+  });
+});
+
+describe("parseFrameImage — a frame's answer is untrusted", () => {
+  it("accepts SVG text with whole-pixel sides", () => {
+    expect(parseFrameImage({ svg: "<svg/>", width: 168, height: 152 })).toEqual(
+      { svg: "<svg/>", width: 168, height: 152 },
+    );
+  });
+
+  it("rejects sizes that would distort the row, and non-string SVG", () => {
+    for (const bad of [
+      { svg: "<svg/>", width: 1, height: 10_000_000 },
+      { svg: "<svg/>", width: 0, height: 10 },
+      { svg: "<svg/>", width: -5, height: 10 },
+      { svg: "<svg/>", width: 12.5, height: 10 },
+      { svg: "<svg/>", width: Number.NaN, height: 10 },
+      { svg: "<svg/>", width: "10", height: 10 },
+      { svg: 42, width: 10, height: 10 },
+      null,
+    ]) {
+      expect(parseFrameImage(bad), JSON.stringify(bad)).toBeUndefined();
+    }
   });
 });

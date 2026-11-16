@@ -1,21 +1,31 @@
 /// <reference path="./assets.d.ts" />
 
-/** The parent side of the diagram renderer: one hidden, sandboxed iframe that
- *  runs mermaid, and a queue that sends it one source at a time.
+/** The parent side of the diagram renderer: one hidden, sandboxed iframe PER
+ *  DIAGRAM, built for one source and removed as soon as it answers, fails or
+ *  times out — at most {@link MAX_FRAMES} at a time.
  *
  *  Mermaid turns author-controlled text into markup and has shipped
  *  script-injection bugs in exactly that step. Kolu's page can type into
- *  terminals, so mermaid never runs here: it runs only inside the frame
+ *  terminals, so mermaid never runs here: it runs only inside a frame
  *  (./diagram-frame-program.js), and what comes back is treated as untrusted
  *  text that the page only ever shows as an `<img>` source (see ./sanitize).
  *  Never import `mermaid` into the page; the only reference is the asset URL
  *  of its prebuilt single file below.
  *
- *  The frame is `sandbox="allow-scripts"` and nothing else (an opaque origin:
- *  no access to kolu's DOM, cookies or storage), and its CSP allows no
- *  network. A `srcdoc` frame also inherits its parent's CSP. The app shell
- *  sends none today; a future shell policy must still allow what the frame
- *  needs: inline script, `blob:` script, inline style. */
+ *  What a frame can and cannot do:
+ *  - It cannot reach kolu. It is `sandbox="allow-scripts"` and nothing else:
+ *    an opaque origin with no access to kolu's DOM, cookies, storage or socket.
+ *  - Its CSP blocks fetches, images and sockets (which is also why icons and
+ *    remote images inside labels do not load). It does NOT stop everything: a
+ *    script in the frame can still navigate the frame to a URL of its choosing,
+ *    and WebRTC is outside CSP. A frame is therefore never trusted with more
+ *    than the one block it is drawing: it is single-use, so a hostile block
+ *    can at most tell the world about itself, never about the blocks drawn
+ *    after it.
+ *
+ *  A `srcdoc` frame also inherits its parent's CSP. The app shell sends none
+ *  today; a future shell policy must still allow what the frame needs: inline
+ *  script, `blob:` script, inline style. */
 
 import libraryUrl from "mermaid/dist/mermaid.min.js?url";
 import frameProgram from "./diagram-frame-program.js?raw";
@@ -30,32 +40,39 @@ export class DiagramSyntaxError extends Error {
   override name = "DiagramSyntaxError";
 }
 
+/** Marks a renderer frame in the DOM, so its lifetime can be checked. */
+export const RENDERER_FRAME_ATTR = "data-md-diagram-renderer";
+
 // Gantt and timeline diagrams size themselves to the frame's width, so the
 // frame is as wide as the document reading column (`max-w-3xl` minus its
 // padding) — a diagram then fits the column it is shown in.
 const FRAME_WIDTH_PX = 720;
 
-/** How long the frame may take to start, boot, or answer one render. */
+/** How many frames may draw at once. A fresh frame costs a boot plus a first
+ *  render; a few in parallel keep a document with several diagrams from
+ *  drawing them strictly one after another, without starting a frame per
+ *  block at once. */
+const MAX_FRAMES = 3;
+
+/** How long a frame may take to start, and then to load mermaid and draw. */
 const DEADLINE_MS = 10_000;
+
+/** The largest side a drawn diagram may report. A frame's answer is
+ *  untrusted, and its size goes straight onto the `<img>`: a 1 × 10,000,000
+ *  answer would be a ten-million-pixel-tall row. Real diagrams are far
+ *  smaller; anything outside 1…this is a malformed answer. */
+const MAX_DIAGRAM_SIDE_PX = 16_384;
 
 const FRAME_CSP =
   "default-src 'none'; script-src 'unsafe-inline' blob:; style-src 'unsafe-inline'";
 
 type FrameMessage =
   | { kind: "hello" }
-  | { kind: "ready" }
   | { kind: "boot-error"; message: string }
-  | ({ kind: "result"; id: number } & (
-      | { ok: true; light: FrameImage; dark: FrameImage }
+  | ({ kind: "result" } & (
+      | { ok: true; light: unknown; dark: unknown }
       | { ok: false; message: string }
     ));
-
-type Frame = {
-  /** Settles once mermaid is loaded in the frame; rejects if it never is. */
-  ready: Promise<void>;
-  ask(source: string): Promise<FrameResult>;
-  dispose(): void;
-};
 
 function deadline<T>(work: Promise<T>, what: string): Promise<T> {
   const expired = Promise.withResolvers<never>();
@@ -73,38 +90,58 @@ function deadline<T>(work: Promise<T>, what: string): Promise<T> {
   );
 }
 
-/** Fetched by the page (same origin, same cookies as every other asset) and
- *  posted into the frame as text: a request from the opaque-origin frame
- *  would be cross-origin and fail behind cookie-authenticated proxies. */
-async function fetchLibrary(): Promise<string> {
-  let response: Response;
-  try {
-    response = await fetch(libraryUrl);
-  } catch (err) {
-    throw new Error(
-      `Diagram renderer could not be loaded: ${err instanceof Error ? err.message : String(err)}`,
-    );
+/** A frame's report of one drawn image, checked: string SVG and both sides a
+ *  whole number of pixels within 1…{@link MAX_DIAGRAM_SIDE_PX}. Anything else
+ *  is `undefined` — a malformed answer. */
+export function parseFrameImage(value: unknown): FrameImage | undefined {
+  const v = value as Partial<FrameImage> | null;
+  const side = (n: unknown): n is number =>
+    Number.isInteger(n) &&
+    (n as number) >= 1 &&
+    (n as number) <= MAX_DIAGRAM_SIDE_PX;
+  if (typeof v?.svg !== "string" || !side(v.width) || !side(v.height)) {
+    return undefined;
   }
-  if (!response.ok) {
-    throw new Error(
-      `Diagram renderer could not be loaded: HTTP ${response.status}`,
-    );
-  }
-  return response.text();
+  return { svg: v.svg, width: v.width, height: v.height };
 }
 
-function isImage(value: unknown): value is FrameImage {
-  const v = value as FrameImage | null;
-  return (
-    typeof v?.svg === "string" &&
-    Number.isFinite(v.width) &&
-    Number.isFinite(v.height)
-  );
+/** Mermaid's single file, fetched by the page (same origin, same cookies as
+ *  every other asset) and posted into each frame as text: a request from the
+ *  opaque-origin frame would be cross-origin and fail behind
+ *  cookie-authenticated proxies. Fetched once per page; a failed fetch is
+ *  forgotten, so the next diagram tries again. */
+let library: Promise<string> | undefined;
+
+function fetchLibrary(): Promise<string> {
+  if (!library) {
+    library = (async () => {
+      let response: Response;
+      try {
+        response = await fetch(libraryUrl);
+      } catch (err) {
+        throw new Error(
+          `Diagram renderer could not be loaded: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+      if (!response.ok) {
+        throw new Error(
+          `Diagram renderer could not be loaded: HTTP ${response.status}`,
+        );
+      }
+      return response.text();
+    })();
+    library.catch(() => {
+      library = undefined;
+    });
+  }
+  return library;
 }
 
-function createFrame(): Frame {
+/** Build a frame, have it draw `source`, and remove it — whatever happens. */
+async function drawInNewFrame(source: string): Promise<FrameResult> {
   const el = document.createElement("iframe");
   el.setAttribute("sandbox", "allow-scripts");
+  el.setAttribute(RENDERER_FRAME_ATTR, "");
   el.setAttribute("aria-hidden", "true");
   el.setAttribute("tabindex", "-1");
   el.title = "Diagram renderer";
@@ -113,91 +150,67 @@ function createFrame(): Frame {
   el.style.cssText = `position:fixed;left:-10000px;top:0;width:${FRAME_WIDTH_PX}px;height:800px;visibility:hidden;border:0`;
   el.srcdoc = `<!doctype html><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="${FRAME_CSP}"><body><script>${frameProgram}</script></body>`;
 
-  const pending = new Map<
-    number,
-    (msg: FrameMessage & { kind: "result" }) => void
-  >();
   const hello = Promise.withResolvers<void>();
-  const booted = Promise.withResolvers<void>();
-
+  const answer = Promise.withResolvers<FrameResult>();
   const onMessage = (event: MessageEvent) => {
     if (event.source !== el.contentWindow) return;
     const msg = event.data as FrameMessage;
     if (msg?.kind === "hello") hello.resolve();
-    else if (msg?.kind === "ready") booted.resolve();
     else if (msg?.kind === "boot-error") {
-      booted.reject(
+      answer.reject(
         new Error(`Diagram renderer failed to start: ${String(msg.message)}`),
       );
-    } else if (msg?.kind === "result") pending.get(msg.id)?.(msg);
+    } else if (msg?.kind === "result") {
+      if (!msg.ok) {
+        answer.reject(new DiagramSyntaxError(String(msg.message)));
+        return;
+      }
+      const light = parseFrameImage(msg.light);
+      const dark = parseFrameImage(msg.dark);
+      if (light && dark) answer.resolve({ light, dark });
+      else answer.reject(new Error("Diagram renderer sent a malformed answer"));
+    }
   };
   window.addEventListener("message", onMessage);
   document.body.append(el);
-
-  const post = (message: unknown) =>
-    el.contentWindow?.postMessage(message, "*");
-
-  const ready = (async () => {
-    const [library] = await Promise.all([
+  try {
+    const [text] = await Promise.all([
       fetchLibrary(),
       deadline(hello.promise, "start"),
     ]);
-    post({ kind: "boot", library });
-    await deadline(booted.promise, "load mermaid");
-  })();
-
-  let nextId = 0;
-  return {
-    ready,
-    ask(source) {
-      const id = nextId++;
-      const answer = Promise.withResolvers<FrameResult>();
-      pending.set(id, (msg) => {
-        if (!msg.ok) answer.reject(new DiagramSyntaxError(String(msg.message)));
-        else if (isImage(msg.light) && isImage(msg.dark)) {
-          answer.resolve({ light: msg.light, dark: msg.dark });
-        } else {
-          answer.reject(new Error("Diagram renderer sent a malformed answer"));
-        }
-      });
-      post({ kind: "render", id, source });
-      return deadline(answer.promise, "draw this diagram").finally(() =>
-        pending.delete(id),
-      );
-    },
-    dispose() {
-      window.removeEventListener("message", onMessage);
-      el.remove();
-    },
-  };
-}
-
-/** The page's one frame, built on first use and kept for the page's life —
- *  unless it fails, in which case the next request builds a fresh one. */
-let frame: Frame | undefined;
-let queue: Promise<unknown> = Promise.resolve();
-
-async function renderNow(source: string): Promise<FrameResult> {
-  if (!frame) frame = createFrame();
-  const current = frame;
-  try {
-    await current.ready;
-    return await current.ask(source);
-  } catch (err) {
-    if (!(err instanceof DiagramSyntaxError)) {
-      current.dispose();
-      if (frame === current) frame = undefined;
-    }
-    throw err;
+    el.contentWindow?.postMessage({ kind: "draw", library: text, source }, "*");
+    return await deadline(answer.promise, "draw this diagram");
+  } finally {
+    window.removeEventListener("message", onMessage);
+    el.remove();
   }
 }
 
-/** Draw one mermaid source in the sandboxed frame, light then dark. Rejects
- *  with `DiagramSyntaxError` when mermaid rejects the text, or a plain `Error`
- *  saying why when the renderer itself failed (could not load, did not start,
- *  timed out). Requests are answered one at a time, in order. */
+// The frame budget: a draw waits here for one of the MAX_FRAMES slots.
+let busy = 0;
+const waiting: (() => void)[] = [];
+
+async function withFrameSlot<T>(work: () => Promise<T>): Promise<T> {
+  if (busy >= MAX_FRAMES) {
+    const turn = Promise.withResolvers<void>();
+    waiting.push(turn.resolve);
+    await turn.promise;
+  } else busy += 1;
+  try {
+    return await work();
+  } finally {
+    // Hand the slot straight to the next waiter, or give it back.
+    const next = waiting.shift();
+    if (next) next();
+    else busy -= 1;
+  }
+}
+
+/** Draw one mermaid source in a fresh sandboxed frame, light then dark; the
+ *  frame is gone by the time this settles. Rejects with `DiagramSyntaxError`
+ *  when mermaid rejects the text, or a plain `Error` saying why when the
+ *  renderer itself failed (could not load, did not start, timed out, sent a
+ *  malformed answer). At most {@link MAX_FRAMES} draw at once. */
 export function renderInFrame(source: string): Promise<FrameResult> {
-  const run = queue.then(() => renderNow(source));
-  queue = run.catch(() => undefined);
-  return run;
+  return withFrameSlot(() => drawInNewFrame(source));
 }

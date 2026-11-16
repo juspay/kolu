@@ -1,7 +1,7 @@
 /** Mermaid source text → a drawn diagram (two images) or an error message,
  *  remembered so each distinct source is drawn once per page.
  *
- *  The drawing itself happens in the sandboxed frame (./diagram-frame); this
+ *  The drawing itself happens in a single-use sandboxed frame (./diagram-frame); this
  *  layer only turns its answer into `data:` image URLs and decides what to
  *  remember. The SVG text is encoded here once and from then on travels only
  *  as an image URL — it is never parsed as markup in the page. */
@@ -96,5 +96,5 @@ export function createDiagramCache(
   };
 }
 
-/** The page's diagram cache, drawing in the sandboxed frame. */
+/** The page's diagram cache, drawing each source in its own sandboxed frame. */
 export const diagrams = createDiagramCache(renderInFrame);

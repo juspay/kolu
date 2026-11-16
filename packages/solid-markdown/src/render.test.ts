@@ -438,8 +438,8 @@ describe("mermaidSources — only finished blocks are diagrams", () => {
     ]);
   });
 
-  it("skips other languages and indented code", () => {
-    const md = `\`\`\`ts\nconst mermaid = 1;\n\`\`\`\n\n    mermaid\n    graph LR\n\n\`\`\`mermaidish\n${FLOW}\n\`\`\``;
+  it("skips other languages, indented code, and empty mermaid blocks", () => {
+    const md = `\`\`\`ts\nconst mermaid = 1;\n\`\`\`\n\n    mermaid\n    graph LR\n\n\`\`\`mermaidish\n${FLOW}\n\`\`\`\n\n\`\`\`mermaid\n\`\`\`\n\n\`\`\`mermaid\n   \n\t\n\`\`\``;
     expect(mermaidSources(md)).toEqual([]);
   });
 

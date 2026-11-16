@@ -995,6 +995,7 @@ Feature: Code tab (review + browse)
     Then the markdown preview should be visible
     And the markdown preview should contain "Diagram Doc"
     And the markdown preview should show a painted diagram
+    And the page should hold no diagram renderer frame
     And the markdown preview should not contain "flowchart TD"
     And the markdown preview should not render a "svg" element
     And there should be no page errors

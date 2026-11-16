@@ -430,8 +430,10 @@ function isFinishedFence(token: Tokens.Code): boolean {
  *  the ones the component asks to have drawn. A block whose closing fence has
  *  not arrived (a chat answer still streaming, an intent being typed, a file
  *  still being written) is not listed, so it stays an ordinary code block and
- *  never reaches mermaid. Each entry equals the `textContent` the sanitizer
- *  reads from that block's `<code>`, which is how a drawing finds its block.
+ *  never reaches mermaid. Nor is an empty (or whitespace-only) block: there is
+ *  nothing to draw, and mermaid would only answer "No diagram type detected".
+ *  Each entry equals the `textContent` the sanitizer reads from that block's
+ *  `<code>`, which is how a drawing finds its block.
  *
  *  Lexed with the package's own parser (front-matter split off, as the render
  *  does), walking into lists and quotes. Block structure does not depend on
@@ -449,6 +451,7 @@ export function mermaidSources(markdown: string): string[] {
     if (
       token.type === "code" &&
       fenceLang(token as Tokens.Code) === DIAGRAM_LANG &&
+      (token as Tokens.Code).text.trim() !== "" &&
       isFinishedFence(token as Tokens.Code)
     ) {
       sources.push((token as Tokens.Code).text);

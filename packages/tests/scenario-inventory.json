@@ -11614,6 +11614,18 @@
       "exampleRows": [],
       "executions": 1,
       "firstSeenSha": "7afe0bb416477dec65bc87a9a58d4666f5cc7fa8"
+    },
+    {
+      "revisionId": "revision-68550599cfa07cc2e397",
+      "scenarioKey": "scenario-e71a595f97aae551ac97",
+      "feature": "features/code-tab.feature",
+      "scenario": "Markdown preview draws a mermaid block as a diagram",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "9322494368463ef45b6f329c84657f96bd6ea0dd1efac41d34676a70b4dce3e2",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "8617def069d82fca3a76290c264da81d2e5ed087"
     }
   ]
 }

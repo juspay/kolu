@@ -28,7 +28,8 @@ dual github-light/dark theme) with a **copy button**.
 **Mermaid diagrams**: a finished ` ```mermaid ` fence draws as a diagram in the
 `document` and `compact` variants (the Code tab preview, the Conductor reader
 and its pop-out, the Conductor chat, the intent editor's preview). Mermaid runs
-in a hidden sandboxed iframe and the drawing is shown as an image, with
+in a hidden sandboxed iframe, one per diagram, thrown away once it has drawn,
+and the drawing is shown as an image, with
 mermaid's own light and dark themes following the app. A block mermaid rejects
 keeps its source and shows mermaid's message under it; so does every block
 when the renderer cannot load or times out.
@@ -87,8 +88,9 @@ Obsidian extensions. Listed for completeness; low priority.
   intent, a file still being written or cut by the size limit) it is a plain
   code block. Diagram text cannot be selected or found with the browser's
   search, links inside a diagram do nothing, and there is no zoom or pan. Only
-  ` ```mermaid ` fences draw (not `.mmd` files). Icons and remote images inside
-  labels do not load: the renderer has no network.
+  ` ```mermaid ` fences draw (not `.mmd` files), and an empty block stays an
+  empty code block. Icons and remote images inside labels do not load: the
+  renderer's policy blocks fetches and images.
 - **`<picture>`/`<source>`** theme-aware README logos are stripped (only `<img>`).
 - Inline raw tags outside the allowlist (`<q>`, `<cite>`, `<var>`, `<ruby>`,
   `<time>`, `<wbr>`) and raw `<ol type>` / `<colgroup style>` are dropped.

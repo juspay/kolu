@@ -1368,6 +1368,22 @@ Then(
   },
 );
 
+// A renderer frame is single-use: it draws one block and is removed, so it
+// never holds the text of a later one. Once a diagram has painted, no frame
+// may remain. Selected by the frame's own `data-*` marker.
+Then(
+  "the page should hold no diagram renderer frame",
+  async function (this: KoluWorld) {
+    await this.page.waitForFunction(
+      () =>
+        document.querySelectorAll("iframe[data-md-diagram-renderer]").length ===
+        0,
+      undefined,
+      { timeout: POLL_TIMEOUT },
+    );
+  },
+);
+
 When(
   "the markdown preview DOM is re-rendered",
   async function (this: KoluWorld) {
