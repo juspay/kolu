@@ -176,8 +176,8 @@ describe("the PR the work's own watch reads", () => {
     );
   });
 
-  it("refuses a reading whose PR has no address", () => {
-    expect(() =>
+  it("answers a reading whose PR has no address as broken, not as a PR", () => {
+    expect(
       prReading({
         kind: "ok",
         value: {
@@ -191,8 +191,8 @@ describe("the PR the work's own watch reads", () => {
           mergeStateStatus: null,
           headSha: null,
         },
-      }),
-    ).toThrow(/no address/);
+      }).kind,
+    ).toBe("broken");
   });
 
   it("steps the checks through the ONE table, and names the failures", () => {
@@ -295,7 +295,8 @@ describe("the PR the work's own watch reads", () => {
       );
     expect(merges(one)).toEqual([{ kind: "cannot", why: "blocked" }]);
     one = prEvents(one, pr({ merge: { kind: "can" } }), AT);
-    // The base moved on: the green is taken back, then given again.
+    // The base moved on: the green is taken back; GitHub recomputes the
+    // commit, which takes back the answer it had; then gives it again.
     one = prEvents(one, pr({ merge: { kind: "cannot", why: "behind" } }), AT);
     one = prEvents(one, pr({ merge: { kind: "unsettled" } }), AT);
     one = prEvents(one, pr({ merge: { kind: "can" } }), AT);
@@ -303,6 +304,7 @@ describe("the PR the work's own watch reads", () => {
       { kind: "cannot", why: "blocked" },
       { kind: "can" },
       { kind: "cannot", why: "behind" },
+      { kind: "unsettled" },
       { kind: "can" },
     ]);
     // ... and nothing more for a host that never says.

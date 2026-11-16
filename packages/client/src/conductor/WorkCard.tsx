@@ -77,26 +77,22 @@ import { workFileSource } from "./workFile";
 import {
   cardShown,
   isCardOpen,
-  isWholeTimeline,
-  pressedStage,
-  showStage,
+  openCard,
   toggleCard,
   wantedCard,
 } from "./workListing";
+import { checksTally, livePrOf, prSection } from "./prReadings";
+import { timelineShown } from "./timelineView";
 import WorkStanding from "./WorkStanding";
 import {
-  checksTally,
   clockOf,
   type Lock,
-  livePrOf,
   membersIn,
   outcomeWords,
-  prSection,
   ROLE_WORD,
   roleRuns,
   stagesOf,
   standingLine,
-  timelineShown,
   timeSpentOnYou,
   timeSpentWords,
   workHost,
@@ -247,17 +243,26 @@ const WorkCard: Component<{
   const read = createMemo(() =>
     stagesOf(props.work, new Date(now()).toISOString()),
   );
-  /** The stage whose events the open card shows — none while the whole
-   *  timeline is out, or for a work with no stages. */
+  /** WHAT THE OPEN CARD SHOWS OF ITS TIMELINE — the stage a person pressed
+   *  on the strip (none: the stage the work is in) and whether the whole
+   *  timeline is out. The card's own: a shut card forgets both, so the next
+   *  time it opens it follows the work again. */
+  const [pressed, setPressed] = createSignal<StageName | undefined>();
+  const [whole, setWhole] = createSignal(false);
+  createEffect(() => {
+    if (isOpen()) return;
+    setPressed(undefined);
+    setWhole(false);
+  });
+  /** ... read ONCE per redraw, for the strip and the timeline both. */
+  const view = createMemo(() =>
+    timelineShown(props.work, read(), pressed(), whole()),
+  );
+  /** The cell pressed on the strip: the stage whose events the open card
+   *  shows, none while it is shut or the whole timeline is out. */
   const shownStage = (): StageName | undefined => {
-    if (!isOpen()) return undefined;
-    const view = timelineShown(
-      props.work,
-      read(),
-      pressedStage(props.id),
-      isWholeTimeline(props.id),
-    ).view;
-    return view.kind === "stage" ? view.stage : undefined;
+    const shown = view().view;
+    return isOpen() && shown.kind === "stage" ? shown.stage : undefined;
   };
 
   return (
@@ -345,7 +350,11 @@ const WorkCard: Component<{
           testId="stage-strip"
           index={{
             shown: shownStage,
-            show: (stage) => showStage(props.id, stage),
+            show: (stage) => {
+              setPressed(stage);
+              setWhole(false);
+              openCard(props.id);
+            },
           }}
         />
       </div>
@@ -449,7 +458,7 @@ const WorkCard: Component<{
                                 fallback={
                                   <span
                                     data-testid="work-member-name"
-                                    class="max-w-[40%] shrink-0 truncate font-semibold text-fg-3"
+                                    class="min-w-[3rem] max-w-[40%] truncate font-semibold text-fg-3"
                                   >
                                     {name(one.terminal)}
                                   </span>
@@ -461,7 +470,7 @@ const WorkCard: Component<{
                                     data-testid="work-member-name"
                                     data-opens-tile="true"
                                     aria-label={`Go to ${name(one.terminal)}`}
-                                    class="max-w-[40%] shrink-0 cursor-pointer truncate rounded-sm font-semibold text-fg underline-offset-2 hover:text-accent hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-accent"
+                                    class="min-w-[3rem] max-w-[40%] cursor-pointer truncate rounded-sm font-semibold text-fg underline-offset-2 hover:text-accent hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-accent"
                                     onClick={() => openTileAt(target())}
                                   >
                                     {name(one.terminal)}
@@ -540,13 +549,17 @@ const WorkCard: Component<{
                                     lead={lead}
                                     trail={trail}
                                     clock={
+                                      /* SINCE WHEN, and only that: the state
+                                         itself is the status just before it,
+                                         and a second word for it is what a
+                                         phone's row has no room for. */
                                       <Show when={reading()}>
                                         {(read) => (
                                           <span
                                             data-testid="work-member-since"
+                                            title={`${LEVEL_WORD[read().level]} for ${elapsedSince(read().since, now())}`}
                                             class="shrink-0 font-mono text-[0.6rem] tabular-nums text-fg-3"
                                           >
-                                            {LEVEL_WORD[read().level]}{" "}
                                             {elapsedSince(read().since, now())}
                                           </span>
                                         )}
@@ -633,12 +646,13 @@ const WorkCard: Component<{
             )}
           </Show>
 
-          <WorkDecisions id={props.id} work={props.work} />
+          <WorkDecisions work={props.work} />
 
           <WorkTimeline
             id={props.id}
             work={props.work}
-            stages={read()}
+            shown={view()}
+            onWhole={() => setWhole((was) => !was)}
             now={now()}
           />
 

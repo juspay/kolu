@@ -103,6 +103,7 @@ Feature: A terminal the Conductor drives is read-only until you take it over
     And I answer the work's question with "hand-over" in the chat
     And I ask the conductor to run the implementor in the work's repo
     Then the work column should list the terminal as a member
+    And the work's terminal rows should each be one line
     When I go to the member terminal
     Then the member terminal should be framed as driven by the Conductor
     # The phone is shown this terminal for the first time here — a tile

@@ -19,7 +19,6 @@ import {
   LOCAL_LOCATION,
 } from "@kolu/padi-client/vocab";
 import { type AgentPresence, agentPresence } from "kolu-agents/vocab";
-import { Option } from "effect";
 import { describe, expect, it } from "vitest";
 import {
   type HostView,
@@ -317,23 +316,24 @@ describe("what a pull request reading says about checks and merging", () => {
       | "CHANGES_REQUESTED"
       | "REVIEW_REQUIRED"
       | null = null,
-  ) =>
-    Option.getOrThrow(
-      prReading({
-        kind: "ok",
-        value: {
-          number: 2388,
-          title: "Mermaid diagrams",
-          url: "https://github.com/juspay/kolu/pull/2388",
-          state: "open",
-          checks,
-          checkRuns: [],
-          reviewDecision,
-          mergeStateStatus,
-          headSha: "4c3f17ea2",
-        },
-      }),
-    );
+  ) => {
+    const read = prReading({
+      kind: "ok",
+      value: {
+        number: 2388,
+        title: "Mermaid diagrams",
+        url: "https://github.com/juspay/kolu/pull/2388",
+        state: "open",
+        checks,
+        checkRuns: [],
+        reviewDecision,
+        mergeStateStatus,
+        headSha: "4c3f17ea2",
+      },
+    });
+    if (read.kind !== "pr") throw new Error(`no PR: ${read.kind}`);
+    return read.pr;
+  };
 
   it("keeps the checks as the rollup says them, whatever the merge state", () => {
     // THE CASE THAT WOKE THE HUMAN TOO EARLY: the checks that had reported

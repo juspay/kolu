@@ -121,7 +121,7 @@ Losing terminals never ends a work: the card says **no terminals** and the Condu
 | Members | Each terminal by `host/id`, its role, the agent kolu last saw, and who is driving it. |
 | Outcome | How it ended, once it has: **Merged #n**, **Closed #n**, **Stopped by you** or **by the Conductor**. The `.waterfall/` files are copied into kolu as it ends. |
 
-A work keeps its latest **30** agent state changes; older ones fold into one **N earlier agent state changes** line. While a PR's checks run, only GitHub's latest answer about merging it is kept. Nothing else folds, and kolu keeps the **last 20** finished works with their files.
+A work keeps its latest **30** agent state changes; older ones fold into one **N earlier agent state changes** line. While a PR's checks run, only GitHub's latest answer about merging it is kept, and one commit keeps at most **8** check results, the newest replacing the last. Nothing else folds, and kolu keeps the **last 20** finished works with their files.
 
 ### Who is typing
 
@@ -129,7 +129,7 @@ While a work is open, each member terminal is read-only to you, bordered in the 
 
 ### The work card
 
-Each piece of work has a card: where it stands, its six stages, and the part of its history you need, with the rest one press away. [The work card](/work-card) says what each line and section shows.
+Each piece of work has a card: where it stands, its stages, and the part of its history you need, with the rest one click away. [The work card](/work-card) says what each line and section shows.
 
 ## Read the conversation
 

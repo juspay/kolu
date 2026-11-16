@@ -220,22 +220,21 @@ export const prEvents = (work: Work, pr: WatchPr, at: string): Work => {
       });
     }
   }
-  // WHETHER THE FORGE WOULD MERGE IT, recorded when the answer CHANGES — for
-  // another commit, or the same one gone from mergeable to behind and back.
-  // Only while the PR is open. "Not worked out yet" is recorded once per
-  // commit (`unsettled`), so the last commit's answer never stands for a
-  // push; after that the last answer stands until there is a new one. A
-  // reading with no merge state at all (`unreported`) is a padi older than
-  // the field: it says nothing, and the card says GitHub has not answered.
+  // WHETHER THE FORGE WOULD MERGE IT, recorded when the answer CHANGES for
+  // this PR at this commit — `unsettled` included, so GitHub recomputing a
+  // commit (the base moved) takes back the `can` it had, and a push never
+  // inherits the last commit's answer. Only while the PR is open. A reading
+  // with no merge state at all (`unreported`) is a padi older than the field:
+  // it says nothing, and the card says GitHub has not answered.
   const merge = pr.merge;
-  const lastMerge = about((one) => one.lastMerge);
-  const news =
-    merge.kind === "unreported"
-      ? false
-      : merge.kind === "unsettled"
-        ? Option.isNone(lastMerge)
-        : !Option.exists(lastMerge, (last) => sameMerge(last.merge, merge));
-  if (pr.state === "open" && news && merge.kind !== "unreported") {
+  if (
+    pr.state === "open" &&
+    merge.kind !== "unreported" &&
+    !Option.exists(
+      about((one) => one.lastMerge),
+      (last) => sameMerge(last.merge, merge),
+    )
+  ) {
     next = recordEvent(next, {
       at,
       by: "kolu",
@@ -491,19 +490,19 @@ export const observing = (deps: {
       // WHAT THE FORGE SAID, or nothing. Every arm but `ok` is "kolu does not
       // know" — a resolve in flight, a remote no adapter serves, a `gh` that
       // would not answer — and a work must never learn its PR closed because
-      // the forge stopped answering.
-      const pr = prReading(reading);
-      if (Option.isNone(pr)) return;
+      // the forge stopped answering. A BROKEN reading is refused for this
+      // one work, as an error: the watch goes on serving every other.
+      const read = prReading(reading);
+      if (read.kind === "unknown") return;
+      if (read.kind === "broken") {
+        deps.log.error({ work: id, why: read.why }, "refused a PR reading");
+        return;
+      }
       const found = deps.store.get(id);
       if (Option.isNone(found)) return;
       const work = found.value;
-      // A READING MOVES A WORK IN PROGRESS, and nothing else. A finished
-      // work's branch is not watched at all (`./workStore.ts`'s `prWatches`
-      // is the one statement of that scope), so the only reading that reaches
-      // here for one is a frame already in flight when it ended — and the
-      // forge is never the way back: Reopen on the card is.
-      if (work.state.kind !== "open") return;
-      const next = prEvents(work, pr.value, nowIso());
+      // A READING MOVES A WORK IN PROGRESS, and nothing else (`prEvents`).
+      const next = prEvents(work, read.pr, nowIso());
       // IDEMPOTENT BY CONSTRUCTION: the reading is compared with the TIMELINE,
       // so the same reading twice — the next poll, the first look after a
       // restart — is the same work value back and nothing is written.

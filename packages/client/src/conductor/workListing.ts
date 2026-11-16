@@ -9,7 +9,6 @@
  *  components because a work chip — in the chat, in a "which work?" menu, in
  *  the reader's header — opens a card it is not inside. */
 
-import type { StageName } from "kolu-work";
 import { batch, createSignal } from "solid-js";
 import { conductorWide } from "./conductorLayout";
 import { closeReader } from "./reader/useReader";
@@ -37,6 +36,11 @@ export function toggleCard(id: string): void {
   });
 }
 
+/** Open a card, if it is shut — what a press on its stage strip does. */
+export function openCard(id: string): void {
+  setOpenCards((was) => (was.has(id) ? was : new Set([...was, id])));
+}
+
 /** Is the Finished list open? Shut by default: it is history. */
 export const isFinishedOpen = finishedOpen;
 export const toggleFinished = (): void => {
@@ -48,59 +52,6 @@ export const toggleFinished = (): void => {
 export const isListingOut = listingOut;
 export const toggleListing = (): void => {
   setListingOut((was) => !was);
-};
-
-/** WHICH PART OF AN OPEN CARD'S HISTORY IS SHOWN. A card shows ONE stage of
- *  its timeline — the stage the work is in, until a cell of its strip is
- *  pressed — and its latest three decisions; "whole timeline" and "all N"
- *  unfold the rest in place. Kept here with the card's open state, so a
- *  resize that moves the listing keeps what a person unfolded. */
-const [chosenStage, setChosenStage] = createSignal<
-  ReadonlyMap<string, StageName>
->(new Map());
-const [wholeTimelines, setWholeTimelines] = createSignal<ReadonlySet<string>>(
-  new Set(),
-);
-const [allDecisionsOf, setAllDecisionsOf] = createSignal<ReadonlySet<string>>(
-  new Set(),
-);
-
-const toggled = (was: ReadonlySet<string>, id: string): ReadonlySet<string> => {
-  const next = new Set(was);
-  if (!next.delete(id)) next.add(id);
-  return next;
-};
-
-/** The stage a person pressed on this card's strip, if any. */
-export const pressedStage = (id: string): StageName | undefined =>
-  chosenStage().get(id);
-
-/** PRESS A STAGE CELL: the card opens (if it was shut) on that stage's part
- *  of the timeline, folded back from the whole one. */
-export function showStage(id: string, stage: StageName): void {
-  batch(() => {
-    setChosenStage((was) => new Map([...was, [id, stage]]));
-    setWholeTimelines((was) => {
-      if (!was.has(id)) return was;
-      const next = new Set(was);
-      next.delete(id);
-      return next;
-    });
-    setOpenCards((was) => (was.has(id) ? was : new Set([...was, id])));
-  });
-}
-
-/** Is this card showing its whole timeline? */
-export const isWholeTimeline = (id: string): boolean =>
-  wholeTimelines().has(id);
-export const toggleWholeTimeline = (id: string): void => {
-  setWholeTimelines((was) => toggled(was, id));
-};
-
-/** Is this card showing every decision rather than the latest three? */
-export const isAllDecisions = (id: string): boolean => allDecisionsOf().has(id);
-export const toggleAllDecisions = (id: string): void => {
-  setAllDecisionsOf((was) => toggled(was, id));
 };
 
 /** The card a chip asked to bring into view, if one is waiting. */
@@ -123,7 +74,7 @@ export function showWork(id: string, finished: boolean): void {
     closeReader();
     if (!conductorWide()) setListingOut(true);
     if (finished) setFinishedOpen(true);
-    setOpenCards((was) => (was.has(id) ? was : new Set([...was, id])));
+    openCard(id);
     setWanted({ id, seq });
   });
 }

@@ -1963,11 +1963,19 @@ const sameHead_1_57_0 = (a: unknown, b: unknown): boolean => {
  *    progress gets none: its next PR reading records GitHub's real answer,
  *    and until then it is not green, rather than green off a pass that may
  *    have been too early. A `checks-passed` already followed by a merge
- *    answer for its commit has walked this rung. */
+ *    answer for its commit has walked this rung, and one for a PR that was
+ *    later closed without merging gets none: nobody merged it, and the
+ *    timeline must not say the forge would have. */
 const eventsOf_1_57_0 = (
   events: ReadonlyArray<unknown>,
   finished: boolean,
 ): ReadonlyArray<unknown> => {
+  const closed = new Set(
+    events.flatMap((value) => {
+      const event = recordOf(value);
+      return event?.kind === "pr-closed" ? [event.pr] : [];
+    }),
+  );
   let changed = false;
   const next: unknown[] = [];
   events.forEach((value, at) => {
@@ -1979,6 +1987,7 @@ const eventsOf_1_57_0 = (
     }
     next.push(value);
     if (!finished || event?.kind !== "checks-passed") return;
+    if (closed.has(event.pr)) return;
     const following = recordOf(events[at + 1]);
     if (
       following?.kind === "merge-state" &&

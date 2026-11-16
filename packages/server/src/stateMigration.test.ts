@@ -2499,7 +2499,7 @@ describe("the 1.57.0 rung — a PR's address and the forge's merge answer", () =
     ).toBe(true);
   });
 
-  it("answers only a finished work's passes, once per pass, and every PR its own", () => {
+  it("answers only a finished work's passes, never a closed PR's, and none twice", () => {
     const { state } = walk(structuredClone({ ...SEED, ...MORE }));
     const works = state.works as Record<
       string,
@@ -2511,21 +2511,19 @@ describe("the 1.57.0 rung — a PR's address and the forge's merge answer", () =
       { ...opened(4), url: { kind: "unrecorded" } },
       passed(4, HEAD),
     ]);
-    // FINISHED, TWO PRs: the first pass is answered for its own PR and
-    // commit; the second already had its answer, which stands.
+    // FINISHED, TWO PRs: the first was closed unmerged, so its pass gets no
+    // answer; the second's pass already had its answer, which stands.
     const two = works[TWO]?.events ?? [];
     expect(two.map((one) => one.kind)).toEqual([
       "pr-opened",
       "checks-passed",
-      "merge-state",
       "pr-closed",
       "pr-opened",
       "checks-passed",
       "merge-state",
       "merged",
     ]);
-    expect(two[2]).toMatchObject({ pr: 9, head: HEAD, merge: { kind: "can" } });
-    expect(two[6]).toMatchObject({
+    expect(two[5]).toMatchObject({
       pr: 10,
       merge: { kind: "cannot", why: "review" },
     });

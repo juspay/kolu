@@ -22,17 +22,12 @@
  *  terminal's record — arrives as an argument ({@link ChecksTally}), so every
  *  sentence here is testable without a browser. */
 
-import { activeArm } from "@kolu/padi-client/surface";
 import { dualPhrase } from "@kolu/terminal-vocab/duration";
-import { type PrInfo, prValue } from "anyforge/schemas";
 import { Option } from "effect";
 import { decodeHostKey, isEncodedHostKey } from "kolu-common/hostKey";
 import {
   type AnswerFrom,
-  type CheckKind,
   type Decision,
-  type MergeBlock,
-  type MergeState,
   type Driver,
   type EventAbout,
   type EventBy,
@@ -71,8 +66,8 @@ import {
   waitingOnYou,
 } from "kolu-work";
 import { type NonEmpty, nonEmpty } from "nonempty";
-import type { FleetTerminalStanding } from "../palette/fleetTerminals";
 import { hostLabel } from "../host/hostChipTone";
+import { type ChecksTally, checksProgress, mergeWords } from "./prReadings";
 
 /** THE THREE INKS, by who is being waited on — violet for you, amber for CI,
  *  teal for the agents. One table, read by the standing line, the stage
@@ -358,40 +353,6 @@ export function workSubtitle(
   ].filter((part) => part !== "");
 }
 
-/** A PR's checks, counted — the one LIVE fact the column mixes into a stored
- *  record. It arrives from the member terminal's own record (the fleet index),
- *  never from the timeline: the timeline says checks are running, and how many
- *  of them have landed is only true for the instant it is read. */
-export interface ChecksTally {
-  readonly pass: number;
-  readonly pending: number;
-  readonly fail: number;
-  readonly total: number;
-}
-
-export function checksTally(
-  pr: Option.Option<PrInfo>,
-): Option.Option<ChecksTally> {
-  return Option.flatMap(pr, (one) => {
-    if (one.checkRuns.length === 0) return Option.none<ChecksTally>();
-    const tally = { pass: 0, pending: 0, fail: 0 };
-    for (const run of one.checkRuns) tally[run.outcome] += 1;
-    return Option.some({ ...tally, total: one.checkRuns.length });
-  });
-}
-
-/** `14 of 23 checks` — what the standing line says while CI runs. */
-export function checksProgress(tally: ChecksTally): string {
-  return `${tally.pass + tally.fail} of ${tally.total} checks`;
-}
-
-/** `14 passed · 9 running · 0 failed` — the Pull request section's own line,
- *  which states every bucket including the empty ones: a zero failed is the
- *  fact a reader came for. */
-export function checksBreakdown(tally: ChecksTally): string {
-  return `${tally.pass} passed · ${tally.pending} running · ${tally.fail} failed`;
-}
-
 /** HOW A WORK ENDED, in the words the card says it in. There are three ways
  *  and no more — the forge merged it, the forge closed it, or somebody
  *  stopped it — so this is total over the outcome sum and cannot be asked
@@ -408,92 +369,6 @@ export function outcomeWords(outcome: Outcome): string {
         ? "Stopped by you"
         : "Stopped by the Conductor";
   }
-}
-
-/** WHY GITHUB WILL NOT MERGE A PR, said plainly. */
-const BLOCK_WORDS: Record<MergeBlock, string> = {
-  blocked: "the branch's rules still want something, such as a required check",
-  review: "a review is required",
-  behind: "the branch is behind its base",
-  conflicts: "it conflicts with its base",
-  draft: "it is a draft",
-};
-
-/** A merge answer, or none recorded for the PR's current commit. */
-type MergeKnown = MergeState | { readonly kind: "unknown" };
-
-/** WHETHER GITHUB WOULD MERGE IT, in one phrase — a timeline row, and the
- *  Pull request section's last line. */
-export function mergeWords(merge: MergeKnown): string {
-  switch (merge.kind) {
-    case "can":
-      return "GitHub can merge it";
-    case "cannot":
-      return `GitHub cannot merge it yet · ${BLOCK_WORDS[merge.why]}`;
-    case "unsettled":
-      return "GitHub is still working out whether it can merge it";
-    case "unknown":
-      return "GitHub has not said whether it can merge it";
-    default:
-      return merge satisfies never;
-  }
-}
-
-/** THE SAME ANSWER AS ONE WORD — `can`, a reason it cannot (`review`,
- *  `behind`, …), `unsettled` or `unknown` — what a face carries as data, so
- *  nothing reading it has to parse the sentence. */
-export const mergeReason = (merge: MergeKnown): string =>
-  merge.kind === "cannot" ? merge.why : merge.kind;
-
-/** THE PULL REQUEST SECTION of a card: the PR and how it stands, what its
- *  checks say, and — while it is open — whether GitHub would merge it.
- *
- *  The checks are the LIVE tally while a member's record carries one (true
- *  only for the instant it is read), and otherwise the last check event the
- *  timeline recorded, with the gates that were red: that is all a finished
- *  work still knows. */
-export interface PrSection {
-  readonly number: number;
-  readonly state: "open" | "merged" | "closed";
-  readonly checks: string;
-  readonly merge: Option.Option<{
-    readonly words: string;
-    readonly reason: string;
-  }>;
-}
-
-const RECORDED_CHECKS: Record<CheckKind, string> = {
-  "checks-running": "CI running when last read",
-  "checks-passed": "Checks passed",
-  "checks-failed": "Checks failed",
-};
-
-export function prSection(
-  work: Work,
-  live: Option.Option<ChecksTally>,
-): Option.Option<PrSection> {
-  return Option.map(prOf(work), (pr) => ({
-    number: pr.number,
-    state: pr.state,
-    checks: Option.match(live, {
-      onSome: checksBreakdown,
-      onNone: () =>
-        Option.match(pr.lastCheck, {
-          onNone: () => "No checks reported",
-          onSome: (last) =>
-            `${RECORDED_CHECKS[last.kind]}${
-              last.failing.length === 0 ? "" : ` · ${last.failing.join(", ")}`
-            }`,
-        }),
-    }),
-    merge:
-      pr.state !== "open"
-        ? Option.none()
-        : Option.some({
-            words: mergeWords(pr.merge),
-            reason: mergeReason(pr.merge),
-          }),
-  }));
 }
 
 /** WHERE IT STANDS, in the words the card draws: a lead that names the waiter
@@ -566,24 +441,6 @@ export function standingLine(
     default:
       return line(Option.some(outcomeWords(at.outcome)));
   }
-}
-
-/** THE PR, LIVE — off whichever member terminal's record carries one. The
- *  timeline says the checks are running; how many have landed is only true
- *  for the instant it is read, so it is never stored. Each member's standing
- *  is read once by the caller and handed in. */
-export function livePrOf(
-  members: ReadonlyArray<{
-    readonly standing: FleetTerminalStanding | undefined;
-  }>,
-): PrInfo | null {
-  for (const one of members) {
-    const meta = one.standing?.kind === "here" ? one.standing.meta : undefined;
-    const arm = meta === undefined ? undefined : activeArm(meta);
-    const pr = arm === undefined ? null : prValue(arm.pr);
-    if (pr !== null) return pr;
-  }
-  return null;
 }
 
 /** ALL THE TIME A WORK HAS WAITED ON YOU — the card's "you 12m". */
@@ -1035,45 +892,6 @@ export function roleRuns(work: Work, role: WorkRole): Option.Option<string> {
     default:
       return chosen satisfies never;
   }
-}
-
-/** How many of a watch's latest events its card shows: a watch has no
- *  stages to index its timeline by. */
-export const WATCH_EVENTS_SHOWN = 5;
-
-/** WHAT AN OPEN CARD'S TIMELINE SHOWS, and which events that is (their
- *  indices in the timeline):
- *
- *  - `stage` — one stage's events: the one pressed on the strip, else the
- *    stage the work is in (for a finished work, the stage it ended in) —
- *    read off `kolu-work`'s own filing of each event (`Stages`' `events`);
- *  - `latest` — a work with no stages (a watch, or a mode not chosen yet):
- *    its last {@link WATCH_EVENTS_SHOWN} events;
- *  - `whole` — all of it, once "whole timeline" is pressed. */
-export type TimelineView =
-  | { readonly kind: "stage"; readonly stage: StageName }
-  | { readonly kind: "latest" }
-  | { readonly kind: "whole" };
-
-export function timelineShown(
-  work: Work,
-  stages: Stages,
-  pressed: StageName | undefined,
-  whole: boolean,
-): { readonly view: TimelineView; readonly indices: ReadonlyArray<number> } {
-  const all = work.events.map((_, index) => index);
-  if (whole) return { view: { kind: "whole" }, indices: all };
-  if (stages.kind !== "waterfall")
-    return {
-      view: { kind: "latest" },
-      indices: all.slice(-WATCH_EVENTS_SHOWN),
-    };
-  const stage = pressed ?? stages.events.at(-1);
-  if (stage === undefined) return { view: { kind: "latest" }, indices: [] };
-  return {
-    view: { kind: "stage", stage },
-    indices: all.filter((index) => stages.events[index] === stage),
-  };
 }
 
 /** EVERY ASK ANY WORK OWNS. A question about a work is recorded as that

@@ -216,8 +216,8 @@ Then("no menu of works should have opened", async function (this: KoluWorld) {
   );
 });
 
-/** THE TURN'S WORK HAS NO SUCH FILE: a status note where the link is, naming
- *  this scenario's work by its chip face and the path it lacks. */
+/** THE TURN'S WORK HAS NO SUCH FILE: a status note under the reply that
+ *  named it, naming this scenario's work by its chip face and the path. */
 Then(
   "the conductor should say the work has no {string} yet",
   async function (this: KoluWorld, file: string) {

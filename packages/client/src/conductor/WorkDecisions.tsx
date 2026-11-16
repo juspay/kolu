@@ -10,9 +10,8 @@
  *  opened again still says what was decided about it. */
 
 import { Option } from "effect";
-import type { Work, WorkId } from "kolu-work";
+import type { Work } from "kolu-work";
 import { type Component, createMemo, createSignal, For, Show } from "solid-js";
-import { isAllDecisions, toggleAllDecisions } from "./workListing";
 import {
   answerSource,
   answeredWhen,
@@ -25,11 +24,14 @@ import {
 /** How many of the other decisions a card shows before "all N". */
 const DECISIONS_SHOWN = 3;
 
-const WorkDecisions: Component<{ id: WorkId; work: Work }> = (props) => {
+const WorkDecisions: Component<{ work: Work }> = (props) => {
   const setup = createMemo(() => setupLine(props.work));
   const others = createMemo(() => otherDecisions(props.work));
+  /** Every decision out, rather than the latest three. Dies with the open
+   *  card, as the card's own view does. */
+  const [all, setAll] = createSignal(false);
   const shown = createMemo(() =>
-    isAllDecisions(props.id) ? others() : others().slice(-DECISIONS_SHOWN),
+    all() ? others() : others().slice(-DECISIONS_SHOWN),
   );
   /** Which rows have their question out. Dies with the card. */
   const [opened, setOpened] = createSignal<ReadonlySet<string>>(new Set());
@@ -62,7 +64,7 @@ const WorkDecisions: Component<{ id: WorkId; work: Work }> = (props) => {
                     <span class="text-fg-3"> · </span>
                   </Show>
                   <span
-                    data-testid="work-decision"
+                    data-testid="work-setup-part"
                     data-key={part.key}
                     data-from={Option.getOrUndefined(part.from)}
                     data-answer={part.answer}
@@ -138,13 +140,11 @@ const WorkDecisions: Component<{ id: WorkId; work: Work }> = (props) => {
             <button
               type="button"
               data-testid="work-decisions-all"
-              aria-expanded={isAllDecisions(props.id)}
+              aria-expanded={all()}
               class="mt-1 cursor-pointer text-[0.66rem] text-accent hover:underline"
-              onClick={() => toggleAllDecisions(props.id)}
+              onClick={() => setAll((was) => !was)}
             >
-              {isAllDecisions(props.id)
-                ? `latest ${DECISIONS_SHOWN}`
-                : `all ${others().length}`}
+              {all() ? `latest ${DECISIONS_SHOWN}` : `all ${others().length}`}
             </button>
           </Show>
         </section>

@@ -27,9 +27,8 @@ import StageStrip from "./StageStrip";
 import { useWorkMembers } from "./useWorks";
 import WorkChipFace from "./WorkChipFace";
 import { showWork } from "./workListing";
+import { checksTally, livePrOf } from "./prReadings";
 import {
-  checksTally,
-  livePrOf,
   membersIn,
   stagesOf,
   standingLine,

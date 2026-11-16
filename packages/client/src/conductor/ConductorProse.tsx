@@ -223,7 +223,6 @@ const ConductorProse: Component<{
         testIdPrefix="named-file"
         maxHeight={320}
         flip
-        focusFirst
       />
       {/* THE TURN'S WORK HAS NO SUCH FILE YET — said under the reply that
           named it, and announced: never another work's file in its place. */}

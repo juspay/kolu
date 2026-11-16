@@ -35,7 +35,14 @@
 
 import { type AgentModelList, isAgentModelId } from "@kolu/agent-distro/models";
 import { Array as Arr, Option } from "effect";
-import { type Policy, type Run, type Waiter, waitingOn } from "./folds.ts";
+import {
+  type Policy,
+  type Run,
+  STAGES,
+  type StageName,
+  type Waiter,
+  waitingOn,
+} from "./folds.ts";
 import { type Given, type SentAnswer, sentValue } from "./record.ts";
 import {
   type Chosen,
@@ -101,6 +108,10 @@ export {
  *  - `driven` — whether kolu types into its member terminals. A `watch` is the
  *    person's own terminal and kolu never drives it, so nothing there is ever
  *    locked.
+ *  - `stages` — the stages a work in this mode HAS, in order: the only ones
+ *    its time is ever filed under (`./folds.ts`'s `stages`). `full` has all
+ *    six; `trivial` has nobody to plan, approve or review, so Build, Checks
+ *    and Merge; a `watch` has none, and no strip.
  */
 export const MODE_RUNS: Readonly<
   Record<
@@ -109,6 +120,7 @@ export const MODE_RUNS: Readonly<
       readonly roles: ReadonlyArray<WorkRole>;
       readonly needs: ReadonlyArray<SetupKey>;
       readonly driven: boolean;
+      readonly stages: ReadonlyArray<StageName>;
     }
   >
 > = {
@@ -122,13 +134,15 @@ export const MODE_RUNS: Readonly<
       "planner.model",
     ],
     driven: true,
+    stages: STAGES,
   },
   trivial: {
     roles: ["implementor"],
     needs: ["implementor.harness", "implementor.model", "on-green"],
     driven: true,
+    stages: ["build", "checks", "merge"],
   },
-  watch: { roles: [], needs: [], driven: false },
+  watch: { roles: [], needs: [], driven: false, stages: [] },
 };
 
 /** The roles a mode runs, in the order they come in — none until a mode is
@@ -276,20 +290,18 @@ export const onGreenOf = (work: Work): Option.Option<OnGreen> =>
  *  The folds compute from the timeline and must not re-read the setup three
  *  times over (and could not, without importing this module): the facts they
  *  need — whether the human asked for a hand-over, and how the work is run —
- *  are read ONCE here and handed in. How it is run is read off
- *  {@link MODE_RUNS}: a mode that runs an implementor is a waterfall (with a
- *  planner when it runs one), any other is a plain watch, and a work whose
- *  mode nobody has answered is neither yet. */
+ *  are read ONCE here and handed in. How it is run is the mode's own row of
+ *  {@link MODE_RUNS} (whether it is driven, and which stages it has), or
+ *  nothing yet for a work whose mode nobody has answered. */
 export const policyOf = (work: Work): Policy => ({
   handOver: Option.contains(onGreenOf(work), "hand-over"),
   run: Option.match(modeOf(work), {
     onNone: (): Run => ({ kind: "unset" }),
-    onSome: (mode): Run => {
-      const roles = MODE_RUNS[mode].roles;
-      return roles.includes("implementor")
-        ? { kind: "waterfall", planner: roles.includes("planner") }
-        : { kind: "watch" };
-    },
+    onSome: (mode): Run => ({
+      kind: "set",
+      driven: MODE_RUNS[mode].driven,
+      stages: MODE_RUNS[mode].stages,
+    }),
   }),
 });
 

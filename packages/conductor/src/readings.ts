@@ -35,7 +35,6 @@ import type { PadiTerminal, PadiUrgency } from "@kolu/padi-client/surface";
 // for them and not this module's.
 import { agentBucket } from "@kolu/terminal-vocab/agentProjection";
 import type { PrResult } from "@kolu/terminal-vocab/schema";
-import { Option } from "effect";
 import { fleetTerminalRef } from "kolu-mcp/fleetRef";
 import type {
   WatchGit,
@@ -211,34 +210,44 @@ export const mergeOf = (value: PrValue): WatchMerge => {
  *
  *  Pure, and the ONE translation: the watcher subscribes, this says what the
  *  frame means, and `./observing.ts` decides what the work learns from it.
- *  A resolved PR with no address is a broken reading, and it throws: the
- *  forge always spells one, and a work must not learn its PR as a number it
- *  can never link. */
-export const prReading = (pr: PrResult): Option.Option<WatchPr> => {
-  if (pr.kind !== "ok") return Option.none();
+ *  Three answers ({@link PrRead}): nothing known, the PR, or a BROKEN reading
+ *  — a resolved PR with no address, which the forge always spells. A broken
+ *  reading is said loudly by the one work it was about, and never thrown into
+ *  the watch that serves every other work. */
+export type PrRead =
+  | { readonly kind: "unknown" }
+  | { readonly kind: "pr"; readonly pr: WatchPr }
+  | { readonly kind: "broken"; readonly why: string };
+
+export const prReading = (pr: PrResult): PrRead => {
+  if (pr.kind !== "ok") return { kind: "unknown" };
   const value = pr.value;
   if (value.url === "")
-    throw new Error(
-      `the forge's reading of PR #${value.number} carries no address`,
-    );
-  return Option.some({
-    number: value.number,
-    title: value.title,
-    url: value.url,
-    state: value.state,
-    checks:
-      value.checks === null
-        ? { kind: "unreported" }
-        : { kind: "rollup", rollup: value.checks },
-    merge: mergeOf(value),
-    failing: value.checkRuns
-      .filter((one) => one.outcome === "fail")
-      .map((one) => one.name),
-    head:
-      value.headSha === null
-        ? { kind: "unreported" }
-        : { kind: "commit", sha: value.headSha },
-  });
+    return {
+      kind: "broken",
+      why: `the forge's reading of PR #${value.number} carries no address`,
+    };
+  return {
+    kind: "pr",
+    pr: {
+      number: value.number,
+      title: value.title,
+      url: value.url,
+      state: value.state,
+      checks:
+        value.checks === null
+          ? { kind: "unreported" }
+          : { kind: "rollup", rollup: value.checks },
+      merge: mergeOf(value),
+      failing: value.checkRuns
+        .filter((one) => one.outcome === "fail")
+        .map((one) => one.name),
+      head:
+        value.headSha === null
+          ? { kind: "unreported" }
+          : { kind: "commit", sha: value.headSha },
+    },
+  };
 };
 
 /**

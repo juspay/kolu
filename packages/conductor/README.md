@@ -132,13 +132,15 @@ appending what it observes.
   reason (`blocked`, `review` when the review decision wants one, `behind`,
   `conflicts`, `draft`), or `unsettled` for `UNKNOWN`. `observing.ts`
   records a `merge-state` event when the answer for a PR at a commit
-  changes, and `unsettled` once for a commit nothing was answered about yet,
-  so a push never inherits the last commit's answer. A reading with no merge
-  state at all (`unreported`, a padi older than the field) records nothing,
-  and a reading whose PR has no address throws: it is broken. Green is read
-  by `kolu-work` off both facts, about the same commit — merge `can` and no
-  check running or red — so the card, the timeline, the stages and the
-  Conductor's `works` resource agree without asking again.
+  CHANGES — `unsettled` too, so a push never inherits the last commit's
+  answer and GitHub recomputing one takes back the `can` it had. A reading
+  with no merge state at all (`unreported`, a padi older than the field)
+  records nothing. A reading whose PR has no address is `broken`
+  (`prReading` answers a sum, never throws): it is refused, as an error, for
+  the one work it was about, and the watch goes on serving every other.
+  Green is read by `kolu-work` off both facts, about the same commit — merge
+  `can` and no check running or red — so the card, the timeline, the stages
+  and the Conductor's `works` resource agree without asking again.
 - **The decision** (`./members.ts`, pure) — one reading of one member becomes
   a wake level or nothing:
   - `working` forgets what we were told, so the next stop is news again;

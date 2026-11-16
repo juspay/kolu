@@ -107,9 +107,13 @@ export const sameHead = (a: CheckHead, b: CheckHead): boolean =>
     ? b.kind === "commit" && a.sha === b.sha
     : b.kind === a.kind;
 
-/** One event's move on the PR reading — none for a work no PR was opened
- *  for yet, which only `pr-opened` changes. */
-const prStep = (
+/** ONE EVENT'S MOVE ON THE PR READING — the one statement of the PR-fact
+ *  rule: a check result or a merge answer about another commit makes the
+ *  other fact unknown, and opening, merging, closing and reopening each say
+ *  what is forgotten. None for a work no PR was opened for yet, which only
+ *  `pr-opened` changes. The observer reads it (through {@link prOf}) to tell
+ *  news from a repeat, and the folds carry it to tell green. */
+export const prStep = (
   pr: Option.Option<PrReading>,
   event: WorkEvent,
 ): Option.Option<PrReading> => {

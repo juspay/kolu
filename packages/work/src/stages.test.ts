@@ -35,6 +35,8 @@ import {
   timeSpent,
   took,
   type Work,
+  CHECKS_PER_COMMIT,
+  MODE_RUNS,
 } from "./index.ts";
 
 const T0 = Date.UTC(2026, 10, 16, 9, 0, 0);
@@ -139,14 +141,18 @@ const merged = (work: Work, minute: number, pr = 7): Work =>
     { outcome: { kind: "merged", pr }, at: at(minute) },
   );
 
-const FULL: Policy = {
-  handOver: true,
-  run: { kind: "waterfall", planner: true },
-};
-const TRIVIAL: Policy = {
-  handOver: true,
-  run: { kind: "waterfall", planner: false },
-};
+/** A policy for a mode, read off its own row of `MODE_RUNS`, as `policyOf`
+ *  reads it. */
+const policyFor = (mode: "full" | "trivial", handOver = true): Policy => ({
+  handOver,
+  run: {
+    kind: "set",
+    driven: MODE_RUNS[mode].driven,
+    stages: MODE_RUNS[mode].stages,
+  },
+});
+const FULL = policyFor("full");
+const TRIVIAL = policyFor("trivial");
 
 /** The six stages of a waterfall, or a failure saying the policy gave none. */
 const strip = (work: Work, policy: Policy, now: string) =>
@@ -154,9 +160,25 @@ const strip = (work: Work, policy: Policy, now: string) =>
 
 const waterfall = (work: Work, policy: Policy, now: string) => {
   const read = stages(work, policy, now);
-  if (read.kind !== "waterfall") throw new Error(`no stages: ${read.kind}`);
+  if (read.kind !== "staged") throw new Error(`no stages: ${read.kind}`);
   return read;
 };
+
+/** THE STRIP AS A PERSON READS IT: each cell's stage and what it shows —
+ *  `now`, `done`, `–` for a stage that did not happen, `·` for one not
+ *  reached. */
+const cells = (work: Work, policy: Policy, now: string): string =>
+  strip(work, policy, now)
+    .map((one) => {
+      const word = {
+        now: "now",
+        done: "done",
+        skipped: "–",
+        "not-started": "·",
+      }[one.state.kind];
+      return `${one.name} ${word}`;
+    })
+    .join(", ");
 
 /** THE TIME AFTER EACH EVENT, put in the stage that event was filed under —
  *  measured from the events alone, as {@link lifeOf} measures the life, so
@@ -334,10 +356,7 @@ describe("on chaotic records", () => {
   )("the stages add up to the life measured from the events, record %i", (seed) => {
     const work = chaotic(seed, 34);
     const pick = seeded(seed * 7919);
-    const policy: Policy = {
-      handOver: pick() < 0.5,
-      run: { kind: "waterfall", planner: pick() < 0.6 },
-    };
+    const policy = policyFor(pick() < 0.6 ? "full" : "trivial", pick() < 0.5);
     const now = at(34 * 12 + Math.floor(pick() * 60));
     const life = lifeOf(work, now);
     const all = strip(work, policy, now);
@@ -363,21 +382,20 @@ describe("on chaotic records", () => {
       expect(filed[one.name], `seed ${seed}: ${one.name}`).toBe(
         stageMs(one.state),
       );
+    // ONE answer to "where is it now": the strip's outlined cell is the
+    // stage the fold says it is in.
     const current = read.stages.find((one) => one.state.kind === "now");
     if (current !== undefined)
-      expect(read.events.at(-1), `seed ${seed}: last event`).toBe(current.name);
-    // What did not happen, or has not started, had no time.
-    for (const one of all)
+      expect(read.current, `seed ${seed}: current`).toBe(current.name);
+    // What did not happen, or has not started, had no time — and a stage
+    // the mode does not have never did.
+    for (const one of all) {
       if (one.state.kind === "skipped" || one.state.kind === "not-started")
         expect(stageMs(one.state)).toBe(0);
-    if (policy.run.kind === "waterfall" && !policy.run.planner) {
-      const named = byName(all);
-      expect(named.plan.kind === "done" || named.plan.kind === "now").toBe(
-        false,
-      );
-      expect(
-        named.approve.kind === "done" || named.approve.kind === "now",
-      ).toBe(false);
+      if (policy.run.kind === "set" && !policy.run.stages.includes(one.name))
+        expect(one.state, `seed ${seed}: ${one.name}`).toEqual({
+          kind: "skipped",
+        });
     }
   });
 });
@@ -431,15 +449,24 @@ describe("on scripted waterfalls", () => {
     minute += want.merge;
     work = merged(work, minute);
     const named = byName(strip(work, planner ? FULL : TRIVIAL, at(minute)));
+    // A TRIVIAL WORK HAS NOBODY TO REVIEW: its agents' time after the PR is
+    // still the build, and its Plan, Approve and Review did not happen.
+    if (!planner) {
+      want.build += want.review;
+      want.review = 0;
+    }
     for (const name of Object.keys(want) as StageName[]) {
-      if (!planner && (name === "plan" || name === "approve")) {
+      if (
+        !planner &&
+        (name === "plan" || name === "approve" || name === "review")
+      ) {
         expect(named[name], `seed ${seed}: ${name}`).toEqual({
           kind: "skipped",
         });
         continue;
       }
       // Every stage of this waterfall happened, however long it took.
-      expect(named[name], `seed ${seed}: ${name}`).toEqual({
+      expect(named[name], `seed ${seed}: ${name}`).toMatchObject({
         kind: "done",
         ms: want[name] * MINUTE,
       });
@@ -452,7 +479,7 @@ describe("where a work's stages stand", () => {
     let work = join(opened(), "planner", 0);
     work = ask(work, "approve", 22);
     const named = byName(strip(work, FULL, at(34)));
-    expect(named.plan).toEqual({ kind: "done", ms: 22 * MINUTE });
+    expect(named.plan).toEqual({ kind: "done", ms: 22 * MINUTE, who: "agent" });
     expect(named.approve).toEqual({ kind: "now", ms: 12 * MINUTE, who: "you" });
     expect(named.build).toEqual({ kind: "not-started" });
   });
@@ -476,17 +503,11 @@ describe("where a work's stages stand", () => {
     expect(named.merge).toEqual({ kind: "not-started" });
   });
 
-  it("has no plan and no approval when no planner runs", () => {
+  it("has no plan, approval or review when no planner runs", () => {
     const work = join(opened(), "implementor", 3);
-    const read = strip(work, TRIVIAL, at(10));
-    expect(read.map((one) => one.state.kind)).toEqual([
-      "skipped",
-      "skipped",
-      "now",
-      "not-started",
-      "not-started",
-      "not-started",
-    ]);
+    expect(cells(work, TRIVIAL, at(10))).toBe(
+      "plan –, approve –, build now, review –, checks ·, merge ·",
+    );
   });
 
   it("files the setup's questions under the plan, before there is one to approve", () => {
@@ -498,7 +519,8 @@ describe("where a work's stages stand", () => {
     work = ask(work, "approve", 20);
     const read = waterfall(work, FULL, at(30));
     const named = byName(read.stages);
-    expect(named.plan).toEqual({ kind: "done", ms: 20 * MINUTE });
+    // Mostly the planner's: 14 of its 20 minutes.
+    expect(named.plan).toEqual({ kind: "done", ms: 20 * MINUTE, who: "agent" });
     expect(named.approve).toEqual({ kind: "now", ms: 10 * MINUTE, who: "you" });
     // ... and the events say so: everything up to the approval's ask, the
     // setup's ask and answer included, is the plan's.
@@ -508,11 +530,34 @@ describe("where a work's stages stand", () => {
     ]);
   });
 
-  it("names no stages for a plain watch, and none yet before the mode is chosen", () => {
+  it("draws the setup's wait as yours once it was most of the plan", () => {
+    let work = ask(opened(), "setup", 0);
+    work = answer(work, "setup", 12);
+    work = join(work, "planner", 12);
+    work = ask(work, "approve", 15);
+    expect(byName(strip(work, FULL, at(20))).plan).toEqual({
+      kind: "done",
+      ms: 15 * MINUTE,
+      who: "you",
+    });
+  });
+
+  it("names no stages for a mode that declares none, and none yet before the mode is chosen", () => {
     const work = join(opened(), "implementor", 3);
     expect(
-      stages(work, { handOver: false, run: { kind: "watch" } }, at(9)),
-    ).toEqual({ kind: "watch" });
+      stages(
+        work,
+        {
+          handOver: false,
+          run: {
+            kind: "set",
+            driven: MODE_RUNS.watch.driven,
+            stages: MODE_RUNS.watch.stages,
+          },
+        },
+        at(9),
+      ),
+    ).toEqual({ kind: "none" });
     expect(
       stages(work, { handOver: false, run: { kind: "unset" } }, at(9)),
     ).toEqual({ kind: "unset" });
@@ -526,10 +571,10 @@ describe("where a work's stages stand", () => {
     work = check(work, "checks-running", 40);
     work = check(work, "checks-passed", 52);
     work = merged(work, 52);
-    const named = byName(strip(work, { ...TRIVIAL, handOver: false }, at(90)));
-    expect(named.review).toEqual({ kind: "done", ms: 0 });
-    expect(named.checks).toEqual({ kind: "done", ms: 12 * MINUTE });
-    expect(named.merge).toEqual({ kind: "done", ms: 0 });
+    const named = byName(strip(work, policyFor("full", false), at(90)));
+    expect(named.review).toMatchObject({ kind: "done", ms: 0 });
+    expect(named.checks).toMatchObject({ kind: "done", ms: 12 * MINUTE });
+    expect(named.merge).toMatchObject({ kind: "done", ms: 0 });
   });
 
   it("builds again on a second attempt after the first PR was closed", () => {
@@ -547,14 +592,125 @@ describe("where a work's stages stand", () => {
     );
     work = reopenWork(work, at(30));
     work = prOpened(work, 45, 8);
-    const named = byName(strip(work, TRIVIAL, at(50)));
+    const named = byName(strip(work, FULL, at(50)));
     // 10 before the first PR, 15 after the reopen before the second.
-    expect(named.build).toEqual({ kind: "done", ms: 25 * MINUTE });
+    expect(named.build).toMatchObject({ kind: "done", ms: 25 * MINUTE });
     expect(named.review).toEqual({
       kind: "now",
       ms: 15 * MINUTE,
       who: "agent",
     });
+  });
+});
+
+/** THE SHAPES OF REAL WORKS, each by name, as their cards must read. */
+describe("the shapes of real works", () => {
+  /** An instant `seconds` into the work. */
+  const second = (seconds: number): string =>
+    new Date(T0 + seconds * 1000).toISOString();
+
+  it("a full waterfall that opens its own PR, is reviewed, runs CI and is merged", () => {
+    let work = join(opened(), "planner", 0);
+    work = ask(work, "approve", 20);
+    work = answer(work, "approve", 25);
+    work = join(work, "implementor", 25);
+    work = prOpened(work, 60);
+    work = check(work, "checks-running", 80);
+    work = check(work, "checks-passed", 95);
+    work = mergeState(work, { kind: "can" }, 95);
+    work = merged(work, 100);
+    expect(cells(work, FULL, at(120))).toBe(
+      "plan done, approve done, build done, review done, checks done, merge done",
+    );
+  });
+
+  it("a trivial work that takes up a PR that already existed (the dependabot card)", () => {
+    // The human's record, second by second: the PR was there before the
+    // implementor, so it ends no build, and nobody reviews a trivial work.
+    let work = openWork({
+      key: { kind: "branch", host: "local", repo: "/r", branch: "dependabot" },
+      title: "land the dependabot PR",
+      at: second(0),
+      request: { kind: "said", text: "land it" },
+    });
+    work = recordEvent(work, {
+      at: second(1),
+      by: "kolu",
+      kind: "pr-opened",
+      about: ABOUT_WORK,
+      pr: 2391,
+      title: "bump",
+      url: { kind: "link", href: "https://forge.example/pr/2391" },
+    });
+    work = recordEvent(work, {
+      at: second(1),
+      by: "ci",
+      kind: "checks-failed",
+      about: ABOUT_WORK,
+      pr: 2391,
+      head: { kind: "commit", sha: "d1" },
+      failing: ["lint"],
+    });
+    work = joinWork(work, {
+      terminal: "local/implementor",
+      role: "implementor",
+      at: second(6),
+    });
+    work = recordEvent(work, {
+      at: second(16),
+      by: "agent",
+      kind: "ready",
+      about: { kind: "member", terminal: "local/implementor" },
+      why: { kind: "none" },
+    });
+    expect(cells(work, TRIVIAL, second(43))).toBe(
+      "plan –, approve –, build now, review –, checks ·, merge ·",
+    );
+  });
+
+  it("a work stopped while its setup form was still open", () => {
+    const work = endWork(ask(opened(), "setup", 0), {
+      outcome: { kind: "stopped", by: "you" },
+      at: at(4),
+    });
+    expect(cells(work, FULL, at(10))).toBe(
+      "plan done, approve –, build –, review –, checks –, merge –",
+    );
+    expect(byName(strip(work, FULL, at(10))).plan).toEqual({
+      kind: "done",
+      ms: 4 * MINUTE,
+      who: "you",
+    });
+  });
+
+  it("a work stopped after the plan, before any implementor", () => {
+    let work = join(opened(), "planner", 0);
+    work = ask(work, "approve", 30);
+    work = answer(work, "approve", 35);
+    work = endWork(work, {
+      outcome: { kind: "stopped", by: "you" },
+      at: at(40),
+    });
+    expect(cells(work, FULL, at(50))).toBe(
+      "plan done, approve done, build –, review –, checks –, merge –",
+    );
+  });
+
+  it("a full waterfall whose PR existed before the implementor joined", () => {
+    let work = prOpened(opened(), 0);
+    work = join(work, "planner", 0);
+    work = ask(work, "approve", 20);
+    work = answer(work, "approve", 25);
+    work = join(work, "implementor", 25);
+    work = check(work, "checks-running", 70);
+    work = check(work, "checks-passed", 85);
+    work = mergeState(work, { kind: "can" }, 85);
+    const named = byName(strip(work, FULL, at(90)));
+    // All the implementor's time is the build, before and after a push.
+    expect(named.build).toMatchObject({ kind: "done", ms: 45 * MINUTE });
+    expect(cells(work, FULL, at(90))).toBe(
+      "plan done, approve done, build done, review –, checks done, merge now",
+    );
   });
 });
 
@@ -647,6 +803,25 @@ describe("green is the forge saying it can merge", () => {
     work = mergeState(work, { kind: "can" }, 41);
     work = mergeState(work, { kind: "cannot", why: "behind" }, 50);
     expect(answers()).toBe(3);
+  });
+
+  it("keeps at most a bounded number of check results for one commit", () => {
+    let work = join(opened(), "implementor", 0);
+    work = prOpened(work, 10);
+    // Two suites out of phase: the word flips on every poll.
+    for (let poll = 0; poll < 40; poll += 1)
+      work = check(
+        work,
+        poll % 2 === 0 ? "checks-running" : "checks-passed",
+        11 + poll,
+      );
+    const kept = work.events.filter(
+      (one) => one.kind === "checks-running" || one.kind === "checks-passed",
+    );
+    expect(kept).toHaveLength(CHECKS_PER_COMMIT);
+    // ... and the word it ended on is the one the work reads.
+    expect(kept.at(-1)?.kind).toBe("checks-passed");
+    expect(byName(strip(work, FULL, at(60))).checks.kind).not.toBe("now");
   });
 });
 

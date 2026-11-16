@@ -2,9 +2,14 @@
  * HOW A WORK CHANGES — every transition, as a pure function of the record.
  *
  * Each takes a work and answers the work it becomes: nothing here reads a
- * clock, a filesystem or a host, and nothing mutates what it was given. The
- * timeline is append-only and BOUNDED here, in the one `append` below, so a
- * transition added later cannot forget the bound.
+ * clock, a filesystem or a host, and nothing mutates what it was given.
+ *
+ * THE TIMELINE ONLY GROWS, with three exceptions, each here and each with
+ * its reason: the one `append` below keeps it BOUNDED (old agent states fold
+ * into one count; a merge answer within one check run, or a check result past
+ * {@link CHECKS_PER_COMMIT} on one commit, replaces the one before it), and
+ * {@link linkPr} amends a `pr-opened` recorded before kolu kept PR addresses
+ * with the address it learns later. Nothing else rewrites a past row.
  *
  * MEMBERSHIP IS NOT HERE any more. A member is a row in the one map keyed by
  * terminal (`./store.ts`), so joining and leaving are a map movement plus the
@@ -38,8 +43,8 @@ import {
   type WorkRole,
 } from "./schema.ts";
 
-/** HOW A TERMINAL'S AGENT STANDS, as events — the only kinds a work produces
- *  over and over for as long as it runs, and so the only ones bounded. */
+/** HOW A TERMINAL'S AGENT STANDS, as events — what a work produces over and
+ *  over for as long as it runs, so it is folded past a count. */
 export const AGENT_STATE_KINDS = [
   "ready",
   "stopped",
@@ -130,13 +135,45 @@ const MOVES_A_PR: ReadonlySet<string> = new Set([
   "reopened",
 ]);
 
+/** HOW MANY CHECK RESULTS ONE COMMIT KEEPS. A commit's checks change a few
+ *  times — the quick ones pass, the real run starts, it fails, a re-run
+ *  passes — and two suites reporting out of phase would otherwise write a row
+ *  per poll (juspay/kolu#2376's shape). Past this, a commit's newest result
+ *  replaces its last one: the word it ends on is still the word the work
+ *  reads. */
+export const CHECKS_PER_COMMIT = 8;
+
+/** WHETHER A NEW CHECK RESULT REPLACES ITS COMMIT'S LAST ONE: the commit
+ *  already holds {@link CHECKS_PER_COMMIT} of them. */
+const replacesLastCheck = (
+  events: ReadonlyArray<WorkEvent>,
+  event: WorkEvent,
+): number => {
+  if (!isCheckEvent(event)) return -1;
+  let kept = 0;
+  let last = -1;
+  events.forEach((one, index) => {
+    if (
+      isCheckEvent(one) &&
+      one.pr === event.pr &&
+      sameHead(one.head, event.head)
+    ) {
+      kept += 1;
+      last = index;
+    }
+  });
+  return kept >= CHECKS_PER_COMMIT ? last : -1;
+};
+
 /** THE ONE APPEND. Every transition in this module goes through it, so the
- *  two bounds cannot be forgotten by a caller or by a transition added
- *  later: agent states fold past {@link AGENT_STATES_KEPT}, and a merge
- *  answer given while its commit's checks run replaces the last one
- *  ({@link replacesLastMerge}). */
+ *  bounds cannot be forgotten by a caller or by a transition added later:
+ *  agent states fold past {@link AGENT_STATES_KEPT}, a merge answer given
+ *  while its commit's checks run replaces the last one
+ *  ({@link replacesLastMerge}), and a commit's check results past
+ *  {@link CHECKS_PER_COMMIT} replace its last one. */
 const append = (work: Work, event: WorkEvent): Work => {
-  const replaced = replacesLastMerge(work.events, event);
+  const merge = replacesLastMerge(work.events, event);
+  const replaced = merge >= 0 ? merge : replacesLastCheck(work.events, event);
   if (replaced >= 0)
     return {
       ...work,

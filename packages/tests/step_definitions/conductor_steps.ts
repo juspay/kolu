@@ -3656,17 +3656,23 @@ async function waitForDecision(
         '[data-testid="work-decisions-all"][aria-expanded="false"]',
       );
       if ((await unfold.count()) > 0) await unfold.click().catch(() => {});
-      return world.page
-        .locator(`${WORK_COLUMN} [data-testid="work-decision"]${narrowed}`)
-        .evaluateAll((all) =>
-          all.map(
-            (one) =>
-              // THE ANSWER AS RECORDED, beside the row's own words: the row
-              // reads "On green — hand over" where the human answered
-              // "hand-over", and it is the answer this step is about.
-              `${one.getAttribute("data-answer") ?? ""} ${(one.textContent ?? "").replace(/\s+/g, " ").trim()}`,
-          ),
-        );
+      return (
+        world.page
+          // The setup's parts and the other decisions, each with what was
+          // recorded and where it came from.
+          .locator(
+            `${WORK_COLUMN} [data-testid="work-setup-part"]${narrowed}, ${WORK_COLUMN} [data-testid="work-decision"]${narrowed}`,
+          )
+          .evaluateAll((all) =>
+            all.map(
+              (one) =>
+                // THE ANSWER AS RECORDED, beside the row's own words: the row
+                // reads "On green — hand over" where the human answered
+                // "hand-over", and it is the answer this step is about.
+                `${one.getAttribute("data-answer") ?? ""} ${(one.textContent ?? "").replace(/\s+/g, " ").trim()}`,
+            ),
+          )
+      );
     },
     isDone: (read) => read.some((one) => one.includes(text)),
     timeoutMs: POLL_TIMEOUT,
@@ -3705,6 +3711,42 @@ Then(
     if (wrapped.length > 0)
       throw new Error(
         `these decision lines take more than one line: ${JSON.stringify(wrapped)}`,
+      );
+  },
+);
+
+/** ONE ROW PER TERMINAL, as one line however narrow the column: every part
+ *  of the row sits on the same line, and nothing is pushed past its edge. */
+Then(
+  "the work's terminal rows should each be one line",
+  async function (this: KoluWorld) {
+    await openWorkCard(this);
+    const rows = workCard(this).locator(
+      '[data-testid="work-member"] [data-testid="conductor-look"] > div',
+    );
+    await rows.first().waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    const broken = await rows.evaluateAll((all) =>
+      all
+        .map((row) => {
+          const tops = Array.from(row.children)
+            .filter((one) => one.getBoundingClientRect().width > 0)
+            .map((one) => {
+              const box = one.getBoundingClientRect();
+              return box.top + box.height / 2;
+            });
+          const oneLine = tops.every(
+            (mid) => Math.abs(mid - (tops[0] ?? 0)) < 6,
+          );
+          const fits = row.scrollWidth <= row.clientWidth + 1;
+          return oneLine && fits
+            ? ""
+            : `${oneLine ? "" : "wraps "}${fits ? "" : "overflows "}${(row.textContent ?? "").replace(/\s+/g, " ").trim()}`;
+        })
+        .filter((one) => one !== ""),
+    );
+    if (broken.length > 0)
+      throw new Error(
+        `these terminal rows are not one line: ${JSON.stringify(broken)}`,
       );
   },
 );

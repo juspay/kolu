@@ -4314,7 +4314,7 @@ retirements:
     defectSurface: [conductor, mobile, user-journey]
     destinationLayer: L5
     replacements: []
-    survivorRevisionIds: [revision-acafa01d341788f26998]
+    survivorRevisionIds: [revision-ee6cea0dba9e20397579]
     sameCodePathEvidence:
       file: packages/tests/features/conductor-lock.feature
       symbol: "Scenario: The phone's key bar raises the same card"
@@ -4374,7 +4374,7 @@ retirements:
     defectSurface: [conductor, mobile, user-journey]
     destinationLayer: L5
     replacements: []
-    survivorRevisionIds: [revision-acafa01d341788f26998]
+    survivorRevisionIds: [revision-ee6cea0dba9e20397579]
     sameCodePathEvidence:
       file: packages/tests/features/conductor-lock.feature
       symbol: "Scenario: The phone's key bar raises the same card"
@@ -4704,3 +4704,16 @@ retirements:
       file: packages/tests/features/conductor-work.feature
       symbol: "Scenario: A waterfall's card, from the request to the merge"
       test: Every claim of this revision is still asserted on the same journey. GitHub's merge answers are now asserted by the reason word the timeline row and the Pull request section carry ("review", "can") instead of by their sentences, and the survivor adds the stage strip following the work (build, checks, review, merge) and two presses on the strip, each showing only that stage's events on the open card.
+  - id: revise-acafa01d341788f26998
+    revisionId: revision-acafa01d341788f26998
+    action: revised
+    status: landed
+    promise: The phone's key bar is gated by the band above it
+    defectSurface: [conductor, mobile, user-journey]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-ee6cea0dba9e20397579]
+    sameCodePathEvidence:
+      file: packages/tests/features/conductor-lock.feature
+      symbol: "Scenario: The phone's key bar raises the same card"
+      test: Every step of this revision is still asserted on the same phone journey. The survivor adds one check once the terminal is listed — each of the work's terminal rows on the phone's card is one line with nothing pushed past its edge.

@@ -2,15 +2,16 @@
  *  Plan, Approve, Build, Review, Checks, Merge.
  *
  *  Each cell says how long that stage has taken and is coloured by whose
- *  time it is (`WAITER_INK`): the agents', yours, or CI's. The stage the work
- *  is in now is outlined, and takes the colour of who it is waiting on — a
- *  build or a review stopped on a question is yours. A stage that did not
- *  happen (no planner, so no plan) is a dashed cell with a dash; one not
- *  reached yet is empty. The stages are `kolu-work`'s own fold (`stages`),
- *  over the same walk as the standing line, so the strip and the sentence
- *  over it cannot disagree.
+ *  time it mostly was (`WAITER_INK`): the agents', yours, or CI's. The stage
+ *  the work is in now is outlined, in the colour of who it is waiting on. A
+ *  stage that did not happen is a dashed cell with a dash: one the work's
+ *  mode does not have (a trivial work is never planned or reviewed), or one
+ *  it went past. One not reached yet is empty. The stages are `kolu-work`'s
+ *  own fold (`stages`, over its mode's row of `MODE_RUNS`), over the same
+ *  walk as the standing line, so the strip and the sentence over it cannot
+ *  disagree.
  *
- *  A plain watch is not a waterfall and draws no strip at all; a work whose
+ *  A mode with no stages (a plain watch) draws no strip at all; a work whose
  *  mode nobody has answered draws six quiet cells until it is known.
  *
  *  ONE COMPONENT, TWO SIZES: `full` on a card, `mini` inside a work chip's
@@ -24,7 +25,6 @@
 
 import { dualPhrase } from "@kolu/terminal-vocab/duration";
 import {
-  STAGE_WAITER,
   STAGES,
   type Stage,
   type StageName,
@@ -35,13 +35,14 @@ import {
 import { type Component, createMemo, Index, Show } from "solid-js";
 import { STAGE_LABEL, WAITER_INK } from "./workReadings";
 
-/** The cell's colours, by where its stage stands. */
-const cellInk = (state: StageState, own: Waiter): string => {
+/** The cell's colours, by where its stage stands — a stage that has had time
+ *  in the colour of whose time it was. */
+const cellInk = (state: StageState): string => {
   switch (state.kind) {
     case "now":
       return WAITER_INK[state.who].now;
     case "done":
-      return `border-transparent ${WAITER_INK[own].tint}`;
+      return `border-transparent ${WAITER_INK[state.who].tint}`;
     case "not-started":
       return "border-transparent bg-fg-3/10";
     case "skipped":
@@ -107,11 +108,11 @@ const StageStrip: Component<{
   const cells = createMemo((): ReadonlyArray<Stage> | undefined => {
     const one = props.stages;
     switch (one.kind) {
-      case "watch":
+      case "none":
         return undefined;
       case "unset":
         return QUIET;
-      case "waterfall":
+      case "staged":
         return one.stages;
       default:
         return one satisfies never;
@@ -131,20 +132,16 @@ const StageStrip: Component<{
           <Index each={all()}>
             {(stage) => {
               const state = () => stage().state;
-              const ran = () =>
-                state().kind === "done" || state().kind === "now";
-              /** Whose time the cell is: the stage's own waiter, or — for
-               *  the stage the work is in — whoever it is waiting on now. */
-              const who = () => {
+              /** Whose time the cell held, for a stage that had any. */
+              const who = (): Waiter | undefined => {
                 const now = state();
-                return now.kind === "now"
+                return now.kind === "done" || now.kind === "now"
                   ? now.who
-                  : STAGE_WAITER[stage().name];
+                  : undefined;
               };
               const cellClass = () =>
                 `block w-full min-w-0 rounded-md border text-center ${cellInk(
                   state(),
-                  STAGE_WAITER[stage().name],
                 )} ${full() ? "py-0.5" : "py-px"}`;
               const face = () => (
                 <>
@@ -158,12 +155,15 @@ const StageStrip: Component<{
                   <b
                     class={`block min-h-[1.3em] font-mono font-semibold leading-snug tabular-nums ${
                       full() ? "text-[0.66rem]" : "text-[0.6rem]"
-                    } ${ran() ? "text-fg" : "text-fg-3"}`}
+                    } ${who() === undefined ? "text-fg-3" : "text-fg"}`}
                   >
                     {timeOf(state())}
                   </b>
                   <span class="sr-only">
-                    {ran() ? `, ${WHOSE[who()]}, ` : ", "}
+                    {(() => {
+                      const whose = who();
+                      return whose === undefined ? ", " : `, ${WHOSE[whose]}, `;
+                    })()}
                     {STATE_WORD[state().kind]}
                   </span>
                 </>
@@ -180,7 +180,7 @@ const StageStrip: Component<{
                   class="min-w-0"
                 >
                   <Show
-                    when={ran() ? props.index : undefined}
+                    when={who() === undefined ? undefined : props.index}
                     fallback={<span class={cellClass()}>{face()}</span>}
                   >
                     {(index) => (

@@ -258,15 +258,9 @@ const ConductorLook: Component<{
       data-standing={standing().kind}
       class="col-span-full min-w-0"
     >
-      {/* A row with a lead or a trail (a work card's member) wraps rather
-          than squeezing its controls out of a narrow column. */}
-      <div
-        class={`flex min-w-0 items-center gap-2 ${
-          props.lead === undefined && props.trail === undefined
-            ? ""
-            : "flex-wrap gap-y-0.5"
-        }`}
-      >
+      {/* ONE LINE, always: in a narrow column the status gives way first,
+          then a lead's own parts down to their floors. */}
+      <div class="flex min-w-0 items-center gap-2">
         {props.lead}
         <span class={`h-2 w-2 shrink-0 rounded-full ${DOT[status().tone]}`} />
         <span

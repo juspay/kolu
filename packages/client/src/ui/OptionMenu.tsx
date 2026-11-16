@@ -13,7 +13,7 @@
  *  not a popover, so it shares no chrome with this panel. The panel-chrome
  *  itself is shared via `surface()`. */
 
-import { createUniqueId, For, type JSX, Show } from "solid-js";
+import { createEffect, createUniqueId, For, type JSX, Show } from "solid-js";
 import { Portal } from "solid-js/web";
 import { surface } from "./Surface";
 import { type AnchorSide, useAnchoredPopover } from "./useAnchoredPopover";
@@ -57,10 +57,6 @@ export const OptionMenu = <T extends string>(props: {
    *  its accessible name and its tooltip). The drawing must not be
    *  interactive: the option is already the button. */
   renderOption?: (option: OptionMenuItem<T>) => JSX.Element;
-  /** Move focus to the first option when the menu opens — for a menu a press
-   *  in running text opens, where there is no trigger keyboard focus could
-   *  continue from. */
-  focusFirst?: boolean;
 }) => {
   const { panelRef, panelStyle } = useAnchoredPopover({
     triggerRef: props.triggerRef,
@@ -74,6 +70,23 @@ export const OptionMenu = <T extends string>(props: {
     panelMinWidth: 180,
   });
   const headingId = createUniqueId();
+  /** FOCUS GOES IN, AND COMES BACK. Every menu takes focus when it opens —
+   *  the checked item of a setting, else the first — so the keys below reach
+   *  it whoever opened it; and when it closes with focus left nowhere (the
+   *  panel it was in is gone), focus returns to the trigger, so a keyboard
+   *  reader keeps their place. */
+  let wasOpen = false;
+  createEffect(() => {
+    const open = props.open();
+    if (wasOpen && !open) {
+      const trigger = props.triggerRef();
+      const lost =
+        document.activeElement === null ||
+        document.activeElement === document.body;
+      if (trigger?.isConnected === true && lost) trigger.focus();
+    }
+    wasOpen = open;
+  });
   /** THE KEYS A MENU PROMISES: ↑/↓ move between its items (wrapping),
    *  Home/End go to the ends. Escape and an outside press are the popover's
    *  own dismissal. */
@@ -119,12 +132,12 @@ export const OptionMenu = <T extends string>(props: {
         <div
           ref={(el) => {
             panelRef(el);
-            if (props.focusFirst)
-              queueMicrotask(() =>
-                el
-                  .querySelector<HTMLButtonElement>('[role^="menuitem"]')
-                  ?.focus(),
-              );
+            queueMicrotask(() =>
+              (
+                el.querySelector<HTMLButtonElement>('[aria-checked="true"]') ??
+                el.querySelector<HTMLButtonElement>('[role^="menuitem"]')
+              )?.focus(),
+            );
           }}
           data-testid={`${props.testIdPrefix}-menu`}
           class={`fixed z-50 flex flex-col ${chrome.class} p-1 ${widthClass} ${props.maxHeight !== undefined ? "overflow-y-auto" : ""}`}
@@ -166,14 +179,13 @@ export const OptionMenu = <T extends string>(props: {
                   "data-testid": `${props.testIdPrefix}-option-${opt.value}`,
                   "data-selected": props.value === opt.value ? "" : undefined,
                   title: props.truncate ? opt.label : undefined,
-                  class:
-                    "text-left text-xs px-2 py-1.5 rounded-md transition-colors cursor-pointer",
-                  classList: {
-                    "truncate whitespace-nowrap": props.truncate === true,
-                    "bg-accent/20 text-accent": props.value === opt.value,
-                    "text-fg-2 hover:bg-surface-3 hover:text-fg":
-                      props.value !== opt.value,
-                  },
+                  class: `text-left text-xs px-2 py-1.5 rounded-md transition-colors cursor-pointer ${
+                    props.truncate === true ? "truncate whitespace-nowrap" : ""
+                  } ${
+                    props.value === opt.value
+                      ? "bg-accent/20 text-accent"
+                      : "text-fg-2 hover:bg-surface-3 hover:text-fg"
+                  }`,
                   onClick: () => {
                     props.onSelect(opt.value);
                     props.onDismiss();

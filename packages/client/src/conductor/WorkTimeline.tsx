@@ -3,10 +3,10 @@
  *  A card stays short however long its work runs: the timeline shows the
  *  events of ONE stage (the stage the work is in, or the one pressed on the
  *  strip, which is the timeline's index), and "whole timeline · N events"
- *  unfolds all of it in place and folds it back. Which stage an event is in is
- *  `kolu-work`'s own filing (`Stages`' `events`, from the walk that files the
- *  time), never a rule of this face's. A watch has no stages, so its card
- *  shows its latest few events instead (`timelineShown`).
+ *  unfolds all of it in place and folds it back. Which part is shown is the
+ *  card's one reading (`./timelineView.ts`), handed in, so the strip and this
+ *  never disagree. A watch has no stages, so its card shows its latest few
+ *  events instead.
  *
  *  EACH ROW IS ONE LINE: its time, who it was by, its words, and how long that
  *  step took. Words longer than the line are cut, with a "more" beside them
@@ -14,7 +14,7 @@
  *  link whether the row was cut or not. A `Wrote …` row opens its file. */
 
 import { dualPhrase } from "@kolu/terminal-vocab/duration";
-import { type Stages, took, type Work, type WorkId } from "kolu-work";
+import { took, type Work, type WorkId } from "kolu-work";
 import {
   type Component,
   createMemo,
@@ -28,25 +28,40 @@ import { holdsPath } from "./namedFiles";
 import PrText from "./PrText";
 import { openReader, readerTarget } from "./reader/useReader";
 import {
-  isWholeTimeline,
-  pressedStage,
-  toggleWholeTimeline,
-} from "./workListing";
+  type TimelineShown,
+  type TimelineView,
+  WATCH_EVENTS_SHOWN,
+} from "./timelineView";
+import { mergeReason } from "./prReadings";
 import {
   clockOf,
   EVENT_INK,
   eventReader,
-  mergeReason,
   oneLine,
   STAGE_LABEL,
-  timelineShown,
-  WATCH_EVENTS_SHOWN,
 } from "./workReadings";
+
+/** A view's name, as the heading and the fold-back control say it. */
+const viewWord = (view: TimelineView): string => {
+  switch (view.kind) {
+    case "stage":
+      return STAGE_LABEL[view.stage];
+    case "latest":
+      return `latest ${WATCH_EVENTS_SHOWN}`;
+    case "whole":
+      return "whole";
+    default:
+      return view satisfies never;
+  }
+};
 
 const WorkTimeline: Component<{
   id: WorkId;
   work: Work;
-  stages: Stages;
+  /** What the card shows of the timeline, read once by the card. */
+  shown: TimelineShown;
+  /** Unfold the whole timeline, or fold it back. */
+  onWhole: () => void;
   /** The clock a running step is measured to. */
   now: number;
 }> = (props) => {
@@ -60,14 +75,7 @@ const WorkTimeline: Component<{
     });
   };
 
-  const shown = createMemo(() =>
-    timelineShown(
-      props.work,
-      props.stages,
-      pressedStage(props.id),
-      isWholeTimeline(props.id),
-    ),
-  );
+  const shown = () => props.shown;
   /** THE TIMELINE'S WORDS, built once per move of the record rather than per
    *  row: the two facts a row needs about the WHOLE timeline (which commits
    *  its check events name, which decision an ask points at) are computed
@@ -76,33 +84,15 @@ const WorkTimeline: Component<{
   const steps = createMemo(() =>
     took(props.work, new Date(props.now).toISOString()),
   );
-  const heading = (): string => {
-    const view = shown().view;
-    switch (view.kind) {
-      case "stage":
-        return STAGE_LABEL[view.stage];
-      case "latest":
-        return "latest";
-      case "whole":
-        return "whole";
-      default:
-        return view satisfies never;
-    }
-  };
   /** The control's words: what a press does from here — unfold the whole,
    *  or fold back to the part the card shows when folded. */
   const unfold = (): string => {
     if (shown().view.kind !== "whole")
       return `whole timeline · ${props.work.events.length} events`;
-    const folded = timelineShown(
-      props.work,
-      props.stages,
-      pressedStage(props.id),
-      false,
-    ).view;
+    const folded = shown().folded;
     return folded.kind === "stage"
-      ? `only ${STAGE_LABEL[folded.stage]}`
-      : `latest ${WATCH_EVENTS_SHOWN}`;
+      ? `only ${viewWord(folded)}`
+      : viewWord(folded);
   };
 
   return (
@@ -116,7 +106,7 @@ const WorkTimeline: Component<{
       class="mt-2.5"
     >
       <h4 class="m-0 font-mono text-[0.58rem] uppercase tracking-[0.1em] text-fg-3">
-        Timeline · {heading()}
+        Timeline · {viewWord(shown().view)}
       </h4>
       <ul class="m-0 mt-1 flex list-none flex-col gap-0.5 p-0">
         <For each={shown().indices}>
@@ -245,7 +235,7 @@ const WorkTimeline: Component<{
           data-testid="work-timeline-whole"
           aria-expanded={shown().view.kind === "whole"}
           class="mt-1 cursor-pointer text-[0.66rem] text-accent hover:underline"
-          onClick={() => toggleWholeTimeline(props.id)}
+          onClick={() => props.onWhole()}
         >
           {unfold()}
         </button>

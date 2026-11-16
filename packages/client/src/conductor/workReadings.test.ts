@@ -38,9 +38,10 @@ import {
   type TerminalMetadata,
 } from "@kolu/padi-client/surface";
 import { describe, expect, it } from "vitest";
+import { checksTally, livePrOf, prSection } from "./prReadings";
+import { timelineShown } from "./timelineView";
 import {
   answerWords,
-  checksTally,
   decisionLabel,
   decisionRows,
   eventReader,
@@ -48,16 +49,13 @@ import {
   LINE_LIMIT,
   lockCardWords,
   lockWords,
-  livePrOf,
   membersIn,
   oneLine,
   otherDecisions,
   outcomeWords,
-  prSection,
-  setupLine,
-  timelineShown,
   repoName,
   SETUP_ROWS,
+  setupLine,
   stagesOf,
   standingLine,
   timeSpentOnYou,
@@ -304,18 +302,19 @@ const handingOver = (events: ReadonlyArray<WorkEvent>): Work =>
 describe("the stages a card draws", () => {
   it("draws none for a plain watch, and quiet ones before the mode is known", () => {
     expect(stagesOf(work({ decisions: [mode("watch")] }), AT).kind).toBe(
-      "watch",
+      "none",
     );
     expect(stagesOf(work(), AT).kind).toBe("unset");
   });
 
-  it("says a waterfall with no planner did not plan", () => {
+  it("says a trivial work did not plan, approve or review: its mode has no such stages", () => {
     const read = stagesOf(work({ decisions: [mode("trivial")] }), AT);
-    if (read.kind !== "waterfall") throw new Error(`read ${read.kind}`);
-    expect(read.stages[0]).toEqual({
-      name: "plan",
-      state: { kind: "skipped" },
-    });
+    if (read.kind !== "staged") throw new Error(`read ${read.kind}`);
+    expect(
+      read.stages
+        .filter((one) => one.state.kind === "skipped")
+        .map((one) => one.name),
+    ).toEqual(["plan", "approve", "review"]);
   });
 });
 
@@ -518,13 +517,18 @@ describe("which events an open card shows", () => {
 
   it("shows the stage the work is in, until a stage is pressed", () => {
     const read = stagesOf(one, "2026-01-01T10:30:00.000Z");
-    expect(timelineShown(one, read, undefined, false)).toEqual({
+    expect(timelineShown(one, read, undefined, false)).toMatchObject({
       view: { kind: "stage", stage: "review" },
       indices: [3],
     });
-    expect(timelineShown(one, read, "plan", false)).toEqual({
+    expect(timelineShown(one, read, "plan", false)).toMatchObject({
       view: { kind: "stage", stage: "plan" },
       indices: [0, 1],
+    });
+    // ... and the whole of it folds back to the stage it came from.
+    expect(timelineShown(one, read, "plan", true).folded).toEqual({
+      kind: "stage",
+      stage: "plan",
     });
     expect(timelineShown(one, read, "plan", true).indices).toHaveLength(4);
   });
@@ -542,12 +546,15 @@ describe("which events an open card shows", () => {
 
 describe("where it stands", () => {
   it("leads with the waiter, and puts the live check tally after CI", () => {
+    // A check is about a PR the timeline opened: the one PR rule reads no
+    // check of a PR it never saw open.
     const ci = work({
       events: [
+        opened,
         event({
           kind: "checks-running",
           by: "ci",
-          pr: 7,
+          pr: 9,
           head: { kind: "unreported" },
           failing: [],
         }),
