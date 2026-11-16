@@ -18,6 +18,7 @@ import {
   type Decision,
   handBack,
   type KoluChoiceKey,
+  type MergeState,
   membershipOf,
   ON_GREEN,
   type OnGreen,
@@ -31,6 +32,11 @@ import {
   type WorkMember,
   type WorkMode,
 } from "kolu-work";
+import type { PrInfo } from "anyforge/schemas";
+import {
+  LOCAL_LOCATION,
+  type TerminalMetadata,
+} from "@kolu/padi-client/surface";
 import { describe, expect, it } from "vitest";
 import {
   answerWords,
@@ -42,13 +48,19 @@ import {
   LINE_LIMIT,
   lockCardWords,
   lockWords,
+  livePrOf,
   membersIn,
   oneLine,
   outcomeWords,
+  prSection,
   repoName,
   SETUP_ROWS,
+  stagesOf,
   standingLine,
+  timeSpentOnYou,
   waitingCount,
+  waitsOnYou,
+  workHost,
   workSubtitle,
   worksStatusWords,
 } from "./workReadings";
@@ -233,7 +245,13 @@ describe("what a card's head says", () => {
         work({
           decisions: [mode("trivial")],
           events: [
-            event({ kind: "pr-opened", pr: 178, title: "Slim it", by: "kolu" }),
+            event({
+              kind: "pr-opened",
+              pr: 178,
+              title: "Slim it",
+              url: { kind: "unrecorded" },
+              by: "kolu",
+            }),
           ],
         }),
         Option.some("naiveintent"),
@@ -248,6 +266,191 @@ describe("what a card's head says", () => {
         Option.some("naiveintent"),
       ),
     ).toEqual(["watching", "naiveintent"]);
+  });
+});
+
+/** A PR's life on the timeline: opened, checks passed on one commit, and
+ *  then what GitHub said about merging it. */
+const HEAD = { kind: "commit", sha: "abc1234" } as const;
+const opened = event({
+  kind: "pr-opened",
+  pr: 9,
+  title: "Slim it",
+  url: { kind: "link", href: "https://github.com/o/r/pull/9" },
+  by: "agent",
+});
+const passed = event({
+  kind: "checks-passed",
+  by: "ci",
+  pr: 9,
+  head: HEAD,
+  failing: [],
+});
+const failed = event({
+  kind: "checks-failed",
+  by: "ci",
+  pr: 9,
+  head: HEAD,
+  failing: ["ci::nix", "ci::biome"],
+});
+const mergeSays = (merge: MergeState): WorkEvent =>
+  event({ kind: "merge-state", by: "ci", pr: 9, head: HEAD, merge });
+const handingOver = (events: ReadonlyArray<WorkEvent>): Work =>
+  work({ decisions: [mode("trivial"), onGreen("hand-over")], events });
+
+describe("the stages a card draws", () => {
+  it("draws none for a plain watch, and quiet ones before the mode is known", () => {
+    expect(stagesOf(work({ decisions: [mode("watch")] }), AT).kind).toBe(
+      "watch",
+    );
+    expect(stagesOf(work(), AT).kind).toBe("unset");
+  });
+
+  it("says a waterfall with no planner did not plan", () => {
+    const read = stagesOf(work({ decisions: [mode("trivial")] }), AT);
+    if (read.kind !== "waterfall") throw new Error(`read ${read.kind}`);
+    expect(read.stages[0]).toEqual({
+      name: "plan",
+      state: { kind: "skipped" },
+    });
+  });
+});
+
+describe("whether a work waits on you", () => {
+  it("does not hand a green PR over while GitHub still will not merge it", () => {
+    const blocked = handingOver([
+      opened,
+      passed,
+      mergeSays({ kind: "cannot", why: "review" }),
+    ]);
+    expect(waitsOnYou(blocked)).toBe(false);
+    const clean = handingOver([opened, passed, mergeSays({ kind: "can" })]);
+    expect(waitsOnYou(clean)).toBe(true);
+  });
+
+  it("never waits on you to merge a work that merges itself", () => {
+    const merging = work({
+      decisions: [mode("trivial"), onGreen("merge")],
+      events: [opened, passed, mergeSays({ kind: "can" })],
+    });
+    expect(waitsOnYou(merging)).toBe(false);
+  });
+
+  it("counts the time it has waited on you, to the clock it is read at", () => {
+    const asking = work({
+      decisions: [asked()],
+      events: [event({ kind: "question", by: "agent", ask: "ask-1" })],
+    });
+    expect(timeSpentOnYou(asking, "2026-01-01T10:05:00.000Z")).toBe(300_000);
+  });
+});
+
+describe("where a work runs", () => {
+  it("names the host a work's key carries, and none for a key with none", () => {
+    expect(workHost(work())).toEqual(Option.some("local"));
+    expect(
+      workHost(
+        work({
+          key: { kind: "branch", host: "", repo: "/r", branch: "b" },
+        }),
+      ),
+    ).toEqual(Option.none());
+  });
+});
+
+describe("the live PR a card reads", () => {
+  const pr = (number: number): PrInfo => ({
+    number,
+    title: "Slim it",
+    url: `https://github.com/o/r/pull/${number}`,
+    state: "open",
+    checks: "pending",
+    checkRuns: [],
+    reviewDecision: null,
+    mergeStateStatus: null,
+    headSha: null,
+  });
+  const here = (result: TerminalMetadata["pr"]) => ({
+    standing: {
+      kind: "here" as const,
+      meta: {
+        state: "active",
+        cwd: "/tmp/work",
+        git: { kind: "none" },
+        location: LOCAL_LOCATION,
+        pr: result,
+        agent: null,
+        foreground: null,
+        ports: { status: "unknown" },
+        lastActivityAt: 1,
+        promptedAt: null,
+      } satisfies TerminalMetadata,
+    },
+  });
+
+  it("takes the first member that reports one, past those that cannot", () => {
+    expect(
+      livePrOf([
+        { standing: undefined },
+        { standing: { kind: "gone" } },
+        here({ kind: "absent" }),
+        here({ kind: "ok", value: pr(12) }),
+        here({ kind: "ok", value: pr(13) }),
+      ])?.number,
+    ).toBe(12);
+    expect(livePrOf([here({ kind: "pending" })])).toBeNull();
+  });
+});
+
+describe("the Pull request section", () => {
+  it("says the last check reading, its red gates, and why GitHub will not merge", () => {
+    const section = prSection(
+      handingOver([
+        opened,
+        failed,
+        mergeSays({ kind: "cannot", why: "behind" }),
+      ]),
+      Option.none(),
+    );
+    expect(section).toEqual(
+      Option.some({
+        number: 9,
+        state: "open",
+        checks: "Checks failed · ci::nix, ci::biome",
+        merge: Option.some(
+          "GitHub cannot merge it yet · the branch is behind its base",
+        ),
+      }),
+    );
+  });
+
+  it("prefers the live tally, and says when GitHub has not answered", () => {
+    const section = Option.getOrThrow(
+      prSection(
+        handingOver([opened, passed]),
+        Option.some({ pass: 3, pending: 1, fail: 0, total: 4 }),
+      ),
+    );
+    expect(section.checks).toBe("3 passed · 1 running · 0 failed");
+    expect(section.merge).toEqual(
+      Option.some("GitHub has not said whether it can merge it"),
+    );
+  });
+
+  it("drops the merge answer once the PR is merged", () => {
+    const done = handingOver([
+      opened,
+      passed,
+      mergeSays({ kind: "can" }),
+      event({ kind: "merged", by: "agent", pr: 9 }),
+    ]);
+    const section = Option.getOrThrow(prSection(done, Option.none()));
+    expect(section.state).toBe("merged");
+    expect(section.merge).toEqual(Option.none());
+  });
+
+  it("is absent for a work with no PR", () => {
+    expect(prSection(work(), Option.none())).toEqual(Option.none());
   });
 });
 

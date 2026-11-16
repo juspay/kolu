@@ -1997,9 +1997,7 @@ const eventsOf_1_57_0 = (
  *  moves; the transcript file's rows keep their shape, so
  *  TRANSCRIPT_FILE_VERSION stays at 1.55.0. Exported for
  *  `stateMigration.test.ts`. */
-export function prFactsOnTheTimeline_1_57_0(
-  store: Conf<PersistedState>,
-): void {
+export function prFactsOnTheTimeline_1_57_0(store: Conf<PersistedState>): void {
   const works = recordOf(store.get("works"));
   if (works === null) return;
   let changed = false;

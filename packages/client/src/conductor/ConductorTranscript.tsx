@@ -67,7 +67,8 @@ import {
   transcriptPinned,
   unpinTranscript,
 } from "./transcriptScroll";
-import { turnWorks } from "./turnWorks";
+import { type FileHolders, fileHolders } from "./namedFiles";
+import { joinsOf, type Turn, turnWorks } from "./turnWorks";
 import { useConductor } from "./useConductor";
 import { wakeHeadline, wakeWhen } from "./wake";
 import { useWorkMap } from "./useWorks";
@@ -76,13 +77,24 @@ import WorkQuestion from "./WorkQuestion";
 
 const NO_WORKS: ReadonlyArray<WorkId> = [];
 
-/** THE WORKS EACH ROW'S TURN IS ABOUT, by row id (`./turnWorks.ts`) — read by
- *  the turn's chips and by the prose, whose file links open the turn's own
- *  work. A context rather than a prop, because the rows folded under a
- *  Details are drawn by the same row component and need none of it. */
-const TurnWorks = createContext<(rowId: string) => ReadonlyArray<WorkId>>(
-  () => NO_WORKS,
-);
+/** WHAT EVERY ROW READS ABOUT ITS TURN — the turn (`./turnWorks.ts`: the row
+ *  that starts it, and the works it is about), and which works hold which
+ *  files, for the prose's file links. A context rather than a prop, because
+ *  the rows folded under a Details are drawn by the same row component. It
+ *  has no default: a row drawn outside a transcript is a mistake to see, not
+ *  a row that quietly shows no works. */
+interface Turns {
+  readonly turnOf: (rowId: string) => Turn;
+  readonly holders: () => FileHolders;
+}
+const TurnsContext = createContext<Turns>();
+
+const useTurns = (): Turns => {
+  const turns = useContext(TurnsContext);
+  if (turns === undefined)
+    throw new Error("a transcript row was drawn outside its transcript");
+  return turns;
+};
 
 /** The same works, in the same order: what keeps a row's chips from being
  *  redrawn on every streamed chunk of its turn. */
@@ -91,17 +103,47 @@ const sameWorks = (
   b: ReadonlyArray<WorkId>,
 ): boolean => a.length === b.length && a.every((one, i) => one === b[i]);
 
-/** A TURN'S WORKS, AS CHIPS — the ones this browser has the record of. */
+/** A TURN'S WORKS, AS CHIPS, on a line of their own — the ones this browser
+ *  has the record of. */
 const TurnChips: Component<{ works: ReadonlyArray<WorkId> }> = (props) => {
   const map = useWorkMap();
   return (
-    <For each={props.works}>
-      {(id) => (
-        <Show when={map().get(id)}>
-          {(work) => <WorkChip id={id} work={work()} />}
-        </Show>
-      )}
-    </For>
+    <div
+      data-testid="conductor-turn-works"
+      class="flex min-w-0 flex-wrap items-center gap-1.5"
+    >
+      <For each={props.works}>
+        {(id) => (
+          <Show when={map().get(id)}>
+            {(work) => <WorkChip id={id} work={work()} />}
+          </Show>
+        )}
+      </For>
+    </div>
+  );
+};
+
+/** THE WORKS OF A TURN WITH NO PROMPT ROW to carry them — rows before the
+ *  first message — drawn above the item that holds the turn's first row,
+ *  whether that is a row, a fold or a run of failures. A turn that starts
+ *  with your message or a wake-up draws them there instead. */
+const TurnHead: Component<{ rows: ReadonlyArray<ConductorRow> }> = (props) => {
+  const turns = useTurns();
+  const works = createMemo(
+    () => {
+      const first = props.rows[0];
+      if (first === undefined || first.kind === "user" || first.kind === "wake")
+        return NO_WORKS;
+      const turn = turns.turnOf(first.id);
+      return turn.first === first.id ? turn.works : NO_WORKS;
+    },
+    NO_WORKS,
+    { equals: sameWorks },
+  );
+  return (
+    <Show when={works().length > 0}>
+      <TurnChips works={works()} />
+    </Show>
   );
 };
 
@@ -148,12 +190,24 @@ const ConductorTranscript: Component<{
   const items = createMemo(() =>
     foldFailureRuns(foldToolRuns(foldNoticeRuns(props.rows))),
   );
-  /** Which works each turn is about, by row id — one walk of the rows per
-   *  change, read by every row through {@link TurnWorks}. */
+  /** Each row's turn — one walk of the rows per change — over the two
+   *  indexes of the works, each built once per change of the works: which
+   *  terminal joined which work, and which work holds which file. */
   const workMap = useWorkMap();
-  const turns = createMemo(() => turnWorks(props.rows, workMap()));
-  const worksOf = (rowId: string): ReadonlyArray<WorkId> =>
-    turns().get(rowId) ?? NO_WORKS;
+  const joins = createMemo(() => joinsOf(workMap()));
+  const holders = createMemo(() => fileHolders(workMap()));
+  const turns = createMemo(() => turnWorks(props.rows, workMap(), joins()));
+  const turnsContext: Turns = {
+    // Every row of `props.rows` has a turn, and every row drawn is one of
+    // them: both lists are read off the same rows in the same tick.
+    turnOf: (rowId) => {
+      const turn = turns().get(rowId);
+      if (turn === undefined)
+        throw new Error(`transcript row ${rowId} has no turn`);
+      return turn;
+    },
+    holders,
+  };
 
   // BEFORE the follow effect below, and that order is the fix: declared first,
   // so Solid runs it first and the first follow check measures a container
@@ -288,35 +342,38 @@ const ConductorTranscript: Component<{
             id; a fold's is the id of the boundary that opens its run. Both are
             stable for the thing's life, and an item never changes kind under
             its key. */}
-        <TurnWorks.Provider value={worksOf}>
+        <TurnsContext.Provider value={turnsContext}>
           <Key each={items()} by={(item) => item.key}>
             {(item) => (
-              <Switch>
-                <Match when={foldRowsOf(item())}>
-                  {(rows) => <TranscriptFold rows={rows()} />}
-                </Match>
-                <Match when={failuresOf(item())}>
-                  {(run) => (
-                    <TranscriptFailures
-                      tool={run().tool}
-                      reason={run().reason}
-                      rows={run().rows}
-                    />
-                  )}
-                </Match>
-                <Match when={entryOf(item())}>
-                  {(entry) => (
-                    <TranscriptRow
-                      row={entry().row}
-                      repeat={entry().repeat}
-                      onRedrawn={noteRedrawn}
-                    />
-                  )}
-                </Match>
-              </Switch>
+              <>
+                <TurnHead rows={rowsOf(item())} />
+                <Switch>
+                  <Match when={foldRowsOf(item())}>
+                    {(rows) => <TranscriptFold rows={rows()} />}
+                  </Match>
+                  <Match when={failuresOf(item())}>
+                    {(run) => (
+                      <TranscriptFailures
+                        tool={run().tool}
+                        reason={run().reason}
+                        rows={run().rows}
+                      />
+                    )}
+                  </Match>
+                  <Match when={entryOf(item())}>
+                    {(entry) => (
+                      <TranscriptRow
+                        row={entry().row}
+                        repeat={entry().repeat}
+                        onRedrawn={noteRedrawn}
+                      />
+                    )}
+                  </Match>
+                </Switch>
+              </>
             )}
           </Key>
-        </TurnWorks.Provider>
+        </TurnsContext.Provider>
       </div>
       {/* THE TERMINAL'S OWN PILL, not a second one that looks like it: the
           affordance for "you are not following, here is the way back" already
@@ -341,6 +398,9 @@ const failuresOf = (item: TranscriptItem) =>
   item.kind === "failures" ? item : undefined;
 const entryOf = (item: TranscriptItem) =>
   item.kind === "entry" ? item.entry : undefined;
+/** The rows an item draws, in order — what its turn's head is read from. */
+const rowsOf = (item: TranscriptItem): ReadonlyArray<ConductorRow> =>
+  item.kind === "entry" ? [item.entry.row] : item.rows;
 
 /** A run of the Conductor's tool calls, folded. A plain `<details>`, CLOSED
  *  until somebody opens it, and owned by the DOM: the list keys it by the
@@ -407,10 +467,10 @@ function TranscriptRow(props: {
   repeat: number;
   onRedrawn?: () => void;
 }) {
-  const worksOf = useContext(TurnWorks);
+  const turns = useTurns();
   /** The works this row's turn is about — the same list, by value, until the
    *  turn names another. */
-  const works = createMemo(() => worksOf(props.row.id), NO_WORKS, {
+  const works = createMemo(() => turns.turnOf(props.row.id).works, NO_WORKS, {
     equals: sameWorks,
   });
   return (
@@ -446,6 +506,7 @@ function TranscriptRow(props: {
                   rowId={row().id}
                   text={row().text}
                   works={works()}
+                  holders={turns.holders()}
                   onRedrawn={props.onRedrawn}
                 />
               </div>
@@ -519,14 +580,9 @@ function TranscriptRow(props: {
       </div>
       {/* THE WORKS YOUR MESSAGE'S TURN IS ABOUT, at the head of the reply — on
         the reply's side of the column, not inside your bubble. A wake-up
-        carries its own in its one line. */}
+        carries its own under its line. */}
       <Show when={props.row.kind === "user" && works().length > 0}>
-        <div
-          data-testid="conductor-turn-works"
-          class="flex min-w-0 flex-wrap items-center gap-1.5"
-        >
-          <TurnChips works={works()} />
-        </div>
+        <TurnChips works={works()} />
       </Show>
     </>
   );
@@ -554,7 +610,7 @@ function TranscriptRow(props: {
  *  typed message can. */
 function WakeRow(props: {
   row: Extract<ConductorRow, { kind: "wake" }>;
-  /** The works this wake-up's turn is about, drawn in its one line. */
+  /** The works this wake-up's turn is about, drawn under its line. */
   works: ReadonlyArray<WorkId>;
 }) {
   const mark = (): "queued" | "refused" | "unanswered" | undefined =>
@@ -584,16 +640,6 @@ function WakeRow(props: {
               <span class="shrink-0 text-fg-3 tabular-nums">· {clock()}</span>
             )}
           </Show>
-          {/* THE WORKS IT IS ABOUT, as chips: which piece of work rang is
-              the first thing a person needs from this line. */}
-          <Show when={props.works.length > 0}>
-            <span
-              data-testid="conductor-wake-works"
-              class="flex min-w-0 shrink items-center gap-1 overflow-hidden font-sans"
-            >
-              <TurnChips works={props.works} />
-            </span>
-          </Show>
           {/* The news gives way first at a phone's width — the speaker and the
               clock are two short words and the headline is as long as the
               names of the terminals that rang. */}
@@ -611,6 +657,15 @@ function WakeRow(props: {
           {props.row.text}
         </p>
       </details>
+      {/* THE WORKS IT IS ABOUT, as chips on a line of their own under the
+          wake-up — which piece of work rang is the first thing a person
+          needs from it, and a chip is a button, which a summary must not
+          hold. */}
+      <Show when={props.works.length > 0}>
+        <div data-testid="conductor-wake-works" class="mt-1 font-sans">
+          <TurnChips works={props.works} />
+        </div>
+      </Show>
       <Show when={mark()}>
         {(what) => (
           <div class="mt-1 font-mono text-[0.62rem] text-fg-3">

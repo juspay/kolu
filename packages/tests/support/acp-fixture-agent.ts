@@ -697,19 +697,12 @@ const turn = async (
     endTurn(id);
     return;
   }
-  if (text === "say where the plan is") {
-    // THE CONDUCTOR NAMES A FILE IN ITS OWN WORDS, as a real one does after
-    // a planner writes — plain prose with the path in backticks. Nothing
-    // here says which work: kolu reads that off the files it holds.
-    say("Its plan is at `.waterfall/plan.md`.");
-    endTurn(id);
-    return;
-  }
   if (text === "look at the implementor and say where its plan is") {
-    // THE SAME SENTENCE, IN A TURN THAT IS ABOUT ONE WORK: a real kolu tool
-    // card naming the implementor this fixture last started (a screen read),
-    // then the path in backticks. The card is what tells kolu which work the
-    // reply is about — the sentence still names none.
+    // THE CONDUCTOR NAMES A FILE IN ITS OWN WORDS, in a turn that is about
+    // one work: a real kolu tool card naming the implementor this fixture
+    // last started (a screen read), then plain prose with the path in
+    // backticks. The card is what tells kolu which work the reply is about —
+    // the sentence names none.
     if (lastStarted === null) {
       say("no implementor was started");
       endTurn(id);

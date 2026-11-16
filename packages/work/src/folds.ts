@@ -269,7 +269,10 @@ const standingOf = (
     case "ci":
       return { why: "ci", since };
     case "agent":
-      return { why: policy.run.kind === "watch" ? "watching" : "working", since };
+      return {
+        why: policy.run.kind === "watch" ? "watching" : "working",
+        since,
+      };
     default:
       return who satisfies never;
   }

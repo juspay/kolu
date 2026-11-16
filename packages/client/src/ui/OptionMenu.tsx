@@ -13,7 +13,7 @@
  *  not a popover, so it shares no chrome with this panel. The panel-chrome
  *  itself is shared via `surface()`. */
 
-import { For, Show } from "solid-js";
+import { createUniqueId, For, type JSX, Show } from "solid-js";
 import { Portal } from "solid-js/web";
 import { surface } from "./Surface";
 import { type AnchorSide, useAnchoredPopover } from "./useAnchoredPopover";
@@ -30,7 +30,9 @@ export const OptionMenu = <T extends string>(props: {
   onDismiss: () => void;
   anchor: AnchorSide;
   options: readonly OptionMenuItem<T>[];
-  value: T;
+  /** The option drawn as selected — none for a menu that is a choice among
+   *  things rather than a setting. */
+  value?: T;
   onSelect: (value: T) => void;
   /** Used to derive `data-testid` on the panel and each option button —
    *  `<prefix>-menu` and `<prefix>-option-<value>`. */
@@ -48,6 +50,17 @@ export const OptionMenu = <T extends string>(props: {
   /** Flip a `bottom-*` anchored panel to open upward when it wouldn't fit
    *  below the trigger. Threaded to `useAnchoredPopover` (see its `flip`). */
   flip?: boolean;
+  /** A line above the options saying what is being chosen — read out as the
+   *  menu's name. */
+  heading?: JSX.Element;
+  /** Draw an option as something richer than its label (the label stays
+   *  its accessible name and its tooltip). The drawing must not be
+   *  interactive: the option is already the button. */
+  renderOption?: (option: OptionMenuItem<T>) => JSX.Element;
+  /** Move focus to the first option when the menu opens — for a menu a press
+   *  in running text opens, where there is no trigger keyboard focus could
+   *  continue from. */
+  focusFirst?: boolean;
 }) => {
   const { panelRef, panelStyle } = useAnchoredPopover({
     triggerRef: props.triggerRef,
@@ -60,6 +73,7 @@ export const OptionMenu = <T extends string>(props: {
     // viewport. Matches the panel's own `min-w-[180px]` Tailwind class.
     panelMinWidth: 180,
   });
+  const headingId = createUniqueId();
 
   const chrome = surface({ radius: "lg", shadow: "light", portalled: true });
   // When truncation is on, cap the panel width too — an ellipsised label needs
@@ -72,7 +86,17 @@ export const OptionMenu = <T extends string>(props: {
     <Show when={props.open()}>
       <Portal>
         <div
-          ref={panelRef}
+          ref={(el) => {
+            panelRef(el);
+            if (props.focusFirst)
+              queueMicrotask(() =>
+                el
+                  .querySelector<HTMLButtonElement>('[role="menuitem"]')
+                  ?.focus(),
+              );
+          }}
+          role="menu"
+          aria-labelledby={props.heading === undefined ? undefined : headingId}
           data-testid={`${props.testIdPrefix}-menu`}
           class={`fixed z-50 flex flex-col ${chrome.class} p-1 ${widthClass} ${props.maxHeight !== undefined ? "overflow-y-auto" : ""}`}
           style={{
@@ -83,10 +107,22 @@ export const OptionMenu = <T extends string>(props: {
               : {}),
           }}
         >
+          <Show when={props.heading}>
+            {(heading) => (
+              <p
+                id={headingId}
+                class="m-0 px-2 pb-1 pt-0.5 text-[0.7rem] text-fg-3"
+              >
+                {heading()}
+              </p>
+            )}
+          </Show>
           <For each={props.options}>
             {(opt) => (
               <button
                 type="button"
+                role="menuitem"
+                aria-label={props.renderOption ? opt.label : undefined}
                 data-testid={`${props.testIdPrefix}-option-${opt.value}`}
                 data-selected={props.value === opt.value ? "" : undefined}
                 title={props.truncate ? opt.label : undefined}
@@ -102,7 +138,7 @@ export const OptionMenu = <T extends string>(props: {
                   props.onDismiss();
                 }}
               >
-                {opt.label}
+                {props.renderOption ? props.renderOption(opt) : opt.label}
               </button>
             )}
           </For>

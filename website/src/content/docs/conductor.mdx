@@ -74,8 +74,6 @@ The line above the message box says what the Conductor is doing:
 | waiting | how many wakes are held until the turn ends |
 | **↯ Alt+⏎ steers** | shown while you can steer |
 
-A **piece of work** is one kolu is storing and has not finished, so a waterfall on three terminals counts once.
-
 ## What wakes it
 
 The Conductor does not sit waiting, on a terminal or on you. It says what it has set going and ends its turn. kolu starts its next turn when one of these happens in a member terminal:
@@ -94,8 +92,6 @@ The Conductor does not sit waiting, on a terminal or on you. It says what it has
 
 An answer of yours wakes it too. Nothing wakes it because time passed, and a terminal in no work never wakes it.
 
-An agent can take minutes to start, so the Conductor creates a terminal, ends its turn, and briefs it when it reports `ready`.
-
 A wake is a line starting with **kolu**. News during a turn is held, newest state per terminal, and arrives as one wake when the turn ends. Your own messages are never held.
 
 What wakes cannot tell it:
@@ -110,18 +106,18 @@ A **piece of work is a branch**: one machine, one repository, one branch, or a t
 
 Every terminal joins with a **role**: planner, implementor, or other. It is in one work at a time, and the Conductor can adopt one you point it at, re-join one that left, or drop one whose part is done. The tools are on [the MCP page](/mcp#the-conductors-pieces-of-work).
 
-Losing terminals never ends a work: the card says **no terminals** and the Conductor is told once. kolu asks the work's host for the pull request on its branch whether or not a terminal is left, so a merge or a close still ends it, and an unreachable host concludes nothing.
+Losing terminals never ends a work: the card says **no terminals** and the Conductor is told once. kolu reads the branch's pull request from the work's host even with no terminal left, so a merge or close still ends it; an unreachable host concludes nothing.
 
 ### What a work holds
 
 | Part | What is in it |
 | --- | --- |
-| Timeline | Every event kolu saw, append-only, each naming who it was: you, an agent, CI or kolu. An agent coming up, stopping or asking, a `.waterfall/` file, the PR and its checks. |
+| Timeline | Every event kolu saw, append-only, each naming who it was: you, an agent, CI or kolu. An agent coming up, stopping or asking, a `.waterfall/` file, the PR, its checks and whether GitHub would merge it. |
 | Decisions | Every question put to you about this work and your answer, the setup included: host, mode, the harness and model per role, and what to do on green. |
 | Members | Each terminal by `host/id`, its role, the agent kolu last saw, and who is driving it. |
 | Outcome | How it ended, once it has: **Merged #n**, **Closed #n**, **Stopped by you** or **by the Conductor**. The `.waterfall/` files are copied into kolu as it ends. |
 
-A work keeps its latest **30** agent state changes; older ones fold into one **N earlier agent state changes** line. Nothing else folds, and kolu keeps the **last 20** finished works with their files.
+A work keeps its latest **30** agent state changes; older ones fold into one **N earlier agent state changes** line. kolu keeps the **last 20** finished works with their files.
 
 ### Who is typing
 
@@ -131,7 +127,7 @@ While a work is open, each member terminal is read-only to you, bordered in the 
 
 On a wide window the works stand in a column beside the chat, giving way to [the reader](/read-a-plan) while a file is open: **Waiting on you** first, then **In progress**, then **Finished**, collapsed. With nothing in progress it says **Nothing in progress.**
 
-Each card shows its title and age, **repo · host · mode**, `PR #n`, where it stands, and its six stages, **Plan** to **Merge**. Each stage shows its time coloured by whose it was: violet you, amber CI, teal the agents. The current one is outlined; a dash marks one that did not happen.
+Each card shows its title and age, **repo · host · mode**, `PR #n` as a link, where it stands, and a waterfall's six stages, **Plan** to **Merge**. Each stage's time is coloured by whose it was: violet you, amber CI, teal the agents. The current one is outlined; a dash marks one that did not happen. **you 12m** is its total wait on you.
 
 Press the head and it opens:
 
@@ -140,7 +136,7 @@ Press the head and it opens:
 | The question waiting for you | The same decision the chat and [the reader](/read-a-plan) show. Answering it in any of them answers it. |
 | Terminals | By role: how that agent stands, **Look** for its last lines, its name to go to its tile, and **Take over** or **Hand back**. |
 | Files | The worktree's `.waterfall/` files and the copies kolu kept. Click one to open it in [the reader](/read-a-plan). |
-| Pull request | Its number and title, the checks, and a link. |
+| Pull request | Its number as a link, and whether it is open, merged or closed. The checks, or the last result seen and what failed. While open, whether GitHub would merge it, and why not. |
 | Decisions | One line each: label, then answer, the setup first as **Host**, **Mode**, **Planner**, **Implementor**, **On green**. Click a row for the question. |
 | Timeline | One line per event, with its time and duration. A question reads **Asked:**, your answer **You:**. A long line is cut; click it for the rest. |
 
@@ -163,7 +159,7 @@ The header shows who the agent is signed in as, the **model**, the context used 
 In the transcript:
 
 - Tool calls between two messages fold into one **Details** line with a count. Running calls, failed calls, questions and your messages stay outside it.
-- Each turn names its pieces of work as chips: hover one for where it stands, click it to open its card. A file a reply names opens [that work's copy](/read-a-plan#open-a-file).
+- Each turn names its pieces of work as chips, under your message or the wake-up: hover one for where it stands, click it to open its card. A file a reply names opens [that work's copy](/read-a-plan#open-a-file).
 - A card for a terminal the Conductor created shows the agent's state, **Look**, and **open tile**, which takes you there.
 - **Look** shows the last 40 lines of its screen, refreshed about every two seconds while visible.
 - A ` ```mermaid ` block draws as a [diagram](/code-tab#markdown-and-artifacts) once complete, and shows as code until then.
@@ -210,12 +206,12 @@ A **waterfall** takes a change from request to merged PR. Ask for one, or ask th
 4. **Implement.** The implementor opens with the brief in `.waterfall/brief.md` (full), or with your request (trivial), and stops when its PR is open. A doubt it stops on is answered from the plan, the request or the planner; only a decision that is yours comes to you.
 5. **Review** (full only). The planner reviews the PR and the implementor addresses it, until the planner is satisfied. What you ask for mid-round waits for the next round.
 6. **Finish.** The implementor makes a final refactor pass, then runs CI the way the repo says to run it, fixing it until it is green.
-7. **On green.** The Conductor does what the work's recorded decision says: it merges the PR, or hands it to you. Green means GitHub would let it merge.
+7. **On green.** The Conductor does what the work's recorded decision says: it merges the PR, or hands it to you. Green means GitHub would merge it with no check running or failing; a PR awaiting a required review stays with the agents.
 8. **Close up.** Once the PR is merged or closed, the work ends with that outcome and the Conductor closes the terminals it opened for it.
 
 </Steps>
 
-A path does not choose a host, so the Conductor asks which one and opens the work when you answer. kolu, not the Conductor, offers the harness and the model, and starts each agent on exactly what you chose: see [the setup form](/conductor-setup).
+kolu, not the Conductor, offers the harness and the model, and starts each agent on exactly what you chose: see [the setup form](/conductor-setup).
 
 The Conductor never implements anything itself, never starts an agent or opens a PR without your approval, and never closes an implementor before its PR is merged or closed. Its standing instructions are at the top of every new session's transcript.
 

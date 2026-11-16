@@ -4,7 +4,7 @@
 import type { ConductorRow } from "kolu-common/conductor";
 import { endWork, joinWork, openWork, type Work, type WorkId } from "kolu-work";
 import { describe, expect, it } from "vitest";
-import { turnWorks } from "./turnWorks";
+import { joinsOf, turnWorks } from "./turnWorks";
 
 const PLANNER = "11111111-1111-4111-8111-111111111111";
 const IMPLEMENTOR = "22222222-2222-4222-8222-222222222222";
@@ -99,6 +99,18 @@ const workAsk = (id: string, minute: number, of: WorkId) =>
     work: of,
   }) satisfies ConductorRow;
 
+/** The works of each row's turn, as the transcript reads them. */
+const read = (
+  rows: readonly ConductorRow[],
+  works: ReadonlyMap<WorkId, Work>,
+): ReadonlyMap<string, ReadonlyArray<WorkId>> =>
+  new Map(
+    [...turnWorks(rows, works, joinsOf(works))].map(([id, turn]) => [
+      id,
+      turn.works,
+    ]),
+  );
+
 describe("the works of a chat turn", () => {
   const works = new Map<WorkId, Work>([
     [A, work("a", [[`local/${PLANNER}`, 1]])],
@@ -106,8 +118,7 @@ describe("the works of a chat turn", () => {
   ]);
 
   it("is the work of the terminal a wake-up rang for, on every row of the turn", () => {
-    const rows = [wake("w", 5, PLANNER), agent("r", 6)];
-    const out = turnWorks(rows, works);
+    const out = read([wake("w", 5, PLANNER), agent("r", 6)], works);
     expect(out.get("w")).toEqual([A]);
     expect(out.get("r")).toEqual([A]);
   });
@@ -119,14 +130,29 @@ describe("the works of a chat turn", () => {
       workAsk("q", 7, B),
       agent("r", 8),
     ];
-    expect(turnWorks(rows, works).get("r")).toEqual([B, A]);
+    expect(read(rows, works).get("r")).toEqual([B, A]);
   });
 
   it("carries nothing over to a turn that names no work", () => {
-    const rows = [wake("w", 5, PLANNER), agent("r1", 6), user("u", 7)];
-    const out = turnWorks(rows, works);
+    const out = read(
+      [wake("w", 5, PLANNER), agent("r1", 6), user("u", 7)],
+      works,
+    );
     expect(out.get("w")).toEqual([A]);
     expect(out.get("u")).toEqual([]);
+  });
+
+  it("names the row that starts each turn, a turn with no prompt row too", () => {
+    // Rows before the first prompt are a turn of their own: its works are
+    // drawn on its first row, whatever kind that is.
+    const rows = [
+      tool("t0", 1, PLANNER),
+      agent("r0", 2),
+      wake("w", 5, PLANNER),
+    ];
+    const turns = turnWorks(rows, works, joinsOf(works));
+    expect(turns.get("r0")).toEqual({ first: "t0", works: [A] });
+    expect(turns.get("w")?.first).toBe("w");
   });
 
   it("still finds a work that has finished", () => {
@@ -137,7 +163,7 @@ describe("the works of a chat turn", () => {
         A,
         endWork(one, { outcome: { kind: "merged", pr: 1 }, at: at(4) }),
       );
-    expect(turnWorks([wake("w", 9, PLANNER)], ended).get("w")).toEqual([A]);
+    expect(read([wake("w", 9, PLANNER)], ended).get("w")).toEqual([A]);
   });
 
   it("reads a terminal that moved as the work it had joined by the end of the turn", () => {
@@ -151,12 +177,12 @@ describe("the works of a chat turn", () => {
       user("u", 10),
       wake("late", 25, STRAY),
     ];
-    const out = turnWorks(rows, moved);
+    const out = read(rows, moved);
     expect(out.get("early")).toEqual([A]);
     expect(out.get("late")).toEqual([B]);
   });
 
   it("names nothing for a terminal no work ever held", () => {
-    expect(turnWorks([wake("w", 5, STRAY)], works).get("w")).toEqual([]);
+    expect(read([wake("w", 5, STRAY)], works).get("w")).toEqual([]);
   });
 });

@@ -94,6 +94,7 @@ const [works, setWorks] = createSignal<ReadonlyMap<WorkId, Work>>(new Map());
 vi.mock("./useWorks", () => ({ useWorkMap: () => works }));
 
 import ConductorProse from "./ConductorProse";
+import { fileHolders } from "./namedFiles";
 import { PROSE_LIST_FOLD_OVER, PROSE_LIST_FOLD_SHOWS } from "./proseListFold";
 import { closeReader, readerTarget } from "./reader/useReader";
 
@@ -123,6 +124,7 @@ function mount(
           rowId={rowId}
           text={text()}
           works={turn}
+          holders={fileHolders(works())}
           onRedrawn={onRedrawn}
         />
       ),
@@ -376,17 +378,20 @@ describe("a file the Conductor names", () => {
     expect(readerTarget()).toBeNull();
     const offered = Array.from(
       document.querySelectorAll(
-        '[data-testid^="named-file-option-"] [data-testid="work-chip"]',
+        '[data-testid="named-file-menu"] [data-testid^="named-file-option-"] [data-testid="work-chip-face"]',
       ),
     ).map((one) => one.textContent?.trim());
     expect(offered).toEqual(["rewrite the parser", "fix the login"]);
 
     document
       .querySelector<HTMLButtonElement>(
-        '[data-testid="named-file-option-w-login"] [data-testid="work-chip"]',
+        '[data-testid="named-file-option-w-login"]',
       )
       ?.click();
     expect(readerTarget()).toEqual({ work: "w-login", path: PLAN });
+    expect(
+      document.querySelector('[data-testid="named-file-menu"]'),
+    ).toBeNull();
   });
 
   it("opens the turn's own work's file without asking, whoever else has one", () => {
@@ -421,10 +426,13 @@ describe("a file the Conductor names", () => {
 
     link(host)?.click();
 
+    // The reader stays shut, the note names the turn's own work — and no
+    // other work's file is offered in its place.
     expect(readerTarget()).toBeNull();
-    expect(
-      document.querySelector('[data-testid="named-file-missing"]')?.textContent,
-    ).toContain("“split the column” has no");
+    const note = document.querySelector('[data-testid="named-file-missing"]');
+    expect(note?.getAttribute("role")).toBe("status");
+    expect(note?.textContent).toContain("split the column");
+    expect(note?.textContent).not.toContain("rewrite the parser");
     expect(
       document.querySelector('[data-testid="named-file-menu"]'),
     ).toBeNull();

@@ -284,108 +284,106 @@ const chaotic = (seed: number, steps: number): Work => {
 };
 
 describe("on chaotic records", () => {
-  it.each(Array.from({ length: 300 }, (_, one) => one + 1))(
-    "the stages add up to the life measured from the events, record %i",
-    (seed) => {
-      const work = chaotic(seed, 34);
-      const pick = seeded(seed * 7919);
-      const policy: Policy = {
-        handOver: pick() < 0.5,
-        run: { kind: "waterfall", planner: pick() < 0.6 },
-      };
-      const now = at(34 * 12 + Math.floor(pick() * 60));
-      const life = lifeOf(work, now);
-      const all = strip(work, policy, now);
-      const spent = timeSpent(work, policy, now);
-      expect(lifetime(work, now), `seed ${seed}: lifetime`).toBe(life);
-      expect(total(all), `seed ${seed}: stages`).toBe(life);
-      expect(spent.agent + spent.you + spent.ci, `seed ${seed}: spent`).toBe(
-        life,
+  it.each(
+    Array.from({ length: 300 }, (_, one) => one + 1),
+  )("the stages add up to the life measured from the events, record %i", (seed) => {
+    const work = chaotic(seed, 34);
+    const pick = seeded(seed * 7919);
+    const policy: Policy = {
+      handOver: pick() < 0.5,
+      run: { kind: "waterfall", planner: pick() < 0.6 },
+    };
+    const now = at(34 * 12 + Math.floor(pick() * 60));
+    const life = lifeOf(work, now);
+    const all = strip(work, policy, now);
+    const spent = timeSpent(work, policy, now);
+    expect(lifetime(work, now), `seed ${seed}: lifetime`).toBe(life);
+    expect(total(all), `seed ${seed}: stages`).toBe(life);
+    expect(spent.agent + spent.you + spent.ci, `seed ${seed}: spent`).toBe(
+      life,
+    );
+    expect(all.filter((one) => one.state.kind === "now").length).toBe(
+      work.state.kind === "open" ? 1 : 0,
+    );
+    // What did not happen, or has not started, had no time.
+    for (const one of all)
+      if (one.state.kind === "skipped" || one.state.kind === "not-started")
+        expect(stageMs(one.state)).toBe(0);
+    if (policy.run.kind === "waterfall" && !policy.run.planner) {
+      const named = byName(all);
+      expect(named.plan.kind === "done" || named.plan.kind === "now").toBe(
+        false,
       );
-      expect(all.filter((one) => one.state.kind === "now").length).toBe(
-        work.state.kind === "open" ? 1 : 0,
-      );
-      // What did not happen, or has not started, had no time.
-      for (const one of all)
-        if (one.state.kind === "skipped" || one.state.kind === "not-started")
-          expect(stageMs(one.state)).toBe(0);
-      if (policy.run.kind === "waterfall" && !policy.run.planner) {
-        const named = byName(all);
-        expect(named.plan.kind === "done" || named.plan.kind === "now").toBe(
-          false,
-        );
-        expect(
-          named.approve.kind === "done" || named.approve.kind === "now",
-        ).toBe(false);
-      }
-    },
-  );
+      expect(
+        named.approve.kind === "done" || named.approve.kind === "now",
+      ).toBe(false);
+    }
+  });
 });
 
 describe("on scripted waterfalls", () => {
-  it.each(Array.from({ length: 200 }, (_, one) => one + 1))(
-    "each stage holds the time put in it, waterfall %i",
-    (seed) => {
-      const pick = seeded(seed);
-      const span = (): number => Math.floor(pick() * 30);
-      const planner = pick() < 0.6;
-      const want: Record<StageName, number> = {
-        plan: 0,
-        approve: 0,
-        build: 0,
-        review: 0,
-        checks: 0,
-        merge: 0,
-      };
-      let minute = 0;
-      let work = opened();
-      if (planner) {
-        work = join(work, "planner", 0);
-        want.plan = span();
-        minute += want.plan;
-        work = ask(work, "approve", minute);
-        want.approve = span();
-        minute += want.approve;
-        work = answer(work, "approve", minute);
-      }
-      work = join(work, "implementor", minute);
-      want.build = span();
-      minute += want.build;
-      work = prOpened(work, minute);
-      want.review = span();
-      minute += want.review;
-      // A question during the review keeps the work in the review.
-      if (pick() < 0.5) {
-        const asked = span();
-        work = ask(work, "mid", minute);
-        work = answer(work, "mid", minute + asked);
-        want.review += asked;
-        minute += asked;
-      }
-      work = check(work, "checks-running", minute);
-      want.checks = span();
-      minute += want.checks;
-      work = check(work, "checks-passed", minute);
-      work = mergeState(work, { kind: "can" }, minute);
-      want.merge = span();
-      minute += want.merge;
-      work = merged(work, minute);
-      const named = byName(strip(work, planner ? FULL : TRIVIAL, at(minute)));
-      for (const name of Object.keys(want) as StageName[]) {
-        if (!planner && (name === "plan" || name === "approve")) {
-          expect(named[name], `seed ${seed}: ${name}`).toEqual({
-            kind: "skipped",
-          });
-          continue;
-        }
-        // Every stage of this waterfall happened, however long it took.
+  it.each(
+    Array.from({ length: 200 }, (_, one) => one + 1),
+  )("each stage holds the time put in it, waterfall %i", (seed) => {
+    const pick = seeded(seed);
+    const span = (): number => Math.floor(pick() * 30);
+    const planner = pick() < 0.6;
+    const want: Record<StageName, number> = {
+      plan: 0,
+      approve: 0,
+      build: 0,
+      review: 0,
+      checks: 0,
+      merge: 0,
+    };
+    let minute = 0;
+    let work = opened();
+    if (planner) {
+      work = join(work, "planner", 0);
+      want.plan = span();
+      minute += want.plan;
+      work = ask(work, "approve", minute);
+      want.approve = span();
+      minute += want.approve;
+      work = answer(work, "approve", minute);
+    }
+    work = join(work, "implementor", minute);
+    want.build = span();
+    minute += want.build;
+    work = prOpened(work, minute);
+    want.review = span();
+    minute += want.review;
+    // A question during the review keeps the work in the review.
+    if (pick() < 0.5) {
+      const asked = span();
+      work = ask(work, "mid", minute);
+      work = answer(work, "mid", minute + asked);
+      want.review += asked;
+      minute += asked;
+    }
+    work = check(work, "checks-running", minute);
+    want.checks = span();
+    minute += want.checks;
+    work = check(work, "checks-passed", minute);
+    work = mergeState(work, { kind: "can" }, minute);
+    want.merge = span();
+    minute += want.merge;
+    work = merged(work, minute);
+    const named = byName(strip(work, planner ? FULL : TRIVIAL, at(minute)));
+    for (const name of Object.keys(want) as StageName[]) {
+      if (!planner && (name === "plan" || name === "approve")) {
         expect(named[name], `seed ${seed}: ${name}`).toEqual({
-          kind: "done",
-          ms: want[name] * MINUTE,
+          kind: "skipped",
         });
+        continue;
       }
-    },
-  );
+      // Every stage of this waterfall happened, however long it took.
+      expect(named[name], `seed ${seed}: ${name}`).toEqual({
+        kind: "done",
+        ms: want[name] * MINUTE,
+      });
+    }
+  });
 });
 
 describe("where a work's stages stand", () => {
@@ -448,9 +446,7 @@ describe("where a work's stages stand", () => {
     work = check(work, "checks-running", 40);
     work = check(work, "checks-passed", 52);
     work = merged(work, 52);
-    const named = byName(
-      strip(work, { ...TRIVIAL, handOver: false }, at(90)),
-    );
+    const named = byName(strip(work, { ...TRIVIAL, handOver: false }, at(90)));
     expect(named.review).toEqual({ kind: "done", ms: 0 });
     expect(named.checks).toEqual({ kind: "done", ms: 12 * MINUTE });
     expect(named.merge).toEqual({ kind: "done", ms: 0 });
@@ -474,7 +470,11 @@ describe("where a work's stages stand", () => {
     const named = byName(strip(work, TRIVIAL, at(50)));
     // 10 before the first PR, 15 after the reopen before the second.
     expect(named.build).toEqual({ kind: "done", ms: 25 * MINUTE });
-    expect(named.review).toEqual({ kind: "now", ms: 15 * MINUTE, who: "agent" });
+    expect(named.review).toEqual({
+      kind: "now",
+      ms: 15 * MINUTE,
+      who: "agent",
+    });
   });
 });
 
@@ -489,7 +489,11 @@ describe("green is the forge saying it can merge", () => {
 
   it("leaves a PR the forge will not merge with the agents, in review", () => {
     const named = byName(strip(blocked(), FULL, at(30)));
-    expect(named.review).toEqual({ kind: "now", ms: 20 * MINUTE, who: "agent" });
+    expect(named.review).toEqual({
+      kind: "now",
+      ms: 20 * MINUTE,
+      who: "agent",
+    });
     expect(named.checks).toEqual({ kind: "not-started" });
   });
 

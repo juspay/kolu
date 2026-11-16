@@ -2351,7 +2351,14 @@ describe("the 1.57.0 rung — a PR's address and the forge's merge answer", () =
           kind: "requested",
           request: { kind: "none" },
         },
-        { at: AT, by: "kolu", about: WORK, kind: "pr-opened", pr: 9, title: "t" },
+        {
+          at: AT,
+          by: "kolu",
+          about: WORK,
+          kind: "pr-opened",
+          pr: 9,
+          title: "t",
+        },
         {
           at: AT,
           by: "ci",

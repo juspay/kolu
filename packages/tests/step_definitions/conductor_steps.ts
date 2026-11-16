@@ -1831,9 +1831,9 @@ Then(
   },
 );
 
-/** THE WAKE NAMES ITS WORK — a chip in its one line, for the work the watched
- *  terminal belongs to (`watch <id>`, the fixture's title for a plain watch),
- *  found by the work it says it is for rather than by its words. */
+/** THE WAKE NAMES ITS WORK — a chip on the line under it, for the work the
+ *  watched terminal belongs to (`watch <id>`, the fixture's title for a plain
+ *  watch), found by the work it says it is for rather than by its words. */
 function wakeChip(world: KoluWorld) {
   const title = world.workTitle;
   assert.ok(title, "this scenario never named the work it opened");
@@ -1855,6 +1855,23 @@ Then(
 When("I press the wake's work chip", async function (this: KoluWorld) {
   await wakeChip(this).click();
 });
+
+/** A TURN'S CHIP for this scenario's work, pressed where the chat drew it. */
+When(
+  "I press the work's chip in the conversation",
+  async function (this: KoluWorld) {
+    const title = this.workTitle;
+    assert.ok(title, "this scenario never named the work it opened");
+    const chip = this.page
+      .locator(
+        '[data-testid="conductor-chat"] [data-testid="conductor-turn-works"] [data-testid="work-chip"]',
+      )
+      .filter({ hasText: title })
+      .last();
+    await chip.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    await chip.click();
+  },
+);
 
 /** ... and the press lands on that work's card: open, and on screen. */
 Then(
@@ -2067,14 +2084,14 @@ When(
   },
 );
 
-/** OPEN THE WAKE by its leading `▸`: the middle of the line can be the work
- *  chip, and pressing that goes to the work rather than opening the account. */
+/** OPEN THE WAKE by its headline — the summary's own text, which opens the
+ *  disclosure wherever the line wraps. */
 When("I open the wake", async function (this: KoluWorld) {
   await this.page
     .locator(WAKE_ROW)
     .last()
-    .locator('[data-testid="conductor-wake-toggle"]')
-    .click({ position: { x: 4, y: 6 } });
+    .locator('[data-testid="conductor-wake-headline"]')
+    .click();
 });
 
 Then(
@@ -2964,15 +2981,34 @@ When(
   },
 );
 
-When("the work's pull request goes green", async function (this: KoluWorld) {
-  restatePullRequest(this, {
-    ...statedPullRequest(),
-    checks: [
-      { name: "build", outcome: "pass" },
-      { name: "tests", outcome: "pass" },
-    ],
-  });
-});
+/** GREEN CHECKS ARE NOT GREEN while GitHub would still refuse the merge —
+ *  here because the branch's rules want a review nobody has given. */
+When(
+  "the work's pull request goes green but GitHub still wants a review",
+  async function (this: KoluWorld) {
+    restatePullRequest(this, {
+      ...statedPullRequest(),
+      checks: [
+        { name: "build", outcome: "pass" },
+        { name: "tests", outcome: "pass" },
+      ],
+      mergeState: "BLOCKED",
+      review: "REVIEW_REQUIRED",
+    });
+  },
+);
+
+/** ... and the review lands: GitHub would merge it now. */
+When(
+  "GitHub lets the work's pull request merge",
+  async function (this: KoluWorld) {
+    restatePullRequest(this, {
+      ...statedPullRequest(),
+      mergeState: "CLEAN",
+      review: "APPROVED",
+    });
+  },
+);
 
 /** A PUSH — a new head commit, with its checks starting over. The one thing
  *  that makes a second `checks-running` real news rather than the same
@@ -2996,12 +3032,15 @@ When("the work's pull request is merged", async function (this: KoluWorld) {
   restatePullRequest(this, { ...statedPullRequest(), state: "merged" });
 });
 
-/** THE TIMELINE AS DRAWN — every event's kind, who it is by, and its words.
- *  Quoted on a failure, because "no `merged` event" names a symptom while the
- *  list names the cause (nothing observed at all, or the wrong thing). */
+/** THE TIMELINE AS DRAWN on this scenario's card — every event's kind, who
+ *  it is by, and its words. Quoted on a failure, because "no `merged` event"
+ *  names a symptom while the list names the cause (nothing observed at all,
+ *  or the wrong thing). Read off `workCard`, never the whole column: the
+ *  worker's one server keeps every earlier scenario's works, and two of them
+ *  can have written the same file. */
 async function timelineInventory(world: KoluWorld): Promise<string> {
-  const events = await world.page
-    .locator(`${WORK_COLUMN} [data-testid="work-event"]`)
+  const events = await workCard(world)
+    .locator('[data-testid="work-event"]')
     .evaluateAll((all) =>
       all.map(
         (event) =>
@@ -3013,14 +3052,15 @@ async function timelineInventory(world: KoluWorld): Promise<string> {
   return events.length === 0 ? "(no events)" : events.join(" | ");
 }
 
-/** Events of one kind whose text holds `contains` (empty matches them all). */
+/** Events of one kind on this scenario's card whose text holds `contains`
+ *  (empty matches them all). */
 function timelineEvents(
   world: KoluWorld,
   kind: string,
   contains: string,
 ): Promise<number> {
-  return world.page
-    .locator(`${WORK_COLUMN} [data-testid="work-event"][data-kind="${kind}"]`)
+  return workCard(world)
+    .locator(`[data-testid="work-event"][data-kind="${kind}"]`)
     .evaluateAll(
       (all, want) =>
         all.filter((event) => (event.textContent ?? "").includes(want)).length,
@@ -3092,34 +3132,6 @@ Then(
   },
 );
 
-/** ... on THIS scenario's card alone. The column-wide reading above is
- *  satisfied by any card, which is wrong as soon as a scenario holds two
- *  works that each wrote the same file. */
-Then(
-  "this work's own timeline should show a {string} event saying {string}",
-  async function (this: KoluWorld, kind: string, says: string) {
-    await openWorkCard(this);
-    await pollFor({
-      observe: () =>
-        workCard(this)
-          .locator(`[data-testid="work-event"][data-kind="${kind}"]`)
-          .evaluateAll(
-            (all, want) =>
-              all.filter((event) => (event.textContent ?? "").includes(want))
-                .length,
-            says,
-          ),
-      isDone: (seen) => seen > 0,
-      timeoutMs: POLL_TIMEOUT,
-      onTick: () => keepWorkCardOpen(this),
-      onTimeout: (_last, ms) =>
-        new Error(
-          `no ${JSON.stringify(kind)} event about ${JSON.stringify(says)} on this work's card after ${ms}ms`,
-        ),
-    });
-  },
-);
-
 /** NOTHING BUT WHAT WAS OBSERVED. An instant, not a wait: the claim is that
  *  the event is not there NOW, before the thing it would report has happened. */
 Then(
@@ -3186,6 +3198,91 @@ Then(
     });
   },
 );
+
+/** THE PULL REQUEST SECTION's words — how the PR stands, its checks, and
+ *  whether GitHub would merge it — polled until they hold `says`. */
+Then(
+  "the work's pull request section should say {string}",
+  async function (this: KoluWorld, says: string) {
+    await openWorkCard(this);
+    await pollFor({
+      observe: async () =>
+        (
+          (await workCard(this)
+            .locator('[data-testid="work-pr"]')
+            .textContent({ timeout: 1_000 })
+            .catch(() => null)) ?? "(no pull request on the card)"
+        )
+          .replace(/\s+/g, " ")
+          .trim(),
+      isDone: (seen) => seen.includes(says),
+      timeoutMs: POLL_TIMEOUT,
+      onTimeout: (last, ms) =>
+        new Error(
+          `the pull request section never said ${JSON.stringify(says)}; after ${ms}ms it said ${JSON.stringify(last)}`,
+        ),
+    });
+  },
+);
+
+/** THE PR NUMBER IS A LINK — to the URL kolu recorded when the PR opened. */
+Then(
+  "the work card should link the pull request {string}",
+  async function (this: KoluWorld, pr: string) {
+    await openWorkCard(this);
+    const link = workCard(this)
+      .locator('[data-testid="work-pr"] [data-testid="work-pr-link"]')
+      .filter({ hasText: pr })
+      .first();
+    await link.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    const href = (await link.getAttribute("href")) ?? "";
+    assert.ok(
+      href.endsWith(`/pull/${pr.replace("#", "")}`),
+      `the link goes to ${JSON.stringify(href)}`,
+    );
+  },
+);
+
+/** WHO THE WORK WAITS ON, as the card says it — its edge and its group —
+ *  read off this scenario's card alone, never the column-wide count. */
+async function waitsOnYouNow(
+  world: KoluWorld,
+): Promise<{ who: string; inWaiting: boolean }> {
+  const card = workCard(world);
+  const who = (await card.getAttribute("data-who").catch(() => null)) ?? "";
+  const id = (await card.getAttribute("data-work").catch(() => null)) ?? "";
+  const inWaiting =
+    id !== "" &&
+    (await world.page
+      .locator(
+        `${WORK_COLUMN} [data-testid="work-waiting"] ${WORK_CARD}[data-work="${id}"]`,
+      )
+      .count()) > 0;
+  return { who, inWaiting };
+}
+
+Then("the work should be waiting on you", async function (this: KoluWorld) {
+  await showWorkColumn(this);
+  await pollFor({
+    observe: () => waitsOnYouNow(this),
+    isDone: (seen) => seen.who === "you" && seen.inWaiting,
+    timeoutMs: POLL_TIMEOUT,
+    onTimeout: (last, ms) =>
+      new Error(
+        `after ${ms}ms the card waited on ${JSON.stringify(last?.who)}, ${last?.inWaiting ? "in" : "outside"} the Waiting on you group`,
+      ),
+  });
+});
+
+/** An instant, not a wait: the claim is about what the card says NOW. */
+Then("the work should not be waiting on you", async function (this: KoluWorld) {
+  await showWorkColumn(this);
+  const seen = await waitsOnYouNow(this);
+  assert.ok(
+    seen.who !== "you" && !seen.inWaiting,
+    `the card waits on ${JSON.stringify(seen.who)}, ${seen.inWaiting ? "in" : "outside"} the Waiting on you group`,
+  );
+});
 
 /** FINISHED work is below the line, collapsed: the card is reached by opening
  *  that section, and it carries the outcome kolu read off the PR. */

@@ -22,8 +22,9 @@
  *  from sliding sideways when the first work appears — so what it says when
  *  empty has to be words and not a hole. It never reads `0`. */
 
-import { finished, inProgress } from "kolu-work";
-import { type Component, createMemo, For, Show } from "solid-js";
+import { Key } from "@solid-primitives/keyed";
+import { finished, inProgress, type WorkRow } from "kolu-work";
+import { type Component, createMemo, Show } from "solid-js";
 import { useWorks } from "./useWorks";
 import WorkCard from "./WorkCard";
 import { isFinishedOpen, toggleFinished } from "./workListing";
@@ -62,6 +63,18 @@ const Legend: Component = () => (
   </p>
 );
 
+/** A LIST OF CARDS, KEYED BY THE WORK'S ID. The `works` cell mints a fresh
+ *  `[id, work]` row for every change of any work, so a list keyed by the row
+ *  would tear every card down — its open rows, and a scroll a chip had just
+ *  asked for — whenever anything happened anywhere. */
+const Cards: Component<{ rows: ReadonlyArray<WorkRow> }> = (props) => (
+  <div class="flex flex-col gap-2">
+    <Key each={props.rows} by={([id]) => id}>
+      {(row) => <WorkCard id={row()[0]} work={row()[1]} />}
+    </Key>
+  </div>
+);
+
 const WorkColumn: Component<{
   /** WHERE THIS COPY IS DRAWN, and nothing more. `inline` is the band the
    *  status line's control opens below the two-column breakpoint, separated
@@ -71,8 +84,14 @@ const WorkColumn: Component<{
 }> = (props) => {
   const works = useWorks();
   const live = createMemo(() => inProgress(works()));
-  const onYou = createMemo(() => live().filter(([, one]) => waitsOnYou(one)));
-  const moving = createMemo(() => live().filter(([, one]) => !waitsOnYou(one)));
+  /** The two groups of what is running, by the one reading the card's line
+   *  makes — each work asked once. */
+  const groups = createMemo(() => {
+    const onYou: WorkRow[] = [];
+    const moving: WorkRow[] = [];
+    for (const row of live()) (waitsOnYou(row[1]) ? onYou : moving).push(row);
+    return { onYou, moving };
+  });
   const done = createMemo(() => finished(works()));
 
   return (
@@ -101,24 +120,16 @@ const WorkColumn: Component<{
           </p>
         }
       >
-        <Show when={onYou().length > 0}>
+        <Show when={groups().onYou.length > 0}>
           <section data-testid="work-waiting" class="mb-4">
             <Heading words="Waiting on you" />
-            <div class="flex flex-col gap-2">
-              <For each={onYou()}>
-                {([id, work]) => <WorkCard id={id} work={work} />}
-              </For>
-            </div>
+            <Cards rows={groups().onYou} />
           </section>
         </Show>
-        <Show when={moving().length > 0}>
+        <Show when={groups().moving.length > 0}>
           <section data-testid="work-in-progress">
             <Heading words="In progress" />
-            <div class="flex flex-col gap-2">
-              <For each={moving()}>
-                {([id, work]) => <WorkCard id={id} work={work} />}
-              </For>
-            </div>
+            <Cards rows={groups().moving} />
           </section>
         </Show>
         <Legend />
@@ -138,11 +149,7 @@ const WorkColumn: Component<{
             {isFinishedOpen() ? "▾" : "▸"} Finished · {done().length}
           </button>
           <Show when={isFinishedOpen()}>
-            <div class="flex flex-col gap-2">
-              <For each={done()}>
-                {([id, work]) => <WorkCard id={id} work={work} />}
-              </For>
-            </div>
+            <Cards rows={done()} />
           </Show>
         </section>
       </Show>

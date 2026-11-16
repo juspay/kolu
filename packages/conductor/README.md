@@ -126,15 +126,16 @@ appending what it observes.
   them: it belongs to the work's branch, and `prReading` (same module) folds
   padi's `pullRequest` reading for that branch instead. kolu-server owns the
   subscriptions; this owns what they SAY.
-- **Green means it can merge** (`greenChecks`, in `./readings.ts`) — the one
-  rule for what a PR's checks say to a work. The forge's rollup counts only
-  the checks that have reported, so it is read against the merge state: a
-  pass on a PR GitHub says is `BLOCKED` with no review wanted is required
-  checks still to come (`pending`, CI's time); `BLOCKED` on a review is a
-  person's, so a passing rollup there is a pass; `BEHIND`, `DIRTY`, `DRAFT`
-  and `UNKNOWN` record nothing. Every reader of a work — its card, timeline,
-  stages and the hand-over wake — reads the check events this decides, so
-  none asks again.
+- **The merge answer is its own fact** (`mergeOf`, in `./readings.ts`). A
+  check event means the rollup and nothing else; whether GitHub would merge
+  the PR is GitHub's `mergeStateStatus`, read into `can` or `cannot` with a
+  reason (`blocked`, `review` when the review decision wants one, `behind`,
+  `conflicts`, `draft`), and `observing.ts` records a `merge-state` event
+  when the answer for a PR and head commit changes. `UNKNOWN` (not worked out
+  yet) and a reading with no merge state at all (an older padi) record
+  nothing. Green is read by `kolu-work` off both facts — merge `can` and no
+  check running or red — so the card, the timeline, the stages and the
+  Conductor's `works` resource agree without asking again.
 - **The decision** (`./members.ts`, pure) — one reading of one member becomes
   a wake level or nothing:
   - `working` forgets what we were told, so the next stop is news again;

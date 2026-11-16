@@ -49,6 +49,7 @@ import BrowseFileDispatcher from "../../right-panel/BrowseFileDispatcher";
 import { useColorScheme } from "../../settings/useColorScheme";
 import { useWorkMap, useWorkMembers } from "../useWorks";
 import WorkChip from "../WorkChip";
+import WorkChipFace from "../WorkChipFace";
 import WorkQuestion from "../WorkQuestion";
 import {
   createWorkFiles,
@@ -164,12 +165,16 @@ const WorkReader: Component<{
         </span>
         <Show when={work()}>
           {(one) => (
+            // THE WAY BACK TO THE WORK: the chip that brings its card, where
+            // this window has a listing to bring it into — and the same face,
+            // not pressed, in a pop-out that has none.
             <span data-testid="reader-of" class="min-w-0 flex-1">
-              <WorkChip
-                id={props.target.work}
-                work={one()}
-                pressable={props.listing}
-              />
+              <Show
+                when={props.listing}
+                fallback={<WorkChipFace work={one()} />}
+              >
+                <WorkChip id={props.target.work} work={one()} />
+              </Show>
             </span>
           )}
         </Show>

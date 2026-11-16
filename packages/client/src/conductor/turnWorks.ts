@@ -27,10 +27,12 @@ interface Joining {
   readonly at: number;
 }
 
-/** Every terminal that ever joined a work, with its joins oldest first. */
-function joinsOf(
-  works: ReadonlyMap<WorkId, Work>,
-): ReadonlyMap<string, ReadonlyArray<Joining>> {
+/** EVERY TERMINAL THAT EVER JOINED A WORK, with its joins oldest first — the
+ *  index a turn's terminals are turned into works through. Built once per
+ *  change of the works, never per streamed chunk of the chat. */
+export type Joins = ReadonlyMap<string, ReadonlyArray<Joining>>;
+
+export function joinsOf(works: ReadonlyMap<WorkId, Work>): Joins {
   const joins = new Map<string, Joining[]>();
   for (const [work, one] of works)
     for (const event of one.events) {
@@ -41,6 +43,13 @@ function joinsOf(
     }
   for (const list of joins.values()) list.sort((a, b) => a.at - b.at);
   return joins;
+}
+
+/** ONE TURN: the row that starts it — where its works are drawn — and the
+ *  works it names, in the order it first named them. */
+export interface Turn {
+  readonly first: string;
+  readonly works: ReadonlyArray<WorkId>;
 }
 
 /** The terminals and works one row names, in the order it names them. */
@@ -81,13 +90,13 @@ function namedBy(
   }
 }
 
-/** THE WORKS OF EVERY TURN, by row id: each row of a turn maps to the same
- *  list, in the order the turn first named them. A row in a turn that names
- *  no work maps to an empty list. */
+/** THE TURN OF EVERY ROW, by row id: each row of a turn maps to the same
+ *  {@link Turn}. A turn that names no work has an empty list. */
 export function turnWorks(
   rows: readonly ConductorRow[],
   works: ReadonlyMap<WorkId, Work>,
-): ReadonlyMap<string, ReadonlyArray<WorkId>> {
+  joins: Joins,
+): ReadonlyMap<string, Turn> {
   const turns: ConductorRow[][] = [];
   for (const row of rows) {
     const last = turns.at(-1);
@@ -95,9 +104,10 @@ export function turnWorks(
       turns.push([row]);
     else last.push(row);
   }
-  const joins = joinsOf(works);
-  const out = new Map<string, ReadonlyArray<WorkId>>();
+  const out = new Map<string, Turn>();
   turns.forEach((turn, index) => {
+    const head = turn[0];
+    if (head === undefined) return;
     const next = turns[index + 1]?.[0];
     const until = next === undefined ? Infinity : Date.parse(next.since);
     const found: WorkId[] = [];
@@ -114,7 +124,8 @@ export function turnWorks(
         const joined = list.filter((one) => one.at <= until).at(-1) ?? list[0];
         if (joined !== undefined) add(joined.work);
       }
-    for (const row of turn) out.set(row.id, found);
+    const reading: Turn = { first: head.id, works: found };
+    for (const row of turn) out.set(row.id, reading);
   });
   return out;
 }

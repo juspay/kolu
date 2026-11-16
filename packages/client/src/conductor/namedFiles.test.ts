@@ -5,7 +5,7 @@
 
 import { ABOUT_WORK, type Work, type WorkId } from "kolu-work";
 import { describe, expect, it } from "vitest";
-import { fileTarget, holdsPath } from "./namedFiles";
+import { fileHolders, fileTarget, holdsPath } from "./namedFiles";
 
 const AT = "2026-11-16T00:00:00.000Z";
 const PLAN = ".waterfall/plan.md";
@@ -64,11 +64,14 @@ describe("which work's file a named path opens", () => {
   const PARSER = "w-parser" as WorkId;
   const LOGIN = "w-login" as WorkId;
   const SPLIT = "w-split" as WorkId;
-  const works = new Map<WorkId, Work>([
-    [PARSER, work("rewrite the parser", [PLAN])],
-    [LOGIN, work("fix the login", [PLAN, BRIEF])],
-    [SPLIT, work("split the column", [])],
-  ]);
+  /** The index the chat builds once per change of the works. */
+  const works = fileHolders(
+    new Map<WorkId, Work>([
+      [PARSER, work("rewrite the parser", [PLAN])],
+      [LOGIN, work("fix the login", [PLAN, BRIEF])],
+      [SPLIT, work("split the column", [])],
+    ]),
+  );
 
   it("opens the turn's own work's file, whoever else has one", () => {
     expect(fileTarget(works, [LOGIN], PLAN)).toEqual({

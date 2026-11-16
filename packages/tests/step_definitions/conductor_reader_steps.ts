@@ -104,16 +104,10 @@ When(
   },
 );
 
-/** THE CONDUCTOR NAMES THE FILE in its prose — no question, no card: just a
- *  sentence with the path in backticks. */
-When("the conductor says where the plan is", async function (this: KoluWorld) {
-  await enterConductor(this);
-  await sendPrompt(this, "say where the plan is");
-});
-
-/** ... in a reply that is ABOUT ONE WORK: it looks at that work's
- *  implementor first (a kolu tool card naming the terminal), then names the
- *  file. The sentence still says no work; the turn does. */
+/** THE CONDUCTOR NAMES THE FILE in a reply that is ABOUT ONE WORK: it looks
+ *  at that work's implementor first (a kolu tool card naming the terminal),
+ *  then writes the path in backticks. The sentence says no work; the turn
+ *  does. */
 When(
   "the conductor looks at the implementor and says where its plan is",
   async function (this: KoluWorld) {
@@ -217,6 +211,26 @@ Then("no menu of works should have opened", async function (this: KoluWorld) {
     "pressing the file put a menu of works up",
   );
 });
+
+/** THE TURN'S WORK HAS NO SUCH FILE: a status note where the link is, naming
+ *  this scenario's work by its chip face and the path it lacks. */
+Then(
+  "the conductor should say the work has no {string} yet",
+  async function (this: KoluWorld, file: string) {
+    const title = this.workTitle;
+    assert.ok(title, "this scenario never named the work it opened");
+    const note = this.page
+      .locator(`${CHAT} [data-testid="named-file-missing"][role="status"]`)
+      .last();
+    await note.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    await note
+      .locator('[data-testid="work-chip-face"]')
+      .filter({ hasText: title })
+      .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    const says = (await note.textContent()) ?? "";
+    assert.ok(says.includes(file), `the note says ${JSON.stringify(says)}`);
+  },
+);
 
 Then("the reader should be closed", async function (this: KoluWorld) {
   await pollFor({

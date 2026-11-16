@@ -84,6 +84,8 @@ import { askDraft, forgetAskDraft, setAskDraft } from "./drafts";
 import { openReader } from "./reader/useReader";
 import { useConductor } from "./useConductor";
 import { useWorkMap } from "./useWorks";
+import WorkChip from "./WorkChip";
+import WorkChipFace from "./WorkChipFace";
 import WorkChoiceQuestion from "./WorkChoiceQuestion";
 import { workFileName } from "./workFile";
 import { answerWords, decisionLabel } from "./workReadings";
@@ -327,15 +329,18 @@ const WorkQuestion: Component<{
       <header class="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5 mb-1">
         <span class="text-alert text-base leading-none">✱</span>
         <b class="text-[0.78rem]">Conductor asks you</b>
-        {/* WHICH WORK IT IS ABOUT — never on the card, which already is the
-            work, and always everywhere else, where questions from several
-            pieces of work land in one place. */}
+        {/* WHICH WORK IT IS ABOUT, as the chip every other face names a work
+            with — never on the card, which already is the work. In the chat
+            it is the chip that brings the card; in a reader, whose header
+            already carries that chip, it is the same face, not pressed. */}
         <Show when={props.from !== "card"}>
-          <span
-            data-testid="work-question-work"
-            class="min-w-0 truncate font-mono text-[0.62rem] text-fg-3"
-          >
-            about “{props.work.title}”
+          <span data-testid="work-question-work" class="min-w-0">
+            <Show
+              when={props.from === "chat"}
+              fallback={<WorkChipFace work={props.work} />}
+            >
+              <WorkChip id={props.id} work={props.work} />
+            </Show>
           </span>
         </Show>
       </header>

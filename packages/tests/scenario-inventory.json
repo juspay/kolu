@@ -11662,6 +11662,78 @@
       "exampleRows": [],
       "executions": 1,
       "firstSeenSha": "65bf85478dc3800ea769e1027016d9d16d8d66d2"
+    },
+    {
+      "revisionId": "revision-2976760f3c41034eacee",
+      "scenarioKey": "scenario-72c52a8d34aaefe5cc19",
+      "feature": "features/conductor-reader.feature",
+      "scenario": "A file named in a reply about a work that has no copy says so, and opens nothing",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "f7168d3a3187a414943adcf6eb8dcd90fad4675b59504944c8d151781d32e87f",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "07e686fc1516898e913afce986d34704cc657cdb"
+    },
+    {
+      "revisionId": "revision-6854e2a57c071575010c",
+      "scenarioKey": "scenario-85e5a4ac503bc9bcfc20",
+      "feature": "features/conductor-reader.feature",
+      "scenario": "A file named in a reply about one work opens that work's copy, with no menu",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "b59dea8852085f4aa734e713b20cbeee9b38cd59e2620e083e00fa66fa2099ba",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "07e686fc1516898e913afce986d34704cc657cdb"
+    },
+    {
+      "revisionId": "revision-fc959e4370e1d8e3f9fe",
+      "scenarioKey": "scenario-3bfdf976d631bbfa82b3",
+      "feature": "features/conductor-wakes.feature",
+      "scenario": "A wake-up names its piece of work, and the name takes you to it",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "b74d790b75177cad0000b4466ab025e93db83984bf18c13185655cc52f72bd77",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "07e686fc1516898e913afce986d34704cc657cdb"
+    },
+    {
+      "revisionId": "revision-666d9b111da58ed6ce01",
+      "scenarioKey": "scenario-0e4c0afb060bb3ec7b14",
+      "feature": "features/conductor-work.feature",
+      "scenario": "A waterfall's card, from the request to the merge",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "f06269e5c64eb11e6778262eb8e580ee7121e74120522646ff844be16aa40cf7",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "07e686fc1516898e913afce986d34704cc657cdb"
+    },
+    {
+      "revisionId": "revision-e8a16a384f4451b17a22",
+      "scenarioKey": "scenario-f9c038ba697fee704eff",
+      "feature": "features/mobile-conductor.feature",
+      "scenario": "On a phone a work chip in the chat brings out its card",
+      "kind": "scenario",
+      "tags": ["@mobile"],
+      "bodyHash": "b462e6663e0289fb98825528dc4f1780f00281848c184900778d853c0d45b099",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "07e686fc1516898e913afce986d34704cc657cdb"
+    },
+    {
+      "revisionId": "revision-e22207e3f0792f8b975b",
+      "scenarioKey": "scenario-6d9c582e37068b415202",
+      "feature": "features/conductor-reader.feature",
+      "scenario": "A file the Conductor names in the chat opens in the reader",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "43c4779b87dc71886d95430e17a4fef1f9792c8c6f3dad4246671a1a5a49e5cc",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "07e686fc1516898e913afce986d34704cc657cdb"
     }
   ]
 }

@@ -29,3 +29,14 @@ Feature: The Conductor on a phone
     Then the conductor transcript should show a "create" tool card
     And nothing on screen should reach past the window's right edge
     And there should be no page errors
+
+  @mobile
+  Scenario: On a phone a work chip in the chat brings out its card
+    # Below the two-column width the work listing is a band the status line
+    # opens. A chip on a turn opens that band and the work's card in it, so
+    # the way from a reply to its work is one tap on a phone too.
+    Given a repo for the work
+    When I ask the conductor to open the work "the phone's work"
+    And I press the work's chip in the conversation
+    Then the watched work's card should be open
+    And there should be no page errors

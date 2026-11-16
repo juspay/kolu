@@ -33,14 +33,7 @@ import { activeArm } from "@kolu/padi-client/surface";
 import { dualPhrase } from "@kolu/terminal-vocab/duration";
 import { fleetTerminalRef } from "kolu-mcp/fleetRef";
 import { Option } from "effect";
-import {
-  lifetime,
-  openAsks,
-  prOf,
-  took,
-  type Work,
-  type WorkId,
-} from "kolu-work";
+import { lifetime, openAsks, took, type Work, type WorkId } from "kolu-work";
 import {
   type Component,
   createEffect,
@@ -70,6 +63,7 @@ import { useOpenTile } from "./useOpenTile";
 import { holdsPath } from "./namedFiles";
 import { openReader, readerTarget } from "./reader/useReader";
 import { useMembership, useSeen, useWorkMembers } from "./useWorks";
+import PrText from "./PrText";
 import StageStrip from "./StageStrip";
 import WorkFiles from "./WorkFiles";
 import { LEVEL_WORD } from "./wake";
@@ -80,7 +74,6 @@ import {
   answerSource,
   answeredWhen,
   answerWords,
-  checksBreakdown,
   checksTally,
   decisionRows,
   EVENT_INK,
@@ -90,6 +83,7 @@ import {
   membersIn,
   oneLine,
   outcomeWords,
+  prSection,
   ROLE_WORD,
   standingLine,
   timeSpentOnYou,
@@ -165,17 +159,26 @@ const WorkCard: Component<{
   const onScreen = useShown();
   const [flash, setFlash] = createSignal(false);
   let unflash: number | undefined;
-  onCleanup(() => clearTimeout(unflash));
+  let frame: number | undefined;
+  onCleanup(() => {
+    clearTimeout(unflash);
+    if (frame !== undefined) cancelAnimationFrame(frame);
+  });
   createEffect(() => {
     const want = wantedCard();
     if (want === null || want.id !== props.id || !onScreen()) return;
     cardShown(want.seq);
+    // A second ask while the first still flashes starts it over: the mark
+    // comes off now and goes back on in the next frame.
+    setFlash(false);
+    clearTimeout(unflash);
+    if (frame !== undefined) cancelAnimationFrame(frame);
     // After the frame that laid the card out: a card the listing has just
     // opened, or a band that has just come out, has no box until then.
-    requestAnimationFrame(() => {
+    frame = requestAnimationFrame(() => {
+      frame = undefined;
       card.scrollIntoView({ block: "nearest" });
       setFlash(true);
-      clearTimeout(unflash);
       unflash = window.setTimeout(() => setFlash(false), 1200);
     });
   });
@@ -281,43 +284,66 @@ const WorkCard: Component<{
       }
       // The needs-you edge is the one piece of colour a shut card carries: a
       // column of five works must say which one is on you without being read.
-      // A card a chip asked for flashes once (`index.css`, on `data-flash`).
-      class={`min-w-0 scroll-m-3 overflow-hidden rounded-xl border bg-surface-0 ${
+      // A card a chip asked for flashes once (`index.css`, `.work-card`).
+      class={`work-card min-w-0 scroll-m-3 overflow-hidden rounded-xl border bg-surface-0 ${
         at().who === "you" ? "border-alert/55" : "border-edge"
       }`}
     >
-      <button
-        type="button"
-        data-testid="work-card-head"
-        aria-expanded={isOpen()}
-        class="block w-full cursor-pointer px-2.5 py-2 text-start"
-        onClick={() => toggleCard(props.id)}
-      >
-        <div class="flex min-w-0 items-baseline gap-2">
-          <span class="min-w-0 flex-1 truncate text-[0.78rem] font-semibold text-fg">
-            {props.work.title}
-          </span>
-          <Tip class="shrink-0" label="How long this piece of work has run">
-            <span class="shrink-0 font-mono text-[0.62rem] tabular-nums text-fg-3">
-              {dualPhrase(lifetime(props.work, new Date(now()).toISOString()))}
+      {/* THE SHUT FACE. Its press is a button laid UNDER the text rather than
+          wrapped round it, so the PR number it names can be a link of its
+          own: the text lets presses through to the button, and only the
+          links (and the age's tooltip) take them. */}
+      <div class="relative px-2.5 py-2">
+        <button
+          type="button"
+          data-testid="work-card-head"
+          aria-expanded={isOpen()}
+          aria-label={props.work.title}
+          class="absolute inset-0 cursor-pointer rounded-xl"
+          onClick={() => toggleCard(props.id)}
+        />
+        <div class="pointer-events-none relative">
+          <div class="flex min-w-0 items-baseline gap-2">
+            <span class="min-w-0 flex-1 truncate text-[0.78rem] font-semibold text-fg">
+              {props.work.title}
             </span>
-          </Tip>
+            <Tip
+              class="pointer-events-auto shrink-0"
+              label="How long this piece of work has run"
+            >
+              <span class="shrink-0 font-mono text-[0.62rem] tabular-nums text-fg-3">
+                {dualPhrase(
+                  lifetime(props.work, new Date(now()).toISOString()),
+                )}
+              </span>
+            </Tip>
+          </div>
+          <p class="m-0 mt-0.5 flex min-w-0 gap-2 font-mono text-[0.62rem] text-fg-3">
+            <span class="min-w-0 flex-1 truncate">
+              <PrText
+                work={props.work}
+                text={workSubtitle(props.work, workHost(props.work)).join(
+                  " · ",
+                )}
+              />
+            </span>
+            {/* HOW LONG IT HAS WAITED ON YOU, all told — from a whole second,
+                so a setup answered in a blink does not read "you 0s". */}
+            <Show when={onYou() >= 1000}>
+              <span data-testid="work-on-you" class="shrink-0 text-alert">
+                you {dualPhrase(onYou())}
+              </span>
+            </Show>
+          </p>
+          <WorkStanding
+            work={props.work}
+            line={at()}
+            now={now()}
+            testId="work-standing"
+          />
+          <StageStrip work={props.work} now={now()} size="full" />
         </div>
-        <p class="m-0 mt-0.5 flex min-w-0 gap-2 font-mono text-[0.62rem] text-fg-3">
-          <span class="min-w-0 flex-1 truncate">
-            {workSubtitle(props.work, workHost(props.work)).join(" · ")}
-          </span>
-          {/* HOW LONG IT HAS WAITED ON YOU, all told — from a whole second,
-              so a setup answered in a blink does not read "you 0s". */}
-          <Show when={onYou() >= 1000}>
-            <span data-testid="work-on-you" class="shrink-0 text-alert">
-              you {dualPhrase(onYou())}
-            </span>
-          </Show>
-        </p>
-        <WorkStanding line={at()} now={now()} />
-        <StageStrip work={props.work} now={now()} size="full" />
-      </button>
+      </div>
 
       <Show when={isOpen()}>
         {/* WHAT CHANGES MOST, FIRST. A person opens a card to answer the
@@ -531,7 +557,10 @@ const WorkCard: Component<{
                   Outcome
                 </h4>
                 <p class="m-0 mt-1 text-[0.7rem] text-fg">
-                  {outcomeWords(done().outcome)}
+                  <PrText
+                    work={props.work}
+                    text={outcomeWords(done().outcome)}
+                  />
                   <span class="font-mono text-[0.62rem] text-fg-3">
                     {" · "}
                     {clockOf(done().at)}
@@ -547,32 +576,40 @@ const WorkCard: Component<{
             kept={ended() !== undefined}
           />
 
-          <Show when={Option.getOrUndefined(prOf(props.work))}>
+          {/* THE PULL REQUEST: its number (a link, off the record), how it
+              stands, its checks — the live tally while a member's record has
+              one, else the last reading the timeline kept — and, while it is
+              open, whether GitHub would merge it. */}
+          <Show when={Option.getOrUndefined(prSection(props.work, checks()))}>
             {(pr) => (
               <section data-testid="work-pr" class="mt-2.5">
                 <h4 class="m-0 font-mono text-[0.58rem] uppercase tracking-[0.1em] text-fg-3">
                   Pull request
                 </h4>
-                <p class="m-0 mt-1 text-[0.68rem] text-fg-2">
-                  <Show
-                    when={livePr()?.url}
-                    fallback={<span class="text-fg">#{pr().number}</span>}
-                  >
-                    {(url) => (
-                      <a
-                        href={url()}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        class="text-accent hover:underline"
-                      >
-                        #{pr().number}
-                      </a>
-                    )}
-                  </Show>
-                  <Show when={Option.getOrUndefined(checks())}>
-                    {(tally) => <span> · {checksBreakdown(tally())}</span>}
-                  </Show>
+                <p
+                  data-testid="work-pr-state"
+                  data-state={pr().state}
+                  class="m-0 mt-1 text-[0.68rem] text-fg"
+                >
+                  <PrText work={props.work} text={`#${pr().number}`} />
+                  <span class="text-fg-2"> · {pr().state}</span>
                 </p>
+                <p
+                  data-testid="work-pr-checks"
+                  class="m-0 text-[0.68rem] text-fg-2"
+                >
+                  {pr().checks}
+                </p>
+                <Show when={Option.getOrUndefined(pr().merge)}>
+                  {(merge) => (
+                    <p
+                      data-testid="work-pr-merge"
+                      class="m-0 text-[0.68rem] text-fg-2"
+                    >
+                      {merge()}
+                    </p>
+                  )}
+                </Show>
               </section>
             )}
           </Show>
@@ -686,7 +723,7 @@ const WorkCard: Component<{
                             when={cut().rest}
                             fallback={
                               <span class="min-w-0 flex-1 truncate text-fg-2">
-                                {cut().line}
+                                <PrText work={props.work} text={cut().line} />
                               </span>
                             }
                           >

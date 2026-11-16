@@ -116,8 +116,11 @@ const ConductorStatus: Component<{
   /** The column is OPENED from here only below the breakpoint. On a wide
    *  window `ConductorPane` is already drawing the same column beside the
    *  conversation, and a second copy over it would be two lists of one fact —
-   *  with the same cards open in both. */
-  const opensHere = () => open() && !conductorWide() && words() !== "";
+   *  with the same cards open in both. It opens whenever there is any work
+   *  to show, a finished one included: a chip on a turn scrolled back to is
+   *  often about a work nothing is running for any more, and the count's own
+   *  button (which reads only what is in flight) is not there to open it. */
+  const opensHere = () => open() && !conductorWide() && works().length > 0;
   /** Steering is ON OFFER — the chord's hint, where the turn is reported. */
   const steers = createMemo(() => steerOnOffer(props.state));
 
@@ -207,7 +210,9 @@ const ConductorStatus: Component<{
             is ABSENT rather than `0`: a reader wants the sentence, and
             anything reading this line wants the fact without parsing English
             that may be singular today and plural next frame. */}
-        <Show when={words() !== ""}>
+        {/* ... except that a band a chip brought out must still be put
+            away, so while it is out the control stays, as "Hide work". */}
+        <Show when={words() !== "" || opensHere()}>
           <Tip
             class="flex items-center"
             label="The pieces of work kolu has in flight, and how many things are now waiting on an answer from you"
@@ -236,7 +241,7 @@ const ConductorStatus: Component<{
                 class="shrink-0 rounded-md border border-edge-bright px-1.5 py-px text-fg-2 hover:text-fg hover:bg-surface-2 cursor-pointer"
                 onClick={toggleListing}
               >
-                {words()}
+                {words() === "" ? "Hide work" : words()}
               </button>
             </Show>
           </Tip>

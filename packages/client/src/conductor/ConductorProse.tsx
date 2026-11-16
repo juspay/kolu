@@ -33,24 +33,29 @@
  *  more"). */
 
 import { type InlineCodeAction, Markdown } from "@kolu/solid-markdown";
-import type { WorkId } from "kolu-work";
+import type { Work, WorkId } from "kolu-work";
+import { type NonEmpty, nonEmpty } from "nonempty";
 import {
   type Component,
   createEffect,
   createSignal,
   For,
-  Match,
   Show,
-  Switch,
 } from "solid-js";
-import { Portal } from "solid-js/web";
-import { surface } from "../ui/Surface";
-import { useAnchoredPopover } from "../ui/useAnchoredPopover";
-import { fileTarget } from "./namedFiles";
+import { OptionMenu } from "../ui/OptionMenu";
+import { type FileHolders, fileTarget } from "./namedFiles";
 import { applyProseListFold } from "./proseListFold";
 import { openReader, readerTarget } from "./reader/useReader";
 import { useWorkMap } from "./useWorks";
-import WorkChip from "./WorkChip";
+import WorkChipFace from "./WorkChipFace";
+
+/** A work offered or named by a press, with the record it was read from at
+ *  the moment of the press — so the menu and the note never look a work up
+ *  again, and cannot find it gone. */
+interface Named {
+  readonly id: WorkId;
+  readonly work: Work;
+}
 
 const ConductorProse: Component<{
   /** The transcript row this prose belongs to — what its folds are remembered
@@ -61,6 +66,9 @@ const ConductorProse: Component<{
   /** THE WORKS THIS TURN IS ABOUT (`./turnWorks.ts`) — which work's file a
    *  path it names opens. */
   works: ReadonlyArray<WorkId>;
+  /** Which works hold which paths (`./namedFiles.ts`), built once for the
+   *  whole transcript per change of the works. */
+  holders: FileHolders;
   /** The prose's DOM was rewritten — a chunk, a diagram landing (which grows
    *  the row with no new text), a named file becoming a link. Whether the text
    *  changed is not asked here: the closing-fence chunk renders the same HTML
@@ -72,33 +80,33 @@ const ConductorProse: Component<{
   let host!: HTMLDivElement;
   const works = useWorkMap();
 
-  /** What a press on a named path is waiting on — the person's choice
-   *  between several works, or the sentence saying the turn's work has no
-   *  such file yet — and the link it was pressed on, which it is anchored
-   *  to. */
-  const [pressed, setPressed] = createSignal<{
+  /** The works a press offered to choose between, and the link it was
+   *  pressed on — which the menu is anchored to. */
+  const [choosing, setChoosing] = createSignal<{
     readonly anchor: HTMLElement;
     readonly path: string;
-    readonly kind: "choose" | "missing";
-    readonly works: ReadonlyArray<WorkId>;
+    readonly works: NonEmpty<Named>;
   } | null>(null);
-  const dismiss = (): void => {
-    setPressed(null);
-  };
-  const { panelRef, panelStyle } = useAnchoredPopover({
-    triggerRef: () => pressed()?.anchor,
-    open: () => pressed() !== null,
-    onDismiss: dismiss,
-    anchor: "bottom-start",
-    flip: true,
-    panelMinWidth: 220,
-  });
-  const chrome = surface({ radius: "lg", shadow: "light", portalled: true });
+  /** The sentence a press left saying the turn's work has no such file. */
+  const [missing, setMissing] = createSignal<{
+    readonly path: string;
+    readonly works: NonEmpty<Named>;
+  } | null>(null);
+
+  /** The works named, with their records as they stand now. Every id came
+   *  out of the holders index or the turn, both read off this same map. */
+  const named = (ids: NonEmpty<WorkId>): NonEmpty<Named> | null =>
+    nonEmpty(
+      ids.flatMap((id) => {
+        const work = works().get(id);
+        return work === undefined ? [] : [{ id, work }];
+      }),
+    );
 
   /** What a code span is, as a link: none for a path no work holds. Open
    *  ("current") only when it names one file and the reader is on it. */
   const action = (path: string): InlineCodeAction | undefined => {
-    const target = fileTarget(works(), props.works, path);
+    const target = fileTarget(props.holders, props.works, path);
     if (target.kind === "plain") return undefined;
     const open = readerTarget();
     return {
@@ -112,24 +120,28 @@ const ConductorProse: Component<{
   };
 
   const press = (path: string, anchor: HTMLElement): void => {
-    const target = fileTarget(works(), props.works, path);
+    const target = fileTarget(props.holders, props.works, path);
+    setMissing(null);
     switch (target.kind) {
       case "plain":
         return;
       case "open":
         openReader({ work: target.work, path });
         return;
-      case "missing":
-      case "choose":
-        setPressed({ anchor, path, kind: target.kind, works: target.works });
+      case "missing": {
+        const these = named(target.works);
+        if (these !== null) setMissing({ path, works: these });
         return;
+      }
+      case "choose": {
+        const these = named(target.works);
+        if (these !== null) setChoosing({ anchor, path, works: these });
+        return;
+      }
       default:
         target satisfies never;
     }
   };
-
-  /** The title of a work, for the sentence that says it has no such file. */
-  const titleOf = (id: WorkId): string => works().get(id)?.title ?? id;
 
   const [rewrites, setRewrites] = createSignal(0);
 
@@ -148,65 +160,68 @@ const ConductorProse: Component<{
         variant="compact"
         inlineCode={{ action, onPress: press }}
         onRendered={() => {
+          // A rewrite replaces the link a menu was anchored to, so the menu
+          // goes with it rather than hanging off a detached node.
+          setChoosing(null);
           // The fold is queued first, so a transcript re-pinning on
           // `onRedrawn` measures the folded row.
           setRewrites((n) => n + 1);
           props.onRedrawn?.();
         }}
       />
-      <Show when={pressed()}>
-        {(now) => (
-          <Portal>
-            <div
-              ref={panelRef}
-              data-testid={
-                now().kind === "choose"
-                  ? "named-file-menu"
-                  : "named-file-missing"
-              }
-              class={`fixed z-50 flex max-w-[min(420px,90vw)] flex-col gap-0.5 p-1.5 ${chrome.class}`}
-              style={{ ...panelStyle(), ...chrome.style }}
+      <OptionMenu<WorkId>
+        triggerRef={() => choosing()?.anchor}
+        open={() => choosing() !== null}
+        onDismiss={() => setChoosing(null)}
+        anchor="bottom-start"
+        heading={
+          <>
+            <code class="font-mono">{choosing()?.path}</code> of which work?
+          </>
+        }
+        options={(choosing()?.works ?? []).map((one) => ({
+          value: one.id,
+          label: one.work.title,
+        }))}
+        renderOption={(option) => (
+          <Show when={choosing()?.works.find((one) => one.id === option.value)}>
+            {(one) => <WorkChipFace work={one().work} />}
+          </Show>
+        )}
+        onSelect={(work) => {
+          const path = choosing()?.path;
+          setChoosing(null);
+          if (path !== undefined) openReader({ work, path });
+        }}
+        testIdPrefix="named-file"
+        maxHeight={320}
+        flip
+        focusFirst
+      />
+      {/* THE TURN'S WORK HAS NO SUCH FILE YET — said where the link is, and
+          announced: never another work's file in its place. */}
+      <Show when={missing()}>
+        {(note) => (
+          <p
+            data-testid="named-file-missing"
+            role="status"
+            class="m-0 mt-1 flex flex-wrap items-center gap-1 text-[0.72rem] text-fg-2"
+          >
+            <Show
+              when={note().works.length === 1}
+              fallback={<span>None of these works has</span>}
             >
-              <Switch>
-                <Match when={now().kind === "choose"}>
-                  <p class="m-0 px-1.5 pb-1 pt-0.5 text-[0.7rem] text-fg-3">
-                    <code class="font-mono">{now().path}</code> of which work?
-                  </p>
-                  <For each={now().works}>
-                    {(id) => (
-                      <Show when={works().get(id)}>
-                        {(work) => (
-                          <div
-                            data-testid={`named-file-option-${id}`}
-                            class="px-1 py-0.5"
-                          >
-                            <WorkChip
-                              id={id}
-                              work={work()}
-                              hover={false}
-                              onPress={() => {
-                                const path = now().path;
-                                dismiss();
-                                openReader({ work: id, path });
-                              }}
-                            />
-                          </div>
-                        )}
-                      </Show>
-                    )}
-                  </For>
-                </Match>
-                <Match when={now().kind === "missing"}>
-                  <p class="m-0 px-1.5 py-1 text-[0.72rem] text-fg-2">
-                    {now().works.length === 1
-                      ? `“${titleOf(now().works[0] ?? "")}” has no `
-                      : "None of these works has "}
-                    <code class="font-mono">{now().path}</code> yet.
-                  </p>
-                </Match>
-              </Switch>
-            </div>
-          </Portal>
+              <WorkChipFace work={note().works[0].work} />
+              <span>has no</span>
+            </Show>
+            <code class="font-mono">{note().path}</code>
+            <span>yet.</span>
+            <Show when={note().works.length > 1}>
+              <For each={note().works}>
+                {(one) => <WorkChipFace work={one.work} />}
+              </For>
+            </Show>
+          </p>
         )}
       </Show>
     </div>

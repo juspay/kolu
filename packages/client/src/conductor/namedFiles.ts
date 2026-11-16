@@ -21,6 +21,7 @@
 
 import { Option } from "effect";
 import { filesSeen, keptOf, type Work, type WorkId } from "kolu-work";
+import { type NonEmpty, nonEmpty } from "nonempty";
 
 /** The paths a work holds: its kept copies once it has ended, the files it
  *  has seen appear while it is in progress. */
@@ -30,12 +31,28 @@ const pathsOf = (work: Work): ReadonlySet<string> =>
     onSome: (kept) => new Set(kept.map((one) => one.path)),
   });
 
-/** WHETHER THE READER CAN OPEN `path` OF `work` — what makes a mention in the
- *  chat, or a `Wrote …` row on the card's timeline, a link: always while the
- *  work is in progress (it saw the file appear), and for a work that has
- *  ended only when kolu kept a copy, since its worktree may be gone. */
+/** WHETHER THE READER CAN OPEN `path` OF `work` — what makes a `Wrote …` row
+ *  on the card's timeline a link: always while the work is in progress (it
+ *  saw the file appear), and for a work that has ended only when kolu kept a
+ *  copy, since its worktree may be gone. */
 export const holdsPath = (work: Work, path: string): boolean =>
   pathsOf(work).has(path);
+
+/** EVERY PATH ANY WORK HOLDS, and the works holding it, in the collection's
+ *  order — the index a named path is looked up in. Built once per change of
+ *  the works, never per code span or per streamed chunk. */
+export type FileHolders = ReadonlyMap<string, ReadonlyArray<WorkId>>;
+
+export function fileHolders(works: ReadonlyMap<WorkId, Work>): FileHolders {
+  const index = new Map<string, WorkId[]>();
+  for (const [id, work] of works)
+    for (const path of pathsOf(work)) {
+      const list = index.get(path) ?? [];
+      list.push(id);
+      index.set(path, list);
+    }
+  return index;
+}
 
 /** WHAT PRESSING A NAMED PATH DOES, as a sum:
  *
@@ -46,25 +63,27 @@ export const holdsPath = (work: Work, path: string): boolean =>
 export type FileTarget =
   | { readonly kind: "plain" }
   | { readonly kind: "open"; readonly work: WorkId }
-  | { readonly kind: "missing"; readonly works: ReadonlyArray<WorkId> }
-  | { readonly kind: "choose"; readonly works: ReadonlyArray<WorkId> };
+  | { readonly kind: "missing"; readonly works: NonEmpty<WorkId> }
+  | { readonly kind: "choose"; readonly works: NonEmpty<WorkId> };
+
+/** The holders as a target: one opens, several are a choice. */
+const opening = (holders: NonEmpty<WorkId>): FileTarget =>
+  holders.length === 1
+    ? { kind: "open", work: holders[0] }
+    : { kind: "choose", works: holders };
 
 /** THE ONE RULE: which work's `path` a mention in a turn about `turn` opens. */
 export function fileTarget(
-  works: ReadonlyMap<WorkId, Work>,
+  holders: FileHolders,
   turn: ReadonlyArray<WorkId>,
   path: string,
 ): FileTarget {
-  const holding = (ids: Iterable<WorkId>): ReadonlyArray<WorkId> =>
-    [...ids].filter((id) => {
-      const one = works.get(id);
-      return one !== undefined && holdsPath(one, path);
-    });
-  const anywhere = holding(works.keys());
-  if (anywhere.length === 0) return { kind: "plain" };
-  const holders = turn.length === 0 ? anywhere : holding(turn);
-  const [only, ...more] = holders;
-  if (only === undefined) return { kind: "missing", works: turn };
-  if (more.length === 0) return { kind: "open", work: only };
-  return { kind: "choose", works: holders };
+  const anywhere = nonEmpty(holders.get(path) ?? []);
+  if (anywhere === null) return { kind: "plain" };
+  const asked = nonEmpty(turn);
+  if (asked === null) return opening(anywhere);
+  const holding = nonEmpty(asked.filter((id) => anywhere.includes(id)));
+  return holding === null
+    ? { kind: "missing", works: asked }
+    : opening(holding);
 }

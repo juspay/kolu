@@ -699,11 +699,11 @@ body {
     box-shadow: 0 0 0 3px transparent;
   }
 }
-[data-testid="work-card"][data-flash] {
+.work-card[data-flash] {
   animation: work-card-flash 1.1s ease-out;
 }
 @media (prefers-reduced-motion: reduce) {
-  [data-testid="work-card"][data-flash] {
+  .work-card[data-flash] {
     animation: none;
   }
 }

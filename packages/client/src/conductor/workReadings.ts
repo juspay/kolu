@@ -29,7 +29,10 @@ import { Option } from "effect";
 import { decodeHostKey, isEncodedHostKey } from "kolu-common/hostKey";
 import {
   type AnswerFrom,
+  type CheckKind,
   type Decision,
+  type MergeBlock,
+  type MergeState,
   type Driver,
   type EventAbout,
   type EventBy,
@@ -51,8 +54,8 @@ import {
   type StandingWhy,
   setupOf,
   standing,
-  type Stage,
   type StageName,
+  type Stages,
   stages,
   timeSpent,
   type Waiter,
@@ -125,7 +128,7 @@ export const STAGE_LABEL: Record<StageName, string> = {
 };
 
 /** THE STAGES of a work, under its own policy. */
-export function stagesOf(work: Work, now: string): ReadonlyArray<Stage> {
+export function stagesOf(work: Work, now: string): Stages {
   return stages(work, policyOf(work), now);
 }
 
@@ -404,6 +407,72 @@ export function outcomeWords(outcome: Outcome): string {
         ? "Stopped by you"
         : "Stopped by the Conductor";
   }
+}
+
+/** WHY GITHUB WILL NOT MERGE A PR, said plainly. */
+const BLOCK_WORDS: Record<MergeBlock, string> = {
+  blocked: "the branch's rules still want something, such as a required check",
+  review: "a review is required",
+  behind: "the branch is behind its base",
+  conflicts: "it conflicts with its base",
+  draft: "it is a draft",
+};
+
+/** WHETHER GITHUB WOULD MERGE IT, in one phrase — a timeline row, and the
+ *  Pull request section's last line. */
+export function mergeWords(merge: MergeState): string {
+  return merge.kind === "can"
+    ? "GitHub can merge it"
+    : `GitHub cannot merge it yet · ${BLOCK_WORDS[merge.why]}`;
+}
+
+/** THE PULL REQUEST SECTION of a card: the PR and how it stands, what its
+ *  checks say, and — while it is open — whether GitHub would merge it.
+ *
+ *  The checks are the LIVE tally while a member's record carries one (true
+ *  only for the instant it is read), and otherwise the last check event the
+ *  timeline recorded, with the gates that were red: that is all a finished
+ *  work still knows. */
+export interface PrSection {
+  readonly number: number;
+  readonly state: "open" | "merged" | "closed";
+  readonly checks: string;
+  readonly merge: Option.Option<string>;
+}
+
+const RECORDED_CHECKS: Record<CheckKind, string> = {
+  "checks-running": "CI running when last read",
+  "checks-passed": "Checks passed",
+  "checks-failed": "Checks failed",
+};
+
+export function prSection(
+  work: Work,
+  live: Option.Option<ChecksTally>,
+): Option.Option<PrSection> {
+  return Option.map(prOf(work), (pr) => ({
+    number: pr.number,
+    state: pr.state,
+    checks: Option.match(live, {
+      onSome: checksBreakdown,
+      onNone: () =>
+        Option.match(pr.lastCheck, {
+          onNone: () => "No checks reported",
+          onSome: (last) =>
+            `${RECORDED_CHECKS[last.kind]}${
+              last.failing.length === 0 ? "" : ` · ${last.failing.join(", ")}`
+            }`,
+        }),
+    }),
+    merge:
+      pr.state !== "open"
+        ? Option.none()
+        : Option.some(
+            pr.merge.kind === "unknown"
+              ? "GitHub has not said whether it can merge it"
+              : mergeWords(pr.merge),
+          ),
+  }));
 }
 
 /** WHERE IT STANDS, in the words the card draws: a lead that names the waiter
@@ -731,6 +800,8 @@ export function eventReader(work: Work): (event: WorkEvent) => string {
         return `Merged #${event.pr}`;
       case "pr-closed":
         return `Closed #${event.pr}`;
+      case "merge-state":
+        return `${mergeWords(event.merge)}${commitWords(heads, event)}`;
       case "note":
         return event.text;
       // THE LOCK, as the timeline tells it: an act of the person's, named by

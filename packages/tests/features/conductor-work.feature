@@ -55,8 +55,21 @@ Feature: A piece of work is a stored thing
     And the work card should name the pull request "#7"
     When the work's pull request starts its checks
     Then the work's timeline should show a "checks-running" event
-    When the work's pull request goes green
+    # GREEN IS GITHUB'S ANSWER, not the checks alone: while the branch's
+    # rules still want a review the checks have passed but nothing is handed
+    # over, and the card says why. The answer is its own timeline row.
+    When the work's pull request goes green but GitHub still wants a review
     Then the work's timeline should show a "checks-passed" event
+    And the work's timeline should show a "merge-state" event saying "a review is required"
+    And the work should not be waiting on you
+    And the work's pull request section should say "a review is required"
+    And the work card should link the pull request "#7"
+    # The open PR's first answer was "can" (nothing in the way yet), then
+    # "cannot"; the review makes it the third.
+    When GitHub lets the work's pull request merge
+    Then the work's timeline should show 3 "merge-state" events
+    And the work should be waiting on you
+    And the work's pull request section should say "GitHub can merge it"
     # A PUSH IS NEWS; LOOKING AGAIN IS NOT. A check event says which commit
     # it is about, so the new head's run is a second "checks-running" — and
     # the first commit's, read again on every frame by every member, is not.
