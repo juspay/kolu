@@ -16,12 +16,12 @@
  *
  *  Folding is DRAWING, and this file is the whole rule: nothing it decides is
  *  sent anywhere or saved, and the transcript it reads is the one the panel
- *  already holds. The turn boundary is `./turnWorks.ts`'s, to the letter — a
- *  prompt row (`user` or `wake`) and every row up to the next one — because a
- *  line showing one turn's chips over another turn's sentence would be a lie
- *  nobody could see. */
+ *  already holds. The turns are `./turnWorks.ts`'s `chatTurns` — the same
+ *  boundary the chips are drawn by. */
 
 import type { ConductorRow } from "kolu-common/conductor";
+import type { Work, WorkId } from "kolu-work";
+import { chatTurns } from "./turnWorks";
 
 /** A RUN OF CHARACTERS A FULL STOP INSIDE CANNOT END A SENTENCE: a code span
  *  (`69b08e9`, `.waterfall/mockup/`) and a URL. Masked to the same length
@@ -153,6 +153,19 @@ export interface WorkNote {
   readonly text: string;
 }
 
+/** EVERY NOTE THE CONDUCTOR WROTE, oldest first, off the works' own
+ *  timelines — a turn in which it wrote no reply still said something, and
+ *  it said it there. The human's own notes are not news from a turn, so only
+ *  the agent's are read. */
+export function agentNotes(works: ReadonlyMap<WorkId, Work>): WorkNote[] {
+  const out: WorkNote[] = [];
+  for (const work of works.values())
+    for (const event of work.events)
+      if (event.kind === "note" && event.by === "agent")
+        out.push({ at: Date.parse(event.at), text: event.text });
+  return out.sort((one, other) => one.at - other.at);
+}
+
 /** WHAT A WAKE TURN'S ONE LINE SAYS: the reply's first sentence, the note it
  *  wrote instead of replying, or nothing at all. */
 export type QuietSays =
@@ -162,7 +175,7 @@ export type QuietSays =
 
 /** ONE TURN as the transcript draws it. */
 export interface QuietTurn {
-  /** The id of the row that starts it — `./turnWorks.ts`'s `first`. */
+  /** The id of the row that starts it — `./turnWorks.ts`'s `head`. */
   readonly head: string;
   /** When it started, as the head row stamped it. */
   readonly since: string;
@@ -202,40 +215,26 @@ const prose = (
 /** THE FOLD, READ OFF THE CHAT: which turns are one line, what the line says,
  *  and which of them is open before anybody presses anything.
  *
- *  `notes` is every note the Conductor wrote on any work, with its stamp —
- *  the caller reads them off the works' own timelines, because a turn is a
- *  window of time and a note is an event in one. A turn with no prose shows
- *  the LAST note written inside its window: the Conductor writing twice in
- *  one turn has said the newer thing. */
+ *  `notes` is every note the Conductor wrote on any work ({@link agentNotes}),
+ *  because a turn is a window of time and a note is an event in one. A turn
+ *  with no prose shows the LAST note written inside its window: the Conductor
+ *  writing twice in one turn has said the newer thing. */
 export function quietChat(
   rows: readonly ConductorRow[],
   notes: readonly WorkNote[],
 ): QuietChat {
-  const groups: ConductorRow[][] = [];
-  for (const row of rows) {
-    const last = groups.at(-1);
-    if (last === undefined || row.kind === "user" || row.kind === "wake")
-      groups.push([row]);
-    else last.push(row);
-  }
+  const groups = chatTurns(rows);
 
   /** The newest turn with a reply in it — the one that stays open. */
-  let newest = -1;
-  groups.forEach((group, index) => {
-    if (group.some(prose)) newest = index;
-  });
+  const newest = groups.findLastIndex((group) => group.rows.some(prose));
 
   const turns: QuietTurn[] = [];
   const of = new Map<string, QuietTurn>();
   groups.forEach((group, index) => {
-    const head = group[0];
-    if (head === undefined) return;
-    const next = groups[index + 1]?.[0];
-    const from = Date.parse(head.since);
-    const until = next === undefined ? Infinity : Date.parse(next.since);
+    const { head, from, until } = group;
     // THE TURN'S LAST REPLY is its news: a turn that writes "Green, clean"
     // and then, after more calls, "PR #2400 is merged" ended on the merge.
-    const said = group.filter(prose).at(-1);
+    const said = group.rows.filter(prose).at(-1);
     const note = notes.filter((one) => one.at >= from && one.at < until).at(-1);
     const says: QuietSays =
       said !== undefined
@@ -244,7 +243,7 @@ export function quietChat(
           ? { kind: "noted", text: note.text }
           : { kind: "quiet" };
     const asks = new Set(
-      group
+      group.rows
         .filter((row) => row.kind === "ask" || row.kind === "work-ask")
         .map((row) => row.id),
     );
@@ -257,14 +256,11 @@ export function quietChat(
       asks,
     };
     turns.push(turn);
-    for (const row of group) of.set(row.id, turn);
+    for (const row of group.rows) of.set(row.id, turn);
   });
 
   /** The last thing the person typed, and everything kolu has said since. */
-  let spoke = -1;
-  groups.forEach((group, index) => {
-    if (group[0]?.kind === "user") spoke = index;
-  });
+  const spoke = groups.findLastIndex((group) => group.head.kind === "user");
   const run =
     spoke === -1 ? [] : turns.slice(spoke + 1).filter((one) => one.folds);
   const first = run[0];

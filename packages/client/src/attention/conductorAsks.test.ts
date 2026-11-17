@@ -9,7 +9,6 @@ import {
   type BellReading,
   type ConductorBellHooks,
   createConductorBell,
-  isItemInView,
 } from "./conductorAsks";
 
 const OLAI = "branch:local/%2Fcode%2Folai/chat-on-any-entity";
@@ -45,10 +44,10 @@ const reading = (
   needs: ReadonlyArray<NeedsYou>,
   over: Partial<BellReading> = {},
 ): BellReading => ({
-  openAsks: needs.flatMap((one) =>
+  ownAsks: [],
+  workAsks: needs.flatMap((one) =>
     one.why.why === "question" ? [one.why.ask] : [],
   ),
-  ownAsks: [],
   works: new Set([OLAI, KOLU]),
   needs,
   ...over,
@@ -99,28 +98,6 @@ describe("the Conductor's bell decides after the page has drawn", () => {
     raw.observe(reading([]));
     raw.settle();
     expect(rang).toEqual([]);
-  });
-});
-
-describe("whether an item is in view", () => {
-  const asked = question(KOLU, "a1");
-  const green = merge(OLAI, 700, "c88");
-  const everything = () => true;
-
-  it("needs a focused window: on screen in a window without focus is not seen", () => {
-    expect(isItemInView(asked, true, everything)).toBe(true);
-    expect(isItemInView(asked, false, everything)).toBe(false);
-  });
-
-  it("is the question for a question, and the card for a merge", () => {
-    const seen: string[] = [];
-    const look = (what: { kind: string; id: string }) => {
-      seen.push(`${what.kind}:${what.id}`);
-      return false;
-    };
-    isItemInView(asked, true, look);
-    isItemInView(green, true, look);
-    expect(seen).toEqual(["ask:a1", `card:${OLAI}`]);
   });
 });
 
@@ -189,9 +166,7 @@ describe("the Conductor's bell", () => {
     // frame: a work met for the first time already waiting was waiting
     // before this browser looked.
     const { bell, rang } = harness();
-    bell.observe(
-      reading([], { works: new Set(), openAsks: ["a1"], ownAsks: ["a1"] }),
-    );
+    bell.observe(reading([], { works: new Set(), workAsks: ["a1"] }));
     bell.observe(reading([question(KOLU, "a1"), merge(OLAI, 700, "c88")]));
     expect(rang).toEqual([]);
   });
@@ -210,7 +185,7 @@ describe("the Conductor's bell", () => {
     const { raw, rang, gates } = harness();
     raw.observe(reading([], { works: new Set() }));
     gates.conversation = true;
-    raw.observe(reading([], { works: new Set(), openAsks: ["a1"] }));
+    raw.observe(reading([], { works: new Set(), workAsks: ["a1"] }));
     raw.settle();
     expect(rang).toEqual([]);
     const asked = question(KOLU, "a1");
@@ -220,7 +195,7 @@ describe("the Conductor's bell", () => {
     // … and it in view is what does: the same arrival, drawn and seen.
     const second = harness();
     second.raw.observe(reading([], { works: new Set() }));
-    second.raw.observe(reading([], { works: new Set(), openAsks: ["a1"] }));
+    second.raw.observe(reading([], { works: new Set(), workAsks: ["a1"] }));
     second.raw.settle();
     second.raw.observe(reading([asked]));
     second.gates.onScreen.add(asked.key);
@@ -231,11 +206,9 @@ describe("the Conductor's bell", () => {
   it("the conversation's own question rings as today, quiet while the Conductor is in front of you", () => {
     const { bell, rang, gates } = harness();
     bell.observe(reading([]));
-    bell.observe(reading([], { openAsks: ["c1"], ownAsks: ["c1"] }));
+    bell.observe(reading([], { ownAsks: ["c1"] }));
     gates.conversation = true;
-    bell.observe(
-      reading([], { openAsks: ["c1", "c2"], ownAsks: ["c1", "c2"] }),
-    );
+    bell.observe(reading([], { ownAsks: ["c1", "c2"] }));
     expect(rang).toEqual([{ items: [], own: 1 }]);
   });
 

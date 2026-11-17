@@ -13,22 +13,7 @@ import {
   createAttentionTransitions,
   type TerminalId,
 } from "kolu-common/surface";
-import { fleetTerminalRef } from "kolu-mcp/fleetRef";
-import type { Membership } from "kolu-work";
 import { nextUnseenFinished } from "./unseenFinished";
-
-/** IS THE CONDUCTOR DRIVING THIS TERMINAL — the membership index's own
- *  answer for it (`kolu-work`'s `membershipOf`, keyed by fleet ref). A
- *  terminal the human has taken over is driven by `you`, a member of a watch
- *  by `nobody`, and a terminal in no work is not in the index: all three ring
- *  as any terminal does. */
-export function drivenByConductor(
-  membership: ReadonlyMap<string, Membership>,
-  encHost: string,
-  id: TerminalId,
-): boolean {
-  return membership.get(fleetTerminalRef(encHost, id))?.driver === "conductor";
-}
 
 export interface AttentionHooks {
   /** The master gate — the `attentionAlerts` preference. */

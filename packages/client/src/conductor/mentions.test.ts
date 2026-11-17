@@ -12,7 +12,6 @@ import {
   dropMention,
   filterMentions,
   type MentionCandidate,
-  resolveMentions,
   tokenQueryAt,
   withScopeMention,
   workSlug,
@@ -171,9 +170,13 @@ describe("completeToken", () => {
   });
 });
 
-describe("resolveMentions", () => {
+/** The mentions alone, as the wire carries them. */
+const mentionsOf = (text: string, candidates: readonly MentionCandidate[]) =>
+  armedMentions(text, candidates).map((one) => one.mention);
+
+describe("the mentions a message carries", () => {
   it("resolves each named terminal once, in order", () => {
-    const mentions = resolveMentions(
+    const mentions = mentionsOf(
       "@odu-cache and @fix-parser, then @odu-cache again",
       fleet,
     );
@@ -196,7 +199,7 @@ describe("resolveMentions", () => {
       terminal("main", "44444444-4444-4444-8444-444444444444", "remote:zest"),
       terminal("fix-docs", "22222222-2222-4222-8222-222222222222"),
     ];
-    const mentions = resolveMentions("@main and @fix-docs", crossHost);
+    const mentions = mentionsOf("@main and @fix-docs", crossHost);
     expect(
       mentions.map((one) =>
         one.kind === "terminal" ? [one.name, one.host] : [],
@@ -209,7 +212,7 @@ describe("resolveMentions", () => {
 
   it("resolves a work's SLUG to the work, with the title it has now", () => {
     expect(
-      resolveMentions("what is left in @page-chats-open-in-a-pane?", menu),
+      mentionsOf("what is left in @page-chats-open-in-a-pane?", menu),
     ).toEqual([
       { kind: "work", work: PANE, title: "Page chats open in a pane" },
     ]);
@@ -218,7 +221,7 @@ describe("resolveMentions", () => {
   it("gives a token both a work and a terminal answer to to the WORK", () => {
     // The branch a work was cut from often names the terminal working on it.
     const both = [work("fix parser", "branch:local/%2Fr/fix-parser"), ...fleet];
-    expect(resolveMentions("@fix-parser go", both)).toEqual([
+    expect(mentionsOf("@fix-parser go", both)).toEqual([
       {
         kind: "work",
         work: "branch:local/%2Fr/fix-parser",
@@ -228,11 +231,11 @@ describe("resolveMentions", () => {
   });
 
   it("leaves a name nothing answers to as ordinary prose", () => {
-    expect(resolveMentions("@nobody there", fleet)).toEqual([]);
+    expect(mentionsOf("@nobody there", fleet)).toEqual([]);
   });
 
   it("ignores a trigger glued to a word", () => {
-    expect(resolveMentions("mail me@fix-parser", fleet)).toEqual([]);
+    expect(mentionsOf("mail me@fix-parser", fleet)).toEqual([]);
   });
 });
 
@@ -303,12 +306,12 @@ describe("withScopeMention", () => {
   });
 
   it("does not name it twice when the words already did", () => {
-    const typed = resolveMentions("@page-chats-open-in-a-pane ok", menu);
+    const typed = mentionsOf("@page-chats-open-in-a-pane ok", menu);
     expect(withScopeMention(typed, scope)).toEqual(typed);
   });
 
   it("changes nothing when the chat is about everything", () => {
-    const typed = resolveMentions("@fix-docs ok", fleet);
+    const typed = mentionsOf("@fix-docs ok", fleet);
     expect(withScopeMention(typed, null)).toBe(typed);
   });
 });

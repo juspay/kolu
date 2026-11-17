@@ -15,26 +15,24 @@ import type { ConductorRow } from "kolu-common/conductor";
 import { type Component, createMemo, Show } from "solid-js";
 import { chatScope, showAllChat } from "./chatScope";
 import type { Turn } from "./turnWorks";
-import { useWorkMap } from "./useWorks";
 import WorkChipFace from "./WorkChipFace";
 
 const ChatScopeBar: Component<{
   rows: readonly ConductorRow[];
   turns: ReadonlyMap<string, Turn>;
 }> = (props) => {
-  const map = useWorkMap();
   const tally = createMemo(() => {
-    const id = chatScope();
-    if (id === null) return null;
+    const at = chatScope();
+    if (at === null) return null;
     let total = 0;
     let shown = 0;
     for (const row of props.rows) {
       const turn = props.turns.get(row.id);
-      if (turn === undefined || turn.first !== row.id) continue;
+      if (turn === undefined || turn.head !== row.id) continue;
       total += 1;
-      if (turn.works.includes(id)) shown += 1;
+      if (turn.works.includes(at.id)) shown += 1;
     }
-    return { id, work: map().get(id), total, shown };
+    return { ...at, total, shown };
   });
 
   return (
@@ -49,9 +47,7 @@ const ChatScopeBar: Component<{
           {/* THE WORK'S OWN FACE, not its title in a different font: the
               chip in the bar, the chips on the turns below it and the chip
               in the box are one drawing of one thing. */}
-          <Show when={only().work}>
-            {(work) => <WorkChipFace work={work()} />}
-          </Show>
+          <WorkChipFace work={only().record} />
           <span class="min-w-0 truncate text-fg-3 tabular-nums">
             · {only().shown} of {only().total}{" "}
             {only().total === 1 ? "turn" : "turns"}

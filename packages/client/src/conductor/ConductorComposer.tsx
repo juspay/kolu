@@ -172,22 +172,15 @@ const ConductorComposer: Component<{
   onCleanup(() => setCompletionOpen(false));
   const armed = createMemo(() => armedMentions(composerText(), candidates()));
 
-  /** THE WORK THE CHAT IS POINTED AT, as a candidate of its own: the chip
-   *  over the box is its face, and a message sent while it is on carries it
-   *  whether or not the words named it. A scope whose work the mirror no
-   *  longer lists draws and sends nothing — the signal is a view's, and the
-   *  works are the wire's. */
-  const scope = createMemo(() => {
-    const id = chatScope();
-    if (id === null) return null;
-    const record = workMap().get(id);
-    return record === undefined ? null : { work: id, record };
-  });
+  /** THE WORK THE CHAT IS POINTED AT: the chip over the box is its face, and
+   *  a message sent while it is on carries it whether or not the words named
+   *  it. */
+  const scope = createMemo(chatScope);
   const scopeMention = (): ConductorWorkMention | null => {
     const at = scope();
     return at === null
       ? null
-      : { kind: "work", work: at.work, title: at.record.title };
+      : { kind: "work", work: at.id, title: at.record.title };
   };
   /** The menu's two groups, out of the one ranked list. `filterMentions` puts
    *  every work ahead of every terminal, so a terminal's index in the FLAT
@@ -562,7 +555,7 @@ const ConductorComposer: Component<{
             <button
               type="button"
               data-testid="conductor-scope-chip"
-              data-work={at().work}
+              data-work={at().id}
               aria-label={`Show the whole chat, not only ${at().record.title}`}
               class="flex items-center gap-1 cursor-pointer"
               onClick={() => showAllChat()}

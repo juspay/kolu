@@ -5,11 +5,8 @@
 import type { TerminalId } from "kolu-common/surface";
 import type { Membership } from "kolu-work";
 import { describe, expect, it, vi } from "vitest";
-import {
-  type AttentionHooks,
-  createAttentionCore,
-  drivenByConductor,
-} from "./attentionCore";
+import { drivenByConductor } from "../conductor/workReadings";
+import { type AttentionHooks, createAttentionCore } from "./attentionCore";
 import type { AttentionFrame } from "kolu-common/surface";
 
 const u = (asking: string[] = [], finished: string[] = []): AttentionFrame => ({

@@ -1091,15 +1091,13 @@ describe("the tab's one number", () => {
     decisions: [asked({ ask: "ask-work" })],
     events: [event({ kind: "question", by: "agent", ask: "ask-work" })],
   });
-  /** The count and the status words, over the one needs-you reading of
-   *  these works and the conversation's OWN open asks (the cell's
-   *  `openAsks`, which never holds a work's question). */
+  /** The count over the one needs-you reading of these works and the
+   *  conversation's OWN open asks (the cell's `openAsks`, which never holds
+   *  a work's question). */
   const needsOf = (works: ReadonlyArray<Work>) =>
     needsYou(works.map((one, at): [string, Work] => [`w${at}`, one]));
   const count = (works: ReadonlyArray<Work>, own: ReadonlyArray<string>) =>
     waitingCount(needsOf(works), own);
-  const words = (works: ReadonlyArray<Work>, own: ReadonlyArray<string>) =>
-    worksStatusWords(needsOf(works), works, own);
 
   it("counts a work waiting on you ONCE, however many questions it holds", () => {
     const two = work({
@@ -1119,26 +1117,10 @@ describe("the tab's one number", () => {
   });
 
   it("leaves a part that would read zero out of the status line", () => {
-    expect(words([work()], [])).toBe("1 piece of work");
-    expect(words([], ["ask-chat"])).toBe("1 needs you");
-    expect(words([], ["ask-chat", "ask-other"])).toBe("2 need you");
-    expect(words([], [])).toBe("");
-    // An ENDED work is not in flight, so it is not counted as a piece of work.
-    expect(
-      words(
-        [
-          work({
-            state: {
-              kind: "ended",
-              at: AT,
-              outcome: { kind: "stopped", by: "you" },
-              kept: [],
-            },
-          }),
-        ],
-        [],
-      ),
-    ).toBe("");
+    expect(worksStatusWords(1, 0)).toBe("1 piece of work");
+    expect(worksStatusWords(0, 1)).toBe("1 needs you");
+    expect(worksStatusWords(2, 2)).toBe("2 pieces of work · 2 need you");
+    expect(worksStatusWords(0, 0)).toBe("");
   });
 });
 

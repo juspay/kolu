@@ -52,17 +52,13 @@ import {
   type TerminalId,
 } from "kolu-common/surface";
 import "kolu-common/test-hooks";
-import { Effect, Option, Semaphore } from "effect";
+import { Effect, Semaphore } from "effect";
 import type { NeedsYou } from "kolu-work";
 import { createEffect, mapArray, onCleanup, untrack } from "solid-js";
 import { match } from "ts-pattern";
 import { notify } from "../attentionNotify";
 import { hostLabel } from "../host/hostChipTone";
-import {
-  askOnScreenKey,
-  cardOnScreenKey,
-  isOnScreen,
-} from "../conductor/onScreen";
+import { afterViewKnown, isNeedInView } from "../conductor/onScreen";
 import {
   conductorAsks,
   useConductorBadge,
@@ -74,12 +70,13 @@ import {
 } from "../conductor/useConductorMode";
 import { useMembership, useNeedsYou, useWorkMap } from "../conductor/useWorks";
 import { showWork } from "../conductor/workListing";
+import { drivenByConductor } from "../conductor/workReadings";
 import { runAction } from "../runAction";
 import type { TerminalSubject } from "../terminal/terminalSubject";
 import { nextAfter } from "../ui/nextAfter";
 import { activeHost, preferences, setActiveHost } from "../wire";
-import { createAttentionCore, drivenByConductor } from "./attentionCore";
-import { createConductorBell, isItemInView } from "./conductorAsks";
+import { createAttentionCore } from "./attentionCore";
+import { createConductorBell } from "./conductorAsks";
 import {
   hostAskingIds,
   hostFrame,
@@ -215,10 +212,11 @@ export function useAttention(deps: AttentionDeps): {
    *  `conductorAsks`'s rule.
    *
    *  ONE NOTIFICATION PER WORK ITEM, titled with the work and saying what is
-   *  wanted, tagged with the item so two works do not replace each other; a
-   *  click takes the one route to the work, onto its card and its question.
-   *  The conversation's own questions are one notification, as they always
-   *  were. One sound for the lot. */
+   *  wanted (`NeedsYou.wanted`, the card's and the palette's words), tagged
+   *  with the item so two works do not replace each other; a click takes the
+   *  one route to the work, onto its card and its question. The
+   *  conversation's own questions are one notification, as they always were.
+   *  One sound for the lot. */
   const deliverNeeds = (
     items: ReadonlyArray<NeedsYou>,
     ownOpen: number | null,
@@ -229,13 +227,7 @@ export function useAttention(deps: AttentionDeps): {
         void notify.show({
           tag: `work:${item.key}`,
           title: item.title,
-          body:
-            item.why.why === "question"
-              ? item.why.question
-              : Option.match(item.why.pr, {
-                  onNone: () => "Ready to merge: the PR is green",
-                  onSome: (pr) => `Ready to merge: PR #${pr.number} is green`,
-                }),
+          body: item.wanted,
           icon: "/favicon.svg",
           data: {
             kind: "work",
@@ -260,59 +252,28 @@ export function useAttention(deps: AttentionDeps): {
   };
   const conductorBell = createConductorBell({
     alertsEnabled,
-    // THAT ITEM in view in a focused window — its question wherever it is
-    // drawn, or for a merge its card. Looking at the Conductor alone is not
-    // looking at it.
-    isItemWatched: (item) =>
-      isItemInView(item, document.hasFocus(), (what) =>
-        isOnScreen(
-          what.kind === "ask"
-            ? askOnScreenKey(what.id)
-            : cardOnScreenKey(what.id),
-        ),
-      ),
+    // THAT ITEM in view in a focused window — looking at the Conductor alone
+    // is not looking at it.
+    isItemWatched: isNeedInView,
     isConversationWatched: () => conductorMode() && document.hasFocus(),
     deliver: deliverNeeds,
   });
   const workMap = useWorkMap();
   const needs = useNeedsYou();
-  /** The frame the bell will decide in, while one is waiting. */
-  let settling: number | undefined;
-  onCleanup(() => {
-    if (settling !== undefined) cancelAnimationFrame(settling);
-  });
+  // DECIDE AFTER THE PAGE HAS DRAWN IT: a question that just arrived says it
+  // is in view only once it has been laid out and observed.
+  const decide = afterViewKnown(() => conductorBell.settle());
   createEffect(() => {
     const asks = conductorAsks();
     // Silence is not an empty list: before the server's first frame there is
     // nothing to compare against, and the real first frame is the baseline.
     if (asks === undefined) return;
-    const map = workMap();
     const heard = conductorBell.observe({
-      openAsks: [...asks.own, ...asks.work],
-      // The server says which questions are the conversation's own: a work's
-      // question can arrive here before its work's record does, and must not
-      // be heard — rung or silenced — by the conversation's rule.
-      ownAsks: asks.own,
-      works: new Set(map.keys()),
+      ...asks,
+      works: new Set(workMap().keys()),
       needs: needs(),
     });
-    // DECIDE AFTER THE PAGE HAS DRAWN IT. The question that just arrived is
-    // mounted in this same pass at the earliest, and its box says it is in
-    // view only once it has been laid out and observed — the frame after
-    // next is the first moment that answer is in. A window without focus has
-    // nothing in view to wait for (and a hidden one draws no frames), so it
-    // decides now.
-    if (!heard || settling !== undefined) return;
-    if (!document.hasFocus()) {
-      conductorBell.settle();
-      return;
-    }
-    settling = requestAnimationFrame(() => {
-      settling = requestAnimationFrame(() => {
-        settling = undefined;
-        conductorBell.settle();
-      });
-    });
+    if (heard) decide();
   });
 
   // WHO DRIVES EACH MEMBER TERMINAL — the one membership index the dock

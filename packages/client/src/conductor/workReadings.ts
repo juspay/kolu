@@ -25,6 +25,7 @@
 import { dualPhrase } from "@kolu/terminal-vocab/duration";
 import { Option } from "effect";
 import { decodeHostKey, isEncodedHostKey } from "kolu-common/hostKey";
+import { fleetTerminalRef } from "kolu-mcp/fleetRef";
 import {
   type AnswerFrom,
   type Decision,
@@ -35,7 +36,6 @@ import {
   isAbout,
   isCheckEvent,
   isOnGreen,
-  isOpen,
   isSettled,
   type Membership,
   type NeedsYou,
@@ -64,7 +64,6 @@ import {
   type WorkMember,
   WORK_ROLES,
   type WorkRole,
-  type WorkRow,
   waterfallFileName,
 } from "kolu-work";
 import { type NonEmpty, nonEmpty } from "nonempty";
@@ -310,6 +309,21 @@ export function lockCardWords(at: Membership): string {
  *  tested — without a browser. */
 export function inputAllowed(at: Option.Option<Membership>): boolean {
   return !Option.exists(at, (one) => one.driver === "conductor");
+}
+
+/** IS THE CONDUCTOR DRIVING THIS TERMINAL — the same rule as
+ *  {@link inputAllowed}, asked of the membership index by fleet ref: it
+ *  answers its own agents (it is woken about them), so the terminal does not
+ *  ring you on its own. One the human has taken over, a member of a watch and
+ *  a terminal in no work all ring as any terminal does. */
+export function drivenByConductor(
+  membership: ReadonlyMap<string, Membership>,
+  encHost: string,
+  id: string,
+): boolean {
+  return !inputAllowed(
+    Option.fromUndefinedOr(membership.get(fleetTerminalRef(encHost, id))),
+  );
 }
 
 /** The repository as a person names it: the last segment of its path. */
@@ -912,30 +926,11 @@ export function waitingCount(
   return needs.length + ownAsks.length;
 }
 
-/** Which work an ask belongs to, or `null` for the conversation's own — what
- *  the chat's form says above itself. The ROW, because answering a work's
- *  question names the work by the id it is filed under. */
-export function workOfAsk(
-  works: ReadonlyArray<WorkRow>,
-  ask: string,
-): WorkRow | null {
-  return (
-    works.find(([, work]) => work.decisions.some((one) => one.ask === ask)) ??
-    null
-  );
-}
-
 /** The sentence the status line reads: `N pieces of work · M need you` — the
  *  column's own word, "Needs you" — with a part that would read zero left
  *  out entirely. Empty when there is nothing to say, which is what keeps
- *  `0 pieces of work` off the screen. */
-export function worksStatusWords(
-  needs: ReadonlyArray<NeedsYou>,
-  works: ReadonlyArray<Work>,
-  ownAsks: ReadonlyArray<string>,
-): string {
-  const live = works.filter((one) => isOpen(one)).length;
-  const waiting = waitingCount(needs, ownAsks);
+ *  `0 pieces of work` off the screen. `waiting` is {@link waitingCount}'s. */
+export function worksStatusWords(live: number, waiting: number): string {
   const parts: string[] = [];
   if (live > 0)
     parts.push(`${live} ${live === 1 ? "piece of work" : "pieces of work"}`);

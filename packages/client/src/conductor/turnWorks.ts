@@ -48,8 +48,43 @@ export function joinsOf(works: ReadonlyMap<WorkId, Work>): Joins {
 /** ONE TURN: the row that starts it — where its works are drawn — and the
  *  works it names, in the order it first named them. */
 export interface Turn {
-  readonly first: string;
+  readonly head: string;
   readonly works: ReadonlyArray<WorkId>;
+}
+
+/** ONE TURN'S ROWS AND ITS WINDOW — the one turn boundary every reading of
+ *  the chat shares (the works a turn is about, and the fold), so a line
+ *  showing one turn's chips over another turn's sentence cannot happen. */
+export interface ChatTurn {
+  /** The prompt row that starts it (or the first row of all). */
+  readonly head: ConductorRow;
+  /** Every row of the turn, the head first. */
+  readonly rows: readonly ConductorRow[];
+  /** Its window, epoch milliseconds: from the head's stamp up to the next
+   *  turn's, or with no end for the newest. */
+  readonly from: number;
+  readonly until: number;
+}
+
+/** THE TURNS OF THE CHAT, in order: a prompt row (`user` or `wake`) and every
+ *  row up to the next one. Rows before the first prompt are a turn of their
+ *  own. */
+export function chatTurns(rows: readonly ConductorRow[]): ChatTurn[] {
+  const groups: { head: ConductorRow; rows: ConductorRow[] }[] = [];
+  for (const row of rows) {
+    const last = groups.at(-1);
+    if (last === undefined || row.kind === "user" || row.kind === "wake")
+      groups.push({ head: row, rows: [row] });
+    else last.rows.push(row);
+  }
+  return groups.map((group, index) => {
+    const next = groups[index + 1]?.head;
+    return {
+      ...group,
+      from: Date.parse(group.head.since),
+      until: next === undefined ? Infinity : Date.parse(next.since),
+    };
+  });
 }
 
 /** The terminals and works one row names, in the order it names them. */
@@ -104,35 +139,25 @@ export function turnWorks(
   works: ReadonlyMap<WorkId, Work>,
   joins: Joins,
 ): ReadonlyMap<string, Turn> {
-  const turns: ConductorRow[][] = [];
-  for (const row of rows) {
-    const last = turns.at(-1);
-    if (last === undefined || row.kind === "user" || row.kind === "wake")
-      turns.push([row]);
-    else last.push(row);
-  }
   const out = new Map<string, Turn>();
-  turns.forEach((turn, index) => {
-    const head = turn[0];
-    if (head === undefined) return;
-    const next = turns[index + 1]?.[0];
-    const until = next === undefined ? Infinity : Date.parse(next.since);
+  for (const turn of chatTurns(rows)) {
     const found: WorkId[] = [];
     const add = (work: WorkId): void => {
       if (works.has(work) && !found.includes(work)) found.push(work);
     };
-    for (const row of turn)
+    for (const row of turn.rows)
       for (const named of namedBy(row)) {
         if (named.kind === "work") {
           add(named.work);
           continue;
         }
         const list = joins.get(named.ref) ?? [];
-        const joined = list.filter((one) => one.at <= until).at(-1) ?? list[0];
+        const joined =
+          list.filter((one) => one.at <= turn.until).at(-1) ?? list[0];
         if (joined !== undefined) add(joined.work);
       }
-    const reading: Turn = { first: head.id, works: found };
-    for (const row of turn) out.set(row.id, reading);
-  });
+    const reading: Turn = { head: turn.head.id, works: found };
+    for (const row of turn.rows) out.set(row.id, reading);
+  }
   return out;
 }

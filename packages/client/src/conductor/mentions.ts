@@ -244,14 +244,6 @@ export function armedMentions(
   return out;
 }
 
-/** ... the mentions alone, as the wire carries them. */
-export function resolveMentions(
-  text: string,
-  candidates: readonly MentionCandidate[],
-): readonly ConductorMention[] {
-  return armedMentions(text, candidates).map((one) => one.mention);
-}
-
 /** WHAT A MESSAGE CARRIES when the chat is pointed at a piece of work: what
  *  the words named, and the scope itself when they did not name it. A message
  *  sent from a scoped chat is about that work whether or not it was typed —

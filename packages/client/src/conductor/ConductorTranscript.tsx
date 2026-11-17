@@ -69,7 +69,7 @@ import {
 } from "./transcriptScroll";
 import { type FileHolders, fileHolders } from "./namedFiles";
 import { chatScope } from "./chatScope";
-import { quietChat, type QuietTurn, type WorkNote } from "./quietChat";
+import { agentNotes, quietChat, type QuietTurn } from "./quietChat";
 import type { Turn } from "./turnWorks";
 import { useConductor } from "./useConductor";
 import { wakeHeadline, wakeWhen } from "./wake";
@@ -138,7 +138,7 @@ const TurnHead: Component<{ rows: ReadonlyArray<ConductorRow> }> = (props) => {
       if (first === undefined || first.kind === "user" || first.kind === "wake")
         return NO_WORKS;
       const turn = turns.turnOf(first.id);
-      return turn.first === first.id ? turn.works : NO_WORKS;
+      return turn.head === first.id ? turn.works : NO_WORKS;
     },
     NO_WORKS,
     { equals: sameWorks },
@@ -320,22 +320,11 @@ const ConductorTranscript: Component<{
     holders,
   };
 
-  /** EVERY NOTE THE CONDUCTOR WROTE, oldest first — read off the works' own
-   *  timelines, because a turn in which it wrote no reply still said
-   *  something, and it said it there. Built once per change of the works,
-   *  never per streamed chunk of the chat. The human's own notes are not
-   *  news from a turn, so only the agent's are read. */
-  const notes = createMemo(() => {
-    const out: WorkNote[] = [];
-    for (const work of workMap().values())
-      for (const event of work.events)
-        if (event.kind === "note" && event.by === "agent")
-          out.push({ at: Date.parse(event.at), text: event.text });
-    return out.sort((one, other) => one.at - other.at);
-  });
   /** THE FOLD: which turns are one line, what the line says, which one is
    *  open before anybody presses, and how many replies have landed since the
-   *  last thing a person typed. */
+   *  last thing a person typed. The notes are read once per change of the
+   *  works, never per streamed chunk of the chat. */
+  const notes = createMemo(() => agentNotes(workMap()));
   const quiet = createMemo(() => quietChat(props.rows, notes()));
   /** Is this turn open — what somebody pressed, or the rule. */
   const opened = (turn: QuietTurn): boolean =>
@@ -344,8 +333,10 @@ const ConductorTranscript: Component<{
    *  `turnWorks` reading the chips are drawn from, so a turn whose chip says
    *  a work and a turn the scope keeps are the same turns by construction. */
   const inScope = (rowId: string): boolean => {
-    const id = chatScope();
-    return id === null || (turns().get(rowId)?.works.includes(id) ?? false);
+    const id = chatScope()?.id;
+    return (
+      id === undefined || (turns().get(rowId)?.works.includes(id) ?? false)
+    );
   };
 
   // BEFORE the follow effect below, and that order is the fix: declared first,

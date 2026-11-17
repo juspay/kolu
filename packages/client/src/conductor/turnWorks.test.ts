@@ -183,8 +183,8 @@ describe("the works of a chat turn", () => {
       wake("w", 5, PLANNER),
     ];
     const turns = turnWorks(rows, works, joinsOf(works));
-    expect(turns.get("r0")).toEqual({ first: "t0", works: [A] });
-    expect(turns.get("w")?.first).toBe("w");
+    expect(turns.get("r0")).toEqual({ head: "t0", works: [A] });
+    expect(turns.get("w")?.head).toBe("w");
   });
 
   it("still finds a work that has finished", () => {

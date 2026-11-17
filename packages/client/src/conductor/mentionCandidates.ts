@@ -172,7 +172,7 @@ export function fleetMentionCandidates(
   }
   // The INPUT order is kept — most recently active first, across hosts — so
   // the menu ranks the way the switcher does, and a name two hosts both carry
-  // resolves to the warmer one (`resolveMentions` takes the first match).
+  // resolves to the warmer one (`armedMentions` takes the first match).
   return rows.map((row): TerminalCandidate => {
     const host = encodeHostKey(row.host);
     const key = keysByHost.get(host)?.get(row.id);

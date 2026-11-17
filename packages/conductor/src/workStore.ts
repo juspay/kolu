@@ -123,8 +123,8 @@ export interface WorkStore {
   /** EVERY QUESTION STILL WAITING ON A PERSON, across the works in progress —
    *  ask ids, oldest work first. Derived from the decisions like every other
    *  reading of "what is open", so no second list can disagree with the
-   *  cards: it is what the bell, the OS badge and the panel's count all read,
-   *  through the published frame. */
+   *  cards. Published as the frame's `workAsks`, which a browser hears before
+   *  the works' own records arrive. */
   readonly openAsks: () => ReadonlyArray<string>;
   /** The work by that id — none for an id kolu holds no work for, which is
    *  what an agent naming a work it never opened hands in. */

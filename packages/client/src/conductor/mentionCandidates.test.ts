@@ -21,7 +21,7 @@ import {
   mentionDetail,
   workMentionCandidates,
 } from "./mentionCandidates";
-import { resolveMentions } from "./mentions";
+import { armedMentions } from "./mentions";
 
 const meta = (fields: Record<string, unknown>): TerminalMetadata =>
   ({
@@ -203,8 +203,8 @@ describe("workMentionCandidates", () => {
       "published-agents-fetchable-by-any-host-agents-closure-in-cache",
     ]);
     for (const row of offered)
-      expect(resolveMentions(`@${row.name} ok`, offered)).toEqual([
-        { kind: "work", work: row.work, title },
+      expect(armedMentions(`@${row.name} ok`, offered)).toEqual([
+        { token: row.name, mention: { kind: "work", work: row.work, title } },
       ]);
   });
 

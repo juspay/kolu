@@ -1112,7 +1112,7 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
    *  out is compared with the one that did. */
   const frameNow = (): ConductorState => ({
     ...state,
-    workAsks: [...works.openAsks()],
+    workAsks: works.openAsks(),
   });
 
   const publishState = (): boolean => {
