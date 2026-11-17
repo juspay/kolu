@@ -192,8 +192,8 @@ class Resolve(unittest.TestCase):
             # declaration written before the field existed has.
             self.assertEqual(out["pusher"], "attic")
             self.assertEqual(out["index-branch"], "ca-index")
-            # The keys the signed path is read back trusting: the declaration's.
-            self.assertEqual(out["trusted-public-keys"], "oss:KEY=")
+            # The declaration, on one line: `verify` reads the keys out of it.
+            self.assertEqual(json.loads(out["declaration"]), DECLARATION)
 
     def test_a_declaration_with_no_keys_is_refused_before_anything_is_built(self):
         with tempfile.TemporaryDirectory() as d:
@@ -264,8 +264,8 @@ class Pusher(unittest.TestCase):
             out = self.outputs(Path(d), ODU_DECLARATION)
             self.assertEqual(out["pusher"], "odu")
             self.assertEqual(out["cache"], "https://odu.example.invalid")
-            self.assertEqual(sorted(out), ["cache", "index-branch", "installables", "pusher", "rev-key",
-                                           "trusted-public-keys"])
+            self.assertEqual(sorted(out), ["cache", "declaration", "index-branch", "installables", "pusher",
+                                           "rev-key"])
 
     def test_any_substituter_shape_is_accepted_for_odu(self):
         """The read address is no longer judged here: an R2 domain that answers
@@ -469,6 +469,7 @@ class Verify(unittest.TestCase):
     entries name, from the cache alone, each into an empty store of its own."""
 
     KEYS = "oss:KEY= other:KEY2="
+    DECLARED = json.dumps(dict(DECLARATION, trustedPublicKeys=KEYS.split()))
 
     def answers(self, root: Path, attr: str, form: str, path: str, copy=""):
         store = f"local?root={root}/v/{attr}-{form}/store"
@@ -483,7 +484,7 @@ class Verify(unittest.TestCase):
     def verify(self, root: Path, env: dict, system="x86_64-linux"):
         return run(root, env, "verify", "--rev-key", KEY, "--system", system,
                    "--directory", str(root / "idx"), "--cache", "https://c/oss",
-                   "--store-root", f"{root}/v", "--trusted-public-keys", self.KEYS)
+                   "--store-root", f"{root}/v", "--declaration", self.DECLARED)
 
     def test_imports_the_signed_and_the_content_addressed_path_each_into_its_own_store(self):
         with tempfile.TemporaryDirectory() as d:

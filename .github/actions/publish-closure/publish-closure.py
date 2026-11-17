@@ -253,9 +253,9 @@ def resolve(args) -> int:
         "cache": cache,
         "pusher": kind,
         "index-branch": declaration["index"]["branch"],
-        # The keys a consumer trusts the signed path by, which `verify`
-        # imports it with.
-        "trusted-public-keys": " ".join(declaration["trustedPublicKeys"]),
+        # The declaration itself, on one line: `verify` reads the keys a
+        # consumer trusts the signed path by out of it, as a consumer does.
+        "declaration": json.dumps(declaration, separators=(",", ":")),
     }
     for key, value in outputs.items():
         print(f"{key}={value}")
@@ -415,9 +415,7 @@ def verify(args) -> int:
     refuse each other's rewrite (`ca hash mismatch importing path`,
     agent-distro#102), so this is also what says the publication targets the Nix
     line consumers verify on."""
-    keys = args.trusted_public_keys.split()
-    if not keys:
-        die("verify needs --trusted-public-keys — the signed path is read back trusting them")
+    keys = read_declaration(args.declaration)["trustedPublicKeys"]
     for attr, entry in entries(args.directory, args.rev_key, args.system):
         for form, path in (("ia", entry["ia"]), ("ca", entry.get("ca"))):
             if not path:
@@ -486,8 +484,8 @@ def main(argv=None) -> int:
     entry_args(p)
     p.add_argument("--cache", required=True)
     p.add_argument("--store-root", required=True)
-    p.add_argument("--trusted-public-keys", required=True,
-                   help="the declaration's trustedPublicKeys, space-separated")
+    p.add_argument("--declaration", required=True,
+                   help="the declaration (as `resolve` printed it): its keys are what the signed path is trusted by")
     p.set_defaults(run=verify)
 
     args = parser.parse_args(argv)

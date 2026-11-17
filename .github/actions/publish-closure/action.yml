@@ -251,12 +251,12 @@ runs:
         REV_KEY: ${{ steps.resolve.outputs.rev-key }}
         SYSTEM: ${{ steps.resolve.outputs.system }}
         CACHE_URL: ${{ steps.resolve.outputs.cache }}
-        TRUSTED_KEYS: ${{ steps.resolve.outputs.trusted-public-keys }}
+        DECLARATION: ${{ steps.resolve.outputs.declaration }}
       run: |
         set -euo pipefail
         python3 "$SCRIPT" verify --rev-key "$REV_KEY" --system "$SYSTEM" \
           --directory "$OUT" --cache "$CACHE_URL" --store-root "$RUNNER_TEMP/verify" \
-          --trusted-public-keys "$TRUSTED_KEYS"
+          --declaration "$DECLARATION"
 
     # Every system's entries are disjoint files under its own directory, so a
     # run that pushed meanwhile is rebased under this one rather than
