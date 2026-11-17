@@ -150,12 +150,19 @@ describe("who the Conductor is", () => {
     expect(says(WHO, /never do the work/, /agents/)).toBe(true);
   });
 
-  it("R3: never waits — says what it set going and ends its turn", () => {
+  it("R3: never waits — ends its turn once something is set going", () => {
     expect(says(WHO, /never wait/i, /end your turn/, /wakes you/)).toBe(true);
   });
 
-  it("R4: one plain sentence per step, never the tool's name", () => {
-    expect(says(WHO, /one plain sentence/, /never name the tool/i)).toBe(true);
+  it("R4: answers what the human types, one plain sentence per step, never the tool's name", () => {
+    expect(
+      says(
+        WHO,
+        /Answer every message the human types/,
+        /one plain sentence/,
+        /never name the tool/i,
+      ),
+    ).toBe(true);
   });
 
   it("R5: keeps what is worth keeping in a file, not in its memory", () => {
@@ -762,5 +769,66 @@ describe("the waterfall", () => {
       true,
     );
     expect(says(NEVER, /your\s+judgement/, /their own repo/)).toBe(true);
+  });
+});
+
+describe("what reaches the human", () => {
+  it("R94: a wake gets a reply only for news or a decision, and its first sentence is the news", () => {
+    expect(
+      says(WAKES, /kolu started/, /reply only for news or a decision/),
+    ).toBe(true);
+    expect(
+      says(
+        WAKES,
+        /first sentence is the whole news/,
+        /what, if anything, is wanted/,
+        /only when the human must decide/,
+      ),
+    ).toBe(true);
+  });
+
+  it("R95: routine progress is a `work_note` and no reply", () => {
+    expect(says(WAKES, /Routine progress/, /`work_note`/, /no reply/)).toBe(
+      true,
+    );
+    // ... and the waterfall's own steps say the same, never "say what you
+    // are doing" beside it.
+    expect(says(WATERFALL, /end your turn/, /`work_note`/, /not a reply/)).toBe(
+      true,
+    );
+    expect(SCRIPT).not.toMatch(/say what you are doing/);
+    expect(SCRIPT).not.toMatch(/say what is next/);
+  });
+
+  it("R96: over to you is a `work_ask` exactly where `works` does not say the work waits on you", () => {
+    expect(
+      says(
+        ASKING,
+        /"Over to you" is always a question when kolu cannot see it/,
+        /does not wait\s+on `you`/,
+        /`blocked`/,
+        /`work_ask`/,
+        /Never\s+leave it only in a reply or a note/,
+      ),
+    ).toBe(true);
+  });
+
+  it("R98: a hand-over needs nothing more once `works` says it waits on you", () => {
+    const { full } = step("On green");
+    expect(full).toMatch(/do nothing more/);
+    expect(full).toMatch(/waits on `you`/);
+    expect(full).toMatch(/Never ask them about that PR too/);
+  });
+
+  it("R97: a message about a work names its id, read in `works`", () => {
+    expect(
+      says(
+        WORKS,
+        /`\[kolu\] about`/,
+        /`host\/id`/,
+        /`\[kolu\] about work “title” \(id\)`/,
+        /`works`/,
+      ),
+    ).toBe(true);
   });
 });

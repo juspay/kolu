@@ -68,11 +68,14 @@ import {
   unpinTranscript,
 } from "./transcriptScroll";
 import { type FileHolders, fileHolders } from "./namedFiles";
-import { joinsOf, type Turn, turnWorks } from "./turnWorks";
+import { chatScope } from "./chatScope";
+import { agentNotes, quietChat, type QuietTurn } from "./quietChat";
+import type { Turn } from "./turnWorks";
 import { useConductor } from "./useConductor";
 import { wakeHeadline, wakeWhen } from "./wake";
 import { useWorkMap } from "./useWorks";
 import WorkChip from "./WorkChip";
+import WorkChipFace from "./WorkChipFace";
 import WorkQuestion from "./WorkQuestion";
 
 const NO_WORKS: ReadonlyArray<WorkId> = [];
@@ -135,7 +138,7 @@ const TurnHead: Component<{ rows: ReadonlyArray<ConductorRow> }> = (props) => {
       if (first === undefined || first.kind === "user" || first.kind === "wake")
         return NO_WORKS;
       const turn = turns.turnOf(first.id);
-      return turn.first === first.id ? turn.works : NO_WORKS;
+      return turn.head === first.id ? turn.works : NO_WORKS;
     },
     NO_WORKS,
     { equals: sameWorks },
@@ -144,6 +147,113 @@ const TurnHead: Component<{ rows: ReadonlyArray<ConductorRow> }> = (props) => {
     <Show when={works().length > 0}>
       <TurnChips works={works()} />
     </Show>
+  );
+};
+
+/** WHICH FOLDED LINES SOMEBODY HAS PRESSED, by the id of the row that starts
+ *  the turn — an OVERRIDE of the default (`quietChat`'s `open`), not a copy
+ *  of it, so a turn nobody has touched keeps following the rule as newer
+ *  replies arrive and the newest one moves on without a press.
+ *
+ *  Module-level, like the composer's draft: the conversation is re-created on
+ *  every visit to the entry, and a line a person opened must still be open
+ *  when they come back from a host tab. It is DRAWING and nothing else —
+ *  never persisted, never sent. */
+const [pressed, setPressed] = createSignal<Readonly<Record<string, boolean>>>(
+  {},
+);
+
+/** THE ONE LINE A FOLDED TURN IS — when it rang, which works it is about, and
+ *  the first sentence of what kolu said about them.
+ *
+ *  A `<button>` rather than a `<details>`: the chips inside it are the work's
+ *  own face (no button of their own) and the line must stay one tab stop,
+ *  while the rows it opens are the transcript's own — they stay where they
+ *  are in the column and are only HIDDEN, so opening a line is never a
+ *  subtree being built again.
+ *
+ *  ON A PHONE it is two lines — the chips over the sentence — because a work's
+ *  title and a sentence cannot share 390px without one of them becoming three
+ *  words and an ellipsis. */
+const FoldLine: Component<{
+  turn: QuietTurn;
+  works: ReadonlyArray<WorkId>;
+  open: boolean;
+}> = (props) => {
+  const map = useWorkMap();
+  const when = createMemo(() => wakeWhen(props.turn.since));
+  const toggle = () =>
+    setPressed((was) => ({ ...was, [props.turn.head]: !props.open }));
+  return (
+    <button
+      type="button"
+      data-testid="conductor-fold-line"
+      data-turn={props.turn.head}
+      data-open={props.open ? "" : undefined}
+      data-quiet={props.turn.says.kind === "prose" ? undefined : ""}
+      aria-expanded={props.open}
+      onClick={toggle}
+      // A RUN OF FOLDED LINES IS A LIST, packed at the column's own gap; an
+      // open turn keeps the clear gap between turns.
+      class="flex w-full min-w-0 cursor-pointer flex-wrap items-baseline gap-x-2 gap-y-0.5 rounded-sm text-left"
+      classList={{ "mt-4": props.open }}
+    >
+      {/* WHEN, AND WHICH WORKS — on a line of its own when there are several,
+          so the sentence is never squeezed to nothing beside them. Open, the
+          chips are the wake row's own (pressable, under it), so the line
+          keeps only its clock. */}
+      <span
+        class="flex min-w-0 max-w-full items-center gap-1.5"
+        classList={{ "basis-full": !props.open && props.works.length > 1 }}
+      >
+        <span aria-hidden="true" class="w-2 shrink-0 text-fg-3">
+          {props.open ? "▾" : "▸"}
+        </span>
+        <Show when={when()}>
+          {(clock) => (
+            <span class="shrink-0 font-mono text-[0.68rem] text-fg-3 tabular-nums">
+              {clock()}
+            </span>
+          )}
+        </Show>
+        <Show when={!props.open}>
+          <For each={props.works}>
+            {(id) => (
+              <Show when={map().get(id)}>
+                {(work) => (
+                  <span class="inline-flex min-w-0 max-w-[15ch] shrink">
+                    <WorkChipFace work={work()} />
+                  </span>
+                )}
+              </Show>
+            )}
+          </For>
+        </Show>
+      </span>
+      {/* THE NEWS ITSELF, one line that gives way with an ellipsis — and
+          wraps under the chips, never shrinks to nothing beside them. Open,
+          a reply's sentence is the first line of the reply drawn under it,
+          so it is not said twice; a note or a silence is still said here. */}
+      <Show when={!(props.open && props.turn.says.kind === "prose")}>
+        <span
+          data-testid="conductor-fold-says"
+          class="min-w-[16rem] flex-1 basis-0 truncate text-[0.8rem]"
+          classList={{
+            "text-fg-2": props.turn.says.kind === "prose",
+            "text-fg-3": props.turn.says.kind !== "prose",
+          }}
+        >
+          <Show when={props.turn.says.kind === "noted"}>
+            <span class="font-mono text-[0.68rem]">noted · </span>
+          </Show>
+          {props.turn.says.kind === "prose"
+            ? props.turn.says.headline
+            : props.turn.says.kind === "noted"
+              ? props.turn.says.text
+              : "no reply"}
+        </span>
+      </Show>
+    </button>
   );
 };
 
@@ -173,6 +283,9 @@ const ChatWorkQuestion: Component<{ row: ConductorWorkAskRow }> = (props) => {
 
 const ConductorTranscript: Component<{
   rows: readonly ConductorRow[];
+  /** Each row's turn (`./turnWorks.ts`) — read ONCE by the pane, over these
+   *  same rows, for the transcript and the scope bar over it. */
+  turns: ReadonlyMap<string, Turn>;
   pending: boolean;
   error: Error | undefined;
   containerRef: (el: HTMLDivElement) => void;
@@ -190,13 +303,11 @@ const ConductorTranscript: Component<{
   const items = createMemo(() =>
     foldFailureRuns(foldToolRuns(foldNoticeRuns(props.rows))),
   );
-  /** Each row's turn — one walk of the rows per change — over the two
-   *  indexes of the works, each built once per change of the works: which
-   *  terminal joined which work, and which work holds which file. */
+  /** Which work holds which file, built once per change of the works — what
+   *  the prose's file links read. The turns are the pane's (`props.turns`). */
   const workMap = useWorkMap();
-  const joins = createMemo(() => joinsOf(workMap()));
   const holders = createMemo(() => fileHolders(workMap()));
-  const turns = createMemo(() => turnWorks(props.rows, workMap(), joins()));
+  const turns = () => props.turns;
   const turnsContext: Turns = {
     // Every row of `props.rows` has a turn, and every row drawn is one of
     // them: both lists are read off the same rows in the same tick.
@@ -207,6 +318,25 @@ const ConductorTranscript: Component<{
       return turn;
     },
     holders,
+  };
+
+  /** THE FOLD: which turns are one line, what the line says, which one is
+   *  open before anybody presses, and how many replies have landed since the
+   *  last thing a person typed. The notes are read once per change of the
+   *  works, never per streamed chunk of the chat. */
+  const notes = createMemo(() => agentNotes(workMap()));
+  const quiet = createMemo(() => quietChat(props.rows, notes()));
+  /** Is this turn open — what somebody pressed, or the rule. */
+  const opened = (turn: QuietTurn): boolean =>
+    pressed()[turn.head] ?? turn.open;
+  /** Does this row belong to the work the chat is pointed at? The SAME
+   *  `turnWorks` reading the chips are drawn from, so a turn whose chip says
+   *  a work and a turn the scope keeps are the same turns by construction. */
+  const inScope = (rowId: string): boolean => {
+    const id = chatScope()?.id;
+    return (
+      id === undefined || (turns().get(rowId)?.works.includes(id) ?? false)
+    );
   };
 
   // BEFORE the follow effect below, and that order is the fix: declared first,
@@ -344,34 +474,100 @@ const ConductorTranscript: Component<{
             its key. */}
         <TurnsContext.Provider value={turnsContext}>
           <Key each={items()} by={(item) => item.key}>
-            {(item) => (
-              <>
-                <TurnHead rows={rowsOf(item())} />
-                <Switch>
-                  <Match when={foldRowsOf(item())}>
-                    {(rows) => <TranscriptFold rows={rows()} />}
-                  </Match>
-                  <Match when={failuresOf(item())}>
+            {(item) => {
+              /** The row this item starts at — which turn it belongs to, and
+               *  whether it is that turn's head, where the one line goes. */
+              const first = createMemo(() => rowsOf(item())[0] as ConductorRow);
+              const turn = createMemo(() => {
+                const one = quiet().of.get(first().id);
+                if (one === undefined)
+                  throw new Error(`transcript row ${first().id} has no turn`);
+                return one;
+              });
+              const works = createMemo(
+                () => turns().get(first().id)?.works ?? NO_WORKS,
+                NO_WORKS,
+                { equals: sameWorks },
+              );
+              /** A QUESTION IS NEVER FOLDED AWAY: it is the one thing in the
+               *  conversation that waits on a person. */
+              const asked = createMemo(() => turn().asks.has(first().id));
+              const drawn = createMemo(
+                () =>
+                  inScope(first().id) &&
+                  (!turn().folds || opened(turn()) || asked()),
+              );
+              return (
+                <>
+                  {/* THE HEADING OVER THE RUN OF UNASKED REPLIES — only in
+                      the whole conversation: a chat pointed at one work is
+                      not a run of anything. */}
+                  <Show
+                    when={
+                      chatScope() === null &&
+                      quiet().since?.from === first().id &&
+                      quiet().since
+                    }
+                  >
                     {(run) => (
-                      <TranscriptFailures
-                        tool={run().tool}
-                        reason={run().reason}
-                        rows={run().rows}
-                      />
+                      <p
+                        data-testid="conductor-since-heading"
+                        data-count={run().count}
+                        class="mt-5 font-mono text-[0.62rem] uppercase tracking-[0.12em] text-fg-3"
+                      >
+                        Since your last message · {run().count}{" "}
+                        {run().count === 1 ? "update" : "updates"}
+                      </p>
                     )}
-                  </Match>
-                  <Match when={entryOf(item())}>
-                    {(entry) => (
-                      <TranscriptRow
-                        row={entry().row}
-                        repeat={entry().repeat}
-                        onRedrawn={noteRedrawn}
-                      />
-                    )}
-                  </Match>
-                </Switch>
-              </>
-            )}
+                  </Show>
+                  <Show
+                    when={
+                      turn().folds &&
+                      turn().head === first().id &&
+                      inScope(first().id)
+                    }
+                  >
+                    <FoldLine
+                      turn={turn()}
+                      works={works()}
+                      open={opened(turn())}
+                    />
+                  </Show>
+                  {/* HIDDEN, NEVER UNMOUNTED. `display: contents` leaves the
+                      item exactly where it was in the column — its own flex
+                      child, with the column's gaps — so a line that opens and
+                      closes is a class changing, not a `Markdown` subtree,
+                      an open `<details>` and a half-filled ask being built
+                      again. */}
+                  <div classList={{ contents: drawn(), hidden: !drawn() }}>
+                    <TurnHead rows={rowsOf(item())} />
+                    <Switch>
+                      <Match when={foldRowsOf(item())}>
+                        {(rows) => <TranscriptFold rows={rows()} />}
+                      </Match>
+                      <Match when={failuresOf(item())}>
+                        {(run) => (
+                          <TranscriptFailures
+                            tool={run().tool}
+                            reason={run().reason}
+                            rows={run().rows}
+                          />
+                        )}
+                      </Match>
+                      <Match when={entryOf(item())}>
+                        {(entry) => (
+                          <TranscriptRow
+                            row={entry().row}
+                            repeat={entry().repeat}
+                            onRedrawn={noteRedrawn}
+                          />
+                        )}
+                      </Match>
+                    </Switch>
+                  </div>
+                </>
+              );
+            }}
           </Key>
         </TurnsContext.Provider>
       </div>
@@ -484,15 +680,16 @@ function TranscriptRow(props: {
         // up and the `min-w-0` above has nothing to do.
         //
         // THE GAP BETWEEN TURNS, as a margin on the row that STARTS one: a
-        // person's message, and a wake, are each the top of a new exchange.
-        // Everything else in a turn keeps the column's smaller `gap-2`, so the
-        // page reads as a few blocks rather than one evenly-spaced list — which
-        // is how a reply and the message it answers came to look equally far
-        // apart from everything around them.
+        // person's message is the top of a new exchange. Everything else in a
+        // turn keeps the column's smaller `gap-2`, so the page reads as a few
+        // blocks rather than one evenly-spaced list — which is how a reply and
+        // the message it answers came to look equally far apart from
+        // everything around them. A TURN KOLU WOKE carries that gap on its
+        // fold line instead (`FoldLine`), which is above the wake row and is
+        // there whether the turn is open or closed.
         class="min-w-0"
         classList={{
-          "self-end max-w-[86%]": props.row.kind === "user",
-          "mt-4": props.row.kind === "user" || props.row.kind === "wake",
+          "self-end max-w-[86%] mt-4": props.row.kind === "user",
         }}
       >
         <Switch>

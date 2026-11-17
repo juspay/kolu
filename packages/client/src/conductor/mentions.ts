@@ -1,16 +1,26 @@
 /** The composer's `@` and `/` grammar — pure, so the menu, the chips and the
  *  prompt that finally goes out all read one rule.
  *
+ *  A MENTION IS A PIECE OF WORK OR A TERMINAL. `@` offers the works kolu is
+ *  running first and the fleet's terminals after them; a work is typed as a
+ *  slug of its title ({@link workSlug}) because the token ends at the first
+ *  space, and what goes out carries the work's id and the title it had then.
+ *
  *  A mention is TEXT, not a widget. The composer is a plain `<textarea>`, the
  *  words a person typed stay exactly as typed, and the structured
  *  `ConductorMention[]` the wire carries is RESOLVED from that text at send
- *  time against the fleet as it is right then. That ordering is the whole point:
- *  a `contenteditable` chip would have to be kept in step with a terminal that
- *  can be renamed or killed while the box sits unsent, and the one moment the
- *  reference has to be true is the moment it is sent. */
+ *  time against the works and the fleet as they are right then. That ordering
+ *  is the whole point: a `contenteditable` chip would have to be kept in step
+ *  with a terminal that can be renamed or killed — or a work that can end —
+ *  while the box sits unsent, and the one moment the reference has to be true
+ *  is the moment it is sent. */
 
-import type { ConductorMention } from "kolu-common/conductor";
+import type {
+  ConductorMention,
+  ConductorWorkMention,
+} from "kolu-common/conductor";
 import type { TerminalId } from "kolu-common/surface";
+import type { Work, WorkId } from "kolu-work";
 
 /** One terminal as the `@` menu offers it: what to type, which HOST it is on,
  *  and the three facts that tell two `fix-parser`s apart (what it is working
@@ -21,7 +31,8 @@ import type { TerminalId } from "kolu-common/surface";
  *  handed is `host/id`, joined by kolu-server from the two halves this carries
  *  separately (`ConductorMentionSchema`). A candidate without its host is a
  *  mention that could name the wrong terminal on a two-host fleet. */
-export interface MentionCandidate {
+export interface TerminalCandidate {
+  readonly kind: "terminal";
   readonly terminalId: TerminalId;
   /** The ENCODED host key (`local` / `remote:<target>`) the terminal lives
    *  on — the half that makes the id unambiguous across the fleet. */
@@ -33,15 +44,52 @@ export interface MentionCandidate {
   readonly cwd: string | null;
   /** The repo the terminal lives in, for the menu's quiet second column. */
   readonly repo: string | null;
-  /** What tells this row apart from others under the same name — the
-   *  intent, else the agent and its state, else the directory
-   *  (`mentionDetail`). */
+  /** What tells this row apart from others under the same name — the work it
+   *  is a member of, else the intent, else the agent and its state, else the
+   *  directory (`mentionDetail`). */
   readonly detail: MentionDetail | null;
 }
 
-/** A row's distinguishing detail, and which of the three it is. */
+/** One piece of work as the `@` menu offers it. A work is named in prose by a
+ *  SLUG of its title ({@link workSlug}), because the token after `@` ends at
+ *  the first space and a title is a sentence — and the title itself rides
+ *  along, so the chip and the sent mention say the words a person would. */
+export interface WorkCandidate {
+  readonly kind: "work";
+  /** The id the work is filed under. */
+  readonly work: WorkId;
+  readonly title: string;
+  /** The whitespace-free word that follows `@` — `workSlug(title)`. */
+  readonly name: string;
+  /** The record itself, for the chip face the menu row draws. */
+  readonly record: Work;
+  /** Where the work stands, in a few words (`standingLine`'s lead). */
+  readonly standing: string;
+}
+
+/** What the `@` menu offers: a piece of work, or a terminal. */
+export type MentionCandidate = TerminalCandidate | WorkCandidate;
+
+/** THE WORD THAT STANDS FOR A WORK after `@`. A mention's token ends at the
+ *  first space (`BREAKS`), so a title — which is a sentence — is cut down to
+ *  one typeable word: lowercased, every run of anything that is not a letter
+ *  or a digit becoming a `-`, nothing hanging off either end.
+ *
+ *  Letters of ANY script survive, so a title that is not English is still
+ *  mentionable; a title made of nothing else is `work`, and two works that
+ *  slug the same resolve to the first the menu offered — the same rule two
+ *  hosts carrying one name already answer to. */
+export function workSlug(title: string): string {
+  const slug = title
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}]+/gu, "-")
+    .replace(/^-+|-+$/g, "");
+  return slug === "" ? "work" : slug;
+}
+
+/** A row's distinguishing detail, and which of the four it is. */
 export interface MentionDetail {
-  readonly kind: "intent" | "agent" | "directory";
+  readonly kind: "work" | "intent" | "agent" | "directory";
   readonly text: string;
 }
 
@@ -81,26 +129,43 @@ export function tokenQueryAt(
   return null;
 }
 
-/** Rank candidates for a query: a prefix match beats a contained match, and
- *  ties keep the order the fleet arrived in (padi's own, which is the dock's). */
+/** WHAT A CANDIDATE MATCHES A QUERY ON, as a rank: 0 for a prefix, 1 for a
+ *  contained match, `null` for no match at all. A work is looked up by its
+ *  slug AND by its title, so `@pa` finds "Page chats open in a pane" the way
+ *  a person reaching for it would type it. */
+function matchRank(candidate: MentionCandidate, needle: string): number | null {
+  const name = candidate.name.toLowerCase();
+  const title = candidate.kind === "work" ? candidate.title.toLowerCase() : "";
+  if (name.startsWith(needle) || title.startsWith(needle)) return 0;
+  if (name.includes(needle) || title.includes(needle)) return 1;
+  if (candidate.kind === "terminal")
+    return (candidate.intent ?? "").toLowerCase().includes(needle) ? 1 : null;
+  return null;
+}
+
+/** Rank candidates for a query: WORKS FIRST — a piece of work is the thing a
+ *  person is steering, and a terminal is how it gets done — then a prefix
+ *  match ahead of a contained one, and ties keeping the order they were
+ *  offered in (the works' own order, then the fleet's, which is the dock's).
+ *
+ *  The group outranks the match so the menu's two headings never interleave:
+ *  a terminal whose name starts with the query still sits under "Terminals",
+ *  below a work the query is merely contained in. */
 export function filterMentions(
   candidates: readonly MentionCandidate[],
   query: string,
 ): readonly MentionCandidate[] {
-  if (query === "") return candidates;
   const needle = query.toLowerCase();
-  const prefix: MentionCandidate[] = [];
-  const contains: MentionCandidate[] = [];
-  for (const candidate of candidates) {
-    const name = candidate.name.toLowerCase();
-    if (name.startsWith(needle)) prefix.push(candidate);
-    else if (
-      name.includes(needle) ||
-      (candidate.intent ?? "").toLowerCase().includes(needle)
-    )
-      contains.push(candidate);
-  }
-  return [...prefix, ...contains];
+  return candidates
+    .map((candidate, index) => ({
+      candidate,
+      index,
+      group: candidate.kind === "work" ? 0 : 1,
+      rank: needle === "" ? 0 : matchRank(candidate, needle),
+    }))
+    .filter((one): one is typeof one & { rank: number } => one.rank !== null)
+    .sort((a, b) => a.group - b.group || a.rank - b.rank || a.index - b.index)
+    .map((one) => one.candidate);
 }
 
 /** Replace the token under the caret with `word`, leaving the caret past the
@@ -118,26 +183,39 @@ export function completeToken(
   return { text: head + rest, caret: head.length };
 }
 
-/** Every `@name` in the text that names a terminal the fleet still has, in the
- *  order they appear, each one mentioned once.
+/** A RESOLVED MENTION AND THE WORD IT WAS TYPED AS — the word is what the
+ *  chip's × drops from the text and what the chip is keyed by. Carried
+ *  rather than re-derived, because a work's word is made unique against its
+ *  neighbours (`workMentionCandidates`) and its title alone no longer says
+ *  which word that was. */
+export interface ArmedMention {
+  readonly token: string;
+  readonly mention: ConductorMention;
+}
+
+/** Every `@name` in the text that names a piece of work or a terminal kolu
+ *  still has, in the order they appear, each one mentioned once.
  *
  *  A name that matches nothing is left as ordinary prose: the agent still reads
  *  the words, and inventing a reference to a terminal that is not there would be
  *  worse than saying nothing structured about it.
  *
- *  A name that two hosts both carry resolves to the FIRST candidate offered,
- *  which is the fleet list's own order — most recently active first. The
- *  alternative is to resolve it to nothing, and a reference dropped because
- *  two machines happened to name a branch the same way is the worse failure:
- *  the host rides on the mention, so the chip says which one it took and the
- *  person can see it before they send. */
-export function resolveMentions(
+ *  A work's word is unique among the works and never a terminal's name, so
+ *  every work row the menu offers resolves to that work. Two hosts carrying
+ *  one terminal name still resolve to the FIRST offered — the fleet list's own
+ *  order, most recently active first — and the chip says which host it took
+ *  before anything is sent. */
+export function armedMentions(
   text: string,
   candidates: readonly MentionCandidate[],
-): readonly ConductorMention[] {
-  const byName = new Map(candidates.map((c) => [c.name, c]));
+): readonly ArmedMention[] {
+  const byName = new Map<string, MentionCandidate>();
+  // FIRST WINS, written out: `new Map(entries)` keeps the LAST of a repeated
+  // key, which is the opposite of the rule above.
+  for (const candidate of candidates)
+    if (!byName.has(candidate.name)) byName.set(candidate.name, candidate);
   const seen = new Set<string>();
-  const out: ConductorMention[] = [];
+  const out: ArmedMention[] = [];
   // A mention ends where the SENTENCE does: `@fix-parser, then…` names
   // `fix-parser`, not `fix-parser,`. Trailing punctuation is prose, and a
   // reference that only resolved at the end of a sentence would be a reference
@@ -149,14 +227,35 @@ export function resolveMentions(
     if (candidate === undefined || seen.has(name)) continue;
     seen.add(name);
     out.push({
-      terminalId: candidate.terminalId,
-      host: candidate.host,
-      name: candidate.name,
-      intent: candidate.intent,
-      cwd: candidate.cwd,
+      token: name,
+      mention:
+        candidate.kind === "work"
+          ? { kind: "work", work: candidate.work, title: candidate.title }
+          : {
+              kind: "terminal",
+              terminalId: candidate.terminalId,
+              host: candidate.host,
+              name: candidate.name,
+              intent: candidate.intent,
+              cwd: candidate.cwd,
+            },
     });
   }
   return out;
+}
+
+/** WHAT A MESSAGE CARRIES when the chat is pointed at a piece of work: what
+ *  the words named, and the scope itself when they did not name it. A message
+ *  sent from a scoped chat is about that work whether or not it was typed —
+ *  that is what pointing the chat at it meant. */
+export function withScopeMention(
+  mentions: readonly ConductorMention[],
+  scope: ConductorWorkMention | null,
+): readonly ConductorMention[] {
+  if (scope === null) return mentions;
+  return mentions.some((one) => one.kind === "work" && one.work === scope.work)
+    ? mentions
+    : [...mentions, scope];
 }
 
 /** Drop one resolved mention's `@name` token from the text — what the chip's ×

@@ -78,20 +78,26 @@ const rowHead = {
   since: Schema.String,
 };
 
-/** A terminal the message was ABOUT — what the composer was armed with when it
- *  was sent, resolved against the fleet at that moment.
+/** WHAT A MESSAGE WAS ABOUT — a terminal, or a piece of work — as the
+ *  composer was armed with it when it was sent, resolved at that moment.
  *
  *  A row of the conversation rather than a fact the browser keeps: what was
- *  sent is what kolu-server put here, so a reload still says which terminal
- *  the question was about, and the prompt that reached the agent carried
- *  exactly these fields as its structured reference block.
+ *  sent is what kolu-server put here, so a reload still says what the
+ *  question was about, and the prompt that reached the agent carried exactly
+ *  these fields as its structured reference block.
  *
- *  THE TWO HALVES OF THE IDENTITY ARE SEPARATE. `terminalId` stays the
+ *  A TERMINAL'S TWO HALVES OF IDENTITY ARE SEPARATE. `terminalId` stays the
  *  UUID-checked id a padi mints and `host` is the encoded host key it lives
  *  on; the server joins them into the `host/id` the agent is told. Re-typing
  *  `terminalId` to a ref string would drop the UUID check from every persisted
- *  user row for a fact that is only ever needed joined at one seam. */
-export const ConductorMentionSchema = Schema.Struct({
+ *  user row for a fact that is only ever needed joined at one seam.
+ *
+ *  A WORK is named by the id it is filed under (`kolu-work`'s `WorkId`, the
+ *  canonical encoding of its host, repo and branch) and the title it had
+ *  when the message went: the chip and the prompt say the same words even
+ *  if the title is never seen again. */
+export const ConductorTerminalMentionSchema = Schema.Struct({
+  kind: Schema.Literal("terminal"),
   terminalId: TerminalIdSchema,
   /** Which host the terminal is on, encoded (`local` / `remote:<target>`) —
    *  the half that makes the id unambiguous on a fleet-wide wire. */
@@ -102,6 +108,22 @@ export const ConductorMentionSchema = Schema.Struct({
   intent: Schema.NullOr(Schema.String),
   cwd: Schema.NullOr(Schema.String),
 });
+export type ConductorTerminalMention =
+  typeof ConductorTerminalMentionSchema.Type;
+
+export const ConductorWorkMentionSchema = Schema.Struct({
+  kind: Schema.Literal("work"),
+  /** The id the work is filed under. */
+  work: Schema.NonEmptyString,
+  /** Its title when the message was sent. */
+  title: Schema.String,
+});
+export type ConductorWorkMention = typeof ConductorWorkMentionSchema.Type;
+
+export const ConductorMentionSchema = Schema.Union([
+  ConductorTerminalMentionSchema,
+  ConductorWorkMentionSchema,
+]);
 export type ConductorMention = typeof ConductorMentionSchema.Type;
 
 /** What became of a message's DELIVERY, when it did not simply go.
@@ -975,13 +997,18 @@ export const ConductorStateSchema = Schema.Struct({
   commands: Schema.Array(ConductorCommandSchema),
   servers: Schema.Array(ConductorServerSchema),
   watching: Schema.Array(ConductorWatchingSchema),
-  /** EVERY QUESTION STILL WAITING ON A HUMAN, as ask ids: the conversation's
-   *  own elicitations and the questions kolu put about a piece of work, in
-   *  one list composed by the server. One fact with one author, because a
-   *  bell that reads one half and a badge that reads the other is two
-   *  answers to "how many questions do I have". A work's questions are
-   *  derived from its decisions, so nothing stores them twice. */
+  /** THE CONVERSATION'S OWN QUESTIONS still waiting on a human, as ask ids —
+   *  the agent's elicitations, which belong to no piece of work. */
   openAsks: Schema.Array(Schema.String),
+  /** THE QUESTIONS KOLU PUT ABOUT A PIECE OF WORK that are still open, as ask
+   *  ids — derived by the server from the works' decisions, so nothing stores
+   *  them twice.
+   *
+   *  TWO LISTS, NOT ONE, because a reader must know WHICH a question is the
+   *  moment it appears: a work's question reaches a browser here before that
+   *  work's own record does, and read as the conversation's it would be rung
+   *  (or silenced) by the conversation's rule instead of its work's. */
+  workAsks: Schema.Array(Schema.String),
   /** Every terminal this conductor has created or sent input to, as FLEET
    *  REFS (`<encodedHostKey>/<terminalId>`) — one conversation spans every
    *  host, so a bare id here would name two terminals on a two-host fleet.
@@ -1045,6 +1072,7 @@ export const DEFAULT_CONDUCTOR_STATE: ConductorState = {
   servers: [],
   watching: [],
   openAsks: [],
+  workAsks: [],
   fleet: [],
   signIn: null,
   identity: null,

@@ -37,19 +37,34 @@ const row = (id: string, minute: number) => ({
   since: at(minute),
 });
 
-const user = (id: string, minute: number, mentions: string[] = []) =>
+/** A message of yours, naming terminals and — since a mention is either —
+ *  pieces of work. */
+const user = (
+  id: string,
+  minute: number,
+  mentions: string[] = [],
+  works: WorkId[] = [],
+) =>
   ({
     ...row(id, minute),
     kind: "user",
     text: "hello",
     attachments: [],
-    mentions: mentions.map((terminalId) => ({
-      terminalId: terminalId as never,
-      host: "local",
-      name: "t",
-      intent: null,
-      cwd: null,
-    })),
+    mentions: [
+      ...mentions.map((terminalId) => ({
+        kind: "terminal" as const,
+        terminalId: terminalId as never,
+        host: "local",
+        name: "t",
+        intent: null,
+        cwd: null,
+      })),
+      ...works.map((work) => ({
+        kind: "work" as const,
+        work,
+        title: "a work",
+      })),
+    ],
   }) satisfies ConductorRow;
 
 const agent = (id: string, minute: number) =>
@@ -133,6 +148,23 @@ describe("the works of a chat turn", () => {
     expect(read(rows, works).get("r")).toEqual([B, A]);
   });
 
+  it("reads a WORK you mentioned as the work of that turn, outright", () => {
+    // No terminal of B is named anywhere in the turn: the mention says the
+    // work itself, which is what `@page-chats-open-in-a-pane` sends.
+    const rows = [user("u", 5, [], [B]), agent("r", 6)];
+    expect(read(rows, works).get("r")).toEqual([B]);
+  });
+
+  it("names a work it mentioned and the work of a terminal it mentioned", () => {
+    const rows = [user("u", 5, [PLANNER], [B]), agent("r", 6)];
+    expect(read(rows, works).get("u")).toEqual([A, B]);
+  });
+
+  it("names nothing for a work the mirror no longer lists", () => {
+    const gone = "branch:local/%2Fr/gone" as WorkId;
+    expect(read([user("u", 5, [], [gone])], works).get("u")).toEqual([]);
+  });
+
   it("carries nothing over to a turn that names no work", () => {
     const out = read(
       [wake("w", 5, PLANNER), agent("r1", 6), user("u", 7)],
@@ -151,8 +183,8 @@ describe("the works of a chat turn", () => {
       wake("w", 5, PLANNER),
     ];
     const turns = turnWorks(rows, works, joinsOf(works));
-    expect(turns.get("r0")).toEqual({ first: "t0", works: [A] });
-    expect(turns.get("w")?.first).toBe("w");
+    expect(turns.get("r0")).toEqual({ head: "t0", works: [A] });
+    expect(turns.get("w")?.head).toBe("w");
   });
 
   it("still finds a work that has finished", () => {

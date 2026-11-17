@@ -32,6 +32,8 @@ import {
   inProgress,
   membershipOf,
   type Membership,
+  type NeedsYou,
+  needsYou,
   type Work,
   type WorkId,
   type WorkMember,
@@ -122,3 +124,15 @@ export const useMembership = createSharedRoot<
 export const useSeen = createSharedRoot<
   Accessor<ReadonlyMap<string, MemberReading>>
 >(() => mapOf(app.collections.memberReadings.use()));
+
+/** WHAT NEEDS THE HUMAN, read once for the whole app — `kolu-work`'s one
+ *  reading over the works mirror. The "Needs you" group, the bell, the tab's
+ *  and the OS badge's count, the phone's handle and the palette's rows all
+ *  read THIS, so none of them can count a different thing. In the works'
+ *  own order: oldest first. */
+export const useNeedsYou = createSharedRoot<Accessor<ReadonlyArray<NeedsYou>>>(
+  () => {
+    const works = useWorks();
+    return createMemo(() => needsYou(works()));
+  },
+);

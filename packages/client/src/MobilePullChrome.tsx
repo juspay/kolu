@@ -21,6 +21,7 @@
 
 import Drawer from "@corvu/drawer";
 import { type Component, Show } from "solid-js";
+import { useConductorBadge } from "./conductor/useConductorFacts";
 import { conductorMode } from "./conductor/useConductorMode";
 import MobileChromeSheet from "./MobileChromeSheet";
 import type { WsStatus } from "./rpc/rpc";
@@ -51,6 +52,8 @@ const MobilePullChrome: Component<{
   onOpenPalette: () => void;
 }> = (props) => {
   const store = useTerminalStore();
+  // The one count of what is waiting on you — the tab's and the OS badge's.
+  const badge = useConductorBadge();
   // The open state is a module singleton (`useChromeDrawer`, imported aliased
   // above) so the `#/settings` deep link can raise the drawer that hosts the
   // settings popover on touch.
@@ -142,6 +145,19 @@ const MobilePullChrome: Component<{
             <div data-testid="mobile-stale-badge" class="ml-auto shrink-0">
               <StaleBadge />
             </div>
+          </Show>
+          {/* WHAT NEEDS YOU, at rest — the same one count the desktop tab
+           *  wears, on the one piece of chrome a phone always shows, so a wait
+           *  on you is seen without pulling the sheet down. */}
+          <Show when={badge.waiting() > 0}>
+            <span
+              data-testid="mobile-handle-needs-you"
+              data-waiting={badge.waiting()}
+              class="shrink-0 min-w-5 rounded-full bg-alert px-1.5 text-center text-[0.68rem] font-semibold leading-5 text-surface-0"
+              classList={{ "ml-auto": !clientStale() }}
+            >
+              {badge.waiting()}
+            </span>
           </Show>
         </div>
       </button>

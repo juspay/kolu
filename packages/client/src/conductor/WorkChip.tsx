@@ -26,6 +26,7 @@ import PrText from "./PrText";
 import StageStrip from "./StageStrip";
 import { useWorkMembers } from "./useWorks";
 import WorkChipFace from "./WorkChipFace";
+import { aboutWork } from "./chatScope";
 import { showWork } from "./workListing";
 import { checksTally, livePrOf } from "./prReadings";
 import {
@@ -82,6 +83,16 @@ const WorkChipCard: Component<{ id: WorkId; work: Work }> = (props) => {
         size="mini"
         testId="chip-stage-strip"
       />
+      {/* THE CHAT ABOUT IT, from where the work was named — the same act as
+          the card's "About this work". */}
+      <button
+        type="button"
+        data-testid="work-chip-about"
+        class="mt-1.5 cursor-pointer rounded-md border border-edge px-1.5 py-px font-mono text-[0.6rem] text-fg-2 hover:border-edge-bright hover:text-fg"
+        onClick={() => aboutWork(props.id)}
+      >
+        About this work
+      </button>
     </>
   );
 };
@@ -98,7 +109,7 @@ const WorkChip: Component<{
       data-testid="work-chip"
       data-work={props.id}
       class="inline-flex max-w-full min-w-0 cursor-pointer rounded-full focus-visible:outline-2 focus-visible:outline-accent hover:[&>span]:border-accent"
-      onClick={() => showWork(props.id, props.work.state.kind === "ended")}
+      onClick={() => showWork(props.id)}
     >
       <WorkChipFace work={props.work} />
     </Tooltip.Trigger>

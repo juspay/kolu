@@ -49,7 +49,9 @@ import {
   createMemo,
   createSignal,
   For,
+  type JSX,
   onCleanup,
+  onMount,
   Show,
 } from "solid-js";
 import {
@@ -62,7 +64,9 @@ import InlineConfirmButton from "../ui/InlineConfirmButton";
 import { useShown, useShownClock } from "../ui/shown";
 import Tip from "../ui/Tip";
 import ConductorLook from "./ConductorLook";
+import WorkCardActions from "./WorkCardActions";
 import WorkQuestion from "./WorkQuestion";
+import { cardOnScreenKey, trackOnScreen } from "./onScreen";
 import { splitMemberRef } from "./memberRef";
 import { fleetMentionCandidates } from "./mentionCandidates";
 import { useConductor } from "./useConductor";
@@ -111,6 +115,24 @@ const MEMBER_CONTROL =
 const STOP_COPY =
   "The work is marked stopped and its terminals are released. Nothing is deleted — its decisions and its timeline stay, and you can open it again.";
 
+/** ONE OPEN QUESTION'S PLACE ON THE CARD — what a route onto that question
+ *  scrolls to. Whether the question is in view is the question's own to say
+ *  (`WorkQuestion`), wherever it is drawn. */
+const AskSlot: Component<{
+  ask: string;
+  boxes: Map<string, HTMLElement>;
+  children: JSX.Element;
+}> = (props) => {
+  let box!: HTMLDivElement;
+  onMount(() => props.boxes.set(props.ask, box));
+  onCleanup(() => props.boxes.delete(props.ask));
+  return (
+    <div ref={box} data-testid="work-ask-slot" class="mb-2.5 scroll-m-3">
+      {props.children}
+    </div>
+  );
+};
+
 /** THE TWO FACES, each built from the arm of the state sum it belongs to —
  *  {@link live} for a work in progress (its members, its open questions) and
  *  {@link ended} for one that is over (how, when, what was kept).
@@ -137,12 +159,18 @@ const WorkCard: Component<{
 
   const isOpen = () => isCardOpen(props.id);
 
-  /** A CHIP ASKED FOR THIS CARD: once it is on screen, scroll it into view
-   *  and flash it once. Asked of `shown`, as every retained view asks before
-   *  touching the page — a request made while the column is hidden waits for
-   *  it to come back. */
+  /** A ROUTE ASKED FOR THIS CARD: once it is on screen, scroll it into view
+   *  and flash it once — onto the question the route named, when it named
+   *  one. Asked of `shown`, as every retained view asks before touching the
+   *  page — a request made while the column is hidden waits for it to come
+   *  back. */
   let card!: HTMLElement;
+  /** The open questions' boxes, by ask — what a route onto one scrolls to. */
+  const askBoxes = new Map<string, HTMLElement>();
   const onScreen = useShown();
+  // In view in a focused window, this card is what silences the bell for a
+  // merge it is waiting on.
+  const trackCard = trackOnScreen(() => cardOnScreenKey(props.id), onScreen);
   const [flash, setFlash] = createSignal(false);
   let unflash: number | undefined;
   let frame: number | undefined;
@@ -163,7 +191,8 @@ const WorkCard: Component<{
     // opened, or a band that has just come out, has no box until then.
     frame = requestAnimationFrame(() => {
       frame = undefined;
-      card.scrollIntoView({ block: "nearest" });
+      const question = want.ask === null ? undefined : askBoxes.get(want.ask);
+      (question ?? card).scrollIntoView({ block: "nearest" });
       setFlash(true);
       unflash = window.setTimeout(() => setFlash(false), 1200);
     });
@@ -212,7 +241,7 @@ const WorkCard: Component<{
   const fleet = useFleetTerminalIndex();
   const names = createMemo(() => {
     const byRef = new Map<string, string>();
-    for (const candidate of fleetMentionCandidates(fleet()))
+    for (const candidate of fleetMentionCandidates(fleet(), membership()))
       byRef.set(
         fleetTerminalRef(candidate.host, candidate.terminalId),
         candidate.name,
@@ -273,7 +302,10 @@ const WorkCard: Component<{
 
   return (
     <article
-      ref={card}
+      ref={(el) => {
+        card = el;
+        trackCard(el);
+      }}
       data-testid="work-card"
       data-work={props.id}
       data-who={at().who}
@@ -348,7 +380,8 @@ const WorkCard: Component<{
       </div>
       {/* THE STRIP, ITS OWN ROW under the head: on a card each cell that has
           happened is a button that opens the card on that stage's events —
-          the index into the timeline below. */}
+          the index into the timeline below. Under it, the card's ways on:
+          the chat about it, its link, and its PR while that waits on you. */}
       <div class="px-2.5 pb-2">
         <StageStrip
           stages={read()}
@@ -363,6 +396,7 @@ const WorkCard: Component<{
             },
           }}
         />
+        <WorkCardActions id={props.id} work={props.work} />
       </div>
 
       <Show when={isOpen()}>
@@ -383,14 +417,14 @@ const WorkCard: Component<{
                     makes the second answerable nowhere. */}
                 <For each={asking().asks}>
                   {(ask) => (
-                    <div class="mb-2.5">
+                    <AskSlot ask={ask} boxes={askBoxes}>
                       <WorkQuestion
                         work={props.work}
                         id={props.id}
                         ask={ask}
                         from="card"
                       />
-                    </div>
+                    </AskSlot>
                   )}
                 </For>
 

@@ -59,6 +59,8 @@ import { encActiveHost } from "./wire";
 export type SectionId =
   | "recent"
   | "hosts"
+  | "needs-you"
+  | "works"
   | "commands"
   | "terminals"
   | "active-terminal"
@@ -70,6 +72,8 @@ const SECTION_ORDER: readonly SectionId[] = [
   "recent",
   "terminals",
   "hosts",
+  "needs-you",
+  "works",
   "commands",
   "active-terminal",
   "canvas",
@@ -80,6 +84,8 @@ const SECTION_ORDER: readonly SectionId[] = [
 const SECTION_LABELS: Record<SectionId, string> = {
   recent: "Recent",
   hosts: "Hosts",
+  "needs-you": "Needs you",
+  works: "Works",
   commands: "Commands",
   terminals: "Terminals",
   "active-terminal": "Active Terminal",
@@ -87,6 +93,14 @@ const SECTION_LABELS: Record<SectionId, string> = {
   ui: "UI",
   help: "Help",
 };
+
+/** The sections that keep their own header while a query is typed — the
+ *  Conductor's works are places to go, not commands to run, so searching
+ *  for one must not file it under "Commands". */
+const OWN_HEADER_WHILE_SEARCHING: ReadonlySet<SectionId> = new Set([
+  "needs-you",
+  "works",
+]);
 
 /** O(1) lookup derived from `SECTION_ORDER` — single source of truth.
  *  Built at module load via `Object.fromEntries(...)` so reordering
@@ -581,7 +595,8 @@ const CommandPalette: Component<{
 
   /** Map a row to its display section at root. Empty root: terminals →
    *  Recent, hosts → Hosts, commands keep their registered section.
-   *  Queried root: kind umbrellas (Terminals / Hosts / Commands). */
+   *  Queried root: kind umbrellas (Terminals / Hosts / Commands), except the
+   *  Conductor's works, which keep their own. */
   function displaySection(
     cmd: PaletteCommand | PaletteLabel,
   ): SectionId | undefined {
@@ -590,7 +605,13 @@ const CommandPalette: Component<{
     const hasQuery = query().trim().length > 0;
     if (kind === "terminal") return hasQuery ? "terminals" : "recent";
     if (kind === "host") return "hosts";
-    if (hasQuery) return "commands";
+    if (
+      hasQuery &&
+      !(
+        cmd.section !== undefined && OWN_HEADER_WHILE_SEARCHING.has(cmd.section)
+      )
+    )
+      return "commands";
     return cmd.section;
   }
 

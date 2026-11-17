@@ -2633,10 +2633,11 @@ describe("opening a piece of work", () => {
       kind: "work-ask",
       work: opened.work,
     });
-    // ... and THE FRAME A READER IS GIVEN SAYS A QUESTION IS WAITING: kolu's
-    // own question about a work and the agent's own elicitation reach
-    // `openAsks` alike, which is the one list the bell and the OS badge read.
-    expect(r.host.state().openAsks).toEqual([opened.ask]);
+    // ... and THE FRAME A READER IS GIVEN SAYS A QUESTION IS WAITING, in the
+    // list of questions about a work — never in the conversation's own, which
+    // a browser would ring by the conversation's rule.
+    expect(r.host.state().workAsks).toEqual([opened.ask]);
+    expect(r.host.state().openAsks).toEqual([]);
     expect(kindsOf(open)).toContain("question");
 
     expect(
@@ -2692,9 +2693,9 @@ describe("opening a piece of work", () => {
       from: "card",
     });
     expect(kindsOf(answered)).toContain("answered");
-    // ... and the frame no longer says anything is waiting: one list, and it
-    // empties when the question is answered.
-    expect(r.host.state().openAsks).toEqual([]);
+    // ... and the frame no longer says anything is waiting: the list empties
+    // when the question is answered.
+    expect(r.host.state().workAsks).toEqual([]);
     // THE ANSWER WAKES THE CONDUCTOR — the only way one ever reaches it now.
     await vi.waitFor(() => {
       expect(agent.wakes()).toHaveLength(1);
@@ -2894,7 +2895,7 @@ describe("opening a piece of work", () => {
     expect(again.work).toBe(first.work);
     expect(again.asked).toBe(true);
     expect(askedKeys(theWork(r))).toEqual(["planner.model"]);
-    expect(r.host.state().openAsks).toEqual([again.ask]);
+    expect(r.host.state().workAsks).toEqual([again.ask]);
   });
 
   it("asks NOTHING about a role the answered mode does not run", async () => {
@@ -3058,7 +3059,7 @@ describe("opening a piece of work", () => {
       vi.setSystemTime(Date.now() + 10 * 60_000);
       await vi.advanceTimersByTimeAsync(10 * 60_000);
       expect(agent.wakes()).toEqual([]);
-      expect(r.host.state().openAsks).toEqual([ask]);
+      expect(r.host.state().workAsks).toEqual([ask]);
       const waiting = theWork(r).decisions.find((one) => one.ask === ask);
       if (waiting === undefined || waiting.topic !== "work")
         throw new Error("the plan question is not a question about the work");
@@ -3653,7 +3654,7 @@ describe("opening a piece of work", () => {
 
       // THE CARD'S READING: the form is open, and so is each model question
       // on it — one reading, the one every face uses.
-      expect(r.host.state().openAsks).toContain("ask-setup");
+      expect(r.host.state().workAsks).toContain("ask-setup");
       expect(setupStanding(work, "planner.model").kind).toBe("open");
       expect(setupStanding(work, "implementor.model").kind).toBe("open");
       // ... while what they DID answer stands.
@@ -3691,7 +3692,7 @@ describe("opening a piece of work", () => {
         value: OMP_MODELS[0],
         from: "card",
       });
-      expect(r.host.state().openAsks).toEqual([]);
+      expect(r.host.state().workAsks).toEqual([]);
 
       // ... and the planner starts, on the answers and the host's launch.
       await expect(r.host.startOf(id, "planner")).resolves.toEqual({

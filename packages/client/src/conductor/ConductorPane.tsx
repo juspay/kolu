@@ -42,6 +42,7 @@ import { useDialogStack } from "../ui/useDialogStack";
 import { attachDroppedFiles } from "./attachFiles";
 import { completionOpen } from "./drafts";
 import { Shown, useShown } from "../ui/shown";
+import ChatScopeBar from "./ChatScopeBar";
 import ConductorComposer from "./ConductorComposer";
 import ConductorHeader from "./ConductorHeader";
 import ConductorRefusal from "./ConductorRefusal";
@@ -59,6 +60,8 @@ import { revealTranscriptRow } from "./transcriptScroll";
 import WorkReader from "./reader/WorkReader";
 import ReaderChrome from "./reader/ReaderChrome";
 import { openReader, readerFilled, readerTarget } from "./reader/useReader";
+import { joinsOf, turnWorks } from "./turnWorks";
+import { useWorkMap } from "./useWorks";
 
 const ConductorPane: Component<{
   class?: string;
@@ -66,6 +69,12 @@ const ConductorPane: Component<{
   const orch = useConductor();
   const feed = createConductorTranscript();
   let transcriptEl: HTMLDivElement | undefined;
+  /** EACH ROW'S TURN, read once — one walk of the rows per change, over the
+   *  index of which terminal joined which work, built once per change of the
+   *  works. The transcript and the scope bar over it both read this. */
+  const workMap = useWorkMap();
+  const joins = createMemo(() => joinsOf(workMap()));
+  const turns = createMemo(() => turnWorks(feed.rows(), workMap(), joins()));
 
   const dialogStack = useDialogStack();
 
@@ -300,8 +309,14 @@ const ConductorPane: Component<{
                   <Show when={state().signIn}>
                     {(signIn) => <ConductorSignIn signIn={signIn()} />}
                   </Show>
+                  {/* WHAT THE CHAT IS POINTED AT, over the chat it filters —
+                      inside the reading column, so the bar, the turns it is
+                      keeping and the box that will carry the work are the
+                      same measure. */}
+                  <ChatScopeBar rows={feed.rows()} turns={turns()} />
                   <ConductorTranscript
                     rows={feed.rows()}
+                    turns={turns()}
                     pending={feed.pending()}
                     error={feed.error()}
                     containerRef={(el) => {

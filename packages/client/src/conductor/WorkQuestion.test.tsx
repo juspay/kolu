@@ -95,6 +95,7 @@ vi.mock("./useWorks", () => ({
   useWorkMap: () => works,
 }));
 
+import { Shown } from "../ui/shown";
 import { forgetAskDraft } from "./drafts";
 import WorkQuestion from "./WorkQuestion";
 
@@ -231,12 +232,14 @@ function mount(work: Work): HTMLElement {
   root = el;
   dispose = render(
     () => (
-      <WorkQuestion
-        work={work}
-        id="branch:local/src/now"
-        ask={ASK}
-        from="card"
-      />
+      <Shown.Provider value={() => true}>
+        <WorkQuestion
+          work={work}
+          id="branch:local/src/now"
+          ask={ASK}
+          from="card"
+        />
+      </Shown.Provider>
     ),
     el,
   );

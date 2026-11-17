@@ -16,7 +16,7 @@ import {
   type ConductorRow,
   type ConductorState,
 } from "kolu-common/conductor";
-import type { WorkRow } from "kolu-work";
+import { needsYou, type WorkRow } from "kolu-work";
 import { render } from "solid-js/web";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -29,6 +29,9 @@ vi.mock("./WorkColumn", () => ({
 let works: WorkRow[] = [];
 vi.mock("./useWorks", () => ({
   useWorks: () => () => works,
+  // The one needs-you reading, over the same works — as the real mirror
+  // derives it.
+  useNeedsYou: () => () => needsYou(works),
 }));
 
 import ConductorStatus from "./ConductorStatus";
@@ -157,7 +160,7 @@ describe("the status line", () => {
     const at = mount({ openAsks: ["ask-1"] });
     const button = at("conductor-work-count");
     expect(button?.textContent?.replace(/\s+/g, " ")).toBe(
-      "1 piece of work · 1 waiting on you",
+      "1 piece of work · 1 needs you",
     );
     expect(button?.dataset.waiting).toBe("1");
   });

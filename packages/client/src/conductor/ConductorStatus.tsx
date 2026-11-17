@@ -36,7 +36,7 @@ import { type Component, createMemo, Show } from "solid-js";
 import { formatKeybind } from "../input/keyboard";
 import Tip from "../ui/Tip";
 import WorkColumn from "./WorkColumn";
-import { useWorks } from "./useWorks";
+import { useNeedsYou, useWorks } from "./useWorks";
 import { isListingOut, toggleListing } from "./workListing";
 import { waitingCount, worksStatusWords } from "./workReadings";
 import { conductorWide } from "./conductorLayout";
@@ -93,25 +93,17 @@ const ConductorStatus: Component<{
   /** WHAT KOLU HAS IN FLIGHT, off the `works` collection — the pieces of work, and
    *  how many things are waiting on you.
    *
-   *  The second number is the tab's badge, said here in words: a work waiting
-   *  on an answer counts once however many questions it holds, plus every
-   *  question about NO work, which is the conversation's own. Both halves are
-   *  one fold (`worksStatusWords`), so the line and the badge cannot drift
-   *  into two counts of one fact — and a part that would read `0` is simply
-   *  not there. */
+   *  The second number is the tab's badge, said here in words, by the same
+   *  rule (`waitingCount`): a work waiting on an answer counts once however
+   *  many questions it holds, plus every question about NO work, which is the
+   *  conversation's own. A part that would read `0` is simply not there. */
   const works = useWorks();
-  /** The RECORDS alone — every reading below is about what a work IS, not
-   *  about which id it is filed under. */
-  const records = createMemo(() => works().map(([, work]) => work));
+  const needs = useNeedsYou();
   const pieces = createMemo(
-    () => records().filter((one) => isOpen(one)).length,
+    () => works().filter(([, one]) => isOpen(one)).length,
   );
-  const waiting = createMemo(() =>
-    waitingCount(records(), props.state.openAsks),
-  );
-  const words = createMemo(() =>
-    worksStatusWords(records(), props.state.openAsks),
-  );
+  const waiting = createMemo(() => waitingCount(needs(), props.state.openAsks));
+  const words = createMemo(() => worksStatusWords(pieces(), waiting()));
   const held = () => props.state.held.length;
   /** The column is OPENED from here only below the breakpoint. On a wide
    *  window `ConductorPane` is already drawing the same column beside the

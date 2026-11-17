@@ -20,7 +20,13 @@
 import { formatBytes } from "@kolu/byte-units";
 import { Key } from "@solid-primitives/keyed";
 import { decodeHostKey } from "kolu-common/hostKey";
-import type { ConductorState } from "kolu-common/conductor";
+import type {
+  ConductorMention,
+  ConductorState,
+  ConductorTerminalMention,
+  ConductorWorkMention,
+} from "kolu-common/conductor";
+import type { WorkId } from "kolu-work";
 import {
   type Component,
   createEffect,
@@ -36,7 +42,10 @@ import { CONTEXTUAL_TIPS } from "../settings/tips";
 import { useTips } from "../settings/useTips";
 import { isDesktop } from "../useMobile";
 import { useFleetTerminalIndex } from "../palette/fleetTerminals";
-import { fleetMentionCandidates } from "./mentionCandidates";
+import {
+  fleetMentionCandidates,
+  workMentionCandidates,
+} from "./mentionCandidates";
 import { attachPastedFiles, reattachComposerFiles } from "./attachFiles";
 import {
   completionIntent,
@@ -54,14 +63,20 @@ import {
   setComposerText,
 } from "./drafts";
 import {
+  armedMentions,
   completeToken,
   dropMention,
   filterMentions,
   type MentionCandidate,
-  resolveMentions,
+  type TerminalCandidate,
   type TokenQuery,
   tokenQueryAt,
+  withScopeMention,
+  type WorkCandidate,
 } from "./mentions";
+import { chatScope, showAllChat } from "./chatScope";
+import WorkChipFace from "./WorkChipFace";
+import { useMembership, useNeedsYou, useWorkMap, useWorks } from "./useWorks";
 import { sendsAsSteer, steerOnOffer } from "./steer";
 import { thumbnailOf } from "./thumbnails";
 import { pinTranscript } from "./transcriptScroll";
@@ -79,21 +94,58 @@ const openMenu = (
     ? null
     : { trigger, token, words: rows.map((row) => row.name) };
 
+/** The two arms of a mention, as `<Show>` takes them — the one it is, or
+ *  nothing. A work chip and a terminal chip are different drawings of
+ *  different facts, and this is what narrows one union to each. */
+const asWork = (mention: ConductorMention): ConductorWorkMention | undefined =>
+  mention.kind === "work" ? mention : undefined;
+const asTerminal = (
+  mention: ConductorMention,
+): ConductorTerminalMention | undefined =>
+  mention.kind === "terminal" ? mention : undefined;
+
 const ConductorComposer: Component<{
   state: ConductorState;
 }> = (props) => {
   const orch = useConductor();
   const fleet = useFleetTerminalIndex();
+  const works = useWorks();
+  const needs = useNeedsYou();
+  const workMap = useWorkMap();
+  const membership = useMembership();
   const [caret, setCaret] = createSignal(0);
   let box!: HTMLTextAreaElement;
 
-  /** Every terminal on EVERY host, as the `@` menu offers it. The
-   *  conversation's own fleet is not the list: a person naming a terminal it
-   *  has never touched is exactly how it gets told about one, and the terminal
-   *  they mean is as often on the host they are not looking at. */
-  const candidates = createMemo<MentionCandidate[]>(() =>
-    fleetMentionCandidates(fleet()),
+  /** EVERY PIECE OF WORK, then every terminal on EVERY host, as the `@` menu
+   *  offers them. The conversation's own fleet is not the list: a person
+   *  naming a terminal it has never touched is exactly how it gets told about
+   *  one, and the terminal they mean is as often on the host they are not
+   *  looking at.
+   *
+   *  TWO MEMOS AND A CONCAT, because the two halves move at different rates:
+   *  the fleet index notifies on any metadata change on any host, and
+   *  re-reading every work's standing on each of those ticks would fold the
+   *  whole waterfall for a keystroke in a terminal nobody is looking at. */
+  const terminalCandidates = createMemo<TerminalCandidate[]>(() =>
+    fleetMentionCandidates(fleet(), membership()),
   );
+  /** The terminals' words, which a work's word must not be — a set that
+   *  moves only when a name does, so the works are not re-read on every
+   *  fleet tick. */
+  const terminalNames = createMemo<ReadonlySet<string>>(
+    () => new Set(terminalCandidates().map((one) => one.name)),
+    new Set(),
+    {
+      equals: (a, b) => a.size === b.size && [...a].every((one) => b.has(one)),
+    },
+  );
+  const workCandidates = createMemo<WorkCandidate[]>(() =>
+    workMentionCandidates(works(), needs(), terminalNames()),
+  );
+  const candidates = createMemo<MentionCandidate[]>(() => [
+    ...workCandidates(),
+    ...terminalCandidates(),
+  ]);
 
   const mentionToken = () => tokenQueryAt(composerText(), caret(), "@");
   const commandToken = () => tokenQueryAt(composerText(), caret(), "/");
@@ -118,7 +170,30 @@ const ConductorComposer: Component<{
     );
   });
   onCleanup(() => setCompletionOpen(false));
-  const armed = createMemo(() => resolveMentions(composerText(), candidates()));
+  const armed = createMemo(() => armedMentions(composerText(), candidates()));
+
+  /** THE WORK THE CHAT IS POINTED AT: the chip over the box is its face, and
+   *  a message sent while it is on carries it whether or not the words named
+   *  it. */
+  const scope = createMemo(chatScope);
+  const scopeMention = (): ConductorWorkMention | null => {
+    const at = scope();
+    return at === null
+      ? null
+      : { kind: "work", work: at.id, title: at.record.title };
+  };
+  /** The menu's two groups, out of the one ranked list. `filterMentions` puts
+   *  every work ahead of every terminal, so a terminal's index in the FLAT
+   *  list — the one the keyboard moves through — is its own plus the number
+   *  of works above it. */
+  const workMatches = createMemo(() =>
+    mentionMatches().filter((one): one is WorkCandidate => one.kind === "work"),
+  );
+  const terminalMatches = createMemo(() =>
+    mentionMatches().filter(
+      (one): one is TerminalCandidate => one.kind === "terminal",
+    ),
+  );
 
   /** THE OPEN MENU — read by the count the keyboard folds against and by the
    *  row a click takes, so the two can neither disagree about which menu is
@@ -209,23 +284,34 @@ const ConductorComposer: Component<{
     // exists — so a composer that had already emptied itself would have thrown
     // the message away with nothing on screen left holding it.
     const steer = sendsAsSteer(alt, offered());
-    orch.prompt(text, armed(), files, steer, (accepted) => {
-      setSending(false);
-      if (!accepted) {
-        // kolu-server deletes every file a refused prompt named, so the chips still
-        // on screen are chips with nothing behind them. Their bytes go back up
-        // now, under the same ids, or the NEXT Send would be refused for
-        // something the person can neither see nor fix.
-        reattachComposerFiles();
-        return;
-      }
-      // SENDING IS ASKING TO WATCH. Whatever the reader had scrolled up to
-      // read, they have just spoken — so the answer, which starts arriving in
-      // the next frames, must be the thing on screen.
-      pinTranscript();
-      clearComposerAttachments();
-      write("", 0);
-    });
+    orch.prompt(
+      text,
+      // WHAT THE CHAT IS ABOUT RIDES ALONG: a message sent while the chat is
+      // pointed at a work is about that work, typed or not.
+      withScopeMention(
+        armed().map((one) => one.mention),
+        scopeMention(),
+      ),
+      files,
+      steer,
+      (accepted) => {
+        setSending(false);
+        if (!accepted) {
+          // kolu-server deletes every file a refused prompt named, so the
+          // chips still on screen are chips with nothing behind them. Their
+          // bytes go back up now, under the same ids, or the NEXT Send would
+          // be refused for something the person can neither see nor fix.
+          reattachComposerFiles();
+          return;
+        }
+        // SENDING IS ASKING TO WATCH. Whatever the reader had scrolled up to
+        // read, they have just spoken — so the answer, which starts arriving
+        // in the next frames, must be the thing on screen.
+        pinTranscript();
+        clearComposerAttachments();
+        write("", 0);
+      },
+    );
   };
 
   /** A touch layout. The SHAPE is now the same in both — a growing one-line
@@ -295,78 +381,137 @@ const ConductorComposer: Component<{
           data-testid="conductor-mention-menu"
           class="absolute left-5 right-5 bottom-full mb-1 max-h-60 overflow-y-auto rounded-lg border border-edge-bright bg-surface-1 shadow-lg shadow-black/40 p-1.5"
         >
-          {/* KEYED, never `<For>`. `candidates` mints fresh objects on every
-              fleet notification and the fleet index notifies on ANY metadata
-              change on ANY host, so a reference-keyed list rebuilds every row
-              of this menu when a terminal nobody is looking at, on a machine
-              nobody is looking at, retitles itself — dropping the hovered row
-              mid-choice. The identity is the FLEET reference and not the bare
-              id: two hosts may carry one terminal id, and two entries sharing
-              a key are handed the SAME node, which silently loses a row. */}
-          <Key
-            each={mentionMatches()}
-            by={(candidate) => `${candidate.host}/${candidate.terminalId}`}
-          >
-            {(candidate, index) => (
-              <button
-                ref={(el) =>
-                  revealWhenSelected(el, () => index() === selected())
-                }
-                type="button"
-                data-testid="conductor-mention-row"
-                data-terminal-id={candidate().terminalId}
-                data-host={candidate().host}
-                data-selected={index() === selected() ? "" : undefined}
-                class="w-full min-w-0 flex items-center gap-2 rounded-md px-2 py-1 text-left text-xs hover:bg-surface-2 cursor-pointer"
-                classList={{ "bg-surface-2": index() === selected() }}
-                // Hover moves the highlight so the mouse and the keyboard never
-                // disagree about which row Enter would take.
-                onPointerEnter={() => setSelected(index())}
-                onClick={() => accept(index())}
-              >
-                <span class="max-w-[45%] shrink-0 truncate font-semibold text-fg">
-                  {candidate().name}
-                </span>
-                {/* WHICH MACHINE. Two hosts can both carry a `main`, and the
-                    name alone would offer a person a choice they cannot read.
-                    It leads the quiet columns because it is the thing that
-                    tells otherwise identical rows apart. */}
-                <span
-                  data-testid="conductor-mention-host"
-                  class="shrink-0 font-mono text-[0.6rem] uppercase tracking-[0.1em] text-accent"
+          {/* WORKS FIRST, under their own heading — the thing a person is
+              steering comes before the terminals that are how it gets done.
+              The two groups are one list to the keyboard: the flat index the
+              highlight moves through runs the works and then the terminals,
+              which is the order `filterMentions` ranked them in. */}
+          <Show when={workMatches().length > 0}>
+            <div
+              data-testid="conductor-mention-heading"
+              class="px-2 pb-0.5 pt-1 font-mono text-[0.6rem] uppercase tracking-[0.12em] text-fg-3"
+            >
+              Works
+            </div>
+            <Key each={workMatches()} by="work">
+              {(candidate, index) => (
+                <button
+                  ref={(el) =>
+                    revealWhenSelected(el, () => index() === selected())
+                  }
+                  type="button"
+                  data-testid="conductor-mention-row"
+                  data-kind="work"
+                  data-work={candidate().work}
+                  data-selected={index() === selected() ? "" : undefined}
+                  class="w-full min-w-0 flex items-center gap-2 rounded-md px-2 py-1 text-left text-xs hover:bg-surface-2 cursor-pointer"
+                  classList={{ "bg-surface-2": index() === selected() }}
+                  onPointerEnter={() => setSelected(index())}
+                  onClick={() => accept(index())}
                 >
-                  {hostLabel(decodeHostKey(candidate().host))}
-                </span>
-                <Show when={candidate().repo}>
-                  {(repo) => (
-                    <span class="shrink-0 font-mono text-[0.6rem] uppercase tracking-[0.1em] text-fg-3">
-                      {repo()}
+                  {/* THE CHIP'S OWN FACE — the dot for who the work waits on
+                      and its title, drawn by the one component the chat's
+                      chips and the hover card are drawn by. */}
+                  <WorkChipFace work={candidate().record} />
+                  <span
+                    data-testid="conductor-mention-detail"
+                    data-kind="work"
+                    class="min-w-0 truncate text-fg-2"
+                  >
+                    {candidate().standing}
+                  </span>
+                </button>
+              )}
+            </Key>
+          </Show>
+          <Show when={terminalMatches().length > 0}>
+            <div
+              data-testid="conductor-mention-heading"
+              class="px-2 pb-0.5 pt-1 font-mono text-[0.6rem] uppercase tracking-[0.12em] text-fg-3"
+            >
+              Terminals
+            </div>
+            {/* KEYED, never `<For>`. `candidates` mints fresh objects on every
+                fleet notification and the fleet index notifies on ANY metadata
+                change on ANY host, so a reference-keyed list rebuilds every row
+                of this menu when a terminal nobody is looking at, on a machine
+                nobody is looking at, retitles itself — dropping the hovered row
+                mid-choice. The identity is the FLEET reference and not the bare
+                id: two hosts may carry one terminal id, and two entries sharing
+                a key are handed the SAME node, which silently loses a row. */}
+            <Key
+              each={terminalMatches()}
+              by={(candidate) => `${candidate.host}/${candidate.terminalId}`}
+            >
+              {(candidate, index) => {
+                /** Where this row sits in the FLAT list the keyboard moves
+                 *  through: the works are above it. */
+                const at = () => workMatches().length + index();
+                return (
+                  <button
+                    ref={(el) =>
+                      revealWhenSelected(el, () => at() === selected())
+                    }
+                    type="button"
+                    data-testid="conductor-mention-row"
+                    data-kind="terminal"
+                    data-terminal-id={candidate().terminalId}
+                    data-host={candidate().host}
+                    data-selected={at() === selected() ? "" : undefined}
+                    class="w-full min-w-0 flex items-center gap-2 rounded-md px-2 py-1 text-left text-xs hover:bg-surface-2 cursor-pointer"
+                    classList={{ "bg-surface-2": at() === selected() }}
+                    // Hover moves the highlight so the mouse and the keyboard
+                    // never disagree about which row Enter would take.
+                    onPointerEnter={() => setSelected(at())}
+                    onClick={() => accept(at())}
+                  >
+                    <span class="max-w-[45%] shrink-0 truncate font-semibold text-fg">
+                      {candidate().name}
                     </span>
-                  )}
-                </Show>
-                {/* WHAT DIFFERS. Same-named terminals are ordinary — one repo,
-                    several branches — so each row carries the one thing that
-                    tells it from its neighbours (`mentionDetail`). A directory
-                    is cut from the LEFT: two worktrees of one repo differ at
-                    the end of the path, which a right-hand cut would hide. */}
-                <Show when={candidate().detail}>
-                  {(detail) => (
+                    {/* WHICH MACHINE. Two hosts can both carry a `main`, and
+                        the name alone would offer a person a choice they
+                        cannot read. It leads the quiet columns because it is
+                        the thing that tells otherwise identical rows apart. */}
                     <span
-                      data-testid="conductor-mention-detail"
-                      data-kind={detail().kind}
-                      class="min-w-0 truncate text-fg-2"
-                      classList={{
-                        "[direction:rtl] text-left font-mono text-[0.62rem]":
-                          detail().kind === "directory",
-                      }}
+                      data-testid="conductor-mention-host"
+                      class="shrink-0 font-mono text-[0.6rem] uppercase tracking-[0.1em] text-accent"
                     >
-                      <bdi>{detail().text}</bdi>
+                      {hostLabel(decodeHostKey(candidate().host))}
                     </span>
-                  )}
-                </Show>
-              </button>
-            )}
-          </Key>
+                    <Show when={candidate().repo}>
+                      {(repo) => (
+                        <span class="shrink-0 font-mono text-[0.6rem] uppercase tracking-[0.1em] text-fg-3">
+                          {repo()}
+                        </span>
+                      )}
+                    </Show>
+                    {/* WHAT DIFFERS. A member of a piece of work says which
+                        work and in what role; otherwise same-named terminals
+                        are ordinary — one repo, several branches — so each row
+                        carries the one thing that tells it from its neighbours
+                        (`mentionDetail`). A directory is cut from the LEFT:
+                        two worktrees of one repo differ at the end of the
+                        path, which a right-hand cut would hide. */}
+                    <Show when={candidate().detail}>
+                      {(detail) => (
+                        <span
+                          data-testid="conductor-mention-detail"
+                          data-kind={detail().kind}
+                          class="min-w-0 truncate text-fg-2"
+                          classList={{
+                            "[direction:rtl] text-left font-mono text-[0.62rem]":
+                              detail().kind === "directory",
+                          }}
+                        >
+                          <bdi>{detail().text}</bdi>
+                        </span>
+                      )}
+                    </Show>
+                  </button>
+                );
+              }}
+            </Key>
+          </Show>
         </div>
       </Show>
       <Show when={commandMatches().length > 0}>
@@ -400,36 +545,94 @@ const ConductorComposer: Component<{
           </For>
         </div>
       </Show>
+      {/* WHAT THE CHAT IS POINTED AT, over the box. It is not a word in the
+          text — nobody typed it — so it is a chip of its own, and its × hands
+          the whole conversation back (`showAllChat`). The message still
+          carries the work: pointing the chat at it is what said so. */}
+      <Show when={scope()}>
+        {(at) => (
+          <div class="mb-1.5 flex flex-wrap items-center gap-1.5">
+            <button
+              type="button"
+              data-testid="conductor-scope-chip"
+              data-work={at().id}
+              aria-label={`Show the whole chat, not only ${at().record.title}`}
+              class="flex items-center gap-1 cursor-pointer"
+              onClick={() => showAllChat()}
+            >
+              <WorkChipFace work={at().record} />
+              <span class="font-mono text-[0.68rem] text-fg-3">×</span>
+            </button>
+          </div>
+        )}
+      </Show>
       <Show when={armed().length > 0}>
-        <div class="mb-1.5 flex flex-wrap gap-1.5">
+        <div class="mb-1.5 flex flex-wrap items-center gap-1.5">
           {/* KEYED for the same reason as the menu: `armed()` re-resolves
               against freshly minted candidates on every fleet tick, and a
               rebuilt chip is a chip whose press target moved under the finger.
-              The name is the identity — `resolveMentions` emits each name once,
-              and the name is what the × drops from the text. */}
-          <Key each={armed()} by="name">
-            {(mention) => (
-              <button
-                type="button"
-                data-testid="conductor-mention-chip"
-                data-terminal-id={mention().terminalId}
-                data-host={mention().host}
-                title={mention().intent ?? mention().cwd ?? undefined}
-                class="rounded-full bg-accent/15 px-2 py-px font-mono text-[0.68rem] font-semibold text-accent cursor-pointer"
-                onClick={() =>
-                  write(dropMention(composerText(), mention().name), 0)
-                }
-              >
-                {/* The host rides ON the chip — what is sent is `host/id`, and
-                    a chip that showed only the name would hide which of two
-                    machines the question is about. */}
-                @{mention().name}
-                <span class="font-normal text-accent/70">
-                  {" "}
-                  · {hostLabel(decodeHostKey(mention().host))}
-                </span>{" "}
-                ×
-              </button>
+              The TOKEN is the identity — `armedMentions` emits each one once,
+              and the token is what the × drops from the text. */}
+          <Key each={armed()} by="token">
+            {(armedOne) => (
+              <>
+                <Show when={asWork(armedOne().mention)}>
+                  {(work) => (
+                    <button
+                      type="button"
+                      data-testid="conductor-mention-chip"
+                      data-kind="work"
+                      data-work={work().work}
+                      title={work().title}
+                      class="flex items-center gap-1 cursor-pointer"
+                      onClick={() =>
+                        write(dropMention(composerText(), armedOne().token), 0)
+                      }
+                    >
+                      {/* The work's own face, as every other chip of it is
+                          drawn. A work the mirror has stopped listing keeps
+                          its title: the words were true when they were typed. */}
+                      <Show
+                        when={workMap().get(work().work as WorkId)}
+                        fallback={
+                          <span class="text-[0.72rem] font-medium text-fg">
+                            {work().title}
+                          </span>
+                        }
+                      >
+                        {(record) => <WorkChipFace work={record()} />}
+                      </Show>
+                      <span class="font-mono text-[0.68rem] text-fg-3">×</span>
+                    </button>
+                  )}
+                </Show>
+                <Show when={asTerminal(armedOne().mention)}>
+                  {(one) => (
+                    <button
+                      type="button"
+                      data-testid="conductor-mention-chip"
+                      data-kind="terminal"
+                      data-terminal-id={one().terminalId}
+                      data-host={one().host}
+                      title={one().intent ?? one().cwd ?? undefined}
+                      class="rounded-full bg-accent/15 px-2 py-px font-mono text-[0.68rem] font-semibold text-accent cursor-pointer"
+                      onClick={() =>
+                        write(dropMention(composerText(), armedOne().token), 0)
+                      }
+                    >
+                      {/* The host rides ON the chip — what is sent is
+                          `host/id`, and a chip that showed only the name would
+                          hide which of two machines the question is about. */}
+                      @{one().name}
+                      <span class="font-normal text-accent/70">
+                        {" "}
+                        · {hostLabel(decodeHostKey(one().host))}
+                      </span>{" "}
+                      ×
+                    </button>
+                  )}
+                </Show>
+              </>
             )}
           </Key>
         </div>
@@ -515,10 +718,15 @@ const ConductorComposer: Component<{
           // conversation; the two that are about what you type live in the
           // placeholder, where they are read at the moment they apply and
           // disappear the moment there is text to read instead.
+          // A CHAT POINTED AT A WORK says so here too: the box is about that
+          // work, and the hints about what `@` and `/` open are advice for a
+          // conversation that is about everything.
           placeholder={
-            phone()
-              ? "Ask… @ terminal, / command"
-              : "Ask the conductor… @ for a terminal, / for a command, ⇧⏎ for a newline"
+            scope() !== null
+              ? "Ask about this work…"
+              : phone()
+                ? "Ask… @ work or terminal, / command"
+                : "Ask the conductor… @ for a work or a terminal, / for a command, ⇧⏎ for a newline"
           }
           // `text-chat` — the pane's body size, so what you type is the size
           // of what you are reading rather than a size of its own.

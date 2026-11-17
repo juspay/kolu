@@ -93,6 +93,7 @@ import type {
 } from "@kolu/acp/engine";
 import type { AskAnswer, AskLink, AuthStatus, Usage } from "@kolu/acp/wire";
 import { Duration } from "effect";
+import { aboutBlock } from "./aboutBlock.ts";
 import { Calls } from "./calls.ts";
 import { type Child, childEnvOf, start as startChild } from "./child.ts";
 import { Fleet, koluCallOf, refineKoluCall } from "./kolu.ts";
@@ -262,10 +263,19 @@ export interface HarnessOptions {
  *  too, and the furthest from a harness of all of them: it says which
  *  REMEMBERED RECORD would not decode, which is a fact about a file this end
  *  has never seen — and about a conversation that could not be started
- *  BECAUSE of it, so there is no harness to answer for it. */
+ *  BECAUSE of it, so there is no harness to answer for it. `workAsks` is the
+ *  server's as well: the questions kolu put about its pieces of work, read
+ *  off records this end never holds. */
 export type HarnessState = Omit<
   ConductorState,
-  "install" | "agentName" | "cwd" | "seen" | "work" | "held" | "unreadable"
+  | "install"
+  | "agentName"
+  | "cwd"
+  | "seen"
+  | "work"
+  | "held"
+  | "unreadable"
+  | "workAsks"
 >;
 
 /**
@@ -2030,12 +2040,8 @@ export const startHarness = async (
   // ── the verbs ────────────────────────────────────────────────────────
 
   /** What actually goes on the wire under a person's words: the standing prompt
-   *  the first time this session is spoken to, then the terminals the message
-   *  was ABOUT, then what they typed.
-   *
-   *  The mentions are repeated as a reference block because the agent cannot see
-   *  the chips: what reached it has to carry the same four fields the row does,
-   *  or the panel is claiming a context the model never had. */
+   *  the first time this session is spoken to, then what the message was
+   *  ABOUT ({@link aboutBlock}), then what they typed. */
   const bodyOf = (
     text: string,
     mentions: ReadonlyArray<ConductorMention>,
@@ -2045,18 +2051,7 @@ export const startHarness = async (
       taught = true;
       parts.push(options.teaching);
     }
-    if (mentions.length > 0) {
-      parts.push(
-        mentions
-          .map(
-            (one) =>
-              `[kolu] about terminal ${one.name} (${one.terminalId})` +
-              `${one.cwd === null ? "" : ` · ${one.cwd}`}` +
-              `${one.intent === null ? "" : ` — ${one.intent}`}`,
-          )
-          .join("\n"),
-      );
-    }
+    if (mentions.length > 0) parts.push(aboutBlock(mentions));
     parts.push(text);
     return parts.join("\n\n");
   };

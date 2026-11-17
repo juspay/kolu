@@ -2044,6 +2044,51 @@ export function prFactsOnTheTimeline_1_57_0(store: Conf<PersistedState>): void {
   if (changed) store.set("works", next as unknown as PersistedState["works"]);
 }
 
+/** THE VERSION 1.58.0 STAMPS INTO THE TRANSCRIPT FILE it rewrites — frozen
+ *  under this rung's own number, for the reason
+ *  {@link TRANSCRIPT_VERSION_1_53_0} gives. */
+const TRANSCRIPT_VERSION_1_58_0 = "1.58.0";
+
+/** The 1.58.0 rung — A MENTION SAYS WHAT IT IS. A user row's `mentions`
+ *  could only name terminals; it now names a terminal or a piece of work,
+ *  told apart by `kind`. Every saved mention was a terminal, so each one
+ *  gains `kind: "terminal"` and nothing else moves. A mention that already
+ *  carries a `kind` has walked this rung.
+ *
+ *  The stamp moves whether or not a row did, for the reason
+ *  {@link workAskStanding_1_55_0} gives: the reader takes exactly the
+ *  version it was built with. `works` and the rest of `config.json` are
+ *  untouched. Exported for `stateMigration.test.ts`. */
+export function mentionsSayTheirKind_1_58_0(stateRoot: string): void {
+  const path = transcriptFilePath(stateRoot);
+  if (!existsSync(path)) return;
+  let held: unknown;
+  try {
+    held = JSON.parse(readFileSync(path, "utf8"));
+  } catch {
+    // Left exactly as it is: the reader refuses it by name.
+    return;
+  }
+  const record = recordOf(held);
+  const rows = record === null ? null : record.rows;
+  if (!Array.isArray(rows)) return;
+  let changed = record?.version !== TRANSCRIPT_VERSION_1_58_0;
+  const next = rows.map((value: unknown) => {
+    const row = recordOf(value);
+    if (row === null || row.kind !== "user" || !Array.isArray(row.mentions))
+      return value;
+    const mentions = row.mentions.map((one: unknown) => {
+      const mention = recordOf(one);
+      if (mention === null || "kind" in mention) return one;
+      changed = true;
+      return { kind: "terminal", ...mention };
+    });
+    return { ...row, mentions };
+  });
+  if (!changed) return;
+  writeTranscriptFile(path, TRANSCRIPT_VERSION_1_58_0, next);
+}
+
 /** The migration ladder — hoisted so {@link decodeStateBackup}'s scratch
  *  store walks the REAL ladder on a backup snapshot (which may predate any
  *  rung), never a parallel re-implementation of it. */
@@ -2752,4 +2797,10 @@ export const CONF_MIGRATIONS = {
   // both). The transcript file is untouched, so TRANSCRIPT_FILE_VERSION
   // stays at 1.55.0.
   "1.57.0": prFactsOnTheTimeline_1_57_0,
+  // A MENTION SAYS WHAT IT IS — a terminal or a piece of work. Every saved
+  // mention was a terminal and gains `kind: "terminal"`
+  // (`mentionsSayTheirKind_1_58_0`). Only the transcript file moves, which is
+  // why TRANSCRIPT_FILE_VERSION reads 1.58.0; `config.json` is untouched.
+  "1.58.0": (store: Conf<PersistedState>) =>
+    mentionsSayTheirKind_1_58_0(dirname(store.path)),
 };

@@ -194,8 +194,13 @@ export const asking = (deps: AskingDeps): Asking => {
           // the moment it appears must not land an answer on a work that does
           // not know it was asked.
           deps.store.save(id, askQuestions(work, { ask, at, questions }));
-          deps.store.changed();
+          // SAID IN THE CHAT BEFORE THE WORK SAYS IT WAITS. The chat draws the
+          // question from its row AND the work's record, and the bell decides
+          // once the page has drawn what just started waiting: a row that
+          // arrived after the record would mount the chat's copy after that
+          // decision, and ring for a question somebody is looking at.
           if (asked) deps.said(ask, id, message, askFields(put));
+          deps.store.changed();
           return { ask, asked };
         },
       });

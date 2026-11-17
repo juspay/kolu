@@ -1,72 +1,224 @@
-/** The Conductor's bell: when a question the conversation asks rings. Each case
- *  is one a person would notice — a stray ring for an old question, or a new
- *  one that stayed silent. */
+/** The Conductor's bell: when something that needs you rings. Each case is
+ *  one a person would notice — a stray ring for an old wait, a second ring for
+ *  the same one, or a new one that stayed silent. */
 
+import { Option } from "effect";
+import type { NeedsYou } from "kolu-work";
 import { describe, expect, it } from "vitest";
-import { type ConductorAskHooks, createConductorAsks } from "./conductorAsks";
+import {
+  type BellReading,
+  type ConductorBellHooks,
+  createConductorBell,
+} from "./conductorAsks";
+
+const OLAI = "branch:local/%2Fcode%2Folai/chat-on-any-entity";
+const KOLU = "branch:local/%2Fcode%2Fkolu/agents-closure-in-cache";
+
+const question = (work: string, ask: string): NeedsYou => ({
+  work,
+  title: work === OLAI ? "Agent chat" : "Published agents",
+  why: { why: "question", ask, question: "May I?", since: "t" },
+  since: "t",
+  wanted: "May I?",
+  key: JSON.stringify([work, "question", ask]),
+});
+
+const merge = (work: string, pr: number, sha: string): NeedsYou => ({
+  work,
+  title: "Agent chat",
+  why: {
+    why: "merge",
+    pr: Option.some({
+      number: pr,
+      head: { kind: "commit", sha },
+      link: { kind: "unrecorded" },
+    }),
+    since: "t",
+  },
+  since: "t",
+  wanted: `Merge PR #${pr}`,
+  key: JSON.stringify([work, "merge", String(pr), sha]),
+});
+
+const reading = (
+  needs: ReadonlyArray<NeedsYou>,
+  over: Partial<BellReading> = {},
+): BellReading => ({
+  ownAsks: [],
+  workAsks: needs.flatMap((one) =>
+    one.why.why === "question" ? [one.why.ask] : [],
+  ),
+  works: new Set([OLAI, KOLU]),
+  needs,
+  ...over,
+});
 
 function harness() {
-  const rang: number[] = [];
-  const gates = { alerts: true, watched: false };
-  const hooks: ConductorAskHooks = {
-    alertsEnabled: () => gates.alerts,
-    isWatched: () => gates.watched,
-    deliver: (open) => rang.push(open),
+  const rang: Array<{ items: string[]; own: number | null }> = [];
+  const gates = {
+    alerts: true,
+    onScreen: new Set<string>(),
+    conversation: false,
   };
-  return { bell: createConductorAsks(hooks), rang, gates };
+  const hooks: ConductorBellHooks = {
+    alertsEnabled: () => gates.alerts,
+    isItemWatched: (item) => gates.onScreen.has(item.key),
+    isConversationWatched: () => gates.conversation,
+    deliver: (items, own) =>
+      rang.push({ items: items.map((one) => one.wanted), own }),
+  };
+  const raw = createConductorBell(hooks);
+  /** One reading, and the decision the page makes about it once drawn. */
+  const bell = {
+    observe: (one: BellReading): void => {
+      raw.observe(one);
+      raw.settle();
+    },
+  };
+  return { bell, raw, rang, gates };
 }
 
-describe("conductorAsks — when the Conductor's question rings", () => {
-  it("the first reading never rings, even with questions already open (a reload)", () => {
-    const { bell, rang } = harness();
-    bell.observe(["ask:1", "ask:2"]);
+describe("the Conductor's bell decides after the page has drawn", () => {
+  it("is silent for a question that arrives in view: its box says so only after it is drawn", () => {
+    const { raw, rang, gates } = harness();
+    raw.observe(reading([]));
+    const asked = question(KOLU, "a1");
+    // The reading lands; the question's box is mounted but not yet measured.
+    expect(raw.observe(reading([asked]))).toBe(true);
+    // The page draws it and the observer reports it in view.
+    gates.onScreen.add(asked.key);
+    raw.settle();
     expect(rang).toEqual([]);
   });
 
-  it("a new question rings once, with the open count", () => {
-    const { bell, rang } = harness();
-    bell.observe(["ask:1"]);
-    bell.observe(["ask:1", "ask:2"]);
-    bell.observe(["ask:1", "ask:2"]);
-    expect(rang).toEqual([2]);
+  it("does not ring for an item that left the list before the page drew", () => {
+    const { raw, rang } = harness();
+    raw.observe(reading([]));
+    raw.observe(reading([merge(OLAI, 2400, "d3f4185")]));
+    raw.observe(reading([]));
+    raw.settle();
+    expect(rang).toEqual([]);
   });
+});
 
-  it("a question being settled does not ring", () => {
+describe("the Conductor's bell", () => {
+  it("the first reading never rings, even with waits already open (a reload)", () => {
     const { bell, rang } = harness();
-    bell.observe(["ask:1", "ask:2"]);
-    bell.observe(["ask:2"]);
-    bell.observe([]);
+    bell.observe(reading([question(KOLU, "a1"), merge(OLAI, 700, "c88")]));
     expect(rang).toEqual([]);
   });
 
-  it("one settled and a different one opened in the same reading rings", () => {
+  it("a question put about a work rings once, by its words", () => {
     const { bell, rang } = harness();
-    bell.observe(["ask:1"]);
-    bell.observe(["ask:2"]);
-    expect(rang).toEqual([1]);
+    bell.observe(reading([]));
+    bell.observe(reading([question(KOLU, "a1")]));
+    bell.observe(reading([question(KOLU, "a1")]));
+    expect(rang).toEqual([{ items: ["May I?"], own: null }]);
   });
 
-  it("alerts off: silent, and turning them on afterwards does not ring for that question", () => {
+  it("a hand-over PR going green rings, for a work this browser already knew", () => {
+    const { bell, rang } = harness();
+    bell.observe(reading([]));
+    bell.observe(reading([merge(OLAI, 700, "c88")]));
+    expect(rang).toEqual([{ items: ["Merge PR #700"], own: null }]);
+  });
+
+  it("#2400's flicker — can, cannot, can on one commit — is one ring", () => {
+    const { bell, rang } = harness();
+    bell.observe(reading([]));
+    bell.observe(reading([merge(OLAI, 2400, "d3f4185")]));
+    bell.observe(reading([]));
+    bell.observe(reading([merge(OLAI, 2400, "d3f4185")]));
+    expect(rang).toHaveLength(1);
+  });
+
+  it("a second commit going green rings again", () => {
+    const { bell, rang } = harness();
+    bell.observe(reading([]));
+    bell.observe(reading([merge(OLAI, 2400, "d3f4185")]));
+    bell.observe(reading([]));
+    bell.observe(reading([merge(OLAI, 2400, "69b08e9")]));
+    expect(rang).toHaveLength(2);
+  });
+
+  it("is silent while that very item is on screen in a focused window, and stays heard", () => {
     const { bell, rang, gates } = harness();
-    bell.observe([]);
+    bell.observe(reading([]));
+    const green = merge(OLAI, 700, "c88");
+    gates.onScreen.add(green.key);
+    bell.observe(reading([green]));
+    gates.onScreen.clear();
+    bell.observe(reading([green]));
+    expect(rang).toEqual([]);
+  });
+
+  it("rings while the Conductor is open on ANOTHER card", () => {
+    const { bell, rang, gates } = harness();
+    bell.observe(reading([]));
+    gates.conversation = true;
+    gates.onScreen.add(merge(OLAI, 700, "c88").key);
+    bell.observe(reading([question(KOLU, "a1")]));
+    expect(rang).toEqual([{ items: ["May I?"], own: null }]);
+  });
+
+  it("does not ring for a work's wait it only discovers as its record arrives", () => {
+    // The works load one record at a time after the conversation's first
+    // frame: a work met for the first time already waiting was waiting
+    // before this browser looked.
+    const { bell, rang } = harness();
+    bell.observe(reading([], { works: new Set(), workAsks: ["a1"] }));
+    bell.observe(reading([question(KOLU, "a1"), merge(OLAI, 700, "c88")]));
+    expect(rang).toEqual([]);
+  });
+
+  it("rings for a work born asking, whose record is new", () => {
+    const { bell, rang } = harness();
+    bell.observe(reading([], { works: new Set() }));
+    bell.observe(reading([question(KOLU, "setup")]));
+    expect(rang).toEqual([{ items: ["May I?"], own: null }]);
+  });
+
+  it("judges a work's question by its work, though the question arrives before the work's record", () => {
+    // The real page: the server's list of open questions about works lands
+    // first, the work's record a moment later. The question is never the
+    // conversation's, so the Conductor being on screen does not silence it…
+    const { raw, rang, gates } = harness();
+    raw.observe(reading([], { works: new Set() }));
+    gates.conversation = true;
+    raw.observe(reading([], { works: new Set(), workAsks: ["a1"] }));
+    raw.settle();
+    expect(rang).toEqual([]);
+    const asked = question(KOLU, "a1");
+    raw.observe(reading([asked]));
+    raw.settle();
+    expect(rang).toEqual([{ items: ["May I?"], own: null }]);
+    // … and it in view is what does: the same arrival, drawn and seen.
+    const second = harness();
+    second.raw.observe(reading([], { works: new Set() }));
+    second.raw.observe(reading([], { works: new Set(), workAsks: ["a1"] }));
+    second.raw.settle();
+    second.raw.observe(reading([asked]));
+    second.gates.onScreen.add(asked.key);
+    second.raw.settle();
+    expect(second.rang).toEqual([]);
+  });
+
+  it("the conversation's own question rings as today, quiet while the Conductor is in front of you", () => {
+    const { bell, rang, gates } = harness();
+    bell.observe(reading([]));
+    bell.observe(reading([], { ownAsks: ["c1"] }));
+    gates.conversation = true;
+    bell.observe(reading([], { ownAsks: ["c1", "c2"] }));
+    expect(rang).toEqual([{ items: [], own: 1 }]);
+  });
+
+  it("alerts off: silent, and turning them on afterwards does not ring for that item", () => {
+    const { bell, rang, gates } = harness();
+    bell.observe(reading([]));
     gates.alerts = false;
-    bell.observe(["ask:1"]);
+    bell.observe(reading([question(KOLU, "a1")]));
     gates.alerts = true;
-    bell.observe(["ask:1"]);
+    bell.observe(reading([question(KOLU, "a1")]));
     expect(rang).toEqual([]);
-    bell.observe(["ask:1", "ask:2"]);
-    expect(rang).toEqual([2]);
-  });
-
-  it("watched: silent, and looking away afterwards does not ring for that question", () => {
-    const { bell, rang, gates } = harness();
-    bell.observe([]);
-    gates.watched = true;
-    bell.observe(["ask:1"]);
-    gates.watched = false;
-    bell.observe(["ask:1"]);
-    expect(rang).toEqual([]);
-    bell.observe(["ask:1", "ask:2"]);
-    expect(rang).toEqual([2]);
   });
 });

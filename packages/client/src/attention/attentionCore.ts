@@ -23,9 +23,20 @@ export interface AttentionHooks {
   /** Is the user looking right AT this terminal (active host + active tile +
    *  focus) — a live gate they've already "seen". */
   isWatched(encHost: string, id: TerminalId): boolean;
-  /** Reach the user for one terminal (sound + OS popup + dock unread) — the
-   *  channel the engine decides to fire. */
-  deliver(encHost: string, id: TerminalId, asking: boolean): void;
+  /** Is the Conductor driving this terminal? It answers its own agents (the
+   *  Conductor is woken about them), so the terminal does not ring you on its
+   *  own: no sound and no OS popup. A terminal the human has taken over is
+   *  theirs again and rings as any other. */
+  isDriven(encHost: string, id: TerminalId): boolean;
+  /** Reach the user for one terminal — the channel the engine decides to
+   *  fire. `loud` is the sound and the OS popup; the dock unread is drawn
+   *  either way, because the marks are what a person scans for. */
+  deliver(
+    encHost: string,
+    id: TerminalId,
+    asking: boolean,
+    loud: boolean,
+  ): void;
   /** Publish a host's unseen-finished count (the quiet host-tab dot). */
   writeMark(encHost: string, unseenFinished: number): void;
   /** Drop one terminal's dock unread mark — its episode is over (`ended`, whose
@@ -124,7 +135,8 @@ export function createAttentionCore(hooks: AttentionHooks): AttentionCore {
       if (latched.get(encHost)?.has(id) ?? false) continue;
       const seen = hooks.isWatched(encHost, id);
       const alerted = hooks.alertsEnabled() && !seen;
-      if (alerted) hooks.deliver(encHost, id, asking);
+      if (alerted)
+        hooks.deliver(encHost, id, asking, !hooks.isDriven(encHost, id));
       // Latch once the user has been MADE AWARE — an actual alert, OR looking
       // right at a live gate (eyes work with sound off). A `finished` seen
       // while watched is NOT latched, so a later real gate still fires (#1177).

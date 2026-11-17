@@ -107,8 +107,9 @@ conversation — a model is that role's own last one with that harness first.
 | `store.ts` | the ONE smart constructor over works + members: `parseStore` (what the decoder and the single writer both go through), `storeFault` and the `InvalidWorkStore` carrying the `StoreFault` that names the rule that broke and the rows that break it — a VALUE, because the sentence belongs to the face that shows it |
 | `record.ts` | the transitions: `openWork`, `askQuestions`, `answerAsk` (a blank question stays asked; `answered` or `answered-part` on the timeline), `answeredWith`, `dropAsk`, `dropQuestions`, `joinWork`, `leaveWork`, `recordEvent`, `linkPr` (a PR recorded before kolu kept addresses learns its own, by AMENDING its `pr-opened`), `takeOver`/`handBack`, `endWork`, `reopenWork`, `keepFiles`/`keepFailed` — the record only grows, except for the bounds below and that amend; `openAsks`/`hasOpenAsk` derive what is still waiting on a person |
 | `readings.ts` | the MECHANISM of a reading: the decisions of one ask, the PR as the timeline last said it (`prStep`, the ONE statement of the PR-fact rule, and `prOf` over it: its state, its recorded link, the last check event and the last merge answer — what the observer compares a reading with, so it records only a CHANGE for that PR at that commit, and what the folds carry to tell green) with the one check table (`CHECK_STEP`), `sameHead` (two facts about one commit, by kind and sha), `prLinks` (each PR number the timeline opened, to the URL recorded with it), the files seen, and why the latest ending did not keep some (`notKeptOf`) |
-| `folds.ts` | `waitingOn`, `standing` (a sum: a question, a merge, CI, the agents, or done), `timeSpent`, `stages` (a `Stages` sum: `unset` none yet, `none` for a mode that declares none, `staged` the six cells with every event filed and the `current` stage, each cell a `StageState` sum), `took`, `lifetime`, `inProgress`/`finished` over `WorkRow`, `capFinished` — each taking a `Policy` (`handOver`, and how the work is `run`: `unset`, or `set` with whether it is driven and the stages its mode declares) rather than reading the setup itself |
-| `waterfall.ts` | the WORDS and every rule over them: `MODE_RUNS` (what each mode runs, needs and drives, and the stages it HAS), `rolesOf`, `setupKeyOf`, `roleOfKey`, `roleRank`, the one setup reading (`setupStanding`, `setupValue`, `modeOf`/`onGreenOf`/`setupOf`/`roleSetupOf`, `keysToAsk`, `openSetupQuestions`, `startBlockers`), `missingSetup` + `foreignSetupWords`, the kolu-choice rules (`harnessForModel`, `askedAnswersOf`/`givenAnswersOf`/`savedAnswersOf`, `modelHarnessesOf`, `modelNotOffered`, `unofferedAnswers`, `koluKeysOf`, `unofferedWhy`/`unofferedWords`, `setupMemory`), `driverOf`, `membershipOf`, `waitingOnYou`, `policyOf`, where a work's files live (`WATERFALL_DIR`, `waterfallFileName`), and a flat list of them read as a tree, the same for a live listing and a kept copy (`waterfallLevel`, `childFolderOf`, `compareWaterfallPaths`, `waterfallBytes`) |
+| `folds.ts` | `waitingOn`, `standing` (a sum: a question with its `ask` and its words, a merge with the `GreenPr` it waits on — number, head and link — when the timeline knows one, CI, the agents, or done), `timeSpent`, `stages` (a `Stages` sum: `unset` none yet, `none` for a mode that declares none, `staged` the six cells with every event filed and the `current` stage, each cell a `StageState` sum), `took`, `lifetime`, `inProgress`/`finished` over `WorkRow`, `capFinished` — each taking a `Policy` (`handOver`, and how the work is `run`: `unset`, or `set` with whether it is driven and the stages its mode declares) rather than reading the setup itself |
+| `needsYou.ts` | WHAT NEEDS THE HUMAN, `standing` and `WAITER_OF` read as a list: `needsYou` over the rows, `needsYouOf` for one, the `NeedsYou` item (its work and title, the `question` or `merge` arm, `since`, the `wanted` words and the item's `key` — the work, the reason and the ask or the green commit, so a merge answer flickering on one commit is ONE item), and `wantedWords`, the one phrase every face says |
+| `waterfall.ts` | the WORDS and every rule over them: `MODE_RUNS` (what each mode runs, needs and drives, and the stages it HAS), `rolesOf`, `setupKeyOf`, `roleOfKey`, `roleRank`, the one setup reading (`setupStanding`, `setupValue`, `modeOf`/`onGreenOf`/`setupOf`/`roleSetupOf`, `keysToAsk`, `openSetupQuestions`, `startBlockers`), `missingSetup` + `foreignSetupWords`, the kolu-choice rules (`harnessForModel`, `askedAnswersOf`/`givenAnswersOf`/`savedAnswersOf`, `modelHarnessesOf`, `modelNotOffered`, `unofferedAnswers`, `koluKeysOf`, `unofferedWhy`/`unofferedWords`, `setupMemory`), `driverOf`, `membershipOf`, `policyOf`, where a work's files live (`WATERFALL_DIR`, `waterfallFileName`), and a flat list of them read as a tree, the same for a live listing and a kept copy (`waterfallLevel`, `childFolderOf`, `compareWaterfallPaths`, `waterfallBytes`) |
 | `refusal.ts` | why a call about a work is refused — `WORK_REFUSALS` and the `WorkRefusal` every face `instanceof`s |
 
 **Four rules JSON cannot state, in one constructor.** Everything else is the
@@ -127,11 +128,15 @@ is a lint rule (`noRestrictedImports` in `biome.jsonc`), not a comment —
 adding a mode is then ONE row of `MODE_RUNS`, typed by `WorkMode`, instead of
 three tables that each failed open.
 
-**No English crosses this wall.** `standing()` answers a TOKEN — who is waited
-on and why, the question's words or the PR number as needed — and each reader
-spells it: the card writes a lead and a live check tally, the Conductor's
-`works` resource writes a sentence for an agent. The refusal SENTENCES are
-composed by `kolu-conductor`, which names its own tool calls.
+**Almost no English crosses this wall.** `standing()` answers a TOKEN — who is
+waited on and why, the question's words or the PR number as needed — and each
+reader spells it: the card writes a lead and a live check tally, the
+Conductor's `works` resource writes a sentence for an agent. The one phrase
+that lives here is `wantedWords` (`needsYou.ts`): what a wait on the human
+asks for, in a few words, because the card's line, the palette's row and the
+notification must say the same short thing and three copies would be three
+places to drift. The refusal SENTENCES are composed by `kolu-conductor`,
+which names its own tool calls.
 
 **Who is typing into a terminal is a reading too.** The Conductor drives the
 members of a work whose mode is `full` or `trivial`; a person takes one over

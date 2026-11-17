@@ -61,9 +61,9 @@ import {
   timeSpent,
   took,
   unofferedAnswers,
+  needsYou,
   WAITER_OF,
   waitingOn,
-  waitingOnYou,
   WATERFALL_DIR,
   waterfallBytes,
   waterfallFileName,
@@ -198,6 +198,8 @@ describe("a work IS its key", () => {
   it("answers nothing for a string that is no work id", () => {
     expect(Option.isNone(workKeyOf("w1"))).toBe(true);
     expect(Option.isNone(workKeyOf("branch:host//branch"))).toBe(true);
+    // A pasted link with a broken escape is refused, never thrown.
+    expect(Option.isNone(workKeyOf("branch:local/%E0%A4%A/b"))).toBe(true);
   });
 
   it("reads the host off the key, with no decision involved", () => {
@@ -1248,7 +1250,7 @@ describe("the readings", () => {
     });
     expect(waitingOn(asked, policyOf(asked))).toBe("you");
     expect(standing(asked, policyOf(asked)).why).toBe("question");
-    expect(waitingOnYou([asked])).toBe(1);
+    expect(needsYou([["w", asked]]).length).toBe(1);
     const answered = answerAsk(asked, {
       ask: "ask-2",
       at: T(5),

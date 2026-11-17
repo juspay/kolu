@@ -3,7 +3,9 @@
  *  FINISHES must fire an alert. */
 
 import type { TerminalId } from "kolu-common/surface";
+import type { Membership } from "kolu-work";
 import { describe, expect, it, vi } from "vitest";
+import { drivenByConductor } from "../conductor/workReadings";
 import { type AttentionHooks, createAttentionCore } from "./attentionCore";
 import type { AttentionFrame } from "kolu-common/surface";
 
@@ -14,18 +16,71 @@ const u = (asking: string[] = [], finished: string[] = []): AttentionFrame => ({
 
 function harness(over: Partial<AttentionHooks> = {}) {
   const delivered: Array<{ id: string; asking: boolean }> = [];
+  /** The deliveries that made NO sound and no OS popup — only the marks. */
+  const quiet: string[] = [];
   const cleared: Array<{ host: string; id: string }> = [];
   const hooks: AttentionHooks = {
     alertsEnabled: () => true,
     isActiveHost: () => true,
     isWatched: () => false, // nothing watched by default (background)
-    deliver: (_h, id, asking) => delivered.push({ id, asking }),
+    isDriven: () => false,
+    deliver: (_h, id, asking, loud) => {
+      delivered.push({ id, asking });
+      if (!loud) quiet.push(id);
+    },
     writeMark: () => {},
     clearUnread: (host, id) => cleared.push({ host, id }),
     ...over,
   };
-  return { core: createAttentionCore(hooks), delivered, cleared };
+  return { core: createAttentionCore(hooks), delivered, quiet, cleared };
 }
+
+describe("attentionCore — a terminal the Conductor drives", () => {
+  /** The membership index, as `membershipOf` hands it out, keyed by fleet
+   *  ref: the planner the Conductor drives, the implementor the human took
+   *  over, and a member of a plain watch nobody drives. */
+  const membership = new Map<string, Membership>([
+    [
+      "local/planner",
+      { work: "w", title: "w", role: "planner", driver: "conductor" },
+    ],
+    [
+      "local/implementor",
+      { work: "w", title: "w", role: "implementor", driver: "you" },
+    ],
+    [
+      "local/watched",
+      { work: "v", title: "v", role: "other", driver: "nobody" },
+    ],
+  ]);
+  const harnessed = () =>
+    harness({
+      isDriven: (encHost, id) => drivenByConductor(membership, encHost, id),
+    });
+
+  it("is silent — its question draws the mark and rings nothing", () => {
+    const { core, delivered, quiet } = harnessed();
+    core.observe("local", u([], []));
+    core.observe("local", u(["planner"], []));
+    expect(delivered).toEqual([{ id: "planner", asking: true }]);
+    expect(quiet).toEqual(["planner"]);
+  });
+
+  it("rings once the human has taken it over, and for a watch or no work", () => {
+    const { core, quiet, delivered } = harnessed();
+    core.observe("local", u([], []));
+    core.observe("local", u(["implementor", "watched", "loose"], []));
+    expect(delivered).toHaveLength(3);
+    expect(quiet).toEqual([]);
+  });
+
+  it("is about THIS host's terminal: the same id on another host rings", () => {
+    const { core, quiet } = harnessed();
+    core.observe("remote:box", u([], []));
+    core.observe("remote:box", u(["planner"], []));
+    expect(quiet).toEqual([]);
+  });
+});
 
 describe("attentionCore — detect→fire (the path e2e/simulate skips)", () => {
   it("REPRO: a background terminal that finishes fires an alert", () => {

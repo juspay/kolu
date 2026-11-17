@@ -16,10 +16,17 @@
  *  The ROLE is what it says: a role is one word and fits, a work's title is a
  *  sentence and would push the name off the row — so the title rides in the
  *  tooltip, where a reader who wants to know which waterfall this is can
- *  reach it. */
+ *  reach it.
+ *
+ *  IT IS A LINK TO ITS WORK — the work's own address (`#/work/<id>`), so a
+ *  middle-click or a copied link works as a link does, and a plain click
+ *  takes the one route to a work in place, without the row under it also
+ *  taking the click as "go to this terminal". */
 
 import { type Component, Show } from "solid-js";
+import { workLink } from "../deepLink";
 import { useMembership } from "./useWorks";
+import { showWork } from "./workListing";
 import { ROLE_WORD } from "./workReadings";
 
 const WorkMark: Component<{
@@ -32,7 +39,8 @@ const WorkMark: Component<{
   return (
     <Show when={membership().get(props.terminal)}>
       {(at) => (
-        <span
+        <a
+          href={workLink(at().work)}
           data-testid="work-mark"
           data-role={at().role}
           data-work={at().work}
@@ -44,16 +52,24 @@ const WorkMark: Component<{
           data-driver={at().driver}
           title={`${ROLE_WORD[at().role]} of “${at().title}”${
             at().driver === "you" ? " · taken over by you" : ""
-          }`}
-          class={`inline-flex shrink-0 items-center gap-1 rounded-sm px-1 font-mono text-[0.55rem] font-semibold uppercase leading-[1.4] tracking-[0.06em] align-[0.05em] ${
+          } — go to the work`}
+          class={`inline-flex shrink-0 items-center gap-1 rounded-sm px-1 font-mono text-[0.55rem] font-semibold uppercase leading-[1.4] tracking-[0.06em] align-[0.05em] no-underline hover:underline ${
             at().driver === "you"
               ? "bg-alert/15 text-alert"
               : "bg-conductor/15 text-conductor"
           }`}
+          onClick={(event) => {
+            // A plain click is the route, here and now; a modified one (a
+            // new tab, a copied address) is the browser's.
+            event.stopPropagation();
+            if (event.metaKey || event.ctrlKey || event.shiftKey) return;
+            event.preventDefault();
+            showWork(at().work);
+          }}
         >
           <span aria-hidden="true">◆</span>
           {ROLE_WORD[at().role]}
-        </span>
+        </a>
       )}
     </Show>
   );

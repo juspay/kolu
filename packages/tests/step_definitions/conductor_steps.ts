@@ -1491,15 +1491,16 @@ Then(
   async function (this: KoluWorld, which: string) {
     const status = IN_FLOW_STATUS[which];
     assert.ok(status !== undefined, `no tool-call status is named "${which}"`);
-    // A DIRECT row of the transcript, not one inside the fold: a reader must
-    // not have to open anything to see it.
+    // A row of the transcript that is NOT inside the Details fold: a reader
+    // must not have to open anything to see it. Asked by ancestry, not by
+    // being a direct child — the transcript wraps each item to fold a turn.
     await waitForValue(
       `${which} tool cards outside the fold`,
       async () =>
         String(
           await visibleCount(
             this,
-            `${TRANSCRIPT} > ${ROW} ${TOOL_CARD}[data-status="${status}"]`,
+            `${TRANSCRIPT} ${ROW} ${TOOL_CARD}[data-status="${status}"]:not(${FOLD} *)`,
           ),
         ),
       "1",
