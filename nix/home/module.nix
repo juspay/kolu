@@ -149,7 +149,7 @@ in
         consumer must state the set or fail at eval rather than silently
         degrade. The flake's `homeManagerModules.default` defaults it to the
         packages named by `nix/agent-packages.json`'s `expose` list — the same
-        manifest `ci/agent-substitutable`, `ci/agent-preflight` and
+        manifest `ci/agent-preflight`, the `publish-closures` CI job and
         `nix/agent-flake.nix` read — so the set can never skew from what a
         remote is actually allowed to resolve.
       '';

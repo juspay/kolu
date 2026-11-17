@@ -5,7 +5,7 @@
 # THIS FILE WARMS THE CACHE FOR DARWIN ONLY. `odu ci run` pushes every
 # recipe's `result*` closure to the cache the repo's `flake.nix` `nixConfig`
 # names, so the x86_64-linux warm is `ci::nix` (+ `ci::website-nix`,
-# `ci::odu-nix`), verified by `ci::cache-substitutable` on the same lane. One
+# `ci::odu-nix`), pushed as each of those lane nodes completes. One
 # linux build, on the lane that already had to do it, instead of a second one
 # here. Darwin has no odu lane in this repo's gate (`ci/protect` pins
 # x86_64-linux), so darwin stays GitHub's job.
@@ -67,8 +67,9 @@
 #     `refs/pull/N/merge` tree, so a branch's own head — the thing developers,
 #     odu, and deploys all build — was never warmed. See the `ref:` note below.
 #   * TRUST NOTHING, ASK THE CACHE. Pushing is an instruction, not a result.
-#     The final step queries the cache back for the remote-agent closures
-#     (`ci/agent-substitutable`), so "warmed" is an observation.
+#     Whether a host can fetch the agents is proved by `publish-closures`,
+#     which imports every published agent path from this cache alone into an
+#     empty store; the push action below proves what the bucket serves.
 name: nix-cache
 
 on:
@@ -93,11 +94,11 @@ jobs:
         # macos-latest → aarch64-darwin (GitHub's current image). ONE entry on
         # purpose: x86_64-linux is warmed by the odu lanes (`ci::nix` and its
         # subflake siblings leave `result*` out-links; odu pushes each closure
-        # as part of the node's completion) and verified there by
-        # `ci::cache-substitutable`. Darwin has no odu lane in the gate, so it
-        # is warmed here. The cost is at `publish-closures`, whose ubuntu leg
-        # loses the in-workflow warm it used to inherit — stated in full at
-        # that job. aarch64-linux stays out until something needs it warmed;
+        # as part of the node's completion). Darwin has no odu lane in the
+        # gate, so it is warmed here. The cost is at `publish-closures`, whose
+        # ubuntu leg loses the in-workflow warm it used to inherit — stated in
+        # full at that job. aarch64-linux stays out until something needs it
+        # warmed;
         # x86_64-darwin is no longer a kolu system at all — agent-distro does
         # not build there.
         os: [macos-latest]
@@ -260,40 +261,6 @@ jobs:
           # No `pin:` either. Left empty the action pins on the default branch
           # and nowhere else (juspay/odu#169) — the condition this file used to
           # spell out as an expression.
-
-      # The push above proves what the BUCKET SERVES, path by path. This asks
-      # the narrower, load-bearing question the deploy actually depends on: are
-      # the remote-agent closures a `--host` dial provisions really there —
-      # using the same source tree, package inventory and cache list
-      # `@kolu/surface-remote` reads at dial time. It asks by plain HTTP
-      # narinfo GET, so nix's local narinfo cache cannot answer on the server's
-      # behalf (that false-red this step once). Rationale and scope live in the
-      # script's header.
-      #
-      # NOTE THE BOUNDARY: green here is a receipt about a COMMIT, and it lands
-      # tens of minutes after that commit becomes deployable. It does not, and
-      # cannot, cover the artifact an operator ships — see `ci/agent-preflight`,
-      # which is the deploy-host half of this.
-      #
-      # Also a node on the odu lane now (`ci::cache-substitutable`, `needs:
-      # nix`): odu pushes a node's `result*` closures as part of that node's
-      # completion, so on linux the dependency edge already means "after this
-      # lane's push". It could not live there while the push was a GitHub job
-      # running concurrently with the odu lanes — an odu node would have been
-      # asking before the answer could be yes. Here it stays because darwin
-      # has no odu lane, and the question has a real answer after our own
-      # push, in our own job.
-      #
-      # It is a HARD failure, not a warning. A soft-fail would restore the state
-      # this whole job was already in during the incident: green, and cold.
-      - name: Verify the agent closures are substitutable
-        # A fork PR pushed nothing, so there is nothing of its own to verify.
-        # Same fork gate as the push: same-repo runs always ask.
-        if: github.event.pull_request.head.repo.fork != true
-        shell: bash
-        run: |
-          set -euo pipefail
-          bash ci/agent-substitutable
 
   # THE JOB THAT MAKES THE AGENTS FETCHABLE. It publishes the agents' builds —
   # every exposed attr, the signed `ia` and, off darwin, the content-addressed

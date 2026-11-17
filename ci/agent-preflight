@@ -30,9 +30,9 @@
 # to it. `nix/home/example/`'s `agent-closure-containment` check is the proof,
 # and it fails the build if that ever stops holding (I1, juspay/kolu#2101).
 #
-# So the one narrative both this script and `ci/agent-substitutable` now tell:
+# So the one narrative this script tells:
 # **a module deploy carries every provisionable agent closure by construction;
-# these scripts cover the flows OUTSIDE the module.** For those flows the old
+# this script covers the flows OUTSIDE the module.** For those flows the old
 # story is unchanged and still bites.
 #
 # `@kolu/surface-remote` tries, in order (packages/surface-remote/src/nixCopy.ts):
@@ -49,8 +49,9 @@
 #
 # WHY CI CANNOT COVER THIS, HONESTLY STATED
 # -----------------------------------------
-# `ci/agent-substitutable` in nix-cache.yml proves the cache holds a COMMIT's
-# agent closure. A deploy is a different event, and it can precede that proof:
+# `publish-closures` in nix-cache.yml proves a COMMIT's agent closures can be
+# fetched from the cache alone: it pushes them whole and imports each one into
+# an empty store. A deploy is a different event, and it can precede that proof:
 # deploy #2 shipped `beb2f7418` at 21:20:43 while the nix-cache run for that sha
 # was created 21:25:38 and finished 21:35:00. `nix flake update` takes seconds;
 # a two-platform matrix build takes tens of minutes. The operator can always
@@ -82,11 +83,10 @@ case "$flake" in
 esac
 [ $# -le 1 ] || die "one FLAKE argument at most (got $#)"
 
-here="$(cd "$(dirname "$0")" && pwd)"
-
 # Resolve the artifact's own agent source, then read its inventory from INSIDE
-# it — the same self-describing tree `ci/agent-substitutable` reads, so the two
-# scripts cannot disagree about which packages a remote may resolve.
+# it — the same self-describing tree `@kolu/surface-remote` reads at dial time,
+# so this cannot disagree with provisioning about which packages a remote may
+# resolve.
 agent_flake_ref="$(nix build "${flake}#agent-flake-source" --no-link --print-out-paths --accept-flake-config)"
 
 packages_json="${agent_flake_ref}/nix/agent-packages.json"
@@ -113,22 +113,6 @@ nix build -L --no-link --print-out-paths --accept-flake-config $installables \
   || die "could not realise the agent closure — a remote provisioned from this artifact WILL compile from source"
 
 echo
-echo "this host can now ship the agent closure to any remote without a cache."
-echo "cache state (an optimisation for OTHER binders, not a precondition here):"
-
-# Report, do not gate. The contract this script exists for — "no remote
-# compiles from source" — is already met by the realise above; whether some
-# cache also holds the bits is a different and weaker property, and conflating
-# them would make this exit non-zero for a deploy that is in fact safe.
-if bash "${here}/agent-substitutable" "$flake"; then
-  echo "ci/agent-preflight: local store armed, and the cache is warm too"
-else
-  cat <<EOF
-
-ci/agent-preflight: local store armed — THIS deploy is safe.
-The cache does not (yet) hold this artifact's agent closure, so any OTHER
-binder dialing these hosts would still build it. That is expected for a rev CI
-has not warmed yet, and permanent for a local or dirty tree. If this rev is
-pushed and has an open PR, the nix-cache run for its head sha will close it.
-EOF
-fi
+echo "ci/agent-preflight: local store armed — this host can now ship the agent"
+echo "closure to any remote without a cache. Whether the cache can serve it to"
+echo "OTHER binders is publish-closures' question, for commits CI has built."

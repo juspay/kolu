@@ -64,9 +64,6 @@ nix_shell := if env('IN_NIX_SHELL', '') != '' { '' } else { 'nix develop --accep
 #     root evaluator/build process has exited instead of competing with it for
 #     CPU, memory, and Nix locks.
 #   * `home-manager` is the one deliberate exception — its recipe owns why.
-#   * `cache-substitutable`'s edge is the one that is not about contention:
-#     it is ORDER — odu's push happens as `nix` completes, so the edge is
-#     what makes "ask the cache back" ask afterwards.
 #
 # The remaining edges intentionally trade critical-path length for lower peak
 # contention.
@@ -74,7 +71,7 @@ nix_shell := if env('IN_NIX_SHELL', '') != '' { '' } else { 'nix develop --accep
 [macos]
 [parallel]
 [metadata("ci")]
-default: nix cache-substitutable agent-flake-nix agent-bake agent-models agent-published website-nix website-pnpm-hash-fresh surface-examples-nix solid-browser-example-nix odu-nix home-manager e2e e2e-governance dev-smoke smoke fmt biome unit daemon upgrade-window surface-example-build surface-app-example-build pnpm-hash-fresh
+default: nix agent-flake-nix agent-bake agent-models agent-published website-nix website-pnpm-hash-fresh surface-examples-nix solid-browser-example-nix odu-nix home-manager e2e e2e-governance dev-smoke smoke fmt biome unit daemon upgrade-window surface-example-build surface-app-example-build pnpm-hash-fresh
 
 # Single per-platform `pnpm install`. The runner fans every recipe out into
 # its own process and starts them all in parallel as soon as setup completes,
@@ -131,35 +128,6 @@ pnpm-hash-fresh: nix
 nix:
     bash ci/flake-build --link .
     nix flake check --no-build --accept-flake-config -L
-
-# Ask the cache back for the closures a `--host` dial provisions, AFTER the
-# push that `ci::nix`'s out-links triggered. `needs: nix` IS that ordering:
-# odu pushes a node's `result*` as part of the node's completion, so this
-# cannot ask before the answer can be yes — which is why the check used to be
-# GitHub-only (`ci/agent-substitutable`'s header has the history).
-#
-# Reads only — no token, no credential: a narinfo GET against the public
-# substituter.
-#
-# IT VERIFIES THIS RUN'S PUSH, so it asks only when this run pushed. odu puts
-# `ODU_CACHE_ORIGIN`/`ODU_CACHE_BUCKET` in a recipe's environment exactly when
-# it is pushing that lane's `result*` (the token is stripped before the recipe
-# sees it); with no cache target it sets neither and says "not pushing: …" in
-# `_ci-setup`. A daemon that serves no kolu-r2 — anybody's laptop — would
-# otherwise red this node on every commit that moves the agent source, for a
-# push it was never going to make. Same rule `.github/workflows/nix-cache.yml`
-# already applies to a fork PR: pushed nothing, so nothing of its own to
-# verify. The skip is LOUD, and `run_read`'s `push.target` is the other half
-# of the story.
-cache-substitutable: nix
-    #!/usr/bin/env bash
-    set -euo pipefail
-    if [ -z "${ODU_CACHE_BUCKET:-}" ]; then
-      echo "ci::cache-substitutable: this run pushed nothing — odu set no ODU_CACHE_BUCKET (see _ci-setup's 'not pushing' line), so there is no push of its own to ask the cache about."
-      exit 0
-    fi
-    echo "ci::cache-substitutable: verifying this run's push to bucket ${ODU_CACHE_BUCKET}"
-    {{ nix_shell }} bash ci/agent-substitutable
 
 # Evaluate every remote-agent package from the exact minimal source flake baked
 # into Kolu's wrappers. The package names come from Kolu's agent manifest,
