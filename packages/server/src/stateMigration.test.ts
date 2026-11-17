@@ -55,6 +55,7 @@ import {
   memberWatchOutOfWorks_1_52_0,
   migrateConductorToWorks_1_50_0,
   koluChoicesSayHowChosen_1_56_0,
+  mentionsSayTheirKind_1_58_0,
   moveKeptFiles_1_53_0,
   prFactsOnTheTimeline_1_57_0,
   splitWorkAskRows_1_53_0,
@@ -915,10 +916,12 @@ describe("what an EARLIER COMMIT of this branch wrote, read by head", () => {
     ]);
 
     // THE RUNGS: the work-carrying ask row becomes its own kind (1.53.0), its
-    // outcome becomes where it stands (1.55.0), and the stamp moves, so the
-    // reader of today accepts the file they leave behind.
+    // outcome becomes where it stands (1.55.0), a mention says what it is
+    // (1.58.0), and the stamp moves, so the reader of today accepts the file
+    // they leave behind.
     splitWorkAskRows_1_53_0(root);
     workAskStanding_1_55_0(root);
+    mentionsSayTheirKind_1_58_0(root);
     expect(
       JSON.parse(readFileSync(path, "utf8")) as { version: string },
     ).toMatchObject({ version: TRANSCRIPT_FILE_VERSION });
@@ -1985,7 +1988,7 @@ describe("the 1.55.0 rung — no hole in the work model", () => {
     workAskStanding_1_55_0(dir);
 
     const file = readJson(transcriptFilePath(dir));
-    expect(file.version).toBe(TRANSCRIPT_FILE_VERSION);
+    expect(file.version).toBe("1.55.0");
     const rows = file.rows as Array<Record<string, unknown>>;
     // A plain ask — the agent holding a call open on a person — is not this
     // rung's business.
@@ -2037,7 +2040,7 @@ describe("the 1.55.0 rung — no hole in the work model", () => {
     workAskStanding_1_55_0(dir);
 
     const file = readJson(transcriptFilePath(dir));
-    expect(file.version).toBe(TRANSCRIPT_FILE_VERSION);
+    expect(file.version).toBe("1.55.0");
     expect(file.rows).toEqual([
       {
         key: "u-1",
@@ -2539,5 +2542,64 @@ describe("the 1.57.0 rung — a PR's address and the forge's merge answer", () =
     const set = vi.spyOn(store, "set");
     prFactsOnTheTimeline_1_57_0(store as never);
     expect(set).not.toHaveBeenCalled();
+  });
+});
+
+describe("the 1.58.0 rung — a mention says what it is", () => {
+  const AT = "2026-11-17T01:00:00.000Z";
+  const TERMINAL = {
+    terminalId: "11111111-1111-4111-8111-111111111111",
+    host: "local",
+    name: "chat-on-any-entity",
+    intent: null,
+    cwd: "/home/me/code/olai",
+  };
+
+  it("gives every saved mention `kind: terminal` and moves the stamp", () => {
+    const dir = mkdtempSync(join(tmpdir(), "kolu-mention-kind-"));
+    dirs.push(dir);
+    writeTranscriptFile(transcriptFilePath(dir), "1.55.0", [
+      { id: "u1", seq: 1, since: AT, kind: "user", text: "hi" },
+      {
+        id: "u2",
+        seq: 2,
+        since: AT,
+        kind: "user",
+        text: "look at @chat-on-any-entity",
+        mentions: [TERMINAL],
+      },
+      { id: "a1", seq: 3, since: AT, kind: "agent", text: "Looking." },
+    ] as never);
+
+    mentionsSayTheirKind_1_58_0(dir);
+
+    const file = readJson(transcriptFilePath(dir));
+    expect(file.version).toBe(TRANSCRIPT_FILE_VERSION);
+    expect(file.rows).toEqual([
+      { id: "u1", seq: 1, since: AT, kind: "user", text: "hi" },
+      {
+        id: "u2",
+        seq: 2,
+        since: AT,
+        kind: "user",
+        text: "look at @chat-on-any-entity",
+        mentions: [{ kind: "terminal", ...TERMINAL }],
+      },
+      { id: "a1", seq: 3, since: AT, kind: "agent", text: "Looking." },
+    ]);
+    // The reader of today takes what it leaves behind.
+    const read = readPersistedTranscript(
+      transcriptFileStore(dir, TRANSCRIPT_FILE_VERSION),
+      transcriptFilePath(dir),
+      dir,
+    );
+    expect(read.rows[1]).toMatchObject({
+      mentions: [{ kind: "terminal", name: "chat-on-any-entity" }],
+    });
+
+    // Idempotent: a file with nothing left to do is not rewritten.
+    const again = readFileSync(transcriptFilePath(dir), "utf8");
+    mentionsSayTheirKind_1_58_0(dir);
+    expect(readFileSync(transcriptFilePath(dir), "utf8")).toBe(again);
   });
 });

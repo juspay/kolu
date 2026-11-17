@@ -160,19 +160,25 @@ export const workIdOf = (key: WorkKey): WorkId =>
 const decodeWorkKey = Schema.decodeUnknownOption(WorkKeySchema);
 
 /** ... and back. `none` for a string that is no work id — which is what an
- *  agent naming a work kolu never opened hands in. The parts go through the
- *  key's own schema, so an empty one is refused by the rule that refuses it
- *  everywhere else. */
+ *  agent naming a work kolu never opened hands in, and what a pasted link
+ *  with a broken `%`-escape is. The parts go through the key's own schema,
+ *  so an empty one is refused by the rule that refuses it everywhere else. */
 export const workKeyOf = (id: WorkId): Option.Option<WorkKey> => {
   const branch = /^branch:([^/]*)\/([^/]*)\/([^/]*)$/.exec(id);
-  if (branch !== null) {
-    const [host, repo, name] = branch.slice(1).map(decodeURIComponent);
-    return decodeWorkKey({ kind: "branch", host, repo, branch: name });
-  }
   const watch = /^watch:(.*)$/.exec(id);
-  if (watch === null) return Option.none();
-  const [terminal] = watch.slice(1).map(decodeURIComponent);
-  return decodeWorkKey({ kind: "watch", terminal });
+  try {
+    if (branch !== null) {
+      const [host, repo, name] = branch.slice(1).map(decodeURIComponent);
+      return decodeWorkKey({ kind: "branch", host, repo, branch: name });
+    }
+    if (watch === null) return Option.none();
+    const [terminal] = watch.slice(1).map(decodeURIComponent);
+    return decodeWorkKey({ kind: "watch", terminal });
+  } catch {
+    // `decodeURIComponent` throws `URIError` on a malformed escape: that is
+    // a string no `workIdOf` produced, so it names no work.
+    return Option.none();
+  }
 };
 
 /** Who an event is BY: the human, an agent (the Conductor or one of the

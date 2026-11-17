@@ -4,7 +4,8 @@
  *  `location.hash`, a live `hashchange`, — on Chromium PWAs — the
  *  `launchQueue` targetURL of a focus-existing launch, and the Code-tab
  *  preview bridge (`requestDeepLinkNavigation`). Every route lands on an
- *  EXISTING view action (host switch, tile focus, right panel, settings). The
+ *  EXISTING view action (host switch, tile focus, right panel, settings, a
+ *  work's card in the Conductor — `showWork`, the one route to a work). The
  *  router adds addressability, never a new capability.
  *
  *  VIEW-ONLY BY LAW (step 6's negative pin): no handler here calls a mutating
@@ -37,6 +38,7 @@ import {
 } from "solid-js";
 import { toast } from "solid-sonner";
 import { match } from "ts-pattern";
+import { showWork } from "./conductor/workListing";
 import { type DeepLink, type ParsedDeepLink, parseDeepLink } from "./deepLink";
 import { setDeepLinkFocusIntent } from "./deepLinkFocusIntent";
 import { listIsAuthoritative } from "./kaval/useDaemonStatus";
@@ -234,6 +236,8 @@ export function useDeepLinks(): void {
             ),
           )
           .with({ kind: "settings" }, () => openSettings())
+          // A work: the ONE route to a work, which every other face takes.
+          .with({ kind: "work" }, ({ work, ask }) => showWork(work, ask))
           .with({ kind: "host" }, ({ host }) =>
             setActiveHost(decodeHostKey(host)),
           )

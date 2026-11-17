@@ -42,6 +42,7 @@ import { useDialogStack } from "../ui/useDialogStack";
 import { attachDroppedFiles } from "./attachFiles";
 import { completionOpen } from "./drafts";
 import { Shown, useShown } from "../ui/shown";
+import ChatScopeBar from "./ChatScopeBar";
 import ConductorComposer from "./ConductorComposer";
 import ConductorHeader from "./ConductorHeader";
 import ConductorRefusal from "./ConductorRefusal";
@@ -300,6 +301,11 @@ const ConductorPane: Component<{
                   <Show when={state().signIn}>
                     {(signIn) => <ConductorSignIn signIn={signIn()} />}
                   </Show>
+                  {/* WHAT THE CHAT IS POINTED AT, over the chat it filters —
+                      inside the reading column, so the bar, the turns it is
+                      keeping and the box that will carry the work are the
+                      same measure. */}
+                  <ChatScopeBar rows={feed.rows()} />
                   <ConductorTranscript
                     rows={feed.rows()}
                     pending={feed.pending()}

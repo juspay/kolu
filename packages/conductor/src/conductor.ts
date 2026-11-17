@@ -122,6 +122,7 @@ import {
   type ConductorFrame,
   type ConductorReadingLevel,
   type ConductorRow,
+  type ConductorMention,
   type ConductorSignInResult,
   type ConductorState,
   ConductorStateSchema,
@@ -397,17 +398,11 @@ export interface ConductorHost {
   readonly watch: (sink: ConductorFrameSink) => () => void;
   readonly prompt: (
     text: string,
-    /** The terminals the message was ABOUT. `host` is the encoded host key
-     *  and `terminalId` the id on that host; the harness joins them into the
-     *  `host/id` the agent is told, which is the only name a fleet-wide
-     *  conversation can act on. */
-    mentions: ReadonlyArray<{
-      terminalId: string;
-      host: string;
-      name: string;
-      intent: string | null;
-      cwd: string | null;
-    }>,
+    /** What the message was ABOUT — terminals and pieces of work. A
+     *  terminal's `host` is the encoded host key and `terminalId` the id on
+     *  that host; the harness joins them into the `host/id` the agent is
+     *  told, which is the only name a fleet-wide conversation can act on. */
+    mentions: ReadonlyArray<ConductorMention>,
     /** The files that came with the words, by NAME — each was uploaded ahead
      *  of this call by {@link ConductorHost.attach} and is already on disk
      *  under kolu-server's state root. What the harness is handed is the same

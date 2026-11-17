@@ -52,11 +52,18 @@ import {
   type TerminalId,
 } from "kolu-common/surface";
 import "kolu-common/test-hooks";
-import { Effect, Semaphore } from "effect";
-import { createEffect, mapArray, onCleanup } from "solid-js";
+import { Effect, Option, Semaphore } from "effect";
+import { fleetTerminalRef } from "kolu-mcp/fleetRef";
+import type { NeedsYou } from "kolu-work";
+import { createEffect, mapArray, onCleanup, untrack } from "solid-js";
 import { match } from "ts-pattern";
 import { notify } from "../attentionNotify";
 import { hostLabel } from "../host/hostChipTone";
+import {
+  askOnScreenKey,
+  cardOnScreenKey,
+  isOnScreen,
+} from "../conductor/onScreen";
 import {
   conductorOpenAsks,
   useConductorBadge,
@@ -66,12 +73,15 @@ import {
   enterConductorMode,
   conductorMode,
 } from "../conductor/useConductorMode";
+import { useMembership, useNeedsYou, useWorkMap } from "../conductor/useWorks";
+import { showWork } from "../conductor/workListing";
+import { ownAsks } from "../conductor/workReadings";
 import { runAction } from "../runAction";
 import type { TerminalSubject } from "../terminal/terminalSubject";
 import { nextAfter } from "../ui/nextAfter";
 import { activeHost, preferences, setActiveHost } from "../wire";
 import { createAttentionCore } from "./attentionCore";
-import { createConductorAsks } from "./conductorAsks";
+import { createConductorBell } from "./conductorAsks";
 import {
   hostAskingIds,
   hostFrame,
@@ -147,9 +157,13 @@ export function useAttention(deps: AttentionDeps): {
       document.hasFocus(),
     );
 
-  /** Actually reach the user for one terminal: sound + OS popup, plus the dock
-   *  unread when it's an active-host background tile. The `WHEN` gate lives in the
-   *  engine; this is the delivery, shared with the simulate hook.
+  /** Actually reach the user for one terminal: sound + OS popup when `loud`,
+   *  plus the dock unread when it's an active-host background tile. The `WHEN`
+   *  gate lives in the engine; this is the delivery, shared with the simulate
+   *  hook. A terminal the Conductor drives is delivered QUIET — the marks and
+   *  nothing else — because the Conductor answers its agents, and a person
+   *  hearing "finished" for a planner the Conductor is about to brief again
+   *  learns to ignore the bell.
    *
    *  The FUNNEL GUARD: both emission paths (the engine's `hooks.deliver`, fired
    *  from a per-host `createEffect`, and `simulateAlert`) run through here, and the
@@ -157,25 +171,32 @@ export function useAttention(deps: AttentionDeps): {
    *  one of those must NOT escape — from the engine path it would kill that host's
    *  attention effect for the rest of its life; from simulate it would throw out of
    *  a command action. Surface it and move on. */
-  function deliver(host: HostKey, id: TerminalId, asking: boolean): void {
+  function deliver(
+    host: HostKey,
+    id: TerminalId,
+    asking: boolean,
+    loud: boolean,
+  ): void {
     try {
-      playSound();
       const encHost = encodeHostKey(host);
       const rich = isActiveHost(host) ? deps.activeSubject(id) : undefined;
-      const title = rich
-        ? asking
-          ? `${rich.title} needs your input`
-          : `${rich.title} finished`
-        : asking
-          ? `An agent needs your input on ${hostLabel(host)}`
-          : `An agent finished on ${hostLabel(host)}`;
-      void notify.show({
-        tag: `${encHost}/${id}`,
-        title,
-        body: rich?.description,
-        icon: "/favicon.svg",
-        data: { kind: "terminal", host: encHost, terminalId: id },
-      });
+      if (loud) {
+        playSound();
+        const title = rich
+          ? asking
+            ? `${rich.title} needs your input`
+            : `${rich.title} finished`
+          : asking
+            ? `An agent needs your input on ${hostLabel(host)}`
+            : `An agent finished on ${hostLabel(host)}`;
+        void notify.show({
+          tag: `${encHost}/${id}`,
+          title,
+          body: rich?.description,
+          icon: "/favicon.svg",
+          data: { kind: "terminal", host: encHost, terminalId: id },
+        });
+      }
       // `rich` is non-undefined iff this is the active host, so reuse it rather than
       // a second `sameHost` compare — the dock unread is an active-host terminal
       // other than the pane currently receiving input.
@@ -185,45 +206,93 @@ export function useAttention(deps: AttentionDeps): {
     }
   }
 
-  /** THE CONDUCTOR'S ASKS, through the same channel and nothing else.
+  /** WHAT NEEDS YOU, through the same channel and nothing else.
    *
-   *  A conversation blocked on a question is `asking` in exactly the sense the
-   *  frame already means it — the only difference is that the thing blocked is
-   *  THE conversation rather than a terminal, so there is no id to focus and
-   *  no host to carry: one conversation covers the whole fleet. It fires the
-   *  SAME sound and the SAME notification seam (there is one `Audio`, one
-   *  `Notification` and one `setAppBadge` in this client, and this is not a
-   *  second of any of them), and it counts into the same badge below. WHEN it
-   *  fires is `conductorAsks`'s rule. */
-  const deliverAsks = (open: number): void => {
+   *  A work waiting on you — a question, a green PR handed over — and a
+   *  question the conversation asks about no work are `asking` in exactly the
+   *  sense the frame already means it. They fire the SAME sound and the SAME
+   *  notification seam (there is one `Audio`, one `Notification` and one
+   *  `setAppBadge` in this client, and this is not a second of any of them),
+   *  and they count into the same badge below. WHEN they fire is
+   *  `conductorAsks`'s rule.
+   *
+   *  ONE NOTIFICATION PER WORK ITEM, titled with the work and saying what is
+   *  wanted, tagged with the item so two works do not replace each other; a
+   *  click takes the one route to the work, onto its card and its question.
+   *  The conversation's own questions are one notification, as they always
+   *  were. One sound for the lot. */
+  const deliverNeeds = (
+    items: ReadonlyArray<NeedsYou>,
+    ownOpen: number | null,
+  ): void => {
     try {
       playSound();
-      void notify.show({
-        tag: "conductor",
-        title: "The conductor needs you",
-        body:
-          open === 1
-            ? "One question is waiting"
-            : `${open} questions are waiting`,
-        icon: "/favicon.svg",
-        data: { kind: "conductor" },
-      });
+      for (const item of items)
+        void notify.show({
+          tag: `work:${item.key}`,
+          title: item.title,
+          body:
+            item.why.why === "question"
+              ? item.why.question
+              : Option.match(item.why.pr, {
+                  onNone: () => "Ready to merge: the PR is green",
+                  onSome: (pr) => `Ready to merge: PR #${pr.number} is green`,
+                }),
+          icon: "/favicon.svg",
+          data: {
+            kind: "work",
+            work: item.work,
+            ask: item.why.why === "question" ? item.why.ask : null,
+          },
+        });
+      if (ownOpen !== null)
+        void notify.show({
+          tag: "conductor",
+          title: "The conductor needs you",
+          body:
+            ownOpen === 1
+              ? "One question is waiting"
+              : `${ownOpen} questions are waiting`,
+          icon: "/favicon.svg",
+          data: { kind: "conductor" },
+        });
     } catch (err) {
       console.error("useAttention: conductor delivery failed", err);
     }
   };
-  const conductorBell = createConductorAsks({
+  const conductorBell = createConductorBell({
     alertsEnabled,
-    isWatched: () => conductorMode() && document.hasFocus(),
-    deliver: deliverAsks,
+    // THAT ITEM in view in a focused window — its question, or for a merge
+    // its card. Looking at the Conductor alone is not looking at it.
+    isItemWatched: (item) =>
+      document.hasFocus() &&
+      isOnScreen(
+        item.why.why === "question"
+          ? askOnScreenKey(item.why.ask)
+          : cardOnScreenKey(item.work),
+      ),
+    isConversationWatched: () => conductorMode() && document.hasFocus(),
+    deliver: deliverNeeds,
   });
+  const workMap = useWorkMap();
+  const needs = useNeedsYou();
   createEffect(() => {
     const asks = conductorOpenAsks();
     // Silence is not an empty list: before the server's first frame there is
     // nothing to compare against, and the real first frame is the baseline.
     if (asks === undefined) return;
-    conductorBell.observe(asks);
+    const map = workMap();
+    conductorBell.observe({
+      openAsks: asks,
+      ownAsks: ownAsks([...map.values()], asks),
+      works: new Set(map.keys()),
+      needs: needs(),
+    });
   });
+
+  // WHO DRIVES EACH MEMBER TERMINAL — the one membership index the dock
+  // mark and the tile's lock read, keyed by fleet ref.
+  const membership = useMembership();
 
   // The detect→fire ENGINE (`attentionCore`) — unit-tested off the wire. It owns
   // the per-host prev-frame, the fire-once latch, and the unseen-finished sets;
@@ -233,8 +302,13 @@ export function useAttention(deps: AttentionDeps): {
     alertsEnabled,
     isActiveHost: (encHost) => isActiveHost(decodeHostKey(encHost)),
     isWatched: (encHost, id) => watched(decodeHostKey(encHost), id),
-    deliver: (encHost, id, asking) =>
-      deliver(decodeHostKey(encHost), id, asking),
+    // Untracked: asked mid-frame, inside a host's own effect, which must not
+    // re-run because some terminal's driver moved.
+    isDriven: (encHost, id) =>
+      untrack(membership)?.get(fleetTerminalRef(encHost, id))?.driver ===
+      "conductor",
+    deliver: (encHost, id, asking, loud) =>
+      deliver(decodeHostKey(encHost), id, asking, loud),
     writeMark: (encHost, unseenFinished) =>
       writeHostMarks(encHost, { unseenFinished }),
     clearUnread: (encHost, id) => deps.clearUnread(decodeHostKey(encHost), id),
@@ -361,6 +435,9 @@ export function useAttention(deps: AttentionDeps): {
           // belongs to the one conversation, so the click just opens it.
           enterConductorMode();
         })
+        // A work that needs you: the one route to a work, onto its card and
+        // the question the notification was about.
+        .with({ kind: "work" }, ({ work, ask }) => showWork(work, ask))
         .exhaustive(),
     ),
   );
@@ -381,7 +458,7 @@ export function useAttention(deps: AttentionDeps): {
     if (pick === undefined) return;
     const state = deps.activeAgentState(pick);
     const asking = state !== undefined && agentBucket(state) === "awaiting";
-    deliver(activeHost(), pick, asking);
+    deliver(activeHost(), pick, asking, true);
   };
   window.__koluSimulateAlert = simulateAlert;
 

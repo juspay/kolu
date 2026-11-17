@@ -41,6 +41,8 @@ describe("deep-link router is view-only (the negative pin)", () => {
       "showInspector",
       "openInCodeTab",
       "openSettings",
+      // A work's card in the Conductor: opens and scrolls, writes nothing.
+      "showWork",
     ]) {
       expect(routerSrc).toContain(allowed);
     }

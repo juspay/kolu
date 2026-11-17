@@ -8,7 +8,7 @@
  *   - a wake-up names the terminals that rang (`events`);
  *   - a tool call names the terminal it acted on (its `kolu` reading);
  *   - a question about a piece of work names that work (`work-ask`);
- *   - a message of yours names the terminals you mentioned.
+ *   - a message of yours names the works and the terminals you mentioned.
  *
  *  A terminal is turned into its work through the works' timelines: every
  *  `joined` event says which work a terminal joined and when. So a finished
@@ -65,11 +65,18 @@ function namedBy(
         kind: "terminal",
         ref: event.ref,
       }));
+    // A MESSAGE NAMES WHAT IT MENTIONED, either way round: a work mention
+    // names that work outright, a terminal mention through the work it had
+    // joined.
     case "user":
-      return (row.mentions ?? []).map((mention) => ({
-        kind: "terminal",
-        ref: fleetTerminalRef(mention.host, mention.terminalId),
-      }));
+      return (row.mentions ?? []).map((mention) =>
+        mention.kind === "work"
+          ? { kind: "work", work: mention.work as WorkId }
+          : {
+              kind: "terminal",
+              ref: fleetTerminalRef(mention.host, mention.terminalId),
+            },
+      );
     case "tool": {
       const call = row.kolu;
       return call === undefined ||

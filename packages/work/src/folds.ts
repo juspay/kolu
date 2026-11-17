@@ -14,11 +14,13 @@
  */
 
 import { Option } from "effect";
-import { type PrReading, prOf, prStep } from "./readings.ts";
+import { type PrReading, prStep } from "./readings.ts";
 import {
   type Asked,
+  type CheckHead,
   endedAt,
   type Outcome,
+  type PrLink,
   type Work,
   type WorkEvent,
   type WorkId,
@@ -145,12 +147,13 @@ const step = (at: Running, event: WorkEvent): Running => ({
   pr: prStep(at.pr, event),
 });
 
-/** GREEN, and therefore the human's when they asked for the hand-over: the
- *  forge would merge it, and no check that has reported is running or red,
- *  both about the same commit ({@link prStep} forgets the one that is not).
- *  A PR with no checks at all is green the moment the forge says so. */
-const isGreen = (at: Running): boolean =>
-  Option.exists(
+/** THE GREEN PULL REQUEST, and therefore the human's when they asked for the
+ *  hand-over: the forge would merge it, and no check that has reported is
+ *  running or red, both about the same commit ({@link prStep} forgets the one
+ *  that is not). A PR with no checks at all is green the moment the forge
+ *  says so. None while it is not green. */
+const greenOf = (at: Running): Option.Option<PrReading> =>
+  Option.filter(
     at.pr,
     (pr) =>
       pr.state === "open" &&
@@ -162,7 +165,7 @@ const waiterOf = (handOver: boolean, at: Running): Waiter | "done" => {
   if (at.ended) return "done";
   if (at.openAsks.size > 0) return "you";
   if (Option.exists(at.pr, (pr) => pr.checks === "running")) return "ci";
-  return handOver && isGreen(at) ? "you" : "agent";
+  return handOver && Option.isSome(greenOf(at)) ? "you" : "agent";
 };
 
 /** Who the work is waiting on now, or `done` once it has ended. */
@@ -171,16 +174,26 @@ export const waitingOn = (work: Work, policy: Policy): Waiter | "done" =>
     ? "done"
     : waiterOf(policy.handOver, work.events.reduce(step, START));
 
+/** A GREEN PULL REQUEST, as a merge wait names it: its number, the commit
+ *  that is green (the forge's last merge answer was about it — the one
+ *  {@link prStep} keeps beside checks about the same commit), and where it
+ *  lives. */
+export interface GreenPr {
+  readonly number: number;
+  readonly head: CheckHead;
+  readonly link: PrLink;
+}
+
 /** WHERE A WORK STANDS, in one reading — who it waits on, why, since when —
  *  as a SUM, each arm carrying only what is true of it. Every reader renders
  *  its own words: the card capitalises and adds a live check tally, the
  *  Conductor's `works` resource writes a sentence for an agent.
  *
- *  - `question` — the human has been asked something; `question` is its
- *    words;
+ *  - `question` — the human has been asked something; `ask` is the newest
+ *    ask still open and `question` its words;
  *  - `merge` — the PR is green (the forge would merge it, and no reported
- *    check is running or red) and the merge is theirs; `pr` is the PR
- *    number when the timeline knows one;
+ *    check is running or red) and the merge is theirs; `pr` is that PR when
+ *    the timeline knows one;
  *  - `ci` — the checks are running;
  *  - `watching` — kolu is keeping an eye on a terminal nobody works for;
  *  - `working` — the agents have it;
@@ -189,12 +202,13 @@ export const waitingOn = (work: Work, policy: Policy): Waiter | "done" =>
 export type Standing =
   | {
       readonly why: "question";
+      readonly ask: string;
       readonly question: string;
       readonly since: string;
     }
   | {
       readonly why: "merge";
-      readonly pr: Option.Option<number>;
+      readonly pr: Option.Option<GreenPr>;
       readonly since: string;
     }
   | { readonly why: "ci"; readonly since: string }
@@ -235,21 +249,32 @@ const askedOf = (work: Work, open: ReadonlySet<string>): Option.Option<Asked> =>
 const standingOf = (
   work: Work,
   who: Waiter,
-  open: ReadonlySet<string>,
+  at: Running,
   policy: Policy,
   since: string,
 ): Standing => {
   switch (who) {
     case "you":
-      return Option.match(askedOf(work, open), {
+      return Option.match(askedOf(work, at.openAsks), {
         onSome: (question): Standing => ({
           why: "question",
+          ask: question.ask,
           question: question.question,
           since,
         }),
         onNone: (): Standing => ({
           why: "merge",
-          pr: Option.map(prOf(work), (pr) => pr.number),
+          pr: Option.map(
+            greenOf(at),
+            (pr): GreenPr => ({
+              number: pr.number,
+              head: Option.match(pr.lastMerge, {
+                onNone: (): CheckHead => ({ kind: "unreported" }),
+                onSome: (answer) => answer.head,
+              }),
+              link: pr.link,
+            }),
+          ),
           since,
         }),
       });
@@ -290,13 +315,7 @@ export const standing = (work: Work, policy: Policy): Standing => {
   // An OPEN work is waiting on somebody whatever its timeline's last `ended`
   // event said — a reopened work keeps that event, and the state is the
   // record's one answer to "is it over".
-  return standingOf(
-    work,
-    who === "done" ? "agent" : who,
-    at.openAsks,
-    policy,
-    since,
-  );
+  return standingOf(work, who === "done" ? "agent" : who, at, policy, since);
 };
 
 /** One stretch of time, and who it waited on. */

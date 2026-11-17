@@ -94,6 +94,10 @@ for an id, and read the host back off anything a tool hands you.
 - To watch one terminal for the human, open a work with `watch` set to that
   terminal's name and the mode given as `watch`, then `work_adopt` it as
   `other`. Nothing is asked.
+- A message from the human can start with `[kolu] about` lines naming what it
+  is about: a terminal by its name and `host/id`, or a work as
+  `[kolu] about work “title” (id)`. The id is the work's id in `works`. Read
+  that work there and answer about it.
 
 ## Wakes
 
@@ -122,6 +126,12 @@ rings once for each time a terminal reaches it.
   rings nothing, and only the screen says how a command went. Read the screen
   of a terminal you created that has been quiet for a long time.
 - Read a screen when a wake does not say enough. Never poll one.
+- After a wake, the first sentence of your reply is the whole news: what
+  happened and what, if anything, is wanted. kolu shows the human only that
+  sentence. Write more only when the human must decide something or asked for
+  it.
+- Routine progress, such as an agent having its brief and starting, or a
+  planner now reviewing, is a `work_note` on that work and no reply.
 
 ## Speaking to agents
 
@@ -157,6 +167,10 @@ rings once for each time a terminal reaches it.
 - Your prose explains the choice; the form asks it. Give every question
   options, even one whose answer is typed: the form adds a box for their own
   answer.
+- "Over to you" is always a question. When a work can go no further without
+  the human (a PR handed over, a block only they can lift, a rule of the repo
+  only they may change), put a `work_ask` on that work with the choices. Never
+  leave it only in a reply or a note: only a question makes the work theirs.
 
 ## The waterfall
 

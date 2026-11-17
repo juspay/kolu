@@ -38,6 +38,7 @@ import {
   isOpen,
   isSettled,
   type Membership,
+  type NeedsYou,
   type OnGreen,
   type Outcome,
   policyOf,
@@ -56,6 +57,7 @@ import {
   timeSpent,
   type Waiter,
   WAITER_OF,
+  wantedWords,
   type Work,
   type WorkEvent,
   type WorkId,
@@ -63,7 +65,6 @@ import {
   WORK_ROLES,
   type WorkRole,
   type WorkRow,
-  waitingOnYou,
   waterfallFileName,
 } from "kolu-work";
 import { type NonEmpty, nonEmpty } from "nonempty";
@@ -129,12 +130,6 @@ export const STAGE_LABEL: Record<Filed, string> = {
 /** THE STAGES of a work, under its own policy. */
 export function stagesOf(work: Work, now: string): Stages {
   return stages(work, policyOf(work), now);
-}
-
-/** IS THIS WORK WAITING ON YOU — by the same `standing` the card's line
- *  reads, so the group a card sits in and the words on it cannot disagree. */
-export function waitsOnYou(work: Work): boolean {
-  return WAITER_OF[standing(work, policyOf(work)).why] === "you";
 }
 
 /** The same three, plus kolu's own — the ink of a timeline dot, by who the
@@ -378,10 +373,9 @@ export function outcomeWords(outcome: Outcome): string {
  *  and the detail after it.
  *
  *  `standing()` answers a TOKEN — who is waited on and why — and every word
- *  below is this module's, beside the other word tables. The model used to
- *  hand out two English phrases and this function re-capitalised one of them
- *  and discarded the other; now the browser owns all of its own prose and the
- *  live check tally is mixed in where it belongs. */
+ *  below is this module's, beside the other word tables, except what a wait
+ *  on the human ASKS FOR: that is `kolu-work`'s `wantedWords`, the words the
+ *  palette and the notification say too. */
 export interface StandingLine {
   readonly who: Waiter | "done";
   readonly lead: string;
@@ -390,19 +384,21 @@ export interface StandingLine {
    *  rather than as an empty clause. */
   readonly what: Option.Option<string>;
   readonly since: string;
+  /** HOW THE CLOCK AFTER IT READS — a plain duration, `asked … ago` for a
+   *  question, `green for …` for a merge, `… ago` for a work that is over. */
+  readonly clock: "for" | "asked" | "green" | "ended";
 }
 
 /** THE WORDS FOR WHERE A WORK STANDS — the lead beside the dot, by the reason
- *  `standing()` gives. `question` and `merge` share "Waiting on you": what
- *  differs is the detail after it, which is the question's own words or the PR
- *  to merge. A work that is over is led by how it ended ({@link outcomeWords}),
- *  once, so it has no word here. */
+ *  `standing()` gives. `question` and `merge` share "Needs you": what differs
+ *  is what is wanted after it. A work that is over is led by how it ended
+ *  ({@link outcomeWords}), once, so it has no word here. */
 const WHY_LEAD: Record<
   Exclude<StandingWhy, "merged" | "closed" | "stopped">,
   string
 > = {
-  question: "Waiting on you",
-  merge: "Waiting on you",
+  question: "Needs you",
+  merge: "Needs you",
   ci: "CI running",
   watching: "Watching",
   working: "Agents at work",
@@ -413,38 +409,35 @@ export function standingLine(
   checks: Option.Option<ChecksTally>,
 ): StandingLine {
   const at = standing(work, policyOf(work));
-  const line = (lead: string, what: Option.Option<string>): StandingLine => ({
+  const line = (
+    lead: string,
+    what: Option.Option<string>,
+    clock: StandingLine["clock"],
+  ): StandingLine => ({
     who: WAITER_OF[at.why],
     lead,
     what,
     since: at.since,
+    clock,
   });
   switch (at.why) {
     case "question":
-      return line(WHY_LEAD[at.why], Option.some(at.question));
+      return line(WHY_LEAD[at.why], Option.some(wantedWords(at)), "asked");
     case "merge":
-      return line(
-        WHY_LEAD[at.why],
-        Option.some(
-          Option.match(at.pr, {
-            onNone: () => "merge the PR",
-            onSome: (pr) => `merge PR #${pr}`,
-          }),
-        ),
-      );
+      return line(WHY_LEAD[at.why], Option.some(wantedWords(at)), "green");
     // The LIVE tally is the only honest detail while checks run: the timeline
     // says they are running, how many have landed is true only for the
     // instant it is read.
     case "ci":
-      return line(WHY_LEAD[at.why], Option.map(checks, checksProgress));
+      return line(WHY_LEAD[at.why], Option.map(checks, checksProgress), "for");
     // The agents are simply at work: no detail to give.
     case "watching":
     case "working":
-      return line(WHY_LEAD[at.why], Option.none());
+      return line(WHY_LEAD[at.why], Option.none(), "for");
     // HOW it ended, which for a stopped work is the whole fact: a person
     // reading "Stopped" wants to know whether they did it.
     default:
-      return line(outcomeWords(at.outcome), Option.none());
+      return line(outcomeWords(at.outcome), Option.none(), "ended");
   }
 }
 
@@ -915,19 +908,29 @@ export function workAskIds(works: ReadonlyArray<Work>): ReadonlySet<string> {
   return ids;
 }
 
+/** THE CONVERSATION'S OWN OPEN QUESTIONS — the open asks no work owns. They
+ *  have no card to carry them, so they ring and count on their own. */
+export function ownAsks(
+  works: ReadonlyArray<Work>,
+  asks: ReadonlyArray<string>,
+): ReadonlyArray<string> {
+  const owned = workAskIds(works);
+  return asks.filter((id) => !owned.has(id));
+}
+
 /** HOW MANY THINGS WAIT ON THE HUMAN — the tab's one number.
  *
- *  A work waiting on you counts once however many questions it holds (the
- *  card is the one place to go), plus every open ask that is about NO work,
- *  which is the conversation's own question and has no card to carry it. An
- *  ask about a work is already counted by its work, so it is not counted
- *  twice. */
+ *  Every item of the one needs-you reading (`kolu-work`'s `needsYou`: a work
+ *  waiting on you counts once however many questions it holds, the card is
+ *  the one place to go), plus every open ask that is about NO work
+ *  ({@link ownAsks}). An ask about a work is already counted by its work, so
+ *  it is not counted twice. */
 export function waitingCount(
+  needs: ReadonlyArray<NeedsYou>,
   works: ReadonlyArray<Work>,
   asks: ReadonlyArray<string>,
 ): number {
-  const owned = workAskIds(works);
-  return waitingOnYou(works) + asks.filter((id) => !owned.has(id)).length;
+  return needs.length + ownAsks(works, asks).length;
 }
 
 /** Which work an ask belongs to, or `null` for the conversation's own — what
@@ -947,11 +950,12 @@ export function workOfAsk(
  *  with a part that would read zero left out entirely. Empty when there is
  *  nothing to say, which is what keeps `0 pieces of work` off the screen. */
 export function worksStatusWords(
+  needs: ReadonlyArray<NeedsYou>,
   works: ReadonlyArray<Work>,
   asks: ReadonlyArray<string>,
 ): string {
   const live = works.filter((one) => isOpen(one)).length;
-  const waiting = waitingCount(works, asks);
+  const waiting = waitingCount(needs, works, asks);
   const parts: string[] = [];
   if (live > 0)
     parts.push(`${live} ${live === 1 ? "piece of work" : "pieces of work"}`);

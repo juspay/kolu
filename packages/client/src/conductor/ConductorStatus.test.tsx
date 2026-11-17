@@ -16,7 +16,7 @@ import {
   type ConductorRow,
   type ConductorState,
 } from "kolu-common/conductor";
-import type { WorkRow } from "kolu-work";
+import { needsYou, type WorkRow } from "kolu-work";
 import { render } from "solid-js/web";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -29,6 +29,9 @@ vi.mock("./WorkColumn", () => ({
 let works: WorkRow[] = [];
 vi.mock("./useWorks", () => ({
   useWorks: () => () => works,
+  // The one needs-you reading, over the same works — as the real mirror
+  // derives it.
+  useNeedsYou: () => () => needsYou(works),
 }));
 
 import ConductorStatus from "./ConductorStatus";

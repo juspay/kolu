@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { type ParsedDeepLink, parseDeepLink } from "./deepLink";
+import { type ParsedDeepLink, parseDeepLink, workLink } from "./deepLink";
+
+/** A real work id: `kolu-work`'s encoding of host/repo/branch, slashes and
+ *  all — which is why the link carries it as one escaped segment. */
+const WORK = "branch:local/%2Fhome%2Fme%2Fcode%2Folai/chat-on-any-entity";
 
 // A real UUID (TerminalIdSchema = z.string().uuid()) and both host-key forms.
 const ID = "550e8400-e29b-41d4-a716-446655440000";
@@ -36,10 +40,31 @@ describe("parseDeepLink — the valid grammar, one row per family", () => {
       },
     ],
     ["#/settings", { kind: "settings" }],
+    [
+      `#/work/${encodeURIComponent(WORK)}`,
+      { kind: "work", work: WORK, ask: null },
+    ],
+    [
+      `#/work/${encodeURIComponent(WORK)}/ask/ask-7`,
+      { kind: "work", work: WORK, ask: "ask-7" },
+    ],
   ];
 
   it.each(valid)("parses %s", (hash, expected) => {
     expect(parseDeepLink(hash)).toEqual(expected);
+  });
+
+  it("reads back every work link Copy link writes", () => {
+    expect(parseDeepLink(workLink(WORK))).toEqual({
+      kind: "work",
+      work: WORK,
+      ask: null,
+    });
+    expect(parseDeepLink(workLink(WORK, "a/b c"))).toEqual({
+      kind: "work",
+      work: WORK,
+      ask: "a/b c",
+    });
   });
 
   it("accepts the hash without a leading '#'", () => {
@@ -128,6 +153,12 @@ describe("parseDeepLink — 'invalid' (toast + home, never silent)", () => {
       `#/t/local/${ID}/code?path=x&line=9007199254740992`,
       "line past MAX_SAFE_INTEGER",
     ],
+    // A work link must name a work: refused, never thrown.
+    ["#/work/not-a-work", "an id that is no work key"],
+    ["#/work/branch%3Alocal%2F%25E0%25A4%25A%2Fb", "a broken escape in the id"],
+    [`#/work/${encodeURIComponent(WORK)}/ask`, "ask with no id"],
+    [`#/work/${encodeURIComponent(WORK)}/what/x`, "an unknown sub-route"],
+    ["#/work/branch:local/repo/b", "the id's own slashes unescaped"],
   ];
 
   it.each(cases)("rejects %s (%s)", (hash) => {

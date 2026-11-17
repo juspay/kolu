@@ -21,6 +21,7 @@ import { createNotify } from "@kolu/surface-app/notify";
 import { Result, Schema } from "effect";
 import { isEncodedHostKey } from "kolu-common/hostKey";
 import { type TerminalId, TerminalIdSchema } from "kolu-common/surface";
+import { type WorkRoute, workRouteOf } from "./deepLink";
 
 /** zod's `safeParse` in Effect terms — a `Result`, so a malformed id is a BRANCH
  *  (drop the envelope) rather than a throw out of the notification router. */
@@ -32,10 +33,13 @@ const decodeTerminalId = Schema.decodeUnknownResult(TerminalIdSchema);
 export type AttentionClick =
   | { kind: "terminal"; host: string; terminalId: TerminalId }
   | { kind: "host"; host: string; id: TerminalId }
-  /** A question THE CONDUCTOR is waiting on. One conversation covers every
-   *  host, so this arm carries neither a terminal id nor a host key — the
-   *  click opens the conversation and nothing else. */
-  | { kind: "conductor" };
+  /** A question THE CONDUCTOR is waiting on that belongs to no work. One
+   *  conversation covers every host, so this arm carries neither a terminal
+   *  id nor a host key — the click opens the conversation and nothing else. */
+  | { kind: "conductor" }
+  /** A piece of work that needs you — the click takes the one route to a
+   *  work (`#/work/…`'s), onto its card and the question. */
+  | WorkRoute;
 
 /** Validate a click envelope the framework relays (a live postMessage or a
  *  cold-start URL param). A stale notification from before an app upgrade, or a
@@ -52,6 +56,12 @@ function parseAttentionClick(data: unknown): AttentionClick | undefined {
     // falling into the shared host/terminal-id check below, which would drop
     // every conductor envelope for lacking fields it never had.
     return { kind: "conductor" };
+  }
+  if (d.kind === "work") {
+    // The same check a `#/work/…` link gets: a work id that names a work
+    // key, an ask that is a question id or none.
+    const route = workRouteOf(d.work, d.ask ?? null);
+    return Result.isSuccess(route) ? route.success : undefined;
   }
   if (d.kind !== "terminal" && d.kind !== "host") return undefined;
   // BOTH variants carry the same two facts, so validate them ONCE: a canonical

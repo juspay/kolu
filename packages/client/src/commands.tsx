@@ -45,6 +45,9 @@ import { offerRestartVerb } from "./kaval/daemonPresentation";
 import { restartDaemon } from "./kaval/useDaemonRestart";
 import { activeKavalPresence } from "./kaval/useDaemonStatus";
 import { conductorMode } from "./conductor/useConductorMode";
+import { useNeedsYou, useWorks } from "./conductor/useWorks";
+import { showWork } from "./conductor/workListing";
+import { workHost, workSubtitle } from "./conductor/workReadings";
 import {
   hostRootActions,
   terminalHostGroups,
@@ -228,6 +231,10 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
       .hostKeys()
       .some((h) => padiMap.entry(h).state().kind === "connected") ||
     fleet().length > 0;
+  /** The one needs-you reading and the works, for the palette's two work
+   *  sections — each row takes the one route to a work. */
+  const needs = useNeedsYou();
+  const works = useWorks();
 
   return createMemo((): PaletteCommand[] => [
     // --- Root index: terminals (all hosts) + hosts ---
@@ -239,6 +246,32 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
     ...(deps.hostKeys().length > 1
       ? hostRootActions(deps.hostKeys(), deps.activeHost(), deps.switchHost)
       : []),
+
+    // --- What needs you, then every work — while there are any. A row is
+    // what is wanted, then the work's title; a work row is its title and
+    // where it is. Both land on the card through the one route to a work.
+    ...needs().map(
+      (item): PaletteAction => ({
+        kind: "action",
+        name: item.wanted,
+        description: item.title,
+        section: "needs-you",
+        onSelect: () =>
+          showWork(
+            item.work,
+            item.why.why === "question" ? item.why.ask : null,
+          ),
+      }),
+    ),
+    ...works().map(
+      ([id, work]): PaletteAction => ({
+        kind: "action",
+        name: work.title,
+        description: workSubtitle(work, workHost(work)).join(" · "),
+        section: "works",
+        onSelect: () => showWork(id),
+      }),
+    ),
 
     // --- Terminals section: fleet list + new terminal ---
     ...(terminalsScopeOpen()

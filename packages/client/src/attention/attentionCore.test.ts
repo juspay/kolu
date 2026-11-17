@@ -14,18 +14,47 @@ const u = (asking: string[] = [], finished: string[] = []): AttentionFrame => ({
 
 function harness(over: Partial<AttentionHooks> = {}) {
   const delivered: Array<{ id: string; asking: boolean }> = [];
+  /** The deliveries that made NO sound and no OS popup — only the marks. */
+  const quiet: string[] = [];
   const cleared: Array<{ host: string; id: string }> = [];
   const hooks: AttentionHooks = {
     alertsEnabled: () => true,
     isActiveHost: () => true,
     isWatched: () => false, // nothing watched by default (background)
-    deliver: (_h, id, asking) => delivered.push({ id, asking }),
+    isDriven: () => false,
+    deliver: (_h, id, asking, loud) => {
+      delivered.push({ id, asking });
+      if (!loud) quiet.push(id);
+    },
     writeMark: () => {},
     clearUnread: (host, id) => cleared.push({ host, id }),
     ...over,
   };
-  return { core: createAttentionCore(hooks), delivered, cleared };
+  return { core: createAttentionCore(hooks), delivered, quiet, cleared };
 }
+
+describe("attentionCore — a terminal the Conductor drives", () => {
+  it("is silent — its question draws the mark and rings nothing, while an undriven terminal beside it rings", () => {
+    const { core, delivered, quiet } = harness({
+      isDriven: (_h, id) => id === "planner",
+    });
+    core.observe("h", u([], []));
+    core.observe("h", u(["planner"], ["implementor"]));
+    expect(delivered).toEqual([
+      { id: "planner", asking: true },
+      { id: "implementor", asking: false },
+    ]);
+    expect(quiet).toEqual(["planner"]);
+  });
+
+  it("rings once the human has taken it over", () => {
+    // Taken over, the membership's driver is `you`, not the Conductor.
+    const { core, quiet } = harness({ isDriven: () => false });
+    core.observe("h", u([], []));
+    core.observe("h", u(["planner"], []));
+    expect(quiet).toEqual([]);
+  });
+});
 
 describe("attentionCore — detect→fire (the path e2e/simulate skips)", () => {
   it("REPRO: a background terminal that finishes fires an alert", () => {

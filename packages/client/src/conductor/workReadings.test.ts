@@ -20,6 +20,8 @@ import {
   type KoluChoiceKey,
   type MergeState,
   membershipOf,
+  needsYou,
+  needsYouOf,
   ON_GREEN,
   type OnGreen,
   type Said,
@@ -60,7 +62,6 @@ import {
   standingLine,
   timeSpentOnYou,
   waitingCount,
-  waitsOnYou,
   workHost,
   workSubtitle,
   worksStatusWords,
@@ -319,6 +320,10 @@ describe("the stages a card draws", () => {
 });
 
 describe("whether a work waits on you", () => {
+  /** By the one needs-you reading. */
+  const waitsOnYou = (one: Work): boolean =>
+    Option.isSome(needsYouOf("w", one));
+
   it("does not hand a green PR over while GitHub still will not merge it", () => {
     const blocked = handingOver([
       opened,
@@ -474,8 +479,11 @@ describe("the Pull request section", () => {
       Option.some("unknown"),
     );
     expect(
-      waitsOnYou(
-        handingOver([opened, passed, mergeSays({ kind: "can" }), pushed]),
+      Option.isSome(
+        needsYouOf(
+          "w",
+          handingOver([opened, passed, mergeSays({ kind: "can" }), pushed]),
+        ),
       ),
     ).toBe(false);
   });
@@ -666,8 +674,9 @@ describe("where it stands", () => {
     });
     const line = standingLine(asking, Option.none());
     expect(line.who).toBe("you");
-    expect(line.lead).toBe("Waiting on you");
+    expect(line.lead).toBe("Needs you");
     expect(line.what).toEqual(Option.some("Approve the plan?"));
+    expect(line.clock).toBe("asked");
   });
 
   it("names the outcome once it is over — and there is no 'abandoned'", () => {
@@ -1082,6 +1091,14 @@ describe("the tab's one number", () => {
     decisions: [asked({ ask: "ask-work" })],
     events: [event({ kind: "question", by: "agent", ask: "ask-work" })],
   });
+  /** The count and the status words, over the one needs-you reading of
+   *  these works. */
+  const needsOf = (works: ReadonlyArray<Work>) =>
+    needsYou(works.map((one, at): [string, Work] => [`w${at}`, one]));
+  const count = (works: ReadonlyArray<Work>, asks: ReadonlyArray<string>) =>
+    waitingCount(needsOf(works), works, asks);
+  const words = (works: ReadonlyArray<Work>, asks: ReadonlyArray<string>) =>
+    worksStatusWords(needsOf(works), works, asks);
 
   it("counts a work waiting on you ONCE, however many questions it holds", () => {
     const two = work({
@@ -1091,24 +1108,24 @@ describe("the tab's one number", () => {
       ],
       events: waitingWork.events,
     });
-    expect(waitingCount([two], ["ask-work"])).toBe(1);
+    expect(count([two], ["ask-work"])).toBe(1);
   });
 
   it("adds a question that belongs to no work, and never double-counts one that does", () => {
     // `ask-work` is the work's own — already counted by the work. `ask-chat`
     // is the conversation's alone and has no card to carry it.
-    expect(waitingCount([waitingWork], ["ask-work", "ask-chat"])).toBe(2);
-    expect(waitingCount([], ["ask-chat"])).toBe(1);
-    expect(waitingCount([work()], [])).toBe(0);
+    expect(count([waitingWork], ["ask-work", "ask-chat"])).toBe(2);
+    expect(count([], ["ask-chat"])).toBe(1);
+    expect(count([work()], [])).toBe(0);
   });
 
   it("leaves a part that would read zero out of the status line", () => {
-    expect(worksStatusWords([work()], [])).toBe("1 piece of work");
-    expect(worksStatusWords([], ["ask-chat"])).toBe("1 waiting on you");
-    expect(worksStatusWords([], [])).toBe("");
+    expect(words([work()], [])).toBe("1 piece of work");
+    expect(words([], ["ask-chat"])).toBe("1 waiting on you");
+    expect(words([], [])).toBe("");
     // An ENDED work is not in flight, so it is not counted as a piece of work.
     expect(
-      worksStatusWords(
+      words(
         [
           work({
             state: {

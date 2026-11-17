@@ -1,14 +1,14 @@
 /** THE RIGHT COLUMN — what the Conductor has in flight, and what it finished.
  *
- *  Three groups, in the order a person needs them: "Waiting on you" (the
- *  works whose standing is a question for you or a merge that is yours),
- *  then "In progress" (everything else that is running), then "Finished",
- *  collapsed, the most recently ended first. A work moves between the first
- *  two by the same `standing` its card's line reads, so the group and the
- *  words on the card cannot disagree. Within a group the order is the `works`
- *  cell's, which kolu-server publishes oldest first — a card keeps its place
- *  while a new one appears under it; the column does not re-sort what the
- *  record already says.
+ *  Three groups, in the order a person needs them: "Needs you · N" (the
+ *  works the one needs-you reading lists — a question for you, or a merge
+ *  that is yours), then "In progress" (everything else that is running),
+ *  then "Finished", collapsed, the most recently ended first. The group is
+ *  cut by the SAME reading the bell, the tab's count and the palette read,
+ *  so a work in this group is a work that rang. Within a group the order is
+ *  the `works` cell's, which kolu-server publishes oldest first — a card
+ *  keeps its place while a new one appears under it; the column does not
+ *  re-sort what the record already says.
  *
  *  ONE COMPONENT, TWO PLACEMENTS. On a window wide enough it is the column
  *  beside the conversation; below that width it is the band the status line's
@@ -24,11 +24,16 @@
 
 import { Key } from "@solid-primitives/keyed";
 import { finished, inProgress, type WorkRow } from "kolu-work";
-import { type Component, createMemo, Show } from "solid-js";
-import { useWorks } from "./useWorks";
+import { type Component, createEffect, createMemo, Show } from "solid-js";
+import { useNeedsYou, useWorks } from "./useWorks";
 import WorkCard from "./WorkCard";
-import { isFinishedOpen, toggleFinished } from "./workListing";
-import { WAITER_INK, waitsOnYou } from "./workReadings";
+import {
+  isFinishedOpen,
+  openFinished,
+  toggleFinished,
+  wantedCard,
+} from "./workListing";
+import { WAITER_INK } from "./workReadings";
 
 const Heading: Component<{ words: string }> = (props) => (
   <h3 class="m-0 mb-1.5 font-mono text-[0.58rem] uppercase tracking-[0.12em] text-fg-3">
@@ -83,16 +88,24 @@ const WorkColumn: Component<{
   placement: "inline" | "side";
 }> = (props) => {
   const works = useWorks();
+  const needs = useNeedsYou();
   const live = createMemo(() => inProgress(works()));
-  /** The two groups of what is running, by the one reading the card's line
-   *  makes — each work asked once. */
+  /** The two groups of what is running, cut by the one needs-you reading. */
   const groups = createMemo(() => {
+    const waiting = new Set(needs().map((one) => one.work));
     const onYou: WorkRow[] = [];
     const moving: WorkRow[] = [];
-    for (const row of live()) (waitsOnYou(row[1]) ? onYou : moving).push(row);
+    for (const row of live()) (waiting.has(row[0]) ? onYou : moving).push(row);
     return { onYou, moving };
   });
   const done = createMemo(() => finished(works()));
+  // A ROUTE TO A FINISHED WORK opens the Finished list, so its card is drawn
+  // and can answer the route — `showWork` is the one route and does not ask
+  // which list a work sits in.
+  createEffect(() => {
+    const want = wantedCard();
+    if (want !== null && done().some(([id]) => id === want.id)) openFinished();
+  });
 
   return (
     <div
@@ -122,7 +135,7 @@ const WorkColumn: Component<{
       >
         <Show when={groups().onYou.length > 0}>
           <section data-testid="work-waiting" class="mb-4">
-            <Heading words="Waiting on you" />
+            <Heading words={`Needs you · ${groups().onYou.length}`} />
             <Cards rows={groups().onYou} />
           </section>
         </Show>

@@ -48,11 +48,13 @@ Leaving it does not close it: you come back to everything as you left it, includ
 | --- | --- |
 | text, then <kbd>Enter</kbd> | Sends the message. |
 | <kbd>Shift</kbd> + <kbd>Enter</kbd> | Starts a new line. |
-| `@` | Completes a terminal from any host into a chip. The agent receives its `host/id` and intent. |
+| `@` | Completes a piece of work, or a terminal from any host, into a chip. |
 | `/` | Completes one of the agent's own commands. |
 | <kbd>Alt</kbd> + <kbd>Enter</kbd> | Steers the running turn (see below). |
 
 When the Conductor puts a choice to you, it arrives as a form: one button per option and a box for your own answer.
+
+`@` offers pieces of work before terminals: those needing you, then the rest in progress, then the finished ones still listed. Type part of a title to find one. A terminal in an open work reads as its part in it, such as **planner of «fix the login error»**.
 
 ## Talk to it while it works
 
@@ -70,7 +72,7 @@ The line above the message box says what the Conductor is doing:
 | Part | What it says |
 | --- | --- |
 | state | **working** (on what, and for how long), **asking you**, or **idle** |
-| **N pieces of work · M waiting on you** | what it has in flight, and how many of those are stopped on you. Hidden at zero. On a narrow window, click it to open the work column. |
+| **N pieces of work · M waiting on you** | what it has in flight, and how many need you: each work waiting on you, plus any question asked outside a work. Hidden at zero. On a narrow window, click it to open the work column. |
 | waiting | how many wakes are held until the turn ends |
 | **↯ Alt+⏎ steers** | shown while you can steer |
 
@@ -114,21 +116,7 @@ Losing terminals never ends a work: the card says **no terminals** and the Condu
 
 ### What a work holds
 
-| Part | What is in it |
-| --- | --- |
-| Timeline | The events kolu saw, each naming who it was: you, an agent, CI or kolu. An agent coming up, stopping or asking, each file in `.waterfall/` at any depth, the PR, its checks and whether GitHub would merge it. |
-| Decisions | Every question put to you about this work and your answer, the setup included: host, mode, the harness and model per role, and what to do on green. |
-| Members | Each terminal by `host/id`, its role, the agent kolu last saw, and who is driving it. |
-| Outcome | How it ended, once it has: **Merged #n**, **Closed #n**, **Stopped by you** or **by the Conductor**. As it ends, kolu copies the `.waterfall/` files and folders, up to **50 MiB** per work. The card names what was not kept. |
-
-The timeline is kept short in four ways:
-
-- A work keeps its latest **30** agent state changes; older ones fold into one **N earlier agent state changes** line.
-- While a PR's checks run, only GitHub's latest answer about merging it is kept.
-- One commit keeps at most **8** check results and **8** merge answers. Past that, an old one in the middle is dropped, never the first or the newest.
-- kolu lists the first **200** files and folders in `.waterfall/`, and draws a run of files written into one folder as one row.
-
-A PR recorded before kolu kept PR addresses gets its link added once kolu learns it. Nothing else changes, and kolu keeps the **last 20** finished works with their files.
+A work holds its timeline, the decisions you made, its member terminals and, once it ends, its outcome and the files kolu kept. Each timeline line names who it was: you, an agent, CI or kolu. [The work card](/work-card) shows all of it, and says what a timeline keeps.
 
 ### Who is typing
 
@@ -159,11 +147,27 @@ In the transcript:
 - A ` ```mermaid ` block draws as a [diagram](/code-tab#markdown-and-artifacts) once complete, and shows as code until then.
 - A `— new session —` line means kolu could not resume the conversation after a restart. The agent remembers nothing above it.
 
+### Replies to a wake are one line
+
+A reply in a turn kolu started, rather than one you started, is one line: the time, the turn's work chips, and the reply's first sentence. Click it, or press <kbd>Enter</kbd> on it, to unfold the reply in place, and again to fold it. The newest reply is open, and a reply to a message you typed never folds, nor does a question.
+
+Such a turn with no reply is one line too: **noted · the note** when the Conductor wrote a note on the work, and **no reply** when it wrote nothing. The wake line and that turn's **Details** sit inside the fold.
+
+A heading, **Since your last message · N updates**, stands before the run of these replies that followed your last message. On a phone the line wraps, chips above the sentence. Folding is drawing alone: the transcript keeps everything.
+
+### Point the chat at one work
+
+Clicking **About this work**, on a card or in a work chip's hover card, points the chat at that work. A bar over the chat then reads **Only**, the work's chip and **N of M turns**, with **Show all** beside it.
+
+The chat then shows only the turns about that work, and the box carries it as a chip, so your next message is about it. The × on that chip, or **Show all**, ends it, and so does a reload. Leaving the Conductor and coming back does not.
+
 ## When it asks you
 
 A question from the Conductor, or a permission its agent needs, appears as a form in the chat and on the work's card. Nothing is held open: the Conductor ends its turn and is idle while you think. Your answer wakes it, and dismissing the form declines. A question about a work outlasts **New session** and a restart.
 
-The Conductor tab's badge counts what is waiting on you: a work stopped on a question of yours, plus any question asked outside a work. It is violet, absent at zero, and a [needs-you](/notifications) source like any terminal.
+The Conductor tab's badge counts what needs you: each piece of work waiting on an answer of yours or on you to merge its green pull request, plus any question asked outside a work. It is violet and absent at zero.
+
+kolu rings and raises a notification as each of those appears, and a terminal the Conductor is driving no longer rings on its own. [What the Conductor rings for](/notifications#what-the-conductor-rings-for) has the rules.
 
 ## Attach a file
 

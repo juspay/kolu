@@ -36,7 +36,7 @@ import { type Component, createMemo, Show } from "solid-js";
 import { formatKeybind } from "../input/keyboard";
 import Tip from "../ui/Tip";
 import WorkColumn from "./WorkColumn";
-import { useWorks } from "./useWorks";
+import { useNeedsYou, useWorks } from "./useWorks";
 import { isListingOut, toggleListing } from "./workListing";
 import { waitingCount, worksStatusWords } from "./workReadings";
 import { conductorWide } from "./conductorLayout";
@@ -100,6 +100,7 @@ const ConductorStatus: Component<{
    *  into two counts of one fact — and a part that would read `0` is simply
    *  not there. */
   const works = useWorks();
+  const needs = useNeedsYou();
   /** The RECORDS alone — every reading below is about what a work IS, not
    *  about which id it is filed under. */
   const records = createMemo(() => works().map(([, work]) => work));
@@ -107,10 +108,10 @@ const ConductorStatus: Component<{
     () => records().filter((one) => isOpen(one)).length,
   );
   const waiting = createMemo(() =>
-    waitingCount(records(), props.state.openAsks),
+    waitingCount(needs(), records(), props.state.openAsks),
   );
   const words = createMemo(() =>
-    worksStatusWords(records(), props.state.openAsks),
+    worksStatusWords(needs(), records(), props.state.openAsks),
   );
   const held = () => props.state.held.length;
   /** The column is OPENED from here only below the breakpoint. On a wide

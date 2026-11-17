@@ -15,7 +15,7 @@ The column has three groups:
 
 | Group | What is in it |
 | --- | --- |
-| **Waiting on you** | Works stopped on a question of yours, or a green PR handed over to you. |
+| **Needs you · N** | Works waiting on you: one asked a question, another holds a green PR handed over for you to merge. |
 | **In progress** | Every other work that has not finished. |
 | **Finished** | Works that ended, collapsed until you click it. |
 
@@ -27,7 +27,7 @@ With nothing in progress the column says **Nothing in progress.**
 | --- | --- |
 | Title and age | What the work is, and how long it has run. |
 | **repo · host · mode** | Where it is, then `PR #n` as a link once there is a PR. While the work is in progress, **you 12m** is its total wait on you, from the first whole second. |
-| Where it stands | Who it waits on and why, coloured by them, and for how long. |
+| Where it stands | Who it waits on and why, coloured by them, and for how long. Under **Needs you** it leads with what is wanted, as in **Needs you · Merge PR #700 · green for 12m**. |
 | Stage strip | Its six stages, below. |
 
 A PR recorded before kolu kept PR addresses shows its number as plain text. A work still in progress gets the link the next time kolu reads its PR.
@@ -55,6 +55,22 @@ A work whose mode is not chosen yet shows six quiet cells.
 
 On a card, the strip is the index into the timeline. Clicking a cell that has happened opens the card on that stage's events.
 
+## What every card offers
+
+Under the stage strip:
+
+| Control | What it does |
+| --- | --- |
+| **About this work** | Points the chat at this work: it shows only the turns about it, and your next message is about it. [How the chat reads then](/conductor#point-the-chat-at-one-work). |
+| **Copy link** | Copies the work's own address, so a card is something you can paste. |
+| **Open PR #N ↗** | Opens the pull request on its forge. It is there while a green PR is waiting for you to merge it. There is no merge button: you merge on the forge, or tell the Conductor to. |
+
+## Reach a work from anywhere
+
+A work's address is `#/work/<workId>`, and `#/work/<workId>/ask/<askId>` lands on one of its questions. Opening one enters the Conductor, opens that work's card, unfolding **Finished** if the work ended, and scrolls to it. A link kolu cannot read is refused with a toast rather than taken anywhere.
+
+The command palette lists what needs you first: a **Needs you** row says what is wanted and then names its work, and a **Works** row gives the title and where the work stands. Both keep their own headers while you search. The **◆** mark on a [dock row](/dock#a-row-in-a-piece-of-work) is a link to that terminal's work.
+
 ## The open card
 
 Click the card's head and it opens:
@@ -72,6 +88,17 @@ Click the card's head and it opens:
 The timeline shows the stage the work is in, or the one you clicked on the strip, and a finished work's last stage. **whole timeline · N events** unfolds all of it in place. A watch, which has no stages, shows its latest five events.
 
 A question reads **Asked:** and your answer **You:**. A run of files one agent wrote into a folder is one row, such as **Wrote mockup/ · 49 files**. A line too long for the row is cut, and a folder's row lists its files, with **more** beside it.
+
+### What a timeline keeps
+
+A timeline is kept short in four ways:
+
+- A work keeps its latest **30** agent state changes; older ones fold into one **N earlier agent state changes** line.
+- While a PR's checks run, only GitHub's latest answer about merging it is kept.
+- One commit keeps at most **8** check results and **8** merge answers. Past that, an old one in the middle is dropped, never the first or the newest.
+- kolu lists the first **200** files and folders in `.waterfall/`, and draws a run of files written into one folder as one row.
+
+Nothing else is dropped, and kolu keeps the **last 20** finished works with their files.
 
 ## How a work ends
 

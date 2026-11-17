@@ -143,9 +143,10 @@ const OTHER_KEY = {
  * role's harness and model, which are kolu's options to draw now; 1.55.0
  * takes every decision, event and member to the arms that cannot say
  * "answered with no answer"; 1.56.0 says how each answer to one of kolu's
- * own questions was chosen; and 1.57.0 puts a PR's address and the forge's
- * merge answer on the timeline. */
-const STATE_SCHEMA_VERSION = "1.57.0";
+ * own questions was chosen; 1.57.0 puts a PR's address and the forge's
+ * merge answer on the timeline; and 1.58.0 gives every mention on a user row
+ * its `kind`, a terminal or a piece of work. */
+const STATE_SCHEMA_VERSION = "1.58.0";
 
 const log = {
   debug() {},

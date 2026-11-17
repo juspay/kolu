@@ -115,10 +115,19 @@ appending what it observes.
 - **What is waiting on you is ONE list.** `publishState` composes the frame a
   browser reads: the conversation's own open elicitations, plus every question
   still open on a work in progress, together in `ConductorState.openAsks`. So
-  the bell, the OS badge and the panel's count read one fact and cannot
-  disagree about how many questions a person has. The composition is published
-  and never written back, and nothing stores a second list of open asks — they
-  are derived from the works' decisions.
+  nothing stores a second list of open asks — they are derived from the works'
+  decisions, published and never written back. What NEEDS the human is the one
+  reading over the works themselves (`kolu-work`'s `needsYou`: a question, or a
+  green PR handed over), and the bell, the OS badge, the tab's count and the
+  palette read it; the asks above are what the conversation adds to it, the
+  ones that belong to no work and so have no card.
+- **A message says what it is ABOUT.** `prompt` takes `ConductorMention`s, each
+  a terminal (`host/id`, its name, cwd and intent) or a piece of work (the
+  `WorkId` it is filed under and the title it had when the message went), and
+  `@kolu/acp-harness`'s `aboutBlock` puts them above the words as `[kolu] about`
+  lines. They are rows of the transcript, so a reload still says what a message
+  named, and `teaching.md` says what a work line means: read that id in `works`
+  and answer about it.
 - **The reading** (`./readings.ts`, pure) — what ONE host's frames mean:
   padi's urgency fold, that host's roster and the records read on it become
   one observation per member terminal (its level, its name, the agent in it,
@@ -256,9 +265,10 @@ past this package's published doors.
   `packages/server/src/stateLadder.ts` and `stateShape.ts`: kolu has one
   ladder and it has one home — rung `1.53.0` is where every pre-key store is
   folded into this model (works grouped by key become one, members re-keyed
-  into the one map, `abandoned` becomes open again). The record's own schema
-  is this package's export, which is the half that describes the data rather
-  than the file.
+  into the one map, `abandoned` becomes open again), and rung `1.58.0` is
+  where every saved mention gains the `kind` that tells a terminal from a
+  work. The record's own schema is this package's export, which is the half
+  that describes the data rather than the file.
 - **The UI** is `packages/client/src/conductor/`.
 - **No test lane of its own.** The Conductor's suites are composition tests — the
   host against the real fleet MCP door and the real tool registry — so they run

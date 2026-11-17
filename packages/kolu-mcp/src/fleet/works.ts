@@ -295,7 +295,7 @@ export const standingWords = (standing: Standing): string => {
     case "merge":
       return Option.match(standing.pr, {
         onNone: () => "merge the PR",
-        onSome: (pr) => `merge PR #${pr}`,
+        onSome: (pr) => `merge PR #${pr.number}`,
       });
     case "ci":
       return "CI running";

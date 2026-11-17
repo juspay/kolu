@@ -103,7 +103,10 @@ export function helpSections(
       heading: "Ask",
       items: [
         [text("Type what you want done")],
-        [key({ key: "@" }), text(" a terminal, on any host")],
+        [
+          key({ key: "@" }),
+          text(" a piece of work, or a terminal on any host"),
+        ],
         [key({ key: "/" }), text(" an agent command")],
       ],
     },
@@ -122,8 +125,9 @@ export function helpSections(
       items: [
         [text("The status line: what it is doing, for how long")],
         [text("The work: beside the chat, or behind the status line’s count")],
-        [text("Waiting on you first, then the rest in progress")],
+        [text("Needs you first, then the rest in progress")],
         [text("A chip on a reply names its work; click it to go there")],
+        [text("A reply kolu was not asked for is one line; click to unfold")],
       ],
     },
     {
@@ -135,6 +139,13 @@ export function helpSections(
         [text("Each coloured by whose time: agents, you, CI")],
         [text("Click a stage to see its part of the timeline")],
         [text("Open it for the PR, the setup and the latest decisions")],
+        [
+          screen("About this work"),
+          text(" points the chat at it; "),
+          screen("Show all"),
+          text(" ends that"),
+        ],
+        [screen("Copy link"), text(" copies its address, to paste anywhere")],
         [
           screen("Stop"),
           text(" ends it, "),
@@ -206,6 +217,7 @@ export function helpSections(
           screen("Conductor"),
           text(" tab’s badge is violet"),
         ],
+        [text("A green PR handed to you needs you too, on its card")],
       ],
     },
   ];

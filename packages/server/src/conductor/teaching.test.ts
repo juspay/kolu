@@ -764,3 +764,48 @@ describe("the waterfall", () => {
     expect(says(NEVER, /your\s+judgement/, /their own repo/)).toBe(true);
   });
 });
+
+describe("what reaches the human", () => {
+  it("R94: after a wake, the reply's first sentence is the whole news", () => {
+    expect(
+      says(
+        WAKES,
+        /After a wake/,
+        /first sentence/,
+        /whole news/,
+        /what, if anything, is wanted/,
+        /only when the human must decide/,
+      ),
+    ).toBe(true);
+  });
+
+  it("R95: routine progress is a `work_note` and no reply", () => {
+    expect(says(WAKES, /Routine progress/, /`work_note`/, /no reply/)).toBe(
+      true,
+    );
+  });
+
+  it("R96: over to you is always a `work_ask`, never only words", () => {
+    expect(
+      says(
+        ASKING,
+        /"Over to you" is always a question/,
+        /PR handed over/,
+        /`work_ask`/,
+        /Never\s+leave it only in a reply or a note/,
+      ),
+    ).toBe(true);
+  });
+
+  it("R97: a message about a work names its id, read in `works`", () => {
+    expect(
+      says(
+        WORKS,
+        /`\[kolu\] about`/,
+        /`host\/id`/,
+        /`\[kolu\] about work “title” \(id\)`/,
+        /`works`/,
+      ),
+    ).toBe(true);
+  });
+});

@@ -41,7 +41,6 @@ import {
   STAGES,
   type StageName,
   type Waiter,
-  waitingOn,
 } from "./folds.ts";
 import { type Given, type SentAnswer, sentValue } from "./record.ts";
 import {
@@ -1115,12 +1114,6 @@ export const membershipOf = (
   }
   return index;
 };
-
-/** HOW MANY WORKS ARE WAITING ON THE HUMAN — the tab's number. Here rather
- *  than beside the fold it calls because the answer depends on each work's
- *  own policy, which is this module's to read. */
-export const waitingOnYou = (works: ReadonlyArray<Work>): number =>
-  works.filter((one) => waitingOn(one, policyOf(one)) === "you").length;
 
 /** Re-exported so a reader of this module's folds does not have to know which
  *  file the waiter vocabulary is declared in. */

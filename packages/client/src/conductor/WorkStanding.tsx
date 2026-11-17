@@ -22,13 +22,24 @@ const WorkStanding: Component<{
    *  hover card — so the two are never one test id on one screen. */
   testId: "work-standing" | "work-chip-standing";
 }> = (props) => {
-  /** How long the current wait has run — or, once the work has ended, how
-   *  long ago it ended ("just now" inside the first second, where the
-   *  elapsed readout has no figure to give). */
-  const endedOrElapsed = (): string => {
+  /** How long the current wait has run, in the line's own words: `asked 37m
+   *  ago` for a question, `green for 12m` for a merge, `… ago` once the work
+   *  has ended ("just now" inside the first second, where the elapsed readout
+   *  has no figure to give), and the plain duration otherwise. */
+  const clock = (): string => {
     const elapsed = elapsedSince(props.line.since, props.now);
-    if (props.line.who !== "done") return elapsed;
-    return elapsed === DASH ? "just now" : `${elapsed} ago`;
+    switch (props.line.clock) {
+      case "asked":
+        return elapsed === DASH ? "asked just now" : `asked ${elapsed} ago`;
+      case "green":
+        return `green for ${elapsed}`;
+      case "ended":
+        return elapsed === DASH ? "just now" : `${elapsed} ago`;
+      case "for":
+        return elapsed;
+      default:
+        return props.line.clock satisfies never;
+    }
   };
   /** The lead's ink: the waiter's own colour, and the quiet one for a work
    *  that is over — "done" is not a waiter, so it has no colour there. */
@@ -45,13 +56,22 @@ const WorkStanding: Component<{
       <b class={ink()}>{props.line.lead}</b>
       <Show when={Option.getOrUndefined(props.line.what)}>
         {(what) => (
-          <span class="min-w-0 truncate text-fg-2">
+          // WHAT IS WANTED, in the waiter's ink when it is you: the one thing
+          // on a needs-you card a person has to read.
+          <span
+            data-testid="work-standing-what"
+            class={`min-w-0 truncate ${
+              props.line.who === "you"
+                ? `font-semibold ${WAITER_INK.you.text}`
+                : "text-fg-2"
+            }`}
+          >
             · <PrText work={props.work} text={what()} />
           </span>
         )}
       </Show>
       <span class="font-mono text-[0.62rem] tabular-nums text-fg-3">
-        · {endedOrElapsed()}
+        · {clock()}
       </span>
     </span>
   );

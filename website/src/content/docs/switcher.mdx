@@ -23,6 +23,8 @@ deciding which drawer to open. Terminals, hosts and commands share one index.
 | **Recent** | The three warmest terminals, interleaved across every connected host, minus the tile that is already active. |
 | **Hosts** | Every machine in the pool, when more than local is configured. Quiet when healthy; `active` only for the canvas host. |
 | **Terminals** | The Terminals group (<kbd>Mod</kbd> + <kbd>Shift</kbd> + <kbd>K</kbd>, where **Mod** is <kbd>Cmd</kbd> on macOS and <kbd>Ctrl</kbd> on Linux and Windows) and New terminal. |
+| **Needs you** | One row per [piece of work](/work-card) waiting on you: what is wanted, then the work. Only while there is one. |
+| **Works** | One row per piece of work: its title, then where it stands. Only while there is one. |
 | Command sections | Active Terminal, Canvas, UI and Help, listed separately until you type. |
 
 Warmth is `max(your last visit, server activity)`, so a terminal a background
@@ -76,7 +78,9 @@ string match is:
 | 3 | Commands | Existing section order |
 
 So a branch name outranks a host that shares a substring, and both outrank a
-command. There are no prefix sigils (`>` for commands, `@` for hosts).
+command. There are no prefix sigils (`>` for commands, `@` for hosts). The two
+work sections keep their own headers while you type, because a piece of work
+is a place to go rather than a command to run.
 
 ## Where the highlight lands
 

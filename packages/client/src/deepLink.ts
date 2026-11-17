@@ -16,15 +16,21 @@
  *    #/t/<host>/<terminalId>                     → that host + the tile focused
  *    #/t/<host>/<terminalId>/code?path=<p>&line=<n>  → the Code tab, <p> open (at <n>)
  *    #/t/<host>/<terminalId>/inspector           → the Inspector tab
+ *    #/work/<workId>                             → the Conductor, that work's card
+ *    #/work/<workId>/ask/<askId>                 → …and that question brought into view
  *    #/settings                                  → the settings dialog
  *
  *  `line` lives INSIDE the code variant (a line without a path has no encoding),
  *  and `<host>` is carried as its encoded string (decoded at route time, exactly
- *  as the notification path does), never a decoded `HostKey`. */
+ *  as the notification path does), never a decoded `HostKey`. A `<workId>` is
+ *  ONE path segment — the work's id percent-encoded whole ({@link workLink}),
+ *  since the id itself carries `/` — and must decode to a work key
+ *  (`kolu-work`'s `workKeyOf`), or the link is refused. */
 
-import { Result, Schema } from "effect";
+import { Option, Result, Schema } from "effect";
 import { isEncodedHostKey } from "kolu-common/hostKey";
 import { type TerminalId, TerminalIdSchema } from "kolu-common/surface";
+import { type WorkId, workKeyOf } from "kolu-work";
 import { hashSegments } from "./hashPath";
 
 /** zod's `safeParse` in Effect terms — a `Result`, so a bad id segment is a
@@ -44,7 +50,39 @@ export type DeepLink =
       line: number | null;
     }
   | { kind: "inspector"; host: string; terminalId: TerminalId }
+  | WorkRoute
   | { kind: "settings" };
+
+/** THE ROUTE TO A WORK — its id, and the question to bring into view when
+ *  there is one. What a `#/work/…` link, a notification's click and Copy link
+ *  all carry. */
+export interface WorkRoute {
+  readonly kind: "work";
+  readonly work: WorkId;
+  readonly ask: string | null;
+}
+
+/** A work route from parts read off the outside world — a link's segments,
+ *  a notification's envelope — or why it is refused. The ONE check both
+ *  apply: an id that names no work key is not a work, and an ask is a
+ *  non-empty string. */
+export function workRouteOf(
+  work: unknown,
+  ask: unknown,
+): Result.Result<WorkRoute, string> {
+  if (typeof work !== "string" || Option.isNone(workKeyOf(work)))
+    return Result.fail(`not a work id: ${String(work)}`);
+  if (ask !== null && (typeof ask !== "string" || ask === ""))
+    return Result.fail(`not a question id: ${String(ask)}`);
+  return Result.succeed({ kind: "work", work, ask });
+}
+
+/** THE ADDRESS OF A WORK, as a `#/…` fragment — what Copy link copies and
+ *  what the mark on a dock row points at. */
+export const workLink = (work: WorkId, ask: string | null = null): string =>
+  `#/work/${encodeURIComponent(work)}${
+    ask === null ? "" : `/ask/${encodeURIComponent(ask)}`
+  }`;
 
 /** The parse verdict. `none` — no deep link present (empty/bare hash, the normal
  *  app load): the router does nothing, silently. `invalid` — a non-empty hash
@@ -77,6 +115,17 @@ export function parseDeepLink(hash: string): ParsedDeepLink {
     if (rest.length !== 0)
       return invalid("#/settings takes no further segments");
     return { kind: "settings" };
+  }
+
+  if (family === "work") {
+    const [work, word, ask] = rest;
+    if (
+      !(rest.length === 1 || (rest.length === 3 && word === "ask")) ||
+      work === undefined
+    )
+      return invalid("#/work expects <workId> or <workId>/ask/<askId>");
+    const route = workRouteOf(work, ask ?? null);
+    return Result.isFailure(route) ? invalid(route.failure) : route.success;
   }
 
   if (family === "h") {
