@@ -1092,13 +1092,14 @@ describe("the tab's one number", () => {
     events: [event({ kind: "question", by: "agent", ask: "ask-work" })],
   });
   /** The count and the status words, over the one needs-you reading of
-   *  these works. */
+   *  these works and the conversation's OWN open asks (the cell's
+   *  `openAsks`, which never holds a work's question). */
   const needsOf = (works: ReadonlyArray<Work>) =>
     needsYou(works.map((one, at): [string, Work] => [`w${at}`, one]));
-  const count = (works: ReadonlyArray<Work>, asks: ReadonlyArray<string>) =>
-    waitingCount(needsOf(works), works, asks);
-  const words = (works: ReadonlyArray<Work>, asks: ReadonlyArray<string>) =>
-    worksStatusWords(needsOf(works), works, asks);
+  const count = (works: ReadonlyArray<Work>, own: ReadonlyArray<string>) =>
+    waitingCount(needsOf(works), own);
+  const words = (works: ReadonlyArray<Work>, own: ReadonlyArray<string>) =>
+    worksStatusWords(needsOf(works), works, own);
 
   it("counts a work waiting on you ONCE, however many questions it holds", () => {
     const two = work({
@@ -1108,13 +1109,11 @@ describe("the tab's one number", () => {
       ],
       events: waitingWork.events,
     });
-    expect(count([two], ["ask-work"])).toBe(1);
+    expect(count([two], [])).toBe(1);
   });
 
-  it("adds a question that belongs to no work, and never double-counts one that does", () => {
-    // `ask-work` is the work's own — already counted by the work. `ask-chat`
-    // is the conversation's alone and has no card to carry it.
-    expect(count([waitingWork], ["ask-work", "ask-chat"])).toBe(2);
+  it("adds each question the conversation asks about no work", () => {
+    expect(count([waitingWork], ["ask-chat"])).toBe(2);
     expect(count([], ["ask-chat"])).toBe(1);
     expect(count([work()], [])).toBe(0);
   });

@@ -263,10 +263,19 @@ export interface HarnessOptions {
  *  too, and the furthest from a harness of all of them: it says which
  *  REMEMBERED RECORD would not decode, which is a fact about a file this end
  *  has never seen — and about a conversation that could not be started
- *  BECAUSE of it, so there is no harness to answer for it. */
+ *  BECAUSE of it, so there is no harness to answer for it. `workAsks` is the
+ *  server's as well: the questions kolu put about its pieces of work, read
+ *  off records this end never holds. */
 export type HarnessState = Omit<
   ConductorState,
-  "install" | "agentName" | "cwd" | "seen" | "work" | "held" | "unreadable"
+  | "install"
+  | "agentName"
+  | "cwd"
+  | "seen"
+  | "work"
+  | "held"
+  | "unreadable"
+  | "workAsks"
 >;
 
 /**

@@ -64,7 +64,7 @@ import {
   isOnScreen,
 } from "../conductor/onScreen";
 import {
-  conductorOpenAsks,
+  conductorAsks,
   useConductorBadge,
   useConductorFacts,
 } from "../conductor/useConductorFacts";
@@ -74,7 +74,6 @@ import {
 } from "../conductor/useConductorMode";
 import { useMembership, useNeedsYou, useWorkMap } from "../conductor/useWorks";
 import { showWork } from "../conductor/workListing";
-import { ownAsks } from "../conductor/workReadings";
 import { runAction } from "../runAction";
 import type { TerminalSubject } from "../terminal/terminalSubject";
 import { nextAfter } from "../ui/nextAfter";
@@ -283,14 +282,17 @@ export function useAttention(deps: AttentionDeps): {
     if (settling !== undefined) cancelAnimationFrame(settling);
   });
   createEffect(() => {
-    const asks = conductorOpenAsks();
+    const asks = conductorAsks();
     // Silence is not an empty list: before the server's first frame there is
     // nothing to compare against, and the real first frame is the baseline.
     if (asks === undefined) return;
     const map = workMap();
     const heard = conductorBell.observe({
-      openAsks: asks,
-      ownAsks: ownAsks([...map.values()], asks),
+      openAsks: [...asks.own, ...asks.work],
+      // The server says which questions are the conversation's own: a work's
+      // question can arrive here before its work's record does, and must not
+      // be heard — rung or silenced — by the conversation's rule.
+      ownAsks: asks.own,
       works: new Set(map.keys()),
       needs: needs(),
     });

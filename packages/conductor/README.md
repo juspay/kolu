@@ -112,15 +112,18 @@ appending what it observes.
   (only unanswered keys are asked otherwise), its words saying what the old
   answer was and why it no longer stands; one `work_open` reads the host once
   for its `given` answers and its saved ones together.
-- **What is waiting on you is ONE list.** `publishState` composes the frame a
-  browser reads: the conversation's own open elicitations, plus every question
-  still open on a work in progress, together in `ConductorState.openAsks`. So
-  nothing stores a second list of open asks — they are derived from the works'
-  decisions, published and never written back. What NEEDS the human is the one
-  reading over the works themselves (`kolu-work`'s `needsYou`: a question, or a
-  green PR handed over), and the bell, the OS badge, the tab's count and the
-  palette read it; the asks above are what the conversation adds to it, the
-  ones that belong to no work and so have no card.
+- **The open questions are TWO lists, and what needs you is one reading.**
+  `publishState` publishes the conversation's own open elicitations as
+  `ConductorState.openAsks` and every question still open on a work in
+  progress as `ConductorState.workAsks` — derived from the works' decisions,
+  published and never written back. Two lists because a browser must know
+  which a question is the moment it appears: a work's question reaches it
+  before that work's record does, and read as the conversation's it would be
+  rung by the wrong rule. What NEEDS the human is the one reading over the
+  works themselves (`kolu-work`'s `needsYou`: a question, or a green PR handed
+  over), and the bell, the OS badge, the tab's count and the palette read it;
+  `openAsks` is what the conversation adds to it, the questions that belong to
+  no work and so have no card.
 - **A message says what it is ABOUT.** `prompt` takes `ConductorMention`s, each
   a terminal (`host/id`, its name, cwd and intent) or a piece of work (the
   `WorkId` it is filed under and the title it had when the message went), and

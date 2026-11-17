@@ -107,9 +107,7 @@ const ConductorStatus: Component<{
   const pieces = createMemo(
     () => records().filter((one) => isOpen(one)).length,
   );
-  const waiting = createMemo(() =>
-    waitingCount(needs(), records(), props.state.openAsks),
-  );
+  const waiting = createMemo(() => waitingCount(needs(), props.state.openAsks));
   const words = createMemo(() =>
     worksStatusWords(needs(), records(), props.state.openAsks),
   );

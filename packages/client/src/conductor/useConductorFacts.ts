@@ -21,7 +21,7 @@ import {
 import { type Accessor, createMemo } from "solid-js";
 import { createSharedRoot } from "../createSharedRoot";
 import { app } from "../wire";
-import { useNeedsYou, useWorks } from "./useWorks";
+import { useNeedsYou } from "./useWorks";
 import { waitingCount } from "./workReadings";
 
 /** The cell exactly as it arrived — `undefined` until kolu-server's first
@@ -48,12 +48,19 @@ export const useConductorFacts = createSharedRoot<Accessor<ConductorState>>(
   },
 );
 
-/** The open questions' ids — or `undefined` while the server has not
- *  reported yet. The one reader that must tell those apart is the bell: the
- *  default's empty list is not a reading, and taking it for one would make
- *  the real first frame look like questions that just arrived. */
-export function conductorOpenAsks(): readonly string[] | undefined {
-  return useConductorCell()()?.openAsks;
+/** The open questions' ids, as the cell gives them — the conversation's own
+ *  (`own`) apart from those about a piece of work (`work`) — or `undefined`
+ *  while the server has not reported yet. The one reader that must tell
+ *  those apart is the bell: the default's empty lists are not a reading, and
+ *  taking them for one would make the real first frame look like questions
+ *  that just arrived. */
+export function conductorAsks():
+  | { readonly own: readonly string[]; readonly work: readonly string[] }
+  | undefined {
+  const cell = useConductorCell()();
+  return cell === undefined
+    ? undefined
+    : { own: cell.openAsks, work: cell.workAsks };
 }
 
 /** THE ONE COUNT OF WHAT IS WAITING ON YOU, derived once for every place that
@@ -78,16 +85,9 @@ export function conductorOpenAsks(): readonly string[] | undefined {
  *  terminal breathed. */
 export const useConductorBadge = createSharedRoot(() => {
   const facts = useConductorFacts();
-  const works = useWorks();
   const needs = useNeedsYou();
   return {
     /** How many things are waiting on the human. */
-    waiting: createMemo(() =>
-      waitingCount(
-        needs(),
-        works().map(([, work]) => work),
-        facts().openAsks,
-      ),
-    ),
+    waiting: createMemo(() => waitingCount(needs(), facts().openAsks)),
   };
 });

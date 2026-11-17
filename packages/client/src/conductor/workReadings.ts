@@ -898,39 +898,18 @@ export function roleRuns(work: Work, role: WorkRole): Option.Option<string> {
   }
 }
 
-/** EVERY ASK ANY WORK OWNS. A question about a work is recorded as that
- *  work's decision the moment it is put, so the ask's id being in here is
- *  exactly "this question belongs to a piece of work". */
-export function workAskIds(works: ReadonlyArray<Work>): ReadonlySet<string> {
-  const ids = new Set<string>();
-  for (const work of works)
-    for (const decision of work.decisions) ids.add(decision.ask);
-  return ids;
-}
-
-/** THE CONVERSATION'S OWN OPEN QUESTIONS — the open asks no work owns. They
- *  have no card to carry them, so they ring and count on their own. */
-export function ownAsks(
-  works: ReadonlyArray<Work>,
-  asks: ReadonlyArray<string>,
-): ReadonlyArray<string> {
-  const owned = workAskIds(works);
-  return asks.filter((id) => !owned.has(id));
-}
-
 /** HOW MANY THINGS WAIT ON THE HUMAN — the tab's one number.
  *
  *  Every item of the one needs-you reading (`kolu-work`'s `needsYou`: a work
  *  waiting on you counts once however many questions it holds, the card is
- *  the one place to go), plus every open ask that is about NO work
- *  ({@link ownAsks}). An ask about a work is already counted by its work, so
- *  it is not counted twice. */
+ *  the one place to go), plus every question the conversation asks about NO
+ *  work — `ownAsks`, the conductor cell's own list, which never holds a
+ *  work's question. */
 export function waitingCount(
   needs: ReadonlyArray<NeedsYou>,
-  works: ReadonlyArray<Work>,
-  asks: ReadonlyArray<string>,
+  ownAsks: ReadonlyArray<string>,
 ): number {
-  return needs.length + ownAsks(works, asks).length;
+  return needs.length + ownAsks.length;
 }
 
 /** Which work an ask belongs to, or `null` for the conversation's own — what
@@ -953,10 +932,10 @@ export function workOfAsk(
 export function worksStatusWords(
   needs: ReadonlyArray<NeedsYou>,
   works: ReadonlyArray<Work>,
-  asks: ReadonlyArray<string>,
+  ownAsks: ReadonlyArray<string>,
 ): string {
   const live = works.filter((one) => isOpen(one)).length;
-  const waiting = waitingCount(needs, works, asks);
+  const waiting = waitingCount(needs, ownAsks);
   const parts: string[] = [];
   if (live > 0)
     parts.push(`${live} ${live === 1 ? "piece of work" : "pieces of work"}`);

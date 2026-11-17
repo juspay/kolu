@@ -49,6 +49,35 @@ Feature: The works that need you come first, and the chat goes quiet
     Then the newest wake's turn should be open, its reply saying "answered" on screen
     And there should be no page errors
 
+  Scenario: A question about a work rings unless it is in front of you
+    # THE BELL ON THE REAL PAGE. Three streams meet here: the works reading
+    # the bell hears, the transcript row that draws the question in the chat,
+    # and the observer that says that row is in view. The card stays SHUT, so
+    # the chat's copy is the only one on screen. Focus is declared, not raced.
+    #
+    # 1. Focused, the chat in view: the setup question lands in front of you
+    #    and the bell stays quiet.
+    # 2. Unfocused: a second work asks, and it rings.
+    # 3. Focused again but on a host tab, the Conductor off screen: a third
+    #    question, asked while the Conductor works through a long turn, rings.
+    Given a repo for the work
+    And I stub the notification sound
+    And I simulate the Kolu window regaining focus
+    When I ask the conductor to open the work "quiet while in view"
+    Then the work's question should be in the chat, its card shut
+    And the notification sound should have played 0 times
+    When I simulate the Kolu window losing focus
+    And a repo for the work
+    And I ask the conductor to open the work "ring when unfocused"
+    Then the work's question should be in the chat, its card shut
+    And the notification sound should have played 1 time
+    When I simulate the Kolu window regaining focus
+    And I send the conductor the prompt "work for a while"
+    And I send the conductor the prompt "ask about the work"
+    And I leave the conductor for the host tab
+    Then the notification sound should have played 2 times
+    And there should be no page errors
+
   Scenario: The palette lists the works, and a row lands on the card
     Given a repo for the work
     When I ask the conductor to open the work "find it in the palette"

@@ -153,6 +153,36 @@ When("I show the whole chat", async function (this: KoluWorld) {
     .waitFor({ state: "hidden", timeout: POLL_TIMEOUT });
 });
 
+/** THE QUESTION ON SCREEN IN ONE PLACE ONLY — drawn in the chat, in view,
+ *  while its work's card stays shut, so the chat's copy is the one copy a
+ *  person can be looking at.
+ *
+ *  AND THE BELL HAS DECIDED by the time this returns: the card standing in
+ *  the "Needs you" group is the needs-you reading the bell hears, and the
+ *  bell decides two frames after hearing it — so the frames waited here are
+ *  past that decision, and a sound count read next is the bell's verdict
+ *  rather than a read taken before it. */
+Then(
+  "the work's question should be in the chat, its card shut",
+  async function (this: KoluWorld) {
+    const question = this.page
+      .locator(`${TRANSCRIPT} [data-testid="work-question"][data-from="chat"]`)
+      .last();
+    await question.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    await this.page
+      .locator(
+        `[data-testid="work-waiting"] [data-testid="work-card"][data-work="${workId(this)}"]`,
+      )
+      .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    for (let frame = 0; frame < 6; frame += 1) await this.waitForFrame();
+    assert.equal(
+      await workCard(this).getAttribute("data-open"),
+      null,
+      "the work's card was opened, so the chat's copy is not the only one",
+    );
+  },
+);
+
 /** THE NEWEST WAKE'S TURN, read as a person sees it: its line open or
  *  folded, and the reply that says `words` — on screen when the turn is open,
  *  off it when the turn is folded, where the line says the reply's first

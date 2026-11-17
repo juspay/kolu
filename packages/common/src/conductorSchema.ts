@@ -997,13 +997,18 @@ export const ConductorStateSchema = Schema.Struct({
   commands: Schema.Array(ConductorCommandSchema),
   servers: Schema.Array(ConductorServerSchema),
   watching: Schema.Array(ConductorWatchingSchema),
-  /** EVERY QUESTION STILL WAITING ON A HUMAN, as ask ids: the conversation's
-   *  own elicitations and the questions kolu put about a piece of work, in
-   *  one list composed by the server. One fact with one author, because a
-   *  bell that reads one half and a badge that reads the other is two
-   *  answers to "how many questions do I have". A work's questions are
-   *  derived from its decisions, so nothing stores them twice. */
+  /** THE CONVERSATION'S OWN QUESTIONS still waiting on a human, as ask ids —
+   *  the agent's elicitations, which belong to no piece of work. */
   openAsks: Schema.Array(Schema.String),
+  /** THE QUESTIONS KOLU PUT ABOUT A PIECE OF WORK that are still open, as ask
+   *  ids — derived by the server from the works' decisions, so nothing stores
+   *  them twice.
+   *
+   *  TWO LISTS, NOT ONE, because a reader must know WHICH a question is the
+   *  moment it appears: a work's question reaches a browser here before that
+   *  work's own record does, and read as the conversation's it would be rung
+   *  (or silenced) by the conversation's rule instead of its work's. */
+  workAsks: Schema.Array(Schema.String),
   /** Every terminal this conductor has created or sent input to, as FLEET
    *  REFS (`<encodedHostKey>/<terminalId>`) — one conversation spans every
    *  host, so a bare id here would name two terminals on a two-host fleet.
@@ -1067,6 +1072,7 @@ export const DEFAULT_CONDUCTOR_STATE: ConductorState = {
   servers: [],
   watching: [],
   openAsks: [],
+  workAsks: [],
   fleet: [],
   signIn: null,
   identity: null,

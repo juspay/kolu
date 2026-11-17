@@ -1098,14 +1098,11 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
    *  a collection of their own, because a work outlives the conversation that
    *  opened it.
    *
-   *  `openAsks` IS COMPOSED HERE, from the two producers of "a question is
-   *  waiting on you": the agent's own elicitations, which arrive on
-   *  `state.openAsks` with the harness's state, and kolu's questions about a
-   *  piece of work, which live on that work's decisions. One list in one
-   *  frame, so the bell, the OS badge and the panel's count cannot disagree
-   *  about how many questions a person has. The composition is published and
-   *  NOT written back into `state`: `state.openAsks` stays the harness's, or
-   *  every publish would append the works' asks to it again.
+   *  `workAsks` IS PUBLISHED HERE, beside the harness's `openAsks` and never
+   *  folded into it: the agent's own elicitations are the conversation's, and
+   *  kolu's questions about a piece of work live on that work's decisions. A
+   *  browser has to know which a question is the moment it appears — the
+   *  work's own record can arrive after it — so they travel as two lists.
    *
    *  AND THE GATE IS HERE, answering `true` when it published. A caller
    *  cannot decide "did anything visible move?" for itself without naming
@@ -1115,7 +1112,7 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
    *  out is compared with the one that did. */
   const frameNow = (): ConductorState => ({
     ...state,
-    openAsks: [...state.openAsks, ...works.openAsks()],
+    workAsks: [...works.openAsks()],
   });
 
   const publishState = (): boolean => {

@@ -38,9 +38,11 @@ import type { NeedsYou, WorkId } from "kolu-work";
 
 /** One reading of everything the bell watches. */
 export interface BellReading {
-  /** Every open ask the conversation reports — its own and every work's. */
+  /** Every open ask the server reports — the conversation's own and every
+   *  work's. */
   readonly openAsks: readonly string[];
-  /** The asks among those no work owns: the conversation's own questions. */
+  /** The conversation's own questions, as the server names them — never a
+   *  work's, even before that work's record has reached this browser. */
   readonly ownAsks: readonly string[];
   /** The works this browser has the record of. */
   readonly works: ReadonlySet<WorkId>;

@@ -203,14 +203,29 @@ describe("the Conductor's bell", () => {
     expect(rang).toEqual([{ items: ["May I?"], own: null }]);
   });
 
-  it("a question first heard as the conversation's own is not rung again when its work's record lands", () => {
-    const { bell, rang } = harness();
-    bell.observe(reading([], { works: new Set() }));
-    bell.observe(
-      reading([], { works: new Set(), openAsks: ["a1"], ownAsks: ["a1"] }),
-    );
-    bell.observe(reading([question(KOLU, "a1")]));
-    expect(rang).toEqual([{ items: [], own: 1 }]);
+  it("judges a work's question by its work, though the question arrives before the work's record", () => {
+    // The real page: the server's list of open questions about works lands
+    // first, the work's record a moment later. The question is never the
+    // conversation's, so the Conductor being on screen does not silence it…
+    const { raw, rang, gates } = harness();
+    raw.observe(reading([], { works: new Set() }));
+    gates.conversation = true;
+    raw.observe(reading([], { works: new Set(), openAsks: ["a1"] }));
+    raw.settle();
+    expect(rang).toEqual([]);
+    const asked = question(KOLU, "a1");
+    raw.observe(reading([asked]));
+    raw.settle();
+    expect(rang).toEqual([{ items: ["May I?"], own: null }]);
+    // … and it in view is what does: the same arrival, drawn and seen.
+    const second = harness();
+    second.raw.observe(reading([], { works: new Set() }));
+    second.raw.observe(reading([], { works: new Set(), openAsks: ["a1"] }));
+    second.raw.settle();
+    second.raw.observe(reading([asked]));
+    second.gates.onScreen.add(asked.key);
+    second.raw.settle();
+    expect(second.rang).toEqual([]);
   });
 
   it("the conversation's own question rings as today, quiet while the Conductor is in front of you", () => {
