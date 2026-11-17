@@ -313,11 +313,17 @@ def entries(directory: pathlib.Path, rev_key: str, system: str) -> list:
     return [(path.stem, json.loads(path.read_text())) for path in found]
 
 
+def published(directory: pathlib.Path, rev_key: str, system: str) -> list:
+    """Every store path the entries name, as `(attr, form, path)` in entry order:
+    the signed `ia`, and off darwin the content-addressed `ca` too. What the
+    cache must hold, and what `verify` reads back — one list for both."""
+    return [(attr, form, path) for attr, entry in entries(directory, rev_key, system)
+            for form, path in (("ia", entry["ia"]), ("ca", entry.get("ca"))) if path]
+
+
 def store_paths(directory: pathlib.Path, rev_key: str, system: str) -> list:
-    """Every store path the entries name — the signed `ia`, and off darwin the
-    content-addressed `ca` too — in entry order: what the cache must hold."""
-    return [path for _, entry in entries(directory, rev_key, system)
-            for path in (entry["ia"], entry.get("ca")) if path]
+    """The paths of `published`, alone: what a pusher is handed."""
+    return [path for _, _, path in published(directory, rev_key, system)]
 
 
 def push(args) -> int:
@@ -415,33 +421,35 @@ def verify(args) -> int:
     refuse each other's rewrite (`ca hash mismatch importing path`,
     agent-distro#102), so this is also what says the publication targets the Nix
     line consumers verify on."""
-    keys = read_declaration(args.declaration)["trustedPublicKeys"]
-    for attr, entry in entries(args.directory, args.rev_key, args.system):
-        for form, path in (("ia", entry["ia"]), ("ca", entry.get("ca"))):
-            if not path:
-                continue
-            root = pathlib.Path(args.store_root) / f"{attr}-{form}"
-            store = f"local?root={root}/store"
-            # A FRESH narinfo cache: the build before this asked the same
-            # substituter about these paths, and a "not there" it remembered
-            # from then must not stand in for the cache's answer now.
-            env = dict(os.environ, XDG_CACHE_HOME=str(root / "xdg"))
-            trust = ["--extra-trusted-public-keys", " ".join(keys)] if form == "ia" else []
-            print(f"publish-closure: verify {attr}: importing {form} {path} from {args.cache} "
-                  "alone into an empty store")
-            nix(["--extra-experimental-features", "nix-command",
-                 "copy", *trust, "--from", args.cache, "--to", store, path], env=env)
-            nix(["--extra-experimental-features", "nix-command",
-                 "store", "verify", *trust, "--store", store, "--recursive", path], env=env)
-            closure = nix(["--extra-experimental-features", "nix-command",
-                           "path-info", "--store", store, "--recursive", path], env=env).split()
-            print(f"publish-closure: verify {attr}: {form} imported and verified, "
-                  f"{len(closure)} paths")
+    trust = ["--extra-trusted-public-keys", " ".join(read_declaration(args.declaration)["trustedPublicKeys"])]
+    for attr, form, path in published(args.directory, args.rev_key, args.system):
+        root = pathlib.Path(args.store_root) / f"{attr}-{form}"
+        store = f"local?root={root}/store"
+        signed = trust if form == "ia" else []
+        # A FRESH narinfo cache: the build before this asked the same
+        # substituter about these paths, and a "not there" it remembered from
+        # then must not stand in for the cache's answer now.
+        env = dict(os.environ, XDG_CACHE_HOME=str(root / "xdg"))
+
+        def consumer(*command: str) -> str:
+            return nix(["--extra-experimental-features", "nix-command", *command], env=env)
+
+        print(f"publish-closure: verify {attr}: importing {form} {path} from {args.cache} "
+              "alone into an empty store")
+        consumer("copy", *signed, "--from", args.cache, "--to", store, path)
+        consumer("store", "verify", *signed, "--store", store, "--recursive", path)
+        closure = consumer("path-info", "--store", store, "--recursive", path).split()
+        print(f"publish-closure: verify {attr}: {form} imported and verified, {len(closure)} paths")
     print("publish-closure: every published path imports from the cache alone and verifies")
     return 0
 
 
 def main(argv=None) -> int:
+    # EACH LINE AS IT HAPPENS. A step's stdout is a pipe, which Python would
+    # otherwise buffer to the end: a slow or hung import must name itself in
+    # the log while it runs, and a client this script runs (the push) writes
+    # to the same stream and must not overtake the line that announced it.
+    sys.stdout.reconfigure(line_buffering=True)
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     sub = parser.add_subparsers(dest="command", required=True)
 
