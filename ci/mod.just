@@ -289,14 +289,18 @@ agent-bake: nix
 agent-models: install nix
     {{ nix_shell }} just --no-deps test-agent-models
 
-# Does the package kolu DELIVERS — upstream's newest published, which is what
-# every host actually serves — answer every call kolu's contract makes?
+# Can every kind of host take the package kolu DELIVERS — upstream's newest
+# published, which is what every host actually serves — and does it answer
+# every call kolu's contract makes? Kolu-server's own delivery pull, run twice:
+# as a host on Nix 2.34 (the content-addressed form) and on Nix 2.35 (the
+# signed form), each into an EMPTY scratch store from upstream's cache alone,
+# with both Nixes from kolu's pin, so the lane's own Nix decides nothing.
 # Rationale with the recipe (root justfile `test-agent-published`). A LANE
 # because it reads upstream's HTTPS index and pulls that closure from upstream's
 # binary cache; a sandboxed check has no network and could only stay silent,
 # which is how the model question shipped unanswerable on every delivered host.
-# RED until upstream publishes a package that answers, and green then with no
-# change in this repo.
+# RED until upstream publishes a package that each kind of host takes and that
+# answers, and green then with no change in this repo.
 agent-published: install nix
     {{ nix_shell }} just --no-deps test-agent-published
 

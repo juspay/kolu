@@ -441,12 +441,17 @@ test-agent-models: install
     KOLU_AGENT_FLOOR_BUNDLE="$floor" KOLU_AGENT_PRE_MODELS_PACKAGE="$old" \
       {{ nix_shell }} pnpm --filter @kolu/padi exec vitest run src/agentDistro/realPackages.e2e.test.ts
 
-# DOES THE PACKAGE HOSTS ARE DELIVERED ANSWER WHAT KOLU CALLS (`ci::agent-published`)?
-# A host serves upstream's newest PUBLISHED package, never this tree's floor, so
-# a call this kolu's contract makes is answered on a real host only once a
-# package answering it is published. The script
-# (`packages/server/src/agentDelivery/publishedAnswers.ts`) reads the index
-# through kolu-server's own reader and names the calls that package misses.
+# DOES THE PACKAGE HOSTS ARE DELIVERED ANSWER WHAT KOLU CALLS, AND CAN EVERY KIND
+# OF HOST TAKE IT (`ci::agent-published`)? A host serves upstream's newest
+# PUBLISHED package, never this tree's floor, so a call this kolu's contract
+# makes is answered on a real host only once a package answering it is
+# published — and only if that host can fetch it. The script
+# (`packages/server/src/agentDelivery/publishedAnswers.ts`) runs kolu-server's
+# own delivery pull twice, as a host on Nix 2.34 (sent the content-addressed
+# form) and as one on Nix 2.35 (sent the signed form), each into an EMPTY
+# scratch store from upstream's cache alone, and names the calls each bundle
+# misses. Both Nixes come from this pin (`agent-published-nix`), so the answer
+# does not depend on the Nix of the machine that runs it.
 #
 # A LANE, NOT A NIX CHECK: it reads upstream's HTTPS index and pulls the closure
 # from upstream's binary cache — a check with no network cannot ask, and not
@@ -455,8 +460,10 @@ test-agent-published: install
     #!/usr/bin/env bash
     set -euo pipefail
     delivery="$(nix build -f default.nix agent-distro-delivery --argstr commitHash "$(git rev-parse HEAD)" --no-link --print-out-paths)"
+    nixes="$(nix build -f default.nix agent-published-nix --argstr commitHash "$(git rev-parse HEAD)" --no-link --print-out-paths)"
     echo "agent-published: delivery=$delivery"
-    KOLU_AGENT_DISTRO_DELIVERY="$delivery" \
+    echo "agent-published: hosts' Nix=$nixes"
+    KOLU_AGENT_DISTRO_DELIVERY="$delivery" KOLU_AGENT_PUBLISHED_NIX="$nixes" \
       {{ nix_shell }} pnpm --filter kolu-server exec tsx src/agentDelivery/publishedAnswers.ts
 
 # W3.1 ssh-leg e2e — bind padiSurface over a REAL ssh hop, round-trip a terminal,

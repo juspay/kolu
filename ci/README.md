@@ -106,8 +106,12 @@ upstream's package from the commit before `--models` existed — and real
 launchers want a writable `HOME`, with a listing harness asking its own
 catalogue. `agent-published` reads upstream's published index over HTTPS and
 pulls that closure from upstream's binary cache, because the package a host
-serves is the one kolu delivered, never this tree's floor; it is red while
-kolu's contract calls something the published package cannot answer.
+serves is the one kolu delivered, never this tree's floor. It runs
+kolu-server's own delivery pull twice, as a host on Nix 2.34 (sent the
+content-addressed form) and on Nix 2.35 (sent the signed form), each into an
+empty scratch store from that cache alone, with both Nixes from kolu's pin. It
+is red while either kind of host cannot take the published package, or kolu's
+contract calls something that package cannot answer.
 
 ## The cache is warmed by the run
 
