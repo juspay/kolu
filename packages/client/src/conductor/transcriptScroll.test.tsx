@@ -28,6 +28,7 @@ import ConductorTranscript from "./ConductorTranscript";
 import type { ConductorRow } from "kolu-common/conductor";
 import { Shown } from "../ui/shown";
 import { atEnd, pinTranscript, revealTranscriptRow } from "./transcriptScroll";
+import { turnWorks } from "./turnWorks";
 
 /** Is the pane the view being read? The pane is RETAINED across a tab switch,
  *  so the follow rule has to ask — a scroll written into a subtree with no
@@ -90,6 +91,7 @@ function mount(): HTMLDivElement {
       <Shown.Provider value={shown}>
         <ConductorTranscript
           rows={rows()}
+          turns={turnWorks(rows(), new Map(), new Map())}
           pending={false}
           error={undefined}
           containerRef={(el) => {
@@ -273,6 +275,7 @@ describe("the strip's reveal", () => {
         <Shown.Provider value={() => true}>
           <ConductorTranscript
             rows={rows}
+            turns={turnWorks(rows, new Map(), new Map())}
             pending={false}
             error={undefined}
             containerRef={(el) => {

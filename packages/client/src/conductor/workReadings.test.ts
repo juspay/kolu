@@ -1121,7 +1121,8 @@ describe("the tab's one number", () => {
 
   it("leaves a part that would read zero out of the status line", () => {
     expect(words([work()], [])).toBe("1 piece of work");
-    expect(words([], ["ask-chat"])).toBe("1 waiting on you");
+    expect(words([], ["ask-chat"])).toBe("1 needs you");
+    expect(words([], ["ask-chat", "ask-other"])).toBe("2 need you");
     expect(words([], [])).toBe("");
     // An ENDED work is not in flight, so it is not counted as a piece of work.
     expect(

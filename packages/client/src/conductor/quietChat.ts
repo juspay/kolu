@@ -233,7 +233,9 @@ export function quietChat(
     const next = groups[index + 1]?.[0];
     const from = Date.parse(head.since);
     const until = next === undefined ? Infinity : Date.parse(next.since);
-    const said = group.find(prose);
+    // THE TURN'S LAST REPLY is its news: a turn that writes "Green, clean"
+    // and then, after more calls, "PR #2400 is merged" ended on the merge.
+    const said = group.filter(prose).at(-1);
     const note = notes.filter((one) => one.at >= from && one.at < until).at(-1);
     const says: QuietSays =
       said !== undefined

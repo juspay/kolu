@@ -41,12 +41,12 @@ Feature: The works that need you come first, and the chat goes quiet
     Given a repo for the work
     When I ask the conductor to open the work "fold the news"
     And I answer the work's question with "hand-over" on the card
-    Then the newest wake's line should be open, saying "answered"
+    Then the newest wake's turn should be open, its reply saying "answered" on screen
     When I send the conductor the prompt "say hello"
     Then the conductor transcript should show a row of kind "agent" saying "hello back"
-    And the newest wake's line should be folded, saying "answered"
+    And the newest wake's turn should be one folded line saying "answered", its reply off screen
     When I open the newest wake's line
-    Then the newest wake's line should be open, saying "answered"
+    Then the newest wake's turn should be open, its reply saying "answered" on screen
     And there should be no page errors
 
   Scenario: The palette lists the works, and a row lands on the card

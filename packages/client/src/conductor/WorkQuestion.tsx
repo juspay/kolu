@@ -72,6 +72,7 @@ import {
   type WorkId,
 } from "kolu-work";
 import { type Component, createMemo, For, Show } from "solid-js";
+import { useShown } from "../ui/shown";
 import AskOptions, { askOption } from "./AskOptions";
 import {
   forgetAskFields,
@@ -81,6 +82,7 @@ import {
   typeOnly,
 } from "./askForm";
 import { askDraft, forgetAskDraft, setAskDraft } from "./drafts";
+import { askOnScreenKey, trackOnScreen } from "./onScreen";
 import { openReader } from "./reader/useReader";
 import { useConductor } from "./useConductor";
 import { useWorkMap } from "./useWorks";
@@ -121,6 +123,9 @@ const WorkQuestion: Component<{
   attach?: { count: number; text: () => string };
 }> = (props) => {
   const orch = useConductor();
+  // IN VIEW, WHEREVER IT IS DRAWN — on the card, in the chat, in the reader:
+  // a question a person can see in a focused window does not ring.
+  const track = trackOnScreen(() => askOnScreenKey(props.ask), useShown());
   /** The questions of this ask, in the order they were asked. A question the
    *  REQUEST answered is not drawn: nobody is asked what they already said. */
   const questions = createMemo(() =>
@@ -324,6 +329,7 @@ const WorkQuestion: Component<{
 
   return (
     <section
+      ref={track}
       data-testid="work-question"
       data-ask={props.ask}
       data-from={props.from}

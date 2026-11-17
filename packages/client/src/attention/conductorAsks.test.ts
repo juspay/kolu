@@ -9,6 +9,7 @@ import {
   type BellReading,
   type ConductorBellHooks,
   createConductorBell,
+  isItemInView,
 } from "./conductorAsks";
 
 const OLAI = "branch:local/%2Fcode%2Folai/chat-on-any-entity";
@@ -67,8 +68,61 @@ function harness() {
     deliver: (items, own) =>
       rang.push({ items: items.map((one) => one.wanted), own }),
   };
-  return { bell: createConductorBell(hooks), rang, gates };
+  const raw = createConductorBell(hooks);
+  /** One reading, and the decision the page makes about it once drawn. */
+  const bell = {
+    observe: (one: BellReading): void => {
+      raw.observe(one);
+      raw.settle();
+    },
+  };
+  return { bell, raw, rang, gates };
 }
+
+describe("the Conductor's bell decides after the page has drawn", () => {
+  it("is silent for a question that arrives in view: its box says so only after it is drawn", () => {
+    const { raw, rang, gates } = harness();
+    raw.observe(reading([]));
+    const asked = question(KOLU, "a1");
+    // The reading lands; the question's box is mounted but not yet measured.
+    expect(raw.observe(reading([asked]))).toBe(true);
+    // The page draws it and the observer reports it in view.
+    gates.onScreen.add(asked.key);
+    raw.settle();
+    expect(rang).toEqual([]);
+  });
+
+  it("does not ring for an item that left the list before the page drew", () => {
+    const { raw, rang } = harness();
+    raw.observe(reading([]));
+    raw.observe(reading([merge(OLAI, 2400, "d3f4185")]));
+    raw.observe(reading([]));
+    raw.settle();
+    expect(rang).toEqual([]);
+  });
+});
+
+describe("whether an item is in view", () => {
+  const asked = question(KOLU, "a1");
+  const green = merge(OLAI, 700, "c88");
+  const everything = () => true;
+
+  it("needs a focused window: on screen in a window without focus is not seen", () => {
+    expect(isItemInView(asked, true, everything)).toBe(true);
+    expect(isItemInView(asked, false, everything)).toBe(false);
+  });
+
+  it("is the question for a question, and the card for a merge", () => {
+    const seen: string[] = [];
+    const look = (what: { kind: string; id: string }) => {
+      seen.push(`${what.kind}:${what.id}`);
+      return false;
+    };
+    isItemInView(asked, true, look);
+    isItemInView(green, true, look);
+    expect(seen).toEqual(["ask:a1", `card:${OLAI}`]);
+  });
+});
 
 describe("the Conductor's bell", () => {
   it("the first reading never rings, even with waits already open (a reload)", () => {

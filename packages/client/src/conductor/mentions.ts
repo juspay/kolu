@@ -183,6 +183,16 @@ export function completeToken(
   return { text: head + rest, caret: head.length };
 }
 
+/** A RESOLVED MENTION AND THE WORD IT WAS TYPED AS — the word is what the
+ *  chip's × drops from the text and what the chip is keyed by. Carried
+ *  rather than re-derived, because a work's word is made unique against its
+ *  neighbours (`workMentionCandidates`) and its title alone no longer says
+ *  which word that was. */
+export interface ArmedMention {
+  readonly token: string;
+  readonly mention: ConductorMention;
+}
+
 /** Every `@name` in the text that names a piece of work or a terminal kolu
  *  still has, in the order they appear, each one mentioned once.
  *
@@ -190,23 +200,22 @@ export function completeToken(
  *  the words, and inventing a reference to a terminal that is not there would be
  *  worse than saying nothing structured about it.
  *
- *  A token two candidates both answer to resolves to the FIRST one offered —
- *  and the menu offers the works first, so a work's slug that a terminal is
- *  also called by is the WORK. The alternative is to resolve it to nothing,
- *  and a reference dropped because a branch and the work cut from it share a
- *  word is the worse failure: the chip says which one it took and the person
- *  can see it before they send. */
-export function resolveMentions(
+ *  A work's word is unique among the works and never a terminal's name, so
+ *  every work row the menu offers resolves to that work. Two hosts carrying
+ *  one terminal name still resolve to the FIRST offered — the fleet list's own
+ *  order, most recently active first — and the chip says which host it took
+ *  before anything is sent. */
+export function armedMentions(
   text: string,
   candidates: readonly MentionCandidate[],
-): readonly ConductorMention[] {
+): readonly ArmedMention[] {
   const byName = new Map<string, MentionCandidate>();
   // FIRST WINS, written out: `new Map(entries)` keeps the LAST of a repeated
   // key, which is the opposite of the rule above.
   for (const candidate of candidates)
     if (!byName.has(candidate.name)) byName.set(candidate.name, candidate);
   const seen = new Set<string>();
-  const out: ConductorMention[] = [];
+  const out: ArmedMention[] = [];
   // A mention ends where the SENTENCE does: `@fix-parser, then…` names
   // `fix-parser`, not `fix-parser,`. Trailing punctuation is prose, and a
   // reference that only resolved at the end of a sentence would be a reference
@@ -217,28 +226,30 @@ export function resolveMentions(
     const candidate = byName.get(name);
     if (candidate === undefined || seen.has(name)) continue;
     seen.add(name);
-    out.push(
-      candidate.kind === "work"
-        ? { kind: "work", work: candidate.work, title: candidate.title }
-        : {
-            kind: "terminal",
-            terminalId: candidate.terminalId,
-            host: candidate.host,
-            name: candidate.name,
-            intent: candidate.intent,
-            cwd: candidate.cwd,
-          },
-    );
+    out.push({
+      token: name,
+      mention:
+        candidate.kind === "work"
+          ? { kind: "work", work: candidate.work, title: candidate.title }
+          : {
+              kind: "terminal",
+              terminalId: candidate.terminalId,
+              host: candidate.host,
+              name: candidate.name,
+              intent: candidate.intent,
+              cwd: candidate.cwd,
+            },
+    });
   }
   return out;
 }
 
-/** THE TOKEN A RESOLVED MENTION CAME FROM — a terminal's own name, a work's
- *  slug — which is what the chip's × drops from the text. Derived rather than
- *  carried: the mention holds the title the slug was cut from, so the two can
- *  never disagree about which word to remove. */
-export function mentionToken(mention: ConductorMention): string {
-  return mention.kind === "work" ? workSlug(mention.title) : mention.name;
+/** ... the mentions alone, as the wire carries them. */
+export function resolveMentions(
+  text: string,
+  candidates: readonly MentionCandidate[],
+): readonly ConductorMention[] {
+  return armedMentions(text, candidates).map((one) => one.mention);
 }
 
 /** WHAT A MESSAGE CARRIES when the chat is pointed at a piece of work: what

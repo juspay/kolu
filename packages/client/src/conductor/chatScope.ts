@@ -14,12 +14,19 @@ import type { WorkId } from "kolu-work";
 import { batch, createSignal } from "solid-js";
 import { conductorWide } from "./conductorLayout";
 import { closeReader } from "./reader/useReader";
+import { useWorkMap } from "./useWorks";
 import { setListingOut } from "./workListing";
 
 const [scope, setScope] = createSignal<WorkId | null>(null);
 
-/** The work the chat is about, or `null` for the whole conversation. */
-export const chatScope = scope;
+/** The work the chat is about, or `null` for the whole conversation — and
+ *  `null` too once that work is no longer in the list (the oldest finished
+ *  works are let go): a scope with no work behind it would filter the chat
+ *  down to nothing and name nothing. */
+export const chatScope = (): WorkId | null => {
+  const id = scope();
+  return id !== null && useWorkMap()().has(id) ? id : null;
+};
 
 /** "About this work": point the chat at it. The reader gives way and, on a
  *  narrow window, the listing goes back in, so the chat it filtered is the

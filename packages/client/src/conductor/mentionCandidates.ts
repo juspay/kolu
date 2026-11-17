@@ -28,7 +28,14 @@ import { Option } from "effect";
 import { encodeHostKey } from "kolu-common/hostKey";
 import type { TerminalId } from "kolu-common/surface";
 import { fleetTerminalRef } from "kolu-mcp/fleetRef";
-import type { Membership, NeedsYou, Work, WorkId, WorkRow } from "kolu-work";
+import {
+  type Membership,
+  type NeedsYou,
+  type Work,
+  type WorkId,
+  type WorkRow,
+  workKeyOf,
+} from "kolu-work";
 import {
   type FleetTerminalRow,
   groupFleetByHost,
@@ -78,33 +85,72 @@ export function memberDetail(at: Membership): MentionDetail {
   };
 }
 
+/** WHAT TELLS A WORK FROM ANOTHER OF THE SAME TITLE — its branch (unique in
+ *  its repo), or for a watch the terminal it watches. */
+const distinctPart = (id: WorkId): string =>
+  Option.match(workKeyOf(id), {
+    onNone: () => "work",
+    onSome: (key) =>
+      workSlug(key.kind === "branch" ? key.branch : key.terminal.slice(-8)),
+  });
+
+/** EVERY WORK'S OWN WORD after `@`, in the order given. A work is its title's
+ *  slug ({@link workSlug}) while that slug is its alone; one that another
+ *  work also slugs to, or that a terminal is already called (`taken`), adds
+ *  what tells it apart — its branch — and a number if even that is shared.
+ *  So every work row the menu offers resolves to that work, and two works
+ *  with one title (a work stopped and opened again on a new branch) can both
+ *  be picked. */
+function workWords(
+  works: ReadonlyArray<readonly [WorkId, Work]>,
+  taken: ReadonlySet<string>,
+): ReadonlyArray<string> {
+  const bases = works.map(([, work]) => workSlug(work.title));
+  const count = new Map<string, number>();
+  for (const base of bases) count.set(base, (count.get(base) ?? 0) + 1);
+  const used = new Set<string>(taken);
+  return works.map(([id], at) => {
+    const base = bases[at] ?? "work";
+    let word =
+      (count.get(base) ?? 0) > 1 || taken.has(base)
+        ? `${base}-${distinctPart(id)}`
+        : base;
+    for (let n = 2; used.has(word); n += 1) word = `${base}-${n}`;
+    used.add(word);
+    return word;
+  });
+}
+
 /** EVERY PIECE OF WORK the menu offers, in the one order: what needs the
  *  human first (`needsYou`'s own), then the rest as the works collection
- *  lists them — in progress oldest first, then the finished ones. */
+ *  lists them — in progress oldest first, then the finished ones. `taken` is
+ *  the terminals' names, which no work's word may be. */
 export function workMentionCandidates(
   works: ReadonlyArray<WorkRow>,
   needs: ReadonlyArray<NeedsYou>,
+  taken: ReadonlySet<string>,
 ): WorkCandidate[] {
   const byId = new Map<WorkId, Work>(works);
   const order = [...needs.map((one) => one.work), ...works.map(([id]) => id)];
   const seen = new Set<WorkId>();
-  const out: WorkCandidate[] = [];
+  const rows: Array<readonly [WorkId, Work]> = [];
   for (const id of order) {
     const record = byId.get(id);
     if (record === undefined || seen.has(id)) continue;
     seen.add(id);
-    out.push({
-      kind: "work",
-      work: id,
-      title: record.title,
-      name: workSlug(record.title),
-      record,
-      // The card's own lead, not a second vocabulary for where a work
-      // stands: "Needs you", "Agents at work", "CI running", "Merged".
-      standing: standingLine(record, Option.none()).lead,
-    });
+    rows.push([id, record]);
   }
-  return out;
+  const words = workWords(rows, taken);
+  return rows.map(([id, record], at) => ({
+    kind: "work",
+    work: id,
+    title: record.title,
+    name: words[at] ?? workSlug(record.title),
+    record,
+    // The card's own lead, not a second vocabulary for where a work
+    // stands: "Needs you", "Agents at work", "CI running", "Merged".
+    standing: standingLine(record, Option.none()).lead,
+  }));
 }
 
 export function fleetMentionCandidates(

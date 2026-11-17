@@ -66,7 +66,7 @@ import Tip from "../ui/Tip";
 import ConductorLook from "./ConductorLook";
 import WorkCardActions from "./WorkCardActions";
 import WorkQuestion from "./WorkQuestion";
-import { askOnScreenKey, cardOnScreenKey, trackOnScreen } from "./onScreen";
+import { cardOnScreenKey, trackOnScreen } from "./onScreen";
 import { splitMemberRef } from "./memberRef";
 import { fleetMentionCandidates } from "./mentionCandidates";
 import { useConductor } from "./useConductor";
@@ -116,18 +116,14 @@ const STOP_COPY =
   "The work is marked stopped and its terminals are released. Nothing is deleted — its decisions and its timeline stay, and you can open it again.";
 
 /** ONE OPEN QUESTION'S PLACE ON THE CARD — what a route onto that question
- *  scrolls to, and what tells the bell that question is in view. */
+ *  scrolls to. Whether the question is in view is the question's own to say
+ *  (`WorkQuestion`), wherever it is drawn. */
 const AskSlot: Component<{
   ask: string;
   boxes: Map<string, HTMLElement>;
   children: JSX.Element;
 }> = (props) => {
   let box!: HTMLDivElement;
-  trackOnScreen(
-    () => box,
-    () => askOnScreenKey(props.ask),
-    useShown(),
-  );
   onMount(() => props.boxes.set(props.ask, box));
   onCleanup(() => props.boxes.delete(props.ask));
   return (
@@ -174,11 +170,7 @@ const WorkCard: Component<{
   const onScreen = useShown();
   // In view in a focused window, this card is what silences the bell for a
   // merge it is waiting on.
-  trackOnScreen(
-    () => card,
-    () => cardOnScreenKey(props.id),
-    onScreen,
-  );
+  const trackCard = trackOnScreen(() => cardOnScreenKey(props.id), onScreen);
   const [flash, setFlash] = createSignal(false);
   let unflash: number | undefined;
   let frame: number | undefined;
@@ -310,7 +302,10 @@ const WorkCard: Component<{
 
   return (
     <article
-      ref={card}
+      ref={(el) => {
+        card = el;
+        trackCard(el);
+      }}
       data-testid="work-card"
       data-work={props.id}
       data-who={at().who}

@@ -153,16 +153,18 @@ When("I show the whole chat", async function (this: KoluWorld) {
     .waitFor({ state: "hidden", timeout: POLL_TIMEOUT });
 });
 
-/** THE ONE LINE THE NEWEST WAKE'S TURN IS — open or folded, and saying what
- *  its reply opened with. */
-async function newestWakeLine(
+/** THE NEWEST WAKE'S TURN, read as a person sees it: its line open or
+ *  folded, and the reply that says `words` — on screen when the turn is open,
+ *  off it when the turn is folded, where the line says the reply's first
+ *  sentence instead. */
+async function newestWakeTurn(
   world: KoluWorld,
   open: boolean,
   words: string,
 ): Promise<void> {
   await pollFor({
-    observe: () =>
-      world.page.locator(FOLD_LINE).evaluateAll((lines) => {
+    observe: async () => {
+      const line = await world.page.locator(FOLD_LINE).evaluateAll((lines) => {
         const last = lines.at(-1);
         return last === undefined
           ? null
@@ -170,28 +172,47 @@ async function newestWakeLine(
               open: last.hasAttribute("data-open"),
               says: last.textContent ?? "",
             };
-      }),
-    isDone: (seen) =>
-      seen !== null && seen.open === open && seen.says.includes(words),
+      });
+      const reply = await world.page
+        .locator(
+          `${TRANSCRIPT} [data-testid="conductor-row"][data-row-kind="agent"]`,
+        )
+        .evaluateAll(
+          (rows, want) =>
+            rows
+              .filter((row) => (row.textContent ?? "").includes(want))
+              .at(-1)
+              ?.checkVisibility() ?? null,
+          words,
+        );
+      return { line, replyShown: reply };
+    },
+    isDone: ({ line, replyShown }) =>
+      line !== null &&
+      line.open === open &&
+      replyShown === open &&
+      // Folded, the line is the reply's first sentence; open, the reply is
+      // drawn under it and the line does not say it again.
+      line.says.includes(words) === !open,
     timeoutMs: POLL_TIMEOUT,
     onTimeout: (seen, ms) =>
       new Error(
-        `after ${ms}ms the newest wake's line was ${JSON.stringify(seen)}, not ${open ? "open" : "folded"} saying ${JSON.stringify(words)}`,
+        `after ${ms}ms the newest wake's turn was ${JSON.stringify(seen)}, not ${open ? "open with its reply on screen" : `folded to a line saying ${JSON.stringify(words)}`}`,
       ),
   });
 }
 
 Then(
-  "the newest wake's line should be open, saying {string}",
+  "the newest wake's turn should be open, its reply saying {string} on screen",
   async function (this: KoluWorld, words: string) {
-    await newestWakeLine(this, true, words);
+    await newestWakeTurn(this, true, words);
   },
 );
 
 Then(
-  "the newest wake's line should be folded, saying {string}",
+  "the newest wake's turn should be one folded line saying {string}, its reply off screen",
   async function (this: KoluWorld, words: string) {
-    await newestWakeLine(this, false, words);
+    await newestWakeTurn(this, false, words);
   },
 );
 

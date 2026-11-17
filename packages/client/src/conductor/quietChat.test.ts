@@ -254,6 +254,30 @@ describe("quietChat", () => {
     expect([...(turn?.asks ?? [])]).toEqual(["q1"]);
   });
 
+  it("reads the line off the turn's LAST reply (03:38)", () => {
+    // The real turn: the Conductor wrote a line about the CI table, made
+    // more calls, and then said the PR had merged. The merge is the news.
+    const chat = quietChat(
+      [
+        wake("w1", 38),
+        agent("a1", 38, "Green, clean, on croissant per its table."),
+        tool("t1", 39),
+        agent(
+          "a2",
+          39,
+          "Kolu PR #2400 is merged into master as `d3f4185`, with every check green on that exact head. Hosts can already take today's agents.",
+        ),
+        user("u1", 45),
+      ],
+      [],
+    );
+    expect(chat.of.get("w1")?.says).toEqual({
+      kind: "prose",
+      headline:
+        "Kolu PR #2400 is merged into master as d3f4185, with every check green on that exact head.",
+    });
+  });
+
   it("says the note a turn wrote instead of a reply", () => {
     const chat = quietChat(
       [

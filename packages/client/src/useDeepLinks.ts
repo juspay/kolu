@@ -28,6 +28,7 @@
 import { makeEventListener } from "@solid-primitives/event-listener";
 import { decodeHostKey, encodeHostKey } from "kolu-common/hostKey";
 import type { TerminalId } from "kolu-common/surface";
+import type { WorkId } from "kolu-work";
 import {
   batch,
   createEffect,
@@ -39,6 +40,7 @@ import {
 import { toast } from "solid-sonner";
 import { match } from "ts-pattern";
 import { showWork } from "./conductor/workListing";
+import { useWorkMap } from "./conductor/useWorks";
 import { type DeepLink, type ParsedDeepLink, parseDeepLink } from "./deepLink";
 import { setDeepLinkFocusIntent } from "./deepLinkFocusIntent";
 import { listIsAuthoritative } from "./kaval/useDaemonStatus";
@@ -105,6 +107,30 @@ export function useDeepLinks(): void {
 
   // The one terminal navigation the settle effect is watching (null = idle).
   const [pending, setPending] = createSignal<TerminalRoute | null>(null);
+
+  /** A LINK TO A WORK, until the works mirror has it. A work id that reads as
+   *  a work key may still name nothing here — it finished and was let go, or
+   *  it was never on this kolu — and a link that silently lands on nothing is
+   *  the defect a terminal link's "gone" toast exists to prevent. The works
+   *  arrive one record at a time, so absence is a verdict only after the same
+   *  bound a terminal route waits for its host. */
+  const [pendingWork, setPendingWork] = createSignal<WorkId | null>(null);
+  const workMap = useWorkMap();
+  createEffect(() => {
+    const id = pendingWork();
+    if (id !== null && workMap().has(id)) setPendingWork(null);
+  });
+  createEffect(() => {
+    if (pendingWork() === null) return;
+    // Started once per link, not again with every record that arrives.
+    const timer = setTimeout(() => {
+      setPendingWork(null);
+      toast.error(
+        "That piece of work isn't in kolu — it may have finished and been let go.",
+      );
+    }, MEMBERSHIP_BOUND_MS);
+    onCleanup(() => clearTimeout(timer));
+  });
 
   /** Enact a terminal route once its target is known to exist. View-only:
    *  focus the terminal through the shared landing verb, then open the requested
@@ -237,7 +263,10 @@ export function useDeepLinks(): void {
           )
           .with({ kind: "settings" }, () => openSettings())
           // A work: the ONE route to a work, which every other face takes.
-          .with({ kind: "work" }, ({ work, ask }) => showWork(work, ask))
+          .with({ kind: "work" }, ({ work, ask }) => {
+            setPendingWork(work);
+            showWork(work, ask);
+          })
           .with({ kind: "host" }, ({ host }) =>
             setActiveHost(decodeHostKey(host)),
           )

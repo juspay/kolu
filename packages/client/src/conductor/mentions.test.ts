@@ -6,12 +6,12 @@ import type { TerminalId } from "kolu-common/surface";
 import { openWork, type Work, type WorkId } from "kolu-work";
 import { describe, expect, it } from "vitest";
 import {
+  armedMentions,
   armedMentionText,
   completeToken,
   dropMention,
   filterMentions,
   type MentionCandidate,
-  mentionToken,
   resolveMentions,
   tokenQueryAt,
   withScopeMention,
@@ -177,7 +177,10 @@ describe("resolveMentions", () => {
       "@odu-cache and @fix-parser, then @odu-cache again",
       fleet,
     );
-    expect(mentions.map(mentionToken)).toEqual(["odu-cache", "fix-parser"]);
+    expect(mentions.map((one) => one.kind === "terminal" && one.name)).toEqual([
+      "odu-cache",
+      "fix-parser",
+    ]);
     expect(mentions[0]).toMatchObject({
       kind: "terminal",
       terminalId: "33333333-3333-4333-8333-333333333333",
@@ -276,19 +279,19 @@ describe("workSlug", () => {
   });
 });
 
-describe("mentionToken", () => {
-  it("is the terminal's name, and a work's slug", () => {
+describe("armedMentions", () => {
+  it("carries the word each mention was typed as: a terminal's name, a work's word", () => {
     expect(
-      resolveMentions("@fix-docs and @page-chats-open-in-a-pane", menu).map(
-        mentionToken,
+      armedMentions("@fix-docs and @page-chats-open-in-a-pane", menu).map(
+        (one) => one.token,
       ),
     ).toEqual(["fix-docs", "page-chats-open-in-a-pane"]);
   });
 
   it("is what dropMention takes the chip's × to mean", () => {
     const text = "@page-chats-open-in-a-pane what is left?";
-    const chip = resolveMentions(text, menu)[0];
-    expect(chip && dropMention(text, mentionToken(chip))).toBe("what is left?");
+    const chip = armedMentions(text, menu)[0];
+    expect(chip && dropMention(text, chip.token)).toBe("what is left?");
   });
 });
 

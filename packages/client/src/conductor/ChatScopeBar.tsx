@@ -8,34 +8,33 @@
  *  its own chip, counts what it is keeping, and holds the way out.
  *
  *  The count is the SAME `turnWorks` reading the transcript filters by and
- *  the chips are drawn from, so "5 of 15" cannot disagree with what is on
- *  screen. It is read only while the chat is scoped: with no scope the memo
- *  never touches the rows, so an unscoped conversation pays nothing per
- *  streamed chunk. */
+ *  the chips are drawn from — the pane reads it once and hands it to both —
+ *  so "5 of 15" cannot disagree with what is on screen. */
 
 import type { ConductorRow } from "kolu-common/conductor";
 import { type Component, createMemo, Show } from "solid-js";
 import { chatScope, showAllChat } from "./chatScope";
-import { joinsOf, turnWorks } from "./turnWorks";
+import type { Turn } from "./turnWorks";
 import { useWorkMap } from "./useWorks";
 import WorkChipFace from "./WorkChipFace";
 
-const ChatScopeBar: Component<{ rows: readonly ConductorRow[] }> = (props) => {
+const ChatScopeBar: Component<{
+  rows: readonly ConductorRow[];
+  turns: ReadonlyMap<string, Turn>;
+}> = (props) => {
   const map = useWorkMap();
   const tally = createMemo(() => {
     const id = chatScope();
     if (id === null) return null;
-    const works = map();
-    const turns = turnWorks(props.rows, works, joinsOf(works));
     let total = 0;
     let shown = 0;
     for (const row of props.rows) {
-      const turn = turns.get(row.id);
+      const turn = props.turns.get(row.id);
       if (turn === undefined || turn.first !== row.id) continue;
       total += 1;
       if (turn.works.includes(id)) shown += 1;
     }
-    return { id, work: works.get(id), total, shown };
+    return { id, work: map().get(id), total, shown };
   });
 
   return (

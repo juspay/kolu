@@ -3,8 +3,13 @@
  *  FINISHES must fire an alert. */
 
 import type { TerminalId } from "kolu-common/surface";
+import type { Membership } from "kolu-work";
 import { describe, expect, it, vi } from "vitest";
-import { type AttentionHooks, createAttentionCore } from "./attentionCore";
+import {
+  type AttentionHooks,
+  createAttentionCore,
+  drivenByConductor,
+} from "./attentionCore";
 import type { AttentionFrame } from "kolu-common/surface";
 
 const u = (asking: string[] = [], finished: string[] = []): AttentionFrame => ({
@@ -34,24 +39,48 @@ function harness(over: Partial<AttentionHooks> = {}) {
 }
 
 describe("attentionCore — a terminal the Conductor drives", () => {
-  it("is silent — its question draws the mark and rings nothing, while an undriven terminal beside it rings", () => {
-    const { core, delivered, quiet } = harness({
-      isDriven: (_h, id) => id === "planner",
+  /** The membership index, as `membershipOf` hands it out, keyed by fleet
+   *  ref: the planner the Conductor drives, the implementor the human took
+   *  over, and a member of a plain watch nobody drives. */
+  const membership = new Map<string, Membership>([
+    [
+      "local/planner",
+      { work: "w", title: "w", role: "planner", driver: "conductor" },
+    ],
+    [
+      "local/implementor",
+      { work: "w", title: "w", role: "implementor", driver: "you" },
+    ],
+    [
+      "local/watched",
+      { work: "v", title: "v", role: "other", driver: "nobody" },
+    ],
+  ]);
+  const harnessed = () =>
+    harness({
+      isDriven: (encHost, id) => drivenByConductor(membership, encHost, id),
     });
-    core.observe("h", u([], []));
-    core.observe("h", u(["planner"], ["implementor"]));
-    expect(delivered).toEqual([
-      { id: "planner", asking: true },
-      { id: "implementor", asking: false },
-    ]);
+
+  it("is silent — its question draws the mark and rings nothing", () => {
+    const { core, delivered, quiet } = harnessed();
+    core.observe("local", u([], []));
+    core.observe("local", u(["planner"], []));
+    expect(delivered).toEqual([{ id: "planner", asking: true }]);
     expect(quiet).toEqual(["planner"]);
   });
 
-  it("rings once the human has taken it over", () => {
-    // Taken over, the membership's driver is `you`, not the Conductor.
-    const { core, quiet } = harness({ isDriven: () => false });
-    core.observe("h", u([], []));
-    core.observe("h", u(["planner"], []));
+  it("rings once the human has taken it over, and for a watch or no work", () => {
+    const { core, quiet, delivered } = harnessed();
+    core.observe("local", u([], []));
+    core.observe("local", u(["implementor", "watched", "loose"], []));
+    expect(delivered).toHaveLength(3);
+    expect(quiet).toEqual([]);
+  });
+
+  it("is about THIS host's terminal: the same id on another host rings", () => {
+    const { core, quiet } = harnessed();
+    core.observe("remote:box", u([], []));
+    core.observe("remote:box", u(["planner"], []));
     expect(quiet).toEqual([]);
   });
 });

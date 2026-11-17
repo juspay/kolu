@@ -53,7 +53,6 @@ import {
 } from "kolu-common/surface";
 import "kolu-common/test-hooks";
 import { Effect, Option, Semaphore } from "effect";
-import { fleetTerminalRef } from "kolu-mcp/fleetRef";
 import type { NeedsYou } from "kolu-work";
 import { createEffect, mapArray, onCleanup, untrack } from "solid-js";
 import { match } from "ts-pattern";
@@ -80,8 +79,8 @@ import { runAction } from "../runAction";
 import type { TerminalSubject } from "../terminal/terminalSubject";
 import { nextAfter } from "../ui/nextAfter";
 import { activeHost, preferences, setActiveHost } from "../wire";
-import { createAttentionCore } from "./attentionCore";
-import { createConductorBell } from "./conductorAsks";
+import { createAttentionCore, drivenByConductor } from "./attentionCore";
+import { createConductorBell, isItemInView } from "./conductorAsks";
 import {
   hostAskingIds,
   hostFrame,
@@ -262,31 +261,55 @@ export function useAttention(deps: AttentionDeps): {
   };
   const conductorBell = createConductorBell({
     alertsEnabled,
-    // THAT ITEM in view in a focused window — its question, or for a merge
-    // its card. Looking at the Conductor alone is not looking at it.
+    // THAT ITEM in view in a focused window — its question wherever it is
+    // drawn, or for a merge its card. Looking at the Conductor alone is not
+    // looking at it.
     isItemWatched: (item) =>
-      document.hasFocus() &&
-      isOnScreen(
-        item.why.why === "question"
-          ? askOnScreenKey(item.why.ask)
-          : cardOnScreenKey(item.work),
+      isItemInView(item, document.hasFocus(), (what) =>
+        isOnScreen(
+          what.kind === "ask"
+            ? askOnScreenKey(what.id)
+            : cardOnScreenKey(what.id),
+        ),
       ),
     isConversationWatched: () => conductorMode() && document.hasFocus(),
     deliver: deliverNeeds,
   });
   const workMap = useWorkMap();
   const needs = useNeedsYou();
+  /** The frame the bell will decide in, while one is waiting. */
+  let settling: number | undefined;
+  onCleanup(() => {
+    if (settling !== undefined) cancelAnimationFrame(settling);
+  });
   createEffect(() => {
     const asks = conductorOpenAsks();
     // Silence is not an empty list: before the server's first frame there is
     // nothing to compare against, and the real first frame is the baseline.
     if (asks === undefined) return;
     const map = workMap();
-    conductorBell.observe({
+    const heard = conductorBell.observe({
       openAsks: asks,
       ownAsks: ownAsks([...map.values()], asks),
       works: new Set(map.keys()),
       needs: needs(),
+    });
+    // DECIDE AFTER THE PAGE HAS DRAWN IT. The question that just arrived is
+    // mounted in this same pass at the earliest, and its box says it is in
+    // view only once it has been laid out and observed — the frame after
+    // next is the first moment that answer is in. A window without focus has
+    // nothing in view to wait for (and a hidden one draws no frames), so it
+    // decides now.
+    if (!heard || settling !== undefined) return;
+    if (!document.hasFocus()) {
+      conductorBell.settle();
+      return;
+    }
+    settling = requestAnimationFrame(() => {
+      settling = requestAnimationFrame(() => {
+        settling = undefined;
+        conductorBell.settle();
+      });
     });
   });
 
@@ -305,8 +328,7 @@ export function useAttention(deps: AttentionDeps): {
     // Untracked: asked mid-frame, inside a host's own effect, which must not
     // re-run because some terminal's driver moved.
     isDriven: (encHost, id) =>
-      untrack(membership)?.get(fleetTerminalRef(encHost, id))?.driver ===
-      "conductor",
+      drivenByConductor(untrack(membership), encHost, id),
     deliver: (encHost, id, asking, loud) =>
       deliver(decodeHostKey(encHost), id, asking, loud),
     writeMark: (encHost, unseenFinished) =>

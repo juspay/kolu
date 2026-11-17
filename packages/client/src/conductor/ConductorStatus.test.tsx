@@ -160,7 +160,7 @@ describe("the status line", () => {
     const at = mount({ openAsks: ["ask-1"] });
     const button = at("conductor-work-count");
     expect(button?.textContent?.replace(/\s+/g, " ")).toBe(
-      "1 piece of work · 1 waiting on you",
+      "1 piece of work · 1 needs you",
     );
     expect(button?.dataset.waiting).toBe("1");
   });

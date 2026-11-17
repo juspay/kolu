@@ -946,9 +946,10 @@ export function workOfAsk(
   );
 }
 
-/** The sentence the status line reads: `N pieces of work · M waiting on you`,
- *  with a part that would read zero left out entirely. Empty when there is
- *  nothing to say, which is what keeps `0 pieces of work` off the screen. */
+/** The sentence the status line reads: `N pieces of work · M need you` — the
+ *  column's own word, "Needs you" — with a part that would read zero left
+ *  out entirely. Empty when there is nothing to say, which is what keeps
+ *  `0 pieces of work` off the screen. */
 export function worksStatusWords(
   needs: ReadonlyArray<NeedsYou>,
   works: ReadonlyArray<Work>,
@@ -959,6 +960,7 @@ export function worksStatusWords(
   const parts: string[] = [];
   if (live > 0)
     parts.push(`${live} ${live === 1 ? "piece of work" : "pieces of work"}`);
-  if (waiting > 0) parts.push(`${waiting} waiting on you`);
+  if (waiting > 0)
+    parts.push(`${waiting} ${waiting === 1 ? "needs" : "need"} you`);
   return parts.join(" · ");
 }

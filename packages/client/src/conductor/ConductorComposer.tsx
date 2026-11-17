@@ -63,12 +63,11 @@ import {
   setComposerText,
 } from "./drafts";
 import {
+  armedMentions,
   completeToken,
   dropMention,
   filterMentions,
   type MentionCandidate,
-  mentionToken as tokenOf,
-  resolveMentions,
   type TerminalCandidate,
   type TokenQuery,
   tokenQueryAt,
@@ -127,11 +126,21 @@ const ConductorComposer: Component<{
    *  the fleet index notifies on any metadata change on any host, and
    *  re-reading every work's standing on each of those ticks would fold the
    *  whole waterfall for a keystroke in a terminal nobody is looking at. */
-  const workCandidates = createMemo<WorkCandidate[]>(() =>
-    workMentionCandidates(works(), needs()),
-  );
   const terminalCandidates = createMemo<TerminalCandidate[]>(() =>
     fleetMentionCandidates(fleet(), membership()),
+  );
+  /** The terminals' words, which a work's word must not be — a set that
+   *  moves only when a name does, so the works are not re-read on every
+   *  fleet tick. */
+  const terminalNames = createMemo<ReadonlySet<string>>(
+    () => new Set(terminalCandidates().map((one) => one.name)),
+    new Set(),
+    {
+      equals: (a, b) => a.size === b.size && [...a].every((one) => b.has(one)),
+    },
+  );
+  const workCandidates = createMemo<WorkCandidate[]>(() =>
+    workMentionCandidates(works(), needs(), terminalNames()),
   );
   const candidates = createMemo<MentionCandidate[]>(() => [
     ...workCandidates(),
@@ -161,7 +170,7 @@ const ConductorComposer: Component<{
     );
   });
   onCleanup(() => setCompletionOpen(false));
-  const armed = createMemo(() => resolveMentions(composerText(), candidates()));
+  const armed = createMemo(() => armedMentions(composerText(), candidates()));
 
   /** THE WORK THE CHAT IS POINTED AT, as a candidate of its own: the chip
    *  over the box is its face, and a message sent while it is on carries it
@@ -286,7 +295,10 @@ const ConductorComposer: Component<{
       text,
       // WHAT THE CHAT IS ABOUT RIDES ALONG: a message sent while the chat is
       // pointed at a work is about that work, typed or not.
-      withScopeMention(armed(), scopeMention()),
+      withScopeMention(
+        armed().map((one) => one.mention),
+        scopeMention(),
+      ),
       files,
       steer,
       (accepted) => {
@@ -566,12 +578,12 @@ const ConductorComposer: Component<{
           {/* KEYED for the same reason as the menu: `armed()` re-resolves
               against freshly minted candidates on every fleet tick, and a
               rebuilt chip is a chip whose press target moved under the finger.
-              The TOKEN is the identity — `resolveMentions` emits each one once,
+              The TOKEN is the identity — `armedMentions` emits each one once,
               and the token is what the × drops from the text. */}
-          <Key each={armed()} by={tokenOf}>
-            {(mention) => (
+          <Key each={armed()} by="token">
+            {(armedOne) => (
               <>
-                <Show when={asWork(mention())}>
+                <Show when={asWork(armedOne().mention)}>
                   {(work) => (
                     <button
                       type="button"
@@ -581,7 +593,7 @@ const ConductorComposer: Component<{
                       title={work().title}
                       class="flex items-center gap-1 cursor-pointer"
                       onClick={() =>
-                        write(dropMention(composerText(), tokenOf(work())), 0)
+                        write(dropMention(composerText(), armedOne().token), 0)
                       }
                     >
                       {/* The work's own face, as every other chip of it is
@@ -601,7 +613,7 @@ const ConductorComposer: Component<{
                     </button>
                   )}
                 </Show>
-                <Show when={asTerminal(mention())}>
+                <Show when={asTerminal(armedOne().mention)}>
                   {(one) => (
                     <button
                       type="button"
@@ -612,7 +624,7 @@ const ConductorComposer: Component<{
                       title={one().intent ?? one().cwd ?? undefined}
                       class="rounded-full bg-accent/15 px-2 py-px font-mono text-[0.68rem] font-semibold text-accent cursor-pointer"
                       onClick={() =>
-                        write(dropMention(composerText(), one().name), 0)
+                        write(dropMention(composerText(), armedOne().token), 0)
                       }
                     >
                       {/* The host rides ON the chip — what is sent is

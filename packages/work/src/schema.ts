@@ -174,10 +174,12 @@ export const workKeyOf = (id: WorkId): Option.Option<WorkKey> => {
     if (watch === null) return Option.none();
     const [terminal] = watch.slice(1).map(decodeURIComponent);
     return decodeWorkKey({ kind: "watch", terminal });
-  } catch {
+  } catch (cause) {
     // `decodeURIComponent` throws `URIError` on a malformed escape: that is
-    // a string no `workIdOf` produced, so it names no work.
-    return Option.none();
+    // a string no `workIdOf` produced, so it names no work. Anything else is
+    // a defect and goes on up.
+    if (cause instanceof URIError) return Option.none();
+    throw cause;
   }
 };
 

@@ -21,6 +21,7 @@ import {
   mentionDetail,
   workMentionCandidates,
 } from "./mentionCandidates";
+import { resolveMentions } from "./mentions";
 
 const meta = (fields: Record<string, unknown>): TerminalMetadata =>
   ({
@@ -153,14 +154,16 @@ describe("workMentionCandidates", () => {
   ] as const;
   const needs = [{ work: AGENTS } as NeedsYou, { work: FOLDERS } as NeedsYou];
 
+  const NONE: ReadonlySet<string> = new Set();
+
   it("offers what needs the human first, then the rest in the works' order", () => {
     expect(
-      workMentionCandidates([...works], needs).map((one) => one.work),
+      workMentionCandidates([...works], needs, NONE).map((one) => one.work),
     ).toEqual([AGENTS, FOLDERS, PANE]);
   });
 
   it("offers each work once, by a slug of its title, with where it stands", () => {
-    const [first] = workMentionCandidates([...works], []);
+    const [first] = workMentionCandidates([...works], [], NONE);
     expect(first).toMatchObject({
       kind: "work",
       work: PANE,
@@ -173,9 +176,44 @@ describe("workMentionCandidates", () => {
 
   it("drops a wait whose work the mirror no longer lists", () => {
     expect(
-      workMentionCandidates([works[0]], [{ work: AGENTS } as NeedsYou]).map(
-        (one) => one.work,
-      ),
+      workMentionCandidates(
+        [works[0]],
+        [{ work: AGENTS } as NeedsYou],
+        NONE,
+      ).map((one) => one.work),
     ).toEqual([PANE]);
+  });
+
+  it("gives two works of one title each its own word, and each word picks its own work", () => {
+    // The real store: "Published agents fetchable by any host" twice — one
+    // stopped, one merged as #2400 — on two branches of one repo.
+    const title = "Published agents fetchable by any host";
+    const stopped = "branch:local/%2Fr/agents-closure" as WorkId;
+    const merged = "branch:local/%2Fr/agents-closure-in-cache" as WorkId;
+    const offered = workMentionCandidates(
+      [
+        [stopped, work(title, "2026-11-16T01:00:00.000Z")],
+        [merged, work(title, "2026-11-16T02:00:00.000Z")],
+      ],
+      [],
+      NONE,
+    );
+    expect(offered.map((one) => one.name)).toEqual([
+      "published-agents-fetchable-by-any-host-agents-closure",
+      "published-agents-fetchable-by-any-host-agents-closure-in-cache",
+    ]);
+    for (const row of offered)
+      expect(resolveMentions(`@${row.name} ok`, offered)).toEqual([
+        { kind: "work", work: row.work, title },
+      ]);
+  });
+
+  it("never takes a word a terminal is already called", () => {
+    const [one] = workMentionCandidates(
+      [[PANE, work("Page chats", "2026-11-16T01:00:00.000Z")]],
+      [],
+      new Set(["page-chats"]),
+    );
+    expect(one?.name).toBe("page-chats-pane");
   });
 });

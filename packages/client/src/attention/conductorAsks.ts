@@ -51,7 +51,7 @@ export interface BellReading {
 export interface ConductorBellHooks {
   /** The master gate — the `attentionAlerts` preference. */
   alertsEnabled(): boolean;
-  /** Is this item on screen in a focused window? */
+  /** Is this item on screen in a focused window? ({@link isItemInView}) */
   isItemWatched(item: NeedsYou): boolean;
   /** Is the conversation on screen in a focused window? — the silence for a
    *  question that belongs to no work. */
@@ -62,8 +62,34 @@ export interface ConductorBellHooks {
 }
 
 export interface ConductorBell {
-  /** Feed one reading. Read during the call; nothing in it is kept. */
-  observe(reading: BellReading): void;
+  /** Feed one reading. Read during the call; nothing in it is kept but what
+   *  is NEW in it. Answers whether anything new is waiting for
+   *  {@link ConductorBell.settle}. */
+  observe(reading: BellReading): boolean;
+  /** DECIDE about what `observe` heard — called once the page has had the
+   *  chance to draw and measure it. A new question arrives in the same pass
+   *  that mounts its box, and the box can only say it is in view after
+   *  layout; asking at `observe` would find every new item off screen. An
+   *  item that has left the list since is not rung for. */
+  settle(): void;
+}
+
+/** IS THIS ITEM IN VIEW — in a focused window, its question (wherever it is
+ *  drawn) or, for a merge wait, its card. Looking at the Conductor is not
+ *  looking at the item, and an unfocused window is looking at nothing. */
+export function isItemInView(
+  item: NeedsYou,
+  focused: boolean,
+  onScreen: (what: { kind: "ask" | "card"; id: string }) => boolean,
+): boolean {
+  return (
+    focused &&
+    onScreen(
+      item.why.why === "question"
+        ? { kind: "ask", id: item.why.ask }
+        : { kind: "card", id: item.work },
+    )
+  );
 }
 
 /** How the bell remembers a thing it has heard. */
@@ -74,17 +100,28 @@ export function createConductorBell(hooks: ConductorBellHooks): ConductorBell {
   let baseline: ReadonlySet<string> | undefined;
   const heard = new Set<string>();
   const known = new Set<WorkId>();
+  /** What was heard and not yet decided about. */
+  let pending: NeedsYou[] = [];
+  let pendingOwn = false;
+  /** The latest reading's items and own asks — what is still waiting when
+   *  the bell comes to decide. */
+  let current: ReadonlySet<string> = new Set();
+  let ownOpen = 0;
   return {
     observe(reading) {
+      current = new Set([
+        ...reading.needs.map(tokenOf),
+        ...reading.ownAsks.map((id) => `ask:${id}`),
+      ]);
+      ownOpen = reading.ownAsks.length;
       if (baseline === undefined) {
         baseline = new Set(reading.openAsks);
         for (const id of reading.openAsks) heard.add(`ask:${id}`);
         for (const item of reading.needs) heard.add(tokenOf(item));
         for (const work of reading.works) known.add(work);
-        return;
+        return false;
       }
       const opened = baseline;
-      const items: NeedsYou[] = [];
       for (const item of reading.needs) {
         const token = tokenOf(item);
         if (heard.has(token)) continue;
@@ -92,19 +129,32 @@ export function createConductorBell(hooks: ConductorBellHooks): ConductorBell {
         const news =
           known.has(item.work) ||
           (item.why.why === "question" && !opened.has(item.why.ask));
-        if (news && hooks.alertsEnabled() && !hooks.isItemWatched(item))
-          items.push(item);
+        if (news) pending.push(item);
       }
-      let own = false;
       for (const id of reading.ownAsks) {
         const token = `ask:${id}`;
         if (heard.has(token)) continue;
         heard.add(token);
-        if (hooks.alertsEnabled() && !hooks.isConversationWatched()) own = true;
+        pendingOwn = true;
       }
       for (const work of reading.works) known.add(work);
-      if (items.length > 0 || own)
-        hooks.deliver(items, own ? reading.ownAsks.length : null);
+      return pending.length > 0 || pendingOwn;
+    },
+    settle() {
+      const items = pending.filter(
+        (item) =>
+          current.has(tokenOf(item)) &&
+          hooks.alertsEnabled() &&
+          !hooks.isItemWatched(item),
+      );
+      const own =
+        pendingOwn &&
+        ownOpen > 0 &&
+        hooks.alertsEnabled() &&
+        !hooks.isConversationWatched();
+      pending = [];
+      pendingOwn = false;
+      if (items.length > 0 || own) hooks.deliver(items, own ? ownOpen : null);
     },
   };
 }

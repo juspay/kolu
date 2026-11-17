@@ -70,7 +70,7 @@ import {
 import { type FileHolders, fileHolders } from "./namedFiles";
 import { chatScope } from "./chatScope";
 import { quietChat, type QuietTurn, type WorkNote } from "./quietChat";
-import { joinsOf, type Turn, turnWorks } from "./turnWorks";
+import type { Turn } from "./turnWorks";
 import { useConductor } from "./useConductor";
 import { wakeHeadline, wakeWhen } from "./wake";
 import { useWorkMap } from "./useWorks";
@@ -193,9 +193,19 @@ const FoldLine: Component<{
       data-quiet={props.turn.says.kind === "prose" ? undefined : ""}
       aria-expanded={props.open}
       onClick={toggle}
-      class="mt-4 flex w-full min-w-0 cursor-pointer flex-col gap-1 rounded-sm text-left sm:flex-row sm:items-baseline sm:gap-2"
+      // A RUN OF FOLDED LINES IS A LIST, packed at the column's own gap; an
+      // open turn keeps the clear gap between turns.
+      class="flex w-full min-w-0 cursor-pointer flex-wrap items-baseline gap-x-2 gap-y-0.5 rounded-sm text-left"
+      classList={{ "mt-4": props.open }}
     >
-      <span class="flex min-w-0 items-center gap-1.5">
+      {/* WHEN, AND WHICH WORKS — on a line of its own when there are several,
+          so the sentence is never squeezed to nothing beside them. Open, the
+          chips are the wake row's own (pressable, under it), so the line
+          keeps only its clock. */}
+      <span
+        class="flex min-w-0 max-w-full items-center gap-1.5"
+        classList={{ "basis-full": !props.open && props.works.length > 1 }}
+      >
         <span aria-hidden="true" class="w-2 shrink-0 text-fg-3">
           {props.open ? "▾" : "▸"}
         </span>
@@ -206,36 +216,43 @@ const FoldLine: Component<{
             </span>
           )}
         </Show>
-        <For each={props.works}>
-          {(id) => (
-            <Show when={map().get(id)}>
-              {(work) => <WorkChipFace work={work()} />}
-            </Show>
-          )}
-        </For>
-      </span>
-      {/* THE NEWS ITSELF. Folded it is one line and gives way with an
-          ellipsis; open it wraps and takes the foreground colour, because the
-          sentence is then the opening of what is drawn under it. */}
-      <span
-        data-testid="conductor-fold-says"
-        class="min-w-0 flex-1 text-[0.8rem]"
-        classList={{
-          truncate: !props.open,
-          "text-fg": props.open && props.turn.says.kind === "prose",
-          "text-fg-2": !props.open && props.turn.says.kind === "prose",
-          "text-fg-3": props.turn.says.kind !== "prose",
-        }}
-      >
-        <Show when={props.turn.says.kind === "noted"}>
-          <span class="font-mono text-[0.68rem]">noted · </span>
+        <Show when={!props.open}>
+          <For each={props.works}>
+            {(id) => (
+              <Show when={map().get(id)}>
+                {(work) => (
+                  <span class="inline-flex min-w-0 max-w-[15ch] shrink">
+                    <WorkChipFace work={work()} />
+                  </span>
+                )}
+              </Show>
+            )}
+          </For>
         </Show>
-        {props.turn.says.kind === "prose"
-          ? props.turn.says.headline
-          : props.turn.says.kind === "noted"
-            ? props.turn.says.text
-            : "no reply"}
       </span>
+      {/* THE NEWS ITSELF, one line that gives way with an ellipsis — and
+          wraps under the chips, never shrinks to nothing beside them. Open,
+          a reply's sentence is the first line of the reply drawn under it,
+          so it is not said twice; a note or a silence is still said here. */}
+      <Show when={!(props.open && props.turn.says.kind === "prose")}>
+        <span
+          data-testid="conductor-fold-says"
+          class="min-w-[16rem] flex-1 basis-0 truncate text-[0.8rem]"
+          classList={{
+            "text-fg-2": props.turn.says.kind === "prose",
+            "text-fg-3": props.turn.says.kind !== "prose",
+          }}
+        >
+          <Show when={props.turn.says.kind === "noted"}>
+            <span class="font-mono text-[0.68rem]">noted · </span>
+          </Show>
+          {props.turn.says.kind === "prose"
+            ? props.turn.says.headline
+            : props.turn.says.kind === "noted"
+              ? props.turn.says.text
+              : "no reply"}
+        </span>
+      </Show>
     </button>
   );
 };
@@ -266,6 +283,9 @@ const ChatWorkQuestion: Component<{ row: ConductorWorkAskRow }> = (props) => {
 
 const ConductorTranscript: Component<{
   rows: readonly ConductorRow[];
+  /** Each row's turn (`./turnWorks.ts`) — read ONCE by the pane, over these
+   *  same rows, for the transcript and the scope bar over it. */
+  turns: ReadonlyMap<string, Turn>;
   pending: boolean;
   error: Error | undefined;
   containerRef: (el: HTMLDivElement) => void;
@@ -283,13 +303,11 @@ const ConductorTranscript: Component<{
   const items = createMemo(() =>
     foldFailureRuns(foldToolRuns(foldNoticeRuns(props.rows))),
   );
-  /** Each row's turn — one walk of the rows per change — over the two
-   *  indexes of the works, each built once per change of the works: which
-   *  terminal joined which work, and which work holds which file. */
+  /** Which work holds which file, built once per change of the works — what
+   *  the prose's file links read. The turns are the pane's (`props.turns`). */
   const workMap = useWorkMap();
-  const joins = createMemo(() => joinsOf(workMap()));
   const holders = createMemo(() => fileHolders(workMap()));
-  const turns = createMemo(() => turnWorks(props.rows, workMap(), joins()));
+  const turns = () => props.turns;
   const turnsContext: Turns = {
     // Every row of `props.rows` has a turn, and every row drawn is one of
     // them: both lists are read off the same rows in the same tick.
