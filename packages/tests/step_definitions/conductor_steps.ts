@@ -3927,6 +3927,36 @@ Then(
   },
 );
 
+/** THE FOLDER ROW'S **more**, pressed — its own open state, not a file
+ *  row's: what unfolds is the run of per-file rows under it. */
+When(
+  "I unfold the work's timeline row for the folder {string}",
+  async function (this: KoluWorld, folder: string) {
+    await showWorkColumn(this);
+    await openWorkCard(this);
+    await keepWorkCardOpen(this);
+    // The row's OWN control — a file row unfolded under it carries a "more"
+    // of its own, one level deeper.
+    const more = workCard(this).locator(
+      `[data-testid="work-event-folder"][data-path="${folder}"] > div > [data-testid="work-event-more"]`,
+    );
+    await more.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    if ((await more.getAttribute("aria-expanded")) !== "true")
+      await more.click();
+  },
+);
+
+Then(
+  "the folder row {string} should list {int} file rows",
+  async function (this: KoluWorld, folder: string, count: number) {
+    await waitForCount(
+      this,
+      `${WORK_COLUMN} [data-testid="work-event-folder"][data-path="${folder}"] [data-testid="work-event"][data-kind="file"]`,
+      count,
+    );
+  },
+);
+
 /** RENDERED, IN THE READER. The heading has to be a real heading — markdown
  *  shown as its own source passes a text match and is not what was promised. */
 Then(

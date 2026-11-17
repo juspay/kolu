@@ -194,6 +194,11 @@ Feature: A piece of work is a stored thing
     Then the reader should render "The plan" as a heading
     When I leave the reader
     Then the work's timeline should show one row for the folder ".waterfall/mockup/" with 3 files
+    When I unfold the work's timeline row for the folder ".waterfall/mockup/"
+    Then the folder row ".waterfall/mockup/" should list 3 file rows
+    When I press the work's timeline row for ".waterfall/mockup/fonts/c.md"
+    Then the reader should be open on ".waterfall/mockup/fonts/c.md"
+    When I leave the reader
     When I stop the work from the card
     Then the work should be finished as "stopped"
     When I unfold the work's folder ".waterfall/mockup/"
