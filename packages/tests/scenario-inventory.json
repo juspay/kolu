@@ -11818,6 +11818,66 @@
       "exampleRows": [],
       "executions": 1,
       "firstSeenSha": "6e14cae7276f13bc7350a30ce41a069306f81067"
+    },
+    {
+      "revisionId": "revision-cc6db76d11a266a039bf",
+      "scenarioKey": "scenario-b3197e22a2b25fc42bef",
+      "feature": "features/conductor-needs-you.feature",
+      "scenario": "\"About this work\" points the chat at one work, and the box with it",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "83295d233ad2e03876971e14a59cf53ceaff1b6c55f236338f58670a17c4db1c",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "f75166ceefaf48b9b56e6caf23b27a1eabedd64f"
+    },
+    {
+      "revisionId": "revision-d88baaa2f686ee2baa71",
+      "scenarioKey": "scenario-5bb3ab1923a1502730f9",
+      "feature": "features/conductor-needs-you.feature",
+      "scenario": "`@` names a work, and the message carries its chip",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "15e75309303fd9bb3fa2faac81b9bd4aea74ecf600b9708364bb52ccc7238f11",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "f75166ceefaf48b9b56e6caf23b27a1eabedd64f"
+    },
+    {
+      "revisionId": "revision-f61366c5cc105a2fe515",
+      "scenarioKey": "scenario-cccf9ec851971f2a1c56",
+      "feature": "features/conductor-needs-you.feature",
+      "scenario": "A question about a work rings unless it is in front of you",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "43e52ca7a2ca09a3a41fd382bcf4b6710b82ca068f162addaa5fab2e21ca1f52",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "f75166ceefaf48b9b56e6caf23b27a1eabedd64f"
+    },
+    {
+      "revisionId": "revision-79d8551012867bfe7e3c",
+      "scenarioKey": "scenario-5b61226dfe8c72dc3ae6",
+      "feature": "features/conductor-needs-you.feature",
+      "scenario": "A reply to a wake is one line once something newer is said",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "85f7db1e1853d0291ce7e26344d56eab9183056a3aedb4db1d5c789a4e30cd30",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "f75166ceefaf48b9b56e6caf23b27a1eabedd64f"
+    },
+    {
+      "revisionId": "revision-05a2df7b56c01f498636",
+      "scenarioKey": "scenario-18995f6d75a7402b8c39",
+      "feature": "features/conductor-needs-you.feature",
+      "scenario": "The palette lists the works, and a row lands on the card",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "b0992054e0337698462bff7571aecc2735d2af7aee50d08a1ccea802f1c007ea",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "f75166ceefaf48b9b56e6caf23b27a1eabedd64f"
     }
   ]
 }
