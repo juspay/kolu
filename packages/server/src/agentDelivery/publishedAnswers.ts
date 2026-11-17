@@ -48,16 +48,20 @@ import {
   PACKAGE_ANSWERS_FILE,
   parsePackageAnswers,
 } from "@kolu/agent-distro/models";
-import { closureRoute } from "@kolu/surface-remote";
+import { type ClosureRoute, closureRoute } from "@kolu/surface-remote";
 import {
   AGENT_DISTRO_DELIVERY_ENV,
   readAgentDistroDeliveryBake,
 } from "./bake.ts";
 import { realDeliveryOps } from "./ops.ts";
 
-/** The two forms a host may be sent, each the name of the directory under
- *  {@link NIX_BY_ROUTE_ENV} holding the Nix of a host that takes it. */
-const ROUTES = ["content-addressed", "signed"] as const;
+/** The two forms a host may be sent (`closureRoute`'s kinds), each the name of
+ *  the directory under {@link NIX_BY_ROUTE_ENV} holding the Nix of a host that
+ *  takes it. */
+const ROUTES = [
+  "content-addressed",
+  "signed",
+] as const satisfies readonly ClosureRoute["kind"][];
 type Route = (typeof ROUTES)[number];
 
 /** `default.nix`'s `agent-published-nix`: `<dir>/<route>/bin/nix`. */
@@ -66,24 +70,23 @@ const NIX_BY_ROUTE_ENV = "KOLU_AGENT_PUBLISHED_NIX";
 const ROUTE_ENV = "KOLU_AGENT_PUBLISHED_ROUTE";
 const STORE_ROOT_ENV = "KOLU_AGENT_PUBLISHED_STORE_ROOT";
 
+function unset(name: string): never {
+  throw new Error(
+    `${name} is unset — this script is run by \`just test-agent-published\` (ci::agent-published), which builds what it names. Run that recipe, never this file bare.`,
+  );
+}
+
 function required(name: string): string {
-  const value = process.env[name];
-  if (value === undefined || value === "")
-    throw new Error(
-      `${name} is unset — this script is run by \`just test-agent-published\` (ci::agent-published), which builds what it names. Run that recipe, never this file bare.`,
-    );
-  return value;
+  return process.env[name] || unset(name);
 }
 
 /** ONE KIND OF HOST: the delivery's own pull into this process's empty store,
- *  then the answers of the bundle it landed. */
+ *  then the answers of the bundle it landed. The pull's progress is shown only
+ *  if the pull fails; on success its count line says what landed. */
 async function asHost(route: Route, storeRoot: string): Promise<void> {
-  const delivery = readAgentDistroDeliveryBake();
-  if (delivery === null)
-    throw new Error(
-      `${AGENT_DISTRO_DELIVERY_ENV} is unset — this script is run by \`just test-agent-published\` (ci::agent-published), which builds the delivery and names it. Run that recipe, never this file bare.`,
-    );
-  const ops = realDeliveryOps(delivery);
+  const ops = realDeliveryOps(
+    readAgentDistroDeliveryBake() ?? unset(AGENT_DISTRO_DELIVERY_ENV),
+  );
   const hostNix = await ops.hostNixOf("localhost");
   const published = await ops.published(hostNix.system);
   const taken = closureRoute(hostNix, published);
@@ -97,14 +100,18 @@ async function asHost(route: Route, storeRoot: string): Promise<void> {
     throw new Error(
       `a host on Nix ${hostNix.nixVersion} is sent the ${taken.kind} form, but this child asks as a ${route} host — the Nix it was given is not that kind of host's, so this run would test one form twice`,
     );
+  const progress: string[] = [];
   const pulled = await ops.pull({
     ssh: "localhost",
     label: `a host on Nix ${hostNix.nixVersion}`,
     hostNix,
     published,
-    onProgress: (line) => said(`  | ${line}`),
+    onProgress: (line) => progress.push(line),
   });
-  if (!pulled.ok) throw new Error(pulled.message);
+  if (!pulled.ok) {
+    for (const line of progress) said(`  | ${line}`);
+    throw new Error(pulled.message);
+  }
   const count = execFileSync(
     "nix",
     ["path-info", "--recursive", pulled.bundle],

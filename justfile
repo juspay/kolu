@@ -447,11 +447,9 @@ test-agent-models: install
 # makes is answered on a real host only once a package answering it is
 # published — and only if that host can fetch it. The script
 # (`packages/server/src/agentDelivery/publishedAnswers.ts`) runs kolu-server's
-# own delivery pull twice, as a host on Nix 2.34 (sent the content-addressed
-# form) and as one on Nix 2.35 (sent the signed form), each into an EMPTY
-# scratch store from upstream's cache alone, and names the calls each bundle
-# misses. Both Nixes come from this pin (`agent-published-nix`), so the answer
-# does not depend on the Nix of the machine that runs it.
+# own delivery pull once per kind of host, each into an EMPTY scratch store,
+# with each host's Nix from this pin (`agent-published-nix`); its header says
+# how.
 #
 # A LANE, NOT A NIX CHECK: it reads upstream's HTTPS index and pulls the closure
 # from upstream's binary cache — a check with no network cannot ask, and not
