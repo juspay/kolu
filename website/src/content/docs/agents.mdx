@@ -154,6 +154,7 @@ running kolu delivers them.
    published index.
 2. Over the ssh login kolu already uses, the host downloads that build from
    agent-distro's binary cache and pins it against Nix's garbage collection.
+   That cache holds everything the build needs, and the host reads no other.
 3. Your profiles go the same way, built here for the host's kind of machine and
    copied into its store over the same login.
 

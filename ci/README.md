@@ -106,8 +106,12 @@ upstream's package from the commit before `--models` existed — and real
 launchers want a writable `HOME`, with a listing harness asking its own
 catalogue. `agent-published` reads upstream's published index over HTTPS and
 pulls that closure from upstream's binary cache, because the package a host
-serves is the one kolu delivered, never this tree's floor; it is red while
-kolu's contract calls something the published package cannot answer.
+serves is the one kolu delivered, never this tree's floor. It runs
+kolu-server's own delivery pull twice, as a host on Nix 2.34 (sent the
+content-addressed form) and on Nix 2.35 (sent the signed form), each into an
+empty scratch store from that cache alone, with both Nixes from kolu's pin. It
+is red while either kind of host cannot take the published package, or kolu's
+contract calls something that package cannot answer.
 
 ## The cache is warmed by the run
 
@@ -154,16 +158,16 @@ Everything else keeps `--no-link`: the two example subflakes build docsites
 nobody substitutes, and `home-manager` builds NixOS toplevels and VM tests for
 an example configuration.
 
-`cache-substitutable` then asks the cache back for the remote-agent closures a
-`--host` dial provisions (`ci/agent-substitutable`, read-only, no token). Its
-`needs: nix` edge is what makes it ask *after* this lane's push — the push is
-part of the node's completion, not a separate job racing it.
+This push is a warm: it skips what cache.nixos.org signs, so it is not
+something a host can fetch from kolu's cache alone. That proof lives in
+`.github/workflows/nix-cache.yml`'s `publish-closures` job, which pushes every
+exposed agent whole and imports each one from the cache alone into an empty
+store, on Linux and macOS.
 
-It verifies **this run's** push, so it asks only when this run pushed. odu sets
-`ODU_CACHE_ORIGIN` / `ODU_CACHE_BUCKET` in a recipe's environment exactly when
-it is pushing that lane's outputs; a daemon serving no `kolu-r2` sets neither
-and the node says so and passes. Whether a run pushed at all is
-`run_read`'s `push.target` and the `_ci-setup` log, not this node.
+A lane pushes only when its daemon serves `kolu-r2`: odu sets `ODU_CACHE_ORIGIN`
+/ `ODU_CACHE_BUCKET` in a recipe's environment exactly when it is pushing that
+lane's outputs. Whether a run pushed at all is `run_read`'s `push.target` and
+the `_ci-setup` log.
 
 ## Sharding the browser lane
 
@@ -199,8 +203,7 @@ invokes `nix build`. Their commands remain self-contained, but start from a
 warmed store instead of running several Nix builds at once:
 
 ```text
-                   ┌─ cache-substitutable
-                   ├─ website-nix ─ website-pnpm-hash-fresh
+                   ┌─ website-nix ─ website-pnpm-hash-fresh
                    ├─ surface-examples-nix
                    ├─ solid-browser-example-nix
                    ├─ odu-nix
@@ -209,9 +212,6 @@ setup ─── nix ─────├─ home-manager (Darwin checks / Linux VM
                    ├─ smoke
                    └─ pnpm-hash-fresh
 ```
-
-`cache-substitutable` is the one child here that is not about contention: its
-edge is ordering, because odu's push happens as `nix` completes.
 
 This lengthens the critical path but lowers peak CPU, memory, and Nix-store
 contention.

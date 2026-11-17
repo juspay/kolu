@@ -44,10 +44,11 @@
         # closure it can provision. The SET is read from the manifest, never
         # hand-listed — `nix/agent-packages.json`'s `expose` is already the one
         # answer to "which attrs may a remote resolve", shared with
-        # `nix/agent-flake.nix`, `ci/agent-substitutable` and
-        # `ci/agent-preflight`. A newly exposed agent therefore ships with the
-        # next deploy and no second edit; a hand-listed set here would be a
-        # second source of truth that goes stale exactly where it hurts.
+        # `nix/agent-flake.nix`, `ci/agent-preflight` and the `publish-closures`
+        # job that proves each one fetchable. A newly exposed agent therefore
+        # ships with the next deploy and no second edit; a hand-listed set here
+        # would be a second source of truth that goes stale exactly where it
+        # hurts.
         config.services.kolu.agentPackages = lib.mkDefault (
           map (name: self.packages.${pkgs.stdenv.hostPlatform.system}.${name})
             (lib.importJSON ./nix/agent-packages.json).expose

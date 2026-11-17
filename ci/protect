@@ -80,9 +80,9 @@
 # NOT RUN BY THE DAG. This is coordinator-side, like the `ci::protect` recipe
 # that calls it: it edits GitHub's branch protection, which no CI node may do.
 #
-# No `mapfile`, no namerefs — same discipline as `ci/agent-substitutable`, so
-# the scripts in this directory read alike (that one runs on GitHub's bash 3.2;
-# this one only ever runs on the machine driving CI).
+# No `mapfile`, no namerefs — same discipline as `ci/agent-preflight`, so the
+# scripts in this directory read alike (that one runs on whatever bash a deploy
+# host has; this one only ever runs on the machine driving CI).
 
 set -euo pipefail
 
@@ -212,9 +212,8 @@ gha_contexts() {
       # The floor used to be TWO contexts per job, to catch a gate quietly
       # narrowed to one platform. That floor is wrong now: `build-and-push`
       # is deliberately `[macos-latest]` alone, because x86_64-linux is
-      # warmed and verified on the odu lane (`ci::nix` pushes its `result*`
-      # closures, `ci::cache-substitutable` asks the cache back) and that
-      # lane contributes the other half of this required set.
+      # warmed on the odu lane (`ci::nix` pushes its `result*` closures) and
+      # that lane contributes the other half of this required set.
       #
       # What it was really guarding survives one level up: ACROSS the whole
       # workflow, both platform families must stay gated. `publish-closures`
@@ -238,9 +237,9 @@ gha_contexts() {
 # in the awk program (one apostrophe closes it) is then red in CI, not at the
 # gate.
 #
-# The optional WORKFLOW is why the refusal is testable at all: same shape as
-# `ci/agent-substitutable [FLAKE]` — the question is parameterised by the
-# thing being asked about, and defaults to this repo's own.
+# The optional WORKFLOW is why the refusal is testable at all: the question is
+# parameterised by the thing being asked about, and defaults to this repo's
+# own.
 contexts_only=""
 if [ "${1:-}" = "--contexts-only" ]; then
   contexts_only=1

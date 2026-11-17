@@ -1413,6 +1413,15 @@ in
     src = sources.agent-distro-pre-models;
   };
   agent-distro-delivery = agentDistro.delivery;
+  # THE TWO KINDS OF HOST the published-package check asks as, keyed by the
+  # form each is sent (`@kolu/surface-remote`'s `closureRoute`): a Nix on the
+  # publisher's line takes the content-addressed rewrite, and a Nix past it
+  # takes the signed package. From this pin's nixpkgs, so the lane tests both
+  # forms whatever Nix the CI machine itself runs.
+  agent-published-nix = pkgs.linkFarm "agent-published-nix" [
+    { name = "content-addressed"; path = pkgs.nixVersions.nix_2_34; }
+    { name = "signed"; path = pkgs.nixVersions.nix_2_35; }
+  ];
   # Claude Code's ACP adapter (nix/packages/acp-adapter.nix), exposed so CI
   # builds it and the cache carries it: it is a fixed-output npm fetch plus two
   # patches, and a host that had to realise it from scratch would need the
