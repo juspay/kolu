@@ -311,6 +311,7 @@ const CanvasTile: Component<{
         props.zoom(),
         draggable.transform.x,
         draggable.transform.y,
+        window.devicePixelRatio || 1,
       ),
     };
   };
