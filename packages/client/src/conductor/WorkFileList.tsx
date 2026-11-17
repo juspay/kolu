@@ -34,15 +34,13 @@ import {
 } from "solid-js";
 import type { WorkFileRow } from "./workFile";
 
-interface ListProps {
+interface WorkFileListProps {
   readonly rows: ReadonlyArray<WorkFileRow>;
   /** Whether the listing stopped at its limit with more left. */
   readonly more: boolean;
   /** The path the reader has open, if any — its chip is lit, and the
    *  folders holding it start unfolded. */
   readonly openTo: string | undefined;
-  /** Whether what is listed is kolu's kept copy. */
-  readonly kept: boolean;
   /** `wrap` on the card; `line` in the reader's header, one row that scrolls
    *  sideways so a big folder never pushes the document down. */
   readonly layout: "wrap" | "line";
@@ -52,7 +50,7 @@ interface ListProps {
 const CHIP =
   "max-w-full shrink-0 cursor-pointer truncate rounded-md border px-2 py-0.5 font-mono text-[0.62rem]";
 
-const WorkFileList: Component<ListProps> = (props) => {
+const WorkFileList: Component<WorkFileListProps> = (props) => {
   /** The folders a person pressed, and which way. A folder nobody pressed is
    *  folded, unless it holds the open file. Dies with the list. */
   const [pressed, setPressed] = createSignal<ReadonlyMap<string, boolean>>(
@@ -80,8 +78,9 @@ const WorkFileList: Component<ListProps> = (props) => {
               data-path={file.path}
               data-open={props.openTo === file.path ? "" : undefined}
               // A KEPT file is kolu's own copy of one the work wrote — the
-              // worktree it came from may be gone.
-              data-kept={props.kept ? "" : undefined}
+              // worktree it came from may be gone. Only a kept row carries
+              // its size.
+              data-kept={Option.isSome(file.bytes) ? "" : undefined}
               title={waterfallFileName(file.path)}
               // One press, one destination: the reader, on this file. The
               // chip is not a toggle — a file you are reading is closed by
@@ -173,7 +172,7 @@ const WorkFileList: Component<ListProps> = (props) => {
     <>
       <div
         ref={strip}
-        data-testid="work-files-strip"
+        data-testid={props.layout === "line" ? "work-files-strip" : undefined}
         class={
           props.layout === "wrap"
             ? "mt-1 flex flex-wrap gap-1.5"

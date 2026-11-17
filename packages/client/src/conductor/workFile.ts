@@ -54,7 +54,7 @@ export interface WorkFileRow {
 
 /** A WORK'S FILES, as one list: every row, and whether the listing stopped at
  *  its limit with more left (`kolu-common/workFiles`). */
-export interface WorkFileList {
+export interface WorkFilesRead {
   readonly rows: ReadonlyArray<WorkFileRow>;
   readonly more: boolean;
 }
@@ -67,7 +67,7 @@ export interface WorkFileList {
  *  than re-deciding what a `null` place means. */
 export interface WorkFileSource {
   readonly at: { host: string; terminalId: TerminalId } | null;
-  readonly list: () => Promise<WorkFileList>;
+  readonly list: () => Promise<WorkFilesRead>;
   readonly read: (path: string) => Promise<FileWithSource | FileWithUrl>;
 }
 
@@ -171,7 +171,7 @@ export function createWorkFiles(source: Accessor<WorkFileSource | null>): {
  *  worktree with no `.waterfall/` is the empty list (the walk's rule);
  *  anything else (a host that went away mid-read) stays a failure, which the
  *  card says in a line. */
-function listLiveFiles(place: WorkPlace): Promise<WorkFileList> {
+function listLiveFiles(place: WorkPlace): Promise<WorkFilesRead> {
   const fs = padiMap.entry(decodeHostKey(place.host)).procedures.fs;
   return runActionPromise(
     listWorkFiles((dirPath) =>

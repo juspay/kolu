@@ -191,11 +191,6 @@ export const waterfallFileName = (path: string): string =>
  * a listing spells one: its path with a trailing slash (`.waterfall/mockup/`),
  * and {@link WATERFALL_DIR} is the root of them all. */
 
-/** The folder a path is in, trailing slash and all: `.waterfall/mockup/` for
- *  `.waterfall/mockup/a.html`, {@link WATERFALL_DIR} for `.waterfall/plan.md`. */
-export const waterfallFolderOf = (path: string): string =>
-  path.slice(0, path.lastIndexOf("/") + 1);
-
 /** THE FOLDER DIRECTLY IN `folder` that holds `path` — none when the path is a
  *  file of `folder` itself, or is not under it at all. `.waterfall/mockup/`
  *  for `.waterfall/mockup/fonts/a.woff2` read from {@link WATERFALL_DIR}. */

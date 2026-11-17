@@ -103,7 +103,11 @@ describe("keeping a work's files", () => {
   it("leaves out a file past the budget, off the disk, and keeps a smaller one after it", async () => {
     write(".waterfall/plan.md", "# Plan");
     write(".waterfall/big.bin", "");
-    truncateSync(join(worktree, ".waterfall/big.bin"), WORK_FILES_KEPT_BYTES);
+    // Past the budget on its own, whatever is copied before it.
+    truncateSync(
+      join(worktree, ".waterfall/big.bin"),
+      WORK_FILES_KEPT_BYTES + 1,
+    );
     write(".waterfall/mockup/a.css", "body{}");
     const done = await files().keep({
       host: "local",
@@ -122,6 +126,24 @@ describe("keeping a work's files", () => {
       ".waterfall/plan.md",
       ".waterfall/mockup/a.css",
     ]);
+  });
+
+  it("copies in tree order whatever order it is handed, so the plan lands first", async () => {
+    // A folder's file that would fit only if copied before the plan.
+    write(".waterfall/mockup/big.bin", "");
+    truncateSync(
+      join(worktree, ".waterfall/mockup/big.bin"),
+      WORK_FILES_KEPT_BYTES - 3,
+    );
+    write(".waterfall/plan.md", "# Plan");
+    const done = await files().keep({
+      host: "local",
+      worktree,
+      work: "w1",
+      paths: [".waterfall/mockup/big.bin", ".waterfall/plan.md"],
+    });
+    expect(done.tooBig).toEqual([".waterfall/mockup/big.bin"]);
+    expect(done.kept.map((one) => one.path)).toEqual([".waterfall/plan.md"]);
   });
 
   it("holds the budget per work, across endings, without counting a rewrite twice", async () => {

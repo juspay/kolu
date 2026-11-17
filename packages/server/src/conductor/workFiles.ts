@@ -186,7 +186,10 @@ export function workFilesOverHosts(deps: {
         [...before.values()].reduce((sum, bytes) => sum + bytes, 0);
       const tooBig: string[] = [];
 
-      for (const path of paths) {
+      // TREE ORDER, whatever order the caller gave: a folder's files before
+      // its folders, so the plan (a top-level file) is copied before anything
+      // in a folder has a chance to spend the budget.
+      for (const path of [...paths].sort(compareWaterfallPaths)) {
         const dest = keptPath(dir, path);
         const served = await Effect.runPromise(
           assembleRemotePreview(

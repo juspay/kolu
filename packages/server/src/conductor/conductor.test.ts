@@ -4471,11 +4471,12 @@ describe("a work that has ended", () => {
     await vi.waitFor(() => {
       expect(kindsOf(theWork(r))).toContain("keep-failed");
     });
-    // Copied in tree order: the plan before anything in a folder.
-    expect(r.files.kept()[0]?.paths).toEqual([
-      ".waterfall/plan.md",
+    // Every file the listing found is handed to the keep (which orders them
+    // itself — `workFiles.test.ts`).
+    expect([...(r.files.kept()[0]?.paths ?? [])].sort()).toEqual([
       ".waterfall/mockup/big.mov",
       ".waterfall/mockup/index.html",
+      ".waterfall/plan.md",
     ]);
     expect(
       Option.map(keptOf(theWork(r)), (one) => one.map((file) => file.path)),

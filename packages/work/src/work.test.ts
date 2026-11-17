@@ -67,7 +67,6 @@ import {
   WATERFALL_DIR,
   waterfallBytes,
   waterfallFileName,
-  waterfallFolderOf,
   waterfallLevel,
   type Work,
   type WorkId,
@@ -1433,10 +1432,7 @@ describe("a work's files, read as a tree", () => {
     ]);
   });
 
-  it("says which folder a path is in, and which top folder holds it", () => {
-    expect(waterfallFolderOf(".waterfall/mockup/fonts/a.woff2")).toBe(
-      ".waterfall/mockup/fonts/",
-    );
+  it("says which top folder holds a path", () => {
     expect(
       childFolderOf(WATERFALL_DIR, ".waterfall/mockup/fonts/a.woff2"),
     ).toEqual(Option.some(".waterfall/mockup/"));

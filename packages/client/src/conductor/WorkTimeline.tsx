@@ -15,8 +15,9 @@
  *  of files one terminal wrote into one folder is ONE row (`Wrote mockup/ ·
  *  49 files`), whose "more" unfolds the per-file rows. */
 
+import { Key } from "@solid-primitives/keyed";
 import { dualPhrase } from "@kolu/terminal-vocab/duration";
-import { took, type Work, type WorkId } from "kolu-work";
+import { took, type Work, type WorkEvent, type WorkId } from "kolu-work";
 import {
   type Component,
   createMemo,
@@ -30,6 +31,7 @@ import { holdsPath } from "./namedFiles";
 import PrText from "./PrText";
 import { openReader, readerTarget } from "./reader/useReader";
 import {
+  rowKey,
   type TimelineRow,
   type TimelineShown,
   type TimelineView,
@@ -59,6 +61,20 @@ const viewWord = (view: TimelineView): string => {
   }
 };
 
+/** A ROW'S TIME AND WHO IT WAS BY — the clock cell and the coloured dot,
+ *  drawn the same at the head of an event row and of a folder row. */
+const RowStamp: Component<{ at: string; by: WorkEvent["by"] }> = (props) => (
+  <>
+    <span class="w-9 shrink-0 whitespace-nowrap font-mono text-[0.6rem] tabular-nums text-fg-3">
+      {clockOf(props.at)}
+    </span>
+    <span
+      aria-hidden="true"
+      class={`h-1.5 w-1.5 shrink-0 translate-y-[-0.1em] rounded-full ${EVENT_INK[props.by]}`}
+    />
+  </>
+);
+
 const WorkTimeline: Component<{
   id: WorkId;
   work: Work;
@@ -69,38 +85,18 @@ const WorkTimeline: Component<{
   /** The clock a running step is measured to. */
   now: number;
 }> = (props) => {
-  /** Which rows have their whole words out, and which folder rows are
-   *  unfolded — two sets, because a folder row is named by its first event,
-   *  which is also the index of the first file row inside it. Die with the
-   *  card. */
-  const [unfolded, setUnfolded] = createSignal<ReadonlySet<number>>(new Set());
-  const [openFolders, setOpenFolders] = createSignal<ReadonlySet<number>>(
-    new Set(),
-  );
-  const flip =
-    (set: (next: (was: ReadonlySet<number>) => ReadonlySet<number>) => void) =>
-    (index: number): void =>
-      set((was) => {
-        const next = new Set(was);
-        if (!next.delete(index)) next.add(index);
-        return next;
-      });
-  const toggleRow = flip(setUnfolded);
-  const toggleFolder = flip(setOpenFolders);
+  /** Which rows are open — a cut row's whole words, or a folder row's file
+   *  rows — by {@link rowKey}, which no two rows share. Dies with the card. */
+  const [opened, setOpened] = createSignal<ReadonlySet<string>>(new Set());
+  const toggle = (key: string): void => {
+    setOpened((was) => {
+      const next = new Set(was);
+      if (!next.delete(key)) next.add(key);
+      return next;
+    });
+  };
 
   const shown = () => props.shown;
-  /** EACH ROW BY A KEY THAT OUTLIVES A REDRAW — its first event's index, and
-   *  whether it is a folder's row. The view is read again on every tick of
-   *  the clock, and a `<For>` over its fresh row objects would rebuild every
-   *  row each time; over these strings it keeps them. */
-  const rowKeys = createMemo(() =>
-    shown().rows.map((row) =>
-      row.kind === "event" ? `e${row.index}` : `f${row.indices[0]}`,
-    ),
-  );
-  const rowAt = createMemo(
-    () => new Map(shown().rows.map((row, at) => [rowKeys()[at] ?? "", row])),
-  );
   /** THE TIMELINE'S WORDS, built once per move of the record rather than per
    *  row: the two facts a row needs about the WHOLE timeline (which commits
    *  its check events name, which decision an ask points at) are computed
@@ -129,7 +125,8 @@ const WorkTimeline: Component<{
         {(one) => {
           const whole = () => words()(one());
           const cut = () => oneLine(whole());
-          const open = () => unfolded().has(row.index);
+          const key = () => rowKey({ kind: "event", index: row.index });
+          const open = () => opened().has(key());
           return (
             <li
               data-testid="work-event"
@@ -143,13 +140,7 @@ const WorkTimeline: Component<{
               })()}
               class="flex min-w-0 items-baseline gap-1.5 text-[0.7rem]"
             >
-              <span class="w-9 shrink-0 whitespace-nowrap font-mono text-[0.6rem] tabular-nums text-fg-3">
-                {clockOf(one().at)}
-              </span>
-              <span
-                aria-hidden="true"
-                class={`h-1.5 w-1.5 shrink-0 translate-y-[-0.1em] rounded-full ${EVENT_INK[one().by]}`}
-              />
+              <RowStamp at={one().at} by={one().by} />
               <Switch
                 fallback={
                   <>
@@ -167,7 +158,7 @@ const WorkTimeline: Component<{
                         data-testid="work-event-more"
                         aria-expanded={open()}
                         class="shrink-0 cursor-pointer rounded-sm px-1 font-mono text-[0.58rem] text-accent hover:underline"
-                        onClick={() => toggleRow(row.index)}
+                        onClick={() => toggle(key())}
                       >
                         {open() ? "less" : "more"}
                       </button>
@@ -235,26 +226,18 @@ const WorkTimeline: Component<{
   };
 
   /** ONE FOLDER'S ROW — the run of files one terminal wrote into one folder,
-   *  said once, with its own more/less to unfold the per-file rows. Its open
-   *  state is its own set, named by its first event. */
+   *  said once, with its own more/less to unfold the per-file rows. */
   const FolderRow: Component<{
     row: Extract<TimelineRow, { kind: "folder" }>;
   }> = (folder) => {
-    const first = () => folder.row.indices[0] ?? 0;
-    const event = () => props.work.events[first()];
-    const open = () => openFolders().has(first());
+    const event = () => props.work.events[folder.row.indices[0] ?? 0];
+    const open = () => opened().has(rowKey(folder.row));
     return (
       <Show when={event()}>
         {(one) => (
           <li data-testid="work-event-folder" data-path={folder.row.folder}>
             <div class="flex min-w-0 items-baseline gap-1.5 text-[0.7rem]">
-              <span class="w-9 shrink-0 whitespace-nowrap font-mono text-[0.6rem] tabular-nums text-fg-3">
-                {clockOf(one().at)}
-              </span>
-              <span
-                aria-hidden="true"
-                class={`h-1.5 w-1.5 shrink-0 translate-y-[-0.1em] rounded-full ${EVENT_INK[one().by]}`}
-              />
+              <RowStamp at={one().at} by={one().by} />
               <span class="min-w-0 flex-1 truncate text-fg-2">
                 {folderRowWords(folder.row.folder, folder.row.indices.length)}
               </span>
@@ -263,7 +246,7 @@ const WorkTimeline: Component<{
                 data-testid="work-event-more"
                 aria-expanded={open()}
                 class="shrink-0 cursor-pointer rounded-sm px-1 font-mono text-[0.58rem] text-accent hover:underline"
-                onClick={() => toggleFolder(first())}
+                onClick={() => toggle(rowKey(folder.row))}
               >
                 {open() ? "less" : "more"}
               </button>
@@ -295,31 +278,31 @@ const WorkTimeline: Component<{
         Timeline · {viewWord(shown().view)}
       </h4>
       <ul class="m-0 mt-1 flex list-none flex-col gap-0.5 p-0">
-        <For each={rowKeys()}>
-          {(key) => {
-            const row = () => rowAt().get(key);
-            return (
-              <Switch>
-                <Match
-                  when={(() => {
-                    const it = row();
-                    return it?.kind === "event" ? it : undefined;
-                  })()}
-                >
-                  {(it) => <EventRow index={it().index} />}
-                </Match>
-                <Match
-                  when={(() => {
-                    const it = row();
-                    return it?.kind === "folder" ? it : undefined;
-                  })()}
-                >
-                  {(it) => <FolderRow row={it()} />}
-                </Match>
-              </Switch>
-            );
-          }}
-        </For>
+        {/* KEYED, not `<For>`: the view is read again on every tick of the
+            clock and mints fresh row objects, so a `<For>` over them would
+            rebuild every row each time. */}
+        <Key each={shown().rows} by={rowKey}>
+          {(row) => (
+            <Switch>
+              <Match
+                when={(() => {
+                  const it = row();
+                  return it.kind === "event" ? it : undefined;
+                })()}
+              >
+                {(it) => <EventRow index={it().index} />}
+              </Match>
+              <Match
+                when={(() => {
+                  const it = row();
+                  return it.kind === "folder" ? it : undefined;
+                })()}
+              >
+                {(it) => <FolderRow row={it()} />}
+              </Match>
+            </Switch>
+          )}
+        </Key>
       </ul>
       <Show
         when={

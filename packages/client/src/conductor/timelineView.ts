@@ -44,6 +44,12 @@ export type TimelineRow =
       readonly indices: ReadonlyArray<number>;
     };
 
+/** A ROW'S NAME, which no two rows share and which outlives a redraw — its
+ *  first event, and whether it is a folder's row (a folder row and the first
+ *  file row inside it start at the same event). */
+export const rowKey = (row: TimelineRow): string =>
+  row.kind === "event" ? `e${row.index}` : `f${row.indices[0]}`;
+
 /** The view shown, the rows in it, the view the card folds back to from the
  *  whole one, and how many rows the whole one draws. */
 export interface TimelineShown {
@@ -101,14 +107,14 @@ const rowsOf = (
   }> = [];
   for (const index of indices) {
     const fold = foldKey(work, index);
-    const last = runs.at(-1)?.fold;
+    const last = runs.at(-1);
     if (
       fold !== undefined &&
-      last !== undefined &&
-      last.folder === fold.folder &&
-      last.by === fold.by
+      last?.fold !== undefined &&
+      last.fold.folder === fold.folder &&
+      last.fold.by === fold.by
     )
-      runs.at(-1)?.indices.push(index);
+      last.indices.push(index);
     else runs.push({ fold, indices: [index] });
   }
   return runs.map(

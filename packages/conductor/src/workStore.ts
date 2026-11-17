@@ -36,7 +36,6 @@ import { notKeptWhy } from "kolu-common/workFiles";
 import { type MemberReading, MemberReadingSchema } from "kolu-common/works";
 import {
   capFinished,
-  compareWaterfallPaths,
   type Driver,
   driverOf,
   endWork,
@@ -361,12 +360,10 @@ export const workStore = (deps: WorkStoreDeps): WorkStore => {
     const ended = works.get(id);
     if (ended !== undefined && Option.isSome(at) && paths.size > 0) {
       try {
-        // TREE ORDER, so the plan (a top-level file) is copied before
-        // anything in a folder has a chance to spend the size budget.
         const done = await deps.workFiles.keep({
           ...at.value,
           work: workDirOf(id),
-          paths: [...paths].sort(compareWaterfallPaths),
+          paths: [...paths],
         });
         const kept = keepFiles(ended, { files: done.kept, at: nowIso() });
         works.set(

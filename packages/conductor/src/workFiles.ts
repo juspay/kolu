@@ -57,8 +57,8 @@ export interface WorkFiles {
    *  Rejects (with a sentence) when the host cannot be read. */
   list(at: { host: string; worktree: string }): Promise<WorkFilesListed>;
   /** Copy those files into `<stateRoot>/works/<work>/<path>` on THIS machine,
-   *  in the order given, fetched through the host daemon's existing file
-   *  read. The work's directory holds at most `WORK_FILES_KEPT_BYTES` in all,
+   *  in tree order (top-level files first), fetched through the host
+   *  daemon's existing file read. The work's directory holds at most `WORK_FILES_KEPT_BYTES` in all,
    *  counting what an earlier ending of the same work left there: a file
    *  that would take it past that is skipped (and named in `tooBig`), and a
    *  smaller one after it can still land. */

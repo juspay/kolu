@@ -75,7 +75,6 @@ const WorkFiles: Component<{
           rows={files.rows()}
           more={files.more()}
           openTo={openTo()}
-          kept={props.source.at === null}
           layout="wrap"
           onOpen={(path) => openReader({ work: props.id, path })}
         />

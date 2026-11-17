@@ -190,7 +190,6 @@ const WorkReader: Component<{
             rows={files.rows()}
             more={files.more()}
             openTo={props.target.path}
-            kept={at() === null}
             layout="line"
             onOpen={(path) => props.onOpen({ work: props.target.work, path })}
           />
