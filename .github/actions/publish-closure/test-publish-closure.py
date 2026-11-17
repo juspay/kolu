@@ -192,7 +192,17 @@ class Resolve(unittest.TestCase):
             # declaration written before the field existed has.
             self.assertEqual(out["pusher"], "attic")
             self.assertEqual(out["index-branch"], "ca-index")
-            self.assertNotIn("extra-trusted-public-keys", out)
+            # The declaration, on one line: `verify` reads the keys out of it.
+            self.assertEqual(json.loads(out["declaration"]), DECLARATION)
+
+    def test_a_declaration_with_no_keys_is_refused_before_anything_is_built(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            declaration = dict(DECLARATION, trustedPublicKeys=[])
+            r = run(root, stub(root, {}), "resolve", "--rev", REV, "--repository", "juspay/kolu",
+                    "--sidecar", json.dumps(declaration), "--rev-key", KEY, ".#padi")
+            self.assertNotEqual(r.returncode, 0)
+            self.assertIn("names no trustedPublicKeys", r.stderr)
 
     def test_a_declaration_for_another_repository_is_refused(self):
         with tempfile.TemporaryDirectory() as d:
@@ -254,7 +264,8 @@ class Pusher(unittest.TestCase):
             out = self.outputs(Path(d), ODU_DECLARATION)
             self.assertEqual(out["pusher"], "odu")
             self.assertEqual(out["cache"], "https://odu.example.invalid")
-            self.assertEqual(sorted(out), ["cache", "index-branch", "installables", "pusher", "rev-key"])
+            self.assertEqual(sorted(out), ["cache", "declaration", "index-branch", "installables", "pusher",
+                                           "rev-key"])
 
     def test_any_substituter_shape_is_accepted_for_odu(self):
         """The read address is no longer judged here: an R2 domain that answers
@@ -315,16 +326,18 @@ class Push(unittest.TestCase):
     def calls(self, root):
         return (root / "calls").read_text().splitlines()
 
-    def test_an_odu_pusher_runs_the_pinned_odu_against_the_substituter(self):
+    def test_an_odu_pusher_runs_the_pinned_odu_against_the_substituter_whole(self):
         with tempfile.TemporaryDirectory() as d:
             root = Path(d)
             write_entries(root)
             r = self.push(root, "--cache", "https://odu.example.invalid", "--pusher", "odu")
             self.assertEqual(r.returncode, 0, r.stderr)
             ref = f"{self.PIN['url']}?narHash={quote(self.PIN['hash'])}"
+            # `--whole`: the consumer reads this cache alone, so the nixpkgs
+            # paths a bucket skips by default must be stored too.
             self.assertEqual(self.calls(root), [
                 f"nix run --accept-flake-config {ref}#odu -- "
-                f"cache push --cache https://odu.example.invalid {IA} {CA}",
+                f"cache push --whole --cache https://odu.example.invalid {IA} {CA}",
             ])
 
     def test_the_read_url_is_handed_over_verbatim(self):
@@ -336,7 +349,7 @@ class Push(unittest.TestCase):
             write_entries(root)
             r = self.push(root, "--cache", "https://cache.kolu.dev/kolu-r2", "--pusher", "odu")
             self.assertEqual(r.returncode, 0, r.stderr)
-            self.assertIn("cache push --cache https://cache.kolu.dev/kolu-r2 ", self.calls(root)[0])
+            self.assertIn("cache push --whole --cache https://cache.kolu.dev/kolu-r2 ", self.calls(root)[0])
 
     def test_an_attic_pusher_runs_the_same_three_calls_over_the_same_paths(self):
         with tempfile.TemporaryDirectory() as d:
@@ -452,36 +465,68 @@ class Smoke(unittest.TestCase):
 
 
 class Verify(unittest.TestCase):
-    def test_imports_each_content_addressed_path_into_a_throwaway_store(self):
+    """The consumer's command, done before any index is written: every path the
+    entries name, from the cache alone, each into an empty store of its own."""
+
+    KEYS = "oss:KEY= other:KEY2="
+    DECLARED = json.dumps(dict(DECLARATION, trustedPublicKeys=KEYS.split()))
+
+    def answers(self, root: Path, attr: str, form: str, path: str, copy=""):
+        store = f"local?root={root}/v/{attr}-{form}/store"
+        trust = f"--extra-trusted-public-keys {self.KEYS} " if form == "ia" else ""
+        return {
+            f"--extra-experimental-features nix-command copy {trust}--from https://c/oss --to {store} {path}": copy,
+            f"--extra-experimental-features nix-command store verify {trust}--store {store} --recursive {path}": "",
+            f"--extra-experimental-features nix-command path-info --store {store} --recursive {path}":
+                f"{path}\n/nix/store/{'d' * 32}-dep\n",
+        }
+
+    def verify(self, root: Path, env: dict, system="x86_64-linux"):
+        return run(root, env, "verify", "--rev-key", KEY, "--system", system,
+                   "--directory", str(root / "idx"), "--cache", "https://c/oss",
+                   "--store-root", f"{root}/v", "--declaration", self.DECLARED)
+
+    def test_imports_the_signed_and_the_content_addressed_path_each_into_its_own_store(self):
         with tempfile.TemporaryDirectory() as d:
             root = Path(d)
-            for attr, entry in [("padi", {"rev": REV, "ia": IA, "ca": CA}), ("other", {"rev": REV, "ia": IA})]:
-                path = root / "idx" / KEY / "x86_64-linux" / f"{attr}.json"
-                path.parent.mkdir(parents=True, exist_ok=True)
-                path.write_text(json.dumps(entry))
-            store = f"local?root={root}/v"
-            env = stub(root, {
-                f"--extra-experimental-features nix-command copy --from https://c/oss --to {store} {CA}": "",
-                f"--extra-experimental-features nix-command store verify --store {store} --recursive {CA}": "",
-            })
-            r = run(root, env, "verify", "--rev-key", KEY, "--system", "x86_64-linux",
-                    "--directory", str(root / "idx"), "--cache", "https://c/oss", "--store-root", f"{root}/v")
+            write_entries(root)
+            env = stub(root, {**self.answers(root, "padi", "ia", IA), **self.answers(root, "padi", "ca", CA)})
+            r = self.verify(root, env)
             self.assertEqual(r.returncode, 0, r.stderr)
-            self.assertEqual(len((root / "calls").read_text().splitlines()), 2)
+            # Three calls per path, the signed one trusting the declaration's
+            # keys, the content-addressed one trusting nothing.
+            self.assertEqual(len((root / "calls").read_text().splitlines()), 6)
+            self.assertIn("padi: ia imported and verified, 2 paths", r.stdout)
+            self.assertIn("padi: ca imported and verified, 2 paths", r.stdout)
+
+    def test_a_darwin_entry_verifies_its_signed_path(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            write_entries(root, system="aarch64-darwin", entry={"rev": REV, "ia": OTHER_IA})
+            env = stub(root, self.answers(root, "padi", "ia", OTHER_IA))
+            r = self.verify(root, env, system="aarch64-darwin")
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertIn("padi: ia imported and verified", r.stdout)
+
+    def test_a_signed_path_the_cache_does_not_hold_whole_fails_the_publication(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            write_entries(root)
+            missing = {"exit": 1, "stderr": f"error: path '/nix/store/{'e' * 32}-bash' is not valid\n"}
+            env = stub(root, self.answers(root, "padi", "ia", IA, copy=missing))
+            r = self.verify(root, env)
+            self.assertNotEqual(r.returncode, 0)
+            self.assertIn("is not valid", r.stderr)
+            self.assertNotIn("every published path", r.stdout)
 
     def test_a_hash_mismatch_fails_the_publication(self):
         with tempfile.TemporaryDirectory() as d:
             root = Path(d)
-            path = root / "idx" / KEY / "x86_64-linux" / "padi.json"
-            path.parent.mkdir(parents=True)
-            path.write_text(json.dumps({"rev": REV, "ia": IA, "ca": CA}))
-            store = f"local?root={root}/v"
-            env = stub(root, {
-                f"--extra-experimental-features nix-command copy --from https://c/oss --to {store} {CA}":
-                    {"exit": 1, "stderr": "error: ca hash mismatch importing path\n"},
-            })
-            r = run(root, env, "verify", "--rev-key", KEY, "--system", "x86_64-linux",
-                    "--directory", str(root / "idx"), "--cache", "https://c/oss", "--store-root", f"{root}/v")
+            write_entries(root)
+            mismatch = {"exit": 1, "stderr": "error: ca hash mismatch importing path\n"}
+            env = stub(root, {**self.answers(root, "padi", "ia", IA),
+                              **self.answers(root, "padi", "ca", CA, copy=mismatch)})
+            r = self.verify(root, env)
             self.assertNotEqual(r.returncode, 0)
             self.assertIn("ca hash mismatch", r.stderr)
 
