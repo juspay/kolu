@@ -108,6 +108,7 @@ import {
   type OnGreen,
   type WorkMode,
   keptOf,
+  notKeptOf,
   modeOf,
   type SentAnswer,
   type SetupAsk,
@@ -379,8 +380,11 @@ function countingStore<T>(initial: T): Counted<T> {
  *  lists, keeps and sweeps. */
 interface FakeFiles {
   readonly port: WorkFiles;
-  /** What `.waterfall/` holds, as the next listing answers it. */
-  readonly holds: (paths: ReadonlyArray<string>) => void;
+  /** What `.waterfall/` holds, as the next listing answers it — and whether
+   *  that listing stopped at its limit. */
+  readonly holds: (paths: ReadonlyArray<string>, more?: boolean) => void;
+  /** The paths the next keep leaves out for size. */
+  readonly tooBig: (paths: ReadonlyArray<string>) => void;
   /** ... or the host cannot be read at all, until it is handed `null` again. */
   readonly listFails: (why: string | null) => void;
   readonly listed: () => ReadonlyArray<{ host: string; worktree: string }>;
@@ -395,6 +399,8 @@ interface FakeFiles {
 
 function fakeFiles(): FakeFiles {
   let holding: ReadonlyArray<string> = [];
+  let holdingMore = false;
+  let tooBig: ReadonlyArray<string> = [];
   let listFails: string | null = null;
   const listed: Array<{ host: string; worktree: string }> = [];
   const kept: Array<{ work: string; paths: ReadonlyArray<string> }> = [];
@@ -404,18 +410,27 @@ function fakeFiles(): FakeFiles {
       list: async (at) => {
         listed.push({ host: at.host, worktree: at.worktree });
         if (listFails !== null) throw new Error(listFails);
-        return holding;
+        return { paths: holding, more: holdingMore };
       },
       keep: async (at) => {
         kept.push({ work: at.work, paths: [...at.paths] });
-        return at.paths.map((path): KeptFile => ({ path, bytes: path.length }));
+        return {
+          kept: at.paths
+            .filter((path) => !tooBig.includes(path))
+            .map((path): KeptFile => ({ path, bytes: path.length })),
+          tooBig: at.paths.filter((path) => tooBig.includes(path)),
+        };
       },
       sweep: async (keep) => {
         swept.push([...keep]);
       },
     },
-    holds: (paths) => {
+    holds: (paths, more = false) => {
       holding = paths;
+      holdingMore = more;
+    },
+    tooBig: (paths) => {
+      tooBig = paths;
     },
     listFails: (why) => {
       listFails = why;
@@ -4434,6 +4449,44 @@ describe("a work that has ended", () => {
       Option.some([
         { path: ".waterfall/plan.md", bytes: ".waterfall/plan.md".length },
       ]),
+    );
+  });
+
+  it("records what WAS kept and why the rest was not, when a keep is partial", async () => {
+    const r = rig();
+    const work = await watchWork(r);
+    r.host.joinWork(work, A, "implementor", "created");
+    r.host.observe([seeing(A, "stopped", { git: inRepo })]);
+    // A folder, a cut listing, and one file too big to keep.
+    r.files.holds(
+      [
+        ".waterfall/plan.md",
+        ".waterfall/mockup/index.html",
+        ".waterfall/mockup/big.mov",
+      ],
+      true,
+    );
+    r.files.tooBig([".waterfall/mockup/big.mov"]);
+    r.host.stopWork(work, "you");
+    await vi.waitFor(() => {
+      expect(kindsOf(theWork(r))).toContain("keep-failed");
+    });
+    // Copied in tree order: the plan before anything in a folder.
+    expect(r.files.kept()[0]?.paths).toEqual([
+      ".waterfall/plan.md",
+      ".waterfall/mockup/big.mov",
+      ".waterfall/mockup/index.html",
+    ]);
+    expect(
+      Option.map(keptOf(theWork(r)), (one) => one.map((file) => file.path)),
+    ).toEqual(
+      Option.some([".waterfall/plan.md", ".waterfall/mockup/index.html"]),
+    );
+    expect(kindsOf(theWork(r))).toContain("kept");
+    expect(notKeptOf(theWork(r))).toEqual(
+      Option.some(
+        "mockup/big.mov did not fit in the 50 MiB kolu keeps of a work; kolu stopped listing .waterfall/ at 200 files and folders",
+      ),
     );
   });
 });

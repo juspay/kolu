@@ -32,9 +32,11 @@
  */
 
 import { Option, Schema } from "effect";
+import { notKeptWhy } from "kolu-common/workFiles";
 import { type MemberReading, MemberReadingSchema } from "kolu-common/works";
 import {
   capFinished,
+  compareWaterfallPaths,
   type Driver,
   driverOf,
   endWork,
@@ -343,9 +345,12 @@ export const workStore = (deps: WorkStoreDeps): WorkStore => {
     const ending = works.get(id);
     if (ending === undefined || ending.state.kind !== "ended") return;
     const paths = new Set(filesSeen(ending));
+    let more = false;
     if (Option.isSome(at)) {
       try {
-        for (const path of await deps.workFiles.list(at.value)) paths.add(path);
+        const listed = await deps.workFiles.list(at.value);
+        for (const path of listed.paths) paths.add(path);
+        more = listed.more;
       } catch (err) {
         deps.log.warn(
           { err, work: id },
@@ -356,12 +361,21 @@ export const workStore = (deps: WorkStoreDeps): WorkStore => {
     const ended = works.get(id);
     if (ended !== undefined && Option.isSome(at) && paths.size > 0) {
       try {
-        const kept = await deps.workFiles.keep({
+        // TREE ORDER, so the plan (a top-level file) is copied before
+        // anything in a folder has a chance to spend the size budget.
+        const done = await deps.workFiles.keep({
           ...at.value,
           work: workDirOf(id),
-          paths: [...paths],
+          paths: [...paths].sort(compareWaterfallPaths),
         });
-        works.set(id, keepFiles(ended, { files: kept, at: nowIso() }));
+        const kept = keepFiles(ended, { files: done.kept, at: nowIso() });
+        works.set(
+          id,
+          Option.match(notKeptWhy({ tooBig: done.tooBig, more }), {
+            onNone: () => kept,
+            onSome: (why) => keepFailed(kept, why, nowIso()),
+          }),
+        );
       } catch (err) {
         works.set(id, keepFailed(ended, sentenceOf(err), nowIso()));
       }

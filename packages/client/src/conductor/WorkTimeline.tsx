@@ -11,10 +11,12 @@
  *  EACH ROW IS ONE LINE: its time, who it was by, its words, and how long that
  *  step took. Words longer than the line are cut, with a "more" beside them
  *  rather than the row becoming a button — so the PR number a row names is a
- *  link whether the row was cut or not. A `Wrote …` row opens its file. */
+ *  link whether the row was cut or not. A `Wrote …` row opens its file. A run
+ *  of files one terminal wrote into one folder is ONE row (`Wrote mockup/ ·
+ *  49 files`), whose "more" unfolds the per-file rows. */
 
 import { dualPhrase } from "@kolu/terminal-vocab/duration";
-import { took, type Work, type WorkId } from "kolu-work";
+import { took, type Work, type WorkId, waterfallFileName } from "kolu-work";
 import {
   type Component,
   createMemo,
@@ -28,6 +30,7 @@ import { holdsPath } from "./namedFiles";
 import PrText from "./PrText";
 import { openReader, readerTarget } from "./reader/useReader";
 import {
+  type TimelineRow,
   type TimelineShown,
   type TimelineView,
   WATCH_EVENTS_SHOWN,
@@ -76,6 +79,18 @@ const WorkTimeline: Component<{
   };
 
   const shown = () => props.shown;
+  /** EACH ROW BY A KEY THAT OUTLIVES A REDRAW — its first event's index, and
+   *  whether it is a folder's row. The view is read again on every tick of
+   *  the clock, and a `<For>` over its fresh row objects would rebuild every
+   *  row each time; over these strings it keeps them. */
+  const rowKeys = createMemo(() =>
+    shown().rows.map((row) =>
+      row.kind === "event" ? `e${row.index}` : `f${row.indices[0]}`,
+    ),
+  );
+  const rowAt = createMemo(
+    () => new Map(shown().rows.map((row, at) => [rowKeys()[at] ?? "", row])),
+  );
   /** THE TIMELINE'S WORDS, built once per move of the record rather than per
    *  row: the two facts a row needs about the WHOLE timeline (which commits
    *  its check events name, which decision an ask points at) are computed
@@ -95,6 +110,168 @@ const WorkTimeline: Component<{
       : viewWord(folded);
   };
 
+  /** ONE EVENT'S ROW — drawn the same at the top level and inside an
+   *  unfolded folder row. */
+  const EventRow: Component<{ index: number }> = (row) => {
+    const event = () => props.work.events[row.index];
+    return (
+      <Show when={event()}>
+        {(one) => {
+          const whole = () => words()(one());
+          const cut = () => oneLine(whole());
+          const open = () => unfolded().has(row.index);
+          return (
+            <li
+              data-testid="work-event"
+              data-kind={one().kind}
+              data-by={one().by}
+              data-merge={(() => {
+                const it = one();
+                return it.kind === "merge-state"
+                  ? mergeReason(it.merge)
+                  : undefined;
+              })()}
+              class="flex min-w-0 items-baseline gap-1.5 text-[0.7rem]"
+            >
+              <span class="w-9 shrink-0 whitespace-nowrap font-mono text-[0.6rem] tabular-nums text-fg-3">
+                {clockOf(one().at)}
+              </span>
+              <span
+                aria-hidden="true"
+                class={`h-1.5 w-1.5 shrink-0 translate-y-[-0.1em] rounded-full ${EVENT_INK[one().by]}`}
+              />
+              <Switch
+                fallback={
+                  <>
+                    <span
+                      class={`min-w-0 flex-1 text-fg-2 ${open() ? "whitespace-pre-wrap break-words" : "truncate"}`}
+                    >
+                      <PrText
+                        work={props.work}
+                        text={open() ? whole() : cut().line}
+                      />
+                    </span>
+                    <Show when={cut().rest}>
+                      <button
+                        type="button"
+                        data-testid="work-event-more"
+                        aria-expanded={open()}
+                        class="shrink-0 cursor-pointer rounded-sm px-1 font-mono text-[0.58rem] text-accent hover:underline"
+                        onClick={() => toggleRow(row.index)}
+                      >
+                        {open() ? "less" : "more"}
+                      </button>
+                    </Show>
+                  </>
+                }
+              >
+                {/* A FILE THE WORK WROTE OPENS FROM ITS ROW — the event names
+                    the work and the path, so there is nothing to match; a link
+                    only where the reader can open it (for a work that ended, a
+                    kept copy). */}
+                <Match
+                  when={(() => {
+                    const it = one();
+                    return it.kind === "file" && holdsPath(props.work, it.path)
+                      ? it.path
+                      : undefined;
+                  })()}
+                >
+                  {(path) => {
+                    const current = () => {
+                      const target = readerTarget();
+                      return (
+                        target !== null &&
+                        target.work === props.id &&
+                        target.path === path()
+                      );
+                    };
+                    return (
+                      <button
+                        type="button"
+                        data-testid="work-event-file"
+                        data-path={path()}
+                        aria-label={`Open ${path()}`}
+                        aria-current={current() ? "true" : undefined}
+                        class={`min-w-0 flex-1 cursor-pointer truncate rounded-sm text-start hover:underline ${
+                          current() ? "text-accent" : "text-fg-2"
+                        }`}
+                        onClick={() =>
+                          openReader({ work: props.id, path: path() })
+                        }
+                      >
+                        {cut().line}
+                      </button>
+                    );
+                  }}
+                </Match>
+              </Switch>
+              {/* HOW LONG THAT STEP TOOK — the step still running keeps
+                  counting, with the ellipsis that says so. */}
+              <span class="shrink-0 font-mono text-[0.6rem] tabular-nums text-fg-3">
+                <Show when={steps()[row.index]}>
+                  {(step) =>
+                    step().ms === 0 && !step().open
+                      ? ""
+                      : `${dualPhrase(step().ms)}${step().open ? "…" : ""}`
+                  }
+                </Show>
+              </span>
+            </li>
+          );
+        }}
+      </Show>
+    );
+  };
+
+  /** ONE FOLDER'S ROW — the run of files one terminal wrote into one folder,
+   *  said once, with its own more/less to unfold the per-file rows. Keyed in
+   *  the open-state set by its first event, which no other row shares. */
+  const FolderRow: Component<{
+    row: Extract<TimelineRow, { kind: "folder" }>;
+  }> = (folder) => {
+    const first = () => folder.row.indices[0] ?? 0;
+    const event = () => props.work.events[first()];
+    const open = () => unfolded().has(first());
+    return (
+      <Show when={event()}>
+        {(one) => (
+          <li data-testid="work-event-folder" data-path={folder.row.folder}>
+            <div class="flex min-w-0 items-baseline gap-1.5 text-[0.7rem]">
+              <span class="w-9 shrink-0 whitespace-nowrap font-mono text-[0.6rem] tabular-nums text-fg-3">
+                {clockOf(one().at)}
+              </span>
+              <span
+                aria-hidden="true"
+                class={`h-1.5 w-1.5 shrink-0 translate-y-[-0.1em] rounded-full ${EVENT_INK[one().by]}`}
+              />
+              <span class="min-w-0 flex-1 truncate text-fg-2">
+                Wrote {waterfallFileName(folder.row.folder)} ·{" "}
+                {folder.row.indices.length} files
+              </span>
+              <button
+                type="button"
+                data-testid="work-event-more"
+                aria-expanded={open()}
+                class="shrink-0 cursor-pointer rounded-sm px-1 font-mono text-[0.58rem] text-accent hover:underline"
+                onClick={() => toggleRow(first())}
+              >
+                {open() ? "less" : "more"}
+              </button>
+            </div>
+            <Show when={open()}>
+              <ul class="m-0 ml-4 flex list-none flex-col gap-0.5 border-l border-edge p-0 pl-2">
+                <For each={folder.row.indices}>
+                  {(index) => <EventRow index={index} />}
+                </For>
+              </ul>
+            </Show>
+          </li>
+        )}
+      </Show>
+    );
+  };
+
   return (
     <section
       data-testid="work-timeline"
@@ -109,125 +286,35 @@ const WorkTimeline: Component<{
         Timeline · {viewWord(shown().view)}
       </h4>
       <ul class="m-0 mt-1 flex list-none flex-col gap-0.5 p-0">
-        <For each={shown().indices}>
-          {(index) => {
-            const event = () => props.work.events[index];
+        <For each={rowKeys()}>
+          {(key) => {
+            const row = () => rowAt().get(key);
             return (
-              <Show when={event()}>
-                {(one) => {
-                  const whole = () => words()(one());
-                  const cut = () => oneLine(whole());
-                  const open = () => unfolded().has(index);
-                  return (
-                    <li
-                      data-testid="work-event"
-                      data-kind={one().kind}
-                      data-by={one().by}
-                      data-merge={(() => {
-                        const it = one();
-                        return it.kind === "merge-state"
-                          ? mergeReason(it.merge)
-                          : undefined;
-                      })()}
-                      class="flex min-w-0 items-baseline gap-1.5 text-[0.7rem]"
-                    >
-                      <span class="w-9 shrink-0 whitespace-nowrap font-mono text-[0.6rem] tabular-nums text-fg-3">
-                        {clockOf(one().at)}
-                      </span>
-                      <span
-                        aria-hidden="true"
-                        class={`h-1.5 w-1.5 shrink-0 translate-y-[-0.1em] rounded-full ${EVENT_INK[one().by]}`}
-                      />
-                      <Switch
-                        fallback={
-                          <>
-                            <span
-                              class={`min-w-0 flex-1 text-fg-2 ${open() ? "whitespace-pre-wrap break-words" : "truncate"}`}
-                            >
-                              <PrText
-                                work={props.work}
-                                text={open() ? whole() : cut().line}
-                              />
-                            </span>
-                            <Show when={cut().rest}>
-                              <button
-                                type="button"
-                                data-testid="work-event-more"
-                                aria-expanded={open()}
-                                class="shrink-0 cursor-pointer rounded-sm px-1 font-mono text-[0.58rem] text-accent hover:underline"
-                                onClick={() => toggleRow(index)}
-                              >
-                                {open() ? "less" : "more"}
-                              </button>
-                            </Show>
-                          </>
-                        }
-                      >
-                        {/* A FILE THE WORK WROTE OPENS FROM ITS ROW — the
-                            event names the work and the path, so there is
-                            nothing to match; a link only where the reader can
-                            open it (for a work that ended, a kept copy). */}
-                        <Match
-                          when={(() => {
-                            const it = one();
-                            return it.kind === "file" &&
-                              holdsPath(props.work, it.path)
-                              ? it.path
-                              : undefined;
-                          })()}
-                        >
-                          {(path) => {
-                            const current = () => {
-                              const target = readerTarget();
-                              return (
-                                target !== null &&
-                                target.work === props.id &&
-                                target.path === path()
-                              );
-                            };
-                            return (
-                              <button
-                                type="button"
-                                data-testid="work-event-file"
-                                data-path={path()}
-                                aria-label={`Open ${path()}`}
-                                aria-current={current() ? "true" : undefined}
-                                class={`min-w-0 flex-1 cursor-pointer truncate rounded-sm text-start hover:underline ${
-                                  current() ? "text-accent" : "text-fg-2"
-                                }`}
-                                onClick={() =>
-                                  openReader({ work: props.id, path: path() })
-                                }
-                              >
-                                {cut().line}
-                              </button>
-                            );
-                          }}
-                        </Match>
-                      </Switch>
-                      {/* HOW LONG THAT STEP TOOK — the step still running
-                          keeps counting, with the ellipsis that says so. */}
-                      <span class="shrink-0 font-mono text-[0.6rem] tabular-nums text-fg-3">
-                        <Show when={steps()[index]}>
-                          {(step) =>
-                            step().ms === 0 && !step().open
-                              ? ""
-                              : `${dualPhrase(step().ms)}${step().open ? "…" : ""}`
-                          }
-                        </Show>
-                      </span>
-                    </li>
-                  );
-                }}
-              </Show>
+              <Switch>
+                <Match
+                  when={(() => {
+                    const it = row();
+                    return it?.kind === "event" ? it : undefined;
+                  })()}
+                >
+                  {(it) => <EventRow index={it().index} />}
+                </Match>
+                <Match
+                  when={(() => {
+                    const it = row();
+                    return it?.kind === "folder" ? it : undefined;
+                  })()}
+                >
+                  {(it) => <FolderRow row={it()} />}
+                </Match>
+              </Switch>
             );
           }}
         </For>
       </ul>
       <Show
         when={
-          shown().view.kind === "whole" ||
-          shown().indices.length < shown().total
+          shown().view.kind === "whole" || shown().rows.length < shown().total
         }
       >
         <button

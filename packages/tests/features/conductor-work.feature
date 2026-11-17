@@ -170,6 +170,39 @@ Feature: A piece of work is a stored thing
     Then the reader should render "The plan" as a heading
     And there should be no page errors
 
+  Scenario: A folder the work wrote is one chip, one timeline row, and is kept
+    # A planner writes folders too — a mockup of forty pages and its fonts.
+    # The card shows the folder as ONE chip with how many files are beneath
+    # it, at any depth; pressing it unfolds one level. The timeline says the
+    # run of files once. And the whole folder is copied when the work ends,
+    # so a file two levels down still opens after its worktree could be gone.
+    Given a repo for the work
+    When I ask the conductor to open the work "draw the mockup"
+    And I answer the work's question with "merge" in the chat
+    And I ask the conductor to run the implementor in the work's repo
+    And the implementor writes ".waterfall/plan.md" into the work's repo
+    And the implementor writes ".waterfall/mockup/a.md" into the work's repo
+    And the implementor writes ".waterfall/mockup/b.md" into the work's repo
+    And the implementor writes ".waterfall/mockup/fonts/c.md" into the work's repo
+    And the implementor's agent starts working
+    And the implementor's agent stops
+    Then the work card should show the folder ".waterfall/mockup/" holding 3 files
+    When I unfold the work's folder ".waterfall/mockup/"
+    Then the work card should show the folder ".waterfall/mockup/fonts/" holding 1 files
+    When I unfold the work's folder ".waterfall/mockup/fonts/"
+    And I open the work's file ".waterfall/mockup/fonts/c.md"
+    Then the reader should render "The plan" as a heading
+    When I leave the reader
+    Then the work's timeline should show one row for the folder ".waterfall/mockup/" with 3 files
+    When I stop the work from the card
+    Then the work should be finished as "stopped"
+    When I unfold the work's folder ".waterfall/mockup/"
+    And I unfold the work's folder ".waterfall/mockup/fonts/"
+    Then the work card should keep the file ".waterfall/mockup/fonts/c.md"
+    When I open the work's file ".waterfall/mockup/fonts/c.md"
+    Then the reader should render "The plan" as a heading
+    And there should be no page errors
+
   Scenario: A new conversation keeps the work in flight
     # "New session" clears the CONVERSATION. The work it opened — its member
     # terminal and the decisions taken about it — are not the conversation's

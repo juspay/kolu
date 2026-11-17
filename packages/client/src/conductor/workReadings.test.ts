@@ -530,23 +530,25 @@ describe("which events an open card shows", () => {
     opened,
   ];
   const one = work({ decisions: [mode("full")], events: timeline });
+  const rowsOfEvents = (indices: ReadonlyArray<number>) =>
+    indices.map((index) => ({ kind: "event", index }));
 
   it("shows the stage the work is in, until a stage is pressed", () => {
     const read = stagesOf(one, "2026-01-01T10:30:00.000Z");
     expect(timelineShown(one, read, undefined, false)).toMatchObject({
       view: { kind: "stage", stage: "review" },
-      indices: [3],
+      rows: rowsOfEvents([3]),
     });
     expect(timelineShown(one, read, "plan", false)).toMatchObject({
       view: { kind: "stage", stage: "plan" },
-      indices: [0, 1],
+      rows: rowsOfEvents([0, 1]),
     });
     // ... and the whole of it folds back to the stage it came from.
     expect(timelineShown(one, read, "plan", true).folded).toEqual({
       kind: "stage",
       stage: "plan",
     });
-    expect(timelineShown(one, read, "plan", true).indices).toHaveLength(4);
+    expect(timelineShown(one, read, "plan", true).rows).toHaveLength(4);
   });
 
   it("shows a watch's latest few, a watch having no stages", () => {
@@ -556,7 +558,7 @@ describe("which events an open card shows", () => {
     });
     const shown = timelineShown(watch, stagesOf(watch, AT), undefined, false);
     expect(shown.view).toEqual({ kind: "latest" });
-    expect(shown.indices).toEqual([4, 5, 6, 7, 8]);
+    expect(shown.rows).toEqual(rowsOfEvents([4, 5, 6, 7, 8]));
   });
 
   it("draws one row where the forge merged a PR and the work ended merged", () => {
@@ -571,8 +573,62 @@ describe("which events an open card shows", () => {
       ],
     });
     const shown = timelineShown(done, stagesOf(done, AT), undefined, true);
-    expect(shown.indices).toEqual([0, 1]);
+    expect(shown.rows).toEqual(rowsOfEvents([0, 1]));
     expect(shown.total).toBe(2);
+  });
+
+  describe("a folder the work wrote into", () => {
+    const wrote = (path: string, terminal = "local/p") =>
+      event({ kind: "file", by: "agent", about: aboutMember(terminal), path });
+    const whole = (events: ReadonlyArray<WorkEvent>) => {
+      const it = work({ decisions: [mode("watch")], events: [...events] });
+      return timelineShown(it, stagesOf(it, AT), undefined, true);
+    };
+
+    it("is one row for a run of files in it, deeper folders counted in", () => {
+      const shown = whole([
+        joined("local/p"),
+        wrote(".waterfall/plan.md"),
+        wrote(".waterfall/mockup/a.html"),
+        wrote(".waterfall/mockup/b.html"),
+        wrote(".waterfall/mockup/fonts/x.woff2"),
+      ]);
+      expect(shown.rows).toEqual([
+        { kind: "event", index: 0 },
+        { kind: "event", index: 1 },
+        { kind: "folder", folder: ".waterfall/mockup/", indices: [2, 3, 4] },
+      ]);
+      // THE TOTAL COUNTS ROWS AS DRAWN, not the events under them.
+      expect(shown.total).toBe(3);
+    });
+
+    it("splits where another event, or another terminal, comes between", () => {
+      const shown = whole([
+        wrote(".waterfall/mockup/a.html"),
+        wrote(".waterfall/mockup/b.html"),
+        joined("local/i", "implementor"),
+        wrote(".waterfall/mockup/c.html"),
+        wrote(".waterfall/mockup/d.html"),
+        wrote(".waterfall/mockup/e.html", "local/i"),
+      ]);
+      expect(shown.rows).toEqual([
+        { kind: "folder", folder: ".waterfall/mockup/", indices: [0, 1] },
+        { kind: "event", index: 2 },
+        { kind: "folder", folder: ".waterfall/mockup/", indices: [3, 4] },
+        { kind: "event", index: 5 },
+      ]);
+    });
+
+    it("leaves a lone file in a folder, and top-level files, as plain rows", () => {
+      const shown = whole([
+        wrote(".waterfall/plan.md"),
+        wrote(".waterfall/notes.md"),
+        wrote(".waterfall/mockup/a.html"),
+        wrote(".waterfall/review.md"),
+      ]);
+      expect(shown.rows).toEqual(rowsOfEvents([0, 1, 2, 3]));
+      expect(shown.total).toBe(4);
+    });
   });
 });
 

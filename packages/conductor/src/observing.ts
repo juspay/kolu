@@ -361,7 +361,7 @@ export const observing = (deps: {
     listing.add(ref);
     void deps.workFiles
       .list(at)
-      .then((paths) => {
+      .then(({ paths }) => {
         const found = deps.store.get(id);
         if (Option.isNone(found) || found.value.state.kind !== "open") return;
         const work = found.value;

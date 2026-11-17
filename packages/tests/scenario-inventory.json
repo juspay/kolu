@@ -11770,6 +11770,30 @@
       "exampleRows": [],
       "executions": 1,
       "firstSeenSha": "268660e374ae38addac1c2e036eaf7a00cdd69dd"
+    },
+    {
+      "revisionId": "revision-d136d737cb784ff0ea4c",
+      "scenarioKey": "scenario-9edf1ae3aac5a9f2dc75",
+      "feature": "features/conductor-reader.feature",
+      "scenario": "A file inside a folder, named in the chat, opens in the reader",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "947ef46fe8b31d275ac8ce3725d2805912eb5c14ff319ac055eff9b6d3805cc2",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "78671050a9a88e36fec72111aa7c7b0996e51b86"
+    },
+    {
+      "revisionId": "revision-3d2952244b0100ea0881",
+      "scenarioKey": "scenario-c0c0328db067c12f2926",
+      "feature": "features/conductor-work.feature",
+      "scenario": "A folder the work wrote is one chip, one timeline row, and is kept",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "d42d111745d44b5e47ff767b26eda27c9c0c0c6df86e834f2e32af4d072d3d25",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "78671050a9a88e36fec72111aa7c7b0996e51b86"
     }
   ]
 }

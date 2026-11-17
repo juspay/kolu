@@ -117,6 +117,16 @@ When(
   },
 );
 
+/** ... or names whichever of its files the scenario says — a path inside a
+ *  folder, say. */
+When(
+  "the conductor looks at the implementor and names {string}",
+  async function (this: KoluWorld, file: string) {
+    await enterConductor(this);
+    await sendPrompt(this, `look at the implementor and name ${file}`);
+  },
+);
+
 /** THE NAMED FILE, pressed where it was said — a real button in the chat,
  *  found by the path it shows: its accessible name says what a press does
  *  (opens it, offers a choice, or says the turn's work has none yet). */

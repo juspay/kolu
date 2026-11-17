@@ -697,12 +697,17 @@ const turn = async (
     endTurn(id);
     return;
   }
-  if (text === "look at the implementor and say where its plan is") {
+  const looked =
+    /^look at the implementor and (?:say where its plan is|name (\S+))$/.exec(
+      text,
+    );
+  if (looked !== null) {
     // THE CONDUCTOR NAMES A FILE IN ITS OWN WORDS, in a turn that is about
     // one work: a real kolu tool card naming the implementor this fixture
     // last started (a screen read), then plain prose with the path in
-    // backticks. The card is what tells kolu which work the reply is about —
-    // the sentence names none.
+    // backticks — the plan, or whichever path the step named. The card is
+    // what tells kolu which work the reply is about — the sentence names
+    // none.
     if (lastStarted === null) {
       say("no implementor was started");
       endTurn(id);
@@ -723,7 +728,7 @@ const turn = async (
       status: "completed",
       rawOutput: { text: "plan written" },
     });
-    say("Its plan is at `.waterfall/plan.md`.");
+    say(`It wrote \`${looked[1] ?? ".waterfall/plan.md"}\`.`);
     endTurn(id);
     return;
   }

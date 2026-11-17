@@ -706,7 +706,7 @@ export function eventReader(work: Work): (event: WorkEvent) => string {
       case "kept":
         return `${event.count} files kept`;
       case "keep-failed":
-        return `Could not keep the files · ${event.why}`;
+        return `Not kept · ${event.why}`;
       default:
         return event satisfies never;
     }

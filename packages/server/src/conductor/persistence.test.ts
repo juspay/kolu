@@ -208,8 +208,8 @@ const recordDeps = () => ({
   worksMoved: () => {},
   watchScopeMoved: () => {},
   workFiles: {
-    list: async () => [],
-    keep: async () => [],
+    list: async () => ({ paths: [], more: false }),
+    keep: async () => ({ kept: [], tooBig: [] }),
     sweep: async () => {},
   },
 });

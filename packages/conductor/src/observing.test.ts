@@ -482,4 +482,26 @@ describe("the files a listing found", () => {
       restarted,
     );
   });
+
+  it("records each file in a folder once, and a new one as one more event", () => {
+    const mockup = [
+      ".waterfall/plan.md",
+      ".waterfall/mockup/index.html",
+      ".waterfall/mockup/fonts/a.woff2",
+    ];
+    const files = (one: Work) =>
+      one.events.flatMap((event) =>
+        event.kind === "file" ? [event.path] : [],
+      );
+    const first = fileEvents(work(), A, mockup, AT);
+    expect(files(first)).toEqual(mockup);
+    expect(fileEvents(first, A, mockup, AT)).toBe(first);
+    const more = fileEvents(
+      first,
+      A,
+      [...mockup, ".waterfall/mockup/fonts/b.woff2"],
+      AT,
+    );
+    expect(files(more)).toEqual([...mockup, ".waterfall/mockup/fonts/b.woff2"]);
+  });
 });

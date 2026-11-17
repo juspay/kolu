@@ -12,13 +12,20 @@
  *
  *  WHERE THE ROWS COME FROM IS NOT THIS COMPONENT'S QUESTION. `workFile.ts`
  *  chooses the source once — the member's worktree while a work is in flight,
- *  kolu's own copy once it has ended — and this draws whatever it answers.
- *  The card does not tell you which, which is the point of keeping them. */
+ *  kolu's own copy once it has ended — and this draws whatever it answers,
+ *  through the one chip list the reader's tabs draw too (`WorkFileList.tsx`).
+ *  The card does not tell you which, which is the point of keeping them.
+ *
+ *  WHAT WAS NOT KEPT is said under the chips: the one sentence the work's
+ *  ending recorded (a file past the size kolu keeps, a listing cut short, or
+ *  a copy that failed outright), so "Nothing was written" is never said of a
+ *  work whose files kolu could not keep. */
 
-import { type Component, For, Show } from "solid-js";
 import type { WorkId } from "kolu-work";
+import { type Component, Show } from "solid-js";
 import { openReader, readerTarget } from "./reader/useReader";
-import { createWorkFiles, workFileName, type WorkFileSource } from "./workFile";
+import { createWorkFiles, type WorkFileSource } from "./workFile";
+import WorkFileList from "./WorkFileList";
 
 const WorkFiles: Component<{
   id: WorkId;
@@ -27,14 +34,20 @@ const WorkFiles: Component<{
   /** Whether what is listed is the copy kolu KEPT, which is the only thing
    *  the heading says differently. */
   kept: boolean;
+  /** Why some (or all) of the files were not kept when the work ended —
+   *  undefined while it is open, and when nothing was left out. */
+  notKept: string | undefined;
 }> = (props) => {
   const files = createWorkFiles(() => props.source);
 
-  /** Which row is the one the reader has open — the card says so, so a person
-   *  looking back at the column can see what they left open. */
-  const open = (path: string): boolean => {
+  /** Which file the reader has open, if it is one of this work's — the card
+   *  says so, so a person looking back at the column can see what they left
+   *  open. */
+  const openTo = (): string | undefined => {
     const target = readerTarget();
-    return target !== null && target.work === props.id && target.path === path;
+    return target !== null && target.work === props.id
+      ? target.path
+      : undefined;
   };
 
   return (
@@ -45,46 +58,37 @@ const WorkFiles: Component<{
       <Show
         when={files.rows().length > 0}
         fallback={
-          <p class="m-0 mt-1 font-mono text-[0.62rem] text-fg-3">
-            {files.error() === undefined
-              ? // A kept list is final: "yet" is only true of a work in
-                // progress.
-                props.kept
-                ? "Nothing was written."
-                : "Nothing written yet."
-              : `Could not read the worktree — ${files.error()?.message}`}
-          </p>
+          <Show when={props.notKept === undefined}>
+            <p class="m-0 mt-1 font-mono text-[0.62rem] text-fg-3">
+              {files.error() === undefined
+                ? // A kept list is final: "yet" is only true of a work in
+                  // progress.
+                  props.kept
+                  ? "Nothing was written."
+                  : "Nothing written yet."
+                : `Could not read the worktree — ${files.error()?.message}`}
+            </p>
+          </Show>
         }
       >
-        <div class="mt-1 flex flex-wrap gap-1.5">
-          <For each={files.rows()}>
-            {(file) => (
-              <button
-                type="button"
-                data-testid="work-file"
-                data-path={file.path}
-                data-open={open(file.path) ? "" : undefined}
-                // A KEPT file is kolu's own copy of one the work wrote — the
-                // worktree it came from may be gone.
-                data-kept={props.source.at === null ? "" : undefined}
-                // One press, one destination: the reader, on this file. The
-                // row is not a toggle — a file you are reading is closed by
-                // going back to the work, which is a button that says so.
-                onClick={() => openReader({ work: props.id, path: file.path })}
-                class={`max-w-full cursor-pointer truncate rounded-md border px-2 py-0.5 font-mono text-[0.62rem] ${
-                  open(file.path)
-                    ? "border-accent bg-accent/15 text-accent"
-                    : "border-edge-bright bg-surface-0 text-fg-2 hover:text-fg"
-                }`}
-              >
-                {workFileName(file.path)}
-                <Show when={file.note !== ""}>
-                  <span class="text-fg-3"> · {file.note}</span>
-                </Show>
-              </button>
-            )}
-          </For>
-        </div>
+        <WorkFileList
+          rows={files.rows()}
+          more={files.more()}
+          openTo={openTo()}
+          kept={props.source.at === null}
+          layout="wrap"
+          onOpen={(path) => openReader({ work: props.id, path })}
+        />
+      </Show>
+      <Show when={props.notKept}>
+        {(why) => (
+          <p
+            data-testid="work-files-not-kept"
+            class="m-0 mt-1 font-mono text-[0.62rem] text-fg-3"
+          >
+            Not kept: {why()}
+          </p>
+        )}
       </Show>
     </section>
   );
