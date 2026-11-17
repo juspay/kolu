@@ -76,18 +76,26 @@ rather than skipping. For each attribute it:
 1. builds the closure;
 2. rewrites it content-addressed (not on macOS);
 3. runs the program out of the rewrite;
-4. pushes both forms to your cache;
-5. imports the rewrite back into a throwaway store to verify it;
+4. pushes both forms to your cache, each with its whole closure;
+5. imports every published path from your cache alone, each into an empty store, and verifies it (the signed path on every system, the rewrite where there is one);
 6. writes `<rev>/<system>/<attr>.json` to the index branch.
 
 On a pull request it does everything except the last step.
+
+### Your cache must hold the whole closure
+
+Your cache must hold the whole closure of everything it publishes, nixpkgs
+paths included. A host fetches with `nix copy --from <your cache>`, which reads
+no other cache and stops at the first path yours lacks. Step 5 fails the run on
+exactly that.
 
 ### How the cache is pushed
 
 The cache it pushes to is the declaration's **first substituter**, and the
 declaration also says how that cache is pushed. No action input decides it.
 Absent (or `{"kind": "attic"}`) means an attic cache, pushed with `attic push`
-under `attic-token`. An odu cache bucket says so instead:
+under `attic-token`. Set that attic cache to keep upstream paths, or step 5
+fails. An odu cache bucket says so instead:
 
 ```json
 { "substituters": ["https://cache.example.dev/my-daemon"],
@@ -96,13 +104,13 @@ under `attic-token`. An odu cache bucket says so instead:
 
 An odu cache's `nix-cache-info` carries `Odu-Origin` (the server a push is taken
 at) and `Odu-Bucket` (the bucket it lands in). The action runs
-`odu cache push --cache <substituter>` from its own npins pin (url and hash
-both) under `odu-cache-token`, and that command reads both headers off the
-cache.
+`odu cache push --whole --cache <substituter>` from its own npins pin (url and
+hash both) under `odu-cache-token`. That command reads both headers off the
+cache, and `--whole` stores the nixpkgs paths the bucket skips by default.
 
 - A bucket served from object storage (read at `<store>/<bucket>`, pushable nowhere) needs nothing extra said about it.
 - The substituter must be `https://`. That read carries the bucket token as a Bearer header, so a plaintext URL is refused before anything is built.
-- Verification is identical either way: the action imports the published paths back out of the substituter URL, and a Nix binary cache is a Nix binary cache.
+- Verification is identical either way: the action imports the published paths back out of the substituter URL alone, and a Nix binary cache is a Nix binary cache.
 
 `pusher` lives in the declaration, so where you set it depends on who writes
 that file. A baked source takes it from `mkProvenAgentSource`:
@@ -120,7 +128,7 @@ is not emitted at all, and the publisher takes attic.
 Each pusher reads one credential: `attic-token` for attic, `odu-cache-token`
 for odu. A run whose declaration needs one and has none fails rather than
 skipping the push it was asked for. A fork pull request is the exception: it has
-no secrets, so it rewrites, smokes and import-verifies, and pushes nothing.
+no secrets, so it rewrites and smokes, and pushes and verifies nothing.
 
 ## 3. Dial as usual
 

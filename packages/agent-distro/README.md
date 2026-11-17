@@ -111,7 +111,10 @@ The **TypeScript half**, as data and pure functions:
   and parsers: the host state (`parseAgentDistroHostState`, read by padi) and
   the delivery (`parseAgentDistroDelivery`: flake, index base, cache URL and
   key, `UpdaterScheduleSchema` — read by kolu-server, which delivers every
-  host's agents).
+  host's agents). That cache holds the whole closure of every path the index
+  names, and a host reads no other: upstream publishes through kolu's
+  `publish-closure` action, which pushes each closure whole and imports every
+  published path from the cache alone before the index moves.
 - `./manifest` — the floor manifest's schema, where it sits and its parser.
 - `./schema` — the value schemas that cross the wire for agent-distro,
   defined once: `AgentDistroSetting` (`{ enabled, profiles }` — what

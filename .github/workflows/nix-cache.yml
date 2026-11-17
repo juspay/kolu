@@ -2,7 +2,7 @@
 # the `kolu-r2` bucket odu keeps on Cloudflare R2. The flake already lists this
 # cache as a substituter, so a green push warms CI boxes and local `nix build`s.
 #
-# THIS FILE WRITES THE CACHE FOR DARWIN ONLY. `odu ci run` pushes every
+# THIS FILE WARMS THE CACHE FOR DARWIN ONLY. `odu ci run` pushes every
 # recipe's `result*` closure to the cache the repo's `flake.nix` `nixConfig`
 # names, so the x86_64-linux warm is `ci::nix` (+ `ci::website-nix`,
 # `ci::odu-nix`), verified by `ci::cache-substitutable` on the same lane. One
@@ -10,10 +10,12 @@
 # here. Darwin has no odu lane in this repo's gate (`ci/protect` pins
 # x86_64-linux), so darwin stays GitHub's job.
 #
-# `publish-closures` still runs on BOTH, and its ubuntu leg no longer has a
-# linux warm from this file to lean on — the tradeoff is spelled out at that
-# job. Read "darwin-only" as a statement about who WRITES the cache here, not
-# about which systems this workflow touches.
+# `publish-closures` is the exception, on BOTH systems: it pushes the agents'
+# closures WHOLE and proves each one fetchable from this cache alone, which is
+# what makes the agents deliverable to a host and prefetchable by a binder. Its
+# ubuntu leg has no linux warm from this file to lean on — the tradeoff is
+# spelled out at that job. Read "darwin-only" as a statement about the WARM
+# push, not about which systems this workflow touches.
 #
 # ONE JOB HERE IS NOT A PUSH AT ALL. `linux-pin` runs on master pushes only and
 # writes nothing itself: it asks the pod to run `ci::nix` for the commit that
@@ -22,8 +24,9 @@
 #
 # The cache is kolu's, not a shared Attic cache: odu serves it (`odu cache
 # push` is the client), it re-signs every narinfo with the `kolu-r2-1` key the
-# flake declares, and it drops what upstream `cache.nixos.org` already signs
-# instead of re-uploading nixpkgs.
+# flake declares, and a warm push drops what upstream `cache.nixos.org` already
+# signs instead of re-uploading nixpkgs. A warm is therefore never a closure a
+# host can fetch from this cache alone; `publish-closures` is.
 #
 # THE PUSH IS ONE ACTION, not a shell pipeline: odu's own push action, pinned
 # by commit, which builds the odu it pushes with out of that commit's checkout
@@ -292,14 +295,23 @@ jobs:
           set -euo pipefail
           bash ci/agent-substitutable
 
-  # The agents' content-addressed builds and the index naming them, so a dial
-  # from a published revision has the host pull its daemon with NO trust — no
-  # `trusted-users`, no cache key (`@kolu/surface-remote`'s `provisionAgent`
-  # index step; `.github/actions/publish-closure` is the publisher). Its own
-  # job because the action installs the Nix it rewrites with (2.34.8 — see its
-  # `action.yml`), which must be the job's only Nix. kolu's `ca-index` branch
-  # is born by the first master push; a pull request rewrites, smokes and
-  # import-verifies, and writes no index.
+  # THE JOB THAT MAKES THE AGENTS FETCHABLE. It publishes the agents' builds —
+  # every exposed attr, the signed `ia` and, off darwin, the content-addressed
+  # `ca` — to `cache.kolu.dev/kolu-r2` WHOLE, nixpkgs paths included (`odu
+  # cache push --whole`), and then imports every one from that cache alone into
+  # an empty store, on both systems, before any index names it. That is the
+  # consumer's own command: a host's delivery and a binder's prefetch
+  # (`@kolu/surface-remote`) run `nix copy --from <this cache>`, which reads no
+  # other cache and stops at the first path it lacks. The warm push in
+  # `build-and-push` (and the odu lane's) skips what cache.nixos.org signs, so
+  # it is a warm only; nothing may rely on it for a fetch. Same-repo pull
+  # requests and master pushes both run this, so every commit CI builds has
+  # its agents fetchable, and a closure that is not fails this job.
+  #
+  # Its own job because the action installs the Nix it rewrites with (2.34.8 —
+  # see its `action.yml`), which must be the job's only Nix. kolu's `ca-index`
+  # branch is born by the first master push; a pull request rewrites, smokes,
+  # pushes and import-verifies, and writes no index.
   #
   # `needs: build-and-push` IS ONLY A WARM FOR DARWIN NOW, and that asymmetry
   # is deliberate. The action realises `source` and every exposed attr with its
@@ -320,9 +332,9 @@ jobs:
   #
   # The action reads HOW to push from the declaration itself: kolu's agent
   # source bakes `pusher = { kind = "odu"; }` (default.nix), so a push here is
-  # `odu cache push --cache https://cache.kolu.dev/kolu-r2` from THIS repo's
-  # npins pin, under `ODU_CACHE_TOKEN` — no client is chosen by an input, and
-  # no address either: the cache states its own origin and bucket.
+  # `odu cache push --whole --cache https://cache.kolu.dev/kolu-r2` from THIS
+  # repo's npins pin, under `ODU_CACHE_TOKEN` — no client is chosen by an
+  # input, and no address either: the cache states its own origin and bucket.
   publish-closures:
     needs: build-and-push
     strategy:

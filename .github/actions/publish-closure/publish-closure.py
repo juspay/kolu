@@ -27,11 +27,11 @@ Subcommands, one per step of `action.yml`:
                (caches + index), the index key; written as step outputs.
     index    — build each installable, rewrite it (off darwin), write entries.
     push     — hand the entries' store paths (ia, and ca) to the declaration's
-               own pusher: `attic push`, or `odu cache push` run from this
-               repository's npins pin.
+               own pusher, whole: `attic push`, or `odu cache push --whole` run
+               from this repository's npins pin.
     smoke    — run each rewritten closure's declared program (Linux only).
-    verify   — import each published path from the cache into a throwaway
-               store with this Nix, and verify it.
+    verify   — import each published path from the cache alone into an empty
+               store of its own, as a consumer does, and verify it.
 """
 import argparse
 import json
@@ -60,9 +60,9 @@ def die(message: str):
     sys.exit(f"publish-closure: {message}")
 
 
-def nix(args: list) -> str:
+def nix(args: list, env=None) -> str:
     """What `nix ARGS` prints, or exit naming what nix said."""
-    result = subprocess.run(["nix", *args], capture_output=True, text=True)
+    result = subprocess.run(["nix", *args], capture_output=True, text=True, env=env)
     if result.returncode != 0:
         detail = result.stderr.strip().splitlines()
         die(f"nix {' '.join(args)}: {detail[-1] if detail else result.returncode}")
@@ -102,8 +102,9 @@ def attr_of(installable: str) -> str:
 
 def read_declaration(sidecar: str) -> dict:
     """The declaration a binder bakes (`binary-cache.json`): a path to it, or
-    its JSON inline. Needs a substituter (the cache this publishes to) and an
-    index (where the entries go)."""
+    its JSON inline. Needs a substituter (the cache this publishes to), the
+    keys that cache signs with (the signed path is read back trusting them),
+    and an index (where the entries go)."""
     try:
         text = sidecar if sidecar.lstrip().startswith("{") else pathlib.Path(sidecar).read_text()
     except OSError as error:
@@ -113,9 +114,12 @@ def read_declaration(sidecar: str) -> dict:
     except json.JSONDecodeError as error:
         die(f"the sidecar is not JSON: {error}")
     substituters = declaration.get("substituters") or []
+    keys = declaration.get("trustedPublicKeys") or []
     index = declaration.get("index")
     if not substituters or not all(isinstance(s, str) and s for s in substituters):
         die("the sidecar names no substituter to publish to")
+    if not keys or not all(isinstance(k, str) and k and " " not in k for k in keys):
+        die("the sidecar names no trustedPublicKeys — the signed path is read back trusting them")
     if not isinstance(index, dict) or not index.get("repo") or not index.get("branch"):
         die("the sidecar declares no closure index ({ repo, branch }) — nothing to publish to")
     return declaration
@@ -249,6 +253,9 @@ def resolve(args) -> int:
         "cache": cache,
         "pusher": kind,
         "index-branch": declaration["index"]["branch"],
+        # The keys a consumer trusts the signed path by, which `verify`
+        # imports it with.
+        "trusted-public-keys": " ".join(declaration["trustedPublicKeys"]),
     }
     for key, value in outputs.items():
         print(f"{key}={value}")
@@ -314,7 +321,7 @@ def store_paths(directory: pathlib.Path, rev_key: str, system: str) -> list:
 
 
 def push(args) -> int:
-    """Push every store path the entries name, with the declaration's client.
+    """Push every store path the entries name, WHOLE, with the declaration's client.
 
     Two clients, one path list. `attic push` takes its server and cache from the
     substituter URL; `odu cache push --cache <substituter>` takes the SAME URL
@@ -322,6 +329,12 @@ def push(args) -> int:
     the bucket it lands in, running the pinned odu — npins' url AND hash,
     handed to Nix as a locked ref. Each computes the closures itself, so the list
     is the entries' own roots: `ia` and, off darwin, `ca`.
+
+    THE CACHE MUST HOLD THE WHOLE CLOSURE. A consumer fetches with `nix copy
+    --from <this cache>`, which reads no other cache and stops at the first
+    path it lacks, so the nixpkgs paths an odu bucket skips by default go too:
+    `--whole`. An attic cache is pushed as it is configured; one that filters
+    upstream paths fails `verify` below, which is the right outcome.
 
     odu's push has one success: every path stored (`200`), or a non-zero exit.
     There is no "held, catching up" answer to wait on, so a green push is one the
@@ -340,7 +353,7 @@ def push(args) -> int:
     else:
         run(["nix", "run", "--accept-flake-config",
              f"{pinned(plan['pin-url'], plan['pin-hash'])}#odu",
-             "--", "cache", "push", "--cache", args.cache, *paths])
+             "--", "cache", "push", "--whole", "--cache", args.cache, *paths])
     return 0
 
 
@@ -392,22 +405,41 @@ def smoke(args) -> int:
 
 
 def verify(args) -> int:
-    """What a consumer does, done here with the publishing Nix: import each
-    published content-addressed path from the cache into a throwaway store and
-    verify it. 2.34 and 2.35 refuse each other's rewrite (`ca hash mismatch
-    importing path`, agent-distro#102), so this is what says the publication
-    targets the Nix line consumers verify on."""
-    store = f"local?root={args.store_root}"
+    """What a consumer does, done here: import every path the entries name — the
+    signed `ia`, and off darwin the content-addressed `ca` — from the cache
+    alone, each into an EMPTY store of its own with an empty narinfo cache, and
+    verify it. The consumer's command is `nix copy --from <cache> <path>`, which
+    reads no other cache, so a closure the cache does not hold whole fails here,
+    before any index names it. The signed path is imported trusting the
+    declaration's keys; the content-addressed one needs none. 2.34 and 2.35
+    refuse each other's rewrite (`ca hash mismatch importing path`,
+    agent-distro#102), so this is also what says the publication targets the Nix
+    line consumers verify on."""
+    keys = args.trusted_public_keys.split()
+    if not keys:
+        die("verify needs --trusted-public-keys — the signed path is read back trusting them")
     for attr, entry in entries(args.directory, args.rev_key, args.system):
-        ca = entry.get("ca")
-        if not ca:
-            continue
-        print(f"publish-closure: verify {attr}: importing {ca} from {args.cache}")
-        nix(["--extra-experimental-features", "nix-command",
-                       "copy", "--from", args.cache, "--to", store, ca])
-        nix(["--extra-experimental-features", "nix-command",
-                       "store", "verify", "--store", store, "--recursive", ca])
-    print("publish-closure: what was published imports and verifies")
+        for form, path in (("ia", entry["ia"]), ("ca", entry.get("ca"))):
+            if not path:
+                continue
+            root = pathlib.Path(args.store_root) / f"{attr}-{form}"
+            store = f"local?root={root}/store"
+            # A FRESH narinfo cache: the build before this asked the same
+            # substituter about these paths, and a "not there" it remembered
+            # from then must not stand in for the cache's answer now.
+            env = dict(os.environ, XDG_CACHE_HOME=str(root / "xdg"))
+            trust = ["--extra-trusted-public-keys", " ".join(keys)] if form == "ia" else []
+            print(f"publish-closure: verify {attr}: importing {form} {path} from {args.cache} "
+                  "alone into an empty store")
+            nix(["--extra-experimental-features", "nix-command",
+                 "copy", *trust, "--from", args.cache, "--to", store, path], env=env)
+            nix(["--extra-experimental-features", "nix-command",
+                 "store", "verify", *trust, "--store", store, "--recursive", path], env=env)
+            closure = nix(["--extra-experimental-features", "nix-command",
+                           "path-info", "--store", store, "--recursive", path], env=env).split()
+            print(f"publish-closure: verify {attr}: {form} imported and verified, "
+                  f"{len(closure)} paths")
+    print("publish-closure: every published path imports from the cache alone and verifies")
     return 0
 
 
@@ -454,6 +486,8 @@ def main(argv=None) -> int:
     entry_args(p)
     p.add_argument("--cache", required=True)
     p.add_argument("--store-root", required=True)
+    p.add_argument("--trusted-public-keys", required=True,
+                   help="the declaration's trustedPublicKeys, space-separated")
     p.set_defaults(run=verify)
 
     args = parser.parse_args(argv)

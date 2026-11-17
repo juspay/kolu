@@ -19,17 +19,27 @@
 #   * `sidecar` + `rev` — the declaration (a path, or its JSON inline) and the
 #     index key, with `installables` as full flake installables.
 #
+# THE RULE: the cache holds the whole closure of every path an index names. A
+# consumer fetches with `nix copy --from <cache> <path>`, which reads no other
+# cache and stops at the first path the cache lacks, so a closure whose nixpkgs
+# paths are left to cache.nixos.org cannot be fetched at all. This action
+# pushes each closure whole, then imports every path the entries name — the
+# signed `ia` and, off darwin, the content-addressed `ca` — from the cache alone
+# into an empty store of its own, on Linux and macOS alike, before any index
+# is written.
+#
 # The cache pushed to is the declaration's FIRST substituter. HOW it is pushed
 # is the declaration's own `pusher` field — never an action input:
 #
 #   * absent, or `{"kind": "attic"}` — an attic cache (`https://<server>/<cache>`),
 #     logged in to and pushed with `attic push`. Every declaration written
-#     before the field existed keeps this path, unchanged.
+#     before the field existed keeps this path, unchanged. The attic cache must
+#     be set to keep upstream paths: one that filters them fails the read-back.
 #   * `{"kind": "odu"}` — an odu cache bucket. The substituter STATES where it
 #     is pushed and which bucket that is (`Odu-Origin` / `Odu-Bucket` in its
-#     `nix-cache-info`), so the push is `odu cache push --cache <substituter>`
-#     (run from THIS repository's npins pin, nothing unpinned) under
-#     `ODU_CACHE_TOKEN` — nothing here names an origin or a bucket.
+#     `nix-cache-info`), so the push is `odu cache push --whole --cache
+#     <substituter>` (run from THIS repository's npins pin, nothing unpinned)
+#     under `ODU_CACHE_TOKEN` — nothing here names an origin or a bucket.
 #
 # Verification does not care which: it imports the published paths back out of
 # the substituter URL, and a Nix binary cache is a Nix binary cache.
@@ -37,7 +47,7 @@
 # Each pusher reads ONE credential — `attic-token` for attic, `odu-cache-token`
 # for odu — and a run whose declaration needs it and has none fails here rather
 # than skipping the push it was asked for. A fork pull request is the exception:
-# it has no secrets, so it rewrites, smokes and import-verifies, and pushes
+# it has no secrets, so it rewrites and smokes, and pushes and verifies
 # nothing.
 #
 # The index is its `closureIndex` — `repo` must be the repository this runs in
@@ -228,12 +238,12 @@ runs:
         python3 "$SCRIPT" push --rev-key "$REV_KEY" --system "$SYSTEM" --directory "$OUT" \
           --cache "$CACHE" --pusher "$PUSHER" --attic-nixpkgs "$ATTIC_NIXPKGS"
 
-    # What a consumer does, done here with the publishing Nix: nothing reaches
-    # the index unless it imports into a fresh store and verifies.
+    # What a consumer does, done here: nothing reaches the index unless every
+    # path it names — `ia` trusting the declaration's keys, and `ca` — imports
+    # from the cache alone into an empty store and verifies. Both systems: a
+    # Mac is sent the signed path, so the signed path is what is proved there.
     - name: Verify the published closures import
-      if: >-
-        (github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork != true) &&
-        runner.os == 'Linux'
+      if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork != true
       shell: bash
       env:
         SCRIPT: ${{ github.action_path }}/publish-closure.py
@@ -241,10 +251,12 @@ runs:
         REV_KEY: ${{ steps.resolve.outputs.rev-key }}
         SYSTEM: ${{ steps.resolve.outputs.system }}
         CACHE_URL: ${{ steps.resolve.outputs.cache }}
+        TRUSTED_KEYS: ${{ steps.resolve.outputs.trusted-public-keys }}
       run: |
         set -euo pipefail
         python3 "$SCRIPT" verify --rev-key "$REV_KEY" --system "$SYSTEM" \
-          --directory "$OUT" --cache "$CACHE_URL" --store-root "$RUNNER_TEMP/verify"
+          --directory "$OUT" --cache "$CACHE_URL" --store-root "$RUNNER_TEMP/verify" \
+          --trusted-public-keys "$TRUSTED_KEYS"
 
     # Every system's entries are disjoint files under its own directory, so a
     # run that pushed meanwhile is rebased under this one rather than
