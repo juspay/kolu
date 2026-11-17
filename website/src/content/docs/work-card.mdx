@@ -63,16 +63,20 @@ Click the card's head and it opens:
 | --- | --- |
 | The question waiting for you | The same decision the chat and the reader show. Answering it in any of them answers it. |
 | Terminals | One row each: role, name (click it to go to the tile), what it runs, how it stands and since when, **Look**, and **Take over** or **Hand back**. |
-| Files | The worktree's `.waterfall/` files and the copies kolu kept. Click one to open it in [the reader](/read-a-plan). |
+| Files | The worktree's `.waterfall/` files, at any depth, and the copies kolu kept. A folder is one chip with its file count, such as `mockup/ · 49`. Click it to unfold it. Click a file to open it in [the reader](/read-a-plan). |
 | Pull request | Its number as a link, and whether it is open, merged or closed. The checks, or the last result, with failed checks in one line (`7 failing: ci::nix, ci::unit, +5`) to click. While open, whether GitHub would merge it. |
 | Setup | One line: the mode, each role's harness and model, and what happens on green. |
 | Decisions | The latest three, one line each. **all N** shows the rest. Click a row for the question. |
 | Timeline | The events of one stage, with their time and duration. |
 
-The timeline shows the stage the work is in, or the one you clicked on the strip, and a finished work's last stage. **whole timeline · N events** unfolds all of it in place. A watch, which has no stages, shows its latest five events. A question reads **Asked:** and your answer **You:**. A line too long for the row is cut, with **more** beside it.
+The timeline shows the stage the work is in, or the one you clicked on the strip, and a finished work's last stage. **whole timeline · N events** unfolds all of it in place. A watch, which has no stages, shows its latest five events.
+
+A question reads **Asked:** and your answer **You:**. A run of files one agent wrote into a folder is one row, such as **Wrote mockup/ · 49 files**. A line too long for the row is cut, and a folder's row lists its files, with **more** beside it.
 
 ## How a work ends
 
 A work ends three ways: the forge merges or closes its pull request, you click **Stop** on the card and confirm, or the Conductor stops it. Declining the setup of a work nothing has happened in removes it.
 
 An ended card's line says how it ended, such as **Merged #181 · 1d ago**. Open, it shows where the time went, the kept files, the decisions and the timeline, where the merge and the end it caused are one row. It never shows terminals, a lock or a question, and it offers **Reopen**.
+
+kolu copies the work's `.waterfall/` files when it ends, up to 50 MiB per work. Under **Files (kept)**, a line starting **Not kept:** names what was left out and why: a file past that size, a listing that stopped at 200 files and folders, or a copy that failed.

@@ -20,6 +20,7 @@ client and the server build from one source.
 | `kolu-common/config` | Cross-cutting defaults, and a re-export of `DEFAULT_PORT`. |
 | `kolu-common/defaultPort` | `DEFAULT_PORT` alone, from a file with no imports. |
 | `kolu-common/preview` | File-extension classification for the Code browser: sandbox, PDF, raster and the rest. |
+| `kolu-common/workFiles` | `listWorkFiles`: the one walk of a worktree's `.waterfall/`, every file at any depth over a host's own `fs.listDirectory`, which the server and the browser both call. Its two limits (`WORK_FILES_LISTED`, `WORK_FILES_KEPT_BYTES`) and `notKeptWhy`, the sentence that cites them. |
 | `kolu-common/test-hooks` | The `window` and `navigator` augmentations the client installs and the e2e steps read. Imported for its side effect. |
 
 ## Who uses it
@@ -48,6 +49,11 @@ on the surface framework packages, `@kolu/acp`, `@kolu/padi-client`,
   security boundary: `.html`, `.htm` and `.svg` can carry scripts.
 - **A terminal on the Conductor wire is named `host/id`**, parsed at the last
   `/`, and the rows that name one carry the two halves separately.
+- **One walk of `.waterfall/`.** The server's port and the browser's list both
+  call `listWorkFiles`; a second filter or a second limit anywhere else would
+  let the card, the timeline and the kept copy disagree. The limits are fixed
+  constants, never settings.
 
 Tests: `src/contract.test.ts`, `src/surface.test.ts`, `src/hostKey.test.ts`,
-`src/hostHue.test.ts`, `src/preview.test.ts`, `src/nixFileset.test.ts`.
+`src/hostHue.test.ts`, `src/preview.test.ts`, `src/nixFileset.test.ts`,
+`src/workFiles.test.ts`.

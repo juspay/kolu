@@ -116,16 +116,17 @@ Losing terminals never ends a work: the card says **no terminals** and the Condu
 
 | Part | What is in it |
 | --- | --- |
-| Timeline | The events kolu saw, each naming who it was: you, an agent, CI or kolu. An agent coming up, stopping or asking, a `.waterfall/` file, the PR, its checks and whether GitHub would merge it. |
+| Timeline | The events kolu saw, each naming who it was: you, an agent, CI or kolu. An agent coming up, stopping or asking, each file in `.waterfall/` at any depth, the PR, its checks and whether GitHub would merge it. |
 | Decisions | Every question put to you about this work and your answer, the setup included: host, mode, the harness and model per role, and what to do on green. |
 | Members | Each terminal by `host/id`, its role, the agent kolu last saw, and who is driving it. |
-| Outcome | How it ended, once it has: **Merged #n**, **Closed #n**, **Stopped by you** or **by the Conductor**. The `.waterfall/` files are copied into kolu as it ends. |
+| Outcome | How it ended, once it has: **Merged #n**, **Closed #n**, **Stopped by you** or **by the Conductor**. As it ends, kolu copies the `.waterfall/` files and folders, up to **50 MiB** per work. The card names what was not kept. |
 
-The timeline is kept short in three ways:
+The timeline is kept short in four ways:
 
 - A work keeps its latest **30** agent state changes; older ones fold into one **N earlier agent state changes** line.
 - While a PR's checks run, only GitHub's latest answer about merging it is kept.
 - One commit keeps at most **8** check results and **8** merge answers. Past that, an old one in the middle is dropped, never the first or the newest.
+- kolu lists the first **200** files and folders in `.waterfall/`, and draws a run of files written into one folder as one row.
 
 A PR recorded before kolu kept PR addresses gets its link added once kolu learns it. Nothing else changes, and kolu keeps the **last 20** finished works with their files.
 
