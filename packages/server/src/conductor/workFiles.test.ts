@@ -124,6 +124,34 @@ describe("keeping a work's files", () => {
     ]);
   });
 
+  it("holds the budget per work, across endings, without counting a rewrite twice", async () => {
+    // The first ending keeps a file that leaves 10 bytes of the budget.
+    write(".waterfall/first.bin", "");
+    truncateSync(
+      join(worktree, ".waterfall/first.bin"),
+      WORK_FILES_KEPT_BYTES - 10,
+    );
+    const keep = (paths: ReadonlyArray<string>) =>
+      files().keep({ host: "local", worktree, work: "w1", paths });
+    await keep([".waterfall/first.bin"]);
+    // Reopened and ended again with different files: what the first ending
+    // left is still the work's, so only 10 bytes are free.
+    write(".waterfall/notes.md", "twenty bytes of note");
+    write(".waterfall/tiny.md", "five!");
+    const again = await keep([".waterfall/notes.md", ".waterfall/tiny.md"]);
+    const dir = workFilesDir(stateRoot, "w1");
+    expect(again.tooBig).toEqual([".waterfall/notes.md"]);
+    expect(existsSync(join(dir, ".waterfall/notes.md"))).toBe(false);
+    expect(again.kept.map((one) => one.path)).toEqual([
+      ".waterfall/first.bin",
+      ".waterfall/tiny.md",
+    ]);
+    // A third ending that rewrites both: each replaces its own copy, so
+    // neither is charged on top of what it replaces.
+    const third = await keep([".waterfall/first.bin", ".waterfall/tiny.md"]);
+    expect(third.tooBig).toEqual([]);
+  });
+
   it("refuses a path that climbs out of the work's directory", async () => {
     await expect(
       files().keep({

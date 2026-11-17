@@ -32,10 +32,11 @@
  * ## Where the bytes land, the budget, and the containment guard
  *
  * `<stateRoot>/works/<work>/<path>`, owner-only, and NOTHING may land outside
- * that directory. A keep copies at most `WORK_FILES_KEPT_BYTES`, counted as
- * the bytes arrive: a file that would go past it is deleted rather than left
- * half-written, named as left out, and the copy goes on — a smaller file
- * after it can still fit. The paths come from a remote host's listing, so
+ * that directory. A work's directory holds at most `WORK_FILES_KEPT_BYTES`,
+ * whatever its earlier endings left there, counted as the bytes arrive: a
+ * file that would take it past that is deleted rather than left half-written,
+ * named as left out, and the copy goes on — a smaller file after it can still
+ * fit. The paths come from a remote host's listing, so
  * they are UNTRUSTED input to this process's disk: both the work id and each
  * path are resolved and checked against the work's own directory before
  * anything is written. `sweep` deletes every directory under `works/` that no
@@ -107,6 +108,26 @@ function keptPath(dir: string, path: string): string {
   return abs;
 }
 
+/** EVERY FILE A WORK'S DIRECTORY HOLDS, worktree-relative with its size, in
+ *  tree order. Nothing there at all — nothing was ever kept for this work —
+ *  is an empty list, not a failure. */
+async function keptIn(dir: string): Promise<ReadonlyArray<KeptFile>> {
+  let present: Dirent[];
+  try {
+    present = await readdir(dir, { withFileTypes: true, recursive: true });
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") return [];
+    throw err;
+  }
+  const kept: KeptFile[] = [];
+  for (const entry of present) {
+    if (!entry.isFile()) continue;
+    const at = join(entry.parentPath, entry.name);
+    kept.push({ path: relative(dir, at), bytes: (await stat(at)).size });
+  }
+  return kept.sort((a, b) => compareWaterfallPaths(a.path, b.path));
+}
+
 export function workFilesOverHosts(deps: {
   /** The fleet, for the client behind a host key — the SAME map the watch
    *  reads, so a work's files are read over the link its terminals are read
@@ -151,7 +172,18 @@ export function workFilesOverHosts(deps: {
     keep: async ({ host, worktree, work, paths }) => {
       const padi = clientOf(host);
       const dir = workFilesDir(stateRoot, work);
-      let budget = WORK_FILES_KEPT_BYTES;
+      // THE BUDGET IS THE WORK'S, not this ending's. A work that ended, was
+      // reopened and ends again still holds what its earlier ending kept, so
+      // everything already in its directory is spent — and a file this keep
+      // rewrites gives its older copy's bytes back as it replaces it. A file
+      // that has left the worktree since (the 404 arm) keeps its older copy,
+      // which simply stays spent.
+      const before = new Map(
+        (await keptIn(dir)).map((one) => [one.path, one.bytes] as const),
+      );
+      let budget =
+        WORK_FILES_KEPT_BYTES -
+        [...before.values()].reduce((sum, bytes) => sum + bytes, 0);
       const tooBig: string[] = [];
 
       for (const path of paths) {
@@ -198,6 +230,10 @@ export function workFilesOverHosts(deps: {
         // `node:stream/web`'s, which `Readable.fromWeb` takes. One runtime
         // object, two structurally-near declarations; nothing is being
         // asserted about the value.
+        //
+        // What this file may take: what is left of the work's budget, plus
+        // the older copy it replaces.
+        const older = before.get(path) ?? 0;
         let wrote = 0;
         try {
           await pipeline(
@@ -205,46 +241,29 @@ export function workFilesOverHosts(deps: {
             new Transform({
               transform(chunk: Buffer, _encoding, next) {
                 wrote += chunk.byteLength;
-                if (wrote > budget) next(new OverBudget());
+                if (wrote > budget + older) next(new OverBudget());
                 else next(null, chunk);
               },
             }),
             createWriteStream(dest, { mode: 0o600 }),
           );
         } catch (err) {
-          // Never left half-written, whatever stopped it.
+          // Never left half-written, whatever stopped it — and the older
+          // copy went with it, so its bytes are free again.
           await rm(dest, { force: true });
           if (!(err instanceof OverBudget)) throw err;
           tooBig.push(path);
+          budget += older;
           continue;
         }
-        budget -= wrote;
+        budget += older - wrote;
       }
-      // WHAT THE DIRECTORY HOLDS, not what this call copied. A work that
-      // ended, was reopened and ended again keeps what its earlier ending
-      // left here (the sweep spares every stored work's directory, Open or
-      // Ended), so the list a card shows is the directory itself — read back
-      // after the copy, which is the only reading that cannot disagree with
-      // the disk. Nothing there at all — nothing was ever kept for this work
-      // and nothing landed now — is an empty list, not a failure.
-      let present: Dirent[];
-      try {
-        present = await readdir(dir, { withFileTypes: true, recursive: true });
-      } catch (err) {
-        if ((err as NodeJS.ErrnoException).code === "ENOENT")
-          return { kept: [], tooBig };
-        throw err;
-      }
-      const kept: KeptFile[] = [];
-      for (const entry of present) {
-        if (!entry.isFile()) continue;
-        const at = join(entry.parentPath, entry.name);
-        kept.push({ path: relative(dir, at), bytes: (await stat(at)).size });
-      }
-      return {
-        kept: kept.sort((a, b) => compareWaterfallPaths(a.path, b.path)),
-        tooBig,
-      };
+      // WHAT THE DIRECTORY HOLDS, not what this call copied: what an earlier
+      // ending left here stays (the sweep spares every stored work's
+      // directory, Open or Ended), so the list a card shows is the directory
+      // itself — read back after the copy, which is the only reading that
+      // cannot disagree with the disk.
+      return { kept: await keptIn(dir), tooBig };
     },
 
     sweep: async (keep) => {

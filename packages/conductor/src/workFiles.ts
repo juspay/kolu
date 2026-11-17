@@ -42,7 +42,7 @@ export const workDirOf = (id: WorkId): string => {
 };
 
 /** WHAT A KEEP DID — what the work's directory holds now, and the paths it
- *  left out because they would have taken the work past
+ *  left out because they would have taken that directory past
  *  `WORK_FILES_KEPT_BYTES` (`kolu-common/workFiles`). */
 export interface WorkFilesKept {
   readonly kept: ReadonlyArray<KeptFile>;
@@ -58,9 +58,10 @@ export interface WorkFiles {
   list(at: { host: string; worktree: string }): Promise<WorkFilesListed>;
   /** Copy those files into `<stateRoot>/works/<work>/<path>` on THIS machine,
    *  in the order given, fetched through the host daemon's existing file
-   *  read, up to `WORK_FILES_KEPT_BYTES` in all: a file that would go past it
-   *  is skipped (and named in `tooBig`), and a smaller one after it can still
-   *  land. */
+   *  read. The work's directory holds at most `WORK_FILES_KEPT_BYTES` in all,
+   *  counting what an earlier ending of the same work left there: a file
+   *  that would take it past that is skipped (and named in `tooBig`), and a
+   *  smaller one after it can still land. */
   keep(at: {
     host: string;
     worktree: string;
