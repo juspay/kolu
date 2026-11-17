@@ -16,7 +16,7 @@
  *  49 files`), whose "more" unfolds the per-file rows. */
 
 import { dualPhrase } from "@kolu/terminal-vocab/duration";
-import { took, type Work, type WorkId, waterfallFileName } from "kolu-work";
+import { took, type Work, type WorkId } from "kolu-work";
 import {
   type Component,
   createMemo,
@@ -40,6 +40,7 @@ import {
   clockOf,
   EVENT_INK,
   eventReader,
+  folderRowWords,
   oneLine,
   STAGE_LABEL,
 } from "./workReadings";
@@ -68,15 +69,24 @@ const WorkTimeline: Component<{
   /** The clock a running step is measured to. */
   now: number;
 }> = (props) => {
-  /** Which rows have their whole words out. Dies with the card. */
+  /** Which rows have their whole words out, and which folder rows are
+   *  unfolded — two sets, because a folder row is named by its first event,
+   *  which is also the index of the first file row inside it. Die with the
+   *  card. */
   const [unfolded, setUnfolded] = createSignal<ReadonlySet<number>>(new Set());
-  const toggleRow = (index: number): void => {
-    setUnfolded((was) => {
-      const next = new Set(was);
-      if (!next.delete(index)) next.add(index);
-      return next;
-    });
-  };
+  const [openFolders, setOpenFolders] = createSignal<ReadonlySet<number>>(
+    new Set(),
+  );
+  const flip =
+    (set: (next: (was: ReadonlySet<number>) => ReadonlySet<number>) => void) =>
+    (index: number): void =>
+      set((was) => {
+        const next = new Set(was);
+        if (!next.delete(index)) next.add(index);
+        return next;
+      });
+  const toggleRow = flip(setUnfolded);
+  const toggleFolder = flip(setOpenFolders);
 
   const shown = () => props.shown;
   /** EACH ROW BY A KEY THAT OUTLIVES A REDRAW — its first event's index, and
@@ -225,14 +235,14 @@ const WorkTimeline: Component<{
   };
 
   /** ONE FOLDER'S ROW — the run of files one terminal wrote into one folder,
-   *  said once, with its own more/less to unfold the per-file rows. Keyed in
-   *  the open-state set by its first event, which no other row shares. */
+   *  said once, with its own more/less to unfold the per-file rows. Its open
+   *  state is its own set, named by its first event. */
   const FolderRow: Component<{
     row: Extract<TimelineRow, { kind: "folder" }>;
   }> = (folder) => {
     const first = () => folder.row.indices[0] ?? 0;
     const event = () => props.work.events[first()];
-    const open = () => unfolded().has(first());
+    const open = () => openFolders().has(first());
     return (
       <Show when={event()}>
         {(one) => (
@@ -246,15 +256,14 @@ const WorkTimeline: Component<{
                 class={`h-1.5 w-1.5 shrink-0 translate-y-[-0.1em] rounded-full ${EVENT_INK[one().by]}`}
               />
               <span class="min-w-0 flex-1 truncate text-fg-2">
-                Wrote {waterfallFileName(folder.row.folder)} ·{" "}
-                {folder.row.indices.length} files
+                {folderRowWords(folder.row.folder, folder.row.indices.length)}
               </span>
               <button
                 type="button"
                 data-testid="work-event-more"
                 aria-expanded={open()}
                 class="shrink-0 cursor-pointer rounded-sm px-1 font-mono text-[0.58rem] text-accent hover:underline"
-                onClick={() => toggleRow(first())}
+                onClick={() => toggleFolder(first())}
               >
                 {open() ? "less" : "more"}
               </button>

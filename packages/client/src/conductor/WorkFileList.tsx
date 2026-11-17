@@ -16,9 +16,22 @@
 
 import { formatBytes } from "@kolu/byte-units";
 import { Option } from "effect";
-import { WATERFALL_DIR, waterfallBytes, waterfallLevel } from "kolu-work";
+import {
+  WATERFALL_DIR,
+  waterfallBytes,
+  waterfallFileName,
+  waterfallLevel,
+} from "kolu-work";
 import { WORK_FILES_LISTED } from "kolu-common/workFiles";
-import { type Component, createMemo, createSignal, For, Show } from "solid-js";
+import {
+  type Component,
+  createEffect,
+  createMemo,
+  createSignal,
+  For,
+  on,
+  Show,
+} from "solid-js";
 import type { WorkFileRow } from "./workFile";
 
 interface ListProps {
@@ -69,7 +82,7 @@ const WorkFileList: Component<ListProps> = (props) => {
               // A KEPT file is kolu's own copy of one the work wrote — the
               // worktree it came from may be gone.
               data-kept={props.kept ? "" : undefined}
-              title={file.path.slice(WATERFALL_DIR.length)}
+              title={waterfallFileName(file.path)}
               // One press, one destination: the reader, on this file. The
               // chip is not a toggle — a file you are reading is closed by
               // going back to the work, which is a button that says so.
@@ -134,9 +147,33 @@ const WorkFileList: Component<ListProps> = (props) => {
     );
   };
 
+  /** THE OPEN FILE'S CHIP, IN VIEW. On one line a folder of forty chips runs
+   *  far past the strip's edge, and the reader opens on whichever file was
+   *  pressed — so the strip scrolls SIDEWAYS ONLY to bring that chip to its
+   *  nearest edge, when it first draws and whenever the open file or the
+   *  list moves. `scrollIntoView` would scroll the page's other scrollers
+   *  too, so the strip's own `scrollLeft` is moved instead. */
+  let strip: HTMLDivElement | undefined;
+  createEffect(
+    on([() => props.openTo, () => props.rows], () => {
+      if (props.layout !== "line" || strip === undefined) return;
+      const chip = strip.querySelector<HTMLElement>(
+        '[data-testid="work-file"][data-open]',
+      );
+      if (chip === null) return;
+      const edge = strip.getBoundingClientRect();
+      const box = chip.getBoundingClientRect();
+      if (box.left < edge.left) strip.scrollLeft -= edge.left - box.left;
+      else if (box.right > edge.right)
+        strip.scrollLeft += box.right - edge.right;
+    }),
+  );
+
   return (
     <>
       <div
+        ref={strip}
+        data-testid="work-files-strip"
         class={
           props.layout === "wrap"
             ? "mt-1 flex flex-wrap gap-1.5"
