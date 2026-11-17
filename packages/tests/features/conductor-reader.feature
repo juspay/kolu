@@ -159,6 +159,42 @@ Feature: A plan is read, not glimpsed
     Then the reader should be open on ".waterfall/plan.md"
     And there should be no page errors
 
+  Scenario: A file inside a folder, named in the chat, opens in the reader
+    # A path two segments under `.waterfall/` is as much one of the work's
+    # files as the plan is: the listing reads every depth, so the chat's link
+    # and the reader take it the same way.
+    Given a repo for the work
+    When I ask the conductor to open the work "name the mockup"
+    And I answer the work's question with "hand-over" in the chat
+    And I ask the conductor to run the implementor in the work's repo
+    And the implementor writes ".waterfall/mockup/index.md" into the work's repo
+    And the implementor's agent starts working
+    And the implementor's agent stops
+    Then the work's timeline should show a "file" event saying ".waterfall/mockup/index.md"
+    When the conductor looks at the implementor and names ".waterfall/mockup/index.md"
+    And I press the file the conductor named, ".waterfall/mockup/index.md"
+    Then the reader should be open on ".waterfall/mockup/index.md"
+    And the reader should render "The plan" as a heading
+    And there should be no page errors
+
+  Scenario: The reader's strip shows the tab of the file being read
+    # A folder of many files is a strip far wider than the reader. Opening
+    # the last of them must not leave its tab past the strip's right edge:
+    # the strip scrolls sideways to it, so you can see where you are.
+    Given a repo for the work
+    When I ask the conductor to open the work "a wide mockup"
+    And I answer the work's question with "hand-over" in the chat
+    And I ask the conductor to run the implementor in the work's repo
+    And the implementor writes 30 files into ".waterfall/mockup/" in the work's repo
+    And the implementor's agent starts working
+    And the implementor's agent stops
+    Then the work card should show the folder ".waterfall/mockup/" holding 30 files
+    When I unfold the work's folder ".waterfall/mockup/"
+    And I open the work's file ".waterfall/mockup/page-of-the-mockup-30.md"
+    Then the reader should be open on ".waterfall/mockup/page-of-the-mockup-30.md"
+    And the reader's tab for the open file should be in view
+    And there should be no page errors
+
   Scenario: A file named in a reply about one work opens that work's copy, with no menu
     # EVERY WORK HAS A PLAN, so the path alone names none of them: two works
     # here each hold `.waterfall/plan.md`. The reply looks at the second work's

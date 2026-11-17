@@ -94,6 +94,14 @@ const TruncatedBanner: Component<{ show: boolean }> = (p) => (
   </Show>
 );
 
+/** The one line for a file this viewer cannot draw — a binary no renderer
+ *  claims, or text that is not text at all. */
+const NoPreview: Component = () => (
+  <div data-testid="file-no-preview" class="px-2 py-1 text-fg-3/50">
+    No preview available for this file type
+  </div>
+);
+
 export type BrowseFileDispatcherProps = {
   /** WHERE the file comes from: the terminal whose host serves its bytes and
    *  whose repo a comment is anchored against.
@@ -411,14 +419,7 @@ const BrowseFileDispatcher: Component<BrowseFileDispatcherProps> = (props) => {
     // (no source on the wire, no matched rendered appliance → empty outlet).
     {
       match: () => true,
-      render: (file) =>
-        withComments(
-          "none",
-          file,
-          <div class="px-2 py-1 text-fg-3/50">
-            No preview available for this file type
-          </div>,
-        ),
+      render: (file) => withComments("none", file, <NoPreview />),
     },
   ];
 
@@ -482,6 +483,12 @@ const BrowseFileDispatcher: Component<BrowseFileDispatcherProps> = (props) => {
       ? { ...file, source: file.source }
       : null;
   });
+  // NOT TEXT AT ALL — git's own test for "binary": a NUL in the content. A
+  // font or an archive that no binary renderer claims arrives here decoded
+  // as text, and drawn as code it is a screen of replacement characters.
+  const notText = createMemo(
+    () => textFile()?.source.content.includes("\0") ?? false,
+  );
   const binaryFile = createMemo((): FileWithUrl | null => {
     const file = props.file;
     return file !== null && file.url !== undefined
@@ -509,6 +516,9 @@ const BrowseFileDispatcher: Component<BrowseFileDispatcherProps> = (props) => {
           {(err) => (
             <div class="px-2 py-1 text-danger">Error: {err().message}</div>
           )}
+        </Match>
+        <Match when={notText()}>
+          <NoPreview />
         </Match>
         <Match when={textFile()}>
           {(file) => (

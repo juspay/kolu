@@ -212,3 +212,20 @@ export const filesSeen = (work: Work): ReadonlySet<string> =>
   new Set(
     work.events.filter((one) => one.kind === "file").map((one) => one.path),
   );
+
+/** WHAT KOLU DID NOT KEEP WHEN THE WORK LAST ENDED, in its own sentence —
+ *  none for a work that is open, or whose latest ending kept everything.
+ *
+ *  Read off the `keep-failed` event that ending wrote, which covers both a
+ *  copy that failed outright and a partial one (files over the size budget,
+ *  a listing cut short); an earlier ending's sentence is about files that
+ *  ending had, not the ones on the card now. */
+export const notKeptOf = (work: Work): Option.Option<string> => {
+  if (work.state.kind !== "ended") return Option.none();
+  const ending = work.events.findLastIndex((one) => one.kind === "ended");
+  const failed = work.events.findLast(
+    (one, at): one is EventOf<"keep-failed"> =>
+      at > ending && one.kind === "keep-failed",
+  );
+  return failed === undefined ? Option.none() : Option.some(failed.why);
+};

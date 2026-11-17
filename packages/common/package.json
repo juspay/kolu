@@ -17,7 +17,8 @@
     "./config": "./src/config.ts",
     "./defaultPort": "./src/defaultPort.ts",
     "./test-hooks": "./src/test-hooks.ts",
-    "./preview": "./src/preview.ts"
+    "./preview": "./src/preview.ts",
+    "./workFiles": "./src/workFiles.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",

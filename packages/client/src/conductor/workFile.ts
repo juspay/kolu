@@ -18,7 +18,6 @@
  *  Both transports answer `@kolu/solid-fileview`'s two shapes, so the ONE
  *  viewer draws either without knowing which it got. */
 
-import { formatBytes } from "@kolu/byte-units";
 import type { FileWithSource, FileWithUrl } from "@kolu/solid-fileview";
 import { Effect, Option } from "effect";
 import { decodeHostKey } from "kolu-common/hostKey";
@@ -28,13 +27,8 @@ import {
   isBinaryPreviewable,
 } from "kolu-common/preview";
 import type { TerminalId } from "kolu-common/surface";
-import {
-  keptOf,
-  WATERFALL_DIR,
-  waterfallFileName,
-  type Work,
-  type WorkId,
-} from "kolu-work";
+import { listWorkFiles } from "kolu-common/workFiles";
+import { keptOf, waterfallFileName, type Work, type WorkId } from "kolu-work";
 import { type Accessor, createMemo, createResource } from "solid-js";
 import { fleetTerminalStanding } from "../palette/fleetTerminals";
 import { runActionPromise } from "../runAction";
@@ -51,11 +45,18 @@ export interface WorkPlace {
   readonly repoPath: string;
 }
 
-/** ONE ROW of a work's file list: the path as the record holds it, and
- *  whatever is worth saying beside it (a kept file's size). */
+/** ONE ROW of a work's file list: the path as the record holds it, and — for
+ *  a file kolu kept — how many bytes it kept. */
 export interface WorkFileRow {
   readonly path: string;
-  readonly note: string;
+  readonly bytes: Option.Option<number>;
+}
+
+/** A WORK'S FILES, as one list: every row, and whether the listing stopped at
+ *  its limit with more left (`kolu-common/workFiles`). */
+export interface WorkFilesRead {
+  readonly rows: ReadonlyArray<WorkFileRow>;
+  readonly more: boolean;
 }
 
 /** WHERE A WORK'S FILES COME FROM — the live worktree, or kolu's own copy.
@@ -66,18 +67,13 @@ export interface WorkFileRow {
  *  than re-deciding what a `null` place means. */
 export interface WorkFileSource {
   readonly at: { host: string; terminalId: TerminalId } | null;
-  readonly list: () => Promise<ReadonlyArray<WorkFileRow>>;
+  readonly list: () => Promise<WorkFilesRead>;
   readonly read: (path: string) => Promise<FileWithSource | FileWithUrl>;
 }
 
 /** The file's own name, as every face of a work says it: the directory a
  *  waterfall writes into is where kolu looks, not a thing a person reads. */
 export const workFileName = waterfallFileName;
-
-/** The directory as padi's `listDirectory` takes it — the one spelling lives
- *  in `kolu-work`; what this adds is the trailing slash a path grammar wants
- *  and a directory argument does not. */
-const WATERFALL_PATH = WATERFALL_DIR.replace(/\/+$/, "");
 
 /** WHERE A WORK'S LIVE FILES ARE — the first member whose own git reading
  *  names a worktree, in the order a waterfall runs its members.
@@ -117,28 +113,30 @@ export function workFileSource(
 ): WorkFileSource {
   const place = workPlaceOf(members);
   if (place === null) {
+    // THE KEPT COPY, which only a work that has ENDED has. A work still in
+    // progress whose members report no worktree has nowhere to read from at
+    // all — that is the `none` arm, not an empty kept copy. Read HERE, while
+    // the caller's memo is tracking, not inside `list`: the work is a live
+    // record that is updated in place, so the copy landing a moment after
+    // the work ended must re-choose the source, or the card says "Nothing
+    // was written" over files kolu has just kept.
+    const rows = Option.match(keptOf(work), {
+      onNone: (): ReadonlyArray<WorkFileRow> => [],
+      onSome: (kept) =>
+        kept.map((one) => ({
+          path: one.path,
+          bytes: Option.some(one.bytes),
+        })),
+    });
     return {
       at: null,
-      list: () =>
-        Promise.resolve(
-          // THE KEPT COPY, which only a work that has ENDED has. A work still
-          // in progress whose members report no worktree has nowhere to read
-          // from at all — that is the `none` arm, not an empty kept copy.
-          Option.match(keptOf(work), {
-            onNone: () => [],
-            onSome: (kept) =>
-              kept.map((one) => ({
-                path: one.path,
-                note: formatBytes(one.bytes),
-              })),
-          }),
-        ),
+      list: () => Promise.resolve({ rows, more: false }),
       read: (path) => readKeptFile(id, path),
     };
   }
   return {
     at: { host: place.host, terminalId: place.terminalId },
-    list: () => listWorkFiles(place),
+    list: () => listLiveFiles(place),
     read: (path) => readWorkFile(place, path),
   };
 }
@@ -153,48 +151,37 @@ export function workFileSource(
  *  line the section already has for saying so. */
 export function createWorkFiles(source: Accessor<WorkFileSource | null>): {
   readonly rows: Accessor<ReadonlyArray<WorkFileRow>>;
+  readonly more: Accessor<boolean>;
   readonly error: Accessor<Error | undefined>;
   readonly pending: Accessor<boolean>;
 } {
   const [listed] = createResource(source, (one) => one.list());
+  const ok = () => (listed.error === undefined ? listed() : undefined);
   return {
-    rows: createMemo(() =>
-      listed.error === undefined ? (listed() ?? []) : [],
-    ),
+    rows: createMemo(() => ok()?.rows ?? []),
+    more: () => ok()?.more ?? false,
     error: () => listed.error as Error | undefined,
     pending: () => listed.loading,
   };
 }
 
-/** The files directly in a member's `.waterfall/`, worktree-relative. One
- *  level, no recursion, directories dropped — the same reading kolu's own
- *  watch takes when it records a `file` event.
- *
- *  A worktree with NO `.waterfall/` is the ordinary state of a piece of work
- *  nobody has written a plan in yet, and padi answers that with its declared
- *  `FileGone`. It is not a failure to report: it reads as the empty list, the
- *  same answer kolu's own watch gives for an absent directory. Anything else
- *  (a host that went away mid-read) stays a failure, which the card says in a
- *  line. */
-function listWorkFiles(place: WorkPlace): Promise<ReadonlyArray<WorkFileRow>> {
+/** Every file under a member's `.waterfall/`, worktree-relative, at any
+ *  depth — `kolu-common`'s one walk over this host's `fs.listDirectory`, the
+ *  same walk kolu's own watch takes when it records a `file` event. A
+ *  worktree with no `.waterfall/` is the empty list (the walk's rule);
+ *  anything else (a host that went away mid-read) stays a failure, which the
+ *  card says in a line. */
+function listLiveFiles(place: WorkPlace): Promise<WorkFilesRead> {
+  const fs = padiMap.entry(decodeHostKey(place.host)).procedures.fs;
   return runActionPromise(
-    padiMap
-      .entry(decodeHostKey(place.host))
-      .procedures.fs.listDirectory({
-        repoPath: place.repoPath,
-        dirPath: WATERFALL_PATH,
-      })
-      .pipe(
-        Effect.map(({ paths }) =>
-          paths
-            .filter((path) => !path.endsWith("/"))
-            .map((path) => ({ path, note: "" })),
-        ),
-        Effect.catchTag(
-          "FileGone",
-          (): Effect.Effect<ReadonlyArray<WorkFileRow>> => Effect.succeed([]),
-        ),
-      ),
+    listWorkFiles((dirPath) =>
+      fs.listDirectory({ repoPath: place.repoPath, dirPath }),
+    ).pipe(
+      Effect.map(({ paths, more }) => ({
+        rows: paths.map((path) => ({ path, bytes: Option.none() })),
+        more,
+      })),
+    ),
   );
 }
 

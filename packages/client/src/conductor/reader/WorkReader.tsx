@@ -13,7 +13,9 @@
  *  Rendered ⇄ Source toggle at the document's head is that component's, not a
  *  second control here that would start identical and drift by a release.
  *  What this adds around it is the reading FRAME: the work's other files as
- *  tabs, the questions, and whatever chrome the owner hands in.
+ *  tabs (the card's own chip list, `WorkFileList.tsx`, on one line that
+ *  scrolls sideways and starts at the folder being read), the questions, and
+ *  whatever chrome the owner hands in.
  *
  *  THE DOCUMENT IS SET FOR READING — a column of
  *  `--container-conductor-reader` at 16px with a generous line height, with
@@ -57,6 +59,7 @@ import {
   type WorkFileSource,
   workFileSource,
 } from "../workFile";
+import WorkFileList from "../WorkFileList";
 import { membersIn } from "../workReadings";
 import type { ReaderTarget } from "./useReader";
 
@@ -178,38 +181,19 @@ const WorkReader: Component<{
             </span>
           )}
         </Show>
-        {/* THE WORK'S OTHER FILES, as tabs: the notes beside a plan are read
-            in the same place as the plan, one press away. */}
-        <div data-testid="reader-files" class="flex min-w-0 flex-wrap gap-1">
-          <For each={files.rows()}>
-            {(file) => (
-              <button
-                type="button"
-                data-testid="reader-file"
-                data-path={file.path}
-                data-open={file.path === props.target.path ? "" : undefined}
-                data-kept={at() === null ? "" : undefined}
-                class={`max-w-full cursor-pointer truncate rounded-md border px-2 py-0.5 font-mono text-[0.62rem] ${
-                  file.path === props.target.path
-                    ? "border-accent bg-accent/15 text-accent"
-                    : "border-edge-bright bg-surface-0 text-fg-2 hover:text-fg"
-                }`}
-                onClick={() =>
-                  props.onOpen({
-                    work: props.target.work,
-                    path: file.path,
-                  })
-                }
-              >
-                {workFileName(file.path)}
-                <Show when={file.note !== ""}>
-                  <span class="text-fg-3"> · {file.note}</span>
-                </Show>
-              </button>
-            )}
-          </For>
-        </div>
         {props.chrome}
+        {/* THE WORK'S OTHER FILES, as tabs: the notes beside a plan are read
+            in the same place as the plan, one press away — on a line of their
+            own, under the title and the chrome. */}
+        <div data-testid="reader-files" class="min-w-0 basis-full">
+          <WorkFileList
+            rows={files.rows()}
+            more={files.more()}
+            openTo={props.target.path}
+            layout="line"
+            onOpen={(path) => props.onOpen({ work: props.target.work, path })}
+          />
+        </div>
       </header>
 
       {/* THE QUESTIONS, PINNED ABOVE THE DOCUMENT — their buttons, and the

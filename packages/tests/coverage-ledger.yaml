@@ -4717,3 +4717,16 @@ retirements:
       file: packages/tests/features/conductor-lock.feature
       symbol: "Scenario: The phone's key bar raises the same card"
       test: Every step of this revision is still asserted on the same phone journey. The survivor adds one check once the terminal is listed — each of the work's terminal rows on the phone's card is one line with nothing pushed past its edge.
+  - id: revise-3d2952244b0100ea0881
+    revisionId: revision-3d2952244b0100ea0881
+    action: revised
+    status: landed
+    promise: A folder the work wrote is one chip, one timeline row, and is kept
+    defectSurface: [conductor, user-journey]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-f7ca7147aa08734448d3]
+    sameCodePathEvidence:
+      file: packages/tests/features/conductor-work.feature
+      symbol: "Scenario: A folder the work wrote is one chip, one timeline row, and is kept"
+      test: Every step of this revision is still asserted on the same journey. The survivor adds the folder row's own "more" — pressed, it lists the folder's three file rows — and presses the nested file's row to open it in the reader, the one path of the folder row nothing else ran.

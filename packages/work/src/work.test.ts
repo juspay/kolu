@@ -9,6 +9,8 @@ import {
   askedAnswersOf,
   askQuestions,
   capFinished,
+  childFolderOf,
+  compareWaterfallPaths,
   type DecisionAnswer,
   driverOf,
   dropAsk,
@@ -22,6 +24,7 @@ import {
   isKoluChoice,
   isSettled,
   joinWork,
+  keepFailed,
   keepFiles,
   keysToAsk,
   KOLU_CHOICE_KEYS,
@@ -32,6 +35,7 @@ import {
   membershipOf,
   missingSetup,
   modelHarnessesOf,
+  notKeptOf,
   openAsks,
   openSetupQuestions,
   openWork,
@@ -60,7 +64,10 @@ import {
   WAITER_OF,
   waitingOn,
   waitingOnYou,
+  WATERFALL_DIR,
+  waterfallBytes,
   waterfallFileName,
+  waterfallLevel,
   type Work,
   type WorkId,
   type WorkKey,
@@ -1360,6 +1367,105 @@ describe("membership", () => {
   it("names a waterfall file without a regex at the call site", () => {
     expect(waterfallFileName(".waterfall/plan.md")).toBe("plan.md");
     expect(waterfallFileName("README.md")).toBe("README.md");
+  });
+});
+
+describe("a work's files, read as a tree", () => {
+  const kept = (path: string, bytes: number) => ({
+    path: `.waterfall/${path}`,
+    bytes: Option.some(bytes),
+  });
+  const files = [
+    kept("mockup/fonts/b.woff2", 300),
+    kept("plan.md", 10),
+    kept("mockup/index.html", 20),
+    kept("mockup/fonts/a.woff2", 200),
+    kept("notes.md", 5),
+  ];
+
+  it("draws a level as its files, then its folders, in tree order", () => {
+    const top = waterfallLevel(files, WATERFALL_DIR);
+    expect(top.files.map((one) => one.path)).toEqual([
+      ".waterfall/notes.md",
+      ".waterfall/plan.md",
+    ]);
+    expect(top.folders.map((one) => one.folder)).toEqual([
+      ".waterfall/mockup/",
+    ]);
+    const mockup = waterfallLevel(files, ".waterfall/mockup/");
+    expect(mockup.files.map((one) => one.path)).toEqual([
+      ".waterfall/mockup/index.html",
+    ]);
+    expect(mockup.folders.map((one) => one.folder)).toEqual([
+      ".waterfall/mockup/fonts/",
+    ]);
+  });
+
+  it("counts every file beneath a folder, at any depth, and sums its size", () => {
+    const [mockup] = waterfallLevel(files, WATERFALL_DIR).folders;
+    expect(mockup?.files).toHaveLength(3);
+    expect(waterfallBytes(mockup?.files ?? [])).toEqual(Option.some(520));
+    // A live listing has no sizes, so its folder has none either.
+    expect(
+      waterfallBytes([
+        ...(mockup?.files ?? []),
+        { path: ".waterfall/mockup/new.html", bytes: Option.none() },
+      ]),
+    ).toEqual(Option.none());
+  });
+
+  it("orders a tree: a folder's files, then everything beneath each folder", () => {
+    expect(
+      [
+        ".waterfall/z/a.md",
+        ".waterfall/b.md",
+        ".waterfall/a/z.md",
+        ".waterfall/a/b/c.md",
+        ".waterfall/a.md",
+      ].sort(compareWaterfallPaths),
+    ).toEqual([
+      ".waterfall/a.md",
+      ".waterfall/b.md",
+      ".waterfall/a/z.md",
+      ".waterfall/a/b/c.md",
+      ".waterfall/z/a.md",
+    ]);
+  });
+
+  it("says which top folder holds a path", () => {
+    expect(
+      childFolderOf(WATERFALL_DIR, ".waterfall/mockup/fonts/a.woff2"),
+    ).toEqual(Option.some(".waterfall/mockup/"));
+    expect(childFolderOf(WATERFALL_DIR, ".waterfall/plan.md")).toEqual(
+      Option.none(),
+    );
+  });
+});
+
+describe("what a work's ending did not keep", () => {
+  const stopped = {
+    outcome: { kind: "stopped", by: "you" },
+    at: T(9),
+  } as const;
+
+  it("is the sentence the latest ending recorded, and nothing before that", () => {
+    const once = keepFailed(
+      keepFiles(endWork(opened(), stopped), {
+        files: [{ path: ".waterfall/plan.md", bytes: 12 }],
+        at: T(9),
+      }),
+      "big.mov did not fit",
+      T(9),
+    );
+    expect(notKeptOf(once)).toEqual(Option.some("big.mov did not fit"));
+    // Opened again and ended again with everything kept: the old sentence is
+    // about files that ending had, not these.
+    const again = keepFiles(
+      endWork(reopenWork(once, T(10)), { ...stopped, at: T(11) }),
+      { files: [{ path: ".waterfall/plan.md", bytes: 12 }], at: T(11) },
+    );
+    expect(notKeptOf(again)).toEqual(Option.none());
+    expect(notKeptOf(reopenWork(once, T(10)))).toEqual(Option.none());
   });
 });
 

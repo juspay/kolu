@@ -94,6 +94,50 @@ When(
   },
 );
 
+/** A FOLDER WIDER THAN THE READER. Long names on purpose: thirty of them on
+ *  one line run far past any window the suite draws at. */
+When(
+  "the implementor writes {int} files into {string} in the work's repo",
+  async function (this: KoluWorld, many: number, folder: string) {
+    const dir = path.join(repoOf(this), folder);
+    fs.mkdirSync(dir, { recursive: true });
+    for (let at = 1; at <= many; at += 1)
+      fs.writeFileSync(
+        path.join(dir, `page-of-the-mockup-${String(at).padStart(2, "0")}.md`),
+        `# Page ${at}\n`,
+      );
+  },
+);
+
+/** THE OPEN FILE'S TAB IS ON SCREEN: its chip lies inside the strip's own
+ *  box, measured — not merely present somewhere along a strip that scrolls. */
+Then(
+  "the reader's tab for the open file should be in view",
+  async function (this: KoluWorld) {
+    const strip = `${READER} [data-testid="reader-files"] [data-testid="work-files-strip"]`;
+    await pollFor({
+      observe: () =>
+        this.page.locator(strip).evaluate((one) => {
+          const chip = one.querySelector(
+            '[data-testid="work-file"][data-open]',
+          );
+          if (chip === null) return "no open chip in the strip";
+          const edge = one.getBoundingClientRect();
+          const box = chip.getBoundingClientRect();
+          const inside =
+            box.left >= edge.left - 1 && box.right <= edge.right + 1;
+          return inside
+            ? "in view"
+            : `chip ${Math.round(box.left)}–${Math.round(box.right)}px, strip ${Math.round(edge.left)}–${Math.round(edge.right)}px`;
+        }),
+      isDone: (seen) => seen === "in view",
+      timeoutMs: POLL_TIMEOUT,
+      onTimeout: (last, ms) =>
+        new Error(`the open file's tab is not in view after ${ms}ms: ${last}`),
+    });
+  },
+);
+
 /** THE QUESTION THAT NAMES A FILE. A real `work_ask` carrying
  *  `file: ".waterfall/plan.md"` — which is what makes every face of the
  *  question offer to open it. */
@@ -114,6 +158,16 @@ When(
   async function (this: KoluWorld) {
     await enterConductor(this);
     await sendPrompt(this, "look at the implementor and say where its plan is");
+  },
+);
+
+/** ... or names whichever of its files the scenario says — a path inside a
+ *  folder, say. */
+When(
+  "the conductor looks at the implementor and names {string}",
+  async function (this: KoluWorld, file: string) {
+    await enterConductor(this);
+    await sendPrompt(this, `look at the implementor and name ${file}`);
   },
 );
 

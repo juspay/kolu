@@ -20,6 +20,7 @@
  * of it is host-side.
  */
 
+import type { WorkFilesListed } from "kolu-common/workFiles";
 import type { KeptFile, WorkId } from "kolu-work";
 
 /** THE DIRECTORY A WORK'S KEPT FILES SIT IN, under `<stateRoot>/works/`.
@@ -40,20 +41,33 @@ export const workDirOf = (id: WorkId): string => {
   return `${fnv(0x811c9dc5)}${fnv(0x7fffffff)}`;
 };
 
+/** WHAT A KEEP DID — what the work's directory holds now, and the paths it
+ *  left out because they would have taken that directory past
+ *  `WORK_FILES_KEPT_BYTES` (`kolu-common/workFiles`). */
+export interface WorkFilesKept {
+  readonly kept: ReadonlyArray<KeptFile>;
+  readonly tooBig: ReadonlyArray<string>;
+}
+
 export interface WorkFiles {
-  /** Worktree-relative paths (".waterfall/plan.md") of the files directly in
-   *  `<worktree>/.waterfall/` on `host`; `[]` when the directory is absent.
+  /** Every file under `<worktree>/.waterfall/` on `host`, at any depth,
+   *  worktree-relative (".waterfall/mockup/fonts/a.woff2") and in tree
+   *  order — read by `kolu-common/workFiles`' one walk, so `more` says
+   *  whether it stopped at its limit. An absent directory is no files.
    *  Rejects (with a sentence) when the host cannot be read. */
-  list(at: { host: string; worktree: string }): Promise<ReadonlyArray<string>>;
+  list(at: { host: string; worktree: string }): Promise<WorkFilesListed>;
   /** Copy those files into `<stateRoot>/works/<work>/<path>` on THIS machine,
-   *  fetched through the host daemon's existing file read; answers what
-   *  landed. */
+   *  in tree order (top-level files first), fetched through the host
+   *  daemon's existing file read. The work's directory holds at most `WORK_FILES_KEPT_BYTES` in all,
+   *  counting what an earlier ending of the same work left there: a file
+   *  that would take it past that is skipped (and named in `tooBig`), and a
+   *  smaller one after it can still land. */
   keep(at: {
     host: string;
     worktree: string;
     work: string;
     paths: ReadonlyArray<string>;
-  }): Promise<ReadonlyArray<KeptFile>>;
+  }): Promise<WorkFilesKept>;
   /** RECONCILE the kept files to the works kolu still has: delete every
    *  `<stateRoot>/works/<id>` directory whose id is not in `keep`.
    *

@@ -163,8 +163,9 @@ appending what it observes.
     restart quiet.
 - **The timeline** — everything observed is appended through `kolu-work`'s
   transitions: a level change that rings is the same word on the card
-  (`ready` · `stopped` · `asking` · `exited` · `asleep`); every path in a
-  member's `.waterfall/` that `filesSeen` does not already hold becomes a
+  (`ready` · `stopped` · `asking` · `exited` · `asleep`); every file under a
+  member's `.waterfall/`, at any depth (`kolu-common/workFiles`' one walk,
+  first 200 entries), that `filesSeen` does not already hold becomes a
   `file` event, listed off a level change rather than a timer; and the PR —
   ONE per work, read ONCE from the work's own branch (`observedPr`, fed by
   kolu-server's per-work leg over padi's `pullRequest` stream) — is compared

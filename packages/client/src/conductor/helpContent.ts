@@ -170,6 +170,7 @@ export function helpSections(
       heading: "What it wrote",
       items: [
         [text("A file opens in the reader, beside the chat")],
+        [text("A folder is one chip with its count; click to unfold it")],
         [text("A file named in a reply opens that reply’s work’s copy")],
         [screen("Pop out"), text(" gives it a window of its own")],
         [text("Select text to comment, as on the Code tab")],

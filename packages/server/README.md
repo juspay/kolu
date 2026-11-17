@@ -159,11 +159,12 @@ THREE places, each where its volatility says it belongs.
   `config.json` alone.
 
 Attachments are files under `<state dir>/conductor/attachments/<id>`, and the
-bytes never ride a prompt frame. The files a work keeps when it ends are copied
-under `<state dir>/works/<id>/` — read off whichever host the work ran on
-through that daemon's own file read (`src/conductor/workFiles.ts`), served back
-to the browser at `/api/works/<id>/files/<path>` (`src/workFilesRoute.ts`), and
-deleted with the work when it falls off the 20-work history.
+bytes never ride a prompt frame. The files a work keeps when it ends — every
+file under its `.waterfall/`, folders included, up to 50 MiB a work — are
+copied under `<state dir>/works/<id>/`, read off whichever host the work ran
+on through that daemon's own file read (`src/conductor/workFiles.ts`), served
+back to the browser at `/api/works/<id>/files/<path>` (`src/workFilesRoute.ts`),
+and deleted with the work when it falls off the 20-work history.
 
 The state-backup ring snapshots `config.json`, so `preferences`, `hosts` and
 `works` ride it and every one of them has a restore path

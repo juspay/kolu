@@ -3870,6 +3870,93 @@ Then(
   },
 );
 
+/** A FOLDER IS ONE CHIP, carrying how many files are beneath it at any depth
+ *  — the count is the `data-count` the chip draws beside its name. */
+Then(
+  "the work card should show the folder {string} holding {int} files",
+  async function (this: KoluWorld, folder: string, count: number) {
+    await openWorkCard(this);
+    await this.page
+      .locator(
+        `${WORK_COLUMN} [data-testid="work-folder"][data-path="${folder}"][data-count="${count}"]`,
+      )
+      .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+  },
+);
+
+/** UNFOLD ONE LEVEL — and only if it is not unfolded already: the press is a
+ *  toggle, and a step that folds an open folder would hide the very chip the
+ *  next step looks for. */
+When(
+  "I unfold the work's folder {string}",
+  async function (this: KoluWorld, folder: string) {
+    await openWorkCard(this);
+    const chip = this.page.locator(
+      `${WORK_COLUMN} [data-testid="work-folder"][data-path="${folder}"]`,
+    );
+    await chip.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    if ((await chip.getAttribute("aria-expanded")) !== "true")
+      await chip.click();
+    await this.page
+      .locator(
+        `${WORK_COLUMN} [data-testid="work-folder"][data-path="${folder}"][aria-expanded="true"]`,
+      )
+      .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+  },
+);
+
+/** THE TIMELINE SAYS A FOLDER ONCE: a run of files written into it is one
+ *  row, `Wrote mockup/ · N files`, and never one row per file. */
+Then(
+  "the work's timeline should show one row for the folder {string} with {int} files",
+  async function (this: KoluWorld, folder: string, count: number) {
+    await showWorkColumn(this);
+    await openWorkCard(this);
+    await keepWorkCardOpen(this);
+    const rows = workCard(this).locator(
+      `[data-testid="work-event-folder"][data-path="${folder}"]`,
+    );
+    await waitForValue(
+      "the timeline's rows for the folder",
+      async () =>
+        (await rows.allTextContents())
+          .map((text) => (text.includes(`${count} files`) ? "match" : text))
+          .join("|"),
+      "match",
+    );
+  },
+);
+
+/** THE FOLDER ROW'S **more**, pressed — its own open state, not a file
+ *  row's: what unfolds is the run of per-file rows under it. */
+When(
+  "I unfold the work's timeline row for the folder {string}",
+  async function (this: KoluWorld, folder: string) {
+    await showWorkColumn(this);
+    await openWorkCard(this);
+    await keepWorkCardOpen(this);
+    // The row's OWN control — a file row unfolded under it carries a "more"
+    // of its own, one level deeper.
+    const more = workCard(this).locator(
+      `[data-testid="work-event-folder"][data-path="${folder}"] > div > [data-testid="work-event-more"]`,
+    );
+    await more.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    if ((await more.getAttribute("aria-expanded")) !== "true")
+      await more.click();
+  },
+);
+
+Then(
+  "the folder row {string} should list {int} file rows",
+  async function (this: KoluWorld, folder: string, count: number) {
+    await waitForCount(
+      this,
+      `${WORK_COLUMN} [data-testid="work-event-folder"][data-path="${folder}"] [data-testid="work-event"][data-kind="file"]`,
+      count,
+    );
+  },
+);
+
 /** RENDERED, IN THE READER. The heading has to be a real heading — markdown
  *  shown as its own source passes a text match and is not what was promised. */
 Then(

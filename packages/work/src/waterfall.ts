@@ -182,6 +182,98 @@ export const WATERFALL_DIR = ".waterfall/";
 export const waterfallFileName = (path: string): string =>
   path.startsWith(WATERFALL_DIR) ? path.slice(WATERFALL_DIR.length) : path;
 
+/* ── A FLAT LIST OF PATHS, READ AS A TREE ──────────────────────────────────
+ *
+ * A waterfall writes FOLDERS too (a planner's `mockup/` beside its plan), and
+ * every list of a work's files is flat: the live listing, the `file` events,
+ * the files kolu kept. These readings are how a face sees the folders in it,
+ * the same way whichever of the three it holds. A folder is spelled the way
+ * a listing spells one: its path with a trailing slash (`.waterfall/mockup/`),
+ * and {@link WATERFALL_DIR} is the root of them all. */
+
+/** THE FOLDER DIRECTLY IN `folder` that holds `path` — none when the path is a
+ *  file of `folder` itself, or is not under it at all. `.waterfall/mockup/`
+ *  for `.waterfall/mockup/fonts/a.woff2` read from {@link WATERFALL_DIR}. */
+export const childFolderOf = (
+  folder: string,
+  path: string,
+): Option.Option<string> => {
+  if (!path.startsWith(folder)) return Option.none();
+  const slash = path.indexOf("/", folder.length);
+  return slash < 0 ? Option.none() : Option.some(path.slice(0, slash + 1));
+};
+
+/** TREE ORDER BY NAME — a folder's files, then each of its folders in turn,
+ *  everything beneath one folder before the next. Compared a segment at a
+ *  time: where two paths part, a file comes before a folder, and two of a
+ *  kind go by name. */
+export const compareWaterfallPaths = (a: string, b: string): number => {
+  const as = a.split("/");
+  const bs = b.split("/");
+  for (let at = 0; ; at += 1) {
+    const aFile = at === as.length - 1;
+    const bFile = at === bs.length - 1;
+    const aName = as[at] ?? "";
+    const bName = bs[at] ?? "";
+    if (aFile && bFile) return aName < bName ? -1 : aName > bName ? 1 : 0;
+    if (aFile !== bFile) return aFile ? -1 : 1;
+    if (aName !== bName) return aName < bName ? -1 : 1;
+  }
+};
+
+/** ONE FOLDER OF A LEVEL — its path, and every file anywhere beneath it. */
+export interface WaterfallFolder<T> {
+  readonly folder: string;
+  readonly files: ReadonlyArray<T>;
+}
+
+/** ONE LEVEL OF A FOLDER — the files directly in it, then the folders
+ *  directly in it, each carrying everything beneath it, all in tree order.
+ *  Generic over what a row is, so the live listing's paths and the kept
+ *  files (with their sizes) read the same way. */
+export interface WaterfallLevel<T> {
+  readonly files: ReadonlyArray<T>;
+  readonly folders: ReadonlyArray<WaterfallFolder<T>>;
+}
+
+export const waterfallLevel = <T extends { readonly path: string }>(
+  rows: ReadonlyArray<T>,
+  folder: string,
+): WaterfallLevel<T> => {
+  const files: T[] = [];
+  const folders = new Map<string, T[]>();
+  const sorted = [...rows].sort((a, b) =>
+    compareWaterfallPaths(a.path, b.path),
+  );
+  for (const row of sorted) {
+    if (!row.path.startsWith(folder)) continue;
+    Option.match(childFolderOf(folder, row.path), {
+      onNone: () => files.push(row),
+      onSome: (child) => {
+        const beneath = folders.get(child);
+        if (beneath === undefined) folders.set(child, [row]);
+        else beneath.push(row);
+      },
+    });
+  }
+  return {
+    files,
+    folders: [...folders].map(([one, beneath]) => ({
+      folder: one,
+      files: beneath,
+    })),
+  };
+};
+
+/** A FOLDER'S SIZE — every file's bytes together, when every file has a size
+ *  (the files kolu kept); none when any does not (a live listing). */
+export const waterfallBytes = (
+  rows: ReadonlyArray<{ readonly bytes: Option.Option<number> }>,
+): Option.Option<number> =>
+  Option.map(Option.all(rows.map((one) => one.bytes)), (each) =>
+    each.reduce((sum, one) => sum + one, 0),
+  );
+
 /** WHERE ONE SETUP QUESTION STANDS — THE ONE READING of "is this setup
  *  question settled", read by everybody: the setup a card and the Conductor
  *  see ({@link setupOf}), which keys `work_open` asks, whether `startOf`

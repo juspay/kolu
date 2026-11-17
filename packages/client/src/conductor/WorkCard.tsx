@@ -37,6 +37,7 @@ import { fleetTerminalRef } from "kolu-mcp/fleetRef";
 import { Option } from "effect";
 import {
   lifetime,
+  notKeptOf,
   openAsks,
   type StageName,
   type Work,
@@ -610,6 +611,7 @@ const WorkCard: Component<{
             id={props.id}
             source={source()}
             kept={ended() !== undefined}
+            notKept={Option.getOrUndefined(notKeptOf(props.work))}
           />
 
           {/* THE PULL REQUEST: its number (a link, off the record), how it

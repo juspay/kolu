@@ -7,10 +7,18 @@
  *  `events`, from the walk that files the time), and which stage the work is
  *  in is its `current` — never a rule of this face's. */
 
-import type { Filed, StageName, Stages, Work } from "kolu-work";
+import { Option } from "effect";
+import {
+  childFolderOf,
+  type Filed,
+  type StageName,
+  type Stages,
+  WATERFALL_DIR,
+  type Work,
+} from "kolu-work";
 
-/** How many of a watch's latest events its card shows: a watch has no
- *  stages to index its timeline by. */
+/** How many of a watch's latest rows its card shows: a watch has no stages
+ *  to index its timeline by. */
 export const WATCH_EVENTS_SHOWN = 5;
 
 /** WHAT AN OPEN CARD'S TIMELINE SHOWS:
@@ -18,20 +26,36 @@ export const WATCH_EVENTS_SHOWN = 5;
  *  - `stage` — one stage's events: the one pressed on the strip, else the
  *    stage the work is in (for a finished work, the stage it ended in);
  *  - `latest` — a work with no stages (a watch, or a mode not chosen yet):
- *    its last {@link WATCH_EVENTS_SHOWN} events;
+ *    its last {@link WATCH_EVENTS_SHOWN} rows;
  *  - `whole` — all of it, once "whole timeline" is pressed. */
 export type TimelineView =
   | { readonly kind: "stage"; readonly stage: Filed }
   | { readonly kind: "latest" }
   | { readonly kind: "whole" };
 
-/** The view shown, the events in it (their indices in the timeline), the
- *  view the card folds back to from the whole one, and how many rows the
- *  whole one draws. */
+/** ONE ROW OF THE TIMELINE — one event, or a run of `file` events written
+ *  into one folder directly under `.waterfall/` (`Wrote mockup/ · 49 files`),
+ *  which unfolds to the per-file rows. Indices are into the work's events. */
+export type TimelineRow =
+  | { readonly kind: "event"; readonly index: number }
+  | {
+      readonly kind: "folder";
+      readonly folder: string;
+      readonly indices: ReadonlyArray<number>;
+    };
+
+/** A ROW'S NAME, which no two rows share and which outlives a redraw — its
+ *  first event, and whether it is a folder's row (a folder row and the first
+ *  file row inside it start at the same event). */
+export const rowKey = (row: TimelineRow): string =>
+  row.kind === "event" ? `e${row.index}` : `f${row.indices[0]}`;
+
+/** The view shown, the rows in it, the view the card folds back to from the
+ *  whole one, and how many rows the whole one draws. */
 export interface TimelineShown {
   readonly view: TimelineView;
   readonly folded: Exclude<TimelineView, { readonly kind: "whole" }>;
-  readonly indices: ReadonlyArray<number>;
+  readonly rows: ReadonlyArray<TimelineRow>;
   readonly total: number;
 }
 
@@ -52,6 +76,55 @@ const repeats = (work: Work, index: number): boolean => {
   }
 };
 
+/** THE FOLDER A FILE ROW FOLDS INTO — the folder directly under
+ *  `.waterfall/` that holds it, with the terminal that wrote it, so only a
+ *  run by one terminal into one folder folds. None for every other event and
+ *  for a top-level file, which never fold. */
+const foldKey = (
+  work: Work,
+  index: number,
+): { readonly folder: string; readonly by: string } | undefined => {
+  const one = work.events[index];
+  if (one?.kind !== "file") return undefined;
+  return Option.match(childFolderOf(WATERFALL_DIR, one.path), {
+    onNone: () => undefined,
+    onSome: (folder) => ({
+      folder,
+      by: one.about.kind === "member" ? one.about.terminal : "",
+    }),
+  });
+};
+
+/** THE ROWS THESE EVENTS DRAW — adjacent `file` events by one terminal into
+ *  one folder are one row; a folder written to once stays a plain row. */
+const rowsOf = (
+  work: Work,
+  indices: ReadonlyArray<number>,
+): ReadonlyArray<TimelineRow> => {
+  const runs: Array<{
+    readonly fold: { readonly folder: string; readonly by: string } | undefined;
+    readonly indices: number[];
+  }> = [];
+  for (const index of indices) {
+    const fold = foldKey(work, index);
+    const last = runs.at(-1);
+    if (
+      fold !== undefined &&
+      last?.fold !== undefined &&
+      last.fold.folder === fold.folder &&
+      last.fold.by === fold.by
+    )
+      last.indices.push(index);
+    else runs.push({ fold, indices: [index] });
+  }
+  return runs.map(
+    ({ fold, indices: run }): TimelineRow =>
+      fold !== undefined && run.length > 1
+        ? { kind: "folder", folder: fold.folder, indices: run }
+        : { kind: "event", index: run[0] ?? 0 },
+  );
+};
+
 export function timelineShown(
   work: Work,
   stages: Stages,
@@ -61,25 +134,29 @@ export function timelineShown(
   const all = work.events
     .map((_, index) => index)
     .filter((index) => !repeats(work, index));
-  const total = all.length;
+  const every = rowsOf(work, all);
+  const total = every.length;
   if (stages.kind !== "staged") {
     const folded = { kind: "latest" } as const;
     return whole
-      ? { view: { kind: "whole" }, folded, indices: all, total }
+      ? { view: { kind: "whole" }, folded, rows: every, total }
       : {
           view: folded,
           folded,
-          indices: all.slice(-WATCH_EVENTS_SHOWN),
+          rows: every.slice(-WATCH_EVENTS_SHOWN),
           total,
         };
   }
   const folded = { kind: "stage", stage: pressed ?? stages.current } as const;
   return whole
-    ? { view: { kind: "whole" }, folded, indices: all, total }
+    ? { view: { kind: "whole" }, folded, rows: every, total }
     : {
         view: folded,
         folded,
-        indices: all.filter((index) => stages.events[index] === folded.stage),
+        rows: rowsOf(
+          work,
+          all.filter((index) => stages.events[index] === folded.stage),
+        ),
         total,
       };
 }

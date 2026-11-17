@@ -64,6 +64,7 @@ import {
   type WorkRole,
   type WorkRow,
   waitingOnYou,
+  waterfallFileName,
 } from "kolu-work";
 import { type NonEmpty, nonEmpty } from "nonempty";
 import { hostLabel } from "../host/hostChipTone";
@@ -706,12 +707,18 @@ export function eventReader(work: Work): (event: WorkEvent) => string {
       case "kept":
         return `${event.count} files kept`;
       case "keep-failed":
-        return `Could not keep the files · ${event.why}`;
+        return `Not kept · ${event.why}`;
       default:
         return event satisfies never;
     }
   };
 }
+
+/** ... and the one row a run of files written into one folder becomes
+ *  (`./timelineView.ts`'s folder row): `Wrote mockup/ · 49 files`, spelled
+ *  beside the `Wrote …` of a single file. */
+export const folderRowWords = (folder: string, files: number): string =>
+  `Wrote ${waterfallFileName(folder)} · ${files} files`;
 
 /** ONE ROW OF THE CARD'S DECISIONS — `label — answer`, one line of it.
  *
