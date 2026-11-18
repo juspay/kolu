@@ -21,7 +21,7 @@
  */
 
 import type { Background } from "@kolu/acp/engine";
-import type { FileDiff, ToolStatus } from "@kolu/acp/wire";
+import type { FileDiff, PlanStep, ToolStatus } from "@kolu/acp/wire";
 
 /**
  * ONE THING THE AGENT SAID, as the door carries it.
@@ -57,6 +57,9 @@ export type AgentEvent =
    *  is keyed by `id`, so a second report of a call is the same row with new
    *  fields. `undefined` is "unchanged", never "cleared" — the protocol's own
    *  rule for an update. */
+  /** The agent's plan — replaced whole, removed when empty. kolu's own row
+   *  kind: [olai](https://github.com/juspay/olai)'s panel draws no plan. */
+  | { readonly _tag: "plan"; readonly steps: ReadonlyArray<PlanStep> }
   | {
       readonly _tag: "tool";
       readonly id: string;

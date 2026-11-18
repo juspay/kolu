@@ -807,6 +807,9 @@ export const startHarness = async (
         if (event.text !== "") report(transcript.say(event.text));
         return null;
       }
+      case "plan":
+        report(plan(event.steps));
+        return null;
       case "tool":
         writeTool(event);
         return null;
@@ -1230,15 +1233,14 @@ export const startHarness = async (
       // (`vecSkipError(zPlanEntry)`), and a wider SDK union stops compiling
       // here — the row's own `Literals` are the same three words.
       case "plan":
-        report(
-          plan(
-            update.entries.map((entry) => ({
-              content: entry.content,
-              status: entry.status,
-              priority: entry.priority ?? null,
-            })),
-          ),
-        );
+        emit({
+          _tag: "plan",
+          steps: update.entries.map((entry) => ({
+            content: entry.content,
+            status: entry.status,
+            priority: entry.priority ?? null,
+          })),
+        });
         return;
       case "available_commands_update":
         commands = update.availableCommands.map((command) => ({
