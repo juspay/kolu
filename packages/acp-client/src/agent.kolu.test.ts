@@ -43,13 +43,32 @@ afterEach(() => {
 const run = <A, E>(effect: Effect.Effect<A, E>): Promise<A> =>
   Effect.runPromise(effect);
 
+/** What a case can do with the agent's events: read them, or wait for the
+ *  first one that satisfies `holds` (one already seen counts). */
+interface Events {
+  readonly all: Array<AgentEvent>;
+  readonly first: (holds: (event: AgentEvent) => boolean) => Promise<void>;
+}
+
 /** One agent on one fixture, stopped whatever the body does. */
 const withAgent = async (
   fixture: string,
-  body: (agent: Agent, events: Array<AgentEvent>) => Promise<void>,
+  body: (agent: Agent, events: Events) => Promise<void>,
   args: ReadonlyArray<string> = [],
 ): Promise<void> => {
-  const events: Array<AgentEvent> = [];
+  const all: Array<AgentEvent> = [];
+  const waiting = new Set<(event: AgentEvent) => void>();
+  const first = (holds: (event: AgentEvent) => boolean): Promise<void> => {
+    const { promise, resolve } = Promise.withResolvers<void>();
+    if (all.some(holds)) resolve();
+    const check = (event: AgentEvent): void => {
+      if (!holds(event)) return;
+      waiting.delete(check);
+      resolve();
+    };
+    waiting.add(check);
+    return promise;
+  };
   const agent = await run(
     make({
       id: "an-agent",
@@ -59,11 +78,14 @@ const withAgent = async (
       cwd,
       tools: () => TOOLS,
       memory: REMEMBERS_NOTHING,
-      onEvent: (event) => events.push(event),
+      onEvent: (event) => {
+        all.push(event);
+        for (const check of [...waiting]) check(event);
+      },
     }),
   );
   try {
-    await body(agent, events);
+    await body(agent, { all, first });
   } finally {
     await run(agent.stop);
   }
@@ -84,9 +106,9 @@ test("the conversation being left is closed at the agent before the next one ope
   await withAgent("subprocess-agent.ts", async (agent, events) => {
     await run(agent.boot);
     await run(agent.newSession);
-    const from = events.length;
+    const from = events.all.length;
     await run(agent.prompt("children"));
-    expect(JSON.parse(saidSince(events, from))).toEqual({
+    expect(JSON.parse(saidSince(events.all, from))).toEqual({
       live: 1,
       closed: ["sess-1"],
     });
@@ -143,4 +165,29 @@ test("a first conversation refused for want of a sign-in keeps the process", asy
   const { gone, aliveAfter } = await refusedBoot("session/new", -32000);
   expect(gone).toMatchObject({ _tag: "AgentGone", auth: true });
   expect(aliveAfter).toBe(true);
+});
+
+test("a cancel that lost the race to a login that landed answers `signed-in`", async () => {
+  // The login command exits 0 under the cancel's own SIGTERM, which for every
+  // one of these CLIs means the credential store was written. `cancelled`
+  // would leave the caller no reason to restart, and the running agent would
+  // keep the old signature against a store that holds the new one.
+  await withAgent(
+    "signed-out-open-agent.ts",
+    async (agent, events) => {
+      await run(agent.boot);
+      const signing = run(agent.signIn("console-login"));
+      // The URL is the login's own word that it is up and waiting for a code:
+      // the cancel has to land on a running login, not on one still starting.
+      await events.first(
+        (event) =>
+          event._tag === "signIn" &&
+          event.signIn?.kind === "terminal" &&
+          event.signIn.output.includes("https://"),
+      );
+      expect(await run(agent.signInCancel)).toBe(true);
+      expect(await signing).toBe("signed-in");
+    },
+    ["--login-outlives-cancel"],
+  );
 });

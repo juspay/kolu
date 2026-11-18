@@ -3202,7 +3202,13 @@ export const make = (options: Options): Effect.Effect<Agent, never, never> =>
           Effect.promise(() => child.stop()),
         );
         if (child.failed() !== undefined) return "failed";
-        if (stopped()) {
+        // A CANCEL THAT LOST THE RACE IS NOT AN ENDING. A login that exited 0
+        // has written the credential store, so calling it `cancelled` tells
+        // the caller there is nothing to restart for, and the running agent
+        // then keeps the signature it started with while the store holds a
+        // different one. The row comes down either way — the person asked for
+        // that — but the answer is what happened.
+        if (stopped() && close.code !== 0) {
           emitSignIn(null);
           return "cancelled";
         }
