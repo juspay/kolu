@@ -91,6 +91,7 @@ import {
   says,
   Transcript,
   type TranscriptOptions,
+  toolKey,
 } from "./transcript.ts";
 import { type Turn, Turns } from "./turns.ts";
 
@@ -1312,7 +1313,9 @@ export const startHarness = async <Row extends AnyRow>(
             event.message,
             event.fields,
             event.link,
-            event.parent ?? null,
+            // The ROW of the agent that asked, which is what a lane is
+            // drawn by: the wire names the call by its own id.
+            event.parent === undefined ? null : toolKey(event.parent),
           ),
         );
         publish();
@@ -1323,6 +1326,9 @@ export const startHarness = async <Row extends AnyRow>(
         publish();
         return;
       case "session":
+        // A conversation that already has a name — one picked from the
+        // agent's own list — carries it here, and the panel says it at once.
+        title = event.title;
         enter(event.id);
         return;
       case "sessionTitled":
@@ -1418,7 +1424,7 @@ export const startHarness = async <Row extends AnyRow>(
         locations: event.locations,
         extra: said?.extra,
         untilNamed: said?.untilNamed,
-        parent: event.parent,
+        parent: event.parent === undefined ? undefined : toolKey(event.parent),
         spawned: event.spawned,
         armed: event.armed,
         provisional: event.provisional,
@@ -2130,6 +2136,9 @@ export const startHarness = async <Row extends AnyRow>(
     // keeps: a file that cannot travel refuses here, and the row stays exactly
     // as it was — still the person's, still offering the same gesture.
     const attached = await blocksOf(files, carries);
+    // THE PRESS IS ANSWERED AT ONCE: the row stops saying it was not sent
+    // the moment it goes again, rather than when the turn it starts ends.
+    report(transcript.sent(rowId));
     send(rowId, body, [{ type: "text", text: body }, ...attached]);
   };
 

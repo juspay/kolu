@@ -1058,6 +1058,26 @@ function turn(message: Message): void {
     finish(message.id, "end_turn");
     return;
   }
+  if (text === "subagent") {
+    // A CALL MADE INSIDE ANOTHER: the agent sends a subagent out
+    // (`call-agent`), and the subagent's own call names it as its parent in
+    // the `_meta` corner a leg reads (`parentToolUse`).
+    update(session, {
+      sessionUpdate: "tool_call",
+      toolCallId: "call-agent",
+      title: "explore the outline",
+      status: "in_progress",
+    });
+    update(session, {
+      sessionUpdate: "tool_call",
+      toolCallId: "call-child",
+      title: "read a file",
+      status: "completed",
+      _meta: { parent: "call-agent" },
+    });
+    finish(message.id, "end_turn");
+    return;
+  }
   if (text === "twoTools") {
     // ONE FRAME, TWO MCP CALLS — the shape of an agent that dispatches every
     // MCP tool through one builtin. A client that reported only the first

@@ -119,7 +119,10 @@ const leg: Leg = {
   toolNameOf: () => null,
   asksThroughForm: () => false,
   allowedWithoutAsking: allowingOurs(spelling),
-  parentToolUse: () => null,
+  parentToolUse: (value) => {
+    const parent = meta(value)?.parent;
+    return typeof parent === "string" ? parent : null;
+  },
   spawned: () => null,
   backgroundTask: () => null,
   taskNotification: () => null,
@@ -401,6 +404,20 @@ describe("how a turn ended, as a reading rather than as prose", () => {
     });
   });
 });
+describe("a call made inside another", () => {
+  test("names the row of the agent that made it", async () => {
+    // The subagent's frames name the call that sent it out by that call's id,
+    // and a product draws the subagent's work in that call's lane — which it
+    // finds by the ROW the call is, not by the id the wire spelt.
+    const running = await open();
+    await running.harness.prompt(typed("subagent"), false);
+    await settled(running, "the turn never ended");
+    const child = running.rows().find((row) => row.id === "tool:call-child");
+    expect(child?.kind === "tool" ? child.parent : null).toBe(
+      "tool:call-agent",
+    );
+  });
+});
 
 describe("sending that message again", () => {
   test("re-sends the row that was refused rather than minting a second", async () => {
@@ -424,6 +441,18 @@ describe("sending that message again", () => {
       "refused",
       "ended",
     ]);
+  });
+
+  test("takes the not-sent mark off as it goes, not when the turn ends", async () => {
+    // The press is what a person sees answered: a row that still says *not
+    // sent* while the agent is already working on it reads as a second press
+    // being needed.
+    const running = await open();
+    const { rowId } = await running.harness.prompt(typed("fail"), false);
+    await settled(running, "the refused turn never ended");
+    await running.harness.sendAgain(rowId, "slow", []);
+    const going = running.rows().find((row) => row.id === rowId);
+    expect(going?.kind === "user" ? going.delivery : "n/a").toBeUndefined();
   });
 
   test("refuses a row that is not waiting to be sent", async () => {
@@ -466,6 +495,17 @@ describe("the conversations this engine has stored", () => {
       },
     });
     expect(running.harness.state().sessionId).toBe("stored-1");
+  });
+
+  test("an opened conversation carries the title the agent stored it under", async () => {
+    // A conversation picked from the agent's own list already has a name, and
+    // the panel that opened it should say it at once rather than wait for the
+    // agent to name it again.
+    const running = await open({ args: ["--stored"] });
+    await running.harness.loadSession("stored-1");
+    expect(running.harness.state().title).toBe(
+      "the conversation before this one",
+    );
   });
 
   test("can be switched between without replacing the process", async () => {
