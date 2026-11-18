@@ -118,11 +118,23 @@ const pathnameOf = (url: string): string => {
  *  worker `/sw.js` serves (default `"retire"`, the self-destructing one).
  *
  *  The bytes come from `HttpStaticServer` (Effect's own file engine: MIME table,
- *  byte ranges, directory→index, root containment) so this module owns ONLY the
- *  freshness policy — the part that is surface-app's, and the part four
- *  stale-client regressions were fought over. The platform services it needs
- *  (`FileSystem`, `Path`, `HttpPlatform`) are the consumer's to provide —
- *  `NodeHttpServer.layerHttpServices` on Node. */
+ *  byte ranges, root containment) so this module owns ONLY the freshness policy
+ *  — the part that is surface-app's, and the part four stale-client regressions
+ *  were fought over. The platform services it needs (`FileSystem`, `Path`,
+ *  `HttpPlatform`) are the consumer's to provide —
+ *  `NodeHttpServer.layerHttpServices` on Node.
+ *
+ *  THE ENGINE HAS NO DIRECTORY INDEX, and the shell is served by NAME. Effect
+ *  4.1's file engine answers a request for a DIRECTORY at an address with no
+ *  trailing slash with a `301` to the same address plus `/` — judged by
+ *  `originalUrl`, the address the browser asked for. Serving the shell as the
+ *  directory `/` therefore redirected EVERY deep link (`/notes/today` →
+ *  `/notes/today/`), and a client handed that address draws nothing: kolu's own
+ *  tests missed it because their requests were built at `/` and re-pointed, so
+ *  `originalUrl` always ended in a slash. So `index: undefined` means the engine
+ *  never answers for a directory at all, and the shell is the one file it is,
+ *  served at its own address. A deep link is answered with the shell AT THE
+ *  ADDRESS ASKED, never a redirect. */
 export function freshStaticLayer(
   opts: { root: string; serviceWorker?: ServiceWorkerMode } & FreshnessPaths,
 ): Layer.Layer<
@@ -134,6 +146,9 @@ export function freshStaticLayer(
   | HttpPlatform.HttpPlatform
 > {
   const root = resolve(opts.root);
+  /** THE PAGE SHELL, by the one name it has. Never a directory: the file engine
+   *  answers for files, and a directory is what a `301` is about. */
+  const SHELL_FILE = "/index.html";
   const swSource = SW_SOURCE_FOR[opts.serviceWorker ?? "retire"];
   // Precompressed siblings (`.br`/`.zst`/`.gz`) are negotiated ONLY under the
   // immutable hashed-asset prefix, never the shell. Even if a consumer's build
@@ -174,7 +189,9 @@ export function freshStaticLayer(
       // `orDie`: a file engine that cannot even be constructed for this root is a
       // misconfiguration, and a boot that limps on without static serving is the
       // silent degradation this package exists to refuse.
-      const files = yield* Effect.orDie(HttpStaticServer.make({ root }));
+      const files = yield* Effect.orDie(
+        HttpStaticServer.make({ root, index: undefined }),
+      );
 
       /** Serve one target under `root`, or `undefined` when there is no such
        *  file. Anything that is NOT a plain miss (a permission error, an unreadable
@@ -280,7 +297,7 @@ export function freshStaticLayer(
           // like a file (`/favicon.png`). The directive is spelled explicitly
           // because `cacheControlFor` has no opinion about e.g. `/t/abc`, and the
           // shell must never go out cacheable.
-          const shell = yield* serveAt(plain, "/");
+          const shell = yield* serveAt(plain, SHELL_FILE);
           return HttpServerResponse.setHeader(
             shell ?? HttpServerResponse.text("not found", { status: 404 }),
             "cache-control",

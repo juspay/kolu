@@ -89,9 +89,13 @@ export const drive = (
   Effect.runPromise(
     Effect.gen(function* () {
       const app = yield* HttpRouter.toHttpEffect(appLayer);
+      // THE REQUEST A BROWSER WOULD SEND, not one this harness re-points: the
+      // target is the address, so `originalUrl` is the address too. Re-pointing
+      // `url` alone left `originalUrl` reading `/` — an address no browser can
+      // ask for — which is how a redirect on every deep link went unseen.
       const request = HttpServerRequest.fromWeb(
-        new Request("http://test/", { headers }),
-      ).modify({ url: target });
+        new Request(new URL(target, "http://test"), { headers }),
+      );
       const response = yield* app.pipe(
         Effect.provideService(HttpServerRequest.HttpServerRequest, request),
         // An unmatched route is a 404 here, the way the server's own error
