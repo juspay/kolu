@@ -206,6 +206,7 @@ const open = async (
     log?: HarnessOptions<OlaiRow>["log"];
     agent?: string;
     teaching?: string;
+    abandonWhen?: HarnessOptions<OlaiRow>["abandonWhen"];
   } = {},
 ): Promise<Running> => {
   const rows = new Map<string, OlaiRow>();
@@ -241,6 +242,9 @@ const open = async (
     mcpServers: extra.mcpServers ?? [],
     ...(extra.probes === undefined ? {} : { probes: extra.probes }),
     teaching: extra.teaching ?? TEACHING,
+    ...(extra.abandonWhen === undefined
+      ? {}
+      : { abandonWhen: extra.abandonWhen }),
     taught: false,
     log: extra.log ?? silent,
     opens: extra.opens ?? { kind: "fresh" },
@@ -598,6 +602,30 @@ describe("one frame, several calls, and the panes they run in", () => {
     const panes = call?.kind === "tool" ? (call.terminals ?? []) : [];
     expect(panes.map((one) => one.id)).toEqual(["term-1"]);
     expect(panes[0]?.output).toContain("building");
+  });
+});
+
+describe("a bring-up nobody waits for any more", () => {
+  test("opens nothing, so nothing is probed, and the process goes", async () => {
+    // A reader that subscribes and leaves a moment later started a bring-up
+    // for nobody: the open it would have made probes the product's servers
+    // and spends the agent's memory of the conversation.
+    const controller = new AbortController();
+    let probed = 0;
+    const opening = open({
+      args: ["--slow-handshake"],
+      probes: () =>
+        Effect.sync(() => {
+          probed += 1;
+          return [];
+        }),
+      abandonWhen: { signal: controller.signal, reason: "scope released" },
+    });
+    setTimeout(() => controller.abort(), 50);
+    await expect(opening).rejects.toMatchObject({
+      name: "HarnessUnavailable",
+    });
+    expect(probed).toBe(0);
   });
 });
 

@@ -190,6 +190,11 @@ const oddSignIns = process.argv.includes("--odd-sign-ins");
  */
 const storedSessions = process.argv.includes("--stored");
 
+/** Whether the handshake is answered only after a pause, so a client has a
+ *  bring-up in flight long enough to abandon it. */
+const slowHandshake = process.argv.includes("--slow-handshake");
+let handshakeHeld = false;
+
 /** The turn whose prompt is still unanswered, so a cancel can end it. */
 let openTurn: unknown = null;
 /** ... and the `slow` turn, which is held open until a SECOND prompt arrives.
@@ -513,6 +518,11 @@ function handle(message: Message): void {
   }
   switch (message.method) {
     case "initialize":
+      if (slowHandshake && !handshakeHeld) {
+        handshakeHeld = true;
+        setTimeout(() => handle(message), 500);
+        return;
+      }
       respond(message.id, {
         protocolVersion: 1,
         agentCapabilities: {

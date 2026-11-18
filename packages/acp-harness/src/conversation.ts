@@ -473,6 +473,21 @@ export interface HarnessOptions<Row extends AnyRow> {
    * record of its own gets a resumed conversation back on screen at all.
    */
   readonly whenReplayed: "drop" | "keep";
+  /**
+   * WHEN THE CALLER STOPS WANTING THIS BRING-UP, and why — the signal aborts
+   * while the agent is still being started or the conversation opened, and
+   * the process is stopped with `reason` before anything more happens.
+   *
+   * A product that starts a conversation for a reader who may leave before
+   * it is up (a tab that re-subscribes, then goes) needs the open NOT to
+   * happen: an open probes the product's servers and spends the agent's
+   * memory of the conversation, for nobody. Absent for a caller that always
+   * waits for its bring-up.
+   */
+  readonly abandonWhen?: {
+    readonly signal: AbortSignal;
+    readonly reason: StopReason;
+  };
   readonly onChange: (change: HarnessChange<Row>) => void;
 }
 
@@ -1807,9 +1822,30 @@ export const startHarness = async <Row extends AnyRow>(
       onEvent: emit,
     }),
   );
+  // THE BRING-UP CAN BE ABANDONED: once the caller's signal aborts, the
+  // process is stopped, which ends the handshake or the open in flight, and
+  // no conversation is opened for a caller that has gone.
+  const abandon = options.abandonWhen;
+  /** Asked afresh each time: the signal is the caller's and aborts on its own
+   *  clock, between any two of the awaits below. */
+  const abandoned = (): boolean => abandon?.signal.aborted === true;
+  const stopAbandoned = (): void => {
+    if (abandon === undefined) return;
+    void run(agent.stopWithReason(abandon.reason)).catch((cause: unknown) => {
+      log.warn({ cause }, "an abandoned bring-up did not stop cleanly");
+    });
+  };
+  /** Stop the process for the caller that left, and say so to it. */
+  const leaveAbandoned = async (): Promise<never> => {
+    if (abandon !== undefined) await run(agent.stopWithReason(abandon.reason));
+    throw new HarnessUnavailable("the conversation was abandoned");
+  };
+  abandon?.signal.addEventListener("abort", stopAbandoned, { once: true });
   try {
+    if (abandoned()) await leaveAbandoned();
     await openConversation();
   } catch (cause) {
+    if (abandoned()) await leaveAbandoned();
     // Everything except the signature goes with the subprocess: a conversation
     // the agent would not open is a failure a caller cannot work around, and a
     // child left running with nothing to talk to is the leak.
@@ -1817,7 +1853,12 @@ export const startHarness = async <Row extends AnyRow>(
       await run(agent.stop);
       throw cause;
     }
+  } finally {
+    abandon?.signal.removeEventListener("abort", stopAbandoned);
   }
+  // ... AND ONE THAT LANDED AFTER ALL is still abandoned: the open beat the
+  // stop to the wire, and the caller that left is owed no conversation.
+  if (abandoned()) await leaveAbandoned();
 
   // ── the verbs ────────────────────────────────────────────────────────
 

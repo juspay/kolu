@@ -917,7 +917,9 @@ export const make = (options: Options): Effect.Effect<Agent, never, never> =>
         timeout,
       );
 
-    let stopped = false;
+    /** Why this agent was stopped, or `null` while it is not — the reason the
+     *  exit line carries, kept for a process a stop could not yet see. */
+    let stopped: StopReason | null = null;
     const requestedStops = new WeakMap<
       Child,
       { reason: StopReason; session: string | null }
@@ -3103,8 +3105,20 @@ export const make = (options: Options): Effect.Effect<Agent, never, never> =>
      *  next either says which conversation itself, or is a question about no
      *  conversation at all. */
     const bringUpProcess = Effect.gen(function* () {
-      if (stopped) return yield* shuttingDown();
+      if (stopped !== null) return yield* shuttingDown();
       const started = live ?? (yield* start());
+      // A STOP THAT LANDED DURING THE HANDSHAKE could not see this process —
+      // it was not `live` yet — so it is stopped here, with the stop's own
+      // reason, before anything is opened on it for a caller that has gone.
+      if (stopped !== null && live === null) {
+        const reason = stopped;
+        yield* Effect.promise(async () => {
+          requestedStops.set(started.child, { reason, session: null });
+          started.connection.close();
+          await started.child.stop();
+        });
+        return yield* shuttingDown();
+      }
       live = started;
       return started;
     });
@@ -3846,7 +3860,7 @@ export const make = (options: Options): Effect.Effect<Agent, never, never> =>
 
     const stopWithReason = (reason: StopReason) =>
       Effect.promise(async () => {
-        stopped = true;
+        stopped = reason;
         const alongside = [...beside];
         beside.clear();
         const at = live;

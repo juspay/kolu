@@ -528,3 +528,21 @@ test("a conversation this agent never advertised it keeps is still asked for", a
     expect(refused.why).toContain("Resource not found: ba0d-0775");
   });
 });
+
+test("a stop that lands during the handshake opens nothing", async () => {
+  // The process is not `live` until its handshake is answered, so a stop in
+  // that window cannot reach it directly; the bring-up that answers it after
+  // the stop must stop it instead of opening a conversation for nobody.
+  await withAgent(
+    "agent.ts",
+    async (agent, events) => {
+      const booting = run(Effect.result(agent.boot));
+      await new Promise((done) => setTimeout(done, 50));
+      await run(agent.stopWithReason("scope released"));
+      const outcome = await booting;
+      expect(outcome._tag).toBe("Failure");
+      expect(events.all.some((event) => event._tag === "session")).toBe(false);
+    },
+    ["--slow-handshake"],
+  );
+});
