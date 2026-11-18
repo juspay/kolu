@@ -204,6 +204,8 @@ const open = async (
     args?: ReadonlyArray<string>;
     mcpServers?: HarnessOptions<OlaiRow>["mcpServers"];
     log?: HarnessOptions<OlaiRow>["log"];
+    agent?: string;
+    teaching?: string;
   } = {},
 ): Promise<Running> => {
   const rows = new Map<string, OlaiRow>();
@@ -232,13 +234,13 @@ const open = async (
     leg,
     adapter: {
       command: process.execPath,
-      args: [fixtureAgent("agent.ts"), ...(extra.args ?? [])],
+      args: [fixtureAgent(extra.agent ?? "agent.ts"), ...(extra.args ?? [])],
     },
     cwd: process.cwd(),
     configDir: "/tmp/olai-test-home/.claude",
     mcpServers: extra.mcpServers ?? [],
     ...(extra.probes === undefined ? {} : { probes: extra.probes }),
-    teaching: TEACHING,
+    teaching: extra.teaching ?? TEACHING,
     taught: false,
     log: extra.log ?? silent,
     opens: extra.opens ?? { kind: "fresh" },
@@ -596,6 +598,43 @@ describe("one frame, several calls, and the panes they run in", () => {
     const panes = call?.kind === "tool" ? (call.terminals ?? []) : [];
     expect(panes.map((one) => one.id)).toEqual(["term-1"]);
     expect(panes[0]?.output).toContain("building");
+  });
+});
+
+describe("a product with nothing to teach", () => {
+  test("sends a new session's first message exactly as it was composed", async () => {
+    // A product whose standing words ride inside the body it composes hands
+    // over no teaching at all — and a conversation's first message must then
+    // go out as written, not behind a blank line a scripted agent reads as
+    // its first.
+    const running = await open({ teaching: "", agent: "agent.ts" });
+    await running.harness.prompt(typed("hello"), false);
+    await settled(running, "the first turn never ended");
+    await running.harness.newSession();
+    await running.harness.prompt(typed("hello"), false);
+    await settled(running, "the new session's first turn never ended");
+    await running.harness.prompt(typed("prompts"), false);
+    await settled(running, "the prompts turn never ended");
+    const agent = running.rows().filter((row) => row.kind === "agent");
+    const last = agent[agent.length - 1];
+    const bodies = JSON.parse(
+      last !== undefined && "text" in last ? last.text : "[]",
+    ) as ReadonlyArray<string>;
+    expect(bodies.filter((body) => body !== body.trimStart())).toEqual([]);
+  });
+});
+
+describe("a bring-up the agent refused", () => {
+  test("opens its first conversation on the same process once asked again", async () => {
+    // An agent that refused the first open for want of a signature is kept
+    // alive, because the sign-in runs against it — and after the sign-in a
+    // product that asks for a new conversation is asking for the first one,
+    // on that very process.
+    const running = await open({ agent: "signed-out-agent.ts" });
+    expect(running.harness.state().sessionId).toBeNull();
+    expect(running.harness.alive()).toBe(true);
+    await running.harness.newSession();
+    expect(running.harness.state().sessionId).not.toBeNull();
   });
 });
 

@@ -1833,7 +1833,10 @@ export const startHarness = async <Row extends AnyRow>(
   const bodyOf = (body: string): string => {
     if (taught) return body;
     taught = true;
-    return `${options.teaching}\n\n${body}`;
+    // A PRODUCT WITH NOTHING TO TEACH hands over no words, and its first
+    // message then goes out exactly as it composed it: a blank line above it
+    // is a first line an agent reads.
+    return options.teaching === "" ? body : `${options.teaching}\n\n${body}`;
   };
 
   const runTurn = async (
@@ -2176,7 +2179,10 @@ export const startHarness = async <Row extends AnyRow>(
   };
 
   const newSession = async (): Promise<void> => {
-    inConversation();
+    // A LIVE AGENT, NOT AN OPEN CONVERSATION: after a bring-up the agent
+    // refused for want of a signature the process is kept and no conversation
+    // is open, and asking for a new one is how a product opens the first.
+    if (!alive()) throw new HarnessUnavailable("the agent is not running");
     // THE ROWS GO INSTEAD OF A BREAK, for a product that clears: a new session
     // and the wipe beside it are then the same movement, and the wipe is the
     // one that already holds every rule about the order it happens in
@@ -2236,7 +2242,7 @@ export const startHarness = async <Row extends AnyRow>(
    * instance never minted ({@link Transcript.clear}).
    */
   const clearSession = async (held: ReadonlyArray<string>): Promise<void> => {
-    inConversation();
+    if (!alive()) throw new HarnessUnavailable("the agent is not running");
     try {
       await run(agent.newSession);
     } catch (cause) {
