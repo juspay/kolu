@@ -21,7 +21,8 @@
  */
 
 import type { Background } from "@kolu/acp/engine";
-import type { FileDiff, PlanStep, ToolStatus } from "@kolu/acp/wire";
+import type { SessionConfigOption } from "@agentclientprotocol/sdk";
+import type { FileDiff, PlanStep, ToolStatus, Usage } from "@kolu/acp/wire";
 
 /**
  * ONE THING THE AGENT SAID, as the door carries it.
@@ -57,6 +58,23 @@ export type AgentEvent =
    *  is keyed by `id`, so a second report of a call is the same row with new
    *  fields. `undefined` is "unchanged", never "cleared" — the protocol's own
    *  rule for an update. */
+  /** The whole slash-command list, replaced rather than merged. */
+  | {
+      readonly _tag: "commands";
+      readonly commands: ReadonlyArray<{
+        readonly name: string;
+        readonly description: string | null;
+      }>;
+    }
+  /** Every setting the agent offers, as the update carried them — the reading
+   *  of HOW each is drawn is the conversation's (`readSettings`), because that
+   *  is where the panel's shapes live. */
+  | {
+      readonly _tag: "settings";
+      readonly config: ReadonlyArray<SessionConfigOption> | null | undefined;
+    }
+  /** How full the context is. Several a turn: the newest wins. */
+  | { readonly _tag: "usage"; readonly usage: Usage }
   /** The agent's plan — replaced whole, removed when empty. kolu's own row
    *  kind: [olai](https://github.com/juspay/olai)'s panel draws no plan. */
   | { readonly _tag: "plan"; readonly steps: ReadonlyArray<PlanStep> }

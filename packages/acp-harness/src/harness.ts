@@ -807,6 +807,18 @@ export const startHarness = async (
         if (event.text !== "") report(transcript.say(event.text));
         return null;
       }
+      case "commands":
+        commands = event.commands;
+        publish();
+        return null;
+      case "settings":
+        readSettings(event.config);
+        publish();
+        return null;
+      case "usage":
+        usage = event.usage;
+        publish();
+        return null;
       case "plan":
         report(plan(event.steps));
         return null;
@@ -1243,25 +1255,23 @@ export const startHarness = async (
         });
         return;
       case "available_commands_update":
-        commands = update.availableCommands.map((command) => ({
-          name: command.name,
-          description: command.description ?? null,
-        }));
-        publish();
+        emit({
+          _tag: "commands",
+          commands: update.availableCommands.map((command) => ({
+            name: command.name,
+            description: command.description ?? null,
+          })),
+        });
         return;
       case "config_option_update":
-        readSettings(update.configOptions);
-        publish();
+        emit({ _tag: "settings", config: update.configOptions });
         return;
       case "usage_update": {
         // How full the context is — the one thing a person needs to decide
         // whether to compact. Several a turn: the agent revises `used` as it
         // goes and may revise `size` too, so the newest wins.
         const read = usageIn(update);
-        if (read !== null) {
-          usage = read;
-          publish();
-        }
+        if (read !== null) emit({ _tag: "usage", usage: read });
         return;
       }
       default:
