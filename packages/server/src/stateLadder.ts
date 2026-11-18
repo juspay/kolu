@@ -2831,4 +2831,31 @@ export const CONF_MIGRATIONS = {
   // untouched.
   "1.59.0": (store: Conf<PersistedState>) =>
     toolOutings_1_59_0(dirname(store.path)),
+  // THE CONVERSATION REMEMBERS WHETHER IT HAS BEEN TAUGHT. The `conductor`
+  // key gains `taught` — whether the standing prompt has already gone out
+  // under a message of the session it names — so a kolu-server restart stops
+  // putting that prompt back into the middle of a chat in progress. A
+  // required field, so a record written before this one does not decode
+  // without a rung.
+  //
+  // FALSE for every saved record, which is the safe direction and not the
+  // true-for-most one: this rung cannot see whether the remembered session
+  // ever had a message, and a `true` written over one that had none would be
+  // a conversation that is never taught at all. `false` costs one standing
+  // prompt, on the first message after the upgrade, and nothing after that.
+  // The transcript file is untouched, so TRANSCRIPT_FILE_VERSION stays at
+  // 1.59.0.
+  "1.60.0": (store: Conf<PersistedState>) => {
+    // Read as an OBJECT rather than as the decoded record: this rung runs
+    // against a file written by an older build, whose `conductor` key is
+    // exactly the shape the current schema does not yet accept.
+    const record = store.get("conductor") as
+      | Record<string, unknown>
+      | undefined;
+    if (record === undefined) return;
+    store.set("conductor", {
+      taught: false,
+      ...record,
+    } as unknown as PersistedState["conductor"]);
+  },
 };

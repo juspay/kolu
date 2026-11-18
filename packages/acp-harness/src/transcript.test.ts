@@ -7,17 +7,19 @@
  * the folded JSON under a failed call is what was ASKED, never the error again.
  */
 
-import type { ConductorRow } from "kolu-common/conductor";
 import { describe, expect, it } from "vitest";
-import { published } from "./rows.testlib.ts";
+import { type FixtureRow, published } from "./rows.testlib.ts";
 import { Transcript } from "./transcript";
 
-/** kolu's conversation: its own row union, its own marks, and a wipe that keeps
- *  the counters running because its `seq` is written to a store. */
-const conversation = (from = 0): Transcript<ConductorRow> =>
-  new Transcript<ConductorRow>({
+/** A CONVERSATION LIKE KOLU'S CONDUCTOR'S, spelled in the fixture product's
+ *  own rows ({@link ./rows.testlib.ts}): a turn the host started is a delivery
+ *  like a person's, the break between two conversations is a row, and a wipe
+ *  lets the counters run on because this product's `seq` is written to a
+ *  store. */
+const conversation = (from = 0): Transcript<FixtureRow> =>
+  new Transcript<FixtureRow>({
     from,
-    deliverable: (row) => row.kind === "user" || row.kind === "wake",
+    deliverable: (row) => row.kind === "user" || row.kind === "rung",
     countersSurviveClear: true,
     breakKind: "divider",
   });
@@ -25,22 +27,22 @@ const conversation = (from = 0): Transcript<ConductorRow> =>
 const ASKED = JSON.stringify({ command: "false" }, null, 2);
 const ANSWER = JSON.stringify("exit 1", null, 2);
 
-const detailOf = (rows: ReadonlyArray<ConductorRow>): string | undefined => {
+const detailOf = (rows: ReadonlyArray<FixtureRow>): string | undefined => {
   const row = rows.find((one) => one.kind === "tool");
   return row?.kind === "tool" ? row.detail : undefined;
 };
 
-/** What the class minted, decoded the way the server decodes it — strictly, so
+/** What the class minted, decoded the way a server decodes it — strictly, so
  *  a field the contract does not declare is red here (`./rows.testlib.ts`). */
 const rowsOf = (
-  transcript: Transcript<ConductorRow>,
-): ReadonlyArray<ConductorRow> => transcript.rows().map(published);
+  transcript: Transcript<FixtureRow>,
+): ReadonlyArray<FixtureRow> => transcript.rows().map(published);
 
 /** One call, armed with its input, then settled with `status` and its answer. */
 const settle = (
   status: "completed" | "failed",
   progress: string | undefined,
-): ReadonlyArray<ConductorRow> => {
+): ReadonlyArray<FixtureRow> => {
   const transcript = conversation();
   transcript.tool("c1", {
     title: "Bash",
@@ -132,14 +134,15 @@ describe("the wipe", () => {
     // The class answers the QUESTION the guard is made of; that no divider is
     // minted over an empty transcript is pinned by `harness.test.ts`'s
     // "a break minted for a fresh session that will not open comes back out" and
-    // its neighbours, which drive the kolu-side helper that asks this.
+    // its neighbours, which drive the conversation-side helper that asks this.
     expect(transcript.endsWithBreak()).toBe(true);
   });
 });
 
 describe("a refusal's mark, and how it comes off", () => {
-  /** kolu's own refusal mark: which sign-in would fix it. */
-  const signInOf = (row: ConductorRow | undefined): string | undefined =>
+  /** The refusal mark a person's own words can carry: which sign-in would fix
+   *  it. */
+  const signInOf = (row: FixtureRow | undefined): string | undefined =>
     row?.kind === "user" ? row.signIn : undefined;
 
   it("comes off when the message goes after all", () => {
@@ -177,7 +180,7 @@ describe("a refusal's mark, and how it comes off", () => {
 
   it("is not written onto a row that cannot carry one", () => {
     // A notice is not the delivery of a turn, so it has no `delivery` and no
-    // sign-in door. Marking it would be a field kolu's schema does not declare.
+    // sign-in door. Marking it would be a field no product's schema declares.
     const transcript = conversation();
     const { key } = transcript.write({
       kind: "notice",
@@ -191,14 +194,15 @@ describe("a refusal's mark, and how it comes off", () => {
 });
 
 /**
- * SIX THINGS KOLU'S CHAT DOES DIFFERENTLY NOW, each pinned here.
+ * SIX THINGS A CHAT LIKE KOLU'S DOES DIFFERENTLY NOW, each pinned here.
  *
  * The class took olai's behaviour wherever the two originals differed without a
  * reason to keep both, and every difference below is a change a person can see.
- * They are asserted against kolu's OWN row union (via {@link published}), so the
- * behaviour is kolu's to keep — not a side effect of olai's row type.
+ * They are asserted against a row union with kolu's own SHAPE (via
+ * {@link published}), so the behaviour is the class's to keep — not a side
+ * effect of olai's row type.
  */
-describe("what changed for kolu's chat", () => {
+describe("what changed for a chat like kolu's", () => {
   it("says a failed subagent ended, when nothing else would say it", () => {
     // A SYNCHRONOUS subagent arms no task, so its own status is the whole of
     // what happened — and its calls are filed under it, so the row that failed

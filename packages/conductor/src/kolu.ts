@@ -29,7 +29,7 @@
 
 import { isTerminalId } from "@kolu/terminal-vocab/terminalId";
 import { fleetTerminalRef, splitFleetTerminalRef } from "kolu-mcp/fleetRef";
-import type { ConductorKoluCall } from "./rows.ts";
+import type { ConductorKoluCall } from "kolu-common/conductor";
 
 type Kind = ConductorKoluCall["kind"];
 

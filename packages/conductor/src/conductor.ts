@@ -190,8 +190,10 @@ import {
 } from "kolu-work";
 import type { Logger } from "pino";
 import { dropSuperseded } from "./askNews.ts";
+import { aboutBlock } from "./aboutBlock.ts";
 import { asking } from "./asking.ts";
 import { attachments } from "./attachments.ts";
+import { Fleet, koluCallOf, refineKoluCall } from "./kolu.ts";
 import { memberStore } from "./memberStore.ts";
 import type { WatchJoin } from "./members.ts";
 import type { PrWatch, WatchObservation } from "./observation.ts";
@@ -873,7 +875,9 @@ export interface ConductorDeps {
    *  does would make the two inseparable. Pushed in the way the autosave gate
    *  takes its effects: one arrow, out of the composition root, so the
    *  bookkeeping here is exercised without an adapter on the machine. */
-  readonly spawn: (options: HarnessOptions) => Promise<Harness>;
+  readonly spawn: (
+    options: HarnessOptions<ConductorRow>,
+  ) => Promise<Harness<ConductorRow>>;
 }
 
 /** The sentence a kolu-server whose fleet listener is not up yet says. It is a
@@ -1052,8 +1056,8 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
 
   let seq = 0;
   const sinks = new Set<ConductorFrameSink>();
-  let harness: Harness | null = null;
-  let starting: Promise<Harness> | null = null;
+  let harness: Harness<ConductorRow> | null = null;
+  let starting: Promise<Harness<ConductorRow>> | null = null;
   let disposed = false;
   /**
    * WHICH SPAWN'S NEWS IS THE CONVERSATION'S — bumped the moment a harness is
@@ -1078,6 +1082,29 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
    *  state-root with nothing to resume they stay there. */
   let resume: string | null = null;
   let chosenModel: string | null = null;
+  /**
+   * WHETHER THE CONVERSATION BEING RESUMED HAS BEEN TAUGHT — the standing
+   * prompt went out under a message of it.
+   *
+   * REMEMBERED HERE because a harness does not outlive the process and the
+   * conversation does: an upgrade, a crash or a signature replaces the
+   * subprocess, and a replacement told nothing re-taught the agent in the
+   * middle of a chat. It rides the record beside the session id
+   * ({@link PersistedConductor}) and is read back off every publish, which is
+   * what keeps it true after a `newSession` nobody here asked for.
+   */
+  let taught = false;
+  /**
+   * THE TERMINALS THIS CONVERSATION IS WORKING WITH, in first-touch order.
+   *
+   * KOLU'S OWN, computed from the readings this module hands the harness
+   * ({@link kolu.ts}'s `koluCallOf`): the conversation knows a tool call as
+   * whatever its reader made of it, so the one end that can say which terminal
+   * a call was about is the end that read it. Seeded from the record at the
+   * restore, because membership otherwise accrues only from tool-call frames
+   * and a resumed conversation's frames are the replay the harness drops.
+   */
+  let fleet = new Fleet();
 
   /** THE LAST FRAME A READER WAS GIVEN, or `null` before the first one — what
    *  {@link publishState} compares against to answer "would anybody see
@@ -1130,7 +1157,7 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
 
   const records = recordWrites(
     {
-      record: () => store.set(persistedFrom(state)),
+      record: () => store.set(persistedFrom(state, taught)),
       transcript: () => transcriptStore.set(transcriptFrom(rows())),
       works: () => worksStore.set(works.persisted()),
       members: () => membersStore.set(members.saved()),
@@ -1197,12 +1224,65 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
    *  encoded host key is the honest fallback. */
   const hostNames = new Map<string, string>();
 
+  /**
+   * WHAT A TOOL CALL MEANS TO KOLU — the reading a card is drawn from, and the
+   * one place this conversation's MEMBERSHIP comes from.
+   *
+   * The conversation hands over what the protocol said and keeps whatever
+   * comes back on the row ({@link HarnessOptions.readCall}); what the call was
+   * ABOUT is kolu's own ({@link ./kolu.ts}), because only this end knows the
+   * fleet's grammar and which tools its own MCP face registers. A call the
+   * client could not positively name as one of OURS reaches here with no
+   * server, and gets no reading at all: a card claiming to be about terminal
+   * `7f3e` because a tool name happened to contain `create` would put an "open
+   * tile" button on somebody else's terminal.
+   *
+   * The two frames of one call are FOLDED, because the arming frame carries
+   * the input and the settling frame the answer — `refineKoluCall` keeps
+   * whichever said something — and a terminal this conversation created or
+   * typed into joins the fleet as it is read.
+   */
+  const readKoluCall: HarnessOptions<ConductorRow>["readCall"] = (
+    frame,
+    held,
+  ) => {
+    const seen =
+      frame.mcp === undefined
+        ? null
+        : koluCallOf(frame.mcp.tool, frame.input, frame.answer);
+    const kolu = refineKoluCall(held?.kolu ?? null, seen);
+    // THE FLEET MOVES HERE, before the row is written: the publish the
+    // conversation does about that row carries the state this changed.
+    if (kolu !== null && fleet.touch(kolu)) {
+      state = { ...state, fleet: [...fleet.ids()] };
+    }
+    if (
+      frame.mcp === undefined &&
+      frame.asksThroughForm === undefined &&
+      kolu === null
+    ) {
+      return undefined;
+    }
+    return {
+      server: frame.mcp?.server,
+      tool: frame.mcp?.tool,
+      // Absent rather than `false`: every optional field of a tool row means
+      // UNCHANGED, and a call whose name has not arrived yet is not a call
+      // anything has called ordinary.
+      asksThroughForm: frame.asksThroughForm,
+      ...(kolu === null ? {} : { kolu }),
+    };
+  };
+
   const wake = wakes({
     turn: async () => {
       const agent = await live();
       return {
         idle: agent.state().phase === "idle",
-        wake: (text, events) => agent.wake(text, events),
+        // KOLU'S OWN LINE, as the row it is drawn as: the harness starts the
+        // turn and knows the row only as content it was handed.
+        wake: (text, events) =>
+          agent.hostTurn({ kind: "wake", from: "kolu", events, text }, text),
       };
     },
     say: (text) => sayNotice(text),
@@ -1329,6 +1409,14 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
       // The agent re-asserts its own default over a resumed conversation, so a
       // choice kolu saw is the half that loses unless it is handed back.
       chosenModel = record.model;
+      // ... and so does the standing prompt: a conversation already taught is
+      // not taught again by the harness that comes back to it.
+      taught = record.taught;
+      // THE MEMBERSHIP COMES BACK WITH THE CONVERSATION. It accrues only from
+      // tool-call frames, and a resumed conversation's frames are the replay
+      // the harness drops — so a fleet that could only accrue would come back
+      // empty and be written back over the record.
+      fleet = new Fleet(record.fleet);
       for (const row of transcript.rows) byId.set(row.id, row);
       rowsCache = null;
       state = { ...state, sessionId: record.sessionId, fleet: record.fleet };
@@ -1551,7 +1639,7 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
   /** Bring the conversation up, once, and hand back the same promise to every
    *  caller that arrives while it is in flight — so two readers opening at the
    *  same instant cannot spawn two adapters. */
-  const live = async (): Promise<Harness> => {
+  const live = async (): Promise<Harness<ConductorRow>> => {
     const running = harness;
     if (running !== null) {
       if (running.alive()) return running;
@@ -1581,6 +1669,13 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
       });
     }
     remembered();
+    // WHETHER THIS SPAWN IS COMING BACK TO A CONVERSATION. Decided at EVERY
+    // spawn, not once at boot: a replacement adapter over a "new session"
+    // nobody has spoken into yet is the same id with nothing behind it, and a
+    // conversation that never had a turn is opened again rather than resumed
+    // ({@link hadATurn}). Two options read it — which session to ask for, and
+    // whether that session has been taught.
+    const resuming = resume !== null && hadATurn(rows());
     // THIS SPAWN'S NUMBER, taken before the bring-up starts so the harness's
     // very first publish can be told apart from a retired one's last.
     generation += 1;
@@ -1592,7 +1687,7 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
     // whether this kolu's own fleet MCP face is answering ({@link
     // provenFleetServer}): a refusal there is a rejection like any other, which
     // is why there is no synchronous arm around the options any more.
-    const begun = (async (): Promise<Harness> => {
+    const begun = (async (): Promise<Harness<ConductorRow>> => {
       const kolu = await provenFleetServer();
       return spawn({
         leg: ENGINE.leg,
@@ -1605,12 +1700,14 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
         configDir: conductorConfigDir(process.env, home),
         mcpServers: [kolu],
         teaching: teaching(hostName),
+        // ... AND WHETHER IT HAS ALREADY GONE OUT in the conversation being
+        // resumed. A harness is replaced for reasons that have nothing to do
+        // with the chat, and one told nothing put the standing prompt back
+        // into the middle of it on every restart. A conversation this spawn is
+        // NOT resuming is a fresh one, which owes the teaching.
+        taught: resuming && taught,
         log,
-        // A conversation that never had a turn is opened again, not resumed —
-        // see {@link hadATurn}. Decided at EVERY spawn, not once at boot: a
-        // replacement adapter over a "new session" nobody has spoken into yet
-        // is the same id with nothing behind it.
-        resume: resume !== null && hadATurn(rows()) ? resume : null,
+        resume: resuming ? resume : null,
         // THE RESTART FENCE (see the module doc), taken HERE rather than at the
         // restore, because the restore is not the only spawn: a replacement
         // adapter comes up over everything the dead one minted as well as
@@ -1628,12 +1725,18 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
         // panel would draw two rules for one reset until the next boot
         // read collapsed them.
         resumedEndsWithDivider: rows().at(-1)?.kind === "divider",
-        // The terminals this conversation was working with. Membership
-        // otherwise accrues only from tool-call frames, and a resumed
-        // conversation's frames are the replay the harness drops — so without
-        // this seed the first publish would carry an empty fleet, and we
-        // would write that emptiness back over our own record.
-        fleet: state.fleet,
+        // WHAT A TOOL CALL MEANS TO KOLU — the reading a card is drawn from
+        // ({@link ./kolu.ts}), folded frame by frame, and the one place this
+        // conversation's membership comes from.
+        readCall: readKoluCall,
+        // KOLU'S THREE POLICIES. A new session DIVIDES the one transcript it
+        // persists; a conversation the agent has forgotten opens a FRESH one
+        // rather than leaving the panel with nothing; a replay is DROPPED
+        // because the rows it re-emits are ones this module already holds in a
+        // richer form.
+        whenNewSession: "divide",
+        whenLoadRefused: "fresh",
+        whenReplayed: "drop",
         model: chosenModel,
         onChange: (change) => {
           if (change.kind === "state") {
@@ -1647,12 +1750,15 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
             // `disposed` flag: a restart retires a harness without disposing
             // of anything, and the respawn can fail.
             if (disposed || mine !== generation) return;
-            // The harness answers for the conversation; `seen`, `work` and
-            // `held` are this module's and are folded back on by
-            // `publishState`.
+            // The harness answers for the conversation; `seen`, `work`,
+            // `held` and the FLEET are this module's — the fleet because it
+            // is read off the tool readings this module supplies — and are
+            // folded back on by `publishState`.
+            const { taught: said, ...conversation } = change.state;
+            taught = said;
             state = {
               ...state,
-              ...change.state,
+              ...conversation,
               ...serverAuthored,
             };
             // WHICH CONVERSATION A REPLACEMENT ADAPTER COMES BACK INTO: the
@@ -1666,6 +1772,14 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
             // crash) or STALE, which is a panel quietly reverting to an older
             // chat. The null is skipped for the reason just above: a
             // teardown's last breath is a stop, not a conversation ending.
+            // A DIFFERENT CONVERSATION TAKES THE FLEET WITH IT: the terminals
+            // live on — kolu owns them — but the agent about to answer has no
+            // memory of having touched one, so a strip naming them belongs to
+            // a conversation that is over.
+            if (state.sessionId !== null && state.sessionId !== resume) {
+              fleet.clear();
+              state = { ...state, fleet: [] };
+            }
             if (state.sessionId !== null) resume = state.sessionId;
             publishState();
             records.schedule("record");
@@ -1710,7 +1824,9 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
    *  that is neither is a DEFECT and crosses the wire as one: a conductor
    *  that broke in a way nobody declared should crash loudly, not arrive as a
    *  polite sentence in a chat. */
-  const ask = async <T>(work: (agent: Harness) => Promise<T>): Promise<T> => {
+  const ask = async <T>(
+    work: (agent: Harness<ConductorRow>) => Promise<T>,
+  ): Promise<T> => {
     try {
       return await work(await live());
     } catch (err) {
@@ -1726,7 +1842,7 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
 
   /** Stop a child and carry on. A teardown that threw here would skip the
    *  flush that follows it, and the record is what the next boot reads. */
-  const stopQuietly = async (agent: Harness): Promise<void> => {
+  const stopQuietly = async (agent: Harness<ConductorRow>): Promise<void> => {
     try {
       await agent.stop();
     } catch (err: unknown) {
@@ -1834,15 +1950,29 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
     },
     prompt: async (text, mentions, attached, steer) => {
       try {
+        const about = mentions.map((mention) => ({ ...mention }));
+        // The files are already on disk — the prompt names them, and this is
+        // where they are found and measured. A refused attachment refuses the
+        // whole message rather than arriving as a second sentence under a turn
+        // that already went out.
+        const files = spool.named(attached);
         const sent = await ask((agent) =>
           agent.prompt(
-            text,
-            mentions.map((mention) => ({ ...mention })),
-            // The files are already on disk — the prompt names them, and this
-            // is where they are found and measured. A refused attachment
-            // refuses the whole message rather than arriving as a second
-            // sentence under a turn that already went out.
-            spool.named(attached),
+            {
+              text,
+              // WHAT THE AGENT IS SENT UNDER THE WORDS: the block naming what
+              // the message was ABOUT ({@link ./aboutBlock.ts}). It is written
+              // here because the chips are kolu's and the agent cannot see
+              // them — a conversation handed the words alone would answer
+              // about a context the person thought they had given it.
+              body:
+                about.length === 0 ? text : `${aboutBlock(about)}\n\n${text}`,
+              extra: {
+                ...(about.length === 0 ? {} : { mentions: about }),
+                attachments: files,
+              },
+              files,
+            },
             steer,
           ),
         );
@@ -2409,6 +2539,7 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
         // conversation comes next. Dropping them here is what used to make a
         // plan approval vanish the moment somebody started fresh.
         wake.clear();
+        fleet.clear();
         state = { ...state, fleet: [] };
         publishState();
         works.publishWorks();

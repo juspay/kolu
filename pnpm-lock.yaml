@@ -187,18 +187,9 @@ importers:
       '@kolu/acp-client':
         specifier: workspace:*
         version: link:../acp-client
-      '@kolu/terminal-vocab':
-        specifier: workspace:*
-        version: link:../terminal-vocab
       effect:
         specifier: 4.1.4
         version: 4.1.4
-      kolu-common:
-        specifier: workspace:*
-        version: link:../common
-      kolu-mcp:
-        specifier: workspace:*
-        version: link:../kolu-mcp
     devDependencies:
       '@types/node':
         specifier: ^22.0.0

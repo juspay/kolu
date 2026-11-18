@@ -522,9 +522,9 @@ export type SignInLink = typeof SignInLink.Type;
  * finished and failed; a `terminal` arm with `running: false` and a `code` is
  * finished and failed for the reason the output says.
  *
- * This is the client's EVENT. A product that draws a sign-in keeps a state of
- * its own beside it (kolu's `ConductorSignInSchema`: cause, methods, attempt),
- * and the two are not merged.
+ * This is the client's EVENT. What a product DRAWS while it offers or runs one
+ * is {@link SigningIn} beside it, and the two are not merged: one is what the
+ * agent is doing, the other is what this panel is asking about.
  */
 export const SignIn = Schema.Union([
   Schema.Struct({ kind: Schema.Literal("choosing") }),
@@ -564,6 +564,82 @@ export const TerminalView = Schema.Struct({
   running: Schema.Boolean,
 });
 export type TerminalView = typeof TerminalView.Type;
+
+/**
+ * WHAT THE CONVERSATION IS DOING, in the one word a header chip paints.
+ *
+ * `asking` outranks `working`: a turn stopped on a form is blocked on a HUMAN,
+ * and that is the state the badge counts. `starting` covers the whole of the
+ * open — a subprocess, a handshake, and a replay — because the composer is not
+ * locked during it and a person who typed needs to know where it went.
+ */
+export const Phase = Schema.Literals([
+  "offline",
+  "starting",
+  "idle",
+  "working",
+  "asking",
+]);
+export type Phase = typeof Phase.Type;
+
+/** The model the conversation is on, named the way the agent names it. A
+ *  `window` of `null` is a refusal rather than a failure: the running model
+ *  does not always state its context window, and naming one five times the
+ *  real size in the line you would read to decide whether to compact is worse
+ *  than naming nothing. */
+export const Model = Schema.Struct({
+  id: Schema.String,
+  name: Schema.String,
+  window: Schema.NullOr(Schema.Int),
+});
+export type Model = typeof Model.Type;
+
+/** WHO PUT THE SIGN-IN ON SCREEN — the agent, in its own refusal, or a person
+ *  who asked for it (a limit reached, the wrong account, a login that went
+ *  stale). Two arms rather than an empty sentence for "nobody refused":
+ *  which one it is decides whether the row can simply be closed again. */
+export const SigningInCause = Schema.Union([
+  Schema.Struct({
+    kind: Schema.Literal("agent"),
+    /** The agent's own refusal, in its own words. */
+    why: Schema.String,
+  }),
+  Schema.Struct({
+    kind: Schema.Literal("person"),
+    /** What the conversation has to say about signing in here: where the
+     *  signature is read from, or that the agent offered no way at all. */
+    said: Schema.String,
+  }),
+]);
+export type SigningInCause = typeof SigningInCause.Type;
+
+/**
+ * THE SIGN-IN A PANEL DRAWS: why it is on screen, what is on offer, and the
+ * attempt in flight.
+ *
+ * THREE SOURCES AND ONE ROW. The methods are the handshake's; the attempt is
+ * the client's, which is the half holding a process and a question
+ * ({@link SignIn}); the CAUSE is the conversation's own — a refusal it met, or
+ * a person who pressed the button.
+ *
+ * One sign-in per agent: a second press on the same method ATTACHES to the
+ * attempt already running rather than starting a second process.
+ */
+export const SigningIn = Schema.Struct({
+  cause: SigningInCause,
+  methods: Schema.Array(AuthMethod),
+  attempt: Schema.NullOr(
+    Schema.Struct({
+      method: Schema.String,
+      state: Schema.Literals(["running", "succeeded", "failed"]),
+      /** The spawned command's output so far, capped — URLs in it are made
+       *  clickable by the panel. */
+      output: Schema.String,
+      link: Schema.NullOr(AskLink),
+    }),
+  ),
+});
+export type SigningIn = typeof SigningIn.Type;
 
 // ── The row FIELDS ────────────────────────────────────────────────────────
 //

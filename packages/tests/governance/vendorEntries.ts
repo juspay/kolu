@@ -56,6 +56,14 @@
  *     It is olai's own client, moved here so kolu's conversation and olai's
  *     chat panel run agents on one copy. Its closure is `@kolu/acp` and
  *     `@kolu/child`, both already vendored.
+ *   - `@kolu/acp-harness` — ONE CONVERSATION on top of that client: the turns,
+ *     the rows a person reads, the steering latch, the state a panel is a view
+ *     of. Both chat UIs hold one conversation each and had written it twice;
+ *     this is the copy they share. It names no product — every fact either of
+ *     them knows that the protocol does not arrives as an option or as the row
+ *     content a verb is handed, which `src/noProductImports.test.ts` holds red
+ *     — so its closure is `@kolu/acp` and `@kolu/acp-client`, both already
+ *     vendored.
  *
  * The COUNT is not the structure. A sixth would not change what this file is:
  * the split is by where the fact lives, not by how many facts there are. What
@@ -98,6 +106,7 @@ export function vendorEntries(repoRoot: string): string[] {
   names.push("@kolu/acp");
   names.push("@kolu/acp-claude");
   names.push("@kolu/acp-client");
+  names.push("@kolu/acp-harness");
   names.push("@kolu/child");
   return names.sort();
 }

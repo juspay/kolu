@@ -3,16 +3,15 @@
  * and answer — and the property a production transcript lost: whatever the
  * agent wrote, the reading encodes under the row schema it is served and
  * persisted through.
- *
- * Pure — it spawns nothing — but it rides this package's one lane,
- * `test:daemon`, beside the suites that spawn real agents.
  */
 
-import { ConductorToolRowSchema } from "kolu-common/conductor";
+import {
+  type ConductorKoluCall,
+  ConductorToolRowSchema,
+} from "kolu-common/conductor";
 import { Schema } from "effect";
 import { describe, expect, test } from "vitest";
 import { koluCallOf, refineKoluCall } from "./kolu.ts";
-import type { ConductorKoluCall } from "./rows.ts";
 
 const T = "7f3e0a91-0000-4000-8000-000000000000";
 const PARENT = "11111111-2222-4333-8444-555555555555";

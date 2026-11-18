@@ -42,7 +42,9 @@ thing that does it.
 | `attachments.ts` | a prompt's files on their way up, and the rule that reaps them |
 | `recordWrites.ts` | how often any of it hits disk — one leading-edge timer, one flag per record |
 | `workFiles.ts` | the port kolu-server implements over padi |
-| `persisted.ts` | the four records a restart reads, decoded through `kolu-work`'s `parseStore` so a store that breaks an invariant fails with the sentence naming it, and the re-validation that refuses a file with holes in it |
+| `persisted.ts` | the four records a restart reads, decoded through `kolu-work`'s `parseStore` so a store that breaks an invariant fails with the sentence naming it, and the re-validation that refuses a file with holes in it. The conversation's own record carries `taught` — whether the standing prompt has already gone out in the session it names — because the agent's memory of it outlives the subprocess holding it, and a restart that assumed nothing taught a chat in progress again |
+| `kolu.ts` | WHAT A TOOL CALL MEANS TO KOLU: the reading a card is drawn from (one per tool the fleet face serves, each gated on `isTerminalId`), the fold of a call's two frames, and the `Fleet` — the terminals this conversation has created or typed into, in first-touch order. `conductor.ts` hands the reader to `@kolu/acp-harness` as its `readCall` and computes the fleet out of what it reads |
+| `aboutBlock.ts` | the `[kolu] about …` lines a message carries above the words, composed here and handed to the harness as the body a person's message is sent under |
 | `wakeText.ts` · `teaching.ts` · `surface.ts` · `transcriptStream.ts` | what the agent reads, what it is taught, and what a browser subscribes to |
 
 ## The works, the watch, the hold and the wake
@@ -127,7 +129,7 @@ appending what it observes.
 - **A message says what it is ABOUT.** `prompt` takes `ConductorMention`s, each
   a terminal (`host/id`, its name, cwd and intent) or a piece of work (the
   `WorkId` it is filed under and the title it had when the message went), and
-  `@kolu/acp-harness`'s `aboutBlock` puts them above the words as `[kolu] about`
+  `./aboutBlock.ts` puts them above the words as `[kolu] about`
   lines. They are rows of the transcript, so a reload still says what a message
   named, and `teaching.md` says what a work line means: read that id in `works`
   and answer about it.

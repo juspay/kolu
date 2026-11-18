@@ -1,18 +1,20 @@
 /**
- * @kolu/acp-harness — one conductor conversation, as a subprocess that
- * speaks ACP.
+ * @kolu/acp-harness — one conversation with a coding agent, as a subprocess
+ * that speaks ACP.
  *
- * THE ONE PACKAGE IN THIS TREE THAT RUNS THE PROTOCOL. `@kolu/acp` owns the
- * protocol's vocabulary and its pure projections and spawns nothing; the host
- * owns the cell, the stream and the store and speaks no ACP. This is the
- * middle: it starts an adapter, keeps one conversation with it, and publishes
- * that conversation in the contract's own words
- * ({@link kolu-common/conductor}'s rows and state) through the one callback
- * a caller hands in.
+ * THE PACKAGE THAT RUNS A CONVERSATION. `@kolu/acp` owns the protocol's
+ * vocabulary and its pure projections and spawns nothing; `@kolu/acp-client`
+ * owns one agent process and says what it said; the host owns the cell, the
+ * stream and the store and speaks no ACP. This is the middle: it keeps one
+ * conversation with an agent, turns what the client reports into the rows a
+ * person reads, and publishes those rows and that state through the one
+ * callback a caller hands in.
  *
- * It imports nothing from `packages/padi`, `packages/server` or
- * `packages/client`, and the arrow points that way on purpose: kolu-server
- * calls this, never the other way round.
+ * IT NAMES NO PRODUCT. Both chat UIs that run an agent — kolu's Conductor and
+ * olai's chat panel — run this one copy, so everything either of them knows
+ * that the protocol does not arrives as an option or as the row content a verb
+ * is handed ({@link ./conversation.ts}). It imports nothing of kolu's, which
+ * `./noProductImports.test.ts` holds red.
  */
 
 export {
@@ -23,9 +25,12 @@ export {
   type HarnessState,
   HarnessUnavailable,
   type HttpServer,
+  type PersonSaid,
+  type PromptFile,
   type SignedIn,
   type StdioServer,
   startHarness,
+  type ToolFrame,
 } from "./harness.ts";
 export {
   type Held,
@@ -35,10 +40,15 @@ export {
   type Slot,
 } from "./holding.ts";
 export {
+  type AnyRow,
   type Change,
   movesRows,
+  type RowContent,
+  type RowHead,
+  type RowPatch,
   says,
   STRANDED,
+  type ToolMove,
   Transcript,
   toolKey,
   type TranscriptOptions,

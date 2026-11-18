@@ -335,20 +335,21 @@ afterEach(async () => {
  *  subject here is the file, not the protocol. */
 function hostOver(): {
   host: ConductorHost;
-  push: () => (change: HarnessChange) => void;
+  push: () => (change: HarnessChange<ConductorRow>) => void;
   resumedSeq: () => number | undefined;
-  /** What the NEXT conversation is asked to replay, and the terminals it is
-   *  told this one was working with — the two halves of a resume that only the
-   *  file can carry across a restart. */
+  /** What the NEXT conversation is asked to replay — the half of a resume
+   *  that only the file can carry across a restart. */
   resume: () => string | null | undefined;
-  fleet: () => ReadonlyArray<string> | undefined;
+  /** The reader this conversation was handed, so a test can put a tool call
+   *  through it: membership is read off those readings and nowhere else. */
+  readCall: () => HarnessOptions<ConductorRow>["readCall"] | undefined;
   /** Every wake this conversation was sent — what the watch list's `told` is
    *  written off, and the only way to know the flush has happened before the
    *  record is read. */
   wakes: () => number;
 } {
-  let onChange: ((change: HarnessChange) => void) | undefined;
-  let options: HarnessOptions | undefined;
+  let onChange: ((change: HarnessChange<ConductorRow>) => void) | undefined;
+  let options: HarnessOptions<ConductorRow> | undefined;
   let wakes = 0;
   const host = startConductorHost({
     log,
@@ -366,12 +367,16 @@ function hostOver(): {
     spawn: async (opts) => {
       options = opts;
       onChange = opts.onChange;
-      const harness: Harness = {
-        state: () => ({ ...DEFAULT_CONDUCTOR_STATE, phase: "idle" }),
+      const harness: Harness<ConductorRow> = {
+        state: () => ({
+          ...DEFAULT_CONDUCTOR_STATE,
+          taught: false,
+          phase: "idle",
+        }),
         rows: () => [],
         alive: () => true,
         prompt: async () => ({ rowId: "sent" }),
-        wake: async () => {
+        hostTurn: async () => {
           wakes += 1;
           return { rowId: `woke:${wakes}` };
         },
@@ -394,6 +399,7 @@ function hostOver(): {
             kind: "state",
             state: {
               ...DEFAULT_CONDUCTOR_STATE,
+              taught: false,
               phase: "offline",
               sessionId: null,
             },
@@ -411,7 +417,7 @@ function hostOver(): {
     },
     resumedSeq: () => options?.resumedSeq,
     resume: () => options?.resume,
-    fleet: () => options?.fleet,
+    readCall: () => options?.readCall,
     wakes: () => wakes,
   };
 }
@@ -420,17 +426,28 @@ describe("the conversation survives a restart", () => {
   it("round-trips the transcript through its own file, and the session and fleet through `config.json`", async () => {
     const first = hostOver();
     await first.host.prompt("hello", [], [], false);
-    // What the open publishes: the conversation this IS, and the terminals it
-    // is working with. Both are the agent's to forget and ours to keep.
+    // What the open publishes: the conversation this IS. The terminals it is
+    // working with are NOT published by a harness — they are read off the tool
+    // calls this module hands it a reader for, so one goes through that reader
+    // here, exactly as a `lifecycle_create` frame would.
     first.push()({
       kind: "state",
       state: {
         ...DEFAULT_CONDUCTOR_STATE,
+        taught: false,
         phase: "idle",
         sessionId: "sess-live",
-        fleet: [FLEET_REF],
       },
     });
+    first.readCall()?.(
+      {
+        mcp: { server: "kolu", tool: "lifecycle_create" },
+        asksThroughForm: undefined,
+        input: { host: "local" },
+        answer: { id: FLEET_REF },
+      },
+      undefined,
+    );
     first.push()({
       kind: "rows",
       upserts: [row("a", 1, "one"), row("b", 2, "two")],
@@ -492,7 +509,7 @@ describe("the conversation survives a restart", () => {
     // comes back knowing about. Without both it restores a transcript and then
     // opens a stranger underneath it.
     expect(second.resume()).toBe("sess-live");
-    expect(second.fleet()).toEqual([FLEET_REF]);
+    expect(second.host.state().fleet).toEqual([FLEET_REF]);
     await second.host.dispose();
   });
 
@@ -679,6 +696,7 @@ describe("the conductor's rungs", () => {
       cwd: HOME,
       model: "claude-sonnet-4",
       fleet: [FLEET_REF],
+      taught: false,
     });
     // A file that never had a watch list has no works, and the key is THERE:
     // the shape is complete however old the file was.
@@ -817,6 +835,7 @@ describe("the conductor's rungs", () => {
       cwd: HOME,
       model: null,
       fleet: [FLEET_REF],
+      taught: false,
     });
     // ...and the watch list left it too, as two works: the waterfall its two
     // terminals were drawn as, and the plain watch on its own. A work with no

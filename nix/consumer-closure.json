@@ -42,15 +42,13 @@
     },
     "@kolu/acp-harness": {
       "dir": "packages/acp-harness",
+      "vendored": true,
       "workspace": [
         "@kolu/acp",
-        "@kolu/acp-client",
-        "@kolu/terminal-vocab",
-        "kolu-common",
-        "kolu-mcp"
+        "@kolu/acp-client"
       ],
       "external": {
-        "effect": "catalog:"
+        "effect": "4.1.4"
       }
     },
     "@kolu/agent-distro": {

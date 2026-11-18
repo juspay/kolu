@@ -41,17 +41,19 @@ import {
   AskField,
   AskLink,
   AuthAccount,
-  AuthMethod,
   AuthStatus,
   Command,
   Delivery,
   FileDiff,
+  Model,
   noticeRowFields,
+  Phase,
   PlanStep,
   rowHead,
   Saying,
   Server,
   Setting,
+  SigningIn,
   SignInReason as SignInReasonSchema,
   toolRowFields,
   Usage,
@@ -699,70 +701,6 @@ export const ConductorInstallSchema = Schema.Union([
   }),
 ]);
 
-/**
- * WHAT THE CONVERSATION IS DOING, in the one word the header chip paints.
- *
- * `asking` outranks `working`: a turn stopped on a form is blocked on a HUMAN,
- * and that is the state the violet badge counts. `starting` covers the whole
- * of the open — a subprocess, a handshake, and a replay — because the composer
- * is not locked during it and a person who typed needs to know where it went.
- */
-export const ConductorPhaseSchema = Schema.Literals([
-  "offline",
-  "starting",
-  "idle",
-  "working",
-  "asking",
-]);
-export type ConductorPhase = typeof ConductorPhaseSchema.Type;
-
-/** The model the conversation is on, named the way the agent names it. A
- *  `window` of `null` is a refusal rather than a failure: the running model
- *  does not always state its context window, and naming one five times the
- *  real size in the line you would read to decide whether to `/compact` is
- *  worse than naming nothing. */
-export const ConductorModelSchema = Schema.Struct({
-  id: Schema.String,
-  name: Schema.String,
-  window: Schema.NullOr(Schema.Int),
-});
-
-/** WHO PUT THE SIGN-IN ON SCREEN — the agent, in its own refusal, or a person
- *  who asked for it (a limit reached, the wrong account, a login that went
- *  stale). Two arms rather than an empty sentence for "nobody refused":
- *  which one it is decides whether the row can simply be closed again. */
-export const ConductorSignInCauseSchema = Schema.Union([
-  Schema.Struct({
-    kind: Schema.Literal("agent"),
-    /** The agent's own refusal, in its own words. */
-    why: Schema.String,
-  }),
-  Schema.Struct({
-    kind: Schema.Literal("person"),
-    /** What the harness has to say about signing in here: where the
-     *  signature is read from, or that the agent offered no way at all. */
-    said: Schema.String,
-  }),
-]);
-export type ConductorSignInCause = typeof ConductorSignInCauseSchema.Type;
-
-/** One sign-in per agent: a second press on the same method ATTACHES to the
- *  attempt already running rather than starting a second process. */
-export const ConductorSignInSchema = Schema.Struct({
-  cause: ConductorSignInCauseSchema,
-  methods: Schema.Array(AuthMethod),
-  attempt: Schema.NullOr(
-    Schema.Struct({
-      method: Schema.String,
-      state: Schema.Literals(["running", "succeeded", "failed"]),
-      /** The spawned command's output so far, capped — URLs in it are made
-       *  clickable by the panel. */
-      output: Schema.String,
-      link: Schema.NullOr(AskLink),
-    }),
-  ),
-});
-
 /** THE FOUR RECORDS A RESTART READS, by name — the `conductor`, `works` and
  *  `members` keys of kolu-server's `config.json`, and the transcript file
  *  beside it. The one vocabulary a refusal names a record by and a recovery
@@ -808,14 +746,14 @@ export type ConductorUnreadable = typeof ConductorUnreadableSchema.Type;
 
 export const ConductorStateSchema = Schema.Struct({
   install: ConductorInstallSchema,
-  phase: ConductorPhaseSchema,
+  phase: Phase,
   /** What the agent is called — "Claude Code". The panel never spells it. */
   agentName: Schema.String,
   sessionId: Schema.NullOr(Schema.String),
   /** `$HOME` of the machine kolu-server runs on: the directory the
    *  conversation works in. */
   cwd: Schema.String,
-  model: Schema.NullOr(ConductorModelSchema),
+  model: Schema.NullOr(Model),
   /** The agent's own number, newest wins. `null` means the agent reported
    *  nothing, which is different from a conversation that has spent nothing
    *  (`{used: 0, size: 200000}`). */
@@ -842,7 +780,10 @@ export const ConductorStateSchema = Schema.Struct({
    *  Live state for each is read from that host's `terminals` collection,
    *  never remembered here — this is membership, not a mirror. */
   fleet: Schema.Array(Schema.String),
-  signIn: Schema.NullOr(ConductorSignInSchema),
+  /** The sign-in this conversation is offering or running, which is the
+   *  PANEL's state and not the client's event — {@link SigningIn} argues the
+   *  difference. `null` when there is nothing to draw. */
+  signIn: Schema.NullOr(SigningIn),
   /** WHO the agent process is signed in as, as the agent itself reports it
    *  (`_auth/status_update`). CONNECTION-scoped, not session-scoped: it
    *  belongs to the subprocess, so it survives a `newSession`.

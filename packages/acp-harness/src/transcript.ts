@@ -145,7 +145,11 @@ type Derived = "id" | "seq" | "since" | "streaming" | "stranded" | "resumed";
  */
 export type RowContent<Row extends AnyRow> = DistributiveOmit<Row, Derived>;
 
-type RowPatch<Row extends AnyRow, K extends Row["kind"]> = Partial<
+/** One kind of row's CONTENT, every field optional — what a caller may say
+ *  about a row of that kind. Exported because the package's door hands the
+ *  product's own half of a `user` row and a `tool` row back and forth, and
+ *  both sides have to be able to name it. */
+export type RowPatch<Row extends AnyRow, K extends Row["kind"]> = Partial<
   Extract<RowContent<Row>, { kind: K }>
 >;
 

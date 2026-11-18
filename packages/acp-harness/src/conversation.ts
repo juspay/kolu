@@ -4,38 +4,46 @@
  * The protocol is `@kolu/acp-client`'s: it owns the process, the handshake,
  * which session is open, the questions on the wire, the sign-in attempt and
  * the reading of every frame, and it says what the agent said through one
- * closed union of events. What is HERE is everything a kolu conversation is
- * made of on top of that — which session is opened or resumed and what the
- * transcript does about it, the turns in flight, the steering latch, the rows
- * a person reads, and the state a panel is a view of. A caller gets something
- * it can prompt, cancel, answer, sign in and stop, plus the rows and the state
+ * closed union of events. What is HERE is everything a conversation is made of
+ * on top of that — which session is opened or resumed and what the transcript
+ * does about it, the turns in flight, the steering latch, the rows a person
+ * reads, and the state a panel is a view of. A caller gets something it can
+ * prompt, cancel, answer, sign in and stop, plus the rows and the state
  * through the one callback it gave at construction.
  *
- * The three rules that are KOLU'S rather than the protocol's, and so are here
- * rather than in the client:
+ * NO PRODUCT IS NAMED HERE, and that is the whole shape of this door. Two
+ * products run this file — kolu's Conductor and olai's chat panel — and every
+ * fact that is one of theirs rather than the protocol's arrives as an option
+ * or as the row content a verb is handed: what a tool call is READ as, what a
+ * person's message carries, what a turn this end starts is drawn as, and the
+ * three rules below. A product's word in this file is the defect.
  *
- *   - **a conversation the agent cannot come back to opens a fresh one**, with
- *     the break that says the agent's memory was reset and a line carrying the
- *     agent's own sentence for why. The client refuses the load and says so;
- *     what is done about it is the product's, because what it costs is a
- *     transcript the product owns.
- *   - **a replay's history is dropped and its news is kept.** `session/load`
- *     re-emits every message of the conversation before it answers, and kolu
- *     already holds those rows in a richer form — they carry readings no
- *     agent's transcript has. What the same stream says about the session AS
- *     IT STANDS is kept, because nobody else knows it.
- *   - **an attachment is a content block, with the caps.** What a file becomes
- *     on the wire, what the agent said it can take, and the two sentences that
- *     refuse one that is too big are all decisions about a person's message.
+ * The three rules that are the PRODUCT'S rather than the protocol's, each a
+ * named policy with both arms implemented here:
  *
- * ... and **what a row carries**: what was READ, never the raw protocol value
- * — which kolu terminal a call is about is {@link ./kolu.ts}'s reading, made
- * out of the input and the answer the client hands over.
+ *   - **what a new session does to the transcript** ({@link
+ *     HarnessOptions.whenNewSession}): a break drawn across one transcript, or
+ *     the rows wiped.
+ *   - **what a conversation the agent cannot come back to does** ({@link
+ *     HarnessOptions.whenLoadRefused}): open a fresh one and say so, or report
+ *     the refusal and open nothing. The client refuses the load either way;
+ *     what it COSTS is a transcript the product owns, so the product decides.
+ *   - **what a replay's frames do** ({@link HarnessOptions.whenReplayed}):
+ *     `session/load` re-emits every message of the conversation before it
+ *     answers, and a product that already holds those rows in a richer form
+ *     drops them. A product that holds nothing keeps them. What the same
+ *     stream says about the session AS IT STANDS is kept either way, because
+ *     nobody else knows it.
+ *
+ * ... and **an attachment is a content block, with the caps**, which is not a
+ * policy because both products agree: what a file becomes on the wire, what
+ * the agent said it can take, and the two sentences that refuse one that is
+ * too big are decisions about a person's message and are made here.
  *
  * WHAT IS DELIBERATELY NOT HERE: a client-side prompt queue. Every send is a
  * plain prompt, busy or idle, and the agent holds a busy one behind the turn
  * it is working on — the queue is the AGENT'S and nothing is held on this
- * side. The row's own *queued* mark is kolu's fact about its own conversation
+ * side. The row's own *queued* mark is this conversation's fact about itself
  * ({@link ./turns.ts}) and not a second queue.
  */
 
@@ -58,31 +66,32 @@ import type {
   AuthMethod,
   AuthStatus,
   Command,
+  Model,
+  Phase,
   PlanStep,
   Server,
   Setting,
   SignIn,
   SignInReason,
+  SigningIn,
   Usage,
+  Watching,
 } from "@kolu/acp/wire";
 import { Effect, Logger, References } from "effect";
-import { aboutBlock } from "./aboutBlock.ts";
-import { Fleet, koluCallOf, refineKoluCall } from "./kolu.ts";
-import type {
-  ConductorAttachment,
-  ConductorKoluCall,
-  ConductorMention,
-  ConductorModel,
-  ConductorRow,
-  ConductorSignIn,
-  ConductorState,
-  ConductorWakeEvent,
-} from "./rows.ts";
-import { type Change, plus, says, Transcript } from "./transcript.ts";
+import {
+  type AnyRow,
+  type Change,
+  plus,
+  type RowContent,
+  type RowPatch,
+  says,
+  Transcript,
+} from "./transcript.ts";
 import { type Turn, Turns } from "./turns.ts";
 
-/** kolu keeps nothing in a turn's payload: its turns are `async` functions, and
- *  a cancel reaches them through the agent rather than through a handle here. */
+/** This conversation keeps nothing in a turn's payload: its turns are `async`
+ *  functions, and a cancel reaches them through the agent rather than through
+ *  a handle here. */
 type NoPayload = undefined;
 
 // ── what a caller hands over, and what it gets back ────────────────────
@@ -129,14 +138,61 @@ export type StdioServer = Extract<Handed, { readonly kind: "stdio" }>;
  *  somebody is already running, reached over streamable HTTP rather than
  *  spawned.
  *
- *  This is how kolu hands over the FLEET: one face, in kolu-server's own
- *  process, covering every host's terminals. A stdio server could only ever be
- *  a program on ONE machine, which is the shape the fleet grew out of.
- *  `headers` is where its bearer token rides — the endpoint is on loopback,
- *  and loopback is not a gate. */
+ *  It is how a product hands over a face that is IN ITS OWN PROCESS and covers
+ *  more than one machine: a stdio server could only ever be a program on ONE
+ *  of them. `headers` is where its bearer token rides — such an endpoint is on
+ *  loopback, and loopback is not a gate. */
 export type HttpServer = Extract<Handed, { readonly kind: "http" }>;
 
-export interface HarnessOptions {
+/** ONE FILE RIDING A PERSON'S MESSAGE, as little of it as this package reads:
+ *  what it is called, what it is, how big it is, and where the bytes are. The
+ *  product owns the rest of whatever it records on the row — an id, a
+ *  thumbnail, a ring — and hands a value that answers these four. */
+export interface PromptFile {
+  readonly name: string;
+  readonly mimeType: string;
+  /** Size on disk, as the product measured it. The caps below refuse on it. */
+  readonly bytes: number;
+  /** Absolute, on the machine the agent is running on. */
+  readonly path: string;
+}
+
+/**
+ * WHAT A PERSON SAID, as this conversation is handed it.
+ *
+ * FOUR FIELDS BECAUSE THE ROW AND THE WIRE ARE NOT THE SAME THING. `text` is
+ * what the transcript records — their words, unadorned, which is what a person
+ * reads back and what *send again* sends. `body` is what goes to the AGENT
+ * under them, which is the product's to compose: kolu writes the block naming
+ * the terminals a message was about, and an agent that was told nothing of
+ * them would answer about a context it never had. `extra` is the product's
+ * half of the row ({@link Transcript}), copied on and never read here.
+ */
+export interface PersonSaid<Row extends AnyRow> {
+  readonly text: string;
+  readonly body: string;
+  readonly extra: RowPatch<Row, "user">;
+  readonly files: ReadonlyArray<PromptFile>;
+}
+
+/** ONE TOOL FRAME, as the product is asked to read it — everything the client
+ *  said about the call that this package does not itself put on the row. */
+export interface ToolFrame {
+  /** The MCP server and tool this call was positively recognised as, or
+   *  `undefined` where the agent's leg matched no server we handed over. A
+   *  reading minted off anything else is a card about somebody else's call. */
+  readonly mcp: { readonly server: string; readonly tool: string } | undefined;
+  /** Whether this call's question reaches a person as a FORM (the agent's own
+   *  "ask the human" tool), or `undefined` where no frame has said. */
+  readonly asksThroughForm: boolean | undefined;
+  /** What the agent wrote as the call's input, as it arrived — free JSON, and
+   *  free to be half-written. */
+  readonly input: unknown;
+  /** ... and the structured answer, where one has come back. */
+  readonly answer: unknown;
+}
+
+export interface HarnessOptions<Row extends AnyRow> {
   /** How to read what this agent sends. Every bet that is true of one agent and
    *  not another is behind this; nothing in this file names an adapter. */
   readonly leg: Leg;
@@ -162,19 +218,32 @@ export interface HarnessOptions {
    */
   readonly configDir: string;
   /** What this conversation's hands are. Each is either a program to spawn on
-   *  this machine or an HTTP endpoint already serving — kolu hands exactly one
-   *  of the second kind, its fleet face. */
+   *  this machine or an HTTP endpoint already serving. */
   readonly mcpServers: ReadonlyArray<StdioServer | HttpServer>;
-  /** The standing prompt, which rides under the first message of every
-   *  session. The WORDS are the caller's — they name kolu's own MCP verbs, and
-   *  this package knows no tool but the protocol's. */
+  /** The standing prompt, which rides under the first message of a session
+   *  that has not been taught. The WORDS are the caller's — they name the
+   *  product's own MCP verbs, and this package knows no tool but the
+   *  protocol's. */
   readonly teaching: string;
+  /**
+   * Whether the session being resumed HAS ALREADY BEEN TAUGHT — the standing
+   * prompt went out under a message of it, and this conversation owes it
+   * nothing.
+   *
+   * The caller's because it is the caller that remembers a session across a
+   * restart: a harness is replaced for reasons that have nothing to do with
+   * the conversation (an upgrade, a crash, a sign-in), and one that assumed
+   * nothing re-taught a conversation the agent had already been taught — the
+   * standing prompt again, in the middle of a chat, every restart. A fresh
+   * session is `false`, and a caller that resumes nothing says `false`.
+   */
+  readonly taught: boolean;
   readonly log: {
     info(o: unknown, m?: string): void;
     warn(o: unknown, m?: string): void;
     error(o: unknown, m?: string): void;
   };
-  /** Resume this session id instead of opening a fresh one — padi's last
+  /** Resume this session id instead of opening a fresh one — the caller's last
    *  conversation, read back out of its own store. */
   readonly resume?: string | null;
   /**
@@ -182,33 +251,22 @@ export interface HarnessOptions {
    * conversation, so this harness mints its ids and its ordering past them.
    *
    * A RESUMED conversation is two records of one thing: the caller's rows, and
-   * the replay `session/load` re-emits. The caller's are the ones kept — they
-   * carry kolu's own readings, which the agent's transcript knows nothing
-   * about — so what this number buys is that nothing minted here can collide
-   * with one of them or sort above it. Absent means an empty transcript, which
-   * is what a fresh conversation is.
+   * the replay `session/load` re-emits. A caller that keeps its own rows keeps
+   * the richer record — they carry readings the agent's transcript knows
+   * nothing about — so what this number buys is that nothing minted here can
+   * collide with one of them or sort above it. Absent means an empty
+   * transcript, which is what a fresh conversation is.
    */
   readonly resumedSeq?: number;
   /**
    * Whether the LAST row the caller has persisted for this conversation is a
    * break. A replacement harness builds a fresh transcript, and the rule that
-   * refuses a second `— NEW SESSION —` beside the first one can only read its
-   * own rows — so without this a `newSession` right after a respawn minted a
-   * break beside padi's, every time.
+   * refuses a second break beside the first one can only read its own rows —
+   * so without this a `newSession` right after a respawn minted a break beside
+   * the caller's, every time. Means nothing to a product that clears
+   * ({@link whenNewSession}), which mints no break at all.
    */
   readonly resumedEndsWithDivider?: boolean;
-  /**
-   * The terminals the caller REMEMBERS this conversation was working with, as
-   * the fleet stood when it was last persisted.
-   *
-   * Membership otherwise accrues only from tool-call frames, and a resumed
-   * conversation's frames are history the caller already holds — so a harness
-   * that started from an empty fleet would publish one on its first breath and
-   * the caller would write that emptiness back over its own record. A resumed
-   * conversation would forget every terminal it had been working with, once,
-   * permanently. Seeded here; new terminals still join as they are touched.
-   */
-  readonly fleet?: ReadonlyArray<string>;
   /**
    * The model a PERSON chose, as the id it was chosen under — or `null` for a
    * conversation nobody has moved off whatever the agent picks.
@@ -219,51 +277,134 @@ export interface HarnessOptions {
    * after the session is open.
    */
   readonly model?: string | null;
-  readonly onChange: (change: HarnessChange) => void;
+  /**
+   * WHAT A TOOL CALL IS READ AS, on the product's half of the row.
+   *
+   * The whole of what this package knows about a tool call is the protocol's
+   * ({@link ToolFrame}); what a card SAYS about one — which of the product's
+   * own things it is about, what it was asked to do, what came back — is the
+   * product's reading of that frame, and it is the one thing a generic JSON
+   * card cannot be made into without the product's own words.
+   *
+   * `held` is what this same call was last read as, because the adapter does
+   * not send a call's input and its answer on the same frame: the arming frame
+   * carries the input and the settling frame the answer, so a reading made
+   * from either alone is missing the half the other had. The reader folds the
+   * two — it, not this package, knows which fields a later frame may take back
+   * — and what it answers is both the row's new `extra` and the `held` of the
+   * next frame. `undefined` is "nothing to say about this call", which is what
+   * lets a background task's own report stay a report rather than minting a
+   * card for a call nobody made.
+   *
+   * Cleared with the conversation, for the reason the client's own registry
+   * is: a call id is only ever looked up inside the session that minted it,
+   * and a daemon meant to run for weeks must not keep every call it ever saw.
+   */
+  readonly readCall: (
+    frame: ToolFrame,
+    held: RowPatch<Row, "tool"> | undefined,
+  ) => RowPatch<Row, "tool"> | undefined;
+  /**
+   * WHAT A NEW SESSION DOES TO THE TRANSCRIPT — the first of the three
+   * policies, and the one the other two lean on.
+   *
+   * `"divide"` — one transcript, two conversations, with a BREAK row between
+   * them saying the agent's memory was reset. What was said before it stays
+   * exactly where it was; the product declares a row of kind `divider` and
+   * draws it as the rule across the page.
+   *
+   * `"clear"` — the rows go. A panel that holds its conversation only in
+   * memory has nothing to divide, and a break above an empty transcript is a
+   * rule drawn across nothing.
+   */
+  readonly whenNewSession: "divide" | "clear";
+  /**
+   * ... AND WHAT A CONVERSATION THE AGENT CANNOT COME BACK TO DOES.
+   *
+   * `"fresh"` — open a new one in its place, with the break and a line
+   * carrying the agent's own sentence for why. The id is a string the product
+   * wrote down for a store the agent has since forgotten; the agent REFUSED,
+   * which is the protocol's own proof that it is there and talking, and a
+   * product whose conversation outlives the agent's memory of it would rather
+   * keep talking.
+   *
+   * `"report"` — open nothing. The refusal stands as the refusal it is, this
+   * harness comes up with it published, and the caller decides. A product
+   * whose panel is the only copy of the conversation does not silently get a
+   * different one.
+   */
+  readonly whenLoadRefused: "fresh" | "report";
+  /**
+   * ... AND WHAT A REPLAY'S FRAMES DO.
+   *
+   * `"drop"` — counted and thrown away. `session/load` re-emits every message
+   * of the conversation before it answers, and a product that persists its own
+   * rows already holds them in a richer form; folding the replay in would mint
+   * a second, poorer copy of every row on screen.
+   *
+   * `"keep"` — folded in like any other frame, which is how a product with no
+   * record of its own gets a resumed conversation back on screen at all.
+   */
+  readonly whenReplayed: "drop" | "keep";
+  readonly onChange: (change: HarnessChange<Row>) => void;
 }
 
-/** WHAT A HARNESS CAN ANSWER FOR: padi's whole conductor state minus the
- *  seven facts it would only be echoing back. `install` and `agentName` are
- *  the ENGINE's, settled when kolu was built, and `cwd` is the directory padi
- *  handed in — a harness that published them would be overwriting the caller's
- *  own answer with a copy of it. `seen`, `work` and `held` are the SERVER's in
- *  the same way: how each watched terminal stands and since when, how the
- *  watched terminals group into the pieces of work that ARE the membership
- *  list, and whose news is waiting for the turn to end, are facts about
- *  kolu's watch rather than about the conversation — this end only ever
- *  learns of them as a {@link Harness.wake}. `unreadable` is the server's
- *  too, and the furthest from a harness of all of them: it says which
- *  REMEMBERED RECORD would not decode, which is a fact about a file this end
- *  has never seen — and about a conversation that could not be started
- *  BECAUSE of it, so there is no harness to answer for it. `workAsks` is the
- *  server's as well: the questions kolu put about its pieces of work, read
- *  off records this end never holds. */
-export type HarnessState = Omit<
-  ConductorState,
-  | "install"
-  | "agentName"
-  | "cwd"
-  | "seen"
-  | "work"
-  | "held"
-  | "unreadable"
-  | "workAsks"
->;
+/**
+ * WHAT A HARNESS CAN ANSWER FOR — the conversation, and nothing a caller
+ * already knows.
+ *
+ * Every field here is a fact this end learned from the agent or minted about
+ * its own rows. What a product keeps BESIDE a conversation — which install it
+ * is, what the agent is called, the directory it was started in, whatever its
+ * host is watching, whatever it could not read off its own disk — is the
+ * caller's, and a harness that published any of it would be overwriting the
+ * caller's own answer with a copy of it.
+ *
+ * Typed with `@kolu/acp/wire`'s shapes, which is what makes it publishable:
+ * every product that draws a conversation draws these same words.
+ */
+export interface HarnessState {
+  readonly phase: Phase;
+  readonly sessionId: string | null;
+  readonly model: Model | null;
+  readonly usage: Usage | null;
+  readonly options: ReadonlyArray<Setting>;
+  readonly commands: ReadonlyArray<Command>;
+  readonly servers: ReadonlyArray<Server>;
+  readonly watching: ReadonlyArray<Watching>;
+  /** Every question still waiting on a human, in the order it was asked. */
+  readonly openAsks: ReadonlyArray<string>;
+  readonly signIn: SigningIn | null;
+  readonly identity: AuthStatus | null;
+  /** A conversation the agent would not OPEN, in the agent's own words. */
+  readonly refusal: string | null;
+  /** Whether a message may be STEERED into the turn that is running. */
+  readonly steers: boolean;
+  /** When the turn in flight began, or `null` while nothing is running. */
+  readonly busySince: string | null;
+  /** Whether the standing prompt has gone out under a message of THIS
+   *  session. Published because it is the one fact a caller must remember for
+   *  the harness that replaces this one ({@link HarnessOptions.taught}) — a
+   *  conversation taught twice is the standing prompt arriving in the middle
+   *  of a chat. */
+  readonly taught: boolean;
+}
 
 /**
  * WHAT MOVED — the two things a reader of a conversation can be told, and
  * deliberately not one.
  *
- * Rows travel as the deltas padi folds into its own map, because a streaming
- * answer is one row and six hundred pieces and publishing the whole of it per
- * piece is quadratic in the length of the answer. State travels whole, because
- * it is small and a patch of it would be a second thing to get right.
+ * Rows travel as the deltas a caller folds into its own map, because a
+ * streaming answer is one row and six hundred pieces and publishing the whole
+ * of it per piece is quadratic in the length of the answer. State travels
+ * whole, because it is small and a patch of it would be a second thing to get
+ * right.
  */
-export type HarnessChange =
+export type HarnessChange<Row extends AnyRow> =
   | { readonly kind: "state"; readonly state: HarnessState }
   | {
       readonly kind: "rows";
-      readonly upserts: ReadonlyArray<ConductorRow>;
+      readonly upserts: ReadonlyArray<Row>;
       readonly removes: ReadonlyArray<string>;
       readonly appends: ReadonlyArray<{
         of: string;
@@ -272,7 +413,7 @@ export type HarnessChange =
       }>;
     };
 
-export interface Harness {
+export interface Harness<Row extends AnyRow> {
   readonly state: () => HarnessState;
   /** Whether there is still a subprocess to talk to. Asked by a caller that
    *  would otherwise replace a harness over `phase`, which answers a different
@@ -280,11 +421,9 @@ export interface Harness {
    *  OFFLINE and ALIVE, and replacing it kills the process the sign-in it is
    *  offering has to run against. */
   readonly alive: () => boolean;
-  readonly rows: () => ReadonlyArray<ConductorRow>;
+  readonly rows: () => ReadonlyArray<Row>;
   prompt(
-    text: string,
-    mentions: ReadonlyArray<ConductorMention>,
-    attachments: ReadonlyArray<ConductorAttachment>,
+    said: PersonSaid<Row>,
     /** STEER rather than queue: put the words INTO the turn that is running.
      *  Honoured only while a turn runs and `state.steers` holds; a steer the
      *  agent did not take goes out as a plain prompt, so the words are never
@@ -293,18 +432,16 @@ export interface Harness {
     steer: boolean,
   ): Promise<{ rowId: string }>;
   /**
-   * KOLU'S OWN LINE — a turn this end starts because a watched terminal
-   * stopped, asked, or died.
+   * A TURN THIS END STARTS — nobody typed it. kolu's Conductor is woken by a
+   * terminal that stopped, asked, or died; another product has its own reason.
    *
    * A turn like any other: it mints a row, waits behind whatever is running,
-   * can be cancelled, refused or go unanswered, and the row carries every
-   * mark a person's message does. What differs is whose words they are, which
-   * is the row's kind and nothing else here.
+   * can be cancelled, refused or go unanswered, and the row carries every mark
+   * a person's message does. What differs is whose words they are, which is
+   * the row the caller hands over and nothing else here — and `text`, which is
+   * what goes to the agent under them.
    */
-  wake(
-    text: string,
-    events: ReadonlyArray<ConductorWakeEvent>,
-  ): Promise<{ rowId: string }>;
+  hostTurn(row: RowContent<Row>, text: string): Promise<{ rowId: string }>;
   cancel(): Promise<void>;
   answer(
     askId: string,
@@ -320,6 +457,8 @@ export interface Harness {
   signInInput(text: string): Promise<void>;
   signInCancel(): Promise<boolean>;
   setOption(id: string, value: string): Promise<void>;
+  /** A new conversation at the agent, and whatever
+   *  {@link HarnessOptions.whenNewSession} says that does to the rows. */
   newSession(): Promise<void>;
   /** The wipe: a new session at the agent AND this conversation's rows
    *  deleted, `held` naming the ones the caller holds that the harness never
@@ -360,10 +499,9 @@ const CANCELLED_UNDER_IT =
   "the turn these words were steered into was cancelled, so they were not sent";
 
 /** WHICH AGENT THIS IS, for the client's log lines and for the key its memory
- *  would be written under. One conversation per harness and one harness per
- *  conductor, so the name is what this conversation is FOR rather than a
- *  roster id — kolu runs exactly one. */
-const AGENT_ID = "conductor";
+ *  would be written under. One conversation per harness, so the name is what
+ *  this conversation is FOR rather than a roster id. */
+const AGENT_ID = "conversation";
 
 /**
  * Spawn the agent, shake hands, and open the conversation — all of it, before
@@ -386,9 +524,9 @@ const AGENT_ID = "conductor";
  * only through a fresh `initialize`, so a conversation opened by this process
  * after a sign-in would be one the new credential never reached.
  */
-export const startHarness = async (
-  options: HarnessOptions,
-): Promise<Harness> => {
+export const startHarness = async <Row extends AnyRow>(
+  options: HarnessOptions<Row>,
+): Promise<Harness<Row>> => {
   const { leg, adapter, log } = options;
 
   // ── the one place an Effect is run ───────────────────────────────────
@@ -482,21 +620,32 @@ export const startHarness = async (
 
   // ── the state this conversation is ───────────────────────────────────
 
-  /** The rows, minted PAST what is already persisted elsewhere: padi hands in
-   *  the highest `seq` it holds, so nothing this process mints can collide
-   *  with a restored row's id or sort above it — and whether the last of those
-   *  rows is a break, which is the one thing a fresh transcript cannot see
-   *  about the conversation it is continuing. */
-  const transcript = new Transcript<ConductorRow>({
+  /** THE ROW KIND A BREAK IS MINTED UNDER, for a product whose new session
+   *  DIVIDES ({@link HarnessOptions.whenNewSession}). A product that clears
+   *  never sees one, and need declare no such row. */
+  const BREAK_KIND = "divider";
+
+  /** The rows a turn this END started were drawn as, by key
+   *  ({@link Harness.hostTurn}). Kept because such a row takes every delivery
+   *  mark a person's message does, and its KIND is a word of the caller's that
+   *  this file cannot recognise. */
+  const hostRows = new Set<string>();
+
+  /** The rows, minted PAST what is already persisted elsewhere: the caller
+   *  hands in the highest `seq` it holds, so nothing this process mints can
+   *  collide with a restored row's id or sort above it — and whether the last
+   *  of those rows is a break, which is the one thing a fresh transcript
+   *  cannot see about the conversation it is continuing. */
+  const transcript = new Transcript<Row>({
     from: options.resumedSeq ?? 0,
     now: Date.now,
     endsWithDivider: options.resumedEndsWithDivider ?? false,
-    // TWO KINDS A TURN IS THE DELIVERY OF here: what a person typed, and kolu's
-    // own wake — both can wait behind another turn, be refused, or go
-    // unanswered, and both carry the marks that say so.
-    deliverable: (row) => row.kind === "user" || row.kind === "wake",
+    // TWO KINDS A TURN IS THE DELIVERY OF here: what a person typed, and a
+    // turn this end started — both can wait behind another turn, be refused,
+    // or go unanswered, and both carry the marks that say so.
+    deliverable: (row) => row.kind === "user" || hostRows.has(row.id),
     countersSurviveClear: true,
-    breakKind: "divider",
+    breakKind: BREAK_KIND,
   });
   /**
    * THE BREAK BETWEEN TWO CONVERSATIONS — the row that says the agent's memory
@@ -511,13 +660,24 @@ export const startHarness = async (
    * exactly what one says, and the stack of them is what a caller retrying a
    * refused open leaves behind: four `— NEW SESSION —` lines with no
    * conversation between them.
+   *
+   * AND A PRODUCT THAT CLEARS MINTS NONE AT ALL ({@link
+   * HarnessOptions.whenNewSession}): a break drawn across a transcript that is
+   * about to be empty says nothing, and the row kind is one such a product
+   * never declared.
    */
   const divider = (
     text: string,
-  ): { readonly key: string | null; readonly change: Change<ConductorRow> } =>
-    transcript.endsWithBreak()
+  ): { readonly key: string | null; readonly change: Change<Row> } =>
+    options.whenNewSession === "clear" || transcript.endsWithBreak()
       ? { key: null, change: { upserts: [], removes: [], appends: [] } }
-      : transcript.write({ kind: "divider", text });
+      : // The product that DIVIDES is the product that declares a `divider`
+        // row; the compiler cannot see that through a `Row` this package is
+        // only generic over, so the content is cast at this one site.
+        transcript.write({
+          kind: BREAK_KIND,
+          text,
+        } as unknown as RowContent<Row>);
 
   /** The one key a plan row lives at, for the life of a session. */
   const PLAN_KEY = "plan";
@@ -525,30 +685,36 @@ export const startHarness = async (
   /**
    * THE REFUSAL MARK A ROW CAN CARRY, and none where it cannot.
    *
-   * `extra` is the PRODUCT's half of a refusal, and kolu's half — which sign-in
-   * would fix the message — belongs to words a PERSON typed. A wake is kolu's
-   * own line, drawn full width with no *send again* under it, and its row schema
-   * has no `signIn`: passing one would write a field the contract does not
-   * declare, which the encoder then refuses — the whole frame dropped, every row
-   * in it gone.
+   * `signIn` is the one product field this file writes itself, because it is
+   * the client's own reading of the refusal (`@kolu/acp/wire`'s
+   * {@link SignInReason}) rather than anything a product composed — and it
+   * belongs to words a PERSON typed. A turn this end started is nobody's
+   * message to send again, and a product's row for one may declare no `signIn`
+   * at all: passing one would write a field the contract does not declare,
+   * which the encoder then refuses — the whole frame dropped, every row in it
+   * gone.
+   *
+   * A product whose `user` row declares it is what the mark is cast against:
+   * the compiler cannot see through a `Row` this package is only generic over.
    */
   const refusalMark = (
     key: string,
     signIn: SignInReason | "no",
-  ): { signIn?: SignInReason } =>
+  ): Partial<Row> =>
     signIn === "no" || transcript.entries().get(key)?.kind !== "user"
       ? {}
-      : { signIn };
+      : ({ signIn } as unknown as Partial<Row>);
 
   /**
    * THE AGENT'S PLAN — one row at one key for the life of a session, because
    * each `plan` update REPLACES the whole thing and an empty update removes it.
    *
-   * KOLU'S OWN ROW KIND, which is why it lives here rather than in the shared
-   * transcript: olai's chat panel has no plan row at all, and a method for one
-   * in the class would be a product's word in a class that names neither.
+   * ITS OWN ROW KIND rather than a method on the shared transcript: a product
+   * that draws no plan declares no such row, and a method for one in the class
+   * would be a kind nobody can write in a class that writes only what both
+   * products have.
    */
-  const plan = (steps: ReadonlyArray<PlanStep>): Change<ConductorRow> => {
+  const plan = (steps: ReadonlyArray<PlanStep>): Change<Row> => {
     const closed = transcript.stopSaying();
     if (steps.length === 0) {
       if (!transcript.entries().has(PLAN_KEY)) return closed;
@@ -561,20 +727,28 @@ export const startHarness = async (
     // what a frame says.
     if (
       held?.kind === "plan" &&
+      "steps" in held &&
       JSON.stringify(held.steps) === JSON.stringify(steps)
     ) {
       return closed;
     }
-    return plus(closed, transcript.upsert(PLAN_KEY, { kind: "plan", steps }));
+    return plus(
+      closed,
+      transcript.upsert(PLAN_KEY, {
+        kind: "plan",
+        steps,
+      } as unknown as RowContent<Row>),
+    );
   };
 
   const turns = new Turns<undefined>();
-  const fleet = new Fleet(options.fleet ?? []);
-  /** The accumulated kolu reading per call id — see `refineKoluCall`. Cleared
-   *  with the conversation, for the reason the client's own registry is: a call
-   *  id is only ever looked up inside the session that minted it, and a daemon
-   *  meant to run for weeks must not keep every call it ever saw. */
-  const koluReadings = new Map<string, ConductorKoluCall>();
+  /** The product's reading of each call still in this conversation, by call id
+   *  — what {@link HarnessOptions.readCall} was last handed and last said.
+   *  Cleared with the conversation, for the reason the client's own registry
+   *  is: a call id is only ever looked up inside the session that minted it,
+   *  and a daemon meant to run for weeks must not keep every call it ever
+   *  saw. */
+  const readings = new Map<string, RowPatch<Row, "tool">>();
 
   /**
    * WHAT THIS AGENT SAID ABOUT TAKING A MESSAGE MID-TURN, read at the
@@ -620,10 +794,13 @@ export const startHarness = async (
    *  is holding and the session it was in — a harness that quietly spawned a
    *  second process would be deciding that for it. */
   let dead = false;
-  let taught = false;
+  /** Whether the standing prompt has gone out under a message of the session
+   *  this conversation is in — seeded with what the caller remembered for the
+   *  session it asked to resume. */
+  let taught = options.taught;
   /** The conversation this harness is in now, as the client last said. */
   let sessionId: string | null = null;
-  let model: ConductorModel | null = null;
+  let model: Model | null = null;
   let usage: Usage | null = null;
   let identity: AuthStatus | null = null;
   let refusal: string | null = null;
@@ -637,9 +814,20 @@ export const startHarness = async (
    *  is this half's. */
   let openAsks: ReadonlyArray<string> = [];
   /** Whether the client is replaying a conversation at us, and how many frames
-   *  of it have been dropped ({@link emit}'s transcript arms). */
+   *  of it have been dropped ({@link dropped}). */
   let replaying = false;
   let replayed = 0;
+
+  /** A REPLAYED FRAME THIS CONVERSATION WILL NOT FOLD IN, counted on its way
+   *  past so the one line a replay gets can say how many there were. `false`
+   *  for every live frame, and for every frame of a replay a product KEEPS
+   *  ({@link HarnessOptions.whenReplayed}) — which is the one place that
+   *  policy is read. */
+  const dropped = (): boolean => {
+    if (!replaying || options.whenReplayed === "keep") return false;
+    replayed += 1;
+    return true;
+  };
 
   /**
    * WHAT THIS AGENT SAID IT CAN BE SENT, beyond the text every agent takes —
@@ -666,21 +854,21 @@ export const startHarness = async (
   // ── the sign-in row, composed from three sources ─────────────────────
 
   /**
-   * THE SIGN-IN, as kolu draws it: WHY it is on screen, what is on offer, and
-   * the attempt in flight.
+   * THE SIGN-IN, as a panel draws it: WHY it is on screen, what is on offer,
+   * and the attempt in flight.
    *
    * THREE SOURCES AND ONE ROW. The methods are the handshake's; the attempt is
    * the client's, which is the half holding a process and a question; the
-   * CAUSE is kolu's own — a refusal this end met, or a person who pressed the
-   * button. The client's `signIn` event and this row are two layers on purpose
-   * and are not merged: one is what the agent is doing, the other is what this
-   * panel is asking about.
+   * CAUSE is this end's own — a refusal it met, or a person who pressed the
+   * button. The client's `signIn` event and this state are two layers on
+   * purpose and are not merged: one is what the agent is doing, the other is
+   * what this panel is asking about.
    */
   let onOffer: ReadonlyArray<AuthMethod> = [];
   /** What the agent calls itself, for the dead end's own sentence. */
   let agentSaid: string | null = null;
-  let cause: ConductorSignIn["cause"] | null = null;
-  let attempt: ConductorSignIn["attempt"] = null;
+  let cause: SigningIn["cause"] | null = null;
+  let attempt: SigningIn["attempt"] = null;
   /** Whether the attempt in flight is one a PERSON asked to stop — read where
    *  the attempt ENDS, so a cancel is not reported as a failure. */
   let cancelling = false;
@@ -693,23 +881,23 @@ export const startHarness = async (
    *
    * An agent that will not work and advertises no way to fix it is a dead
    * end, and the only useful thing left is the whole of what was asked and
-   * what came back: which adapter was spawned, what it calls itself, what
-   * kolu asked for in the handshake, and the store it reads.
+   * what came back: which adapter was spawned, what it calls itself, what the
+   * handshake asked for, and the store it reads.
    */
   const nothingOffered = (): string =>
-    `${agentSaid ?? "the agent"} offered no way to sign in: kolu's handshake` +
+    `${agentSaid ?? "the agent"} offered no way to sign in: the handshake` +
     ' asked for terminal auth (`auth.terminal` and `_meta["terminal-auth"]`)' +
     " and the reply carried no `authMethods`. The adapter is" +
     ` \`${adapter.command}\`, and ${storedAt}`;
 
   /** What a person is told when THEY ask to sign in. */
-  const askedFor = (): ConductorSignIn["cause"] => ({
+  const askedFor = (): SigningIn["cause"] => ({
     kind: "person",
     said: `${onOffer.length === 0 ? nothingOffered() : storedAt}.`,
   });
 
   /** THE ROW, composed: or `null` when there is nothing to draw. */
-  const signInRow = (): ConductorSignIn | null =>
+  const signInRow = (): SigningIn | null =>
     cause === null && attempt === null
       ? null
       : {
@@ -744,8 +932,7 @@ export const startHarness = async (
    * Everything that arrives from the agent — a notification, a question it is
    * waiting on, the session it opened, the process's own exit — reaches this
    * half as one member of the client's closed union, and this has one case for
-   * each member. What is inside each case is what a kolu conversation does
-   * about it.
+   * each member. What is inside each case is what a conversation does about it.
    *
    * SYNCHRONOUS on purpose: a row is still reported before state is published,
    * and nothing puts a promise hop between a message arriving and the work its
@@ -754,36 +941,31 @@ export const startHarness = async (
   const emit = (event: AgentEvent): void => {
     switch (event._tag) {
       case "said": {
-        if (replaying) {
-          replayed += 1;
-          return;
-        }
+        if (dropped()) return;
         if (event.text !== "") report(transcript.say(event.text));
         return;
       }
       case "userSaid":
-        // A PERSON'S WORDS COME BACK ONLY IN A REPLAY, and a replay is history
-        // this caller already holds in a richer form.
-        replayed += 1;
+        // A PERSON'S WORDS COME BACK ONLY IN A REPLAY. A product that keeps a
+        // replay has no other record of them; one that drops it already holds
+        // them in a richer form. They arrive in CHUNKS, which is why this is
+        // the transcript's accumulating door and not a row per frame.
+        if (dropped()) return;
+        report(transcript.userSaid(event.text));
         return;
       case "tool":
-        if (replaying) {
-          replayed += 1;
-          return;
-        }
+        if (dropped()) return;
         writeTool(event);
         return;
       case "plan":
-        if (replaying) {
-          replayed += 1;
-          return;
-        }
+        if (dropped()) return;
         report(plan(event.entries));
         return;
       case "toolTerminals":
-        // The panes an agent's own terminal calls would be drawn in. kolu's
-        // conductor draws none: its terminals are the fleet's, which a card
-        // names through kolu's own reading of a call ({@link ./kolu.ts}).
+        // The panes an agent's OWN terminal calls would be drawn in — a
+        // product that draws them reads them off the call's own reading
+        // ({@link HarnessOptions.readCall}), which is where everything a
+        // product knows about a call comes from.
         return;
       case "commands":
         commands = event.commands;
@@ -854,8 +1036,8 @@ export const startHarness = async (
         enter(event.id);
         return;
       case "sessionTitled":
-        // The agent's own name for the conversation. kolu's conductor has one
-        // conversation per host and names it after the host.
+        // The agent's own name for the conversation. A product that draws one
+        // names it itself; this end's rows are the conversation.
         return;
       case "opening":
         // Which conversation is being opened, said before the request that can
@@ -876,7 +1058,7 @@ export const startHarness = async (
         if (replayed > 0) {
           log.info(
             { session: sessionId, frames: replayed },
-            "dropped a session's replay; the persisted rows are the record",
+            "dropped a session's replay; the caller's own rows are the record",
           );
         }
         replayed = 0;
@@ -896,7 +1078,7 @@ export const startHarness = async (
         // SOMETHING FAILED WHERE NOBODY WAS WAITING — a permission mode the
         // agent would not take, a model it would not go back to, a question
         // this panel cannot draw. Already logged by the client; this is the
-        // sentence a person reads, and a notice is where kolu says one.
+        // sentence a person reads, and a notice is where it is said.
         notice(event.message);
         return;
     }
@@ -908,39 +1090,29 @@ export const startHarness = async (
   /** ... and the row a tool frame becomes, which is the conversation's. */
   const writeTool = (event: Extract<AgentEvent, { _tag: "tool" }>): void => {
     const call = event.mcp[0];
-    // A TOOL WE CANNOT POSITIVELY NAME GETS NO READING: the client recognises
-    // a call only where the leg matched this agent's own spelling against a
-    // server WE handed over, so a kolu reading is minted for a kolu tool and
-    // for nothing that merely looks like one.
-    const seen =
-      call === undefined
-        ? null
-        : koluCallOf(call.tool, event.rawInput, event.answer);
-    // ACCUMULATED, not per-frame: the arming frame carries the input and the
-    // settling frame carries the answer, so a card built from either alone is
-    // missing the half the other had. `refineKoluCall` keeps whichever frame
-    // said something, because a frame refines and never retracts.
-    const kolu = refineKoluCall(koluReadings.get(event.id) ?? null, seen);
-    if (kolu !== null) koluReadings.set(event.id, kolu);
-    if (kolu !== null && fleet.touch(kolu)) publish();
-    // THE PRODUCT'S HALF OF THE ROW: which server and tool a recognised call
-    // named, whether its question reaches a person as a form, and kolu's own
-    // reading of it. The transcript copies these and reads none of them —
-    // and a frame that says none of them passes `undefined`, which is what
-    // lets a background task's own report stay a report rather than minting a
-    // row for a call nobody made.
-    const extra =
-      call === undefined && event.asksThroughForm === undefined && kolu === null
-        ? undefined
-        : {
-            server: call?.server,
-            tool: call?.tool,
-            // Absent rather than `false`: every optional field of a tool row
-            // means UNCHANGED, and a call whose name has not arrived yet is
-            // not a call anything has called ordinary.
-            asksThroughForm: event.asksThroughForm,
-            ...(kolu === null ? {} : { kolu }),
-          };
+    // THE PRODUCT'S HALF OF THE ROW, and the only thing this end knows about
+    // what a call MEANS. A call the client could not positively name — the leg
+    // matched this agent's own spelling against no server we handed over —
+    // reaches the reader with `mcp: undefined`, so a reading is minted for one
+    // of the product's own tools and for nothing that merely looks like one.
+    //
+    // The transcript copies what comes back and reads none of it, and a frame
+    // the reader says nothing about passes `undefined` — which is what lets a
+    // background task's own report stay a report rather than minting a row for
+    // a call nobody made.
+    const extra = options.readCall(
+      {
+        mcp:
+          call === undefined
+            ? undefined
+            : { server: call.server, tool: call.tool },
+        asksThroughForm: event.asksThroughForm,
+        input: event.rawInput,
+        answer: event.answer,
+      },
+      readings.get(event.id),
+    );
+    if (extra !== undefined) readings.set(event.id, extra);
     report(
       transcript.tool(event.id, {
         title: event.title,
@@ -1000,11 +1172,11 @@ export const startHarness = async (
    * process: what this end runs is the wait, so it is `running` until the
    * agent answers, and a page it sent somebody to rides the row.
    */
-  const attemptOf = (said: SignIn | null): ConductorSignIn["attempt"] => {
+  const attemptOf = (said: SignIn | null): SigningIn["attempt"] => {
     if (said === null) return null;
     // A CHOOSER IS NOT AN ATTEMPT: nothing has been pressed, so nothing is
-    // running. kolu draws that state as the row's own CAUSE — a person asked
-    // to sign in — and the methods beside it are what they are choosing from.
+    // running. That state is the row's own CAUSE — a person asked to sign in
+    // — and the methods beside it are what they are choosing from.
     if (said.kind === "choosing") return null;
     if (said.kind === "agent") {
       return {
@@ -1031,7 +1203,7 @@ export const startHarness = async (
     };
   };
 
-  const report = (change: Change<ConductorRow>): void => {
+  const report = (change: Change<Row>): void => {
     // NOTHING IS SAID AFTER A STOP. A turn still on the wire when the daemon
     // let go ends a moment later — settling its paragraph, withdrawing its
     // questions, writing a notice — and every one of those rows is one the
@@ -1069,7 +1241,6 @@ export const startHarness = async (
     servers,
     watching: transcript.watching(),
     openAsks,
-    fleet: [...fleet.ids()],
     signIn: signInRow(),
     identity,
     refusal,
@@ -1078,6 +1249,7 @@ export const startHarness = async (
     // held a message behind a running turn ({@link queuedHere}).
     steers: advertisedSteering && !queuedHere,
     busySince: busyAt === null ? null : new Date(busyAt).toISOString(),
+    taught,
   });
 
   const publish = (): void => {
@@ -1097,7 +1269,7 @@ export const startHarness = async (
    *  reader for both, because they are the same question asked at two moments
    *  — and a header that took the NAME from one and the SIZE from the other
    *  would be describing two conversations. */
-  const modelOf = (id: string, name: string | null): ConductorModel => ({
+  const modelOf = (id: string, name: string | null): Model => ({
     id,
     name: name ?? id,
     // A `window` of `null` is a REFUSAL rather than a failure: a leg's table
@@ -1117,14 +1289,16 @@ export const startHarness = async (
   const leaving = (): void => {
     // NOTHING TO LEAVE BEFORE THE FIRST OPEN. A bring-up's own `session/load`
     // says the last conversation is over before it opens one, and this harness
-    // was in none — so acting on it here would throw away what the CALLER
-    // seeded: the fleet it remembered, which accrues from frames a resume
-    // replays and drops.
+    // was in none — so acting on it here would be this conversation reporting
+    // the end of one it was never in.
     if (sessionId === null) return;
     sessionId = null;
-    fleet.clear();
-    koluReadings.clear();
+    readings.clear();
+    hostRows.clear();
     openAsks = [];
+    // ... AND THE NEXT CONVERSATION IS TAUGHT AGAIN. The standing prompt is
+    // what an agent with no memory of this one needs first, and a new session
+    // is exactly an agent with no memory of it.
     taught = false;
     // ... AND THE INTERRUPTION COMES BACK. The latch is about a SESSION the
     // adapter poisoned, not about the agent: a conversation that is over
@@ -1150,30 +1324,30 @@ export const startHarness = async (
 
   /**
    * COME BACK TO A CONVERSATION — or, when the agent says there is no such
-   * conversation, open one and SAY SO.
+   * conversation, do what {@link HarnessOptions.whenLoadRefused} says.
    *
    * TWO UNLIKE THINGS ARE SPELLED THE SAME WAY on this wire, and reading them
    * alike is what killed the adapter. "The agent is broken" is a conversation
    * the agent cannot open at all; "the id is unknown to this CLI" is a fact
-   * about a string kolu wrote down, in kolu's own file, for a store the agent
-   * has since forgotten (its config dir moved, its history was pruned, a
-   * different `claude` answered). The agent REFUSED, which is the protocol's
-   * own proof that it is there and talking. Killing it over a stale id and
+   * about a string the product wrote down, in its own file, for a store the
+   * agent has since forgotten (its config dir moved, its history was pruned, a
+   * different CLI answered). The agent REFUSED, which is the protocol's own
+   * proof that it is there and talking. Killing it over a stale id and
    * spawning a replacement to read the same id again is a loop with a dead
    * panel at the end of it — four `the agent exited (code 0)` lines and no
    * conversation, which is where this came from.
    *
-   * So a REFUSAL that is not an auth refusal falls through to one fresh
-   * session, once, and nothing is retried. An AUTH refusal does NOT: `-32000`
-   * says the agent will not open ANY conversation for want of a signature, and
-   * a fresh session asked for in the same breath is the same refusal again —
-   * that one keeps its offer of a sign-in ({@link refusedOpen}). Anything that
-   * is not a refusal at all — a load that never answered, a pipe that died —
-   * is the broken agent, and it goes out of here the way it always did.
+   * So a REFUSAL that is not an auth refusal reaches the policy, once, and
+   * nothing is retried. An AUTH refusal does NOT: `-32000` says the agent will
+   * not open ANY conversation for want of a signature, and a fresh session
+   * asked for in the same breath is the same refusal again — that one keeps
+   * its offer of a sign-in ({@link refusedOpen}). Anything that is not a
+   * refusal at all — a load that never answered, a pipe that died — is the
+   * broken agent, and it goes out of here the way it always did.
    *
-   * WHAT THE FALL-THROUGH KEEPS is the transcript: it is kolu's record of the
-   * conversation, not the CLI's, and the rows in it are ours whatever the
-   * agent remembers. What it adds is the one thing a reader cannot see
+   * WHAT `"fresh"` KEEPS is the transcript: it is the product's record of the
+   * conversation, not the CLI's, and the rows in it are the product's whatever
+   * the agent remembers. What it adds is the one thing a reader cannot see
    * otherwise — the break where the resumed conversation could not be
    * ({@link divider}, the same mark a `newSession` mints and under the same
    * rules), and a line carrying the agent's own sentence for why.
@@ -1186,6 +1360,10 @@ export const startHarness = async (
       if (!(lost instanceof HarnessRefused) || lost.signIn === "signed-out") {
         throw lost;
       }
+      // ... AND A PRODUCT THAT REPORTS IT GETS THE REFUSAL AS IT STANDS. The
+      // conversation it asked for is the only one it has, and a different one
+      // opened quietly in its place is a panel that looks resumed and is not.
+      if (options.whenLoadRefused === "report") throw lost;
       // NOTHING LEFT TO COME BACK TO: the id is spent, and the open this
       // harness was asked for is over — a later re-entry is the CALLER's
       // restart, with a fresh process and a fresh `resume`.
@@ -1222,10 +1400,10 @@ export const startHarness = async (
   /** THE CONVERSATION THIS HARNESS WAS ASKED FOR — the one the caller named,
    *  or a fresh one. The BRING-UP's only, and called once: re-entering a
    *  conversation after that has exactly one owner, and it is the caller that
-   *  restarts this harness (kolu-server's conductor) with the session it
-   *  wants back on the new process's `resume`. A second door here — the one a
-   *  sign-in used to open — is how a signature taken in a conversation the
-   *  person had moved on from put them back in the one they left. */
+   *  restarts this harness with the session it wants back on the new process's
+   *  `resume`. A second door here — the one a sign-in used to open — is how a
+   *  signature taken in a conversation the person had moved on from put them
+   *  back in the one they left. */
   const openConversation = async (): Promise<void> => {
     const named = typeof options.resume === "string" ? options.resume : null;
     if (named !== null) await load(named);
@@ -1258,7 +1436,7 @@ export const startHarness = async (
   /**
    * WHAT THIS HARNESS REMEMBERS, as the client's two memories.
    *
-   * kolu remembers nothing HERE: padi holds the conversation's id and the
+   * It remembers nothing HERE: the caller holds the conversation's id and the
    * model a person chose, writes both to its own store, and hands them in. So
    * `recall` is the honest nothing of a client that is TOLD which conversation
    * to open rather than adopting one, and the model port answers the pin the
@@ -1322,21 +1500,19 @@ export const startHarness = async (
 
   // ── the verbs ────────────────────────────────────────────────────────
 
-  /** What actually goes on the wire under a person's words: the standing prompt
-   *  the first time this session is spoken to, then what the message was
-   *  ABOUT ({@link aboutBlock}), then what they typed. */
-  const bodyOf = (
-    text: string,
-    mentions: ReadonlyArray<ConductorMention>,
-  ): string => {
-    const parts: Array<string> = [];
-    if (!taught) {
-      taught = true;
-      parts.push(options.teaching);
-    }
-    if (mentions.length > 0) parts.push(aboutBlock(mentions));
-    parts.push(text);
-    return parts.join("\n\n");
+  /**
+   * WHAT ACTUALLY GOES ON THE WIRE under a message: the standing prompt the
+   * first time this session is spoken to, and then the body.
+   *
+   * The body is the CALLER'S, whole — what a person typed with whatever the
+   * product puts above it. The teaching is this end's because WHEN it rides is
+   * a fact about the session, which is the thing this file owns; the WORDS are
+   * the caller's too ({@link HarnessOptions.teaching}).
+   */
+  const bodyOf = (body: string): string => {
+    if (taught) return body;
+    taught = true;
+    return `${options.teaching}\n\n${body}`;
   };
 
   const runTurn = async (
@@ -1488,12 +1664,11 @@ export const startHarness = async (
    * still theirs to send with a sentence saying why, rather than a sent row
    * whose picture the model never got.
    *
-   * THE ROW CARRIES WHAT IT WAS HANDED, which is a NAME, a size and the path
-   * padi wrote the bytes to — the same row whether it was minted a moment ago
-   * or restored from padi's store, which is why "send again" on an old
-   * message works: the bytes are read off that path either way. The browser
-   * keeps its own thumbnail for the rows it minted this session; no picture
-   * rides this wire.
+   * THE ROW CARRIES WHAT IT WAS HANDED ({@link PersonSaid.extra}) — the same
+   * row whether it was minted a moment ago or restored from the caller's
+   * store, which is why "send again" on an old message works: the files are
+   * read off their paths either way. A browser keeps its own thumbnail for the
+   * rows it minted this session; no picture rides this wire.
    *
    * STEERING IS THE ASKED-FOR EXCEPTION, and every condition on it is a
    * condition on the ASK: somebody made the gesture, the agent advertised that
@@ -1509,24 +1684,19 @@ export const startHarness = async (
    * the files. The words and the files go together the ordinary way instead.
    */
   const prompt = async (
-    text: string,
-    mentions: ReadonlyArray<ConductorMention>,
-    attachments: ReadonlyArray<ConductorAttachment>,
+    said: PersonSaid<Row>,
     steer: boolean,
   ): Promise<{ rowId: string }> => {
     inConversation();
-    const attached = await blocksOf(attachments, carries);
-    const { key, change } = transcript.user(text, {
-      ...(mentions.length === 0 ? {} : { mentions }),
-      attachments,
-    });
+    const attached = await blocksOf(said.files, carries);
+    const { key, change } = transcript.user(said.text, said.extra);
     report(change);
     // WHICH turn a steer is aimed at, read and KEPT: by the time it answers,
     // that turn may be over. The one the agent is working on, which is the
     // oldest — the ones behind it have not started, and interrupting a turn
     // that has not started is nothing at all.
     const aimed = turns.head;
-    const body = bodyOf(text, mentions);
+    const body = bodyOf(said.body);
     if (
       (steer || !queuesWhenBusy) &&
       aimed !== null &&
@@ -1553,25 +1723,24 @@ export const startHarness = async (
     return { rowId: key };
   };
 
-  /** KOLU'S OWN LINE — a turn this end starts about watched terminals. A
-   *  prompt in every way that matters: the standing prompt rides it if it is
-   *  the first message of the conversation, it waits behind whatever is
-   *  running, and its row takes every delivery mark a person's does. It is
-   *  never steered: these words are ABOUT a world that has moved, and a turn
-   *  that is still working will be told when it ends. */
-  const wake = async (
+  /** A TURN THIS END STARTS — nobody typed it. A prompt in every way that
+   *  matters: the standing prompt rides it if it is the first message of the
+   *  conversation, it waits behind whatever is running, and its row takes
+   *  every delivery mark a person's does. It is never steered: such words are
+   *  ABOUT a world that has moved, and a turn that is still working will be
+   *  told when it ends. */
+  const hostTurn = async (
+    row: RowContent<Row>,
     text: string,
-    events: ReadonlyArray<ConductorWakeEvent>,
   ): Promise<{ rowId: string }> => {
     inConversation();
-    const { key, change } = transcript.write({
-      kind: "wake",
-      from: "kolu",
-      events,
-      text,
-    });
+    const { key, change } = transcript.write(row);
+    // ... and the class is told that THIS row takes a turn's delivery marks,
+    // which is the one thing it cannot read off a row whose kind is the
+    // caller's own word.
+    hostRows.add(key);
     report(change);
-    send(key, [{ type: "text", text: bodyOf(text, []) }]);
+    send(key, [{ type: "text", text: bodyOf(text) }]);
     return { rowId: key };
   };
 
@@ -1602,11 +1771,20 @@ export const startHarness = async (
 
   const newSession = async (): Promise<void> => {
     inConversation();
+    // THE ROWS GO INSTEAD OF A BREAK, for a product that clears: a new session
+    // and the wipe beside it are then the same movement, and the wipe is the
+    // one that already holds every rule about the order it happens in
+    // ({@link clearSession}). Nothing of the caller's own is held, because a
+    // product that clears keeps no rows this instance did not mint.
+    if (options.whenNewSession === "clear") {
+      await clearSession([]);
+      return;
+    }
     // THE HISTORY STAYS — which is the whole of what separates this verb from
-    // the wipe beside it ({@link clearSession}). A conversation ends and
-    // another begins in ONE transcript, with the divider between them; that is
-    // the product. The counters are monotonic for the life of the process, so
-    // the divider and everything after it sorts below what is already there.
+    // the wipe beside it. A conversation ends and another begins in ONE
+    // transcript, with the divider between them; that is the product. The
+    // counters are monotonic for the life of the process, so the divider and
+    // everything after it sorts below what is already there.
     const mark = divider("new session");
     report(mark.change);
     try {
@@ -1751,7 +1929,7 @@ export const startHarness = async (
     alive,
     rows: () => transcript.rows(),
     prompt,
-    wake,
+    hostTurn,
     cancel,
     answer,
     signIn,
@@ -1774,15 +1952,15 @@ export const startHarness = async (
 };
 
 /**
- * WHAT A PROMPT'S ATTACHMENTS GO ON THE WIRE AS — one ACP content block each,
+ * WHAT A MESSAGE'S FILES GO ON THE WIRE AS — one ACP content block each,
  * chosen by what the file IS and refused when this agent cannot take it.
  *
  * Three kinds, because ACP has three and each is opt-in differently: an image
  * travels as base64 beside its mime type and needs the agent's
  * `promptCapabilities.image`; a text-like file travels as a `resource` with
  * its text embedded and needs `embeddedContext`; anything else travels as a
- * `resource_link` naming the absolute path padi wrote it to, which every agent
- * must accept and which an agent with a shell can go and read.
+ * `resource_link` naming the absolute path the product wrote it to, which
+ * every agent must accept and which an agent with a shell can go and read.
  *
  * REFUSED, NEVER DROPPED. An attachment the agent did not advertise for is a
  * sentence naming the capability, and the caps are sentences naming the limit:
@@ -1790,7 +1968,7 @@ export const startHarness = async (
  * image it was never shown, and no answer to that is worth one.
  */
 const blocksOf = async (
-  attachments: ReadonlyArray<ConductorAttachment>,
+  attachments: ReadonlyArray<PromptFile>,
   carries: { readonly image: boolean; readonly embeddedContext: boolean },
 ): Promise<ReadonlyArray<ContentBlock>> => {
   let total = 0;
@@ -1821,7 +1999,7 @@ const blocksOf = async (
 
 /** One attachment as the block it belongs in. */
 const blockOf = async (
-  one: ConductorAttachment,
+  one: PromptFile,
   carries: { readonly image: boolean; readonly embeddedContext: boolean },
 ): Promise<ContentBlock> => {
   const mimeType = essenceOf(one.mimeType);
@@ -1881,21 +2059,21 @@ const essenceOf = (mimeType: string): string =>
   (mimeType.split(";")[0] ?? mimeType).trim().toLowerCase();
 
 /**
- * THE BYTES, read off the file padi wrote.
+ * THE BYTES, read off the file the product wrote.
  *
  * THE FILE IS THE ONLY SOURCE, and that is the point rather than an economy:
  * the base64 cannot ride the `prompt` frame — an oversized frame does not
- * fail the call, it closes the tab's socket — so the browser uploads in
+ * fail the call, it closes the tab's socket — so a browser uploads in
  * chunks and hands this end a path. It is also what makes a RESTORED row
- * sendable: a row read back out of padi's store has a path and nothing else,
- * and a harness that wanted a `data:` URL refused every "send again" on an
- * old message.
+ * sendable: a row read back out of a store has a path and nothing else, and a
+ * harness that wanted a `data:` URL refused every "send again" on an old
+ * message.
  *
  * A file that is not there is a REFUSAL naming it, not a throw inside a
  * protocol callback: the attachment was swept, or the state root moved, and a
  * person who is told which file is missing can attach it again.
  */
-const bytesOf = async (one: ConductorAttachment): Promise<Buffer> => {
+const bytesOf = async (one: PromptFile): Promise<Buffer> => {
   try {
     return await readFile(one.path);
   } catch {
@@ -1909,9 +2087,9 @@ const bytesOf = async (one: ConductorAttachment): Promise<Buffer> => {
 
 /** Where the agent can go and find it. A `resource` and a `resource_link` both
  *  NAME the file — the protocol has no block for either without a uri — and
- *  the name is padi's own copy under its state root, which is the only path
- *  that exists on the host the agent is running on. */
-const uriOf = (one: ConductorAttachment): string => `file://${one.path}`;
+ *  the name is the product's own copy of it, which is the only path that
+ *  exists on the host the agent is running on. */
+const uriOf = (one: PromptFile): string => `file://${one.path}`;
 
 /** A size a person reads, for the two refusals that name one. */
 const sized = (bytes: number): string =>

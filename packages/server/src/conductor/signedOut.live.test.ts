@@ -47,6 +47,7 @@ import {
   CONDUCTOR_ENGINE as ENGINE,
   conductorConfigDir,
 } from "kolu-agents/acp";
+import type { ConductorRow } from "kolu-common/conductor";
 
 const silent = {
   info: () => {},
@@ -63,7 +64,7 @@ const DEADLINE = 120_000;
  *  fails with the state it hung in. The agent is a SUBPROCESS: there is no
  *  clock to fake here, and the signal being waited for is a line it writes. */
 const waitFor = async (
-  harness: Harness,
+  harness: Harness<ConductorRow>,
   holds: (state: HarnessState) => boolean,
   why: string,
 ): Promise<void> => {
@@ -93,7 +94,7 @@ describe.skipIf(!LIVE)(
     /** Every harness this file started — more than one, and a scratch `$HOME`
      *  with two `claude` children under it is the leak a missed `stop()`
      *  leaves on the machine running the suite. */
-    const live: Array<Harness> = [];
+    const live: Array<Harness<ConductorRow>> = [];
 
     beforeAll(async () => {
       home = await mkdtemp(path.join(tmpdir(), "kolu-signed-out-"));
@@ -110,7 +111,7 @@ describe.skipIf(!LIVE)(
      *  written for a test. */
     const started = async (
       resume: string | null,
-    ): Promise<{ harness: Harness; configDir: string }> => {
+    ): Promise<{ harness: Harness<ConductorRow>; configDir: string }> => {
       const seating = ENGINE.at({
         env: process.env,
         cwd: home,
@@ -118,7 +119,7 @@ describe.skipIf(!LIVE)(
       });
       if ("why" in seating) throw new Error(seating.why);
       const configDir = conductorConfigDir(process.env, home);
-      const harness = await startHarness({
+      const harness = await startHarness<ConductorRow>({
         leg: ENGINE.leg,
         adapter: {
           ...(seating as Exclude<typeof seating, NotHere>),
@@ -132,8 +133,14 @@ describe.skipIf(!LIVE)(
         configDir,
         mcpServers: [],
         teaching: "# [kolu] live test",
+        taught: false,
         log: silent,
         resume,
+        // The conductor's own three, so this drives what kolu really runs.
+        readCall: () => undefined,
+        whenNewSession: "divide",
+        whenLoadRefused: "fresh",
+        whenReplayed: "drop",
         onChange: () => {},
       });
       live.push(harness);
