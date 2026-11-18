@@ -240,12 +240,24 @@ export interface Agent {
   readonly stderrSince: (from: number) => string;
   readonly stderrMark: () => number;
   readonly alive: () => boolean;
+  /** The conversation this agent is in now — or `null` while none is. The
+   *  ONE record of it: the conversation half reads it here. */
   readonly session: () => string | null;
-  /** The conversation this harness is in now — or `null` while none is. */
+  /** Enter a conversation: frames about it are let through from now on. */
   readonly enter: (id: string) => void;
-  /** Leave it: the questions go back unanswered, the session is closed at the
-   *  agent, and the state keyed to it is dropped. */
+  /** Leave it: the questions go back unanswered, and the session is named as
+   *  left so its late frames are recognised after the next one opens. */
   readonly leave: () => void;
+  /** A frame naming `sessionId` is about a conversation this agent is not in
+   *  — one it left, or one that is not the current one. A frame that names no
+   *  session is about none, and is let through. */
+  readonly elsewhere: (sessionId: unknown) => boolean;
+  /** A visit WITHDRAWN before it was entered: its late frames are fenced
+   *  exactly like those of a session that was left. */
+  readonly fence: (sessionId: string) => void;
+  /** A question row that a page completes: held under the agent's own
+   *  elicitation id, which is the only name `elicitation/complete` says. */
+  readonly awaitLink: (elicitationId: string, question: string) => void;
   readonly release: (sessionId: string | null) => Promise<void>;
   readonly signIn: (method: string) => Promise<SignedIn>;
   readonly askSignIn: () => void;
@@ -258,9 +270,6 @@ export interface Agent {
   readonly openAsks: () => ReadonlyArray<string>;
   /** The attempt in flight, for the elicitation handler's own checks. */
   readonly inFlight: () => Attempt | null;
-  /** The agent says a page it sent somebody to is done (`./payloads.ts` reads
-   *  it): a conversation's question row, or the sign-in the page belongs to. */
-  readonly completeElicitation: (params: unknown) => void;
   /** A conversation is being RE-OPENED: the frames that follow are its history,
    *  which the caller already holds. `end` answers how many were dropped. */
   readonly beginReplay: (id: string) => void;
@@ -288,9 +297,6 @@ export const startAgent = (options: AgentOptions): Agent => {
   let replaying = false;
   let replayed = 0;
   let stopped = false;
-  /** The prologue this conversation's OPEN announced it would ALSO send as one
-   *  ordinary chunk, or `null`. */
-  let _prologue: string | null = null;
   let stderrBuf = "";
   let stderrWritten = 0;
   /** The MCP servers this conversation was handed, by name. */
@@ -931,7 +937,7 @@ export const startAgent = (options: AgentOptions): Agent => {
         }),
     )
     .onNotification(methods.client.elicitation.complete, (context) => {
-      onEvent({ _tag: "elicitationComplete", params: context.params });
+      onElicitationComplete(context.params);
     });
 
   // THE AGENT'S OWN MESSAGES, for an agent that forwards any — subscribed only
@@ -1213,8 +1219,6 @@ export const startAgent = (options: AgentOptions): Agent => {
     waitingLinks.clear();
     questions.withdrawAll();
     calls.forget();
-    _prologue = null;
-    onEvent({ _tag: "session", id: null });
     activeSession = null;
   };
 
@@ -1294,9 +1298,15 @@ export const startAgent = (options: AgentOptions): Agent => {
     enter: (id: string) => {
       activeSession = id;
       closed.delete(id);
-      onEvent({ _tag: "session", id });
     },
     leave,
+    elsewhere: (sessionId) => fromElsewhere(sessionId, activeSession, closed),
+    fence: (sessionId) => {
+      closed.add(sessionId);
+    },
+    awaitLink: (elicitationId, question) => {
+      waitingLinks.set(elicitationId, question);
+    },
     release,
     signIn: doSignIn,
     askSignIn: () => signing.ask(),
@@ -1306,7 +1316,6 @@ export const startAgent = (options: AgentOptions): Agent => {
     signInCancel,
     stop,
     openAsks: () => questions.open(),
-    completeElicitation: onElicitationComplete,
     beginReplay: (id: string) => {
       closed.delete(id);
       replaying = true;

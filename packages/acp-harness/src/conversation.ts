@@ -95,7 +95,7 @@ import {
 import { Calls } from "./calls.ts";
 import type { AgentEvent } from "./events.ts";
 import { Fleet, koluCallOf, refineKoluCall } from "./kolu.ts";
-import { fromElsewhere, mcpServersOf, messageOf } from "./payloads.ts";
+import { mcpServersOf, messageOf } from "./payloads.ts";
 import { AnswerRefused, Questions } from "./questions.ts";
 import type {
   ConductorAttachment,
@@ -582,16 +582,6 @@ export const startHarness = async (
    *  knows which row it is for and not when it started. */
   let busyAt: number | null = null;
 
-  let activeSession: string | null = null;
-  /**
-   * Sessions this harness has LEFT, still named so a leftover notification
-   * about one can be recognised after `activeSession` has gone null.
-   *
-   * A SET rather than the last id, because two opens in a row can still have
-   * the first conversation's leftovers on the wire after the second has been
-   * left too. An id leaves only when that same conversation is re-entered.
-   */
-  const closed = new Set<string>();
   const _replaying = false;
   /** How many frames the replay of a resumed conversation has been dropped on
    *  the floor — counted so the one log line a load writes can say how much
@@ -655,11 +645,6 @@ export const startHarness = async (
       where: server.kind === "http" ? server.url : server.command,
     }),
   );
-  /** The URL elicitations this conversation is waiting on, by the agent's own
-   *  id — the handle `elicitation/complete` names, mapped to the question row
-   *  on screen for it. A map rather than a field, because a session can hold
-   *  more than one at a time. */
-  const waitingLinks = new Map<string, string>();
   /** The prologue this conversation's OPEN announced it would ALSO send as one
    *  ordinary chunk, or `null`. Armed at the open and CONSUMED by the first
    *  chunk equal to it: one banner, once, compared against the string the
@@ -696,9 +681,6 @@ export const startHarness = async (
    */
   const emit = (event: AgentEvent): string | null => {
     switch (event._tag) {
-      case "elicitationComplete":
-        agent.completeElicitation(event.params);
-        return null;
       case "ask": {
         // THE QUESTION IS THIS HALF'S: the row, and the registry that holds the
         // promise until somebody answers. The agent waits on the deferred.
@@ -707,10 +689,6 @@ export const startHarness = async (
       }
       case "trouble":
         notice(event.text);
-        return null;
-      case "session":
-        activeSession = event.id;
-        publish();
         return null;
       case "said": {
         // The doubled prologue is dropped HERE rather than anywhere narrower:
@@ -788,7 +766,6 @@ export const startHarness = async (
         // that does nothing, and pressing it is how a person finds out.
         leaving();
         identity = null;
-        activeSession = null;
         report(transcript.abandon());
         if (!stopped) {
           notice(
@@ -951,10 +928,10 @@ export const startHarness = async (
           ? "asking"
           : turns.busy
             ? "working"
-            : activeSession === null
+            : agent.session() === null
               ? "starting"
               : "idle",
-    sessionId: activeSession,
+    sessionId: agent.session(),
     model,
     usage,
     options: settings,
@@ -1041,8 +1018,7 @@ export const startHarness = async (
     // place-to-go from being refused as an undrawable form.
     if (params.mode === "url") return await onUrlElicitation(params, signal);
     const named = "sessionId" in params ? params.sessionId : undefined;
-    if (fromElsewhere(named, activeSession, closed))
-      return { action: "cancel" };
+    if (agent.elsewhere(named)) return { action: "cancel" };
     const form = formOf(params);
     if (form instanceof Refused) {
       undrawable(form.reason);
@@ -1073,8 +1049,7 @@ export const startHarness = async (
     }
     const named = "sessionId" in params ? params.sessionId : undefined;
     if (typeof named !== "string") return await agent.attachLink(params, form);
-    if (fromElsewhere(named, activeSession, closed))
-      return { action: "cancel" };
+    if (agent.elsewhere(named)) return { action: "cancel" };
     const settling = CreateElicitationRequest.isUrl(params)
       ? params.elicitationId
       : null;
@@ -1082,7 +1057,7 @@ export const startHarness = async (
       // Held under the AGENT'S OWN id, which is the only name
       // `elicitation/complete` says. One with no id cannot be completed by
       // name, so nothing holds it and the row is settled by a person.
-      if (settling !== null) waitingLinks.set(settling, id);
+      if (settling !== null) agent.awaitLink(settling, id);
     });
     if (settled.outcome.how === "declined") return { action: "decline" };
     if (settled.outcome.how === "withdrawn") return { action: "cancel" };
@@ -1113,7 +1088,7 @@ export const startHarness = async (
     if (allowed !== null) {
       return { outcome: { outcome: "selected", optionId: allowed } };
     }
-    if (fromElsewhere(params.sessionId, activeSession, closed)) {
+    if (agent.elsewhere(params.sessionId)) {
       return { outcome: { outcome: "cancelled" } };
     }
     const settled = await put(permissionFormOf(params), signal);
@@ -1206,9 +1181,9 @@ export const startHarness = async (
   // ── bringing it up ───────────────────────────────────────────────────
 
   /** The conversation is over — replaced, reloaded, or dead. Everything keyed
-   *  to it goes. {@link closed} is named FIRST, while `activeSession` is still
-   *  the one being left: nulling it first is what turns the leftover fence off
-   *  for the whole of the next open. */
+   *  to it goes, the agent's record first: it names the session being left
+   *  while it still is the current one, which is what keeps the leftover
+   *  fence up for the whole of the next open. */
   const leaving = (): void => {
     // THE AGENT'S OWN STATE FIRST — which sessions it has left, the questions
     // it is holding, what it has heard about each call.
@@ -1219,6 +1194,7 @@ export const startHarness = async (
     // session BEING LEFT announced, and an arm whose banner never landed would
     // otherwise spend the life of the process waiting to eat the first chunk of
     // any later conversation that happens to equal it.
+    prologue = null;
     taught = false;
     // ... AND THE INTERRUPTION COMES BACK. The latch is about a SESSION the
     // adapter poisoned, not about the agent: a conversation that is over
@@ -1279,7 +1255,7 @@ export const startHarness = async (
    * never carry two agent CLIs for one panel — the second one is the whole
    * cost this prevents. And an open that FAILS would otherwise leave the old
    * conversation running with nothing on this side able to reach it:
-   * `activeSession` is already null by then, and the only thing that ever
+   * the agent's session is already null by then, and the only thing that ever
    * enters an id again is a resume at startup.
    *
    * WHAT IT DOES NOT DO is forget the conversation. Closing a session ends
@@ -1433,7 +1409,7 @@ export const startHarness = async (
         // The visit is WITHDRAWN rather than left half-made: nothing entered
         // this conversation, so its late frames are fenced exactly like those
         // of a session this harness has left.
-        closed.add(id);
+        agent.fence(id);
         throw cause instanceof HarnessRefused
           ? new HarnessRefused(why, cause.signIn)
           : new HarnessUnavailable(why);
@@ -1522,10 +1498,9 @@ export const startHarness = async (
 
   /** The harness is in this conversation now. */
   const enter = (id: string): void => {
-    // The agent's own record first: it is the one that fences frames by
-    // session, and it says `session` back through the door.
+    // The agent's own record first: it is the one record of which session
+    // this is, and the one that fences frames by it.
     agent.enter(id);
-    activeSession = id;
     refusal = null;
     // ... and there is nothing left to sign into — UNLESS the agent says there
     // is. This used to be unconditional, on the reasoning that a sign-in row
@@ -1828,7 +1803,7 @@ export const startHarness = async (
     attachments: ReadonlyArray<ConductorAttachment>,
     steer: boolean,
   ): Promise<{ rowId: string }> => {
-    const sessionId = activeSession;
+    const sessionId = agent.session();
     if (!agent.alive() || sessionId === null) {
       throw new HarnessUnavailable("the agent has no session open");
     }
@@ -1880,7 +1855,7 @@ export const startHarness = async (
     text: string,
     events: ReadonlyArray<ConductorWakeEvent>,
   ): Promise<{ rowId: string }> => {
-    const sessionId = activeSession;
+    const sessionId = agent.session();
     if (!agent.alive() || sessionId === null) {
       throw new HarnessUnavailable("the agent has no session open");
     }
@@ -1896,7 +1871,7 @@ export const startHarness = async (
   };
 
   const cancel = async (): Promise<void> => {
-    const sessionId = activeSession;
+    const sessionId = agent.session();
     if (!agent.alive() || sessionId === null) return;
     // The questions this turn was holding go back UNANSWERED rather than being
     // fabricated into an answer the agent never got.
@@ -1941,7 +1916,7 @@ export const startHarness = async (
   };
 
   const setOption = async (id: string, value: string): Promise<void> => {
-    const sessionId = activeSession;
+    const sessionId = agent.session();
     if (sessionId === null) {
       throw new HarnessUnavailable("the agent has no session open");
     }
@@ -1967,13 +1942,11 @@ export const startHarness = async (
   };
 
   const newSession = async (): Promise<void> => {
-    // THE ONE BEING LEFT, named while it still is: {@link leaving} reads
-    // `activeSession` and the line after it nulls it.
-    const left = activeSession;
+    // THE ONE BEING LEFT, named while it still is: {@link leaving} forgets it.
+    const left = agent.session();
     // BEFORE the break, so every question is settled on the row it is drawn on
     // rather than after that row has been cleared away.
     leaving();
-    activeSession = null;
     // THE HISTORY STAYS — which is the whole of what separates this verb from
     // the wipe beside it ({@link clearSession}). A conversation ends and
     // another begins in ONE transcript, with the divider between them; that is
@@ -2025,9 +1998,8 @@ export const startHarness = async (
    * instance never minted ({@link Transcript.clear}).
    */
   const clearSession = async (held: ReadonlyArray<string>): Promise<void> => {
-    const left = activeSession;
+    const left = agent.session();
     leaving();
-    activeSession = null;
     await agent.release(left);
     try {
       await fresh();
@@ -2081,7 +2053,6 @@ export const startHarness = async (
     await agent.stop();
     leaving();
     identity = null;
-    activeSession = null;
     turns.drain();
     busyAt = null;
     options.onChange({ kind: "state", state: state() });

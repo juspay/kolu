@@ -47,12 +47,6 @@ export type SignInCause =
  * its key — and whether one was drawn at all.
  */
 export type AgentEvent =
-  /** The agent says a page it sent somebody to is done. One notification, two
-   *  things that could be waiting on it, and only one of them can be true: a
-   *  conversation's question row, or the sign-in row whose request this
-   *  elicitation belongs to. The payload is the notification's own params — the
-   *  reading of which is the conversation's, and `./payloads.ts` owns it. */
-  | { readonly _tag: "elicitationComplete"; readonly params: unknown }
   /** The agent's prose, one chunk as it arrived. */
   | { readonly _tag: "said"; readonly text: string }
   /** A background task's report, which the agent injects as a user-role turn.
@@ -156,12 +150,6 @@ export type AgentEvent =
   /** A sentence for the transcript that is neither the agent's prose nor a row
    *  of its work: a question this panel cannot draw, a refused turn. */
   | { readonly _tag: "trouble"; readonly text: string }
-  /** THE CONVERSATION this agent is in — `null` while it holds none. */
-  | {
-      readonly _tag: "session";
-      readonly id: string | null;
-      readonly pid?: number;
-    }
   /** THE SIGN-IN ROW, whole: the methods on offer, why it is up, and the
    *  attempt in flight — or `null` when there is nothing to draw. One event
    *  because the three compose ONE row, and two events would be two chances to
