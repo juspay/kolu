@@ -43,9 +43,16 @@ single-process behaviour.
 
 ## Who depends on it
 
-`@kolu/acp-harness` (the ACP adapter, and the sign-in command it runs, both as
-process groups). olai vendors this package: its git, browsing, chat, server
-tests and web build all spawn through it.
+In kolu, [`@kolu/acp-client`](../acp-client) — the ACP adapter it runs, the
+terminal commands an agent asks for, and the sign-in command, the first and the
+last as process groups. [olai](https://github.com/juspay/olai) vendors this
+package: its git, its browser's chromium, its chat's agent, its server tests
+and its web build all spawn through it.
+
+Because olai compiles this directory with its own `tsc`, what it imports is
+recorded in `src/sharedVocabulary.json` and held by `src/sharedVocabulary.test.ts`:
+adding is free, and removing or renaming a recorded name fails here rather than
+in the other repository's build.
 
 ## What a maintainer must not break
 
@@ -61,6 +68,8 @@ tests and web build all spawn through it.
 ## What is out
 
 Readiness (the serving line, the ACP handshake), transport (how pipes become
-JSON-RPC), restart policy, and the orphan sweep. #355 answered the last of
-those: the harness reaper and `PR_SET_PDEATHSIG` own it. A caller whose needs
-exceed the socket keeps that residue **on top of it**, never beside it.
+JSON-RPC), restart policy, and the orphan sweep. A caller whose needs exceed
+the socket keeps that residue **on top of it**, never beside it: in kolu the
+conversation's own `stop()` ends the adapter it started, and in olai a chat
+node evicted for capacity is closed and the server gives its children
+`PR_SET_PDEATHSIG` (#355).

@@ -25,8 +25,9 @@ as `koluSurface` members: the `conductor` cell, the `works` collection (keyed
 by work id) beside the `memberReadings` collection (keyed by terminal ref — how
 each member terminal stands), so what goes on the wire is the one work or the
 one reading that moved, the `conductorTranscript` stream
-and the `conductor` procedure namespace. The protocol itself is
-[`@kolu/acp-harness`](../acp-harness)'s; nothing here spells `session/prompt`.
+and the `conductor` procedure namespace. The conversation is
+[`@kolu/acp-harness`](../acp-harness)'s and the protocol under it
+[`@kolu/acp-client`](../acp-client)'s; nothing here spells `session/prompt`.
 
 **It is hosted here rather than in padi because its subject is the whole
 fleet.** padi knows one host, and a conversation held by one padi can only ever

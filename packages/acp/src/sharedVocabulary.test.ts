@@ -3,12 +3,14 @@
  *
  * `@kolu/acp` is not kolu's private vocabulary. It is vendored as raw
  * TypeScript by [olai](https://github.com/juspay/olai) through its
- * `nix/consumer.nix`, and olai's chat plugin reads parts of it that kolu's own
- * orchestrator never touches — `nativeActivity`, `terminalMetaIn`,
- * `Steering`, `Leg.steering`, `Leg.queues`. kolu is therefore a SUPERSET
- * keeper, not an owner: every name here has at least one consumer, and the
- * ones this repository does not call are not dead — they are somebody else's
- * live wire.
+ * `nix/consumer.nix`. kolu reads all of it today — `Steering` and
+ * `Leg.steering` are read by `@kolu/acp-harness` when a message is steered
+ * into the turn that is running, and `nativeActivity`, `Leg.queues` and
+ * `terminalMetaIn` by `@kolu/acp-client` as it reads the wire — but a name
+ * with an in-tree caller is not what this ledger is about. kolu is a SUPERSET
+ * keeper, not an owner: the question is never whether THIS repository calls a
+ * name, it is whether the other one does, and only one of the two compilers
+ * is in reach when the answer changes.
  *
  * THE DEFECT THIS EXISTS FOR actually happened, in this package, in review:
  * "ported surface with no consumer" was read as a *kolu* question, three files

@@ -28,7 +28,10 @@ products cannot disagree about which adapter is pinned or what its wire means.
 - **The leg is a SUPERSET.** olai's panel reads two things kolu's conductor does
   not: `listedIn` (the patched `session/list` stamps) and `terminalOutput` (a
   Bash result as a terminal block). kolu may add to this package; kolu may not
-  take away — there is no compiler in another repository to notice.
+  take away — there is no compiler in another repository to notice. What olai
+  imports by name is recorded in `src/sharedVocabulary.json` and held by
+  `src/sharedVocabulary.test.ts`; the leg's own members are recorded where
+  `Leg` is declared, in `@kolu/acp`.
 - **The adapter build must keep failing loudly.** Both patches are applied at
   `patch -p1 -F0` over a COMPILED bundle: a pin bump that moves the context has
   to break the build rather than fuzz a hunk into the wrong place. A `patches`
@@ -40,6 +43,8 @@ products cannot disagree about which adapter is pinned or what its wire means.
 ## Not here
 
 A session, a prompt, a transcript, and the sentence a machine without this
-engine is owed. `@kolu/acp-harness` does the talking, and the not-found sentence
-names kolu's padi — a fact about kolu's product, so it lives in kolu's agent
-registry (`kolu-agents`' `src/acp.ts`, which also seats this engine).
+engine is owed. [`@kolu/acp-client`](../acp-client) speaks the protocol out
+loud and [`@kolu/acp-harness`](../acp-harness) holds the conversation; the
+not-found sentence names kolu's padi — a fact about kolu's product, so it lives
+in kolu's agent registry (`kolu-agents`' `src/acp.ts`, which also seats this
+engine).

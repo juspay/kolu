@@ -494,7 +494,7 @@ out. The map:
 | --- | --- | --- |
 | `client` | The browser app: SolidJS, xterm.js, Tailwind. | `padi-client`, `surface`, `xterm-kit`, `theme`, `kolu-work`, the `solid-*` leaves |
 | `server` | The Effect HTTP shell: serves the app, the preview route and the websocket, binds one padi per host, and mounts [the Conductor](/conductor). | `padi`, `padi-client`, `conductor`, `kolu-work`, `surface-remote`, `port-forward` |
-| `conductor` | The conversation itself, split by clock: the ACP child, the transcript, the work and member stores, observation, wakes and asking. | `acp`, `acp-harness`, `padi-client`, `kolu-work`, `surface` |
+| `conductor` | The conversation itself, split by clock: the agent and its transcript, the work and member stores, observation, wakes and asking. | `acp`, `acp-harness`, `padi-client`, `kolu-work`, `surface` |
 | `kolu-work` | A piece of work as kolu stores it, and the waterfall's words. | `effect` |
 | `kolu-cli` | The `kolu` binary: subcommand dispatch and the terminal verbs `ls`, `create`, `send`, `wait`, `snapshot`, `history`, `kill`, `watch`. | `padi`, `padi-client`, `surface-cli` |
 | `kolu-mcp` | The agent face, and the one place the exposed tool list is declared: `kolu mcp`, plus the fleet projection kolu-server serves over a host map. | `padi`, `padi-client`, `surface-mcp`, `conductor`, `kolu-work` |
@@ -507,7 +507,11 @@ out. The map:
 | `port-forward` | Hides ssh forward lifetime and local binding: one dedicated ssh connection per forward, so a forward dies with the process that opened it. | nothing in kolu |
 | `xterm-kit` | Hides xterm.js's hazards (pinned internals, scrollback surgery, write buffering, mirror anchoring, box-to-grid sizing) behind a runtime-neutral core and a `/solid` adapter. | `url-shape` |
 | `terminal-snapshot` | Turns a screen plus a theme into backend-free drawing instructions, so the browser's copy-screenshot and `kolu screenshot` draw the same picture. | `html-escape` |
-| `acp`, `acp-harness` | The [Agent Client Protocol](https://agentclientprotocol.com) vocabulary and the pure projections over its payloads; the harness is the one package that spawns an ACP subprocess. | `acp-harness` on `acp` |
+| `acp` | The [Agent Client Protocol](https://agentclientprotocol.com) vocabulary, and the pure projections over its payloads. | `effect`, the SDK |
+| `child` | A subprocess as one socket: spawn, drained pipes, a kill with a grace period. | nothing |
+| `acp-client` | One agent process speaking that protocol: handshake, sessions, turns, sign-in, typed events out. | `acp`, `child` |
+| `acp-harness` | One conversation on that client: turns, the rows you read, the state a panel draws. | `acp`, `acp-client` |
+| `acp-claude` | The Claude Code leg, its model table, and the pinned adapter. | `acp` |
 | agent and forge leaves | One package per agent (`claude-code`, `codex`, `grok`, `opencode`, `pi`, `xyne`, `omp`), each with its vocabulary and detection adapter. `github` sits behind `anyforge`; `git` covers git itself. | `anyagent`, the agent-agnostic kernel; `kolu-agents` lists them |
 | `agent-distro` | kolu's contract with [agent-distro](https://github.com/juspay/agent-distro): the Nix half builds each host's agent floor, the TypeScript half reads the bakes, receipts and manifests. | nothing in kolu |
 | shared UI leaves | `theme`, `solid-statepip`, `solid-dockrow` (the whole Dock row), `solid-logtail`, `solid-pierre`, `solid-markdown`, `solid-fileview`, `solid-browser`, `serve-dir`, `artifact-sdk`. | `padi-client`, `theme`; several are shared with drishti and olai |
@@ -519,28 +523,24 @@ kolu-server delivers the agents themselves to each host, reading a
 content-addressed build off agent-distro's published index and having the host
 pull it from the cache. See [Agents](/agents) for what lands and when.
 
-The Nix composition follows the same boundaries. The root flake contains only
-the runnable kolu packages, their checks, and the development shells needed to
-work on them. The website, the Surface examples, the Solid Browser example and
-the Odu CI coordinator each have an independent subflake, so none of them enters
-`nix run .`'s evaluation graph. Remote provisioning uses a separate exact-source
-flake that exposes only the packages kolu's agent manifest names.
+The Nix composition follows the same boundaries. The root flake holds only the
+runnable kolu packages, their checks and the development shells; the website,
+the examples, the Odu CI coordinator and remote provisioning each have a flake
+of their own, outside `nix run .`'s graph.
 
-A dial lands the daemon plus the client CLIs a terminal there must run
-(`kaval-tui`, `padi-tui`, `kolu`). So an agent on a remote machine can drive
-its sibling terminals and reach the [MCP server](/mcp) with nothing installed
-there.
+A dial lands the daemon and the client CLIs a terminal there needs
+(`kaval-tui`, `padi-tui`, `kolu`), so an agent on a remote machine drives its
+sibling terminals and reaches the [MCP server](/mcp).
 
 <LinkCard title="The repo — juspay/kolu" href="https://github.com/juspay/kolu" description="every package, with its full README, in one tree" />
 
 ## Other machines
 
-The same surface contract runs over ssh. It is how `kolu --host`, and the
-[`kaval-tui`](/kaval) and [`padi-tui`](/padi) previews beside it, drive a daemon
-on another machine with nothing pre-installed there. Pointing kolu's browser at
-a padi on a remote host is a first-class feature: see [Add another
-machine](/remote-hosts). That is separate from [From another
-device](/remote-access), which serves today's browser UI over private HTTPS.
+The same surface contract runs over ssh: it is how `kolu --host` and the
+[`kaval-tui`](/kaval) and [`padi-tui`](/padi) previews drive a daemon on a
+machine with nothing pre-installed. See [Add another machine](/remote-hosts),
+and [From another device](/remote-access) for serving the browser UI over
+private HTTPS.
 
 ## Next
 

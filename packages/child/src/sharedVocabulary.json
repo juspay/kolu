@@ -1,0 +1,33 @@
+{
+  "index.ts": {
+    "exports": ["Child", "Hung", "childEnvOf", "run", "start"],
+    "members": []
+  },
+  "child.ts": {
+    "exports": ["Child", "Hung", "childEnvOf", "run", "start"],
+    "members": [
+      "closed",
+      "code",
+      "cwd",
+      "drain",
+      "env",
+      "err",
+      "exitCode",
+      "graceMs",
+      "kill",
+      "maxBuffer",
+      "ok",
+      "out",
+      "pid",
+      "processGroup",
+      "said",
+      "stderr",
+      "stdio",
+      "stdout",
+      "stop",
+      "timeout",
+      "unstartable",
+      "wait"
+    ]
+  }
+}

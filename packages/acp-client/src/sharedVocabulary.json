@@ -1,0 +1,133 @@
+{
+  "index.ts": {
+    "exports": [
+      "Agent",
+      "AgentEvent",
+      "AgentGone",
+      "Gone",
+      "Handed",
+      "Memory",
+      "MemoryFailure",
+      "MemorySnapshot",
+      "Models",
+      "Probe",
+      "StopReason",
+      "Stored",
+      "make",
+      "newestFirst"
+    ],
+    "members": []
+  },
+  "testlib/index.ts": {
+    "exports": ["QUEUES", "SAYS_NOTHING", "fixtureAgent"],
+    "members": []
+  },
+  "agent.ts": {
+    "exports": [
+      "Agent",
+      "AgentGone",
+      "Gone",
+      "Handed",
+      "StopReason",
+      "make",
+      "newestFirst"
+    ],
+    "members": [
+      "advertised",
+      "answer",
+      "args",
+      "boot",
+      "cancel",
+      "command",
+      "cwd",
+      "env",
+      "id",
+      "leg",
+      "loadSession",
+      "memory",
+      "models",
+      "newSession",
+      "onEvent",
+      "probes",
+      "prompt",
+      "sessions",
+      "setModel",
+      "setSetting",
+      "signIn",
+      "signInCancel",
+      "signInInput",
+      "steer",
+      "stop",
+      "stopWithReason",
+      "tools",
+      "unset"
+    ]
+  },
+  "events.ts": {
+    "exports": ["AgentEvent", "Stored"],
+    "members": [
+      "_tag",
+      "armed",
+      "called",
+      "choices",
+      "detail",
+      "diffs",
+      "fields",
+      "id",
+      "link",
+      "locations",
+      "message",
+      "messageCount",
+      "methods",
+      "name",
+      "outcome",
+      "parent",
+      "progress",
+      "provisional",
+      "queues",
+      "reply",
+      "row",
+      "settings",
+      "spawned",
+      "status",
+      "steers",
+      "supersededBy",
+      "terminals",
+      "title",
+      "updatedAt",
+      "why"
+    ]
+  },
+  "memory.ts": {
+    "exports": [
+      "Conversing",
+      "Memory",
+      "MemoryFailure",
+      "MemorySnapshot",
+      "Models"
+    ],
+    "members": [
+      "agent",
+      "model",
+      "read",
+      "recall",
+      "remember",
+      "session",
+      "why",
+      "write"
+    ]
+  },
+  "probes.ts": {
+    "exports": ["Probe", "Probed", "StdioServer"],
+    "members": [
+      "args",
+      "ask",
+      "at",
+      "command",
+      "env",
+      "missing",
+      "name",
+      "server"
+    ]
+  }
+}

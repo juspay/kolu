@@ -1,0 +1,22 @@
+{
+  "index.ts": {
+    "exports": ["CLAUDE", "NAME", "REMOTE_SIGNALS", "spelling"],
+    "members": []
+  },
+  "leg.ts": {
+    "exports": ["CLAUDE", "spelling"],
+    "members": []
+  },
+  "env.ts": {
+    "exports": ["REMOTE_SIGNALS"],
+    "members": []
+  },
+  "name.ts": {
+    "exports": ["NAME"],
+    "members": []
+  },
+  "models.ts": {
+    "exports": ["MODELS"],
+    "members": []
+  }
+}
