@@ -145,9 +145,11 @@ const OTHER_KEY = {
  * "answered with no answer"; 1.56.0 says how each answer to one of kolu's
  * own questions was chosen; 1.57.0 puts a PR's address and the forge's
  * merge answer on the timeline; 1.58.0 gives every mention on a user row its
- * `kind`, a terminal or a piece of work; and 1.59.0 lets a tool row say when
- * the CURRENT outing of a call began. */
-const STATE_SCHEMA_VERSION = "1.59.0";
+ * `kind`, a terminal or a piece of work; 1.59.0 lets a tool row say when
+ * the CURRENT outing of a call began; and 1.60.0 gives the remembered
+ * conversation `taught` — whether the standing prompt has already gone out in
+ * the session it names, which only the record can carry across a restart. */
+const STATE_SCHEMA_VERSION = "1.60.0";
 
 const log = {
   debug() {},

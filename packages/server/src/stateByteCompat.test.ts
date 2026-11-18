@@ -116,7 +116,8 @@ describe("the persisted state file — aggregate bytes", () => {
 \t\t"sessionId": null,
 \t\t"cwd": "",
 \t\t"model": null,
-\t\t"fleet": []
+\t\t"fleet": [],
+\t\t"taught": false
 \t},
 \t"works": {},
 \t"members": {}
@@ -136,7 +137,8 @@ describe("the persisted state file — aggregate bytes", () => {
     store.set("hosts", ["remote:zest", "remote:srid@box"]);
     store.set("viewerMode", "light");
     // A conversation with something in it: the two halves of a resume (the
-    // session and the fleet it was working with), a chosen model, and a row
+    // session and the fleet it was working with), a chosen model, whether the
+    // standing prompt has already gone out in that session, and a row
     // carrying the fields every transcript row has. The fleet entry is a
     // FLEET REF — one conversation spans every host, so a bare id would be
     // the one shape this record must never go back to.
@@ -145,6 +147,7 @@ describe("the persisted state file — aggregate bytes", () => {
       cwd: "/home/tester",
       model: "claude-sonnet-4",
       fleet: ["local/11111111-1111-4111-8111-111111111111"],
+      taught: true,
     });
     // ... and the terminals kolu wakes it about: their own key since 1.50.0,
     // keyed by fleet ref — which work the terminal is in and what part it
@@ -207,13 +210,14 @@ describe("the persisted state file — aggregate bytes", () => {
       '["remote:zest","remote:srid@box"]',
     );
     expect(JSON.stringify(onDisk.viewerMode)).toBe('"light"');
-    // The record's own bytes, pinned: the two halves of a resume and the model
-    // a person chose, with the fleet as a list of `host/id` strings. The rows
-    // left for the transcript FILE at 1.50.0, and the watch list became the
-    // `works` and `members` keys beside this one.
+    // The record's own bytes, pinned: the two halves of a resume, the model a
+    // person chose, and whether the session has been taught — with the fleet
+    // as a list of `host/id` strings. The rows left for the transcript FILE
+    // at 1.50.0, the watch list became the `works` and `members` keys beside
+    // this one, and `taught` joined at 1.60.0.
     expect(JSON.stringify(onDisk.conductor)).toBe(
       '{"sessionId":"sess-live","cwd":"/home/tester","model":"claude-sonnet-4",' +
-        '"fleet":["local/11111111-1111-4111-8111-111111111111"]}',
+        '"fleet":["local/11111111-1111-4111-8111-111111111111"],"taught":true}',
     );
     expect(JSON.stringify(onDisk.members)).toBe(
       '{"local/11111111-1111-4111-8111-111111111111":' +

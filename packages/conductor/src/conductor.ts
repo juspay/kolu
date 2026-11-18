@@ -1251,10 +1251,17 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
         ? null
         : koluCallOf(frame.mcp.tool, frame.input, frame.answer);
     const kolu = refineKoluCall(held?.kolu ?? null, seen);
-    // THE FLEET MOVES HERE, before the row is written: the publish the
-    // conversation does about that row carries the state this changed.
+    // THE FLEET MOVES HERE, and it is SAID here: a terminal joining is news a
+    // reader draws and a fact the record keeps, and nothing else in this
+    // module is watching for it. Leaving it to the publish the conversation
+    // makes about the row it is writing would be membership that reaches disk
+    // only when something else happens to move — which is a conversation that
+    // comes back from a restart having forgotten a terminal it was working
+    // with.
     if (kolu !== null && fleet.touch(kolu)) {
       state = { ...state, fleet: [...fleet.ids()] };
+      publishState();
+      records.schedule("record");
     }
     if (
       frame.mcp === undefined &&
@@ -1760,7 +1767,25 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
               ...state,
               ...conversation,
               ...serverAuthored,
+              // THE MEMBERSHIP IS THIS MODULE'S, whatever reaches us: it is
+              // read off the tool readings supplied from here
+              // ({@link readKoluCall}) and from nowhere else, so it is folded
+              // back over every state a conversation reports for the reason
+              // the three above are — one fact, one author. Without it a
+              // whole-state publish carrying anything under that name would
+              // quietly empty the fleet we remembered, and the record would be
+              // written from the emptiness.
+              fleet: [...fleet.ids()],
             };
+            // A DIFFERENT CONVERSATION TAKES THE FLEET WITH IT: the terminals
+            // live on — kolu owns them — but the agent about to answer has no
+            // memory of having touched one, so a strip naming them belongs to
+            // a conversation that is over. Asked BEFORE `resume` moves below,
+            // because `resume` is what "the conversation we were in" is.
+            if (state.sessionId !== null && state.sessionId !== resume) {
+              fleet.clear();
+              state = { ...state, fleet: [] };
+            }
             // WHICH CONVERSATION A REPLACEMENT ADAPTER COMES BACK INTO: the
             // one this agent is in NOW, rather than the id the file named at
             // boot. A conversation can move on without anybody restarting —
@@ -1772,14 +1797,6 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
             // crash) or STALE, which is a panel quietly reverting to an older
             // chat. The null is skipped for the reason just above: a
             // teardown's last breath is a stop, not a conversation ending.
-            // A DIFFERENT CONVERSATION TAKES THE FLEET WITH IT: the terminals
-            // live on — kolu owns them — but the agent about to answer has no
-            // memory of having touched one, so a strip naming them belongs to
-            // a conversation that is over.
-            if (state.sessionId !== null && state.sessionId !== resume) {
-              fleet.clear();
-              state = { ...state, fleet: [] };
-            }
             if (state.sessionId !== null) resume = state.sessionId;
             publishState();
             records.schedule("record");
