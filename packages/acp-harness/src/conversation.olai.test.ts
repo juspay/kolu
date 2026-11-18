@@ -206,6 +206,7 @@ const open = async (
     log?: HarnessOptions<OlaiRow>["log"];
     agent?: string;
     teaching?: string;
+    models?: HarnessOptions<OlaiRow>["models"];
     abandonWhen?: HarnessOptions<OlaiRow>["abandonWhen"];
   } = {},
 ): Promise<Running> => {
@@ -242,6 +243,7 @@ const open = async (
     mcpServers: extra.mcpServers ?? [],
     ...(extra.probes === undefined ? {} : { probes: extra.probes }),
     teaching: extra.teaching ?? TEACHING,
+    ...(extra.models === undefined ? {} : { models: extra.models }),
     ...(extra.abandonWhen === undefined
       ? {}
       : { abandonWhen: extra.abandonWhen }),
@@ -626,6 +628,87 @@ describe("a bring-up nobody waits for any more", () => {
       name: "HarnessUnavailable",
     });
     expect(probed).toBe(0);
+  });
+});
+
+describe("how turns end beside each other", () => {
+  const until = async (why: string, holds: () => boolean): Promise<void> => {
+    const deadline = Date.now() + 4_000;
+    while (Date.now() < deadline) {
+      if (holds()) return;
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    throw new Error(`timed out waiting for ${why}`);
+  };
+
+  test("a message refused while another turn runs stops saying it is waiting", async () => {
+    // An agent with no queue refuses the second prompt at once, while the
+    // first is still running: the refused row never becomes the head, and must
+    // not go on claiming it is waiting its turn.
+    const running = await open({ args: ["--no-queue"] });
+    await running.harness.prompt(typed("slow"), false);
+    const { rowId } = await running.harness.prompt(typed("hello"), false);
+    await until("the second turn to end", () =>
+      running.turns.some((one) => one.row === rowId),
+    );
+    const row = running.rows().find((one) => one.id === rowId);
+    expect(row?.kind === "user" ? row.queued : "n/a").toBeUndefined();
+    expect(row?.kind === "user" ? row.delivery : "n/a").toBe("refused");
+  });
+
+  test("a turn that spoke before its agent died is not marked unanswered", async () => {
+    // Its words reached the person, so the message plainly arrived: offering
+    // to send it again would be offering the duplicate the mark exists to
+    // prevent.
+    const running = await open();
+    const { rowId } = await running.harness.prompt(
+      typed("speakThenDie"),
+      false,
+    );
+    await until("the turn to end", () =>
+      running.turns.some((one) => one.row === rowId),
+    );
+    const row = running.rows().find((one) => one.id === rowId);
+    expect(row?.kind === "user" ? row.delivery : "n/a").toBeUndefined();
+  });
+
+  test("one press of cancel says so once, however many turns it stopped", async () => {
+    const running = await open({ args: ["--cancel-ends-all"] });
+    await running.harness.prompt(typed("slow"), false);
+    const { rowId } = await running.harness.prompt(typed("hello"), false);
+    await running.harness.cancel();
+    await until(
+      "both turns to end",
+      () =>
+        running.turns.some((one) => one.row === rowId) &&
+        running.turns.length >= 2,
+    );
+    const said = running
+      .rows()
+      .filter(
+        (one) => one.kind === "notice" && one.text === "the turn was cancelled",
+      );
+    expect(said.length).toBe(1);
+  });
+});
+
+describe("a product that keeps the model choice itself", () => {
+  test("has a person's choice written to its own record", async () => {
+    // A product that keeps "which model was this conversation on" on disk
+    // hands that record over, and a choice made in the panel lands in it —
+    // not in a copy that dies with the process.
+    const written: Array<string> = [];
+    const running = await open({
+      models: {
+        read: () => Effect.succeed(null),
+        write: (_to, chosen) =>
+          Effect.sync(() => {
+            written.push(chosen);
+          }),
+      },
+    });
+    await running.harness.setOption("model", "sonnet");
+    expect(written).toContain("sonnet");
   });
 });
 

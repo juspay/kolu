@@ -211,12 +211,25 @@ let slowTurn: unknown = null;
  */
 const waiting: Array<Message> = [];
 let busy = false;
+/** An agent that holds NO queue: a prompt sent while it is busy is refused,
+ *  which is the opposite promise to the one above and the one a product has
+ *  to draw differently. */
+const noQueue = process.argv.includes("--no-queue");
+/** A cancel that ends EVERY prompt the agent holds, each with `cancelled`,
+ *  rather than only the one it is running — one press, several turns over. */
+const cancelEndsAll = process.argv.includes("--cancel-ends-all");
 
 function enqueue(message: Message): void {
+  if (busy && noQueue) {
+    // `refuse`, not `refuseTurn`: the turn it is busy with is still running.
+    refuse(message.id, -32603, "busy: one prompt at a time");
+    return;
+  }
   if (busy) {
     waiting.push(message);
-    // The second prompt is what lets the first one go: see `slowTurn`.
-    if (slowTurn !== null) {
+    // The second prompt is what lets the first one go: see `slowTurn` — unless
+    // a cancel is what this run is about, which ends them all itself.
+    if (slowTurn !== null && !cancelEndsAll) {
       const held = slowTurn;
       slowTurn = null;
       finish(held, "end_turn");
@@ -779,6 +792,11 @@ function handle(message: Message): void {
       if (slowTurn !== null) {
         const held = slowTurn;
         slowTurn = null;
+        if (cancelEndsAll) {
+          const behind = waiting.splice(0, waiting.length);
+          for (const one of behind)
+            respond(one.id, { stopReason: "cancelled" });
+        }
         finish(held, "cancelled");
       }
       return;
@@ -1162,6 +1180,16 @@ function turn(message: Message): void {
   }
   if (text === "slow") {
     slowTurn = message.id;
+    return;
+  }
+  if (text === "speakThenDie") {
+    // A TURN THAT SPOKE BEFORE IT DIED: the words reached the person, so the
+    // message they answered plainly arrived.
+    says("about to fall over");
+    setTimeout(() => {
+      process.stderr.write("fixture-agent: gone\n");
+      process.exit(1);
+    }, 50);
     return;
   }
   if (text === "die") {

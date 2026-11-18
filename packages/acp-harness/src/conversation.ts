@@ -373,6 +373,14 @@ export interface HarnessOptions<Row extends AnyRow> {
    */
   readonly model?: string | null;
   /**
+   * WHERE A PERSON'S MODEL CHOICE IS KEPT, per conversation — the client's
+   * own port, for a product that keeps that record itself (on disk, keyed by
+   * agent and session). When it is handed over, the client reads and writes
+   * it directly, and {@link model} is not read. Absent, the harness keeps the
+   * choice in memory, seeded from {@link model}, for the life of the process.
+   */
+  readonly models?: Models;
+  /**
    * WHAT A TOOL CALL IS READ AS, on the product's half of the row.
    *
    * The whole of what this package knows about a tool call is the protocol's
@@ -1056,6 +1064,10 @@ export const startHarness = async <Row extends AnyRow>(
    *  rather than derived because it is a CLOCK reading: the oldest ticket
    *  knows which row it is for and not when it started. */
   let busyAt: number | null = null;
+  /** Whether THIS press of cancel has been said yet: one press stops every
+   *  turn in flight, and each of them answering `cancelled` is still one
+   *  thing a person did. */
+  let cancelSaid = false;
 
   let stopped = false;
   /** Whether the subprocess has gone. The client reports it once, and the
@@ -1789,7 +1801,7 @@ export const startHarness = async <Row extends AnyRow>(
    *  so that a conversation opened after a switch opens on the switch rather
    *  than on what was remembered at boot. */
   let wanted: string | null = options.model ?? null;
-  const models: Models = {
+  const models: Models = options.models ?? {
     read: () => Effect.succeed(wanted),
     write: (_to, chosen) =>
       Effect.sync(() => {
@@ -1897,7 +1909,12 @@ export const startHarness = async <Row extends AnyRow>(
       report(transcript.sent(ticket.key));
       if (stopReason === "cancelled") {
         outcome = "cancelled";
-        notice("the turn was cancelled");
+        // ONE PRESS, ONE LINE: a cancel nobody asked for is always news, and
+        // the turns a press stopped all say the one thing it did.
+        if (!ticket.stopped || !cancelSaid) {
+          cancelSaid = ticket.stopped;
+          notice("the turn was cancelled");
+        }
       }
     } catch (cause) {
       why = cause instanceof Error ? cause.message : String(cause);
@@ -1927,7 +1944,10 @@ export const startHarness = async <Row extends AnyRow>(
         // NOTHING CAME BACK: the agent may have the message already, so no
         // retry is offered — an offered duplicate is worse than none.
         outcome = "unanswered";
-        report(transcript.unanswered(ticket.key));
+        // ... AND A TURN THAT SPOKE DID ARRIVE: offering to send words again
+        // that the agent visibly worked on is the duplicate this mark exists
+        // to prevent.
+        if (heard === quietAt) report(transcript.unanswered(ticket.key));
       }
       notice(`the turn could not be run: ${why}`);
     } finally {
@@ -1940,6 +1960,10 @@ export const startHarness = async <Row extends AnyRow>(
       // panel idle. Its paragraph is still finished, which is what puts every
       // answer in a paragraph of its own.
       report(last ? transcript.settle() : transcript.stopSaying());
+      // THE ENDING TURN'S OWN ROW stops waiting too: one marked as queued
+      // behind another that ends while a third still runs never becomes the
+      // head, and would say it is waiting for ever.
+      report(transcript.taken(ticket.key));
       const head = turns.head;
       if (head !== null) report(transcript.taken(head.key));
       publish();
@@ -2201,6 +2225,7 @@ export const startHarness = async <Row extends AnyRow>(
     // questions the turn was holding go back unanswered at the client, which
     // is where the promise each of them is lives.
     turns.stopping();
+    cancelSaid = false;
     try {
       await run(agent.cancel);
     } finally {
