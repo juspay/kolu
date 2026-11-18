@@ -441,6 +441,28 @@ describe("one conversation with a real agent", () => {
     expect([...seqs].sort((a, b) => a - b)).toEqual(seqs);
   });
 
+  test("a request about the session just left is turned away while the next one opens", async () => {
+    // The window the fence exists for: the conversation has been left and the
+    // next `session/new` has not answered, so there is no live session to tell
+    // the request from. The fixture holds its answer to the open until this
+    // request is answered, so the moment is reached every time rather than
+    // raced for.
+    const running = await open("agent.ts", {
+      args: ["--ask-about-the-left-session"],
+    });
+    await running.harness.newSession();
+    expect(running.harness.state().sessionId).toBe("sess-2");
+    // NOT DRAWN: nobody is in the conversation it is about, so a question row
+    // would be a request for a person to decide something on a dead session.
+    expect(running.rows().filter((row) => row.kind === "ask")).toEqual([]);
+    expect(running.harness.state().openAsks).toEqual([]);
+    // ... and TURNED AWAY on the wire, which is what lets the agent's own
+    // turn for that session end instead of waiting on an answer.
+    expect(await asked(running, "leftAnswers")).toEqual([
+      { outcome: { outcome: "cancelled" } },
+    ]);
+  });
+
   test("a cancel settles the question the turn was holding, withdrawn", async () => {
     const running = await open("agent.ts");
     await running.harness.prompt("ask", [], [], false);

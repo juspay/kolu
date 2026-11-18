@@ -47,7 +47,7 @@
  *                  recorded off a live session, and one of the agent's own
  *                  forwarded messages naming a model only that payload offers
  *
- * Six more turns say back what this process was TOLD, which is the only way a
+ * Seven more turns say back what this process was TOLD, which is the only way a
  * test can ask the one thing that knows: `servers` says the server names every
  * open was handed and `serverShapes` those entries verbatim (the stdio/http
  * arm is a key's presence, not a name), `meta` the `_meta` each open carried,
@@ -55,8 +55,9 @@
  * modes that were asked for, `prompts` the bodies of the prompts that have
  * arrived, and `blocks` their CONTENT BLOCKS — whether an attachment really
  * crossed the pipe as an `image`, a `resource` or a `resource_link` is a
- * question only this end can answer. Through the harness's own door rather
- * than around it.
+ * question only this end can answer. `leftAnswers` says what the permission
+ * requests `--ask-about-the-left-session` sent were answered. Through the
+ * harness's own door rather than around it.
  *
  * `session/set_mode` REFUSES anything but `bypassPermissions`, which is how one
  * fixture covers both halves of the bypass rule: the mode a leg really asks for
@@ -162,6 +163,18 @@ const blocks: Array<unknown> = [];
 /** ... and the words STEERED into a running turn, in order — the only record
  *  that a steer really landed, since nothing else about it reaches a reader. */
 const steered: Array<string> = [];
+/**
+ * `--ask-about-the-left-session`: every `session/new` after the first sends a
+ * PERMISSION REQUEST naming the session being left, and holds its own answer
+ * until that request is answered — the moment a client has left one
+ * conversation and not yet been told the next, which is exactly when a stale
+ * request has no live session to be compared with.
+ */
+const askAboutLeft = process.argv.includes("--ask-about-the-left-session");
+/** ... what those requests were answered, in order, and the open waiting on
+ *  the one in flight. */
+const leftAnswers: Array<unknown> = [];
+let heldOpen: { readonly id: unknown; readonly result: unknown } | null = null;
 
 /** The turn whose prompt is still unanswered, so a cancel can end it. */
 let openTurn: unknown = null;
@@ -454,6 +467,16 @@ const RECORDED = [
 ];
 
 function handle(message: Message): void {
+  if (
+    message.method === undefined &&
+    typeof message.id === "string" &&
+    message.id.startsWith("left-")
+  ) {
+    leftAnswers.push(message.result ?? null);
+    if (heldOpen !== null) respond(heldOpen.id, heldOpen.result);
+    heldOpen = null;
+    return;
+  }
   switch (message.method) {
     case "initialize":
       respond(message.id, {
@@ -501,6 +524,26 @@ function handle(message: Message): void {
       );
       handedRaw.push(message.params?.mcpServers ?? []);
       metas.push(message.params?._meta ?? null);
+      if (askAboutLeft && previous !== null) {
+        heldOpen = {
+          id: message.id,
+          result: { sessionId: session, configOptions: configOptions() },
+        };
+        write({
+          jsonrpc: "2.0",
+          id: `left-${opened}`,
+          method: "session/request_permission",
+          params: {
+            sessionId: previous,
+            toolCall: { toolCallId: `late-${opened}`, title: "Edit a file" },
+            options: [
+              { optionId: "allow", name: "Allow", kind: "allow_once" },
+              { optionId: "reject", name: "Reject", kind: "reject_once" },
+            ],
+          },
+        });
+        return;
+      }
       respond(message.id, {
         sessionId: session,
         configOptions: configOptions(),
@@ -728,6 +771,11 @@ function turn(message: Message): void {
   }
   if (text === "modes") {
     says(JSON.stringify(modes));
+    finish(message.id, "end_turn");
+    return;
+  }
+  if (text === "leftAnswers") {
+    says(JSON.stringify(leftAnswers));
     finish(message.id, "end_turn");
     return;
   }
