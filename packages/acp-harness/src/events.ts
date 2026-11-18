@@ -101,6 +101,22 @@ export type AgentEvent =
       readonly code: number | null;
       readonly signal: string | null;
     }
+  /** WHAT THIS AGENT SAID IT CAN DO, once per handshake — the two facts no
+   *  panel can work out for itself, both read POSITIVELY: an agent that says
+   *  nothing is offered no interruption and promised no queue. */
+  | {
+      readonly _tag: "advertised";
+      readonly steers: boolean;
+      readonly queues: boolean;
+    }
+  /** What this agent takes in an attachment — ACP makes both OPT-IN, and
+   *  sending an image to an agent that never advertised one is a turn that
+   *  fails inside the agent with a sentence nobody wrote for a person. */
+  | {
+      readonly _tag: "carries";
+      readonly image: boolean;
+      readonly embeddedContext: boolean;
+    }
   /** A QUESTION the agent is holding a call open for — a form to fill in, or a
    *  page to visit, in the two modes ACP's own `elicitation/create` has. Same
    *  shape as `permission` on purpose: both are requests a person answers, and

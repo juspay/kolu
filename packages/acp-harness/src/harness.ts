@@ -833,6 +833,18 @@ export const startHarness = async (
       case "identity":
         writeIdentity(event.status);
         return null;
+      case "advertised":
+        // Read once, at the handshake, and assigned without a publish: the
+        // open that follows publishes the state that carries them.
+        advertisedSteering = event.steers;
+        queuesWhenBusy = event.queues;
+        return null;
+      case "carries":
+        carries = {
+          image: event.image,
+          embeddedContext: event.embeddedContext,
+        };
+        return null;
       case "elicitation":
         void writeElicitation(
           event.params as CreateElicitationRequest,
@@ -2238,13 +2250,17 @@ export const startHarness = async (
     // agent makes about itself at the handshake, and both are read POSITIVELY:
     // an agent that says nothing is offered no interruption and promises no
     // queue, which is the direction either is safe to lose in.
-    advertisedSteering = leg.steering?.advertised(initialized) ?? false;
-    queuesWhenBusy = leg.queues(initialized);
+    emit({
+      _tag: "advertised",
+      steers: leg.steering?.advertised(initialized) ?? false,
+      queues: leg.queues(initialized),
+    });
     const takes = initialized.agentCapabilities?.promptCapabilities;
-    carries = {
+    emit({
+      _tag: "carries",
       image: takes?.image === true,
       embeddedContext: takes?.embeddedContext === true,
-    };
+    });
     await openConversation();
   } catch (cause) {
     // Everything except the signature goes with the subprocess: a conversation
