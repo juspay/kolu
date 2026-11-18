@@ -833,6 +833,12 @@ export const startHarness = async (
       case "identity":
         writeIdentity(event.status);
         return null;
+      case "elicitation":
+        void writeElicitation(
+          event.params as CreateElicitationRequest,
+          event.signal,
+        ).then(event.settle, event.fail);
+        return null;
       case "permission":
         // STARTED, not awaited: the door is synchronous and the request is
         // answered through `settle` when the person has.
@@ -1072,7 +1078,7 @@ export const startHarness = async (
     log.warn({ why }, "undrawable question");
   };
 
-  const onElicitation = async (
+  const writeElicitation = async (
     params: CreateElicitationRequest,
     signal: AbortSignal,
   ): Promise<CreateElicitationResponse> => {
@@ -1666,8 +1672,18 @@ export const startHarness = async (
           });
         }),
     )
-    .onRequest(methods.client.elicitation.create, (context) =>
-      onElicitation(context.params, context.signal),
+    .onRequest(
+      methods.client.elicitation.create,
+      (context) =>
+        new Promise<CreateElicitationResponse>((resolve, reject) => {
+          emit({
+            _tag: "elicitation",
+            params: context.params,
+            signal: context.signal,
+            settle: (answer) => resolve(answer as CreateElicitationResponse),
+            fail: reject,
+          });
+        }),
     )
     .onNotification(methods.client.elicitation.complete, (context) => {
       emit({ _tag: "elicitationComplete", params: context.params });

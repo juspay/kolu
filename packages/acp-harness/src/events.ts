@@ -101,6 +101,17 @@ export type AgentEvent =
       readonly code: number | null;
       readonly signal: string | null;
     }
+  /** A QUESTION the agent is holding a call open for — a form to fill in, or a
+   *  page to visit, in the two modes ACP's own `elicitation/create` has. Same
+   *  shape as `permission` on purpose: both are requests a person answers, and
+   *  which rules apply is the conversation's. */
+  | {
+      readonly _tag: "elicitation";
+      readonly params: unknown;
+      readonly signal: AbortSignal;
+      readonly settle: (answer: unknown) => void;
+      readonly fail: (cause: unknown) => void;
+    }
   /** A PERMISSION the agent is holding a call open for.
    *
    *  `params` is the request's own payload and `signal` its abort; `settle`
