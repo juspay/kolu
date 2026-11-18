@@ -34,4 +34,17 @@ export type AgentEvent =
    *  conversation's question row, or the sign-in row whose request this
    *  elicitation belongs to. The payload is the notification's own params — the
    *  reading of which is the conversation's, and `./payloads.ts` owns it. */
-  { readonly _tag: "elicitationComplete"; readonly params: unknown };
+  | { readonly _tag: "elicitationComplete"; readonly params: unknown }
+  /** The agent's prose, one chunk as it arrived. */
+  | { readonly _tag: "said"; readonly text: string }
+  /** A background task's report, which the agent injects as a user-role turn.
+   *  `onto` is the call it belongs to, or `null` for a notification that named
+   *  no call — the losing direction, and the one the row can draw. */
+  | {
+      readonly _tag: "taskNotification";
+      readonly onto: {
+        readonly toolUseId: string;
+        readonly task: string;
+        readonly report: string;
+      } | null;
+    };

@@ -796,14 +796,36 @@ export const startHarness = async (
       case "elicitationComplete":
         onElicitationComplete(event.params);
         return null;
-      default:
-        // THE UNION HAS ONE MEMBER TODAY, and a one-member union collapses to
-        // its member, so the compiler has nothing to narrow to `never` — the
-        // exhaustive `satisfies never` check arrives with the second member,
-        // in the commit that adds it. Until then this arm is unreachable by
-        // construction and says so rather than guessing.
-        throw new Error(`unhandled agent event: ${JSON.stringify(event)}`);
+      case "said": {
+        // The doubled prologue is dropped HERE rather than anywhere narrower:
+        // the chunk is otherwise speech, and every counter a chunk feeds is
+        // downstream of this one door.
+        if (event.text !== "" && prologue !== null && event.text === prologue) {
+          prologue = null;
+          return null;
+        }
+        if (event.text !== "") report(transcript.say(event.text));
+        return null;
+      }
+      case "taskNotification": {
+        const onto = event.onto;
+        if (onto !== null) {
+          report(
+            transcript.tool(onto.toolUseId, {
+              armed: {
+                task: onto.task,
+                ...(onto.report === "" ? {} : { report: onto.report }),
+              },
+            }),
+          );
+          publish();
+        }
+        return null;
+      }
     }
+    // A MEMBER ADDED WITHOUT A CASE FAILS HERE, which is what keeps this door
+    // and the union one fact rather than two.
+    return event satisfies never;
   };
 
   const report = (change: Change<ConductorRow>): void => {
@@ -1165,14 +1187,7 @@ export const startHarness = async (
     switch (update.sessionUpdate) {
       case "agent_message_chunk": {
         const text = textOf(update.content);
-        // The doubled prologue is dropped HERE rather than anywhere narrower:
-        // the chunk is otherwise speech, and every counter a chunk feeds is
-        // downstream of this one door.
-        if (text !== "" && prologue !== null && text === prologue) {
-          prologue = null;
-          return;
-        }
-        if (text !== "") report(transcript.say(text));
+        emit({ _tag: "said", text });
         return;
       }
       case "user_message_chunk": {
@@ -1189,24 +1204,13 @@ export const startHarness = async (
             : undefined,
         );
         if (notification !== null) {
-          if (notification.onto !== null) {
-            report(
-              transcript.tool(notification.onto.toolUseId, {
-                armed: {
-                  task: notification.onto.task,
-                  ...(notification.onto.report === ""
-                    ? {}
-                    : { report: notification.onto.report }),
-                },
-              }),
-            );
-            publish();
-          }
+          emit({ _tag: "taskNotification", onto: notification.onto });
           return;
         }
         // A LIVE user chunk is kolu's own message coming back: the row for it
         // was minted when somebody pressed send, and drawing the echo would
-        // double every message in the conversation.
+        // double every message in the conversation. A THINKING chunk is
+        // dropped in the `default` arm below, as it always was.
         return;
       }
       // Announce and update are ONE event: the protocol distinguishes them by
