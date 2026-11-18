@@ -105,6 +105,17 @@ process.stdin.on("data", (chunk: string) => {
         respond(message.id, {});
         continue;
       }
+      default:
+        // A real agent answers a method it does not implement — `session/close`
+        // among them — with `-32601`, rather than leaving it open.
+        if (message.id !== undefined) {
+          write({
+            jsonrpc: "2.0",
+            id: message.id,
+            error: { code: -32601, message: "Method not found" },
+          });
+        }
+        continue;
     }
   }
 });

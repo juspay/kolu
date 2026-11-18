@@ -699,6 +699,11 @@ const BOOT_TIMEOUT = "30 seconds";
 /** A load is not small: the agent re-opens a conversation and replays every
  *  message in it before it answers. Its own, longer deadline. */
 const LOAD_TIMEOUT = "120 seconds";
+/** How long the agent gets to END the conversation being left. Bounded and its
+ *  own: a close is a cancel plus a subprocess teardown rather than a model
+ *  call, and the person waiting on it is the one who just asked for another
+ *  conversation. */
+const CLOSE_TIMEOUT = "10 seconds";
 
 interface Live {
   readonly child: Child;
@@ -3392,6 +3397,51 @@ export const make = (options: Options): Effect.Effect<Agent, never, never> =>
       );
 
     /**
+     * END THE CONVERSATION BEING LEFT, at the agent — ACP's `session/close`.
+     *
+     * MEASURED, against the pinned Claude adapter 0.81.2: a session's work runs
+     * in its own SDK `query()`, and `query()` SPAWNS A `claude` CLI the moment
+     * the session is made. Nothing ever ends that CLI except `session/close` or
+     * the connection dying, so a client that opens a second conversation on one
+     * adapter and never closes the first leaves the first CLI running for the
+     * life of the process — one `claude` per conversation anybody ever left.
+     *
+     * BEFORE the next open, so a host never carries two CLIs for one agent, and
+     * an open that fails does not leave the old conversation running with
+     * nothing able to reach it. It does not FORGET the conversation: the agent's
+     * stored transcript is untouched (forgetting is `session/delete`), so a
+     * later load of the same id is still a load.
+     *
+     * SWALLOWED, and said only in the log. There is no capability to read
+     * first, so an agent without the method answers "method not found", and a
+     * refusal to end a conversation nobody is in is no reason to refuse a
+     * person the one they asked for.
+     */
+    const release = (at: Live, left: string | null): Effect.Effect<void> =>
+      left === null
+        ? Effect.void
+        : Effect.catchTag(
+            Effect.asVoid(
+              ask(
+                at.connection,
+                methods.agent.session.close,
+                { sessionId: left },
+                CLOSE_TIMEOUT,
+              ),
+            ),
+            "AgentGone",
+            (gone) =>
+              Effect.sync(() => {
+                tell(
+                  Effect.logWarning(
+                    "the conversation being left could not be closed; the agent may still be holding it",
+                  ),
+                  { session: left, why: gone.why },
+                );
+              }),
+          );
+
+    /**
      * ... and the LISTING, which wants the same process and holds the permit
      * for no longer than starting one.
      *
@@ -3715,9 +3765,11 @@ export const make = (options: Options): Effect.Effect<Agent, never, never> =>
           // {@link leaving} names the session being left, so it runs before
           // `session` is cleared — nulling first is what used to turn the
           // leftover fence off for the whole of the next open.
+          const left = activeSession;
           leaving();
           activeSession = null;
           emit({ _tag: "sessionOver", why: "new" });
+          yield* release(at, left);
           yield* fresh(at);
         }),
       ),
@@ -3732,6 +3784,7 @@ export const make = (options: Options): Effect.Effect<Agent, never, never> =>
             }
             const stored = yield* storedFor(at);
             const wanted = stored.find((entry) => entry.id === id);
+            const left = activeSession;
             leaving();
             activeSession = null;
             emit({ _tag: "sessionOver", why: "load" });
@@ -3741,6 +3794,9 @@ export const make = (options: Options): Effect.Effect<Agent, never, never> =>
             // about that one. The memory is one conversation deep, like the id
             // beside it.
             yield* readChoice(id);
+            // ... and the one being left is ended at the agent first: a load
+            // of the same id re-opens it from the agent's store either way.
+            yield* release(at, left);
             yield* load(at, id, wanted?.title ?? null, modelFor(id));
           }),
         ),
