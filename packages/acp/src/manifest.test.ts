@@ -24,7 +24,7 @@
  * kolu type cannot move in by increments — refusals leave as
  * {@link ./asks.ts}'s own `Refused`, translated at the harness seam); the
  * package speaks only ACP; the SDK is TYPES here — the runtime and its zod
- * peer stay in `@kolu/acp-harness`; the protocol enters the tree in a closed
+ * peer stay in the two packages that run the protocol; the protocol enters the tree in a closed
  * set of packages; the export lists are closed and disjoint; and who may
  * import which HALF is a table, so the `./wire` carve-out is a fact and not a
  * comment.
@@ -201,16 +201,17 @@ describe("the manifest", () => {
     }
   });
 
-  test("the protocol enters the tree here and in the harness alone", () => {
-    // The harness is the one package in this tree that SPAWNS an ACP
-    // subprocess, so it is the one that carries the SDK's runtime. An agent's
-    // integration leg names none of the SDK's types in its production
-    // sources — `@kolu/acp/engine` carries the ones a leg's signatures need —
-    // which is why this list can still be written down.
+  test("the protocol enters the tree here and in the two packages that run it", () => {
+    // `@kolu/acp-client` SPAWNS an ACP subprocess and holds the connection,
+    // and `@kolu/acp-harness` still runs its own until it sits on the client,
+    // so those two carry the SDK's runtime. An agent's integration leg names
+    // none of the SDK's types in its production sources — `@kolu/acp/engine`
+    // carries the ones a leg's signatures need — which is why this list can
+    // still be written down.
     const speaking = [...tree.keys()].filter((pkg) =>
       sources(pkg).some((source) => source.specifiers.some(isSdk)),
     );
-    expect(speaking.sort()).toEqual(["acp", "acp-harness"]);
+    expect(speaking.sort()).toEqual(["acp", "acp-client", "acp-harness"]);
   });
 
   test("what may cross is enumerated: the export lists are closed and disjoint", () => {
@@ -283,10 +284,11 @@ describe("the manifest", () => {
    * Every other member's `[]` is what says nothing else opens any of them.
    */
   const MAY: Readonly<Record<string, ReadonlyArray<string>>> = {
-    // THE ONLY ROW WITH ALL THREE, and that is what the harness IS: it runs
-    // the protocol, so it reads the projections (`.`), spells the leg and the
-    // adapter it was handed (`./engine`), and writes the vocabulary padi's
-    // contract carries (`./wire`).
+    // THE ROWS WITH ALL THREE, and that is what running the protocol IS: the
+    // client and the harness read the projections (`.`), spell the leg and
+    // the adapter they were handed (`./engine`), and write the vocabulary a
+    // product's contract carries (`./wire`).
+    "acp-client": ["@kolu/acp", "@kolu/acp/engine", "@kolu/acp/wire"],
     "acp-harness": ["@kolu/acp", "@kolu/acp/engine", "@kolu/acp/wire"],
     // An agent's INTEGRATION reads nothing here any more, and that is the row
     // that says so: the leg, the adapter and the `NotHere` moved to
@@ -328,7 +330,7 @@ describe("the manifest", () => {
     server: ["@kolu/acp/engine"],
   };
 
-  test("who may import which half is a table, and the harness is the only row with all of them", () => {
+  test("who may import which half is a table, and only the packages that run the protocol open all of them", () => {
     const imported = new Map<string, ReadonlySet<string>>(
       [...tree.keys()]
         .filter((pkg) => pkg !== "acp")
