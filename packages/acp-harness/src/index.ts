@@ -32,6 +32,7 @@ export {
   type PromptFile,
   type SignedIn,
   type StdioServer,
+  type StopReason,
   type Stored,
   startHarness,
   type ToolFrame,

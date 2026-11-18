@@ -145,7 +145,7 @@ const started: Array<Harness<OlaiRow>> = [];
 
 afterEach(async () => {
   const live = started.splice(0, started.length);
-  await Promise.all(live.map((harness) => harness.stop()));
+  await Promise.all(live.map((harness) => harness.stop("stopped by app")));
 });
 
 /** What olai hands over for a person's message: the words, and nothing above
@@ -200,6 +200,7 @@ const open = async (
     probes?: () => Effect.Effect<ReadonlyArray<Probe>>;
     args?: ReadonlyArray<string>;
     mcpServers?: HarnessOptions<OlaiRow>["mcpServers"];
+    log?: HarnessOptions<OlaiRow>["log"];
   } = {},
 ): Promise<Running> => {
   const rows = new Map<string, OlaiRow>();
@@ -236,7 +237,7 @@ const open = async (
     ...(extra.probes === undefined ? {} : { probes: extra.probes }),
     teaching: TEACHING,
     taught: false,
-    log: silent,
+    log: extra.log ?? silent,
     opens: extra.opens ?? { kind: "fresh" },
     readCall,
     // OLAI'S THREE, and the whole point of this file.
@@ -555,5 +556,26 @@ describe("one frame, several calls, and the panes they run in", () => {
     const panes = call?.kind === "tool" ? (call.terminals ?? []) : [];
     expect(panes.map((one) => one.id)).toEqual(["term-1"]);
     expect(panes[0]?.output).toContain("building");
+  });
+});
+
+describe("stopping a conversation", () => {
+  test("says why on the line that records the agent's exit", async () => {
+    // A scheduler that reaps an idle conversation, a plugin switched off and a
+    // crash all end in the same exit; the reason on that one line is how a
+    // person reading the log tells them apart.
+    const said: Array<Record<string, unknown>> = [];
+    const keep = (o: unknown, m?: string): void => {
+      if (typeof o === "object" && o !== null)
+        said.push({ ...o, message: m ?? null });
+    };
+    const { harness } = await open({
+      log: { info: keep, warn: keep, error: keep },
+    });
+    started.splice(started.indexOf(harness), 1);
+    await harness.stop("idle eviction");
+    expect(said.filter((one) => one.reason !== undefined)).toEqual([
+      expect.objectContaining({ reason: "idle eviction", expected: true }),
+    ]);
   });
 });

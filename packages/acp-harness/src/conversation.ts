@@ -60,6 +60,7 @@ import {
   type Models,
   type Probe,
   type SignedIn,
+  type StopReason,
   type Stored,
 } from "@kolu/acp-client";
 import type { Adapter, Leg } from "@kolu/acp/engine";
@@ -682,7 +683,10 @@ export interface Harness<Row extends AnyRow> {
    *  deleted, `held` naming the ones the caller holds that the harness never
    *  minted. */
   clearSession(held: ReadonlyArray<string>): Promise<void>;
-  stop(): Promise<void>;
+  /** End the conversation and the process, saying WHY: the client writes the
+   *  reason on the line that records the agent's exit, which is how a person
+   *  reading a log tells a reaped conversation from a crash. */
+  stop(reason: StopReason): Promise<void>;
 }
 
 /**
@@ -707,6 +711,10 @@ export type { Stored };
  *  opening takes the first and {@link HarnessOptions.probes} takes the
  *  second. */
 export type { Memory, Probe };
+
+/** WHY A CONVERSATION WAS STOPPED, in the client's own closed vocabulary —
+ *  re-offered here because {@link Harness.stop} takes it. */
+export type { StopReason };
 
 // ── the constants this conversation is ─────────────────────────────────
 
@@ -2335,7 +2343,7 @@ export const startHarness = async <Row extends AnyRow>(
     return stopping;
   };
 
-  const stop = async (): Promise<void> => {
+  const stop = async (reason: StopReason): Promise<void> => {
     // NOTHING MORE IS PUBLISHED FROM HERE, which is what `stopped` buys on its
     // way through {@link report} and {@link publish}: a turn still on the wire
     // ends somewhere inside the awaits below, its questions go back
@@ -2345,7 +2353,7 @@ export const startHarness = async <Row extends AnyRow>(
     stopped = true;
     // Leaving is the agent's first — its questions go back unanswered and the
     // session is closed AT the agent — and then the rows this half owns.
-    await run(agent.stop);
+    await run(agent.stopWithReason(reason));
     leaving();
     identity = null;
     turns.drain();

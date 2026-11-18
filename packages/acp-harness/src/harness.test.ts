@@ -221,7 +221,7 @@ const started: Array<Harness<FixtureRow>> = [];
 
 afterEach(async () => {
   const live = started.splice(0, started.length);
-  await Promise.all(live.map((harness) => harness.stop()));
+  await Promise.all(live.map((harness) => harness.stop("stopped by app")));
 });
 
 const open = async (
@@ -667,7 +667,7 @@ describe("one conversation with a real agent", () => {
     // adapter reads its subscription off whichever call made the session, so a
     // load that sent a different one leaves every restored conversation silent.
     expect(await asked(fresh, "meta")).toEqual([RAW.openMeta, RAW.openMeta]);
-    await fresh.harness.stop();
+    await fresh.harness.stop("stopped by app");
 
     // ... and the other door into an open: a RESUME, which is a
     // `session/load`.
@@ -742,7 +742,7 @@ describe("the permission mode a conversation is opened in", () => {
     // permissions.
     const mode = fresh.harness.state().options.find((one) => one.id === "mode");
     expect(mode?.value).toBe("bypassPermissions");
-    await fresh.harness.stop();
+    await fresh.harness.stop("stopped by app");
 
     // A LOAD makes a session too, and a restored conversation that never asked
     // is the one where every write becomes a question somebody answers by hand.

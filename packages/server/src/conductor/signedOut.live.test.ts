@@ -101,7 +101,9 @@ describe.skipIf(!LIVE)(
     });
 
     afterAll(async () => {
-      await Promise.all(live.splice(0, live.length).map((one) => one.stop()));
+      await Promise.all(
+        live.splice(0, live.length).map((one) => one.stop("stopped by app")),
+      );
       await rm(home, { recursive: true, force: true });
     });
 

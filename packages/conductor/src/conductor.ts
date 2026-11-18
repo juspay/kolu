@@ -1668,7 +1668,7 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
       // ... and its dying state is not this conversation's: the stop below
       // publishes `sessionId: null` for a conversation whose rows we keep.
       generation += 1;
-      void running.stop().catch((err: unknown) => {
+      void running.stop("stopped by app").catch((err: unknown) => {
         log.warn(
           { err },
           "kolu-server: the conductor's dead agent did not clean up",
@@ -1891,7 +1891,7 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
    *  flush that follows it, and the record is what the next boot reads. */
   const stopQuietly = async (agent: Harness<ConductorRow>): Promise<void> => {
     try {
-      await agent.stop();
+      await agent.stop("stopped by app");
     } catch (err: unknown) {
       log.warn(
         { err },
