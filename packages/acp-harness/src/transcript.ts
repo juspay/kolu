@@ -41,14 +41,14 @@
 import type { AskField, AskLink, AskOutcome, FileDiff } from "@kolu/acp/wire";
 import type { ConductorSignInReason } from "kolu-common/conductor";
 import type {
-  ConductorArmed,
+  Armed,
   ConductorKoluCall,
-  ConductorPlanStep,
   ConductorRow,
-  ConductorSaying,
-  ConductorSpawned,
-  ConductorToolStatus,
-  ConductorWatching,
+  PlanStep,
+  Saying,
+  Spawned,
+  ToolStatus,
+  Watching,
 } from "./rows.ts";
 
 export interface Change {
@@ -63,7 +63,7 @@ export interface Change {
    * hundred pieces, and publishing the whole of it once per piece puts the sum
    * of its prefixes on the wire — quadratic in the length of the answer.
    */
-  readonly appends: ReadonlyArray<ConductorSaying>;
+  readonly appends: ReadonlyArray<Saying>;
 }
 
 const EMPTY: Change = { upserts: [], removes: [], appends: [] };
@@ -169,7 +169,7 @@ const minted = (
 };
 
 /** The two statuses that mean a call has not reported back. */
-const isRunning = (status: ConductorToolStatus): boolean =>
+const isRunning = (status: ToolStatus): boolean =>
   status === "pending" || status === "in_progress";
 
 /** A row a TURN is the delivery of — the two kinds that can wait behind
@@ -214,7 +214,7 @@ const toolKey = (id: string): string => `tool:${id}`;
  *  over reported four identical lines reading *the agent "Task" ended* — a
  *  bottom row that tells a reader something went wrong and refuses to say
  *  which of the four it was. */
-const sentToDo = (spawned: ConductorSpawned, title: string): string =>
+const sentToDo = (spawned: Spawned, title: string): string =>
   spawned.said ?? spawned.kind ?? title;
 
 /** Everything a frame can say about one tool call. Each field `undefined` means
@@ -222,7 +222,7 @@ const sentToDo = (spawned: ConductorSpawned, title: string): string =>
  *  only what moved. */
 export interface ToolMove {
   readonly title?: string | undefined;
-  readonly status?: ConductorToolStatus | undefined;
+  readonly status?: ToolStatus | undefined;
   readonly server?: string | undefined;
   readonly tool?: string | undefined;
   /** Whether this call's question reaches the person as a FORM, so the ask row
@@ -238,8 +238,8 @@ export interface ToolMove {
   readonly locations?: ReadonlyArray<string> | undefined;
   readonly kolu?: ConductorKoluCall | undefined;
   readonly parent?: string | undefined;
-  readonly spawned?: ConductorSpawned | undefined;
-  readonly armed?: Partial<ConductorArmed> | undefined;
+  readonly spawned?: Spawned | undefined;
+  readonly armed?: Partial<Armed> | undefined;
   /** Whether `title` on THIS frame is the adapter's placeholder rather than the
    *  call's name. Scoped to the frame: absent is "not provisional", never
    *  "unchanged". */
@@ -351,8 +351,8 @@ export class Transcript {
    *  above the scroll, because the row itself may be an hour of scrollback
    *  away. Derived off the rows rather than kept beside them, so it cannot
    *  disagree with what is drawn. */
-  watching(): ReadonlyArray<ConductorWatching> {
-    const out: Array<ConductorWatching> = [];
+  watching(): ReadonlyArray<Watching> {
+    const out: Array<Watching> = [];
     for (const row of this.#rows.values()) {
       if (row.kind !== "tool") continue;
       if (row.armed !== undefined && row.armed.ended === null) {
@@ -465,8 +465,8 @@ export class Transcript {
   }
 
   /** That message is WAITING ITS TURN at the agent — it went out while a turn
-   *  was still running and nothing has started on it. Not a {@link
-   *  ConductorDeliverySchema} value, because a queued message has not FAILED
+   *  was still running and nothing has started on it. Not a {@link Delivery}
+   *  value, because a queued message has not FAILED
    *  at anything and a person reading it in the column of things that went
    *  wrong would be told the opposite of the truth. */
   queued(key: string): Change {
@@ -759,7 +759,7 @@ export class Transcript {
 
   /** The agent's plan, which each update REPLACES whole — so it is upserted at
    *  one key for the life of the session, and an empty update removes it. */
-  plan(steps: ReadonlyArray<ConductorPlanStep>): Change {
+  plan(steps: ReadonlyArray<PlanStep>): Change {
     const closed = this.#close();
     if (steps.length === 0) {
       if (!this.#rows.has(PLAN_KEY)) return closed;
@@ -836,9 +836,9 @@ export class Transcript {
    *  arrives later still. A leg answers about the frame in front of it and
    *  never accumulates, so holding the task together is this class's job. */
   #armedOf(
-    held: ConductorArmed | undefined,
-    move: Partial<ConductorArmed> | undefined,
-  ): ConductorArmed | undefined {
+    held: Armed | undefined,
+    move: Partial<Armed> | undefined,
+  ): Armed | undefined {
     if (move === undefined) return held;
     const task = move.task ?? held?.task;
     if (task === undefined) return held;

@@ -132,6 +132,109 @@ export const AskOutcome = Schema.Struct({
 });
 export type AskOutcome = typeof AskOutcome.Type;
 
+// ── The conversation shapes ───────────────────────────────────────────────
+//
+// The facts a transcript row and a conversation's state are made of, declared
+// ONCE for every product that draws them. Two chat UIs are served from these:
+// kolu's conductor (`kolu-common/src/conductorSchema.ts`, which spreads them
+// into its row schemas) and olai's chat plugin (`wire/members.ts`), and each
+// used to spell them a second time. The package that speaks the foreign thing
+// owns its words, and a row shape both panels draw is a word.
+//
+// The ENCODINGS here are kolu's, because kolu writes its rows to disk and a
+// stored row's bytes must not move. Where the two spellings differed the
+// stored one won: `null` where olai left a key absent, so a decoder has one
+// spelling for "nothing said" rather than two.
+
+/**
+ * HOW A TOOL CALL IS DOING. A row arrives `pending` and is refined by later
+ * frames, so the status is the field a panel reads to know whether a card is
+ * still breathing.
+ */
+export const ToolStatus = Schema.Literals([
+  "pending",
+  "in_progress",
+  "completed",
+  "failed",
+]);
+export type ToolStatus = typeof ToolStatus.Type;
+
+/**
+ * What became of a message's DELIVERY, when it did not simply go.
+ *
+ * Two values because there are exactly two things this end can honestly know.
+ * `refused` — the agent said no, or a cancel beat the prompt onto the wire;
+ * nothing took it, so *send again* sends it for the FIRST time. `unanswered` —
+ * it went out and nothing came back; an agent that took it and then went
+ * silent looks identical to one that never took it, so no retry is offered.
+ */
+export const Delivery = Schema.Literals(["refused", "unanswered"]);
+export type Delivery = typeof Delivery.Type;
+
+/** A PIECE of streaming prose appended to a row — never the text so far, so a
+ *  turn that runs for a minute does not re-send its own paragraph per tick.
+ *
+ *  `of` is the row it belongs to, and `at` is authoritative: a piece that was
+ *  delivered twice starts at an offset the row already covers, and truncating
+ *  to `at` before appending makes the re-send a no-op instead of a stutter. */
+export const Saying = Schema.Struct({
+  of: Schema.String,
+  at: Schema.Int,
+  text: Schema.String,
+});
+export type Saying = typeof Saying.Type;
+
+/** Something still out when the turn that started it has ended — a background
+ *  task, or a subagent. Drawn on the strip above the scroll, because the row
+ *  itself may be an hour of scrollback away. */
+export const Watching = Schema.Struct({
+  row: Schema.String,
+  kind: Schema.Literals(["agent", "task"]),
+  name: Schema.String,
+  since: Schema.String,
+});
+export type Watching = typeof Watching.Type;
+
+/** A background task the agent armed — a monitor, a `run_in_background` shell,
+ *  an async subagent. It reports its launch and then LIVES, so its row stays
+ *  live past the turn that made it and its death lands as a notice at the
+ *  bottom of the transcript in the harness's own word. */
+export const Armed = Schema.Struct({
+  task: Schema.String,
+  description: Schema.NullOr(Schema.String),
+  /** The harness's own ending word — `completed`, `failed`, `killed`,
+   *  `stopped`. A monitor you stopped did not fail. */
+  ended: Schema.NullOr(Schema.String),
+  report: Schema.NullOr(Schema.String),
+});
+export type Armed = typeof Armed.Type;
+
+/** A subagent this call sent out: which kind, and what it was told to do. */
+export const Spawned = Schema.Struct({
+  kind: Schema.NullOr(Schema.String),
+  said: Schema.NullOr(Schema.String),
+});
+export type Spawned = typeof Spawned.Type;
+
+/** One step of the agent's execution plan. */
+export const PlanStep = Schema.Struct({
+  content: Schema.String,
+  status: Schema.Literals(["pending", "in_progress", "completed"]),
+  priority: Schema.NullOr(Schema.String),
+});
+export type PlanStep = typeof PlanStep.Type;
+
+/** The agent asking a PERSON something — a permission request it was not
+ *  allowed to answer for itself, an `AskUserQuestion` form, a URL to visit.
+ *
+ *  `outcome` is `null` while it waits. A question NEVER times out. */
+export const Ask = Schema.Struct({
+  fields: Schema.Array(AskField),
+  link: Schema.NullOr(AskLink),
+  outcome: Schema.NullOr(AskOutcome),
+});
+export type Ask = typeof Ask.Type;
+
 /**
  * A file the agent rewrote, as the protocol reports it.
  *

@@ -1,13 +1,15 @@
 /**
  * THE CONTRACT'S WORDS, imported once.
  *
- * Every row, frame and state shape this package writes is declared by the
- * browser-safe contract half (`kolu-common/conductor`) and NOT here:
- * the harness is the WRITER of that contract, not a second author of it. This
- * module exists so the rest of the package names those types through one door —
- * a file that grows a shape of its own is immediately visible as the wrong
- * thing to have done, and a renamed member fails here rather than in nine
- * places.
+ * Every row, frame and state shape this package writes is declared elsewhere and
+ * NOT here: the harness is the WRITER of that contract, not a second author of
+ * it. The row shapes both chat UIs draw (a tool's status, a delivery mark, a
+ * streamed piece, an armed task, a spawned subagent, a plan step, what is being
+ * watched) are `@kolu/acp/wire`'s, and everything else is the browser-safe
+ * contract half's (`kolu-common/conductor`). This module exists so the rest of
+ * the package names those types through one door — a file that grows a shape of
+ * its own is immediately visible as the wrong thing to have done, and a renamed
+ * member fails here rather than in nine places.
  *
  * Half the contract names a type beside its schema and half does not, so the
  * ones that do not are spelled `typeof …Schema.Type` HERE, once. The schema
@@ -19,19 +21,13 @@
  */
 
 import type {
-  ConductorArmedSchema,
   ConductorAttachmentSchema,
   ConductorAuthMethodSchema,
   ConductorCommandSchema,
   ConductorModelSchema,
   ConductorOptionSchema,
-  ConductorPlanStepSchema,
-  ConductorSayingSchema,
   ConductorServerSchema,
   ConductorSignInSchema,
-  ConductorSpawnedSchema,
-  ConductorToolStatusSchema,
-  ConductorWatchingSchema,
 } from "kolu-common/conductor";
 
 export type {
@@ -47,13 +43,15 @@ export type {
   ConductorWakeEvent,
 } from "kolu-common/conductor";
 
-export type ConductorArmed = typeof ConductorArmedSchema.Type;
+export type {
+  Armed,
+  PlanStep,
+  Saying,
+  Spawned,
+  ToolStatus,
+  Watching,
+} from "@kolu/acp/wire";
 export type ConductorAttachment = typeof ConductorAttachmentSchema.Type;
-export type ConductorSpawned = typeof ConductorSpawnedSchema.Type;
-export type ConductorPlanStep = typeof ConductorPlanStepSchema.Type;
-export type ConductorSaying = typeof ConductorSayingSchema.Type;
-export type ConductorWatching = typeof ConductorWatchingSchema.Type;
-export type ConductorToolStatus = typeof ConductorToolStatusSchema.Type;
 export type ConductorOption = typeof ConductorOptionSchema.Type;
 export type ConductorCommand = typeof ConductorCommandSchema.Type;
 export type ConductorServer = typeof ConductorServerSchema.Type;

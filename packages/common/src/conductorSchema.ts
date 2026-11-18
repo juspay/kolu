@@ -34,14 +34,22 @@
  */
 
 import {
+  Armed,
+  Ask,
   AskAnswer,
   AskChoice,
   AskField,
   AskLink,
   AuthAccount,
   AuthStatus,
+  Delivery,
   FileDiff,
+  PlanStep,
+  Saying,
+  Spawned,
+  ToolStatus,
   Usage,
+  Watching,
   YES_NO,
 } from "@kolu/acp/wire";
 import { formatBytes, MIB } from "@kolu/byte-units";
@@ -125,18 +133,6 @@ export const ConductorMentionSchema = Schema.Union([
   ConductorWorkMentionSchema,
 ]);
 export type ConductorMention = typeof ConductorMentionSchema.Type;
-
-/** What became of a message's DELIVERY, when it did not simply go.
- *
- *  Two values because there are exactly two things this end can honestly know.
- *  `refused` — the agent said no, or a cancel beat the prompt onto the wire;
- *  nothing took it, so *send again* sends it for the FIRST time. `unanswered` —
- *  it went out and nothing came back; an agent that took it and then went
- *  silent looks identical to one that never took it, so no retry is offered. */
-export const ConductorDeliverySchema = Schema.Literals([
-  "refused",
-  "unanswered",
-]);
 
 /** A FILE THAT CAME WITH A MESSAGE — an image pasted into the composer, a
  *  log dropped onto the pane.
@@ -229,7 +225,7 @@ export const ConductorUserRowSchema = Schema.Struct({
    *  own was still in flight. Absent once the agent takes it up; absent rather
    *  than `false`, because the writer only ever writes `true`. */
   queued: Schema.optionalKey(Schema.Literal(true)),
-  delivery: Schema.optionalKey(ConductorDeliverySchema),
+  delivery: Schema.optionalKey(Delivery),
   /** ...and, on a refusal SIGNING IN could fix, which kind: nobody is signed
    *  in, or the account that is cannot run it (its limit, its billing, its
    *  organisation). Read off what the agent sent as structure, never off its
@@ -256,27 +252,14 @@ export const ConductorAgentRowSchema = Schema.Struct({
   streaming: Schema.optionalKey(Schema.Literal(true)),
 });
 
-export const ConductorPlanStepSchema = Schema.Struct({
-  content: Schema.String,
-  status: Schema.Literals(["pending", "in_progress", "completed"]),
-  priority: Schema.NullOr(Schema.String),
-});
-
 /** The agent's execution plan. Each `plan` update REPLACES the whole thing, so
  *  this row is upserted at one key for the life of the session and an empty
  *  update removes it. */
 export const ConductorPlanRowSchema = Schema.Struct({
   ...rowHead,
   kind: Schema.Literal("plan"),
-  steps: Schema.Array(ConductorPlanStepSchema),
+  steps: Schema.Array(PlanStep),
 });
-
-export const ConductorToolStatusSchema = Schema.Literals([
-  "pending",
-  "in_progress",
-  "completed",
-  "failed",
-]);
 
 /** WHO the call is about — the one trio every arm carries, hoisted so a sixth
  *  reading cannot spell it a sixth time. `terminalId` and `host` are nullable
@@ -371,31 +354,12 @@ export const ConductorKoluCallSchema = Schema.Union([
 ]);
 export type ConductorKoluCall = typeof ConductorKoluCallSchema.Type;
 
-/** A background task the agent armed — a monitor, a `run_in_background` shell,
- *  an async subagent. It reports its launch and then LIVES, so its row stays
- *  live past the turn that made it and its death lands as a notice at the
- *  bottom of the transcript in the harness's own word. */
-export const ConductorArmedSchema = Schema.Struct({
-  task: Schema.String,
-  description: Schema.NullOr(Schema.String),
-  /** The harness's own ending word — `completed`, `failed`, `killed`,
-   *  `stopped`. A monitor you stopped did not fail. */
-  ended: Schema.NullOr(Schema.String),
-  report: Schema.NullOr(Schema.String),
-});
-
-/** A subagent this call sent out: which kind, and what it was told to do. */
-export const ConductorSpawnedSchema = Schema.Struct({
-  kind: Schema.NullOr(Schema.String),
-  said: Schema.NullOr(Schema.String),
-});
-
 export const ConductorToolRowSchema = Schema.Struct({
   ...rowHead,
   kind: Schema.Literal("tool"),
   /** The agent's own title for the call. */
   text: Schema.String,
-  status: ConductorToolStatusSchema,
+  status: ToolStatus,
   /** Which MCP server and tool, when the call could be positively named. */
   server: Schema.optionalKey(Schema.String),
   tool: Schema.optionalKey(Schema.String),
@@ -417,8 +381,8 @@ export const ConductorToolRowSchema = Schema.Struct({
   diffs: Schema.optionalKey(Schema.Array(FileDiff)),
   locations: Schema.optionalKey(Schema.Array(Schema.String)),
   kolu: Schema.optionalKey(ConductorKoluCallSchema),
-  armed: Schema.optionalKey(ConductorArmedSchema),
-  spawned: Schema.optionalKey(ConductorSpawnedSchema),
+  armed: Schema.optionalKey(Armed),
+  spawned: Schema.optionalKey(Spawned),
   /** The row of the subagent call this one was made INSIDE, by that row's own
    *  key — what makes a turn with several agents in it readable. */
   parent: Schema.optionalKey(Schema.String),
@@ -430,25 +394,13 @@ export const ConductorToolRowSchema = Schema.Struct({
   startedAt: Schema.optionalKey(Schema.String),
 });
 
-export const ConductorAskSchema = Schema.Struct({
-  fields: Schema.Array(AskField),
-  link: Schema.NullOr(AskLink),
-  /** `null` while it waits. A question NEVER times out. */
-  outcome: Schema.NullOr(
-    Schema.Struct({
-      how: Schema.Literals(["answered", "declined", "withdrawn"]),
-      answers: Schema.Array(AskAnswer),
-    }),
-  ),
-});
-
 /** The agent asking a PERSON something — a permission request it was not
  *  allowed to answer for itself, an `AskUserQuestion` form, a URL to visit. */
 export const ConductorAskRowSchema = Schema.Struct({
   ...rowHead,
   kind: Schema.Literal("ask"),
   text: Schema.String,
-  ask: ConductorAskSchema,
+  ask: Ask,
   parent: Schema.optionalKey(Schema.String),
 });
 
@@ -466,7 +418,7 @@ export type ConductorWorkAnswer = typeof ConductorWorkAnswerSchema.Type;
  *  fact the work's own decisions hold, said in the row the question was asked
  *  in.
  *
- *  An elicitation's outcome ({@link ConductorAskSchema}) cannot say this: it
+ *  An elicitation's outcome ({@link Ask}) cannot say this: it
  *  is an all-or-nothing settlement of a call the agent is holding open, and a
  *  work form is several questions a person may answer ONE of. `part` is that
  *  state — what they filled in is recorded, the rest is still in front of
@@ -684,7 +636,7 @@ export const ConductorWakeRowSchema = Schema.Struct({
   events: Schema.Array(ConductorWakeEventSchema),
   text: Schema.String,
   queued: Schema.optionalKey(Schema.Literal(true)),
-  delivery: Schema.optionalKey(ConductorDeliverySchema),
+  delivery: Schema.optionalKey(Delivery),
 });
 export type ConductorWakeRow = typeof ConductorWakeRowSchema.Type;
 
@@ -704,14 +656,6 @@ export type ConductorToolRow = typeof ConductorToolRowSchema.Type;
 export type ConductorUserRow = typeof ConductorUserRowSchema.Type;
 export type ConductorAskRow = typeof ConductorAskRowSchema.Type;
 export type ConductorWorkAskRow = typeof ConductorWorkAskRowSchema.Type;
-
-/** A PIECE of streaming prose appended to a row — never the text so far, so a
- *  turn that runs for a minute does not re-send its own paragraph per tick. */
-export const ConductorSayingSchema = Schema.Struct({
-  of: Schema.String,
-  at: Schema.Int,
-  text: Schema.String,
-});
 
 /** The OFFSET RULE, written once for both folds.
  *
@@ -758,7 +702,7 @@ export const ConductorFrameSchema = Schema.Union([
     seq: Schema.Int,
     upserts: Schema.Array(ConductorRowSchema),
     removes: Schema.Array(Schema.String),
-    appends: Schema.Array(ConductorSayingSchema),
+    appends: Schema.Array(Saying),
   }),
 ]);
 export type ConductorFrame = typeof ConductorFrameSchema.Type;
@@ -880,16 +824,6 @@ export const ConductorServerSchema = Schema.Struct({
   where: Schema.NullOr(Schema.String),
 });
 
-/** Something still out when the turn that started it has ended — a background
- *  task, or a subagent. Drawn on the strip above the scroll, because the row
- *  itself may be an hour of scrollback away. */
-export const ConductorWatchingSchema = Schema.Struct({
-  row: Schema.String,
-  kind: Schema.Literals(["agent", "task"]),
-  name: Schema.String,
-  since: Schema.String,
-});
-
 export const ConductorAuthMethodSchema = Schema.Struct({
   id: Schema.String,
   name: Schema.String,
@@ -996,7 +930,7 @@ export const ConductorStateSchema = Schema.Struct({
   options: Schema.Array(ConductorOptionSchema),
   commands: Schema.Array(ConductorCommandSchema),
   servers: Schema.Array(ConductorServerSchema),
-  watching: Schema.Array(ConductorWatchingSchema),
+  watching: Schema.Array(Watching),
   /** THE CONVERSATION'S OWN QUESTIONS still waiting on a human, as ask ids —
    *  the agent's elicitations, which belong to no piece of work. */
   openAsks: Schema.Array(Schema.String),

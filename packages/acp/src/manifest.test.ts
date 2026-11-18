@@ -238,6 +238,8 @@ describe("the manifest", () => {
     // ... and the wire half carries the vocabulary alone: no payload reader
     // rides the subpath a surface declaration re-exports.
     expect(Object.keys(wire).sort()).toEqual([
+      "Armed",
+      "Ask",
       "AskAnswer",
       "AskChoice",
       "AskField",
@@ -245,8 +247,14 @@ describe("the manifest", () => {
       "AskOutcome",
       "AuthAccount",
       "AuthStatus",
+      "Delivery",
       "FileDiff",
+      "PlanStep",
+      "Saying",
+      "Spawned",
+      "ToolStatus",
       "Usage",
+      "Watching",
       "YES_NO",
     ]);
   });
@@ -291,6 +299,10 @@ describe("the manifest", () => {
     // it; `@kolu/acp-harness` is the wall between them. kolu-server, which
     // merely MOUNTS this package, needs no door of its own.
     conductor: ["@kolu/acp/engine"],
+    // The browser DRAWS the row shapes (a tool's status, a delivery mark, an
+    // ask) and folds `Saying` pieces into the row they belong to, so it reads
+    // the wire door — and nothing else. It never sees a protocol payload.
+    client: ["@kolu/acp/wire"],
     // kolu-server MOUNTS the conversation and does not talk the protocol — but
     // the composition tests it keeps (the host against the real fleet door and
     // the real tool registry) name the adapter's env var and the `NotHere` a

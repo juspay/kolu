@@ -22,12 +22,12 @@
  *  of them are pure, so what the panel draws is decided in a unit test, and
  *  none rewrites a row — `Copy transcript` still reads them all. */
 
+import type { Saying } from "@kolu/acp/wire";
 import { isTerminalId } from "@kolu/terminal-vocab/terminalId";
 import {
   appendedText,
   type ConductorFrame,
   type ConductorRow,
-  type ConductorSayingSchema,
   type ConductorToolRow,
 } from "kolu-common/conductor";
 import { isEncodedHostKey } from "kolu-common/hostKey";
@@ -38,8 +38,6 @@ import {
   failureReason,
   toolLabel,
 } from "./toolCard";
-
-type Saying = typeof ConductorSayingSchema.Type;
 
 /** What the panel reads: the rows in conversation order, plus the `seq` of the
  *  last frame folded in (the writer's own ordering stamp, kept so a reader can

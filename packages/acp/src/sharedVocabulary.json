@@ -169,6 +169,8 @@
   },
   "wire.ts": {
     "exports": [
+      "Armed",
+      "Ask",
       "AskAnswer",
       "AskChoice",
       "AskField",
@@ -176,8 +178,14 @@
       "AskOutcome",
       "AuthAccount",
       "AuthStatus",
+      "Delivery",
       "FileDiff",
+      "PlanStep",
+      "Saying",
+      "Spawned",
+      "ToolStatus",
       "Usage",
+      "Watching",
       "YES_NO"
     ],
     "members": []
