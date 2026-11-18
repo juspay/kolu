@@ -90,6 +90,14 @@ export type AgentEvent =
   | { readonly _tag: "servers"; readonly reports: ReadonlyArray<Reported> }
   /** Who the agent process is signed in as. */
   | { readonly _tag: "identity"; readonly status: AuthStatus }
+  /** THE SUBPROCESS IS GONE. `code` and `signal` are the child's own, or
+   *  `null` for the one it did not have; a process that failed to START is not
+   *  this — that refusal is the boot's own and never reaches here. */
+  | {
+      readonly _tag: "gone";
+      readonly code: number | null;
+      readonly signal: string | null;
+    }
   /** How full the context is. Several a turn: the newest wins. */
   | { readonly _tag: "usage"; readonly usage: Usage }
   /** The agent's plan — replaced whole, removed when empty. kolu's own row

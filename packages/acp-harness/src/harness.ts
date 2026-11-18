@@ -833,6 +833,22 @@ export const startHarness = async (
       case "identity":
         writeIdentity(event.status);
         return null;
+      case "gone": {
+        live = null;
+        // Before anything else: a form left live on a dead wire is a control
+        // that does nothing, and pressing it is how a person finds out.
+        leaving();
+        identity = null;
+        activeSession = null;
+        report(transcript.abandon());
+        if (!stopped) {
+          notice(
+            `the agent exited (code ${event.code ?? "none"}, signal ${event.signal ?? "none"})`,
+          );
+        }
+        publish();
+        return null;
+      }
       case "plan":
         report(plan(event.steps));
         return null;
@@ -1687,19 +1703,7 @@ export const startHarness = async (
   void child.closed.then(({ code, signal }) => {
     if (child.failed() !== undefined) return;
     if (live?.child !== child) return;
-    live = null;
-    // Before anything else: a form left live on a dead wire is a control that
-    // does nothing, and pressing it is how a person finds out.
-    leaving();
-    identity = null;
-    activeSession = null;
-    report(transcript.abandon());
-    if (!stopped) {
-      notice(
-        `the agent exited (code ${code ?? "none"}, signal ${signal ?? "none"})`,
-      );
-    }
-    publish();
+    emit({ _tag: "gone", code: code ?? null, signal: signal ?? null });
   });
 
   /** The conversation is over — replaced, reloaded, or dead. Everything keyed
