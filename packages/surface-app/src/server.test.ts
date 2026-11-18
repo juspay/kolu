@@ -258,6 +258,44 @@ describe("freshStaticLayer — the freshness contract on the wire", () => {
     expect(res.header("Cache-Control")).toBe("no-store");
   });
 
+  /**
+   * A DEEP LINK IS ANSWERED WITH THE SHELL AT THE ADDRESS ASKED — never a
+   * redirect. Effect 4.1's file engine sends a request for a directory at an
+   * address without a trailing slash to the same address plus `/`, judged by
+   * `originalUrl`; serving the shell as the directory `/` therefore bounced
+   * every deep link (`/notes/today` → `/notes/today/`), and a client handed
+   * that address draws nothing. These three cases are that defect, from the
+   * outside: what a browser sends, and what it must get back.
+   */
+  const shellAt = async (target: string): Promise<void> => {
+    const res = await drive(freshStaticLayer({ root }), target);
+    expect(res.status).toBe(200);
+    expect(res.text).toBe("<!doctype html>shell");
+    expect(res.header("Cache-Control")).toBe("no-store");
+    // THE ASSERTION THE DEFECT FAILS: no bounce, whatever the address.
+    expect(res.header("location")).toBeUndefined();
+  };
+
+  it("answers a deep link with the shell, never a redirect", async () => {
+    await shellAt("/t/abc");
+  });
+
+  it("... a deep link carrying a query, at the address asked", async () => {
+    await shellAt("/t/abc?x=1");
+  });
+
+  it("... and an address that names a real DIRECTORY in the app's files", async () => {
+    // A directory the app happens to ship no page for is still an app route:
+    // the engine has no index, so it cannot answer with a `301` for one.
+    mkdirSync(join(root, "fonts"));
+    writeFileSync(join(root, "fonts", "display.woff2"), "WOFF2");
+    await shellAt("/fonts");
+  });
+
+  it("still answers a deep link that already ends in a slash", async () => {
+    await shellAt("/t/abc/");
+  });
+
   it("serves index.html for the directory request `/`", async () => {
     const res = await drive(freshStaticLayer({ root }), "/");
     expect(res.status).toBe(200);

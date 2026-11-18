@@ -337,6 +337,10 @@ That layer's options: an optional `clientDist`, `manifest` and `serviceWorker`, 
 
 `freshStaticLayer` serves fresh static files, plus the optional notification worker. Like `surfaceAppLayer`, it requires `FileSystem`, `Path` and `HttpPlatform`, and throws at composition time on a malformed `assetPrefix` or one that would capture a shell path.
 
+A DEEP LINK IS ANSWERED WITH THE SHELL AT THE ADDRESS ASKED — never a redirect. The layer builds the file engine with no directory index and serves the shell as the one file it is (`index.html`), so an address naming a directory is never answered with a `301` to that address plus a slash.
+
+Effect 4.1's engine redirects a directory request. Serving the shell as the directory `/` therefore bounced every deep link: `/notes/today` came back as `/notes/today/`, an address that names neither a file nor a page, and a client draws nothing.
+
 ### `pwaManifestLayer(manifest, path?)`
 
 The web manifest, as its own layer. `path?` is where it is served.
