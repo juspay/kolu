@@ -549,7 +549,13 @@ describe("tool calls", () => {
       title: "explore the outline",
       spawned: {},
     });
-    expect(asKind(rows(transcript)[0], "tool")?.spawned).toEqual({});
+    // THE SHARED ENCODING SPELLS BOTH FIELDS (`null` for one the frame did not
+    // name), where olai's `Spawned` left them absent — kolu's stored rows win,
+    // as section 4 of the brief settles.
+    expect(asKind(rows(transcript)[0], "tool")?.spawned).toEqual({
+      kind: null,
+      said: null,
+    });
 
     transcript.tool("toolu_01AGENT", { spawned: { kind: "Explore" } });
     expect(rows(transcript)[0]).toMatchObject({

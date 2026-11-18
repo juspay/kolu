@@ -918,10 +918,19 @@ export class Transcript<Row extends AnyRow> {
     // fact arrives split across frames because the ARGUMENTS do, and a later
     // report that said only "this is a spawn" would take back a kind an earlier
     // frame already gave.
+    // ... and what it STARTED, spread one word deeper rather than replaced: the
+    // fact arrives split across frames because the ARGUMENTS do, and a later
+    // report that said only "this is a spawn" would take back a kind an earlier
+    // frame already gave. The fields a frame did not mention are `null` — the
+    // shared encoding spells both of them — so a row can never carry half a
+    // `Spawned` and fail to encode on its way to a browser.
     const spawned =
       move.spawned === undefined
         ? held?.spawned
-        : ({ ...held?.spawned, ...move.spawned } as Spawned);
+        : {
+            kind: move.spawned.kind ?? held?.spawned?.kind ?? null,
+            said: move.spawned.said ?? held?.spawned?.said ?? null,
+          };
     // ... and what it ARMED, ACCUMULATED across the frames that each know one
     // piece: the frame that ARMS it names the description, the frame that
     // SETTLES it names how it ended, and the report arrives later still. A
@@ -979,7 +988,7 @@ export class Transcript<Row extends AnyRow> {
           ? { startedAt: this.#stamp() }
           : {}
         : { startedAt }),
-      ...(move.extra ?? {}),
+      ...present(move.extra),
       ...onceOnly(before, move.once),
     } as unknown as RowContent<Row>;
     // A TOOL FRAME ENDS THE OPEN PARAGRAPH — the agent said something, then it
@@ -1207,6 +1216,24 @@ export class Transcript<Row extends AnyRow> {
 /** The one key a plan lives at, for the life of a session. */
 const PLAN_KEY = "plan";
 
+/** A product's extra fields as a spread, with `undefined` taken as "nothing
+ *  said" — which is what every other optional field of a row means.
+ *
+ *  NOT COSMETIC: a row holding `{ asksThroughForm: undefined }` ENCODES AS AN
+ *  ERROR on kolu's wire (an optional-key field that is present must be the
+ *  field's type), so the whole frame is dropped and every card in it vanishes.
+ *  The caller writes `{ server: call?.server }` without thinking about whether
+ *  there was a call; this is where that answers "absent". */
+const present = (
+  extra: Record<string, unknown> | undefined,
+): Record<string, unknown> => {
+  const kept: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(extra ?? {})) {
+    if (value !== undefined) kept[key] = value;
+  }
+  return kept;
+};
+
 /** A product's ONCE fields, taken only where the row does not already carry
  *  one — the half of a tool row's extras that is a first report rather than a
  *  latest one. */
@@ -1216,7 +1243,7 @@ const onceOnly = (
 ): Record<string, unknown> => {
   const taken: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(once ?? {})) {
-    if (before[key] === undefined) taken[key] = value;
+    if (value !== undefined && before[key] === undefined) taken[key] = value;
   }
   return taken;
 };
