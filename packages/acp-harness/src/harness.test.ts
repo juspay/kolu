@@ -471,6 +471,29 @@ describe("one conversation with a real agent", () => {
     expect(textOfKind(running, "notice")).toContain("the turn was cancelled");
   });
 
+  test("a page the agent says is done settles the question row it was drawn as", async () => {
+    // The page is held under the AGENT's own id, the only name
+    // `elicitation/complete` says. Who files it and who looks it up are the two
+    // halves of this harness, so they must read one record: filed in one and
+    // looked up in the other, the row never settled and the turn waited on it
+    // for ever.
+    const running = await open("agent.ts");
+    await running.harness.prompt("visit", [], [], false);
+    // IDLE, not merely settled: `asking` would also end a `settled` wait, and
+    // the row standing open is exactly the failure.
+    await waitFor(
+      running,
+      (state) => state.phase === "idle",
+      "the turn waiting on the page never ended",
+    );
+    const ask = running.rows().find((row) => row.kind === "ask");
+    expect(ask?.kind === "ask" ? ask.ask.outcome : null).toEqual({
+      how: "answered",
+      answers: [],
+    });
+    expect(running.harness.state().openAsks).toEqual([]);
+  });
+
   test("a prompt sent while the agent is busy is marked queued, and unmarked when taken", async () => {
     const running = await open("agent.ts");
     // The fixture holds `slow` open until a SECOND prompt arrives, so the

@@ -24,6 +24,10 @@
  *                  must not be drawn
  *   ask          — an `elicitation/create` the agent waits on; `session/cancel`
  *                  ends the turn as `cancelled`
+ *   visit        — a page to visit for this conversation (a URL
+ *                  `elicitation/create`), and straight after it the agent's
+ *                  `elicitation/complete` for the same id; the turn ends when
+ *                  the client answers the page
  *   background   — a call that ARMS a background task and does not report back
  *   reap         — ... and the frame that says how that task ended
  *   kolu         — an MCP call to the `kolu` server, with a structured answer
@@ -860,6 +864,31 @@ function turn(message: Message): void {
           required: ["branch"],
         },
       },
+    });
+    return;
+  }
+  if (text === "visit") {
+    // A PAGE TO VISIT for this conversation, and the agent's own word that it
+    // is done, back to back: the question is held under the agent's id, and
+    // only `elicitation/complete` can settle it, since a page has no fields
+    // for a person to answer. The turn ends when the client answers.
+    openTurn = message.id;
+    write({
+      jsonrpc: "2.0",
+      id: `elicit-${++asked}`,
+      method: "elicitation/create",
+      params: {
+        sessionId: session,
+        mode: "url",
+        elicitationId: "page-1",
+        url: "https://example.test/approve",
+        message: "Approve the change on the page",
+      },
+    });
+    write({
+      jsonrpc: "2.0",
+      method: "elicitation/complete",
+      params: { elicitationId: "page-1" },
     });
     return;
   }
