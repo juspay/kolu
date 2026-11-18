@@ -144,9 +144,10 @@ const OTHER_KEY = {
  * takes every decision, event and member to the arms that cannot say
  * "answered with no answer"; 1.56.0 says how each answer to one of kolu's
  * own questions was chosen; 1.57.0 puts a PR's address and the forge's
- * merge answer on the timeline; and 1.58.0 gives every mention on a user row
- * its `kind`, a terminal or a piece of work. */
-const STATE_SCHEMA_VERSION = "1.58.0";
+ * merge answer on the timeline; 1.58.0 gives every mention on a user row its
+ * `kind`, a terminal or a piece of work; and 1.59.0 lets a tool row say when
+ * the CURRENT outing of a call began. */
+const STATE_SCHEMA_VERSION = "1.59.0";
 
 const log = {
   debug() {},
