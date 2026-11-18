@@ -833,6 +833,10 @@ export const startHarness = async (
       case "identity":
         writeIdentity(event.status);
         return null;
+      case "offered":
+        offered = event.offered as ReadonlyArray<Offered>;
+        agentSaid = event.said;
+        return null;
       case "advertised":
         // Read once, at the handshake, and assigned without a publish: the
         // open that follows publishes the state that carries them.
@@ -2241,11 +2245,14 @@ export const startHarness = async (
       }),
       failedToStart,
     ])) as InitializeResponse;
-    offered = methodsIn(initialized, adapter.command, adapter.args);
-    agentSaid =
-      initialized.agentInfo === undefined || initialized.agentInfo === null
-        ? null
-        : `${initialized.agentInfo.name} ${initialized.agentInfo.version}`;
+    emit({
+      _tag: "offered",
+      offered: methodsIn(initialized, adapter.command, adapter.args),
+      said:
+        initialized.agentInfo === undefined || initialized.agentInfo === null
+          ? null
+          : `${initialized.agentInfo.name} ${initialized.agentInfo.version}`,
+    });
     // WHAT THIS AGENT TAKES MID-TURN, read ONCE, here. Both are claims the
     // agent makes about itself at the handshake, and both are read POSITIVELY:
     // an agent that says nothing is offered no interruption and promises no

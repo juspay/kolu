@@ -117,6 +117,22 @@ export type AgentEvent =
       readonly image: boolean;
       readonly embeddedContext: boolean;
     }
+  /** THE SIGN-IN METHODS the handshake advertised, and what the agent calls
+   *  itself — the material of every sentence a signed-out panel shows. The
+   *  methods are `./payloads.ts`'s reading (`Offered`), which is where one
+   *  adapter's `authMethods` become a command line this client can run. */
+  | {
+      readonly _tag: "offered";
+      readonly offered: ReadonlyArray<{
+        readonly method: unknown;
+        readonly run: {
+          readonly command: string;
+          readonly args: ReadonlyArray<string>;
+          readonly env: Readonly<Record<string, string>>;
+        } | null;
+      }>;
+      readonly said: string | null;
+    }
   /** A QUESTION the agent is holding a call open for — a form to fill in, or a
    *  page to visit, in the two modes ACP's own `elicitation/create` has. Same
    *  shape as `permission` on purpose: both are requests a person answers, and
