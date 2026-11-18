@@ -230,7 +230,7 @@ const lineOf = (
  * human answered while the Conductor was away.
  *
  * Several things arrive together whenever they landed while a turn was
- * running ({@link ./held.ts}), and they are one message rather than several
+ * running (`@kolu/acp-harness`'s holding list), and they are one message rather than several
  * turns on purpose: the Conductor should see everything that happened while it
  * was busy at once, and decide about all of it in one pass.
  *

@@ -11,6 +11,16 @@ import type { ConductorRow } from "kolu-common/conductor";
 import { describe, expect, it } from "vitest";
 import { Transcript } from "./transcript";
 
+/** kolu's conversation: its own row union, its own marks, and a wipe that keeps
+ *  the counters running because its `seq` is written to a store. */
+const conversation = (from = 0): Transcript<ConductorRow> =>
+  new Transcript<ConductorRow>({
+    from,
+    deliverable: (row) => row.kind === "user" || row.kind === "wake",
+    countersSurviveClear: true,
+    breakKind: "divider",
+  });
+
 const ASKED = JSON.stringify({ command: "false" }, null, 2);
 const ANSWER = JSON.stringify("exit 1", null, 2);
 
@@ -24,7 +34,7 @@ const settle = (
   status: "completed" | "failed",
   progress: string | undefined,
 ): ReadonlyArray<ConductorRow> => {
-  const transcript = new Transcript();
+  const transcript = conversation();
   transcript.tool("c1", {
     title: "Bash",
     status: "in_progress",
@@ -66,7 +76,7 @@ describe("the wipe", () => {
   } as const;
 
   it("removes its own rows and the ones the caller is holding", () => {
-    const transcript = new Transcript();
+    const transcript = conversation();
     transcript.tool("c1", armed);
     const wiped = transcript.clear(["user:1"]);
 
@@ -84,7 +94,7 @@ describe("the wipe", () => {
     // next conversation's first call was "a repeat" of a row nobody was
     // holding any more: no upsert, and a panel a person had just emptied
     // stayed empty through a turn that really ran.
-    const transcript = new Transcript();
+    const transcript = conversation();
     transcript.tool("c1", armed);
     transcript.clear([]);
 
@@ -97,7 +107,7 @@ describe("the wipe", () => {
   it("mints PAST the conversation it deleted", () => {
     // The counters do not go back: a row minted after the wipe must not sort
     // above — or collide with — one a reader is still holding.
-    const transcript = new Transcript();
+    const transcript = conversation();
     transcript.tool("c1", armed);
     const before = transcript.rows()[0]?.seq ?? 0;
     transcript.clear([]);
@@ -109,9 +119,9 @@ describe("the wipe", () => {
     // A `— NEW SESSION —` over an empty transcript is a rule drawn between
     // nothing and nothing, whether the emptiness is a fresh conversation's or
     // a wiped one's.
-    const transcript = new Transcript();
+    const transcript = conversation();
     transcript.tool("c1", armed);
     transcript.clear([]);
-    expect(transcript.divider("new session")).toMatchObject({ key: null });
+    expect(transcript.endsWithBreak()).toBe(true);
   });
 });

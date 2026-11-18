@@ -35,10 +35,10 @@ const reencode = (stored: string): string =>
   );
 
 const TOOL = String.raw`{"id":"tool-1","seq":4,"since":"2026-01-01T00:00:00.000Z","kind":"tool","text":"Bash","status":"failed","server":"kolu","tool":"lifecycle_create","asksThroughForm":true,"detail":"{\"cmd\":\"ls\"}","progress":"a","diffs":[],"locations":["/a"],"armed":{"task":"watch","description":null,"ended":"completed","report":"ok"},"spawned":{"kind":"claude","said":"do it"},"parent":"agent-1","stranded":true,"startedAt":"2026-01-01T00:00:00.000Z"}`;
-const ASK_ANSWERED = String.raw`{"id":"ask-1","seq":5,"since":"2026-01-01T00:00:00.000Z","kind":"ask","text":"Allow?","ask":{"fields":[],"link":null,"outcome":{"how":"answered","answers":[{"key":"q","values":["yes"]}]}},"parent":"agent-1"}`;
-const ASK_WAITING = String.raw`{"id":"ask-2","seq":6,"since":"2026-01-01T00:00:00.000Z","kind":"ask","text":"Where?","ask":{"fields":[],"link":{"url":"https://x/y","host":"x"},"outcome":null}}`;
-const PLAN = String.raw`{"id":"plan-1","seq":7,"since":"2026-01-01T00:00:00.000Z","kind":"plan","steps":[{"content":"read","status":"in_progress","priority":"high"},{"content":"write","status":"pending","priority":null}]}`;
-const USER_REFUSED = String.raw`{"id":"user-1","seq":8,"since":"2026-01-01T00:00:00.000Z","kind":"user","text":"hello","mentions":[],"delivery":"refused","attachments":[]}`;
+const ASK_ANSWERED = `{"id":"ask-1","seq":5,"since":"2026-01-01T00:00:00.000Z","kind":"ask","text":"Allow?","ask":{"fields":[],"link":null,"outcome":{"how":"answered","answers":[{"key":"q","values":["yes"]}]}},"parent":"agent-1"}`;
+const ASK_WAITING = `{"id":"ask-2","seq":6,"since":"2026-01-01T00:00:00.000Z","kind":"ask","text":"Where?","ask":{"fields":[],"link":{"url":"https://x/y","host":"x"},"outcome":null}}`;
+const PLAN = `{"id":"plan-1","seq":7,"since":"2026-01-01T00:00:00.000Z","kind":"plan","steps":[{"content":"read","status":"in_progress","priority":"high"},{"content":"write","status":"pending","priority":null}]}`;
+const USER_REFUSED = `{"id":"user-1","seq":8,"since":"2026-01-01T00:00:00.000Z","kind":"user","text":"hello","mentions":[],"delivery":"refused","attachments":[]}`;
 
 describe("a row written before the vocabulary moved", () => {
   it("decodes a tool row, armed and spawned included", () => {
@@ -125,11 +125,11 @@ describe("a row written before the vocabulary moved", () => {
     expect(
       JSON.stringify(Schema.encodeSync(Schema.Array(Watching))(watching)),
     ).toBe(
-      String.raw`[{"row":"tool-1","kind":"task","name":"watch","since":"2026-01-01T00:00:00.000Z"}]`,
+      `[{"row":"tool-1","kind":"task","name":"watch","since":"2026-01-01T00:00:00.000Z"}]`,
     );
     const piece = { of: "agent-1", at: 0, text: "hi" };
     expect(JSON.stringify(Schema.encodeSync(Saying)(piece))).toBe(
-      String.raw`{"of":"agent-1","at":0,"text":"hi"}`,
+      `{"of":"agent-1","at":0,"text":"hi"}`,
     );
   });
 });

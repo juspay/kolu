@@ -256,6 +256,16 @@ describe("the manifest", () => {
       "Usage",
       "Watching",
       "YES_NO",
+      // THE ROW FIELDS, which are schemas rather than vocabulary: the fields of
+      // one row of a conversation in each of the five kinds both chat UIs draw,
+      // and the head that makes a row one row. A product spreads them into its
+      // own row schema and adds its own.
+      "agentRowFields",
+      "askRowFields",
+      "noticeRowFields",
+      "rowHead",
+      "toolRowFields",
+      "userRowFields",
     ]);
   });
 

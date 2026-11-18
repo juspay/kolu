@@ -350,3 +350,83 @@ export const AuthStatus = Schema.Struct({
   account: Schema.NullOr(AuthAccount),
 });
 export type AuthStatus = typeof AuthStatus.Type;
+
+// ── The row FIELDS ────────────────────────────────────────────────────────
+//
+// One row of a conversation, in the five kinds both products draw, as FIELD
+// OBJECTS rather than as finished schemas. A product spreads them into its own
+// row schema and adds what is its own — kolu's mentions, attachments and sign-in
+// reason; olai's node context, its ring, its refused-write detail — and the
+// writer class in `@kolu/acp-harness` owns exactly these fields, so neither
+// product's extra can drift into the other's rows.
+//
+// `rowHead` is what makes a row ONE row: a stable key (`id`), the conversation
+// order (`seq`), and when the row was minted (`since`), stamped once by the
+// writer so every reader's clock agrees.
+
+/** Stable within a session, so a frame refines a row rather than duplicating
+ *  it; `seq` is the conversation order the panel draws in; `since` is when the
+ *  row was minted. */
+export const rowHead = {
+  id: Schema.String,
+  seq: Schema.Int,
+  since: Schema.String,
+};
+
+/** What a PERSON typed. Never markdown — it is quoted, not rendered. */
+export const userRowFields = {
+  ...rowHead,
+  kind: Schema.Literal("user"),
+  text: Schema.String,
+  /** At the agent, next in line — this end sent a prompt while a turn of its
+   *  own was still in flight. Absent once the agent takes it up; absent rather
+   *  than `false`, because the writer only ever writes `true`. */
+  queued: Schema.optionalKey(Schema.Literal(true)),
+  delivery: Schema.optionalKey(Delivery),
+};
+
+/** The agent's prose, accumulated. Rendered as markdown. */
+export const agentRowFields = {
+  ...rowHead,
+  kind: Schema.Literal("agent"),
+  text: Schema.String,
+  /** Absent rather than `false`: the writer only ever writes `true`, and a
+   *  settled row carries no claim about a stream that has ended. */
+  streaming: Schema.optionalKey(Schema.Literal(true)),
+};
+
+export const toolRowFields = {
+  ...rowHead,
+  kind: Schema.Literal("tool"),
+  /** The agent's own title for the call. */
+  text: Schema.String,
+  status: ToolStatus,
+  /** Folded JSON of the call's input and answer — the generic card's body. */
+  detail: Schema.optionalKey(Schema.String),
+  /** Live incremental content while the call runs. */
+  progress: Schema.optionalKey(Schema.String),
+  diffs: Schema.optionalKey(Schema.Array(FileDiff)),
+  locations: Schema.optionalKey(Schema.Array(Schema.String)),
+  armed: Schema.optionalKey(Armed),
+  spawned: Schema.optionalKey(Spawned),
+  /** The row of the subagent call this one was made INSIDE, by that row's own
+   *  key — what makes a turn with several agents in it readable. */
+  parent: Schema.optionalKey(Schema.String),
+  /** Its turn ended and it never reported back. Background tasks are the one
+   *  call kind exempt: they are SUPPOSED to outlive their turn. */
+  stranded: Schema.optionalKey(Schema.Literal(true)),
+};
+
+export const askRowFields = {
+  ...rowHead,
+  kind: Schema.Literal("ask"),
+  text: Schema.String,
+  ask: Ask,
+  parent: Schema.optionalKey(Schema.String),
+};
+
+export const noticeRowFields = {
+  ...rowHead,
+  kind: Schema.Literal("notice"),
+  text: Schema.String,
+};

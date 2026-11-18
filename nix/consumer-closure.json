@@ -738,6 +738,7 @@
     "kolu-client": {
       "dir": "packages/client",
       "workspace": [
+        "@kolu/acp",
         "@kolu/agent-distro",
         "@kolu/artifact-sdk",
         "@kolu/byte-units",

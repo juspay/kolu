@@ -640,7 +640,7 @@ export interface ConductorHost {
    * One call per frame of the world rather than one per terminal, because
    * what the Conductor is owed is everything that moved at once: several
    * terminals that rang while a turn was running leave together, in one wake
-   * ({@link ./held.ts}).
+   * (`@kolu/acp-harness`'s holding list).
    *
    * A reading about a ref that is NOT a member is ignored rather than refused
    * — the watcher re-scopes asynchronously, and a frame in flight across a

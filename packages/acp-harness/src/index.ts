@@ -27,3 +27,20 @@ export {
   type StdioServer,
   startHarness,
 } from "./harness.ts";
+export {
+  type Held,
+  type HoldingOptions,
+  holding,
+  joined,
+  type Slot,
+} from "./holding.ts";
+export {
+  type Change,
+  movesRows,
+  says,
+  STRANDED,
+  Transcript,
+  toolKey,
+  type TranscriptOptions,
+} from "./transcript.ts";
+export { type Turn, Turns } from "./turns.ts";

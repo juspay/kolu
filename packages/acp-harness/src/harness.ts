@@ -131,6 +131,10 @@ import type {
 import { type Change, says, Transcript } from "./transcript.ts";
 import { type Turn, Turns } from "./turns.ts";
 
+/** kolu keeps nothing in a turn's payload: its turns are `async` functions, and
+ *  a cancel reaches them through the agent rather than through a handle here. */
+type NoPayload = undefined;
+
 // ── what a caller hands over, and what it gets back ────────────────────
 
 /** One MCP server to hand this conversation as a PROGRAM on this host —
@@ -536,12 +540,39 @@ export const startHarness = async (
    *  with a restored row's id or sort above it — and whether the last of those
    *  rows is a break, which is the one thing a fresh transcript cannot see
    *  about the conversation it is continuing. */
-  const transcript = new Transcript(
-    options.resumedSeq ?? 0,
-    Date.now,
-    options.resumedEndsWithDivider ?? false,
-  );
-  const turns = new Turns();
+  const transcript = new Transcript<ConductorRow>({
+    from: options.resumedSeq ?? 0,
+    now: Date.now,
+    endsWithDivider: options.resumedEndsWithDivider ?? false,
+    // TWO KINDS A TURN IS THE DELIVERY OF here: what a person typed, and kolu's
+    // own wake — both can wait behind another turn, be refused, or go
+    // unanswered, and both carry the marks that say so.
+    deliverable: (row) => row.kind === "user" || row.kind === "wake",
+    countersSurviveClear: true,
+    breakKind: "divider",
+  });
+  /**
+   * THE BREAK BETWEEN TWO CONVERSATIONS — the row that says the agent's memory
+   * was reset, and says nothing else.
+   *
+   * Answers with its key because the break is minted BEFORE the next
+   * conversation is open — so that the new one's own rows sort under it — and an
+   * open that then fails has reset nothing a reader needs told: the caller takes
+   * the row back out again ({@link Transcript.remove}).
+   *
+   * A SECOND BREAK WITH NOTHING BETWEEN IS NOT MINTED. Two of them in a row say
+   * exactly what one says, and the stack of them is what a caller retrying a
+   * refused open leaves behind: four `— NEW SESSION —` lines with no
+   * conversation between them.
+   */
+  const divider = (
+    text: string,
+  ): { readonly key: string | null; readonly change: Change<ConductorRow> } =>
+    transcript.endsWithBreak()
+      ? { key: null, change: { upserts: [], removes: [], appends: [] } }
+      : transcript.write({ kind: "divider", text });
+
+  const turns = new Turns<undefined>();
   const calls = new Calls(leg);
   const fleet = new Fleet(options.fleet ?? []);
   /** The accumulated kolu reading per call id — see `refineKoluCall`. Cleared
@@ -690,7 +721,7 @@ export const startHarness = async (
 
   // ── saying what moved ────────────────────────────────────────────────
 
-  const report = (change: Change): void => {
+  const report = (change: Change<ConductorRow>): void => {
     // NOTHING IS SAID AFTER A STOP. A turn still on the wire when the daemon
     // let go ends a moment later — settling its paragraph, withdrawing its
     // questions, writing a notice — and every one of those rows is one the
@@ -1213,12 +1244,6 @@ export const startHarness = async (
       transcript.tool(update.toolCallId, {
         title: update.title ?? undefined,
         status: statusOf(update.status),
-        server: call?.server,
-        tool: call?.tool,
-        // Absent rather than `false`: every optional field of a tool row means
-        // UNCHANGED, and a call whose name has not arrived yet is not a call
-        // anything has called ordinary.
-        asksThroughForm,
         detail: detailOf(update.rawInput, update.rawOutput),
         asked: detailOf(update.rawInput, undefined),
         progress: progressOf(
@@ -1232,7 +1257,19 @@ export const startHarness = async (
           update.locations as Parameters<typeof locationsOf>[0],
           options.cwd,
         ),
-        ...(kolu === null ? {} : { kolu }),
+        // THE PRODUCT'S HALF OF THE ROW: which server and tool a recognised
+        // call named, whether its question reached a person as a form, and
+        // kolu's own reading of it. The transcript copies these and reads none
+        // of them.
+        extra: {
+          server: call?.server,
+          tool: call?.tool,
+          // Absent rather than `false`: every optional field of a tool row
+          // means UNCHANGED, and a call whose name has not arrived yet is not a
+          // call anything has called ordinary.
+          asksThroughForm,
+          ...(kolu === null ? {} : { kolu }),
+        },
         // WHO made the call, out of the same `_meta` the name came from: a
         // subagent's frames arrive on this one feed with nothing in the
         // protocol to tell them apart.
@@ -1727,7 +1764,7 @@ export const startHarness = async (
    *  NOTICE stays — the conversation really was not resumed, and that is true
    *  whatever happens next. */
   const freshInstead = async (why: string): Promise<void> => {
-    const mark = transcript.divider("new session");
+    const mark = divider("new session");
     report(mark.change);
     notice(
       `the previous conversation could not be resumed, so this is a new one: ${why}`,
@@ -1735,7 +1772,7 @@ export const startHarness = async (
     try {
       await fresh();
     } catch (cause) {
-      if (mark.key !== null) report(transcript.withdraw(mark.key));
+      if (mark.key !== null) report(transcript.remove(mark.key));
       throw cause;
     }
   };
@@ -2058,7 +2095,7 @@ export const startHarness = async (
   };
 
   const runTurn = async (
-    ticket: Turn,
+    ticket: Turn<NoPayload>,
     blocks: ReadonlyArray<ContentBlock>,
     sessionId: string,
   ): Promise<void> => {
@@ -2078,7 +2115,12 @@ export const startHarness = async (
         log.warn({ said }, "the agent's own words for a turn that failed");
       const why = messageOf(cause);
       if (cause instanceof HarnessRefused) {
-        report(transcript.refused(ticket.key, cause.signIn));
+        report(
+          transcript.refused(
+            ticket.key,
+            cause.signIn === "no" ? {} : { signIn: cause.signIn },
+          ),
+        );
         // A TURN REFUSED FOR WANT OF A SIGNATURE IS THE OTHER DOOR onto the
         // sign-in, and on the pinned pair it is the FIRST one a person reaches:
         // the conversation opened, the composer was there, and `-32000` is what
@@ -2114,7 +2156,7 @@ export const startHarness = async (
   /** A turn is STARTING, and the clock every reader counts "working · 2m"
    *  from starts with the FIRST of them: a message sent behind a running turn
    *  does not restart the stopwatch on work that has been going for a minute. */
-  const openTurn = (key: string): Turn => {
+  const openTurn = (key: string): Turn<NoPayload> => {
     if (!turns.busy) busyAt = Date.now();
     return turns.open(key);
   };
@@ -2165,7 +2207,7 @@ export const startHarness = async (
   const steerInto = async (
     key: string,
     body: string,
-    aimed: Turn,
+    aimed: Turn<NoPayload>,
     sessionId: string,
   ): Promise<"handled" | "prompt"> => {
     const steering = leg.steering;
@@ -2187,7 +2229,7 @@ export const startHarness = async (
       );
       if (steering.taken(answered)) return "handled";
       if (aimed.stopped) {
-        report(transcript.refused(key, "no"));
+        report(transcript.refused(key));
         notice(CANCELLED_UNDER_IT);
         publish();
         return "handled";
@@ -2198,7 +2240,12 @@ export const startHarness = async (
       // knows whether anything answered — and it is the one fact the row's two
       // faces are drawn out of.
       if (cause instanceof HarnessRefused) {
-        report(transcript.refused(key, cause.signIn));
+        report(
+          transcript.refused(
+            key,
+            cause.signIn === "no" ? {} : { signIn: cause.signIn },
+          ),
+        );
         if (cause.signIn === "signed-out") offerSignIn(cause.why);
       } else {
         report(transcript.unanswered(key));
@@ -2302,7 +2349,12 @@ export const startHarness = async (
     if (live === null || sessionId === null) {
       throw new HarnessUnavailable("the agent has no session open");
     }
-    const { key, change } = transcript.wake(text, events);
+    const { key, change } = transcript.write({
+      kind: "wake",
+      from: "kolu",
+      events,
+      text,
+    });
     report(change);
     send(key, [{ type: "text", text: bodyOf(text, []) }], sessionId);
     return { rowId: key };
@@ -2389,7 +2441,7 @@ export const startHarness = async (
     // another begins in ONE transcript, with the divider between them; that is
     // the product. The counters are monotonic for the life of the process, so
     // the divider and everything after it sorts below what is already there.
-    const mark = transcript.divider("new session");
+    const mark = divider("new session");
     report(mark.change);
     // ... and the conversation just left is ENDED at the agent before the next
     // one is opened, rather than left running beside it ({@link release}).
@@ -2403,7 +2455,7 @@ export const startHarness = async (
       // also what a retry stacks on: the owner's screenshot was four
       // `— NEW SESSION —` lines with no conversation between them, one per
       // attempt, over a host whose adapter would not open a session.
-      if (mark.key !== null) report(transcript.withdraw(mark.key));
+      if (mark.key !== null) report(transcript.remove(mark.key));
       // SAID BEFORE IT IS THROWN: a conversation that would not open leaves a
       // panel with a composer and nothing to explain it, and the caller's own
       // error reaches a log rather than this screen.

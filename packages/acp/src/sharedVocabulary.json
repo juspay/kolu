@@ -186,7 +186,13 @@
       "ToolStatus",
       "Usage",
       "Watching",
-      "YES_NO"
+      "YES_NO",
+      "agentRowFields",
+      "askRowFields",
+      "noticeRowFields",
+      "rowHead",
+      "toolRowFields",
+      "userRowFields"
     ],
     "members": []
   }
