@@ -105,7 +105,12 @@ export class Activity {
           title: update.name,
           status: "in_progress",
           parent: this.parent(session),
-          armed: { task: id, description: update.description ?? update.name },
+          armed: {
+            task: id,
+            description: update.description ?? update.name,
+            ended: null,
+            report: null,
+          },
         }),
       );
     } else {
@@ -115,11 +120,13 @@ export class Activity {
         this.emit(
           tool(task.row, {
             progress: update.summary,
+            // `null` is "this frame says nothing" — a report REFINES the task
+            // and a consumer keeps what an earlier one said.
             armed: {
               task: id,
-              ...(update.description === undefined
-                ? {}
-                : { description: update.description }),
+              description: update.description ?? null,
+              ended: null,
+              report: null,
             },
           }),
         );
@@ -128,7 +135,12 @@ export class Activity {
         this.emit(
           tool(task.row, {
             status: task.status,
-            armed: { task: id, ended: update.state },
+            armed: {
+              task: id,
+              description: null,
+              ended: update.state,
+              report: null,
+            },
             progress: update.summary,
           }),
         );

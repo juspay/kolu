@@ -8,7 +8,7 @@ import { RequestError } from "@agentclientprotocol/sdk";
 import { start, type Child } from "@kolu/child";
 import { randomUUID } from "node:crypto";
 import { isAbsolute } from "node:path";
-import type { TerminalView } from "./shapes.ts";
+import type { TerminalView } from "@kolu/acp/wire";
 
 const DEFAULT_LIMIT = 64 * 1024;
 const MAX_LIMIT = 1024 * 1024;

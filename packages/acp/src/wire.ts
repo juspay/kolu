@@ -12,8 +12,9 @@
  * only, no protocol payload in sight — and it sits on its own `./wire`
  * subpath. The other half
  * ({@link ./asks.ts}, {@link ./diffs.ts}) reads the protocol's own payloads
- * into these shapes, and only `@kolu/acp-harness` — the one package that runs
- * an ACP subprocess — has any business importing it.
+ * into these shapes, and only the packages that run an ACP subprocess
+ * (`@kolu/acp-client`, and `@kolu/acp-harness` above it) have any business
+ * importing it.
  */
 
 import { Schema } from "effect";
@@ -358,7 +359,14 @@ export type AuthStatus = typeof AuthStatus.Type;
  * `runs` is the half that decides what a press DOES, and it is the agent's
  * answer rather than ours: `client` — the adapter handed over a command line,
  * and the client spawns it and streams what it prints; `agent` — the agent
- * runs it, and the client's part is a page to visit.
+ * runs it, and the client's part is a page to visit; `hand` — the agent's way
+ * in is a series of questions in a terminal, so nothing runs it here and the
+ * panel shows the `command` a person types in a terminal on the server.
+ *
+ * `command` is that command line for a `hand` method and `null` for every
+ * other — an absolute path, because the agent it names may be reachable only
+ * through the product's own agent search path, and a bare name would not exist
+ * in that person's shell either.
  *
  * Here rather than in a product's own schema because both of them draw this
  * list and the two products run the SAME adapters: an agent that names a
@@ -369,7 +377,8 @@ export const AuthMethod = Schema.Struct({
   id: Schema.String,
   name: Schema.String,
   description: Schema.NullOr(Schema.String),
-  runs: Schema.Literals(["client", "agent"]),
+  runs: Schema.Literals(["client", "agent", "hand"]),
+  command: Schema.NullOr(Schema.String),
 });
 export type AuthMethod = typeof AuthMethod.Type;
 
@@ -384,6 +393,177 @@ export type AuthMethod = typeof AuthMethod.Type;
  */
 export const SignInReason = Schema.Literals(["signed-out", "account"]);
 export type SignInReason = typeof SignInReason.Type;
+
+// ── The conversation's STATE ──────────────────────────────────────────────
+//
+// What a conversation stands on rather than what it said: the slash commands
+// the agent advertises, the settings it offers, the MCP servers it was handed,
+// and the sign-in it is in the middle of. The client reports each as an event;
+// a product holds the latest of each in its own state and draws it.
+
+/** A slash command the agent advertises. */
+export const Command = Schema.Struct({
+  name: Schema.String,
+  description: Schema.NullOr(Schema.String),
+});
+export type Command = typeof Command.Type;
+
+/** One adapter-advertised session setting — the model, reasoning effort,
+ *  permission mode, a boolean such as fast mode. The control uses the
+ *  ADAPTER'S own name and values; neither product composes either. */
+export const Setting = Schema.Struct({
+  id: Schema.String,
+  /**
+   * WHICH CONTROL THIS ROW IS, decided by the client that read the adapter
+   * and never re-derived by the panel.
+   *
+   * `"model"` — the agent's model picker, the row whose id its leg names as
+   * the model config. It is BOTH the header's reading and a control, which is
+   * the distinction this field exists to keep: a panel that recognised the
+   * model row only by consuming it into the header drew every section except
+   * the one a person opened the popover for. Drawn first, because choosing a
+   * model is the thing people come here to do.
+   *
+   * `"boolean"` — an on/off setting (fast mode). It arrives with NO choices,
+   * so a panel that only knows how to draw a list of them renders a heading
+   * with nothing under it; a toggle on one line is the whole control.
+   *
+   * `"choice"` — everything else: reasoning effort, permission mode. A list
+   * of the adapter's own values, one of them current.
+   */
+  kind: Schema.Literals(["model", "choice", "boolean"]),
+  name: Schema.String,
+  description: Schema.NullOr(Schema.String),
+  /** The confirmed value. A refused change leaves this where it was. */
+  value: Schema.NullOr(Schema.String),
+  choices: Schema.Array(
+    Schema.Struct({
+      value: Schema.String,
+      label: Schema.String,
+      /** The context window, for a model row. `null` everywhere else. */
+      hint: Schema.NullOr(Schema.String),
+    }),
+  ),
+});
+export type Setting = typeof Setting.Type;
+
+/**
+ * Where one MCP server in this conversation stands.
+ *
+ * Four standings and they are not interchangeable: `connected` is the AGENT'S
+ * own word, `handed` is what the product gave over and the agent has not
+ * spoken about, `unattached` quotes what the agent said instead, and `missing`
+ * is a server the product could not hand over at all, because its own probe
+ * said no. `said` is the agent's own sentence about the server wherever it
+ * said one, and on `missing` the probe's, carried WHOLE; `null` when nobody
+ * said anything. A server the agent names
+ * that nobody handed adds NO row — a panel says "plus the agent's own" rather
+ * than inventing one.
+ *
+ * `missing` is the arm only a product with OPTIONAL servers mints. kolu's
+ * Conductor has none: its fleet MCP endpoint not answering refuses the whole
+ * conversation (`ConductorUnavailable`), because a conductor that cannot reach
+ * the fleet is a chat window, not a degraded conductor.
+ *
+ * `where` is where the server IS: the absolute file that was probed or would
+ * be spawned, or the URL of one reached over http, and `null` for the one
+ * failure that never reached a file. `at` is an app address a product's probe
+ * named for what the server works on, drawn as a link; absent for a server
+ * with nothing to look at.
+ */
+export const Server = Schema.Struct({
+  name: Schema.String,
+  standing: Schema.Literals(["connected", "handed", "unattached", "missing"]),
+  said: Schema.NullOr(Schema.String),
+  where: Schema.NullOr(Schema.String),
+  at: Schema.optionalKey(Schema.String),
+});
+export type Server = typeof Server.Type;
+
+/** The page an agent sent a person to, and how far it got. */
+export const SignInLink = Schema.Struct({
+  url: Schema.String,
+  /** Which machine it goes to — the client computes it where the payload is
+   *  read, because the question a person is answering is "who am I about to
+   *  hand this to" and a browser's URL parser is not the authority on a
+   *  string the agent sent. */
+  host: Schema.String,
+  /** The agent's own message, which for a device-code sign-in carries the code
+   *  to type into the page. */
+  message: Schema.String,
+  /** The agent has said the elicitation is complete. The row stays until the
+   *  sign-in itself answers, so what a person sees in between is "finished at
+   *  the page, waiting for the agent" rather than the card silently vanishing. */
+  done: Schema.Boolean,
+});
+export type SignInLink = typeof SignInLink.Type;
+
+/**
+ * A SIGN-IN THE CLIENT IS OFFERING OR RUNNING, as its `signIn` event says it.
+ *
+ * THREE ARMS, and each is a different thing a person can do something about:
+ *
+ *   - `choosing` — nothing is running and there is a method to pick: one
+ *     button per {@link AuthMethod} the agent advertised. It is what `/login`
+ *     asks for, and what the client falls into when an agent refuses something
+ *     because nobody is signed in.
+ *   - `terminal` — a method the CLIENT runs (`runs: "client"`). The row is the
+ *     process: its output so far, verbatim and clickable, one input line that
+ *     writes to its stdin, and a way out. Exit 0 is the end of it, and anything
+ *     else leaves the output on screen AS the failure, because for a CLI
+ *     sign-in the output is what a person needs to read.
+ *   - `agent` — a method the AGENT runs. There is no process and no stdin:
+ *     there is a page ({@link SignInLink}) while the agent waits on it, and
+ *     then whatever the agent answers.
+ *
+ * `why` is the OTHER way an attempt ends — it could not be started, or the
+ * agent refused it — and it is a sentence rather than a code because the two
+ * arms would otherwise say it in two vocabularies. An arm with `why` set is
+ * finished and failed; a `terminal` arm with `running: false` and a `code` is
+ * finished and failed for the reason the output says.
+ *
+ * This is the client's EVENT. A product that draws a sign-in keeps a state of
+ * its own beside it (kolu's `ConductorSignInSchema`: cause, methods, attempt),
+ * and the two are not merged.
+ */
+export const SignIn = Schema.Union([
+  Schema.Struct({ kind: Schema.Literal("choosing") }),
+  Schema.Struct({
+    kind: Schema.Literal("terminal"),
+    /** Which method this is running — the id a button was pressed with. */
+    method: Schema.String,
+    /** ... and what to call it, out of the same advertisement. */
+    label: Schema.String,
+    /** Everything the process has said, stdout and stderr interleaved as they
+     *  arrived, oldest first and capped at the tail. */
+    output: Schema.String,
+    running: Schema.Boolean,
+    /** How it ended, once it has: the process's own exit code, or `null` when it
+     *  was signalled. */
+    code: Schema.NullOr(Schema.Int),
+    why: Schema.NullOr(Schema.String),
+  }),
+  Schema.Struct({
+    kind: Schema.Literal("agent"),
+    method: Schema.String,
+    label: Schema.String,
+    link: Schema.NullOr(SignInLink),
+    why: Schema.NullOr(Schema.String),
+  }),
+]);
+export type SignIn = typeof SignIn.Type;
+
+/** A terminal the client created for the agent, as far as it has run: its
+ *  output (capped, and `truncated` when it was), and how it ended. */
+export const TerminalView = Schema.Struct({
+  id: Schema.String,
+  output: Schema.String,
+  truncated: Schema.Boolean,
+  exitCode: Schema.NullOr(Schema.Number),
+  signal: Schema.NullOr(Schema.String),
+  running: Schema.Boolean,
+});
+export type TerminalView = typeof TerminalView.Type;
 
 // ── The row FIELDS ────────────────────────────────────────────────────────
 //

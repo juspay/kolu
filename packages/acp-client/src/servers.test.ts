@@ -52,8 +52,8 @@ const ABSENT: NotHere = {
 describe("the roster as olai composed it", () => {
   test("every server handed over is on it, in the order it was handed", () => {
     expect(rosterOf([OLAI, ALPHA], [])).toEqual([
-      { name: "olai", where: OLAI.url, standing: { kind: "handed" } },
-      { name: "alpha", where: ALPHA.command, standing: { kind: "handed" } },
+      { name: "olai", where: OLAI.url, standing: "handed", said: null },
+      { name: "alpha", where: ALPHA.command, standing: "handed", said: null },
     ]);
   });
 
@@ -77,7 +77,8 @@ describe("the roster as olai composed it", () => {
     expect(moved?.[1]).toEqual({
       name: "alpha",
       where: ALPHA.command,
-      standing: { kind: "connected" },
+      standing: "connected",
+      said: null,
       at: "/alpha",
     });
   });
@@ -90,7 +91,7 @@ describe("the roster as olai composed it", () => {
     // wrongly.
     expect(
       rosterOf([OLAI, ALPHA], []).every(
-        (server) => server.standing.kind === "handed",
+        (server) => server.standing === "handed",
       ),
     ).toBe(true);
   });
@@ -114,19 +115,20 @@ describe("the roster as olai composed it", () => {
       serverId: "s1",
     } as unknown as McpServer;
     expect(rosterOf([acp], [])).toEqual([
-      { name: "somewhere", where: null, standing: { kind: "handed" } },
+      { name: "somewhere", where: null, standing: "handed", said: null },
     ]);
   });
 
   test("the one it did not get is on the roster too, last, with its sentence", () => {
     expect(rosterOf([OLAI], [ABSENT])).toEqual([
-      { name: "olai", where: OLAI.url, standing: { kind: "handed" } },
+      { name: "olai", where: OLAI.url, standing: "handed", said: null },
       // The probe answers its own verdict; WHICH STANDING that is, is minted
       // here — the one module where all four are named and explained.
       {
         name: "alpha",
         where: ABSENT.where,
-        standing: { kind: "missing", why: ABSENT.why },
+        standing: "missing",
+        said: ABSENT.why,
       },
     ]);
   });
@@ -157,8 +159,13 @@ describe("the roster as the agent's own report leaves it", () => {
         { name: "alpha", attached: true, said: "connected" },
       ]),
     ).toEqual([
-      { name: "olai", where: OLAI.url, standing: { kind: "connected" } },
-      { name: "alpha", where: ALPHA.command, standing: { kind: "connected" } },
+      { name: "olai", where: OLAI.url, standing: "connected", said: null },
+      {
+        name: "alpha",
+        where: ALPHA.command,
+        standing: "connected",
+        said: null,
+      },
     ]);
   });
 
@@ -176,18 +183,14 @@ describe("the roster as the agent's own report leaves it", () => {
       {
         name: "olai",
         where: OLAI.url,
-        standing: {
-          kind: "unattached",
-          why: "the agent did not attach it: needs-auth",
-        },
+        standing: "unattached",
+        said: "the agent did not attach it: needs-auth",
       },
       {
         name: "alpha",
         where: ALPHA.command,
-        standing: {
-          kind: "unattached",
-          why: "the agent did not attach it: failed",
-        },
+        standing: "unattached",
+        said: "the agent did not attach it: failed",
       },
     ]);
   });
@@ -200,9 +203,9 @@ describe("the roster as the agent's own report leaves it", () => {
     const moved = movedBy(handed, [
       { name: "olai", attached: false, said: "reticulating" },
     ]);
-    expect(moved?.[0]?.standing).toEqual({
-      kind: "unattached",
-      why: "the agent did not attach it: reticulating",
+    expect(moved?.[0]).toMatchObject({
+      standing: "unattached",
+      said: "the agent did not attach it: reticulating",
     });
   });
 
@@ -232,8 +235,8 @@ describe("the roster as the agent's own report leaves it", () => {
         { name: "deepwiki", attached: true, said: "connected" },
       ]),
     ).toEqual([
-      { name: "olai", where: OLAI.url, standing: { kind: "connected" } },
-      { name: "alpha", where: ALPHA.command, standing: { kind: "handed" } },
+      { name: "olai", where: OLAI.url, standing: "connected", said: null },
+      { name: "alpha", where: ALPHA.command, standing: "handed", said: null },
     ]);
   });
 
@@ -279,7 +282,8 @@ describe("the roster as the agent's own report leaves it", () => {
     expect(fixed?.[1]).toEqual({
       name: "alpha",
       where: ALPHA.command,
-      standing: { kind: "connected" },
+      standing: "connected",
+      said: null,
     });
   });
 

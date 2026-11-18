@@ -28,7 +28,7 @@ It depends on `@kolu/acp` (the protocol's words), `@kolu/child` (the subprocess)
 - **No module-level state.** One `make` is one agent process; a product holds as many as it has conversations, and each is started and stopped on its own.
 - **The stale-frame fence.** A frame naming a session this client has left is dropped, even after the next session has opened.
 - **One attempt per sign-in.** A second press attaches to the attempt already running rather than starting a second process writing the same credential store.
-- **`src/shapes.ts` is temporary.** It copies the shapes olai's wire supplied, with olai's encodings, so olai typechecks against the client unchanged. The client moves to the shared shapes in `@kolu/acp/wire` and the file is deleted before this branch merges.
+- **The events carry `@kolu/acp/wire`'s shapes.** `Command`, `Setting`, `Server`, `AuthMethod`, `SignIn`, `SignInLink`, `TerminalView`, `Armed`, `Spawned` and `PlanStep` are declared there, once, and a product's state and rows use the same ones. A reported `Armed` or `Spawned` is a refinement: `null` is "this frame says nothing about it", so a consumer keeps what an earlier frame said. The `settings` event is every setting the agent offers, the model row first and marked `model`.
 
 ## Tests
 

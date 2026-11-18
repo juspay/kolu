@@ -7,7 +7,10 @@
  *  the adapter handed over: kolu spawns it and streams its output into this row,
  *  which is why the output needs clickable URLs and the device code pulled out
  *  where a person can read it off the screen. An `agent`-run method is a page to
- *  visit and nothing to type.
+ *  visit and nothing to type. A `hand` method is a series of questions in a
+ *  terminal that nothing here can answer for you, so it is drawn as its label
+ *  and the exact command to type in a terminal on the server — text to copy,
+ *  with no button, because there is nothing for a button to start.
  *
  *  WHO PUT IT HERE decides ONE thing: closing. The agent's row leads with its
  *  own refusal and stays until the agent stops refusing, so it has no `Not
@@ -74,17 +77,34 @@ const ConductorSignIn: Component<{
       <div class="flex flex-wrap gap-2">
         <For each={props.signIn.methods}>
           {(method) => (
-            <button
-              type="button"
-              data-testid="conductor-signin-method"
-              data-method={method.id}
-              data-runs={method.runs}
-              title={method.description ?? undefined}
-              class="rounded-md border border-edge-bright bg-surface-2 hover:bg-surface-3 px-2.5 py-1 text-fg cursor-pointer"
-              onClick={() => orch.signIn(method.id)}
+            <Show
+              when={method.runs !== "hand"}
+              fallback={
+                <span
+                  data-testid="conductor-signin-hand"
+                  data-method={method.id}
+                  title={method.description ?? undefined}
+                  class="flex items-center gap-1.5 text-fg-2"
+                >
+                  {method.name}:
+                  <code class="select-all rounded bg-surface-2 px-1.5 py-0.5 font-mono text-fg">
+                    {method.command}
+                  </code>
+                </span>
+              }
             >
-              {method.name}
-            </button>
+              <button
+                type="button"
+                data-testid="conductor-signin-method"
+                data-method={method.id}
+                data-runs={method.runs}
+                title={method.description ?? undefined}
+                class="rounded-md border border-edge-bright bg-surface-2 hover:bg-surface-3 px-2.5 py-1 text-fg cursor-pointer"
+                onClick={() => orch.signIn(method.id)}
+              >
+                {method.name}
+              </button>
+            </Show>
           )}
         </For>
       </div>

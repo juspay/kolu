@@ -86,7 +86,7 @@ const standingOf = (
   for (let i = events.length - 1; i >= 0; i--) {
     const event = events[i];
     if (event?._tag !== "servers") continue;
-    return event.servers.find((server) => server.name === name)?.standing.kind;
+    return event.servers.find((server) => server.name === name)?.standing;
   }
   return undefined;
 };

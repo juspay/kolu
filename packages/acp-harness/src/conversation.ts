@@ -61,7 +61,10 @@ import type { Adapter, Leg, Reported, Spawn } from "@kolu/acp/engine";
 import type {
   AskAnswer,
   AuthStatus,
+  Command,
   PlanStep,
+  Server,
+  Setting,
   SignInReason,
   Usage,
 } from "@kolu/acp/wire";
@@ -80,13 +83,10 @@ import { mcpServersOf, messageOf } from "./payloads.ts";
 import { AnswerRefused, Questions } from "./questions.ts";
 import type {
   ConductorAttachment,
-  ConductorCommand,
   ConductorKoluCall,
   ConductorMention,
   ConductorModel,
-  ConductorOption,
   ConductorRow,
-  ConductorServer,
   ConductorSignIn,
   ConductorState,
   ConductorWakeEvent,
@@ -535,8 +535,8 @@ export const startHarness = async (
   /** THE SIGN-IN ROW, as the door last said it — the panel's copy of the row
    *  the agent half composes from its offer and attempt. */
   let signIn: ConductorSignIn | null = null;
-  let commands: ReadonlyArray<ConductorCommand> = [];
-  let settings: ReadonlyArray<ConductorOption> = [];
+  let commands: ReadonlyArray<Command> = [];
+  let settings: ReadonlyArray<Setting> = [];
   let labels: ReadonlyMap<string, string> = new Map();
 
   /**
@@ -567,14 +567,12 @@ export const startHarness = async (
    * URL — the token beside it stays out of the row, because a row is something
    * a person reads on screen.
    */
-  let servers: ReadonlyArray<ConductorServer> = options.mcpServers.map(
-    (server) => ({
-      name: server.name,
-      standing: "handed" as const,
-      said: null,
-      where: server.kind === "http" ? server.url : server.command,
-    }),
-  );
+  let servers: ReadonlyArray<Server> = options.mcpServers.map((server) => ({
+    name: server.name,
+    standing: "handed" as const,
+    said: null,
+    where: server.kind === "http" ? server.url : server.command,
+  }));
   /** The prologue this conversation's OPEN announced it would ALSO send as one
    *  ordinary chunk, or `null`. Armed at the open and CONSUMED by the first
    *  chunk equal to it: one banner, once, compared against the string the
@@ -1028,8 +1026,8 @@ export const startHarness = async (
   const readSettings = (
     config: ReadonlyArray<SessionConfigOption> | null | undefined,
   ): void => {
-    const read: Array<ConductorOption> = [];
-    let picker: ConductorOption | null = null;
+    const read: Array<Setting> = [];
+    let picker: Setting | null = null;
     for (const option of config ?? []) {
       // A SELECT'S ROWS, which the protocol lets an agent send as groups of
       // rows rather than as rows. A group has no id of its own and is not a
@@ -1037,7 +1035,7 @@ export const startHarness = async (
       // with a group in it would be one whose heading is selectable.
       const choices = choicesOf(option);
       const isModel = leg.models !== null && option.id === leg.models.config;
-      const row: ConductorOption = {
+      const row: Setting = {
         id: option.id,
         name: option.name,
         description: option.description ?? null,

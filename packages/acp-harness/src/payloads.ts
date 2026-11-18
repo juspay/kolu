@@ -315,6 +315,7 @@ export const methodsIn = (
       name: method.name,
       description: method.description ?? null,
       runs: terminal === null ? "agent" : "client",
+      command: null,
     };
     if (terminal === null) {
       offered.push({ method: wire, run: null });

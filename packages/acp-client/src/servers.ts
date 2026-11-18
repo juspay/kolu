@@ -38,12 +38,8 @@
  */
 
 import type { McpServer } from "@agentclientprotocol/sdk";
-import {
-  type ChatServer,
-  sameStanding,
-  type ServerStanding,
-} from "./shapes.ts";
 import type { Reported } from "@kolu/acp/engine";
+import type { Server } from "@kolu/acp/wire";
 
 /**
  * A server this host was meant to give a session and could not, as the PROBE
@@ -108,27 +104,30 @@ export const rosterOf = (
   handing: ReadonlyArray<McpServer>,
   missing: ReadonlyArray<NotHere>,
   at: ReadonlyMap<string, string> = new Map(),
-): ReadonlyArray<ChatServer> => [
+): ReadonlyArray<Server> => [
   ...handing.map(
-    (server): ChatServer => ({
+    (server): Server => ({
       name: server.name,
       where: whereOf(server),
       ...(at.has(server.name) ? { at: at.get(server.name)! } : {}),
       // HANDED, never `connected`, and this is the layering in one line: olai
       // knows it gave the server to the session and cannot know the session took
       // it. Only an agent's own word moves a row past here ({@link movedBy}).
-      standing: { kind: "handed" },
+      standing: "handed",
+      said: null,
     }),
   ),
   // ... and the ones it did not get, as the fourth standing. `missing` is the
   // arm for a server olai could not hand over AT ALL, which is exactly what a
   // probe's no is: the other three all describe a server that WAS handed over
-  // and differ only in what the agent then said about it.
+  // and differ only in what the agent then said about it. Its `said` is the
+  // probe's own sentence, whole.
   ...missing.map(
-    (one): ChatServer => ({
+    (one): Server => ({
       name: one.name,
       where: one.where,
-      standing: { kind: "missing", why: one.why },
+      standing: "missing",
+      said: one.why,
     }),
   ),
 ];
@@ -187,9 +186,9 @@ const whereOf = (server: McpServer): string | null => {
  * @param said what the agent reported, by name
  */
 export const movedBy = (
-  roster: ReadonlyArray<ChatServer>,
+  roster: ReadonlyArray<Server>,
   said: ReadonlyArray<Reported>,
-): ReadonlyArray<ChatServer> | null => {
+): ReadonlyArray<Server> | null => {
   const next = roster.map((server) => asSaid(server, said));
   // A ROW THAT DID NOT MOVE IS THE SAME OBJECT, which is what makes this one
   // expression rather than a flag threaded through the map above: the map
@@ -203,26 +202,23 @@ export const movedBy = (
  *  where it was. Every arm of "leaves it where it was" is here rather than at
  *  the caller, because each is a decision about this layer's boundary and the
  *  identity above is what publishes them all as one answer. */
-const asSaid = (
-  server: ChatServer,
-  said: ReadonlyArray<Reported>,
-): ChatServer => {
-  if (server.standing.kind === "missing") return server;
+const asSaid = (server: Server, said: ReadonlyArray<Reported>): Server => {
+  if (server.standing === "missing") return server;
   const reported = said.find((one) => one.name === server.name);
   if (reported === undefined) return server;
   // WHICH WORD MEANT YES was decided by the leg, which is the file allowed to
   // be wrong about one agent (`@kolu/acp/engine`'s `Leg`). What is left here is
   // the mapping onto a standing, which is true of every agent.
-  const standing: ServerStanding = reported.attached
-    ? { kind: "connected" }
+  const [standing, sentence] = reported.attached
+    ? (["connected", null] as const)
     : // The agent's own word, quoted rather than translated — the same rule
       // #140's four probe sentences follow, and the reason a reader can act on
       // `needs-auth` (sign the server in) differently from `failed` (it broke).
-      {
-        kind: "unattached",
-        why: `the agent did not attach it: ${reported.said}`,
-      };
-  return sameStanding(server.standing, standing)
+      ([
+        "unattached",
+        `the agent did not attach it: ${reported.said}`,
+      ] as const);
+  return server.standing === standing && server.said === sentence
     ? server
-    : { ...server, standing };
+    : { ...server, standing, said: sentence };
 };

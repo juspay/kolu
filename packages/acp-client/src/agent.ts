@@ -123,9 +123,19 @@ import {
   relativeTo,
   usageIn,
 } from "@kolu/acp";
-import type { AuthMethod, ChatServer, SignIn, SignInLink } from "./shapes.ts";
-import type { Reported } from "@kolu/acp/engine";
-import type { AskAnswer, AuthStatus } from "@kolu/acp/wire";
+import type { Background, Reported, Spawn } from "@kolu/acp/engine";
+import type {
+  Armed,
+  AskAnswer,
+  AuthMethod,
+  AuthStatus,
+  Command,
+  Server,
+  Setting,
+  SignIn,
+  SignInLink,
+  Spawned,
+} from "@kolu/acp/wire";
 import {
   Cause,
   Clock,
@@ -140,7 +150,6 @@ import {
 
 import type { Leg, Meta, ModelReading } from "@kolu/acp/engine";
 import { acceptsSetting, settingsIn } from "./settings.ts";
-import type { SessionSetting } from "./shapes.ts";
 import {
   modelPickerIn,
   type Picker,
@@ -151,7 +160,7 @@ import { Calls } from "./calls.ts";
 import { Activity } from "./activity.ts";
 import { nativeActivity } from "@kolu/acp";
 import { sameDirectory } from "./directory.ts";
-import type { AgentEvent, Command, Stored } from "./events.ts";
+import type { AgentEvent, Stored } from "./events.ts";
 import type {
   MemorySnapshot,
   Memory,
@@ -169,7 +178,6 @@ import {
 } from "./probes.ts";
 import * as Questions from "./questions.ts";
 import { movedBy, rosterOf } from "./servers.ts";
-import { Json } from "./shapes.ts";
 
 /** An MCP server to hand a session, in olai's terms. {@link mcpServersOf}
  *  renders it into what the protocol wants. */
@@ -1055,7 +1063,7 @@ export const make = (options: Options): Effect.Effect<Agent, never, never> =>
      * permission rule's and this one is the panel's, and the whole point of the
      * roster is that it holds rows for servers the session was NOT given.
      */
-    let roster: ReadonlyArray<ChatServer> = [];
+    let roster: ReadonlyArray<Server> = [];
 
     /** What has been said about each of this conversation's tool calls — which
      *  tool it is, and which agent made it ({@link ./calls.ts}). Per session,
@@ -1482,9 +1490,9 @@ export const make = (options: Options): Effect.Effect<Agent, never, never> =>
                 provisional: undefined,
                 armed: {
                   task: notice.onto.task,
-                  ...(notice.onto.report === ""
-                    ? {}
-                    : { report: notice.onto.report }),
+                  description: null,
+                  ended: null,
+                  report: notice.onto.report === "" ? null : notice.onto.report,
                 },
               });
             } else {
@@ -1609,7 +1617,7 @@ export const make = (options: Options): Effect.Effect<Agent, never, never> =>
             // stamp is answered by a subagent's own frames and a subagent that
             // has not made a call yet has produced none — which is the whole
             // of the stretch a person is watching a fan-out through.
-            spawned:
+            spawned: spawnedOf(
               options.leg.spawned(
                 update._meta,
                 update.rawInput,
@@ -1621,7 +1629,8 @@ export const make = (options: Options): Effect.Effect<Agent, never, never> =>
                 // ({@link ./calls.ts}), which is what positive recognition
                 // means when the facts arrive separately.
                 calls.about(update.toolCallId, notification.sessionId).name,
-              ) ?? undefined,
+              ),
+            ),
             // ... and whether it ARMED a background task — a monitor, a
             // background shell — which is the one kind of call that goes on
             // happening after this frame, after the turn, and (for a persistent
@@ -1629,7 +1638,7 @@ export const make = (options: Options): Effect.Effect<Agent, never, never> =>
             // corner for the same reason: ACP has no place to say it, so the
             // agent that says it is read where everything else true of one
             // agent is read.
-            armed: arming ?? undefined,
+            armed: armedOf(arming),
             // ... and whether the TITLE this frame carried is a placeholder
             // the adapter has not refined yet, which decides only whether it
             // may NAME the row (`./transcript.ts`). A leg that declares
@@ -1813,15 +1822,12 @@ export const make = (options: Options): Effect.Effect<Agent, never, never> =>
      * adapter's spelling; the arithmetic over them is still this package's.
      */
     const models = options.leg.models;
-    let settings: ReadonlyArray<SessionSetting> = [];
+    let settings: ReadonlyArray<Setting> = [];
     const readSettings = (
       config: ReadonlyArray<SessionConfigOption> | null | undefined,
     ): void => {
-      settings = settingsIn(config);
-      emit({
-        _tag: "settings",
-        settings: settings.filter((option) => option.id !== models?.config),
-      });
+      settings = settingsIn(config, models?.config ?? null);
+      emit({ _tag: "settings", settings });
     };
 
     /** What this agent calls the model with that id, or `null` — nothing at all
@@ -2017,12 +2023,12 @@ export const make = (options: Options): Effect.Effect<Agent, never, never> =>
       if (next === null) return;
       for (const [index, server] of next.entries()) {
         if (server === roster[index]) continue;
-        if (server.standing.kind === "unattached") {
+        if (server.standing === "unattached") {
           tell(Effect.logWarning("MCP server connection problem"), {
             server: server.name,
-            reason: server.standing.why,
+            reason: server.said,
           });
-        } else if (server.standing.kind === "connected") {
+        } else if (server.standing === "connected") {
           tell(Effect.logDebug("MCP server connected"), {
             server: server.name,
           });
@@ -2654,7 +2660,7 @@ export const make = (options: Options): Effect.Effect<Agent, never, never> =>
      * written and not published looks exactly like a roster nothing has
      * changed. `entered` above is the same shape for the same reason.
      */
-    const announce = (next: ReadonlyArray<ChatServer>): void => {
+    const announce = (next: ReadonlyArray<Server>): void => {
       roster = next;
       emit({ _tag: "servers", servers: next });
     };
@@ -2973,19 +2979,15 @@ export const make = (options: Options): Effect.Effect<Agent, never, never> =>
         settings = settings.map((option) => {
           if (
             !ids.has(option.id) ||
-            option.type !== "select" ||
+            option.kind === "boolean" ||
             !acceptsSetting(option, mode) ||
-            option.currentValue === mode
+            option.value === mode
           )
             return option;
           changed = true;
-          return { ...option, currentValue: mode };
+          return { ...option, value: mode };
         });
-        if (changed)
-          emit({
-            _tag: "settings",
-            settings: settings.filter((option) => option.id !== models?.config),
-          });
+        if (changed) emit({ _tag: "settings", settings });
       });
 
     /** The subprocess, and nothing about a conversation. Its own step because
@@ -3078,7 +3080,7 @@ export const make = (options: Options): Effect.Effect<Agent, never, never> =>
             // line, and a press that reached here anyway (an old tab, a
             // scripted client) is told the same thing the card says rather
             // than quietly starting the AGENT arm instead.
-            if (found.method.kind === "byHand") {
+            if (found.method.runs === "hand") {
               return yield* new AgentGone({
                 gone: "refused",
                 why: `\`${found.method.name}\` is run by hand: ${found.method.command ?? "see the sign-in card"}`,
@@ -4231,7 +4233,7 @@ const methodsIn = (
           id: method.id,
           name: method.name,
           description: method.description ?? null,
-          kind: "agent",
+          runs: "agent",
           command: null,
         },
         run: null,
@@ -4250,7 +4252,7 @@ const methodsIn = (
           id: method.id,
           name: method.name,
           description: method.description ?? null,
-          kind: "byHand",
+          runs: "hand",
           command: [command, ...byHand].join(" "),
         },
         run: null,
@@ -4263,7 +4265,7 @@ const methodsIn = (
         id: method.id,
         name: method.name,
         description: method.description ?? null,
-        kind: "terminal",
+        runs: "client",
         command: null,
       },
       run: {
@@ -4514,4 +4516,28 @@ export const mcpServersOf = (
   })),
 ];
 
-const isJson = Schema.is(Json);
+const isJson = Schema.is(Schema.Json);
+
+/**
+ * WHAT A LEG SAID about a spawned subagent or an armed task, as the event
+ * carries it.
+ *
+ * The leg answers STRUCTURALLY — a field it knows nothing about is absent —
+ * and an event is a value on a wire, where `undefined` is not one of the words.
+ * So the translation happens once, here: `null` is "this frame says nothing
+ * about it", and a consumer keeps what an earlier frame said.
+ */
+const spawnedOf = (spawn: Spawn | null): Spawned | undefined =>
+  spawn === null
+    ? undefined
+    : { kind: spawn.kind ?? null, said: spawn.said ?? null };
+
+const armedOf = (task: Background | null): Armed | undefined =>
+  task === null
+    ? undefined
+    : {
+        task: task.task,
+        description: task.description ?? null,
+        ended: task.ended ?? null,
+        report: task.report ?? null,
+      };

@@ -41,14 +41,17 @@ import {
   AskField,
   AskLink,
   AuthAccount,
-  AuthMethod as AuthMethodSchema,
+  AuthMethod,
   AuthStatus,
+  Command,
   Delivery,
   FileDiff,
   noticeRowFields,
   PlanStep,
   rowHead,
   Saying,
+  Server,
+  Setting,
   SignInReason as SignInReasonSchema,
   toolRowFields,
   Usage,
@@ -724,82 +727,6 @@ export const ConductorModelSchema = Schema.Struct({
   window: Schema.NullOr(Schema.Int),
 });
 
-/** One adapter-advertised session setting — reasoning effort, permission mode,
- *  a boolean such as fast mode. The control uses the ADAPTER'S own name and
- *  values; kolu composes neither. */
-export const ConductorOptionSchema = Schema.Struct({
-  id: Schema.String,
-  /**
-   * WHICH CONTROL THIS ROW IS, decided by the harness that read the adapter
-   * and never re-derived by the panel.
-   *
-   * `"model"` — the agent's model picker, the row whose id its leg names as
-   * the model config. It is BOTH the header's reading and a control, which is
-   * the distinction this field exists to keep: a panel that recognised the
-   * model row only by consuming it into the header drew every section except
-   * the one a person opened the popover for. Drawn first, because choosing a
-   * model is the thing people come here to do.
-   *
-   * `"boolean"` — an on/off setting (fast mode). It arrives with NO choices,
-   * so a panel that only knows how to draw a list of them renders a heading
-   * with nothing under it; a toggle on one line is the whole control.
-   *
-   * `"choice"` — everything else: reasoning effort, permission mode. A list
-   * of the adapter's own values, one of them current.
-   */
-  kind: Schema.Literals(["model", "choice", "boolean"]),
-  name: Schema.String,
-  description: Schema.NullOr(Schema.String),
-  /** The confirmed value. A refused change leaves this where it was. */
-  value: Schema.NullOr(Schema.String),
-  choices: Schema.Array(
-    Schema.Struct({
-      value: Schema.String,
-      label: Schema.String,
-      /** The context window, for a model row. `null` everywhere else. */
-      hint: Schema.NullOr(Schema.String),
-    }),
-  ),
-});
-
-/** A slash command the agent advertises. */
-export const ConductorCommandSchema = Schema.Struct({
-  name: Schema.String,
-  description: Schema.NullOr(Schema.String),
-});
-
-/** Where one MCP server in this conversation stands.
- *
- *  Three standings and they are not interchangeable: `connected` is the
- *  AGENT'S own word, `handed` is what kolu gave over and the agent has not
- *  spoken about, and `unattached` quotes what the agent said instead. A server
- *  the agent names that kolu never handed adds NO row — the strip says "plus
- *  the agent's own" rather than inventing one.
- *
- *  THERE IS NO `missing`, and its absence is the fail-fast rule showing
- *  through. A fourth standing would mean "kolu's own MCP server could not be
- *  found, carry on without it" — but kolu-server refuses the whole
- *  conversation when the fleet MCP endpoint is not answering
- *  (`ConductorUnavailable`), because a conductor that cannot reach the
- *  fleet is not a degraded conductor, it is a chat window. So no row can
- *  ever reach that standing, and a value nothing can mint is a case the panel
- *  would be pretending to have.
- */
-export const ConductorServerSchema = Schema.Struct({
-  name: Schema.String,
-  standing: Schema.Literals(["connected", "handed", "unattached"]),
-  /** The agent's own sentence about this server, carried verbatim. */
-  said: Schema.NullOr(Schema.String),
-  where: Schema.NullOr(Schema.String),
-});
-
-/** ONE WAY the agent offers to get signed in — `@kolu/acp/wire`'s
- *  `AuthMethod`, re-exported under this file's own name for the same reason as
- *  the sign-in reason above: the agent's list is the client's to read, and the
- *  row that draws it is the product's. */
-export const ConductorAuthMethodSchema = AuthMethodSchema;
-export type ConductorAuthMethod = typeof ConductorAuthMethodSchema.Type;
-
 /** WHO PUT THE SIGN-IN ON SCREEN — the agent, in its own refusal, or a person
  *  who asked for it (a limit reached, the wrong account, a login that went
  *  stale). Two arms rather than an empty sentence for "nobody refused":
@@ -823,7 +750,7 @@ export type ConductorSignInCause = typeof ConductorSignInCauseSchema.Type;
  *  attempt already running rather than starting a second process. */
 export const ConductorSignInSchema = Schema.Struct({
   cause: ConductorSignInCauseSchema,
-  methods: Schema.Array(ConductorAuthMethodSchema),
+  methods: Schema.Array(AuthMethod),
   attempt: Schema.NullOr(
     Schema.Struct({
       method: Schema.String,
@@ -893,9 +820,9 @@ export const ConductorStateSchema = Schema.Struct({
    *  nothing, which is different from a conversation that has spent nothing
    *  (`{used: 0, size: 200000}`). */
   usage: Schema.NullOr(Usage),
-  options: Schema.Array(ConductorOptionSchema),
-  commands: Schema.Array(ConductorCommandSchema),
-  servers: Schema.Array(ConductorServerSchema),
+  options: Schema.Array(Setting),
+  commands: Schema.Array(Command),
+  servers: Schema.Array(Server),
   watching: Schema.Array(Watching),
   /** THE CONVERSATION'S OWN QUESTIONS still waiting on a human, as ask ids —
    *  the agent's elicitations, which belong to no piece of work. */

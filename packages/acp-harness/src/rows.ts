@@ -20,13 +20,9 @@
  * place for the two to disagree.
  */
 
-import type { AuthMethod } from "@kolu/acp/wire";
 import type {
   ConductorAttachmentSchema,
-  ConductorCommandSchema,
   ConductorModelSchema,
-  ConductorOptionSchema,
-  ConductorServerSchema,
   ConductorSignInSchema,
 } from "kolu-common/conductor";
 
@@ -44,12 +40,5 @@ export type {
 } from "kolu-common/conductor";
 
 export type ConductorAttachment = typeof ConductorAttachmentSchema.Type;
-export type ConductorOption = typeof ConductorOptionSchema.Type;
-export type ConductorCommand = typeof ConductorCommandSchema.Type;
-export type ConductorServer = typeof ConductorServerSchema.Type;
 export type ConductorModel = typeof ConductorModelSchema.Type;
 export type ConductorSignIn = typeof ConductorSignInSchema.Type;
-/** The agent's offered sign-in methods are `@kolu/acp/wire`'s `AuthMethod` —
- *  the CLIENT's vocabulary, which this package re-exports under the product's
- *  name so nothing above here has to know which package owns it. */
-export type ConductorAuthMethod = AuthMethod;

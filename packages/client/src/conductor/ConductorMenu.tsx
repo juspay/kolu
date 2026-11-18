@@ -46,17 +46,20 @@ import { useConductor } from "./useConductor";
 const WIPE_COPY =
   "Start a new session? This conversation's messages, the files attached to them and the terminals it remembers are deleted — on this host too. There is no undo.";
 
-/** The three standings a roster row can hold, keyed by the union so a fourth
+/** The four standings a roster row can hold, keyed by the union so a fifth
  *  one added to the schema fails the typecheck here rather than painting
- *  unstyled. There is no `missing`: a server kolu could not reach does not get
- *  a red row, it refuses the whole conversation (kolu-server's
- *  `ConductorUnavailable`), because a conductor that cannot reach the fleet is
- *  not a degraded conductor. */
+ *  unstyled. kolu's own Conductor never mints `missing`: a server kolu could
+ *  not reach does not get a red row, it refuses the whole conversation
+ *  (kolu-server's `ConductorUnavailable`), because a conductor that cannot
+ *  reach the fleet is not a degraded conductor. The shape is shared with a
+ *  product whose optional servers can be missing, so the class is here for the
+ *  row the union allows. */
 type Standing = ConductorState["servers"][number]["standing"];
 const STANDING_CLASS: Record<Standing, string> = {
   connected: "text-ok",
   handed: "text-fg-2",
   unattached: "text-attention",
+  missing: "text-danger",
 };
 
 const ConductorMenu: Component<{

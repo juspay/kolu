@@ -15,37 +15,31 @@
  */
 
 import type {
-  SessionSetting,
-  PlanStep,
-  TerminalView,
   Armed,
-  AuthMethod,
-  ChatServer,
-  SignIn,
-  Spawned,
-  Json,
-} from "./shapes.ts";
-import type {
   AskField,
   AskLink,
   AskOutcome,
+  AuthMethod,
   AuthStatus,
+  Command,
   FileDiff,
+  PlanStep,
+  Server,
+  Setting,
+  SignIn,
+  Spawned,
+  TerminalView,
   ToolStatus,
   Usage,
 } from "@kolu/acp/wire";
-/** A slash command the agent offers. */
-export interface Command {
-  readonly name: string;
-  readonly description: string;
-}
+import type { Schema } from "effect";
 
 /**
  * One of the agent's stored conversations for the served directory.
  *
  * `messageCount` and `supersededBy` come from the adapter's OWN corner of the
  * answer (`_meta.claudeCode` on the pinned Claude Code adapter —
- * `packages/plugins/claude/acp/patches/session-list-info.patch`, the lane in
+ * `@kolu/acp-claude`'s `adapter/patches/session-list-info.patch`, the lane in
  * `olai-plugin-claude`'s `leg.ts`'s `listedIn`), so they are facts that exist only
  * where an adapter chooses to volunteer them. `null` — the reading's losing
  * direction — is what the request's absence produces, and the picker's answer
@@ -67,7 +61,7 @@ export type AgentEvent =
     }
   | {
       readonly _tag: "settings";
-      readonly settings: ReadonlyArray<SessionSetting>;
+      readonly settings: ReadonlyArray<Setting>;
     }
   | { readonly _tag: "plan"; readonly entries: ReadonlyArray<PlanStep> }
   /** The agent's prose, one chunk as it arrived. */
@@ -117,7 +111,7 @@ export type AgentEvent =
       /** Display name, owner and opaque JSON reply for the owning plugin’s face. */
       readonly called: string | undefined;
       readonly row: string | undefined;
-      readonly reply: Json | undefined;
+      readonly reply: typeof Schema.Json.Type | undefined;
       /** Where it is working: the follow-along file locations. */
       readonly locations: ReadonlyArray<string> | undefined;
       /**
@@ -306,7 +300,7 @@ export type AgentEvent =
    * over.
    */
   | { readonly _tag: "signIn"; readonly signIn: SignIn | null }
-  | { readonly _tag: "servers"; readonly servers: ReadonlyArray<ChatServer> }
+  | { readonly _tag: "servers"; readonly servers: ReadonlyArray<Server> }
   /**
    * WHO THE AGENT PROCESS IS SIGNED IN AS, as the agent itself last said — or
    * `null` when nobody is reporting, which is a different thing from a known
