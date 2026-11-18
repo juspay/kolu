@@ -16,10 +16,10 @@
  * somebody moved a row writer next door.
  *
  * WHAT THIS TEST CANNOT DO YET, and says so rather than pretending: `agent.ts`
- * and `events.ts` are the split's own files and do not exist until it lands.
- * The list below is the files that exist; a name goes in here the moment its
- * file does, and the list is deliberately required to be non-empty so a rename
- * cannot turn this into a test of nothing.
+ * is the split's own file and does not exist until K5.9 lifts it out. A name
+ * goes into the list the moment its file does, and the list is deliberately
+ * required to be non-empty so a rename cannot turn this into a test of
+ * nothing.
  */
 
 import { readFileSync } from "node:fs";
@@ -41,7 +41,13 @@ const PRODUCT = [
 ];
 
 /** The protocol-facing modules, by file name. */
-const SEAM = ["payloads.ts", "questions.ts", "calls.ts", "pipes.ts"];
+const SEAM = [
+  "events.ts",
+  "payloads.ts",
+  "questions.ts",
+  "calls.ts",
+  "pipes.ts",
+];
 
 /** Every module specifier a file imports, in source order. */
 const specifiersIn = (file: string): ReadonlyArray<string> =>

@@ -134,6 +134,7 @@ import type {
   ConductorWakeEvent,
 } from "./rows.ts";
 import type { PlanStep } from "@kolu/acp/wire";
+import type { AgentEvent } from "./events.ts";
 import { type Change, plus, says, Transcript } from "./transcript.ts";
 import { type Turn, Turns } from "./turns.ts";
 
@@ -775,6 +776,35 @@ export const startHarness = async (
   const handing = mcpServersOf(options.mcpServers);
 
   // ── saying what moved ────────────────────────────────────────────────
+
+  /**
+   * THE DOOR THE AGENT HALF REPORTS THROUGH.
+   *
+   * Everything that arrives from the agent — a notification, a request it is
+   * waiting on, an answer to the handshake, the process's own exit — narrows
+   * into one member of {@link AgentEvent} and comes through here. What is
+   * INSIDE each case is the body that used to run in the handler; this is the
+   * door being built around it, one kind of traffic at a time, so that the
+   * agent half can later be lifted out and read on its own.
+   *
+   * SYNCHRONOUS on purpose: a row is still reported before state is
+   * published, and no conversion may put a promise hop between a message
+   * arriving and the work its arrival does.
+   */
+  const emit = (event: AgentEvent): string | null => {
+    switch (event._tag) {
+      case "elicitationComplete":
+        onElicitationComplete(event.params);
+        return null;
+      default:
+        // THE UNION HAS ONE MEMBER TODAY, and a one-member union collapses to
+        // its member, so the compiler has nothing to narrow to `never` — the
+        // exhaustive `satisfies never` check arrives with the second member,
+        // in the commit that adds it. Until then this arm is unreachable by
+        // construction and says so rather than guessing.
+        throw new Error(`unhandled agent event: ${JSON.stringify(event)}`);
+    }
+  };
 
   const report = (change: Change<ConductorRow>): void => {
     // NOTHING IS SAID AFTER A STOP. A turn still on the wire when the daemon
@@ -1571,7 +1601,7 @@ export const startHarness = async (
       onElicitation(context.params, context.signal),
     )
     .onNotification(methods.client.elicitation.complete, (context) => {
-      onElicitationComplete(context.params);
+      emit({ _tag: "elicitationComplete", params: context.params });
     });
 
   // THE AGENT'S OWN MESSAGES, for an agent that forwards any — subscribed only
