@@ -91,7 +91,13 @@ import type {
   Reported,
   Spawn,
 } from "@kolu/acp/engine";
-import type { AskAnswer, AskLink, AuthStatus, Usage } from "@kolu/acp/wire";
+import type {
+  AskAnswer,
+  AskLink,
+  AuthStatus,
+  SignInReason,
+  Usage,
+} from "@kolu/acp/wire";
 import { Duration } from "effect";
 import { aboutBlock } from "./aboutBlock.ts";
 import { Calls } from "./calls.ts";
@@ -112,7 +118,6 @@ import {
   saidOf,
   textOf,
 } from "./payloads.ts";
-import type { ConductorSignInReason } from "kolu-common/conductor";
 import { streamOver } from "./pipes.ts";
 import { AnswerRefused, Questions } from "./questions.ts";
 import type {
@@ -403,8 +408,8 @@ export class HarnessRefused extends Error {
   readonly why: string;
   /** Whether signing in could fix it, and which kind — nobody is signed in,
    *  or the account that is cannot run it — or `no`. */
-  readonly signIn: ConductorSignInReason | "no";
-  constructor(why: string, signIn: ConductorSignInReason | "no") {
+  readonly signIn: SignInReason | "no";
+  constructor(why: string, signIn: SignInReason | "no") {
     super(why);
     this.name = "HarnessRefused";
     this.why = why;
@@ -596,8 +601,8 @@ export const startHarness = async (
    */
   const refusalMark = (
     key: string,
-    signIn: ConductorSignInReason | "no",
-  ): { signIn?: ConductorSignInReason } =>
+    signIn: SignInReason | "no",
+  ): { signIn?: SignInReason } =>
     signIn === "no" || transcript.entries().get(key)?.kind !== "user"
       ? {}
       : { signIn };

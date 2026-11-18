@@ -351,6 +351,40 @@ export const AuthStatus = Schema.Struct({
 });
 export type AuthStatus = typeof AuthStatus.Type;
 
+/**
+ * ONE WAY the agent offers to get signed in.
+ *
+ * The agent's own list from the handshake, projected to what a panel acts on.
+ * `runs` is the half that decides what a press DOES, and it is the agent's
+ * answer rather than ours: `client` — the adapter handed over a command line,
+ * and the client spawns it and streams what it prints; `agent` — the agent
+ * runs it, and the client's part is a page to visit.
+ *
+ * Here rather than in a product's own schema because both of them draw this
+ * list and the two products run the SAME adapters: an agent that names a
+ * method a panel cannot run is a fact about the protocol's corner, not about
+ * which product is looking at it.
+ */
+export const AuthMethod = Schema.Struct({
+  id: Schema.String,
+  name: Schema.String,
+  description: Schema.NullOr(Schema.String),
+  runs: Schema.Literals(["client", "agent"]),
+});
+export type AuthMethod = typeof AuthMethod.Type;
+
+/**
+ * WHICH SIGN-IN would fix a refusal — the two reasons a row carries beside the
+ * sentence that refused it.
+ *
+ * `signed-out` is an agent with nobody signed in; `account` is the signature a
+ * request reached that the agent does not accept (a limit, the wrong account,
+ * a login gone stale). A row that says one of these can be *send again*-ed
+ * after the sign-in it names; a row that says neither cannot.
+ */
+export const SignInReason = Schema.Literals(["signed-out", "account"]);
+export type SignInReason = typeof SignInReason.Type;
+
 // ── The row FIELDS ────────────────────────────────────────────────────────
 //
 // One row of a conversation, in the five kinds both products draw, as FIELD

@@ -21,8 +21,7 @@ import {
 } from "@agentclientprotocol/sdk";
 import { relativeTo } from "@kolu/acp";
 import type { Leg } from "@kolu/acp/engine";
-import type { ConductorSignInReason } from "kolu-common/conductor";
-import type { ConductorAuthMethod } from "./rows.ts";
+import type { AuthMethod, SignInReason } from "@kolu/acp/wire";
 
 /**
  * HOW a verb failed — three ways, because a caller has TWO questions and two
@@ -86,7 +85,7 @@ export const authOf = (cause: unknown): boolean =>
 export const signInOf = (
   cause: unknown,
   leg: Pick<Leg, "accountRefusal">,
-): ConductorSignInReason | "no" =>
+): SignInReason | "no" =>
   authOf(cause)
     ? "signed-out"
     : cause instanceof RequestError && leg.accountRefusal?.(cause.data) === true
@@ -263,7 +262,7 @@ export interface TerminalAuth {
  * command line this process spawns and no browser has any business holding.
  */
 export interface Offered {
-  readonly method: ConductorAuthMethod;
+  readonly method: AuthMethod;
   /** What running it takes, or `null` for a method the AGENT runs, which needs
    *  no command — only the wait. */
   readonly run: TerminalAuth | null;
@@ -311,7 +310,7 @@ export const methodsIn = (
     // sign-in nobody can run.
     if ("type" in method && method.type !== "terminal") continue;
     const terminal = "type" in method ? method : null;
-    const wire: ConductorAuthMethod = {
+    const wire: AuthMethod = {
       id: method.id,
       name: method.name,
       description: method.description ?? null,

@@ -41,6 +41,7 @@ import {
   AskField,
   AskLink,
   AuthAccount,
+  AuthMethod as AuthMethodSchema,
   AuthStatus,
   Delivery,
   FileDiff,
@@ -48,6 +49,7 @@ import {
   PlanStep,
   rowHead,
   Saying,
+  SignInReason as SignInReasonSchema,
   toolRowFields,
   Usage,
   userRowFields,
@@ -201,11 +203,13 @@ export const attachmentGone = (name: string): string =>
   `“${name}” is no longer on this host, so the message was not sent. Attach it again.`;
 
 /** WHY SIGNING IN COULD FIX A REFUSED MESSAGE — nobody is signed in, or the
- *  account that is cannot run it. */
-export const ConductorSignInReasonSchema = Schema.Literals([
-  "signed-out",
-  "account",
-]);
+ *  account that is cannot run it.
+ *
+ *  `@kolu/acp/wire`'s `SignInReason`, re-exported under this file's own name:
+ *  what can be said about a refused message is the CLIENT's vocabulary, and the
+ *  client that reports it (`@kolu/acp-harness`) must not reach into a product's
+ *  schema to say it. Two names for one schema rather than two schemas. */
+export const ConductorSignInReasonSchema = SignInReasonSchema;
 export type ConductorSignInReason = typeof ConductorSignInReasonSchema.Type;
 
 /** What a person typed. Never markdown — it is quoted, not rendered.
@@ -789,15 +793,12 @@ export const ConductorServerSchema = Schema.Struct({
   where: Schema.NullOr(Schema.String),
 });
 
-export const ConductorAuthMethodSchema = Schema.Struct({
-  id: Schema.String,
-  name: Schema.String,
-  description: Schema.NullOr(Schema.String),
-  /** Who RUNS it. `terminal` — the adapter handed over a command line and kolu
-   *  spawns it, streaming its output into the row. `agent` — the agent runs it
-   *  and kolu's part is a page to visit. */
-  runs: Schema.Literals(["client", "agent"]),
-});
+/** ONE WAY the agent offers to get signed in — `@kolu/acp/wire`'s
+ *  `AuthMethod`, re-exported under this file's own name for the same reason as
+ *  the sign-in reason above: the agent's list is the client's to read, and the
+ *  row that draws it is the product's. */
+export const ConductorAuthMethodSchema = AuthMethodSchema;
+export type ConductorAuthMethod = typeof ConductorAuthMethodSchema.Type;
 
 /** WHO PUT THE SIGN-IN ON SCREEN — the agent, in its own refusal, or a person
  *  who asked for it (a limit reached, the wrong account, a login that went
