@@ -24,6 +24,9 @@ import type { Background } from "@kolu/acp/engine";
 import type { SessionConfigOption } from "@agentclientprotocol/sdk";
 import type { Reported } from "@kolu/acp/engine";
 import type {
+  AskField,
+  AskLink,
+  AskOutcome,
   AuthStatus,
   FileDiff,
   PlanStep,
@@ -97,6 +100,20 @@ export type AgentEvent =
       readonly _tag: "gone";
       readonly code: number | null;
       readonly signal: string | null;
+    }
+  /** A PERMISSION the agent is holding a call open for.
+   *
+   *  `params` is the request's own payload and `signal` its abort; `settle`
+   *  answers it (or `fail`s it, which is how a defect stays a defect instead
+   *  of a request nobody ever answers). The rules — which requests are
+   *  answered without asking, and what a person is shown — are the
+   *  conversation's. */
+  | {
+      readonly _tag: "permission";
+      readonly params: unknown;
+      readonly signal: AbortSignal;
+      readonly settle: (answer: unknown) => void;
+      readonly fail: (cause: unknown) => void;
     }
   /** How full the context is. Several a turn: the newest wins. */
   | { readonly _tag: "usage"; readonly usage: Usage }

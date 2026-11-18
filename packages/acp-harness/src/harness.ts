@@ -833,6 +833,14 @@ export const startHarness = async (
       case "identity":
         writeIdentity(event.status);
         return null;
+      case "permission":
+        // STARTED, not awaited: the door is synchronous and the request is
+        // answered through `settle` when the person has.
+        void writePermission(
+          event.params as RequestPermissionRequest,
+          event.signal,
+        ).then(event.settle, event.fail);
+        return null;
       case "gone": {
         live = null;
         // Before anything else: a form left live on a dead wire is a control
@@ -1179,7 +1187,7 @@ export const startHarness = async (
     running.link.answer("accept");
   };
 
-  const onPermission = async (
+  const writePermission = async (
     params: RequestPermissionRequest,
     signal: AbortSignal,
   ): Promise<RequestPermissionResponse> => {
@@ -1645,8 +1653,18 @@ export const startHarness = async (
         emit({ _tag: "identity", status: next });
       },
     )
-    .onRequest(methods.client.session.requestPermission, (context) =>
-      onPermission(context.params, context.signal),
+    .onRequest(
+      methods.client.session.requestPermission,
+      (context) =>
+        new Promise<RequestPermissionResponse>((resolve, reject) => {
+          emit({
+            _tag: "permission",
+            params: context.params,
+            signal: context.signal,
+            settle: (answer) => resolve(answer as RequestPermissionResponse),
+            fail: reject,
+          });
+        }),
     )
     .onRequest(methods.client.elicitation.create, (context) =>
       onElicitation(context.params, context.signal),
