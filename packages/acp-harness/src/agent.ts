@@ -228,6 +228,9 @@ export interface AgentOptions {
 
 /** The agent, as the conversation uses it. */
 export interface Agent {
+  /** `initialize`, and the readings its answer carries — the first round trip
+   *  a caller makes, inside the same `try` that stops the process on failure. */
+  readonly handshake: () => Promise<void>;
   readonly request: (
     method: string,
     params: unknown,
@@ -271,7 +274,7 @@ export interface Agent {
   readonly sayAttempt: () => void;
 }
 
-export const startAgent = async (options: AgentOptions): Promise<Agent> => {
+export const startAgent = (options: AgentOptions): Agent => {
   const { leg, adapter, log, cwd, configDir, mcpServers, calls, questions } =
     options;
   const onEvent = options.onEvent;
@@ -1229,7 +1232,10 @@ export const startAgent = async (options: AgentOptions): Promise<Agent> => {
 
   // ── the handshake ────────────────────────────────────────────────────
 
-  await (async () => {
+  /** The protocol's own first word, and what the agent answers about itself.
+   *  A VERB rather than part of the spawn, so the caller holds the agent —
+   *  and with it the means to stop the process — before anything can fail. */
+  const handshake = async (): Promise<void> => {
     const initialized = (await Promise.race([
       request(methods.agent.initialize, {
         protocolVersion: PROTOCOL,
@@ -1275,9 +1281,10 @@ export const startAgent = async (options: AgentOptions): Promise<Agent> => {
       image: takes?.image === true,
       embeddedContext: takes?.embeddedContext === true,
     });
-  })();
+  };
 
   return {
+    handshake,
     request,
     notify,
     stderrSince,

@@ -87,7 +87,6 @@ import type {
 import { Duration } from "effect";
 import { aboutBlock } from "./aboutBlock.ts";
 import {
-  type Agent,
   HarnessRefused,
   HarnessUnavailable,
   type SignedIn,
@@ -940,18 +939,13 @@ export const startHarness = async (
     });
   };
 
-  /** Whether there is an agent, and it still has a process — asked through a
-   *  helper because the boot publishes its REFUSAL before the agent variable
-   *  exists. */
-  const up = (): boolean => agent?.alive();
-
   const state = (): HarnessState => ({
     // PHASE IS DERIVED, never kept: every fact it reports is already written
     // down somewhere else, and a flag beside them is a second answer free to
     // drift from the first. A refused open is OFFLINE with the process still
     // up, which is the one case `live` alone gets wrong.
     phase:
-      !up() || stopped || refusal !== null
+      !agent.alive() || stopped || refusal !== null
         ? "offline"
         : questions.open().length > 0
           ? "asking"
@@ -1591,34 +1585,35 @@ export const startHarness = async (
     return false;
   };
 
-  // THE AGENT, and then the conversation — one `try`, because a caller holds
-  // nothing until both end: a refusal or a deadline anywhere in the sequence
-  // must not leave an adapter (and whatever it spawned) running.
+  // THE AGENT, and then the conversation. The process is started first and
+  // held, so that the `try` below can stop it: the handshake and the open are
+  // one sequence, a caller holds nothing until both end, and a refusal or a
+  // deadline anywhere in it must not leave an adapter (and whatever it
+  // spawned) running for every retry.
   //
   // The handshake is the agent half's (it is the protocol's own first word);
   // OPENING the conversation is this half's, because the rows a resume mints
   // are ours.
-  /** Assigned by the boot below; every event that touches it arrives after. */
-  let agent!: Agent;
+  const agent = startAgent({
+    leg,
+    adapter,
+    cwd: options.cwd,
+    configDir: options.configDir,
+    mcpServers: options.mcpServers,
+    log,
+    calls,
+    questions,
+    onEvent: emit,
+  });
   try {
-    agent = await startAgent({
-      leg,
-      adapter,
-      cwd: options.cwd,
-      configDir: options.configDir,
-      mcpServers: options.mcpServers,
-      log,
-      calls,
-      questions,
-      onEvent: emit,
-    });
+    await agent.handshake();
     await openConversation();
   } catch (cause) {
     // Everything except the signature goes with the subprocess: a conversation
     // the agent would not open is a failure a caller cannot work around, and a
     // child left running with nothing to talk to is the leak.
     if (!refusedOpen(cause)) {
-      if (agent !== undefined) await agent.stop();
+      await agent.stop();
       throw cause;
     }
   }

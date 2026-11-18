@@ -12,7 +12,7 @@
  * failing assertion cannot walk away from one.
  */
 
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import {
@@ -1242,6 +1242,40 @@ describe("a bring-up nothing can be done about", () => {
     const last = states[states.length - 1];
     expect(last?.phase).toBe("offline");
     expect(last?.refusal).toContain("could not start the agent");
+  });
+
+  test("a handshake the agent refuses stops the process it started", async () => {
+    // The refusal comes AFTER the spawn, so there is a process to end — and
+    // the fixture stays up reading stdin the way a real adapter does, so
+    // nothing but this client can end it. One left behind per retry is the
+    // leak the boot's `try` exists for.
+    const dir = await mkdtemp(path.join(tmpdir(), "acp-harness-initialize-"));
+    const pidFile = path.join(dir, "pid");
+    try {
+      await expect(
+        startHarness({
+          leg,
+          adapter: {
+            command: process.execPath,
+            args: [path.join(FIXTURES, "refused-initialize-agent.ts"), pidFile],
+          },
+          cwd: process.cwd(),
+          configDir: CONFIG_DIR,
+          mcpServers: [],
+          teaching: TEACHING,
+          log: silent,
+          onChange: () => {},
+        }),
+      ).rejects.toMatchObject({ name: "HarnessRefused" });
+      const pid = Number(await readFile(pidFile, "utf8"));
+      // `kill(pid, 0)` asks only whether the process exists. The stop has
+      // already been awaited by the time the boot rejects.
+      expect(() => process.kill(pid, 0)).toThrow(
+        expect.objectContaining({ code: "ESRCH" }),
+      );
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
   });
 });
 
