@@ -28,6 +28,18 @@
       ],
       "external": {}
     },
+    "@kolu/acp-client": {
+      "dir": "packages/acp-client",
+      "vendored": true,
+      "workspace": [
+        "@kolu/acp",
+        "@kolu/child"
+      ],
+      "external": {
+        "@agentclientprotocol/sdk": "^1.3.0",
+        "effect": "4.1.4"
+      }
+    },
     "@kolu/acp-harness": {
       "dir": "packages/acp-harness",
       "workspace": [

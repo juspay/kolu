@@ -4,7 +4,7 @@
  * Every hazard this package exists to handle is a fact about two processes and
  * a pipe — a frame from a session we left, a question still open when a turn is
  * cancelled, a prompt that arrives while the agent is busy — so the fixture is
- * a process ({@link ./fixtures/agent.ts}) rather than a mock of a connection. A
+ * a process (`@kolu/acp-client`'s `fixtures/agent.ts`) rather than a mock of a connection. A
  * mock able to express those races would be the harness written twice.
  *
  * Which is also why this is the `test:daemon` lane: every case here forks a
@@ -38,8 +38,7 @@ import type {
   ConductorWakeEvent,
 } from "./rows.ts";
 import { published } from "./rows.testlib.ts";
-
-const FIXTURES = path.join(import.meta.dirname, "fixtures");
+import { fixtureAgent } from "@kolu/acp-client/testlib";
 
 /** The store a signed-out sentence NAMES. Any path: what is under test is
  *  that the panel says WHICH directory was judged, never that this harness
@@ -213,7 +212,7 @@ const open = async (
     leg: extra.leg ?? leg,
     adapter: {
       command: process.execPath,
-      args: [path.join(FIXTURES, fixture), ...(extra.args ?? [])],
+      args: [fixtureAgent(fixture), ...(extra.args ?? [])],
     },
     cwd: process.cwd(),
     configDir: CONFIG_DIR,
@@ -675,7 +674,7 @@ describe("the permission mode a conversation is opened in", () => {
       leg: { ...leg, bypassMode: "yolo", bypassModeRequired: true },
       adapter: {
         command: process.execPath,
-        args: [path.join(FIXTURES, "agent.ts")],
+        args: [fixtureAgent("agent.ts")],
       },
       cwd: process.cwd(),
       configDir: CONFIG_DIR,
@@ -1233,7 +1232,7 @@ describe("a bring-up nothing can be done about", () => {
     const starting = startHarness({
       leg,
       adapter: {
-        command: path.join(FIXTURES, "no-such-adapter"),
+        command: fixtureAgent("no-such-adapter"),
         args: [],
       },
       cwd: process.cwd(),
@@ -1269,7 +1268,7 @@ describe("a bring-up nothing can be done about", () => {
           leg,
           adapter: {
             command: process.execPath,
-            args: [path.join(FIXTURES, "refused-initialize-agent.ts"), pidFile],
+            args: [fixtureAgent("refused-initialize-agent.ts"), pidFile],
           },
           cwd: process.cwd(),
           configDir: CONFIG_DIR,
@@ -1351,7 +1350,7 @@ describe("the settings a conversation advertises", () => {
   test("the picker the real adapter sent keeps every row, the new model included", async () => {
     // THE PAYLOAD IS A RECORDING, not a shape this file invented: one live
     // session's `configOptions` off the pinned adapter, pasted into
-    // `fixtures/agent.ts` as `RECORDED`. What made it worth recording is
+    // `@kolu/acp-client`'s `fixtures/agent.ts` as `RECORDED`. What made it worth recording is
     // `claude-fable-5-2` — a model the conductor's picker did not offer
     // while the adapter drove the CLI bundled in the Claude Agent SDK, whose
     // own picker has five rows and no Fable 5.2 at all. The fix was the floor

@@ -11,7 +11,7 @@
   "exports": {
     ".": "./src/index.ts"
   },
-  "//scripts": "`test:daemon`, not `test:unit`: every test here but one spawns a real ACP agent as a detached process group (`src/fixtures/`), which is the lane `just test-daemon` runs serially and `just test-unit` skips — the same reason `kolu-omp` declares it. A package declares ONE lane, so the pure `src/kolu.test.ts` rides along in it.",
+  "//scripts": "`test:daemon`, not `test:unit`: every test here but one spawns a real ACP agent as a detached process group (the fixture agents `@kolu/acp-client/testlib` hands out), which is the lane `just test-daemon` runs serially and `just test-unit` skips — the same reason `kolu-omp` declares it. A package declares ONE lane, so the pure `src/kolu.test.ts` rides along in it.",
   "scripts": {
     "typecheck": "tsc --noEmit",
     "test:daemon": "vitest run"
@@ -25,8 +25,9 @@
     "kolu-common": "workspace:*",
     "kolu-mcp": "workspace:*"
   },
-  "//devDependencies": "`effect` for `src/kolu.test.ts` alone, which encodes readings under the contract's row schema — the check production leaves to the host that publishes the rows.",
+  "//devDependencies": "`effect` for `src/kolu.test.ts` alone, which encodes readings under the contract's row schema — the check production leaves to the host that publishes the rows. `@kolu/acp-client` for its `./testlib` alone: every fixture agent lives there, beside the client whose protocol they speak.",
   "devDependencies": {
+    "@kolu/acp-client": "workspace:*",
     "@types/node": "^22.0.0",
     "effect": "catalog:",
     "typescript": "^7.0.2",

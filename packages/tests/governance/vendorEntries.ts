@@ -51,6 +51,11 @@
  *     the Nix facts that build it. Both products run the same adapter, so both
  *     read the same leg; olai's copy of the pair had drifted. Its closure is
  *     `@kolu/acp`, which olai already vendors.
+ *   - `@kolu/acp-client` — one agent process speaking ACP: spawn, handshake,
+ *     sessions, questions, sign-in, the stale-frame fence, typed events out.
+ *     It is olai's own client, moved here so kolu's conversation and olai's
+ *     chat panel run agents on one copy. Its closure is `@kolu/acp` and
+ *     `@kolu/child`, both already vendored.
  *
  * The COUNT is not the structure. A sixth would not change what this file is:
  * the split is by where the fact lives, not by how many facts there are. What
@@ -92,6 +97,7 @@ export function vendorEntries(repoRoot: string): string[] {
   names.push("terminal-themes");
   names.push("@kolu/acp");
   names.push("@kolu/acp-claude");
+  names.push("@kolu/acp-client");
   names.push("@kolu/child");
   return names.sort();
 }

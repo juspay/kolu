@@ -1,0 +1,35 @@
+# @kolu/acp-client — one agent process speaking ACP, typed events out
+
+`@kolu/acp-client` runs one coding agent over the [Agent Client Protocol](https://agentclientprotocol.com): it spawns the adapter, shakes hands, opens, loads, lists and closes sessions, answers the agent's questions and permission requests, runs sign-in, and fences off frames from a conversation it has left. Everything it learns it reports as one closed union of events (`AgentEvent`); a turn's end is the return value of the call that started it.
+
+It knows nothing about rows, panels or browsers. A product builds its conversation on top of it.
+
+The code came from [olai](https://github.com/juspay/olai)'s chat plugin (`packages/plugins/chat/src/`), where it has run five engines. It lives here so that kolu and olai run agents on one copy.
+
+## What it exports
+
+| Entry | What |
+|---|---|
+| `.` | `make` and the `Agent` it returns; `AgentEvent` and `Stored`; `AgentGone`, `Gone` and `StopReason`; `ToolServer` and `Advertised`; the `Memory`, `MemorySnapshot`, `MemoryFailure`, `Models` and `Conversing` interfaces its options take; `Probe`, `Probed` and `StdioServer`; `AnswerRefused`; `newestFirst` |
+| `./testlib` | the fixture legs (`SAYS_NOTHING`, `FORWARDS`, `NAMES_IN_META`, …) and `fixtureAgent(name)`, the absolute path of a fixture agent in `src/fixtures/` |
+
+The client is written in Effect. It logs through Effect's own logger, so the caller supplies the logger layer; nothing here picks a sink.
+
+## Who depends on it
+
+- olai's chat plugin, for every conversation it holds.
+- `@kolu/acp-harness`'s tests, for the fixture agents (`./testlib`). Every fixture agent either product's runner tests spawn lives in `src/fixtures/`.
+
+It depends on `@kolu/acp` (the protocol's words), `@kolu/child` (the subprocess), the protocol SDK and `effect`. olai vendors this directory, so its manifest spells literal versions.
+
+## What a maintainer must not break
+
+- **No product vocabulary.** The events say what the agent said, never what a product draws. A consumer that needs something not in `AgentEvent` needs a new member, not a look at the wire.
+- **No module-level state.** One `make` is one agent process; a product holds as many as it has conversations, and each is started and stopped on its own.
+- **The stale-frame fence.** A frame naming a session this client has left is dropped, even after the next session has opened.
+- **One attempt per sign-in.** A second press attaches to the attempt already running rather than starting a second process writing the same credential store.
+- **`src/shapes.ts` is temporary.** It copies the shapes olai's wire supplied, with olai's encodings, so olai typechecks against the client unchanged. The client moves to the shared shapes in `@kolu/acp/wire` and the file is deleted before this branch merges.
+
+## Tests
+
+`test:daemon`, because the suite spawns real fixture agents and real terminal commands. `nix develop -c pnpm --filter @kolu/acp-client test:daemon`.

@@ -66,6 +66,11 @@ export interface RunEdge {
 /** The sanctioned run edges. Sorted by path; keep it that way. */
 export const RUN_EDGE_ALLOWLIST: readonly RunEdge[] = [
   {
+    path: "packages/acp-client/src/agent.ts",
+    sites: 3,
+    why: "the ACP client's callback edges, where an SDK or subprocess callback with no fiber has to reach Effect: the log emitter captured from the fiber that built the agent (so a stderr line or a protocol callback logs under that fiber's level and annotations), and the two places a Promise-shaped stop — a sign-in attempt's `stop` and the stop that joins every request still alongside the process — interrupts a fiber it holds. Each caller is a Promise contract the client does not own, so there is no Effect caller above it to compose into",
+  },
+  {
     path: "packages/client/src/runAction.ts",
     sites: 2,
     why: "THE SolidJS client's Effect→UI edge, named once so the ~100 DOM handlers above it read as `runAction(label, program)` instead of ~100 forks biome's Promise rules cannot see: a `runFork` for an event handler / owner-scoped launch, and a `runPromise` for the three seams whose Promise contract is not this package's (Solid's `createResource` fetcher, xterm-kit's backfill `fetch`, and `pollOnChange`'s signal-carrying read — the last driving interruption from the caller's AbortSignal)",

@@ -154,6 +154,31 @@ importers:
         specifier: 0.81.2
         version: 0.81.2(@anthropic-ai/sdk@0.91.1(zod@4.6.7))(@modelcontextprotocol/sdk@1.32.1(zod@4.6.7))
 
+  packages/acp-client:
+    dependencies:
+      '@agentclientprotocol/sdk':
+        specifier: ^1.3.0
+        version: 1.9.0(zod@4.6.7)
+      '@kolu/acp':
+        specifier: workspace:*
+        version: link:../acp
+      '@kolu/child':
+        specifier: workspace:*
+        version: link:../child
+      effect:
+        specifier: 4.1.4
+        version: 4.1.4
+    devDependencies:
+      '@types/node':
+        specifier: ^22.0.0
+        version: 22.19.15
+      typescript:
+        specifier: ^7.0.2
+        version: 7.0.2
+      vitest:
+        specifier: ^5.0.3
+        version: 5.0.3(@types/node@22.19.15)(happy-dom@21.0.4)(jsdom@30.0.1)(vite@8.3.5(@types/node@22.19.15)(esbuild@0.28.1)(jiti@2.6.1)(terser@5.48.0)(tsx@4.23.1)(yaml@2.8.3))
+
   packages/acp-harness:
     dependencies:
       '@agentclientprotocol/sdk':
@@ -175,6 +200,9 @@ importers:
         specifier: workspace:*
         version: link:../kolu-mcp
     devDependencies:
+      '@kolu/acp-client':
+        specifier: workspace:*
+        version: link:../acp-client
       '@types/node':
         specifier: ^22.0.0
         version: 22.19.15
