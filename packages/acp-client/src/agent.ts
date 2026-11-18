@@ -2062,6 +2062,23 @@ export const make = (options: Options): Effect.Effect<Agent, never, never> =>
             }),
           catch: (cause) => notStarted(reasonOf(cause)),
         });
+        // A BRING-UP THAT FAILS TAKES ITS PROCESS WITH IT. Nothing holds this
+        // child until the handshake answers — `live` is set by the caller — so
+        // a refusal or a deadline from here on would otherwise leave an
+        // adapter (and whatever it spawned) running with no way to reach it,
+        // one more for every retry.
+        return yield* Effect.onError(connectTo(child, started), () =>
+          Effect.promise(() => child.stop()),
+        );
+      });
+
+    /** The spawned process, wired and greeted: its stderr, its exit, the
+     *  connection, and `initialize`. */
+    const connectTo = (
+      child: Child,
+      started: bigint,
+    ): Effect.Effect<Live, AgentGone> =>
+      Effect.gen(function* () {
         stderrBuf = "";
         stderrWritten = 0;
 
@@ -3320,16 +3337,39 @@ export const make = (options: Options): Effect.Effect<Agent, never, never> =>
       // otherwise answer this verb as if nothing were wrong.
       if (stopped) return yield* shuttingDown();
       if (live !== null && activeSession !== null) return;
+      // Whether THIS bring-up is the one that spawns the process: only then is
+      // the open below the process's first, and its failure the process's own.
+      const spawning = live === null;
       const started = yield* bringUpProcess;
       // `onError` hands the fiber's CAUSE, not the failure — `String` on one
       // of those is `Cause([Fail(…)])` with the reason buried in it, which
       // is a notice a person reads. `reasonOf` squashes it back down.
       yield* Effect.onError(openSession(started), (cause) =>
-        Effect.sync(() => {
+        Effect.gen(function* () {
           trouble(`the agent could not open a session: ${reasonOf(cause)}`);
+          // ... AND THE PROCESS GOES WITH THE OPEN THAT STARTED IT: an agent
+          // that would not open its first conversation is a failure a caller
+          // cannot work around, and a child left running with nothing to talk
+          // to is the leak. The ONE refusal that keeps it is nobody being
+          // signed in: the process that refused is the one a sign-in has to
+          // run against.
+          const failure = Cause.squash(cause);
+          if (!spawning) return;
+          if (failure instanceof AgentGone && failure.auth === true) return;
+          yield* abandon(started);
         }),
       );
     });
+
+    /** A process nothing will talk to, stopped: it stops being `live` first,
+     *  so its exit is not reported as the agent going away. */
+    const abandon = (at: Live): Effect.Effect<void> =>
+      Effect.promise(async () => {
+        if (live === at) live = null;
+        forgetIdentity();
+        at.connection.close();
+        await at.child.stop();
+      });
 
     const boot = booting.withPermit(bringUp);
 

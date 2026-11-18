@@ -7,7 +7,7 @@
  * that makes it pass.
  */
 
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Effect } from "effect";
@@ -47,6 +47,7 @@ const run = <A, E>(effect: Effect.Effect<A, E>): Promise<A> =>
 const withAgent = async (
   fixture: string,
   body: (agent: Agent, events: Array<AgentEvent>) => Promise<void>,
+  args: ReadonlyArray<string> = [],
 ): Promise<void> => {
   const events: Array<AgentEvent> = [];
   const agent = await run(
@@ -54,7 +55,7 @@ const withAgent = async (
       id: "an-agent",
       leg: SAYS_NOTHING,
       command: process.execPath,
-      args: [join(import.meta.dirname, "fixtures", fixture)],
+      args: [join(import.meta.dirname, "fixtures", fixture), ...args],
       cwd,
       tools: () => TOOLS,
       memory: REMEMBERS_NOTHING,
@@ -90,4 +91,56 @@ test("the conversation being left is closed at the agent before the next one ope
       closed: ["sess-1"],
     });
   });
+});
+
+/** Whether a process exists — `kill(pid, 0)` sends nothing and asks only
+ *  that. */
+const exists = (pid: number): boolean => {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+};
+
+/** A boot against `refused-initialize-agent.ts` refusing `method` with
+ *  `code`, and the pid of the process it started: alive when the failed boot
+ *  returned, or not. */
+const refusedBoot = async (
+  method: string,
+  code: number,
+): Promise<{ readonly gone: unknown; readonly aliveAfter: boolean }> => {
+  const pidFile = join(cwd, "agent.pid");
+  let outcome = { gone: null as unknown, aliveAfter: false };
+  await withAgent(
+    "refused-initialize-agent.ts",
+    async (agent) => {
+      const failed = await run(Effect.flip(agent.boot));
+      const pid = Number(readFileSync(pidFile, "utf8"));
+      outcome = { gone: failed, aliveAfter: exists(pid) };
+    },
+    [pidFile, method, String(code)],
+  );
+  return outcome;
+};
+
+test("a handshake the agent refuses stops the process it started", async () => {
+  const { gone, aliveAfter } = await refusedBoot("initialize", -32603);
+  expect(gone).toMatchObject({ _tag: "AgentGone", gone: "refused" });
+  expect(aliveAfter).toBe(false);
+});
+
+test("a first conversation the agent will not open stops the process it started", async () => {
+  const { gone, aliveAfter } = await refusedBoot("session/new", -32603);
+  expect(gone).toMatchObject({ _tag: "AgentGone", gone: "refused" });
+  expect(aliveAfter).toBe(false);
+});
+
+test("a first conversation refused for want of a sign-in keeps the process", async () => {
+  // The one refusal with something to do about it: the process that refused
+  // is the one a sign-in has to run against.
+  const { gone, aliveAfter } = await refusedBoot("session/new", -32000);
+  expect(gone).toMatchObject({ _tag: "AgentGone", auth: true });
+  expect(aliveAfter).toBe(true);
 });
