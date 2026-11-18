@@ -131,7 +131,7 @@ export function readPersistedRecord(
  * Must be valid semver. `conf` runs all migration handlers
  * whose keys are > the last-seen version and ≤ this value.
  */
-export const SCHEMA_VERSION = "1.58.0";
+export const SCHEMA_VERSION = "1.59.0";
 
 /** THE VERSION STAMPED INTO THE TRANSCRIPT FILE
  *  (`<stateDir>/conductor/transcript.json`), and the one a reader accepts.
@@ -152,10 +152,13 @@ export const SCHEMA_VERSION = "1.58.0";
  *  root is at, and the ladder is written against them. A rung that stamped a
  *  file keeps its OWN frozen copy of the number it stamped
  *  (`TRANSCRIPT_VERSION_1_53_0`, `TRANSCRIPT_VERSION_1_55_0`,
- *  `TRANSCRIPT_VERSION_1_58_0`) — this one is the live head. It reads 1.58.0
- *  because that rung gave every mention on a user row its `kind`: a mention
- *  names a terminal or a piece of work. */
-export const TRANSCRIPT_FILE_VERSION = "1.58.0";
+ *  `TRANSCRIPT_VERSION_1_58_0`, `TRANSCRIPT_VERSION_1_59_0`) — this one is the
+ *  live head. It reads 1.59.0 because a tool row gained `resumed`: a subagent
+ *  that reported can be sent more work, and the row that answers for it is the
+ *  one that spawned it, so the panel needs the instant THIS outing began rather
+ *  than the row's birth. An older row simply omits the key, which is why the
+ *  rung rewrites no row — it only re-stamps the file. */
+export const TRANSCRIPT_FILE_VERSION = "1.59.0";
 
 /** The store's `defaults` — hoisted so {@link decodeStateBackup}'s scratch
  *  store merges the same seed the live store does. */

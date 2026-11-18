@@ -128,7 +128,8 @@ import type {
   ConductorState,
   ConductorWakeEvent,
 } from "./rows.ts";
-import { type Change, says, Transcript } from "./transcript.ts";
+import type { PlanStep } from "@kolu/acp/wire";
+import { type Change, plus, says, Transcript } from "./transcript.ts";
 import { type Turn, Turns } from "./turns.ts";
 
 /** kolu keeps nothing in a turn's payload: its turns are `async` functions, and
@@ -571,6 +572,55 @@ export const startHarness = async (
     transcript.endsWithBreak()
       ? { key: null, change: { upserts: [], removes: [], appends: [] } }
       : transcript.write({ kind: "divider", text });
+
+  /** The one key a plan row lives at, for the life of a session. */
+  const PLAN_KEY = "plan";
+
+  /**
+   * THE AGENT'S PLAN — one row at one key for the life of a session, because
+   * each `plan` update REPLACES the whole thing and an empty update removes it.
+   *
+   * KOLU'S OWN ROW KIND, which is why it lives here rather than in the shared
+   * transcript: olai's chat panel has no plan row at all, and a method for one
+   * in the class would be a product's word in a class that names neither.
+   */
+  /**
+   * THE REFUSAL MARK A ROW CAN CARRY, and none where it cannot.
+   *
+   * `extra` is the PRODUCT's half of a refusal, and kolu's half — which sign-in
+   * would fix the message — belongs to words a PERSON typed. A wake is kolu's
+   * own line, drawn full width with no *send again* under it, and its row schema
+   * has no `signIn`: passing one would write a field the contract does not
+   * declare, which the encoder then refuses — the whole frame dropped, every row
+   * in it gone.
+   */
+  const refusalMark = (
+    key: string,
+    signIn: ConductorSignInReason | "no",
+  ): { signIn?: ConductorSignInReason } =>
+    signIn === "no" || transcript.entries().get(key)?.kind !== "user"
+      ? {}
+      : { signIn };
+
+  const plan = (steps: ReadonlyArray<PlanStep>): Change<ConductorRow> => {
+    const closed = transcript.stopSaying();
+    if (steps.length === 0) {
+      if (!transcript.entries().has(PLAN_KEY)) return closed;
+      transcript.forget(PLAN_KEY);
+      return plus(closed, transcript.remove(PLAN_KEY));
+    }
+    const held = transcript.entries().get(PLAN_KEY);
+    // A REPEAT IS NOT A SECOND REPORT, the same rule every other row obeys: the
+    // plan is the one row a frame replaces whole, so its content is the whole of
+    // what a frame says.
+    if (
+      held?.kind === "plan" &&
+      JSON.stringify(held.steps) === JSON.stringify(steps)
+    ) {
+      return closed;
+    }
+    return plus(closed, transcript.upsert(PLAN_KEY, { kind: "plan", steps }));
+  };
 
   const turns = new Turns<undefined>();
   const calls = new Calls(leg);
@@ -1139,7 +1189,7 @@ export const startHarness = async (
       // here — the row's own `Literals` are the same three words.
       case "plan":
         report(
-          transcript.plan(
+          plan(
             update.entries.map((entry) => ({
               content: entry.content,
               status: entry.status,
@@ -2116,10 +2166,7 @@ export const startHarness = async (
       const why = messageOf(cause);
       if (cause instanceof HarnessRefused) {
         report(
-          transcript.refused(
-            ticket.key,
-            cause.signIn === "no" ? {} : { signIn: cause.signIn },
-          ),
+          transcript.refused(ticket.key, refusalMark(ticket.key, cause.signIn)),
         );
         // A TURN REFUSED FOR WANT OF A SIGNATURE IS THE OTHER DOOR onto the
         // sign-in, and on the pinned pair it is the FIRST one a person reaches:
@@ -2240,12 +2287,7 @@ export const startHarness = async (
       // knows whether anything answered — and it is the one fact the row's two
       // faces are drawn out of.
       if (cause instanceof HarnessRefused) {
-        report(
-          transcript.refused(
-            key,
-            cause.signIn === "no" ? {} : { signIn: cause.signIn },
-          ),
-        );
+        report(transcript.refused(key, refusalMark(key, cause.signIn)));
         if (cause.signIn === "signed-out") offerSignIn(cause.why);
       } else {
         report(transcript.unanswered(key));

@@ -76,6 +76,12 @@
  */
 export type AddressOf<Address> = (to: Address) => string;
 
+/** ... and the map key one conversation is filed under. `\0` cannot occur in
+ *  either half of olai's pair and kolu's constant has none, and it is written as
+ *  an ESCAPE rather than as the byte: a literal NUL makes this file read as
+ *  BINARY to review tooling, which is how a reviewer stops being able to see
+ *  it. */
+
 /**
  * One body waiting, and whose door it came through.
  *
@@ -182,15 +188,6 @@ export interface Held<Address, Value> {
   readonly clear: (to?: Address) => void;
 }
 
-/** The map key for one conversation. `\0` cannot occur in either half of olai's
- *  pair and kolu's constant has none, and it is written as an ESCAPE rather than
- *  as the byte: a literal NUL makes this file read as BINARY to review tooling,
- *  which is how a reviewer stops being able to see it. */
-const keyOfAddress = <Address>(
-  keyOf: AddressOf<Address>,
-  to: Address,
-): string => keyOf(to);
-
 export const holding = <Address, Value>(
   options: HoldingOptions<Address>,
 ): Held<Address, Value> => {
@@ -239,7 +236,7 @@ export const holding = <Address, Value>(
    * one out.
    */
   const keeping = (to: Address, keep: (slot: Slot<Value>) => boolean): void => {
-    const address = keyOfAddress(options.keyOf, to);
+    const address = options.keyOf(to);
     const slots = held.get(address);
     if (slots === undefined) return;
     const left = slots.filter(keep);
@@ -275,7 +272,7 @@ export const holding = <Address, Value>(
 
   return {
     hold: (to, from, value, under) => {
-      const slots = listFor(keyOfAddress(options.keyOf, to));
+      const slots = listFor(options.keyOf(to));
       // THE PAIR, compared rather than spelled: a body replaces one already
       // waiting only when the SAME sender named the SAME word. A body sent with
       // no word is compared against nothing at all, so it never replaces and is
@@ -304,21 +301,20 @@ export const holding = <Address, Value>(
     // caller that kept the result across an await and handed it back would be
     // handing back whatever landed in between — and `took`'s identity filter
     // would take the very slots it exists to leave alone.
-    waiting: (to) => [...(held.get(keyOfAddress(options.keyOf, to)) ?? [])],
+    waiting: (to) => [...(held.get(options.keyOf(to)) ?? [])],
     took: (to, taken) => keeping(to, (slot) => !taken.includes(slot)),
     dropped: (to, from) => keeping(to, (slot) => slot.from !== from),
     counts: (to) => {
       const counted = new Map<string, number>();
-      for (const slot of held.get(keyOfAddress(options.keyOf, to)) ?? []) {
+      for (const slot of held.get(options.keyOf(to)) ?? []) {
         counted.set(slot.from, (counted.get(slot.from) ?? 0) + 1);
       }
       return counted;
     },
     has: (to, from, under) =>
-      found(held.get(keyOfAddress(options.keyOf, to)) ?? [], from, under) !==
-      -1,
+      found(held.get(options.keyOf(to)) ?? [], from, under) !== -1,
     peek: (to, from, under) => {
-      const slots = held.get(keyOfAddress(options.keyOf, to)) ?? [];
+      const slots = held.get(options.keyOf(to)) ?? [];
       const at = found(slots, from, under);
       return at === -1 ? undefined : slots[at]?.value;
     },
@@ -326,14 +322,10 @@ export const holding = <Address, Value>(
     // in the order they first rang — a coalescing replace keeps its position, so
     // a sender that re-derived three times is still at the front.
     refs: (to) => [
-      ...new Set(
-        (held.get(keyOfAddress(options.keyOf, to)) ?? []).map(
-          (slot) => slot.from,
-        ),
-      ),
+      ...new Set((held.get(options.keyOf(to)) ?? []).map((slot) => slot.from)),
     ],
     withdraw: (to, from, under) => {
-      const address = keyOfAddress(options.keyOf, to);
+      const address = options.keyOf(to);
       const slots = held.get(address);
       if (slots === undefined) return false;
       const at = found(slots, from, under);
@@ -346,7 +338,7 @@ export const holding = <Address, Value>(
         held.clear();
         return;
       }
-      held.delete(keyOfAddress(options.keyOf, to));
+      held.delete(options.keyOf(to));
     },
   };
 };

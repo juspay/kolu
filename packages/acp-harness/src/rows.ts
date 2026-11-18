@@ -43,14 +43,6 @@ export type {
   ConductorWakeEvent,
 } from "kolu-common/conductor";
 
-export type {
-  Armed,
-  PlanStep,
-  Saying,
-  Spawned,
-  ToolStatus,
-  Watching,
-} from "@kolu/acp/wire";
 export type ConductorAttachment = typeof ConductorAttachmentSchema.Type;
 export type ConductorOption = typeof ConductorOptionSchema.Type;
 export type ConductorCommand = typeof ConductorCommandSchema.Type;

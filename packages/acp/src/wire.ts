@@ -415,6 +415,17 @@ export const toolRowFields = {
   /** Its turn ended and it never reported back. Background tasks are the one
    *  call kind exempt: they are SUPPOSED to outlive their turn. */
   stranded: Schema.optionalKey(Schema.Literal(true)),
+  /** When the call started running, so a reader's clock and a reloaded tab's
+   *  agree on "· 47s" rather than each starting its own stopwatch. */
+  startedAt: Schema.optionalKey(Schema.String),
+  /** A call that has been round MORE THAN ONCE, and when the current outing
+   *  began — a subagent that reported is sent more work, and `since` is the
+   *  row's BIRTH and must stay it, so a duration counted from it would say an
+   *  agent resumed a minute ago has been out for three hours.
+   *
+   *  A STAMP, not a flag: absent is a call on its first outing, which is nearly
+   *  all of them. */
+  resumed: Schema.optionalKey(Schema.String),
 };
 
 export const askRowFields = {

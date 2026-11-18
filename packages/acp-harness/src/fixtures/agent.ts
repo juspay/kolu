@@ -694,6 +694,14 @@ function turn(message: Message): void {
       content: { type: "text", text: said },
     });
   };
+  if (text === "locked") {
+    // A TURN THE ACCOUNT CANNOT RUN — ACP's `-32000`, the same refusal
+    // `session/load` gives for a `locked-…` id. It is here for the row kinds a
+    // turn can be the delivery of: a wake refused this way must not be told to
+    // sign in, because a wake is kolu's own line and has no such field.
+    refuse(message.id, -32000, "Authentication required");
+    return;
+  }
   if (text === "servers") {
     // WHAT EVERY OPEN OF THIS PROCESS WAS HANDED, in order — the only process
     // that knows, answering the only question a test can ask it through the

@@ -37,6 +37,7 @@ import type {
   ConductorSignIn,
   ConductorWakeEvent,
 } from "./rows.ts";
+import { published } from "./rows.testlib.ts";
 
 const FIXTURES = path.join(import.meta.dirname, "fixtures");
 
@@ -191,7 +192,13 @@ const open = async (
       states.push(change.state);
       return;
     }
-    for (const row of change.upserts) rows.set(row.id, row);
+    // DECODED AS THE SERVER WILL, strictly, on the way in: a field the class
+    // wrote that the contract does not declare is red here rather than in a
+    // browser nobody is watching (`./rows.testlib.ts` argues it).
+    for (const row of change.upserts) {
+      const read = published(row);
+      rows.set(read.id, read);
+    }
     for (const id of change.removes) rows.delete(id);
     for (const append of change.appends) {
       const row = rows.get(append.of);
@@ -1965,6 +1972,22 @@ describe("kolu's own line — a turn this end started", () => {
     // the pipe is an ordinary prompt carrying the account.
     const bodies = (await asked(running, "prompts")) as ReadonlyArray<string>;
     expect(bodies[0]).toBe(`${TEACHING}\n\ntwo terminals need you`);
+  });
+
+  test("a wake refused for want of a signature takes the mark and not the door", async () => {
+    // THE ROW KIND THAT CANNOT CARRY A SIGN-IN REASON. A wake is kolu's own
+    // line — its schema has `delivery` and no `signIn` — so a refusal that
+    // offers a sign-in door must offer it nowhere here. The harness asks the
+    // row's kind before it passes the mark (`refusalMark`); the strict decode in
+    // `open` is what would catch it if it stopped asking.
+    const running = await open("agent.ts");
+    const { rowId } = await running.harness.wake("locked", [event()]);
+    await settled(running, "the refused wake never ended");
+
+    const row = rowOf(running, rowId);
+    if (row.kind !== "wake") throw new Error("the wake row went missing");
+    expect(row.delivery).toBe("refused");
+    expect(row).not.toHaveProperty("signIn");
   });
 
   test("waits behind a running turn with the mark a person's message takes", async () => {

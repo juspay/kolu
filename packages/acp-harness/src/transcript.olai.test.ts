@@ -20,70 +20,68 @@
  * file this replaces.
  */
 
-import type {
-  Armed,
-  Ask,
-  Delivery,
-  FileDiff,
-  Spawned,
-  ToolStatus,
+import {
+  agentRowFields,
+  askRowFields,
+  noticeRowFields,
+  rowHead,
+  toolRowFields,
+  userRowFields,
 } from "@kolu/acp/wire";
+import { Schema } from "effect";
 import { describe, expect, test } from "vitest";
 
 import { clock } from "./clock.testlib.ts";
 import { type Change, says, Transcript } from "./transcript.ts";
 
-/** OLAI'S ROWS, as its chat plugin declares them — the five shared kinds plus
- *  `refusal`, and the fields only olai sets. The class neither knows nor reads
- *  one of them. */
-type OlaiRow = {
-  readonly id: string;
-  readonly seq: number;
-  readonly since: string;
-} & (
-  | {
-      readonly kind: "user";
-      readonly text: string;
-      readonly queued?: true;
-      readonly delivery?: Delivery;
-      readonly auth?: true;
-      readonly rang?: string;
-      readonly context?: ReadonlyArray<unknown>;
-      readonly attachments?: ReadonlyArray<string>;
-    }
-  | { readonly kind: "agent"; readonly text: string; readonly streaming?: true }
-  | {
-      readonly kind: "tool";
-      readonly text: string;
-      readonly status: ToolStatus;
-      readonly detail?: string;
-      readonly called?: string;
-      readonly row?: string;
-      readonly reply?: unknown;
-      readonly terminals?: ReadonlyArray<unknown>;
-      readonly progress?: string;
-      readonly diffs?: ReadonlyArray<FileDiff>;
-      readonly locations?: ReadonlyArray<string>;
-      readonly parent?: string;
-      readonly spawned?: Spawned;
-      readonly armed?: Armed;
-      readonly stranded?: true;
-      readonly resumed?: string;
-      readonly startedAt?: string;
-    }
-  | {
-      readonly kind: "ask";
-      readonly text: string;
-      readonly ask: Ask;
-      readonly parent?: string;
-    }
-  | {
-      readonly kind: "refusal";
-      readonly text: string;
-      readonly refusal: unknown;
-    }
-  | { readonly kind: "notice"; readonly text: string }
-);
+/**
+ * OLAI'S ROWS — built from the SHARED FIELD OBJECTS plus the fields only olai
+ * sets, and decoded under `onExcessProperty: "error"` on every read.
+ *
+ * That is the point of the exercise twice over. The type is the product's, so
+ * the class names none of it; the SCHEMA is what catches the class writing a
+ * field olai's row does not declare — the fault that dropped fourteen kolu e2e
+ * scenarios when a row did not encode, and one no type can see through a
+ * generic `Row`.
+ */
+const OlaiRowSchema = Schema.Union([
+  Schema.Struct({
+    ...userRowFields,
+    /** Nobody is signed in, so the words were not taken (`./wire/members.ts`). */
+    auth: Schema.optionalKey(Schema.Literal(true)),
+    /** A machine rang this body in through a plugin's doorbell. */
+    rang: Schema.optionalKey(Schema.String),
+    context: Schema.optionalKey(Schema.Array(Schema.Unknown)),
+    attachments: Schema.optionalKey(Schema.Array(Schema.String)),
+  }),
+  Schema.Struct({
+    ...agentRowFields,
+  }),
+  Schema.Struct({
+    ...toolRowFields,
+    called: Schema.optionalKey(Schema.String),
+    row: Schema.optionalKey(Schema.String),
+    reply: Schema.optionalKey(Schema.Unknown),
+    terminals: Schema.optionalKey(Schema.Array(Schema.Unknown)),
+  }),
+  Schema.Struct({
+    ...askRowFields,
+  }),
+  Schema.Struct({
+    ...rowHead,
+    kind: Schema.Literal("refusal"),
+    text: Schema.String,
+    refusal: Schema.Unknown,
+  }),
+  Schema.Struct({
+    ...noticeRowFields,
+  }),
+]);
+type OlaiRow = typeof OlaiRowSchema.Type;
+
+/** Every row a test reads, decoded as olai's own end decodes it. */
+const checked = (row: OlaiRow): OlaiRow =>
+  Schema.decodeUnknownSync(OlaiRowSchema, { onExcessProperty: "error" })(row);
 
 /** olai's conversation: olaI's row union, a wipe that starts the counters again,
  *  and no row kind but `user` carrying a turn's delivery marks. */
@@ -93,7 +91,7 @@ const conversation = (now?: () => number): Transcript<OlaiRow> =>
     deliverable: (row) => row.kind === "user",
     // olai's panel counts rows from nothing, so the first row is `seq` 0 — the
     // one product difference the class keeps as a value rather than a branch.
-    denseSeq: true,
+    firstSeq: "zero",
     // ... AND THE ONE SHAPE ITS ENGINES HAVE that a title rule must know about:
     // a raw label arrives first, and the row's real name arrives with the
     // OWNERSHIP a frame later. Every other row keeps its first title for good.
@@ -107,7 +105,7 @@ const conversation = (now?: () => number): Transcript<OlaiRow> =>
 
 /** The rows as a reader would see them: conversation order, which is `seq`. */
 const rows = (transcript: Transcript<OlaiRow>): ReadonlyArray<OlaiRow> =>
-  [...transcript.entries().values()].sort((a, b) => a.seq - b.seq);
+  [...transcript.entries().values()].map(checked).sort((a, b) => a.seq - b.seq);
 
 /** A row of this kind, or `undefined` — so a test that reads a kind-specific
  *  field names the kind rather than pretending every row carries it. */
@@ -128,7 +126,7 @@ const NOTHING: Change<OlaiRow> = { upserts: [], removes: [], appends: [] };
 /** What one change touched, so a test can say a re-publish happened rather
  *  than inferring it from the state afterwards. */
 const touched = (change: Change<OlaiRow>): ReadonlyArray<string> =>
-  change.upserts.map((row) => row.id);
+  change.upserts.map((row) => checked(row).id);
 
 /** What one change ADDED to a row, as `<key>@<offset>:<text>` — the other half
  *  of {@link touched}, and spelled the same way for the same reason: a
@@ -1996,12 +1994,12 @@ test("tool names stay fixed while owner and reply accept later frames", () => {
   transcript.tool("one", { status: "pending" });
   transcript.tool("one", {
     title: "Read a node",
-    once: { called: "engine_read" },
+    untilNamed: { called: "engine_read" },
     extra: { row: "notes", reply: { file: "one.olai" } },
   });
   transcript.tool("one", {
     title: "working",
-    once: { called: "moving title" },
+    untilNamed: { called: "moving title" },
     extra: { row: "replacement", reply: { file: "two.olai" } },
   });
   expect(asKind(rows(transcript)[0], "tool")).toMatchObject({
@@ -2016,7 +2014,7 @@ test("late ownership relabels once and keeps the first engine spelling", () => {
   const transcript = conversation();
   transcript.tool("late", {
     title: "engine_read",
-    once: { called: "engine_read" },
+    untilNamed: { called: "engine_read" },
   });
   transcript.tool("late", {
     title: "Read a node",
@@ -2029,7 +2027,7 @@ test("late ownership relabels once and keeps the first engine spelling", () => {
   });
   transcript.tool("late", {
     title: "moving",
-    once: { called: "moving" },
+    untilNamed: { called: "moving" },
     extra: { row: "notes" },
   });
   expect(asKind(rows(transcript)[0], "tool")).toMatchObject({
@@ -2071,5 +2069,38 @@ describe("conversation order is countable", () => {
     transcript.clear();
     transcript.add("notice", "three");
     expect(rows(transcript).map((row) => row.seq)).toEqual([0]);
+  });
+});
+
+describe("a refusal's `auth` mark, and how it comes off", () => {
+  /** olai's own refusal mark: nobody is signed in. */
+  const authOf = (row: OlaiRow | undefined): boolean | undefined =>
+    row?.kind === "user" ? row.auth : undefined;
+
+  test("comes off when the message goes after all", () => {
+    const transcript = conversation();
+    const { key } = transcript.user("hello");
+    transcript.refused(key, { auth: true }, "hello");
+    expect(authOf(rows(transcript)[0])).toBe(true);
+
+    transcript.sent(key);
+    expect(authOf(rows(transcript)[0])).toBeUndefined();
+    expect(rows(transcript)[0]).not.toHaveProperty("delivery");
+  });
+
+  test("comes off when nothing came back either", () => {
+    const transcript = conversation();
+    const { key } = transcript.user("hello");
+    transcript.refused(key, { auth: true }, "hello");
+    transcript.unanswered(key);
+    expect(authOf(rows(transcript)[0])).toBeUndefined();
+  });
+
+  test("comes off when a later refusal carries no reason", () => {
+    const transcript = conversation();
+    const { key } = transcript.user("hello");
+    transcript.refused(key, { auth: true }, "hello");
+    transcript.refused(key);
+    expect(authOf(rows(transcript)[0])).toBeUndefined();
   });
 });

@@ -6,7 +6,7 @@
 
 ## The door
 
-One entry, deliberately. A second subpath would be a second way to reach a subprocess, and there is exactly one subprocess.
+One entry, deliberately. A second subpath would be a second way to reach a subprocess, and there is exactly one subprocess — and that is still true now that the door hands out more than `startHarness`: the conversation layer below it (`Transcript`, `Turns`, `holding`, and the `says`/`plus` rules over a change) is exported so that the two products that each hold ONE conversation — kolu's Conductor and [olai](https://github.com/juspay/olai)'s chat plugin — are served by one class rather than by a copy in each. The class is generic over a product's row union: it owns the fields `@kolu/acp/wire` declares as row fields, and what a product adds rides in an `extra` object it copies and never reads.
 
 ```ts
 const harness = await startHarness({
