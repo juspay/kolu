@@ -19,7 +19,7 @@
   },
   "//dependencies": "The protocol SDK (its runtime: this is the package that holds the connection), `@kolu/acp` for the protocol's words, `@kolu/child` for the subprocess, and `effect`, which the client is written in. No product package: the events say what the agent said and never what a product draws. The versions are LITERAL rather than `catalog:` because olai vendors this directory and installs its manifest from its own workspace, where kolu's catalog does not exist.",
   "dependencies": {
-    "@agentclientprotocol/sdk": "^1.3.0",
+    "@agentclientprotocol/sdk": "1.9.0",
     "@kolu/acp": "workspace:*",
     "@kolu/child": "workspace:*",
     "effect": "4.1.4"
