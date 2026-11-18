@@ -20,9 +20,9 @@
  * terminal. `src/seam.test.ts` holds that.
  */
 
-import type { Background } from "@kolu/acp/engine";
 import type { SessionConfigOption } from "@agentclientprotocol/sdk";
-import type { Reported } from "@kolu/acp/engine";
+import type { Form } from "@kolu/acp";
+import type { Background, Reported, Spawn } from "@kolu/acp/engine";
 import type {
   AskLink,
   AuthStatus,
@@ -137,6 +137,31 @@ export type AgentEvent =
       }>;
       readonly said: string | null;
     }
+  /** A QUESTION the agent is holding a call open for, as the conversation
+   *  draws it: the form, the abort signal, and the two ways to answer it. The
+   *  row and the registry are the conversation's (`put`, `Questions`). */
+  | {
+      readonly _tag: "ask";
+      readonly form: Form;
+      readonly signal: AbortSignal;
+      readonly settle: (answer: {
+        readonly outcome: { how: "answered" | "declined" | "withdrawn" };
+        readonly content: Record<
+          string,
+          string | number | boolean | Array<string>
+        >;
+      }) => void;
+      readonly fail: (cause: unknown) => void;
+    }
+  /** A sentence for the transcript that is neither the agent's prose nor a row
+   *  of its work: a question this panel cannot draw, a refused turn. */
+  | { readonly _tag: "trouble"; readonly text: string }
+  /** THE CONVERSATION this agent is in — `null` while it holds none. */
+  | {
+      readonly _tag: "session";
+      readonly id: string | null;
+      readonly pid?: number;
+    }
   /** THE SIGN-IN ROW, whole: the methods on offer, why it is up, and the
    *  attempt in flight — or `null` when there is nothing to draw. One event
    *  because the three compose ONE row, and two events would be two chances to
@@ -211,9 +236,7 @@ export type AgentEvent =
       /** Which `Agent` call this one was made inside, by that call's own id. */
       readonly parent: string | undefined;
       /** ... and, the other way round, that this call SENT one out. */
-      readonly spawned:
-        | { readonly kind: string | null; readonly said: string | null }
-        | undefined;
+      readonly spawned: Spawn | undefined;
       /** ... and that it ARMED a background task, as the leg read it — the
        *  row's own words are the conversation's (`Armed`), which is why this
        *  is the leg's `Background` and not the wire's shape. */

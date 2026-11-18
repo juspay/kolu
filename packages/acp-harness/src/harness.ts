@@ -55,12 +55,9 @@
 
 import { readFile } from "node:fs/promises";
 import {
-  client as acpClient,
-  type ClientConnection,
   type ContentBlock,
   CreateElicitationRequest,
   type CreateElicitationResponse,
-  type InitializeResponse,
   type LoadSessionResponse,
   methods,
   type NewSessionRequest,
@@ -69,56 +66,37 @@ import {
   type RequestPermissionRequest,
   type RequestPermissionResponse,
   type SessionConfigOption,
-  type SessionNotification,
   type SetSessionConfigOptionResponse,
 } from "@agentclientprotocol/sdk";
 import {
-  AUTH_STATUS_METHOD,
-  diffsOf,
   type Form,
   formOf,
-  identityIn,
   PERMISSION_FIELD,
   permissionFormOf,
   Refused,
   urlOf,
-  usageIn,
 } from "@kolu/acp";
-import type {
-  Adapter,
-  Leg,
-  RawMessages,
-  Reported,
-  Spawn,
-} from "@kolu/acp/engine";
+import type { Adapter, Leg, Reported, Spawn } from "@kolu/acp/engine";
 import type {
   AskAnswer,
-  AskLink,
   AuthStatus,
+  PlanStep,
   SignInReason,
   Usage,
 } from "@kolu/acp/wire";
 import { Duration } from "effect";
 import { aboutBlock } from "./aboutBlock.ts";
-import { Calls } from "./calls.ts";
-import { type Child, childEnvOf, start as startChild } from "@kolu/child";
-import { Fleet, koluCallOf, refineKoluCall } from "./kolu.ts";
 import {
-  signInOf,
-  completionIdOf,
-  detailOf,
-  fromElsewhere,
-  goneOf,
-  locationsOf,
-  mcpServersOf,
-  messageOf,
-  methodsIn,
-  type Offered,
-  progressOf,
-  saidOf,
-  textOf,
-} from "./payloads.ts";
-import { streamOver } from "./pipes.ts";
+  type Agent,
+  HarnessRefused,
+  HarnessUnavailable,
+  type SignedIn,
+  startAgent,
+} from "./agent.ts";
+import { Calls } from "./calls.ts";
+import type { AgentEvent } from "./events.ts";
+import { Fleet, koluCallOf, refineKoluCall } from "./kolu.ts";
+import { fromElsewhere, mcpServersOf, messageOf } from "./payloads.ts";
 import { AnswerRefused, Questions } from "./questions.ts";
 import type {
   ConductorAttachment,
@@ -133,8 +111,6 @@ import type {
   ConductorState,
   ConductorWakeEvent,
 } from "./rows.ts";
-import type { PlanStep } from "@kolu/acp/wire";
-import type { AgentEvent, SignInCause } from "./events.ts";
 import { type Change, plus, says, Transcript } from "./transcript.ts";
 import { type Turn, Turns } from "./turns.ts";
 
@@ -375,56 +351,15 @@ export interface Harness {
  * somebody's press with nothing written and needs nobody told, and `attached`
  * is a second press that joined the first.
  */
-export type SignedIn = "signed-in" | "failed" | "cancelled" | "attached";
-
-/**
- * NOTHING WAS ASKED OF ANYTHING, or nothing came back.
- *
- * `why` is a whole sentence and nothing composes around it: padi narrows this
- * at its one seam into the declared wire error of the same shape. A failure
- * that is NEITHER this nor {@link HarnessRefused} stays a defect and crashes,
- * deliberately — wrapping an unexpected throw in one of these to be polite is
- * how a bug becomes a sentence a person is asked to act on.
- */
-export class HarnessUnavailable extends Error {
-  readonly why: string;
-  constructor(why: string) {
-    super(why);
-    this.name = "HarnessUnavailable";
-    this.why = why;
-  }
-}
-
-/** A REFUSAL, with the agent demonstrably there — it answered a request with a
- *  JSON-RPC error, so asking again is honest. `auth` is the one refusal with
- *  something to DO about it: nobody is signed in, which is ACP's own `-32000`
- *  and the only way an agent ever asks for a signature.
- *
- *  Also this end's own no, on the one path where there is one: an answer that
- *  does not typecheck against the schema the agent asked in is refused HERE
- *  and never sent. Same shape, same `signIn: "no"`, and the sentence says which
- *  end said it — what a caller does with either is identical, which is why
- *  there is not a third class. */
-export class HarnessRefused extends Error {
-  readonly why: string;
-  /** Whether signing in could fix it, and which kind — nobody is signed in,
-   *  or the account that is cannot run it — or `no`. */
-  readonly signIn: SignInReason | "no";
-  constructor(why: string, signIn: SignInReason | "no") {
-    super(why);
-    this.name = "HarnessRefused";
-    this.why = why;
-    this.signIn = signIn;
-  }
-}
+export { HarnessRefused, HarnessUnavailable, type SignedIn };
 
 // ── the constants this client is ───────────────────────────────────────
 
 /** The ACP major version this client speaks. */
-const PROTOCOL = 1;
+const _PROTOCOL = 1;
 /** Boot is a few small round trips against a process that just started. Only it
  *  gets a deadline — a turn is a person waiting on a language model. */
-const BOOT_TIMEOUT = 30_000;
+const _BOOT_TIMEOUT = 30_000;
 /** A load is not small: the agent re-opens a conversation and replays every
  *  message in it before it answers. Its own, longer deadline. */
 const LOAD_TIMEOUT = 120_000;
@@ -432,15 +367,15 @@ const LOAD_TIMEOUT = 120_000;
  *  ({@link startHarness}'s `release`). Bounded and its own: a close is a
  *  cancel plus a subprocess teardown rather than a model call, and the person
  *  waiting on it is the one who just pressed NEW CONVERSATION. */
-const CLOSE_TIMEOUT = 10_000;
+const _CLOSE_TIMEOUT = 10_000;
 /** How much of a sign-in's output is kept. A process that printed a book is not
  *  one a person is reading. */
-const SIGN_IN_CAP = 64 * 1024;
+const _SIGN_IN_CAP = 64 * 1024;
 /** The agent's stderr since this subprocess started, capped so a chatty one
  *  cannot grow a log line without bound. This is where an adapter writes its
  *  JSON-RPC errors, and a turn that failed with nothing else to say is what the
  *  dump exists for. */
-const STDERR_CAP = 32 * 1024;
+const _STDERR_CAP = 32 * 1024;
 /** THE MOST ONE ATTACHMENT MAY WEIGH, and the most a prompt may carry in all.
  *  Both are refused with a sentence naming the limit rather than trimmed or
  *  dropped: an image that silently did not travel is a person asking about a
@@ -476,43 +411,13 @@ const CANCELLED_UNDER_IT =
  * then added to a list somebody can read, instead of quietly arriving as news
  * about a conversation that has not happened yet.
  */
-const REPLAYED_UPDATES: Readonly<Record<string, true>> = {
+const _REPLAYED_UPDATES: Readonly<Record<string, true>> = {
   agent_message_chunk: true,
   user_message_chunk: true,
   tool_call: true,
   tool_call_update: true,
   plan: true,
 };
-
-/** THE SIGN-IN IN FLIGHT, if there is one — held because the two things that
- *  act on it arrive by different roads: a person's keystroke, and the agent's
- *  own completion notification. One per agent, which is what makes a second
- *  press ATTACH to the process already running rather than spawn a second one
- *  writing the same credential store. */
-interface Attempt {
-  readonly method: string;
-  /** What the method is called, for the row that draws it — the method's own id
-   *  until the advertisement has been read, since the CLAIM has to exist before
-   *  the handshake and the handshake is what knows the name. */
-  label: string;
-  /** One line to the process's stdin, or `null` while there is no process — and
-   *  forever, for an agent method, which has none. */
-  write: ((line: string) => void) | null;
-  /** SOMEBODY HAS ASKED IT TO STOP. Read where an attempt ENDS (so a cancel is
-   *  not reported as a failure) and where something is about to be DRAWN (so a
-   *  cancelled attempt cannot put its row back). */
-  stopping: boolean;
-  stop: () => Promise<void>;
-  /** The page this attempt is waiting on, once the agent has sent one. */
-  link: {
-    readonly elicitationId: string | null;
-    readonly answer: (action: "accept" | "decline") => void;
-    readonly url: AskLink;
-    readonly message: string;
-  } | null;
-  output: string;
-  state: "running" | "succeeded" | "failed";
-}
 
 /**
  * Spawn the agent, shake hands, and open the conversation — all of it, before
@@ -678,7 +583,6 @@ export const startHarness = async (
    *  knows which row it is for and not when it started. */
   let busyAt: number | null = null;
 
-  let live: { child: Child; connection: ClientConnection } | null = null;
   let activeSession: string | null = null;
   /**
    * Sessions this harness has LEFT, still named so a leftover notification
@@ -689,11 +593,11 @@ export const startHarness = async (
    * left too. An id leaves only when that same conversation is re-entered.
    */
   const closed = new Set<string>();
-  let replaying = false;
+  const _replaying = false;
   /** How many frames the replay of a resumed conversation has been dropped on
    *  the floor — counted so the one log line a load writes can say how much
    *  history the agent re-sent (and padi already had). */
-  let replayed = 0;
+  const _replayed = 0;
   let stopped = false;
   let taught = false;
   let model: ConductorModel | null = null;
@@ -763,8 +667,8 @@ export const startHarness = async (
    *  adapter itself published rather than against a shape of prose. */
   let prologue: string | null = null;
 
-  let stderrBuf = "";
-  let stderrWritten = 0;
+  const _stderrBuf = "";
+  const _stderrWritten = 0;
 
   /** What this agent's leg wants on the `_meta` of the two calls that OPEN a
    *  conversation — spread into BOTH, because `session/new` and `session/load`
@@ -794,7 +698,20 @@ export const startHarness = async (
   const emit = (event: AgentEvent): string | null => {
     switch (event._tag) {
       case "elicitationComplete":
-        onElicitationComplete(event.params);
+        agent.completeElicitation(event.params);
+        return null;
+      case "ask": {
+        // THE QUESTION IS THIS HALF'S: the row, and the registry that holds the
+        // promise until somebody answers. The agent waits on the deferred.
+        void put(event.form, event.signal).then(event.settle, event.fail);
+        return null;
+      }
+      case "trouble":
+        notice(event.text);
+        return null;
+      case "session":
+        activeSession = event.id;
+        publish();
         return null;
       case "said": {
         // The doubled prologue is dropped HERE rather than anywhere narrower:
@@ -834,7 +751,8 @@ export const startHarness = async (
         writeIdentity(event.status);
         return null;
       case "offered":
-        signing.offered(event.offered as ReadonlyArray<Offered>, event.said);
+        // The agent half keeps this for its own sentences; the conversation
+        // needs nothing from it.
         return null;
       case "signIn":
         signIn = event.row as ConductorSignIn | null;
@@ -867,7 +785,6 @@ export const startHarness = async (
         ).then(event.settle, event.fail);
         return null;
       case "gone": {
-        live = null;
         // Before anything else: a form left live on a dead wire is a control
         // that does nothing, and pressing it is how a person finds out.
         leaving();
@@ -909,142 +826,104 @@ export const startHarness = async (
     return event satisfies never;
   };
 
-  /**
-   * THE SIGN-IN, AS ONE OWNER — the methods on offer, the attempt in flight,
-   * and why the offer is up.
-   *
-   * These are the CLIENT's facts: which methods the agent advertised, which
-   * one a person pressed, whether the process a terminal method started is
-   * still running, and what it printed. The ROW is the conversation's, and it
-   * arrives through the door as one `signIn` event carrying the whole of what
-   * a panel draws — so the three things that compose it (the offer, its
-   * cause, the attempt) are never assembled twice.
-   *
-   * WHY THIS IS ITS OWN OBJECT rather than four `let`s beside the rest: the
-   * elicitation handlers fill the attempt's link and the sign-in verbs start
-   * and stop it, so the state is written from two directions that are about
-   * to be on opposite sides of the seam. One owner is what lets it move.
-   */
-  const signing = (() => {
-    let onOffer: ReadonlyArray<Offered> = [];
-    let said: string | null = null;
-    let attempt: Attempt | null = null;
-    let cause: SignInCause | null = null;
-
-    /** Where this host keeps the signature, in every sentence that names it. */
-    const storedAt = `the signature is read from ${options.configDir}`;
-
-    /**
-     * ... AND WHAT A SIGN-IN WITH NOTHING TO PRESS HAS TO SAY FOR ITSELF.
-     *
-     * An agent that will not work and advertises no way to fix it is a dead
-     * end, and the only useful thing left is the whole of what was asked and
-     * what came back: which adapter was spawned, what it calls itself, what
-     * kolu asked for in the handshake, and the store it reads.
-     */
-    const nothingOffered = (): string =>
-      `${said ?? "the agent"} offered no way to sign in: kolu's handshake` +
-      ' asked for terminal auth (`auth.terminal` and `_meta["terminal-auth"]`)' +
-      " and the reply carried no `authMethods`. The adapter is" +
-      ` \`${adapter.command}\`, and ${storedAt}`;
-
-    /** What a person is told when THEY ask to sign in. */
-    const askedFor = (): SignInCause => ({
-      kind: "person",
-      said: `${onOffer.length === 0 ? nothingOffered() : storedAt}.`,
-    });
-
-    /** THE ROW, composed: or `null` when there is nothing to draw. */
-    const row = (): ConductorSignIn | null =>
-      cause === null && attempt === null
+  /** ... and the row that reading becomes, which is the conversation's. */
+  const writeTool = (event: Extract<AgentEvent, { _tag: "tool" }>): void => {
+    const seen =
+      event.mcp === null
         ? null
-        : {
-            cause: cause ?? askedFor(),
-            methods: onOffer.map((one) => one.method),
-            attempt:
-              attempt === null
-                ? null
-                : {
-                    method: attempt.method,
-                    state: attempt.state,
-                    output: attempt.output,
-                    link:
-                      attempt.link === null ? null : { ...attempt.link.url },
-                  },
-          };
+        : koluCallOf(event.mcp.tool, event.rawInput, event.answer);
+    // ACCUMULATED, not per-frame: the arming frame carries the input and the
+    // settling frame carries the answer, so a card built from either alone is
+    // missing the half the other had. `refineKoluCall` keeps whichever frame
+    // said something, because a frame refines and never retracts.
+    const kolu = refineKoluCall(koluReadings.get(event.id) ?? null, seen);
+    if (kolu !== null) koluReadings.set(event.id, kolu);
+    if (kolu !== null && fleet.touch(kolu)) publish();
+    report(
+      transcript.tool(event.id, {
+        title: event.title,
+        status: event.status,
+        detail: event.detail,
+        asked: event.asked,
+        progress: event.progress,
+        diffs: event.diffs,
+        locations: event.locations,
+        // THE PRODUCT'S HALF OF THE ROW: which server and tool a recognised
+        // call named, whether its question reached a person as a form, and
+        // kolu's own reading of it. The transcript copies these and reads none
+        // of them.
+        extra: {
+          server: event.mcp?.server,
+          tool: event.mcp?.tool,
+          // Absent rather than `false`: every optional field of a tool row
+          // means UNCHANGED, and a call whose name has not arrived yet is not a
+          // call anything has called ordinary.
+          asksThroughForm: event.asksThroughForm,
+          ...(kolu === null ? {} : { kolu }),
+        },
+        parent: event.parent,
+        spawned: spawnedOf((event.spawned ?? null) as Spawn | null),
+        armed: event.armed,
+        provisional: event.provisional,
+      }),
+    );
+    publish();
+  };
 
-    const drawn = (): void => {
-      emit({ _tag: "signIn", row: row() });
-    };
+  /**
+   * THE ROSTER MOVED, because the agent said something about a server.
+   *
+   * ONLY THE AGENT'S OWN WORD moves a row off `handed`, and only for a server
+   * WE HANDED OVER: a name the agent reports and this conversation never gave
+   * it adds no row, because the roster answers "what did this conversation get
+   * and what became of it" and a row nobody handed over is an answer to some
+   * other question. `missing` is not minted here at all — that one is a
+   * prober's no, decided before anything was handed over, and an agent may not
+   * overwrite it.
+   *
+   * POSITIVE RECOGNITION, the leg's rule read one layer up: `connected` is the
+   * row the leg said was attached, and every other word it carried — a
+   * failure, a `needs-auth`, a word no version has sent yet — is `unattached`
+   * with that word beside it, because a person can act on `needs-auth` quite
+   * differently from `failed`.
+   */
+  const reported = (reports: ReadonlyArray<Reported>): void => {
+    let moved = false;
+    servers = servers.map((row) => {
+      const said = reports.find((one) => one.name === row.name);
+      if (said === undefined) return row;
+      const standing = said.attached
+        ? ("connected" as const)
+        : ("unattached" as const);
+      if (row.standing === standing && row.said === said.said) return row;
+      moved = true;
+      return { ...row, standing, said: said.said };
+    });
+    if (moved) publish();
+  };
 
-    return {
-      /** THE AGENT'S OWN ACCOUNT puts the offer up, unless an attempt is
-       *  already running: that row belongs to the attempt. */
-      offer: (why: string): void => {
-        if (attempt !== null) return;
-        cause = {
-          kind: "agent",
-          why: `${why} — ${onOffer.length === 0 ? nothingOffered() : storedAt}.`,
-        };
-        drawn();
-      },
-      /** A PERSON asks, signed in or not. An offer already on screen — the
-       *  agent's own, or a running attempt — is left exactly as it is. */
-      ask: (): void => {
-        if (stopped || row() !== null) return;
-        cause = askedFor();
-        drawn();
-      },
-      /** The handshake's methods, and what the agent calls itself. */
-      offered: (methods: ReadonlyArray<Offered>, agentSaid: string | null) => {
-        onOffer = methods;
-        said = agentSaid;
-      },
-      attempt: () => attempt,
-      sayAttempt: (): void => {
-        // A WITHDRAWN ATTEMPT IS NOT DRAWN: the runner goes on finishing the
-        // process it started after the slot was given up, and the row a cancel
-        // took away must not come back behind it.
-        if (attempt?.stopping === true) return;
-        drawn();
-      },
-      clearAttempt: (): void => {
-        if (row() === null) return;
-        // the offer stands; only the attempt comes down.
-        attempt = null;
-        drawn();
-      },
-      /** ... AND THE WHOLE OFFER, once a sign-in SUCCEEDED. Exit 0 is the whole
-       *  of "it worked" for every one of these CLIs, and a chooser left
-       *  standing over an agent somebody has just signed into is a row that
-       *  invites a second login. NOT merged into `clearAttempt`: a CANCELLED
-       *  attempt must leave the methods on screen, which is the same call and
-       *  the opposite answer. */
-      signedIn: (): void => {
-        cause = null;
-        attempt = null;
-        drawn();
-      },
-      /** Whether the agent's own next word withdraws the offer: an agent that
-       *  now names an account has answered the question the row was asking. */
-      withdrawUnlessAttempting: (): void => {
-        if (attempt !== null) return;
-        if (cause?.kind !== "agent") return;
-        cause = null;
-        drawn();
-      },
-      /** The row a panel draws, or `null`. */
-      row,
-      /** The attempt in flight, for the two handlers that fill or read it. */
-      inFlight: (): Attempt | null => attempt,
-      /** The methods on offer — what a press is checked against. */
-      methods: (): ReadonlyArray<Offered> => onOffer,
-      /** The claim, taken and given up by `run`. */
-      claim: (next: Attempt | null): void => {
-        attempt = next;
-      },
-    };
-  })();
+  /** The agent's own word about who it is, as the DOOR's case for it — the
+   *  body that used to run inside the notification handler. */
+  const writeIdentity = (next: AuthStatus): void => {
+    identity = next;
+    // THE AGENT'S OWN WORD IS WHAT OFFERS THE SIGN-IN. `kind: "none"` is a
+    // KNOWN logged-out agent — ACP's `-32000` is not the only way one asks
+    // for a signature, and against the pair kolu ships it is not even the
+    // first: MEASURED against the pinned adapter 0.81.2 over
+    // agent-distro's `claude` 2.1.319, a signed-out `session/new`
+    // SUCCEEDS, this notification arrives saying `{kind:"none"}`, and the
+    // refusal does not come until the TURN. An offer published only by a
+    // refused OPEN therefore never appeared at all on the one pair this
+    // build pins: the panel drew a composer over an agent that could not
+    // answer, and the sign-in button said the agent had offered nothing.
+    //
+    // AND IT IS WHAT WITHDRAWS IT: an agent that now names an account has
+    // answered the question the row was asking, and a sign-in row over a
+    // signed-in agent is a lie a person would press.
+    if (next.kind === "none") agent.signInOffer(next.label);
+    else agent.signInWithdrawn();
+    publish();
+  };
 
   const report = (change: Change<ConductorRow>): void => {
     // NOTHING IS SAID AFTER A STOP. A turn still on the wire when the daemon
@@ -1061,13 +940,18 @@ export const startHarness = async (
     });
   };
 
+  /** Whether there is an agent, and it still has a process — asked through a
+   *  helper because the boot publishes its REFUSAL before the agent variable
+   *  exists. */
+  const up = (): boolean => agent?.alive();
+
   const state = (): HarnessState => ({
     // PHASE IS DERIVED, never kept: every fact it reports is already written
     // down somewhere else, and a flag beside them is a second answer free to
     // drift from the first. A refused open is OFFLINE with the process still
     // up, which is the one case `live` alone gets wrong.
     phase:
-      live === null || stopped || refusal !== null
+      !up() || stopped || refusal !== null
         ? "offline"
         : questions.open().length > 0
           ? "asking"
@@ -1105,86 +989,6 @@ export const startHarness = async (
   };
 
   // ── talking to the process ───────────────────────────────────────────
-
-  /** One request. Every protocol failure — a rejection, a dead pipe, a deadline
-   *  — becomes one of this package's two errors, because from a caller's side
-   *  they are the same thing: the agent did not answer.
-   *
-   *  The SIGNAL is what makes a deadline a CANCELLATION rather than a
-   *  walk-away: the SDK keys every request into a pending map and clears an
-   *  entry only when a response arrives or the connection closes, so a timeout
-   *  that merely stopped waiting would leak the entry — and the closure holding
-   *  that request's params — for the life of the subprocess. */
-  const request = async (
-    method: string,
-    params: unknown,
-    timeout: number | null = BOOT_TIMEOUT,
-  ): Promise<unknown> => {
-    const at = live;
-    if (at === null) {
-      throw new HarnessUnavailable("the agent is not running");
-    }
-    const controller = new AbortController();
-    const timer =
-      timeout === null ? null : setTimeout(() => controller.abort(), timeout);
-    // ONE timer, then asked not to hold the process open. Written as a
-    // statement rather than as `unref() ?? setTimeout(…)`, which schedules a
-    // SECOND deadline on any runtime whose handle has no `unref` — two aborts
-    // for one request, and the spare one still armed after it answered.
-    timer?.unref?.();
-    try {
-      return await (
-        at.connection.agent as unknown as {
-          request: (
-            method: string,
-            params: unknown,
-            options?: { readonly cancellationSignal?: AbortSignal },
-          ) => Promise<unknown>;
-        }
-      ).request(method, params, { cancellationSignal: controller.signal });
-    } catch (cause) {
-      if (controller.signal.aborted) {
-        // The deadline is the definition of `unanswered`: the request is on the
-        // wire, nothing came back, and interrupting our own wait tells us
-        // nothing about what the agent did with it.
-        throw new HarnessUnavailable(
-          `\`${method}\` did not answer in ${String(timeout)}ms`,
-        );
-      }
-      throw refusalOf(method, cause);
-    } finally {
-      clearTimeout(timer ?? undefined);
-    }
-  };
-
-  /** One rejection, read twice: whether the AGENT answered it, and whether
-   *  signing in could fix it. */
-  const refusalOf = (method: string, cause: unknown): Error => {
-    const why = `\`${method}\` failed: ${saidOf(cause)}`;
-    if (goneOf(cause) === "refused") {
-      return new HarnessRefused(why, signInOf(cause, leg));
-    }
-    return new HarnessUnavailable(why);
-  };
-
-  /** A notification is never answered, so there is no silence to tell from a
-   *  no: what fails here is the WRITE, and a write that failed put nothing on
-   *  the wire. */
-  const notify = async (method: string, params: unknown): Promise<void> => {
-    const at = live;
-    if (at === null) {
-      throw new HarnessUnavailable("the agent is not running");
-    }
-    try {
-      await (
-        at.connection.agent as unknown as {
-          notify: (method: string, params: unknown) => Promise<void>;
-        }
-      ).notify(method, params);
-    } catch (cause) {
-      throw new HarnessUnavailable(`\`${method}\` failed: ${saidOf(cause)}`);
-    }
-  };
 
   // ── the questions the agent asks a person ────────────────────────────
 
@@ -1274,7 +1078,7 @@ export const startHarness = async (
       return { action: "decline" };
     }
     const named = "sessionId" in params ? params.sessionId : undefined;
-    if (typeof named !== "string") return await onLoginLink(params, form);
+    if (typeof named !== "string") return await agent.attachLink(params, form);
     if (fromElsewhere(named, activeSession, closed))
       return { action: "cancel" };
     const settling = CreateElicitationRequest.isUrl(params)
@@ -1297,58 +1101,6 @@ export const startHarness = async (
    *  not answered here: the completion notification accepts it when the agent
    *  says the page is done, and {@link signInCancel} declines it when somebody
    *  gives up. */
-  const onLoginLink = async (
-    params: CreateElicitationRequest,
-    form: Form,
-  ): Promise<CreateElicitationResponse> => {
-    const running = signing.inFlight();
-    // A CANCEL ALREADY ASKED FOR THIS ONE'S END, so the page is answered away
-    // rather than drawn: the row the cancel took down must not come back
-    // because the agent got as far as sending its card.
-    if (running?.stopping) return { action: "decline" };
-    const link = form.link;
-    if (running === null || running.write !== null || link === null) {
-      undrawable("the agent sent a link for something that is not a sign-in");
-      return { action: "decline" };
-    }
-    const { promise, resolve } =
-      Promise.withResolvers<CreateElicitationResponse>();
-    running.link = {
-      elicitationId: CreateElicitationRequest.isUrl(params)
-        ? params.elicitationId
-        : null,
-      answer: (action: "accept" | "decline") =>
-        resolve(
-          action === "accept"
-            ? { action: "accept", content: {} }
-            : { action: "decline" },
-        ),
-      url: link,
-      message: form.message,
-    };
-    signing.sayAttempt();
-    return await promise;
-  };
-
-  /** THE AGENT SAYS A PAGE IT SENT SOMEBODY TO IS DONE. One notification, two
-   *  things that could be waiting on it and only one of them can be true: a
-   *  conversation's question row, or the sign-in row whose request this
-   *  elicitation belongs to. */
-  const onElicitationComplete = (params: unknown): void => {
-    const id = completionIdOf(params);
-    if (id === null) return;
-    const asking = waitingLinks.get(id);
-    if (asking !== undefined) {
-      waitingLinks.delete(id);
-      questions.answer(asking, []);
-      return;
-    }
-    const running = signing.inFlight();
-    if (running === null || running.stopping) return;
-    if (running.link === null || running.link.elicitationId !== id) return;
-    running.link.answer("accept");
-  };
-
   const writePermission = async (
     params: RequestPermissionRequest,
     signal: AbortSignal,
@@ -1378,259 +1130,6 @@ export const startHarness = async (
   };
 
   // ── the session stream ───────────────────────────────────────────────
-
-  const onUpdate = (notification: SessionNotification): void => {
-    // WHOSE SESSION. A chunk of the conversation that just closed, landing
-    // after the next one opened, is how a new conversation failed to empty: the
-    // panel showed the last turn's words in a conversation nobody had spoken
-    // in.
-    if (fromElsewhere(notification.sessionId, activeSession, closed)) return;
-    const update = notification.update;
-    // A REPLAY IS HISTORY SOMEBODY ELSE ALREADY HAS. `session/load` re-emits
-    // every message of the conversation before it answers, and the rows the
-    // caller restored are strictly richer than that re-emission: they carry
-    // kolu's own readings — tool cards, notices, the fleet, who asked what —
-    // which no agent's transcript holds. So the replay is counted and dropped,
-    // and the persisted rows stand as the record (the harness mints past their
-    // `seq`, so nothing after this can collide with one).
-    //
-    // ONLY the history, though: {@link REPLAYED_UPDATES} says which frames are
-    // the re-telling, and everything else on that stream is this session as it
-    // stands right now — the commands it offers, the settings it is on, how
-    // full its context is — which nobody else can tell us.
-    if (replaying && REPLAYED_UPDATES[update.sessionUpdate] === true) {
-      replayed += 1;
-      return;
-    }
-    switch (update.sessionUpdate) {
-      case "agent_message_chunk": {
-        const text = textOf(update.content);
-        emit({ _tag: "said", text });
-        return;
-      }
-      case "user_message_chunk": {
-        const text = textOf(update.content);
-        // A TASK-NOTIFICATION is not a person speaking: the harness injects a
-        // background task's report as a user-role turn, and drawing it as a
-        // bubble puts the report in the human's column. It belongs in the
-        // arming row's fold. Looked at LIVE as well as on replay, because the
-        // injected turn is not one kolu sent.
-        const notification = leg.taskNotification(
-          text,
-          "_meta" in update
-            ? (update as { readonly _meta?: Record<string, unknown> })._meta
-            : undefined,
-        );
-        if (notification !== null) {
-          emit({ _tag: "taskNotification", onto: notification.onto });
-          return;
-        }
-        // A LIVE user chunk is kolu's own message coming back: the row for it
-        // was minted when somebody pressed send, and drawing the echo would
-        // double every message in the conversation. A THINKING chunk is
-        // dropped in the `default` arm below, as it always was.
-        return;
-      }
-      // Announce and update are ONE event: the protocol distinguishes them by
-      // which fields it guarantees, and a consumer keyed by call id does the
-      // same thing with either.
-      case "tool_call":
-      case "tool_call_update": {
-        emit(readTool(update));
-        return;
-      }
-      // `status` is copied, not narrowed like a tool call's `statusOf`: the
-      // SDK parses every `session/update` before this sees it, and a plan
-      // entry whose status is outside its three-word union is SKIPPED there
-      // (`vecSkipError(zPlanEntry)`), and a wider SDK union stops compiling
-      // here — the row's own `Literals` are the same three words.
-      case "plan":
-        emit({
-          _tag: "plan",
-          steps: update.entries.map((entry) => ({
-            content: entry.content,
-            status: entry.status,
-            priority: entry.priority ?? null,
-          })),
-        });
-        return;
-      case "available_commands_update":
-        emit({
-          _tag: "commands",
-          commands: update.availableCommands.map((command) => ({
-            name: command.name,
-            description: command.description ?? null,
-          })),
-        });
-        return;
-      case "config_option_update":
-        emit({ _tag: "settings", config: update.configOptions });
-        return;
-      case "usage_update": {
-        // How full the context is — the one thing a person needs to decide
-        // whether to compact. Several a turn: the agent revises `used` as it
-        // goes and may revise `size` too, so the newest wins.
-        const read = usageIn(update);
-        if (read !== null) emit({ _tag: "usage", usage: read });
-        return;
-      }
-      default:
-        // Thoughts, and the kinds this panel has no view for. Ignored QUIETLY
-        // rather than half-rendered: a marker for each would be a transcript of
-        // apologies about features kolu does not have. A chunk whose CONTENT
-        // cannot be drawn is the other thing entirely, and `textOf` marks it.
-        return;
-    }
-  };
-
-  /** A tool frame, read into the door's own words: everything this side knows
-   *  about the call, and nothing of what kolu DRAWS of it. */
-  const readTool = (update: {
-    readonly toolCallId: string;
-    readonly title?: string | null;
-    readonly status?: string | null;
-    readonly rawInput?: unknown;
-    readonly rawOutput?: unknown;
-    readonly content?: ReadonlyArray<unknown> | null;
-    readonly locations?: ReadonlyArray<unknown> | null;
-    readonly _meta?: { readonly [key: string]: unknown } | null | undefined;
-  }): AgentEvent => {
-    // Not drawn and not published: what this frame said about its call — which
-    // tool it is, and which agent made it — is what the two question handlers
-    // need and what neither question they answer carries.
-    calls.heard(update.toolCallId, update._meta);
-    const recognized = leg.mcpCall(
-      {
-        title: update.title,
-        rawInput: update.rawInput,
-        _meta: update._meta,
-        name: calls.about(update.toolCallId).name,
-      },
-      given,
-    );
-    calls.recognized(update.toolCallId, recognized);
-    const call = calls.about(update.toolCallId).mcp ?? null;
-    // A TOOL WE CANNOT POSITIVELY NAME GETS NO READING. `call` is non-null only
-    // where the leg matched this agent's own spelling against a server WE
-    // handed over, so a kolu reading is minted for a kolu tool and for nothing
-    // that merely looks like one.
-    // THE ANSWER THROUGH THE LEG. An MCP server's reply reaches this adapter
-    // as the TEXT of a content block — `kolu mcp` answers JSON, so `rawOutput`
-    // arrives as a JSON STRING and not an object — and which corner of a frame
-    // an agent puts its structured answer in is exactly the question a leg
-    // exists to answer. Reading `rawOutput` directly left every `create` card
-    // nameless and the fleet empty against the real adapter.
-    const answer = leg.replyIn(update.rawOutput) ?? update.rawOutput;
-    const armed = leg.backgroundTask(update._meta);
-    // WHETHER THIS CALL'S QUESTION REACHES THE PERSON AS A FORM. The ask row
-    // carries that question already — its options, its answer, its heading —
-    // so a panel that drew the call as well would say the same words twice,
-    // the second time as grey machinery immediately above the thing asking
-    // them. WHICH call that is, is one agent's own spelling of its own
-    // built-in, so the leg answers it and the ROW carries the answer: a name
-    // on the wire would put that spelling in every reader downstream of here.
-    const named = calls.about(update.toolCallId).name;
-    const asksThroughForm =
-      named !== undefined && leg.asksThroughForm?.(named) === true
-        ? true
-        : undefined;
-    return {
-      _tag: "tool",
-      id: update.toolCallId,
-      title: update.title ?? undefined,
-      status: statusOf(update.status),
-      detail: detailOf(update.rawInput, update.rawOutput),
-      asked: detailOf(update.rawInput, undefined),
-      progress: progressOf(update.content as Parameters<typeof progressOf>[0]),
-      diffs: diffsOf(
-        update.content as Parameters<typeof diffsOf>[0],
-        options.cwd,
-      ),
-      locations: locationsOf(
-        update.locations as Parameters<typeof locationsOf>[0],
-        options.cwd,
-      ),
-      rawInput: update.rawInput,
-      answer,
-      mcp: call === null ? null : { server: call.server, tool: call.tool },
-      asksThroughForm,
-      // WHO made the call, out of the same `_meta` the name came from: a
-      // subagent's frames arrive on this one feed with nothing in the
-      // protocol to tell them apart.
-      parent: leg.parentToolUse(update._meta) ?? undefined,
-      // ... and, the other way round, whether this call SENT an agent out.
-      // The leg answers structurally — absent where it knows nothing — and
-      // the row says `null` for the same, because a row is a value on a wire
-      // and `undefined` is not one of its words.
-      spawned: spawnedOf(leg.spawned(update._meta, update.rawInput)),
-      // ... and whether it ARMED a background task, which is the one kind of
-      // call that goes on happening after this frame and after the turn.
-      armed: armed ?? undefined,
-      provisional: leg.provisionalTitle?.(update),
-    };
-  };
-
-  /** ... and the row that reading becomes, which is the conversation's. */
-  const writeTool = (event: Extract<AgentEvent, { _tag: "tool" }>): void => {
-    const seen =
-      event.mcp === null
-        ? null
-        : koluCallOf(event.mcp.tool, event.rawInput, event.answer);
-    // ACCUMULATED, not per-frame: the arming frame carries the input and the
-    // settling frame carries the answer, so a card built from either alone is
-    // missing the half the other had. `refineKoluCall` keeps whichever frame
-    // said something, because a frame refines and never retracts.
-    const kolu = refineKoluCall(koluReadings.get(event.id) ?? null, seen);
-    if (kolu !== null) koluReadings.set(event.id, kolu);
-    if (kolu !== null && fleet.touch(kolu)) publish();
-    report(
-      transcript.tool(event.id, {
-        title: event.title,
-        status: event.status,
-        detail: event.detail,
-        asked: event.asked,
-        progress: event.progress,
-        diffs: event.diffs,
-        locations: event.locations,
-        // THE PRODUCT'S HALF OF THE ROW: which server and tool a recognised
-        // call named, whether its question reached a person as a form, and
-        // kolu's own reading of it. The transcript copies these and reads none
-        // of them.
-        extra: {
-          server: event.mcp?.server,
-          tool: event.mcp?.tool,
-          // Absent rather than `false`: every optional field of a tool row
-          // means UNCHANGED, and a call whose name has not arrived yet is not a
-          // call anything has called ordinary.
-          asksThroughForm: event.asksThroughForm,
-          ...(kolu === null ? {} : { kolu }),
-        },
-        parent: event.parent,
-        spawned: event.spawned,
-        armed: event.armed,
-        provisional: event.provisional,
-      }),
-    );
-    publish();
-  };
-
-  /** The protocol's four words and the panel's are the same four, and this is
-   *  the one seam that says so: a fifth status on either side stops compiling
-   *  HERE, where a person can decide what the panel should do with it, rather
-   *  than riding a cast onto a row whose look-up table has no entry for it. */
-  const statusOf = (
-    status: string | null | undefined,
-  ): "pending" | "in_progress" | "completed" | "failed" | undefined => {
-    switch (status) {
-      case "pending":
-      case "in_progress":
-      case "completed":
-      case "failed":
-        return status;
-      default:
-        return undefined;
-    }
-  };
 
   // ── the settings, and the one of them that is the model ──────────────
 
@@ -1712,206 +1211,20 @@ export const startHarness = async (
 
   // ── bringing it up ───────────────────────────────────────────────────
 
-  const childEnv = (
-    extra?: Readonly<Record<string, string>>,
-  ): NodeJS.ProcessEnv =>
-    childEnvOf(process.env, { ...adapter.env, ...extra }, adapter.unset);
-
-  const child = startChild(adapter.command, adapter.args, {
-    cwd: options.cwd,
-    env: childEnv(),
-    stdio: ["pipe", "pipe", "pipe"],
-    processGroup: true,
-  });
-
-  child.stderr?.on("data", (chunk: string | Buffer) => {
-    const text = (
-      typeof chunk === "string" ? chunk : chunk.toString("utf8")
-    ).trimEnd();
-    const sep = stderrBuf === "" || stderrBuf.endsWith("\n") ? "" : "\n";
-    stderrBuf = `${stderrBuf}${sep}${text}`;
-    stderrWritten += sep.length + text.length;
-    if (stderrBuf.length > STDERR_CAP) stderrBuf = stderrBuf.slice(-STDERR_CAP);
-  });
-
-  /** The agent's own words since a turn began. `stderrWritten` is the bytes
-   *  appended since spawn INCLUDING what the cap has trimmed off the left, and
-   *  a turn snapshots that counter rather than the buffer's length — once the
-   *  cap bites, the length is stuck at the cap and a slice from there is empty,
-   *  at the diagnosis moment. */
-  const stderrSince = (from: number): string => {
-    const origin = stderrWritten - stderrBuf.length;
-    return stderrBuf.slice(Math.max(0, from - origin)).trim();
-  };
-
-  /**
-   * ONE OF THOSE MESSAGES, read for the two things it is subscribed to for.
-   *
-   * The MODEL is why the subscription exists: an adapter that handles a model
-   * switch inside the CLI it wraps never sees a config change, so its
-   * `configOptions` go on naming the model the session STARTED on while the
-   * turns run on another. The newest word wins, and it is drawn exactly like
-   * the picker's own ({@link modelOf}) so the header cannot say one model and
-   * size another.
-   *
-   * The SERVERS ride it, at the cost of one more read of a message already
-   * being read.
-   */
-  const onRaw = (raw: RawMessages, params: unknown): void => {
-    const id = raw.modelIn(params);
-    if (id !== null) emit({ _tag: "model", id });
-    const reports = raw.serversIn(params);
-    if (reports !== null) emit({ _tag: "servers", reports });
-  };
-
-  /**
-   * THE ROSTER MOVED, because the agent said something about a server.
-   *
-   * ONLY THE AGENT'S OWN WORD moves a row off `handed`, and only for a server
-   * WE HANDED OVER: a name the agent reports and this conversation never gave
-   * it adds no row, because the roster answers "what did this conversation get
-   * and what became of it" and a row nobody handed over is an answer to some
-   * other question. `missing` is not minted here at all — that one is a
-   * prober's no, decided before anything was handed over, and an agent may not
-   * overwrite it.
-   *
-   * POSITIVE RECOGNITION, the leg's rule read one layer up: `connected` is the
-   * row the leg said was attached, and every other word it carried — a
-   * failure, a `needs-auth`, a word no version has sent yet — is `unattached`
-   * with that word beside it, because a person can act on `needs-auth` quite
-   * differently from `failed`.
-   */
-  const reported = (reports: ReadonlyArray<Reported>): void => {
-    let moved = false;
-    servers = servers.map((row) => {
-      const said = reports.find((one) => one.name === row.name);
-      if (said === undefined) return row;
-      const standing = said.attached
-        ? ("connected" as const)
-        : ("unattached" as const);
-      if (row.standing === standing && row.said === said.said) return row;
-      moved = true;
-      return { ...row, standing, said: said.said };
-    });
-    if (moved) publish();
-  };
-
-  const app = acpClient({ name: "kolu" })
-    .onNotification(methods.client.session.update, (context) => {
-      onUpdate(context.params);
-    })
-    // THE AGENT'S OWN ACCOUNT OF WHO IT IS, with no session fence, because the
-    // notification is CONNECTION-scoped: it carries no `sessionId`, and the
-    // fact belongs to the PROCESS rather than to whichever conversation that
-    // process happens to hold — so it survives a `newSession`. Subscribed
-    // unconditionally rather than off a handshake marker, because the protocol
-    // says a client that never saw the marker still accepts the notification.
-    .onNotification(
-      AUTH_STATUS_METHOD,
-      (params: unknown) => params,
-      (context) => {
-        const next = identityIn(context.params);
-        if (next === null) return;
-        emit({ _tag: "identity", status: next });
-      },
-    )
-    .onRequest(
-      methods.client.session.requestPermission,
-      (context) =>
-        new Promise<RequestPermissionResponse>((resolve, reject) => {
-          emit({
-            _tag: "permission",
-            params: context.params,
-            signal: context.signal,
-            settle: (answer) => resolve(answer as RequestPermissionResponse),
-            fail: reject,
-          });
-        }),
-    )
-    .onRequest(
-      methods.client.elicitation.create,
-      (context) =>
-        new Promise<CreateElicitationResponse>((resolve, reject) => {
-          emit({
-            _tag: "elicitation",
-            params: context.params,
-            signal: context.signal,
-            settle: (answer) => resolve(answer as CreateElicitationResponse),
-            fail: reject,
-          });
-        }),
-    )
-    .onNotification(methods.client.elicitation.complete, (context) => {
-      emit({ _tag: "elicitationComplete", params: context.params });
-    });
-
-  /** The agent's own word about who it is, as the DOOR's case for it — the
-   *  body that used to run inside the notification handler. */
-  const writeIdentity = (next: AuthStatus): void => {
-    identity = next;
-    // THE AGENT'S OWN WORD IS WHAT OFFERS THE SIGN-IN. `kind: "none"` is a
-    // KNOWN logged-out agent — ACP's `-32000` is not the only way one asks
-    // for a signature, and against the pair kolu ships it is not even the
-    // first: MEASURED against the pinned adapter 0.81.2 over
-    // agent-distro's `claude` 2.1.319, a signed-out `session/new`
-    // SUCCEEDS, this notification arrives saying `{kind:"none"}`, and the
-    // refusal does not come until the TURN. An offer published only by a
-    // refused OPEN therefore never appeared at all on the one pair this
-    // build pins: the panel drew a composer over an agent that could not
-    // answer, and the sign-in button said the agent had offered nothing.
-    //
-    // AND IT IS WHAT WITHDRAWS IT: an agent that now names an account has
-    // answered the question the row was asking, and a sign-in row over a
-    // signed-in agent is a lie a person would press.
-    if (next.kind === "none") signing.offer(next.label);
-    else signing.withdrawUnlessAttempting();
-    publish();
-  };
-
-  // THE AGENT'S OWN MESSAGES, for an agent that forwards any — subscribed only
-  // where its leg names a channel, because the method is an extension and
-  // there is no leg-neutral spelling of one. This is what the open's `_meta`
-  // pays for ({@link RawMessages}), and it buys the two facts ACP proper has
-  // nowhere to carry: which model a turn is really running on, and what the
-  // agent says about its own connection to each server we handed it.
-  const raw = leg.rawMessages;
-  if (raw !== null) {
-    app.onNotification(
-      raw.method,
-      (params: unknown) => params,
-      (context) => {
-        onRaw(raw, context.params);
-      },
-    );
-  }
-
-  const connection = app.connect(streamOver(child));
-
-  live = { child, connection };
-
-  // `close` rather than `exit`, and the listener is the one attached at spawn.
-  void child.closed.then(({ code, signal }) => {
-    if (child.failed() !== undefined) return;
-    if (live?.child !== child) return;
-    emit({ _tag: "gone", code: code ?? null, signal: signal ?? null });
-  });
-
   /** The conversation is over — replaced, reloaded, or dead. Everything keyed
    *  to it goes. {@link closed} is named FIRST, while `activeSession` is still
    *  the one being left: nulling it first is what turns the leftover fence off
    *  for the whole of the next open. */
   const leaving = (): void => {
-    if (activeSession !== null) closed.add(activeSession);
-    waitingLinks.clear();
-    questions.withdrawAll();
-    calls.forget();
+    // THE AGENT'S OWN STATE FIRST — which sessions it has left, the questions
+    // it is holding, what it has heard about each call.
+    agent.leave();
     fleet.clear();
     koluReadings.clear();
     // ... and the doubled-prologue arm with the rest: it names a chunk the
     // session BEING LEFT announced, and an arm whose banner never landed would
     // otherwise spend the life of the process waiting to eat the first chunk of
     // any later conversation that happens to equal it.
-    prologue = null;
     taught = false;
     // ... AND THE INTERRUPTION COMES BACK. The latch is about a SESSION the
     // adapter poisoned, not about the agent: a conversation that is over
@@ -1926,12 +1239,6 @@ export const startHarness = async (
   // THE HANDSHAKE, raced against an exec that never happened: a bad adapter
   // path fails AFTER `spawn` returns, and the refusal a person needs is the
   // name of the file that is not there rather than our end of a dead pipe.
-  const failedToStart = child.unstartable.then((why) => {
-    throw new HarnessUnavailable(
-      `could not start the agent \`${adapter.command}\`: ${why}`,
-    );
-  });
-
   // ── opening the conversation ─────────────────────────────────────────
 
   const opening = (): NewSessionRequest =>
@@ -1942,7 +1249,7 @@ export const startHarness = async (
     }) as NewSessionRequest;
 
   const fresh = async (): Promise<void> => {
-    const made = (await request(
+    const made = (await agent.request(
       methods.agent.session.new,
       opening(),
     )) as NewSessionResponse;
@@ -1993,18 +1300,6 @@ export const startHarness = async (
    * they asked for, nor a sentence anybody could act on. It is logged,
    * because the thing it leaves behind is a process.
    */
-  const release = async (sessionId: string | null): Promise<void> => {
-    if (sessionId === null) return;
-    try {
-      await request(methods.agent.session.close, { sessionId }, CLOSE_TIMEOUT);
-    } catch (cause) {
-      log.warn(
-        { session: sessionId, why: messageOf(cause) },
-        "the conversation we left could not be closed; the agent may still be holding it",
-      );
-    }
-  };
-
   /**
    * COME BACK TO A CONVERSATION — or, when the agent says there is no such
    * conversation, open one and SAY SO.
@@ -2040,9 +1335,7 @@ export const startHarness = async (
     // THIS conversation is the one we are coming back to: leftover frames from
     // a previous visit are now news about this one, and the replay that follows
     // names this id before {@link enter} records it.
-    closed.delete(id);
-    replaying = true;
-    replayed = 0;
+    agent.beginReplay(id);
     let loaded: LoadSessionResponse | undefined;
     /** The agent's own sentence, when the answer was a NO this end can act on
      *  — read after the `finally` rather than acted on inside it, because the
@@ -2050,7 +1343,7 @@ export const startHarness = async (
      *  dropped by a flag this `try` has not cleared yet. */
     let lost: string | null = null;
     try {
-      loaded = (await request(
+      loaded = (await agent.request(
         methods.agent.session.load,
         // The SAME `_meta` and the SAME servers a fresh session sends: an
         // adapter reads its subscription off whichever request MADE the
@@ -2063,13 +1356,13 @@ export const startHarness = async (
         throw cause;
       lost = cause.why;
     } finally {
-      replaying = false;
+      const frames = agent.endReplay();
       // ONE LINE FOR THE WHOLE REPLAY, and it is a count rather than a
       // transcript: a conversation of six hundred frames logging each of them
       // is how a resume becomes the longest thing in the file.
-      if (replayed > 0) {
+      if (frames > 0) {
         log.info(
-          { session: id, frames: replayed },
+          { session: id, frames },
           "dropped a session's replay; the persisted rows are the record",
         );
       }
@@ -2136,7 +1429,7 @@ export const startHarness = async (
     const mode = leg.bypassMode;
     if (mode === null) return;
     try {
-      await request(methods.agent.session.setMode, {
+      await agent.request(methods.agent.session.setMode, {
         sessionId: id,
         modeId: mode,
       });
@@ -2201,11 +1494,14 @@ export const startHarness = async (
     const value = pickerValueFor(wanted);
     if (model !== null && pickerValueFor(model.id) === value) return;
     try {
-      const answered = (await request(methods.agent.session.setConfigOption, {
-        sessionId: id,
-        configId: models.config,
-        value,
-      })) as SetSessionConfigOptionResponse;
+      const answered = (await agent.request(
+        methods.agent.session.setConfigOption,
+        {
+          sessionId: id,
+          configId: models.config,
+          value,
+        },
+      )) as SetSessionConfigOptionResponse;
       // The answer rather than the request, for {@link setOption}'s reason: the
       // row says what the agent confirmed.
       readSettings(answered.configOptions);
@@ -2232,10 +1528,10 @@ export const startHarness = async (
 
   /** The harness is in this conversation now. */
   const enter = (id: string): void => {
+    // The agent's own record first: it is the one that fences frames by
+    // session, and it says `session` back through the door.
+    agent.enter(id);
     activeSession = id;
-    // Coming back into a conversation we left makes its leftovers news about
-    // THIS visit.
-    closed.delete(id);
     refusal = null;
     // ... and there is nothing left to sign into — UNLESS the agent says there
     // is. This used to be unconditional, on the reasoning that a sign-in row
@@ -2243,7 +1539,7 @@ export const startHarness = async (
     // kolu ships, whose signed-out `session/new` succeeds. An open is no
     // longer evidence of a signature, so the offer stands until the agent's
     // own `_auth/status_update` stops saying `none`.
-    if (identity?.kind !== "none") signing.withdrawUnlessAttempting();
+    if (identity?.kind !== "none") agent.signInWithdrawn();
     publish();
   };
 
@@ -2287,7 +1583,7 @@ export const startHarness = async (
   const refusedOpen = (cause: unknown): boolean => {
     refusal = messageOf(cause);
     if (cause instanceof HarnessRefused && cause.signIn === "signed-out") {
-      signing.offer(cause.why);
+      agent.signInOffer(cause.why);
       publish();
       return true;
     }
@@ -2295,49 +1591,26 @@ export const startHarness = async (
     return false;
   };
 
-  // THE HANDSHAKE AND THE OPEN, in one `try` because they are one sequence and
-  // a caller holds nothing until it ends: a refusal or a deadline between them
-  // used to reject with the subprocess still running, and every retry left
-  // another adapter — and another `claude` under it — on the host.
+  // THE AGENT, and then the conversation — one `try`, because a caller holds
+  // nothing until both end: a refusal or a deadline anywhere in the sequence
+  // must not leave an adapter (and whatever it spawned) running.
+  //
+  // The handshake is the agent half's (it is the protocol's own first word);
+  // OPENING the conversation is this half's, because the rows a resume mints
+  // are ours.
+  /** Assigned by the boot below; every event that touches it arrives after. */
+  let agent!: Agent;
   try {
-    const initialized = (await Promise.race([
-      request(methods.agent.initialize, {
-        protocolVersion: PROTOCOL,
-        clientCapabilities: {
-          // Not an editor: the agent reaches this host through its terminals or
-          // not at all.
-          fs: { readTextFile: false, writeTextFile: false },
-          elicitation: { form: {}, url: {} },
-          auth: { terminal: true },
-          _meta: { "terminal-auth": true },
-          session: { configOptions: { boolean: {} } },
-        },
-        clientInfo: { name: "kolu", version: "0.1.0" },
-      }),
-      failedToStart,
-    ])) as InitializeResponse;
-    emit({
-      _tag: "offered",
-      offered: methodsIn(initialized, adapter.command, adapter.args),
-      said:
-        initialized.agentInfo === undefined || initialized.agentInfo === null
-          ? null
-          : `${initialized.agentInfo.name} ${initialized.agentInfo.version}`,
-    });
-    // WHAT THIS AGENT TAKES MID-TURN, read ONCE, here. Both are claims the
-    // agent makes about itself at the handshake, and both are read POSITIVELY:
-    // an agent that says nothing is offered no interruption and promises no
-    // queue, which is the direction either is safe to lose in.
-    emit({
-      _tag: "advertised",
-      steers: leg.steering?.advertised(initialized) ?? false,
-      queues: leg.queues(initialized),
-    });
-    const takes = initialized.agentCapabilities?.promptCapabilities;
-    emit({
-      _tag: "carries",
-      image: takes?.image === true,
-      embeddedContext: takes?.embeddedContext === true,
+    agent = await startAgent({
+      leg,
+      adapter,
+      cwd: options.cwd,
+      configDir: options.configDir,
+      mcpServers: options.mcpServers,
+      log,
+      calls,
+      questions,
+      onEvent: emit,
     });
     await openConversation();
   } catch (cause) {
@@ -2345,7 +1618,7 @@ export const startHarness = async (
     // the agent would not open is a failure a caller cannot work around, and a
     // child left running with nothing to talk to is the leak.
     if (!refusedOpen(cause)) {
-      await child.stop();
+      if (agent !== undefined) await agent.stop();
       throw cause;
     }
   }
@@ -2374,9 +1647,9 @@ export const startHarness = async (
     blocks: ReadonlyArray<ContentBlock>,
     sessionId: string,
   ): Promise<void> => {
-    const from = stderrWritten;
+    const from = agent.stderrMark();
     try {
-      const answered = (await request(
+      const answered = (await agent.request(
         methods.agent.session.prompt,
         { sessionId, prompt: blocks },
         // A turn is a person waiting on a model: no deadline.
@@ -2385,7 +1658,7 @@ export const startHarness = async (
       report(transcript.sent(ticket.key));
       if (answered.stopReason === "cancelled") notice("the turn was cancelled");
     } catch (cause) {
-      const said = stderrSince(from);
+      const said = agent.stderrSince(from);
       if (said !== "")
         log.warn({ said }, "the agent's own words for a turn that failed");
       const why = messageOf(cause);
@@ -2400,7 +1673,7 @@ export const startHarness = async (
         // off the screen for the whole life of a process that had already said
         // exactly what was wrong.
         if (cause.signIn === "signed-out") {
-          signing.offer(cause.why);
+          agent.signInOffer(cause.why);
           publish();
         }
       } else {
@@ -2487,7 +1760,7 @@ export const startHarness = async (
     // asked, and a caller that got it wrong loses nothing at all.
     if (steering === null) return "prompt";
     try {
-      const answered = await request(
+      const answered = await agent.request(
         steering.method,
         {
           sessionId,
@@ -2513,7 +1786,7 @@ export const startHarness = async (
       // faces are drawn out of.
       if (cause instanceof HarnessRefused) {
         report(transcript.refused(key, refusalMark(key, cause.signIn)));
-        if (cause.signIn === "signed-out") signing.offer(cause.why);
+        if (cause.signIn === "signed-out") agent.signInOffer(cause.why);
       } else {
         report(transcript.unanswered(key));
       }
@@ -2561,7 +1834,7 @@ export const startHarness = async (
     steer: boolean,
   ): Promise<{ rowId: string }> => {
     const sessionId = activeSession;
-    if (live === null || sessionId === null) {
+    if (!agent.alive() || sessionId === null) {
       throw new HarnessUnavailable("the agent has no session open");
     }
     const attached = await blocksOf(attachments, carries);
@@ -2613,7 +1886,7 @@ export const startHarness = async (
     events: ReadonlyArray<ConductorWakeEvent>,
   ): Promise<{ rowId: string }> => {
     const sessionId = activeSession;
-    if (live === null || sessionId === null) {
+    if (!agent.alive() || sessionId === null) {
       throw new HarnessUnavailable("the agent has no session open");
     }
     const { key, change } = transcript.write({
@@ -2629,7 +1902,7 @@ export const startHarness = async (
 
   const cancel = async (): Promise<void> => {
     const sessionId = activeSession;
-    if (live === null || sessionId === null) return;
+    if (!agent.alive() || sessionId === null) return;
     // The questions this turn was holding go back UNANSWERED rather than being
     // fabricated into an answer the agent never got.
     questions.withdrawAll();
@@ -2637,7 +1910,7 @@ export const startHarness = async (
     // steer still on the wire is read against ({@link steerInto}).
     turns.stopping();
     try {
-      await notify(methods.agent.session.cancel, { sessionId });
+      await agent.notify(methods.agent.session.cancel, { sessionId });
     } catch (cause) {
       // Said in the words of the thing that was asked for, not of the method
       // that carries it: what reaches a person is a refusal under the button
@@ -2677,11 +1950,14 @@ export const startHarness = async (
     if (sessionId === null) {
       throw new HarnessUnavailable("the agent has no session open");
     }
-    const answered = (await request(methods.agent.session.setConfigOption, {
-      sessionId,
-      configId: id,
-      ...settingValueOf(id, value),
-    })) as SetSessionConfigOptionResponse;
+    const answered = (await agent.request(
+      methods.agent.session.setConfigOption,
+      {
+        sessionId,
+        configId: id,
+        ...settingValueOf(id, value),
+      },
+    )) as SetSessionConfigOptionResponse;
     // A REFUSED CHANGE LEAVES THE VALUE WHERE IT WAS, which is what reading the
     // answer rather than the request buys: the row says what the agent
     // confirmed, never what was asked for.
@@ -2712,7 +1988,7 @@ export const startHarness = async (
     report(mark.change);
     // ... and the conversation just left is ENDED at the agent before the next
     // one is opened, rather than left running beside it ({@link release}).
-    await release(left);
+    await agent.release(left);
     try {
       await fresh();
     } catch (cause) {
@@ -2757,7 +2033,7 @@ export const startHarness = async (
     const left = activeSession;
     leaving();
     activeSession = null;
-    await release(left);
+    await agent.release(left);
     try {
       await fresh();
     } catch (cause) {
@@ -2797,220 +2073,6 @@ export const startHarness = async (
     return { type: "boolean", value: value === "true" };
   };
 
-  // ── signing in ───────────────────────────────────────────────────────
-
-  const doSignIn = async (method: string): Promise<SignedIn> => {
-    if (stopped) throw new HarnessUnavailable("the harness is shutting down");
-    const running = signing.inFlight();
-    if (running !== null) {
-      // ONE ATTEMPT PER AGENT: the same method ATTACHES to the row already
-      // being drawn, and a different one is refused — two sign-ins at once is
-      // two processes writing the same credential store.
-      if (running.method === method) return "attached";
-      throw new HarnessRefused(
-        `a sign-in is already running (${running.label})`,
-        "no",
-      );
-    }
-    const found = signing.methods().find((one) => one.method.id === method);
-    if (found === undefined) {
-      throw new HarnessRefused(
-        `\`${method}\` is not a sign-in this agent offers`,
-        "no",
-      );
-    }
-    // THE CLAIM, taken with nothing awaited between reading the slot and
-    // filling it, so a second press in the same tick attaches rather than
-    // spawning a second process.
-    const claim: Attempt = {
-      method,
-      label: found.method.name,
-      write: null,
-      stopping: false,
-      stop: () => Promise.resolve(),
-      link: null,
-      output: "",
-      state: "running",
-    };
-    signing.claim(claim);
-    let ended: SignedIn;
-    try {
-      ended =
-        found.run === null
-          ? await runAgentSignIn(claim, found)
-          : await runTerminalSignIn(claim, found.run);
-    } finally {
-      signing.claim(null);
-    }
-    // A CANCEL IS DECIDED ONCE, here, by the one place that owns the slot a
-    // cancel withdraws. A runner crosses five awaits and a person can press
-    // the button at any of them; re-pairing the ending with its clean-up at
-    // each boundary was five chances to pair them wrong.
-    //
-    // A CANCEL THAT LOST THE RACE IS NOT AN ENDING. The login command exited
-    // 0, which means the credential store has already been written: calling
-    // that `cancelled` tells the caller there is nothing to restart for, and
-    // the running agent then keeps the signature it started with for ever
-    // while the store holds a different one. The row comes down either way —
-    // the person asked for that — but the ANSWER is what happened.
-    if (claim.stopping && ended !== "signed-in") {
-      signing.clearAttempt();
-      ended = "cancelled";
-    }
-    // NOTHING IS RE-ENTERED HERE. A signature only reaches the agent through a
-    // fresh `initialize`, so the conversation somebody signed into is opened
-    // by the restart the CALLER runs — with the session that was live when
-    // the button was pressed. This end used to open one too, out of a
-    // `resume` frozen at boot, which put a person back in the conversation
-    // they had left (or silently into a fresh one) before the restart then
-    // latched whatever that produced.
-    return ended;
-  };
-
-  /** A TERMINAL METHOD: a process this harness runs, whose output IS the row.
-   *
-   *  `BROWSER=true` is not decoration — a CLI that thinks a browser is
-   *  available opens one, and on a host that is either an error or somebody
-   *  else's desktop. Exit 0 is the whole of "it worked", which is the contract
-   *  every one of these CLIs keeps; anything else leaves the output on the row
-   *  AS the failure, because for a CLI the output is what a person reads. */
-  const runTerminalSignIn = async (
-    claim: Attempt,
-    run: {
-      command: string;
-      args: ReadonlyArray<string>;
-      env: Readonly<Record<string, string>>;
-    },
-  ): Promise<SignedIn> => {
-    let process_: Child;
-    try {
-      process_ = startChild(run.command, run.args, {
-        cwd: options.cwd,
-        env: childEnv({ BROWSER: "true", ...run.env }),
-        stdio: ["pipe", "pipe", "pipe"],
-        processGroup: true,
-      });
-    } catch (cause) {
-      throw new HarnessUnavailable(
-        `could not run \`${run.command}\`: ${messageOf(cause)}`,
-      );
-    }
-    const appended = (chunk: string): void => {
-      // NOTHING IS DRAWN FOR A STOPPED ATTEMPT: a killed process still has
-      // whatever it wrote in flight, and a chunk landing between the kill and
-      // the close would re-draw the row the cancel just took away.
-      if (claim.stopping) return;
-      claim.output = `${claim.output}${chunk}`.slice(-SIGN_IN_CAP);
-      signing.sayAttempt();
-    };
-    for (const stream of [process_.stdout, process_.stderr]) {
-      stream?.setEncoding("utf8");
-      stream?.on("data", appended);
-    }
-    // A write to a process that has gone is not this row's news, and an
-    // unhandled `error` on a pipe would take padi down for somebody typing into
-    // a finished login.
-    process_.stdin?.on("error", () => {});
-    claim.write = (line) => {
-      if (process_.stdin === null || process_.stdin.destroyed) return;
-      process_.stdin.write(line);
-    };
-    claim.stop = () => process_.stop().then(() => undefined);
-    // A STOP THAT BEAT THE SPAWN is acted on here rather than never: the claim
-    // is taken before the process is, which is the price of the atomicity.
-    if (claim.stopping) await process_.stop();
-    signing.sayAttempt();
-    const close = await process_.closed;
-    if (process_.failed() !== undefined) {
-      claim.state = "failed";
-      claim.output = `${claim.output}${process_.failed() ?? ""}\n`.slice(
-        -SIGN_IN_CAP,
-      );
-      signing.sayAttempt();
-      return "failed";
-    }
-    if (close.code === 0) {
-      claim.state = "succeeded";
-      signing.sayAttempt();
-      signing.signedIn();
-      return "signed-in";
-    }
-    claim.state = "failed";
-    signing.sayAttempt();
-    return "failed";
-  };
-
-  /** AN AGENT METHOD: a page, a person, and the agent's word for when it is
-   *  done. Nothing here is a process — what this harness runs is the WAIT, and
-   *  it has no deadline at all: a device-code sign-in is somebody finding their
-   *  password and their phone. */
-  const runAgentSignIn = async (
-    claim: Attempt,
-    found: Offered,
-  ): Promise<SignedIn> => {
-    signing.sayAttempt();
-    claim.stop = async () => {
-      // BOTH HALVES, in this order: the question the agent is holding goes back
-      // unanswered — which is what makes a device-code login cancel the login at
-      // ITS end rather than wait forever.
-      claim.link?.answer("decline");
-    };
-    try {
-      await request(
-        methods.agent.authenticate,
-        { methodId: found.method.id },
-        null,
-      );
-    } catch (cause) {
-      claim.state = "failed";
-      claim.output = `${claim.output}${messageOf(cause)}\n`;
-      signing.sayAttempt();
-      return "failed";
-    }
-    claim.state = "succeeded";
-    signing.sayAttempt();
-    signing.signedIn();
-    return "signed-in";
-  };
-
-  /** One line for the process a sign-in is running. The newline is added HERE:
-   *  what a person types is a code, and every one of these CLIs reads it by
-   *  line — the same kind of protocol fact as everything else this file owns. */
-  const signInInput = async (text: string): Promise<void> => {
-    const write = signing.inFlight()?.write ?? null;
-    if (write === null) {
-      throw new HarnessRefused(
-        "no sign-in is waiting for a line to be typed into it",
-        "no",
-      );
-    }
-    write(`${text}\n`);
-  };
-
-  /** ... and stopping it — or, for a row a PERSON asked for, closing it: a
-   *  sign-in somebody asked for and then thought better of leaves everything
-   *  as it was. The agent's own offer stays, with its methods, because the
-   *  refusal behind it still stands. The boolean is whether there was
-   *  anything to stop: a cancel with nothing behind it is a stale tab, not a
-   *  failure. */
-  const signInCancel = async (): Promise<boolean> => {
-    const running = signing.inFlight();
-    if (running !== null) {
-      // Set BEFORE the stop, because the runner reads it on its way out:
-      // which of the two endings this is depends on whether a PERSON asked,
-      // and this is the only moment that is known.
-      running.stopping = true;
-      await running.stop();
-    }
-    if (signing.row()?.cause.kind === "person") {
-      signing.signedIn();
-      return true;
-    }
-    if (running === null) return false;
-    signing.clearAttempt();
-    return true;
-  };
-
   const stop = async (): Promise<void> => {
     // NOTHING MORE IS PUBLISHED FROM HERE, which is what `stopped` buys on its
     // way through {@link report} and {@link publish}: a turn still on the wire
@@ -3019,20 +2081,14 @@ export const startHarness = async (
     // disk for a conversation the daemon has already let go. The one frame a
     // shutdown owes a reader is the last line of this function, sent by hand.
     stopped = true;
-    const at = live;
-    live = null;
-    const running = signing.inFlight();
-    if (running !== null) running.stopping = true;
+    // Leaving is the agent's first — its questions go back unanswered and the
+    // session is closed AT the agent — and then the rows this half owns.
+    await agent.stop();
     leaving();
     identity = null;
     activeSession = null;
     turns.drain();
     busyAt = null;
-    // Close the protocol before the process, and before joining anything
-    // waiting on it.
-    at?.connection.close();
-    await Promise.all([at?.child.stop(), running?.stop()]);
-    signing.claim(null);
     options.onChange({ kind: "state", state: state() });
   };
 
@@ -3045,16 +2101,16 @@ export const startHarness = async (
     // question: an agent that refused the open for want of a signature is
     // offline AND alive, and a caller that replaced it would be killing the
     // process the sign-in is about to run against.
-    alive: () => live !== null && !stopped,
+    alive: () => agent.alive() && !stopped,
     rows: () => transcript.rows(),
     prompt,
     wake,
     cancel,
     answer,
-    signIn: doSignIn,
-    askSignIn: () => signing.ask(),
-    signInInput,
-    signInCancel,
+    signIn: (method: string) => agent.signIn(method),
+    askSignIn: () => agent.askSignIn(),
+    signInInput: (text: string) => agent.signInInput(text),
+    signInCancel: () => agent.signInCancel(),
     setOption,
     newSession,
     clearSession,

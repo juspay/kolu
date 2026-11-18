@@ -15,11 +15,9 @@
  * about what that file is, and a rule about folders would go on passing after
  * somebody moved a row writer next door.
  *
- * WHAT THIS TEST CANNOT DO YET, and says so rather than pretending: `agent.ts`
- * is the split's own file and does not exist until K5.9 lifts it out. A name
- * goes into the list the moment its file does, and the list is deliberately
- * required to be non-empty so a rename cannot turn this into a test of
- * nothing.
+ * `agent.ts` is the whole point of the fence: it is the file another product
+ * could take, and it is the one that would drag a row along if it imported
+ * one.
  */
 
 import { readFileSync } from "node:fs";
