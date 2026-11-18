@@ -24,15 +24,19 @@ import type { Background } from "@kolu/acp/engine";
 import type { SessionConfigOption } from "@agentclientprotocol/sdk";
 import type { Reported } from "@kolu/acp/engine";
 import type {
-  AskField,
   AskLink,
-  AskOutcome,
   AuthStatus,
   FileDiff,
   PlanStep,
   ToolStatus,
   Usage,
 } from "@kolu/acp/wire";
+
+/** WHY a sign-in is on screen — the agent's own refusal, or a person who asked
+ *  for one. */
+export type SignInCause =
+  | { readonly kind: "agent"; readonly why: string }
+  | { readonly kind: "person"; readonly said: string };
 
 /**
  * ONE THING THE AGENT SAID, as the door carries it.
@@ -132,6 +136,23 @@ export type AgentEvent =
         } | null;
       }>;
       readonly said: string | null;
+    }
+  /** THE SIGN-IN ROW, whole: the methods on offer, why it is up, and the
+   *  attempt in flight — or `null` when there is nothing to draw. One event
+   *  because the three compose ONE row, and two events would be two chances to
+   *  draw it half. */
+  | {
+      readonly _tag: "signIn";
+      readonly row: {
+        readonly cause: SignInCause;
+        readonly methods: ReadonlyArray<unknown>;
+        readonly attempt: {
+          readonly method: string;
+          readonly state: "running" | "succeeded" | "failed";
+          readonly output: string;
+          readonly link: AskLink | null;
+        } | null;
+      } | null;
     }
   /** A QUESTION the agent is holding a call open for — a form to fill in, or a
    *  page to visit, in the two modes ACP's own `elicitation/create` has. Same
