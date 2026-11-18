@@ -78,7 +78,7 @@ describe("the roster as olai composed it", () => {
       name: "alpha",
       where: ALPHA.command,
       standing: "connected",
-      said: null,
+      said: "",
       at: "/alpha",
     });
   });
@@ -159,12 +159,21 @@ describe("the roster as the agent's own report leaves it", () => {
         { name: "alpha", attached: true, said: "connected" },
       ]),
     ).toEqual([
-      { name: "olai", where: OLAI.url, standing: "connected", said: null },
+      // ... and the agent's own word rides the row it moved, whole: `said` is
+      // the agent's sentence wherever it said one (`@kolu/acp/wire`'s
+      // `Server`), and a tick with `null` beside it would be a row saying
+      // nobody had spoken about a server the agent had just spoken about.
+      {
+        name: "olai",
+        where: OLAI.url,
+        standing: "connected",
+        said: "connected",
+      },
       {
         name: "alpha",
         where: ALPHA.command,
         standing: "connected",
-        said: null,
+        said: "connected",
       },
     ]);
   });
@@ -184,13 +193,13 @@ describe("the roster as the agent's own report leaves it", () => {
         name: "olai",
         where: OLAI.url,
         standing: "unattached",
-        said: "the agent did not attach it: needs-auth",
+        said: "needs-auth",
       },
       {
         name: "alpha",
         where: ALPHA.command,
         standing: "unattached",
-        said: "the agent did not attach it: failed",
+        said: "failed",
       },
     ]);
   });
@@ -205,7 +214,7 @@ describe("the roster as the agent's own report leaves it", () => {
     ]);
     expect(moved?.[0]).toMatchObject({
       standing: "unattached",
-      said: "the agent did not attach it: reticulating",
+      said: "reticulating",
     });
   });
 
@@ -235,7 +244,12 @@ describe("the roster as the agent's own report leaves it", () => {
         { name: "deepwiki", attached: true, said: "connected" },
       ]),
     ).toEqual([
-      { name: "olai", where: OLAI.url, standing: "connected", said: null },
+      {
+        name: "olai",
+        where: OLAI.url,
+        standing: "connected",
+        said: "connected",
+      },
       { name: "alpha", where: ALPHA.command, standing: "handed", said: null },
     ]);
   });
@@ -283,7 +297,7 @@ describe("the roster as the agent's own report leaves it", () => {
       name: "alpha",
       where: ALPHA.command,
       standing: "connected",
-      said: null,
+      said: "connected",
     });
   });
 

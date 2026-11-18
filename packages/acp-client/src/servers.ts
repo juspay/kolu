@@ -209,16 +209,17 @@ const asSaid = (server: Server, said: ReadonlyArray<Reported>): Server => {
   // WHICH WORD MEANT YES was decided by the leg, which is the file allowed to
   // be wrong about one agent (`@kolu/acp/engine`'s `Leg`). What is left here is
   // the mapping onto a standing, which is true of every agent.
-  const [standing, sentence] = reported.attached
-    ? (["connected", null] as const)
-    : // The agent's own word, quoted rather than translated — the same rule
-      // #140's four probe sentences follow, and the reason a reader can act on
-      // `needs-auth` (sign the server in) differently from `failed` (it broke).
-      ([
-        "unattached",
-        `the agent did not attach it: ${reported.said}`,
-      ] as const);
-  return server.standing === standing && server.said === sentence
+  //
+  // THE WORD IS CARRIED WHOLE AND UNWRAPPED, on both arms: `said` is "the
+  // agent's own sentence about the server wherever it said one"
+  // (`@kolu/acp/wire`'s `Server`), so a row that quoted it inside a sentence of
+  // this file's own would be putting words the agent never wrote into a field
+  // the contract says are its — and a `connected` row that answered `null`
+  // would be saying nobody spoke about a server the agent had just spoken
+  // about. A reader can still act on `needs-auth` (sign the server in)
+  // differently from `failed` (it broke), which is what quoting is for.
+  const standing = reported.attached ? "connected" : "unattached";
+  return server.standing === standing && server.said === reported.said
     ? server
-    : { ...server, standing, said: sentence };
+    : { ...server, standing, said: reported.said };
 };

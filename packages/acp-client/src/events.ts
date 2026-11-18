@@ -99,10 +99,41 @@ export type AgentEvent =
        *  now has to be met rather than cast past. `undefined` is "unchanged". */
       readonly status: ToolStatus | undefined;
       readonly detail: string | undefined;
+      /** ... and the call's ARGUMENTS ALONE, folded the same way. Its own field
+       *  because the two are read at different moments: a failed call says why
+       *  once, in its content, and what is then worth folding under it is what
+       *  was asked rather than the answer again. */
+      readonly asked: string | undefined;
       /** What the call has to SAY while it runs, out of the protocol's content
        *  blocks. Its own field rather than more `detail` because the two answer
        *  different questions — what was asked for, and what is happening. */
       readonly progress: string | undefined;
+      /** THE CALL'S OWN INPUT, verbatim, and the agent's answer as the leg read
+       *  it (`@kolu/acp/engine`'s `Leg`'s `replyIn`, falling back to the frame's
+       *  own `rawOutput`).
+       *
+       *  Raw because a consumer that reads one agent's MCP calls into rows of
+       *  its own — which terminal a call is about, which host — needs the value
+       *  rather than a rendering of it, and needs BOTH halves across frames: the
+       *  arming frame carries the input and the settling frame the answer. The
+       *  reading itself is the consumer's; this is the material. */
+      readonly rawInput: unknown;
+      readonly answer: unknown;
+      /** Which server and tool this frame's call named, where the leg
+       *  positively recognised it as one of the servers THIS conversation was
+       *  handed. Several, because one frame can be several calls on a wire that
+       *  dispatches every MCP tool through one builtin; empty for a call nothing
+       *  recognised. */
+      readonly mcp: ReadonlyArray<{
+        readonly server: string;
+        readonly tool: string;
+      }>;
+      /** Whether this call's question reaches a person as a FORM rather than as
+       *  a card — one agent's own spelling of its own built-in
+       *  (`@kolu/acp/engine`'s `Leg`'s `asksThroughForm`). `undefined` is
+       *  "unchanged", like every field beside it: a call whose name has not
+       *  arrived yet is not a call anything has called ordinary. */
+      readonly asksThroughForm: boolean | undefined;
       /** The files it REWROTE, structured — path, what was there, what is there
        *  now (`@kolu/acp`'s `diffsOf`). Its own field rather than a line of
        *  `progress`, because a change flattened into a sentence is a change a
@@ -226,7 +257,7 @@ export type AgentEvent =
   /** The whole slash-command list, replaced rather than merged. */
   | { readonly _tag: "commands"; readonly commands: ReadonlyArray<Command> }
   /**
-   * WHAT THIS AGENT SAID IT CAN DO, once per handshake — the two facts about a
+   * WHAT THIS AGENT SAID IT CAN DO, once per handshake — the facts about a
    * running agent the panel cannot work out for itself.
    *
    * Not `initialize`'s payload and deliberately not near it: what crosses is
@@ -261,6 +292,30 @@ export type AgentEvent =
        * offer, which is most of them.
        */
       readonly methods: ReadonlyArray<AuthMethod>;
+      /**
+       * ... AND WHAT IT TAKES IN A MESSAGE, beyond the text every agent takes
+       * (`promptCapabilities`).
+       *
+       * ACP makes an image block and an embedded resource OPT-IN at the AGENT's
+       * end: an adapter that never advertised `image` is one an image is not
+       * legal to send to, and sending one anyway is a turn that fails somewhere
+       * inside the agent with a sentence nobody wrote for a person. So a caller
+       * that lets somebody attach a file refuses it HERE, naming the capability,
+       * and both are FALSE for an agent that advertised neither — nothing is
+       * carried by an agent that did not say it carries it.
+       */
+      readonly image: boolean;
+      readonly embeddedContext: boolean;
+      /**
+       * ... AND WHAT IT CALLS ITSELF — `agentInfo` as the one phrase it gives
+       * (`name` and `version`), or `null` for an agent that gave none.
+       *
+       * The one thing a DEAD END has to say: an agent that will not work and
+       * advertises no way to sign in leaves a caller with nothing but the whole
+       * account of what was asked and what came back, and which agent it was
+       * asking is half of that account.
+       */
+      readonly agent: string | null;
     }
   /**
    * The MCP servers this conversation has, and how each one stands — the whole
@@ -322,8 +377,16 @@ export type AgentEvent =
    * gets the chip with nothing here changed.
    */
   | { readonly _tag: "identity"; readonly identity: AuthStatus | null }
-  /** The model this session runs, labelled the way the agent labels its own. */
-  | { readonly _tag: "model"; readonly name: string | null }
+  /** The model this session runs: the id whichever source named it last, and
+   *  the label the agent's own picker gives that id — the id because a reading
+   *  of a model that needs more than a name (its context window, out of the
+   *  picker's rows) has nothing else to ask with, and the raw id where the
+   *  picker offers no row for it. `null` on both when no source has named one. */
+  | {
+      readonly _tag: "model";
+      readonly id: string | null;
+      readonly name: string | null;
+    }
   | {
       readonly _tag: "models";
       readonly choices: ReadonlyArray<{

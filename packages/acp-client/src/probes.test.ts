@@ -151,11 +151,16 @@ describe("asking what this host is running", () => {
 });
 
 describe("what the session is handed", () => {
-  const tools = {
-    name: "olai",
-    url: "http://127.0.0.1:7714/mcp",
-    token: "secret",
-  };
+  /** The caller's own server, in the terms it hands one over in: an endpoint
+   *  on this process's listener, with whatever it takes to be let in. */
+  const tools = [
+    {
+      kind: "http" as const,
+      name: "olai",
+      url: "http://127.0.0.1:7714/mcp",
+      headers: { Authorization: "Bearer secret" },
+    },
+  ];
 
   const OLAI_ENTRY = {
     type: "http" as const,

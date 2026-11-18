@@ -33,11 +33,14 @@ const REMEMBERS_NOTHING: Memory = {
   remember: () => Effect.void,
 };
 
-const TOOLS = {
-  name: "olai",
-  url: "http://127.0.0.1:7714/mcp",
-  token: "secret",
-};
+const TOOLS = [
+  {
+    kind: "http" as const,
+    name: "olai",
+    url: "http://127.0.0.1:7714/mcp",
+    headers: { Authorization: "Bearer secret" },
+  },
+];
 
 let cwd = "";
 const wasState = process.env["XDG_STATE_HOME"];
@@ -102,7 +105,7 @@ describe("leftovers from a conversation that just closed", () => {
   test("PIN: a leftover init does not connect the next conversation's servers", async () => {
     await withAgent(async (agent, events) => {
       await run(agent.boot);
-      await run(agent.prompt("hello"));
+      await run(agent.prompt([{ type: "text", text: "hello" }]));
       expect(standingOf(events, "olai")).toBe("connected");
 
       await run(agent.newSession);
@@ -116,7 +119,7 @@ describe("leftovers from a conversation that just closed", () => {
   test("PIN: a leftover chunk does not refill the transcript a new conversation emptied", async () => {
     await withAgent(async (agent, events) => {
       await run(agent.boot);
-      await run(agent.prompt("hello"));
+      await run(agent.prompt([{ type: "text", text: "hello" }]));
       await run(agent.newSession);
       expect(afterOver(events).some((event) => event._tag === "said")).toBe(
         false,

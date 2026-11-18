@@ -179,16 +179,42 @@ import {
 import * as Questions from "./questions.ts";
 import { movedBy, rosterOf } from "./servers.ts";
 
-/** An MCP server to hand a session, in olai's terms. {@link mcpServersOf}
- *  renders it into what the protocol wants. */
-export interface ToolServer {
-  readonly name: string;
-  readonly url: string;
-  /** Presented as a bearer token. The route is on the same loopback listener
-   *  as everything else, and a WRITE surface any page could POST at is a
-   *  different bargain from a read-only one. */
-  readonly token: string;
-}
+/**
+ * ONE MCP SERVER TO HAND A SESSION, in the caller's terms —
+ * {@link mcpServersOf} renders it into what the protocol wants.
+ *
+ * Two arms because the two transports are two different things to be: a
+ * PROGRAM on this host, spoken to over its stdin and stdout, and an ENDPOINT
+ * somebody is already serving, reached over streamable HTTP. A caller with a
+ * route on its own listener hands the second; a caller that found a binary
+ * hands the first.
+ *
+ * `kind` is the IN-TREE discriminant and never reaches the wire: ACP's stdio
+ * arm is the one with no `type` key at all, and an entry carrying
+ * `type: "stdio"` is silently dropped by the pinned Claude adapter.
+ * {@link mcpServersOf} owns that translation.
+ *
+ * `headers` carries whatever an endpoint takes to be let in — a bearer token
+ * for a loopback route is the usual one, and it stays the caller's to compose,
+ * because a client that spelled `Authorization` itself would be deciding how
+ * somebody else's server authenticates.
+ */
+export type Handed =
+  | {
+      readonly kind: "stdio";
+      readonly name: string;
+      /** Absolute: the file that is meant to run, not a word to resolve again
+       *  against whatever `PATH` the agent happens to have. */
+      readonly command: string;
+      readonly args: ReadonlyArray<string>;
+      readonly env: Readonly<Record<string, string>>;
+    }
+  | {
+      readonly kind: "http";
+      readonly name: string;
+      readonly url: string;
+      readonly headers: Readonly<Record<string, string>>;
+    };
 
 /** What the plugin that owns a tool said about it: the title a person reads,
  *  and who owns it ({@link Options.advertised}). */
@@ -393,17 +419,19 @@ export interface Options {
    *  what makes stored sessions findable: an agent keys its conversations by
    *  the directory it was started in. */
   readonly cwd: string;
-  /** The tool server to hand every session, or `null` while there is none.
+  /** The MCP servers to hand every session, IN THE ORDER a person should read
+   *  them — empty for a caller with none of its own.
    *
-   *  A THUNK, because the address is not known until the listener has bound and
-   *  the agent is built before that — so the panel can report a boot failure
-   *  rather than the boot failing to start. Read once per `session/new` and
-   *  `session/load`.
+   *  A THUNK, because an address is not known until the listener that serves it
+   *  has bound and the agent is built before that — so the caller can report a
+   *  boot failure rather than the boot failing to start. Read once per
+   *  `session/new` and `session/load`.
    *
-   *  Olai's own description, not ACP's: this module is the only one allowed to
-   *  know what an `McpServer` looks like on the wire, and a composition root
-   *  that hand-built one would be a second place that knows. */
-  readonly tools: () => ToolServer | null;
+   *  The caller's own description, not ACP's ({@link Handed}): this module is
+   *  the only one allowed to know what an `McpServer` looks like on the wire,
+   *  and a composition root that hand-built one would be a second place that
+   *  knows. */
+  readonly tools: () => ReadonlyArray<Handed>;
   /**
    * The OPTIONAL servers to look for, once per conversation — whatever else
    * this host turns out to be running ({@link ./probes.ts}).
@@ -455,12 +483,22 @@ export interface Agent {
   /** Spawn and hand-shake if that has not happened. Idempotent, and serialized
    *  against itself: two callers racing a cold start get one subprocess. */
   readonly boot: Effect.Effect<void, AgentGone>;
-  /** One turn. Answers with the agent's stop reason (`end_turn`, `cancelled`,
-   *  …) — the turn's END is a return value rather than an event, because the
-   *  caller that asked is the one waiting. A turn the agent REFUSED fails with
-   *  `refused`, which is that word's whole point: the agent answered, so the
-   *  TURN ended rather than the conversation ({@link Gone}). */
-  readonly prompt: (text: string) => Effect.Effect<string, AgentGone>;
+  /** One turn, as the CONTENT BLOCKS it is made of. Answers with the agent's
+   *  stop reason (`end_turn`, `cancelled`, …) — the turn's END is a return
+   *  value rather than an event, because the caller that asked is the one
+   *  waiting. A turn the agent REFUSED fails with `refused`, which is that
+   *  word's whole point: the agent answered, so the TURN ended rather than the
+   *  conversation ({@link Gone}).
+   *
+   *  BLOCKS RATHER THAN TEXT, because a message is not only words: an image
+   *  somebody pasted, a file's text embedded, a link to one left on disk are
+   *  all blocks of the one prompt, and a door that took a string would make
+   *  every one of them unsendable. What a block may BE is the agent's own
+   *  answer at the handshake ({@link AgentEvent}'s `advertised`), and refusing
+   *  one it cannot take belongs to the caller that let somebody attach it. */
+  readonly prompt: (
+    blocks: ReadonlyArray<ContentBlock>,
+  ) => Effect.Effect<string, AgentGone>;
   /**
    * Put a message INTO the turn already running — see {@link Steered} for the
    * two things that can come back, and the error channel for every way it
@@ -1479,7 +1517,12 @@ export const make = (options: Options): Effect.Effect<Agent, never, never> =>
                 title: undefined,
                 status: undefined,
                 detail: undefined,
+                asked: undefined,
                 progress: undefined,
+                rawInput: undefined,
+                answer: undefined,
+                mcp: [],
+                asksThroughForm: undefined,
                 diffs: undefined,
                 called: undefined,
                 row: undefined,
@@ -1542,8 +1585,12 @@ export const make = (options: Options): Effect.Effect<Agent, never, never> =>
             recognized,
             notification.sessionId,
           );
-          const called =
-            calls.about(update.toolCallId, notification.sessionId).mcp ?? [];
+          const said = calls.about(update.toolCallId, notification.sessionId);
+          const called = said.mcp ?? [];
+          // WHICH TOOL IT IS, programmatically, as any frame of this call has
+          // said it — never the display title. Read once: three readers below
+          // ask the same registry the same question.
+          const named = said.name;
           // WHAT OLAI ADVERTISES EACH OF THEM AS. A frame is one row however
           // many calls it made, so the row is composed rather than picked: a
           // Code Mode `execute` that ran three of olai's tools is three
@@ -1602,6 +1649,33 @@ export const make = (options: Options): Effect.Effect<Agent, never, never> =>
               update.rawInput,
               ours === null ? update.rawOutput : undefined,
             ),
+            // ... and the arguments ALONE, for the fold under a call that
+            // failed: its content said why, and repeating the answer under it
+            // says the same thing twice.
+            asked: detailOf(update.rawInput, undefined),
+            // THE MATERIAL A CONSUMER'S OWN READING IS MADE OF, both halves,
+            // across the two frames that carry them: the input this frame was
+            // armed with, and what came back — through the leg, because an MCP
+            // server's reply reaches an adapter as the TEXT of a content block
+            // and which corner of a frame holds it is exactly what a leg
+            // answers. The frame's own output where the leg reads nothing.
+            rawInput: update.rawInput,
+            answer:
+              options.leg.replyIn(update.rawOutput, update.content) ??
+              update.rawOutput,
+            // ... and which of the servers THIS conversation handed over the
+            // leg recognised the call as, positively: a call nothing
+            // recognised carries an empty list rather than a guess.
+            mcp: called.map((one) => ({ server: one.server, tool: one.tool })),
+            // ... and whether its question reaches a person as a FORM rather
+            // than as a card — one agent's own spelling of its own built-in.
+            // Absent rather than `false`, because a call whose name has not
+            // arrived yet is not a call anything has called ordinary.
+            asksThroughForm:
+              named !== undefined &&
+              options.leg.asksThroughForm?.(named) === true
+                ? true
+                : undefined,
             progress: progressOf(update.content),
             // Direct file changes remain protocol diff blocks.
             diffs: diffsOf(update.content, options.cwd),
@@ -1628,7 +1702,7 @@ export const make = (options: Options): Effect.Effect<Agent, never, never> =>
                 // halves at once. The registry holds what any frame said
                 // ({@link ./calls.ts}), which is what positive recognition
                 // means when the facts arrive separately.
-                calls.about(update.toolCallId, notification.sessionId).name,
+                named,
               ),
             ),
             // ... and whether it ARMED a background task — a monitor, a
@@ -1841,11 +1915,16 @@ export const make = (options: Options): Effect.Effect<Agent, never, never> =>
     const sameAs = (one: string, other: string): boolean =>
       models === null ? one === other : sameModel(models, labels, one, other);
 
-    /** Say what the header names, when it changes. */
-    const show = (name: string | null): void => {
+    /** Say what the header names, when it changes — and WHICH model that is,
+     *  which travels beside the name rather than instead of it: a reading that
+     *  needs more than a label (how big the context is, out of the picker's
+     *  own rows) has only the id to ask with. Debounced on the NAME, because
+     *  the name is what is on screen: two sources that agree about the model in
+     *  two spellings of its id are not news. */
+    const show = (id: string | null, name: string | null): void => {
       if (name === shown) return;
       shown = name;
-      emit({ _tag: "model", name });
+      emit({ _tag: "model", id, name });
     };
 
     /** The conversation is over, as far as WHICH MODEL is concerned: what the
@@ -1926,7 +2005,7 @@ export const make = (options: Options): Effect.Effect<Agent, never, never> =>
       const switched = picked !== null && changed;
       picked = picker.picked;
       if (changed || source === "selected")
-        show(picked === null ? null : (nameFor(picked) ?? picked));
+        show(picked, picked === null ? null : (nameFor(picked) ?? picked));
       return switched || source === "selected" ? picked : null;
     };
 
@@ -1962,7 +2041,7 @@ export const make = (options: Options): Effect.Effect<Agent, never, never> =>
       // The CLI is the only source that ever reports a `/model`, so this is the
       // line the whole memory hangs off.
       if (switched) moved(id);
-      show(name ?? id);
+      show(id, name ?? id);
     };
 
     /**
@@ -2393,11 +2472,23 @@ export const make = (options: Options): Effect.Effect<Agent, never, never> =>
             options.args,
             options.leg.terminalAuth,
           );
+          // ... AND WHAT A MESSAGE TO IT MAY CARRY, read off the same answer.
+          // ACP makes both opt-in at the agent's end, so an agent that said
+          // nothing takes neither — the direction a missing advertisement is
+          // safe to fail in.
+          const takes = initialized.agentCapabilities?.promptCapabilities;
+          const said = initialized.agentInfo;
           emit({
             _tag: "advertised",
             steers: options.leg.steering?.advertised(initialized) ?? false,
             queues: options.leg.queues(initialized),
             methods: offered.map((one) => one.method),
+            image: takes?.image === true,
+            embeddedContext: takes?.embeddedContext === true,
+            agent:
+              said === undefined || said === null
+                ? null
+                : `${said.name} ${said.version}`,
           });
         }
         // AFTER the handshake, not after `spawn` returns: an exec failure
@@ -2731,7 +2822,21 @@ export const make = (options: Options): Effect.Effect<Agent, never, never> =>
         // that reorders ships the banner to the transcript instead, which is
         // the safe direction.
         prologue = options.leg.prologueIn(made);
-        readModel(made.configOptions);
+        // ... AND THE MODEL IT IS MEANT TO BE ON, asked of the same memory a
+        // LOAD asks ({@link readChoice}) and answered for the session that has
+        // just been made. A caller whose memory is keyed to one conversation
+        // has nothing written down for an id minted a moment ago, so this
+        // costs it nothing; a caller whose answer is a PIN — the model a
+        // person chose for this panel, whichever conversation it opens — is
+        // the one this exists for, and the agent's own default outranks it at
+        // the agent's end exactly as it does on a resume.
+        yield* readChoice(made.sessionId);
+        yield* restore(
+          at,
+          made.sessionId,
+          made.configOptions,
+          modelFor(made.sessionId),
+        );
         yield* askForBypass(at, made.sessionId, made.configOptions);
         yield* entered(made.sessionId, null, "new", started);
       });
@@ -2951,20 +3056,21 @@ export const make = (options: Options): Effect.Effect<Agent, never, never> =>
           }),
         );
         if (result._tag === "Failure") {
-          const why = `could not select permission mode ${mode} for session ${id}: ${result.failure.why}`;
+          // SAID AS THE THING THAT WAS ASKED FOR: a person reads that the
+          // conversation is not in the permission mode it was meant to be in,
+          // not that a method they have never heard of answered an error.
+          const why = `the permission mode \`${mode}\` was not selected: ${result.failure.why}`;
           if (options.leg.bypassModeRequired === true) {
             // Replay and settings can arrive before selection. Withdraw that
             // provisional visit and fence its late notifications just like a
             // session we left; no active session or memory claim was made.
             closed.add(id);
             leaving();
-            show(null);
+            show(null, null);
             emit({ _tag: "sessionOver", why: "refused" });
             return yield* new AgentGone({ gone: result.failure.gone, why });
           }
-          trouble(
-            `${why}; continuing with the adapter's existing permission mode`,
-          );
+          trouble(`${why} — carrying on with the mode the agent chose`);
           return;
         }
         // set_mode may acknowledge without publishing config_option_update.
@@ -3553,7 +3659,7 @@ export const make = (options: Options): Effect.Effect<Agent, never, never> =>
           : use(at, id);
       });
 
-    const prompt = (text: string) =>
+    const prompt = (blocks: ReadonlyArray<ContentBlock>) =>
       withSession((at, id) =>
         Effect.gen(function* () {
           // A cancel that arrived during the handshake is sent the moment the
@@ -3589,12 +3695,21 @@ export const make = (options: Options): Effect.Effect<Agent, never, never> =>
             );
           }
           // Size, never content: a prompt is somebody's words and the journal
-          // is for the operator, not a transcript. UTF-8 bytes, not UTF-16
-          // code units — `text.length` would under-count anything non-ASCII.
+          // is for the operator, not a transcript. The TEXT's UTF-8 bytes, not
+          // UTF-16 code units — `length` would under-count anything non-ASCII —
+          // and a block that is not prose counts as the nothing it says: what
+          // an attachment weighs is the file's, and the line is about what was
+          // typed.
           const from = stderrWritten;
           const started = Date.now();
           yield* lifecycle(Effect.logInfo("prompt sent"), {
-            bytes: Buffer.byteLength(text),
+            bytes: blocks.reduce(
+              (total, block) =>
+                total +
+                (block.type === "text" ? Buffer.byteLength(block.text) : 0),
+              0,
+            ),
+            blocks: blocks.length,
           });
           // A TURN THE AGENT REFUSES fails like any other request and needs
           // nothing said about it here: `refused` means the agent answered, so
@@ -3607,7 +3722,7 @@ export const make = (options: Options): Effect.Effect<Agent, never, never> =>
             ask(
               at.connection,
               methods.agent.session.prompt,
-              { sessionId: id, prompt: [{ type: "text", text }] },
+              { sessionId: id, prompt: [...blocks] },
               // A turn is a person waiting on a model: no deadline.
               null,
             ),
@@ -3682,6 +3797,14 @@ export const make = (options: Options): Effect.Effect<Agent, never, never> =>
     const cancel = Effect.suspend(() => {
       const at = live;
       const id = activeSession;
+      // THE QUESTIONS THE TURN WAS HOLDING GO BACK UNANSWERED, before the
+      // cancel reaches the wire and whether or not there is a wire to reach:
+      // the turn a person just stopped is the turn those questions belong to,
+      // and an agent that is about to abandon them will never answer one. They
+      // are handed back rather than fabricated into an answer the agent never
+      // got — a withdrawal is `cancel` on the wire, which aborts the tool use
+      // the question was asked from.
+      questions.withdrawAll();
       if (at === null || id === null) {
         // Nothing to cancel yet — remember it for the prompt that is still
         // being handshaked into place.
@@ -3836,12 +3959,19 @@ export const make = (options: Options): Effect.Effect<Agent, never, never> =>
       loadSession: (id: string) =>
         opening((at) =>
           Effect.gen(function* () {
-            if (!at.canLoad) {
-              return yield* new AgentGone({
-                gone: "unreachable",
-                why: `\`${id}\` cannot be opened: this agent does not keep conversations`,
-              });
-            }
+            // NOT GATED ON THE ADVERTISEMENT, and that is the same argument
+            // {@link steer} makes one screen down: `loadSession` is a
+            // PREDICTION of what this request itself proves, and an agent that
+            // keeps no conversations refuses the request in its own words —
+            // which is a sentence about THIS conversation, reaches the caller
+            // on the one channel every other refusal does, and is the agent's
+            // rather than a guess of ours. Read as a capability, the two
+            // unlike answers "there is no such conversation" and "this build
+            // does not advertise the method" became one made-up sentence with
+            // no refusal behind it, and a caller whose remedy for an
+            // unresumable conversation is to open a fresh one had nothing to
+            // act on. The capability is still read where the client CHOOSES a
+            // conversation instead of being told one ({@link openSession}).
             const stored = yield* storedFor(at);
             const wanted = stored.find((entry) => entry.id === id);
             const left = activeSession;
@@ -4486,35 +4616,47 @@ export const adopt = (
   stored.find((entry) => entry.id === remembered) ?? stored[0];
 
 /** What a session is handed, as ACP's `mcpServers`. The one place the
- *  protocol's shape for either transport is spelled: olai's own tool server is
- *  http because it is a route on the listener this process already has, and an
- *  optional one is stdio because it is somebody else's program on this host.
+ *  protocol's shape for either transport is spelled: an endpoint carries
+ *  ACP's `type: "http"`, and a program on this host carries NO `type` key at
+ *  all — the pinned Claude adapter silently drops an entry that says
+ *  `"stdio"`, so the in-tree discriminant must not cross.
  *
- *  A LIST for the second argument, in the order they were probed
- *  ({@link ./probes.ts} keeps it), and olai's own first because olai's own is
- *  handed first. It is the order the roster is read off, so it is the order a
- *  person sees. */
+ *  ORDER IS THE CALLER'S, and the probed servers come after it. It is the
+ *  order the roster is read off, so it is the order a person sees. */
 export const mcpServersOf = (
-  server: ToolServer | null,
+  handed: ReadonlyArray<Handed>,
   stdio: ReadonlyArray<StdioServer>,
 ): ReadonlyArray<McpServer> => [
-  ...(server === null
-    ? []
-    : [
-        {
+  ...handed.map((one) =>
+    one.kind === "http"
+      ? {
           type: "http" as const,
-          name: server.name,
-          url: server.url,
-          headers: [{ name: "Authorization", value: `Bearer ${server.token}` }],
+          name: one.name,
+          url: one.url,
+          headers: pairs(one.headers),
+        }
+      : {
+          name: one.name,
+          command: one.command,
+          args: [...one.args],
+          env: pairs(one.env),
         },
-      ]),
+  ),
   ...stdio.map((one) => ({
     name: one.name,
     command: one.command,
     args: [...one.args],
-    env: Object.entries(one.env).map(([name, value]) => ({ name, value })),
+    env: pairs(one.env),
   })),
 ];
+
+/** A record as the list of pairs ACP wants, for both the environment of a
+ *  program and the headers of an endpoint — mutable, because the SDK's own
+ *  entry shapes are. */
+const pairs = (
+  of: Readonly<Record<string, string>>,
+): Array<{ name: string; value: string }> =>
+  Object.entries(of).map(([name, value]) => ({ name, value }));
 
 const isJson = Schema.is(Schema.Json);
 

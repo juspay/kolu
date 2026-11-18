@@ -25,7 +25,7 @@ for (const opening of ["new", "load"] as const) {
           command: process.execPath,
           args: [join(import.meta.dirname, "fixtures/mode-agent.ts")],
           cwd,
-          tools: () => null,
+          tools: () => [],
           memory: {
             recall: Effect.succeed(null),
             remember: (value) =>

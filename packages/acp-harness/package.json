@@ -16,20 +16,18 @@
     "typecheck": "tsc --noEmit",
     "test:daemon": "vitest run"
   },
-  "//dependencies": "THE ONE PACKAGE IN THIS TREE THAT RUNS THE PROTOCOL, so the SDK is a RUNTIME dependency here and a type-only one in `@kolu/acp` (`packages/acp/src/manifest.test.ts` holds both halves). `kolu-common` is imported for the row and state TYPES alone — the harness writes that contract and never reaches for a daemon itself. `kolu-mcp` is reached ONLY at its `/fleetRef` leaf, which is the one definition of the `host/id` grammar a kolu call's args are written in; that subpath deliberately carries no MCP SDK and no padi-client, so the manifest above stays true. `@kolu/terminal-vocab` is reached ONLY at its `/terminalId` leaf, for `isTerminalId`: a string the agent wrote becomes a card's terminal only if it passes the same check the wire's row schema applies, so the reading and the encoder cannot disagree. That leaf's one import is effect — the only piece of effect this package's runtime carries. `@kolu/child` is a LEAF beside `@kolu/log`: the subprocess socket, with no dependency of its own, so the adapter and the sign-in command are started by one definition rather than a second copy here.",
+  "//dependencies": "`@kolu/acp-client` RUNS THE PROTOCOL — this package holds one conversation on top of it and spawns nothing itself, so the SDK is the client's runtime dependency and no longer this one's (`packages/acp/src/manifest.test.ts` holds that). `effect` is a runtime dependency for the same reason: the client's verbs are Effects, and the one boundary in `conversation.ts` runs them. `kolu-common` is imported for the row and state TYPES alone — the harness writes that contract and never reaches for a daemon itself. `kolu-mcp` is reached ONLY at its `/fleetRef` leaf, which is the one definition of the `host/id` grammar a kolu call's args are written in; that subpath deliberately carries no MCP SDK and no padi-client, so the manifest above stays true. `@kolu/terminal-vocab` is reached ONLY at its `/terminalId` leaf, for `isTerminalId`: a string the agent wrote becomes a card's terminal only if it passes the same check the wire's row schema applies, so the reading and the encoder cannot disagree.",
   "dependencies": {
-    "@agentclientprotocol/sdk": "1.9.0",
     "@kolu/acp": "workspace:*",
-    "@kolu/child": "workspace:*",
+    "@kolu/acp-client": "workspace:*",
     "@kolu/terminal-vocab": "workspace:*",
+    "effect": "catalog:",
     "kolu-common": "workspace:*",
     "kolu-mcp": "workspace:*"
   },
-  "//devDependencies": "`effect` for `src/kolu.test.ts` alone, which encodes readings under the contract's row schema — the check production leaves to the host that publishes the rows. `@kolu/acp-client` for its `./testlib` alone: every fixture agent lives there, beside the client whose protocol they speak.",
+  "//devDependencies": "Nothing but the toolchain: the fixture agents this suite spawns are `@kolu/acp-client`'s, and the client is a runtime dependency above.",
   "devDependencies": {
-    "@kolu/acp-client": "workspace:*",
     "@types/node": "^22.0.0",
-    "effect": "catalog:",
     "typescript": "^7.0.2",
     "vitest": "^5.0.3"
   }

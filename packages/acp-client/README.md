@@ -10,15 +10,16 @@ The code came from [olai](https://github.com/juspay/olai)'s chat plugin (`packag
 
 | Entry | What |
 |---|---|
-| `.` | `make` and the `Agent` it returns; `AgentEvent` and `Stored`; `AgentGone`, `Gone` and `StopReason`; `ToolServer` and `Advertised`; the `Memory`, `MemorySnapshot`, `MemoryFailure`, `Models` and `Conversing` interfaces its options take; `Probe`, `Probed` and `StdioServer`; `AnswerRefused`; `newestFirst` |
+| `.` | `make` and the `Agent` it returns; `AgentEvent` and `Stored`; `AgentGone`, `Gone`, `SignedIn`, `Steered` and `StopReason`; `Handed` (one MCP server to hand a session, stdio or http) and `Advertised`; `ContentBlock`, which a prompt is made of; the `Memory`, `MemorySnapshot`, `MemoryFailure`, `Models` and `Conversing` interfaces its options take; `Probe`, `Probed` and `StdioServer`; `AnswerRefused`; `newestFirst` |
 | `./testlib` | the fixture legs (`SAYS_NOTHING`, `FORWARDS`, `NAMES_IN_META`, …) and `fixtureAgent(name)`, the absolute path of a fixture agent in `src/fixtures/` |
 
 The client is written in Effect. It logs through Effect's own logger, so the caller supplies the logger layer; nothing here picks a sink.
 
 ## Who depends on it
 
+- [`@kolu/acp-harness`](../acp-harness), for every conversation kolu's Conductor holds: it drives `make`, consumes the events, and runs the Effects at its own promise-shaped door.
 - olai's chat plugin, for every conversation it holds.
-- `@kolu/acp-harness`'s tests, for the fixture agents (`./testlib`). Every fixture agent either product's runner tests spawn lives in `src/fixtures/`.
+- both products' runner tests, for the fixture agents (`./testlib`). Every fixture agent either runner spawns lives in `src/fixtures/`.
 
 It depends on `@kolu/acp` (the protocol's words), `@kolu/child` (the subprocess), the protocol SDK and `effect`. olai vendors this directory, so its manifest spells literal versions.
 

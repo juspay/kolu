@@ -22,9 +22,9 @@
  *
  * The claims: the domain's words stay out (no `@kolu/*` specifier here, so a
  * kolu type cannot move in by increments — refusals leave as
- * {@link ./asks.ts}'s own `Refused`, translated at the harness seam); the
+ * {@link ./asks.ts}'s own `Refused`, translated at the client's seam); the
  * package speaks only ACP; the SDK is TYPES here — the runtime and its zod
- * peer stay in the two packages that run the protocol; the protocol enters the tree in a closed
+ * peer stay in `@kolu/acp-client`, the one package that runs the protocol; the protocol enters the tree in a closed
  * set of packages; the export lists are closed and disjoint; and who may
  * import which HALF is a table, so the `./wire` carve-out is a fact and not a
  * comment.
@@ -201,17 +201,18 @@ describe("the manifest", () => {
     }
   });
 
-  test("the protocol enters the tree here and in the two packages that run it", () => {
-    // `@kolu/acp-client` SPAWNS an ACP subprocess and holds the connection,
-    // and `@kolu/acp-harness` still runs its own until it sits on the client,
-    // so those two carry the SDK's runtime. An agent's integration leg names
-    // none of the SDK's types in its production sources — `@kolu/acp/engine`
-    // carries the ones a leg's signatures need — which is why this list can
-    // still be written down.
+  test("the protocol enters the tree here and in the package that runs it", () => {
+    // `@kolu/acp-client` SPAWNS an ACP subprocess and holds the connection, so
+    // it carries the SDK's runtime; `@kolu/acp-harness` sits on that client
+    // and names the SDK nowhere at all — the one protocol shape it composes,
+    // a prompt's content blocks, it takes from the client's own door. An
+    // agent's integration leg names none of the SDK's types in its production
+    // sources — `@kolu/acp/engine` carries the ones a leg's signatures need —
+    // which is why this list can still be written down.
     const speaking = [...tree.keys()].filter((pkg) =>
       sources(pkg).some((source) => source.specifiers.some(isSdk)),
     );
-    expect(speaking.sort()).toEqual(["acp", "acp-client", "acp-harness"]);
+    expect(speaking.sort()).toEqual(["acp", "acp-client"]);
   });
 
   test("what may cross is enumerated: the export lists are closed and disjoint", () => {
@@ -290,12 +291,14 @@ describe("the manifest", () => {
    * Every other member's `[]` is what says nothing else opens any of them.
    */
   const MAY: Readonly<Record<string, ReadonlyArray<string>>> = {
-    // THE ROWS WITH ALL THREE, and that is what running the protocol IS: the
-    // client and the harness read the projections (`.`), spell the leg and
-    // the adapter they were handed (`./engine`), and write the vocabulary a
-    // product's contract carries (`./wire`).
+    // THE ROW WITH ALL THREE, and that is what running the protocol IS: the
+    // client reads the projections (`.`), spells the leg and the adapter it
+    // was handed (`./engine`), and writes the vocabulary a product's contract
+    // carries (`./wire`).
     "acp-client": ["@kolu/acp", "@kolu/acp/engine", "@kolu/acp/wire"],
-    "acp-harness": ["@kolu/acp", "@kolu/acp/engine", "@kolu/acp/wire"],
+    // The harness sits on that client: it reads no payload, so it spells the
+    // leg and the adapter it hands down and writes the rows' vocabulary.
+    "acp-harness": ["@kolu/acp/engine", "@kolu/acp/wire"],
     // An agent's INTEGRATION reads nothing here any more, and that is the row
     // that says so: the leg, the adapter and the `NotHere` moved to
     // `acp-claude` when they became a package two products share, and what is
@@ -303,7 +306,7 @@ describe("the manifest", () => {
     "integrations/claude-code": [],
     // Claude Code, as a package both products vendor: its leg IS the door's
     // `Leg`, so this is an instance of the contract rather than a reader of
-    // payloads. The projections are the harness's to run, and the wire's words
+    // payloads. The projections are the client's to run, and the wire's words
     // are the surface's to carry.
     "acp-claude": ["@kolu/acp/engine"],
     // kolu's browser-safe contract half declares the orchestrator's members in

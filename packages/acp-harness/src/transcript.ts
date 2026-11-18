@@ -910,9 +910,14 @@ export class Transcript<Row extends AnyRow> {
       move.progress === undefined &&
       move.spawned === undefined &&
       move.extra === undefined &&
-      move.armed?.report !== undefined &&
-      move.armed.ended === undefined &&
-      move.armed.description === undefined
+      move.armed?.report != null &&
+      // NOTHING SAID, however a reporter spells it. `Armed` is a value on a
+      // wire where `undefined` is not one of the words, so a frame that only
+      // reports carries `null` for the two it says nothing about — and a
+      // guard that read only `undefined` would mint a row for the one frame
+      // it exists to refuse.
+      (move.armed.ended ?? null) === null &&
+      (move.armed.description ?? null) === null
     ) {
       return EMPTY as Change<Row>;
     }

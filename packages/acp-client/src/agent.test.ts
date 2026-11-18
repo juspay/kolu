@@ -102,7 +102,7 @@ describe("an agent that will not start", () => {
         command: NOWHERE,
         args: [],
         cwd: process.cwd(),
-        tools: () => null,
+        tools: () => [],
         memory: REMEMBERS_NOTHING,
         onEvent: () => {},
       }),
@@ -389,7 +389,7 @@ describe("who gets a sign-in attempt", () => {
           OLAI_TEST_LOGIN_LOG: log,
         },
         cwd,
-        tools: () => null,
+        tools: () => [],
         memory: REMEMBERS_NOTHING,
         onEvent: () => {},
       }),
@@ -487,7 +487,7 @@ describe("who the agent is signed in as", () => {
         command: process.execPath,
         args: [join(import.meta.dirname, "fixtures/auth-agent.ts")],
         cwd,
-        tools: () => null,
+        tools: () => [],
         memory: REMEMBERS_NOTHING,
         onEvent: (event) => {
           if (event._tag === "identity") seen.resolve(event);

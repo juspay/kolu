@@ -44,13 +44,13 @@
       "dir": "packages/acp-harness",
       "workspace": [
         "@kolu/acp",
-        "@kolu/child",
+        "@kolu/acp-client",
         "@kolu/terminal-vocab",
         "kolu-common",
         "kolu-mcp"
       ],
       "external": {
-        "@agentclientprotocol/sdk": "1.9.0"
+        "effect": "catalog:"
       }
     },
     "@kolu/agent-distro": {

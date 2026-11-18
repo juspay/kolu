@@ -1,17 +1,16 @@
-# @kolu/acp-harness — the one package that runs the protocol out loud
+# @kolu/acp-harness — kolu's one conversation, on the client that runs the protocol
 
-[`@kolu/acp`](../acp) is the Agent Client Protocol's words and pure projections over them; nothing in it waits, spawns, or knows a subprocess exists. This is where one does.
+[`@kolu/acp`](../acp) is the Agent Client Protocol's words and pure projections over them; nothing in it waits, spawns, or knows a subprocess exists. [`@kolu/acp-client`](../acp-client) is where one does: it spawns the adapter, holds the connection, and says what the agent said as one closed union of events.
 
-`@kolu/acp-harness` spawns an ACP adapter, holds one session on it, and turns a stream of protocol frames into the transcript rows kolu's contract declares. It is **the volatility receptacle**: everything hard about talking to an agent over a pipe — a child that dies mid-turn, a frame from a conversation you already left, a question that blocks a turn until a person answers it, a background task that outlives the turn that armed it — is hidden here, and the dependency arrow points out. [`kolu-server`](../server) holds exactly ONE of these — the [Conductor](https://kolu.dev/conductor), covering every host — and never spells `session/prompt`.
+`@kolu/acp-harness` is the half above that: it opens or resumes ONE conversation on a client, and turns those events into the transcript rows kolu's contract declares. Everything hard about talking to an agent over a pipe — a child that dies mid-turn, a frame from a conversation you already left, a question that blocks a turn until a person answers it — is the client's; what is hidden HERE is everything hard about a kolu conversation: a conversation the agent cannot come back to, a replay that must not become rows, an attachment that must not silently fail to travel, a background task that outlives the turn that armed it. The dependency arrow points out. [`kolu-server`](../server) holds exactly ONE of these — the [Conductor](https://kolu.dev/conductor), covering every host — and never spells `session/prompt`.
 
-## How the runner is split
+## How the conversation is split
 
 | file | what it holds |
 |---|---|
-| `src/agent.ts` | the agent half: the subprocess and its stderr, `request`/`notify`, the `acpClient` subscriptions, the update stream and the tool reader, the handshake, which session the agent is in (and which it has left), the pages a question waits on, sign-in and the exit. It reports upward only through one callback taking a member of `src/events.ts`'s closed union, and knows no row, no fleet ref and no terminal — `src/seam.test.ts` holds that fence, because this is the file a second product could take |
-| `src/conversation.ts` | the conversation half: opening and resuming sessions and what the transcript does about it, the turns, the questions drawn as rows, the fleet, kolu's reading of a call, the state a caller reads, and every row written — the other side of that union |
-| `src/events.ts` | the union itself: one member per thing the agent says, named after [olai](https://github.com/juspay/olai)'s `events.ts` wherever the fact is the same |
-| `src/harness.ts` | the door: the names this package has always published, re-exported from `conversation.ts`, so the split is an arrangement inside the package rather than a change to what it hands out |
+| [`@kolu/acp-client`](../acp-client) | the protocol: the subprocess and its stderr, every request and notification, the handshake, which session the agent is in (and which it has left), the questions on the wire, the sign-in attempt, and the reading of every frame. Two products run it — kolu's Conductor and [olai](https://github.com/juspay/olai)'s chat plugin — so it names no row, no fleet ref and no terminal |
+| `src/conversation.ts` | the conversation: opening and resuming sessions and what the transcript does about it, the turns and the steering latch, the questions drawn as rows, the fleet, kolu's reading of a call, attachments as content blocks, the state a caller reads, and every row written. The one place an Effect is run — the client's verbs are Effects and this door is promises |
+| `src/harness.ts` | the door: the names this package has always published, re-exported from `conversation.ts`, so the split is an arrangement rather than a change to what it hands out |
 
 ## The door
 
@@ -70,4 +69,4 @@ A fixture is only ever as honest as the measurement it was copied from, so the t
 
 ## What it deliberately does not do
 
-`session/list` and the adopt/model-memory bookkeeping (kolu-server owns persistence and hands `resume`, `resumedSeq` and `model`), ACP client-owned terminals (`terminal/*` — the agent has kolu's terminals through MCP, so the extension is not advertised and nothing reads one), and native child sessions. None of them is a gap this package hides; each is a decision recorded where it was made.
+The adopt-or-create boot and the model memory the client offers (kolu-server owns persistence and hands `resume`, `resumedSeq` and `model`, so this harness is TOLD which conversation to open and answers the client's memory out of those options), and the agent's own panes for a `terminal/*` call (the agent reaches kolu's terminals through MCP, and a card names one through kolu's own reading of the call). Neither is a gap this package hides; each is a decision recorded where it was made.

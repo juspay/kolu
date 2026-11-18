@@ -181,18 +181,18 @@ importers:
 
   packages/acp-harness:
     dependencies:
-      '@agentclientprotocol/sdk':
-        specifier: 1.9.0
-        version: 1.9.0(zod@4.6.7)
       '@kolu/acp':
         specifier: workspace:*
         version: link:../acp
-      '@kolu/child':
+      '@kolu/acp-client':
         specifier: workspace:*
-        version: link:../child
+        version: link:../acp-client
       '@kolu/terminal-vocab':
         specifier: workspace:*
         version: link:../terminal-vocab
+      effect:
+        specifier: 4.1.4
+        version: 4.1.4
       kolu-common:
         specifier: workspace:*
         version: link:../common
@@ -200,15 +200,9 @@ importers:
         specifier: workspace:*
         version: link:../kolu-mcp
     devDependencies:
-      '@kolu/acp-client':
-        specifier: workspace:*
-        version: link:../acp-client
       '@types/node':
         specifier: ^22.0.0
         version: 22.19.15
-      effect:
-        specifier: 4.1.4
-        version: 4.1.4
       typescript:
         specifier: ^7.0.2
         version: 7.0.2
