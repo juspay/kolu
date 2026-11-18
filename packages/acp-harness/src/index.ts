@@ -25,12 +25,18 @@ export {
   type HarnessState,
   HarnessUnavailable,
   type HttpServer,
+  type Memory,
+  type Opening,
   type PersonSaid,
+  type Probe,
   type PromptFile,
   type SignedIn,
   type StdioServer,
+  type Stored,
   startHarness,
   type ToolFrame,
+  type ToolReading,
+  type TurnEnded,
 } from "./harness.ts";
 export {
   type Held,

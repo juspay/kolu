@@ -181,6 +181,14 @@ const patientLogin = process.argv.includes("--patient-login");
 /** `--odd-sign-ins`: the handshake also advertises sign-in kinds nobody
  *  implements. */
 const oddSignIns = process.argv.includes("--odd-sign-ins");
+/**
+ * `--stored`: this agent KEEPS conversations and will list them
+ * (`session/list`, advertised as `sessionCapabilities.list`). Behind a flag
+ * because listing changes what a boot does — an agent with stored
+ * conversations is one a client may adopt from — and every suite that does not
+ * ask about the picker wants the agent that keeps nothing.
+ */
+const storedSessions = process.argv.includes("--stored");
 
 /** The turn whose prompt is still unanswered, so a cancel can end it. */
 let openTurn: unknown = null;
@@ -219,6 +227,26 @@ function enqueue(message: Message): void {
  *  nothing is going to start. */
 function finish(id: unknown, stopReason: string): void {
   respond(id, { stopReason });
+  busy = false;
+  const next = waiting.shift();
+  if (next !== undefined) {
+    busy = true;
+    turn(next);
+  }
+}
+
+/** ... and a turn the agent REFUSES is a turn that ended too: the request
+ *  fails, but this agent is still there and the next prompt in the queue is
+ *  its to run. Without this, one refused turn left the fixture busy for ever
+ *  and every later prompt — a *send again*, the next message — waited on a
+ *  turn nothing was going to finish. */
+function refuseTurn(
+  id: unknown,
+  code: number,
+  message: string,
+  data?: unknown,
+): void {
+  refuse(id, code, message, data);
   busy = false;
   const next = waiting.shift();
   if (next !== undefined) {
@@ -489,6 +517,11 @@ function handle(message: Message): void {
         protocolVersion: 1,
         agentCapabilities: {
           loadSession: true,
+          // ... and, behind `--stored`, that this agent KEEPS conversations
+          // and will list them. Off by default because an agent with stored
+          // conversations is one a client may adopt from, and every suite
+          // that is not about the picker wants the agent that keeps none.
+          ...(storedSessions ? { sessionCapabilities: { list: {} } } : {}),
           // What an attachment is allowed to be, said by the agent — the two
           // the pinned adapter advertises. A client may send an `image` block
           // or embed a file's text only because of this line.
@@ -540,6 +573,23 @@ function handle(message: Message): void {
               ]
             : []),
         ],
+      });
+      return;
+    case "session/list":
+      // THE CONVERSATIONS THIS ENGINE HAS, scoped to the directory the client
+      // asked about — which is what the protocol says a listing is, and what
+      // a picker draws.
+      respond(message.id, {
+        sessions: storedSessions
+          ? [
+              {
+                sessionId: "stored-1",
+                cwd: process.cwd(),
+                title: "the conversation before this one",
+                updatedAt: "2026-01-02T00:00:00.000Z",
+              },
+            ]
+          : [],
       });
       return;
     case "session/new":
@@ -773,7 +823,7 @@ function turn(message: Message): void {
     // `session/load` gives for a `locked-…` id. It is here for the row kinds a
     // turn can be the delivery of: a wake refused this way must not be told to
     // sign in, because a wake is kolu's own line and has no such field.
-    refuse(message.id, -32000, "Authentication required");
+    refuseTurn(message.id, -32000, "Authentication required");
     return;
   }
   if (text === "servers") {
@@ -990,6 +1040,65 @@ function turn(message: Message): void {
     finish(message.id, "end_turn");
     return;
   }
+  if (text === "title") {
+    // THE AGENT NAMES THE CONVERSATION, which is a fact about the session and
+    // arrives on its own frame rather than as part of a turn's answer.
+    update(session, {
+      sessionUpdate: "session_info_update",
+      title: "what we are working on",
+    });
+    finish(message.id, "end_turn");
+    return;
+  }
+  if (text === "quiet") {
+    // A TURN THAT SAID NOTHING AT ALL: no prose, no call, no plan, no
+    // question — it simply ends. Rare and real (a tool-only agent that found
+    // nothing to do), and the one ending a reader cannot tell from a turn
+    // whose words went somewhere else without being told.
+    finish(message.id, "end_turn");
+    return;
+  }
+  if (text === "twoTools") {
+    // ONE FRAME, TWO MCP CALLS — the shape of an agent that dispatches every
+    // MCP tool through one builtin. A client that reported only the first
+    // would have a card naming half of what the call did.
+    update(session, {
+      sessionUpdate: "tool_call",
+      toolCallId: "call-2",
+      title: "mcp__kolu__lifecycle_create + mcp__kolu__agent_say",
+      status: "completed",
+      rawInput: { host: "remote:prod" },
+      // NO `_meta.name`: an agent that dispatches several MCP tools through
+      // one builtin has no single name to give, which is exactly why the
+      // frame's own title carries both and a leg reads the list off it.
+    });
+    finish(message.id, "end_turn");
+    return;
+  }
+  if (text === "panes") {
+    // A CALL WITH A TERMINAL IN IT: the announcement opens the pane and the
+    // update carries its output, which is the two-frame shape the extension
+    // really has. `terminal_info` and `terminal_output` are the metadata a
+    // leg that reads terminal output is reading.
+    update(session, {
+      sessionUpdate: "tool_call",
+      toolCallId: "call-3",
+      title: "run the build",
+      status: "in_progress",
+    });
+    update(session, {
+      sessionUpdate: "tool_call_update",
+      toolCallId: "call-3",
+      status: "in_progress",
+      content: [{ type: "terminal", terminalId: "term-1" }],
+      _meta: {
+        terminal_info: { terminal_id: "term-1" },
+        terminal_output: { terminal_id: "term-1", data: "building…\n" },
+      },
+    });
+    finish(message.id, "end_turn");
+    return;
+  }
   if (text === "kolu") {
     update(session, {
       sessionUpdate: "tool_call",
@@ -1034,16 +1143,19 @@ function turn(message: Message): void {
   }
   if (text === "fail") {
     process.stderr.write("fixture-agent: json-rpc boom\n");
-    refuse(message.id, -32603, "the model said no");
+    refuseTurn(message.id, -32603, "the model said no");
     return;
   }
   if (text === "limit") {
     // THE ACCOUNT AT ITS LIMIT, the way the pinned Claude adapter refuses a
     // turn for it: `-32603` with the SDK's categorical error kind in `data`.
     // The sentence is the human's own and nothing is read off it.
-    refuse(message.id, -32603, "You've hit your weekly limit · resets 4pm", {
-      errorKind: "rate_limit",
-    });
+    refuseTurn(
+      message.id,
+      -32603,
+      "You've hit your weekly limit · resets 4pm",
+      { errorKind: "rate_limit" },
+    );
     return;
   }
   says("hello back");

@@ -135,10 +135,12 @@ describe.skipIf(!LIVE)(
         teaching: "# [kolu] live test",
         taught: false,
         log: silent,
-        resume,
+        opens:
+          resume === null ? { kind: "fresh" } : { kind: "resume", id: resume },
         // The conductor's own three, so this drives what kolu really runs.
         readCall: () => undefined,
         whenNewSession: "divide",
+        numbering: "continues",
         whenLoadRefused: "fresh",
         whenReplayed: "drop",
         onChange: () => {},

@@ -223,6 +223,13 @@ interface Spawned {
   readonly wiped: () => ReadonlyArray<string>;
 }
 
+/** WHICH CONVERSATION a spawn was asked for — the id its opening names, or
+ *  `null` for an open that names none (a fresh one). The harness takes a
+ *  policy rather than a nullable id now, because a product that ADOPTS cannot
+ *  answer "which" before the agent is live; kolu answers it here. */
+const resumed = (spawned: Spawned | undefined): string | null =>
+  spawned?.options.opens.kind === "resume" ? spawned.options.opens.id : null;
+
 function fakeSpawner(): {
   spawn: (
     options: HarnessOptions<ConductorRow>,
@@ -249,6 +256,12 @@ function fakeSpawner(): {
       ...DEFAULT_CONDUCTOR_STATE,
       phase: "idle",
       taught: options.taught,
+      // The three a conversation publishes that kolu's own cell does not
+      // declare: what the handshake advertised, and what the agent calls the
+      // chat. A product that draws them reads them here.
+      methods: [],
+      title: null,
+      queues: false,
     };
     const harness: Harness<ConductorRow> = {
       state: () => state,
@@ -289,6 +302,16 @@ function fakeSpawner(): {
       signInCancel: async () => false,
       setOption: async () => {},
       newSession: async () => {
+        sessions += 1;
+        leaving?.();
+      },
+      // THE THREE VERBS KOLU DOES NOT USE, answered the way a harness answers
+      // them: a row nothing refused has nothing to send again, this stand-in
+      // has no engine to list conversations out of, and switching into one is
+      // a conversation ending like any other.
+      sendAgain: async () => {},
+      sessions: async () => [],
+      loadSession: async () => {
         sessions += 1;
         leaving?.();
       },
@@ -846,7 +869,7 @@ describe("the restart fence (B1)", () => {
     await r.host.prompt("still here?", [], [], false);
     const agent = r.spawns[0];
     if (agent === undefined) throw new Error("the host spawned nothing");
-    expect(agent.options.resume).toBe("sess-1");
+    expect(resumed(agent)).toBe("sess-1");
     // The highest `seq` we already hold. Anything the new process mints
     // sorts after it and cannot collide with a persisted id.
     expect(agent.options.resumedSeq).toBe(3);
@@ -1170,7 +1193,7 @@ describe("a dead adapter (M3)", () => {
     await r.host.prompt("first", [], [], false);
     const first = r.spawns[0];
     if (first === undefined) throw new Error("the host spawned nothing");
-    expect(first.options.resume).toBe("sess-remembered");
+    expect(resumed(first)).toBe("sess-remembered");
 
     // What the harness publishes when the open it actually got is a different
     // conversation from the one it was asked for.
@@ -1179,6 +1202,9 @@ describe("a dead adapter (M3)", () => {
       state: {
         ...DEFAULT_CONDUCTOR_STATE,
         taught: false,
+        methods: [],
+        title: null,
+        queues: false,
         phase: "idle",
         sessionId: "sess-opened",
       },
@@ -1186,7 +1212,7 @@ describe("a dead adapter (M3)", () => {
 
     first.die();
     await r.host.newSession();
-    expect(r.spawns[1]?.options.resume).toBe("sess-opened");
+    expect(resumed(r.spawns[1])).toBe("sess-opened");
   });
 
   it("RESTARTS the agent into the same conversation after a sign-in, and on a person's reload", async () => {
@@ -1211,6 +1237,9 @@ describe("a dead adapter (M3)", () => {
       state: {
         ...DEFAULT_CONDUCTOR_STATE,
         taught: false,
+        methods: [],
+        title: null,
+        queues: false,
         phase: "idle",
         sessionId: "sess-1",
       },
@@ -1222,13 +1251,13 @@ describe("a dead adapter (M3)", () => {
     });
     expect(first.stops()).toBe(1);
     expect(r.spawns).toHaveLength(2);
-    expect(r.spawns[1]?.options.resume).toBe("sess-1");
+    expect(resumed(r.spawns[1])).toBe("sess-1");
 
     // ... and the door for a sign-in made OUTSIDE kolu is the same restart.
     await r.host.reloadAgent();
     expect(r.spawns[1]?.stops()).toBe(1);
     expect(r.spawns).toHaveLength(3);
-    expect(r.spawns[2]?.options.resume).toBe("sess-1");
+    expect(resumed(r.spawns[2])).toBe("sess-1");
   });
 
   it("restarts into the conversation that was live when the button was pressed", async () => {
@@ -1256,6 +1285,9 @@ describe("a dead adapter (M3)", () => {
       state: {
         ...DEFAULT_CONDUCTOR_STATE,
         taught: false,
+        methods: [],
+        title: null,
+        queues: false,
         phase: "idle",
         sessionId: "sess-new",
       },
@@ -1269,6 +1301,9 @@ describe("a dead adapter (M3)", () => {
         state: {
           ...DEFAULT_CONDUCTOR_STATE,
           taught: false,
+          methods: [],
+          title: null,
+          queues: false,
           phase: "idle",
           sessionId: "sess-booted",
         },
@@ -1276,7 +1311,7 @@ describe("a dead adapter (M3)", () => {
     });
 
     await r.host.signIn("subscription");
-    expect(r.spawns[1]?.options.resume).toBe("sess-new");
+    expect(resumed(r.spawns[1])).toBe("sess-new");
   });
 
   it("restarts into a conversation this process started, never a silent fresh one", async () => {
@@ -1288,12 +1323,15 @@ describe("a dead adapter (M3)", () => {
     await r.host.prompt("first", [], [], false);
     const first = r.spawns[0];
     if (first === undefined) throw new Error("the host spawned nothing");
-    expect(first.options.resume).toBeNull();
+    expect(resumed(first)).toBeNull();
     first.push({
       kind: "state",
       state: {
         ...DEFAULT_CONDUCTOR_STATE,
         taught: false,
+        methods: [],
+        title: null,
+        queues: false,
         phase: "idle",
         sessionId: "sess-z",
       },
@@ -1310,6 +1348,9 @@ describe("a dead adapter (M3)", () => {
         state: {
           ...DEFAULT_CONDUCTOR_STATE,
           taught: false,
+          methods: [],
+          title: null,
+          queues: false,
           phase: "idle",
           sessionId: "sess-somewhere-else",
         },
@@ -1317,7 +1358,7 @@ describe("a dead adapter (M3)", () => {
     });
 
     await r.host.signIn("subscription");
-    expect(r.spawns[1]?.options.resume).toBe("sess-z");
+    expect(resumed(r.spawns[1])).toBe("sess-z");
   });
 
   it("REFUSES a restart while a turn is running, and says what to do", async () => {
@@ -1342,6 +1383,9 @@ describe("a dead adapter (M3)", () => {
       state: {
         ...DEFAULT_CONDUCTOR_STATE,
         taught: false,
+        methods: [],
+        title: null,
+        queues: false,
         phase: "working",
         sessionId: "sess-1",
         busySince: T0,
@@ -1378,6 +1422,9 @@ describe("a dead adapter (M3)", () => {
         state: {
           ...DEFAULT_CONDUCTOR_STATE,
           taught: false,
+          methods: [],
+          title: null,
+          queues: false,
           phase: "working",
           sessionId: "sess-1",
           busySince: T0,
@@ -1417,6 +1464,9 @@ describe("a dead adapter (M3)", () => {
       state: {
         ...DEFAULT_CONDUCTOR_STATE,
         taught: false,
+        methods: [],
+        title: null,
+        queues: false,
         phase: "idle",
         sessionId: "sess-1",
       },
@@ -1672,6 +1722,9 @@ describe("teardown (B2)", () => {
       state: {
         ...DEFAULT_CONDUCTOR_STATE,
         taught: false,
+        methods: [],
+        title: null,
+        queues: false,
         phase: "idle",
         sessionId: "s-1",
       },
@@ -2298,6 +2351,9 @@ const working = (agent: Spawned): void => {
     state: {
       ...DEFAULT_CONDUCTOR_STATE,
       taught: false,
+      methods: [],
+      title: null,
+      queues: false,
       phase: "working",
       busySince: T0,
     },
@@ -2309,7 +2365,14 @@ const working = (agent: Spawned): void => {
 const idle = (agent: Spawned): void => {
   agent.push({
     kind: "state",
-    state: { ...DEFAULT_CONDUCTOR_STATE, taught: false, phase: "idle" },
+    state: {
+      ...DEFAULT_CONDUCTOR_STATE,
+      taught: false,
+      methods: [],
+      title: null,
+      queues: false,
+      phase: "idle",
+    },
   });
 };
 

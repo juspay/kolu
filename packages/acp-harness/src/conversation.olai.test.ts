@@ -24,21 +24,19 @@ import {
   toolRowFields,
   userRowFields,
 } from "@kolu/acp/wire";
-import {
-  allowingOurs,
-  type Leg,
-  mcpCallBy,
-  namedExactly,
-} from "@kolu/acp/engine";
+import { allowingOurs, type Leg, namedExactly } from "@kolu/acp/engine";
 import { fixtureAgent } from "@kolu/acp-client/testlib";
-import { Schema } from "effect";
+import { Effect, Schema } from "effect";
 import { afterEach, describe, expect, test } from "vitest";
 import {
   type Harness,
   type HarnessChange,
   type HarnessOptions,
+  type Opening,
   type PersonSaid,
+  type Probe,
   startHarness,
+  type TurnEnded,
 } from "./harness.ts";
 
 /** OLAI'S ROWS — the shared fields, plus the ones only olai sets. Decoded
@@ -54,7 +52,26 @@ const OlaiRowSchema = Schema.Union([
   Schema.Struct({ ...agentRowFields }),
   Schema.Struct({
     ...toolRowFields,
+    /** What the agent called it, and the engine's own raw spelling of the same
+     *  call — which is taken only UNTIL the row is named, because the friendly
+     *  title arrives a frame later and must not drag the spelling with it. */
     called: Schema.optionalKey(Schema.String),
+    spelled: Schema.optionalKey(Schema.String),
+    /** Whose row it is, for the plugin face that draws it. */
+    owner: Schema.optionalKey(Schema.String),
+    /** ... and the panes it is running in. */
+    terminals: Schema.optionalKey(
+      Schema.Array(
+        Schema.Struct({
+          id: Schema.String,
+          output: Schema.String,
+          truncated: Schema.Boolean,
+          exitCode: Schema.NullOr(Schema.Number),
+          signal: Schema.NullOr(Schema.String),
+          running: Schema.Boolean,
+        }),
+      ),
+    ),
   }),
   Schema.Struct({ ...askRowFields }),
   Schema.Struct({ ...noticeRowFields }),
@@ -77,11 +94,22 @@ const meta = (value: unknown): Record<string, unknown> | null =>
     ? (value as Record<string, unknown>)
     : null;
 
-/** A leg that reads the fixture's wire — the same one `harness.test.ts` uses,
- *  cut down to what these three cases touch. */
+/** A leg that reads the fixture's wire the way olai's engines do: EVERY MCP
+ *  call a frame named (an engine that dispatches them through one builtin
+ *  names several), and the agent's own claim about holding a message sent
+ *  mid-turn. */
 const leg: Leg = {
   spelling,
-  mcpCall: mcpCallBy(spelling),
+  mcpCall: (frame, servers) =>
+    (frame.name ?? frame.title ?? "").split(" + ").flatMap((word) => {
+      for (const server of servers) {
+        const prefix = spelling(server);
+        if (word.startsWith(prefix) && word.length > prefix.length) {
+          return [{ server, tool: word.slice(prefix.length) }];
+        }
+      }
+      return [];
+    }),
   replyIn: () => undefined,
   accountRefusal: () => false,
   toolNameIn: (value) => {
@@ -99,7 +127,12 @@ const leg: Leg = {
   prologueIn: () => null,
   bypassMode: null,
   steering: null,
-  queues: () => false,
+  // WHAT THIS AGENT SAID ABOUT HOLDING A BUSY MESSAGE, out of its own corner
+  // of the handshake — the fact `state.queues` publishes.
+  queues: (initialized) =>
+    meta(meta(meta(initialized)?.agentCapabilities)?._meta)?.claudeCode !==
+    undefined,
+  terminalOutput: true,
   rawMessages: null,
   models: { config: "model", nameIn: namedExactly },
 };
@@ -124,21 +157,59 @@ const typed = (text: string): PersonSaid<OlaiRow> => ({
   files: [],
 });
 
-/** olai reads a call for the name its own cards draw and nothing else. */
-const readCall: HarnessOptions<OlaiRow>["readCall"] = (frame) =>
-  frame.mcp === undefined ? undefined : { called: frame.mcp.tool };
+/**
+ * WHAT OLAI READS A CALL AS — the name its cards draw, the row that owns it,
+ * the reply that row's own face renders, and the panes it is running in.
+ *
+ * EVERY recognised call of the frame, because an engine that dispatches its
+ * MCP tools through one builtin names several in one frame and a card is
+ * composed from all of them. A frame that says nothing olai draws answers
+ * `undefined`, which leaves the row exactly as it was.
+ */
+const readCall: HarnessOptions<OlaiRow>["readCall"] = (frame) => {
+  const called =
+    frame.mcp.length === 0
+      ? frame.called
+      : frame.mcp.map((one) => one.tool).join(" + ");
+  const extra = {
+    ...(called === undefined ? {} : { called }),
+    ...(frame.row === undefined ? {} : { owner: frame.row }),
+    ...(frame.terminals === undefined ? {} : { terminals: frame.terminals }),
+  };
+  // ... AND THE ENGINE'S OWN SPELLING, which is worth drawing until the row
+  // has a name and must not come back with the friendly title that replaces
+  // it.
+  const untilNamed = called === undefined ? {} : { spelled: `raw:${called}` };
+  if (Object.keys(extra).length === 0 && Object.keys(untilNamed).length === 0) {
+    return undefined;
+  }
+  return { extra, untilNamed };
+};
 
 interface Running {
   readonly harness: Harness<OlaiRow>;
   readonly rows: () => ReadonlyArray<OlaiRow>;
+  /** Every turn ending this conversation reported, in order — the typed
+   *  reading olai draws its own notices from. */
+  readonly turns: ReadonlyArray<TurnEnded>;
 }
 
 const open = async (
-  extra: { resume?: string | null } = {},
+  extra: {
+    opens?: Opening;
+    probes?: () => Effect.Effect<ReadonlyArray<Probe>>;
+    args?: ReadonlyArray<string>;
+    mcpServers?: HarnessOptions<OlaiRow>["mcpServers"];
+  } = {},
 ): Promise<Running> => {
   const rows = new Map<string, OlaiRow>();
+  const turns: Array<TurnEnded> = [];
   const fold = (change: HarnessChange<OlaiRow>): void => {
     if (change.kind === "state") return;
+    if (change.kind === "turn") {
+      turns.push(change);
+      return;
+    }
     for (const row of change.upserts) {
       const read = published(row);
       rows.set(read.id, read);
@@ -157,31 +228,37 @@ const open = async (
     leg,
     adapter: {
       command: process.execPath,
-      args: [fixtureAgent("agent.ts")],
+      args: [fixtureAgent("agent.ts"), ...(extra.args ?? [])],
     },
     cwd: process.cwd(),
     configDir: "/tmp/olai-test-home/.claude",
-    mcpServers: [],
+    mcpServers: extra.mcpServers ?? [],
+    ...(extra.probes === undefined ? {} : { probes: extra.probes }),
     teaching: TEACHING,
     taught: false,
     log: silent,
-    resume: extra.resume ?? null,
+    opens: extra.opens ?? { kind: "fresh" },
     readCall,
     // OLAI'S THREE, and the whole point of this file.
     whenNewSession: "clear",
     whenLoadRefused: "report",
     whenReplayed: "keep",
+    // ... and olai's numbering: a wipe starts again, and the first row of a
+    // conversation is zero, because its browser reads a `seq` as the count of
+    // the rows older than it.
+    numbering: "restarts",
     onChange: fold,
   });
   started.push(harness);
   return {
     harness,
     rows: () => [...rows.values()].sort((a, b) => a.seq - b.seq),
+    turns,
   };
 };
 
 const settled = async (running: Running, why: string): Promise<void> => {
-  const until = Date.now() + 10_000;
+  const until = Date.now() + 4_000;
   while (Date.now() < until) {
     const phase = running.harness.state().phase;
     if (phase === "idle" || phase === "asking") return;
@@ -217,7 +294,12 @@ describe("a conversation the agent cannot come back to, REPORTED", () => {
     // conversation and says so; a panel whose only copy of the chat is on
     // screen must not be handed a different conversation under the same name.
     await expect(
-      open({ resume: "gone-ba0d0775-2692-4460-ad85-61bec0aeb318" }),
+      open({
+        opens: {
+          kind: "resume",
+          id: "gone-ba0d0775-2692-4460-ad85-61bec0aeb318",
+        },
+      }),
     ).rejects.toMatchObject({
       name: "HarnessRefused",
       why: expect.stringContaining("Resource not found"),
@@ -227,7 +309,7 @@ describe("a conversation the agent cannot come back to, REPORTED", () => {
 
 describe("a replay that is KEPT", () => {
   test("puts the conversation the agent remembers back on screen", async () => {
-    const running = await open({ resume: "sess-1" });
+    const running = await open({ opens: { kind: "resume", id: "sess-1" } });
     // BOTH SIDES OF THE REPLAY, in the order the agent re-emitted them: the
     // panel has no record of its own, so the frames kolu drops are the only
     // copy of the conversation there is.
@@ -243,5 +325,235 @@ describe("a replay that is KEPT", () => {
       used: 22102,
       size: 200000,
     });
+  });
+});
+
+describe("what the handshake said, and what the agent calls this chat", () => {
+  test("publishes the sign-in methods and whether the agent queues", async () => {
+    const running = await open();
+    const state = running.harness.state();
+    // THE STANDING FACTS a panel draws its `/login` button and its composer
+    // from: the methods are published whether or not a sign-in is on screen,
+    // and `queues` is the agent's own claim about holding a busy message.
+    expect(state.signIn).toBeNull();
+    expect(state.methods.map((one) => one.id)).toEqual(["subscription"]);
+    expect(state.queues).toBe(true);
+  });
+
+  test("publishes the agent's own title, and drops it with the conversation", async () => {
+    const running = await open();
+    expect(running.harness.state().title).toBeNull();
+
+    await running.harness.prompt(typed("title"), false);
+    await settled(running, "the titling turn never ended");
+    expect(running.harness.state().title).toBe("what we are working on");
+
+    // ... and the next conversation is not the one that was named.
+    await running.harness.newSession();
+    expect(running.harness.state().title).toBeNull();
+  });
+});
+
+describe("how a turn ended, as a reading rather than as prose", () => {
+  test("an ordinary turn ends, and a silent one says so", async () => {
+    const running = await open();
+    const { rowId } = await running.harness.prompt(typed("hello"), false);
+    await settled(running, "the turn never ended");
+    expect(running.turns).toEqual([
+      { kind: "turn", row: rowId, outcome: "ended", why: null, silent: false },
+    ]);
+
+    // A TURN THE AGENT ANSWERED WITH NOTHING AT ALL. A panel that wants to
+    // say so has to be told: counting rows afterwards cannot tell this from a
+    // turn whose words went to a row of its own.
+    const quiet = await running.harness.prompt(typed("quiet"), false);
+    await settled(running, "the quiet turn never ended");
+    expect(running.turns[1]).toEqual({
+      kind: "turn",
+      row: quiet.rowId,
+      outcome: "ended",
+      why: null,
+      silent: true,
+    });
+  });
+
+  test("a refused turn carries the agent's own sentence", async () => {
+    const running = await open();
+    const { rowId } = await running.harness.prompt(typed("fail"), false);
+    await settled(running, "the refused turn never ended");
+    const ended = running.turns[0];
+    expect(ended?.outcome).toBe("refused");
+    expect(ended?.row).toBe(rowId);
+    expect(ended?.why).not.toBeNull();
+    expect(ended?.silent).toBe(true);
+  });
+
+  test("a turn somebody stopped is cancelled, not failed", async () => {
+    const running = await open();
+    const { rowId } = await running.harness.prompt(typed("slow"), false);
+    await running.harness.cancel();
+    await settled(running, "the cancelled turn never ended");
+    expect(running.turns[0]).toMatchObject({
+      row: rowId,
+      outcome: "cancelled",
+      why: null,
+    });
+  });
+});
+
+describe("sending that message again", () => {
+  test("re-sends the row that was refused rather than minting a second", async () => {
+    const running = await open();
+    const { rowId } = await running.harness.prompt(typed("fail"), false);
+    await settled(running, "the refused turn never ended");
+    const refused = running.rows().find((row) => row.id === rowId);
+    expect(refused?.kind === "user" ? refused.delivery : null).toBe("refused");
+    const before = running.rows().filter((row) => row.kind === "user").length;
+
+    // THE SAME ROW, with the body the product composes afresh — and it goes,
+    // so the mark that said it had not comes off.
+    await running.harness.sendAgain(rowId, "hello", []);
+    await settled(running, "the re-sent turn never ended");
+    const sent = running.rows().find((row) => row.id === rowId);
+    expect(sent?.kind === "user" ? sent.delivery : "n/a").toBeUndefined();
+    expect(running.rows().filter((row) => row.kind === "user").length).toBe(
+      before,
+    );
+    expect(running.turns.map((one) => one.outcome)).toEqual([
+      "refused",
+      "ended",
+    ]);
+  });
+
+  test("refuses a row that is not waiting to be sent", async () => {
+    const running = await open();
+    const { rowId } = await running.harness.prompt(typed("hello"), false);
+    await settled(running, "the turn never ended");
+    // It WENT: there is nothing to offer, and a second copy of a message the
+    // agent already has is the one thing *send again* must not do.
+    await expect(
+      running.harness.sendAgain(rowId, "hello", []),
+    ).rejects.toMatchObject({ name: "HarnessRefused" });
+  });
+});
+
+describe("the conversations this engine has stored", () => {
+  test("are listed through the agent already running", async () => {
+    const running = await open({ args: ["--stored"] });
+    expect(await running.harness.sessions()).toEqual([
+      {
+        id: "stored-1",
+        title: "the conversation before this one",
+        updatedAt: "2026-01-02T00:00:00.000Z",
+        messageCount: null,
+        supersededBy: null,
+      },
+    ]);
+  });
+
+  test("are what an ADOPTING open comes up in", async () => {
+    // The boot olai has: the conversation this directory was last in, else the
+    // agent's most recent stored one, else a fresh one. Nothing is remembered
+    // here, so the newest stored one is the answer — and working it out needs
+    // the live agent, which is why it is a policy and not a decision made
+    // before the spawn.
+    const running = await open({
+      args: ["--stored"],
+      opens: {
+        kind: "adopt",
+        memory: { recall: Effect.succeed(null), remember: () => Effect.void },
+      },
+    });
+    expect(running.harness.state().sessionId).toBe("stored-1");
+  });
+
+  test("can be switched between without replacing the process", async () => {
+    const running = await open({ args: ["--stored"] });
+    await running.harness.prompt(typed("hello"), false);
+    await settled(running, "the turn never ended");
+    const first = running.harness.state().sessionId;
+
+    await running.harness.loadSession("stored-1");
+    expect(running.harness.state().sessionId).toBe("stored-1");
+    expect(running.harness.state().sessionId).not.toBe(first);
+    // olai CLEARS, so the conversation it left went with it — and the replay
+    // of the one it loaded is kept, which is the whole of what is on screen.
+    expect(
+      running.rows().map((row) => [row.kind, "text" in row ? row.text : ""]),
+    ).toEqual([
+      ["user", "what did I ask you before?"],
+      ["agent", "the answer you already have"],
+    ]);
+    // ... and the agent is the same process: it is still the one this harness
+    // spawned, still alive, and still answering.
+    expect(running.harness.alive()).toBe(true);
+  });
+
+  test("a load the agent refuses says so as the one refusal with another way out", async () => {
+    const running = await open({ args: ["--stored"] });
+    await expect(
+      running.harness.loadSession("gone-ba0d0775-2692-4460-ad85-61bec0aeb318"),
+    ).rejects.toMatchObject({ name: "HarnessRefused", missing: true });
+  });
+});
+
+describe("what a product discovers for itself", () => {
+  test("a probe that found nothing becomes a missing server row", async () => {
+    const running = await open({
+      probes: () =>
+        Effect.succeed([
+          {
+            name: "notes",
+            ask: Effect.succeed({
+              server: null,
+              missing: {
+                name: "notes",
+                where: null,
+                why: "the notes tool is not installed on this host",
+              },
+            }),
+          },
+        ]),
+    });
+    expect(
+      running.harness.state().servers.map((one) => [one.standing, one.said]),
+    ).toEqual([["missing", "the notes tool is not installed on this host"]]);
+  });
+});
+
+describe("one frame, several calls, and the panes they run in", () => {
+  test("every recognised call of a frame reaches the reader", async () => {
+    const running = await open({
+      mcpServers: [
+        {
+          kind: "stdio",
+          name: "kolu",
+          command: "/bin/true",
+          args: [],
+          env: {},
+        },
+      ],
+    });
+    await running.harness.prompt(typed("twoTools"), false);
+    await settled(running, "the two-call turn never ended");
+    const call = running.rows().find((row) => row.kind === "tool");
+    expect(call?.kind === "tool" ? call.called : null).toBe(
+      "lifecycle_create + agent_say",
+    );
+    // ... and the engine's own spelling, taken while the row had no name of
+    // its own and kept once it has one.
+    expect(call?.kind === "tool" ? call.spelled : null).toBe(
+      "raw:lifecycle_create + agent_say",
+    );
+  });
+
+  test("the agent's own terminals reach the row they belong to", async () => {
+    const running = await open();
+    await running.harness.prompt(typed("panes"), false);
+    await settled(running, "the terminal turn never ended");
+    const call = running.rows().find((row) => row.kind === "tool");
+    const panes = call?.kind === "tool" ? (call.terminals ?? []) : [];
+    expect(panes.map((one) => one.id)).toEqual(["term-1"]);
+    expect(panes[0]?.output).toContain("building");
   });
 });

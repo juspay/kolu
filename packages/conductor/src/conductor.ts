@@ -1246,10 +1246,15 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
     frame,
     held,
   ) => {
+    // THE FIRST RECOGNISED CALL of the frame, which for kolu is the whole of
+    // it: the Conductor is handed ONE server (its fleet face), and the agent
+    // it runs names one tool per frame. A product whose agent dispatches
+    // several through one builtin reads the rest of the list.
+    const call = frame.mcp[0];
     const seen =
-      frame.mcp === undefined
+      call === undefined
         ? null
-        : koluCallOf(frame.mcp.tool, frame.input, frame.answer);
+        : koluCallOf(call.tool, frame.input, frame.answer);
     const kolu = refineKoluCall(held?.kolu ?? null, seen);
     // THE FLEET MOVES HERE, and it is SAID here: a terminal joining is news a
     // reader draws and a fact the record keeps, and nothing else in this
@@ -1264,20 +1269,22 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
       records.schedule("record");
     }
     if (
-      frame.mcp === undefined &&
+      call === undefined &&
       frame.asksThroughForm === undefined &&
       kolu === null
     ) {
       return undefined;
     }
     return {
-      server: frame.mcp?.server,
-      tool: frame.mcp?.tool,
-      // Absent rather than `false`: every optional field of a tool row means
-      // UNCHANGED, and a call whose name has not arrived yet is not a call
-      // anything has called ordinary.
-      asksThroughForm: frame.asksThroughForm,
-      ...(kolu === null ? {} : { kolu }),
+      extra: {
+        server: call?.server,
+        tool: call?.tool,
+        // Absent rather than `false`: every optional field of a tool row means
+        // UNCHANGED, and a call whose name has not arrived yet is not a call
+        // anything has called ordinary.
+        asksThroughForm: frame.asksThroughForm,
+        ...(kolu === null ? {} : { kolu }),
+      },
     };
   };
 
@@ -1714,7 +1721,14 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
         // NOT resuming is a fresh one, which owes the teaching.
         taught: resuming && taught,
         log,
-        resume: resuming ? resume : null,
+        // KOLU NAMES ITS CONVERSATION OR OPENS A NEW ONE, and never adopts:
+        // which conversation this host is in is a fact kolu writes down
+        // itself, and an agent's own newest stored one is a chat nobody here
+        // asked for.
+        opens:
+          resuming && resume !== null
+            ? { kind: "resume", id: resume }
+            : { kind: "fresh" },
         // THE RESTART FENCE (see the module doc), taken HERE rather than at the
         // restore, because the restore is not the only spawn: a replacement
         // adapter comes up over everything the dead one minted as well as
@@ -1742,6 +1756,10 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
         // because the rows it re-emits are ones this module already holds in a
         // richer form.
         whenNewSession: "divide",
+        // ... and the numbering runs on for the life of the process, because
+        // these rows are written to a file and a restored row's `seq` is one
+        // nothing minted here may collide with.
+        numbering: "continues",
         whenLoadRefused: "fresh",
         whenReplayed: "drop",
         model: chosenModel,
@@ -1757,24 +1775,33 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
             // `disposed` flag: a restart retires a harness without disposing
             // of anything, and the respawn can fail.
             if (disposed || mine !== generation) return;
-            // The harness answers for the conversation; `seen`, `work`,
-            // `held` and the FLEET are this module's — the fleet because it
-            // is read off the tool readings this module supplies — and are
-            // folded back on by `publishState`.
-            const { taught: said, ...conversation } = change.state;
-            taught = said;
+            // WHAT KOLU TAKES FROM A CONVERSATION, named one by one rather
+            // than spread: a harness serves two products and publishes facts
+            // either of them may draw (a session title, what the handshake
+            // advertised, whether this session has been taught), and a spread
+            // would carry whichever of them kolu's own cell does not declare
+            // into a frame its schema then refuses. `seen`, `work`, `held` and
+            // the FLEET are this module's — the fleet because it is read off
+            // the tool readings supplied from here ({@link readKoluCall}) —
+            // and are folded back on here and by `publishState`.
+            taught = change.state.taught;
             state = {
               ...state,
-              ...conversation,
+              phase: change.state.phase,
+              sessionId: change.state.sessionId,
+              model: change.state.model,
+              usage: change.state.usage,
+              options: change.state.options,
+              commands: change.state.commands,
+              servers: change.state.servers,
+              watching: change.state.watching,
+              openAsks: change.state.openAsks,
+              signIn: change.state.signIn,
+              identity: change.state.identity,
+              refusal: change.state.refusal,
+              steers: change.state.steers,
+              busySince: change.state.busySince,
               ...serverAuthored,
-              // THE MEMBERSHIP IS THIS MODULE'S, whatever reaches us: it is
-              // read off the tool readings supplied from here
-              // ({@link readKoluCall}) and from nowhere else, so it is folded
-              // back over every state a conversation reports for the reason
-              // the three above are — one fact, one author. Without it a
-              // whole-state publish carrying anything under that name would
-              // quietly empty the fleet we remembered, and the record would be
-              // written from the emptiness.
               fleet: [...fleet.ids()],
             };
             // A DIFFERENT CONVERSATION TAKES THE FLEET WITH IT: the terminals
@@ -1809,7 +1836,10 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
             if (state.phase === "idle") void wake.flush();
             return;
           }
-          applyRows(change);
+          // A TURN'S ENDING IS NOT A ROW. kolu reads what a turn did off the
+          // rows it moved and the state that follows it; the typed ending is
+          // for a product that draws its own notice about one.
+          if (change.kind === "rows") applyRows(change);
         },
       });
     })();

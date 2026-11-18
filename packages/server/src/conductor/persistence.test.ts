@@ -373,6 +373,9 @@ function hostOver(): {
         state: () => ({
           ...DEFAULT_CONDUCTOR_STATE,
           taught: false,
+          methods: [],
+          title: null,
+          queues: false,
           phase: "idle",
         }),
         rows: () => [],
@@ -390,6 +393,11 @@ function hostOver(): {
         signInCancel: async () => false,
         setOption: async () => {},
         newSession: async () => {},
+        // The three a product other than kolu reaches for; nothing in this
+        // file asks for them.
+        sendAgain: async () => {},
+        sessions: async () => [],
+        loadSession: async () => {},
         // The wipe reports the removes itself now (the harness owns the rows);
         // nothing in this file asks it to.
         clearSession: async () => {},
@@ -402,6 +410,9 @@ function hostOver(): {
             state: {
               ...DEFAULT_CONDUCTOR_STATE,
               taught: false,
+              methods: [],
+              title: null,
+              queues: false,
               phase: "offline",
               sessionId: null,
             },
@@ -418,7 +429,7 @@ function hostOver(): {
       return onChange;
     },
     resumedSeq: () => options?.resumedSeq,
-    resume: () => options?.resume,
+    resume: () => (options?.opens.kind === "resume" ? options.opens.id : null),
     readCall: () => options?.readCall,
     wakes: () => wakes,
   };
@@ -437,16 +448,23 @@ describe("the conversation survives a restart", () => {
       state: {
         ...DEFAULT_CONDUCTOR_STATE,
         taught: false,
+        methods: [],
+        title: null,
+        queues: false,
         phase: "idle",
         sessionId: "sess-live",
       },
     });
     first.readCall()?.(
       {
-        mcp: { server: "kolu", tool: "lifecycle_create" },
+        mcp: [{ server: "kolu", tool: "lifecycle_create" }],
         asksThroughForm: undefined,
         input: { host: "local" },
         answer: { id: FLEET_REF },
+        called: undefined,
+        row: undefined,
+        reply: undefined,
+        terminals: undefined,
       },
       undefined,
     );

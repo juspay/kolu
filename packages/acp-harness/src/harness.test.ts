@@ -187,8 +187,11 @@ const readCall: HarnessOptions<FixtureRow>["readCall"] = (frame, held) => {
     about: text(input?.host) ?? text(answer?.id) ?? held?.call?.about ?? null,
     did: text(input?.worktree) ?? text(answer?.ran) ?? held?.call?.did ?? null,
   };
+  // THE FIRST RECOGNISED CALL of the frame: this fixture's agent names one
+  // tool per frame, which is the shape kolu's own reader is written for.
+  const named = frame.mcp[0];
   if (
-    frame.mcp === undefined &&
+    named === undefined &&
     frame.asksThroughForm === undefined &&
     call.about === null &&
     call.did === null
@@ -196,13 +199,15 @@ const readCall: HarnessOptions<FixtureRow>["readCall"] = (frame, held) => {
     return undefined;
   }
   return {
-    server: frame.mcp?.server,
-    tool: frame.mcp?.tool,
-    // Absent rather than `false`: every optional field of a tool row means
-    // UNCHANGED, and a call whose name has not arrived yet is not a call
-    // anything has called ordinary.
-    asksThroughForm: frame.asksThroughForm,
-    ...(call.about === null && call.did === null ? {} : { call }),
+    extra: {
+      server: named?.server,
+      tool: named?.tool,
+      // Absent rather than `false`: every optional field of a tool row means
+      // UNCHANGED, and a call whose name has not arrived yet is not a call
+      // anything has called ordinary.
+      asksThroughForm: frame.asksThroughForm,
+      ...(call.about === null && call.did === null ? {} : { call }),
+    },
   };
 };
 
@@ -245,6 +250,8 @@ const open = async (
       states.push(change.state);
       return;
     }
+    // A TURN'S ENDING is a reading of its own; this suite follows rows.
+    if (change.kind !== "rows") return;
     // DECODED AS A SERVER WILL, strictly, on the way in: a field the class
     // wrote that the product's contract does not declare is red here rather
     // than in a browser nobody is watching (`./rows.testlib.ts` argues it).
@@ -276,7 +283,10 @@ const open = async (
     teaching: TEACHING,
     taught: extra.taught ?? false,
     log: silent,
-    resume: extra.resume ?? null,
+    opens:
+      extra.resume === undefined || extra.resume === null
+        ? { kind: "fresh" }
+        : { kind: "resume", id: extra.resume },
     ...(extra.resumedSeq === undefined ? {} : { resumedSeq: extra.resumedSeq }),
     ...(extra.resumedEndsWithDivider === undefined
       ? {}
@@ -287,6 +297,7 @@ const open = async (
     // is the one that holds its behaviour; the other three have a suite of
     // their own (`./conversation.olai.test.ts`).
     whenNewSession: extra.whenNewSession ?? "divide",
+    numbering: "continues",
     whenLoadRefused: extra.whenLoadRefused ?? "fresh",
     whenReplayed: extra.whenReplayed ?? "drop",
     onChange: fold,
@@ -780,7 +791,9 @@ describe("the permission mode a conversation is opened in", () => {
       mcpServers: [],
       teaching: TEACHING,
       taught: false,
+      opens: { kind: "fresh" },
       log: silent,
+      numbering: "continues",
       readCall,
       whenNewSession: "divide",
       whenLoadRefused: "fresh",
@@ -1375,7 +1388,9 @@ describe("a bring-up nothing can be done about", () => {
       mcpServers: [],
       teaching: TEACHING,
       taught: false,
+      opens: { kind: "fresh" },
       log: silent,
+      numbering: "continues",
       readCall,
       whenNewSession: "divide",
       whenLoadRefused: "fresh",
@@ -1415,7 +1430,9 @@ describe("a bring-up nothing can be done about", () => {
           mcpServers: [],
           teaching: TEACHING,
           taught: false,
+          opens: { kind: "fresh" },
           log: silent,
+          numbering: "continues",
           readCall,
           whenNewSession: "divide",
           whenLoadRefused: "fresh",
