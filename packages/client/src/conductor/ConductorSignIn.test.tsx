@@ -111,6 +111,7 @@ describe("a method already running", () => {
           method: METHOD.id,
           state: "running",
           output: "visit https://example.invalid/oauth",
+          code: null,
           link: null,
         },
       }),

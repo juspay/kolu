@@ -635,7 +635,14 @@ export const SigningIn = Schema.Struct({
       /** The spawned command's output so far, capped — URLs in it are made
        *  clickable by the panel. */
       output: Schema.String,
-      link: Schema.NullOr(AskLink),
+      /** How a command this end ran exited, once it has: its own exit code,
+       *  or `null` while it runs, when it was signalled, and for a method the
+       *  agent runs. A panel that prints the failure says which code it was. */
+      code: Schema.NullOr(Schema.Int),
+      /** The page an agent-run method sent a person to, as the client said it:
+       *  the place, which machine it is, the agent's own message (a device code
+       *  rides in it), and whether the agent has said the page is done. */
+      link: Schema.NullOr(SignInLink),
     }),
   ),
 });

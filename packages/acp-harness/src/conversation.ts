@@ -1470,10 +1470,8 @@ export const startHarness = async <Row extends AnyRow>(
         method: said.method,
         state: said.why === null ? "running" : "failed",
         output: said.why ?? "",
-        link:
-          said.link === null
-            ? null
-            : { url: said.link.url, host: said.link.host },
+        code: null,
+        link: said.link,
       };
     }
     return {
@@ -1486,6 +1484,7 @@ export const startHarness = async <Row extends AnyRow>(
       // A COMMAND THAT NEVER RAN printed nothing, and the reason it did not is
       // the only output there is.
       output: said.why === null ? said.output : `${said.output}${said.why}\n`,
+      code: said.running ? null : said.code,
       link: null,
     };
   };
