@@ -178,6 +178,9 @@ let heldOpen: { readonly id: unknown; readonly result: unknown } | null = null;
 /** `--patient-login`: the sign-in command waits for a typed line instead of
  *  finishing at once. */
 const patientLogin = process.argv.includes("--patient-login");
+/** `--odd-sign-ins`: the handshake also advertises sign-in kinds nobody
+ *  implements. */
+const oddSignIns = process.argv.includes("--odd-sign-ins");
 
 /** The turn whose prompt is still unanswered, so a cancel can end it. */
 let openTurn: unknown = null;
@@ -522,6 +525,20 @@ function handle(message: Message): void {
               },
             },
           },
+          // `--odd-sign-ins`: two more methods, of kinds no client here runs —
+          // a credential box (`env_var`) and one no version has defined — so a
+          // test can ask whether either is offered as a button.
+          ...(oddSignIns
+            ? [
+                {
+                  id: "api-key",
+                  name: "An API key",
+                  type: "env_var",
+                  vars: [{ name: "EXAMPLE_API_KEY" }],
+                },
+                { id: "pigeon", name: "By carrier pigeon", type: "pigeon" },
+              ]
+            : []),
         ],
       });
       return;

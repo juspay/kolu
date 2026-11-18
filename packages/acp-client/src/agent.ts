@@ -4195,17 +4195,17 @@ const methodsIn = (
   const offered: Array<Offered> = [];
   for (const method of response.authMethods ?? []) {
     if (method.name === "") continue;
-    // WHICH KIND, read ONCE from the protocol's own discriminator: the union
-    // has an arm that carries NONE of them — the plain `agent` method — so the
-    // field is reached through `in`, and the answer is then `terminal` or the
-    // absence of a marker. Everything below is a consequence of that one value
-    // rather than of a second read of the same field.
+    // WHICH KIND, read from the protocol's own discriminator: the union has an
+    // arm that carries NONE — the plain `agent` method — so the field is
+    // reached through `in`, and ANYTHING TYPED AS SOMETHING ELSE than
+    // `terminal` is skipped rather than read as an agent method. Today that is
+    // `env_var`, a credential box whose storage and display are a different
+    // feature's questions; written as "not terminal" rather than as that one
+    // name, so a THIRD kind lands the same way instead of being drawn as a
+    // sign-in nobody can run.
+    if ("type" in method && method.type !== "terminal") continue;
     const terminal =
       "type" in method && method.type === "terminal" ? method : null;
-    // kolu's SDK (1.5) no longer lists an `env_var` arm, olai's (1.3) still
-    // does: the discriminator is read as a plain value so the skip holds on both.
-    const kind: unknown = "type" in method ? method.type : undefined;
-    if (kind === "env_var") continue;
     if (terminal === null) {
       offered.push({
         method: {

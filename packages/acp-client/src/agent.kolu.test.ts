@@ -191,3 +191,24 @@ test("a cancel that lost the race to a login that landed answers `signed-in`", a
     ["--login-outlives-cancel"],
   );
 });
+
+test("a sign-in of a kind nobody here can run is not offered", async () => {
+  // A credential box (`env_var`) and a kind no version has defined, beside
+  // the one this client can run: only the last is a button that does
+  // something, so it is the only one offered.
+  await withAgent(
+    "agent.ts",
+    async (agent, events) => {
+      await run(agent.boot);
+      const advertised = events.all.find(
+        (event) => event._tag === "advertised",
+      );
+      expect(
+        advertised?._tag === "advertised"
+          ? advertised.methods.map((one) => one.id)
+          : null,
+      ).toEqual(["subscription"]);
+    },
+    ["--odd-sign-ins"],
+  );
+});
