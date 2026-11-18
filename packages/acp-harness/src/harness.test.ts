@@ -1134,6 +1134,18 @@ describe("a person asking to sign in", () => {
     expect(after.phase).toBe("idle");
   });
 
+  test("a row a person asked for comes down when the conversation is entered again", async () => {
+    // The agent has not said anyone is signed out, so entering a conversation
+    // answers the row's question the way it answers the agent's own offer: a
+    // sign-in row standing over a working conversation is one a person would
+    // press for nothing.
+    const running = await open("agent.ts");
+    running.harness.askSignIn();
+    expect(running.harness.state().signIn).not.toBeNull();
+    await running.harness.newSession();
+    expect(running.harness.state().signIn).toBeNull();
+  });
+
   test("runs a method a person asked for, and the conversation is the same one after", async () => {
     const running = await open("agent.ts");
     await running.harness.prompt("hello", [], [], false);

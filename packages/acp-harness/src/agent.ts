@@ -410,11 +410,11 @@ export const startAgent = (options: AgentOptions): Agent => {
         attempt = null;
         drawn();
       },
-      /** Whether the agent's own next word withdraws the offer: an agent that
-       *  now names an account has answered the question the row was asking. */
-      withdrawUnlessAttempting: (): void => {
-        if (attempt !== null) return;
-        if (cause?.kind !== "agent") return;
+      /** THE OFFER COMES DOWN, whoever put it up, unless an attempt is
+       *  running: an agent that now names an account has answered the question
+       *  the row was asking, whether the agent or a person asked it. */
+      withdraw: (): void => {
+        if (attempt !== null || cause === null) return;
         cause = null;
         drawn();
       },
@@ -1311,7 +1311,7 @@ export const startAgent = (options: AgentOptions): Agent => {
     signIn: doSignIn,
     askSignIn: () => signing.ask(),
     signInOffer: (why: string) => signing.offer(why),
-    signInWithdrawn: () => signing.withdrawUnlessAttempting(),
+    signInWithdrawn: () => signing.withdraw(),
     signInInput,
     signInCancel,
     stop,
