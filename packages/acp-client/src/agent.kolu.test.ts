@@ -10,6 +10,7 @@
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import type { Leg } from "@kolu/acp/engine";
 import { Effect } from "effect";
 import { afterEach, beforeEach, expect, test } from "vitest";
 
@@ -55,6 +56,7 @@ const withAgent = async (
   fixture: string,
   body: (agent: Agent, events: Events) => Promise<void>,
   args: ReadonlyArray<string> = [],
+  leg: Leg = SAYS_NOTHING,
 ): Promise<void> => {
   const all: Array<AgentEvent> = [];
   const waiting = new Set<(event: AgentEvent) => void>();
@@ -72,7 +74,7 @@ const withAgent = async (
   const agent = await run(
     make({
       id: "an-agent",
-      leg: SAYS_NOTHING,
+      leg,
       command: process.execPath,
       args: [join(import.meta.dirname, "fixtures", fixture), ...args],
       cwd,
@@ -210,5 +212,50 @@ test("a sign-in of a kind nobody here can run is not offered", async () => {
       ).toEqual(["subscription"]);
     },
     ["--odd-sign-ins"],
+  );
+});
+
+/** The leg's reading of the fixture's refusal data: the pinned Claude
+ *  adapter's categorical kind for an account at its usage limit. */
+const LIMITED: Leg = {
+  ...SAYS_NOTHING,
+  accountRefusal: (data) =>
+    typeof data === "object" &&
+    data !== null &&
+    "errorKind" in data &&
+    data.errorKind === "rate_limit",
+};
+
+test("a turn refused for the ACCOUNT says so, off the agent's data", async () => {
+  // The fixture refuses the way the pinned Claude adapter refuses a turn at a
+  // usage limit: `-32603`, with the SDK's categorical kind in `data`. Which
+  // data means "this account cannot run it" is the leg's to say.
+  await withAgent(
+    "agent.ts",
+    async (agent) => {
+      await run(agent.boot);
+      const refused = await run(Effect.flip(agent.prompt("limit")));
+      expect(refused).toMatchObject({
+        _tag: "AgentGone",
+        gone: "refused",
+        account: true,
+        auth: false,
+      });
+    },
+    [],
+    LIMITED,
+  );
+});
+
+test("a turn refused with no such data is a plain refusal", async () => {
+  await withAgent(
+    "agent.ts",
+    async (agent) => {
+      await run(agent.boot);
+      const refused = await run(Effect.flip(agent.prompt("fail")));
+      expect(refused).toMatchObject({ gone: "refused", account: false });
+    },
+    [],
+    LIMITED,
   );
 });

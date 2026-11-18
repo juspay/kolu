@@ -304,6 +304,17 @@ export class AgentGone extends Data.TaggedError("AgentGone")<{
    * to the browser as `Unopened.cause`).
    */
   readonly missing?: boolean;
+  /**
+   * ... AND WHETHER THE ACCOUNT THAT IS SIGNED IN CANNOT RUN IT — a usage
+   * limit, billing, an organisation that is not allowed. A sign-in to a
+   * different account is one remedy, waiting is the other, and neither is
+   * "sign in" in the sense {@link auth} means.
+   *
+   * Read off the agent's error DATA by its leg (`Leg.accountRefusal`), because
+   * which data says so is one adapter's own vocabulary; nothing is read off
+   * the sentence. Never true together with {@link auth}.
+   */
+  readonly account?: boolean;
 }> {
   override get message(): string {
     return this.why;
@@ -840,6 +851,7 @@ export const make = (options: Options): Effect.Effect<Agent, never, never> =>
       timeout?: Duration.Input | null,
     ): Effect.Effect<unknown, AgentGone> =>
       request(
+        (data) => options.leg.accountRefusal?.(data) === true,
         (cause) =>
           tell(
             (cause.code === INTERNAL_ERROR
@@ -3886,9 +3898,12 @@ export const make = (options: Options): Effect.Effect<Agent, never, never> =>
  * worded: the sentence a person reads is one line, and the code and `data`
  * behind it belong in the log, which only {@link make} can write to with the
  * agent and session on the line. Required rather than defaulted, so no call
- * site can quietly opt out of the record.
+ * site can quietly opt out of the record. `accountIn` is the leg's reading of
+ * a rejection's `data` ({@link AgentGone}'s `account`), which only
+ * {@link make} holds the leg for.
  */
 const request = (
+  accountIn: (data: unknown) => boolean,
   refused: (cause: RequestError) => void,
   connection: ClientConnection,
   method: string,
@@ -3921,6 +3936,10 @@ const request = (
         gone: goneOf(cause),
         why: `\`${method}\` failed: ${saidOf(cause)}`,
         auth: authOf(cause),
+        account:
+          cause instanceof RequestError &&
+          !authOf(cause) &&
+          accountIn(cause.data),
         // THE READING IS BY CODE; the GATE is the method, and it is here
         // because here is the one place the method is in hand. `-32002` means
         // "the resource you named is not here", and which resource that is
