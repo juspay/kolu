@@ -20,6 +20,9 @@
  * terminal. `src/seam.test.ts` holds that.
  */
 
+import type { Background } from "@kolu/acp/engine";
+import type { FileDiff, ToolStatus } from "@kolu/acp/wire";
+
 /**
  * ONE THING THE AGENT SAID, as the door carries it.
  *
@@ -47,4 +50,49 @@ export type AgentEvent =
         readonly task: string;
         readonly report: string;
       } | null;
+    }
+  /** A tool call, as we last heard of it — announced or moved.
+   *
+   *  ONE member rather than the protocol's announce/update pair: the transcript
+   *  is keyed by `id`, so a second report of a call is the same row with new
+   *  fields. `undefined` is "unchanged", never "cleared" — the protocol's own
+   *  rule for an update. */
+  | {
+      readonly _tag: "tool";
+      readonly id: string;
+      readonly title: string | undefined;
+      readonly status: ToolStatus | undefined;
+      /** What was asked for, out of the frame's own input and answer. */
+      readonly detail: string | undefined;
+      /** What the call has to say while it runs, out of its content blocks — a
+       *  different question from `detail`. */
+      readonly asked: string | undefined;
+      readonly progress: string | undefined;
+      readonly diffs: ReadonlyArray<FileDiff> | undefined;
+      readonly locations: ReadonlyArray<string> | undefined;
+      /** The call's own input and the agent's answer, as the leg read them —
+       *  kolu's own reading of a `kolu` call is the conversation's
+       *  (`./kolu.ts`), and it needs both halves across frames. */
+      readonly rawInput: unknown;
+      readonly answer: unknown;
+      /** Which server and tool, where the leg positively recognised the call as
+       *  one of the servers THIS conversation handed over. */
+      readonly mcp: { readonly server: string; readonly tool: string } | null;
+      /** Whether this call's question reaches a person as a FORM rather than a
+       *  card — one agent's own spelling of its own built-in. */
+      readonly asksThroughForm: boolean | undefined;
+      /** Which `Agent` call this one was made inside, by that call's own id. */
+      readonly parent: string | undefined;
+      /** ... and, the other way round, that this call SENT one out. */
+      readonly spawned:
+        | { readonly kind: string | null; readonly said: string | null }
+        | undefined;
+      /** ... and that it ARMED a background task, as the leg read it — the
+       *  row's own words are the conversation's (`Armed`), which is why this
+       *  is the leg's `Background` and not the wire's shape. */
+      readonly armed: Background | undefined;
+      /** ... and that the title on this frame is a placeholder rather than the
+       *  call's name. `undefined` is "not provisional", not "unchanged": the
+       *  claim is scoped to THIS frame's title. */
+      readonly provisional: boolean | undefined;
     };

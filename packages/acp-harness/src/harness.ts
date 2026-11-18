@@ -807,6 +807,9 @@ export const startHarness = async (
         if (event.text !== "") report(transcript.say(event.text));
         return null;
       }
+      case "tool":
+        writeTool(event);
+        return null;
       case "taskNotification": {
         const onto = event.onto;
         if (onto !== null) {
@@ -1218,7 +1221,7 @@ export const startHarness = async (
       // same thing with either.
       case "tool_call":
       case "tool_call_update": {
-        onToolCall(update);
+        emit(readTool(update));
         return;
       }
       // `status` is copied, not narrowed like a tool call's `statusOf`: the
@@ -1268,7 +1271,9 @@ export const startHarness = async (
     }
   };
 
-  const onToolCall = (update: {
+  /** A tool frame, read into the door's own words: everything this side knows
+   *  about the call, and nothing of what kolu DRAWS of it. */
+  const readTool = (update: {
     readonly toolCallId: string;
     readonly title?: string | null;
     readonly status?: string | null;
@@ -1277,7 +1282,7 @@ export const startHarness = async (
     readonly content?: ReadonlyArray<unknown> | null;
     readonly locations?: ReadonlyArray<unknown> | null;
     readonly _meta?: { readonly [key: string]: unknown } | null | undefined;
-  }): void => {
+  }): AgentEvent => {
     // Not drawn and not published: what this frame said about its call — which
     // tool it is, and which agent made it — is what the two question handlers
     // need and what neither question they answer carries.
@@ -1304,18 +1309,6 @@ export const startHarness = async (
     // exists to answer. Reading `rawOutput` directly left every `create` card
     // nameless and the fleet empty against the real adapter.
     const answer = leg.replyIn(update.rawOutput) ?? update.rawOutput;
-    const seen =
-      call === null ? null : koluCallOf(call.tool, update.rawInput, answer);
-    // ACCUMULATED, not per-frame: the arming frame carries the input and the
-    // settling frame carries the answer, so a card built from either alone is
-    // missing the half the other had. `refineKoluCall` keeps whichever frame
-    // said something, because a frame refines and never retracts.
-    const kolu = refineKoluCall(
-      koluReadings.get(update.toolCallId) ?? null,
-      seen,
-    );
-    if (kolu !== null) koluReadings.set(update.toolCallId, kolu);
-    if (kolu !== null && fleet.touch(kolu)) publish();
     const armed = leg.backgroundTask(update._meta);
     // WHETHER THIS CALL'S QUESTION REACHES THE PERSON AS A FORM. The ask row
     // carries that question already — its options, its answer, its heading —
@@ -1329,49 +1322,81 @@ export const startHarness = async (
       named !== undefined && leg.asksThroughForm?.(named) === true
         ? true
         : undefined;
+    return {
+      _tag: "tool",
+      id: update.toolCallId,
+      title: update.title ?? undefined,
+      status: statusOf(update.status),
+      detail: detailOf(update.rawInput, update.rawOutput),
+      asked: detailOf(update.rawInput, undefined),
+      progress: progressOf(update.content as Parameters<typeof progressOf>[0]),
+      diffs: diffsOf(
+        update.content as Parameters<typeof diffsOf>[0],
+        options.cwd,
+      ),
+      locations: locationsOf(
+        update.locations as Parameters<typeof locationsOf>[0],
+        options.cwd,
+      ),
+      rawInput: update.rawInput,
+      answer,
+      mcp: call === null ? null : { server: call.server, tool: call.tool },
+      asksThroughForm,
+      // WHO made the call, out of the same `_meta` the name came from: a
+      // subagent's frames arrive on this one feed with nothing in the
+      // protocol to tell them apart.
+      parent: leg.parentToolUse(update._meta) ?? undefined,
+      // ... and, the other way round, whether this call SENT an agent out.
+      // The leg answers structurally — absent where it knows nothing — and
+      // the row says `null` for the same, because a row is a value on a wire
+      // and `undefined` is not one of its words.
+      spawned: spawnedOf(leg.spawned(update._meta, update.rawInput)),
+      // ... and whether it ARMED a background task, which is the one kind of
+      // call that goes on happening after this frame and after the turn.
+      armed: armed ?? undefined,
+      provisional: leg.provisionalTitle?.(update),
+    };
+  };
+
+  /** ... and the row that reading becomes, which is the conversation's. */
+  const writeTool = (event: Extract<AgentEvent, { _tag: "tool" }>): void => {
+    const seen =
+      event.mcp === null
+        ? null
+        : koluCallOf(event.mcp.tool, event.rawInput, event.answer);
+    // ACCUMULATED, not per-frame: the arming frame carries the input and the
+    // settling frame carries the answer, so a card built from either alone is
+    // missing the half the other had. `refineKoluCall` keeps whichever frame
+    // said something, because a frame refines and never retracts.
+    const kolu = refineKoluCall(koluReadings.get(event.id) ?? null, seen);
+    if (kolu !== null) koluReadings.set(event.id, kolu);
+    if (kolu !== null && fleet.touch(kolu)) publish();
     report(
-      transcript.tool(update.toolCallId, {
-        title: update.title ?? undefined,
-        status: statusOf(update.status),
-        detail: detailOf(update.rawInput, update.rawOutput),
-        asked: detailOf(update.rawInput, undefined),
-        progress: progressOf(
-          update.content as Parameters<typeof progressOf>[0],
-        ),
-        diffs: diffsOf(
-          update.content as Parameters<typeof diffsOf>[0],
-          options.cwd,
-        ),
-        locations: locationsOf(
-          update.locations as Parameters<typeof locationsOf>[0],
-          options.cwd,
-        ),
+      transcript.tool(event.id, {
+        title: event.title,
+        status: event.status,
+        detail: event.detail,
+        asked: event.asked,
+        progress: event.progress,
+        diffs: event.diffs,
+        locations: event.locations,
         // THE PRODUCT'S HALF OF THE ROW: which server and tool a recognised
         // call named, whether its question reached a person as a form, and
         // kolu's own reading of it. The transcript copies these and reads none
         // of them.
         extra: {
-          server: call?.server,
-          tool: call?.tool,
+          server: event.mcp?.server,
+          tool: event.mcp?.tool,
           // Absent rather than `false`: every optional field of a tool row
           // means UNCHANGED, and a call whose name has not arrived yet is not a
           // call anything has called ordinary.
-          asksThroughForm,
+          asksThroughForm: event.asksThroughForm,
           ...(kolu === null ? {} : { kolu }),
         },
-        // WHO made the call, out of the same `_meta` the name came from: a
-        // subagent's frames arrive on this one feed with nothing in the
-        // protocol to tell them apart.
-        parent: leg.parentToolUse(update._meta) ?? undefined,
-        // ... and, the other way round, whether this call SENT an agent out.
-        // The leg answers structurally — absent where it knows nothing — and
-        // the row says `null` for the same, because a row is a value on a wire
-        // and `undefined` is not one of its words.
-        spawned: spawnedOf(leg.spawned(update._meta, update.rawInput)),
-        // ... and whether it ARMED a background task, which is the one kind of
-        // call that goes on happening after this frame and after the turn.
-        armed: armed ?? undefined,
-        provisional: leg.provisionalTitle?.(update),
+        parent: event.parent,
+        spawned: event.spawned,
+        armed: event.armed,
+        provisional: event.provisional,
       }),
     );
     publish();
