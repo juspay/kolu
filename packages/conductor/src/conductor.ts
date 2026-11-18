@@ -1704,6 +1704,9 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
     const begun = (async (): Promise<Harness<ConductorRow>> => {
       const kolu = await provenFleetServer();
       return spawn({
+        // ONE CONVERSATION, so the name is what it is FOR rather than which
+        // of several engines it runs on.
+        agent: "conversation",
         leg: ENGINE.leg,
         adapter: seating as Exclude<typeof seating, NotHere>,
         cwd: home,

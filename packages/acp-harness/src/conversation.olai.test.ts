@@ -233,6 +233,7 @@ const open = async (
     }
   };
   const harness = await startHarness<OlaiRow>({
+    agent: "an-engine",
     leg,
     adapter: {
       command: process.execPath,

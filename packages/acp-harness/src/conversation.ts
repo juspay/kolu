@@ -257,6 +257,12 @@ export interface ToolReading<Row extends AnyRow> {
 }
 
 export interface HarnessOptions<Row extends AnyRow> {
+  /** WHICH AGENT THIS IS, in the product's own name for it: the key the
+   *  client files the conversation's memory and model notes under (beside the
+   *  session id), and the `agent` on every line it logs. A product with
+   *  several engines names the one this conversation runs on, so a note read
+   *  back at the next start is found under the engine it was written for. */
+  readonly agent: string;
   /** How to read what this agent sends. Every bet that is true of one agent and
    *  not another is behind this; nothing in this file names an adapter. */
   readonly leg: Leg;
@@ -760,11 +766,6 @@ const PROMPT_CAP = 20 * 1024 * 1024;
  *  their behalf. So the words stay on the row, theirs to send again. */
 const CANCELLED_UNDER_IT =
   "the turn these words were steered into was cancelled, so they were not sent";
-
-/** WHICH AGENT THIS IS, for the client's log lines and for the key its memory
- *  would be written under. One conversation per harness, so the name is what
- *  this conversation is FOR rather than a roster id. */
-const AGENT_ID = "conversation";
 
 /**
  * Spawn the agent, shake hands, and open the conversation — all of it, before
@@ -1820,7 +1821,7 @@ export const startHarness = async <Row extends AnyRow>(
   // conversation is this half's, because the rows a resume mints are ours.
   const agent: Agent = await run(
     make({
-      id: AGENT_ID,
+      id: options.agent,
       leg,
       command: adapter.command,
       args: adapter.args,

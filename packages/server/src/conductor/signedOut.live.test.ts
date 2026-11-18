@@ -122,6 +122,7 @@ describe.skipIf(!LIVE)(
       if ("why" in seating) throw new Error(seating.why);
       const configDir = conductorConfigDir(process.env, home);
       const harness = await startHarness<ConductorRow>({
+        agent: "conversation",
         leg: ENGINE.leg,
         adapter: {
           ...(seating as Exclude<typeof seating, NotHere>),

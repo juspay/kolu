@@ -64,7 +64,9 @@
       "startHarness"
     ],
     "members": [
+      "abandonWhen",
       "adapter",
+      "agent",
       "alive",
       "answer",
       "askSignIn",
@@ -88,6 +90,7 @@
       "methods",
       "missing",
       "model",
+      "models",
       "newSession",
       "numbering",
       "onChange",

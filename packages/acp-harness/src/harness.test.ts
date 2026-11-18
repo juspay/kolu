@@ -270,6 +270,7 @@ const open = async (
     }
   };
   const harness = await startHarness<FixtureRow>({
+    agent: "fixture-agent",
     leg: extra.leg ?? leg,
     adapter: {
       command: process.execPath,
@@ -781,6 +782,7 @@ describe("the permission mode a conversation is opened in", () => {
     // conversation nobody may use.
     const states: Array<HarnessState> = [];
     const starting = startHarness<FixtureRow>({
+      agent: "fixture-agent",
       leg: { ...leg, bypassMode: "yolo", bypassModeRequired: true },
       adapter: {
         command: process.execPath,
@@ -1378,6 +1380,7 @@ describe("a bring-up nothing can be done about", () => {
   test("publishes the refusal before it throws, and takes the child with it", async () => {
     const states: Array<HarnessState> = [];
     const starting = startHarness<FixtureRow>({
+      agent: "fixture-agent",
       leg,
       adapter: {
         command: fixtureAgent("no-such-adapter"),
@@ -1420,6 +1423,7 @@ describe("a bring-up nothing can be done about", () => {
     try {
       await expect(
         startHarness<FixtureRow>({
+          agent: "fixture-agent",
           leg,
           adapter: {
             command: process.execPath,
