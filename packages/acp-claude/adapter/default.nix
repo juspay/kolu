@@ -40,13 +40,12 @@ in
    *  one of them. */
   version = (builtins.fromJSON (builtins.readFile (shim + "/package.json"))).dependencies.${packageName};
 
-  /** THE FIXED-OUTPUT HASH for the shim's dependency set, and it is KOLU'S
-   *  OWN: the shim's `name` reaches the npm cache `prefetch-npm-deps` builds
-   *  (the lockfile's root entry is part of what it reads), and so does the
-   *  shim's `overrides` — kolu carries zod's 4.6.7 over the adapter's own 4.6.5
-   *  pin, while olai's shim keeps the adapter's exact pins. A product whose
-   *  shim differs gets a different hash, which is why this one is checked in
-   *  beside the lockfile it was computed from. */
+  /** THE FIXED-OUTPUT HASH for the shim's dependency set. The shim's `name`
+   *  reaches the npm cache `prefetch-npm-deps` builds (the lockfile's root
+   *  entry is part of what it reads), and so do its `overrides` (zod 4.6.7
+   *  over the adapter's own 4.6.5 pin, `@modelcontextprotocol/sdk` past its
+   *  advisory). Both products build THIS shim, so both get this hash; it is
+   *  checked in beside the lockfile it was computed from. */
   npmDepsHash = "sha256-+9kyd25sTLvzZElWarbWBPqplLjJqfSse0RIIV4yU2M=";
 
   /** BOTH patches, as a directory: the builder sorts what it finds and applies

@@ -52,12 +52,8 @@ let
   # survive that, and under an empty HOME it resolves nothing and still runs.
   claude = "${agent-distro}/bin/claude";
 in
-npmAdapter (adapter // rec {
+npmAdapter (adapter // {
   name = "kolu-acp-claude";
-  # The hash lives with the shim it was computed from — see the note beside it
-  # in `packages/acp-claude/adapter/default.nix` for why it is kolu's own value
-  # even though olai pins the same adapter.
-  version = adapter.version;
   # Node is pinned and so is the CLI the SDK drives (the adapter reads
   # CLAUDE_CODE_EXECUTABLE before it goes looking); nothing here resolves off
   # PATH. `--set`, not `--set-default`: which `claude` this adapter drives is a
