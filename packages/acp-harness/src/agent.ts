@@ -1,18 +1,21 @@
 /**
- * THE AGENT HALF: one subprocess, one protocol, and nothing of kolu's.
+ * THE AGENT HALF: one subprocess, one connection, and nothing of kolu's.
  *
- * Everything about the Agent Client Protocol stops here — nothing else in this
- * package spells `session/prompt` — and nothing in here knows what a conductor
- * row, a fleet ref or a cell is. What it does know is what the agent SAID, and
- * it says that upward in the closed vocabulary `./events.ts` declares: one
- * callback, one union, no payload.
+ * This half owns the process, the handshake, the reading of every message
+ * the agent sends, which session the agent is in, and the sign-in. It says
+ * what the agent SAID upward in the closed vocabulary `./events.ts`
+ * declares — one callback, one union — and the conversation half
+ * (`./conversation.ts`) asks of it through the verbs {@link Agent} offers;
+ * the conversation's own requests (`session/new`, `session/prompt`, …) go
+ * out through {@link Agent.request}. Nothing in here knows what a conductor
+ * row, a fleet ref or a cell is.
  *
  * WHY THE SPLIT IS A SEAM RATHER THAN A TIDY-UP. The same client runs in two
  * products ([olai](https://github.com/juspay/olai) is the other one), and the
- * half worth sharing is exactly this: spawn, handshake, sessions, questions,
- * the update stream, sign-in. The half that is not is what each product
- * DRAWS — and a file that imported `kolu-common` could not be handed over
- * without the rows it would drag along. `src/seam.test.ts` holds that fence.
+ * half worth sharing is exactly this. The half that is not is what each
+ * product DRAWS — and a file that imported `kolu-common` could not be handed
+ * over without the rows it would drag along. `src/seam.test.ts` holds that
+ * fence.
  */
 
 import {
@@ -22,7 +25,6 @@ import {
   type CreateElicitationResponse,
   type InitializeResponse,
   methods,
-  type RequestPermissionRequest,
   type RequestPermissionResponse,
   type SessionNotification,
 } from "@agentclientprotocol/sdk";
@@ -31,8 +33,6 @@ import {
   diffsOf,
   type Form,
   identityIn,
-  PERMISSION_FIELD,
-  permissionFormOf,
   usageIn,
 } from "@kolu/acp";
 
@@ -48,7 +48,6 @@ import {
   fromElsewhere,
   goneOf,
   locationsOf,
-  mcpServersOf,
   messageOf,
   methodsIn,
   type Offered,
@@ -106,11 +105,8 @@ const PROTOCOL = 1;
 /** Boot is a few small round trips against a process that just started. Only it
  *  gets a deadline — a turn is a person waiting on a language model. */
 const BOOT_TIMEOUT = 30_000;
-/** A load is not small: the agent re-opens a conversation and replays every
- *  message in it before it answers. Its own, longer deadline. */
-const _LOAD_TIMEOUT = 120_000;
 /** How long the agent gets to END the conversation being left
- *  ({@link startHarness}'s `release`). Bounded and its own: a close is a
+ *  ({@link Agent.release}). Bounded and its own: a close is a
  *  cancel plus a subprocess teardown rather than a model call, and the person
  *  waiting on it is the one who just pressed NEW CONVERSATION. */
 const CLOSE_TIMEOUT = 10_000;
@@ -122,12 +118,22 @@ const SIGN_IN_CAP = 64 * 1024;
  *  JSON-RPC errors, and a turn that failed with nothing else to say is what the
  *  dump exists for. */
 const STDERR_CAP = 32 * 1024;
-/** THE MOST ONE ATTACHMENT MAY WEIGH, and the most a prompt may carry in all.
- *  Both are refused with a sentence naming the limit rather than trimmed or
- *  dropped: an image that silently did not travel is a person asking about a
- *  picture the model never saw, and the only honest versions of "too big" are
- *  a number and a no. The bytes counted are the ones the row declares, which
- *  is the number the panel drew beside the chip. */
+/**
+ * THE KINDS THAT RE-TELL WHAT WAS SAID — the only frames a replay is dropped
+ * on the floor for.
+ *
+ * `session/load` sends two unlike things down one stream before it answers:
+ * the conversation's HISTORY, which the caller already holds in a richer form,
+ * and news about the session AS IT IS NOW — which commands it offers, which
+ * settings it is on, how full its context is. Dropping the whole stream drops
+ * the second with the first, and the conversation's `leaving` has just reset
+ * exactly those fields: a resumed conversation would spend the rest of its
+ * life with no `/` completion and no context meter, which is the opposite of
+ * what the fence is for. So the partition is BY KIND and it is written here,
+ * named, rather than inline — a kind this client learns to draw later is then
+ * added to a list somebody can read, instead of quietly arriving as news
+ * about a conversation that has not happened yet.
+ */
 const REPLAYED_UPDATES: Readonly<Record<string, true>> = {
   agent_message_chunk: true,
   user_message_chunk: true,
@@ -166,28 +172,6 @@ interface Attempt {
   state: "running" | "succeeded" | "failed";
 }
 
-/**
- * Spawn the agent, shake hands, and open the conversation — all of it, before
- * this promise settles.
- *
- * BRING-UP IS THE CALLER'S CALL and the whole of it is here, because the steps
- * are one sequence whose order is a protocol fact and a harness handed back
- * half-open would be a caller's problem to discover. ONE `try` covers the lot,
- * so a refusal or a deadline anywhere in it stops the subprocess instead of
- * leaving an adapter — and whatever it spawned — running for every retry. The
- * refusal is PUBLISHED before it is thrown: a caller's exception reaches a log,
- * and the panel somebody is looking at would otherwise be an idle composer
- * over a host with no agent on it.
- *
- * THE ONE REFUSAL THAT RESOLVES is `auth`. Nobody being signed in is the
- * failure with something to DO about it, the process that refused is the
- * process a sign-in runs against, and so the harness comes back alive and
- * offline with `state.signIn` filled in. The conversation itself waits for the
- * caller's RESTART ({@link Harness.signIn}): a signature reaches an adapter
- * only through a fresh `initialize`, so a conversation opened by this process
- * after a sign-in would be one the new credential never reached.
- */
-
 /** The one MCP server shape the agent half passes on, said again so that this
  *  file names no product. */
 export type HandedServer =
@@ -223,7 +207,7 @@ export interface AgentOptions {
   readonly calls: Calls;
   readonly questions: Questions;
   /** Every fact worth saying, in the closed union `./events.ts` declares. */
-  readonly onEvent: (event: AgentEvent) => string | null;
+  readonly onEvent: (event: AgentEvent) => void;
 }
 
 /** The agent, as the conversation uses it. */
@@ -266,23 +250,23 @@ export interface Agent {
   readonly signInInput: (text: string) => Promise<void>;
   readonly signInCancel: () => Promise<boolean>;
   readonly stop: () => Promise<void>;
-  /** The questions still waiting, as their ids. */
-  readonly openAsks: () => ReadonlyArray<string>;
-  /** The attempt in flight, for the elicitation handler's own checks. */
-  readonly inFlight: () => Attempt | null;
   /** A conversation is being RE-OPENED: the frames that follow are its history,
    *  which the caller already holds. `end` answers how many were dropped. */
   readonly beginReplay: (id: string) => void;
   readonly endReplay: () => number;
   /** The page a device-code sign-in sent somebody to, once the agent sends it. */
   readonly attachLink: (
-    params: unknown,
+    params: CreateElicitationRequest,
     form: Form,
   ) => Promise<CreateElicitationResponse>;
-  /** A withdrawn attempt is not drawn. */
-  readonly sayAttempt: () => void;
 }
 
+/**
+ * Spawn the agent and wire its connection. Nothing is asked of it yet: the
+ * caller holds the returned agent first, so the `try` around
+ * {@link Agent.handshake} and the open can stop the process when either
+ * fails.
+ */
 export const startAgent = (options: AgentOptions): Agent => {
   const { leg, adapter, log, cwd, configDir, mcpServers, calls, questions } =
     options;
@@ -304,11 +288,6 @@ export const startAgent = (options: AgentOptions): Agent => {
   /** The URL elicitations this conversation is waiting on, by the agent's own
    *  id. */
   const waitingLinks = new Map<string, string>();
-  /** What this agent's leg wants on the `_meta` of the two calls that OPEN a
-   *  conversation. */
-  const _openMeta =
-    leg.rawMessages === null ? {} : { _meta: leg.rawMessages.openMeta };
-  const _handing = mcpServersOf(mcpServers);
 
   const signing = (() => {
     let onOffer: ReadonlyArray<Offered> = [];
@@ -385,7 +364,6 @@ export const startAgent = (options: AgentOptions): Agent => {
         onOffer = methods;
         said = agentSaid;
       },
-      attempt: () => attempt,
       sayAttempt: (): void => {
         // A WITHDRAWN ATTEMPT IS NOT DRAWN: the runner goes on finishing the
         // process it started after the slot was given up, and the row a cancel
@@ -504,29 +482,11 @@ export const startAgent = (options: AgentOptions): Agent => {
 
   // ── the questions the agent asks a person ────────────────────────────
 
-  /** Put a form in front of a person and wait for it — the registry holds the
-   *  promise, and this is the one place the row it draws is announced. WHO IS
-   *  ASKING is worked out here rather than handed in: the form names the call
-   *  it was asked from and the call is what has been heard about, so there is
-   *  nothing left for a caller to supply. A form drawn in nobody's name is
-   *  drawn as the main agent's, which is the one thing a subagent's question
-   *  must not say.
-   *
-   *  EVERY question that comes through here is the AGENT'S — an elicitation
-   *  it is holding a call open for, which is why there is a promise at all.
-   *  kolu's own questions about a piece of work do not: they are decisions on
-   *  the work, written by `kolu-conductor`, said in the transcript as a row
-   *  that holds nothing, and answered against the record whenever the human
-   *  gets to it. A question that waits is a question with a deadline, and a
-   *  person reading a plan outlives any of them. */
-  /** ... AND THE ONE A SIGN-IN IS WAITING ON, which is the same payload with no
-   *  session to put it in. The promise this returns is what the agent is
-   *  blocked on for the whole of a device-code sign-in, so it is deliberately
-   *  not answered here: the completion notification accepts it when the agent
-   *  says the page is done, and {@link signInCancel} declines it when somebody
-   *  gives up. */
-  /** ... and the one a sign-in is waiting on, as a MEMBER: the attempt's link
-   *  is this half's state, and the answer is the conversation's to give. */
+  /** THE PAGE A SIGN-IN IS WAITING ON — a URL elicitation with no session to
+   *  put it in. The promise this returns is what the agent is blocked on for
+   *  the whole of a device-code sign-in, so it is deliberately not answered
+   *  here: the completion notification accepts it when the agent says the page
+   *  is done, and {@link signInCancel} declines it when somebody gives up. */
   const attachLink = async (
     params: CreateElicitationRequest,
     form: Form,
@@ -539,8 +499,8 @@ export const startAgent = (options: AgentOptions): Agent => {
     const link = form.link;
     if (running === null || running.write !== null || link === null) {
       onEvent({
-        _tag: "trouble",
-        text: "the agent asked something this panel cannot draw — the agent sent a link for something that is not a sign-in",
+        _tag: "undrawable",
+        why: "the agent sent a link for something that is not a sign-in",
       });
       return { action: "decline" };
     }
@@ -567,7 +527,6 @@ export const startAgent = (options: AgentOptions): Agent => {
    *  things that could be waiting on it and only one of them can be true: a
    *  conversation's question row, or the sign-in row whose request this
    *  elicitation belongs to. */
-
   const onElicitationComplete = (params: unknown): void => {
     const id = completionIdOf(params);
     if (id === null) return;
@@ -581,54 +540,6 @@ export const startAgent = (options: AgentOptions): Agent => {
     if (running === null || running.stopping) return;
     if (running.link === null || running.link.elicitationId !== id) return;
     running.link.answer("accept");
-  };
-
-  /** WHAT A PERSON IS SHOWN, as a promise — the question itself is the
-   *  conversation's (it draws the row), so this asks through the door and
-   *  answers it back. */
-  const askPerson = (
-    form: Form,
-    signal: AbortSignal,
-  ): Promise<{
-    readonly outcome: { how: "answered" | "declined" | "withdrawn" };
-    readonly content: Record<string, string | number | boolean | Array<string>>;
-  }> =>
-    new Promise((resolve, reject) => {
-      onEvent({
-        _tag: "ask",
-        form,
-        signal,
-        settle: resolve,
-        fail: reject,
-      });
-    });
-
-  const _writePermission = async (
-    params: RequestPermissionRequest,
-    signal: AbortSignal,
-  ): Promise<RequestPermissionResponse> => {
-    // A REQUEST'S TOOL CALL IS A FRAME ABOUT THAT CALL — the adapter builds its
-    // `_meta` the same way it builds an announcement's — so it goes in through
-    // the same door rather than being read as a second kind of source.
-    calls.heard(params.toolCall.toolCallId, params.toolCall._meta);
-    const named = calls.about(params.toolCall.toolCallId).name ?? null;
-    // The tools kolu handed this conversation are answered here and now, and
-    // everything else is put in front of a person. Which is which is the leg's
-    // `allowedWithoutAsking`, where it is POSITIVE RECOGNITION: the tool is
-    // named, the name belongs to a server WE handed over, and the request
-    // offers an allow-FLAVOURED option — never "the first option".
-    const allowed = leg.allowedWithoutAsking(named, given, params.options);
-    if (allowed !== null) {
-      return { outcome: { outcome: "selected", optionId: allowed } };
-    }
-    if (fromElsewhere(params.sessionId, activeSession, closed)) {
-      return { outcome: { outcome: "cancelled" } };
-    }
-    const settled = await askPerson(permissionFormOf(params), signal);
-    const picked = settled.content[PERMISSION_FIELD];
-    return typeof picked !== "string"
-      ? { outcome: { outcome: "cancelled" } }
-      : { outcome: { outcome: "selected", optionId: picked } };
   };
 
   // ── the session stream ───────────────────────────────────────────────
@@ -918,7 +829,7 @@ export const startAgent = (options: AgentOptions): Agent => {
             _tag: "permission",
             params: context.params,
             signal: context.signal,
-            settle: (answer) => resolve(answer as RequestPermissionResponse),
+            settle: resolve,
             fail: reject,
           });
         }),
@@ -931,7 +842,7 @@ export const startAgent = (options: AgentOptions): Agent => {
             _tag: "elicitation",
             params: context.params,
             signal: context.signal,
-            settle: (answer) => resolve(answer as CreateElicitationResponse),
+            settle: resolve,
             fail: reject,
           });
         }),
@@ -971,10 +882,8 @@ export const startAgent = (options: AgentOptions): Agent => {
     onEvent({ _tag: "gone", code: code ?? null, signal: signal ?? null });
   });
 
-  /** The conversation is over — replaced, reloaded, or dead. Everything keyed
-   *  to it goes. {@link closed} is named FIRST, while `activeSession` is still
-   *  the one being left: nulling it first is what turns the leftover fence off
-   *  for the whole of the next open. */
+  /** The spawn's own failure — an exec that failed after `spawn` returned —
+   *  as the refusal the handshake races against. */
   const failedToStart = child.unstartable.then((why) => {
     throw new HarnessUnavailable(
       `could not start the agent \`${adapter.command}\`: ${why}`,
@@ -1194,6 +1103,37 @@ export const startAgent = (options: AgentOptions): Agent => {
     return true;
   };
 
+  /**
+   * END THE CONVERSATION BEING LEFT, at the agent — ACP's `session/close`.
+   *
+   * MEASURED, against the pinned Claude adapter 0.81.2: a session's work runs
+   * in its own SDK `query()`, and `query()` SPAWNS A `claude` CLI the moment
+   * the session is made (`dist/acp-agent.js`, the `session/create …
+   * phase=prepare-query` leg). Nothing ever ends that CLI except
+   * `session/close` — which cancels the turn, ends the input stream and calls
+   * `query.close()`, terminating the subprocess — or the connection dying,
+   * whose `dispose()` runs that same teardown over every session still held.
+   * So a client that opens a second conversation on one adapter and never
+   * closes the first leaves the first CLI running for the life of the
+   * process: one `session/new`, one `claude`, for ever. A production padi
+   * was found holding five, at ~35% CPU each.
+   *
+   * The conversation calls it BEFORE the next open, so a host never carries
+   * two agent CLIs for one panel, and an open that fails does not leave the
+   * old conversation running with nothing able to reach it.
+   *
+   * WHAT IT DOES NOT DO is forget the conversation. Closing a session ends
+   * its process; the agent's stored transcript is untouched (ACP spells
+   * forgetting `session/delete`), which is what makes a later resume of the
+   * id padi persisted still a resume.
+   *
+   * SWALLOWED, and no row. There is no capability to read first — ACP
+   * advertises `loadSession`, `session/list`, `session/delete` and not this —
+   * so an agent without it answers "method not found", and a refusal to end a
+   * conversation nobody is in is not a reason to refuse a person the new one
+   * they asked for, nor a sentence anybody could act on. It is logged,
+   * because the thing it leaves behind is a process.
+   */
   const release = async (sessionId: string | null): Promise<void> => {
     if (sessionId === null) return;
     try {
@@ -1236,9 +1176,22 @@ export const startAgent = (options: AgentOptions): Agent => {
 
   // ── the handshake ────────────────────────────────────────────────────
 
-  /** The protocol's own first word, and what the agent answers about itself.
-   *  A VERB rather than part of the spawn, so the caller holds the agent —
-   *  and with it the means to stop the process — before anything can fail. */
+  /**
+   * `initialize`, and what the answer says about the agent.
+   *
+   * `fs` capabilities are FALSE in both directions on purpose: the conductor
+   * is not an editor, and an agent that could write a file whole would be
+   * routing around the terminals it is supposed to be driving.
+   * `elicitation.form` is TRUE and is what makes any of the asking happen at
+   * all — without it the pinned Claude adapter puts `AskUserQuestion` in
+   * `disallowedTools`, so the agent cannot ask a structured question and has
+   * to guess. `elicitation.url` is TRUE because without it the adapters
+   * withhold their device-code sign-in entirely, and `auth.terminal` (plus the
+   * `_meta["terminal-auth"]` corner the pinned Claude adapter reads) is what
+   * makes an agent offer a sign-in a CLIENT can run: with it, the adapter
+   * hands over a command that prints a URL and reads a code; without it, the
+   * same adapter offers only a full-screen TUI this panel cannot draw.
+   */
   const handshake = async (): Promise<void> => {
     const initialized = (await Promise.race([
       request(methods.agent.initialize, {
@@ -1262,14 +1215,6 @@ export const startAgent = (options: AgentOptions): Agent => {
         ? null
         : `${initialized.agentInfo.name} ${initialized.agentInfo.version}`,
     );
-    onEvent({
-      _tag: "offered",
-      offered: methodsIn(initialized, adapter.command, adapter.args),
-      said:
-        initialized.agentInfo === undefined || initialized.agentInfo === null
-          ? null
-          : `${initialized.agentInfo.name} ${initialized.agentInfo.version}`,
-    });
     // WHAT THIS AGENT TAKES MID-TURN, read ONCE, here. Both are claims the
     // agent makes about itself at the handshake, and both are read POSITIVELY:
     // an agent that says nothing is offered no interruption and promises no
@@ -1315,7 +1260,6 @@ export const startAgent = (options: AgentOptions): Agent => {
     signInInput,
     signInCancel,
     stop,
-    openAsks: () => questions.open(),
     beginReplay: (id: string) => {
       closed.delete(id);
       replaying = true;
@@ -1325,8 +1269,6 @@ export const startAgent = (options: AgentOptions): Agent => {
       replaying = false;
       return replayed;
     },
-    attachLink: attachLink as Agent["attachLink"],
-    sayAttempt: () => signing.sayAttempt(),
-    inFlight: () => signing.inFlight(),
+    attachLink,
   };
 };

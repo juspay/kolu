@@ -4,12 +4,12 @@
 
 `@kolu/acp-harness` spawns an ACP adapter, holds one session on it, and turns a stream of protocol frames into the transcript rows kolu's contract declares. It is **the volatility receptacle**: everything hard about talking to an agent over a pipe — a child that dies mid-turn, a frame from a conversation you already left, a question that blocks a turn until a person answers it, a background task that outlives the turn that armed it — is hidden here, and the dependency arrow points out. [`kolu-server`](../server) holds exactly ONE of these — the [Conductor](https://kolu.dev/conductor), covering every host — and never spells `session/prompt`.
 
-## The three files
+## How the runner is split
 
 | file | what it holds |
 |---|---|
-| `src/agent.ts` | everything that speaks the protocol: the subprocess and its stderr, `request`/`notify`, the `acpClient` subscriptions, the update stream and the tool reader, the questions, the handshake, sign-in and the exit. It reports upward only through one callback taking a member of `src/events.ts`'s closed union, and knows no row, no fleet ref and no terminal — `src/seam.test.ts` holds that fence, because this is the file a second product could take |
-| `src/conversation.ts` | the transcript, the turns, the fleet, kolu's reading of a call, the state a caller reads, and every row written — the other side of that union |
+| `src/agent.ts` | the agent half: the subprocess and its stderr, `request`/`notify`, the `acpClient` subscriptions, the update stream and the tool reader, the handshake, which session the agent is in (and which it has left), the pages a question waits on, sign-in and the exit. It reports upward only through one callback taking a member of `src/events.ts`'s closed union, and knows no row, no fleet ref and no terminal — `src/seam.test.ts` holds that fence, because this is the file a second product could take |
+| `src/conversation.ts` | the conversation half: opening and resuming sessions and what the transcript does about it, the turns, the questions drawn as rows, the fleet, kolu's reading of a call, the state a caller reads, and every row written — the other side of that union |
 | `src/events.ts` | the union itself: one member per thing the agent says, named after [olai](https://github.com/juspay/olai)'s `events.ts` wherever the fact is the same |
 | `src/harness.ts` | the door: the names this package has always published, re-exported from `conversation.ts`, so the split is an arrangement inside the package rather than a change to what it hands out |
 

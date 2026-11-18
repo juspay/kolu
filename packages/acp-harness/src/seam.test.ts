@@ -40,6 +40,7 @@ const PRODUCT = [
 
 /** The protocol-facing modules, by file name. */
 const SEAM = [
+  "agent.ts",
   "events.ts",
   "payloads.ts",
   "questions.ts",

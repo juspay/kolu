@@ -1,26 +1,21 @@
 /**
- * THE ACP CLIENT: one subprocess, one protocol, no browser.
+ * THE CONVERSATION: one session at a time, its turns, its rows and its state.
  *
- * Everything about the Agent Client Protocol stops here — nothing else in kolu
- * spells `session/prompt` — and nothing in here knows what a surface member, a
- * cell or a browser is. A caller gets something it can prompt, cancel, answer,
- * sign in and stop, plus the rows and the state of the conversation through the
- * one callback it gave at construction.
+ * The agent half (`./agent.ts`) owns the process, the handshake and the
+ * reading of what the agent says; it tells this half through one closed union
+ * (`./events.ts`), and this half answers through the verbs `Agent` offers.
+ * What is HERE is everything a conversation is made of: which session is
+ * opened or resumed and what the transcript does about it, the turns in
+ * flight, the steering latch, the rows a person reads, the questions drawn
+ * as rows, and the state a panel is a view of. A caller gets something it can
+ * prompt, cancel, answer, sign in and stop, plus the rows and the state
+ * through the one callback it gave at construction.
  *
- * What this owns, and why:
- *
- *   - **the subprocess and the conversation it comes up in.** Bring-up is one
- *     sequence whose order is a protocol fact: `initialize` says what the agent
- *     can do, `session/new` and `session/load` take the SAME servers and the
- *     same `_meta`, and a load replays its whole history before it answers. It
- *     is all inside {@link startHarness}'s promise, because a harness that
- *     resolved into a half-open state would be a caller's problem to discover.
  *   - **the questions the agent asks a person**, both kinds. An
  *     `elicitation/create` is a form; a `session/request_permission` that is not
  *     one of ours is a single-select. What is HERE is that both are the same
- *     question and which methods carry them; the payload shapes are
- *     `@kolu/acp`'s and the promise-per-question state machine is
- *     {@link ./questions.ts}.
+ *     question and how each is answered; the payload shapes are `@kolu/acp`'s
+ *     and the promise-per-question state machine is {@link ./questions.ts}.
  *   - **which permission requests are answered without asking.** A call to one
  *     of the MCP servers WE handed this session is allowed immediately and
  *     everything else is a person's to answer. What is HERE is that the two
@@ -29,22 +24,8 @@
  *     subprocess's callback — and it is POSITIVE RECOGNITION, never "the first
  *     option", because one adapter's options lead with the refusal and the
  *     other's lead with the allow.
- *   - **reading the payloads**: which update kind this is, what a content block
- *     says, which kolu terminal a call is about. A row carries what was READ,
- *     never the raw protocol value.
- *
- * `fs` capabilities are FALSE in both directions on purpose: the conductor
- * is not an editor, and an agent that could write a file whole would be routing
- * around the terminals it is supposed to be driving. `elicitation.form` is TRUE
- * and is what makes any of the asking happen at all — without it the pinned
- * Claude adapter puts `AskUserQuestion` in `disallowedTools`, so the agent
- * cannot ask a structured question and has to guess. `elicitation.url` is TRUE
- * because without it the adapters withhold their device-code sign-in entirely,
- * and `auth.terminal` (plus the `_meta["terminal-auth"]` corner the pinned
- * Claude adapter reads) is what makes an agent offer a sign-in a CLIENT can
- * run: with it, the adapter hands over a command that prints a URL and reads a
- * code; without it, the same adapter offers only a full-screen TUI this panel
- * cannot draw.
+ *   - **what a row carries**: what was READ, never the raw protocol value —
+ *     which kolu terminal a call is about is {@link ./kolu.ts}'s reading.
  *
  * WHAT IS DELIBERATELY NOT HERE: a client-side prompt queue. Every send is a
  * plain `session/prompt`, busy or idle, and the agent holds a busy one behind
@@ -352,29 +333,11 @@ export interface Harness {
  */
 export { HarnessRefused, HarnessUnavailable, type SignedIn };
 
-// ── the constants this client is ───────────────────────────────────────
+// ── the constants this conversation is ─────────────────────────────────
 
-/** The ACP major version this client speaks. */
-const _PROTOCOL = 1;
-/** Boot is a few small round trips against a process that just started. Only it
- *  gets a deadline — a turn is a person waiting on a language model. */
-const _BOOT_TIMEOUT = 30_000;
 /** A load is not small: the agent re-opens a conversation and replays every
  *  message in it before it answers. Its own, longer deadline. */
 const LOAD_TIMEOUT = 120_000;
-/** How long the agent gets to END the conversation being left
- *  ({@link startHarness}'s `release`). Bounded and its own: a close is a
- *  cancel plus a subprocess teardown rather than a model call, and the person
- *  waiting on it is the one who just pressed NEW CONVERSATION. */
-const _CLOSE_TIMEOUT = 10_000;
-/** How much of a sign-in's output is kept. A process that printed a book is not
- *  one a person is reading. */
-const _SIGN_IN_CAP = 64 * 1024;
-/** The agent's stderr since this subprocess started, capped so a chatty one
- *  cannot grow a log line without bound. This is where an adapter writes its
- *  JSON-RPC errors, and a turn that failed with nothing else to say is what the
- *  dump exists for. */
-const _STDERR_CAP = 32 * 1024;
 /** THE MOST ONE ATTACHMENT MAY WEIGH, and the most a prompt may carry in all.
  *  Both are refused with a sentence naming the limit rather than trimmed or
  *  dropped: an image that silently did not travel is a person asking about a
@@ -393,30 +356,6 @@ const PROMPT_CAP = 20 * 1024 * 1024;
  *  their behalf. So the words stay on the row, theirs to send again. */
 const CANCELLED_UNDER_IT =
   "the turn these words were steered into was cancelled, so they were not sent";
-
-/**
- * THE KINDS THAT RE-TELL WHAT WAS SAID — the only frames a replay is dropped
- * on the floor for.
- *
- * `session/load` sends two unlike things down one stream before it answers:
- * the conversation's HISTORY, which the caller already holds in a richer form,
- * and news about the session AS IT IS NOW — which commands it offers, which
- * settings it is on, how full its context is. Dropping the whole stream drops
- * the second with the first, and {@link startHarness}'s `leaving` has just
- * reset exactly those fields: a resumed conversation would spend the rest of
- * its life with no `/` completion and no context meter, which is the opposite
- * of what the fence is for. So the partition is BY KIND and it is written
- * here, named, rather than inline — a kind this client learns to draw later is
- * then added to a list somebody can read, instead of quietly arriving as news
- * about a conversation that has not happened yet.
- */
-const _REPLAYED_UPDATES: Readonly<Record<string, true>> = {
-  agent_message_chunk: true,
-  user_message_chunk: true,
-  tool_call: true,
-  tool_call_update: true,
-  plan: true,
-};
 
 /**
  * Spawn the agent, shake hands, and open the conversation — all of it, before
@@ -487,14 +426,6 @@ export const startHarness = async (
   const PLAN_KEY = "plan";
 
   /**
-   * THE AGENT'S PLAN — one row at one key for the life of a session, because
-   * each `plan` update REPLACES the whole thing and an empty update removes it.
-   *
-   * KOLU'S OWN ROW KIND, which is why it lives here rather than in the shared
-   * transcript: olai's chat panel has no plan row at all, and a method for one
-   * in the class would be a product's word in a class that names neither.
-   */
-  /**
    * THE REFUSAL MARK A ROW CAN CARRY, and none where it cannot.
    *
    * `extra` is the PRODUCT's half of a refusal, and kolu's half — which sign-in
@@ -512,6 +443,14 @@ export const startHarness = async (
       ? {}
       : { signIn };
 
+  /**
+   * THE AGENT'S PLAN — one row at one key for the life of a session, because
+   * each `plan` update REPLACES the whole thing and an empty update removes it.
+   *
+   * KOLU'S OWN ROW KIND, which is why it lives here rather than in the shared
+   * transcript: olai's chat panel has no plan row at all, and a method for one
+   * in the class would be a product's word in a class that names neither.
+   */
   const plan = (steps: ReadonlyArray<PlanStep>): Change<ConductorRow> => {
     const closed = transcript.stopSaying();
     if (steps.length === 0) {
@@ -582,11 +521,6 @@ export const startHarness = async (
    *  knows which row it is for and not when it started. */
   let busyAt: number | null = null;
 
-  const _replaying = false;
-  /** How many frames the replay of a resumed conversation has been dropped on
-   *  the floor — counted so the one log line a load writes can say how much
-   *  history the agent re-sent (and padi already had). */
-  const _replayed = 0;
   let stopped = false;
   let taught = false;
   let model: ConductorModel | null = null;
@@ -598,17 +532,13 @@ export const startHarness = async (
   let usage: Usage | null = null;
   let identity: AuthStatus | null = null;
   let refusal: string | null = null;
-  /** THE SIGN-IN ROW, as the door last said it — the panel's copy, composed
-   *  from the client's own offer and attempt (`signing`, below). */
+  /** THE SIGN-IN ROW, as the door last said it — the panel's copy of the row
+   *  the agent half composes from its offer and attempt. */
   let signIn: ConductorSignIn | null = null;
   let commands: ReadonlyArray<ConductorCommand> = [];
   let settings: ReadonlyArray<ConductorOption> = [];
   let labels: ReadonlyMap<string, string> = new Map();
 
-  /** WHAT THE AGENT CALLS ITSELF, out of the handshake's `agentInfo` — kept
-   *  for the one sentence that has to name it: a sign-in with nothing to press
-   *  is a dead end, and which adapter said so is most of what is left to say
-   *  about it. */
   /**
    * WHAT THIS AGENT SAID IT CAN BE SENT, beyond the text every agent takes —
    * read off `initialize` and nothing else.
@@ -651,9 +581,6 @@ export const startHarness = async (
    *  adapter itself published rather than against a shape of prose. */
   let prologue: string | null = null;
 
-  const _stderrBuf = "";
-  const _stderrWritten = 0;
-
   /** What this agent's leg wants on the `_meta` of the two calls that OPEN a
    *  conversation — spread into BOTH, because `session/new` and `session/load`
    *  have to agree: an adapter reads its subscription off whichever of them
@@ -671,96 +598,84 @@ export const startHarness = async (
    * Everything that arrives from the agent — a notification, a request it is
    * waiting on, an answer to the handshake, the process's own exit — narrows
    * into one member of {@link AgentEvent} and comes through here. What is
-   * INSIDE each case is the body that used to run in the handler; this is the
-   * door being built around it, one kind of traffic at a time, so that the
-   * agent half can later be lifted out and read on its own.
+   * inside each case is what this half does about it.
    *
    * SYNCHRONOUS on purpose: a row is still reported before state is
-   * published, and no conversion may put a promise hop between a message
-   * arriving and the work its arrival does.
+   * published, and nothing puts a promise hop between a message arriving and
+   * the work its arrival does.
    */
-  const emit = (event: AgentEvent): string | null => {
+  const emit = (event: AgentEvent): void => {
     switch (event._tag) {
-      case "ask": {
-        // THE QUESTION IS THIS HALF'S: the row, and the registry that holds the
-        // promise until somebody answers. The agent waits on the deferred.
-        void put(event.form, event.signal).then(event.settle, event.fail);
-        return null;
-      }
-      case "trouble":
-        notice(event.text);
-        return null;
+      case "undrawable":
+        undrawable(event.why);
+        return;
       case "said": {
         // The doubled prologue is dropped HERE rather than anywhere narrower:
         // the chunk is otherwise speech, and every counter a chunk feeds is
         // downstream of this one door.
         if (event.text !== "" && prologue !== null && event.text === prologue) {
           prologue = null;
-          return null;
+          return;
         }
         if (event.text !== "") report(transcript.say(event.text));
-        return null;
+        return;
       }
       case "commands":
         commands = event.commands;
         publish();
-        return null;
+        return;
       case "settings":
         readSettings(event.config);
         publish();
-        return null;
+        return;
       case "usage":
         usage = event.usage;
         publish();
-        return null;
+        return;
       case "model":
         // WHETHER IT IS NEWS is decided here rather than on the receiving
         // side, so the reading of the model is the panel's (`modelOf`) and the
         // agent half only says which id the agent named.
-        if (model?.id === event.id) return null;
+        if (model?.id === event.id) return;
         model = modelOf(event.id);
         publish();
-        return null;
+        return;
       case "servers":
         reported(event.reports);
-        return null;
+        return;
       case "identity":
         writeIdentity(event.status);
-        return null;
-      case "offered":
-        // The agent half keeps this for its own sentences; the conversation
-        // needs nothing from it.
-        return null;
+        return;
       case "signIn":
         signIn = event.row as ConductorSignIn | null;
         publish();
-        return null;
+        return;
       case "advertised":
         // Read once, at the handshake, and assigned without a publish: the
         // open that follows publishes the state that carries them.
         advertisedSteering = event.steers;
         queuesWhenBusy = event.queues;
-        return null;
+        return;
       case "carries":
         carries = {
           image: event.image,
           embeddedContext: event.embeddedContext,
         };
-        return null;
+        return;
       case "elicitation":
-        void writeElicitation(
-          event.params as CreateElicitationRequest,
-          event.signal,
-        ).then(event.settle, event.fail);
-        return null;
+        void writeElicitation(event.params, event.signal).then(
+          event.settle,
+          event.fail,
+        );
+        return;
       case "permission":
         // STARTED, not awaited: the door is synchronous and the request is
         // answered through `settle` when the person has.
-        void writePermission(
-          event.params as RequestPermissionRequest,
-          event.signal,
-        ).then(event.settle, event.fail);
-        return null;
+        void writePermission(event.params, event.signal).then(
+          event.settle,
+          event.fail,
+        );
+        return;
       case "gone": {
         // Before anything else: a form left live on a dead wire is a control
         // that does nothing, and pressing it is how a person finds out.
@@ -773,14 +688,14 @@ export const startHarness = async (
           );
         }
         publish();
-        return null;
+        return;
       }
       case "plan":
         report(plan(event.steps));
-        return null;
+        return;
       case "tool":
         writeTool(event);
-        return null;
+        return;
       case "taskNotification": {
         const onto = event.onto;
         if (onto !== null) {
@@ -794,12 +709,12 @@ export const startHarness = async (
           );
           publish();
         }
-        return null;
+        return;
       }
     }
     // A MEMBER ADDED WITHOUT A CASE FAILS HERE, which is what keeps this door
     // and the union one fact rather than two.
-    return event satisfies never;
+    event satisfies never;
   };
 
   /** ... and the row that reading becomes, which is the conversation's. */
@@ -838,7 +753,7 @@ export const startHarness = async (
           ...(kolu === null ? {} : { kolu }),
         },
         parent: event.parent,
-        spawned: spawnedOf((event.spawned ?? null) as Spawn | null),
+        spawned: spawnedOf(event.spawned ?? null),
         armed: event.armed,
         provisional: event.provisional,
       }),
@@ -959,8 +874,6 @@ export const startHarness = async (
     report(transcript.add("notice", text));
   };
 
-  // ── talking to the process ───────────────────────────────────────────
-
   // ── the questions the agent asks a person ────────────────────────────
 
   /** Put a form in front of a person and wait for it — the registry holds the
@@ -1064,12 +977,6 @@ export const startHarness = async (
     return { action: "accept", content: settled.content };
   };
 
-  /** ... AND THE ONE A SIGN-IN IS WAITING ON, which is the same payload with no
-   *  session to put it in. The promise this returns is what the agent is
-   *  blocked on for the whole of a device-code sign-in, so it is deliberately
-   *  not answered here: the completion notification accepts it when the agent
-   *  says the page is done, and {@link signInCancel} declines it when somebody
-   *  gives up. */
   const writePermission = async (
     params: RequestPermissionRequest,
     signal: AbortSignal,
@@ -1097,8 +1004,6 @@ export const startHarness = async (
       ? { outcome: { outcome: "cancelled" } }
       : { outcome: { outcome: "selected", optionId: picked } };
   };
-
-  // ── the session stream ───────────────────────────────────────────────
 
   // ── the settings, and the one of them that is the model ──────────────
 
@@ -1234,42 +1139,6 @@ export const startHarness = async (
     enter(made.sessionId);
   };
 
-  /**
-   * END THE CONVERSATION BEING LEFT, at the agent — ACP's `session/close`.
-   *
-   * MEASURED, against the pinned Claude adapter 0.81.2: a session's work runs
-   * in its own SDK `query()`, and `query()` SPAWNS A `claude` CLI the moment
-   * the session is made (`dist/acp-agent.js`, the `session/create …
-   * phase=prepare-query` leg). Nothing ever ends that CLI except
-   * `session/close` — which cancels the turn, ends the input stream and calls
-   * `query.close()`, terminating the subprocess — or the connection dying,
-   * whose `dispose()` runs that same teardown over every session still held.
-   * So a client that opens a second conversation on one adapter and never
-   * closes the first leaves the first CLI running for the life of the
-   * process: one `session/new`, one `claude`, for ever. Counted on this box
-   * with two `session/new` calls down one adapter: two live `claude`
-   * children, and one once this close goes between them. A production padi
-   * was found holding five, at ~35% CPU each.
-   *
-   * BEFORE the new open rather than after it, for two reasons. A host must
-   * never carry two agent CLIs for one panel — the second one is the whole
-   * cost this prevents. And an open that FAILS would otherwise leave the old
-   * conversation running with nothing on this side able to reach it:
-   * the agent's session is already null by then, and the only thing that ever
-   * enters an id again is a resume at startup.
-   *
-   * WHAT IT DOES NOT DO is forget the conversation. Closing a session ends
-   * its process; the agent's stored transcript is untouched (ACP spells
-   * forgetting `session/delete`), which is what makes a later resume of the
-   * id padi persisted still a resume.
-   *
-   * SWALLOWED, and no row. There is no capability to read first — ACP
-   * advertises `loadSession`, `session/list`, `session/delete` and not this —
-   * so an agent without it answers "method not found", and a refusal to end a
-   * conversation nobody is in is not a reason to refuse a person the new one
-   * they asked for, nor a sentence anybody could act on. It is logged,
-   * because the thing it leaves behind is a process.
-   */
   /**
    * COME BACK TO A CONVERSATION — or, when the agent says there is no such
    * conversation, open one and SAY SO.
@@ -1524,18 +1393,6 @@ export const startHarness = async (
     if (named !== null) await load(named);
     else await fresh();
   };
-
-  // ── what a sign-in is OFFERED for ────────────────────────────────────
-  //
-  // HERE rather than beside the rest of the sign-in, because the handshake is
-  // the first thing that reaches for them: an agent can refuse the open before
-  // this function has finished declaring itself, and a `const` read from above
-  // its own line is a `ReferenceError` on the one path that matters.
-
-  // THE SIGN-IN ITSELF — its methods, its cause and its attempt — is one owner
-  // (`signing`, below the verbs), because the elicitation handlers and the
-  // verbs write it from two directions. This page kept the sentences that
-  // describe it; the object keeps the state and emits the row.
 
   /**
    * WHAT A REFUSED OPEN LEAVES BEHIND, and whether anything is left to act on.

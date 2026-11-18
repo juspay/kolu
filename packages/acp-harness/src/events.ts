@@ -2,11 +2,9 @@
  * WHAT THE AGENT HALF TELLS THE CONVERSATION — one closed union, and the only
  * door between them.
  *
- * The split `./harness.ts` is being turned into, one kind of traffic at a time:
- * the code that receives a message from the agent narrows it into a member of
- * this union, and the code that writes rows is reached from `emit`'s case for
- * that member. Nothing crosses the other way except the readings a caller asks
- * for.
+ * The code that receives a message from the agent narrows it into a member of
+ * this union, and the conversation's `emit` has one case for each member.
+ * Nothing crosses the other way except through the verbs `Agent` offers.
  *
  * WHY A UNION RATHER THAN THE PROTOCOL'S PAYLOADS. A consumer that needs
  * something not in here needs a new member, not a look at the wire — which is
@@ -20,8 +18,13 @@
  * terminal. `src/seam.test.ts` holds that.
  */
 
-import type { SessionConfigOption } from "@agentclientprotocol/sdk";
-import type { Form } from "@kolu/acp";
+import type {
+  CreateElicitationRequest,
+  CreateElicitationResponse,
+  RequestPermissionRequest,
+  RequestPermissionResponse,
+  SessionConfigOption,
+} from "@agentclientprotocol/sdk";
 import type { Background, Reported, Spawn } from "@kolu/acp/engine";
 import type {
   AskLink,
@@ -38,14 +41,7 @@ export type SignInCause =
   | { readonly kind: "agent"; readonly why: string }
   | { readonly kind: "person"; readonly said: string };
 
-/**
- * ONE THING THE AGENT SAID, as the door carries it.
- *
- * `emit` answers with a `string | null` because one member needs an answer: a
- * resume the agent does not have mints a divider row BEFORE the replacement
- * conversation opens, and the caller that owns that row is the one that knows
- * its key — and whether one was drawn at all.
- */
+/** ONE THING THE AGENT SAID, as the door carries it. */
 export type AgentEvent =
   /** The agent's prose, one chunk as it arrived. */
   | { readonly _tag: "said"; readonly text: string }
@@ -115,41 +111,9 @@ export type AgentEvent =
       readonly image: boolean;
       readonly embeddedContext: boolean;
     }
-  /** THE SIGN-IN METHODS the handshake advertised, and what the agent calls
-   *  itself — the material of every sentence a signed-out panel shows. The
-   *  methods are `./payloads.ts`'s reading (`Offered`), which is where one
-   *  adapter's `authMethods` become a command line this client can run. */
-  | {
-      readonly _tag: "offered";
-      readonly offered: ReadonlyArray<{
-        readonly method: unknown;
-        readonly run: {
-          readonly command: string;
-          readonly args: ReadonlyArray<string>;
-          readonly env: Readonly<Record<string, string>>;
-        } | null;
-      }>;
-      readonly said: string | null;
-    }
-  /** A QUESTION the agent is holding a call open for, as the conversation
-   *  draws it: the form, the abort signal, and the two ways to answer it. The
-   *  row and the registry are the conversation's (`put`, `Questions`). */
-  | {
-      readonly _tag: "ask";
-      readonly form: Form;
-      readonly signal: AbortSignal;
-      readonly settle: (answer: {
-        readonly outcome: { how: "answered" | "declined" | "withdrawn" };
-        readonly content: Record<
-          string,
-          string | number | boolean | Array<string>
-        >;
-      }) => void;
-      readonly fail: (cause: unknown) => void;
-    }
-  /** A sentence for the transcript that is neither the agent's prose nor a row
-   *  of its work: a question this panel cannot draw, a refused turn. */
-  | { readonly _tag: "trouble"; readonly text: string }
+  /** A question the agent asked that this panel cannot draw, and why: it is
+   *  declined on the wire, and the conversation says so out loud. */
+  | { readonly _tag: "undrawable"; readonly why: string }
   /** THE SIGN-IN ROW, whole: the methods on offer, why it is up, and the
    *  attempt in flight — or `null` when there is nothing to draw. One event
    *  because the three compose ONE row, and two events would be two chances to
@@ -173,9 +137,9 @@ export type AgentEvent =
    *  which rules apply is the conversation's. */
   | {
       readonly _tag: "elicitation";
-      readonly params: unknown;
+      readonly params: CreateElicitationRequest;
       readonly signal: AbortSignal;
-      readonly settle: (answer: unknown) => void;
+      readonly settle: (answer: CreateElicitationResponse) => void;
       readonly fail: (cause: unknown) => void;
     }
   /** A PERMISSION the agent is holding a call open for.
@@ -187,9 +151,9 @@ export type AgentEvent =
    *  conversation's. */
   | {
       readonly _tag: "permission";
-      readonly params: unknown;
+      readonly params: RequestPermissionRequest;
       readonly signal: AbortSignal;
-      readonly settle: (answer: unknown) => void;
+      readonly settle: (answer: RequestPermissionResponse) => void;
       readonly fail: (cause: unknown) => void;
     }
   /** How full the context is. Several a turn: the newest wins. */
