@@ -79,11 +79,16 @@ const METHODS = [
         command: process.execPath,
         args: [
           "-e",
-          "process.stdout.write('visit https://example.invalid/oauth\\nPaste code here if prompted > ');" +
+          // The SIGTERM handler is armed BEFORE the URL goes out: a pipe write
+          // is synchronous, so a client that cancels the moment it reads the
+          // URL can land its signal before a handler installed after the write
+          // exists, and the login then dies by the signal instead of
+          // finishing the exchange it was written to finish.
+          (stubborn
+            ? "process.on('SIGTERM', () => { process.stdout.write('\\nsigned in\\n'); process.exit(0); });"
+            : "") +
+            "process.stdout.write('visit https://example.invalid/oauth\\nPaste code here if prompted > ');" +
             "process.stdin.setEncoding('utf8');" +
-            (stubborn
-              ? "process.on('SIGTERM', () => { process.stdout.write('\\nsigned in\\n'); process.exit(0); });"
-              : "") +
             "process.stdin.once('data', () => { process.stdout.write('\\nsigned in\\n'); process.exit(0); });",
         ],
         label: "Anthropic Console Login",
