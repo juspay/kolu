@@ -175,6 +175,9 @@ const askAboutLeft = process.argv.includes("--ask-about-the-left-session");
  *  the one in flight. */
 const leftAnswers: Array<unknown> = [];
 let heldOpen: { readonly id: unknown; readonly result: unknown } | null = null;
+/** `--patient-login`: the sign-in command waits for a typed line instead of
+ *  finishing at once. */
+const patientLogin = process.argv.includes("--patient-login");
 
 /** The turn whose prompt is still unanswered, so a cancel can end it. */
 let openTurn: unknown = null;
@@ -505,10 +508,17 @@ function handle(message: Message): void {
             type: "terminal",
             // A login that finishes at once — so a person signing in AGAIN
             // (another account, a stale login) runs to "signed-in" here.
+            // `--patient-login` makes it wait for one typed line instead, so a
+            // test can do something else while an attempt is running.
             _meta: {
               "terminal-auth": {
                 command: process.execPath,
-                args: ["-e", "process.stdout.write('signed in\\n')"],
+                args: patientLogin
+                  ? [
+                      "-e",
+                      "process.stdout.write('type the code\\n'); process.stdin.once('data', () => process.exit(0))",
+                    ]
+                  : ["-e", "process.stdout.write('signed in\\n')"],
               },
             },
           },

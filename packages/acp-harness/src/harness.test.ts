@@ -1190,6 +1190,27 @@ describe("a person asking to sign in", () => {
     expect(running.harness.state().signIn).toBeNull();
   });
 
+  test("entering a conversation while a sign-in runs keeps the attempt's row drawn", async () => {
+    // The one place this differs from before the sign-in row had one owner:
+    // entering used to hide the row until the attempt next printed. Now the
+    // row an attempt is running in stays, because that is the honest state —
+    // the process is still there, waiting for the code a person is typing.
+    const running = await open("agent.ts", { args: ["--patient-login"] });
+    running.harness.askSignIn();
+    const signing = running.harness.signIn("subscription");
+    await waitFor(
+      running,
+      (state) =>
+        state.signIn?.attempt?.output.includes("type the code") ?? false,
+      "the sign-in never asked for its code",
+    );
+    await running.harness.newSession();
+    expect(running.harness.state().signIn?.attempt?.state).toBe("running");
+    await running.harness.signInInput("1234");
+    expect(await signing).toBe("signed-in");
+    expect(running.harness.state().signIn).toBeNull();
+  });
+
   test("runs a method a person asked for, and the conversation is the same one after", async () => {
     const running = await open("agent.ts");
     await running.harness.prompt("hello", [], [], false);
