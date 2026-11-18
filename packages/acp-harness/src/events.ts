@@ -22,7 +22,14 @@
 
 import type { Background } from "@kolu/acp/engine";
 import type { SessionConfigOption } from "@agentclientprotocol/sdk";
-import type { FileDiff, PlanStep, ToolStatus, Usage } from "@kolu/acp/wire";
+import type { Reported } from "@kolu/acp/engine";
+import type {
+  AuthStatus,
+  FileDiff,
+  PlanStep,
+  ToolStatus,
+  Usage,
+} from "@kolu/acp/wire";
 
 /**
  * ONE THING THE AGENT SAID, as the door carries it.
@@ -73,6 +80,16 @@ export type AgentEvent =
       readonly _tag: "settings";
       readonly config: ReadonlyArray<SessionConfigOption> | null | undefined;
     }
+  /** The model a turn is actually running on, out of the agent's own channel:
+   *  an adapter that switches inside the CLI it wraps never sees a config
+   *  change, so `configOptions` go on naming the model the session STARTED on.
+   *  The id, not the reading — whether it is news is decided where the reading
+   *  is (`modelOf` is the panel's). */
+  | { readonly _tag: "model"; readonly id: string }
+  /** What the agent says about its connection to each server we handed it. */
+  | { readonly _tag: "servers"; readonly reports: ReadonlyArray<Reported> }
+  /** Who the agent process is signed in as. */
+  | { readonly _tag: "identity"; readonly status: AuthStatus }
   /** How full the context is. Several a turn: the newest wins. */
   | { readonly _tag: "usage"; readonly usage: Usage }
   /** The agent's plan — replaced whole, removed when empty. kolu's own row

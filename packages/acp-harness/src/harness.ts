@@ -819,6 +819,20 @@ export const startHarness = async (
         usage = event.usage;
         publish();
         return null;
+      case "model":
+        // WHETHER IT IS NEWS is decided here rather than on the receiving
+        // side, so the reading of the model is the panel's (`modelOf`) and the
+        // agent half only says which id the agent named.
+        if (model?.id === event.id) return null;
+        model = modelOf(event.id);
+        publish();
+        return null;
+      case "servers":
+        reported(event.reports);
+        return null;
+      case "identity":
+        writeIdentity(event.status);
+        return null;
       case "plan":
         report(plan(event.steps));
         return null;
@@ -1559,12 +1573,9 @@ export const startHarness = async (
    */
   const onRaw = (raw: RawMessages, params: unknown): void => {
     const id = raw.modelIn(params);
-    if (id !== null && model?.id !== id) {
-      model = modelOf(id);
-      publish();
-    }
+    if (id !== null) emit({ _tag: "model", id });
     const reports = raw.serversIn(params);
-    if (reports !== null) reported(reports);
+    if (reports !== null) emit({ _tag: "servers", reports });
   };
 
   /**
@@ -1615,24 +1626,7 @@ export const startHarness = async (
       (context) => {
         const next = identityIn(context.params);
         if (next === null) return;
-        identity = next;
-        // THE AGENT'S OWN WORD IS WHAT OFFERS THE SIGN-IN. `kind: "none"` is a
-        // KNOWN logged-out agent — ACP's `-32000` is not the only way one asks
-        // for a signature, and against the pair kolu ships it is not even the
-        // first: MEASURED against the pinned adapter 0.81.2 over
-        // agent-distro's `claude` 2.1.319, a signed-out `session/new`
-        // SUCCEEDS, this notification arrives saying `{kind:"none"}`, and the
-        // refusal does not come until the TURN. An offer published only by a
-        // refused OPEN therefore never appeared at all on the one pair this
-        // build pins: the panel drew a composer over an agent that could not
-        // answer, and the sign-in button said the agent had offered nothing.
-        //
-        // AND IT IS WHAT WITHDRAWS IT: an agent that now names an account has
-        // answered the question the row was asking, and a sign-in row over a
-        // signed-in agent is a lie a person would press.
-        if (next.kind === "none") offerSignIn(next.label);
-        else if (attempt === null) signIn = null;
-        publish();
+        emit({ _tag: "identity", status: next });
       },
     )
     .onRequest(methods.client.session.requestPermission, (context) =>
@@ -1644,6 +1638,29 @@ export const startHarness = async (
     .onNotification(methods.client.elicitation.complete, (context) => {
       emit({ _tag: "elicitationComplete", params: context.params });
     });
+
+  /** The agent's own word about who it is, as the DOOR's case for it — the
+   *  body that used to run inside the notification handler. */
+  const writeIdentity = (next: AuthStatus): void => {
+    identity = next;
+    // THE AGENT'S OWN WORD IS WHAT OFFERS THE SIGN-IN. `kind: "none"` is a
+    // KNOWN logged-out agent — ACP's `-32000` is not the only way one asks
+    // for a signature, and against the pair kolu ships it is not even the
+    // first: MEASURED against the pinned adapter 0.81.2 over
+    // agent-distro's `claude` 2.1.319, a signed-out `session/new`
+    // SUCCEEDS, this notification arrives saying `{kind:"none"}`, and the
+    // refusal does not come until the TURN. An offer published only by a
+    // refused OPEN therefore never appeared at all on the one pair this
+    // build pins: the panel drew a composer over an agent that could not
+    // answer, and the sign-in button said the agent had offered nothing.
+    //
+    // AND IT IS WHAT WITHDRAWS IT: an agent that now names an account has
+    // answered the question the row was asking, and a sign-in row over a
+    // signed-in agent is a lie a person would press.
+    if (next.kind === "none") offerSignIn(next.label);
+    else if (attempt === null) signIn = null;
+    publish();
+  };
 
   // THE AGENT'S OWN MESSAGES, for an agent that forwards any — subscribed only
   // where its leg names a channel, because the method is an extension and
