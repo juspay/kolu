@@ -286,13 +286,11 @@ describe("the manifest", () => {
     // adapter it was handed (`./engine`), and writes the vocabulary padi's
     // contract carries (`./wire`).
     "acp-harness": ["@kolu/acp", "@kolu/acp/engine", "@kolu/acp/wire"],
-    // An agent's INTEGRATION reads the same door for the same reason: it is the
-    // leg, the adapter, and the `NotHere` a machine without it is owed. It no
-    // longer registers an engine itself — that row moved to `agents` when the
-    // leg and the adapter became a package two products share, and what is left
-    // here reads this vocabulary for its transcript with the engine door's
-    // types.
-    "integrations/claude-code": ["@kolu/acp/engine"],
+    // An agent's INTEGRATION reads nothing here any more, and that is the row
+    // that says so: the leg, the adapter and the `NotHere` moved to
+    // `acp-claude` when they became a package two products share, and what is
+    // left of this package is the transcript, which reads its own schemas.
+    "integrations/claude-code": [],
     // Claude Code, as a package both products vendor: its leg IS the door's
     // `Leg`, so this is an instance of the contract rather than a reader of
     // payloads. The projections are the harness's to run, and the wire's words
