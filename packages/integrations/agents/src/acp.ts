@@ -3,11 +3,20 @@
  *
  * Every other per-agent fact in kolu is folded here rather than reached for by
  * name, and the conductor's engine is no exception: `@kolu/padi` hosts one
- * ACP conversation per host, and a padi that imported `kolu-claude-code`
+ * ACP conversation per host, and a padi that imported `@kolu/acp-claude`
  * directly would have re-braided the per-agent knowledge this package exists
  * to de-complect. `packages/tests/governance/agentDepFence.test.ts` holds that
  * red — a daemon naming an agent is the defect, and this file is the fix
  * rather than an exemption.
+ *
+ * THE SEAM THIS FILE IS, now that the agent's own facts live in a package both
+ * products share: `@kolu/acp-claude` owns the leg, the adapter, the model table
+ * and the name; THIS file owns what it takes to SEAT that engine on a host —
+ * which variable carries the adapter's command line, which five variables the
+ * adapter must not hear, and the sentence a machine without it is owed. The
+ * sentence says "this host's padi was started without the wrapper that carries
+ * the pinned adapter", and a padi is kolu's; the same package vendored into
+ * olai would be telling a person about a daemon olai does not have.
  *
  * ONE ENGINE TODAY, and the shape is the ruling rather than a placeholder. The
  * `Registering` contract (`@kolu/acp/engine`) already says everything a second
@@ -19,14 +28,95 @@
 
 import type { Registering } from "@kolu/acp/engine";
 import {
-  ENGINE as CLAUDE_CODE,
+  type Adapter,
+  AGENT_ENV,
+  adapterFrom,
+  type NotHere,
+} from "@kolu/acp/engine";
+import {
+  CLAUDE,
   configDirIn as claudeConfigDir,
-} from "kolu-claude-code/acp";
+  NAME,
+  REMOTE_SIGNALS,
+} from "@kolu/acp-claude";
+
+/**
+ * ...AND WHAT A MACHINE THAT HAS NONE IS TOLD.
+ *
+ * IT SAYS THE CAUSE rather than the ordinary case, and the difference matters
+ * because of WHEN it is read. This engine does ship with kolu — the pinned
+ * adapter is baked into padi's wrapper on every documented way of starting a
+ * host — so the only way anybody reaches this sentence is a padi started round
+ * all of them. A row that said "comes with kolu" would be telling a person the
+ * thing that is true everywhere except where they are standing, which is the
+ * shape of an error message that reads as correct and helps nobody.
+ *
+ * `where` is null: installing anything does not restore a wrapper padi was
+ * started without. The adapter is kolu's to provide, not the user's to
+ * download.
+ *
+ * A WHOLE SENTENCE and nothing composes around it. **The harness displays a
+ * sentence and never composes one** — the same rule `NotHere.why` is declared
+ * under.
+ */
+const INSTALL: NotHere = {
+  name: NAME,
+  where: null,
+  why: "not found — this host's padi was started without the wrapper that carries the pinned adapter",
+};
+
+/**
+ * THE CLAUDE CODE ENGINE, as a VALUE — everything kolu's side of the wall adds
+ * to the facts its own package owns.
+ *
+ * Exported rather than built where it is mounted for the reason every reader in
+ * this tree is a pure function: what an integration registers is data, and data
+ * is a thing a unit test can hold.
+ */
+export const ENGINE: Registering = {
+  name: NAME,
+  leg: CLAUDE,
+  // SHIPPED, NOT FOUND, which is why the probe is a variable read and never a
+  // search-path lookup: the adapter is a wrapper inside the nix store and is on
+  // nobody's PATH — `where.found` is not consulted here and padi hands one that
+  // always answers `null` for exactly that reason. `null` from `adapterFrom` is
+  // a padi started through neither the packaged binary nor the dev recipes — an
+  // absence, not a fault — and the sentence a machine in that state is owed is
+  // {@link INSTALL}, handed back rather than dropped so the conductor can
+  // publish the row and say why.
+  at: (where): Adapter | NotHere => {
+    const adapter = adapterFrom(where.env[AGENT_ENV]);
+    if (adapter === null) return INSTALL;
+    return {
+      ...adapter,
+      // FIVE VARIABLES THE ADAPTER MUST NOT HEAR, and every one of them is a
+      // question kolu can answer better. The pinned adapter reads them to
+      // decide the person is somewhere else and, on a session it calls remote,
+      // offers only its own full-screen `claude /login` — a TUI the
+      // conductor has no terminal for. kolu IS the remote end: the person is
+      // at a browser, kolu runs the sign-in and draws it. So the adapter is
+      // told nothing about where it is running, and it offers the paste-a-code
+      // methods the harness can actually run.
+      //
+      // STRIPPED RATHER THAN GUESSED AT, because a variable that happens to be
+      // set on somebody's host is not a fact about the person using kolu: an
+      // SSH session that started padi, a development container that exports
+      // `CLAUDE_CODE_REMOTE`, a `NO_BROWSER` in a shell profile. None of them
+      // changes who is looking at the screen.
+      unset: REMOTE_SIGNALS,
+    };
+  },
+  // ACP has no system prompt on any wire, this one included, so the standing
+  // instruction rides the first turn — where a person can read what their agent
+  // was told. `@kolu/acp/engine`'s `PromptChannel` argues it, and the harness
+  // switches on it exhaustively.
+  prompt: { kind: "first-turn" },
+};
 
 /** Every agent kolu can hold an ACP conversation with, by the registry's own
  *  agent kind. */
 export const ACP_ENGINES: Readonly<Record<string, Registering>> = {
-  "claude-code": CLAUDE_CODE,
+  "claude-code": ENGINE,
 };
 
 /**
@@ -38,7 +128,7 @@ export const ACP_ENGINES: Readonly<Record<string, Registering>> = {
  * When a second adapter is pinned, this becomes a reading of whatever the
  * build actually carries — still not a knob.
  */
-export const CONDUCTOR_ENGINE: Registering = CLAUDE_CODE;
+export const CONDUCTOR_ENGINE: Registering = ENGINE;
 
 /**
  * WHERE THAT ENGINE READS ITS SIGNATURE on the host this daemon runs on.

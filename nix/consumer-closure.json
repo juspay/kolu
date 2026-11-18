@@ -20,6 +20,14 @@
         "effect": "4.1.4"
       }
     },
+    "@kolu/acp-claude": {
+      "dir": "packages/acp-claude",
+      "vendored": true,
+      "workspace": [
+        "@kolu/acp"
+      ],
+      "external": {}
+    },
     "@kolu/acp-harness": {
       "dir": "packages/acp-harness",
       "workspace": [
@@ -670,7 +678,7 @@
       }
     },
     "kolu-acp-claude": {
-      "dir": "packages/integrations/claude-code/acp/shim",
+      "dir": "packages/acp-claude/adapter/shim",
       "workspace": [],
       "external": {
         "@agentclientprotocol/claude-agent-acp": "0.81.2"
@@ -681,6 +689,7 @@
       "vendored": true,
       "workspace": [
         "@kolu/acp",
+        "@kolu/acp-claude",
         "anyagent",
         "kolu-claude-code",
         "kolu-codex",
@@ -699,7 +708,6 @@
       "dir": "packages/integrations/claude-code",
       "vendored": true,
       "workspace": [
-        "@kolu/acp",
         "anyagent",
         "kolu-io",
         "kolu-shared",

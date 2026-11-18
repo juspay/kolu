@@ -656,7 +656,7 @@ export const startHarness = async (
    * `_session/steering` is injected into any turn of a session that has once
    * held a queued one — the steered words run and stream, and only a cancel
    * ends the turn. Measured on the wire by olai, which is where the latch and
-   * its measurement come from (`packages/integrations/claude-code/acp/patches/README.md`).
+   * its measurement come from (`packages/acp-claude/adapter/patches/README.md`).
    *
    * WHAT IT COSTS is said out loud because it is not small: after one message
    * sent while a turn was running, this conversation offers no steer for the

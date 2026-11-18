@@ -46,6 +46,11 @@
  *     server tests and web build all start a process, and each of the copies
  *     this replaced had missed the exec-failure that arrives after `spawn`
  *     returns. Its closure is itself alone: no runtime dependency at all.
+ *   - `@kolu/acp-claude` — which Claude Code adapter is pinned, and what its
+ *     wire means: the leg, the model table, the npm shim, the two patches and
+ *     the Nix facts that build it. Both products run the same adapter, so both
+ *     read the same leg; olai's copy of the pair had drifted. Its closure is
+ *     `@kolu/acp`, which olai already vendors.
  *
  * The COUNT is not the structure. A sixth would not change what this file is:
  * the split is by where the fact lives, not by how many facts there are. What
@@ -86,6 +91,7 @@ export function vendorEntries(repoRoot: string): string[] {
   names.push("@kolu/detect");
   names.push("terminal-themes");
   names.push("@kolu/acp");
+  names.push("@kolu/acp-claude");
   names.push("@kolu/child");
   return names.sort();
 }

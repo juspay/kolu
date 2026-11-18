@@ -18,6 +18,7 @@
   },
   "dependencies": {
     "@kolu/acp": "workspace:*",
+    "@kolu/acp-claude": "workspace:*",
     "anyagent": "workspace:*",
     "effect": "4.1.4",
     "kolu-claude-code": "workspace:*",

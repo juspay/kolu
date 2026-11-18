@@ -39,6 +39,7 @@ import {
   allowingOurs,
   type Background,
   type Leg,
+  type ListedFacts,
   type Meta,
   mcpCallBy,
   type Reported,
@@ -469,6 +470,44 @@ const wordIn = (
   return typeof value === "string" && value !== "" ? value : null;
 };
 
+// ── what `session/list` says about one conversation ────────────────────
+
+/**
+ * What the adapter's `session/list` says about ONE conversation beyond the
+ * protocol's four fields — how many messages it holds, and which session's
+ * clearing produced the one listed — out of the entry's own `_meta.claudeCode`.
+ *
+ * A SECOND reading of a corner the patch this package carries creates (the
+ * first is {@link backgroundTaskIn}): that the list has anything more to say at
+ * all is the patch's own news (`./adapter/patches/README.md`), because ACP's
+ * `SessionInfo` answers `{sessionId, cwd, title, updatedAt}` and stops, and the
+ * picker's per-row count and `superseded by` pair had nothing to read.
+ *
+ * Each fact is said for itself, the way the patch attaches it: an entry whose
+ * transcript never yielded a count still has every protocol field, and an
+ * absent `supersededBy` is a conversation nothing replaced. So the answer is
+ * `null` for a corner saying nothing, and `null` per field inside it — the
+ * corners between (a count and no link) being the ordinary case of them all.
+ *
+ * The count is one the adapter reports or it is NOTHING at all: a fraction like
+ * 3.5 is forfeited with the same weight as a string, because a row drawing
+ * "3.5 messages" is the stamp announcing a reader that trusted anything with a
+ * decimal point. Zero, on the other hand, IS an answer — it is exactly what a
+ * freshly cleared conversation reads as.
+ */
+export const listedIn = (meta: Meta): ListedFacts | null => {
+  const said = claudeIn(meta);
+  const supersededBy = wordIn(said, "supersededBy");
+  const count = said?.["messageCount"];
+  const messageCount =
+    typeof count === "number" && Number.isInteger(count) && count >= 0
+      ? count
+      : null;
+  return messageCount === null && supersededBy === null
+    ? null
+    : { messageCount, supersededBy };
+};
+
 // ── which model a turn is running on ───────────────────────────────────
 
 /** What OPENING a session asks the Claude Code adapter to forward, and why: the
@@ -885,12 +924,19 @@ export const CLAUDE: Leg = {
     advertised: STEERING_ADVERTISED,
   },
   queues: QUEUES_WHEN_BUSY,
-  // The one question this panel still never asks. It is on `Leg` because
-  // `@kolu/acp` is a SHARED vocabulary — olai's own panel draws the stored
-  // session list — and the honest nothing is what a leg owes a question its
-  // harness never puts: an answer here would be a 0.81.2 `_meta` spelling
-  // re-verified at every adapter bump for no reader at all.
-  listedIn: () => null,
+  // What a `session/list` row can say BESIDE the protocol's four fields, off
+  // the corner the patch makes room for ({@link listedIn}). Here rather than
+  // answered with a constant, because `@kolu/acp` is a shared vocabulary and
+  // olai's own picker draws exactly this — a leg that answered "nothing" for a
+  // corner its adapter fills would be the port losing a feature silently.
+  listedIn,
+  // THIS ADAPTER ANSWERS THE TERMINAL-OUTPUT EXTENSION, so the client asks for
+  // it: with the flag a Bash result carries `terminal_info` / `terminal_output`
+  // / `terminal_exit` and a `{type: "terminal"}` block, and without it the whole
+  // output is fenced into a markdown ```console block — backticks a person
+  // reads, and no exit code anywhere. kolu draws a terminal from its own PTY
+  // and never reads this; olai's panel draws the call and does.
+  terminalOutput: true,
   rawMessages: {
     openMeta: OPEN_SESSION_META,
     method: SDK_MESSAGE,

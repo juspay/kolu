@@ -40,6 +40,14 @@
       "!**/*.astro",
       // One-off heap-snapshot analyzers; not part of the product surface.
       "!docs/perf-investigations/scripts",
+      // The patch GENERATOR vendored from olai beside the adapter it patches:
+      // `facts.js` is spliced verbatim into a COMPILED bundle, so it is plain
+      // dependency-free JS, and `facts.test.js` is its `bun test` suite run
+      // from that directory. kolu has no bun, so neither file is kolu's to lint
+      // or to format — and the copy has to stay byte-identical to the one
+      // olai's `regenerate.sh` was validated against. Proven by olai's own
+      // suite (26 cases) at the pin this package carries.
+      "!packages/acp-claude/adapter/session-list-info",
       // Top-level HTML files are design / plan artifacts, not shipping code.
       "!*.html"
     ]

@@ -1721,7 +1721,7 @@ const flag = (value: unknown, ...keys: ReadonlyArray<string>): unknown =>
  *
  *  The pinned Claude leg's own values (`STEER_METHOD`, `STEER_WHEN_IDLE`,
  *  `steerTaken`, `STEERING_ADVERTISED`, `QUEUES_WHEN_BUSY` in
- *  `packages/integrations/claude-code/src/acp/leg.ts`) rather than invented
+ *  `packages/acp-claude/src/leg.ts`) rather than invented
  *  ones: a test that agreed with a spelling nothing ships would pass over an
  *  agent kolu cannot actually steer. The timeout is the one thing shortened —
  *  a deadline is what a *silent* agent costs this suite, and nothing here is

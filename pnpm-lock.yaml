@@ -132,6 +132,28 @@ importers:
         specifier: ^5.0.3
         version: 5.0.3(@types/node@22.19.15)(happy-dom@21.0.4)(jsdom@30.0.1)(vite@8.3.5(@types/node@22.19.15)(esbuild@0.28.1)(jiti@2.6.1)(terser@5.48.0)(tsx@4.23.1)(yaml@2.8.3))
 
+  packages/acp-claude:
+    dependencies:
+      '@kolu/acp':
+        specifier: workspace:*
+        version: link:../acp
+    devDependencies:
+      '@types/node':
+        specifier: ^22.0.0
+        version: 22.19.15
+      typescript:
+        specifier: ^7.0.2
+        version: 7.0.2
+      vitest:
+        specifier: ^5.0.3
+        version: 5.0.3(@types/node@22.19.15)(happy-dom@21.0.4)(jsdom@30.0.1)(vite@8.3.5(@types/node@22.19.15)(esbuild@0.28.1)(jiti@2.6.1)(terser@5.48.0)(tsx@4.23.1)(yaml@2.8.3))
+
+  packages/acp-claude/adapter/shim:
+    dependencies:
+      '@agentclientprotocol/claude-agent-acp':
+        specifier: 0.81.2
+        version: 0.81.2(@anthropic-ai/sdk@0.91.1(zod@4.6.7))(@modelcontextprotocol/sdk@1.32.1(zod@4.6.7))
+
   packages/acp-harness:
     dependencies:
       '@agentclientprotocol/sdk':
@@ -628,6 +650,9 @@ importers:
       '@kolu/acp':
         specifier: workspace:*
         version: link:../../acp
+      '@kolu/acp-claude':
+        specifier: workspace:*
+        version: link:../../acp-claude
       anyagent:
         specifier: workspace:*
         version: link:../anyagent
@@ -727,9 +752,6 @@ importers:
       '@anthropic-ai/claude-agent-sdk':
         specifier: ^0.2.96
         version: 0.2.96(zod@4.6.7)
-      '@kolu/acp':
-        specifier: workspace:*
-        version: link:../../acp
       anyagent:
         specifier: workspace:*
         version: link:../anyagent
@@ -764,12 +786,6 @@ importers:
       vitest:
         specifier: ^5.0.3
         version: 5.0.3(@types/node@22.19.15)(happy-dom@21.0.4)(jsdom@30.0.1)(vite@8.3.5(@types/node@22.19.15)(esbuild@0.28.1)(jiti@2.6.1)(terser@5.48.0)(tsx@4.23.1)(yaml@2.8.3))
-
-  packages/integrations/claude-code/acp/shim:
-    dependencies:
-      '@agentclientprotocol/claude-agent-acp':
-        specifier: 0.81.2
-        version: 0.81.2(@anthropic-ai/sdk@0.91.1(zod@4.6.7))(@modelcontextprotocol/sdk@1.32.1(zod@4.6.7))
 
   packages/integrations/codex:
     dependencies:
