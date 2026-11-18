@@ -95,7 +95,7 @@ import type { AskAnswer, AskLink, AuthStatus, Usage } from "@kolu/acp/wire";
 import { Duration } from "effect";
 import { aboutBlock } from "./aboutBlock.ts";
 import { Calls } from "./calls.ts";
-import { type Child, childEnvOf, start as startChild } from "./child.ts";
+import { type Child, childEnvOf, start as startChild } from "@kolu/child";
 import { Fleet, koluCallOf, refineKoluCall } from "./kolu.ts";
 import {
   signInOf,
@@ -1358,6 +1358,7 @@ export const startHarness = async (
     cwd: options.cwd,
     env: childEnv(),
     stdio: ["pipe", "pipe", "pipe"],
+    processGroup: true,
   });
 
   child.stderr?.on("data", (chunk: string | Buffer) => {
@@ -2610,6 +2611,7 @@ export const startHarness = async (
         cwd: options.cwd,
         env: childEnv({ BROWSER: "true", ...run.env }),
         stdio: ["pipe", "pipe", "pipe"],
+        processGroup: true,
       });
     } catch (cause) {
       throw new HarnessUnavailable(

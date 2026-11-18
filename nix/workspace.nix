@@ -100,6 +100,7 @@ let
   rawMembers = {
     "@kolu/acp" = ../packages/acp;
     "@kolu/acp-harness" = ../packages/acp-harness;
+    "@kolu/child" = ../packages/child;
     "@kolu/surface" = ../packages/surface;
     "@kolu/surface-map" = ../packages/surface-map;
     "@kolu/surface-cli" = ../packages/surface-cli;

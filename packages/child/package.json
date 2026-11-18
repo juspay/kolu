@@ -1,0 +1,25 @@
+{
+  "name": "@kolu/child",
+  "version": "0.1.0",
+  "private": true,
+  "license": "AGPL-3.0-or-later",
+  "type": "module",
+  "sideEffects": false,
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "//scripts": "`test:daemon`, not `test:unit`: every case here starts a real process, and two of them wait on a real SIGKILL.",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test:daemon": "vitest run"
+  },
+  "//dependencies": "NONE, and that is the shape: this is the subprocess socket, a LEAF beside `@kolu/log`. `node:child_process` is a builtin. Effect is deliberately absent — a caller wraps this in its own language, and a leaf that spoke Effect would put a package between a caller and the ability to start a process. A workspace sibling here would be the same inversion. The versions below are LITERAL rather than `catalog:` because olai vendors this directory and installs its manifest from its own workspace, where kolu's catalog does not exist.",
+  "dependencies": {},
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^7.0.2",
+    "vitest": "^5.0.3"
+  }
+}

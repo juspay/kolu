@@ -42,6 +42,10 @@
  *     this one instead. Its closure is itself alone: the manifest declares
  *     `effect` and the protocol SDK and no workspace sibling at all — a rule
  *     `packages/acp/src/manifest.test.ts` holds red.
+ *   - `@kolu/child` — a subprocess as one socket. olai's git, browsing, chat,
+ *     server tests and web build all start a process, and each of the copies
+ *     this replaced had missed the exec-failure that arrives after `spawn`
+ *     returns. Its closure is itself alone: no runtime dependency at all.
  *
  * The COUNT is not the structure. A sixth would not change what this file is:
  * the split is by where the fact lives, not by how many facts there are. What
@@ -82,6 +86,7 @@ export function vendorEntries(repoRoot: string): string[] {
   names.push("@kolu/detect");
   names.push("terminal-themes");
   names.push("@kolu/acp");
+  names.push("@kolu/child");
   return names.sort();
 }
 

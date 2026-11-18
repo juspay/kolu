@@ -24,6 +24,7 @@
       "dir": "packages/acp-harness",
       "workspace": [
         "@kolu/acp",
+        "@kolu/child",
         "@kolu/terminal-vocab",
         "kolu-common",
         "kolu-mcp"
@@ -56,6 +57,12 @@
     },
     "@kolu/byte-units": {
       "dir": "packages/byte-units",
+      "vendored": true,
+      "workspace": [],
+      "external": {}
+    },
+    "@kolu/child": {
+      "dir": "packages/child",
       "vendored": true,
       "workspace": [],
       "external": {}

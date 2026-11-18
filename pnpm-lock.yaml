@@ -140,6 +140,9 @@ importers:
       '@kolu/acp':
         specifier: workspace:*
         version: link:../acp
+      '@kolu/child':
+        specifier: workspace:*
+        version: link:../child
       '@kolu/terminal-vocab':
         specifier: workspace:*
         version: link:../terminal-vocab
@@ -212,6 +215,18 @@ importers:
 
   packages/byte-units:
     devDependencies:
+      typescript:
+        specifier: ^7.0.2
+        version: 7.0.2
+      vitest:
+        specifier: ^5.0.3
+        version: 5.0.3(@types/node@22.19.15)(happy-dom@21.0.4)(jsdom@30.0.1)(vite@8.3.5(@types/node@22.19.15)(esbuild@0.28.1)(jiti@2.6.1)(terser@5.48.0)(tsx@4.23.1)(yaml@2.8.3))
+
+  packages/child:
+    devDependencies:
+      '@types/node':
+        specifier: ^22.0.0
+        version: 22.19.15
       typescript:
         specifier: ^7.0.2
         version: 7.0.2
