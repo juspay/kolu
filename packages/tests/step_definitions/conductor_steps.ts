@@ -1986,14 +1986,18 @@ When(
     // a real omp's first prompt leaves on disk — so `agent_say`'s "did it
     // take" question has a true answer to find.
     stageOmpPrompt(stagePath, "thinking");
-    const payload = ompMockPayload({
-      breadcrumbDir: path.join(ompDir, "terminal-sessions"),
-      transcriptPath: fixture.transcriptPath,
-      stagePath,
-    });
+    const program = path.join(conductorAgentCwd, "omp-stand-in.sh");
+    fs.writeFileSync(
+      program,
+      ompMockPayload({
+        breadcrumbDir: path.join(ompDir, "terminal-sessions"),
+        transcriptPath: fixture.transcriptPath,
+        stagePath,
+      }),
+    );
     // THE STAND-IN, LEFT WHERE KOLU'S `claude` WILL FIND IT — one run, then
     // the relay is spent.
-    fs.writeFileSync(fixtureClaudeRelay(), `${bin} -c '${payload}'`);
+    fs.writeFileSync(fixtureClaudeRelay(), `${bin} ${program}`);
     await enterConductor(this);
     await sendPrompt(this, `run an agent in ${conductorAgentCwd}`);
     // The create's own answer names the terminal — read off the row the agent
@@ -2948,15 +2952,20 @@ When(
     const repo = workRepo(this);
     const fixture = ompTranscriptPath({ ompDir, cwd: repo });
     memberFixture = fixture;
-    const payload = ompMockPayload({
-      breadcrumbDir: path.join(ompDir, "terminal-sessions"),
-      transcriptPath: fixture.transcriptPath,
-      // Never staged: this scenario moves the session itself, the way a
-      // session kolu merely FINDS moves. The path only has to be somewhere the
-      // repo is not, so the worktree stays the work's own files.
-      stagePath: path.join(os.tmpdir(), `kolu-work-stage-${process.pid}`),
-    });
-    fs.writeFileSync(fixtureClaudeRelay(), `${bin} -c '${payload}'`);
+    // The program, and the path it would stage a prompt at, only have to be
+    // somewhere the repo is not, so the worktree stays the work's own files.
+    const program = path.join(os.tmpdir(), `kolu-work-omp-${process.pid}.sh`);
+    fs.writeFileSync(
+      program,
+      ompMockPayload({
+        breadcrumbDir: path.join(ompDir, "terminal-sessions"),
+        transcriptPath: fixture.transcriptPath,
+        // Never staged: this scenario moves the session itself, the way a
+        // session kolu merely FINDS moves.
+        stagePath: path.join(os.tmpdir(), `kolu-work-stage-${process.pid}`),
+      }),
+    );
+    fs.writeFileSync(fixtureClaudeRelay(), `${bin} ${program}`);
     await enterConductor(this);
     await sendPrompt(this, `run the implementor in ${repo}`);
     let inventoryAtTimeout = "(not observed)";

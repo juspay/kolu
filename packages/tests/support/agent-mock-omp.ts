@@ -335,11 +335,11 @@ export function appendOmpTodoList(
 
 // The fake `omp` process's own output markers.
 //
-// None of them is ever typed: the scenario types only `<bin> <program file>`
-// (omp_steps.ts), and the conductor scenarios hand the program to a relay that
-// runs it without echoing it. So only the process's own `printf` can satisfy a
-// wait on a marker. A marker that the shell's echo could satisfy is a
-// start-guard that passes against a binary that never ran
+// None of them is ever typed or echoed: every caller writes the program to a
+// file and runs only `<bin> <file>` — typed by omp_steps.ts, left in the
+// fixture's relay by the conductor scenarios. So only the process's own
+// `printf` can satisfy a wait on a marker. A marker that the shell's echo could
+// satisfy is a start-guard that passes against a binary that never ran
 // (dev/skills/e2e-testing).
 /** Printed ONCE, after the crumb is on disk: the fake is up and resident. */
 export const OMP_UP_MARKER = "omp-stand-in-is-up";
@@ -351,9 +351,10 @@ export const OMP_HEARD_MARKER = "omp-stand-in-heard";
  *  on the departure itself, not on a sleep. */
 export const OMP_GONE_MARKER = "omp-stand-in-is-gone";
 
-/** The fake `omp` process's payload: write the breadcrumb the way omp writes it
- *  (from its OWN tty), then stay resident — painting an approval dialog,
- *  clearing the screen, or MATERIALIZING ITS SESSION FILE when it is prompted.
+/** The fake `omp` process's program, which callers write to a file and run as
+ *  `<bin> <file>`: write the breadcrumb the way omp writes it (from its OWN
+ *  tty), then stay resident — painting an approval dialog, clearing the
+ *  screen, or MATERIALIZING ITS SESSION FILE when it is prompted.
  *
  *  Three things make this faithful rather than convenient:
  *
@@ -373,20 +374,15 @@ export const OMP_GONE_MARKER = "omp-stand-in-is-gone";
  *
  *  The resident `read` loop is what lets a scenario paint the approval dialog or
  *  clear it mid-scenario (omp's own dialogs appear while the process holds the
- *  terminal). Bash runs the program itself, whether from a file or from `-c`
- *  (a compound command gets no `execve` optimisation), so `/proc/<pid>/comm`
- *  stays `omp`.
+ *  terminal). Bash runs the program file itself, so `/proc/<pid>/comm` stays
+ *  `omp`.
  *
  *  `bootPaint` gives the screen-still-being-drawn half of presence a WITNESS: a
  *  background painter writes a line a second until the scenario says `settle`,
  *  which holds padi's quiet window (EF2, ~5s) open — so `starting` is a state
  *  the scenario ENDS rather than one it races. The painter is a plain `&` job
  *  of this same non-interactive bash, so it shares the pty's foreground process
- *  group and `/proc/<pid>/comm` still reads `omp`.
- *
- *  Quoting: omp_steps.ts writes this to a file, but the conductor scenarios
- *  hand it to `sh -c` inside single quotes, so the payload uses only double
- *  quotes inside, and every backslash below is literal bash. */
+ *  group and `/proc/<pid>/comm` still reads `omp`. */
 export function ompMockPayload(opts: {
   breadcrumbDir: string;
   transcriptPath: string;
