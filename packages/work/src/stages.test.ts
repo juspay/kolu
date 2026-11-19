@@ -37,6 +37,7 @@ import {
   type StageName,
   stageMs,
   stages,
+  standing,
   timeSpent,
   took,
   type Work,
@@ -312,7 +313,13 @@ const chaotic = (seed: number, steps: number): Work => {
       // A second PR is a new number: the first one was closed, or this is a
       // reading of a branch whose PR moved.
       if (pick() < 0.3) pr += 1;
-      work = prOpened(work, when, pr);
+      const words = ["draft", "ready", "unrecorded"] as const;
+      work = prOpened(
+        work,
+        when,
+        pr,
+        words[Math.floor(pick() * words.length)] ?? "ready",
+      );
     } else if (roll < 0.52) {
       const kinds = [
         "checks-running",
@@ -326,7 +333,7 @@ const chaotic = (seed: number, steps: number): Work => {
         pr,
         pick() < 0.6 ? "a1" : `h${step}`,
       );
-    } else if (roll < 0.6) {
+    } else if (roll < 0.56) {
       const answers: ReadonlyArray<MergeState> = [
         { kind: "can" },
         { kind: "cannot", why: "blocked" },
@@ -340,6 +347,9 @@ const chaotic = (seed: number, steps: number): Work => {
         pr,
         pick() < 0.6 ? "a1" : `h${step}`,
       );
+    } else if (roll < 0.6) {
+      // Marked ready, or turned back into a draft.
+      work = draftState(work, pick() < 0.5 ? "draft" : "ready", when, pr);
     } else if (roll < 0.64 && live) {
       work = merged(work, when, pr);
     } else if (roll < 0.68 && live) {
@@ -400,6 +410,11 @@ describe("on chaotic records", () => {
     // ... so the stages and the setup add up to the life, and the setup is
     // only ever a mode's with no Plan to hold it.
     expect(lifetime(work, now), `seed ${seed}: lifetime`).toBe(life);
+    // A DRAFT IS NEVER THE HUMAN'S TO MERGE, whatever the forge answered.
+    if (Option.exists(prOf(work), (one) => one.draft === "draft"))
+      expect(standing(work, policy).why, `seed ${seed}: draft`).not.toBe(
+        "merge",
+      );
     expect(total(all) + filed.setup, `seed ${seed}: stages`).toBe(life);
     if (policy.run.kind === "set" && policy.run.stages.includes("plan"))
       expect(filed.setup, `seed ${seed}: setup`).toBe(0);
@@ -754,6 +769,153 @@ describe("the shapes of real works", () => {
     expect(cells(work, FULL, at(90))).toBe(
       "plan done, approve done, build done, review –, checks done, merge now",
     );
+  });
+
+  it("Page chats open in a pane (olai#702): a draft opened early, never marked ready", () => {
+    // A full work. The implementor opened a draft after the first of six
+    // steps, about two hours in, and pushed after each step; CI ran on every
+    // push. Never marked ready: all of it is the build's.
+    let work = join(opened(), "planner", 0);
+    work = ask(work, "approve", 20);
+    work = answer(work, "approve", 25);
+    work = join(work, "implementor", 25);
+    work = prOpened(work, 145, 7, "draft");
+    let ci = 0;
+    for (let push = 0; push < 6; push += 1) {
+      const start = 145 + push * 60;
+      work = check(work, "checks-running", start, 7, `p${push}`);
+      work = check(work, "checks-passed", start + 15, 7, `p${push}`);
+      ci += 15 * MINUTE;
+    }
+    const now = at(145 + 6 * 60);
+    const named = byName(strip(work, FULL, now));
+    expect(named.build).toEqual({
+      kind: "now",
+      ms: Date.parse(now) - Date.parse(at(25)),
+      who: "agent",
+    });
+    expect(named.review).toEqual({ kind: "not-started" });
+    expect(named.checks).toEqual({ kind: "not-started" });
+    // Who the work waited on is unchanged: CI's time is still CI's.
+    expect(timeSpent(work, FULL, now).ci).toBe(ci);
+  });
+
+  it("One ACP runner for kolu and olai (#2405): green as a draft for a day, merged at ready", () => {
+    // The issue's public times: the implementor starts, opens a draft eleven
+    // minutes later, four green readings follow while it is a draft, and it
+    // is marked ready a day later and merged four seconds after that.
+    const minute = (iso: string): number => (Date.parse(iso) - T0) / MINUTE;
+    const started = "2026-11-18T00:56:41.000Z";
+    const ready = "2026-11-19T02:15:49.000Z";
+    let work = openWork({
+      key: { kind: "branch", host: "local", repo: "/r", branch: "acp-runner" },
+      title: "One ACP runner for kolu and olai",
+      at: started,
+      request: { kind: "said", text: "waterfall it" },
+    });
+    work = join(work, "implementor", minute(started));
+    work = prOpened(work, minute("2026-11-18T01:07:41.000Z"), 2405, "draft");
+    for (const [index, green] of [
+      "2026-11-18T03:43:00.000Z",
+      "2026-11-18T05:24:00.000Z",
+      "2026-11-18T09:11:00.000Z",
+      "2026-11-18T11:07:00.000Z",
+    ].entries()) {
+      work = check(
+        work,
+        "checks-running",
+        minute(green) - 20,
+        2405,
+        `h${index}`,
+      );
+      work = check(work, "checks-passed", minute(green), 2405, `h${index}`);
+    }
+    // Mid-draft, with the hand-over: still the build, and not the human's.
+    const midDraft = "2026-11-18T12:00:00.000Z";
+    expect(waterfall(work, FULL, midDraft).current).toBe("build");
+    expect(standing(work, FULL).why).toBe("working");
+    work = draftState(work, "ready", minute(ready), 2405);
+    work = mergeState(work, { kind: "can" }, minute(ready), 2405, "h3");
+    work = merged(work, minute("2026-11-19T02:15:53.000Z"), 2405);
+    const named = byName(strip(work, FULL, "2026-11-19T03:00:00.000Z"));
+    expect(named.build).toEqual({
+      kind: "done",
+      ms: Date.parse(ready) - Date.parse(started),
+      who: "agent",
+    });
+    expect(stageMs(named.build)).toBeGreaterThan(25 * 60 * MINUTE);
+    expect(stageMs(named.review)).toBe(0);
+    expect(stageMs(named.checks)).toBe(0);
+  });
+});
+
+describe("the build ends when the PR is ready for review", () => {
+  it("ends at once for a PR opened ready", () => {
+    let work = join(opened(), "implementor", 0);
+    work = prOpened(work, 10);
+    expect(cells(work, FULL, at(20))).toBe(
+      "plan done, approve –, build done, review now, checks ·, merge ·",
+    );
+  });
+
+  it("does not end at a draft's open, and ends when it is marked ready", () => {
+    let work = join(opened(), "implementor", 0);
+    work = prOpened(work, 10, 7, "draft");
+    expect(waterfall(work, FULL, at(20)).current).toBe("build");
+    work = draftState(work, "ready", 30);
+    const named = byName(strip(work, FULL, at(45)));
+    expect(named.build).toMatchObject({ kind: "done", ms: 30 * MINUTE });
+    // The agents' time after it is the review.
+    expect(named.review).toEqual({
+      kind: "now",
+      ms: 15 * MINUTE,
+      who: "agent",
+    });
+  });
+
+  it("goes back to the build when the PR is turned back into a draft, and the review keeps its time", () => {
+    let work = join(opened(), "implementor", 0);
+    work = prOpened(work, 10);
+    work = draftState(work, "draft", 25);
+    expect(byName(strip(work, FULL, at(40))).build).toMatchObject({
+      kind: "now",
+      ms: 25 * MINUTE,
+    });
+    work = draftState(work, "ready", 40);
+    const named = byName(strip(work, FULL, at(50)));
+    expect(named.build).toMatchObject({ kind: "done", ms: 25 * MINUTE });
+    expect(named.review).toMatchObject({ kind: "now", ms: 25 * MINUTE });
+  });
+
+  it("reads a PR whose word was never recorded as before: the open ends the build", () => {
+    const read = (draft: "ready" | "unrecorded") => {
+      let work = join(opened(), "implementor", 0);
+      work = prOpened(work, 10, 7, draft);
+      work = check(work, "checks-running", 20);
+      work = check(work, "checks-passed", 30);
+      return strip(work, FULL, at(40));
+    };
+    expect(read("unrecorded")).toEqual(read("ready"));
+    expect(byName(read("unrecorded")).build).toMatchObject({
+      kind: "done",
+      ms: 10 * MINUTE,
+    });
+  });
+
+  it("keeps a trivial work's draft CI in the build, and files CI as checks once it is ready", () => {
+    let work = join(opened(), "implementor", 0);
+    work = prOpened(work, 10, 7, "draft");
+    work = check(work, "checks-running", 15);
+    expect(cells(work, TRIVIAL, at(25))).toBe(
+      "plan –, approve –, build now, review –, checks ·, merge ·",
+    );
+    work = check(work, "checks-passed", 25);
+    work = draftState(work, "ready", 30);
+    work = check(work, "checks-running", 35, 7, "b2");
+    const named = byName(strip(work, TRIVIAL, at(45)));
+    expect(named.build).toMatchObject({ kind: "done", ms: 35 * MINUTE });
+    expect(named.checks).toMatchObject({ kind: "now", ms: 10 * MINUTE });
+    expect(named.review).toEqual({ kind: "skipped" });
   });
 });
 

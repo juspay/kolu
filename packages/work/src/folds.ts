@@ -58,11 +58,13 @@ export interface Policy {
 }
 
 /** WHICH PART OF ITS LIFE A WORK IS IN — cut by two moments the record
- *  holds: the implementor joining, and a pull request opening AFTER it did.
- *  A PR that was already there when the implementor arrived (a work that
- *  takes up a dependabot PR) marks nothing, and the build goes on. Moves
- *  forward, except that a work reopened with no PR of its own open goes
- *  back: a second attempt on the same branch builds again. */
+ *  holds: the implementor joining, and its pull request being READY FOR
+ *  REVIEW after it did — opened ready, or a draft marked ready. A PR that was
+ *  already there when the implementor arrived (a work that takes up a
+ *  dependabot PR) marks nothing, and the build goes on. Moves forward, except
+ *  for two ways back to the build: a PR turned back into a draft (its author
+ *  said it is not ready), and a work reopened with no PR of its own open (a
+ *  second attempt on the same branch builds again). */
 type Part = "before" | "build" | "after";
 
 /** The fold's running state, advanced one event at a time — the SAME step
@@ -98,8 +100,18 @@ const START: Running = {
 const prIs = (at: Running, state: PrReading["state"]): boolean =>
   Option.exists(at.pr, (pr) => pr.state === state);
 
-/** The moves that are not the PR's own: questions, members, the end. */
-const partStep = (at: Running, event: WorkEvent): Running => {
+/** Whether the PR is open and a draft — still the build's, CI included. */
+const openDraft = (pr: Option.Option<PrReading>): boolean =>
+  Option.exists(pr, (one) => one.state === "open" && one.draft === "draft");
+
+/** The moves that are not the PR's own: questions, members, the end. `pr` is
+ *  the PR as this event leaves it ({@link prStep}), which is what says
+ *  whether it is ready for review. */
+const partStep = (
+  at: Running,
+  event: WorkEvent,
+  pr: Option.Option<PrReading>,
+): Running => {
   switch (event.kind) {
     case "question":
       return { ...at, openAsks: new Set([...at.openAsks, event.ask]) };
@@ -118,10 +130,16 @@ const partStep = (at: Running, event: WorkEvent): Running => {
             part: at.part === "before" ? "build" : at.part,
           }
         : at;
-    // A PR the implementor opened ends the build; one that was there before
-    // any implementor joined says nothing about it.
+    // A PR the implementor opened ends the build once it is ready for
+    // review — at once when it opened ready, at the flip for a draft — and a
+    // PR turned back into a draft is the build's again. A PR whose word was
+    // never recorded ends it at the open, as it always did. One that was
+    // there before any implementor joined says nothing about it.
     case "pr-opened":
-      return at.implemented ? { ...at, part: "after" } : at;
+    case "draft-state":
+      return at.implemented
+        ? { ...at, part: openDraft(pr) ? "build" : "after" }
+        : at;
     case "ended":
       return { ...at, ended: true };
     // THE ONE WAY BACK. Reopened with its own PR still open, the work is
@@ -142,10 +160,10 @@ const partStep = (at: Running, event: WorkEvent): Running => {
   }
 };
 
-const step = (at: Running, event: WorkEvent): Running => ({
-  ...partStep(at, event),
-  pr: prStep(at.pr, event),
-});
+const step = (at: Running, event: WorkEvent): Running => {
+  const pr = prStep(at.pr, event);
+  return { ...partStep(at, event, pr), pr };
+};
 
 /** THE GREEN PULL REQUEST, and therefore the human's when they asked for the
  *  hand-over: the forge would merge it, and no check that has reported is
@@ -462,17 +480,21 @@ export const stageMs = (state: StageState): number =>
 /** WHERE A STRETCH WOULD GO in a waterfall that has all six stages:
  *
  *  - a PR the forge merged is the merge, and CI running is the checks,
- *    wherever they fall;
+ *    wherever they fall — except on a draft still in the build, whose CI is
+ *    the build's;
  *  - a green PR handed to the human is the merge;
  *  - a question to the human never moves the work: it stays in the stage it
  *    is in (`current`), which is then theirs — except before the implementor,
  *    where it is the approval once a planner has joined, and the planning
  *    (the setup's own questions) before that;
  *  - the agents' time is the plan before the implementor joins, the build
- *    until the PR it opens, and the review after. */
+ *    until its PR is ready for review, and the review after. There are two
+ *    ways back to the build: the PR turned back into a draft, and a reopen
+ *    with no PR of its own open. */
 const placeOf = (at: Running, who: Waiter, current: Filed): Filed => {
   if (prIs(at, "merged")) return "merge";
-  if (who === "ci") return "checks";
+  if (who === "ci")
+    return at.part === "build" && openDraft(at.pr) ? "build" : "checks";
   if (who === "you") {
     if (at.openAsks.size === 0) return "merge";
     if (at.part === "before") return at.planned ? "approve" : "plan";
