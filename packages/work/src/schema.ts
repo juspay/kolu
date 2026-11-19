@@ -388,10 +388,10 @@ export type PrOpenedDraft = typeof PrOpenedDraftSchema.Type;
  *  kolu's words: something the branch's protection still wants (`blocked`:
  *  a required check that has not passed, an unresolved conversation), a
  *  review it requires (`review`), a base that has moved on (`behind`), a
- *  conflict (`conflicts`), or a draft. `draft` is kolu's own reading of the
- *  PR's draft word (`prStep` answers it for every draft), not GitHub's merge
- *  state: GitHub retired `DRAFT` from that in 2021, and works the merge state
- *  of a draft out as if it were ready. */
+ *  conflict (`conflicts`), or a draft (`draft`). kolu reads `draft` off the
+ *  PR's own draft word — `prStep` answers it for every open draft — because
+ *  GitHub retired `DRAFT` from its merge state in 2021 and works a draft's
+ *  merge state out as if it were ready. */
 export const MERGE_BLOCKS = [
   "blocked",
   "review",

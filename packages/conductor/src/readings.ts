@@ -157,9 +157,9 @@ type PrValue = Extract<PrResult, { readonly kind: "ok" }>["value"];
  *  - `BLOCKED` cannot: on a review when one is required or changes were
  *    requested, otherwise on whatever else the branch's protection still
  *    wants (a required check that has not passed, a conversation);
- *  - `BEHIND` and `DIRTY` cannot, for those reasons, and so does `DRAFT` —
- *    GitHub's retired word, never said since 2021: whether a PR is a draft is
- *    `isDraft` now, and {@link prReading} calls this for a PR that is not one;
+ *  - `BEHIND` and `DIRTY` cannot, for those reasons, and neither can `DRAFT`
+ *    (GitHub's retired word, not said since 2021: whether a PR is a draft is
+ *    `isDraft` now, and {@link prReading} calls this only for one that is not);
  *  - `UNKNOWN` is the forge not having worked it out yet (`unsettled`):
  *    recorded once for a commit it has said nothing about, so a push never
  *    inherits the last commit's answer;

@@ -62,10 +62,10 @@ export interface Policy {
  *  REVIEW after it did — opened ready, or a draft marked ready. A PR that was
  *  already there when the implementor arrived (a work that takes up a
  *  dependabot PR) does not end the build by being open; if it is a draft,
- *  marking it ready does. Moves forward, except
- *  for two ways back to the build: a PR turned back into a draft (its author
- *  said it is not ready), and a work reopened with no PR of its own open (a
- *  second attempt on the same branch builds again). */
+ *  marking it ready does. Moves forward, except for two ways back to the
+ *  build: a PR turned back into a draft (its author said it is not ready),
+ *  and a work reopened with no PR of its own open (a second attempt on the
+ *  same branch builds again). */
 type Part = "before" | "build" | "after";
 
 /** The fold's running state, advanced one event at a time — the SAME step
