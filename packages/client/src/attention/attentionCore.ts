@@ -108,15 +108,23 @@ export function createAttentionCore(hooks: AttentionHooks): AttentionCore {
     return set;
   };
 
-  /** Hand this host's memory back to be saved. */
+  // What was last handed back per host, serialized: most frames the engine is
+  // fed move only the working or linger lists, which it does not remember, and
+  // each hand-back is a `localStorage` write.
+  const lastSaved = new Map<string, string>();
+  /** Hand this host's memory back to be saved, when it changed. */
   const save = (encHost: string): void => {
     const frame = frameByHost.get(encHost);
     if (frame === undefined) return;
-    hooks.remember(encHost, {
+    const memory: AttentionMemory = {
       frame,
       latched: [...latchOf(encHost)],
       unseenFinished: [...(unseenByHost.get(encHost) ?? [])],
-    });
+    };
+    const serialized = JSON.stringify(memory);
+    if (lastSaved.get(encHost) === serialized) return;
+    lastSaved.set(encHost, serialized);
+    hooks.remember(encHost, memory);
   };
 
   const observe = (encHost: string, cur: AttentionFrame): void => {
@@ -204,6 +212,7 @@ export function createAttentionCore(hooks: AttentionHooks): AttentionCore {
   const forgetHost = (encHost: string): void => {
     transitionsByHost.delete(encHost);
     frameByHost.delete(encHost);
+    lastSaved.delete(encHost);
     unseenByHost.delete(encHost);
     latched.delete(encHost);
     // The mark is cleared by the caller's `onCleanup` (which DELETES the host's

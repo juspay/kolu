@@ -356,7 +356,7 @@ describe("attentionCore — a page loaded after kolu restarted, resumed from wha
     expect(cleared).toEqual([]);
   });
 
-  it("hands its memory back after each frame, so the next page can resume from it", () => {
+  it("hands its memory back after each frame that changes it, so the next page can resume from it", () => {
     const { core, remembered } = harness();
     core.observe("h", u([], []));
     core.observe("h", u(["Q"], ["A"]));
@@ -368,6 +368,18 @@ describe("attentionCore — a page loaded after kolu restarted, resumed from wha
         unseenFinished: [],
       },
     });
+  });
+
+  it("hands nothing back for a frame that changes nothing it remembers — a working or linger move", () => {
+    // The engine is fed whenever the host's class lists move, and most moves
+    // (an agent starting or finishing a tool call) leave asking and finished
+    // as they were. Each hand-back is a `localStorage` write.
+    const { core, remembered } = harness();
+    core.observe("h", u([], []));
+    core.observe("h", u([], ["A"]));
+    const saved = remembered.length;
+    core.observe("h", u([], ["A"]));
+    expect(remembered).toHaveLength(saved);
   });
 
   it("a finish on a host you are not looking at stays unseen across the reload", () => {

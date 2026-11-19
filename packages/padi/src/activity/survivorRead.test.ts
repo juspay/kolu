@@ -13,7 +13,7 @@
  */
 
 import type { PadiTerminal, PadiUrgency } from "@kolu/padi-client/surface";
-import type { AgentInfo, TerminalId } from "@kolu/terminal-vocab/schema";
+import type { TerminalId } from "@kolu/terminal-vocab/schema";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   frame,
@@ -62,13 +62,10 @@ describe("a redeploy at the fold — a survivor already idle is not news", () =>
   afterEach(() => vi.useRealTimers());
 
   // What the agent was doing when kolu went down does not reach the new padi:
-  // the adopted record carries no agent either way (`adoptedSnapshot`), and the
-  // first thing padi knows is what its sensors read now. Both are pinned so a
-  // later change that DID carry the saved state across is made on purpose.
-  it.each<[string, AgentInfo["state"]]>([
-    ["already finished when kolu went down", "waiting"],
-    ["working when kolu went down, finished while it was down", "waiting"],
-  ])("%s: finished in the first settled frame, never lingering", (_, now) => {
+  // the adopted record carries no agent (`adoptedSnapshot`), and the first
+  // thing padi knows is what its sensors read now — so an agent that was
+  // working when kolu went down and finished meanwhile is this same case.
+  it("a survivor already idle, whatever it was doing when kolu went down, is finished in the first settled frame, never lingering", () => {
     const padi = redeployedPadi();
     try {
       // Serve time: nothing adopted.
@@ -78,7 +75,7 @@ describe("a redeploy at the fold — a survivor already idle is not news", () =>
       expect(padi.fold(frame({ [T]: { agent: null } }))).toEqual(EMPTY_URGENCY);
       // The detectors read the agent; the record moves before the last of
       // them reports, so this frame is still unread.
-      const read = frame({ [T]: { agent: makeAgent(now) } });
+      const read = frame({ [T]: { agent: makeAgent("waiting") } });
       expect(padi.fold(read).settled).toBe(false);
       // The last detector has looked.
       padi.gate.firstRead(T);

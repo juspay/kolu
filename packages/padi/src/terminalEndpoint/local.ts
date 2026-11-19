@@ -461,9 +461,14 @@ export class PtyHostTerminalProxy implements TerminalHandle {
  *
  *  `foreground` is passed in — the handler HAS the capability to publish — precisely so
  *  the invariant is TESTABLE: a regression that "clears stale foreground on disconnect"
- *  would light up the pin in `bridgeStream.test.ts`. It is deliberately unused here. */
+ *  would light up the pin in `bridgeStream.test.ts`. It is deliberately unused here.
+ *
+ *  The tap is opened once and never re-opened, so the terminal's agent detectors
+ *  will get no sample from it: their first pass is "cannot tell", and it is said
+ *  here, so a redeploy's attention fold is not held closed by a terminal padi
+ *  cannot see (`fleetGate.ts`). A no-op for a terminal nobody waits on. */
 export function onForegroundTapError(
-  id: string,
+  id: TerminalId,
   foreground: Pick<SensorSignals["foreground"], "publish">,
   err: unknown,
 ): void {
@@ -472,6 +477,7 @@ export function onForegroundTapError(
     { err, terminal: id },
     "pty-host foreground tap failed — keeping last foreground sample (blind)",
   );
+  markFirstRead(id);
 }
 
 /**
@@ -1451,13 +1457,7 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
           process: msg.process,
           foregroundPid: msg.foregroundPid,
         }),
-      (err) => {
-        onForegroundTapError(id, signals.foreground, err);
-        // The detectors will get no sample from a dead tap, so their first
-        // pass is "cannot tell" — said, so the attention fold is not held
-        // closed by a terminal padi cannot see.
-        markFirstRead(id);
-      },
+      (err) => onForegroundTapError(id, signals.foreground, err),
     );
     const stopAwareness = startSensors(
       id,
