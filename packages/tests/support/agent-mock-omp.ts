@@ -333,25 +333,23 @@ export function appendOmpTodoList(
   );
 }
 
-/** The fake `omp` process's own output markers.
- *
- *  Each is assembled INSIDE bash from two halves (see the payload below), so
- *  the whole string never appears in the command line the shell echoes when the
- *  scenario types it — only the process's own `printf` can satisfy a wait on it.
- *  A marker that the echo could satisfy is a start-guard that passes against a
- *  binary that never ran (dev/skills/e2e-testing). */
-const UP_HALVES = ["omp-stand-in", "-is-up"] as const;
-const HEARD_HALVES = ["omp-stand-in", "-heard"] as const;
-const GONE_HALVES = ["omp-stand-in", "-is-gone"] as const;
+// The fake `omp` process's own output markers.
+//
+// None of them is ever typed: the scenario types only `<bin> <program file>`
+// (omp_steps.ts), and the conductor scenarios hand the program to a relay that
+// runs it without echoing it. So only the process's own `printf` can satisfy a
+// wait on a marker. A marker that the shell's echo could satisfy is a
+// start-guard that passes against a binary that never ran
+// (dev/skills/e2e-testing).
 /** Printed ONCE, after the crumb is on disk: the fake is up and resident. */
-export const OMP_UP_MARKER = UP_HALVES.join("");
+export const OMP_UP_MARKER = "omp-stand-in-is-up";
 /** Printed with the words every time the fake is prompted — the proof a line
  *  typed by a person (or by `agent_say`) reached the agent's own stdin. */
-export const OMP_HEARD_MARKER = HEARD_HALVES.join("");
+export const OMP_HEARD_MARKER = "omp-stand-in-heard";
 /** Printed as the loop breaks on `quit`, immediately before the process exits:
  *  the agent is leaving the foreground. A scenario that waits for it is waiting
  *  on the departure itself, not on a sleep. */
-export const OMP_GONE_MARKER = GONE_HALVES.join("");
+export const OMP_GONE_MARKER = "omp-stand-in-is-gone";
 
 /** The fake `omp` process's payload: write the breadcrumb the way omp writes it
  *  (from its OWN tty), then stay resident — painting an approval dialog,
@@ -375,8 +373,9 @@ export const OMP_GONE_MARKER = GONE_HALVES.join("");
  *
  *  The resident `read` loop is what lets a scenario paint the approval dialog or
  *  clear it mid-scenario (omp's own dialogs appear while the process holds the
- *  terminal). A compound command keeps bash itself as the foreground process
- *  (no `execve` optimisation), so `/proc/<pid>/comm` stays `omp`.
+ *  terminal). Bash runs the program itself, whether from a file or from `-c`
+ *  (a compound command gets no `execve` optimisation), so `/proc/<pid>/comm`
+ *  stays `omp`.
  *
  *  `bootPaint` gives the screen-still-being-drawn half of presence a WITNESS: a
  *  background painter writes a line a second until the scenario says `settle`,
@@ -385,8 +384,9 @@ export const OMP_GONE_MARKER = GONE_HALVES.join("");
  *  of this same non-interactive bash, so it shares the pty's foreground process
  *  group and `/proc/<pid>/comm` still reads `omp`.
  *
- *  Quoting: the caller wraps this in single quotes, so the payload uses only
- *  double quotes inside, and every backslash below is literal bash. */
+ *  Quoting: omp_steps.ts writes this to a file, but the conductor scenarios
+ *  hand it to `sh -c` inside single quotes, so the payload uses only double
+ *  quotes inside, and every backslash below is literal bash. */
 export function ompMockPayload(opts: {
   breadcrumbDir: string;
   transcriptPath: string;
@@ -411,11 +411,6 @@ export function ompMockPayload(opts: {
   // template string as a mistaken placeholder.
   const stripDevPrefix = "t=$" + "{t#/dev/}";
   const slashesToDashes = "t=$" + String.raw`{t//\//-}`;
-  // The three markers, halved — bash concatenates each pair at runtime, so the
-  // typed command line carries none of them whole.
-  const assembleUp = `u="${UP_HALVES[0]}"; u="$u""${UP_HALVES[1]}"`;
-  const assembleHeard = `h="${HEARD_HALVES[0]}"; h="$h""${HEARD_HALVES[1]}"`;
-  const assembleGone = `g="${GONE_HALVES[0]}"; g="$g""${GONE_HALVES[1]}"`;
   // THE FIRST PROMPT WRITES THE SESSION FILE, as omp's does — then the words
   // are echoed with the heard marker, so a scenario that waits on the echo is
   // waiting on a transcript that is already on disk.
@@ -424,7 +419,7 @@ export function ompMockPayload(opts: {
     `then cat "${opts.stagePath}" >> "${opts.transcriptPath}"`,
     `rm -f "${opts.stagePath}"`,
     "fi",
-    String.raw`printf "%s %s\n" "$h" "$ompcmd"`,
+    String.raw`printf "%s %s\n" "${OMP_HEARD_MARKER}" "$ompcmd"`,
   ].join("; ");
   const boot = opts.bootPaintUntil;
   const cases = [
@@ -442,10 +437,7 @@ export function ompMockPayload(opts: {
     slashesToDashes,
     writeCrumb,
     String.raw`printf "\033]0;omp\007"`,
-    assembleUp,
-    assembleHeard,
-    assembleGone,
-    String.raw`printf "%s\n" "$u"`,
+    String.raw`printf "%s\n" "${OMP_UP_MARKER}"`,
     // read loop rides on the same element rather than after a `;` bash would
     // refuse.
     `${
@@ -454,6 +446,6 @@ export function ompMockPayload(opts: {
         : `( b=1; while [ ! -f "${boot}" ]; do printf "%s%s\\n" "omp-boot " "$b"; b=$((b+1)); sleep 1; done ) & `
     }while IFS= read -r ompcmd; do case "$ompcmd" in ${cases} esac; done`,
     ":",
-    String.raw`printf "%s\n" "$g"`,
+    String.raw`printf "%s\n" "${OMP_GONE_MARKER}"`,
   ].join(" ; ");
 }
