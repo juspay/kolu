@@ -673,11 +673,18 @@ candidates. `trackRecentAgent` has exactly one production caller — the
 endpoint's live-agent arm — and `terminal-vocab`'s `restoreFence.test.ts` is the
 grep law that keeps it that way.
 
-The state migration (`1.3.0`) is the one place an old shape is met: an on-disk
+The state migration (`1.3.0`) is the one place an old restore target is met: an on-disk
 `exact { command, agent }` becomes `exact { agent, argv: [] }`, `legacyMostRecent`
 becomes `none`, and the remembered `lastAgentCommand` plus the old MRU rows are
 dropped. The old `command` is **deleted, never parsed** — re-parsing it is the
 hole this closes.
+
+A saved terminal's last-known pull request meets its old shape at `1.6.0`: a
+resolved PR saved before the forge said whether it is a draft (`isDraft`)
+becomes `pending`, never a guessed `false`, and the PR sensor reads it again
+once the terminal runs. The same `backfillSavedSession` runs on every way a
+saved session comes in — the ladder, `session.import`, a backup restore, the
+legacy import and the browser's **Import session**.
 
 ## The agent-state watch — the other source
 

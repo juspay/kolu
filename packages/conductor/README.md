@@ -139,12 +139,18 @@ appending what it observes.
   them: it belongs to the work's branch, and `prReading` (same module) folds
   padi's `pullRequest` reading for that branch instead. kolu-server owns the
   subscriptions; this owns what they SAY.
-- **The merge answer is its own fact** (`mergeOf`, in `./readings.ts`). A
-  check event means the rollup and nothing else; whether GitHub would merge
-  the PR is GitHub's `mergeStateStatus`, read into `can` or `cannot` with a
-  reason (`blocked`, `review` when the review decision wants one, `behind`,
-  `conflicts`, `draft`), or `unsettled` for `UNKNOWN`. `observing.ts`
-  records a `merge-state` event when the answer for a PR at a commit
+- **The merge answer is its own fact, and a draft has none** (`mergeOf` and
+  `prReading`, in `./readings.ts`). A check event means the rollup and
+  nothing else. Whether the PR is a draft is GitHub's `isDraft`: GitHub
+  retired the `DRAFT` value of `mergeStateStatus` in 2021 and now works a
+  draft's merge state out as if it were ready, so a green draft says
+  `CLEAN`. So the reading is two arms: `draft`, with no merge answer to read,
+  or `ready` with `mergeOf`'s — GitHub's `mergeStateStatus` read into `can`
+  or `cannot` with a reason (`blocked`, `review` when the review decision
+  wants one, `behind`, `conflicts`, and `draft` for the retired word), or
+  `unsettled` for `UNKNOWN`. `observing.ts` records a `draft-state` event
+  when the draft word CHANGES for an open PR, and a `merge-state` event, for
+  a ready PR only, when the answer for a PR at a commit
   CHANGES — `unsettled` too, so a push never inherits the last commit's
   answer and GitHub recomputing one takes back the `can` it had. A reading
   with no merge state at all (`unreported`, a padi older than the field)
@@ -152,8 +158,9 @@ appending what it observes.
   (`prReading` answers a sum, never throws): it is refused, as an error, for
   the one work it was about, and the watch goes on serving every other.
   Green is read by `kolu-work` off both facts, about the same commit — merge
-  `can` and no check running or red — so the card, the timeline, the stages
-  and the Conductor's `works` resource agree without asking again.
+  `can` and no check running or red, on a PR that is not a draft — so the
+  card, the timeline, the stages and the Conductor's `works` resource agree
+  without asking again.
 - **The decision** (`./members.ts`, pure) — one reading of one member becomes
   a wake level or nothing:
   - `working` forgets what we were told, so the next stop is news again;
