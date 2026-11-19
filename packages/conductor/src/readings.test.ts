@@ -329,6 +329,7 @@ describe("what a pull request reading says about checks and merging", () => {
         reviewDecision,
         mergeStateStatus,
         headSha: "4c3f17ea2",
+        isDraft: false,
       },
     });
     if (read.kind !== "pr") throw new Error(`no PR: ${read.kind}`);

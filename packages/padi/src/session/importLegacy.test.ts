@@ -9,6 +9,8 @@
 import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { SavedSessionSchema } from "@kolu/padi-client/surface";
+import { Schema } from "effect";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   __resetPadiSurfaceCtxForTest,
@@ -475,6 +477,90 @@ describe("padi's own migration ladder", () => {
     expect(readFileSync(join(stateRoot, "config.json"), "utf8")).not.toContain(
       "LD_PRELOAD",
     );
+  });
+
+  it("1.6.0: a 1.5.0 file's resolved PR that never said draft becomes pending", () => {
+    /** A resolved PR as a 1.5.0 padi saved it: every field but `isDraft`. */
+    const oldOk = {
+      kind: "ok",
+      value: {
+        number: 7,
+        title: "Fix the parser",
+        url: "https://github.example/o/r/pull/7",
+        state: "open",
+        checks: "pass",
+        checkRuns: [],
+        reviewDecision: null,
+        mergeStateStatus: "CLEAN",
+        headSha: "4f21a9c0d3e5b7a9c1d3e5f7a9b1c3d5e7f9a1b3",
+      },
+    };
+    const saysDraft = {
+      kind: "ok",
+      value: { ...oldOk.value, number: 8, isDraft: true },
+    };
+    const unavailable = {
+      kind: "unavailable",
+      source: { provider: "gh", code: "not-authenticated" },
+    };
+    /** A saved terminal as a 1.5.0 padi wrote it; `sleptAt` makes it the
+     *  sleeping arm. The id is a real `TerminalId` (a UUID). */
+    const terminal = (n: number, pr: unknown, sleptAt?: number) => ({
+      cwd: "/r",
+      git: { kind: "none" },
+      pr,
+      location: { kind: "local" },
+      restoreTarget: { kind: "none" },
+      lastActivityAt: null,
+      promptedAt: null,
+      ...(sleptAt === undefined
+        ? { state: "active" }
+        : { state: "sleeping", sleptAt }),
+      id: `${n}1111111-1111-4111-8111-111111111111`,
+    });
+    writeFileSync(
+      join(stateRoot, "config.json"),
+      JSON.stringify({
+        session: {
+          terminals: [
+            terminal(1, oldOk),
+            terminal(2, oldOk, 1_700_000_000_000),
+            terminal(3, saysDraft),
+            terminal(4, { kind: "absent" }),
+            terminal(5, unavailable),
+          ],
+          activeTerminalId: terminal(1, oldOk).id,
+          savedAt: 1,
+        },
+        __internal__: { migrations: { version: "1.5.0" } },
+      }),
+    );
+    const stores = openPadiStateStores(stateRoot);
+    const expected = [
+      { kind: "pending" },
+      { kind: "pending" },
+      saysDraft,
+      { kind: "absent" },
+      unavailable,
+    ];
+    expect(stores.session.get()?.terminals.map((t) => t.pr)).toEqual(expected);
+    const readDisk = () =>
+      JSON.parse(readFileSync(join(stateRoot, "config.json"), "utf8")) as {
+        session: unknown;
+        __internal__: { migrations: { version: string } };
+      };
+    const onDisk = readDisk();
+    expect(onDisk.__internal__.migrations.version).toBe("1.6.0");
+    // The file the next boot reads is CURRENT, not merely decodable: the
+    // session cell is served off it undecoded.
+    expect(
+      Schema.decodeUnknownSync(SavedSessionSchema)(
+        onDisk.session,
+      ).terminals.map((t) => t.pr),
+    ).toEqual(expected);
+    // Opening it again runs no rung and moves nothing.
+    openPadiStateStores(stateRoot);
+    expect(readDisk()).toEqual(onDisk);
   });
 
   it("a fresh state-root has no session to migrate", () => {

@@ -180,7 +180,7 @@ describe("padiSurface contract", () => {
     // `git.getDiff`'s declared error with `WorktreeBaseBranchMissing` — a
     // required field on an emitted value and a widened emitted union, the
     // 5.3/7.3 case again: a minor.
-    expect(PADI_SURFACE_VERSION).toBe("7.10");
+    expect(PADI_SURFACE_VERSION).toBe("7.11");
     expect(DEFAULT_PADI_VERSION.contractVersion).toBe(PADI_SURFACE_VERSION);
     expect(
       Schema.decodeUnknownSync(PadiVersionSchema)(DEFAULT_PADI_VERSION),

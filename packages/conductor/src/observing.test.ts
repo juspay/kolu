@@ -190,6 +190,7 @@ describe("the PR the work's own watch reads", () => {
           reviewDecision: null,
           mergeStateStatus: null,
           headSha: null,
+          isDraft: false,
         },
       }).kind,
     ).toBe("broken");

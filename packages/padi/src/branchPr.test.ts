@@ -89,6 +89,7 @@ const statePr = (over: {
       reviewDecision: "",
       mergeStateStatus: "UNKNOWN",
       headRefOid: HEAD,
+      isDraft: false,
     }),
   );
 };

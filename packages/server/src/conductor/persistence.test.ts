@@ -1319,6 +1319,7 @@ describe("the human's real store, one observation later", () => {
           reviewDecision: null,
           mergeStateStatus: "UNKNOWN",
           headSha: "4f21a9c0d3e5b7a9c1d3e5f7a9b1c3d5e7f9a1b3",
+          isDraft: false,
         },
       });
 

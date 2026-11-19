@@ -119,6 +119,9 @@ export const GH_PR_VIEW_JSON_FIELD_LIST = [
   // states — without it, the new push's `pending` and a re-read of the old
   // commit's `pending` are the same value (juspay/kolu#2376).
   "headRefOid",
+  // WHETHER THE PR IS A DRAFT. GitHub retired `mergeStateStatus: DRAFT` in
+  // 2021 for this field: a draft with green checks now answers `CLEAN`.
+  "isDraft",
 ] as const;
 
 export const GH_PR_VIEW_JSON_FIELDS = GH_PR_VIEW_JSON_FIELD_LIST.join(",");
@@ -136,6 +139,8 @@ export type GhPrViewJson = {
   mergeStateStatus: string;
   /** The head commit's oid — 40 hex characters, gh's own spelling. */
   headRefOid: string;
+  /** gh's own boolean. Required: a `gh` answer without it is refused. */
+  isDraft: boolean;
 };
 
 type GhPrViewJsonKeysMatch =
@@ -157,6 +162,7 @@ const decodeReviewDecision = Schema.decodeUnknownSync(
   Schema.NullOr(ReviewDecisionSchema),
 );
 const decodeMergeStateStatus = Schema.decodeUnknownSync(MergeStateStatusSchema);
+const decodeIsDraft = Schema.decodeUnknownSync(Schema.Boolean);
 
 /** Map gh's JSON onto `PrInfo`. Review/merge values pass through verbatim —
  *  an unknown member throws (fail-fast), which `resolveGitHubPr`'s catch
@@ -181,6 +187,9 @@ export function prInfoFromGhView(data: GhPrViewJson): PrInfo {
     // one too old to know the field — reads as `null`, the shape's own word
     // for "this reading carries no head", never a guessed one.
     headSha: data.headRefOid ?? null,
+    // Strict, like the merge state: a `gh` answer that does not say whether
+    // the PR is a draft throws rather than reading as "ready".
+    isDraft: decodeIsDraft(data.isDraft),
   };
 }
 

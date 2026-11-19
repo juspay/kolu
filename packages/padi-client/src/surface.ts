@@ -827,8 +827,20 @@ export * from "./transcriptSchema.ts";
  *  raised for a Branch comparison whose `origin` default was never fetched, and
  *  which failed the response encode because neither member declared it. A
  *  required field on an emitted value and a widened emitted error union — the
- *  5.3/7.3 class: a minor. */
-export const PADI_SURFACE_VERSION = "7.10";
+ *  5.3/7.3 class: a minor.
+ *
+ *  7.11 (additive · minor) — A PULL REQUEST SAYS WHETHER IT IS A DRAFT. The
+ *  forge's `PrInfo` gains a required `isDraft`: GitHub retired its `DRAFT`
+ *  merge state for this field, so a draft with green checks read as mergeable
+ *  (#2410). `PrInfo` rides the record's `pr` fact, the `pullRequest` stream,
+ *  and the saved terminals of the `session` cell and the `session.import` and
+ *  `test__set` payloads. A required field on an emitted value — the 5.3/7.3
+ *  class: a minor. A newer binder drains a surviving 7.10 padi, so no reading
+ *  without `isDraft` reaches a consumer. The session side is still a minor: an
+ *  older client that SENDS a session whose resolved PR lacks `isDraft` is
+ *  refused at the decode, loudly, and nothing is overwritten; padi's own saved
+ *  file is brought up by its state rung 1.6.0 (`backfillPrDraft`). */
+export const PADI_SURFACE_VERSION = "7.11";
 
 /** The `version` cell payload — padi's self-declared surface contract version. */
 export const PadiVersionSchema = Schema.Struct({

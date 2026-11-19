@@ -32,6 +32,7 @@ describe("PrPip", () => {
       reviewDecision: null,
       mergeStateStatus: "UNKNOWN",
       headSha: null,
+      isDraft: false,
     });
     try {
       const link = host.querySelector<HTMLAnchorElement>(

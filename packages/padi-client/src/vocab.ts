@@ -1250,17 +1250,42 @@ export function backfillAgentsStamp(
   return rest;
 }
 
+/** Forget a saved resolved PR from before the forge said whether it is a draft
+ *  (#2410). `PrInfo.isDraft` is required with no decoding default, so an `ok`
+ *  reading saved without it no longer parses. It becomes `{ kind: "pending" }`
+ *  — `PrResult`'s own word for "not known right now": the live PR sensor reads
+ *  the PR afresh once the terminal runs. Not `absent`, which would say the
+ *  branch has no PR, and not `isDraft: false`, which would be a guess. The same
+ *  move `backfillGitFact` makes for an old `git`.
+ *
+ *  Presence-keyed and idempotent: an `ok` that carries `isDraft`, every other
+ *  kind, a record with no `pr`, and a malformed `pr` (left for the schema to
+ *  refuse) pass through untouched. */
+export function backfillPrDraft(
+  t: Record<string, unknown>,
+): Record<string, unknown> {
+  const pr = t.pr;
+  if (!pr || typeof pr !== "object") return t;
+  const shaped = pr as Record<string, unknown>;
+  if (shaped.kind !== "ok") return t;
+  const value = shaped.value;
+  if (!value || typeof value !== "object" || "isDraft" in value) return t;
+  return { ...t, pr: { kind: "pending" } };
+}
+
 /** Bring one legacy saved-terminal record up to the current
  *  `SavedTerminalSchema` by composing every field backfill above. Order-free
  *  (each is idempotent + presence-keyed); spelled in ladder order for reading. */
 export function backfillSavedTerminal(
   t: Record<string, unknown>,
 ): Record<string, unknown> {
-  return backfillAgentsStamp(
-    backfillRestoreTargetArgv(
-      backfillSnapshotCutover(
-        backfillTerminalState(
-          backfillLocation(backfillGitFact(backfillRemoteUrl(t))),
+  return backfillPrDraft(
+    backfillAgentsStamp(
+      backfillRestoreTargetArgv(
+        backfillSnapshotCutover(
+          backfillTerminalState(
+            backfillLocation(backfillGitFact(backfillRemoteUrl(t))),
+          ),
         ),
       ),
     ),

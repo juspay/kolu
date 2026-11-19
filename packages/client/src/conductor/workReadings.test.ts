@@ -376,6 +376,7 @@ describe("the live PR a card reads", () => {
     reviewDecision: null,
     mergeStateStatus: null,
     headSha: null,
+    isDraft: false,
   });
   const here = (result: TerminalMetadata["pr"]) => ({
     standing: {
@@ -1138,6 +1139,7 @@ describe("a PR's checks", () => {
           reviewDecision: null,
           mergeStateStatus: "UNKNOWN",
           headSha: null,
+          isDraft: false,
         }),
       ),
     ).toEqual(Option.none());

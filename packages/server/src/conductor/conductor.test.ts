@@ -2330,6 +2330,7 @@ const forgeSays = (over: {
     // A PR the forge says can merge: what a passing rollup is green on.
     mergeStateStatus: "CLEAN",
     headSha: over.head === undefined ? HEAD : over.head,
+    isDraft: false,
   },
 });
 
