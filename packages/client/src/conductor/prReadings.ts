@@ -96,6 +96,9 @@ export const mergeReason = (merge: MergeKnown): string =>
 export interface PrSection {
   readonly number: number;
   readonly state: "open" | "merged" | "closed";
+  /** Whether it is open and a draft — still being built, not up for review.
+   *  False for a PR whose word kolu never recorded: it claims nothing. */
+  readonly draft: boolean;
   readonly checks: string;
   /** The gates the last recorded check reading named red — none while the
    *  live tally speaks, or when nothing failed. Drawn as {@link failingLine}
@@ -134,6 +137,7 @@ export function prSection(
     return {
       number: pr.number,
       state: pr.state,
+      draft: pr.state === "open" && pr.draft === "draft",
       checks: Option.match(live, {
         onSome: checksBreakdown,
         onNone: () =>

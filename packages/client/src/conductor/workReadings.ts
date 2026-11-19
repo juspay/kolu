@@ -345,9 +345,9 @@ export function workHost(work: Work): Option.Option<string> {
 
 /** The line under a card's title: WHERE the work is — which is now its
  *  identity, `repo · branch` for a branch work and "watching" for a watch —
- *  the host as a person names it, the mode, and the PR once there is one.
- *  Each part is dropped when it is not known yet rather than drawn as a blank
- *  or a dash. */
+ *  the host as a person names it, the mode, and the PR once there is one
+ *  (`draft PR #7` while it is an open draft). Each part is dropped when it is
+ *  not known yet rather than drawn as a blank or a dash. */
 export function workSubtitle(
   work: Work,
   hostName: Option.Option<string>,
@@ -361,7 +361,13 @@ export function workSubtitle(
     ...where,
     ...Option.toArray(hostName),
     ...Option.toArray(setup.mode),
-    ...Option.toArray(Option.map(prOf(work), (pr) => `PR #${pr.number}`)),
+    ...Option.toArray(
+      Option.map(
+        prOf(work),
+        (pr) =>
+          `${pr.state === "open" && pr.draft === "draft" ? "draft " : ""}PR #${pr.number}`,
+      ),
+    ),
   ].filter((part) => part !== "");
 }
 

@@ -262,6 +262,28 @@ describe("what a card's head says", () => {
     ).toEqual(["kolu", "update-errors", "naiveintent", "trivial", "PR #178"]);
   });
 
+  it("says an open draft is a draft, and stops once it is ready", () => {
+    const draftOpened = event({
+      kind: "pr-opened",
+      pr: 7,
+      title: "Page chats open in a pane",
+      url: { kind: "link", href: "https://github.com/o/r/pull/7" },
+      draft: "draft",
+    });
+    const subtitle = (events: ReadonlyArray<WorkEvent>) =>
+      workSubtitle(
+        work({ decisions: [mode("full")], events }),
+        Option.none(),
+      ).at(-1);
+    expect(subtitle([draftOpened])).toBe("draft PR #7");
+    expect(
+      subtitle([
+        draftOpened,
+        event({ kind: "draft-state", pr: 7, draft: "ready" }),
+      ]),
+    ).toBe("PR #7");
+  });
+
   it("says a watch is a watch, which has no repo to name", () => {
     expect(
       workSubtitle(
@@ -426,6 +448,7 @@ describe("the Pull request section", () => {
       Option.some({
         number: 9,
         state: "open",
+        draft: false,
         checks: "Checks failed",
         failing: ["ci::nix", "ci::biome"],
         merge: Option.some({
@@ -501,6 +524,38 @@ describe("the Pull request section", () => {
     const section = Option.getOrThrow(prSection(done, Option.none()));
     expect(section.state).toBe("merged");
     expect(section.merge).toEqual(Option.none());
+  });
+
+  it("says the open PR is a draft, and that GitHub's answer does not make it mergeable", () => {
+    const draft = event({
+      kind: "pr-opened",
+      pr: 9,
+      title: "Slim it",
+      url: { kind: "link", href: "https://github.com/o/r/pull/9" },
+      draft: "draft",
+    });
+    const section = Option.getOrThrow(
+      prSection(
+        handingOver([draft, passed, mergeSays({ kind: "can" })]),
+        Option.none(),
+      ),
+    );
+    expect(section.draft).toBe(true);
+    expect(Option.map(section.merge, (merge) => merge.reason)).toEqual(
+      Option.some("draft"),
+    );
+    // A PR whose word kolu never kept claims nothing.
+    const unrecorded = event({
+      kind: "pr-opened",
+      pr: 9,
+      title: "Slim it",
+      url: { kind: "unrecorded" },
+      draft: "unrecorded",
+    });
+    expect(
+      Option.getOrThrow(prSection(handingOver([unrecorded]), Option.none()))
+        .draft,
+    ).toBe(false);
   });
 
   it("is absent for a work with no PR", () => {
@@ -742,6 +797,27 @@ describe("the timeline's words", () => {
   const plan = work({
     decisions: [picked("Approve", { header: "Plan approval" }, "card")],
     events: [joined()],
+  });
+
+  it("says a draft opening, being marked ready, and being turned back", () => {
+    expect(
+      words(
+        plan,
+        event({
+          kind: "pr-opened",
+          pr: 7,
+          title: "Title",
+          url: { kind: "unrecorded" },
+          draft: "draft",
+        }),
+      ),
+    ).toBe("Opened draft #7 Title");
+    expect(
+      words(plan, event({ kind: "draft-state", pr: 7, draft: "ready" })),
+    ).toBe("#7 is ready for review");
+    expect(
+      words(plan, event({ kind: "draft-state", pr: 7, draft: "draft" })),
+    ).toBe("#7 is a draft");
   });
 
   it("names the decision rather than copying the question's words", () => {
