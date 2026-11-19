@@ -428,6 +428,40 @@ describe("the conductor's watch, as wiring", () => {
     }
   });
 
+  it("says nothing about a host whose urgency is not yet evidence — a redeploy still reading its survivors", async () => {
+    // The roster is a census (the member is listed), but padi's attention
+    // fold says `settled: false`: it has adopted the terminals and not read
+    // their agents yet. Its empty lists mean nobody has looked, so a member
+    // that was finished must not read as neither finished nor asking.
+    const box = fakePadi({ [SPLIT]: { intent: "write the migration" } });
+    box.urgency.set({ ...QUIET, settled: false });
+    const local = fakePadi({ [OTHER]: { intent: "the other one" } });
+    const fleet = fakeHosts({ [LOCAL]: local.client, [BOX]: box.client });
+    const conductor = fakeConductor([`${LOCAL}/${OTHER}`, `${BOX}/${SPLIT}`]);
+    const watcher = startConductorWatcher({
+      hosts: fleet.hosts,
+      conductor: conductor.host,
+      log,
+    });
+    local.urgency.set({ ...QUIET, workingIds: [OTHER] });
+    try {
+      await vi.waitFor(() => {
+        expect(conductor.seen.at(-1)?.terminalId).toBe(OTHER);
+        expect(box.held()).toBeGreaterThan(0);
+      });
+      expect(conductor.seen.some((one) => one.host === BOX)).toBe(false);
+
+      // padi has read it: the member is what it was, finished.
+      box.urgency.set({ ...QUIET, finishedIds: [SPLIT] });
+      await vi.waitFor(() => {
+        const last = conductor.seen.filter((one) => one.host === BOX).at(-1);
+        expect(last?.level).toBe("stopped");
+      });
+    } finally {
+      await watcher.dispose();
+    }
+  });
+
   it("does NOT say gone about a member the roster holds but no record has arrived for", async () => {
     // #2376's SECOND half, which the roster standing alone did not close. This
     // leg reads kolu-server's per-host MIRROR of padi, and that mirror marks
