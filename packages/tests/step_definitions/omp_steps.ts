@@ -85,13 +85,15 @@ async function cdTerminalInto(world: KoluWorld, cwd: string): Promise<void> {
 
 /** Launch the fake `omp` with the crumb-write + resident-loop payload, and WAIT
  *  for the process's own "I am up" line before returning. The wait is the
- *  arrangement: the marker is assembled inside bash, so the shell's echo of the
- *  command cannot satisfy it and a launch that never ran (a missing binary, an
- *  rc still initializing) fails HERE, quoting the terminal, instead of surfacing
- *  three steps later as an indicator that never lit.
+ *  arrangement: the program is a file and only `<bin> <file>` is typed, so the
+ *  shell's echo of the command cannot satisfy it and a launch that never ran (a
+ *  missing binary, an rc still initializing) fails HERE, quoting the terminal,
+ *  instead of surfacing three steps later as an indicator that never lit.
  *
- *  The payload is single-quoted for the shell, so it uses only double quotes
- *  inside. */
+ *  The program is a file, not typed: every typed key is a round trip through
+ *  the server, padi, kaval and the shell's echo, and on a busy host typing the
+ *  ~1,900-character program failed this step — at its 70 s limit, or with the
+ *  shell still echoing the program when the wait for "up" ended. */
 async function startFakeAgent(
   world: KoluWorld,
   fixture: OmpFixture,
@@ -105,13 +107,17 @@ async function startFakeAgent(
     throw new Error("No omp mock directory — call the mock step first");
   }
   mockQuietFlag = opts.bootPaint ? path.join(mockCwd, "omp-settled") : null;
-  const payload = ompMockPayload({
-    breadcrumbDir: path.join(ompDir, "terminal-sessions"),
-    transcriptPath: fixture.transcriptPath,
-    stagePath: mockStagePath,
-    ...(mockQuietFlag === null ? {} : { bootPaintUntil: mockQuietFlag }),
-  });
-  await world.page.keyboard.type(`${bin} -c '${payload}'`);
+  const program = path.join(mockCwd, "omp-stand-in.sh");
+  fs.writeFileSync(
+    program,
+    ompMockPayload({
+      breadcrumbDir: path.join(ompDir, "terminal-sessions"),
+      transcriptPath: fixture.transcriptPath,
+      stagePath: mockStagePath,
+      ...(mockQuietFlag === null ? {} : { bootPaintUntil: mockQuietFlag }),
+    }),
+  );
+  await world.page.keyboard.type(`${bin} ${program}`);
   await world.page.keyboard.press("Enter");
   try {
     await waitForBufferContains(world.page, OMP_UP_MARKER);

@@ -116,3 +116,21 @@ export async function waitForBufferContains(
   // The `?? ""` fallback satisfies the type checker without a `!`.
   return (await handle.jsonValue()) ?? "";
 }
+
+/**
+ * Wait until the focused terminal has drawn its first screen: its xterm buffer
+ * is no longer blank. The stream delivers the first frame (its size, then a
+ * reset, then its text) before any later output, so a non-blank buffer means
+ * that frame has been parsed, whether the prompt arrived inside it or after it.
+ *
+ * `Given the terminal is ready` does not promise this: it returns once the tile
+ * is visible and focused. Polls on a timer for the reason
+ * {@link waitForBufferContains} gives.
+ */
+export async function waitForFirstScreen(page: Page): Promise<void> {
+  await page.waitForFunction(
+    (sel) => (window.__readXtermBuffer?.(sel, 0) ?? "").trim().length > 0,
+    ACTIVE_TERMINAL,
+    { timeout: POLL_TIMEOUT, polling: 50 },
+  );
+}

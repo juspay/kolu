@@ -299,10 +299,10 @@ When(
 );
 
 /** THE STAND-IN IS UP, said where the scenario needs it to be: the marker is
- *  the last thing its boot prints before the read loop, and it is assembled
- *  at runtime so no step can spell it by accident. Waiting for it says the
- *  tile is on screen AND the output it missed while nobody watched it has
- *  been replayed, which is what the screen comparisons below rest on. */
+ *  the last thing its boot prints before the read loop, and only the
+ *  stand-in's own print can put it on the screen. Waiting for it says the
+ *  tile is on screen AND the output it missed while nobody watched it has been
+ *  replayed, which is what the screen comparisons below rest on. */
 Then(
   "the member terminal should have come up",
   async function (this: KoluWorld) {

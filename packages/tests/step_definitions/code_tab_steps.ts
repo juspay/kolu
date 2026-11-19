@@ -102,8 +102,14 @@ function fileRow(path: string): string {
   return `${TREE} [data-item-path="${path}"][data-item-type="file"]:not([data-file-tree-sticky-row])`;
 }
 
+/** A real folder row, wherever it sits — {@link dirRow} scopes it to the shown
+ *  tree; the "not shown" wait needs it bare, relative to that tree. */
+function folderItem(path: string): string {
+  return `[data-item-path="${path}/"][data-item-type="folder"]:not([data-file-tree-sticky-row])`;
+}
+
 function dirRow(path: string): string {
-  return `${TREE} [data-item-path="${path}/"][data-item-type="folder"]:not([data-file-tree-sticky-row])`;
+  return `${TREE} ${folderItem(path)}`;
 }
 
 /** First-appearance wait for a Pierre tree row / Code-tab chrome element.
@@ -824,6 +830,21 @@ Then(
   async function (this: KoluWorld, path: string) {
     const item = this.page.locator(fileRow(path));
     await item.waitFor({ state: "detached", timeout: POLL_TIMEOUT });
+  },
+);
+
+// One query for "a shown tree that holds no such folder row" — not "the row
+// is gone". `TREE` skips a dimmed (inert) tree, so a bare `detached` wait on
+// `dirRow` also passes while the tree is dimmed or not mounted at all, which
+// proves nothing about what the tree lists.
+Then(
+  "the file browser should not show a directory {string}",
+  async function (this: KoluWorld, path: string) {
+    await this.page
+      .locator(TREE)
+      .filter({ hasNot: this.page.locator(folderItem(path)) })
+      .first()
+      .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
   },
 );
 
