@@ -12,6 +12,7 @@
  * there. Seeded, so a failure names the seed that reproduces it.
  */
 
+import { Option } from "effect";
 import { describe, expect, it } from "vitest";
 import { seeded } from "../test/seeded.ts";
 import {
@@ -23,6 +24,9 @@ import {
   leaveWork,
   lifetime,
   type MergeState,
+  type PrDraft,
+  type PrOpenedDraft,
+  prOf,
   openAsks,
   openWork,
   type Policy,
@@ -85,7 +89,12 @@ const join = (
   terminal = `local/${role}`,
 ): Work => joinWork(work, { terminal, role, at: at(minute) });
 
-const prOpened = (work: Work, minute: number, pr = 7): Work =>
+const prOpened = (
+  work: Work,
+  minute: number,
+  pr = 7,
+  draft: PrOpenedDraft = "ready",
+): Work =>
   recordEvent(work, {
     at: at(minute),
     by: "kolu",
@@ -94,6 +103,18 @@ const prOpened = (work: Work, minute: number, pr = 7): Work =>
     pr,
     title: "the PR",
     url: { kind: "link", href: `https://forge.example/pr/${pr}` },
+    draft,
+  });
+
+/** The PR marked ready for review, or turned back into a draft. */
+const draftState = (work: Work, draft: PrDraft, minute: number, pr = 7): Work =>
+  recordEvent(work, {
+    at: at(minute),
+    by: "kolu",
+    kind: "draft-state",
+    about: ABOUT_WORK,
+    pr,
+    draft,
   });
 
 const check = (
@@ -647,6 +668,7 @@ describe("the shapes of real works", () => {
       pr: 2391,
       title: "bump",
       url: { kind: "link", href: "https://forge.example/pr/2391" },
+      draft: "ready",
     });
     work = recordEvent(work, {
       at: second(1),
@@ -884,6 +906,71 @@ describe("green is the forge saying it can merge", () => {
     expect(answers).toHaveLength(PR_FACTS_PER_COMMIT);
     expect(answers.at(0)?.at).toBe(at(12));
     expect(answers.at(-1)?.at).toBe(at(41));
+  });
+});
+
+describe("a draft cannot merge", () => {
+  /** The merge answer the timeline reads for the work's PR. */
+  const readMerge = (work: Work) => Option.getOrThrow(prOf(work)).merge;
+
+  it("reads cannot: draft even after a stray merge answer that says it can", () => {
+    let work = join(opened(), "implementor", 0);
+    work = prOpened(work, 10, 7, "draft");
+    expect(readMerge(work)).toEqual({ kind: "cannot", why: "draft" });
+    work = check(work, "checks-passed", 12);
+    work = mergeState(work, { kind: "can" }, 12);
+    expect(readMerge(work)).toEqual({ kind: "cannot", why: "draft" });
+    expect(byName(strip(work, FULL, at(20))).merge.kind).not.toBe("now");
+  });
+
+  it("forgets the merge answer on entering a draft and on leaving one", () => {
+    let work = join(opened(), "implementor", 0);
+    work = prOpened(work, 10);
+    work = mergeState(work, { kind: "can" }, 12);
+    expect(readMerge(work)).toEqual({ kind: "can" });
+    work = draftState(work, "draft", 14);
+    expect(readMerge(work)).toEqual({ kind: "cannot", why: "draft" });
+    // Ready again: the `can` from before is not the answer for it now.
+    work = draftState(work, "ready", 16);
+    expect(readMerge(work)).toEqual({ kind: "unknown" });
+  });
+
+  it("keeps the answer when an unrecorded PR learns it was ready all along", () => {
+    let work = join(opened(), "implementor", 0);
+    work = prOpened(work, 10, 7, "unrecorded");
+    work = mergeState(work, { kind: "can" }, 12);
+    work = draftState(work, "ready", 14);
+    expect(readMerge(work)).toEqual({ kind: "can" });
+  });
+
+  it("keeps the draft word through a reopen", () => {
+    let work = join(opened(), "implementor", 0);
+    work = prOpened(work, 10, 7, "draft");
+    work = endWork(work, {
+      outcome: { kind: "stopped", by: "you" },
+      at: at(12),
+    });
+    work = reopenWork(work, at(20));
+    expect(Option.getOrThrow(prOf(work)).draft).toBe("draft");
+    expect(readMerge(work)).toEqual({ kind: "cannot", why: "draft" });
+  });
+
+  it("never lets a merge answer after a draft flip replace the one before it", () => {
+    // Checks running on one commit: GitHub's flips there keep only their
+    // latest — but a draft flip between two answers is somebody's act, so
+    // both answers stay on the timeline.
+    let work = join(opened(), "implementor", 0);
+    work = prOpened(work, 10);
+    work = check(work, "checks-running", 11);
+    work = mergeState(work, { kind: "cannot", why: "blocked" }, 12);
+    work = draftState(work, "draft", 13);
+    work = draftState(work, "ready", 14);
+    work = mergeState(work, { kind: "can" }, 15);
+    expect(
+      work.events
+        .filter((one) => one.kind === "merge-state")
+        .map((one) => one.at),
+    ).toEqual([at(12), at(15)]);
   });
 });
 

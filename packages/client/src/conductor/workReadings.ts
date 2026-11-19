@@ -679,7 +679,7 @@ export function eventReader(work: Work): (event: WorkEvent) => string {
       case "question-dropped":
         return "The question went away unanswered";
       case "pr-opened":
-        return `Opened #${event.pr} ${event.title}`.trim();
+        return `Opened ${event.draft === "draft" ? "draft " : ""}#${event.pr} ${event.title}`.trim();
       case "checks-running":
         return `CI running${commitWords(heads, event)}`;
       case "checks-passed":
@@ -692,6 +692,10 @@ export function eventReader(work: Work): (event: WorkEvent) => string {
         return `Closed #${event.pr}`;
       case "merge-state":
         return `${mergeWords(event.merge)}${commitWords(heads, event)}`;
+      case "draft-state":
+        return event.draft === "ready"
+          ? `#${event.pr} is ready for review`
+          : `#${event.pr} is a draft`;
       case "note":
         return event.text;
       // THE LOCK, as the timeline tells it: an act of the person's, named by

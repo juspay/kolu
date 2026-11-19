@@ -19,6 +19,7 @@ import type {
   EventOf,
   MergeState,
   PrLink,
+  PrOpenedDraft,
   Work,
   WorkEvent,
 } from "./schema.ts";
@@ -49,6 +50,9 @@ export interface PrReading {
   /** The commit and answer of its last `merge-state`, for the observer to
    *  record a merge state only when it CHANGES. */
   readonly lastMerge: Option.Option<EventOf<"merge-state">>;
+  /** Whether it is a draft, as its `pr-opened` and any `draft-state` since
+   *  said — `unrecorded` for a PR opened before kolu kept the word. */
+  readonly draft: PrOpenedDraft;
 }
 
 /** THE CHECK CORRESPONDENCE, in ONE table: a forge's rollup word, the event
@@ -109,11 +113,28 @@ export const sameHead = (a: CheckHead, b: CheckHead): boolean =>
 
 /** ONE EVENT'S MOVE ON THE PR READING — the one statement of the PR-fact
  *  rule: a check result or a merge answer about another commit makes the
- *  other fact unknown, and opening, merging, closing and reopening each say
- *  what is forgotten. None for a work no PR was opened for yet, which only
- *  `pr-opened` changes. The observer reads it (through {@link prOf}) to tell
- *  news from a repeat, and the folds carry it to tell green. */
+ *  other fact unknown, and opening, merging, closing, reopening and a draft
+ *  flip each say what is forgotten. None for a work no PR was opened for yet,
+ *  which only `pr-opened` changes. The observer reads it (through
+ *  {@link prOf}) to tell news from a repeat, and the folds carry it to tell
+ *  green.
+ *
+ *  A DRAFT CANNOT MERGE, by construction: every step ends in
+ *  {@link draftCannotMerge}, so no arm can forget it and no `merge-state` a
+ *  draft was ever given can make it read green. */
 export const prStep = (
+  pr: Option.Option<PrReading>,
+  event: WorkEvent,
+): Option.Option<PrReading> => Option.map(stepPr(pr, event), draftCannotMerge);
+
+/** An open draft reads `cannot: draft`, whatever the forge answered about
+ *  merging it: GitHub works a draft's merge state out as if it were ready. */
+const draftCannotMerge = (pr: PrReading): PrReading =>
+  pr.state === "open" && pr.draft === "draft"
+    ? { ...pr, merge: { kind: "cannot", why: "draft" } }
+    : pr;
+
+const stepPr = (
   pr: Option.Option<PrReading>,
   event: WorkEvent,
 ): Option.Option<PrReading> => {
@@ -126,6 +147,7 @@ export const prStep = (
       merge: { kind: "unknown" },
       lastCheck: Option.none(),
       lastMerge: Option.none(),
+      draft: event.draft,
     });
   return Option.map(pr, (was): PrReading => {
     // A FACT ABOUT ANOTHER COMMIT makes the other one's stale: checks about a
@@ -156,6 +178,19 @@ export const prStep = (
             ? was.checks
             : "none",
         };
+      // ENTERING OR LEAVING DRAFT forgets the merge answer: one given while it
+      // was a draft (or before it became one) says nothing of the PR as it is
+      // now, so GitHub's next answer is news. Learning `ready` for a PR whose
+      // word was never recorded changes nothing it said.
+      case "draft-state":
+        return was.draft === "draft" || event.draft === "draft"
+          ? {
+              ...was,
+              draft: event.draft,
+              merge: { kind: "unknown" },
+              lastMerge: Option.none(),
+            }
+          : { ...was, draft: event.draft };
       case "merged":
         return {
           ...was,
@@ -174,6 +209,7 @@ export const prStep = (
       // goes back to open and FORGETS what it said about the checks and the
       // merge — they were true when the work stopped, maybe a week ago — so
       // the next reading of the PR is news again and says how it stands now.
+      // Its draft word is kept: it is about the PR, not about a commit.
       case "reopened":
         return {
           ...was,

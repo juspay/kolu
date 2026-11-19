@@ -63,10 +63,10 @@ export interface WatchPr {
    *  reported no checks" is a reading, not a hole. `kolu-work`'s `CHECK_STEP`
    *  is the one table that says what each word becomes on a timeline. */
   readonly checks: WatchChecks;
-  /** Whether the forge would merge it ({@link WatchMerge}) — the second fact,
-   *  kept apart from the checks because a required check that has not
-   *  started is in no rollup. */
-  readonly merge: WatchMerge;
+  /** Whether it is a draft, and only when it is not, whether the forge would
+   *  merge it ({@link WatchReadiness}) — the second fact, kept apart from the
+   *  checks because a required check that has not started is in no rollup. */
+  readonly readiness: WatchReadiness;
   /** The names of the checks that are failing, when any are. */
   readonly failing: ReadonlyArray<string>;
   /** THE COMMIT the fields above are about — the PR's head, off the same
@@ -95,6 +95,14 @@ export type WatchChecks =
  *  through it is never green — which the card says, as "GitHub has not said
  *  whether it can merge it". */
 export type WatchMerge = MergeState | { readonly kind: "unreported" };
+
+/** A DRAFT, OR READY FOR REVIEW WITH THE FORGE'S MERGE ANSWER. A sum, so a
+ *  draft has no merge answer to read: GitHub works a draft's merge state out
+ *  as if it were ready (a draft with green checks says `CLEAN`), so that
+ *  answer is never recorded for one. */
+export type WatchReadiness =
+  | { readonly kind: "draft" }
+  | { readonly kind: "ready"; readonly merge: WatchMerge };
 
 /** A BRANCH WHOSE PULL REQUEST KOLU WATCHES — one per piece of work in
  *  progress that is keyed by a branch. The watch asks the host for the PR of

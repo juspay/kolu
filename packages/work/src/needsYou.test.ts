@@ -92,6 +92,7 @@ const prOpened = (work: Work, minute: number): Work =>
     pr: 2402,
     title: "the PR",
     url: { kind: "link", href: "https://github.com/juspay/kolu/pull/2402" },
+    draft: "ready",
   });
 
 const passed = (work: Work, minute: number, sha: string): Work =>

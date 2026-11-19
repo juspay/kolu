@@ -28,14 +28,14 @@ import {
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import Conf from "conf";
-import { Result, Schema } from "effect";
+import { Option, Result, Schema } from "effect";
 import { DEFAULT_PREFERENCES } from "kolu-common/surface";
 import {
   PersistedWorksSchema,
   readPersistedTranscript,
   workDirOf,
 } from "kolu-conductor";
-import { workIdOf } from "kolu-work";
+import { MODE_RUNS, type Policy, prOf, stages, workIdOf } from "kolu-work";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   transcriptFilePath,
@@ -59,6 +59,7 @@ import {
   toolOutings_1_59_0,
   moveKeptFiles_1_53_0,
   prFactsOnTheTimeline_1_57_0,
+  prOpenedSaysDraft_1_61_0,
   splitWorkAskRows_1_53_0,
   stripLegacyStateKeys_1_31_0,
   workArmsNotNulls_1_55_0,
@@ -2511,9 +2512,10 @@ describe("the 1.57.0 rung — a PR's address and the forge's merge answer", () =
       { events: Record<string, unknown>[] }
     >;
     // IN FLIGHT: an address it will learn, and no answer it never had — its
-    // next reading records GitHub's.
+    // next reading records GitHub's. (The walk runs to head, so the 1.61.0
+    // rung's draft word is on it too.)
     expect(works[OPEN]?.events).toEqual([
-      { ...opened(4), url: { kind: "unrecorded" } },
+      { ...opened(4), url: { kind: "unrecorded" }, draft: "unrecorded" },
       passed(4, HEAD),
     ]);
     // FINISHED, TWO PRs: the first was closed unmerged, so its pass gets no
@@ -2681,5 +2683,226 @@ describe("the 1.59.0 rung — a tool row may say when this outing began", () => 
     toolOutings_1_59_0(dir);
 
     expect(readFileSync(path, "utf8")).toBe("{ this is not json");
+  });
+});
+
+describe("the 1.61.0 rung — a pull request says whether it opened as a draft", () => {
+  const AT = "2026-11-18T00:00:00.000Z";
+  const LATER = "2026-11-18T02:00:00.000Z";
+  const WORK = { kind: "work" };
+  const HEAD = { kind: "commit", sha: "4f21a9c" };
+  const FINISHED = "branch:local/%2Frepo/finished";
+  const IN_PROGRESS = "branch:local/%2Frepo/in-progress";
+  const TWO = "branch:local/%2Frepo/two-attempts";
+  const NO_PR = "branch:local/%2Frepo/no-pr";
+  const requested = {
+    at: AT,
+    by: "you",
+    about: WORK,
+    kind: "requested",
+    request: { kind: "none" },
+  };
+  const opened = (pr: number) => ({
+    at: AT,
+    by: "kolu",
+    about: WORK,
+    kind: "pr-opened",
+    pr,
+    title: "t",
+    url: { kind: "link", href: `https://forge.example/pr/${pr}` },
+  });
+  const canMerge = (pr: number) => ({
+    at: AT,
+    by: "kolu",
+    about: WORK,
+    kind: "merge-state",
+    pr,
+    head: HEAD,
+    merge: { kind: "can" },
+  });
+  const work = <E extends { readonly kind: string }>(
+    branch: string,
+    events: ReadonlyArray<E>,
+    state: unknown,
+  ) => ({
+    key: { kind: "branch", host: "local", repo: "/repo", branch },
+    title: branch,
+    startedAt: AT,
+    decisions: [],
+    members: [],
+    events,
+    state,
+  });
+  const merged = (pr: number) => [
+    { at: LATER, by: "kolu", about: WORK, kind: "merged", pr },
+    {
+      at: LATER,
+      by: "kolu",
+      about: WORK,
+      kind: "ended",
+      outcome: { kind: "merged", pr },
+    },
+  ];
+  const endedState = (pr: number) => ({
+    kind: "ended",
+    at: LATER,
+    outcome: { kind: "merged", pr },
+    kept: [],
+  });
+  /** A 1.60.0 store: a finished work, a work in progress holding GitHub's
+   *  `can`, a work that had two PRs, a work with no PR — and a member's
+   *  watch, which the rung must leave alone. */
+  const SEED = {
+    [FINISHED]: work(
+      "finished",
+      [requested, opened(9), canMerge(9), ...merged(9)],
+      endedState(9),
+    ),
+    [IN_PROGRESS]: work(
+      "in-progress",
+      [
+        requested,
+        {
+          at: AT,
+          by: "kolu",
+          about: { kind: "member", terminal: "local/impl" },
+          kind: "joined",
+          role: "implementor",
+        },
+        opened(4),
+        {
+          at: AT,
+          by: "ci",
+          about: WORK,
+          kind: "checks-passed",
+          pr: 4,
+          head: HEAD,
+          failing: [],
+        },
+        canMerge(4),
+      ],
+      { kind: "open" },
+    ),
+    [TWO]: work(
+      "two-attempts",
+      [
+        requested,
+        opened(9),
+        { at: AT, by: "kolu", about: WORK, kind: "pr-closed", pr: 9 },
+        opened(10),
+        ...merged(10),
+      ],
+      endedState(10),
+    ),
+    [NO_PR]: work("no-pr", [requested], { kind: "open" }),
+  };
+  const MEMBERS = {
+    "local/impl": {
+      name: "impl",
+      agent: "omp",
+      told: "ready",
+      joined: "asked",
+      spoken: true,
+      ran: true,
+    },
+  };
+
+  /** A real store stamped at 1.60.0, walked to the live head. */
+  const walk = () => {
+    const dir = mkdtempSync(join(tmpdir(), "kolu-pr-draft-"));
+    dirs.push(dir);
+    writeFileSync(
+      join(dir, "config.json"),
+      JSON.stringify({
+        preferences: DEFAULT_PREFERENCES,
+        works: SEED,
+        members: MEMBERS,
+        __internal__: { migrations: { version: "1.60.0" } },
+      }),
+    );
+    const store = new Conf<Record<string, unknown>>({
+      cwd: dir,
+      projectVersion: SCHEMA_VERSION,
+      defaults: CONF_DEFAULTS as unknown as Record<string, unknown>,
+      migrations: CONF_MIGRATIONS as never,
+    });
+    return { store, state: readJson(store.path) };
+  };
+
+  it("gives every pr-opened the word `unrecorded` and moves nothing else", () => {
+    const { state } = walk();
+    const works = state.works as Record<
+      string,
+      { events: ReadonlyArray<Record<string, unknown>> }
+    >;
+    // Every `pr-opened` gains the word; every other event is as it was, and
+    // no `draft-state` is invented.
+    const expected = Object.fromEntries(
+      Object.entries(SEED).map(([id, one]) => [
+        id,
+        {
+          ...one,
+          events: one.events.map((event) =>
+            event.kind === "pr-opened"
+              ? { ...event, draft: "unrecorded" }
+              : event,
+          ),
+        },
+      ]),
+    );
+    expect(state.works).toEqual(expected);
+    expect(
+      Object.values(works).flatMap((one) =>
+        one.events.filter((event) => event.kind === "draft-state"),
+      ),
+    ).toEqual([]);
+    expect(state.members).toEqual(MEMBERS);
+    expect(
+      (state.__internal__ as { migrations: { version: string } }).migrations
+        .version,
+    ).toBe("1.61.0");
+  });
+
+  it("decodes, and walking it again changes nothing", () => {
+    const { store, state } = walk();
+    expect(
+      Result.isSuccess(
+        Schema.decodeUnknownResult(PersistedWorksSchema)(state.works),
+      ),
+    ).toBe(true);
+    const set = vi.spyOn(store, "set");
+    prOpenedSaysDraft_1_61_0(store as never);
+    expect(set).not.toHaveBeenCalled();
+  });
+
+  it("leaves the work in progress reading as 1.60.0 read it: the build ended at the open", () => {
+    const { state } = walk();
+    const decoded = Schema.decodeUnknownSync(PersistedWorksSchema)(state.works);
+    const upgraded = decoded[IN_PROGRESS];
+    if (upgraded === undefined) throw new Error("no work in progress");
+    // 1.60.0's reading is the one a PR opened READY gets today: the open
+    // ends the build. The upgraded work must read the same, cell for cell.
+    const asBefore = {
+      ...upgraded,
+      events: upgraded.events.map((event) =>
+        event.kind === "pr-opened"
+          ? { ...event, draft: "ready" as const }
+          : event,
+      ),
+    };
+    const policy: Policy = {
+      handOver: true,
+      run: {
+        kind: "set",
+        driven: MODE_RUNS.full.driven,
+        stages: MODE_RUNS.full.stages,
+      },
+    };
+    const now = LATER;
+    const read = stages(upgraded, policy, now);
+    expect(read).toEqual(stages(asBefore, policy, now));
+    if (read.kind !== "staged") throw new Error(read.kind);
+    expect(read.current).toBe("merge");
+    expect(Option.getOrThrow(prOf(upgraded)).merge).toEqual({ kind: "can" });
   });
 });

@@ -252,6 +252,7 @@ describe("what a card's head says", () => {
               pr: 178,
               title: "Slim it",
               url: { kind: "unrecorded" },
+              draft: "unrecorded",
               by: "kolu",
             }),
           ],
@@ -279,6 +280,7 @@ const opened = event({
   pr: 9,
   title: "Slim it",
   url: { kind: "link", href: "https://github.com/o/r/pull/9" },
+  draft: "ready",
   by: "agent",
 });
 const passed = event({

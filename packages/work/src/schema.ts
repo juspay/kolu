@@ -245,7 +245,9 @@ export type WorkState = typeof WorkStateSchema.Type;
  *  things the forge says: what the checks that have REPORTED say (the three
  *  check events) and whether the forge would let the PR merge
  *  (`merge-state`). A required check that has not started is in neither the
- *  rollup nor the checks' events; it is why a PR cannot merge. */
+ *  rollup nor the checks' events; it is why a PR cannot merge. A third is
+ *  whether the PR is a draft (`pr-opened`'s `draft`, then `draft-state`):
+ *  GitHub's merge answer no longer says it, so it is its own event. */
 export const EVENT_KINDS = [
   "requested",
   "carried-over",
@@ -266,6 +268,7 @@ export const EVENT_KINDS = [
   "checks-passed",
   "checks-failed",
   "merge-state",
+  "draft-state",
   "merged",
   "pr-closed",
   "note",
@@ -368,11 +371,27 @@ export const PrLinkSchema = Schema.Union([
 ]);
 export type PrLink = typeof PrLinkSchema.Type;
 
+/** WHETHER A PULL REQUEST IS A DRAFT, as the forge said it: still being built
+ *  (`draft`) or ready for review (`ready`). One word, written by the observer
+ *  and read by `prStep`. */
+export const PR_DRAFT = ["draft", "ready"] as const;
+export const PrDraftSchema = Schema.Literals(PR_DRAFT);
+export type PrDraft = typeof PrDraftSchema.Type;
+
+/** What a `pr-opened` says about the draft: the forge's word, or a PR
+ *  recorded before kolu kept one (`unrecorded`, the 1.61.0 rung's word for
+ *  those — the same sense {@link PrLinkSchema}'s has). Never a guess. */
+export const PrOpenedDraftSchema = Schema.Literals([...PR_DRAFT, "unrecorded"]);
+export type PrOpenedDraft = typeof PrOpenedDraftSchema.Type;
+
 /** WHY THE FORGE WILL NOT MERGE A PULL REQUEST — GitHub's own reasons, in
  *  kolu's words: something the branch's protection still wants (`blocked`:
  *  a required check that has not passed, an unresolved conversation), a
  *  review it requires (`review`), a base that has moved on (`behind`), a
- *  conflict (`conflicts`), or a draft. */
+ *  conflict (`conflicts`), or a draft. `draft` is kolu's own reading of the
+ *  PR's draft word (`prStep` answers it for every draft), not GitHub's merge
+ *  state: GitHub retired `DRAFT` from that in 2021, and works the merge state
+ *  of a draft out as if it were ready. */
 export const MERGE_BLOCKS = [
   "blocked",
   "review",
@@ -427,6 +446,8 @@ export const WorkEventSchema = Schema.Union([
     pr: Schema.Int,
     title: Schema.String,
     url: PrLinkSchema,
+    /** Whether it opened as a draft. */
+    draft: PrOpenedDraftSchema,
   }),
   eventOf("checks-running", checkFields),
   eventOf("checks-passed", checkFields),
@@ -437,6 +458,9 @@ export const WorkEventSchema = Schema.Union([
     head: CheckHeadSchema,
     merge: MergeStateSchema,
   }),
+  /** The PR was marked ready for review, or turned back into a draft —
+   *  recorded when the forge's word changes for an open PR. */
+  eventOf("draft-state", { pr: Schema.Int, draft: PrDraftSchema }),
   eventOf("merged", { pr: Schema.Int }),
   eventOf("pr-closed", { pr: Schema.Int }),
   eventOf("note", { text: Schema.String }),

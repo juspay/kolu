@@ -92,6 +92,7 @@ import {
   foldWorksByKey_1_53_0,
   koluChoicesSayHowChosen_1_56_0,
   prFactsOnTheTimeline_1_57_0,
+  prOpenedSaysDraft_1_61_0,
   workArmsNotNulls_1_55_0,
 } from "../stateLadder.ts";
 import { TRANSCRIPT_FILE_VERSION } from "../stateShape.ts";
@@ -146,10 +147,11 @@ const OTHER_KEY = {
  * own questions was chosen; 1.57.0 puts a PR's address and the forge's
  * merge answer on the timeline; 1.58.0 gives every mention on a user row its
  * `kind`, a terminal or a piece of work; 1.59.0 lets a tool row say when
- * the CURRENT outing of a call began; and 1.60.0 gives the remembered
+ * the CURRENT outing of a call began; 1.60.0 gives the remembered
  * conversation `taught` — whether the standing prompt has already gone out in
- * the session it names, which only the record can carry across a restart. */
-const STATE_SCHEMA_VERSION = "1.60.0";
+ * the session it names, which only the record can carry across a restart; and
+ * 1.61.0 says whether each pull request opened as a draft. */
+const STATE_SCHEMA_VERSION = "1.61.0";
 
 const log = {
   debug() {},
@@ -1292,6 +1294,7 @@ describe("the human's real store, one observation later", () => {
     workArmsNotNulls_1_55_0(store);
     koluChoicesSayHowChosen_1_56_0(store);
     prFactsOnTheTimeline_1_57_0(store);
+    prOpenedSaysDraft_1_61_0(store);
     const id = Object.keys(folded.works)[0] ?? "";
 
     const over = hostOver();
