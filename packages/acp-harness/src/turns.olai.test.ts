@@ -6,9 +6,9 @@
  * still running, a cancel pressed with two of them live, a shutdown that owns
  * both fibers. Reaching any of them through the real thing means starting a
  * subprocess, holding a turn open and typing into it — so they are asserted
- * here, the way {@link ./calls.ts}' and {@link ./questions.ts}' rules are, and
- * the e2e suite drives the same shape through a real panel
- * (`packages/plugins/chat/e2e/features/the_agent.feature`, the queued-message scenarios).
+ * here, the way `@kolu/acp-client`'s `calls.ts` and `questions.ts` rules are,
+ * and olai's own e2e suite drives the same shape through a real panel
+ * (its `the_agent.feature`, the queued-message scenarios).
  *
  * WHAT EACH TEST IS ABOUT is the difference from a SLOT, because that is what
  * this replaced and what a future reader might think would do: a slot holds the

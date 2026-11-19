@@ -27,8 +27,8 @@
  *     answer rather than a degraded one.
  *   - **what the AGENT brought of its own** is in neither, and is not in this
  *     module at all. See {@link movedBy} for why a row for one could not be
- *     kept honest, and `../../web/src/client/chat/Roster.tsx` for the sentence
- *     the panel says instead.
+ *     kept honest; the sentence a person reads instead is the product's own
+ *     roster face.
  *
  * PURE, and separated from {@link ./agent.ts} for the reason every leg rule is:
  * "what a person is told this conversation can reach" is a sentence worth
@@ -42,9 +42,10 @@ import type { Reported } from "@kolu/acp/engine";
 import type { Server } from "@kolu/acp/wire";
 
 /**
- * A server this host was meant to give a session and could not, as the PROBE
- * that found out puts it: what it is called, the file it asked, and why that
- * was a no.
+ * AN MCP SERVER this host was meant to give a session and could not, as the
+ * PROBE that found out puts it: what it is called, the file it asked, and why
+ * that was a no. Not to be confused with `@kolu/acp/engine`'s `NotHere`,
+ * which is an AGENT this host cannot seat.
  *
  * Declared here rather than in {@link ./probes.ts} because it is this module's
  * INPUT, and because all four standings are minted below: a probe answers what
@@ -58,7 +59,7 @@ import type { Server } from "@kolu/acp/wire";
  * `olai-plugin-kolu`'s to word — and everything here is about the STANDING
  * they are carried under.
  */
-export interface NotHere {
+export interface MissingServer {
   readonly name: string;
   readonly where: string | null;
   readonly why: string;
@@ -102,7 +103,7 @@ export interface NotHere {
  */
 export const rosterOf = (
   handing: ReadonlyArray<McpServer>,
-  missing: ReadonlyArray<NotHere>,
+  missing: ReadonlyArray<MissingServer>,
   at: ReadonlyMap<string, string> = new Map(),
 ): ReadonlyArray<Server> => [
   ...handing.map(

@@ -533,6 +533,55 @@ describe("the conversation survives a restart", () => {
     await second.host.dispose();
   });
 
+  it("comes back with the fleet the caller remembered, and adds to it", async () => {
+    // Membership accrues from tool-call readings alone, and a resumed
+    // conversation's frames are the replay — dropped. A restore that only
+    // seeded an empty fleet would publish that emptiness on the first breath
+    // and write it back over the record, so a resumed conversation would
+    // forget every terminal it had been working with. Restoring and accruing
+    // are tested apart above; what bites is the two TOGETHER.
+    conductorStore.set({
+      ...EMPTY_PERSISTED_CONDUCTOR,
+      sessionId: "sess-live",
+      cwd: HOME,
+      fleet: [FLEET_REF],
+    });
+
+    const back = hostOver();
+    // The record is read when the conversation is brought up, and the
+    // terminal it remembered is there before anything this visit says.
+    await back.host.prompt("still here?", [], [], false);
+    expect(back.host.state().fleet).toEqual([FLEET_REF]);
+
+    // ... and a terminal THIS visit touches joins what was remembered rather
+    // than replacing it.
+    back.readCall()?.(
+      {
+        mcp: [{ server: "kolu", tool: "lifecycle_create" }],
+        asksThroughForm: undefined,
+        input: { host: "remote:prod" },
+        answer: { id: OTHER_REF },
+        called: undefined,
+        row: undefined,
+        reply: undefined,
+        terminals: undefined,
+      },
+      undefined,
+    );
+    expect(back.host.state().fleet).toEqual([FLEET_REF, OTHER_REF]);
+
+    // ... and the record the next boot reads carries both, which is the whole
+    // point of not having published an empty one.
+    await back.host.dispose();
+    const file: unknown = JSON.parse(readFileSync(store.path, "utf8"));
+    if (typeof file !== "object" || file === null || !("conductor" in file))
+      throw new Error("kolu-server's state kept no conductor record");
+    const onDisk = Schema.decodeUnknownSync(PersistedConductorSchema)(
+      file.conductor,
+    );
+    expect(onDisk.fleet).toEqual([FLEET_REF, OTHER_REF]);
+  });
+
   it("comes back to the WORKS it left, with their members and their decisions", async () => {
     // The record a previous kolu-server wrote: one work in progress with two
     // member terminals on two machines.

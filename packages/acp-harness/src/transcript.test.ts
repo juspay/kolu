@@ -9,7 +9,7 @@
 
 import { describe, expect, it } from "vitest";
 import { type FixtureRow, published } from "./rows.testlib.ts";
-import { Transcript } from "./transcript";
+import { isTaskOut, Transcript } from "./transcript";
 
 /** A CONVERSATION LIKE KOLU'S CONDUCTOR'S, spelled in the fixture product's
  *  own rows ({@link ./rows.testlib.ts}): a turn the host started is a delivery
@@ -330,5 +330,101 @@ describe("what changed for a chat like kolu's", () => {
     transcript.tool("call-1", { status: "in_progress", detail: ANSWER });
     transcript.tool("call-1", { status: "failed", progress: "it broke" });
     expect(detailOf(rowsOf(transcript))).toBe(ANSWER);
+  });
+});
+
+/**
+ * A CALL THE AGENT WALKED AWAY FROM, on this chat's own rows. The mark is the
+ * one thing a reader cannot see for itself — the status stays whatever the
+ * agent last said — and it has to survive the strict decode of a product that
+ * is not olai: a field the harness writes and the product's contract does not
+ * declare is a card the browser never draws.
+ */
+describe("a call still out when the turn ends", () => {
+  it("is marked, with the status the agent left on it", () => {
+    const transcript = conversation();
+    transcript.tool("call-1", { title: "Bash", status: "in_progress" });
+    transcript.settle();
+
+    expect(rowsOf(transcript)[0]).toMatchObject({
+      kind: "tool",
+      status: "in_progress",
+      stranded: true,
+    });
+  });
+
+  it("carries no mark once it has come back", () => {
+    const transcript = conversation();
+    transcript.tool("call-1", { title: "Bash", status: "in_progress" });
+    transcript.tool("call-1", { status: "completed" });
+    transcript.settle();
+
+    const row = rowsOf(transcript)[0];
+    expect(row?.kind === "tool" ? row.stranded : "not a tool row").toBe(
+      undefined,
+    );
+  });
+});
+
+/**
+ * THE ONE RULE BOTH PRODUCTS ASK — exported beside the class because each of
+ * them was spelling it, and a rail that goes out under a clock that goes on
+ * counting is what two spellings look like on a screen.
+ */
+describe("whether a background task is still out", () => {
+  const row = (over: {
+    armed?: {
+      task: string;
+      description: null;
+      ended: string | null;
+      report: null;
+    };
+    status?: "pending" | "in_progress" | "completed" | "failed";
+    stranded?: true;
+  }) => ({
+    armed: {
+      task: "t1",
+      description: null,
+      ended: null,
+      report: null,
+    } as const,
+    status: "in_progress" as const,
+    ...over,
+  });
+
+  it("is out while nothing has said an ending", () => {
+    expect(isTaskOut(row({}))).toBe(true);
+  });
+
+  it("is not out once the harness said how it ended", () => {
+    expect(
+      isTaskOut(
+        row({
+          armed: {
+            task: "t1",
+            description: null,
+            ended: "completed",
+            report: null,
+          },
+        }),
+      ),
+    ).toBe(false);
+  });
+
+  it("is not out once the CALL is over, whatever the task said", () => {
+    // A cancelled turn resolves what it left outstanding, and a task whose
+    // call is over is not a task anybody will hear about again.
+    expect(isTaskOut(row({ status: "completed" }))).toBe(false);
+    expect(isTaskOut(row({ status: "failed" }))).toBe(false);
+  });
+
+  it("is not out on a row the turn walked away from", () => {
+    // The mark says nothing is ever going to report on this call, which is
+    // the same thing as the task no longer being out.
+    expect(isTaskOut(row({ stranded: true }))).toBe(false);
+  });
+
+  it("is nothing at all for a call that armed no task", () => {
+    expect(isTaskOut({ status: "in_progress" })).toBe(false);
   });
 });

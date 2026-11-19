@@ -1,9 +1,11 @@
 {
   "extends": "../../tsconfig.base.json",
+  "//allowJs": "`src/facts.test.ts` proves `adapter/session-list-info/facts.js`, which is plain dependency-free JS because it is spliced verbatim into a compiled bundle. The suite reads the shipped file rather than a copy, so the program has to admit it; `rootDir` is the package instead of `src` for the same reason (nothing is emitted — the base config is `noEmit`).",
   "compilerOptions": {
-    "rootDir": "src",
+    "allowJs": true,
+    "rootDir": ".",
     "outDir": "dist",
     "types": ["node"]
   },
-  "include": ["src"]
+  "include": ["src", "adapter/session-list-info/facts.js"]
 }

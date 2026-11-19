@@ -479,7 +479,7 @@ export interface Leg {
    *
    * TWO READERS RATHER THAN ONE over both, and the split is not cosmetic: what
    * a frame said has to be REMEMBERED, because the frame is gone by the time a
-   * permission request asks about its call ({@link ../calls.ts}), and what the
+   * permission request asks about its call (`@kolu/acp-client`'s `calls.ts`), and what the
    * ID says never does — the id is the key that question arrives under. Asked
    * as one function over both, an agent that names its tools in the id made
    * every frame of every call look like news, and the registry that exists to

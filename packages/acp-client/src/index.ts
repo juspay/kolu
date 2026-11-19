@@ -33,5 +33,5 @@ export {
   type MemorySnapshot,
   type Models,
 } from "./memory.ts";
-export type { Probe, Probed, StdioServer } from "./probes.ts";
+export type { Probe, Probed, ProbedServer } from "./probes.ts";
 export { AnswerRefused } from "./questions.ts";

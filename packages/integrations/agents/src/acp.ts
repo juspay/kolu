@@ -26,7 +26,7 @@
  * and nothing above here learns its name.
  */
 
-import type { Registering } from "@kolu/acp/engine";
+import type { Engine, Registering } from "@kolu/acp/engine";
 import {
   type Adapter,
   AGENT_ENV,
@@ -113,14 +113,23 @@ export const ENGINE: Registering = {
   prompt: { kind: "first-turn" },
 };
 
+/** The word this engine is registered under — an identifier, not the name a
+ *  person reads ({@link ENGINE}`.name`). Written once, here, and read by both
+ *  the registry below and the conductor that files its conversation's notes
+ *  under it. */
+const CLAUDE_CODE = "claude-code";
+
 /** Every agent kolu can hold an ACP conversation with, by the registry's own
  *  agent kind. */
 export const ACP_ENGINES: Readonly<Record<string, Registering>> = {
-  "claude-code": ENGINE,
+  [CLAUDE_CODE]: ENGINE,
 };
 
 /**
- * The engine a host's conductor runs.
+ * The engine a host's conductor runs, WITH THE KEY IT IS REGISTERED UNDER —
+ * which is what a caller that has to name the agent (the client files a
+ * conversation's memory and model notes under it) reads, so nobody retypes
+ * the word.
  *
  * A CONSTANT rather than a setting, deliberately: the adapter it names is
  * baked into kolu's closure (`KOLU_ACP_AGENT`), one per build, and an engine
@@ -128,7 +137,7 @@ export const ACP_ENGINES: Readonly<Record<string, Registering>> = {
  * When a second adapter is pinned, this becomes a reading of whatever the
  * build actually carries — still not a knob.
  */
-export const CONDUCTOR_ENGINE: Registering = ENGINE;
+export const CONDUCTOR_ENGINE: Engine = { id: CLAUDE_CODE, ...ENGINE };
 
 /**
  * WHERE THAT ENGINE READS ITS SIGNATURE on the host this daemon runs on.

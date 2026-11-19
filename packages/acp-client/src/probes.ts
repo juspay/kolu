@@ -6,7 +6,7 @@
  * machine turns out to be running. What "whatever else" IS, this package does
  * not know and must not: it takes a LIST of things that answer one question —
  * *is your tool here, and what am I owed if it is not* — and the composition
- * root fills the list ({@link ./chat.ts}'s `Options.probes`).
+ * root fills the list (the product's own `Options.probes` on `make`).
  *
  * ## The name that used to be here
  *
@@ -39,18 +39,19 @@
 
 import { Duration, Effect } from "effect";
 
-import type { NotHere } from "./servers.ts";
+import type { MissingServer } from "./servers.ts";
 
 /**
- * AN MCP SERVER TO SPAWN, in olai's terms — {@link ./agent.ts}'s `mcpServersOf`
- * renders it into what ACP wants, the same way it does olai's own.
+ * AN MCP SERVER A PROBE FOUND AND OFFERS TO HAND OVER — {@link ./agent.ts}'s
+ * `mcpServersOf` renders it into the protocol's own stdio arm, which is a
+ * different shape with a different name (`@kolu/acp-harness`'s `StdioServer`).
  *
  * `command` is ABSOLUTE, and that is load-bearing rather than tidy: it is the
  * file that answered the probe, not a word to resolve again. Handing the bare
  * word would leave the agent free to resolve it against a different PATH and
  * spawn a different build than the one that answered.
  */
-export interface StdioServer {
+export interface ProbedServer {
   readonly name: string;
   /** Absolute: the file that answered the probe, not a word to resolve again. */
   readonly command: string;
@@ -76,10 +77,10 @@ export interface StdioServer {
  */
 export interface Probed {
   /** The server to hand a session, or `null` where there is none to hand. */
-  readonly server: StdioServer | null;
+  readonly server: ProbedServer | null;
   /** What a person is owed about the one they did not get, or `null` where an
    *  absence is the ordinary case and no fault. */
-  readonly missing: NotHere | null;
+  readonly missing: MissingServer | null;
   /** The probing plugin's own page for this server, if it has one. */
   readonly at?: string;
 }
@@ -187,7 +188,7 @@ const said = (name: string, found: Probed): Effect.Effect<void> => {
 /** The servers to hand a session, out of what the probes found. */
 export const handedIn = (
   found: ReadonlyArray<Probed>,
-): ReadonlyArray<StdioServer> =>
+): ReadonlyArray<ProbedServer> =>
   found.flatMap((one) => (one.server === null ? [] : [one.server]));
 
 /** ... and the other half of the SAME reading: what a person is owed about the
@@ -195,7 +196,7 @@ export const handedIn = (
  *  off, never off a second probe — see {@link Probed}. */
 export const missingIn = (
   found: ReadonlyArray<Probed>,
-): ReadonlyArray<NotHere> =>
+): ReadonlyArray<MissingServer> =>
   found.flatMap((one) => (one.missing === null ? [] : [one.missing]));
 
 /** ...and the app addresses of the ones that have a page, by server name. Read

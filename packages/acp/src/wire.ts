@@ -138,7 +138,7 @@ export type AskOutcome = typeof AskOutcome.Type;
 // The facts a transcript row and a conversation's state are made of, declared
 // ONCE for every product that draws them. Two chat UIs are served from these:
 // kolu's conductor (`kolu-common/src/conductorSchema.ts`, which spreads them
-// into its row schemas) and olai's chat plugin (`wire/members.ts`), and each
+// into its row schemas) and olai's chat plugin (its own `wire/members.ts`), and each
 // used to spell them a second time. The package that speaks the foreign thing
 // owns its words, and a row shape both panels draw is a word.
 //
@@ -249,7 +249,7 @@ export type Ask = typeof Ask.Type;
  *
  * Two texts rather than a unified diff, because that is what the protocol
  * carries and because the LINE diff is a view-time computation: the client
- * derives it ({@link ../../web/src/client/chat/diff.ts}) the same way it
+ * derives it (the product's own diff view) the same way it
  * derives everything else it draws.
  *
  * `oldText` is `null` for a file that did not exist — the protocol's own way of

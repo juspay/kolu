@@ -3,7 +3,7 @@
  * it offers, and crossing the two vocabularies in both directions.
  *
  * WHAT IS NOT HERE is any one adapter's arithmetic. Which entry is the model and
- * what its rows are called are the LEG's ({@link ../../../acp/src/leg.ts}'s
+ * what its rows are called are the LEG's (`@kolu/acp/engine`'s
  * `ModelReading`), so the cases below hand in a reading of their own: a picker
  * whose values are aliases and a two-line resolver for them. That is enough to
  * state what this module does — a value the picker offers is its own word, a

@@ -519,18 +519,19 @@ out. The map:
 
 </div>
 
-kolu-server delivers the agents themselves to each host, reading a
-content-addressed build off agent-distro's published index and having the host
-pull it from the cache. See [Agents](/agents) for what lands and when.
+kolu-server delivers the agents to each host: a content-addressed build off
+agent-distro's index, pulled from the cache. See [Agents](/agents) for what
+lands and when.
 
 The Nix composition follows the same boundaries. The root flake holds only the
 runnable kolu packages, their checks and the development shells; the website,
-the examples, the Odu CI coordinator and remote provisioning each have a flake
-of their own, outside `nix run .`'s graph.
+the examples and the Odu CI coordinator each have a flake of their own, outside
+`nix run .`'s graph. Remote provisioning has an exact-source flake, exposing
+only the packages kolu's agent manifest names.
 
-A dial lands the daemon and the client CLIs a terminal there needs
-(`kaval-tui`, `padi-tui`, `kolu`), so an agent on a remote machine drives its
-sibling terminals and reaches the [MCP server](/mcp).
+A dial lands the daemon and the client CLIs (`kaval-tui`, `padi-tui`, `kolu`) a
+remote terminal needs, so an agent there drives its siblings and reaches the
+[MCP server](/mcp).
 
 <LinkCard title="The repo — juspay/kolu" href="https://github.com/juspay/kolu" description="every package, with its full README, in one tree" />
 

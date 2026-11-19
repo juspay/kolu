@@ -3,8 +3,8 @@
  *
  * `usage_update` is ACP's own — it sits in the `SessionUpdate` union beside
  * `tool_call` and `config_option_update`, and any agent may send one — so it is
- * read HERE rather than in one of the ENGINE PLUGINS' legs
- * (`packages/plugins/<engine>/src/leg.ts`), which are the files for values only
+ * read HERE rather than in an ENGINE package's leg
+ * (`packages/acp-claude/src/leg.ts`), which are the files for values only
  * one agent means
  * anything by. The boundary is not which payload a reader touches but who has
  * to have sent it.

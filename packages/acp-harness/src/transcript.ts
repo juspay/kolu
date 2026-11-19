@@ -209,16 +209,59 @@ const minted = <Row extends AnyRow>(
 const textOf = (row: unknown): string =>
   (row as { readonly text?: string }).text ?? "";
 
-/** The two statuses that mean a call has not reported back. */
-const isRunning = (status: ToolStatus): boolean =>
+/**
+ * THE TWO STATUSES THAT MEAN A CALL HAS NOT REPORTED BACK.
+ *
+ * `pending` is a RUNNING state, which is the one thing here that is not
+ * obvious: the adapter announces EVERY tool call with it, so it means
+ * "announced" rather than "not started".
+ */
+export const isRunningStatus = (status: ToolStatus): boolean =>
   status === "pending" || status === "in_progress";
 
-/** A background task that is STILL OUT — the one kind of call a turn's ending
- *  says nothing about, because outliving its turn is the whole point of it.
- *  Asked of the row rather than of a flag, so the strip above the scroll and the
- *  stranding rule cannot answer it differently. */
-const isTaskOut = (row: { readonly armed?: Armed | undefined }): boolean =>
-  row.armed !== undefined && row.armed.ended === null;
+/**
+ * ... and whether a ROW's call has not come back — the same question with the
+ * two facts a status alone cannot carry folded in.
+ *
+ * A status is STICKY: an agent that died between announcing a call and
+ * reporting on it leaves that row `pending` for as long as anybody is looking,
+ * deliberately, because the row is the honest record of what was said. What
+ * the row adds is {@link STRANDED}'s observation that the turn walked away
+ * from it, and a row that never carried a status at all is not a call anybody
+ * is still waiting on.
+ */
+export const isStillRunning = (row: {
+  readonly status?: ToolStatus | undefined;
+  readonly stranded?: true | undefined;
+}): boolean =>
+  row.stranded !== true &&
+  row.status !== undefined &&
+  isRunningStatus(row.status);
+
+/**
+ * A background task that is STILL OUT — the one kind of call a turn's ending
+ * says nothing about, because outliving its turn is the whole point of it.
+ *
+ * ONE RULE, EXPORTED, because both products ask it and had written it twice:
+ * this class asks it of the rows it is stranding, and a panel asks it of the
+ * rows it draws (the rail under a row, the strip above the scroll, and whether
+ * a clock has anything to tick for). Two spellings is a rail that goes out
+ * under a clock that goes on counting.
+ *
+ * TWO HALVES, and the second is why this is not simply "has an `armed` whose
+ * ending is unsaid". The harness's own ending is the ordinary way a task stops
+ * being out — `null` for as long as nothing has said one, which is how
+ * `@kolu/acp/wire`'s `Armed` spells a field no frame has spoken about — but a
+ * call can also reach a terminal status without one (a cancelled turn
+ * resolving what it left outstanding), and a task whose CALL is over is not a
+ * task anybody is going to hear about again.
+ */
+export const isTaskOut = (row: {
+  readonly armed?: Armed | undefined;
+  readonly status?: ToolStatus | undefined;
+  readonly stranded?: true | undefined;
+}): boolean =>
+  row.armed !== undefined && row.armed.ended === null && isStillRunning(row);
 
 /**
  * WHAT A DEATH SAYS when the harness sent no sentence with it.
@@ -516,7 +559,7 @@ export class Transcript<Row extends AnyRow> {
       if (
         tool.spawned !== undefined &&
         tool.status !== undefined &&
-        isRunning(tool.status) &&
+        isRunningStatus(tool.status) &&
         !this.#stranded.has(row.id)
       ) {
         out.push({
@@ -856,7 +899,7 @@ export class Transcript<Row extends AnyRow> {
         armed?: Armed;
         text: string;
       };
-      if (tool.status === undefined || !isRunning(tool.status)) continue;
+      if (tool.status === undefined || !isRunningStatus(tool.status)) continue;
       if (!alsoArmed && isTaskOut(tool)) continue;
       this.#stranded.add(key);
       change = plus(change, this.#put(key, contentOf(row)));
@@ -932,7 +975,9 @@ export class Transcript<Row extends AnyRow> {
     // merges below: the four facts below are scoped to an OUTING, and each is a
     // face that lies if it survives into the next one.
     const reopened =
-      held !== undefined && !isRunning(held.status) && isRunning(status);
+      held !== undefined &&
+      !isRunningStatus(held.status) &&
+      isRunningStatus(status);
     if (reopened) {
       this.#outings.set(key, this.#stamp());
       this.#ended.delete(key);
@@ -1028,7 +1073,7 @@ export class Transcript<Row extends AnyRow> {
       ...(spawned === undefined ? {} : { spawned }),
       ...(armed === undefined ? {} : { armed }),
       ...(startedAt === undefined
-        ? isRunning(status)
+        ? isRunningStatus(status)
           ? { startedAt: this.#stamp() }
           : {}
         : { startedAt }),

@@ -9,7 +9,7 @@
  * asserted here, the way {@link ./questions.ts}'s state machine is — and, one
  * wall out, the way each engine's own readings are in its own package.
  *
- * THE LEGS BELOW ARE FIXTURES ({@link ./agents/legs.testlib.ts}) rather than
+ * THE LEGS BELOW ARE FIXTURES ({@link ./testlib/legs.ts}) rather than
  * real engines, and that is the phase: what this file is about is what `Calls`
  * REMEMBERS, and the two shapes it has to remember it out of are "the frame said
  * it" and "the id said it". Reading those off a real adapter made every case

@@ -18,11 +18,14 @@ The shape follows from the pin carrying the code in compiled form:
 
 - **`facts.js`** is the code of the inference, dependency-free so it can be
   spliced verbatim into the compiled adapter bundle
-- **`facts.test.js`** is the testing: not the wiring (that one has its own
+- **`../../src/facts.test.ts`** is the testing, in the package's own vitest
+  lane (kolu has no bun, and a suite no runner collects proves nothing): not
+  the wiring (that one has its own
   scenario in olai's `choosing_an_agent.feature`), but the edges of the rules
   themselves — the tie, the same-timestamp boundary, the stale candidate,
   the claimant arriving second, the undated opener, the unreadable
-  transcript, the cache keys, the refusal announcers through `say`.
+  transcript, the cache keys, the refusal announcers through `say`. It
+  imports `facts.js` where it ships, so the proven file is the spliced file.
 - **`regenerate.sh`** rebuilds `../patches/session-list-info.patch` from
   `../shim/package-lock.json` (this package's own shim, since the split),
   splices `facts.js` (with `export` removed) ahead

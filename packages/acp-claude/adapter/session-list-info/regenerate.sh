@@ -10,7 +10,8 @@ set -euo pipefail
 #
 # Sources:
 #   - the helper block spliced before the class = facts.js (the piece that is
-#     TESTED, `bun test session-list-info`) shipped with `export` off,
+#     TESTED, by `packages/acp-claude/src/facts.test.ts`) shipped with
+#     `export` off,
 #     under a banner that names this regen command;
 #   - the NEW listSessions body is the heredoc below, authored by hand for
 #     the bundle's names (sanitizeTitle, this.logger, the SDK's readers).

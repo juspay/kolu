@@ -67,8 +67,8 @@ export const modelPickerIn = (
  * Whether two model strings name the model, as far as anything here can tell.
  *
  * Asked by the one caller that has to decide whether to say anything at all:
- * the panel puts a restored conversation back on the model it was running
- * ({@link ../agent.ts}'s `restore`), and a session that already came up on it
+ * the product puts a restored conversation back on the model it was running
+ * ({@link ./agent.ts}'s `restore`), and a session that already came up on it
  * needs no such request. The two strings reach that question in DIFFERENT
  * vocabularies — the picker's own value (`sonnet`) against whatever the panel
  * last knew it was running, which is a live API id (`claude-sonnet-5`) as often

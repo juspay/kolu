@@ -25,17 +25,17 @@ import {
   type Probe,
   type Probed,
   probed,
-  type StdioServer,
+  type ProbedServer,
 } from "./probes.ts";
 
-const ALPHA: StdioServer = {
+const ALPHA: ProbedServer = {
   name: "alpha",
   command: "/nix/store/x/bin/alpha",
   args: ["mcp"],
   env: { ALPHA_SOCKET: "/run/alpha.sock" },
 };
 
-const BETA: StdioServer = {
+const BETA: ProbedServer = {
   name: "beta",
   command: "/nix/store/y/bin/beta",
   args: ["serve", "--stdio"],

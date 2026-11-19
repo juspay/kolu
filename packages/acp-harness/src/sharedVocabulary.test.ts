@@ -5,15 +5,12 @@
  * [olai](https://github.com/juspay/olai) copies this directory out of a
  * content-addressed kolu pin and compiles it with its own `tsc`.
  *
- * OLAI DOES NOT IMPORT IT YET, and this ledger says so rather than pretending
- * otherwise: what is recorded is the DOOR olai will come through — everything
- * `index.ts` hands out — plus the options it will pass, the state it will draw
- * and the verbs it will call, which are the three things a panel touches. The
- * other ledgers in this tree record names read out of olai's source; this one
- * records a promise this repository is making ahead of the consumer, and the
- * two kinds of row are not to be confused. When olai's panel lands on this
- * harness, the names it does not import are still promised: the ledger stays a
- * floor, and a row is dropped only the way every other one is.
+ * WHAT IS RECORDED is what olai's own source NAMES — read out of its tree at
+ * the pin it carries, the way the other ledgers in this repository are read:
+ * the door it imports through, the options it passes, the state it draws and
+ * the verbs it calls. A name olai does not spell is not recorded, because a
+ * ledger that promised the whole door would go red for a name nobody was ever
+ * going to miss, and the rows that matter would be read as noise.
  *
  * THE RULE, in one line: a name recorded in `sharedVocabulary.json` must still
  * be exported, and a member recorded there must still be declared. ADDING is

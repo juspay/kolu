@@ -49,6 +49,9 @@ export {
 export {
   type AnyRow,
   type Change,
+  isRunningStatus,
+  isStillRunning,
+  isTaskOut,
   movesRows,
   type RowContent,
   type RowHead,

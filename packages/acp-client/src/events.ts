@@ -412,7 +412,7 @@ export type AgentEvent =
    * `null` for an open that picks its own, which is a fresh conversation: it
    * belongs to nobody until it exists.
    *
-   * ONE READER AND ONE USE ({@link ./chat.ts}'s `refusedOpen`): what a refused
+   * ONE READER AND ONE USE (`@kolu/acp-harness`'s `refusedOpen`): what a refused
    * open says it was about, and — off the same id — which node agent that
    * conversation belongs to. Both used to be unaskable at the moment they were
    * needed. A conversation is not ENTERED until the agent has agreed to it

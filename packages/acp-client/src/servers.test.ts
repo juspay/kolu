@@ -8,15 +8,15 @@
  * probe already refused, a status word no released version has sent. Each is three
  * lines as a value and a fixture nobody would maintain as a scenario.
  *
- * The e2e suite drives the whole thing through a real panel
- * (`packages/plugins/chat/e2e/features/the_conversations_servers.feature`) and stays the
+ * olai's own e2e suite drives the whole thing through a real panel
+ * (its `the_conversations_servers.feature`) and stays the
  * regression net for the wiring.
  */
 
 import { describe, expect, test } from "vitest";
 
 import type { McpServer } from "@agentclientprotocol/sdk";
-import { movedBy, type NotHere, rosterOf } from "./servers.ts";
+import { type MissingServer, movedBy, rosterOf } from "./servers.ts";
 
 /** Olai's own tool server, as `mcpServersOf` renders it: the http route on this
  *  process's own listener, with the session's bearer token on a header. */
@@ -43,7 +43,7 @@ const ALPHA: McpServer = {
 
 /** What a probe hands over about a server this host could not give the session
  *  — the shape is this module's and the SENTENCE is the probe's, verbatim. */
-const ABSENT: NotHere = {
+const ABSENT: MissingServer = {
   name: "alpha",
   where: "/usr/bin/alpha",
   why: "it refused to read the daemon's identity: no daemon is behind it",

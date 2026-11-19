@@ -4,11 +4,10 @@
  *
  * ## Why they are fixtures now
  *
- * The benches in this package used to reach for `CLAUDE` and `OPENCODE` — the
- * real legs, three files away in `./agents/`. They are not three files away any
- * more: each engine is a PLUGIN, and `packages/bundle/src/fence.test.ts` holds
- * as an equality per package that a general package neither imports one nor
- * spells one. `olai-plugin-chat` is the general package that seats them.
+ * The benches in this package used to reach for the REAL legs. They are not
+ * reachable from here any more: an engine's readings live in that engine's own
+ * package (`@kolu/acp-claude` is kolu's one), and a general package neither
+ * imports one nor spells one.
  *
  * That is a better arrangement for these tests rather than a cost, and the
  * reason is what each of them is actually about. `Calls` is about REMEMBERING
@@ -20,7 +19,7 @@
  * facts moved into that engine's directory.
  *
  * Each engine's OWN readings are asserted in its own package
- * (`packages/plugins/<engine>/src/leg.test.ts`), against payloads captured off
+ * (`packages/acp-claude/src/leg.test.ts` here), against payloads captured off
  * that engine's real wire. That is where a bet about an adapter belongs, and it
  * is where a bump of that adapter's pin goes red.
  */

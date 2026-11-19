@@ -2,7 +2,7 @@
  * THE SAME RULES, ASKED BY THE OTHER PRODUCT — olai's chat plugin's transcript
  * suite, run against the ONE class both products share.
  *
- * PORTED FROM `juspay/olai` (`packages/plugins/chat/src/transcript.test.ts`) at
+ * PORTED FROM `juspay/olai` (its `packages/plugins/chat/src/transcript.test.ts`) at
  * the commit the shared runner was taken from. What changed is the SPELLING a
  * product supplies, not an assertion:
  *
@@ -31,8 +31,23 @@ import {
 import { Schema } from "effect";
 import { describe, expect, test } from "vitest";
 
-import { clock } from "./clock.testlib.ts";
 import { type Change, says, Transcript } from "./transcript.ts";
+
+/**
+ * A CLOCK THIS FILE MOVES BY HAND, because the interesting cases are a minute
+ * and three hours apart and waiting for them is not a test strategy. A stamp
+ * is then a value a test names rather than something asserted by comparing it
+ * with itself.
+ */
+const clock = (from: string) => {
+  let at = Date.parse(from);
+  return {
+    now: () => at,
+    pass: (ms: number) => {
+      at += ms;
+    },
+  };
+};
 
 /**
  * OLAI'S ROWS — built from the SHARED FIELD OBJECTS plus the fields only olai
@@ -47,7 +62,7 @@ import { type Change, says, Transcript } from "./transcript.ts";
 const OlaiRowSchema = Schema.Union([
   Schema.Struct({
     ...userRowFields,
-    /** Nobody is signed in, so the words were not taken (`./wire/members.ts`). */
+    /** Nobody is signed in, so the words were not taken (olai's `wire/members.ts`). */
     auth: Schema.optionalKey(Schema.Literal(true)),
     /** A machine rang this body in through a plugin's doorbell. */
     rang: Schema.optionalKey(Schema.String),
@@ -915,7 +930,7 @@ describe("an agent that was sent out", () => {
     // ... AND IT IS PUT BACK WHEN THIS OUTING ENDS, which is the other half and
     // the one a test that only watched the clearing would let rot: the harness
     // reports the second ending exactly as it reported the first
-    // (`packages/plugins/claude/acp/patches/README.md` — the settle of a reopened call stamps it), so
+    // (`packages/acp-claude/adapter/patches/README.md` — the settle of a reopened call stamps it), so
     // the row is a call that has ended again rather than one that quietly
     // stopped being a task.
     transcript.tool("toolu_01AGENT", {
@@ -1400,7 +1415,7 @@ describe("when a row arrived", () => {
   test("A CALL THAT WAS OVER AND IS RUNNING AGAIN is stamped with the moment", () => {
     // A subagent that reported and was sent MORE WORK. The call that answers
     // for it is the one that SPAWNED it — the adapter reopens that very call
-    // when the harness starts its task again (`packages/plugins/claude/acp/patches/README.md`), because
+    // when the harness starts its task again (`packages/acp-claude/adapter/patches/README.md`), because
     // everything the agent does goes on being stamped with it — so the row goes
     // from over to running again, which is a transition nothing else makes.
     //
@@ -2038,7 +2053,7 @@ test("late ownership relabels once and keeps the first engine spelling", () => {
 
 /**
  * `seq` IS DENSE FROM ZERO, and this is the assumption the client's "how many
- * older rows are there" rests on (`browser/chat/state.ts`'s `oldest`): the
+ * older rows are there" rests on (olai's `browser/chat/state.ts`'s `oldest`): the
  * number of rows below a row's `seq` is the row's `seq`, so a tab can answer
  * the count from what it holds without a round trip.
  *

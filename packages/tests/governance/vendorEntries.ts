@@ -65,7 +65,7 @@
  *     — so its closure is `@kolu/acp` and `@kolu/acp-client`, both already
  *     vendored.
  *
- * The COUNT is not the structure. A sixth would not change what this file is:
+ * The COUNT is not the structure. A tenth would not change what this file is:
  * the split is by where the fact lives, not by how many facts there are. What
  * would change it is a declared entry becoming derivable — and none of these can
  * be, because the deriving evidence lives in a repo kolu does not contain.

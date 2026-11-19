@@ -2618,3 +2618,68 @@ describe("the 1.58.0 rung — a mention says what it is", () => {
     });
   });
 });
+
+describe("the 1.59.0 rung — a tool row may say when this outing began", () => {
+  const AT = "2026-11-17T01:00:00.000Z";
+  const ROWS = [
+    { id: "u1", seq: 1, since: AT, kind: "user", text: "run the tests" },
+    {
+      id: "t1",
+      seq: 2,
+      since: AT,
+      kind: "tool",
+      text: "just test",
+      status: "completed",
+      server: "kolu",
+      tool: "lifecycle_sendInput",
+    },
+  ];
+
+  it("leaves every row exactly as it found it, and moves the stamp", () => {
+    // `resumed` is a field a row may now CARRY, never one a saved row was
+    // missing: a reader takes its absence as "first outing". So this rung
+    // rewrites nothing — the file's stamp is the whole of its work, and the
+    // reader of today accepts what it leaves behind.
+    const dir = mkdtempSync(join(tmpdir(), "kolu-tool-outings-"));
+    dirs.push(dir);
+    writeTranscriptFile(transcriptFilePath(dir), "1.58.0", ROWS as never);
+
+    toolOutings_1_59_0(dir);
+
+    const file = readJson(transcriptFilePath(dir));
+    expect(file.version).toBe(TRANSCRIPT_FILE_VERSION);
+    expect(file.rows).toEqual(ROWS);
+    const read = readPersistedTranscript(
+      transcriptFileStore(dir, TRANSCRIPT_FILE_VERSION),
+      transcriptFilePath(dir),
+      dir,
+    );
+    expect(read.rows.map((one) => one.id)).toEqual(["u1", "t1"]);
+  });
+
+  it("is safe to run twice — a file at its own number is not rewritten", () => {
+    const dir = mkdtempSync(join(tmpdir(), "kolu-tool-outings-twice-"));
+    dirs.push(dir);
+    writeTranscriptFile(transcriptFilePath(dir), "1.58.0", ROWS as never);
+
+    toolOutings_1_59_0(dir);
+    const once = readFileSync(transcriptFilePath(dir), "utf8");
+    toolOutings_1_59_0(dir);
+    expect(readFileSync(transcriptFilePath(dir), "utf8")).toBe(once);
+  });
+
+  it("leaves a file it cannot read exactly as it is, for the reader to refuse by name", () => {
+    // A transcript file that is not JSON at all. A rung that "repaired" it
+    // would be a rung that ate somebody's conversation; leaving it is what
+    // lets the reader refuse it by name with the bytes still on disk.
+    const dir = mkdtempSync(join(tmpdir(), "kolu-tool-outings-torn-"));
+    dirs.push(dir);
+    const path = transcriptFilePath(dir);
+    mkdirSync(dirname(path), { recursive: true });
+    writeFileSync(path, "{ this is not json", "utf8");
+
+    toolOutings_1_59_0(dir);
+
+    expect(readFileSync(path, "utf8")).toBe("{ this is not json");
+  });
+});

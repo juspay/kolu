@@ -118,7 +118,7 @@
     ]
   },
   "probes.ts": {
-    "exports": ["Probe", "Probed", "StdioServer"],
+    "exports": ["Probe", "Probed", "ProbedServer"],
     "members": [
       "args",
       "ask",

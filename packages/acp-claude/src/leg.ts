@@ -122,12 +122,10 @@ export const toolNameIn = (meta: Meta): string | null =>
  * belongs on this file's side of the boundary exactly as {@link toolNameIn}
  * does.
  *
- * Spelled here rather than shared with `../core.ts`'s `AWAITING_USER_TOOLS`
- * (which names this tool and `ExitPlanMode` together, for a different
- * question — whether the agent is blocked on a human): this door shares no
- * module graph with the rest of the package, which is the whole point of
- * `./acp` being its own export, and one string is cheaper than the import that
- * would join them.
+ * Spelled here rather than imported from whatever else in a product names this
+ * tool beside `ExitPlanMode` (a different question — whether the agent is
+ * blocked on a human): this reading is its own leaf, and one string is cheaper
+ * than the import that would join them.
  */
 const ASK_USER_QUESTION = "AskUserQuestion";
 
@@ -720,10 +718,10 @@ export const replyIn = (
 
 // ── what the adapter says it can do, at the handshake ──────────────────
 //
-// VENDORED FROM OLAI (`packages/plugins/claude/src/leg.ts`, same 0.81.2 pin),
+// VENDORED FROM OLAI (its `packages/plugins/claude/src/leg.ts`, same 0.81.2 pin),
 // which is where this extension was read, measured and argued — the same
 // provenance the patches beside this integration carry
-// (`../../acp/patches/README.md`). kolu steers the Conductor against the
+// (`../adapter/patches/README.md`). kolu steers the Conductor against the
 // adapter olai steers against, so a second reading of the same `_meta` would
 // be the same bet made twice and wrong in one place.
 

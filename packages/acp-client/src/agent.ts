@@ -174,7 +174,7 @@ import {
   missingIn,
   type Probe,
   probed,
-  type StdioServer,
+  type ProbedServer,
 } from "./probes.ts";
 import * as Questions from "./questions.ts";
 import { movedBy, rosterOf } from "./servers.ts";
@@ -269,7 +269,7 @@ const emitter: Effect.Effect<Emit> = Effect.map(
  * THE TWO QUESTIONS, read off the one value, which is why it is one value:
  *
  *   - *can I honestly offer this again?* — anything but `unanswered`. That is
- *     the row's `delivery` ({@link ../../surface/src/chat.ts}), which stays two
+ *     the row's `delivery` (`@kolu/acp/wire`'s `Delivery`), which stays two
  *     valued because it is only ever asked this one;
  *   - *is the agent still there?* — `refused`, and only `refused`. It used to
  *     be unaskable: the two local arms above shared a word with the agent's own
@@ -297,9 +297,9 @@ export type Gone = "refused" | "unreachable" | "unanswered";
  *
  *  `why` is the sentence a person reads; {@link Gone} is what a caller can ACT
  *  on — whether what they asked for can honestly be offered again, and whether
- *  there is still an agent on the other end. Two faces in the panel are drawn
- *  entirely out of it ({@link ./chat.ts}'s `undeliverable` and the state a
- *  failed turn leaves behind). */
+ *  there is still an agent on the other end. Two faces in the product that
+ *  draws the conversation are drawn entirely out of it (an undeliverable
+ *  message, and the state a failed turn leaves behind). */
 export class AgentGone extends Data.TaggedError("AgentGone")<{
   readonly gone: Gone;
   readonly why: string;
@@ -334,8 +334,8 @@ export class AgentGone extends Data.TaggedError("AgentGone")<{
    *
    * What it buys is the one refusal with a DIFFERENT way out: retrying a
    * conversation the store does not have is refused for ever, and the gesture
-   * that moves is a fresh one ({@link ./chat.ts}'s `refusedOpen` carries this
-   * to the browser as `Unopened.cause`).
+   * that moves is a fresh one — `@kolu/acp-harness`'s `refusedOpen` carries
+   * this to the product that draws the panel.
    */
   readonly missing?: boolean;
   /**
@@ -376,8 +376,10 @@ export class AgentGone extends Data.TaggedError("AgentGone")<{
 export type Steered = "taken" | "no-turn";
 
 export interface Options {
-  /** WHICH agent this is ({@link ./agents/roster.ts}) — the id a conversation
-   *  is remembered under, so that the next boot starts the same one. */
+  /** WHICH agent this is — the engine registry's own key for it
+   *  (kolu's is `packages/integrations/agents/src/acp.ts`) — the id a
+   *  conversation is remembered under, so that the next boot starts the same
+   *  one. */
   readonly id: string;
   /** ... and how to read what it sends. Every bet that is true of one agent
    *  and not the other is behind this (`@kolu/acp/engine`'s `Leg`); nothing in
@@ -387,7 +389,7 @@ export interface Options {
    *  `KOLU_ACP_AGENT` or the adapter nix baked in. */
   readonly command: string;
   readonly args: ReadonlyArray<string>;
-  /** Extra environment the ROSTER ROW asked for ({@link ../adapter.ts}'s
+  /** Extra environment the ROSTER ROW asked for (`@kolu/acp/engine`'s
    *  `Adapter.env`), merged over this process's own at the spawn — pi-acp's
    *  `PI_ACP_PI_COMMAND` is one row that uses it, and an engine's own-memory
    *  switch (Claude's `CLAUDE_CODE_DISABLE_AUTO_MEMORY`, Codex's
@@ -560,7 +562,7 @@ export interface Agent {
    * shape that fits both kinds: a terminal method is a process a person types a
    * code into from wherever they are sitting, so a caller must not be able to
    * wait on it by accident — it forks this and lets the row do the waiting
-   * ({@link ./chat.ts}). Everything in between is reported as {@link
+   * (the harness's sign-in row). Everything in between is reported as {@link
    * ./events.ts}'s `signIn`.
    *
    * ONE ATTEMPT PER AGENT, and a second call while one is in flight is that
@@ -1736,7 +1738,7 @@ export const make = (options: Options): Effect.Effect<Agent, never, never> =>
             // running in background with ID …" notice and `exit_code: 0`, the
             // exit of the LAUNCH. Olai's patch keeps that `_meta` on the frame
             // it turns into the call's arming
-            // (`packages/plugins/claude/acp/patches/README.md`). Drawn, it is a pane reading
+            // (`packages/acp-claude/adapter/patches/README.md`). Drawn, it is a pane reading
             // *Exit 0* under a row the strip beside it says is still running.
             //
             // So such a frame contributes no terminal and clears the ones its
@@ -3563,8 +3565,8 @@ export const make = (options: Options): Effect.Effect<Agent, never, never> =>
      * (the boot's adopted conversation, replayed in full, only to be replaced).
      * That was invisible while the process was always already up by the time
      * anybody pressed anything; an agent that is started when a conversation
-     * needs it ({@link ./chat.ts}) reaches this cold every time somebody picks
-     * one.
+     * needs it — which is what both products on this client do — reaches this
+     * cold every time somebody picks one.
      */
     const opening = <A>(
       use: (at: Live) => Effect.Effect<A, AgentGone>,
@@ -3642,8 +3644,8 @@ export const make = (options: Options): Effect.Effect<Agent, never, never> =>
      *
      * It must not BOOT either way, which is the half it shares with the verbs
      * above: a listing is a question, not a visit, and it is asked of agents
-     * this panel is not talking to at all ({@link ./listings.ts}). An agent
-     * started to answer it and stopped again must not enter, replay and
+     * this panel is not talking to at all (a stored-conversation picker). An
+     * agent started to answer it and stopped again must not enter, replay and
      * REMEMBER a conversation on the way past.
      */
     const listing = <A>(
@@ -3692,8 +3694,8 @@ export const make = (options: Options): Effect.Effect<Agent, never, never> =>
             // OWNED BY THIS AGENT, not by the global scope. It was
             // `Effect.forkDetach`, so a session stopped inside the ten
             // milliseconds below sent its cancel to a connection that had
-            // already closed — small, and the same class as the panel's own
-            // forks one file over ({@link ./chat.ts}'s `aside`).
+            // already closed — small, and the same class as the forks the
+            // product that draws the conversation makes for itself.
             yield* aside(
               Effect.onError(
                 Effect.andThen(
@@ -4306,7 +4308,7 @@ const notify = (
     // A notification is never answered, so there is no silence to tell from a
     // no: what fails here is the WRITE, and a write that failed put nothing on
     // the wire. (A write that SUCCEEDS is evidence of nothing at all — see
-    // `cancel` in {@link ./chat.ts} — but that path does not come through
+    // `cancel` above — but that path does not come through
     // here.)
     catch: (cause) =>
       new AgentGone({
@@ -4578,8 +4580,9 @@ const detailOf = (input: unknown, output: unknown): string | undefined => {
  *
  * One comparator because two consumers depend on the same answer and must not
  * be able to disagree about it: this file's sort is what a boot picks the
- * conversation to adopt from ({@link adopt}), and {@link ./listings.ts}'s merge
- * is what the picker draws. Change the tie-break in one — fall back to the id
+ * conversation to adopt from ({@link adopt}), and the same rule is what a
+ * product's own picker merges its listed rows by. Change the tie-break in one
+ * — fall back to the id
  * for two `/clear` siblings sharing a stamp, stop coercing `null` to `""` —
  * and the conversation the panel comes back to and the row a person clicks stop
  * agreeing about which of two identical-looking rows is the newest.
@@ -4639,7 +4642,7 @@ export const adopt = (
  *  order the roster is read off, so it is the order a person sees. */
 export const mcpServersOf = (
   handed: ReadonlyArray<Handed>,
-  stdio: ReadonlyArray<StdioServer>,
+  stdio: ReadonlyArray<ProbedServer>,
 ): ReadonlyArray<McpServer> => [
   ...handed.map((one) =>
     one.kind === "http"
