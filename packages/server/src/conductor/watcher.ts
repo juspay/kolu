@@ -218,16 +218,16 @@ const hostViews = (
       // it would be read by has nothing on that arm to read.
       const view: HostView =
         rosterIsEstablished(roster) && urgency.settled
-        ? {
-            kind: "ready",
-            host,
-            hostName,
-            watched,
-            roster: new Set(roster.ids),
-            urgency,
-            records: at.records,
-          }
-        : { kind: "settling", host, hostName, watched };
+          ? {
+              kind: "ready",
+              host,
+              hostName,
+              watched,
+              roster: new Set(roster.ids),
+              urgency,
+              records: at.records,
+            }
+          : { kind: "settling", host, hostName, watched };
       return [at, [view]] as const;
     },
   );

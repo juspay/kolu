@@ -24,6 +24,10 @@ import { Stream } from "effect";
 import { describe, expect, it } from "vitest";
 import type { ForegroundSample } from "kaval";
 import {
+  createFleetGate,
+  setServingFleetGate,
+} from "../attention/fleetGate.ts";
+import {
   bridgeStream,
   onForegroundTapError,
   resubscribeStream,
