@@ -116,4 +116,30 @@ describe("a redeploy at the fold — a survivor already idle is not news", () =>
       padi.dispose();
     }
   });
+
+  it("a survivor asking on screen is asking in the first settled frame, never working", () => {
+    // Its transcript says `tool_use`; the question is on the screen, and the
+    // detector's first pass waits for that read (`startAgentSensor`). Every
+    // frame before the report is unsettled, so no reader sees it working.
+    const padi = redeployedPadi();
+    try {
+      padi.fold(frame());
+      padi.gate.awaitFirstRead(T);
+      padi.fold(frame({ [T]: { agent: null } }));
+      padi.fold(frame({ [T]: { agent: makeAgent("tool_use") } }));
+      const asking = frame({ [T]: { agent: makeAgent("awaiting_user") } });
+      padi.fold(asking);
+      padi.gate.firstRead(T);
+      expect(padi.fold(asking)).toEqual({
+        awaitingIds: [T],
+        finishedIds: [],
+        workingIds: [],
+        lingerIds: [],
+        settled: true,
+      });
+      expect(padi.published.some((u) => u.workingIds.includes(T))).toBe(false);
+    } finally {
+      padi.dispose();
+    }
+  });
 });

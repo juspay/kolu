@@ -11950,6 +11950,18 @@
       "exampleRows": [],
       "executions": 1,
       "firstSeenSha": "d258b561a50b866694c3453f336922af2c8099e0"
+    },
+    {
+      "revisionId": "revision-f8c52c9c2f4b45fd5496",
+      "scenarioKey": "scenario-f0527f1d75610f7aead7",
+      "feature": "features/attention-alerts.feature",
+      "scenario": "An agent asking you before kolu restarts is still asking after it comes back, and rings nothing",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "206db2188fd1b2ccdbc1caab4e959c323f2f3d771afefeea67a17b8ca46ea29a",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "ce1916053ecd91d2f90acf004907bed4256ccd5f"
     }
   ]
 }

@@ -582,8 +582,11 @@ It refuses two kinds of frame:
   agent a moment later. The adopt path names each survivor to the gate before
   registering it; the terminal's sensor set reports when every agent detector
   has made its first pass over a real foreground sample (an agent, a shell, or
-  "cannot tell" — a dead foreground tap counts as that). A survivor that goes
-  away while awaited stops being awaited.
+  "cannot tell" — a dead foreground tap counts as that). An agent whose question
+  lives only on its screen (a permission prompt over a `tool_use` transcript)
+  is not read until its first screen read has resolved, so it is asking from
+  padi's first settled frame. A survivor that goes away while awaited stops
+  being awaited.
 
 While the gate refuses, the `urgency` cell carries `settled: false`. The
 roster's census ("who is here") does not wait for the reads: it opens as soon

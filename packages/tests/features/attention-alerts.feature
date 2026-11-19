@@ -86,3 +86,22 @@ Feature: Attention Alerts
     And the agent's dock row should be unread
     And the notification sound should have played 0 times
     And there should be no page errors
+
+  Scenario: An agent asking you before kolu restarts is still asking after it comes back, and rings nothing
+    # Claude Code's question is never in its transcript: a permission prompt
+    # leaves it at `tool_use`, and kolu reads "asking" off the screen.
+    When I stub the notification sound
+    And I stub the Badging API
+    And a Claude Code session is mocked with state "tool_use"
+    And the terminal renders a Claude permission prompt
+    Then the tile chrome should show an agent indicator with state "awaiting_user"
+    When I create a terminal
+    And I save the active canvas tile id
+    Then the saved session should record the active terminal
+    When the kolu server is redeployed under this page
+    Then the saved active canvas tile should still be active
+    And the agent's dock row should show it asking
+    And no workspace switcher branch should be notified
+    And the notification sound should have played 0 times
+    And the app badge should show 1
+    And there should be no page errors

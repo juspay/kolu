@@ -744,6 +744,14 @@ const COMMAND_RUN_RECONCILE_DELAYS_MS = [0, 75, 300, 1000] as const;
  *  while the agent is in a pollable (idle) state, so it's off the hot path. */
 const SCREEN_SCRAPE_POLL_MS = 1000;
 
+/** A matched session's screen-scrape poll. `firstRead` settles when its first
+ *  tick has finished — whatever it found, or that the read failed — and is
+ *  `null` when this adapter does not scrape or the host cannot read a screen. */
+interface ScreenScrapePoll {
+  readonly firstRead: Promise<void> | null;
+  stop(): void;
+}
+
 /** True for the pty-host's "no PTY with id" ORPCError — the benign teardown
  *  race where the terminal vanished between a poll being scheduled and its
  *  screen read landing. Read `.code` structurally rather than via `instanceof`
@@ -860,7 +868,8 @@ export function startAgentSensor<Session, Info extends AgentInfoShape>(
   let current: {
     watcher: AgentWatcher;
     key: string;
-    stopPoll: () => void;
+    /** The matched session's screen-scrape poll — see `startScreenScrapePoll`. */
+    poll: ScreenScrapePoll;
   } | null = null;
   // When resolution is ABSENT (no session), its FLAVOR: was the foreground SHELL-IDLE
   // (the shell/no process → authoritative end) or a defined NON-SHELL process (an
@@ -1235,7 +1244,7 @@ export function startAgentSensor<Session, Info extends AgentInfoShape>(
         },
         plog,
       ),
-      stopPoll: startScreenScrapePoll(),
+      poll: startScreenScrapePoll(),
     };
     // A MATCHED SESSION WITH NOTHING TO READ YET — its transcript has not landed
     // (omp's lazy session, Claude's session file ahead of its JSONL). The agent is
@@ -1259,7 +1268,7 @@ export function startAgentSensor<Session, Info extends AgentInfoShape>(
    *  derived info, so a stale read can't leak across a session change. */
   function destroyCurrent() {
     current?.watcher.destroy();
-    current?.stopPoll();
+    current?.poll.stop();
     current = null;
     latestInfo = null;
   }
@@ -1277,10 +1286,10 @@ export function startAgentSensor<Session, Info extends AgentInfoShape>(
    *  change gate can silently drop the settling write that would otherwise
    *  demote. Recursive
    *  `setTimeout` (not `setInterval`) so a slow screen read can't overlap. */
-  function startScreenScrapePoll(): () => void {
+  function startScreenScrapePoll(): ScreenScrapePoll {
     const scrape = adapter.screenScrape;
     const readScreen = readScreenText;
-    if (!scrape || !readScreen) return () => {};
+    if (!scrape || !readScreen) return { stop: () => {}, firstRead: null };
     let pollStopped = false;
     let timer: ReturnType<typeof setTimeout> | null = null;
     const tick = async () => {
@@ -1328,21 +1337,28 @@ export function startAgentSensor<Session, Info extends AgentInfoShape>(
         if (!pollStopped) timer = setTimeout(tick, SCREEN_SCRAPE_POLL_MS);
       }
     };
-    timer = setTimeout(tick, SCREEN_SCRAPE_POLL_MS);
+    // The FIRST read runs at the match, not one interval later: a prompt already
+    // on screen when padi looks — a survivor blocked on you, adopted after a
+    // redeploy — is part of what padi first sees of this agent, and the
+    // detector's first pass waits on it (`firstRead`). `tick` never rejects.
+    const firstRead = tick();
     plog.info(
       { terminal: terminalId },
       "claude-code: screen-scrape poll installed",
     );
-    return () => {
-      pollStopped = true;
-      if (timer) {
-        clearTimeout(timer);
-        timer = null;
-      }
-      plog.info(
-        { terminal: terminalId },
-        "claude-code: screen-scrape poll retired",
-      );
+    return {
+      firstRead,
+      stop: () => {
+        pollStopped = true;
+        if (timer) {
+          clearTimeout(timer);
+          timer = null;
+        }
+        plog.info(
+          { terminal: terminalId },
+          "claude-code: screen-scrape poll retired",
+        );
+      },
     };
   }
 
@@ -1371,18 +1387,28 @@ export function startAgentSensor<Session, Info extends AgentInfoShape>(
     onEvent: () => reconcile(),
     onError: (err) => plog.error({ err }, "publisher subscription failed"),
   });
-  // Has this detector reported its first pass over a real sample?
+  // Has this detector started its first pass over a real sample? The report
+  // itself may follow a screen read, by which time the terminal can be gone.
   let firstPassReported = false;
+  const reportFirstPass = (): void => {
+    if (!stopped) onFirstPass();
+  };
   const cleanupForeground = signals.foreground.consume({
     onEvent: (fg) => {
       noteEpisode(fg);
       currentForeground = fg;
       reconcile();
-      // `reconcile` is synchronous and every emit it makes has reached the
-      // host's fold by now, so "looked" is true of what the host holds.
       if (firstPassReported || stopped) return;
       firstPassReported = true;
-      onFirstPass();
+      // `reconcile` is synchronous and every emit it makes has reached the
+      // host's fold by now. What it cannot have done is read the screen, and
+      // for an agent whose question lives only there (a permission prompt
+      // over a `tool_use` transcript) the screen IS the reading: so the first
+      // pass is said once the matched session's first screen read has
+      // resolved — promoted, not, or failed — and at once when there is none.
+      const screenRead = current?.poll.firstRead ?? null;
+      if (screenRead === null) reportFirstPass();
+      else void screenRead.then(reportFirstPass);
     },
     onError: (err) => plog.error({ err }, "foreground subscription failed"),
   });

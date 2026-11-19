@@ -57,6 +57,18 @@ Then("the agent's dock row should be unread", async function (this: KoluWorld) {
     .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
 });
 
+/** The asking agent's row says so — padi lists it as asking, which is what a
+ *  check after this one is about. */
+Then(
+  "the agent's dock row should show it asking",
+  async function (this: KoluWorld) {
+    await this.page
+      .locator('[data-testid="dock-row"][data-asking]')
+      .first()
+      .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+  },
+);
+
 When("I click the attention alerts toggle", async function (this: KoluWorld) {
   await this.page.click('[data-testid="attention-alerts-toggle"]');
   await this.waitForFrame();
@@ -166,18 +178,25 @@ When(
   },
 );
 
+/** Records every badge write instead of making one. Installed on THIS page and
+ *  on every page a navigation loads after it, like the sound stub, so a
+ *  reload's badge is recorded too. Assigned as properties, so no name is
+ *  inferred for esbuild's keep-names to wrap. */
+const stubBadge = (): void => {
+  window.__badgeCalls = [];
+  navigator.setAppBadge = (count?: number) => {
+    window.__badgeCalls?.push({ method: "set", count });
+    return Promise.resolve();
+  };
+  navigator.clearAppBadge = () => {
+    window.__badgeCalls?.push({ method: "clear" });
+    return Promise.resolve();
+  };
+};
+
 When("I stub the Badging API", async function (this: KoluWorld) {
-  await this.page.evaluate(() => {
-    window.__badgeCalls = [];
-    navigator.setAppBadge = (count?: number) => {
-      window.__badgeCalls?.push({ method: "set", count });
-      return Promise.resolve();
-    };
-    navigator.clearAppBadge = () => {
-      window.__badgeCalls?.push({ method: "clear" });
-      return Promise.resolve();
-    };
-  });
+  await this.page.addInitScript(stubBadge);
+  await this.page.evaluate(stubBadge);
 });
 
 /** The sound is the one channel a page cannot show, so the step records it

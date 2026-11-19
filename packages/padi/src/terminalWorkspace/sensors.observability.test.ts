@@ -302,4 +302,66 @@ describe("the detector's first pass — the moment padi has looked", () => {
       h.stop();
     }
   });
+
+  it("waits for the screen when the question lives there — a permission prompt over a `tool_use` transcript", async () => {
+    // Claude's permission prompt never reaches its transcript; kolu reads it
+    // off the screen. A first pass said before that read would let padi
+    // report the agent as working, and a moment later as newly asking.
+    const seen: string[] = [];
+    const adapter: AgentAdapter<number, AgentInfoShape> = {
+      kind: "claude-code",
+      resolveSessions: (state) =>
+        state.foregroundPid === AGENT_PID ? [AGENT_PID] : [],
+      sessionKey: (session) => String(session),
+      sessionStartedAt: () => null,
+      createWatcher: (_session, onChange) => {
+        onChange({ ...AGENT_INFO, state: "tool_use" });
+        return { destroy() {} };
+      },
+      screenScrape: {
+        tailLines: 5,
+        isPollable: (info) => info.state === "tool_use",
+        promote: (info, text) =>
+          text.includes("Tab to amend")
+            ? { ...info, state: "awaiting_user" }
+            : info,
+      },
+    };
+    const signals: SensorSignals = {
+      cwd: inMemoryChannel<string>(),
+      title: inMemoryChannel<string>(),
+      commandRun: inMemoryChannel<string>(),
+      foreground: inMemoryChannel<ForegroundSample>(),
+      ports: inMemoryChannel<TerminalPorts>(),
+      grid: inMemoryChannel<TerminalGrid>(),
+      screenSettled: inMemoryChannel<void>(),
+      submitted: inMemoryChannel<void>(),
+    };
+    const stop = startAgentSensor(
+      adapter,
+      freshAgentEngineState(),
+      SHELL_PID,
+      "/w",
+      "term-1" as TerminalId,
+      signals,
+      async () => " Esc to cancel · Tab to amend",
+      (o) => {
+        if (o.kind === "agent" && o.agent !== "unknown" && o.agent.value)
+          seen.push(o.agent.value.info.state);
+      },
+      log,
+      false,
+      () => seen.push("first pass"),
+    );
+    try {
+      signals.foreground.publish(agentSample);
+      await flush();
+      expect(seen).toEqual(["tool_use", "awaiting_user", "first pass"]);
+      signals.foreground.publish({ ...agentSample });
+      await flush();
+      expect(seen.filter((s) => s === "first pass")).toHaveLength(1);
+    } finally {
+      stop();
+    }
+  });
 });
