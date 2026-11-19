@@ -199,8 +199,9 @@ the implementor: Approve once a planner has joined, Plan before that — the
 setup's own questions); the agents' time is Plan before the implementor, Build
 until the IMPLEMENTOR'S PR is ready for review — opened ready, or a draft
 marked ready; one turned back into a draft builds again, and a PR that was
-already there, such as one a bot opened, ends nothing — Review after — and
-files it under the nearest
+already there, such as one a bot opened, ends nothing by being open (though
+marking it ready, if it was a draft, does; kolu learning that an old PR is
+ready ends nothing) — Review after — and files it under the nearest
 stage at or before that the mode has. So "a trivial work in Review" cannot be
 written down. A stretch with no such stage — a trivial work's setup form and
 the Conductor starting its implementor — is filed as `setup` (`Filed`): it is
