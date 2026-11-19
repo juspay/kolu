@@ -2684,6 +2684,19 @@ When(
   },
 );
 
+/** ... a TRIVIAL one, nothing asked, so an implementor can run in it at once —
+ *  in the scenario's own repo, which is where its pull request is read. */
+When(
+  "I ask the conductor to open the trivial work {string}",
+  async function (this: KoluWorld, title: string) {
+    await openWorkSaying(
+      this,
+      title,
+      `open trivially ${title} in ${workRepo(this)}`,
+    );
+  },
+);
+
 /** ... with the IMPLEMENTOR'S MODEL LEFT TO THE HUMAN: a trivial work whose
  *  every other answer the request gave, so the form is the one model
  *  question. */
@@ -3062,6 +3075,45 @@ When(
   },
 );
 
+/** ... as a DRAFT: still being built, so not up for review. GitHub's merge
+ *  state for it is the fixture's default `CLEAN`, which is what GitHub says
+ *  for a draft nothing is in the way of. */
+When(
+  "the work's pull request opens as draft #{int} {string}",
+  async function (this: KoluWorld, number: number, title: string) {
+    restatePullRequest(this, {
+      number,
+      title,
+      state: "open",
+      checks: [],
+      draft: true,
+    });
+  },
+);
+
+/** Every check passes, and GitHub says nothing is in the way (`CLEAN`). */
+When(
+  "the work's pull request passes its checks",
+  async function (this: KoluWorld) {
+    restatePullRequest(this, {
+      ...statedPullRequest(),
+      checks: [
+        { name: "build", outcome: "pass" },
+        { name: "tests", outcome: "pass" },
+      ],
+      mergeState: "CLEAN",
+    });
+  },
+);
+
+/** The author marks the draft ready for review — the one thing that moves. */
+When(
+  "the work's pull request is marked ready for review",
+  async function (this: KoluWorld) {
+    restatePullRequest(this, { ...statedPullRequest(), draft: false });
+  },
+);
+
 When(
   "the work's pull request starts its checks",
   async function (this: KoluWorld) {
@@ -3126,6 +3178,59 @@ When("the work's pull request is merged", async function (this: KoluWorld) {
   restatePullRequest(this, { ...statedPullRequest(), state: "merged" });
 });
 
+/** THE CARD SAYS DRAFT in both places it names the PR: the line under its
+ *  title and its Pull request section. */
+Then(
+  "the work card should say its pull request is a draft",
+  async function (this: KoluWorld) {
+    await openWorkCard(this);
+    const pr = statedPullRequest();
+    const card = workCard(this);
+    const read = async () => ({
+      subtitle: (
+        (await card
+          .locator('[data-testid="work-subtitle"]')
+          .textContent({ timeout: 1_000 })
+          .catch(() => null)) ?? ""
+      )
+        .replace(/\s+/g, " ")
+        .trim(),
+      state: await card
+        .locator('[data-testid="work-pr-state"]')
+        .evaluate(
+          (el) => ({
+            draft: el.getAttribute("data-draft"),
+            text: (el.textContent ?? "").replace(/\s+/g, " ").trim(),
+          }),
+          undefined,
+          { timeout: 1_000 },
+        )
+        .catch(() => null),
+    });
+    await pollFor({
+      observe: read,
+      isDone: (seen) =>
+        seen.subtitle.includes(`draft PR #${pr.number}`) &&
+        seen.state?.draft === "true" &&
+        seen.state.text.includes("draft"),
+      timeoutMs: POLL_TIMEOUT,
+      onTimeout: (last, ms) =>
+        new Error(
+          `after ${ms}ms the card did not say #${pr.number} is a draft: ${JSON.stringify(last)}`,
+        ),
+    });
+  },
+);
+
+/** THE BELL HAS DECIDED: it decides two frames after it hears a needs-you
+ *  reading, so a sound count read after these frames is its verdict, not a
+ *  read taken before it (the wait `conductor_needs_you_steps.ts` makes). */
+Then(
+  "the Conductor's bell should have had its frames to decide",
+  async function (this: KoluWorld) {
+    for (let frame = 0; frame < 6; frame += 1) await this.waitForFrame();
+  },
+);
 /** THE TIMELINE AS DRAWN on this scenario's card — every event's kind, who
  *  it is by, and its words. Quoted on a failure, because "no `merged` event"
  *  names a symptom while the list names the cause (nothing observed at all,

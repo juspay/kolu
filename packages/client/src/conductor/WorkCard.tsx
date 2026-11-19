@@ -354,7 +354,7 @@ const WorkCard: Component<{
             </Tip>
           </div>
           <p class="m-0 mt-0.5 flex min-w-0 gap-2 font-mono text-[0.62rem] text-fg-3">
-            <span class="min-w-0 flex-1 truncate">
+            <span data-testid="work-subtitle" class="min-w-0 flex-1 truncate">
               <PrText
                 work={props.work}
                 text={workSubtitle(props.work, workHost(props.work)).join(

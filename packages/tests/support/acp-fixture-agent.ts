@@ -55,6 +55,10 @@
  *                      <the face's own sentence>`, the way `ran:` prints
  *                      what kolu typed: what kolu would not do, and why,
  *                      is the only thing the person has to read
+ *   open trivially <title> in <dir>
+ *                    — a REAL `work_open` in mode `trivial` with every answer
+ *                      given (on green: merge), so nothing is asked and an
+ *                      implementor can be run in it at once
  *   run the implementor in <cwd>
  *                    — a REAL `lifecycle_create` with `work` = the last work
  *                      opened and `role: implementor`. NO command: kolu
@@ -631,6 +635,19 @@ const turn = async (
     if (answered !== null) say(`answered: ${answered}`);
     else if (whole.includes("the human DECLINED")) say("declined");
     say(`woke: ${[...new Set(refs)].join(", ")}`);
+    endTurn(id);
+    return;
+  }
+  if (text.startsWith("open trivially ")) {
+    // A TRIVIAL WORK NOTHING IS ASKED ABOUT: what a scenario about a trivial
+    // work's strip needs, with an implementor it can run straight away.
+    const said = text.slice("open trivially ".length).trim();
+    const at = said.lastIndexOf(" in /");
+    const title = at === -1 ? said : said.slice(0, at).trim();
+    const repo = at === -1 ? "/tmp/kolu-e2e" : said.slice(at + 4).trim();
+    say(`opening: ${title}`);
+    const work = await openWork(title, "trivial", { repo });
+    say(work === null ? `nothing opened: ${lastOpenSaid}` : `opened: ${work}`);
     endTurn(id);
     return;
   }
