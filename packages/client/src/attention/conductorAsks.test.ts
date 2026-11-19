@@ -3,7 +3,20 @@
  *  the same one, or a new one that stayed silent. */
 
 import { Option } from "effect";
-import type { NeedsYou } from "kolu-work";
+import {
+  ABOUT_WORK,
+  answerAsk,
+  askQuestions,
+  joinWork,
+  type NeedsYou,
+  needsYou,
+  openWork,
+  type Question,
+  recordEvent,
+  type Work,
+  type WorkEvent,
+  workIdOf,
+} from "kolu-work";
 import { describe, expect, it } from "vitest";
 import {
   type BellReading,
@@ -220,5 +233,114 @@ describe("the Conductor's bell", () => {
     gates.alerts = true;
     bell.observe(reading([question(KOLU, "a1")]));
     expect(rang).toEqual([]);
+  });
+});
+
+describe("the Conductor's bell, over real work records", () => {
+  const KEY = {
+    kind: "branch",
+    host: "local",
+    repo: "/code/olai",
+    branch: "chat-in-a-pane",
+  } as const;
+  const ID = workIdOf(KEY);
+  const AT = (minute: number): string =>
+    new Date(Date.UTC(2026, 10, 18, 1, minute)).toISOString();
+
+  /** A full work set to hand its PR over on green, its implementor working. */
+  const handOver = (): Work => {
+    const questions = [
+      {
+        id: "q-mode",
+        topic: "setup",
+        key: "mode",
+        question: "Which mode?",
+        options: ["full", "trivial"],
+        given: { kind: "ask" },
+      },
+      {
+        id: "q-green",
+        topic: "setup",
+        key: "on-green",
+        question: "On green?",
+        options: ["merge", "hand-over"],
+        given: { kind: "ask" },
+      },
+    ] as const satisfies ReadonlyArray<Question>;
+    const opened = openWork({
+      key: KEY,
+      title: "Page chats open in a pane",
+      at: AT(0),
+      request: { kind: "said", text: "waterfall it" },
+    });
+    const set = answerAsk(
+      askQuestions(opened, { ask: "setup", questions, at: AT(1) }),
+      {
+        ask: "setup",
+        at: AT(2),
+        from: "card",
+        reply: {
+          kind: "answered",
+          values: new Map([
+            ["q-mode", ["full"]],
+            ["q-green", ["hand-over"]],
+          ]),
+        },
+      },
+    );
+    return joinWork(set, {
+      terminal: "local/implementor",
+      role: "implementor",
+      at: AT(3),
+    });
+  };
+  const HEAD = { kind: "commit", sha: "c88e0a1" } as const;
+  const forge = (minute: number, event: Partial<WorkEvent>): WorkEvent =>
+    ({ at: AT(minute), by: "kolu", about: ABOUT_WORK, ...event }) as WorkEvent;
+
+  it("never rings for a green draft, and rings once when it is marked ready", () => {
+    const { bell, rang } = harness();
+    const read = (work: Work) =>
+      bell.observe(reading(needsYou([[ID, work]]), { works: new Set([ID]) }));
+    let work = handOver();
+    read(work);
+    work = [
+      forge(10, {
+        kind: "pr-opened",
+        pr: 702,
+        title: "Page chats open in a pane",
+        url: { kind: "link", href: "https://github.com/o/olai/pull/702" },
+        draft: "draft",
+      }),
+      forge(20, {
+        kind: "checks-passed",
+        by: "ci",
+        pr: 702,
+        head: HEAD,
+        failing: [],
+      }),
+      // What GitHub answers for a green draft. Even on the record, it is
+      // not a merge anybody can do.
+      forge(20, {
+        kind: "merge-state",
+        pr: 702,
+        head: HEAD,
+        merge: { kind: "can" },
+      }),
+    ].reduce(recordEvent, work);
+    read(work);
+    expect(rang).toEqual([]);
+    work = [
+      forge(30, { kind: "draft-state", pr: 702, draft: "ready" }),
+      forge(30, {
+        kind: "merge-state",
+        pr: 702,
+        head: HEAD,
+        merge: { kind: "can" },
+      }),
+    ].reduce(recordEvent, work);
+    read(work);
+    read(work);
+    expect(rang).toEqual([{ items: ["Merge PR #702"], own: null }]);
   });
 });

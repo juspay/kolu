@@ -11890,6 +11890,30 @@
       "exampleRows": [],
       "executions": 1,
       "firstSeenSha": "b7a68758a12254550e27962a3fb2908e5831023f"
+    },
+    {
+      "revisionId": "revision-e3711fbd114186165ac0",
+      "scenarioKey": "scenario-fd53f89c2bee68d15353",
+      "feature": "features/conductor-work.feature",
+      "scenario": "A draft pull request is still the build",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "3a60272674700553fae6b18eb1247f1387a6067ac5eefb4311ccb858e375801f",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "dff187ba0d95892d8cfb3244462abe77d4e3a186"
+    },
+    {
+      "revisionId": "revision-82f4e3b161a5e3bc9220",
+      "scenarioKey": "scenario-7be9e49ed4646cbd2d35",
+      "feature": "features/conductor-work.feature",
+      "scenario": "A trivial work's strip with a draft pull request",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "341e181f7b5a877558078367b6ac470ccd02f8913e15acbeea4a6ed65597e701",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "dff187ba0d95892d8cfb3244462abe77d4e3a186"
     }
   ]
 }

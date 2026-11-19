@@ -2110,6 +2110,52 @@ export function mentionsSayTheirKind_1_58_0(stateRoot: string): void {
   writeTranscriptFile(path, TRANSCRIPT_VERSION_1_58_0, next);
 }
 
+/** What every saved `pr-opened` is given by {@link prOpenedSaysDraft_1_61_0}
+ *  — frozen under this rung's own number, so a later change to the live
+ *  vocabulary never changes what this rung writes. */
+const DRAFT_UNRECORDED_1_61_0 = "unrecorded";
+
+/** The 1.61.0 rung — A PULL REQUEST SAYS WHETHER IT OPENED AS A DRAFT.
+ *  `pr-opened` gains a required `draft`, and a new event kind, `draft-state`,
+ *  records the PR being marked ready or turned back. Every saved `pr-opened`
+ *  without the word gains `unrecorded`: kolu kept no record, a rung must not
+ *  ask GitHub, and the fold must not guess. `unrecorded` reads as before —
+ *  the build ended at the open, and the card says neither draft nor ready —
+ *  so an old work keeps its reading, and a work in progress learns the real
+ *  word from its next PR reading. No `draft-state` is invented and no
+ *  `merge-state` is touched. The SAME array when nothing moves, and `works`
+ *  is written only when something did. Only `works` moves; the transcript
+ *  file is untouched, so TRANSCRIPT_FILE_VERSION stays at 1.59.0. Exported
+ *  for `stateMigration.test.ts`. */
+export function prOpenedSaysDraft_1_61_0(store: Conf<PersistedState>): void {
+  const works = recordOf(store.get("works"));
+  if (works === null) return;
+  let changed = false;
+  const next: Record<string, unknown> = {};
+  for (const [id, value] of Object.entries(works)) {
+    const work = recordOf(value);
+    const events = Array.isArray(work?.events) ? work.events : null;
+    if (work === null || events === null) {
+      next[id] = value;
+      continue;
+    }
+    let moved = false;
+    const nextEvents = events.map((one: unknown) => {
+      const event = recordOf(one);
+      if (event?.kind !== "pr-opened" || "draft" in event) return one;
+      moved = true;
+      return { ...event, draft: DRAFT_UNRECORDED_1_61_0 };
+    });
+    if (!moved) {
+      next[id] = value;
+      continue;
+    }
+    changed = true;
+    next[id] = { ...work, events: nextEvents };
+  }
+  if (changed) store.set("works", next as unknown as PersistedState["works"]);
+}
+
 /** The migration ladder — hoisted so {@link decodeStateBackup}'s scratch
  *  store walks the REAL ladder on a backup snapshot (which may predate any
  *  rung), never a parallel re-implementation of it. */
@@ -2858,4 +2904,10 @@ export const CONF_MIGRATIONS = {
       ...record,
     } as unknown as PersistedState["conductor"]);
   },
+  // A PULL REQUEST SAYS WHETHER IT IS A DRAFT. `pr-opened` gains `draft`
+  // (`unrecorded` for every saved one: kolu kept no record, and a rung does
+  // not ask GitHub), and `draft-state` joins the event kinds
+  // (`prOpenedSaysDraft_1_61_0` argues it). The transcript file is untouched,
+  // so TRANSCRIPT_FILE_VERSION stays at 1.59.0.
+  "1.61.0": prOpenedSaysDraft_1_61_0,
 };

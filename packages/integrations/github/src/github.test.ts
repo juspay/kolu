@@ -170,15 +170,34 @@ describe("prInfoFromGhView", () => {
     reviewDecision: "",
     mergeStateStatus: "UNKNOWN",
     headRefOid: "4f21a9c0d3e5b7a9c1d3e5f7a9b1c3d5e7f9a1b3",
+    isDraft: false,
   };
 
-  it("asks gh for review, merge state and the head commit on the same view call", () => {
+  it("asks gh for review, merge state, the head commit and draft on the same view call", () => {
     expect(GH_PR_VIEW_JSON_FIELDS).toBe(GH_PR_VIEW_JSON_FIELD_LIST.join(","));
     expect(GH_PR_VIEW_JSON_FIELD_LIST).toContain("reviewDecision");
     expect(GH_PR_VIEW_JSON_FIELD_LIST).toContain("mergeStateStatus");
     expect(GH_PR_VIEW_JSON_FIELD_LIST).toContain("statusCheckRollup");
     // The commit the rollup is about — ONE request, not a second poll.
     expect(GH_PR_VIEW_JSON_FIELD_LIST).toContain("headRefOid");
+    // Whether it is a draft: GitHub's merge state no longer says.
+    expect(GH_PR_VIEW_JSON_FIELD_LIST).toContain("isDraft");
+  });
+
+  it("carries gh's isDraft through verbatim", () => {
+    expect(prInfoFromGhView({ ...base, isDraft: true }).isDraft).toBe(true);
+    expect(prInfoFromGhView({ ...base, isDraft: false }).isDraft).toBe(false);
+  });
+
+  it("throws when gh does not say whether the PR is a draft", () => {
+    const { isDraft: _dropped, ...rest } = base;
+    expect(() => prInfoFromGhView(rest as GhPrViewJson)).toThrow();
+    expect(() =>
+      prInfoFromGhView({
+        ...base,
+        isDraft: "false",
+      } as unknown as GhPrViewJson),
+    ).toThrow();
   });
 
   it("carries the head commit through as the reading's own", () => {
@@ -204,6 +223,7 @@ describe("prInfoFromGhView", () => {
       reviewDecision: "APPROVED",
       mergeStateStatus: "CLEAN",
       headSha: "4f21a9c0d3e5b7a9c1d3e5f7a9b1c3d5e7f9a1b3",
+      isDraft: false,
     });
   });
 

@@ -100,6 +100,38 @@ describe("parseSavedSession", () => {
     });
   });
 
+  it("imports an export taken before the PR said draft, with that PR pending", () => {
+    // A resolved PR saved without `isDraft`, which a decode now requires. The
+    // import forgets the reading — `pending`, "not known right now" — rather
+    // than guessing; the PR sensor reads it again once the terminal runs.
+    const before = {
+      ...valid,
+      terminals: [
+        {
+          ...valid.terminals[0],
+          pr: {
+            kind: "ok",
+            value: {
+              number: 7,
+              title: "Fix the parser",
+              url: "https://github.example/o/r/pull/7",
+              state: "open",
+              checks: "pass",
+              checkRuns: [],
+              reviewDecision: null,
+              mergeStateStatus: "CLEAN",
+              headSha: "4f21a9c0d3e5b7a9c1d3e5f7a9b1c3d5e7f9a1b3",
+            },
+          },
+        },
+      ],
+    };
+    expect(parseSavedSession(JSON.stringify(before))).toEqual({
+      ...valid,
+      terminals: [{ ...valid.terminals[0], pr: { kind: "pending" } }],
+    });
+  });
+
   it("maps a pre-cutover agentSession to an `exact` target from its STRUCTURED identity — the captured command is dropped, never parsed", () => {
     // The awareness-derive-store cutover (PR #1621) collapsed the sticky
     // `agentSession: { kind, id }` resume ref into the fold-derived discriminated

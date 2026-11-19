@@ -17,16 +17,18 @@ import {
   endedAt,
   endWork,
   joinWork,
+  MODE_RUNS,
   openWork,
   outcomeOf,
   type PrReading,
   prLinks,
   prOf,
   recordEvent,
+  stages,
   type Work,
 } from "kolu-work";
 import { fileEvents, prEvents, ringEvent } from "./observing.ts";
-import type { WatchChecks, WatchPr } from "./observation.ts";
+import type { WatchChecks, WatchMerge, WatchPr } from "./observation.ts";
 import { prReading } from "./readings.ts";
 
 const AT = "2026-02-01T10:00:00.000Z";
@@ -76,13 +78,22 @@ const rolled = (rollup: "pending" | "pass" | "fail"): WatchChecks => ({
 const checksOf = (one: Work): Option.Option<PrReading["checks"]> =>
   Option.map(prOf(one), (pr) => pr.checks);
 
-const pr = (over: Partial<WatchPr> = {}): WatchPr => ({
+/** One reading of the PR. `draft` picks the readiness arm; `merge` is the
+ *  forge's answer, which only a PR that is not a draft carries. */
+const pr = ({
+  merge = { kind: "unsettled" },
+  draft = false,
+  ...over
+}: Omit<Partial<WatchPr>, "readiness"> & {
+  readonly merge?: WatchMerge;
+  readonly draft?: boolean;
+} = {}): WatchPr => ({
   number: 7,
   title: "Fix the parser",
   url: "https://github.com/kolu-e2e/parser/pull/7",
   state: "open",
   checks: { kind: "unreported" },
-  merge: { kind: "unsettled" },
+  readiness: draft ? { kind: "draft" } : { kind: "ready", merge },
   failing: [],
   head: HEAD,
   ...over,
@@ -166,6 +177,7 @@ describe("the PR the work's own watch reads", () => {
       pr: 7,
       title: "Fix the parser",
       url: { kind: "unrecorded" },
+      draft: "unrecorded",
     });
     const learned = prEvents(before, pr(), AT);
     expect(prLinks(learned).get(7)).toBe(
@@ -190,6 +202,7 @@ describe("the PR the work's own watch reads", () => {
           reviewDecision: null,
           mergeStateStatus: null,
           headSha: null,
+          isDraft: false,
         },
       }).kind,
     ).toBe("broken");
@@ -422,26 +435,200 @@ describe("the PR the work's own watch reads", () => {
       { kind: "unreported" },
     ];
     const heads = [HEAD, PUSHED, NO_HEAD];
-    const answers: ReadonlyArray<WatchPr["merge"]> = [
+    const answers: ReadonlyArray<WatchMerge> = [
       { kind: "can" },
       { kind: "cannot", why: "behind" },
       { kind: "unsettled" },
       { kind: "unreported" },
     ];
     let settled = work();
-    for (const check of checks)
-      for (const head of heads)
-        for (const merge of answers) {
-          const one = pr({
-            checks: check,
-            head,
-            merge,
-            failing:
-              check.kind === "rollup" && check.rollup === "fail" ? ["ci"] : [],
-          });
-          settled = prEvents(settled, one, AT);
-          expect(prEvents(settled, one, AT)).toBe(settled);
-        }
+    for (const draft of [false, true])
+      for (const check of checks)
+        for (const head of heads)
+          for (const merge of answers) {
+            const one = pr({
+              checks: check,
+              head,
+              merge,
+              draft,
+              failing:
+                check.kind === "rollup" && check.rollup === "fail"
+                  ? ["ci"]
+                  : [],
+            });
+            settled = prEvents(settled, one, AT);
+            expect(prEvents(settled, one, AT)).toBe(settled);
+          }
+  });
+});
+
+describe("a pull request that is a draft", () => {
+  /** The draft words on the timeline, in order — the `pr-opened` one first. */
+  const draftWords = (one: Work) =>
+    one.events.flatMap((event) =>
+      event.kind === "pr-opened" || event.kind === "draft-state"
+        ? [event.draft]
+        : [],
+    );
+  const readMerge = (one: Work) =>
+    Option.map(prOf(one), (reading) => reading.merge);
+
+  it("opens as a draft with no merge answer, and the same reading again is the same work", () => {
+    // GitHub says CLEAN for a draft with green checks; the reading carries no
+    // merge answer for one, so nothing is recorded.
+    const one = prEvents(
+      work(),
+      pr({ draft: true, checks: rolled("pass") }),
+      AT,
+    );
+    expect(draftWords(one)).toEqual(["draft"]);
+    expect(merges(one)).toEqual([]);
+    expect(readMerge(one)).toEqual(
+      Option.some({ kind: "cannot", why: "draft" }),
+    );
+    expect(prEvents(one, pr({ draft: true, checks: rolled("pass") }), AT)).toBe(
+      one,
+    );
+  });
+
+  it("records being marked ready once, then GitHub's answer for the ready PR", () => {
+    let one = prEvents(work(), pr({ draft: true }), AT);
+    one = prEvents(one, pr({ merge: { kind: "can" } }), AT);
+    expect(draftWords(one)).toEqual(["draft", "ready"]);
+    expect(kinds(one).slice(-2)).toEqual(["draft-state", "merge-state"]);
+    expect(merges(one)).toEqual([{ kind: "can" }]);
+    expect(readMerge(one)).toEqual(Option.some({ kind: "can" }));
+  });
+
+  it("records being turned back into a draft once, with no merge answer", () => {
+    let one = prEvents(work(), pr({ merge: { kind: "can" } }), AT);
+    one = prEvents(one, pr({ draft: true }), AT);
+    expect(draftWords(one)).toEqual(["ready", "draft"]);
+    expect(merges(one)).toEqual([{ kind: "can" }]);
+    expect(kinds(one).at(-1)).toBe("draft-state");
+    // The `can` given while it was ready no longer counts.
+    expect(readMerge(one)).toEqual(
+      Option.some({ kind: "cannot", why: "draft" }),
+    );
+    // Marked ready again: the same `can` on the same commit is news again,
+    // because the flips forgot it.
+    one = prEvents(one, pr({ merge: { kind: "can" } }), AT);
+    expect(merges(one)).toEqual([{ kind: "can" }, { kind: "can" }]);
+  });
+
+  it("writes no draft row for a PR opened ready", () => {
+    const one = prEvents(work(), pr({ merge: { kind: "can" } }), AT);
+    expect(kinds(one)).not.toContain("draft-state");
+    expect(draftWords(one)).toEqual(["ready"]);
+  });
+
+  it("teaches a PR recorded before kolu kept the word, and its stale `can` stops counting", () => {
+    // What the 1.61.0 rung leaves: the word unrecorded, and a `can` GitHub
+    // gave for what was, in fact, a draft.
+    let before = recordEvent(work(), {
+      at: AT,
+      by: "kolu",
+      kind: "pr-opened",
+      about: ABOUT_WORK,
+      pr: 7,
+      title: "Fix the parser",
+      url: { kind: "link", href: "https://github.com/kolu-e2e/parser/pull/7" },
+      draft: "unrecorded",
+    });
+    before = recordEvent(before, {
+      at: AT,
+      by: "kolu",
+      kind: "merge-state",
+      about: ABOUT_WORK,
+      pr: 7,
+      head: HEAD,
+      merge: { kind: "can" },
+    });
+    expect(readMerge(before)).toEqual(Option.some({ kind: "can" }));
+    const learned = prEvents(before, pr({ draft: true }), AT);
+    expect(draftWords(learned)).toEqual(["unrecorded", "draft"]);
+    expect(readMerge(learned)).toEqual(
+      Option.some({ kind: "cannot", why: "draft" }),
+    );
+    // A PR that was ready all along learns that too, and keeps its answer.
+    const ready = prEvents(before, pr({ merge: { kind: "can" } }), AT);
+    expect(draftWords(ready)).toEqual(["unrecorded", "ready"]);
+    expect(merges(ready)).toEqual([{ kind: "can" }]);
+    expect(readMerge(ready)).toEqual(Option.some({ kind: "can" }));
+    // ... and its strip reads as it did: kolu learning a word is not anybody
+    // marking the PR ready, so no stage moves.
+    const policy = {
+      handOver: true,
+      run: {
+        kind: "set",
+        driven: MODE_RUNS.full.driven,
+        stages: MODE_RUNS.full.stages,
+      },
+    } as const;
+    const read = (one: Work) => {
+      const staged = stages(one, policy, "2026-02-01T11:00:00.000Z");
+      if (staged.kind !== "staged") throw new Error(staged.kind);
+      return { stages: staged.stages, current: staged.current };
+    };
+    expect(read(ready)).toEqual(read(before));
+    // The shape it bites on: a PR that was already open when the implementor
+    // joined (still the build's), recorded before kolu kept the word.
+    const existing = joinWork(
+      recordEvent(
+        openWork({
+          key: {
+            kind: "branch",
+            host: "local",
+            repo: "/srv/repo",
+            branch: "dependabot",
+          },
+          title: "land the bump",
+          at: AT,
+          request: { kind: "said", text: "land it" },
+        }),
+        {
+          at: AT,
+          by: "kolu",
+          kind: "pr-opened",
+          about: ABOUT_WORK,
+          pr: 7,
+          title: "Fix the parser",
+          url: {
+            kind: "link",
+            href: "https://github.com/kolu-e2e/parser/pull/7",
+          },
+          draft: "unrecorded",
+        },
+      ),
+      { terminal: A, role: "implementor", at: AT },
+    );
+    const learnedReady = prEvents(existing, pr(), AT);
+    expect(draftWords(learnedReady)).toEqual(["unrecorded", "ready"]);
+    expect(read(learnedReady)).toEqual(read(existing));
+    expect(read(learnedReady).current).toBe("build");
+  });
+
+  it("records no merge answer across #2405's four green readings as a draft", () => {
+    // juspay/kolu#2405, as the issue tells it: opened as a draft, then four
+    // readings with every check green, each of which GitHub answered as
+    // mergeable. A made-up commit and the public times.
+    let one = work();
+    for (const at of [
+      "2026-11-18T01:07:41.000Z",
+      "2026-11-18T03:43:00.000Z",
+      "2026-11-18T05:24:00.000Z",
+      "2026-11-18T09:11:00.000Z",
+      "2026-11-18T11:07:00.000Z",
+    ])
+      one = prEvents(
+        one,
+        pr({ number: 2405, draft: true, checks: rolled("pass") }),
+        at,
+      );
+    expect(merges(one)).toEqual([]);
+    expect(readMerge(one)).toEqual(
+      Option.some({ kind: "cannot", why: "draft" }),
+    );
   });
 });
 

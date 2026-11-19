@@ -41,6 +41,7 @@ import {
   type NeedsYou,
   type OnGreen,
   type Outcome,
+  isOpenDraft,
   policyOf,
   prOf,
   type Said,
@@ -345,9 +346,9 @@ export function workHost(work: Work): Option.Option<string> {
 
 /** The line under a card's title: WHERE the work is — which is now its
  *  identity, `repo · branch` for a branch work and "watching" for a watch —
- *  the host as a person names it, the mode, and the PR once there is one.
- *  Each part is dropped when it is not known yet rather than drawn as a blank
- *  or a dash. */
+ *  the host as a person names it, the mode, and the PR once there is one
+ *  (`draft PR #7` while it is an open draft). Each part is dropped when it is
+ *  not known yet rather than drawn as a blank or a dash. */
 export function workSubtitle(
   work: Work,
   hostName: Option.Option<string>,
@@ -361,7 +362,12 @@ export function workSubtitle(
     ...where,
     ...Option.toArray(hostName),
     ...Option.toArray(setup.mode),
-    ...Option.toArray(Option.map(prOf(work), (pr) => `PR #${pr.number}`)),
+    ...Option.toArray(
+      Option.map(
+        prOf(work),
+        (pr) => `${isOpenDraft(pr) ? "draft " : ""}PR #${pr.number}`,
+      ),
+    ),
   ].filter((part) => part !== "");
 }
 
@@ -679,7 +685,7 @@ export function eventReader(work: Work): (event: WorkEvent) => string {
       case "question-dropped":
         return "The question went away unanswered";
       case "pr-opened":
-        return `Opened #${event.pr} ${event.title}`.trim();
+        return `Opened ${event.draft === "draft" ? "draft " : ""}#${event.pr} ${event.title}`.trim();
       case "checks-running":
         return `CI running${commitWords(heads, event)}`;
       case "checks-passed":
@@ -692,6 +698,10 @@ export function eventReader(work: Work): (event: WorkEvent) => string {
         return `Closed #${event.pr}`;
       case "merge-state":
         return `${mergeWords(event.merge)}${commitWords(heads, event)}`;
+      case "draft-state":
+        return event.draft === "ready"
+          ? `#${event.pr} is ready for review`
+          : `#${event.pr} is a draft`;
       case "note":
         return event.text;
       // THE LOCK, as the timeline tells it: an act of the person's, named by

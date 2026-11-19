@@ -333,6 +333,7 @@ describe("WorkSection PR and CI", () => {
         reviewDecision: "APPROVED",
         mergeStateStatus: "CLEAN",
         headSha: null,
+        isDraft: false,
       },
     },
   });
@@ -359,6 +360,7 @@ describe("WorkSection PR and CI", () => {
         reviewDecision: "CHANGES_REQUESTED",
         mergeStateStatus: "BLOCKED",
         headSha: null,
+        isDraft: false,
       },
     },
   });

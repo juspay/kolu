@@ -138,6 +138,10 @@ const WorkTimeline: Component<{
                   ? mergeReason(it.merge)
                   : undefined;
               })()}
+              data-draft={(() => {
+                const it = one();
+                return it.kind === "draft-state" ? it.draft : undefined;
+              })()}
               class="flex min-w-0 items-baseline gap-1.5 text-[0.7rem]"
             >
               <RowStamp at={one().at} by={one().by} />

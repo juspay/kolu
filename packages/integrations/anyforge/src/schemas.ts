@@ -124,6 +124,13 @@ export const PrInfoSchema = Schema.Struct({
   headSha: Schema.NullOr(Schema.String).pipe(
     Schema.withDecodingDefaultKey(Effect.succeed(null)),
   ),
+  /** Whether the PR is a DRAFT, as the forge says it. Required, with no
+   *  decoding default: a draft is a fact a consumer acts on (a draft cannot
+   *  merge, whatever `mergeStateStatus` says — GitHub retired its `DRAFT`
+   *  merge state in favour of this field and now works the merge state out
+   *  as if the PR were ready), so a reading that does not say is refused,
+   *  never guessed. */
+  isDraft: Schema.Boolean,
 });
 export type PrInfo = typeof PrInfoSchema.Type;
 
@@ -244,7 +251,10 @@ export function prResultEqual<S extends PrUnavailableSourceBase>(
           // the new commit's checks start out `pending` exactly as the old
           // one's did, and a consumer keeping a history of check states has
           // only this to tell the two apart.
-          a.value.headSha === bv.headSha
+          a.value.headSha === bv.headSha &&
+          // MARKING A PR READY often moves nothing else: without this, the
+          // dedup gate swallows the one change a consumer waits for.
+          a.value.isDraft === bv.isDraft
         );
       })
       .with({ kind: "unavailable" }, (a) => {

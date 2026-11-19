@@ -354,7 +354,7 @@ const WorkCard: Component<{
             </Tip>
           </div>
           <p class="m-0 mt-0.5 flex min-w-0 gap-2 font-mono text-[0.62rem] text-fg-3">
-            <span class="min-w-0 flex-1 truncate">
+            <span data-testid="work-subtitle" class="min-w-0 flex-1 truncate">
               <PrText
                 work={props.work}
                 text={workSubtitle(props.work, workHost(props.work)).join(
@@ -661,10 +661,15 @@ const WorkCard: Component<{
                 <p
                   data-testid="work-pr-state"
                   data-state={pr().state}
+                  data-draft={pr().draft}
                   class="m-0 mt-1 text-[0.68rem] text-fg"
                 >
                   <PrText work={props.work} text={`#${pr().number}`} />
-                  <span class="text-fg-2"> · {pr().state}</span>
+                  <span class="text-fg-2">
+                    {" "}
+                    · {pr().state}
+                    {pr().draft ? " · draft" : ""}
+                  </span>
                 </p>
                 <p
                   data-testid="work-pr-checks"

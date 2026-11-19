@@ -8,7 +8,7 @@ import assert from "node:assert";
 import { Then, When } from "@cucumber/cucumber";
 import { pollFor } from "../support/poll.ts";
 import { type KoluWorld, POLL_TIMEOUT } from "../support/world.ts";
-import { openWorkCard, workCard } from "./conductor_steps.ts";
+import { letTheBellDecide, openWorkCard, workCard } from "./conductor_steps.ts";
 
 const INPUT = '[data-testid="conductor-input"]';
 const SEND = '[data-testid="conductor-send"]';
@@ -158,10 +158,9 @@ When("I show the whole chat", async function (this: KoluWorld) {
  *  person can be looking at.
  *
  *  AND THE BELL HAS DECIDED by the time this returns: the card standing in
- *  the "Needs you" group is the needs-you reading the bell hears, and the
- *  bell decides two frames after hearing it — so the frames waited here are
- *  past that decision, and a sound count read next is the bell's verdict
- *  rather than a read taken before it. */
+ *  the "Needs you" group is the needs-you reading the bell hears, and
+ *  {@link letTheBellDecide} waits out its decision — so a sound count read
+ *  next is the bell's verdict rather than a read taken before it. */
 Then(
   "the work's question should be in the chat, its card shut",
   async function (this: KoluWorld) {
@@ -174,7 +173,7 @@ Then(
         `[data-testid="work-waiting"] [data-testid="work-card"][data-work="${workId(this)}"]`,
       )
       .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
-    for (let frame = 0; frame < 6; frame += 1) await this.waitForFrame();
+    await letTheBellDecide(this);
     assert.equal(
       await workCard(this).getAttribute("data-open"),
       null,

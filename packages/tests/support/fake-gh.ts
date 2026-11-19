@@ -53,6 +53,10 @@ export interface PrFixture {
   readonly mergeState?: "BLOCKED" | "BEHIND" | "CLEAN" | "DIRTY";
   /** The review decision, gh's own word; none unless a scenario says. */
   readonly review?: "APPROVED" | "CHANGES_REQUESTED" | "REVIEW_REQUIRED";
+  /** Whether the PR is a draft — gh's own `isDraft`. Defaults to false, a PR
+   *  opened ready for review, so a scenario that never mentions a draft
+   *  never has to. */
+  readonly draft?: boolean;
 }
 
 /** gh's `statusCheckRollup` entry for one check — a `CheckRun`, the shape
@@ -98,6 +102,9 @@ export function statePullRequest(repoRoot: string, pr: PrFixture): void {
     // pushes gets the same one every time, which is what makes a second
     // reading of the same checks the same news.
     headRefOid: pr.head ?? "4f21a9c0d3e5b7a9c1d3e5f7a9b1c3d5e7f9a1b3",
+    // gh's own boolean; GitHub still answers `mergeStateStatus` for a draft
+    // as if it were ready, so the two are set apart here as they are there.
+    isDraft: pr.draft ?? false,
   };
   fs.writeFileSync(
     path.join(repoRoot, PR_FIXTURE_FILE),

@@ -12,6 +12,7 @@
  * there. Seeded, so a failure names the seed that reproduces it.
  */
 
+import { Option } from "effect";
 import { describe, expect, it } from "vitest";
 import { seeded } from "../test/seeded.ts";
 import {
@@ -23,6 +24,9 @@ import {
   leaveWork,
   lifetime,
   type MergeState,
+  type PrDraft,
+  type PrOpenedDraft,
+  prOf,
   openAsks,
   openWork,
   type Policy,
@@ -33,6 +37,7 @@ import {
   type StageName,
   stageMs,
   stages,
+  standing,
   timeSpent,
   took,
   type Work,
@@ -85,7 +90,12 @@ const join = (
   terminal = `local/${role}`,
 ): Work => joinWork(work, { terminal, role, at: at(minute) });
 
-const prOpened = (work: Work, minute: number, pr = 7): Work =>
+const prOpened = (
+  work: Work,
+  minute: number,
+  pr = 7,
+  draft: PrOpenedDraft = "ready",
+): Work =>
   recordEvent(work, {
     at: at(minute),
     by: "kolu",
@@ -94,6 +104,18 @@ const prOpened = (work: Work, minute: number, pr = 7): Work =>
     pr,
     title: "the PR",
     url: { kind: "link", href: `https://forge.example/pr/${pr}` },
+    draft,
+  });
+
+/** The PR marked ready for review, or turned back into a draft. */
+const draftState = (work: Work, draft: PrDraft, minute: number, pr = 7): Work =>
+  recordEvent(work, {
+    at: at(minute),
+    by: "kolu",
+    kind: "draft-state",
+    about: ABOUT_WORK,
+    pr,
+    draft,
   });
 
 const check = (
@@ -291,7 +313,13 @@ const chaotic = (seed: number, steps: number): Work => {
       // A second PR is a new number: the first one was closed, or this is a
       // reading of a branch whose PR moved.
       if (pick() < 0.3) pr += 1;
-      work = prOpened(work, when, pr);
+      const words = ["draft", "ready", "unrecorded"] as const;
+      work = prOpened(
+        work,
+        when,
+        pr,
+        words[Math.floor(pick() * words.length)] ?? "ready",
+      );
     } else if (roll < 0.52) {
       const kinds = [
         "checks-running",
@@ -305,7 +333,7 @@ const chaotic = (seed: number, steps: number): Work => {
         pr,
         pick() < 0.6 ? "a1" : `h${step}`,
       );
-    } else if (roll < 0.6) {
+    } else if (roll < 0.56) {
       const answers: ReadonlyArray<MergeState> = [
         { kind: "can" },
         { kind: "cannot", why: "blocked" },
@@ -319,6 +347,9 @@ const chaotic = (seed: number, steps: number): Work => {
         pr,
         pick() < 0.6 ? "a1" : `h${step}`,
       );
+    } else if (roll < 0.6) {
+      // Marked ready, or turned back into a draft.
+      work = draftState(work, pick() < 0.5 ? "draft" : "ready", when, pr);
     } else if (roll < 0.64 && live) {
       work = merged(work, when, pr);
     } else if (roll < 0.68 && live) {
@@ -379,6 +410,11 @@ describe("on chaotic records", () => {
     // ... so the stages and the setup add up to the life, and the setup is
     // only ever a mode's with no Plan to hold it.
     expect(lifetime(work, now), `seed ${seed}: lifetime`).toBe(life);
+    // A DRAFT IS NEVER THE HUMAN'S TO MERGE, whatever the forge answered.
+    if (Option.exists(prOf(work), (one) => one.draft === "draft"))
+      expect(standing(work, policy).why, `seed ${seed}: draft`).not.toBe(
+        "merge",
+      );
     expect(total(all) + filed.setup, `seed ${seed}: stages`).toBe(life);
     if (policy.run.kind === "set" && policy.run.stages.includes("plan"))
       expect(filed.setup, `seed ${seed}: setup`).toBe(0);
@@ -647,6 +683,7 @@ describe("the shapes of real works", () => {
       pr: 2391,
       title: "bump",
       url: { kind: "link", href: "https://forge.example/pr/2391" },
+      draft: "ready",
     });
     work = recordEvent(work, {
       at: second(1),
@@ -732,6 +769,192 @@ describe("the shapes of real works", () => {
     expect(cells(work, FULL, at(90))).toBe(
       "plan done, approve done, build done, review –, checks done, merge now",
     );
+  });
+
+  it("Page chats open in a pane (olai#702): a draft opened early, never marked ready", () => {
+    // A full work. The implementor opened a draft after the first of six
+    // steps, about two hours in, and pushed after each step; CI ran on every
+    // push. Never marked ready: all of it is the build's.
+    let work = join(opened(), "planner", 0);
+    work = ask(work, "approve", 20);
+    work = answer(work, "approve", 25);
+    work = join(work, "implementor", 25);
+    work = prOpened(work, 145, 7, "draft");
+    let ci = 0;
+    for (let push = 0; push < 6; push += 1) {
+      const start = 145 + push * 60;
+      work = check(work, "checks-running", start, 7, `p${push}`);
+      work = check(work, "checks-passed", start + 15, 7, `p${push}`);
+      ci += 15 * MINUTE;
+    }
+    const now = at(145 + 6 * 60);
+    const named = byName(strip(work, FULL, now));
+    expect(named.build).toEqual({
+      kind: "now",
+      ms: Date.parse(now) - Date.parse(at(25)),
+      who: "agent",
+    });
+    expect(named.review).toEqual({ kind: "not-started" });
+    expect(named.checks).toEqual({ kind: "not-started" });
+    // Who the work waited on is unchanged: CI's time is still CI's.
+    expect(timeSpent(work, FULL, now).ci).toBe(ci);
+  });
+
+  it("One ACP runner for kolu and olai (#2405): green as a draft for a day, merged at ready", () => {
+    // The issue's public times: the implementor starts, opens a draft eleven
+    // minutes later, four green readings follow while it is a draft, and it
+    // is marked ready a day later and merged four seconds after that.
+    const minute = (iso: string): number => (Date.parse(iso) - T0) / MINUTE;
+    const started = "2026-11-18T00:56:41.000Z";
+    const ready = "2026-11-19T02:15:49.000Z";
+    let work = openWork({
+      key: { kind: "branch", host: "local", repo: "/r", branch: "acp-runner" },
+      title: "One ACP runner for kolu and olai",
+      at: started,
+      request: { kind: "said", text: "waterfall it" },
+    });
+    work = join(work, "implementor", minute(started));
+    work = prOpened(work, minute("2026-11-18T01:07:41.000Z"), 2405, "draft");
+    for (const [index, green] of [
+      "2026-11-18T03:43:00.000Z",
+      "2026-11-18T05:24:00.000Z",
+      "2026-11-18T09:11:00.000Z",
+      "2026-11-18T11:07:00.000Z",
+    ].entries()) {
+      work = check(
+        work,
+        "checks-running",
+        minute(green) - 20,
+        2405,
+        `h${index}`,
+      );
+      work = check(work, "checks-passed", minute(green), 2405, `h${index}`);
+    }
+    // Mid-draft, with the hand-over: still the build, and not the human's.
+    const midDraft = "2026-11-18T12:00:00.000Z";
+    expect(waterfall(work, FULL, midDraft).current).toBe("build");
+    expect(standing(work, FULL).why).toBe("working");
+    work = draftState(work, "ready", minute(ready), 2405);
+    work = mergeState(work, { kind: "can" }, minute(ready), 2405, "h3");
+    work = merged(work, minute("2026-11-19T02:15:53.000Z"), 2405);
+    const named = byName(strip(work, FULL, "2026-11-19T03:00:00.000Z"));
+    expect(named.build).toEqual({
+      kind: "done",
+      ms: Date.parse(ready) - Date.parse(started),
+      who: "agent",
+    });
+    expect(stageMs(named.build)).toBeGreaterThan(25 * 60 * MINUTE);
+    expect(stageMs(named.review)).toBe(0);
+    expect(stageMs(named.checks)).toBe(0);
+  });
+});
+
+describe("the build ends when the PR is ready for review", () => {
+  it("ends at once for a PR opened ready", () => {
+    let work = join(opened(), "implementor", 0);
+    work = prOpened(work, 10);
+    expect(cells(work, FULL, at(20))).toBe(
+      "plan done, approve –, build done, review now, checks ·, merge ·",
+    );
+  });
+
+  it("does not end at a draft's open, and ends when it is marked ready", () => {
+    let work = join(opened(), "implementor", 0);
+    work = prOpened(work, 10, 7, "draft");
+    expect(waterfall(work, FULL, at(20)).current).toBe("build");
+    work = draftState(work, "ready", 30);
+    const named = byName(strip(work, FULL, at(45)));
+    expect(named.build).toMatchObject({ kind: "done", ms: 30 * MINUTE });
+    // The agents' time after it is the review.
+    expect(named.review).toEqual({
+      kind: "now",
+      ms: 15 * MINUTE,
+      who: "agent",
+    });
+  });
+
+  it("goes back to the build when the PR is turned back into a draft, and the review keeps its time", () => {
+    let work = join(opened(), "implementor", 0);
+    work = prOpened(work, 10);
+    work = draftState(work, "draft", 25);
+    expect(byName(strip(work, FULL, at(40))).build).toMatchObject({
+      kind: "now",
+      ms: 25 * MINUTE,
+    });
+    work = draftState(work, "ready", 40);
+    const named = byName(strip(work, FULL, at(50)));
+    expect(named.build).toMatchObject({ kind: "done", ms: 25 * MINUTE });
+    expect(named.review).toMatchObject({ kind: "now", ms: 25 * MINUTE });
+  });
+
+  it("reads a PR whose word was never recorded as before: the open ends the build", () => {
+    const read = (draft: "ready" | "unrecorded") => {
+      let work = join(opened(), "implementor", 0);
+      work = prOpened(work, 10, 7, draft);
+      work = check(work, "checks-running", 20);
+      work = check(work, "checks-passed", 30);
+      return strip(work, FULL, at(40));
+    };
+    expect(read("unrecorded")).toEqual(read("ready"));
+    expect(byName(read("unrecorded")).build).toMatchObject({
+      kind: "done",
+      ms: 10 * MINUTE,
+    });
+  });
+
+  // LEARNING A WORD IS NOT AN ACT. A PR recorded before kolu kept the draft
+  // word (`unrecorded`) learns it from its next reading after the upgrade;
+  // nobody marked anything ready, so the strip must read as it did.
+  it("keeps an existing PR's work in the build when kolu learns the PR is ready", () => {
+    let work = prOpened(opened(), 0, 7, "unrecorded");
+    work = join(work, "implementor", 5);
+    const before = cells(work, FULL, at(30));
+    expect(waterfall(work, FULL, at(30)).current).toBe("build");
+    work = draftState(work, "ready", 20);
+    expect(cells(work, FULL, at(30))).toBe(before);
+    expect(waterfall(work, FULL, at(30)).current).toBe("build");
+  });
+
+  it("keeps the implementor's own PR past the build when kolu learns it is ready", () => {
+    let work = join(opened(), "implementor", 0);
+    work = prOpened(work, 10, 7, "unrecorded");
+    const before = cells(work, FULL, at(30));
+    expect(waterfall(work, FULL, at(30)).current).toBe("review");
+    work = draftState(work, "ready", 20);
+    expect(cells(work, FULL, at(30))).toBe(before);
+  });
+
+  it("keeps an existing PR's work in the build when kolu learns the PR is a draft", () => {
+    let work = prOpened(opened(), 0, 7, "unrecorded");
+    work = join(work, "implementor", 5);
+    work = draftState(work, "draft", 20);
+    expect(waterfall(work, FULL, at(30)).current).toBe("build");
+  });
+
+  it("ends the build when an existing DRAFT is marked ready after the implementor joined", () => {
+    let work = prOpened(opened(), 0, 7, "draft");
+    work = join(work, "implementor", 5);
+    expect(waterfall(work, FULL, at(15)).current).toBe("build");
+    work = draftState(work, "ready", 20);
+    const named = byName(strip(work, FULL, at(30)));
+    expect(named.build).toMatchObject({ kind: "done", ms: 15 * MINUTE });
+    expect(named.review).toMatchObject({ kind: "now", ms: 10 * MINUTE });
+  });
+
+  it("keeps a trivial work's draft CI in the build, and files CI as checks once it is ready", () => {
+    let work = join(opened(), "implementor", 0);
+    work = prOpened(work, 10, 7, "draft");
+    work = check(work, "checks-running", 15);
+    expect(cells(work, TRIVIAL, at(25))).toBe(
+      "plan –, approve –, build now, review –, checks ·, merge ·",
+    );
+    work = check(work, "checks-passed", 25);
+    work = draftState(work, "ready", 30);
+    work = check(work, "checks-running", 35, 7, "b2");
+    const named = byName(strip(work, TRIVIAL, at(45)));
+    expect(named.build).toMatchObject({ kind: "done", ms: 35 * MINUTE });
+    expect(named.checks).toMatchObject({ kind: "now", ms: 10 * MINUTE });
+    expect(named.review).toEqual({ kind: "skipped" });
   });
 });
 
@@ -884,6 +1107,71 @@ describe("green is the forge saying it can merge", () => {
     expect(answers).toHaveLength(PR_FACTS_PER_COMMIT);
     expect(answers.at(0)?.at).toBe(at(12));
     expect(answers.at(-1)?.at).toBe(at(41));
+  });
+});
+
+describe("a draft cannot merge", () => {
+  /** The merge answer the timeline reads for the work's PR. */
+  const readMerge = (work: Work) => Option.getOrThrow(prOf(work)).merge;
+
+  it("reads cannot: draft even after a stray merge answer that says it can", () => {
+    let work = join(opened(), "implementor", 0);
+    work = prOpened(work, 10, 7, "draft");
+    expect(readMerge(work)).toEqual({ kind: "cannot", why: "draft" });
+    work = check(work, "checks-passed", 12);
+    work = mergeState(work, { kind: "can" }, 12);
+    expect(readMerge(work)).toEqual({ kind: "cannot", why: "draft" });
+    expect(byName(strip(work, FULL, at(20))).merge.kind).not.toBe("now");
+  });
+
+  it("forgets the merge answer on entering a draft and on leaving one", () => {
+    let work = join(opened(), "implementor", 0);
+    work = prOpened(work, 10);
+    work = mergeState(work, { kind: "can" }, 12);
+    expect(readMerge(work)).toEqual({ kind: "can" });
+    work = draftState(work, "draft", 14);
+    expect(readMerge(work)).toEqual({ kind: "cannot", why: "draft" });
+    // Ready again: the `can` from before is not the answer for it now.
+    work = draftState(work, "ready", 16);
+    expect(readMerge(work)).toEqual({ kind: "unknown" });
+  });
+
+  it("keeps the answer when an unrecorded PR learns it was ready all along", () => {
+    let work = join(opened(), "implementor", 0);
+    work = prOpened(work, 10, 7, "unrecorded");
+    work = mergeState(work, { kind: "can" }, 12);
+    work = draftState(work, "ready", 14);
+    expect(readMerge(work)).toEqual({ kind: "can" });
+  });
+
+  it("keeps the draft word through a reopen", () => {
+    let work = join(opened(), "implementor", 0);
+    work = prOpened(work, 10, 7, "draft");
+    work = endWork(work, {
+      outcome: { kind: "stopped", by: "you" },
+      at: at(12),
+    });
+    work = reopenWork(work, at(20));
+    expect(Option.getOrThrow(prOf(work)).draft).toBe("draft");
+    expect(readMerge(work)).toEqual({ kind: "cannot", why: "draft" });
+  });
+
+  it("never lets a merge answer after a draft flip replace the one before it", () => {
+    // Checks running on one commit: GitHub's flips there keep only their
+    // latest — but a draft flip between two answers is somebody's act, so
+    // both answers stay on the timeline.
+    let work = join(opened(), "implementor", 0);
+    work = prOpened(work, 10);
+    work = check(work, "checks-running", 11);
+    work = mergeState(work, { kind: "cannot", why: "blocked" }, 12);
+    work = draftState(work, "draft", 13);
+    work = draftState(work, "ready", 14);
+    work = mergeState(work, { kind: "can" }, 15);
+    expect(
+      work.events
+        .filter((one) => one.kind === "merge-state")
+        .map((one) => one.at),
+    ).toEqual([at(12), at(15)]);
   });
 });
 

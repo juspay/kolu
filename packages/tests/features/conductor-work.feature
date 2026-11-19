@@ -90,6 +90,57 @@ Feature: A piece of work is a stored thing
     And the work should be finished as "merged"
     And there should be no page errors
 
+  Scenario: A draft pull request is still the build
+    # A DRAFT IS NOT UP FOR REVIEW, whatever its checks say. GitHub answers
+    # CLEAN for a draft with green checks — it works the merge out as if the
+    # PR were ready — so kolu reads the draft word itself: the work stays in
+    # the build, nothing is handed over, and the bell is silent. Marking it
+    # ready is what hands it over, and what rings; that last ring is the
+    # proof the silence before it was the draft's, not a bell that never
+    # could have rung.
+    Given a repo for the work
+    When I ask the conductor to open the work "draft the parser"
+    And I answer the work's question with "hand-over" in the chat
+    And I ask the conductor to run the implementor in the work's repo
+    Then the work's stage strip should be at "build"
+    When I stub the notification sound
+    And I simulate the Kolu window losing focus
+    And the work's pull request opens as draft #7 "Draft the parser"
+    Then the work's timeline should show a "pr-opened" event saying "#7"
+    And the work's stage strip should be at "build"
+    And the work card should say its pull request is a draft
+    When the work's pull request starts its checks
+    Then the work's timeline should show a "checks-running" event
+    And the work's stage strip should be at "build"
+    When the work's pull request passes its checks
+    Then the work's timeline should show a "checks-passed" event
+    And the work's timeline should show no "merge-state" event
+    And the work should not be waiting on you
+    And the Conductor's bell should have had its frames to decide
+    And the notification sound should have played 0 times
+    When the work's pull request is marked ready for review
+    Then the work's timeline should show a "draft-state" event saying "ready for review"
+    And the work's stage strip should be at "merge"
+    And the work should be waiting on you
+    And the notification sound should have played 1 time
+    And there should be no page errors
+
+  Scenario: A trivial work's strip with a draft pull request
+    # A trivial work has no review: its agents' time is the build, before the
+    # PR and after it. What a draft changes is CI — on a draft it is still
+    # the build's, and once the PR is ready it is the checks.
+    Given a repo for the work
+    When I ask the conductor to open the trivial work "tidy the lexer quickly"
+    And I ask the conductor to run the implementor in the work's repo
+    And the work's pull request opens as draft #8 "Tidy the lexer"
+    And the work's pull request starts its checks
+    Then the work's timeline should show a "checks-running" event
+    And the work's stage strip should be at "build"
+    When the work's pull request is marked ready for review
+    Then the work's timeline should show a "draft-state" event saying "ready for review"
+    And the work's stage strip should be at "checks"
+    And there should be no page errors
+
   Scenario: The plan is approved from the card while the Conductor sits idle
     # ONE QUESTION, SEVERAL FACES. The card and the chat draw the work's own
     # DECISION, so answering it on the card settles the conversation's copy

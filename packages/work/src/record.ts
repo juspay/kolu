@@ -129,9 +129,12 @@ const replacesLastMerge = (
   return -1;
 };
 
-/** The events that move a PR other than its checks and merge answers. */
+/** The events that move a PR other than its checks and merge answers. A
+ *  draft flip is one: it is somebody's act, so it is neither bounded nor ever
+ *  replaced, and the merge answer after it is a new one. */
 const MOVES_A_PR: ReadonlySet<string> = new Set([
   "pr-opened",
+  "draft-state",
   "merged",
   "pr-closed",
   "reopened",

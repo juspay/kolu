@@ -65,6 +65,7 @@ const sentinel: SavedActiveTerminal = {
       reviewDecision: null,
       mergeStateStatus: "UNKNOWN",
       headSha: null,
+      isDraft: false,
     },
   },
   restoreTarget: {

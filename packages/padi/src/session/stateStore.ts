@@ -41,7 +41,7 @@ interface PadiPersistedState {
 }
 
 /** padi's state schema version — the last step of {@link PADI_STATE_MIGRATIONS}. */
-export const PADI_STATE_SCHEMA_VERSION = "1.5.0";
+export const PADI_STATE_SCHEMA_VERSION = "1.6.0";
 
 /** Delete a key that is no longer in {@link PadiPersistedState} off the raw
  *  store. Conf's typed `delete` rejects a key outside the current shape — which
@@ -50,8 +50,9 @@ export const PADI_STATE_SCHEMA_VERSION = "1.5.0";
 const deleteRetiredKey = (store: Conf<PadiPersistedState>, key: string): void =>
   (store as unknown as { delete: (key: string) => void }).delete(key);
 
-/** The SESSION half of the ladder — ONE function behind three rungs. Every
- *  schema-era bump since 1.1.0 is expressed by the idempotent, presence-keyed
+/** The SESSION half of the ladder — ONE function behind every session-shape
+ *  rung (1.1.0, 1.2.0, 1.3.0 and 1.6.0). Every schema-era bump since 1.1.0 is
+ *  expressed by the idempotent, presence-keyed
  *  `backfillSavedSession`, so the rungs share it instead of pretending each has
  *  its own session arm. Recorded decision (review round 3, R9): only the
  *  ACTIVITY-FEED era is rung-local, because its old rows carried captured text
@@ -102,8 +103,13 @@ const backfillSavedSessionIn = (store: Conf<PadiPersistedState>): void => {
  *    development build wrote — and a migration that moved a session id into a
  *    DIFFERENT process's store would be claiming kolu-server can resume a
  *    conversation whose `cwd` and MCP server were another daemon's.
+ *  - `1.6.0`: a saved terminal's resolved PR says whether it is a DRAFT
+ *    (`PrInfo.isDraft`, required, #2410). A saved `ok` PR from before the field
+ *    cannot say, so the same backfill (`backfillPrDraft`) turns it into
+ *    `{ kind: "pending" }` — not known right now — and the live PR sensor reads
+ *    it afresh when the terminal runs. Every other `pr` is left as found.
  *
- *  The SESSION half of the first three rungs is one function
+ *  The SESSION half of the session-shape rungs is one function
  *  (`backfillSavedSessionIn`), by the recorded decision above; only 1.3.0's own
  *  era is spelled here. */
 const PADI_STATE_MIGRATIONS: Record<
@@ -129,6 +135,7 @@ const PADI_STATE_MIGRATIONS: Record<
   "1.5.0": (store) => {
     deleteRetiredKey(store, "orchestrator");
   },
+  "1.6.0": backfillSavedSessionIn,
 };
 
 /** The three `CellStore`s padi injects at boot, plus the underlying `Conf` (which

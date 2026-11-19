@@ -1161,6 +1161,7 @@ describe("the readings", () => {
       pr: 181,
       title: "The docs are 24 pages",
       url: { kind: "link", href: "https://github.com/juspay/kolu/pull/181" },
+      draft: "ready",
     });
     work = recordEvent(work, {
       at: T(5),

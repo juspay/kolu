@@ -14,7 +14,7 @@
  */
 
 import { Option } from "effect";
-import { type PrReading, prStep } from "./readings.ts";
+import { isOpenDraft, type PrReading, prStep } from "./readings.ts";
 import {
   type Asked,
   type CheckHead,
@@ -58,11 +58,14 @@ export interface Policy {
 }
 
 /** WHICH PART OF ITS LIFE A WORK IS IN — cut by two moments the record
- *  holds: the implementor joining, and a pull request opening AFTER it did.
- *  A PR that was already there when the implementor arrived (a work that
- *  takes up a dependabot PR) marks nothing, and the build goes on. Moves
- *  forward, except that a work reopened with no PR of its own open goes
- *  back: a second attempt on the same branch builds again. */
+ *  holds: the implementor joining, and its pull request being READY FOR
+ *  REVIEW after it did — opened ready, or a draft marked ready. A PR that was
+ *  already there when the implementor arrived (a work that takes up a
+ *  dependabot PR) does not end the build by being open; if it is a draft,
+ *  marking it ready does. Moves forward, except for two ways back to the
+ *  build: a PR turned back into a draft (its author said it is not ready),
+ *  and a work reopened with no PR of its own open (a second attempt on the
+ *  same branch builds again). */
 type Part = "before" | "build" | "after";
 
 /** The fold's running state, advanced one event at a time — the SAME step
@@ -98,8 +101,14 @@ const START: Running = {
 const prIs = (at: Running, state: PrReading["state"]): boolean =>
   Option.exists(at.pr, (pr) => pr.state === state);
 
-/** The moves that are not the PR's own: questions, members, the end. */
-const partStep = (at: Running, event: WorkEvent): Running => {
+/** The moves that are not the PR's own: questions, members, the end. `pr` is
+ *  the PR as this event leaves it ({@link prStep}), which is what says
+ *  whether it is ready for review. */
+const partStep = (
+  at: Running,
+  event: WorkEvent,
+  pr: Option.Option<PrReading>,
+): Running => {
   switch (event.kind) {
     case "question":
       return { ...at, openAsks: new Set([...at.openAsks, event.ask]) };
@@ -118,13 +127,27 @@ const partStep = (at: Running, event: WorkEvent): Running => {
             part: at.part === "before" ? "build" : at.part,
           }
         : at;
-    // A PR the implementor opened ends the build; one that was there before
-    // any implementor joined says nothing about it.
+    // A PR the implementor opened ends the build at once when it opened
+    // ready (or kolu never recorded its word: the open ends it, as it always
+    // did), and stays the build's while it is a draft. One that was there
+    // before any implementor joined says nothing by being open.
     case "pr-opened":
-      return at.implemented ? { ...at, part: "after" } : at;
+      return at.implemented
+        ? { ...at, part: Option.exists(pr, isOpenDraft) ? "build" : "after" }
+        : at;
+    // A DRAFT FLIP, once an implementor has joined: turned back into a draft
+    // is the build's again, and marked ready ends the build — but only a PR
+    // that WAS a draft. Learning `ready` for a PR whose word kolu never
+    // recorded is kolu learning a word, not anybody marking anything ready,
+    // so the part stays where it was (the stage half of the rule `prStep`
+    // follows for the merge answer).
+    case "draft-state":
+      if (!at.implemented) return at;
+      if (Option.exists(pr, isOpenDraft)) return { ...at, part: "build" };
+      return Option.exists(at.pr, isOpenDraft) ? { ...at, part: "after" } : at;
     case "ended":
       return { ...at, ended: true };
-    // THE ONE WAY BACK. Reopened with its own PR still open, the work is
+    // THE OTHER WAY BACK. Reopened with its own PR still open, the work is
     // where it was; with none, it is a new attempt on the branch.
     case "reopened":
       return {
@@ -142,10 +165,10 @@ const partStep = (at: Running, event: WorkEvent): Running => {
   }
 };
 
-const step = (at: Running, event: WorkEvent): Running => ({
-  ...partStep(at, event),
-  pr: prStep(at.pr, event),
-});
+const step = (at: Running, event: WorkEvent): Running => {
+  const pr = prStep(at.pr, event);
+  return { ...partStep(at, event, pr), pr };
+};
 
 /** THE GREEN PULL REQUEST, and therefore the human's when they asked for the
  *  hand-over: the forge would merge it, and no check that has reported is
@@ -462,17 +485,23 @@ export const stageMs = (state: StageState): number =>
 /** WHERE A STRETCH WOULD GO in a waterfall that has all six stages:
  *
  *  - a PR the forge merged is the merge, and CI running is the checks,
- *    wherever they fall;
+ *    wherever they fall — except on a draft still in the build, whose CI is
+ *    the build's;
  *  - a green PR handed to the human is the merge;
  *  - a question to the human never moves the work: it stays in the stage it
  *    is in (`current`), which is then theirs — except before the implementor,
  *    where it is the approval once a planner has joined, and the planning
  *    (the setup's own questions) before that;
  *  - the agents' time is the plan before the implementor joins, the build
- *    until the PR it opens, and the review after. */
+ *    until its PR is ready for review, and the review after. There are two
+ *    ways back to the build: the PR turned back into a draft, and a reopen
+ *    with no PR of its own open. */
 const placeOf = (at: Running, who: Waiter, current: Filed): Filed => {
   if (prIs(at, "merged")) return "merge";
-  if (who === "ci") return "checks";
+  if (who === "ci")
+    return at.part === "build" && Option.exists(at.pr, isOpenDraft)
+      ? "build"
+      : "checks";
   if (who === "you") {
     if (at.openAsks.size === 0) return "merge";
     if (at.part === "before") return at.planned ? "approve" : "plan";

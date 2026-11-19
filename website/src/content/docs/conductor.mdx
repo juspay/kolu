@@ -208,7 +208,7 @@ A **waterfall** takes a change from request to merged PR. Ask for one, or ask th
 4. **Implement.** The implementor opens with the brief in `.waterfall/brief.md` (full), or with your request (trivial), and stops when its PR is open. A doubt it stops on is answered from the plan, the request or the planner; only a decision that is yours comes to you.
 5. **Review** (full only). The planner reviews the PR and the implementor addresses it, until the planner is satisfied. What you ask for mid-round waits for the next round.
 6. **Finish.** The implementor makes a final refactor pass, then runs CI the way the repo says to run it, fixing it until it is green.
-7. **On green.** The Conductor does what the work's recorded decision says: it merges the PR, or hands it to you. Green means GitHub would merge it with no check running or failing; a PR awaiting a required review stays with the agents.
+7. **On green.** The Conductor does what the work's recorded decision says: it merges the PR, or hands it to you. Green means a PR out of draft that GitHub would merge, with no check running or failing; one awaiting required review stays with the agents.
 8. **Close up.** Once the PR is merged or closed, the work ends with that outcome and the Conductor closes the terminals it opened for it.
 
 </Steps>

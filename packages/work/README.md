@@ -103,10 +103,10 @@ conversation — a model is that role's own last one with that harness first.
 
 | module | what |
 | --- | --- |
-| `schema.ts` | the KEY (`WorkKey`, `workIdOf`, `workKeyOf`), the record, the `state`/`outcome` sums and their readings (`isOpen`, `endedAt`, `outcomeOf`, `keptOf`), the `Asked \| Settled` decision sum (each arm split by topic: `mode`, `on-green`, a kolu choice, or a question about the work) and its answer sums, the event union typed by kind with its `about` / `why` / `head` / `request` arms, and the waterfall's WORDS (`WORK_ROLES`, `WORK_MODES`, `ON_GREEN`, `SETUP_KEYS`, `KOLU_CHOICE_KEYS`, `OFFERED_SETUP_KEYS`) — declared here because the record's schema embeds them |
+| `schema.ts` | the KEY (`WorkKey`, `workIdOf`, `workKeyOf`), the record, the `state`/`outcome` sums and their readings (`isOpen`, `endedAt`, `outcomeOf`, `keptOf`), the `Asked \| Settled` decision sum (each arm split by topic: `mode`, `on-green`, a kolu choice, or a question about the work) and its answer sums, the event union typed by kind with its `about` / `why` / `head` / `request` arms, the PR's draft word (`PR_DRAFT`, which `pr-opened` widens with `unrecorded` and `draft-state` moves), and the waterfall's WORDS (`WORK_ROLES`, `WORK_MODES`, `ON_GREEN`, `SETUP_KEYS`, `KOLU_CHOICE_KEYS`, `OFFERED_SETUP_KEYS`) — declared here because the record's schema embeds them |
 | `store.ts` | the ONE smart constructor over works + members: `parseStore` (what the decoder and the single writer both go through), `storeFault` and the `InvalidWorkStore` carrying the `StoreFault` that names the rule that broke and the rows that break it — a VALUE, because the sentence belongs to the face that shows it |
 | `record.ts` | the transitions: `openWork`, `askQuestions`, `answerAsk` (a blank question stays asked; `answered` or `answered-part` on the timeline), `answeredWith`, `dropAsk`, `dropQuestions`, `joinWork`, `leaveWork`, `recordEvent`, `linkPr` (a PR recorded before kolu kept addresses learns its own, by AMENDING its `pr-opened`), `takeOver`/`handBack`, `endWork`, `reopenWork`, `keepFiles`/`keepFailed` — the record only grows, except for the bounds below and that amend; `openAsks`/`hasOpenAsk` derive what is still waiting on a person |
-| `readings.ts` | the MECHANISM of a reading: the decisions of one ask, the PR as the timeline last said it (`prStep`, the ONE statement of the PR-fact rule, and `prOf` over it: its state, its recorded link, the last check event and the last merge answer — what the observer compares a reading with, so it records only a CHANGE for that PR at that commit, and what the folds carry to tell green) with the one check table (`CHECK_STEP`), `sameHead` (two facts about one commit, by kind and sha), `prLinks` (each PR number the timeline opened, to the URL recorded with it), the files seen, and why the latest ending did not keep some (`notKeptOf`) |
+| `readings.ts` | the MECHANISM of a reading: the decisions of one ask, the PR as the timeline last said it (`prStep`, the ONE statement of the PR-fact rule, and `prOf` over it: its state, its recorded link, whether it is a draft, the last check event and the last merge answer — what the observer compares a reading with, so it records only a CHANGE for that PR at that commit, and what the folds carry to tell green) with the one check table (`CHECK_STEP`), `sameHead` (two facts about one commit, by kind and sha), `prLinks` (each PR number the timeline opened, to the URL recorded with it), the files seen, and why the latest ending did not keep some (`notKeptOf`) |
 | `folds.ts` | `waitingOn`, `standing` (a sum: a question with its `ask` and its words, a merge with the `GreenPr` it waits on — number, head and link — when the timeline knows one, CI, the agents, or done), `timeSpent`, `stages` (a `Stages` sum: `unset` none yet, `none` for a mode that declares none, `staged` the six cells with every event filed and the `current` stage, each cell a `StageState` sum), `took`, `lifetime`, `inProgress`/`finished` over `WorkRow`, `capFinished` — each taking a `Policy` (`handOver`, and how the work is `run`: `unset`, or `set` with whether it is driven and the stages its mode declares) rather than reading the setup itself |
 | `needsYou.ts` | WHAT NEEDS THE HUMAN, `standing` and `WAITER_OF` read as a list: `needsYou` over the rows, `needsYouOf` for one, the `NeedsYou` item (its work and title, the `question` or `merge` arm, `since`, the `wanted` words and the item's `key` — the work, the reason and the ask or the green commit, so a merge answer flickering on one commit is ONE item), and `wantedWords`, the one phrase every face says |
 | `waterfall.ts` | the WORDS and every rule over them: `MODE_RUNS` (what each mode runs, needs and drives, and the stages it HAS), `rolesOf`, `setupKeyOf`, `roleOfKey`, `roleRank`, the one setup reading (`setupStanding`, `setupValue`, `modeOf`/`onGreenOf`/`setupOf`/`roleSetupOf`, `keysToAsk`, `openSetupQuestions`, `startBlockers`), `missingSetup` + `foreignSetupWords`, the kolu-choice rules (`harnessForModel`, `askedAnswersOf`/`givenAnswersOf`/`savedAnswersOf`, `modelHarnessesOf`, `modelNotOffered`, `unofferedAnswers`, `koluKeysOf`, `unofferedWhy`/`unofferedWords`, `setupMemory`), `driverOf`, `membershipOf`, `policyOf`, where a work's files live (`WATERFALL_DIR`, `waterfallFileName`), and a flat list of them read as a tree, the same for a live listing and a kept copy (`waterfallLevel`, `childFolderOf`, `compareWaterfallPaths`, `waterfallBytes`) |
@@ -152,7 +152,8 @@ through keeps the most recent `AGENT_STATES_KEPT` (30) agent-state events
 `folded` event, sitting where the oldest one it stands for sat. GitHub flips
 its merge answer while required checks land, so a `merge-state` given while
 its commit's checks are running REPLACES the one before it from the same
-run: CI holds the work while its checks run, so none of those answers
+run (unless a draft flip came between them, which keeps both): CI holds the
+work while its checks run, so none of those answers
 decided anything. And a commit keeps at most `PR_FACTS_PER_COMMIT` (8) check
 results, and as many merge answers: past that, the oldest one between its
 first and its newest goes. Two suites reporting out of phase cannot write a
@@ -166,7 +167,8 @@ past row is `linkPr`'s, above.
 Nothing computed is stored: "where it stands" and the durations are folds
 over the events at a clock reading the caller passes in.
 
-**Green is two facts, about one commit.** A `checks-*` event is the rollup and
+**Green is two facts, about one commit, on a PR that is not a draft.** A
+`checks-*` event is the rollup and
 nothing else, recorded when its word changes for that PR at that commit; a
 `merge-state` event is GitHub's answer to "would you merge it" — `can`,
 `cannot` with a reason, or `unsettled` (working it out), recorded when it
@@ -175,8 +177,11 @@ commit's answer and a recompute takes back the one it had. A PR is green when
 the answer is `can` and no check is running or red, both about the same
 commit, so a PR with no checks that GitHub would merge is green, and one
 still waiting on a required review (`cannot · review`) is the agents' time.
-Reopening forgets both until the next reading. `prStep` says all of this
-once; the folds carry its reading rather than a second copy of the rule.
+An open DRAFT reads `cannot · draft` whatever GitHub answered (it works a
+draft's merge state out as if it were ready), and entering or leaving a
+draft forgets the answer. Reopening forgets both until the next reading.
+`prStep` says all of this once; the folds carry its reading rather than a
+second copy of the rule.
 
 **One walk, so the time adds up.** `timeSpent`, `stages` and `lifetime` step
 through the events with the same running state `standing` uses, and the
@@ -188,11 +193,15 @@ ended is nobody's and counts in none of them.
 has all six, `trivial` has Build, Checks and Merge (nobody plans, approves or
 reviews it), `watch` has none. The fold places each stretch as a six-stage
 waterfall would — CI running is Checks and a green PR handed over is Merge
-wherever they fall; a question keeps the work in the stage it is in (before
+wherever they fall, except that CI on a draft still in the build is Build;
+a question keeps the work in the stage it is in (before
 the implementor: Approve once a planner has joined, Plan before that — the
 setup's own questions); the agents' time is Plan before the implementor, Build
-until a PR the IMPLEMENTOR opens (a PR that was already there, such as one a
-bot opened, ends nothing), Review after — and files it under the nearest
+until the IMPLEMENTOR'S PR is ready for review — opened ready, or a draft
+marked ready, while one turned back into a draft builds again; a PR that was
+already there, such as one a bot opened, ends nothing by being open, and
+ends the build only when it was a draft and is marked ready — Review after —
+and files it under the nearest
 stage at or before that the mode has. So "a trivial work in Review" cannot be
 written down. A stretch with no such stage — a trivial work's setup form and
 the Conductor starting its implementor — is filed as `setup` (`Filed`): it is

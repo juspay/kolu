@@ -397,6 +397,66 @@ describe("SavedSession — the conf store + the exported kolu-session.json", () 
       kind: "none",
     });
   });
+
+  describe("pr: a resolved PR saved before the forge said draft", () => {
+    /** A resolved PR as a previous release wrote it: every field but
+     *  `isDraft`. */
+    const OLD_OK_PR =
+      '{"kind":"ok","value":{"number":7,"title":"Fix the parser",' +
+      '"url":"https://github.example/o/r/pull/7","state":"open","checks":"pass",' +
+      '"checkRuns":[],"reviewDecision":null,"mergeStateStatus":"CLEAN",' +
+      '"headSha":"4f21a9c0d3e5b7a9c1d3e5f7a9b1c3d5e7f9a1b3"}}';
+    /** The same PR as this release writes it. */
+    const NEW_OK_PR = OLD_OK_PR.replace("}}", ',"isDraft":true}}');
+    const withPr = (record: string, pr: string) =>
+      record.replace('"pr":{"kind":"absent"}', `"pr":${pr}`);
+    const stored = (...terminals: string[]) =>
+      `{"terminals":[${terminals.join(",")}],"activeTerminalId":null,"savedAt":1700000000000}`;
+    const PENDING = '{"kind":"pending"}';
+
+    it("is refused by the schema alone, and becomes pending on BOTH arms through the backfill", () => {
+      const legacy = stored(
+        withPr(MINIMAL_ACTIVE, OLD_OK_PR),
+        withPr(FULL_SLEEPING, OLD_OK_PR),
+      );
+      expect(accepts(SavedSessionSchema, JSON.parse(legacy))).toBe(false);
+      // `pending`, PrResult's "not known right now": not `absent` (the branch
+      // may well have a PR) and not `isDraft: false` (a guess).
+      expect(
+        JSON.stringify(
+          encodeSession(
+            decodeSession(backfillSavedSession(JSON.parse(legacy))),
+          ),
+        ),
+      ).toBe(
+        stored(withPr(MINIMAL_ACTIVE, PENDING), withPr(FULL_SLEEPING, PENDING)),
+      );
+    });
+
+    it("is idempotent: a second pass over the backfilled session changes nothing", () => {
+      const once = backfillSavedSession(
+        JSON.parse(stored(withPr(MINIMAL_ACTIVE, OLD_OK_PR))),
+      );
+      expect(backfillSavedSession(once)).toEqual(once);
+    });
+
+    it("leaves a PR that says draft, and every other kind, as found — and saves isDraft in bytes", () => {
+      const current = stored(
+        withPr(MINIMAL_ACTIVE, NEW_OK_PR),
+        withPr(FULL_SLEEPING, '{"kind":"unsupported"}'),
+      );
+      expect(
+        JSON.stringify(
+          encodeSession(
+            decodeSession(backfillSavedSession(JSON.parse(current))),
+          ),
+        ),
+      ).toBe(current);
+      expect(roundTrip(current)).toContain(
+        '"headSha":"4f21a9c0d3e5b7a9c1d3e5f7a9b1c3d5e7f9a1b3","isDraft":true}}',
+      );
+    });
+  });
 });
 
 describe("PersistedSnapshot — the restore-relevant projection, in bytes", () => {

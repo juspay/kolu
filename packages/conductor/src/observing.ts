@@ -187,8 +187,26 @@ export const prEvents = (work: Work, pr: WatchPr, at: string): Work => {
       pr: pr.number,
       title: pr.title,
       url: { kind: "link", href: pr.url },
+      draft: pr.readiness.kind,
     });
   } else next = linkPr(next, pr.number, pr.url);
+  // MARKED READY, OR TURNED BACK INTO A DRAFT: recorded when the forge's word
+  // differs from the timeline's, for an open PR — a PR opened before kolu kept
+  // the word learns it here too. BEFORE the reading below: the check and merge
+  // comparisons must see the merge answer the flip forgot.
+  if (
+    pr.state === "open" &&
+    Option.exists(prOf(next), (one) => one.draft !== pr.readiness.kind)
+  ) {
+    next = recordEvent(next, {
+      at,
+      by: "kolu",
+      kind: "draft-state",
+      about: ABOUT_WORK,
+      pr: pr.number,
+      draft: pr.readiness.kind,
+    });
+  }
   const reading = prOf(next);
   /** What the timeline last said about THIS PR at THIS commit. */
   const about = <E extends { readonly pr: number; readonly head: CheckHead }>(
@@ -223,27 +241,30 @@ export const prEvents = (work: Work, pr: WatchPr, at: string): Work => {
   // WHETHER THE FORGE WOULD MERGE IT, recorded when the answer CHANGES for
   // this PR at this commit — `unsettled` included, so GitHub recomputing a
   // commit (the base moved) takes back the `can` it had, and a push never
-  // inherits the last commit's answer. Only while the PR is open. A reading
-  // with no merge state at all (`unreported`) is a padi older than the field:
-  // it says nothing, and the card says GitHub has not answered.
-  const merge = pr.merge;
-  if (
-    pr.state === "open" &&
-    merge.kind !== "unreported" &&
-    !Option.exists(
-      about((one) => one.lastMerge),
-      (last) => sameMerge(last.merge, merge),
-    )
-  ) {
-    next = recordEvent(next, {
-      at,
-      by: "kolu",
-      kind: "merge-state",
-      about: ABOUT_WORK,
-      pr: pr.number,
-      head: pr.head,
-      merge,
-    });
+  // inherits the last commit's answer. Only while the PR is open and READY: a
+  // draft carries no merge answer (GitHub works one out as if it were ready),
+  // and the timeline reads it as `cannot: draft` on its own. A reading with
+  // no merge state at all (`unreported`) is a padi older than the field: it
+  // says nothing, and the card says GitHub has not answered.
+  if (pr.state === "open" && pr.readiness.kind === "ready") {
+    const merge = pr.readiness.merge;
+    if (
+      merge.kind !== "unreported" &&
+      !Option.exists(
+        about((one) => one.lastMerge),
+        (last) => sameMerge(last.merge, merge),
+      )
+    ) {
+      next = recordEvent(next, {
+        at,
+        by: "kolu",
+        kind: "merge-state",
+        about: ABOUT_WORK,
+        pr: pr.number,
+        head: pr.head,
+        merge,
+      });
+    }
   }
   if (
     pr.state === "merged" &&

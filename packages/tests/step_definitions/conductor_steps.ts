@@ -2684,6 +2684,19 @@ When(
   },
 );
 
+/** ... a TRIVIAL one, nothing asked, so an implementor can run in it at once —
+ *  in the scenario's own repo, which is where its pull request is read. */
+When(
+  "I ask the conductor to open the trivial work {string}",
+  async function (this: KoluWorld, title: string) {
+    await openWorkSaying(
+      this,
+      title,
+      `open trivially ${title} in ${workRepo(this)}`,
+    );
+  },
+);
+
 /** ... with the IMPLEMENTOR'S MODEL LEFT TO THE HUMAN: a trivial work whose
  *  every other answer the request gave, so the form is the one model
  *  question. */
@@ -3062,6 +3075,45 @@ When(
   },
 );
 
+/** ... as a DRAFT: still being built, so not up for review. GitHub's merge
+ *  state for it is the fixture's default `CLEAN`, which is what GitHub says
+ *  for a draft nothing is in the way of. */
+When(
+  "the work's pull request opens as draft #{int} {string}",
+  async function (this: KoluWorld, number: number, title: string) {
+    restatePullRequest(this, {
+      number,
+      title,
+      state: "open",
+      checks: [],
+      draft: true,
+    });
+  },
+);
+
+/** Every check passes, and GitHub says nothing is in the way (`CLEAN`). */
+When(
+  "the work's pull request passes its checks",
+  async function (this: KoluWorld) {
+    restatePullRequest(this, {
+      ...statedPullRequest(),
+      checks: [
+        { name: "build", outcome: "pass" },
+        { name: "tests", outcome: "pass" },
+      ],
+      mergeState: "CLEAN",
+    });
+  },
+);
+
+/** The author marks the draft ready for review — the one thing that moves. */
+When(
+  "the work's pull request is marked ready for review",
+  async function (this: KoluWorld) {
+    restatePullRequest(this, { ...statedPullRequest(), draft: false });
+  },
+);
+
 When(
   "the work's pull request starts its checks",
   async function (this: KoluWorld) {
@@ -3125,6 +3177,69 @@ When(
 When("the work's pull request is merged", async function (this: KoluWorld) {
   restatePullRequest(this, { ...statedPullRequest(), state: "merged" });
 });
+
+/** THE CARD SAYS DRAFT in both places it names the PR: the line under its
+ *  title and its Pull request section. */
+Then(
+  "the work card should say its pull request is a draft",
+  async function (this: KoluWorld) {
+    await openWorkCard(this);
+    const pr = statedPullRequest();
+    const card = workCard(this);
+    const read = async () => ({
+      subtitle: (
+        (await card
+          .locator('[data-testid="work-subtitle"]')
+          .textContent({ timeout: 1_000 })
+          .catch(() => null)) ?? ""
+      )
+        .replace(/\s+/g, " ")
+        .trim(),
+      state: await card
+        .locator('[data-testid="work-pr-state"]')
+        .evaluate(
+          (el) => ({
+            draft: el.getAttribute("data-draft"),
+            text: (el.textContent ?? "").replace(/\s+/g, " ").trim(),
+          }),
+          undefined,
+          { timeout: 1_000 },
+        )
+        .catch(() => null),
+    });
+    await pollFor({
+      observe: read,
+      isDone: (seen) =>
+        seen.subtitle.includes(`draft PR #${pr.number}`) &&
+        seen.state?.draft === "true" &&
+        seen.state.text.includes("draft"),
+      timeoutMs: POLL_TIMEOUT,
+      onTimeout: (last, ms) =>
+        new Error(
+          `after ${ms}ms the card did not say #${pr.number} is a draft: ${JSON.stringify(last)}`,
+        ),
+    });
+  },
+);
+
+/** LET THE CONDUCTOR'S BELL DECIDE, so a sound count read next is its
+ *  verdict rather than a read taken before it. Call it only after waiting for
+ *  something the same needs-you reading draws — a card in a group, a timeline
+ *  row — so the bell has already HEARD the reading. What is left is the
+ *  decision: in a window without focus the bell decides the moment it hears
+ *  (nothing is in view to wait for), and the frames only let the reading reach
+ *  it; in a focused window it decides once the page can say what is in view, a
+ *  frame on and then the observers' first reports, which these frames cover. */
+export async function letTheBellDecide(world: KoluWorld): Promise<void> {
+  for (let frame = 0; frame < 6; frame += 1) await world.waitForFrame();
+}
+
+Then(
+  "the Conductor's bell should have had its frames to decide",
+  async function (this: KoluWorld) {
+    await letTheBellDecide(this);
+  },
+);
 
 /** THE TIMELINE AS DRAWN on this scenario's card — every event's kind, who
  *  it is by, and its words. Quoted on a failure, because "no `merged` event"

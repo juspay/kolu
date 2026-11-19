@@ -316,6 +316,7 @@ describe("what a pull request reading says about checks and merging", () => {
       | "CHANGES_REQUESTED"
       | "REVIEW_REQUIRED"
       | null = null,
+    isDraft = false,
   ) => {
     const read = prReading({
       kind: "ok",
@@ -329,10 +330,17 @@ describe("what a pull request reading says about checks and merging", () => {
         reviewDecision,
         mergeStateStatus,
         headSha: "4c3f17ea2",
+        isDraft,
       },
     });
     if (read.kind !== "pr") throw new Error(`no PR: ${read.kind}`);
     return read.pr;
+  };
+  /** The merge answer of a PR that is not a draft. */
+  const mergeOfReady = (...args: Parameters<typeof resolved>) => {
+    const readiness = resolved(...args).readiness;
+    if (readiness.kind !== "ready") throw new Error("a draft");
+    return readiness.merge;
   };
 
   it("keeps the checks as the rollup says them, whatever the merge state", () => {
@@ -352,40 +360,60 @@ describe("what a pull request reading says about checks and merging", () => {
 
   it("says the PR can merge only when GitHub says so", () => {
     for (const state of ["CLEAN", "HAS_HOOKS", "UNSTABLE"] as const)
-      expect(resolved("pass", state).merge).toEqual({ kind: "can" });
-    expect(resolved("pass", "BLOCKED").merge).toEqual({
+      expect(mergeOfReady("pass", state)).toEqual({ kind: "can" });
+    expect(mergeOfReady("pass", "BLOCKED")).toEqual({
       kind: "cannot",
       why: "blocked",
     });
-    expect(resolved("pass", "BLOCKED", "APPROVED").merge).toEqual({
+    expect(mergeOfReady("pass", "BLOCKED", "APPROVED")).toEqual({
       kind: "cannot",
       why: "blocked",
     });
-    expect(resolved("pass", "BEHIND").merge).toEqual({
+    expect(mergeOfReady("pass", "BEHIND")).toEqual({
       kind: "cannot",
       why: "behind",
     });
-    expect(resolved("pass", "DIRTY").merge).toEqual({
+    expect(mergeOfReady("pass", "DIRTY")).toEqual({
       kind: "cannot",
       why: "conflicts",
     });
-    expect(resolved("pass", "DRAFT").merge).toEqual({
+    expect(mergeOfReady("pass", "DRAFT")).toEqual({
       kind: "cannot",
       why: "draft",
     });
   });
 
+  it("reads a draft as a draft, whatever GitHub's merge state says", () => {
+    // GitHub works a draft's merge state out as if it were ready: a draft
+    // with green checks says CLEAN. A draft carries no merge answer at all.
+    for (const state of [
+      "CLEAN",
+      "HAS_HOOKS",
+      "UNSTABLE",
+      "BLOCKED",
+      "DIRTY",
+      "UNKNOWN",
+    ] as const)
+      expect(resolved("pass", state, null, true).readiness).toEqual({
+        kind: "draft",
+      });
+    expect(resolved("pass", "CLEAN", null, false).readiness).toEqual({
+      kind: "ready",
+      merge: { kind: "can" },
+    });
+  });
+
   it("names a required review as the block, never as CI", () => {
     for (const review of ["REVIEW_REQUIRED", "CHANGES_REQUESTED"] as const)
-      expect(resolved("pass", "BLOCKED", review).merge).toEqual({
+      expect(mergeOfReady("pass", "BLOCKED", review)).toEqual({
         kind: "cannot",
         why: "review",
       });
   });
 
   it("tells GitHub not having worked it out apart from a host that did not say", () => {
-    expect(resolved("pass", "UNKNOWN").merge).toEqual({ kind: "unsettled" });
-    expect(resolved("pass", null).merge).toEqual({ kind: "unreported" });
+    expect(mergeOfReady("pass", "UNKNOWN")).toEqual({ kind: "unsettled" });
+    expect(mergeOfReady("pass", null)).toEqual({ kind: "unreported" });
   });
 
   it("carries the address the forge gave", () => {

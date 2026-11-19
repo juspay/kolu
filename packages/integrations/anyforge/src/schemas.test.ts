@@ -19,7 +19,7 @@ describe("PrInfo wire format", () => {
   const decode = Schema.decodeUnknownSync(PrInfoSchema);
   const encode = Schema.encodeSync(PrInfoSchema);
 
-  it("encodes number/title/url/state/checks/checkRuns/reviewDecision/mergeStateStatus/headSha in that key order", () => {
+  it("encodes number/title/url/state/checks/checkRuns/reviewDecision/mergeStateStatus/headSha/isDraft in that key order", () => {
     const pr: PrInfo = {
       number: 148,
       title: "Decomplect PR resolution state",
@@ -33,6 +33,7 @@ describe("PrInfo wire format", () => {
       reviewDecision: "CHANGES_REQUESTED",
       mergeStateStatus: "BLOCKED",
       headSha: "4f21a9c0d3e5b7a9c1d3e5f7a9b1c3d5e7f9a1b3",
+      isDraft: true,
     };
     expect(JSON.stringify(encode(pr))).toBe(
       '{"number":148,"title":"Decomplect PR resolution state",' +
@@ -41,7 +42,7 @@ describe("PrInfo wire format", () => {
         '{"name":"ci::biome@x86_64-linux","outcome":"fail"},' +
         '{"name":"ci::unit@x86_64-linux","outcome":"pass"}],' +
         '"reviewDecision":"CHANGES_REQUESTED","mergeStateStatus":"BLOCKED",' +
-        '"headSha":"4f21a9c0d3e5b7a9c1d3e5f7a9b1c3d5e7f9a1b3"}',
+        '"headSha":"4f21a9c0d3e5b7a9c1d3e5f7a9b1c3d5e7f9a1b3","isDraft":true}',
     );
   });
 
@@ -59,11 +60,13 @@ describe("PrInfo wire format", () => {
       reviewDecision: null,
       mergeStateStatus: "UNKNOWN",
       headSha: null,
+      isDraft: false,
     };
     expect(JSON.stringify(encode(pr))).toBe(
       '{"number":1,"title":"t","url":"https://example.invalid/pull/1",' +
         '"state":"merged","checks":null,"checkRuns":[],' +
-        '"reviewDecision":null,"mergeStateStatus":"UNKNOWN","headSha":null}',
+        '"reviewDecision":null,"mergeStateStatus":"UNKNOWN","headSha":null,' +
+        '"isDraft":false}',
     );
   });
 
@@ -77,6 +80,7 @@ describe("PrInfo wire format", () => {
         url: "https://example.invalid/pull/7",
         state: "open",
         checks: "pending",
+        isDraft: false,
       }),
     ).toEqual({
       number: 7,
@@ -89,6 +93,7 @@ describe("PrInfo wire format", () => {
       // No merge state said — not GitHub's own UNKNOWN.
       mergeStateStatus: null,
       headSha: null,
+      isDraft: false,
     });
   });
 
@@ -99,16 +104,35 @@ describe("PrInfo wire format", () => {
       url: "https://example.invalid/pull/7",
       state: "open" as const,
       checks: "pending" as const,
+      isDraft: false,
     };
     expect(JSON.stringify(encode(decode(wire)))).toBe(
       '{"number":7,"title":"old server",' +
         '"url":"https://example.invalid/pull/7","state":"open",' +
         '"checks":"pending","checkRuns":[],' +
-        '"reviewDecision":null,"mergeStateStatus":null,"headSha":null}',
+        '"reviewDecision":null,"mergeStateStatus":null,"headSha":null,' +
+        '"isDraft":false}',
     );
   });
 
-  it("decodes a NEW server payload with checkRuns / review / merge / head verbatim", () => {
+  it("refuses a payload that does not say whether the PR is a draft", () => {
+    // No decoding default, unlike the fields above: a reading that does not
+    // say is refused, never read as "ready" — a draft cannot merge whatever
+    // its merge state says, so guessing would ring for a PR nobody can merge.
+    const attempt = Schema.decodeUnknownResult(PrInfoSchema);
+    const wire = {
+      number: 7,
+      title: "t",
+      url: "https://example.invalid/pull/7",
+      state: "open",
+      checks: null,
+    };
+    expect(Result.isFailure(attempt(wire))).toBe(true);
+    expect(Result.isFailure(attempt({ ...wire, isDraft: "true" }))).toBe(true);
+    expect(Result.isFailure(attempt({ ...wire, isDraft: null }))).toBe(true);
+  });
+
+  it("decodes a NEW server payload with checkRuns / review / merge / head / draft verbatim", () => {
     const decoded = decode({
       number: 8,
       title: "new server",
@@ -119,11 +143,13 @@ describe("PrInfo wire format", () => {
       reviewDecision: "APPROVED",
       mergeStateStatus: "CLEAN",
       headSha: "4f21a9c",
+      isDraft: true,
     });
     expect(decoded.checkRuns).toEqual([{ name: "gate", outcome: "pass" }]);
     expect(decoded.reviewDecision).toBe("APPROVED");
     expect(decoded.mergeStateStatus).toBe("CLEAN");
     expect(decoded.headSha).toBe("4f21a9c");
+    expect(decoded.isDraft).toBe(true);
   });
 
   it("rejects an unknown state / outcome rather than defaulting it", () => {
@@ -136,6 +162,7 @@ describe("PrInfo wire format", () => {
           url: "u",
           state: "draft",
           checks: null,
+          isDraft: false,
         }),
       ),
     ).toBe(true);
@@ -148,6 +175,7 @@ describe("PrInfo wire format", () => {
           state: "open",
           checks: null,
           checkRuns: [{ name: "gate", outcome: "skipped" }],
+          isDraft: false,
         }),
       ),
     ).toBe(true);
@@ -160,6 +188,7 @@ describe("PrInfo wire format", () => {
           state: "open",
           checks: null,
           reviewDecision: "approved",
+          isDraft: false,
         }),
       ),
     ).toBe(true);
@@ -172,6 +201,7 @@ describe("PrInfo wire format", () => {
           state: "open",
           checks: null,
           mergeStateStatus: "clean",
+          isDraft: false,
         }),
       ),
     ).toBe(true);
@@ -267,6 +297,7 @@ describe("prResultEqual", () => {
     reviewDecision: null,
     mergeStateStatus: "UNKNOWN",
     headSha: "4f21a9c",
+    isDraft: true,
   };
   const ok: PrResult = { kind: "ok", value: pr };
 
@@ -300,6 +331,9 @@ describe("prResultEqual", () => {
     { field: "mergeStateStatus", value: "CLEAN" },
     // A PUSH: every other field can read the same and it is still new news.
     { field: "headSha", value: "9b7e3d1" },
+    // MARKED READY: often the only thing that moves, and the news a
+    // consumer waiting for review must not lose to the dedup.
+    { field: "isDraft", value: false },
   ] as const)("detects different $field", ({ field, value }) => {
     expect(
       prResultEqual(ok, { kind: "ok", value: { ...pr, [field]: value } }),

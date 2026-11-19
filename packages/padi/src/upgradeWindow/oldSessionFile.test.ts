@@ -127,6 +127,56 @@ describe("old session file under new padi (upgrade-window)", () => {
     });
   });
 
+  it("a previous-shape session holding a RESOLVED PR recovers, with that PR pending", () => {
+    // The 1.5.0-era shape: a current terminal whose saved `pr` is a resolved
+    // reading from before `isDraft` — the field a decode now requires. The
+    // recovery forgets the reading (`pending`) rather than guessing a draft
+    // word; the live sensor reads it again once the terminal runs.
+    const withResolvedPr = {
+      terminals: [
+        {
+          id: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+          cwd: "/home/user/project",
+          git: { kind: "none" },
+          pr: {
+            kind: "ok",
+            value: {
+              number: 7,
+              title: "Fix the parser",
+              url: "https://github.example/o/r/pull/7",
+              state: "open",
+              checks: "pass",
+              checkRuns: [],
+              reviewDecision: null,
+              mergeStateStatus: "CLEAN",
+              headSha: "4f21a9c0d3e5b7a9c1d3e5f7a9b1c3d5e7f9a1b3",
+            },
+          },
+          location: { kind: "local" },
+          restoreTarget: { kind: "none" },
+          lastActivityAt: 42,
+          promptedAt: null,
+          state: "active",
+        },
+      ],
+      activeTerminalId: null,
+      savedAt: 1_700_000_000_000,
+    };
+    expect(() => decodeSavedSession(withResolvedPr)).toThrow();
+    pinPreviousShapeRecovery({
+      previous: withResolvedPr,
+      irrecoverable: { terminals: "not-an-array", savedAt: "nope" },
+      recover: backfillSavedSession,
+      parse: (value) => decodeSavedSession(value),
+      assertRecovered: (recovered) => {
+        expect(recovered.terminals[0]).toMatchObject({
+          id: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+          pr: { kind: "pending" },
+        });
+      },
+    });
+  });
+
   it("irrecoverable garbage REFUSES by name (throws) — never collapses to empty", () => {
     const garbage = {
       terminals: "not-an-array",

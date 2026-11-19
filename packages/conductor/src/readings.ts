@@ -157,7 +157,9 @@ type PrValue = Extract<PrResult, { readonly kind: "ok" }>["value"];
  *  - `BLOCKED` cannot: on a review when one is required or changes were
  *    requested, otherwise on whatever else the branch's protection still
  *    wants (a required check that has not passed, a conversation);
- *  - `BEHIND`, `DIRTY` and `DRAFT` cannot, for those reasons;
+ *  - `BEHIND` and `DIRTY` cannot, for those reasons, and neither can `DRAFT`
+ *    (GitHub's retired word, not said since 2021: whether a PR is a draft is
+ *    `isDraft` now, and {@link prReading} calls this only for one that is not);
  *  - `UNKNOWN` is the forge not having worked it out yet (`unsettled`):
  *    recorded once for a commit it has said nothing about, so a push never
  *    inherits the last commit's answer;
@@ -238,7 +240,11 @@ export const prReading = (pr: PrResult): PrRead => {
         value.checks === null
           ? { kind: "unreported" }
           : { kind: "rollup", rollup: value.checks },
-      merge: mergeOf(value),
+      // A DRAFT HAS NO MERGE ANSWER: GitHub works its merge state out as if
+      // it were ready, so a draft with green checks says `CLEAN`.
+      readiness: value.isDraft
+        ? { kind: "draft" }
+        : { kind: "ready", merge: mergeOf(value) },
       failing: value.checkRuns
         .filter((one) => one.outcome === "fail")
         .map((one) => one.name),
