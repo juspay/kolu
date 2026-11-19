@@ -109,6 +109,7 @@ export const useAttentionFacts = createSharedRoot(() => {
               finishedIds: [],
               workingIds: [],
               lingerIds: [],
+              settled: false,
             })
           : frameByClass(value);
       });

@@ -162,6 +162,7 @@ const EMPTY_URGENCY: PadiUrgency = {
   finishedIds: [],
   workingIds: [],
   lingerIds: [],
+  settled: true,
 };
 
 interface FakePadi {

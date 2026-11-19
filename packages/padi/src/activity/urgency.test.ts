@@ -119,12 +119,14 @@ describe("recomputeUrgency", () => {
       finishedIds: [],
       workingIds: [ID_B],
       lingerIds: [],
+      settled: true,
     });
     // Each count is derived at the read site (`.length`), never carried on the value.
     expect(Object.keys(urgency).sort()).toEqual([
       "awaitingIds",
       "finishedIds",
       "lingerIds",
+      "settled",
       "workingIds",
     ]);
   });
@@ -145,6 +147,7 @@ describe("recomputeUrgency", () => {
       finishedIds: [ID_B],
       workingIds: ["urg-c"],
       lingerIds: [],
+      settled: true,
     });
   });
 
@@ -165,6 +168,7 @@ describe("recomputeUrgency", () => {
       finishedIds: [],
       workingIds: [],
       lingerIds: [ID_B],
+      settled: true,
     });
   });
 
@@ -183,6 +187,7 @@ describe("recomputeUrgency", () => {
       workingIds: [],
       // The un-finished twin partitions into linger, never into both lists.
       lingerIds: [ID_B],
+      settled: true,
     });
   });
 
@@ -200,6 +205,7 @@ describe("recomputeUrgency", () => {
       finishedIds: [],
       workingIds: [],
       lingerIds: [],
+      settled: true,
     });
   });
 
@@ -211,6 +217,7 @@ describe("recomputeUrgency", () => {
       finishedIds: [],
       workingIds: [],
       lingerIds: [],
+      settled: true,
     });
   });
 
@@ -231,6 +238,7 @@ describe("recomputeUrgency", () => {
       finishedIds: [],
       workingIds: [],
       lingerIds: [],
+      settled: true,
     });
   });
 });
@@ -244,12 +252,14 @@ describe("urgencyEqual", () => {
           finishedIds: ["c"],
           workingIds: ["d"],
           lingerIds: ["e"],
+          settled: true,
         },
         {
           awaitingIds: ["a", "b"],
           finishedIds: ["c"],
           workingIds: ["d"],
           lingerIds: ["e"],
+          settled: true,
         },
       ),
     ).toBe(true);
@@ -258,12 +268,19 @@ describe("urgencyEqual", () => {
   it("is false when the awaiting set differs", () => {
     expect(
       urgencyEqual(
-        { awaitingIds: ["a"], finishedIds: [], workingIds: [], lingerIds: [] },
+        {
+          awaitingIds: ["a"],
+          finishedIds: [],
+          workingIds: [],
+          lingerIds: [],
+          settled: true,
+        },
         {
           awaitingIds: ["a", "b"],
           finishedIds: [],
           workingIds: [],
           lingerIds: [],
+          settled: true,
         },
       ),
     ).toBe(false);
@@ -272,12 +289,19 @@ describe("urgencyEqual", () => {
   it("is false when ONLY the finished set differs — a finish must still publish", () => {
     expect(
       urgencyEqual(
-        { awaitingIds: ["a"], finishedIds: [], workingIds: [], lingerIds: [] },
+        {
+          awaitingIds: ["a"],
+          finishedIds: [],
+          workingIds: [],
+          lingerIds: [],
+          settled: true,
+        },
         {
           awaitingIds: ["a"],
           finishedIds: ["b"],
           workingIds: [],
           lingerIds: [],
+          settled: true,
         },
       ),
     ).toBe(false);
@@ -290,8 +314,20 @@ describe("urgencyEqual", () => {
     // diff against.
     expect(
       urgencyEqual(
-        { awaitingIds: [], finishedIds: [], workingIds: ["a"], lingerIds: [] },
-        { awaitingIds: [], finishedIds: [], workingIds: [], lingerIds: ["a"] },
+        {
+          awaitingIds: [],
+          finishedIds: [],
+          workingIds: ["a"],
+          lingerIds: [],
+          settled: true,
+        },
+        {
+          awaitingIds: [],
+          finishedIds: [],
+          workingIds: [],
+          lingerIds: ["a"],
+          settled: true,
+        },
       ),
     ).toBe(false);
   });

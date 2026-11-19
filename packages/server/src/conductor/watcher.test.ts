@@ -65,6 +65,7 @@ const QUIET: PadiUrgency = {
   finishedIds: [],
   workingIds: [],
   lingerIds: [],
+  settled: true,
 };
 
 /** A value that can be read now and re-read on every change — padi's own

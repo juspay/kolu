@@ -224,6 +224,19 @@ yet:
 - **`@kolu/padi/watchSpec`** — the argv grammar for `kolu watch`'s knobs: a CLI
   concern, not a wire one.
 
+## When an `urgency` frame is evidence
+
+The `urgency` cell carries four id lists (asking · working · linger ·
+finished) and one flag, `settled`. While `settled` is `false`, padi has not
+finished looking: it has not adopted kaval's terminals yet, it is still reading
+an adopted terminal's agent for the first time, or a kaval recycle is
+draining. The lists of such a frame are empty for want of looking.
+
+A reader must keep what it last knew across an unsettled frame, never treat its
+empty lists as "nobody needs you". `urgencyEqual` compares `settled`, so a quiet
+host still publishes the moment it has looked. A frame without the key (a 7.11
+padi) decodes as settled.
+
 ## Docs
 
 - The daemon, whole — [`packages/padi/README.md`](../padi/README.md)

@@ -24,6 +24,7 @@ const EMPTY: PadiUrgency = {
   finishedIds: [],
   workingIds: [],
   lingerIds: [],
+  settled: true,
 };
 
 const urgency = (u: Partial<PadiUrgency>): PadiUrgency => ({ ...EMPTY, ...u });

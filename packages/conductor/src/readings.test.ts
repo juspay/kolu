@@ -99,6 +99,7 @@ const QUIET: PadiUrgency = {
   finishedIds: [],
   workingIds: [],
   lingerIds: [],
+  settled: true,
 };
 
 /** One READY host's last word, as a leg accumulates it: the watched ids, padi's

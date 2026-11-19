@@ -76,15 +76,21 @@ const FleetRefs = Schema.Array(FleetTerminalRefSchema);
 /** padi's urgency, with every id list host-qualified.
  *
  *  The `satisfies` is the drift gate: it demands this struct's key set be
- *  EXACTLY `PadiUrgencySchema`'s, so a fifth attention list added to padi fails
- *  the build here rather than silently never reaching the fleet — which would
- *  read, on an agent's side, as a fleet where nobody is ever asking. */
+ *  EXACTLY `PadiUrgencySchema`'s LISTS, so a fifth attention list added to
+ *  padi fails the build here rather than silently never reaching the fleet —
+ *  which would read, on an agent's side, as a fleet where nobody is ever
+ *  asking. padi's `settled` is the one non-list key and is not carried: it
+ *  says whether ONE host has finished looking, and a host that has not
+ *  contributes empty lists, exactly as before it adopted anything. */
 export const FleetUrgencySchema = Schema.Struct({
   awaitingIds: FleetRefs,
   finishedIds: FleetRefs,
   workingIds: FleetRefs,
   lingerIds: FleetRefs,
-} satisfies Record<keyof typeof PadiUrgencySchema.fields, typeof FleetRefs>);
+} satisfies Record<
+  Exclude<keyof typeof PadiUrgencySchema.fields, "settled">,
+  typeof FleetRefs
+>);
 export type FleetUrgency = typeof FleetUrgencySchema.Type;
 
 /** Nobody is asking, on any host. The cell's default and the empty fold's

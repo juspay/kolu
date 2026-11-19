@@ -29,18 +29,20 @@ import { attentionClass } from "@kolu/terminal-vocab/agentProjection";
 import type { AttentionFrame } from "@kolu/terminal-vocab/attentionTransitions";
 import type { TerminalId } from "@kolu/terminal-vocab/schema";
 
-/** The urgency of a fleet nobody has seen yet — every list empty.
+/** The urgency of a fleet nobody has seen yet — every list empty, and
+ *  `settled: false`, because the lists are empty for want of looking.
  *
  *  Named rather than folded, because the ONE caller is the branch that has just
- *  established there is nothing to fold (`servePadi`'s pre-adopt gate). Running
- *  the fold over a map the gate proved empty, through an `isEpisodeFinished`
- *  predicate nothing can call, reads at the call site as if the branch might
- *  compute something. */
+ *  established there is nothing to fold yet (`servePadi`'s fleet gate, closed).
+ *  Running the fold over a map the gate refused, through an
+ *  `isEpisodeFinished` predicate nothing can call, reads at the call site as if
+ *  the branch might compute something. */
 export const EMPTY_URGENCY: PadiUrgency = {
   awaitingIds: [],
   finishedIds: [],
   workingIds: [],
   lingerIds: [],
+  settled: false,
 };
 
 /** Fold the composed `terminals` collection into the urgency projection — one
@@ -100,7 +102,8 @@ export function recomputeUrgency(
         break;
     }
   }
-  return { awaitingIds, finishedIds, workingIds, lingerIds };
+  // Every fold is of a fleet the gate admitted, so it is evidence.
+  return { awaitingIds, finishedIds, workingIds, lingerIds, settled: true };
 }
 
 /** `PadiUrgency`'s wire dialect, read as the shared {@link AttentionFrame}.

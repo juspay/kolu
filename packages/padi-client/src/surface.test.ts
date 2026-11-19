@@ -39,6 +39,7 @@ import {
   TranscriptNoAgent,
   TranscriptNotFound,
   WorktreeBaseBranchMissing,
+  urgencyEqual,
 } from "./surface.ts";
 
 /** zod's `.safeParse(x).success`, in Effect terms. */
@@ -180,7 +181,11 @@ describe("padiSurface contract", () => {
     // `git.getDiff`'s declared error with `WorktreeBaseBranchMissing` — a
     // required field on an emitted value and a widened emitted union, the
     // 5.3/7.3 case again: a minor.
-    expect(PADI_SURFACE_VERSION).toBe("7.11");
+    // 7.11 ADDS `isDraft` to the forge's `PrInfo` — a required field on an
+    // emitted value: a minor.
+    // 7.12 ADDS `settled` to the `urgency` value, decoding to `true` when an
+    // older padi omits it — a field on an emitted value: a minor.
+    expect(PADI_SURFACE_VERSION).toBe("7.12");
     expect(DEFAULT_PADI_VERSION.contractVersion).toBe(PADI_SURFACE_VERSION);
     expect(
       Schema.decodeUnknownSync(PadiVersionSchema)(DEFAULT_PADI_VERSION),
@@ -830,14 +835,24 @@ describe("PadiUrgency — the rolling-deploy defaults, in BYTES", () => {
       finishedIds: [],
       workingIds: [],
       lingerIds: [],
+      settled: true,
     });
   });
 
-  it("EMIT-KEY: a frame this build serves carries all four keys, in declaration order", () => {
+  it("a frame from a 7.11 padi, which never says `settled`, reads as settled — what it always meant", () => {
+    // An older padi published a frame only once it had looked, as far as any
+    // reader could tell; reading its frames as unsettled would freeze every
+    // mark on that host until it was upgraded.
+    expect(
+      decode({ awaitingIds: [], finishedIds: [ID], workingIds: [] }).settled,
+    ).toBe(true);
+  });
+
+  it("EMIT-KEY: a frame this build serves carries every key, in declaration order", () => {
     // The half decode-equality cannot see — and the half that makes the encoded
     // bytes identical to what zod's `.default([])` produced.
     expect(JSON.stringify(encode(decode({ awaitingIds: [] })))).toBe(
-      '{"awaitingIds":[],"finishedIds":[],"workingIds":[],"lingerIds":[]}',
+      '{"awaitingIds":[],"finishedIds":[],"workingIds":[],"lingerIds":[],"settled":true}',
     );
     expect(
       JSON.stringify(
@@ -847,11 +862,12 @@ describe("PadiUrgency — the rolling-deploy defaults, in BYTES", () => {
             finishedIds: [ID],
             workingIds: [],
             lingerIds: [ID],
+            settled: false,
           }),
         ),
       ),
     ).toBe(
-      `{"awaitingIds":["${ID}"],"finishedIds":["${ID}"],"workingIds":[],"lingerIds":["${ID}"]}`,
+      `{"awaitingIds":["${ID}"],"finishedIds":["${ID}"],"workingIds":[],"lingerIds":["${ID}"],"settled":false}`,
     );
   });
 
@@ -868,6 +884,27 @@ describe("PadiUrgency — the rolling-deploy defaults, in BYTES", () => {
     const a = decode({ awaitingIds: [] });
     const b = decode({ awaitingIds: [] });
     expect(a.finishedIds).not.toBe(b.finishedIds);
+  });
+});
+
+describe("urgencyEqual — the one wire dedup point", () => {
+  const empty = {
+    awaitingIds: [],
+    finishedIds: [],
+    workingIds: [],
+    lingerIds: [],
+  };
+
+  it("tells a frame nobody has looked at from an empty fleet that was looked at", () => {
+    // Both carry four empty lists. If the dedup reads them as one frame, a
+    // quiet host's padi finishes looking and never says so: every reader stays
+    // on the unsettled value it was handed first.
+    expect(
+      urgencyEqual({ ...empty, settled: false }, { ...empty, settled: true }),
+    ).toBe(false);
+    expect(
+      urgencyEqual({ ...empty, settled: true }, { ...empty, settled: true }),
+    ).toBe(true);
   });
 });
 
