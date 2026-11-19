@@ -44,6 +44,8 @@ import { createEffect, createMemo, mapArray, onCleanup } from "solid-js";
 import { createSharedRoot } from "../createSharedRoot";
 import { hostKeys, interpretClientError, padiMap } from "../wire";
 import {
+  emptyByClass,
+  type FrameClass,
   frameByClass,
   type TerminalAttention,
 } from "@kolu/padi-client/attention";
@@ -101,25 +103,29 @@ export const useAttentionFacts = createSharedRoot(() => {
       // same surface translate the wire identically (it also owns the copies that
       // fence the `reconcile` proxy `.use()` hands back, which mutates in place
       // across ticks).
-      const byClass = createMemo(() => {
-        const value = urgency();
-        return value === undefined
-          ? frameByClass({
-              awaitingIds: [],
-              finishedIds: [],
-              workingIds: [],
-              lingerIds: [],
-              settled: false,
-            })
-          : frameByClass(value);
-      });
+      //
+      // Only a SETTLED frame moves it. An unsettled one is padi saying it has
+      // not looked yet (a redeploy's fresh padi, a kaval recycle), so its empty
+      // lists are no news: the reading stays at what padi last said it saw, and
+      // the marks and counts it drives do not blink to idle and back.
+      const byClass = createMemo(
+        (previous: Record<FrameClass, TerminalId[]>) => {
+          const value = urgency();
+          return value?.settled === true ? frameByClass(value) : previous;
+        },
+        emptyByClass(),
+      );
       const liveIds = createMemo<readonly TerminalId[]>(
         (previous) => (activity.pending() ? previous : [...(activity() ?? [])]),
         [],
       );
+      // Has padi said what it SAW? Once it has, the held reading above is
+      // its word, so this stays true across a later unsettled frame.
       const reported = createMemo(
         (previous: boolean) =>
-          activity.pending() ? previous : urgency() !== undefined,
+          activity.pending()
+            ? previous
+            : previous || urgency()?.settled === true,
         false,
       );
       registerHostFacts(encHost, () => ({

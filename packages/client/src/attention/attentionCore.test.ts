@@ -250,3 +250,28 @@ describe("attentionCore — detect→fire (the path e2e/simulate skips)", () => 
     expect(cleared).toEqual([{ host: "other", id: "B" }]);
   });
 });
+
+describe("attentionCore — a tab that stays open through a redeploy", () => {
+  // While padi is replaced, the mirror feeds the engine nothing (an unsettled
+  // frame is not a report, `useAttentionFacts`), so the engine sees a settled
+  // frame, then silence, then the fresh padi's first settled frame.
+
+  it("the same frame after the silence rings nothing and drops no mark", () => {
+    const { core, delivered, cleared } = harness();
+    core.observe("h", u([], []));
+    core.observe("h", u(["Q"], ["A"]));
+    expect(delivered).toHaveLength(2);
+    // …padi goes away and comes back, having found both as they were.
+    core.observe("h", u(["Q"], ["A"]));
+    expect(delivered).toHaveLength(2);
+    expect(cleared).toEqual([]);
+  });
+
+  it("a terminal that finished while padi was away rings once, loud", () => {
+    const { core, delivered, quiet } = harness();
+    core.observe("h", u([], []));
+    core.observe("h", u([], ["B"]));
+    expect(delivered).toEqual([{ id: "B", asking: false }]);
+    expect(quiet).toEqual([]);
+  });
+});
