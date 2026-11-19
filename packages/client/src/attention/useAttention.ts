@@ -74,7 +74,12 @@ import { drivenByConductor } from "../conductor/workReadings";
 import { runAction } from "../runAction";
 import type { TerminalSubject } from "../terminal/terminalSubject";
 import { nextAfter } from "../ui/nextAfter";
-import { activeHost, preferences, setActiveHost } from "../wire";
+import {
+  activeHost,
+  preferences,
+  preferencesArrived,
+  setActiveHost,
+} from "../wire";
 import { createAttentionCore } from "./attentionCore";
 import { createConductorBell } from "./conductorAsks";
 import {
@@ -328,6 +333,12 @@ export function useAttention(deps: AttentionDeps): {
       const frame = hostFrame(encHost);
       // Silence is not an empty frame — see `HostMarks.reported`.
       if (!frame.reported) return;
+      // Nor is a default an answer. A page resuming from what it saved can
+      // raise marks on its first frame, and whether it may is the user's
+      // **Attention alerts** setting — which reads the defaults (on) until
+      // the server's first preferences frame lands. Fed before then, a page
+      // would mark a user who had switched alerts off.
+      if (!preferencesArrived()) return;
       // The frame's own class map, handed straight over — the engine's type is
       // a `Pick` of it, so there is no adapter object to mint per host per
       // frame and no second name for the same two lists.
