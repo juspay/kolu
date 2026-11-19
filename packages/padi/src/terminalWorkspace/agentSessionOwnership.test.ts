@@ -238,6 +238,7 @@ function startTerminal(id: TerminalId, agentPid: number): Harness {
     (o) => emits.push(o),
     log,
     false,
+    () => {},
   );
   // A fresh terminal sits at its shell, and kaval pushes a current foreground
   // snapshot on subscribe. Publishing it is what lets kolu WATCH the shell →

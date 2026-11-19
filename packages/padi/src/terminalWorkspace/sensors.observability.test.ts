@@ -67,6 +67,8 @@ interface Harness {
   /** Kill the agent's on-disk session so `resolveSessions` finds nothing for its pid —
    *  the file-unlink an unclean death (or a genuine quit) produces. */
   killSession: () => void;
+  /** How many times the detector said it has made its first pass. */
+  firstPasses: () => number;
   stop: () => void;
 }
 
@@ -102,6 +104,7 @@ function startHarness(): Harness {
     screenSettled: inMemoryChannel<void>(),
     submitted: inMemoryChannel<void>(),
   };
+  let firstPasses = 0;
   const stop = startAgentSensor(
     fakeAdapter,
     freshAgentEngineState(),
@@ -113,6 +116,9 @@ function startHarness(): Harness {
     (o) => emits.push(o),
     log,
     false, // shell-rooted terminal
+    () => {
+      firstPasses += 1;
+    },
   );
   let titles = 0;
   return {
@@ -130,6 +136,7 @@ function startHarness(): Harness {
     killSession: () => {
       sessionLive = false;
     },
+    firstPasses: () => firstPasses,
     stop,
   };
 }
@@ -257,6 +264,40 @@ describe("W12 — the agent sensor's resolved-null SAMPLE-CONTENT discriminant",
         kind: "agent",
         agent: { value: null },
       });
+    } finally {
+      h.stop();
+    }
+  });
+});
+
+describe("the detector's first pass — the moment padi has looked", () => {
+  it("is said for a plain shell, which publishes nothing", async () => {
+    // An adopted survivor whose agent quit while kolu was down: the detector
+    // finds a shell and has no value to emit, so the report is the only way
+    // padi learns it has looked.
+    const h = startHarness();
+    try {
+      // Installing the detector reconciles against "nothing observed yet",
+      // which is not a look.
+      expect(h.firstPasses()).toBe(0);
+      await h.poke();
+      expect(h.firstPasses()).toBe(0);
+      await h.foreground(shellSample);
+      expect(agentEvents(h.emits)).toEqual([]);
+      expect(h.firstPasses()).toBe(1);
+    } finally {
+      h.stop();
+    }
+  });
+
+  it("is said once, after the agent it found has been emitted", async () => {
+    const h = startHarness();
+    try {
+      await h.foreground(agentSample);
+      expect(h.firstPasses()).toBe(1);
+      expect(agentEvents(h.emits)).not.toEqual([]);
+      await h.foreground(shellSample);
+      expect(h.firstPasses()).toBe(1);
     } finally {
       h.stop();
     }

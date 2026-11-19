@@ -1,7 +1,50 @@
 import * as assert from "node:assert";
 import { Then, When } from "@cucumber/cucumber";
 import { pollFor, pollUntil } from "../support/poll.ts";
+import { redeployUnderThisPage } from "../support/redeploy.ts";
 import { type KoluWorld, POLL_TIMEOUT } from "../support/world.ts";
+
+/** kolu is redeployed under the open page: the server and padi are replaced,
+ *  the terminals keep running, and the page reloads with its storage — see
+ *  `redeployUnderThisPage`. The harness cannot keep a tab open across it (the
+ *  new server listens on a new port), so a scenario here is always the
+ *  RELOAD half of a restart; the tab that stays open is the unit tests'. */
+When(
+  "the kolu server is redeployed under this page",
+  { timeout: 180_000 },
+  async function (this: KoluWorld) {
+    await redeployUnderThisPage(this);
+  },
+);
+
+/** The agent's row shows padi's verdict that its turn is over — still, in
+ *  the post-turn paint. padi publishes that verdict only once it has looked,
+ *  so a check after this one is a check of what the page did with padi's
+ *  first real word, not of a page that has not heard it yet. */
+Then(
+  "the agent's dock row should show its finished turn",
+  async function (this: KoluWorld) {
+    await pollFor({
+      observe: () =>
+        this.page.evaluate(() =>
+          [
+            ...document.querySelectorAll(
+              '[data-testid="dock-row"][data-agent-state="waiting"] [data-testid="state-pip"]',
+            ),
+          ].map(
+            (pip) =>
+              `${pip.getAttribute("data-pip")}/${pip.getAttribute("data-motion")}`,
+          ),
+        ),
+      isDone: (pips) => pips.includes("linger/none"),
+      timeoutMs: POLL_TIMEOUT,
+      onTimeout: (pips, ms) =>
+        new Error(
+          `after ${ms}ms no waiting agent's row showed a finished turn (pips: ${JSON.stringify(pips)})`,
+        ),
+    });
+  },
+);
 
 When("I click the attention alerts toggle", async function (this: KoluWorld) {
   await this.page.click('[data-testid="attention-alerts-toggle"]');

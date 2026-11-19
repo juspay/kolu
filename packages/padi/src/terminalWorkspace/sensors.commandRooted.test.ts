@@ -91,6 +91,7 @@ function startHarness(commandRooted: boolean) {
     (o) => emits.push(o),
     log,
     commandRooted,
+    () => {},
   );
   return { emits, signals, stop };
 }

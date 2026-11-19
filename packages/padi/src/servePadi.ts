@@ -425,6 +425,7 @@ export function buildPadiSurfaceDeps(deps: {
     // The serving gate goes with the serve it belongs to: a rebuilt padi
     // surface must not have a dead gate publishing through its ctx.
     setServingFleetGate(null);
+    fleetGate.dispose();
     unsubscribeSettle();
     watchRegistry.dispose();
     stateWatch.dispose();
@@ -562,14 +563,18 @@ export function buildPadiSurfaceDeps(deps: {
       // dedup point. No `store`/`equals` here — the graph is the one writer.
       urgency: derived.cell(($) => {
         const terminals = $.terminals();
-        // THE SERVE-TIME EMPTY SEED, gated ONCE at the only thing that produces
-        // it. This cell runs at serve time, BEFORE the endpoint has booted and
-        // adopted kaval's terminals, so its first frame is an information-free
-        // empty registry, and every consumer downstream treats a frame as
-        // evidence. The gate (and the half that is easy to lose — it OPENS once
-        // and stays open, so a later empty fleet is a real "everything exited")
-        // is `fleetGate.ts`, where it is pinned. The frame stops HERE, and
-        // everything downstream may trust what it is fed.
+        // THE FRAMES NOBODY HAS LOOKED AT, gated ONCE at the only thing that
+        // produces them. This cell runs at serve time, BEFORE the endpoint has
+        // booted and adopted kaval's terminals, so its first frame is an
+        // information-free empty registry; and right after adoption it lists
+        // every survivor with no agent read yet. Every consumer downstream
+        // treats a frame as evidence. The gate (and the half that is easy to
+        // lose — it OPENS once and stays open, so a later empty fleet is a real
+        // "everything exited") is `fleetGate.ts`, where it is pinned. The frame
+        // stops HERE, and everything downstream may trust what it is fed; the
+        // wire is told it is not evidence (`settled: false`). `admit` also
+        // reads the gate's own generation, so the fold re-runs when the last
+        // survivor is read even if that read changed no record.
         if (!fleetGate.admit(terminals)) {
           return EMPTY_URGENCY;
         }

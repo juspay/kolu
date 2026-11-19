@@ -96,6 +96,7 @@ function startOmpSensor() {
       () => {},
       log,
       false,
+      () => {},
     ),
     startAgentSensor(
       AGENT_PLUGINS.omp.adapter,
@@ -108,6 +109,7 @@ function startOmpSensor() {
       () => {},
       log,
       false,
+      () => {},
     ),
   ];
   return {

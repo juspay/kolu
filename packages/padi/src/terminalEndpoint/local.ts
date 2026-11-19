@@ -63,6 +63,10 @@ import type { ForegroundSample, PtyHostClient, PtyHostListEntry } from "kaval";
 import type { SnapshotGrid } from "terminal-snapshot";
 import { abortableDelay } from "../abortableDelay.ts";
 import { trackRecentAgent, trackRecentRepo } from "../activity/activity.ts";
+import {
+  markAwaitingFirstRead,
+  markFirstRead,
+} from "../attention/fleetGate.ts";
 import type {
   EndpointGrid,
   PtySpawnOpts,
@@ -1016,6 +1020,11 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
       snapshot,
       handle: proxy,
     };
+    // The survivor arrives with no agent on it (the sensors re-read it), so
+    // padi's attention fold must not take the frame this registration makes
+    // as a reading of it. Said BEFORE registering, which is what runs that
+    // fold; a no-op for a mid-session adoption (`fleetGate.ts`).
+    markAwaitingFirstRead(id);
     registerAndInstall(id, entry);
     // The PTY already exists on the survivor — release the handle's queued /
     // awaited verbs at the live pid with no spawn RPC (the sole structural
@@ -1442,7 +1451,13 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
           process: msg.process,
           foregroundPid: msg.foregroundPid,
         }),
-      (err) => onForegroundTapError(id, signals.foreground, err),
+      (err) => {
+        onForegroundTapError(id, signals.foreground, err);
+        // The detectors will get no sample from a dead tap, so their first
+        // pass is "cannot tell" — said, so the attention fold is not held
+        // closed by a terminal padi cannot see.
+        markFirstRead(id);
+      },
     );
     const stopAwareness = startSensors(
       id,
@@ -1453,6 +1468,7 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
         signals,
         readScreenText: (tailLines) => readScreenTextFor(id, tailLines),
         log,
+        onAgentsRead: () => markFirstRead(id),
       },
       emit,
     );

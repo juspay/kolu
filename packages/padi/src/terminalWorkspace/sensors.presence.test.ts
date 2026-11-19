@@ -120,6 +120,7 @@ function startHarness(opts: { store?: "readable" | "unreadable" } = {}) {
     (o) => emits.push(o),
     log,
     false,
+    () => {},
   );
   const stop = () => {
     stopAgent();

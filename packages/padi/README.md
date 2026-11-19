@@ -569,6 +569,32 @@ same agent's own session-backed value (W12's keep-last), its restore target is
 `none` (nothing to resume), and the folds keep `starting`/`fresh` out of every
 attention list.
 
+## The fleet gate — attention only from what padi has looked at
+
+Every attention consumer (the `urgency` cell, `finishQuiet`, the settle events
+and the state watch below) is fed through one gate, `attention/fleetGate.ts`.
+It refuses two kinds of frame:
+
+- **Before adoption, and through a kaval recycle's drain** — the registry is
+  empty or half-drained for padi's own reasons, not because terminals exited.
+- **After adoption, until every survivor has been read once.** A redeploy
+  adopts kaval's terminals with no agent on them, and the sensors read each
+  agent a moment later. The adopt path names each survivor to the gate before
+  registering it; the terminal's sensor set reports when every agent detector
+  has made its first pass over a real foreground sample (an agent, a shell, or
+  "cannot tell" — a dead foreground tap counts as that). A survivor that goes
+  away while awaited stops being awaited.
+
+While the gate refuses, the `urgency` cell carries `settled: false`. The
+roster's census ("who is here") does not wait for the reads: it opens as soon
+as a terminal is listed, because the Conductor's watch reads "not listed" as
+"gone".
+
+Without the second rule, `finishQuiet`'s "already idle when padi first looked is
+not news" was spent on the agentless frame, and every idle agent then arrived as
+a brand-new finish — after each redeploy every browser rang and marked every
+agent terminal unread.
+
 ## Settle events — the standing subscriptions
 
 padi already computed WHO needs attention: the `urgency` cell's `awaitingIds` (an

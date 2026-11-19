@@ -35,3 +35,24 @@ Feature: Attention Alerts
     And I simulate an attention alert
     Then no workspace switcher branch should be notified
     And there should be no page errors
+
+  # After a restart. The harness starts the new server on a new port, so the
+  # page always reloads; these scenarios are the RELOAD case. A tab that stays
+  # open through the restart is covered by the attention engine's unit tests.
+  # Each waits for the agent's row to show its finished turn before checking
+  # what did NOT happen, so the check runs after padi's first real word.
+
+  Scenario: A finished agent you had opened reads as read after kolu restarts
+    When I stub the notification sound
+    And a Claude Code session is mocked with state "waiting"
+    And I create a terminal
+    Then a workspace switcher branch should be notified
+    And the notification sound should have played 1 time
+    When I click the notified workspace switcher branch
+    Then no workspace switcher branch should be notified
+    When I select terminal 1 in the workspace switcher
+    And the kolu server is redeployed under this page
+    Then the agent's dock row should show its finished turn
+    And no workspace switcher branch should be notified
+    And the notification sound should have played 0 times
+    And there should be no page errors

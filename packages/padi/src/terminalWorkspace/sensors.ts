@@ -848,6 +848,13 @@ export function startAgentSensor<Session, Info extends AgentInfoShape>(
   emit: (o: TerminalEvent) => void,
   log: Logger,
   commandRooted: boolean,
+  /** Called ONCE, after this detector's first reconcile against a REAL
+   *  foreground sample — whatever it concluded: its agent found, a plain
+   *  shell, or that it cannot tell. Not the install-time reconcile below,
+   *  which runs against the seeded "nothing observed yet" foreground. A shell
+   *  with no agent emits nothing, so this is the only way a host learns the
+   *  detector has looked. */
+  onFirstPass: () => void,
 ): () => void {
   const plog = log.child({ provider: adapter.kind, terminal: terminalId });
   let current: {
@@ -1364,11 +1371,18 @@ export function startAgentSensor<Session, Info extends AgentInfoShape>(
     onEvent: () => reconcile(),
     onError: (err) => plog.error({ err }, "publisher subscription failed"),
   });
+  // Has this detector reported its first pass over a real sample?
+  let firstPassReported = false;
   const cleanupForeground = signals.foreground.consume({
     onEvent: (fg) => {
       noteEpisode(fg);
       currentForeground = fg;
       reconcile();
+      // `reconcile` is synchronous and every emit it makes has reached the
+      // host's fold by now, so "looked" is true of what the host holds.
+      if (firstPassReported || stopped) return;
+      firstPassReported = true;
+      onFirstPass();
     },
     onError: (err) => plog.error({ err }, "foreground subscription failed"),
   });
@@ -1473,6 +1487,12 @@ export interface SensorInputs {
   signals: SensorSignals;
   readScreenText?: ReadScreenText;
   log: Logger;
+  /** Called ONCE, when EVERY agent detector has made its first pass over a
+   *  real foreground sample (`startAgentSensor`'s `onFirstPass`) — the moment
+   *  this terminal's agent, or the absence of one, is what padi holds. padi
+   *  waits on it after adopting a survivor before it reports attention
+   *  (`attention/fleetGate.ts`). */
+  onAgentsRead: () => void;
 }
 
 /** Start the memoryless per-terminal awareness PRODUCER. It emits per-field
@@ -1487,7 +1507,15 @@ export function startSensors(
   inputs: SensorInputs,
   emit: (o: TerminalEvent) => void,
 ): () => void {
-  const { pid, cwd, commandRooted, signals, readScreenText, log } = inputs;
+  const {
+    pid,
+    cwd,
+    commandRooted,
+    signals,
+    readScreenText,
+    log,
+    onAgentsRead,
+  } = inputs;
   // Transient working state — re-seeded empty each start (a producer is memoryless).
   const agentState: AgentEngineState = freshAgentEngineState();
 
@@ -1534,6 +1562,23 @@ export function startSensors(
     log,
   );
   const stopPr = startPrSensor(terminalId, gitChannel, emit, log);
+  // THE FIRST PASS, over every detector. There is one detector per agent kind,
+  // each on its own subscription to the foreground, so the terminal has been
+  // read once only when the LAST of them has reported. Counted here, where
+  // the list of detectors is.
+  const plugins = Object.values(AGENT_PLUGINS);
+  let unreadDetectors = plugins.length;
+  const detectorRead = (): void => {
+    unreadDetectors -= 1;
+    if (unreadDetectors !== 0) return;
+    // A throw here would escape into the last detector's `consume` loop and
+    // silence it for the terminal's life, so it is caught and said.
+    try {
+      onAgentsRead();
+    } catch (err) {
+      log.error({ err, terminal: terminalId }, "agents-read report failed");
+    }
+  };
   // Every registered agent's detector — the list is the registry, not a
   // hand-maintained set of imports. A new agent joins by adding its plugin to
   // `kolu-agents`, with no edit here. `Info` is erased to `AgentInfoShape` at
@@ -1551,10 +1596,9 @@ export function startSensors(
       emit,
       log,
       commandRooted,
+      detectorRead,
     );
-  const stopAgents = Object.values(AGENT_PLUGINS).map((plugin) =>
-    startAgent(plugin.adapter),
-  );
+  const stopAgents = plugins.map((plugin) => startAgent(plugin.adapter));
   const stopProcess = startForegroundSensor(
     terminalId,
     signals,
