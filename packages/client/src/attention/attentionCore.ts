@@ -128,26 +128,26 @@ export function createAttentionCore(hooks: AttentionHooks): AttentionCore {
   };
 
   const observe = (encHost: string, cur: AttentionFrame): void => {
-    // The host's FIRST frame on this page? Asked before the memory is touched,
-    // because `observe` below advances it. If an earlier page saved this host,
-    // the engine carries on from there instead of starting blank.
+    // The host's FIRST frame on this page? If an earlier page saved this host,
+    // the engine carries on from there instead of starting blank. A RESUMED
+    // first frame: what changed since the saved one happened while no page was
+    // watching. It is marked for you to find, but nothing rings — five agents
+    // that finished while you were away are five marks, not five chimes the
+    // moment you open kolu. With nothing saved, it is the BASELINE.
     let transitions = transitionsByHost.get(encHost);
-    const first = transitions === undefined;
-    const saved = first ? hooks.resume(encHost) : null;
-    if (saved !== null) {
-      latched.set(encHost, new Set(saved.latched));
-      unseenByHost.set(encHost, new Set(saved.unseenFinished));
-    }
+    let baseline = false;
+    let resumed = false;
     if (transitions === undefined) {
+      const saved = hooks.resume(encHost);
+      if (saved !== null) {
+        latched.set(encHost, new Set(saved.latched));
+        unseenByHost.set(encHost, new Set(saved.unseenFinished));
+      }
       transitions = createAttentionTransitions(saved?.frame ?? null);
       transitionsByHost.set(encHost, transitions);
+      baseline = saved === null;
+      resumed = !baseline;
     }
-    const baseline = first && saved === null;
-    // A RESUMED first frame: what changed since the saved one happened while
-    // no page was watching. It is marked for you to find, but nothing rings —
-    // five agents that finished while you were away are five marks, not five
-    // chimes the moment you open kolu.
-    const resumed = first && saved !== null;
     const { candidates, ended } = transitions.observe(cur);
     frameByHost.set(encHost, {
       asking: [...cur.asking],

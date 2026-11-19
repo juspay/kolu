@@ -134,14 +134,15 @@ export interface AttentionTransitions {
 export function createAttentionTransitions(
   seed: AttentionFrame | null = null,
 ): AttentionTransitions {
-  let prev: AttentionFrame | null =
-    seed === null
-      ? null
-      : { asking: [...seed.asking], finished: [...seed.finished] };
+  const copy = (frame: AttentionFrame): AttentionFrame => ({
+    asking: [...frame.asking],
+    finished: [...frame.finished],
+  });
+  let prev: AttentionFrame | null = seed === null ? null : copy(seed);
   return {
     observe(cur) {
       const transition = attentionTransitions(prev, cur);
-      prev = { asking: [...cur.asking], finished: [...cur.finished] };
+      prev = copy(cur);
       return transition;
     },
     reset() {
