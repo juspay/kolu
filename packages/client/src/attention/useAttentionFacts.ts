@@ -57,6 +57,7 @@ import {
   terminalClass,
   writeHostMarks,
 } from "./attentionMarks";
+import { forgetAttentionRecord } from "./savedAttention";
 
 export const useAttentionFacts = createSharedRoot(() => {
   // One eager root per host, holding BOTH of that host's attention members.
@@ -145,11 +146,13 @@ export const useAttentionFacts = createSharedRoot(() => {
       // Publish membership, independent of the live facts above.
       writeHostMarks(encHost, {});
       registerHostIndex(encHost, createAttentionIndex(byClass, liveIds));
-      // Host left the pool — drop its whole record, and the index whose memos
-      // are disposed with this owner. The ONE deleter.
+      // Host left the pool — drop its whole record, the index whose memos
+      // are disposed with this owner, and what this browser saved about its
+      // attention (a page reload does not run this). The ONE deleter.
       onCleanup(() => {
         forgetHostIndex(encHost);
         writeHostMarks(encHost, undefined);
+        forgetAttentionRecord(encHost);
       });
       return null;
     },

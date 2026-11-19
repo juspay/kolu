@@ -40,7 +40,10 @@ Feature: Attention Alerts
   # page always reloads; these scenarios are the RELOAD case. A tab that stays
   # open through the restart is covered by the attention engine's unit tests.
   # Each waits for the agent's row to show its finished turn before checking
-  # what did NOT happen, so the check runs after padi's first real word.
+  # what did NOT happen, so the check runs after padi's first real word. The
+  # page comes back focused on the terminal padi saved as active, so the
+  # scenarios that need the agent's terminal in the background wait for that
+  # save first (a terminal you are looking at never carries a mark).
 
   Scenario: A finished agent you had opened reads as read after kolu restarts
     When I stub the notification sound
@@ -54,5 +57,32 @@ Feature: Attention Alerts
     And the kolu server is redeployed under this page
     Then the agent's dock row should show its finished turn
     And no workspace switcher branch should be notified
+    And the notification sound should have played 0 times
+    And there should be no page errors
+
+  Scenario: A finished agent you had not opened is still unread after kolu restarts
+    When I stub the notification sound
+    And a Claude Code session is mocked with state "waiting"
+    And I create a terminal
+    And I save the active canvas tile id
+    Then the saved session should record the active terminal
+    And the agent's dock row should be unread
+    And the notification sound should have played 1 time
+    When the kolu server is redeployed under this page
+    Then the agent's dock row should show its finished turn
+    And the agent's dock row should be unread
+    And the notification sound should have played 0 times
+    And there should be no page errors
+
+  Scenario: An agent that finishes while kolu is down is unread when it comes back, without a chime
+    When I stub the notification sound
+    And a Claude Code session is mocked with state "thinking"
+    Then the tile chrome should show an agent indicator with state "thinking"
+    When I create a terminal
+    And I save the active canvas tile id
+    Then the saved session should record the active terminal
+    When the kolu server is redeployed while the Claude Code session changes to "waiting"
+    Then the agent's dock row should show its finished turn
+    And the agent's dock row should be unread
     And the notification sound should have played 0 times
     And there should be no page errors

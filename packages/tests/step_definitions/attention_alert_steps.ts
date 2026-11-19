@@ -46,6 +46,17 @@ Then(
   },
 );
 
+/** The finished agent's own row carries the unread mark — not merely some
+ *  row, so a mark that moved to the wrong terminal does not pass. */
+Then("the agent's dock row should be unread", async function (this: KoluWorld) {
+  await this.page
+    .locator(
+      '[data-testid="dock-row"][data-agent-state="waiting"][data-unread]',
+    )
+    .first()
+    .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+});
+
 When("I click the attention alerts toggle", async function (this: KoluWorld) {
   await this.page.click('[data-testid="attention-alerts-toggle"]');
   await this.waitForFrame();

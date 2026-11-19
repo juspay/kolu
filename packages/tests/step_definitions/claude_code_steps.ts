@@ -22,6 +22,7 @@ import {
 } from "../support/buffer.ts";
 import { nudgeDir, nudgeFiles } from "../support/nudge.ts";
 import { pollFor } from "../support/poll.ts";
+import { redeployUnderThisPage } from "../support/redeploy.ts";
 import {
   HYDRATION_TIMEOUT,
   type KoluWorld,
@@ -796,6 +797,21 @@ When(
   async function (this: KoluWorld, state: string) {
     if (!mockTranscriptPath) throw new Error("No mock transcript to update");
     fs.writeFileSync(mockTranscriptPath, buildTranscript(state as MockState));
+  },
+);
+
+/** The agent's state changes while kolu is DOWN — the server and padi are
+ *  gone, kaval and the agent keep running — and the page reloads onto the
+ *  redeployed kolu. Nothing kolu runs saw the change happen. */
+When(
+  "the kolu server is redeployed while the Claude Code session changes to {string}",
+  { timeout: 180_000 },
+  async function (this: KoluWorld, state: string) {
+    const transcript = mockTranscriptPath;
+    if (!transcript) throw new Error("No mock transcript to update");
+    await redeployUnderThisPage(this, () =>
+      fs.writeFileSync(transcript, buildTranscript(state as MockState)),
+    );
   },
 );
 

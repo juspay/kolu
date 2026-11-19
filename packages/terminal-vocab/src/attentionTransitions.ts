@@ -107,7 +107,8 @@ export function attentionTransitions(
 /** The STATEFUL form of the decision above — the previous frame, remembered. */
 export interface AttentionTransitions {
   /** Diff this frame against the one before it and advance the memory. The
-   *  FIRST frame is the baseline (no candidates, no ends). */
+   *  FIRST frame is the baseline (no candidates, no ends) — unless the memory
+   *  was seeded, in which case it diffs against the seed. */
   observe(cur: AttentionFrame): AttentionTransition;
   /** Forget the memory — a host left the pool, a daemon disposed. The next
    *  frame is a baseline again. */
@@ -124,9 +125,19 @@ export interface AttentionTransitions {
  *  NOTHING FIRES. That rule used to live twice, as a paragraph of comment, in the
  *  client's attention core and in padi's settle-event source; a silent-failure rule
  *  enforced by two copies of a comment is one edit away from being enforced by
- *  none. It lives here now, beside the diff it protects. */
-export function createAttentionTransitions(): AttentionTransitions {
-  let prev: AttentionFrame | null = null;
+ *  none. It lives here now, beside the diff it protects.
+ *
+ *  `seed` is a previous frame the caller REMEMBERED from before it started — a
+ *  browser page resuming what it last saw before a reload. Without one, the
+ *  first frame is a baseline, as a discovery is not a transition. It is copied
+ *  for the same reason every frame is. */
+export function createAttentionTransitions(
+  seed: AttentionFrame | null = null,
+): AttentionTransitions {
+  let prev: AttentionFrame | null =
+    seed === null
+      ? null
+      : { asking: [...seed.asking], finished: [...seed.finished] };
   return {
     observe(cur) {
       const transition = attentionTransitions(prev, cur);

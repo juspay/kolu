@@ -42,7 +42,7 @@ import {
   createSignal,
   type Setter,
 } from "solid-js";
-import { createStore, produce, reconcile } from "solid-js/store";
+import { attentionRecordOf } from "../attention/savedAttention";
 import { perHostBoolPref } from "../persistedPref";
 import { runAction } from "../runAction";
 import {
@@ -53,14 +53,12 @@ import {
 import { useVisitRecency } from "../terminal/visitRecency";
 import { padiRpcOf } from "../wire";
 
-// A terminal that has drawn attention while unwatched, surfaced as a dock unread
-// mark. (The former `"badge-only"` state drove the active-host OS badge; W5
-// moved the badge to the cross-host urgency sum in `useAttention`, so unread
-// is the only attention mark this per-host state carries now.) It is raised by
-// the attention engine's `deliver` and dropped on either edge that ends the
-// episode: you focus the terminal (`writeFocus`), or the episode `ended` upstream
-// (`clearUnread`, called host-addressed by the engine).
-type TerminalAttention = "unread";
+// A terminal that has drawn attention while unwatched carries a dock unread
+// mark. The marks live in this host's saved attention record
+// (`savedAttention`), so a reload finds them as they were. The attention engine
+// raises a mark there (`deliver`) and drops it when the episode `ended`; this
+// view state reads them and drops one when you focus its terminal
+// (`writeFocus`).
 
 export interface HostViewState {
   /** The one written focus fact: the terminal receiving keyboard input, whether
@@ -78,11 +76,9 @@ export interface HostViewState {
   reconcileLiveIds: (liveIds: readonly TerminalId[]) => void;
   /** Drop one terminal from the durable visit trail (kill path). */
   forgetFromMru: (id: TerminalId) => void;
-  markUnread: (id: TerminalId) => void;
-  /** Drop one terminal's unread mark without focusing it — the attention engine's
-   *  episode-end edge. Host-addressed by construction (this IS one host's state),
-   *  so a background host's agent resuming still clears its own mark. */
-  clearUnread: (id: TerminalId) => void;
+  /** Does this terminal carry a dock unread mark? Read from this host's saved
+   *  attention record, which the attention engine raises and clears marks on;
+   *  this view state clears one when you focus its terminal. */
   isUnread: (id: TerminalId) => boolean;
   // ── Per-host VIEW POSTURE (W7 TIER A) ────────────────────────────────
   /** Fullscreen-one-tile posture for THIS host. Persisted per host
@@ -106,16 +102,18 @@ export function createViewState(
   const activeId = createMemo(() => activeTileOf(focus(), placementOf));
   const isFocused = createSelector(focusedTerminalId);
   const isActiveTile = createSelector(activeId);
-  const [attention, setAttention] = createStore<
-    Record<TerminalId, TerminalAttention>
-  >({});
   // Cross-host visit trail — one client SOT for ⌘K Recent + Ctrl+Tab.
   const visits = useVisitRecency();
 
   // The canonical host string — the map's `codec.encode(host)`, used in the
-  // active-terminal report's error message below. Computed once per owner. (The
-  // posture's per-host storage key is now composed inside `perHostBoolPref`.)
+  // active-terminal report's error message below and to reach this host's
+  // saved attention record. Computed once per owner. (The posture's per-host
+  // storage key is composed inside `perHostBoolPref`.)
   const encoded = encodeHostKey(host);
+  // The dock unread marks — this host's saved record, the ONE writer of them,
+  // shared with the attention engine (which clears a mark on a host whose view
+  // state may never have been built).
+  const attention = attentionRecordOf(encoded);
 
   // Host-filtered slice of the visit MRU (most-recent first). Replaces the old
   // per-host in-memory list so cycling order survives reloads.
@@ -135,8 +133,9 @@ export function createViewState(
   function writeFocus(next: TerminalFocus | null): void {
     setFocus(next);
     // Focusing a terminal is one of the two ways its unread mark ends; the other
-    // is `clearUnread`. Both go through the SAME delete below.
-    if (next) clearUnread(next.id);
+    // is the attention engine's episode-end edge. Both clear it on the host's
+    // record, so a reload does not bring it back.
+    if (next) attention.clearUnread(next.id);
     const tileId = activeTileOf(next, placementOf);
     if (tileId === null) return;
     // THE activation choke point — canvas, dock, palette, Ctrl+Tab all land here.
@@ -175,25 +174,6 @@ export function createViewState(
     visits.forgetVisit(host, id);
   }
 
-  function markUnread(id: TerminalId): void {
-    setAttention(id, "unread");
-  }
-
-  /** THE unread delete — the single place the mark comes off, shared by the focus
-   *  edge (`writeFocus`) and the attention engine's episode-end edge. */
-  function clearUnread(id: TerminalId): void {
-    if (attention[id] !== "unread") return;
-    setAttention(
-      produce((a) => {
-        delete a[id];
-      }),
-    );
-  }
-
-  function isUnread(id: TerminalId): boolean {
-    return attention[id] === "unread";
-  }
-
   function reset(): void {
     // This factory owns ONLY reset-on-close-all state — the selection facts
     // (active tile, MRU, attention) plus the maximized posture. The sticky per-host
@@ -205,7 +185,7 @@ export function createViewState(
     // persisted posture is floored too — a reload after a close-all stays tiled.
     setFocus(null);
     visits.clearHost(host);
-    setAttention(reconcile({}));
+    attention.clearAllUnread();
     setCanvasMaximized(false);
   }
 
@@ -218,9 +198,7 @@ export function createViewState(
     writeFocus,
     reconcileLiveIds,
     forgetFromMru,
-    markUnread,
-    clearUnread,
-    isUnread,
+    isUnread: attention.isUnread,
     canvasMaximized,
     setCanvasMaximized,
     reset,

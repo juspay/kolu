@@ -77,7 +77,6 @@ export function useViewState() {
     view()?.setCanvasMaximized((prev) => !prev);
   }
 
-  const markUnread = (id: TerminalId) => view()?.markUnread(id);
   const isUnread = (id: TerminalId): boolean => view()?.isUnread(id) ?? false;
 
   /** Clear the ACTIVE host's selection record (handleCloseAll closes every tile
@@ -100,7 +99,6 @@ export function useViewState() {
     forgetFromMru,
     centerActiveRequest,
     requestCenterActive,
-    markUnread,
     isUnread,
     reset,
   };
