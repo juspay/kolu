@@ -39,11 +39,12 @@ Feature: Attention Alerts
   # After a restart. The harness starts the new server on a new port, so the
   # page always reloads; these scenarios are the RELOAD case. A tab that stays
   # open through the restart is covered by the attention engine's unit tests.
-  # Each waits for the agent's row to show its finished turn before checking
-  # what did NOT happen, so the check runs after padi's first real word. The
-  # page comes back focused on the terminal padi saved as active, so the
-  # scenarios that need the agent's terminal in the background wait for that
-  # save first (a terminal you are looking at never carries a mark).
+  # Each waits for the agent's row to show padi's verdict before checking what
+  # did NOT happen, so the check runs after padi's first real word. The page
+  # comes back focused on the terminal padi saved as active, and a terminal you
+  # are looking at never carries a mark nor rings — so each scenario waits for
+  # padi to save the shell as active before the restart, and checks the shell
+  # is the active tile after it, before any "not unread" or "0 plays" check.
 
   Scenario: A finished agent you had opened reads as read after kolu restarts
     When I stub the notification sound
@@ -54,8 +55,11 @@ Feature: Attention Alerts
     When I click the notified workspace switcher branch
     Then no workspace switcher branch should be notified
     When I select terminal 1 in the workspace switcher
-    And the kolu server is redeployed under this page
-    Then the agent's dock row should show its finished turn
+    And I save the active canvas tile id
+    Then the saved session should record the active terminal
+    When the kolu server is redeployed under this page
+    Then the saved active canvas tile should still be active
+    And the agent's dock row should show its finished turn
     And no workspace switcher branch should be notified
     And the notification sound should have played 0 times
     And there should be no page errors
@@ -69,7 +73,8 @@ Feature: Attention Alerts
     And the agent's dock row should be unread
     And the notification sound should have played 1 time
     When the kolu server is redeployed under this page
-    Then the agent's dock row should show its finished turn
+    Then the saved active canvas tile should still be active
+    And the agent's dock row should show its finished turn
     And the agent's dock row should be unread
     And the notification sound should have played 0 times
     And there should be no page errors
@@ -82,7 +87,8 @@ Feature: Attention Alerts
     And I save the active canvas tile id
     Then the saved session should record the active terminal
     When the kolu server is redeployed while the Claude Code session changes to "waiting"
-    Then the agent's dock row should show its finished turn
+    Then the saved active canvas tile should still be active
+    And the agent's dock row should show its finished turn
     And the agent's dock row should be unread
     And the notification sound should have played 0 times
     And there should be no page errors

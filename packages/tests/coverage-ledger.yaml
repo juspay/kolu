@@ -4743,3 +4743,42 @@ retirements:
       file: packages/tests/features/code-tab.feature
       symbol: "Scenario: A gitignored folder stays open when you open a file inside it"
       test: Every step of this revision is still asserted on the same journey. The survivor adds one arrange check before the eye toggle — the tree has stopped listing `.waterfall` as an ordinary folder — so the folder it opens is the lazily read ignored one the regression is about, not a stale entry the tree drops a moment later.
+  - id: revise-4e72f1702ec4a6415fce
+    revisionId: revision-4e72f1702ec4a6415fce
+    action: revised
+    status: landed
+    promise: A finished agent you had opened reads as read after kolu restarts
+    defectSurface: [attention-alerts, user-journey]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-63aa332eab2093ed6641]
+    sameCodePathEvidence:
+      file: packages/tests/features/attention-alerts.feature
+      symbol: "Scenario: A finished agent you had opened reads as read after kolu restarts"
+      test: Every step of this revision is still asserted on the same journey. The survivor waits for padi to save the shell as the active terminal before the restart, and checks the shell is the active tile after it, so "no row is unread" and "0 plays" cannot hold merely because the page came back looking at the agent.
+  - id: revise-7c3558656480893594ed
+    revisionId: revision-7c3558656480893594ed
+    action: revised
+    status: landed
+    promise: A finished agent you had not opened is still unread after kolu restarts
+    defectSurface: [attention-alerts, user-journey]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-84ec95dc2878a9be8e7f]
+    sameCodePathEvidence:
+      file: packages/tests/features/attention-alerts.feature
+      symbol: "Scenario: A finished agent you had not opened is still unread after kolu restarts"
+      test: Every step of this revision is still asserted on the same journey. The survivor adds one check after the restart, that the shell is the active tile, before the checks that depend on the agent's terminal being in the background.
+  - id: revise-2124376d73667ac944b9
+    revisionId: revision-2124376d73667ac944b9
+    action: revised
+    status: landed
+    promise: An agent that finishes while kolu is down is unread when it comes back, without a chime
+    defectSurface: [attention-alerts, user-journey]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-9dd3df350dbf17cc5367]
+    sameCodePathEvidence:
+      file: packages/tests/features/attention-alerts.feature
+      symbol: "Scenario: An agent that finishes while kolu is down is unread when it comes back, without a chime"
+      test: Every step of this revision is still asserted on the same journey. The survivor adds one check after the restart, that the shell is the active tile, before the checks that depend on the agent's terminal being in the background.
