@@ -127,12 +127,16 @@ export const prStep = (
   event: WorkEvent,
 ): Option.Option<PrReading> => Option.map(stepPr(pr, event), draftCannotMerge);
 
+/** WHETHER THE PR IS AN OPEN DRAFT — the one spelling every reader uses: a
+ *  merged or closed PR is not a draft whatever its last word was, and a PR
+ *  whose word kolu never recorded (`unrecorded`) is not one either. */
+export const isOpenDraft = (pr: PrReading): boolean =>
+  pr.state === "open" && pr.draft === "draft";
+
 /** An open draft reads `cannot: draft`, whatever the forge answered about
  *  merging it: GitHub works a draft's merge state out as if it were ready. */
 const draftCannotMerge = (pr: PrReading): PrReading =>
-  pr.state === "open" && pr.draft === "draft"
-    ? { ...pr, merge: { kind: "cannot", why: "draft" } }
-    : pr;
+  isOpenDraft(pr) ? { ...pr, merge: { kind: "cannot", why: "draft" } } : pr;
 
 const stepPr = (
   pr: Option.Option<PrReading>,

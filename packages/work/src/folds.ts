@@ -14,7 +14,7 @@
  */
 
 import { Option } from "effect";
-import { type PrReading, prStep } from "./readings.ts";
+import { isOpenDraft, type PrReading, prStep } from "./readings.ts";
 import {
   type Asked,
   type CheckHead,
@@ -61,7 +61,8 @@ export interface Policy {
  *  holds: the implementor joining, and its pull request being READY FOR
  *  REVIEW after it did — opened ready, or a draft marked ready. A PR that was
  *  already there when the implementor arrived (a work that takes up a
- *  dependabot PR) marks nothing, and the build goes on. Moves forward, except
+ *  dependabot PR) does not end the build by being open; if it is a draft,
+ *  marking it ready does. Moves forward, except
  *  for two ways back to the build: a PR turned back into a draft (its author
  *  said it is not ready), and a work reopened with no PR of its own open (a
  *  second attempt on the same branch builds again). */
@@ -100,10 +101,6 @@ const START: Running = {
 const prIs = (at: Running, state: PrReading["state"]): boolean =>
   Option.exists(at.pr, (pr) => pr.state === state);
 
-/** Whether the PR is open and a draft — still the build's, CI included. */
-const openDraft = (pr: Option.Option<PrReading>): boolean =>
-  Option.exists(pr, (one) => one.state === "open" && one.draft === "draft");
-
 /** The moves that are not the PR's own: questions, members, the end. `pr` is
  *  the PR as this event leaves it ({@link prStep}), which is what says
  *  whether it is ready for review. */
@@ -130,19 +127,27 @@ const partStep = (
             part: at.part === "before" ? "build" : at.part,
           }
         : at;
-    // A PR the implementor opened ends the build once it is ready for
-    // review — at once when it opened ready, at the flip for a draft — and a
-    // PR turned back into a draft is the build's again. A PR whose word was
-    // never recorded ends it at the open, as it always did. One that was
-    // there before any implementor joined says nothing about it.
+    // A PR the implementor opened ends the build at once when it opened
+    // ready (or kolu never recorded its word: the open ends it, as it always
+    // did), and stays the build's while it is a draft. One that was there
+    // before any implementor joined says nothing by being open.
     case "pr-opened":
-    case "draft-state":
       return at.implemented
-        ? { ...at, part: openDraft(pr) ? "build" : "after" }
+        ? { ...at, part: Option.exists(pr, isOpenDraft) ? "build" : "after" }
         : at;
+    // A DRAFT FLIP, once an implementor has joined: turned back into a draft
+    // is the build's again, and marked ready ends the build — but only a PR
+    // that WAS a draft. Learning `ready` for a PR whose word kolu never
+    // recorded is kolu learning a word, not anybody marking anything ready,
+    // so the part stays where it was (the stage half of the rule `prStep`
+    // follows for the merge answer).
+    case "draft-state":
+      if (!at.implemented) return at;
+      if (Option.exists(pr, isOpenDraft)) return { ...at, part: "build" };
+      return Option.exists(at.pr, isOpenDraft) ? { ...at, part: "after" } : at;
     case "ended":
       return { ...at, ended: true };
-    // THE ONE WAY BACK. Reopened with its own PR still open, the work is
+    // THE OTHER WAY BACK. Reopened with its own PR still open, the work is
     // where it was; with none, it is a new attempt on the branch.
     case "reopened":
       return {
@@ -494,7 +499,9 @@ export const stageMs = (state: StageState): number =>
 const placeOf = (at: Running, who: Waiter, current: Filed): Filed => {
   if (prIs(at, "merged")) return "merge";
   if (who === "ci")
-    return at.part === "build" && openDraft(at.pr) ? "build" : "checks";
+    return at.part === "build" && Option.exists(at.pr, isOpenDraft)
+      ? "build"
+      : "checks";
   if (who === "you") {
     if (at.openAsks.size === 0) return "merge";
     if (at.part === "before") return at.planned ? "approve" : "plan";

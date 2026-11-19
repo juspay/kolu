@@ -902,6 +902,45 @@ describe("the build ends when the PR is ready for review", () => {
     });
   });
 
+  // LEARNING A WORD IS NOT AN ACT. A PR recorded before kolu kept the draft
+  // word (`unrecorded`) learns it from its next reading after the upgrade;
+  // nobody marked anything ready, so the strip must read as it did.
+  it("keeps an existing PR's work in the build when kolu learns the PR is ready", () => {
+    let work = prOpened(opened(), 0, 7, "unrecorded");
+    work = join(work, "implementor", 5);
+    const before = cells(work, FULL, at(30));
+    expect(waterfall(work, FULL, at(30)).current).toBe("build");
+    work = draftState(work, "ready", 20);
+    expect(cells(work, FULL, at(30))).toBe(before);
+    expect(waterfall(work, FULL, at(30)).current).toBe("build");
+  });
+
+  it("keeps the implementor's own PR past the build when kolu learns it is ready", () => {
+    let work = join(opened(), "implementor", 0);
+    work = prOpened(work, 10, 7, "unrecorded");
+    const before = cells(work, FULL, at(30));
+    expect(waterfall(work, FULL, at(30)).current).toBe("review");
+    work = draftState(work, "ready", 20);
+    expect(cells(work, FULL, at(30))).toBe(before);
+  });
+
+  it("keeps an existing PR's work in the build when kolu learns the PR is a draft", () => {
+    let work = prOpened(opened(), 0, 7, "unrecorded");
+    work = join(work, "implementor", 5);
+    work = draftState(work, "draft", 20);
+    expect(waterfall(work, FULL, at(30)).current).toBe("build");
+  });
+
+  it("ends the build when an existing DRAFT is marked ready after the implementor joined", () => {
+    let work = prOpened(opened(), 0, 7, "draft");
+    work = join(work, "implementor", 5);
+    expect(waterfall(work, FULL, at(15)).current).toBe("build");
+    work = draftState(work, "ready", 20);
+    const named = byName(strip(work, FULL, at(30)));
+    expect(named.build).toMatchObject({ kind: "done", ms: 15 * MINUTE });
+    expect(named.review).toMatchObject({ kind: "now", ms: 10 * MINUTE });
+  });
+
   it("keeps a trivial work's draft CI in the build, and files CI as checks once it is ready", () => {
     let work = join(opened(), "implementor", 0);
     work = prOpened(work, 10, 7, "draft");

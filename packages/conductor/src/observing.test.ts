@@ -17,12 +17,14 @@ import {
   endedAt,
   endWork,
   joinWork,
+  MODE_RUNS,
   openWork,
   outcomeOf,
   type PrReading,
   prLinks,
   prOf,
   recordEvent,
+  stages,
   type Work,
 } from "kolu-work";
 import { fileEvents, prEvents, ringEvent } from "./observing.ts";
@@ -553,6 +555,57 @@ describe("a pull request that is a draft", () => {
     expect(draftWords(ready)).toEqual(["unrecorded", "ready"]);
     expect(merges(ready)).toEqual([{ kind: "can" }]);
     expect(readMerge(ready)).toEqual(Option.some({ kind: "can" }));
+    // ... and its strip reads as it did: kolu learning a word is not anybody
+    // marking the PR ready, so no stage moves.
+    const policy = {
+      handOver: true,
+      run: {
+        kind: "set",
+        driven: MODE_RUNS.full.driven,
+        stages: MODE_RUNS.full.stages,
+      },
+    } as const;
+    const read = (one: Work) => {
+      const staged = stages(one, policy, "2026-02-01T11:00:00.000Z");
+      if (staged.kind !== "staged") throw new Error(staged.kind);
+      return { stages: staged.stages, current: staged.current };
+    };
+    expect(read(ready)).toEqual(read(before));
+    // The shape it bites on: a PR that was already open when the implementor
+    // joined (still the build's), recorded before kolu kept the word.
+    const existing = joinWork(
+      recordEvent(
+        openWork({
+          key: {
+            kind: "branch",
+            host: "local",
+            repo: "/srv/repo",
+            branch: "dependabot",
+          },
+          title: "land the bump",
+          at: AT,
+          request: { kind: "said", text: "land it" },
+        }),
+        {
+          at: AT,
+          by: "kolu",
+          kind: "pr-opened",
+          about: ABOUT_WORK,
+          pr: 7,
+          title: "Fix the parser",
+          url: {
+            kind: "link",
+            href: "https://github.com/kolu-e2e/parser/pull/7",
+          },
+          draft: "unrecorded",
+        },
+      ),
+      { terminal: A, role: "implementor", at: AT },
+    );
+    const learnedReady = prEvents(existing, pr(), AT);
+    expect(draftWords(learnedReady)).toEqual(["unrecorded", "ready"]);
+    expect(read(learnedReady)).toEqual(read(existing));
+    expect(read(learnedReady).current).toBe("build");
   });
 
   it("records no merge answer across #2405's four green readings as a draft", () => {
