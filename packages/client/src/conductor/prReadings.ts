@@ -12,6 +12,7 @@ import {
   type CheckKind,
   type MergeBlock,
   type MergeState,
+  isOpenDraft,
   prOf,
   type Work,
 } from "kolu-work";
@@ -137,7 +138,7 @@ export function prSection(
     return {
       number: pr.number,
       state: pr.state,
-      draft: pr.state === "open" && pr.draft === "draft",
+      draft: isOpenDraft(pr),
       checks: Option.match(live, {
         onSome: checksBreakdown,
         onNone: () =>

@@ -41,6 +41,7 @@ import {
   type NeedsYou,
   type OnGreen,
   type Outcome,
+  isOpenDraft,
   policyOf,
   prOf,
   type Said,
@@ -364,8 +365,7 @@ export function workSubtitle(
     ...Option.toArray(
       Option.map(
         prOf(work),
-        (pr) =>
-          `${pr.state === "open" && pr.draft === "draft" ? "draft " : ""}PR #${pr.number}`,
+        (pr) => `${isOpenDraft(pr) ? "draft " : ""}PR #${pr.number}`,
       ),
     ),
   ].filter((part) => part !== "");
