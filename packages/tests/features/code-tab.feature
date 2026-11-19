@@ -1391,6 +1391,8 @@ Feature: Code tab (review + browse)
   # `.git/info/exclude` rather than `.gitignore`, because that is where the
   # report came from — and an excluded path is invisible to `git ls-files`
   # exactly like a `.gitignore`d one, so it needs the eye toggle to appear.
+  # The tree learns of the exclude edit one watcher pulse later, so the
+  # scenario waits for the folder to leave the list before it acts on it.
   Scenario: A gitignored folder stays open when you open a file inside it
     When I run "rm -rf /tmp/kolu-ignored-stay && git init /tmp/kolu-ignored-stay && cd /tmp/kolu-ignored-stay"
     And I run "mkdir -p .waterfall && printf 'brief-marker\n' > .waterfall/brief.txt && printf 'notes\n' > .waterfall/notes.txt"
@@ -1399,6 +1401,7 @@ Feature: Code tab (review + browse)
     And I click the Code tab
     And I click the Code tab mode "browse"
     Then the file browser should show a file "kept.md"
+    And the file browser should not show a directory ".waterfall"
     When I click the show-gitignored toggle
     Then the file browser should show a directory ".waterfall"
     When I click the directory ".waterfall" in the file browser

@@ -4730,3 +4730,16 @@ retirements:
       file: packages/tests/features/conductor-work.feature
       symbol: "Scenario: A folder the work wrote is one chip, one timeline row, and is kept"
       test: Every step of this revision is still asserted on the same journey. The survivor adds the folder row's own "more" — pressed, it lists the folder's three file rows — and presses the nested file's row to open it in the reader, the one path of the folder row nothing else ran.
+  - id: revise-3623ee7734bd6dda0384
+    revisionId: revision-3623ee7734bd6dda0384
+    action: revised
+    status: landed
+    promise: A gitignored folder stays open when you open a file inside it
+    defectSurface: [code-tab, user-journey]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-4801349648a37be1ead8]
+    sameCodePathEvidence:
+      file: packages/tests/features/code-tab.feature
+      symbol: "Scenario: A gitignored folder stays open when you open a file inside it"
+      test: Every step of this revision is still asserted on the same journey. The survivor adds one arrange check before the eye toggle — the tree has stopped listing `.waterfall` as an ordinary folder — so the folder it opens is the lazily read ignored one the regression is about, not a stale entry the tree drops a moment later.
