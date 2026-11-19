@@ -92,7 +92,8 @@ async function cdTerminalInto(world: KoluWorld, cwd: string): Promise<void> {
  *
  *  The program is a file, not typed: every typed key is a round trip through
  *  the server, padi, kaval and the shell's echo, and on a busy host typing the
- *  ~1,900-character program alone took over 50 s of the step's 70. */
+ *  ~1,900-character program failed this step — at its 70 s limit, or with the
+ *  shell still echoing the program when the wait for "up" ended. */
 async function startFakeAgent(
   world: KoluWorld,
   fixture: OmpFixture,
