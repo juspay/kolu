@@ -3222,15 +3222,25 @@ Then(
   },
 );
 
-/** THE BELL HAS DECIDED: it decides two frames after it hears a needs-you
- *  reading, so a sound count read after these frames is its verdict, not a
- *  read taken before it (the wait `conductor_needs_you_steps.ts` makes). */
+/** LET THE CONDUCTOR'S BELL DECIDE, so a sound count read next is its
+ *  verdict rather than a read taken before it. Call it only after waiting for
+ *  something the same needs-you reading draws — a card in a group, a timeline
+ *  row — so the bell has already HEARD the reading. What is left is the
+ *  decision: in a window without focus the bell decides the moment it hears
+ *  (nothing is in view to wait for), and the frames only let the reading reach
+ *  it; in a focused window it decides once the page can say what is in view, a
+ *  frame on and then the observers' first reports, which these frames cover. */
+export async function letTheBellDecide(world: KoluWorld): Promise<void> {
+  for (let frame = 0; frame < 6; frame += 1) await world.waitForFrame();
+}
+
 Then(
   "the Conductor's bell should have had its frames to decide",
   async function (this: KoluWorld) {
-    for (let frame = 0; frame < 6; frame += 1) await this.waitForFrame();
+    await letTheBellDecide(this);
   },
 );
+
 /** THE TIMELINE AS DRAWN on this scenario's card — every event's kind, who
  *  it is by, and its words. Quoted on a failure, because "no `merged` event"
  *  names a symptom while the list names the cause (nothing observed at all,
