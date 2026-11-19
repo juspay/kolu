@@ -2952,16 +2952,21 @@ When(
     const repo = workRepo(this);
     const fixture = ompTranscriptPath({ ompDir, cwd: repo });
     memberFixture = fixture;
-    // The program, and the path it would stage a prompt at, only have to be
-    // somewhere the repo is not, so the worktree stays the work's own files.
-    const program = path.join(os.tmpdir(), `kolu-work-omp-${process.pid}.sh`);
+    // The program only has to be somewhere the repo is not, so the worktree
+    // stays the work's own files: beside the relay, in the fixture's own
+    // private temp directory.
+    const program = path.join(
+      path.dirname(fixtureClaudeRelay()),
+      "omp-stand-in.sh",
+    );
     fs.writeFileSync(
       program,
       ompMockPayload({
         breadcrumbDir: path.join(ompDir, "terminal-sessions"),
         transcriptPath: fixture.transcriptPath,
         // Never staged: this scenario moves the session itself, the way a
-        // session kolu merely FINDS moves.
+        // session kolu merely FINDS moves. The path only has to be somewhere
+        // the repo is not.
         stagePath: path.join(os.tmpdir(), `kolu-work-stage-${process.pid}`),
       }),
     );
