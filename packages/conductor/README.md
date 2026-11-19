@@ -35,14 +35,15 @@ thing that does it.
 | `observation.ts` | the observation vocabulary alone (`WatchObservation`, `WatchGit`, `WatchPr`, `PrWatch`) — a leaf both rule modules read |
 | `readings.ts` | pure: a host's frames → one `WatchObservation` per member terminal |
 | `observing.ts` | pure `ringEvent` / `prEvents` / `fileEvents` + the ONE pass per reading that applies them |
-| `wakes.ts` | when news reaches a turn: the held queue, the one-flight flush, the failure episode, the `told` write-back |
-| `held.ts` | the slot discipline under it (ported from olai's `deliveries.ts`) |
+| `wakes.ts` | when news reaches a turn: the held queue (`@kolu/acp-harness`'s `holding`, the slot discipline both products share), the one-flight flush, the failure episode, the `told` write-back |
 | `asking.ts` | kolu's own questions: minted, recorded on the work and SAID in the transcript, answered later from any face — nothing waits on a person, and the answer leaves as news through one sink |
 | `askNews.ts` | what a settled ask says — to its transcript row and to the Conductor — and the drop that an ending performs, read by `asking` and by the writer alike |
 | `attachments.ts` | a prompt's files on their way up, and the rule that reaps them |
 | `recordWrites.ts` | how often any of it hits disk — one leading-edge timer, one flag per record |
 | `workFiles.ts` | the port kolu-server implements over padi |
-| `persisted.ts` | the four records a restart reads, decoded through `kolu-work`'s `parseStore` so a store that breaks an invariant fails with the sentence naming it, and the re-validation that refuses a file with holes in it |
+| `persisted.ts` | the four records a restart reads, decoded through `kolu-work`'s `parseStore` so a store that breaks an invariant fails with the sentence naming it, and the re-validation that refuses a file with holes in it. The conversation's own record carries `taught` — whether the standing prompt has already gone out in the session it names — because the agent's memory of it outlives the subprocess holding it, and a restart that assumed nothing taught a chat in progress again |
+| `kolu.ts` | WHAT A TOOL CALL MEANS TO KOLU: the reading a card is drawn from (one per tool the fleet face serves, each gated on `isTerminalId`), the fold of a call's two frames, and the `Fleet` — the terminals this conversation has created or typed into, in first-touch order. `conductor.ts` hands the reader to `@kolu/acp-harness` as its `readCall` and computes the fleet out of what it reads |
+| `aboutBlock.ts` | the `[kolu] about …` lines a message carries above the words, composed here and handed to the harness as the body a person's message is sent under |
 | `wakeText.ts` · `teaching.ts` · `surface.ts` · `transcriptStream.ts` | what the agent reads, what it is taught, and what a browser subscribes to |
 
 ## The works, the watch, the hold and the wake
@@ -127,7 +128,7 @@ appending what it observes.
 - **A message says what it is ABOUT.** `prompt` takes `ConductorMention`s, each
   a terminal (`host/id`, its name, cwd and intent) or a piece of work (the
   `WorkId` it is filed under and the title it had when the message went), and
-  `@kolu/acp-harness`'s `aboutBlock` puts them above the words as `[kolu] about`
+  `./aboutBlock.ts` puts them above the words as `[kolu] about`
   lines. They are rows of the transcript, so a reload still says what a message
   named, and `teaching.md` says what a work line means: read that id in `works`
   and answer about it.
@@ -210,13 +211,14 @@ appending what it observes.
   Without the two, `agent_say` — which returns on the keystrokes, before the
   agent flips to working — would wake the Conductor about the agent it has
   just briefed.
-- **The hold** (`./held.ts`, ported from olai's `deliveries.ts`) — while a turn
-  runs, news WAITS: one slot per terminal, newest only, kept in the position
-  the first one took, withdrawn when that terminal goes back to working. On
-  every turn boundary — however the turn ended, a cancel included — everything
-  waiting leaves as ONE `harness.wake(...)`, one row with N events. Held news
-  is memory only: a restart re-reads the world instead of replaying a queue
-  about one that has moved on.
+- **The hold** (`@kolu/acp-harness`'s `holding`) — while a turn runs, news
+  WAITS: one slot per terminal, newest only, kept in the position the first one
+  took, withdrawn when that terminal goes back to working. On every turn
+  boundary — however the turn ended, a cancel included — everything waiting
+  leaves as ONE wake, which is one `harness.hostTurn(...)`: one row with N
+  events, in the Conductor's own voice rather than a person's. Held news is
+  memory only: a restart re-reads the world instead of replaying a queue about
+  one that has moved on.
 - **The account** (`./wakeText.ts`, pure) — what the agent is actually handed:
   who speaks, each terminal as `host/id` with the work it belongs to and the
   part it plays ("the planner of «…»"), its name, host, agent and how it
@@ -232,6 +234,26 @@ A wake MAY start the agent (that is the feature); reading the works may not
 those frames (`conductor/watcher.ts`, scoped to `memberRefs()`), and only for
 refs on CONNECTED hosts — a host that is not answering says nothing about its
 terminals, and `gone` for one of them would be a lie.
+
+## What kolu brings to the shared conversation
+
+The conversation itself is [`@kolu/acp-harness`](../acp-harness)'s, and it
+names no product. These are the five things kolu hands it, each a fact about
+kolu rather than about the protocol:
+
+| handed in | what it is |
+| --- | --- |
+| one `http` MCP server | kolu's fleet face, served in-process by kolu-server on loopback (`ConductorDeps.fleetMcp`), which is how ONE conversation reaches terminals on every host. The bearer token rides its headers |
+| `readCall` | `./kolu.ts` — what a tool call MEANS to kolu, one reading per tool the fleet face serves, each gated on `isTerminalId`. The `Fleet` is computed from what it reads |
+| the body under a message | `./aboutBlock.ts`'s `[kolu] about …` lines, so a message says which terminals and which pieces of work it is about |
+| the three policies | `whenNewSession: "divide"`, `whenLoadRefused: "fresh"`, `whenReplayed: "drop"` — kolu persists its own rows, so it keeps them across a break and throws the agent's replay away |
+| the files | `./attachments.ts` spools a prompt's bytes in frame-sized pieces to a path under kolu's state directory, because base64 on the prompt frame closes the tab's socket. The harness reads the bytes off that path |
+
+And one thing kolu does with what comes back: a sign-in that succeeds
+**restarts the agent** into the conversation that was live when it was asked
+for (`reloadAgent` is the same restart for a signature made outside kolu). The
+harness opens nothing itself — a signature reaches an adapter only through a
+fresh `initialize` — so re-entering the conversation is this package's move.
 
 ## Why a package
 

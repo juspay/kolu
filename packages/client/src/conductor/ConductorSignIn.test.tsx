@@ -45,6 +45,7 @@ const METHOD = {
   name: "Anthropic Console",
   description: null,
   runs: "client",
+  command: null,
 } as const;
 type SignInRow = NonNullable<ConductorState["signIn"]>;
 
@@ -110,6 +111,7 @@ describe("a method already running", () => {
           method: METHOD.id,
           state: "running",
           output: "visit https://example.invalid/oauth",
+          code: null,
           link: null,
         },
       }),
@@ -119,6 +121,28 @@ describe("a method already running", () => {
     // ... and the attempt's own cancel is the one that is there.
     at("conductor-signin-cancel")?.click();
     expect(verbs.signInCancel).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("a method only a person can run", () => {
+  it("is the command to type, and nothing to press", () => {
+    const { at } = mount(
+      row({
+        methods: [
+          {
+            id: "wizard",
+            name: "Run in a terminal",
+            description: null,
+            runs: "hand",
+            command: "/opt/agents/bin/agent auth login",
+          },
+        ],
+      }),
+    );
+    expect(at("conductor-signin-hand")?.textContent).toContain(
+      "/opt/agents/bin/agent auth login",
+    );
+    expect(at("conductor-signin-method")).toBeUndefined();
   });
 });
 

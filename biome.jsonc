@@ -40,6 +40,13 @@
       "!**/*.astro",
       // One-off heap-snapshot analyzers; not part of the product surface.
       "!docs/perf-investigations/scripts",
+      // The patch GENERATOR vendored from olai beside the adapter it patches:
+      // `facts.js` is spliced verbatim into a COMPILED bundle, so it is plain
+      // dependency-free JS and has to stay byte-identical to the text the
+      // patch was computed from — not kolu's to lint or to format. Its rules
+      // are proven by `packages/acp-claude/src/facts.test.ts` (26 cases),
+      // which imports this file where it ships.
+      "!packages/acp-claude/adapter/session-list-info",
       // Top-level HTML files are design / plan artifacts, not shipping code.
       "!*.html"
     ]

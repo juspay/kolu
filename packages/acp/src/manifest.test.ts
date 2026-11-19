@@ -22,9 +22,9 @@
  *
  * The claims: the domain's words stay out (no `@kolu/*` specifier here, so a
  * kolu type cannot move in by increments — refusals leave as
- * {@link ./asks.ts}'s own `Refused`, translated at the harness seam); the
+ * {@link ./asks.ts}'s own `Refused`, translated at the client's seam); the
  * package speaks only ACP; the SDK is TYPES here — the runtime and its zod
- * peer stay in `@kolu/acp-harness`; the protocol enters the tree in a closed
+ * peer stay in `@kolu/acp-client`, the one package that runs the protocol; the protocol enters the tree in a closed
  * set of packages; the export lists are closed and disjoint; and who may
  * import which HALF is a table, so the `./wire` carve-out is a fact and not a
  * comment.
@@ -201,16 +201,18 @@ describe("the manifest", () => {
     }
   });
 
-  test("the protocol enters the tree here and in the harness alone", () => {
-    // The harness is the one package in this tree that SPAWNS an ACP
-    // subprocess, so it is the one that carries the SDK's runtime. An agent's
-    // integration leg names none of the SDK's types in its production
+  test("the protocol enters the tree here and in the package that runs it", () => {
+    // `@kolu/acp-client` SPAWNS an ACP subprocess and holds the connection, so
+    // it carries the SDK's runtime; `@kolu/acp-harness` sits on that client
+    // and names the SDK nowhere at all — the one protocol shape it composes,
+    // a prompt's content blocks, it takes from the client's own door. An
+    // agent's integration leg names none of the SDK's types in its production
     // sources — `@kolu/acp/engine` carries the ones a leg's signatures need —
     // which is why this list can still be written down.
     const speaking = [...tree.keys()].filter((pkg) =>
       sources(pkg).some((source) => source.specifiers.some(isSdk)),
     );
-    expect(speaking.sort()).toEqual(["acp", "acp-harness"]);
+    expect(speaking.sort()).toEqual(["acp", "acp-client"]);
   });
 
   test("what may cross is enumerated: the export lists are closed and disjoint", () => {
@@ -238,16 +240,46 @@ describe("the manifest", () => {
     // ... and the wire half carries the vocabulary alone: no payload reader
     // rides the subpath a surface declaration re-exports.
     expect(Object.keys(wire).sort()).toEqual([
+      "Armed",
+      "Ask",
       "AskAnswer",
       "AskChoice",
       "AskField",
       "AskLink",
       "AskOutcome",
       "AuthAccount",
+      "AuthMethod",
       "AuthStatus",
+      "Command",
+      "Delivery",
       "FileDiff",
+      "Model",
+      "Phase",
+      "PlanStep",
+      "Saying",
+      "Server",
+      "Setting",
+      "SignIn",
+      "SignInLink",
+      "SignInReason",
+      "SigningIn",
+      "SigningInCause",
+      "Spawned",
+      "TerminalView",
+      "ToolStatus",
       "Usage",
+      "Watching",
       "YES_NO",
+      // THE ROW FIELDS, which are schemas rather than vocabulary: the fields of
+      // one row of a conversation in each of the five kinds both chat UIs draw,
+      // and the head that makes a row one row. A product spreads them into its
+      // own row schema and adds its own.
+      "agentRowFields",
+      "askRowFields",
+      "noticeRowFields",
+      "rowHead",
+      "toolRowFields",
+      "userRowFields",
     ]);
   });
 
@@ -263,17 +295,24 @@ describe("the manifest", () => {
    * Every other member's `[]` is what says nothing else opens any of them.
    */
   const MAY: Readonly<Record<string, ReadonlyArray<string>>> = {
-    // THE ONLY ROW WITH ALL THREE, and that is what the harness IS: it runs
-    // the protocol, so it reads the projections (`.`), spells the leg and the
-    // adapter it was handed (`./engine`), and writes the vocabulary padi's
-    // contract carries (`./wire`).
-    "acp-harness": ["@kolu/acp", "@kolu/acp/engine", "@kolu/acp/wire"],
-    // An agent's integration registers its engine through `./engine` and reads
-    // nothing else: the leg's own signatures, the adapter it spawns, and the
-    // `NotHere` a machine without it is owed all live there. The projections
-    // are the harness's to run, and the wire's words are the surface's to
-    // carry.
-    "integrations/claude-code": ["@kolu/acp/engine"],
+    // THE ROW WITH ALL THREE, and that is what running the protocol IS: the
+    // client reads the projections (`.`), spells the leg and the adapter it
+    // was handed (`./engine`), and writes the vocabulary a product's contract
+    // carries (`./wire`).
+    "acp-client": ["@kolu/acp", "@kolu/acp/engine", "@kolu/acp/wire"],
+    // The harness sits on that client: it reads no payload, so it spells the
+    // leg and the adapter it hands down and writes the rows' vocabulary.
+    "acp-harness": ["@kolu/acp/engine", "@kolu/acp/wire"],
+    // An agent's INTEGRATION reads nothing here any more, and that is the row
+    // that says so: the leg, the adapter and the `NotHere` moved to
+    // `acp-claude` when they became a package two products share, and what is
+    // left of this package is the transcript, which reads its own schemas.
+    "integrations/claude-code": [],
+    // Claude Code, as a package both products vendor: its leg IS the door's
+    // `Leg`, so this is an instance of the contract rather than a reader of
+    // payloads. The projections are the client's to run, and the wire's words
+    // are the surface's to carry.
+    "acp-claude": ["@kolu/acp/engine"],
     // kolu's browser-safe contract half declares the orchestrator's members in
     // the protocol's own vocabulary rather than re-spelling it: the wire door
     // and nothing else. It was `padi-client`'s row until the conversation
@@ -291,6 +330,10 @@ describe("the manifest", () => {
     // it; `@kolu/acp-harness` is the wall between them. kolu-server, which
     // merely MOUNTS this package, needs no door of its own.
     conductor: ["@kolu/acp/engine"],
+    // The browser DRAWS the row shapes (a tool's status, a delivery mark, an
+    // ask) and folds `Saying` pieces into the row they belong to, so it reads
+    // the wire door — and nothing else. It never sees a protocol payload.
+    client: ["@kolu/acp/wire"],
     // kolu-server MOUNTS the conversation and does not talk the protocol — but
     // the composition tests it keeps (the host against the real fleet door and
     // the real tool registry) name the adapter's env var and the `NotHere` a
@@ -300,7 +343,7 @@ describe("the manifest", () => {
     server: ["@kolu/acp/engine"],
   };
 
-  test("who may import which half is a table, and the harness is the only row with all of them", () => {
+  test("who may import which half is a table, and only the packages that run the protocol open all of them", () => {
     const imported = new Map<string, ReadonlySet<string>>(
       [...tree.keys()]
         .filter((pkg) => pkg !== "acp")

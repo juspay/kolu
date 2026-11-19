@@ -91,6 +91,16 @@ export const PersistedConductorSchema = Schema.Struct({
    *  conversation spans every host, and a bare id would name two terminals on
    *  a two-host fleet. */
   fleet: Schema.Array(Schema.String),
+  /** Whether the standing prompt has already gone out under a message of
+   *  THIS conversation.
+   *
+   *  SAVED rather than derived, because what it is about is the AGENT's own
+   *  memory of the session and not our rows: a transcript capped at
+   *  {@link ROW_CAP} loses the message the teaching rode, and the conversation
+   *  it rode into is still the one being resumed. Without it every restart
+   *  taught a chat already in progress again — the standing prompt, in the
+   *  middle of the conversation, on every upgrade and every crash. */
+  taught: Schema.Boolean,
 });
 
 /** The record as a value. Derived from the schema rather than declared beside
@@ -103,6 +113,7 @@ export const EMPTY_PERSISTED_CONDUCTOR: PersistedConductor = {
   cwd: "",
   model: null,
   fleet: [],
+  taught: false,
 };
 
 /** THE TRANSCRIPT FILE'S BODY — the rows, and nothing else.
@@ -459,13 +470,20 @@ function oneDividerPerReset(
 /** What to write back after the conversation moved.
  *
  *  Derived from the live state rather than accumulated beside it, so the record
- *  cannot disagree with what a reader is looking at. */
-export function persistedFrom(state: ConductorState): PersistedConductor {
+ *  cannot disagree with what a reader is looking at — except `taught`, which a
+ *  reader never sees: whether the standing prompt has gone out is a fact about
+ *  the agent's memory of this session and nothing a panel draws, so the
+ *  conductor holds it and hands it in here. */
+export function persistedFrom(
+  state: ConductorState,
+  taught: boolean,
+): PersistedConductor {
   return {
     sessionId: state.sessionId,
     cwd: state.cwd,
     model: state.model?.id ?? null,
     fleet: state.fleet,
+    taught,
   };
 }
 

@@ -144,9 +144,12 @@ const OTHER_KEY = {
  * takes every decision, event and member to the arms that cannot say
  * "answered with no answer"; 1.56.0 says how each answer to one of kolu's
  * own questions was chosen; 1.57.0 puts a PR's address and the forge's
- * merge answer on the timeline; and 1.58.0 gives every mention on a user row
- * its `kind`, a terminal or a piece of work. */
-const STATE_SCHEMA_VERSION = "1.58.0";
+ * merge answer on the timeline; 1.58.0 gives every mention on a user row its
+ * `kind`, a terminal or a piece of work; 1.59.0 lets a tool row say when
+ * the CURRENT outing of a call began; and 1.60.0 gives the remembered
+ * conversation `taught` — whether the standing prompt has already gone out in
+ * the session it names, which only the record can carry across a restart. */
+const STATE_SCHEMA_VERSION = "1.60.0";
 
 const log = {
   debug() {},
@@ -334,20 +337,21 @@ afterEach(async () => {
  *  subject here is the file, not the protocol. */
 function hostOver(): {
   host: ConductorHost;
-  push: () => (change: HarnessChange) => void;
+  push: () => (change: HarnessChange<ConductorRow>) => void;
   resumedSeq: () => number | undefined;
-  /** What the NEXT conversation is asked to replay, and the terminals it is
-   *  told this one was working with — the two halves of a resume that only the
-   *  file can carry across a restart. */
+  /** What the NEXT conversation is asked to replay — the half of a resume
+   *  that only the file can carry across a restart. */
   resume: () => string | null | undefined;
-  fleet: () => ReadonlyArray<string> | undefined;
+  /** The reader this conversation was handed, so a test can put a tool call
+   *  through it: membership is read off those readings and nowhere else. */
+  readCall: () => HarnessOptions<ConductorRow>["readCall"] | undefined;
   /** Every wake this conversation was sent — what the watch list's `told` is
    *  written off, and the only way to know the flush has happened before the
    *  record is read. */
   wakes: () => number;
 } {
-  let onChange: ((change: HarnessChange) => void) | undefined;
-  let options: HarnessOptions | undefined;
+  let onChange: ((change: HarnessChange<ConductorRow>) => void) | undefined;
+  let options: HarnessOptions<ConductorRow> | undefined;
   let wakes = 0;
   const host = startConductorHost({
     log,
@@ -365,12 +369,19 @@ function hostOver(): {
     spawn: async (opts) => {
       options = opts;
       onChange = opts.onChange;
-      const harness: Harness = {
-        state: () => ({ ...DEFAULT_CONDUCTOR_STATE, phase: "idle" }),
+      const harness: Harness<ConductorRow> = {
+        state: () => ({
+          ...DEFAULT_CONDUCTOR_STATE,
+          taught: false,
+          methods: [],
+          title: null,
+          queues: false,
+          phase: "idle",
+        }),
         rows: () => [],
         alive: () => true,
         prompt: async () => ({ rowId: "sent" }),
-        wake: async () => {
+        hostTurn: async () => {
           wakes += 1;
           return { rowId: `woke:${wakes}` };
         },
@@ -382,6 +393,11 @@ function hostOver(): {
         signInCancel: async () => false,
         setOption: async () => {},
         newSession: async () => {},
+        // The three a product other than kolu reaches for; nothing in this
+        // file asks for them.
+        sendAgain: async () => {},
+        sessions: async () => [],
+        loadSession: async () => {},
         // The wipe reports the removes itself now (the harness owns the rows);
         // nothing in this file asks it to.
         clearSession: async () => {},
@@ -393,6 +409,10 @@ function hostOver(): {
             kind: "state",
             state: {
               ...DEFAULT_CONDUCTOR_STATE,
+              taught: false,
+              methods: [],
+              title: null,
+              queues: false,
               phase: "offline",
               sessionId: null,
             },
@@ -409,8 +429,8 @@ function hostOver(): {
       return onChange;
     },
     resumedSeq: () => options?.resumedSeq,
-    resume: () => options?.resume,
-    fleet: () => options?.fleet,
+    resume: () => (options?.opens.kind === "resume" ? options.opens.id : null),
+    readCall: () => options?.readCall,
     wakes: () => wakes,
   };
 }
@@ -419,17 +439,35 @@ describe("the conversation survives a restart", () => {
   it("round-trips the transcript through its own file, and the session and fleet through `config.json`", async () => {
     const first = hostOver();
     await first.host.prompt("hello", [], [], false);
-    // What the open publishes: the conversation this IS, and the terminals it
-    // is working with. Both are the agent's to forget and ours to keep.
+    // What the open publishes: the conversation this IS. The terminals it is
+    // working with are NOT published by a harness — they are read off the tool
+    // calls this module hands it a reader for, so one goes through that reader
+    // here, exactly as a `lifecycle_create` frame would.
     first.push()({
       kind: "state",
       state: {
         ...DEFAULT_CONDUCTOR_STATE,
+        taught: false,
+        methods: [],
+        title: null,
+        queues: false,
         phase: "idle",
         sessionId: "sess-live",
-        fleet: [FLEET_REF],
       },
     });
+    first.readCall()?.(
+      {
+        mcp: [{ server: "kolu", tool: "lifecycle_create" }],
+        asksThroughForm: undefined,
+        input: { host: "local" },
+        answer: { id: FLEET_REF },
+        called: undefined,
+        row: undefined,
+        reply: undefined,
+        terminals: undefined,
+      },
+      undefined,
+    );
     first.push()({
       kind: "rows",
       upserts: [row("a", 1, "one"), row("b", 2, "two")],
@@ -491,8 +529,57 @@ describe("the conversation survives a restart", () => {
     // comes back knowing about. Without both it restores a transcript and then
     // opens a stranger underneath it.
     expect(second.resume()).toBe("sess-live");
-    expect(second.fleet()).toEqual([FLEET_REF]);
+    expect(second.host.state().fleet).toEqual([FLEET_REF]);
     await second.host.dispose();
+  });
+
+  it("comes back with the fleet the caller remembered, and adds to it", async () => {
+    // Membership accrues from tool-call readings alone, and a resumed
+    // conversation's frames are the replay — dropped. A restore that only
+    // seeded an empty fleet would publish that emptiness on the first breath
+    // and write it back over the record, so a resumed conversation would
+    // forget every terminal it had been working with. Restoring and accruing
+    // are tested apart above; what bites is the two TOGETHER.
+    conductorStore.set({
+      ...EMPTY_PERSISTED_CONDUCTOR,
+      sessionId: "sess-live",
+      cwd: HOME,
+      fleet: [FLEET_REF],
+    });
+
+    const back = hostOver();
+    // The record is read when the conversation is brought up, and the
+    // terminal it remembered is there before anything this visit says.
+    await back.host.prompt("still here?", [], [], false);
+    expect(back.host.state().fleet).toEqual([FLEET_REF]);
+
+    // ... and a terminal THIS visit touches joins what was remembered rather
+    // than replacing it.
+    back.readCall()?.(
+      {
+        mcp: [{ server: "kolu", tool: "lifecycle_create" }],
+        asksThroughForm: undefined,
+        input: { host: "remote:prod" },
+        answer: { id: OTHER_REF },
+        called: undefined,
+        row: undefined,
+        reply: undefined,
+        terminals: undefined,
+      },
+      undefined,
+    );
+    expect(back.host.state().fleet).toEqual([FLEET_REF, OTHER_REF]);
+
+    // ... and the record the next boot reads carries both, which is the whole
+    // point of not having published an empty one.
+    await back.host.dispose();
+    const file: unknown = JSON.parse(readFileSync(store.path, "utf8"));
+    if (typeof file !== "object" || file === null || !("conductor" in file))
+      throw new Error("kolu-server's state kept no conductor record");
+    const onDisk = Schema.decodeUnknownSync(PersistedConductorSchema)(
+      file.conductor,
+    );
+    expect(onDisk.fleet).toEqual([FLEET_REF, OTHER_REF]);
   });
 
   it("comes back to the WORKS it left, with their members and their decisions", async () => {
@@ -678,6 +765,7 @@ describe("the conductor's rungs", () => {
       cwd: HOME,
       model: "claude-sonnet-4",
       fleet: [FLEET_REF],
+      taught: false,
     });
     // A file that never had a watch list has no works, and the key is THERE:
     // the shape is complete however old the file was.
@@ -816,6 +904,7 @@ describe("the conductor's rungs", () => {
       cwd: HOME,
       model: null,
       fleet: [FLEET_REF],
+      taught: false,
     });
     // ...and the watch list left it too, as two works: the waterfall its two
     // terminals were drawn as, and the plain watch on its own. A work with no

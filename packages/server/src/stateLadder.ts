@@ -2048,6 +2048,8 @@ export function prFactsOnTheTimeline_1_57_0(store: Conf<PersistedState>): void {
  *  under this rung's own number, for the reason
  *  {@link TRANSCRIPT_VERSION_1_53_0} gives. */
 const TRANSCRIPT_VERSION_1_58_0 = "1.58.0";
+/** ... and what {@link toolOutings_1_59_0} stamped. */
+const TRANSCRIPT_VERSION_1_59_0 = "1.59.0";
 
 /** The 1.58.0 rung — A MENTION SAYS WHAT IT IS. A user row's `mentions`
  *  could only name terminals; it now names a terminal or a piece of work,
@@ -2059,6 +2061,25 @@ const TRANSCRIPT_VERSION_1_58_0 = "1.58.0";
  *  {@link workAskStanding_1_55_0} gives: the reader takes exactly the
  *  version it was built with. `works` and the rest of `config.json` are
  *  untouched. Exported for `stateMigration.test.ts`. */
+/** A TOOL ROW MAY SAY WHEN THIS OUTING BEGAN (`resumed`). An old row omits it,
+ *  and a reader takes that as "first outing" — so nothing is rewritten; only the
+ *  file's stamp moves, which is what the row-shape rule asks for. */
+export function toolOutings_1_59_0(stateRoot: string): void {
+  const path = transcriptFilePath(stateRoot);
+  if (!existsSync(path)) return;
+  let held: unknown;
+  try {
+    held = JSON.parse(readFileSync(path, "utf8"));
+  } catch {
+    // Left exactly as it is: the reader refuses it by name.
+    return;
+  }
+  const record = recordOf(held);
+  if (record === null || !Array.isArray(record.rows)) return;
+  if (record.version === TRANSCRIPT_VERSION_1_59_0) return;
+  writeTranscriptFile(path, TRANSCRIPT_VERSION_1_59_0, record.rows);
+}
+
 export function mentionsSayTheirKind_1_58_0(stateRoot: string): void {
   const path = transcriptFilePath(stateRoot);
   if (!existsSync(path)) return;
@@ -2803,4 +2824,38 @@ export const CONF_MIGRATIONS = {
   // why TRANSCRIPT_FILE_VERSION reads 1.58.0; `config.json` is untouched.
   "1.58.0": (store: Conf<PersistedState>) =>
     mentionsSayTheirKind_1_58_0(dirname(store.path)),
+  // A TOOL ROW GAINS `resumed` — when the CURRENT outing of a call began, for a
+  // subagent that was sent more work after reporting (`toolOutings_1_59_0`
+  // argues why nothing is rewritten). Only the transcript file's stamp moves,
+  // which is why TRANSCRIPT_FILE_VERSION reads 1.59.0; `config.json` is
+  // untouched.
+  "1.59.0": (store: Conf<PersistedState>) =>
+    toolOutings_1_59_0(dirname(store.path)),
+  // THE CONVERSATION REMEMBERS WHETHER IT HAS BEEN TAUGHT. The `conductor`
+  // key gains `taught` — whether the standing prompt has already gone out
+  // under a message of the session it names — so a kolu-server restart stops
+  // putting that prompt back into the middle of a chat in progress. A
+  // required field, so a record written before this one does not decode
+  // without a rung.
+  //
+  // FALSE for every saved record, which is the safe direction and not the
+  // true-for-most one: this rung cannot see whether the remembered session
+  // ever had a message, and a `true` written over one that had none would be
+  // a conversation that is never taught at all. `false` costs one standing
+  // prompt, on the first message after the upgrade, and nothing after that.
+  // The transcript file is untouched, so TRANSCRIPT_FILE_VERSION stays at
+  // 1.59.0.
+  "1.60.0": (store: Conf<PersistedState>) => {
+    // Read as an OBJECT rather than as the decoded record: this rung runs
+    // against a file written by an older build, whose `conductor` key is
+    // exactly the shape the current schema does not yet accept.
+    const record = store.get("conductor") as
+      | Record<string, unknown>
+      | undefined;
+    if (record === undefined) return;
+    store.set("conductor", {
+      taught: false,
+      ...record,
+    } as unknown as PersistedState["conductor"]);
+  },
 };

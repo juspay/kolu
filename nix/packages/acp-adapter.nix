@@ -8,18 +8,19 @@
 # `nix/env.nix` onto `koluBin`) is the path kolu-server spawns.
 #
 # The shared mechanism is `nix/npm-adapter.nix` — one derivation per adapter
-# from its own npm shim, with `patch -p1 -F0` over `patches/`. THIS file owns
-# the Claude row's facts: which npm package inside the shim tree, the
-# wrapper's bin, and the env it arms — chief among them the `claude` the
-# adapter drives.
+# from its own npm shim, with `patch -p1 -F0` over `patches/`.
 #
-# The shim, the lockfile and the two patches live with the integration whose
-# agent this is: `packages/integrations/claude-code/acp/`.
+# WHAT IS SHARED WITH OLAI, AND WHAT IS NOT. The shim, the two patches, and the
+# package/entry/bin names are facts about WHICH adapter is pinned, so they live
+# with the agent — `packages/acp-claude/adapter/default.nix` — and both products
+# read them there rather than each keeping a copy nothing compares. Everything
+# below this line is kolu's own: which `claude` the adapter drives, and the env
+# its wrapper is armed with.
 { pkgs, lib, ripgrep, procps, agent-distro }:
 let
   npmAdapter = import ../npm-adapter.nix { inherit pkgs; };
 
-  acp = ../../packages/integrations/claude-code/acp;
+  adapter = import ../../packages/acp-claude/adapter;
 
   # THE CLI THE ADAPTER DRIVES — agent-distro's own `claude`, which is to say
   # the floor: the very launcher this machine's terminals run.
@@ -51,21 +52,8 @@ let
   # survive that, and under an empty HOME it resolves nothing and still runs.
   claude = "${agent-distro}/bin/claude";
 in
-npmAdapter rec {
+npmAdapter (adapter // {
   name = "kolu-acp-claude";
-  shim = acp + "/shim";
-  shimName = "kolu-acp-claude";
-  version = (lib.importJSON (shim + "/package.json")).dependencies.${package};
-  package = "@agentclientprotocol/claude-agent-acp";
-  entry = "dist/index.js";
-  bin = "claude-agent-acp";
-  # The hash covers the shim's own name too (the npm cache `prefetch-npm-deps`
-  # builds is keyed off the lockfile it reads, root entry included), and it
-  # covers the shim's `overrides` — zod rides the 4.6.7 line on a pin whose
-  # adapter declares 4.6.5 — so it is kolu's own value and never olai's, whose
-  # shim keeps the adapter's exact pins.
-  npmDepsHash = "sha256-+9kyd25sTLvzZElWarbWBPqplLjJqfSse0RIIV4yU2M=";
-  patches = acp + "/patches";
   # Node is pinned and so is the CLI the SDK drives (the adapter reads
   # CLAUDE_CODE_EXECUTABLE before it goes looking); nothing here resolves off
   # PATH. `--set`, not `--set-default`: which `claude` this adapter drives is a
@@ -87,4 +75,4 @@ npmAdapter rec {
   # would be maintenance on a binary nothing runs — and if something ever did
   # reach for it, an unpatched interpreter fails loudly, which is the answer
   # this repo wants over a second CLI quietly standing in for the floor.
-}
+})

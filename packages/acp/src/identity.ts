@@ -16,7 +16,7 @@
  *
  * THE PRODUCER kolu reads is the pinned adapter
  * `@agentclientprotocol/claude-agent-acp` 0.81.2 (the version
- * `packages/integrations/claude-code/acp/shim/package-lock.json` pins and
+ * `packages/acp-claude/adapter/shim/package-lock.json` pins and
  * `nix/packages/acp-adapter.nix` builds), whose `dist/auth-status.js` spells
  * the method and whose `dist/acp-agent.js` sends it with
  * `client.extNotification(AUTH_STATUS_UPDATE_METHOD, { authStatus })` and sets

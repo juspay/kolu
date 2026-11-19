@@ -42,8 +42,30 @@
  *     this one instead. Its closure is itself alone: the manifest declares
  *     `effect` and the protocol SDK and no workspace sibling at all — a rule
  *     `packages/acp/src/manifest.test.ts` holds red.
+ *   - `@kolu/child` — a subprocess as one socket. olai's git, browsing, chat,
+ *     server tests and web build all start a process, and each of the copies
+ *     this replaced had missed the exec-failure that arrives after `spawn`
+ *     returns. Its closure is itself alone: no runtime dependency at all.
+ *   - `@kolu/acp-claude` — which Claude Code adapter is pinned, and what its
+ *     wire means: the leg, the model table, the npm shim, the two patches and
+ *     the Nix facts that build it. Both products run the same adapter, so both
+ *     read the same leg; olai's copy of the pair had drifted. Its closure is
+ *     `@kolu/acp`, which olai already vendors.
+ *   - `@kolu/acp-client` — one agent process speaking ACP: spawn, handshake,
+ *     sessions, questions, sign-in, the stale-frame fence, typed events out.
+ *     It is olai's own client, moved here so kolu's conversation and olai's
+ *     chat panel run agents on one copy. Its closure is `@kolu/acp` and
+ *     `@kolu/child`, both already vendored.
+ *   - `@kolu/acp-harness` — ONE CONVERSATION on top of that client: the turns,
+ *     the rows a person reads, the steering latch, the state a panel is a view
+ *     of. Both chat UIs hold one conversation each and had written it twice;
+ *     this is the copy they share. It names no product — every fact either of
+ *     them knows that the protocol does not arrives as an option or as the row
+ *     content a verb is handed, which `src/noProductImports.test.ts` holds red
+ *     — so its closure is `@kolu/acp` and `@kolu/acp-client`, both already
+ *     vendored.
  *
- * The COUNT is not the structure. A sixth would not change what this file is:
+ * The COUNT is not the structure. A tenth would not change what this file is:
  * the split is by where the fact lives, not by how many facts there are. What
  * would change it is a declared entry becoming derivable — and none of these can
  * be, because the deriving evidence lives in a repo kolu does not contain.
@@ -82,6 +104,10 @@ export function vendorEntries(repoRoot: string): string[] {
   names.push("@kolu/detect");
   names.push("terminal-themes");
   names.push("@kolu/acp");
+  names.push("@kolu/acp-claude");
+  names.push("@kolu/acp-client");
+  names.push("@kolu/acp-harness");
+  names.push("@kolu/child");
   return names.sort();
 }
 

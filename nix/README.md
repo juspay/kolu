@@ -182,17 +182,19 @@ for (const [n,m] of Object.entries(c.members)) {
 }'
 ```
 
-At the time of writing that is **20 packages**, and the split is what matters:
+At the time of writing that is **24 packages**, and the split is what matters:
 
-- **12 are apps, bins and examples** (`kolu-client`, `kolu-cli`, the TUIs, the
-  `surface` examples). Nobody hydrates an app, so `catalog:` is harmless there
-  and should stay — the catalog is a real convenience for in-repo code.
-- **7 have an `exports` map** and so are importable by name:
-  `@kolu/artifact-sdk`, `@kolu/padi`, `@kolu/serve-dir`, `@kolu/xterm-kit`,
-  `kaval`, `kolu-common`, `kolu-mcp`. Of those, `@kolu/padi` and `kaval` are the
-  daemon tier and are *deliberately* not hydratable — that separation is the
-  whole argument for `@kolu/padi-client`. The remainder are latent traps: they
-  look importable and are not.
+- **13 are apps, bins and examples** (`kolu-client`, `kolu-server`, `kolu-cli`,
+  the TUIs, the `surface` examples). Nobody hydrates an app, so `catalog:` is
+  harmless there and should stay — the catalog is a real convenience for
+  in-repo code.
+- **11 have an `exports` map** and so are importable by name:
+  `@kolu/artifact-sdk`, `@kolu/daemon-test-gate`, `@kolu/padi`,
+  `@kolu/serve-dir`, `@kolu/solid-logtail`, `@kolu/xterm-kit`, `kaval`,
+  `kolu-common`, `kolu-conductor`, `kolu-mcp`, `kolu-work`. Of those,
+  `@kolu/padi` and `kaval` are the daemon tier and are *deliberately* not
+  hydratable — that separation is the whole argument for `@kolu/padi-client`.
+  The remainder are latent traps: they look importable and are not.
 
 **Being in `vendorEntries.ts` is what makes a package hydratable**, because that
 is what puts its manifest — and its whole closure — under `effectPin.ts`, the
@@ -217,12 +219,27 @@ nix eval --impure --expr '(import ./nix/consumer.nix {
 
 ## Which packages are meant to be hydrated
 
-Any of them can be, but four are *declared* out-of-repo entry points in
-`packages/tests/governance/vendorEntries.ts` — `@kolu/padi-client` (the padi
-contract, dial and vocabulary), `@kolu/solid-dockrow` (the Dock terminal row),
-`@kolu/detect` (the "is there a usable kolu on this host" probe) and
-`terminal-themes` (the theme catalog, so a consumer's live pane paints a padi
-terminal the way kolu paints it rather than in xterm's default).
+Any of them can be, but nine are *declared* out-of-repo entry points in
+`packages/tests/governance/vendorEntries.ts`:
+
+| entry | what a consumer copies it for |
+| --- | --- |
+| `@kolu/padi-client` | the padi contract, dial and vocabulary |
+| `@kolu/solid-dockrow` | the Dock terminal row |
+| `@kolu/detect` | the "is there a usable kolu on this host" probe |
+| `terminal-themes` | the theme catalog, so a consumer's live pane paints a padi terminal the way kolu paints it rather than in xterm's default |
+| `@kolu/acp` | the Agent Client Protocol's words and the pure projections over its payloads |
+| `@kolu/child` | a subprocess as one socket — spawn, the exec failure that arrives late, drained pipes, a kill with a grace period |
+| `@kolu/acp-client` | one agent process speaking that protocol: the handshake, sessions, turns, questions, sign-in, typed events out |
+| `@kolu/acp-harness` | one conversation on that client: turns, the rows a person reads, the state a panel draws |
+| `@kolu/acp-claude` | the Claude Code leg, its model table, and the pinned adapter's shim, patches and Nix facts |
+
+The last five are one stack and their closures nest: `@kolu/child` has none,
+`@kolu/acp` has none, `@kolu/acp-claude` adds `@kolu/acp`, `@kolu/acp-client`
+adds `@kolu/acp` and `@kolu/child`, and `@kolu/acp-harness` adds
+`@kolu/acp-client` on top of those. A consumer that runs an agent seeds the
+ones it imports and gets the rest through the closure.
+
 Being listed there is what puts a package and its whole manifest closure under
 the literal-version gate. The `@kolu/surface*` stack is derived from the tree
 rather than listed, so a new surface package joins by existing.

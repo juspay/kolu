@@ -107,6 +107,13 @@ const DECLARED_ALLOWED = new Set([
   // consumer copies, and a closure member nobody declares is the drift this
   // list exists to catch.
   "@kolu/acp",
+  // The Claude Code agent's own package, reached the same way: `kolu-agents`
+  // seats the engine, and the leg this package's agent vocabulary names lives
+  // there. It arrived in K4 (juspay/kolu#2405), when the leg, the pinned
+  // adapter and the model table became one package both products vendor — a
+  // consumer of the padi contract now copies it too, and its manifest names
+  // `@kolu/acp`, which is already above.
+  "@kolu/acp-claude",
   // agent-distro's own pure vocabulary (its listing, history-line and versions
   // readers) that `@kolu/agent-distro` builds on — GRAFTED from the npins
   // `agent-distro` pin into `juspay/agent-distro`, never committed, like the

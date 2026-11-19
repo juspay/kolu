@@ -4,7 +4,7 @@
  *
  * A turn is running and a watched terminal stops. Injecting that into the turn
  * would interrupt work nobody asked to interrupt; starting a second turn would
- * queue it behind the first. So it WAITS (`./held.ts` holds the slot
+ * queue it behind the first. So it WAITS (`@kolu/acp-harness`'s holding list
  * discipline) and leaves when there is somebody to tell. This module is the
  * decision of WHEN that is, which is a clock of its own: it has nothing to say
  * about what a work is and nothing to ask the works store except who a ref is
@@ -16,7 +16,7 @@ import type {
   ConductorWakeLevel,
 } from "kolu-common/conductor";
 import type { Logger } from "pino";
-import { type Held, holding } from "./held.ts";
+import { type Held, holding } from "@kolu/acp-harness";
 import type { MemberState } from "./members.ts";
 import type { WatchObservation } from "./observation.ts";
 import {
@@ -89,18 +89,24 @@ export const wakes = (deps: {
   readonly stopped: () => boolean;
   readonly log: Logger;
 }): Wakes => {
-  const held: Held<ConductorWakeEvent> = holding();
+  /** THE ONE CONVERSATION this file holds for — the address every verb of the
+   *  shared list is asked with. kolu has one, so it is a constant; its two caps
+   *  are `undefined`, because the watch list is the bound. */
+  const HERE = "the conversation";
+  const held: Held<string, ConductorWakeEvent> = holding({
+    keyOf: () => HERE,
+  });
   /** WHAT THE HUMAN SAID, waiting — a queue of its own, keyed by the ask
    *  rather than by a terminal. The two are separate lists because they are
    *  keyed by different things and coalesce differently: a terminal's news is
    *  replaced by its newer news, while two answers are two answers. They are
    *  flushed TOGETHER, into one turn. */
-  const answers: Held<AnsweredNews> = holding();
+  const answers: Held<string, AnsweredNews> = holding({ keyOf: () => HERE });
   /** PIECES OF WORK THAT LOST THEIR LAST TERMINAL — keyed by the work, so a
    *  work that empties twice while a turn runs is said once. Its own queue
    *  beside the other two for the same reason they are two: a different key,
    *  and a different way of coalescing. */
-  const emptied: Held<NoTerminalsNews> = holding();
+  const emptied: Held<string, NoTerminalsNews> = holding({ keyOf: () => HERE });
   /** A flush in flight. One at a time, because the whole point of a flush is
    *  that everything waiting leaves in ONE turn — two of them racing would be
    *  two wakes for one boundary. */
@@ -177,16 +183,16 @@ export const wakes = (deps: {
   const deliver = async (): Promise<void> => {
     const conversation = await deps.turn();
     if (!conversation.idle) return;
-    const slots = held.waiting();
-    const said = answers.waiting();
-    const empty = emptied.waiting();
+    const slots = held.waiting(HERE);
+    const said = answers.waiting(HERE);
+    const empty = emptied.waiting(HERE);
     if (slots.length === 0 && said.length === 0 && empty.length === 0) return;
     const events = slots.map((slot) => slot.value);
     const answered = said.map((slot) => slot.value);
     const noTerminals = empty.map((slot) => slot.value);
-    held.took(slots);
-    answers.took(said);
-    emptied.took(empty);
+    held.took(HERE, slots);
+    answers.took(HERE, said);
+    emptied.took(HERE, empty);
     deps.changed();
     try {
       await conversation.wake(
@@ -198,16 +204,19 @@ export const wakes = (deps: {
       // terminal that has rung AGAIN since, whose newer news is the truth
       // and must not be overwritten by this one.
       for (const slot of slots) {
-        if (!held.has(slot.ref)) held.hold(slot.ref, slot.value);
+        if (!held.has(HERE, slot.from))
+          held.hold(HERE, slot.from, slot.value, slot.from);
       }
       // An ask settles once, so nothing newer can have taken its slot: an
       // answer that could not be delivered goes back exactly as it was.
       for (const slot of said) {
-        if (!answers.has(slot.ref)) answers.hold(slot.ref, slot.value);
+        if (!answers.has(HERE, slot.from))
+          answers.hold(HERE, slot.from, slot.value, slot.from);
       }
       // ... and a work empties once per emptying, for the same reason.
       for (const slot of empty) {
-        if (!emptied.has(slot.ref)) emptied.hold(slot.ref, slot.value);
+        if (!emptied.has(HERE, slot.from))
+          emptied.hold(HERE, slot.from, slot.value, slot.from);
       }
       deps.changed();
       throw err;
@@ -235,9 +244,9 @@ export const wakes = (deps: {
       return;
     }
     if (
-      held.waiting().length === 0 &&
-      answers.waiting().length === 0 &&
-      emptied.waiting().length === 0
+      held.waiting(HERE).length === 0 &&
+      answers.waiting(HERE).length === 0 &&
+      emptied.waiting(HERE).length === 0
     )
       return;
     flushing = true;
@@ -251,7 +260,7 @@ export const wakes = (deps: {
       const why = sentenceOf(err);
       if (failure === null) {
         failure = why;
-        const waiting = [...held.refs(), ...answers.refs()];
+        const waiting = [...held.refs(HERE), ...answers.refs(HERE)];
         deps.say(
           `kolu could not wake this conversation about ${waiting.length === 0 ? "a terminal working on one of your pieces of work" : waiting.join(", ")} — ${why} — the news is still waiting, and goes out on the next thing that happens: the conversation going idle, the agent coming back up, or the next reading of a member terminal.`,
         );
@@ -269,18 +278,18 @@ export const wakes = (deps: {
   return {
     flush,
     hold: (ref, event) => {
-      held.hold(ref, event);
+      held.hold(HERE, ref, event, ref);
     },
     answered: (news) => {
-      answers.hold(news.ask, news);
+      answers.hold(HERE, news.ask, news, news.ask);
     },
     noTerminals: (news) => {
-      emptied.hold(news.work, news);
+      emptied.hold(HERE, news.work, news, news.work);
     },
-    withdraw: (ref) => held.withdraw(ref),
-    refs: () => held.refs(),
+    withdraw: (ref) => held.withdraw(HERE, ref),
+    refs: () => held.refs(HERE),
     handoverHeld: (ref) => {
-      const waiting = held.peek(ref);
+      const waiting = held.peek(HERE, ref);
       return (
         waiting?.level === "taken-over" || waiting?.level === "handed-back"
       );
@@ -290,23 +299,30 @@ export const wakes = (deps: {
     // DOES NOT: the question belongs to the WORK, which outlives the chat, so
     // what the human said is still owed to whatever conversation comes next.
     clear: () => {
-      held.clear();
+      held.clear(HERE);
     },
     ring: (member, seen, level) => {
-      held.hold(seen.ref, {
-        ref: seen.ref,
-        host: seen.host,
-        terminalId: seen.terminalId,
-        hostName: seen.hostName,
-        name: member.name,
-        // EMPTY is a real answer here, and exactly one level gives it: `ended`
-        // is about a terminal no agent was ever seen in, so there is no name to
-        // put. Every other level is about an agent, and the sticky reading has
-        // one (`./members.ts`).
-        agent: member.agent ?? "",
-        level,
-        at: new Date().toISOString(),
-      });
+      // THE TERMINAL IS BOTH the sender and its own coalescing key: one slot per
+      // watched terminal, newest news only, kept where the first one landed.
+      held.hold(
+        HERE,
+        seen.ref,
+        {
+          ref: seen.ref,
+          host: seen.host,
+          terminalId: seen.terminalId,
+          hostName: seen.hostName,
+          name: member.name,
+          // EMPTY is a real answer here, and exactly one level gives it: `ended`
+          // is about a terminal no agent was ever seen in, so there is no name to
+          // put. Every other level is about an agent, and the sticky reading has
+          // one (`./members.ts`).
+          agent: member.agent ?? "",
+          level,
+          at: new Date().toISOString(),
+        },
+        seen.ref,
+      );
     },
   };
 };

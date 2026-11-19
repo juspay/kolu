@@ -189,6 +189,8 @@ Without a sign-in the agent cannot run a turn, and the Conductor offers its own 
 
 kolu runs Claude's sign-in command, shows the links, takes the code, then restarts the agent into the conversation you were in. **Signed in elsewhere** does that for a login made outside kolu, on every row. A restart is refused while a turn runs; one that fails leaves you signed in, and says so. There is no box for an API key.
 
+A sign-in kolu cannot run shows as a command to type, not a button.
+
 ## Run a waterfall
 
 A **waterfall** takes a change from request to merged PR. Ask for one, or ask the Conductor to build something end to end. It has two modes, chosen per waterfall:
@@ -213,7 +215,7 @@ A **waterfall** takes a change from request to merged PR. Ask for one, or ask th
 
 kolu, not the Conductor, offers the harness and the model, and starts each agent on exactly what you chose: see [the setup form](/conductor-setup).
 
-The Conductor never implements anything itself, never starts an agent or opens a PR without your approval, and never closes an implementor before its PR is merged or closed. Its standing instructions are at the top of every new session's transcript.
+The Conductor never implements anything itself, never starts an agent or opens a PR without your approval, and never closes an implementor before its PR is merged or closed. Its standing instructions are at the top of every new session's transcript, and are not repeated into a resumed one.
 
 ## After a restart
 

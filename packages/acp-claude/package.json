@@ -1,0 +1,27 @@
+{
+  "name": "@kolu/acp-claude",
+  "version": "0.1.0",
+  "private": true,
+  "license": "AGPL-3.0-or-later",
+  "type": "module",
+  "sideEffects": false,
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "//scripts": "`test:unit`, not `test:daemon`: every case here is a pure function over a payload somebody captured off the wire. The thing that STARTS this adapter is `@kolu/acp-harness`, whose own suite starts a real subprocess.",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test:unit": "vitest run"
+  },
+  "//dependencies": "ONE sibling, and it is the vocabulary rather than a product: what this adapter MEANS is `@kolu/acp/engine`'s `Leg` contract, and the leg here is an instance of it. No `@kolu/acp-harness` — an integration hands over data and pure functions, and the talking is the harness's. No effect either: `@kolu/acp`'s schemas are the only reason effect is in this closure at all.",
+  "dependencies": {
+    "@kolu/acp": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^7.0.2",
+    "vitest": "^5.0.3"
+  }
+}

@@ -16,20 +16,39 @@
       "vendored": true,
       "workspace": [],
       "external": {
-        "@agentclientprotocol/sdk": "^1.3.0",
+        "@agentclientprotocol/sdk": "1.9.0",
+        "effect": "4.1.4"
+      }
+    },
+    "@kolu/acp-claude": {
+      "dir": "packages/acp-claude",
+      "vendored": true,
+      "workspace": [
+        "@kolu/acp"
+      ],
+      "external": {}
+    },
+    "@kolu/acp-client": {
+      "dir": "packages/acp-client",
+      "vendored": true,
+      "workspace": [
+        "@kolu/acp",
+        "@kolu/child"
+      ],
+      "external": {
+        "@agentclientprotocol/sdk": "1.9.0",
         "effect": "4.1.4"
       }
     },
     "@kolu/acp-harness": {
       "dir": "packages/acp-harness",
+      "vendored": true,
       "workspace": [
         "@kolu/acp",
-        "@kolu/terminal-vocab",
-        "kolu-common",
-        "kolu-mcp"
+        "@kolu/acp-client"
       ],
       "external": {
-        "@agentclientprotocol/sdk": "^1.3.0"
+        "effect": "4.1.4"
       }
     },
     "@kolu/agent-distro": {
@@ -56,6 +75,12 @@
     },
     "@kolu/byte-units": {
       "dir": "packages/byte-units",
+      "vendored": true,
+      "workspace": [],
+      "external": {}
+    },
+    "@kolu/child": {
+      "dir": "packages/child",
       "vendored": true,
       "workspace": [],
       "external": {}
@@ -663,7 +688,7 @@
       }
     },
     "kolu-acp-claude": {
-      "dir": "packages/integrations/claude-code/acp/shim",
+      "dir": "packages/acp-claude/adapter/shim",
       "workspace": [],
       "external": {
         "@agentclientprotocol/claude-agent-acp": "0.81.2"
@@ -674,6 +699,7 @@
       "vendored": true,
       "workspace": [
         "@kolu/acp",
+        "@kolu/acp-claude",
         "anyagent",
         "kolu-claude-code",
         "kolu-codex",
@@ -692,7 +718,6 @@
       "dir": "packages/integrations/claude-code",
       "vendored": true,
       "workspace": [
-        "@kolu/acp",
         "anyagent",
         "kolu-io",
         "kolu-shared",
@@ -731,6 +756,7 @@
     "kolu-client": {
       "dir": "packages/client",
       "workspace": [
+        "@kolu/acp",
         "@kolu/agent-distro",
         "@kolu/artifact-sdk",
         "@kolu/byte-units",

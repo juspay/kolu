@@ -26,7 +26,7 @@ client and the server build from one source.
 ## Who uses it
 
 `packages/client`, `packages/server`, `packages/conductor`,
-`packages/kolu-cli`, `packages/acp-harness` and `packages/tests`. It may depend
+`packages/kolu-cli` and `packages/tests`. It may depend
 on the surface framework packages, `@kolu/acp`, `@kolu/padi-client`,
 `@kolu/terminal-vocab`, `anyagent`, `anyforge`, `kolu-git`, `kolu-github` and
 `kolu-work`.

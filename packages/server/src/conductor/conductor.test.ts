@@ -48,6 +48,7 @@ import type {
   HarnessChange,
   HarnessOptions,
   HarnessState,
+  PromptFile,
 } from "@kolu/acp-harness";
 import {
   chunkBase64,
@@ -181,8 +182,8 @@ const userRow = (id: string, seq: number, text: string): ConductorRow => ({
  *  harness takes at the end of its open, and a way to die the way a child that
  *  exited does. */
 interface Spawned {
-  readonly options: HarnessOptions;
-  readonly push: (change: HarnessChange) => void;
+  readonly options: HarnessOptions<ConductorRow>;
+  readonly push: (change: HarnessChange<ConductorRow>) => void;
   /** What `startHarness` does on its last line: publish the state it opened
    *  with — the seeded fleet included. */
   readonly opened: () => void;
@@ -204,7 +205,7 @@ interface Spawned {
   readonly onSignIn: (run: () => void) => void;
   /** The attachments this conversation was HANDED, per prompt — what kolu-server
    *  wrote and filled in before the agent was told anything. */
-  readonly handed: () => ReadonlyArray<ReadonlyArray<ConductorAttachment>>;
+  readonly handed: () => ReadonlyArray<ReadonlyArray<PromptFile>>;
   /** EVERY WAKE THIS CONVERSATION WAS SENT, in order — the only record of
    *  what the held news became, since a wake's row is the harness's to mint
    *  and this stand-in mints none. */
@@ -222,18 +223,29 @@ interface Spawned {
   readonly wiped: () => ReadonlyArray<string>;
 }
 
+/** WHICH CONVERSATION a spawn was asked for — the id its opening names, or
+ *  `null` for an open that names none (a fresh one). The harness takes a
+ *  policy rather than a nullable id now, because a product that ADOPTS cannot
+ *  answer "which" before the agent is live; kolu answers it here. */
+const resumed = (spawned: Spawned | undefined): string | null =>
+  spawned?.options.opens.kind === "resume" ? spawned.options.opens.id : null;
+
 function fakeSpawner(): {
-  spawn: (options: HarnessOptions) => Promise<Harness>;
+  spawn: (
+    options: HarnessOptions<ConductorRow>,
+  ) => Promise<Harness<ConductorRow>>;
   spawns: Spawned[];
 } {
   const spawns: Spawned[] = [];
-  const spawn = async (options: HarnessOptions): Promise<Harness> => {
+  const spawn = async (
+    options: HarnessOptions<ConductorRow>,
+  ): Promise<Harness<ConductorRow>> => {
     let alive = true;
     let stops = 0;
     let sessions = 0;
     let leaving: (() => void) | null = null;
     let signingIn: (() => void) | null = null;
-    const handed: ReadonlyArray<ConductorAttachment>[] = [];
+    const handed: ReadonlyArray<PromptFile>[] = [];
     const wakes: Array<{
       text: string;
       events: ReadonlyArray<ConductorWakeEvent>;
@@ -243,21 +255,28 @@ function fakeSpawner(): {
     let state: HarnessState = {
       ...DEFAULT_CONDUCTOR_STATE,
       phase: "idle",
-      // The real harness seeds its `Fleet` from what the caller remembered and
-      // publishes `[...fleet.ids()]`, so what it says about the fleet is what
-      // it was handed until a tool call adds to it.
-      fleet: [...(options.fleet ?? [])],
+      taught: options.taught,
+      // The three a conversation publishes that kolu's own cell does not
+      // declare: what the handshake advertised, and what the agent calls the
+      // chat. A product that draws them reads them here.
+      methods: [],
+      title: null,
+      queues: false,
     };
-    const harness: Harness = {
+    const harness: Harness<ConductorRow> = {
       state: () => state,
       rows: () => [],
       alive: () => alive,
-      prompt: async (_text, _mentions, attachments) => {
-        handed.push(attachments);
+      prompt: async (said) => {
+        handed.push(said.files);
         return { rowId: "sent" };
       },
-      wake: async (text, events) => {
+      // KOLU'S OWN LINE arrives as the ROW it is drawn as, and the words to
+      // send under it — the conversation knows neither word.
+      hostTurn: async (row, text) => {
         if (wakeFails !== null) throw new Error(wakeFails);
+        const events: ReadonlyArray<ConductorWakeEvent> =
+          row.kind === "wake" ? row.events : [];
         wakes.push({ text, events });
         return { rowId: `woke:${wakes.length}` };
       },
@@ -283,6 +302,16 @@ function fakeSpawner(): {
       signInCancel: async () => false,
       setOption: async () => {},
       newSession: async () => {
+        sessions += 1;
+        leaving?.();
+      },
+      // THE THREE VERBS KOLU DOES NOT USE, answered the way a harness answers
+      // them: a row nothing refused has nothing to send again, this stand-in
+      // has no engine to list conversations out of, and switching into one is
+      // a conversation ending like any other.
+      sendAgain: async () => {},
+      sessions: async () => [],
+      loadSession: async () => {
         sessions += 1;
         leaving?.();
       },
@@ -795,7 +824,7 @@ describe("the transcript a reader is handed", () => {
     // The SAME piece twice — a frame delivered to this fold a second time.
     // our map is what the record is written from, so a fold that ignored
     // `at` would leave a doubled fragment on disk that no reader ever saw.
-    const saying: HarnessChange = {
+    const saying: HarnessChange<ConductorRow> = {
       kind: "rows",
       upserts: [],
       removes: [],
@@ -831,6 +860,7 @@ describe("the restart fence (B1)", () => {
     cwd: HOME,
     model: null,
     fleet: [],
+    taught: false,
   };
   const rows = [row("old-1", 1), row("old-2", 2), row("old-3", 3)];
 
@@ -839,7 +869,7 @@ describe("the restart fence (B1)", () => {
     await r.host.prompt("still here?", [], [], false);
     const agent = r.spawns[0];
     if (agent === undefined) throw new Error("the host spawned nothing");
-    expect(agent.options.resume).toBe("sess-1");
+    expect(resumed(agent)).toBe("sess-1");
     // The highest `seq` we already hold. Anything the new process mints
     // sorts after it and cannot collide with a persisted id.
     expect(agent.options.resumedSeq).toBe(3);
@@ -1156,13 +1186,14 @@ describe("a dead adapter (M3)", () => {
         cwd: HOME,
         model: null,
         fleet: [],
+        taught: false,
       },
       rows: [row("agent:1", 1, "an answer")],
     });
     await r.host.prompt("first", [], [], false);
     const first = r.spawns[0];
     if (first === undefined) throw new Error("the host spawned nothing");
-    expect(first.options.resume).toBe("sess-remembered");
+    expect(resumed(first)).toBe("sess-remembered");
 
     // What the harness publishes when the open it actually got is a different
     // conversation from the one it was asked for.
@@ -1170,6 +1201,10 @@ describe("a dead adapter (M3)", () => {
       kind: "state",
       state: {
         ...DEFAULT_CONDUCTOR_STATE,
+        taught: false,
+        methods: [],
+        title: null,
+        queues: false,
         phase: "idle",
         sessionId: "sess-opened",
       },
@@ -1177,7 +1212,7 @@ describe("a dead adapter (M3)", () => {
 
     first.die();
     await r.host.newSession();
-    expect(r.spawns[1]?.options.resume).toBe("sess-opened");
+    expect(resumed(r.spawns[1])).toBe("sess-opened");
   });
 
   it("RESTARTS the agent into the same conversation after a sign-in, and on a person's reload", async () => {
@@ -1185,7 +1220,13 @@ describe("a dead adapter (M3)", () => {
     // sign-in that succeeded — or one made outside kolu — reaches the next
     // turn only through a fresh one. The conversation must be the same.
     const r = rig({
-      record: { sessionId: "sess-1", cwd: HOME, model: null, fleet: [] },
+      record: {
+        sessionId: "sess-1",
+        cwd: HOME,
+        model: null,
+        fleet: [],
+        taught: false,
+      },
       rows: [row("agent:1", 1, "an answer")],
     });
     await r.host.prompt("first", [], [], false);
@@ -1193,7 +1234,15 @@ describe("a dead adapter (M3)", () => {
     if (first === undefined) throw new Error("the host spawned nothing");
     first.push({
       kind: "state",
-      state: { ...DEFAULT_CONDUCTOR_STATE, phase: "idle", sessionId: "sess-1" },
+      state: {
+        ...DEFAULT_CONDUCTOR_STATE,
+        taught: false,
+        methods: [],
+        title: null,
+        queues: false,
+        phase: "idle",
+        sessionId: "sess-1",
+      },
     });
 
     expect(await r.host.signIn("subscription")).toEqual({
@@ -1202,13 +1251,13 @@ describe("a dead adapter (M3)", () => {
     });
     expect(first.stops()).toBe(1);
     expect(r.spawns).toHaveLength(2);
-    expect(r.spawns[1]?.options.resume).toBe("sess-1");
+    expect(resumed(r.spawns[1])).toBe("sess-1");
 
     // ... and the door for a sign-in made OUTSIDE kolu is the same restart.
     await r.host.reloadAgent();
     expect(r.spawns[1]?.stops()).toBe(1);
     expect(r.spawns).toHaveLength(3);
-    expect(r.spawns[2]?.options.resume).toBe("sess-1");
+    expect(resumed(r.spawns[2])).toBe("sess-1");
   });
 
   it("restarts into the conversation that was live when the button was pressed", async () => {
@@ -1218,7 +1267,13 @@ describe("a dead adapter (M3)", () => {
     // New session and typed in the new conversation was put back in the one
     // they left. The session is read ONCE, when the sign-in is asked for.
     const r = rig({
-      record: { sessionId: "sess-booted", cwd: HOME, model: null, fleet: [] },
+      record: {
+        sessionId: "sess-booted",
+        cwd: HOME,
+        model: null,
+        fleet: [],
+        taught: false,
+      },
       rows: [row("agent:1", 1, "an answer")],
     });
     await r.host.prompt("first", [], [], false);
@@ -1229,6 +1284,10 @@ describe("a dead adapter (M3)", () => {
       kind: "state",
       state: {
         ...DEFAULT_CONDUCTOR_STATE,
+        taught: false,
+        methods: [],
+        title: null,
+        queues: false,
         phase: "idle",
         sessionId: "sess-new",
       },
@@ -1241,6 +1300,10 @@ describe("a dead adapter (M3)", () => {
         kind: "state",
         state: {
           ...DEFAULT_CONDUCTOR_STATE,
+          taught: false,
+          methods: [],
+          title: null,
+          queues: false,
           phase: "idle",
           sessionId: "sess-booted",
         },
@@ -1248,7 +1311,7 @@ describe("a dead adapter (M3)", () => {
     });
 
     await r.host.signIn("subscription");
-    expect(r.spawns[1]?.options.resume).toBe("sess-new");
+    expect(resumed(r.spawns[1])).toBe("sess-new");
   });
 
   it("restarts into a conversation this process started, never a silent fresh one", async () => {
@@ -1260,10 +1323,18 @@ describe("a dead adapter (M3)", () => {
     await r.host.prompt("first", [], [], false);
     const first = r.spawns[0];
     if (first === undefined) throw new Error("the host spawned nothing");
-    expect(first.options.resume).toBeNull();
+    expect(resumed(first)).toBeNull();
     first.push({
       kind: "state",
-      state: { ...DEFAULT_CONDUCTOR_STATE, phase: "idle", sessionId: "sess-z" },
+      state: {
+        ...DEFAULT_CONDUCTOR_STATE,
+        taught: false,
+        methods: [],
+        title: null,
+        queues: false,
+        phase: "idle",
+        sessionId: "sess-z",
+      },
     });
     first.push({
       kind: "rows",
@@ -1276,6 +1347,10 @@ describe("a dead adapter (M3)", () => {
         kind: "state",
         state: {
           ...DEFAULT_CONDUCTOR_STATE,
+          taught: false,
+          methods: [],
+          title: null,
+          queues: false,
           phase: "idle",
           sessionId: "sess-somewhere-else",
         },
@@ -1283,7 +1358,7 @@ describe("a dead adapter (M3)", () => {
     });
 
     await r.host.signIn("subscription");
-    expect(r.spawns[1]?.options.resume).toBe("sess-z");
+    expect(resumed(r.spawns[1])).toBe("sess-z");
   });
 
   it("REFUSES a restart while a turn is running, and says what to do", async () => {
@@ -1291,7 +1366,13 @@ describe("a dead adapter (M3)", () => {
     // mid-turn ends the answer in the middle of a sentence, drops a message
     // queued behind it, and reports none of it.
     const r = rig({
-      record: { sessionId: "sess-1", cwd: HOME, model: null, fleet: [] },
+      record: {
+        sessionId: "sess-1",
+        cwd: HOME,
+        model: null,
+        fleet: [],
+        taught: false,
+      },
       rows: [row("agent:1", 1, "an answer")],
     });
     await r.host.prompt("first", [], [], false);
@@ -1301,6 +1382,10 @@ describe("a dead adapter (M3)", () => {
       kind: "state",
       state: {
         ...DEFAULT_CONDUCTOR_STATE,
+        taught: false,
+        methods: [],
+        title: null,
+        queues: false,
         phase: "working",
         sessionId: "sess-1",
         busySince: T0,
@@ -1317,7 +1402,13 @@ describe("a dead adapter (M3)", () => {
     // lie somebody acts on by signing in twice. The two facts are two fields:
     // signed in, and the agent did not restart, with the refusal's own words.
     const r = rig({
-      record: { sessionId: "sess-1", cwd: HOME, model: null, fleet: [] },
+      record: {
+        sessionId: "sess-1",
+        cwd: HOME,
+        model: null,
+        fleet: [],
+        taught: false,
+      },
       rows: [row("agent:1", 1, "an answer")],
     });
     await r.host.prompt("first", [], [], false);
@@ -1330,6 +1421,10 @@ describe("a dead adapter (M3)", () => {
         kind: "state",
         state: {
           ...DEFAULT_CONDUCTOR_STATE,
+          taught: false,
+          methods: [],
+          title: null,
+          queues: false,
           phase: "working",
           sessionId: "sess-1",
           busySince: T0,
@@ -1352,7 +1447,13 @@ describe("a dead adapter (M3)", () => {
     // said there was no conversation while the transcript held its rows, and
     // a kolu-server that went down in that window came back into a fresh one.
     const r = rig({
-      record: { sessionId: "sess-1", cwd: HOME, model: null, fleet: [] },
+      record: {
+        sessionId: "sess-1",
+        cwd: HOME,
+        model: null,
+        fleet: [],
+        taught: false,
+      },
       rows: [row("agent:1", 1, "an answer")],
     });
     await r.host.prompt("first", [], [], false);
@@ -1360,7 +1461,15 @@ describe("a dead adapter (M3)", () => {
     if (first === undefined) throw new Error("the host spawned nothing");
     first.push({
       kind: "state",
-      state: { ...DEFAULT_CONDUCTOR_STATE, phase: "idle", sessionId: "sess-1" },
+      state: {
+        ...DEFAULT_CONDUCTOR_STATE,
+        taught: false,
+        methods: [],
+        title: null,
+        queues: false,
+        phase: "idle",
+        sessionId: "sess-1",
+      },
     });
 
     r.loseFleetMcp();
@@ -1612,6 +1721,10 @@ describe("teardown (B2)", () => {
       kind: "state",
       state: {
         ...DEFAULT_CONDUCTOR_STATE,
+        taught: false,
+        methods: [],
+        title: null,
+        queues: false,
         phase: "idle",
         sessionId: "s-1",
       },
@@ -1696,21 +1809,26 @@ describe("teardown (B2)", () => {
 describe("the remembered fleet survives the resume (R3)", () => {
   const fleet = ["local/11111111-1111-4111-8111-111111111111"];
 
-  it("is handed to the conversation and not published away under it", async () => {
+  it("is kept by this module rather than re-learned from the agent", async () => {
     const r = rig({
-      record: { sessionId: "sess-1", cwd: HOME, model: null, fleet },
+      record: {
+        sessionId: "sess-1",
+        cwd: HOME,
+        model: null,
+        fleet,
+        taught: false,
+      },
       rows: [row("old-1", 1)],
     });
     await r.host.prompt("still here?", [], [], false);
     const agent = r.spawns[0];
     if (agent === undefined) throw new Error("the host spawned nothing");
-    // Membership otherwise accrues only from tool-call frames, and a resumed
-    // conversation's frames are the replay the harness drops — so a harness
-    // that was not handed this starts empty.
-    expect(agent.options.fleet).toEqual(fleet);
 
-    // The first breath of the open, which is a WHOLE state: whatever it says
-    // about the fleet replaces what we were serving, and we write it.
+    // THE FLEET IS NOT THE CONVERSATION'S. Membership is read off the tool
+    // readings THIS module supplies, so a harness is never handed it and
+    // never publishes it back — which is what used to overwrite the record
+    // with the empty list a fresh conversation starts from. The first breath
+    // of the open is a WHOLE state, and the membership survives it.
     agent.opened();
     expect(r.host.state().fleet).toEqual(fleet);
     await r.host.dispose();
@@ -1931,7 +2049,13 @@ describe("a prompt's attachments", () => {
     writeFileSync(join(dir, "att-1"), "kept");
     writeFileSync(join(dir, "att-2"), "orphan");
     const r = rig({
-      record: { sessionId: "sess-1", cwd: HOME, model: null, fleet: [] },
+      record: {
+        sessionId: "sess-1",
+        cwd: HOME,
+        model: null,
+        fleet: [],
+        taught: false,
+      },
       rows: [
         {
           id: "user-1",
@@ -2011,7 +2135,13 @@ describe("a run of NEW SESSION dividers", () => {
 
   it("restores as ONE — a run of them is one reset, however it got written", () => {
     const r = rig({
-      record: { sessionId: "sess-1", cwd: HOME, model: null, fleet: [] },
+      record: {
+        sessionId: "sess-1",
+        cwd: HOME,
+        model: null,
+        fleet: [],
+        taught: false,
+      },
       rows: [
         row("agent-1", 1, "you're welcome"),
         divider("div-1", 2),
@@ -2037,7 +2167,13 @@ describe("a run of NEW SESSION dividers", () => {
     // until the next boot read collapsed them. The seed crosses the same
     // seam `resumedSeq` does.
     const r = rig({
-      record: { sessionId: "sess-1", cwd: HOME, model: null, fleet: [] },
+      record: {
+        sessionId: "sess-1",
+        cwd: HOME,
+        model: null,
+        fleet: [],
+        taught: false,
+      },
       rows: [row("agent-1", 1, "you're welcome"), divider("div-1", 2)],
     });
     r.host.watch(() => {});
@@ -2055,7 +2191,13 @@ describe("a run of NEW SESSION dividers", () => {
 
   it("says so when the last row is NOT a divider — the guard is a fact, not a default", async () => {
     const r = rig({
-      record: { sessionId: "sess-1", cwd: HOME, model: null, fleet: [] },
+      record: {
+        sessionId: "sess-1",
+        cwd: HOME,
+        model: null,
+        fleet: [],
+        taught: false,
+      },
       rows: [divider("div-1", 1), row("agent-1", 2, "hello")],
     });
     await r.host.newSession();
@@ -2208,6 +2350,10 @@ const working = (agent: Spawned): void => {
     kind: "state",
     state: {
       ...DEFAULT_CONDUCTOR_STATE,
+      taught: false,
+      methods: [],
+      title: null,
+      queues: false,
       phase: "working",
       busySince: T0,
     },
@@ -2219,7 +2365,14 @@ const working = (agent: Spawned): void => {
 const idle = (agent: Spawned): void => {
   agent.push({
     kind: "state",
-    state: { ...DEFAULT_CONDUCTOR_STATE, phase: "idle" },
+    state: {
+      ...DEFAULT_CONDUCTOR_STATE,
+      taught: false,
+      methods: [],
+      title: null,
+      queues: false,
+      phase: "idle",
+    },
   });
 };
 
@@ -2349,6 +2502,7 @@ describe("the wipe (`clearSession`)", () => {
       cwd: HOME,
       model: null,
       fleet: ["local/term-1"],
+      taught: false,
     },
     rows: [row("user:1", 1, "hello"), row("agent:2", 2, "hello back")],
   };

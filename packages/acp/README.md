@@ -14,19 +14,19 @@ The [Agent Client Protocol](https://agentclientprotocol.com)'s vocabulary as kol
 | `activity.ts` | the AIR v1 extension channel: native child sessions and async tasks, negotiated and validated, bridging the pinned SDK's closed update union |
 | `leg.ts` + `engine.ts` | what one AGENT means by what it sends, and what it takes to seat one on a host: the `Leg` interface (a `_meta` one adapter writes, a tool-naming convention one CLI uses, a permission mode one has and another refuses), the `Adapter` to spawn, the `Where` a probe is given, the sentence for a machine that has none, and the channel a standing prompt rides. On its own `./engine` subpath — see below |
 
-Everything is a pure function over a payload. Nothing here waits, spawns, or knows a subprocess exists — the subprocess that speaks these words is `@kolu/acp-harness`'s, and stays there.
+Everything is a pure function over a payload. Nothing here waits, spawns, or knows a subprocess exists — the subprocess that speaks these words is `@kolu/acp-client`'s, and stays there.
 
 ## The seam, and the manifest
 
-This is a LEAF that speaks ACP and nothing of kolu: no `@kolu/*` import. A payload this vocabulary cannot say comes back as this package's own one word, `Refused`, and `@kolu/acp-harness` translates it at the seam it consumes this from, once.
+This is a LEAF that speaks ACP and nothing of kolu: no `@kolu/*` import. A payload this vocabulary cannot say comes back as this package's own one word, `Refused`, and `@kolu/acp-client` translates it at the seam it consumes this from, once.
 
 What may cross the boundary is machine-checked rather than agreed by comment: `src/manifest.test.ts` enumerates the package's imports (only `effect` and the SDK's types), its closed export list, where the SDK may be imported at all, and who may open which of the three doors.
 
 ## This vocabulary is SHARED, and shared means append-only
 
-kolu is not the only reader of this package. [olai](https://github.com/juspay/olai) vendors it as raw TypeScript through its `nix/consumer.nix`, and olai's chat plugin reads parts of it kolu's own orchestrator never touches — `nativeActivity`, `terminalMetaIn`, `Steering`, `Leg.steering`, `Leg.queues`. So **`@kolu/acp` is kept a SUPERSET of olai master's `packages/acp`**: kolu may add, kolu may not take away.
+kolu is not the only reader of this package. [olai](https://github.com/juspay/olai) vendors it as raw TypeScript through its `nix/consumer.nix`. kolu reads all of it today — `@kolu/acp-harness` reads `Steering` and `Leg.steering` when a message is steered into a running turn, and `@kolu/acp-client` reads `nativeActivity`, `Leg.queues` and `terminalMetaIn` off the wire — but whether THIS repository calls a name was never the question. **`@kolu/acp` is kept a SUPERSET of olai master's `packages/acp`**: kolu may add, kolu may not take away.
 
-That makes "ported surface with no consumer, delete it" — the right rule everywhere else in this tree, and the rule `@kolu/acp-harness` follows — **wrong here**, and it has already been got wrong once: three modules and five `Leg` members went out as dead code, and nothing in this repository went red, because nothing in this repository called them. A type-level contract whose consumer is in another repository has no compiler watching it.
+That makes "ported surface with no consumer, delete it" — the right rule everywhere else in this tree — **wrong here**, and it has already been got wrong once: three modules and five `Leg` members went out as dead code, and nothing in this repository went red, because nothing in this repository called them. A type-level contract whose consumer is in another repository has no compiler watching it. The rule the five vendored packages follow instead reads the whole question: a surface with no consumer in kolu **or olai**. Each of them keeps its own ledger — `@kolu/child`, `@kolu/acp-client`, `@kolu/acp-harness` and `@kolu/acp-claude` beside this one — so the answer is a test rather than a memory.
 
 So it has a test instead. `src/sharedVocabulary.json` records every exported name and every `readonly` member; `src/sharedVocabulary.test.ts` asserts each is still there. It is a **floor, not a fence**: adding is free and silent, removing or renaming fails. Two consequences worth stating:
 
@@ -39,6 +39,6 @@ So it has a test instead. `src/sharedVocabulary.json` records every exported nam
 
 This package is where it belongs on merit rather than by elimination: an engine is *an ACP agent and how to reach one*, and the protocol is the language rather than an integration. A `Leg` is a reading of one speaker's spelling of that language, which is the same kind of thing `asks.ts` and `diffs.ts` are one degree less specifically.
 
-What is deliberately NOT on that door: the standing prompt's TEXT (one module in the host that composes it — kolu's is `packages/conductor/src/teaching.ts`, because the words name that host's own MCP verbs; only the CHANNEL is the engine's), and the SPAWN, which is `@kolu/acp-harness`'s because that is the package that speaks the protocol out loud.
+What is deliberately NOT on that door: the standing prompt's TEXT (one module in the host that composes it — kolu's is `packages/conductor/src/teaching.ts`, because the words name that host's own MCP verbs; only the CHANNEL is the engine's), and the SPAWN, which is `@kolu/acp-client`'s because that is the package that speaks the protocol out loud.
 
 Native activity uses one `nativeActivity(app, stream, receive, dialect)` channel. The channel is general: it bridges the pinned SDK's closed update union, hands a validated `ActivityUpdate` to its caller, and publishes the `_meta` the handshake has to carry. The WIRE SPELLING is a `NativeActivity` **declared by an integration** on its leg — codex's AIR v1 words, opencode 2's `opencode/session/child_update` — because a general package that knew one agent's words would be the place the second agent's words had to go too. A dialect may also hand back a message in this package's own spelling, which is how a nested child frame is unwrapped onto the session it belongs to. Conversation ancestry, row identity, and task-to-command lifecycle policy stay with the reader.

@@ -15,7 +15,7 @@
 
 import type { ConductorWakeLevel } from "kolu-common/conductor";
 import { describe, expect, it, vi } from "vitest";
-import { holding } from "./held.ts";
+import { holding } from "@kolu/acp-harness";
 import { wakeText } from "./wakeText.ts";
 import type { WatchLevel } from "./observation.ts";
 import {
@@ -90,35 +90,46 @@ const seeing = (
   pr: null,
 });
 
+/** THE ONE CONVERSATION kolu holds for, and a body put in the way kolu puts
+ *  one in: the terminal is both the sender and its own coalescing key, so one
+ *  watched terminal is one slot with its newest news. */
+const HERE = "the conversation";
+
+const put = (
+  held: ReturnType<typeof holding<string, string>>,
+  ref: string,
+  value: string,
+): void => held.hold(HERE, ref, value, ref);
+
 describe("the held news", () => {
   it("replaces one terminal's slot IN PLACE, keeping the position it first took", () => {
-    const held = holding<string>();
-    held.hold(REF, "stopped");
-    held.hold(OTHER, "asking");
-    held.hold(REF, "gone");
-    expect(held.refs()).toEqual([REF, OTHER]);
-    expect(held.waiting().map((slot) => slot.value)).toEqual([
+    const held = holding<string, string>({ keyOf: () => HERE });
+    put(held, REF, "stopped");
+    put(held, OTHER, "asking");
+    put(held, REF, "gone");
+    expect(held.refs(HERE)).toEqual([REF, OTHER]);
+    expect(held.waiting(HERE).map((slot) => slot.value)).toEqual([
       "gone",
       "asking",
     ]);
   });
 
   it("withdraws a terminal that went back to working", () => {
-    const held = holding<string>();
-    held.hold(REF, "stopped");
-    expect(held.withdraw(REF)).toBe(true);
-    expect(held.withdraw(REF)).toBe(false);
-    expect(held.refs()).toEqual([]);
+    const held = holding<string, string>({ keyOf: () => HERE });
+    put(held, REF, "stopped");
+    expect(held.withdraw(HERE, REF)).toBe(true);
+    expect(held.withdraw(HERE, REF)).toBe(false);
+    expect(held.refs(HERE)).toEqual([]);
   });
 
   it("takes BY IDENTITY, so news that landed mid-delivery is not dropped", () => {
-    const held = holding<string>();
-    held.hold(REF, "stopped");
-    const taken = held.waiting();
+    const held = holding<string, string>({ keyOf: () => HERE });
+    put(held, REF, "stopped");
+    const taken = held.waiting(HERE);
     // The wake is on the wire, and that terminal rings again with newer news.
-    held.hold(REF, "gone");
-    held.took(taken);
-    expect(held.waiting().map((slot) => slot.value)).toEqual(["gone"]);
+    put(held, REF, "gone");
+    held.took(HERE, taken);
+    expect(held.waiting(HERE).map((slot) => slot.value)).toEqual(["gone"]);
   });
 });
 

@@ -124,7 +124,7 @@ buildNpmPackage {
     '';
 
   meta = {
-    description = "An ACP adapter kolu ships, built from its own npm shim";
+    description = "An ACP adapter, built from its own npm shim";
     platforms = lib.platforms.unix;
   };
 }

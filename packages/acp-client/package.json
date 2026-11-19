@@ -1,0 +1,32 @@
+{
+  "name": "@kolu/acp-client",
+  "version": "0.1.0",
+  "private": true,
+  "license": "AGPL-3.0-or-later",
+  "type": "module",
+  "sideEffects": false,
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "//exports": "Two entries. `.` is the client: `make`, the `Agent` it returns, the events it reports, and the interfaces its options take. `./testlib` is what a consumer's own suite needs to drive one — the fixture legs, and the path of a fixture agent to spawn — kept off the main door so no product's runtime imports a test fixture.",
+  "exports": {
+    ".": "./src/index.ts",
+    "./testlib": "./src/testlib/index.ts"
+  },
+  "//scripts": "`test:daemon`, not `test:unit`: the client's own suite spawns real fixture agents (`src/fixtures/`) and real terminal commands, which is the lane `just test-daemon` runs serially and `just test-unit` skips. A package declares ONE lane, so the pure readers' tests ride along in it.",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test:daemon": "vitest run"
+  },
+  "//dependencies": "The protocol SDK (its runtime: this is the package that holds the connection), `@kolu/acp` for the protocol's words, `@kolu/child` for the subprocess, and `effect`, which the client is written in. No product package: the events say what the agent said and never what a product draws. The versions are LITERAL rather than `catalog:` because olai vendors this directory and installs its manifest from its own workspace, where kolu's catalog does not exist.",
+  "dependencies": {
+    "@agentclientprotocol/sdk": "1.9.0",
+    "@kolu/acp": "workspace:*",
+    "@kolu/child": "workspace:*",
+    "effect": "4.1.4"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^7.0.2",
+    "vitest": "^5.0.3"
+  }
+}

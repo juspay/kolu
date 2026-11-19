@@ -56,6 +56,7 @@ import {
   migrateConductorToWorks_1_50_0,
   koluChoicesSayHowChosen_1_56_0,
   mentionsSayTheirKind_1_58_0,
+  toolOutings_1_59_0,
   moveKeptFiles_1_53_0,
   prFactsOnTheTimeline_1_57_0,
   splitWorkAskRows_1_53_0,
@@ -922,6 +923,7 @@ describe("what an EARLIER COMMIT of this branch wrote, read by head", () => {
     splitWorkAskRows_1_53_0(root);
     workAskStanding_1_55_0(root);
     mentionsSayTheirKind_1_58_0(root);
+    toolOutings_1_59_0(root);
     expect(
       JSON.parse(readFileSync(path, "utf8")) as { version: string },
     ).toMatchObject({ version: TRANSCRIPT_FILE_VERSION });
@@ -2574,7 +2576,10 @@ describe("the 1.58.0 rung — a mention says what it is", () => {
     mentionsSayTheirKind_1_58_0(dir);
 
     const file = readJson(transcriptFilePath(dir));
-    expect(file.version).toBe(TRANSCRIPT_FILE_VERSION);
+    // THIS RUNG'S OWN NUMBER, frozen: a rung keeps the number it stamped even
+    // after head moves on (`TRANSCRIPT_VERSION_1_58_0`), and the rung after it
+    // is what carries the file to the live version.
+    expect(file.version).toBe("1.58.0");
     expect(file.rows).toEqual([
       { id: "u1", seq: 1, since: AT, kind: "user", text: "hi" },
       {
@@ -2587,7 +2592,22 @@ describe("the 1.58.0 rung — a mention says what it is", () => {
       },
       { id: "a1", seq: 3, since: AT, kind: "agent", text: "Looking." },
     ]);
-    // The reader of today takes what it leaves behind.
+    // Idempotent: a file with nothing left to do is not rewritten. Asked of a
+    // file at THIS rung's number, which is the only state in which this rung
+    // ever runs — the ladder runs only rungs above what a file holds.
+    const again = readFileSync(transcriptFilePath(dir), "utf8");
+    mentionsSayTheirKind_1_58_0(dir);
+    expect(readFileSync(transcriptFilePath(dir), "utf8")).toBe(again);
+
+    // ... AND THE READER OF TODAY TAKES WHAT IT LEAVES BEHIND only once the
+    // rungs after it have run: a file stamped with anything but the live
+    // version is refused BY NAME, which is what makes a half-walked file a
+    // refusal rather than a guess. This rung's own number is frozen; the one
+    // after it carries the file to head.
+    toolOutings_1_59_0(dir);
+    expect(readJson(transcriptFilePath(dir)).version).toBe(
+      TRANSCRIPT_FILE_VERSION,
+    );
     const read = readPersistedTranscript(
       transcriptFileStore(dir, TRANSCRIPT_FILE_VERSION),
       transcriptFilePath(dir),
@@ -2596,10 +2616,70 @@ describe("the 1.58.0 rung — a mention says what it is", () => {
     expect(read.rows[1]).toMatchObject({
       mentions: [{ kind: "terminal", name: "chat-on-any-entity" }],
     });
+  });
+});
 
-    // Idempotent: a file with nothing left to do is not rewritten.
-    const again = readFileSync(transcriptFilePath(dir), "utf8");
-    mentionsSayTheirKind_1_58_0(dir);
-    expect(readFileSync(transcriptFilePath(dir), "utf8")).toBe(again);
+describe("the 1.59.0 rung — a tool row may say when this outing began", () => {
+  const AT = "2026-11-17T01:00:00.000Z";
+  const ROWS = [
+    { id: "u1", seq: 1, since: AT, kind: "user", text: "run the tests" },
+    {
+      id: "t1",
+      seq: 2,
+      since: AT,
+      kind: "tool",
+      text: "just test",
+      status: "completed",
+      server: "kolu",
+      tool: "lifecycle_sendInput",
+    },
+  ];
+
+  it("leaves every row exactly as it found it, and moves the stamp", () => {
+    // `resumed` is a field a row may now CARRY, never one a saved row was
+    // missing: a reader takes its absence as "first outing". So this rung
+    // rewrites nothing — the file's stamp is the whole of its work, and the
+    // reader of today accepts what it leaves behind.
+    const dir = mkdtempSync(join(tmpdir(), "kolu-tool-outings-"));
+    dirs.push(dir);
+    writeTranscriptFile(transcriptFilePath(dir), "1.58.0", ROWS as never);
+
+    toolOutings_1_59_0(dir);
+
+    const file = readJson(transcriptFilePath(dir));
+    expect(file.version).toBe(TRANSCRIPT_FILE_VERSION);
+    expect(file.rows).toEqual(ROWS);
+    const read = readPersistedTranscript(
+      transcriptFileStore(dir, TRANSCRIPT_FILE_VERSION),
+      transcriptFilePath(dir),
+      dir,
+    );
+    expect(read.rows.map((one) => one.id)).toEqual(["u1", "t1"]);
+  });
+
+  it("is safe to run twice — a file at its own number is not rewritten", () => {
+    const dir = mkdtempSync(join(tmpdir(), "kolu-tool-outings-twice-"));
+    dirs.push(dir);
+    writeTranscriptFile(transcriptFilePath(dir), "1.58.0", ROWS as never);
+
+    toolOutings_1_59_0(dir);
+    const once = readFileSync(transcriptFilePath(dir), "utf8");
+    toolOutings_1_59_0(dir);
+    expect(readFileSync(transcriptFilePath(dir), "utf8")).toBe(once);
+  });
+
+  it("leaves a file it cannot read exactly as it is, for the reader to refuse by name", () => {
+    // A transcript file that is not JSON at all. A rung that "repaired" it
+    // would be a rung that ate somebody's conversation; leaving it is what
+    // lets the reader refuse it by name with the bytes still on disk.
+    const dir = mkdtempSync(join(tmpdir(), "kolu-tool-outings-torn-"));
+    dirs.push(dir);
+    const path = transcriptFilePath(dir);
+    mkdirSync(dirname(path), { recursive: true });
+    writeFileSync(path, "{ this is not json", "utf8");
+
+    toolOutings_1_59_0(dir);
+
+    expect(readFileSync(path, "utf8")).toBe("{ this is not json");
   });
 });
