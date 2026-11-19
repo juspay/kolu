@@ -1,6 +1,10 @@
 import assert from "node:assert";
 import { Then, When } from "@cucumber/cucumber";
-import { ACTIVE_TERMINAL, waitForBufferContains } from "../support/buffer.ts";
+import {
+  ACTIVE_TERMINAL,
+  waitForBufferContains,
+  waitForFirstScreen,
+} from "../support/buffer.ts";
 import { type KoluWorld, POLL_TIMEOUT } from "../support/world.ts";
 
 /** Window globals this scenario installs on the focused terminal to observe
@@ -17,6 +21,14 @@ interface RenderProbeWindow {
 When(
   "I stall the focused terminal's render loop",
   async function (this: KoluWorld) {
+    // The stall can park every paint but two, and both belong to the
+    // terminal's FIRST screen: that frame states the terminal's size, and
+    // xterm's WebGL renderer repaints at once on a resize; the frame then
+    // resets the terminal, and xterm's `reset()` ends in a synchronous full
+    // refresh. Neither waits for a frame, so a stall installed before the
+    // first screen lands counts them as paints. `Given the terminal is ready`
+    // only means the tile is shown and focused — wait for the drawn screen.
+    await waitForFirstScreen(this.page);
     await this.page.evaluate((sel) => {
       const el = document.querySelector(sel);
       const term = (
