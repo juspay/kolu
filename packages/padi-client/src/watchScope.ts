@@ -1,29 +1,3 @@
-/**
- * WHICH terminals a subscription reports — the include list and the mute, as
- * ONE value with ONE constructor and ONE reader.
- *
- * The question "does this subscription report terminal X?" has a single answer,
- * so it has a single home. It used to be two loose optional fields (`ids`,
- * `ignoreIds`) travelling side by side through every layer, carrying a coupling
- * rule neither field could express — with the result that the never-match
- * refusal was written at five sites in four spellings, the membership predicate
- * at four more, and the two halves had already drifted (one site refused an
- * empty include list, another happily built a spec carrying one).
- *
- * So: {@link watchScopeOf} is the only way to make a scope, and it is where BOTH
- * never-match shapes are refused — as a VALUE, because every caller already
- * wanted a value (a CLI failure, an MCP `ToolFailure`, a wire refusal) and it
- * was the throw that forced everyone to pre-check what the constructor was about
- * to check again. {@link scopeAdmits} is the only way to read one.
- *
- * The mute is FAIL-OPEN and that is the feature's whole point: an unknown or
- * stale id in the mute is inert, and a terminal that is not in the mute is
- * always watched. Only the include list fails closed.
- *
- * The wire keeps saying `ids` / `ignoreIds` ({@link PadiWatchIgnoreFields} and
- * friends) — this is the engine-side concept, not a rename of a shipped field.
- */
-
 import type { TerminalId } from "@kolu/terminal-vocab/schema";
 
 /** The terminals a subscription reports. Constructed ONLY by
@@ -61,17 +35,13 @@ export type ParsedWatchScope =
       readonly refused: WatchScopeRefusal;
     };
 
-/** The invariant, face-neutral. The way OUT of it is the face's own sentence —
- *  a caller with an `ids` array must not be told to "omit the id", which is one
- *  particular shell's positional grammar. */
-export const WATCH_SCOPE_EMPTY =
+/** The refusal sentence for a scope whose mute covers every included terminal.
+ *  The way OUT of it is the face's own sentence, in its own grammar. */
+export const WATCH_SCOPE_MUTE_COVERS_ALL =
   "this watch can never match anything: every included terminal is also muted.";
 
-/** The other never-match shape, and the reason an empty include list is refused
- *  rather than read as "the whole fleet": a caller that sent one narrowed to
- *  nothing, and answering it with silence is indistinguishable from a quiet
- *  workspace. */
-export const WATCH_SCOPE_NO_IDS =
+/** The refusal sentence for a scope given an EMPTY include list. */
+export const WATCH_SCOPE_EMPTY_INCLUDE_LIST =
   "this watch can never match anything: its included-terminal list is empty.";
 
 /** The ONE constructor. Takes whatever a face has in hand — arrays off the
@@ -84,11 +54,13 @@ export function watchScopeOf(opts: {
 }): ParsedWatchScope {
   const include = opts.ids === undefined ? undefined : new Set(opts.ids);
   if (include !== undefined && include.size === 0) {
-    return { kind: "error", message: WATCH_SCOPE_NO_IDS, refused: "no-ids" };
+    return {
+      kind: "error",
+      message: WATCH_SCOPE_EMPTY_INCLUDE_LIST,
+      refused: "no-ids",
+    };
   }
   const muted = opts.mute === undefined ? undefined : new Set(opts.mute);
-  // Empty IS the identity — "mute nobody" is spelled by the key being absent
-  // everywhere it travels, so there is no second spelling to normalize later.
   const mute = muted === undefined || muted.size === 0 ? undefined : muted;
   if (include !== undefined && mute !== undefined) {
     let admits = false;
@@ -99,13 +71,15 @@ export function watchScopeOf(opts: {
       }
     }
     if (!admits) {
-      return { kind: "error", message: WATCH_SCOPE_EMPTY, refused: "covered" };
+      return {
+        kind: "error",
+        message: WATCH_SCOPE_MUTE_COVERS_ALL,
+        refused: "covered",
+      };
     }
   }
   return {
     kind: "ok",
-    // Omit-or-spread, never an explicit `undefined`: "the whole fleet" and
-    // "mute nobody" are spelled by the key being missing.
     value: {
       ...(include === undefined ? {} : { include }),
       ...(mute === undefined ? {} : { mute }),
@@ -113,9 +87,6 @@ export function watchScopeOf(opts: {
   };
 }
 
-/** The ONE reader. Every event source asks this — the hub's match, the queue's
- *  enqueue, a re-open's carry filter, the CLI's emit funnel — so a source added
- *  tomorrow inherits the whole rule instead of half of it. */
 export function scopeAdmits(scope: WatchScope, id: TerminalId): boolean {
   return (
     (scope.include === undefined || scope.include.has(id)) &&

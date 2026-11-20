@@ -1,17 +1,3 @@
-/**
- * `composeTerminalMetadata` (in `./vocab.ts`) — the ONE join of a terminal's
- * two halves, the AUTHORED record + its OBSERVATION, into the unified
- * `TerminalMetadata`. Applied at the client read and at disk persist, never
- * served.
- *
- * These pin the load-bearing sleeping-arm invariants AFTER the awareness-derive-
- * store cutover: a sleeping terminal carries only the restore-relevant projection
- * of its snapshot (`cwd · git · pr` — `pr` rides it, restore-relevant now, no
- * frozen-pr special case), the churny `foreground` and lie-when-dead agent detail
- * are dropped, and the resume target rides the authored record's `restoreTarget`
- * (the discriminated resume value), joined with `location` + memory + client fields.
- */
-
 import type { AgentInfo, TerminalSnapshot } from "@kolu/terminal-vocab/schema";
 import { Result, Schema } from "effect";
 import { describe, expect, it } from "vitest";
@@ -28,7 +14,6 @@ import {
   LOCAL_LOCATION,
 } from "./vocab.ts";
 
-/** zod's `.safeParse(x).success`, in Effect terms. */
 const accepts = (
   schema: Parameters<typeof Schema.decodeUnknownResult>[0],
   value: unknown,
@@ -46,10 +31,6 @@ const claude = (sessionId: string): AgentInfo => ({
   startedAt: null,
 });
 
-/** A full live snapshot with a resolved PR, a live agent, and a foreground
- *  process. `pr` is restore-relevant (survives onto a dormant tile); the agent
- *  DETAIL + `foreground` are lie-when-dead / churny and must not reach the
- *  sleeping wire. */
 const snapshot = (over: Partial<TerminalSnapshot> = {}): TerminalSnapshot => ({
   cwd: "/repo",
   git: { kind: "none" },
@@ -92,11 +73,9 @@ describe("composeTerminalMetadata — the sleeping arm is the restore-relevant p
     };
     const wire = composeTerminalMetadata(authored, snapshot());
     if (wire.state !== "sleeping") throw new Error("expected sleeping arm");
-    // cwd survives; the live agent detail + foreground are gone.
     expect(wire.cwd).toBe("/repo");
     expect("agent" in wire).toBe(false);
     expect("foreground" in wire).toBe(false);
-    // memory + the restore target rode the authored record onto the joined value.
     expect(wire.lastActivityAt).toBe(7);
     expect(wire.restoreTarget).toEqual({
       kind: "exact",
@@ -170,12 +149,6 @@ describe("encodeHostLocation / decodeHostLocation — the daemon-status key code
     expect(accepts(HostLocationSchema, { kind: "remote", hostId: "" })).toBe(
       false,
     );
-    // PIN: an empty hostId is exactly what `encodeHostLocation` would turn into
-    // the bare "remote:" prefix, which `decodeHostLocation` already throws on —
-    // the schema now refuses to mint the value in the first place. (`hostId:
-    // string` is unrefined at the TYPE level — a min-length CHECK is a runtime
-    // gate — so this literal still typechecks as a `HostLocation`; the schema is
-    // the one guard that actually rejects it.)
     const emptyRemote = { kind: "remote" as const, hostId: "" };
     expect(encodeHostLocation(emptyRemote)).toBe("remote:");
     expect(() => decodeHostLocation(encodeHostLocation(emptyRemote))).toThrow();

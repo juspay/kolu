@@ -1,22 +1,3 @@
-/**
- * `diagnostics.read` — what padi answers when asked why it is slow.
- *
- * Browser-safe schemas only (no `node:` imports), re-exported from
- * `./surface.ts` the way `./chromeVocab.ts` is, so every face reads them as
- * `@kolu/padi-client/surface`.
- *
- * Two shapes recur and are spelled once each:
- *   - {@link measuredSchema} — a number that was measured, or WHY it was not.
- *     No field here is optional, nullable or zero to mean "unknown";
- *   - {@link TimingSummarySchema} — median, 99th percentile, worst and sum in
- *     milliseconds, plus the sample count. Children, stalls and calls all
- *     report time in it.
- *
- * Rows are sorted worst first BY PADI, so the CLI and the dialog agree:
- * children by summed start-call time, calls by worst total, watchers by last
- * install time.
- */
-
 import { Schema } from "effect";
 
 /** A value that was measured, or the reason it was not. */

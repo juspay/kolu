@@ -42,7 +42,6 @@ import {
   urgencyEqual,
 } from "./surface.ts";
 
-/** zod's `.safeParse(x).success`, in Effect terms. */
 const accepts = (
   schema: Parameters<typeof Schema.decodeUnknownResult>[0],
   value: unknown,
@@ -50,7 +49,6 @@ const accepts = (
 
 const decodeIdentity = Schema.decodeUnknownSync(PadiIdentitySchema);
 
-/** A minimal PARKED record — the arm that exists only on the wire side. */
 const parkedRecord = (): Record<string, unknown> => ({
   cwd: "/repo",
   git: { kind: "none" },
@@ -68,169 +66,33 @@ describe("padiSurface contract", () => {
   });
 
   it("declares its surface contract version — DEFAULT_PADI_VERSION carries + validates it", () => {
-    // 1.1–1.3 were additive minors over 1.0 (recycleKaval, hostInventory, identity).
-    // 2.0 was the first MAJOR: (a) it ADDED the per-terminal right-panel `collapsed`
-    // field (the panel follows the terminal, #959) — a major because an older client's
-    // whole-record `chrome.setRightPanel` write omits it and the REPLACE clobbers a
-    // newer client's `collapsed:true`; and (b) it REMOVED `fs.statFileMtimeMs` for
-    // `fs.filePreviewTag` — a shape-breaking rename. 3.0 was the second MAJOR
-    // (scrollback-backfill): the `terminalAttach` stream output was RESHAPED from a
-    // bare string to a discriminated `{ kind, data, topLine? }` union frame —
-    // breaking in BOTH skew directions. 3.1 (additive minor) added the reflow guard
-    // (F3): OPTIONAL `reflowEpoch` + `epoch`/`stale`, both skew directions graceful.
-    // 4.0 was the third MAJOR: it REMOVED the dead `lifecycle.restoreSleeping`
-    // procedure (retired per #1784's W12 disposition — no production caller).
-    // 4.1–4.7 were additive/reshaping minors (the `incompatible` status arm,
-    // `ports`, `scope`, `fs.listIgnored`, the session-restore intent reshape,
-    // `fs.listDirectory`, the `newTerminalPolicy` cell).
-    //
-    // 5.0 is the fourth MAJOR, and it is the PROTOCOL-EPOCH flag day (PLAN D6). No
-    // payload shape moved — the byte fixtures below assert that directly — but the
-    // FRAMING beneath every member did (oRPC peer protocol → Effect RPC ndjson), and
-    // the declared error channel stopped being a code map and became tagged classes.
-    // The bump is not cosmetic even though the lever is inert across that break: two
-    // mutually undecodable epochs must never report the SAME string, or a survivor
-    // reporting "4.7" would compare EQUAL to this build's expectation and be adopted
-    // as wire-compatible — the version lever silently disarmed across the one break
-    // it most needed to name.
-    //
-    // 5.1 is the first additive minor of this epoch: `session.restore` gained an
-    // OUTPUT — the active-terminal marker it settled on — so the client stops
-    // reading a restore's active tile off the `session` cell's next snapshot. That
-    // was a race the client cannot win: the snapshot publishes behind a
-    // synchronous disk write while the restored terminals publish as they spawn.
-    //
-    // 5.5 adds an OPTIONAL `grid` to the `terminalAttach` snapshot frame — the
-    // cols×rows those bytes were serialized at. A MINOR, not a major, for the
-    // reason this contract already applies to `reflowEpoch`: absence degrades
-    // to exactly the previous reading in both skew directions, and a major
-    // would force-recycle a surviving kaval — killing live PTYs — to buy a
-    // readout. It exists for the OBSERVE-ONLY attach, which asserts no size and
-    // therefore never learned what size it received.
-    // 5.6 adds the nag CAP: an optional `nagCount` on `watch.open`/`watchStates`
-    // and the `nag` reminder accounting (`{index, left?}`) on the state events
-    // those same members emit. Both are additive keys an older decoder strips —
-    // so why not the `resizeTo` class? A stripped `resizeTo` degrades to an
-    // OBSERVABLE baseline (the pty keeps its earlier shape); a stripped
-    // `nagCount` degrades to a behavioural lie: the face spelled a cap, the
-    // surviving padi serves an UNCAPPED feed, and nothing on the wire says
-    // which. The faces that spell it are the gate-only ones (`kolu watch`, the
-    // MCP `watch_open` — 5.4's #1313 case), so the version must say it for
-    // convergence to drain the straddler first.
-    // 5.7 adds host-wide ports: the `hostListeners` cell, and a REQUIRED
-    // `command` on every `PortInfo` — required, so the minor is what keeps a 5.7
-    // decoder from meeting a 5.6 padi's records.
-    // 5.8 adds agent-distro: the pushed `agentDistro` setting a 5.8 binder
-    // WRITES and the `lifecycle.restart` it CALLS, so the minor is what drains
-    // a 5.7 padi that has neither.
-    // 5.9 adds agent-distro updates: the `agentDistro.checkNow` a 5.9 client
-    // CALLS and the `agentDistroReceipt` cell it reads, so the minor drains a
-    // 5.8 padi that has neither.
-    // 5.10 makes the record's `git` a three-case `GitFact` and gives its
-    // `foreground` a required `shell` (neither additive: the two shapes refuse
-    // each other), so the minor keeps a 5.10 decoder from ever meeting a 5.9
-    // padi's `git: null`.
-    // 5.11 lets the binder push a profile reference, which a 5.10 padi's
-    // write gate refuses; the minor drains a 5.10 padi first.
-    // 5.12 adds the per-host agents retry: the `agentDistro.retryDownload` a
-    // 5.12 client CALLS from a machine's host details, so the minor drains a
-    // 5.11 padi that has no such member.
-    // 5.13 hands every host's agent delivery to kolu-server: `checkNow` and
-    // `retryDownload` are gone, the `agentDistro.report` a 5.13 binder CALLS
-    // is new, and the status `error` reason / receipt `by` change vocabulary —
-    // not additive either way, so the minor drains a 5.12 padi first.
-    // 5.14 added the Inspector's odu CI readout as padi's own `ciStatus`
-    // stream; 6.0 RETIRES it. odu is a SIBLING now — its surface is re-served
-    // at `surface/odu/*`, and a reader subscribes to odu's own `checkout`
-    // stream — so the member is gone, and the major is what refuses a 5.14
-    // client at the handshake instead of letting it hang on a tag nobody
-    // serves.
-    // 7.0 makes agent-distro one package with profiles built and delivered
-    // beside it: the setting's `profile` becomes the `profiles` stack, every
-    // status / report arm names the stack, the record's `agents` names the
-    // package and the built profiles, and the `agentDistroResolved` cell is
-    // GONE (kolu-server resolves a profile when it builds it). A member was
-    // removed and no arm decodes across the change, so it is a major.
-    // 7.1 added `screen.text { tail }`. 7.2 widens the ACTIVE-TERMINAL gate's
-    // error channel: `TerminalNotActive { id, state }` joins `TerminalNotFound`
-    // on every member behind it, so a sleeping terminal stops answering "not
-    // found" — a widened output a 7.1 decoder would refuse, which is the 5.3
-    // case and therefore a minor. 7.3 lets the record's `agent` be a PRESENCE —
-    // an agent seen in the foreground with no session yet (`starting` /
-    // `fresh`) — and adds those two buckets to the wait/watch vocabulary: a
-    // widened emitted union a 7.2 decoder refuses, the same 5.3 minor.
-    // 7.4 ADDS the `roster` cell — whether padi has finished adopting, so a
-    // reader may tell an empty roster apart from one that has not been
-    // established. A new member an older consumer never asks for: a minor.
-    // 7.5 puts the pty's RESIZES on the attach stream: a new `resized` frame
-    // naming the grid the mirror moved to, at its own point between two bytes,
-    // and the snapshot frame's `grid` becomes REQUIRED so a consumer sizes
-    // itself to the bytes before painting them. A widened emitted union plus a
-    // field made required — a 7.4 decoder refuses the new frame and a 7.4 padi
-    // omits a grid a 7.5 consumer demands — which is the 5.3/7.3 case again,
-    // and therefore a minor.
-    // 7.6 ADDS the `agentDistro.models` procedure — which models a harness
-    // offers on this host. Another member added: a minor.
-    // 7.7 ADDS `agentDistro.launch` — how a harness's launch takes a model,
-    // which runs no harness. Another member added: a minor.
-    // 7.8 ADDS `lastPromptText` to the omp and pi agent arms — a required
-    // field on an emitted arm, the 5.3/7.3 case: a minor.
-    // 7.9 ADDS the `diagnostics` procedure namespace (`diagnostics.read`): a
-    // member an older consumer never asks for, so a minor.
-    // 7.10 ADDS `isBare` to the record's `GitInfo` and widens `git.getStatus` /
-    // `git.getDiff`'s declared error with `WorktreeBaseBranchMissing` — a
-    // required field on an emitted value and a widened emitted union, the
-    // 5.3/7.3 case again: a minor.
-    // 7.11 ADDS `isDraft` to the forge's `PrInfo` — a required field on an
-    // emitted value: a minor.
-    // 7.12 ADDS `settled` to the `urgency` value, decoding to `true` when an
-    // older padi omits it — a field on an emitted value: a minor.
     expect(PADI_SURFACE_VERSION).toBe("7.12");
     expect(DEFAULT_PADI_VERSION.contractVersion).toBe(PADI_SURFACE_VERSION);
     expect(
       Schema.decodeUnknownSync(PadiVersionSchema)(DEFAULT_PADI_VERSION),
     ).toEqual(DEFAULT_PADI_VERSION);
-    // The epoch guard, stated as the predicate sees it: a previous-epoch string
-    // is a MAJOR mismatch, refused in both directions, so no 4.x peer is ever
-    // adopted by this build and no 4.x binder adopts this padi.
     expect(isContractVersionCompatible("4.7", PADI_SURFACE_VERSION)).toBe(
       false,
     );
     expect(isContractVersionCompatible(PADI_SURFACE_VERSION, "4.7")).toBe(
       false,
     );
-    // The IN-EPOCH mechanism still works and must keep working from here on: a
-    // binder that expects a future additive minor refuses a padi still reporting
-    // 5.1, so convergence drains-and-respawns it BEFORE the new client touches a
-    // member padi does not serve.
     expect(isContractVersionCompatible("5.2", "5.3")).toBe(false);
-    // A newer additive minor still serves a 5.2 consumer.
     expect(isContractVersionCompatible("5.3", "5.2")).toBe(true);
-    // 5.4 is `screen.image`: a binder expecting it refuses a 5.3 padi that
-    // cannot serve it, which is the whole point of the bump — a gate-only
-    // CLI/MCP face would otherwise adopt that padi and die on the member.
     expect(isContractVersionCompatible("5.3", "5.4")).toBe(false);
     expect(isContractVersionCompatible("5.4", "5.3")).toBe(true);
-    // 5.6 is the nag cap: a face that spelled it refuses a 5.5 padi whose
-    // decoder would strip the knob and serve the uncapped feed with no signal.
     expect(isContractVersionCompatible("5.5", "5.6")).toBe(false);
     expect(isContractVersionCompatible("5.6", "5.5")).toBe(true);
-    // 5.7 is host-wide ports: `PortInfo.command` is REQUIRED, so a 5.7 decoder
-    // must never meet a 5.6 padi's records — the minor rule refuses it.
     expect(isContractVersionCompatible("5.6", "5.7")).toBe(false);
     expect(isContractVersionCompatible("5.7", "5.6")).toBe(true);
     expect(isContractVersionCompatible("5.7", "5.8")).toBe(false);
     expect(isContractVersionCompatible("5.8", "5.7")).toBe(true);
     expect(isContractVersionCompatible("5.8", "5.9")).toBe(false);
     expect(isContractVersionCompatible("5.9", "5.8")).toBe(true);
-    // Two-digit minors compare as numbers, not strings: 5.10 is after 5.9.
     expect(isContractVersionCompatible("5.9", "5.10")).toBe(false);
     expect(isContractVersionCompatible("5.10", "5.9")).toBe(true);
-    // 7.1 gives `screen.text` a `tail`. A 7.0 decoder would strip it and serve
-    // the whole scrollback as the tail, so a 7.1 face refuses a 7.0 padi.
     expect(isContractVersionCompatible("7.0", "7.1")).toBe(false);
     expect(isContractVersionCompatible("7.1", "7.0")).toBe(true);
-    // A major bump is mutually incompatible in both directions.
     expect(isContractVersionCompatible("6.0", "5.0")).toBe(false);
     expect(isContractVersionCompatible("5.0", "6.0")).toBe(false);
   });
@@ -263,7 +125,6 @@ describe("padiSurface contract", () => {
       "watchPulse",
       "subscribeRepoChange",
       "subscribeFileChange",
-      // 7.4: the pull request of a BRANCH, for the work that is that branch.
       "pullRequest",
       "terminalAttach",
     ]);
@@ -341,8 +202,6 @@ describe("padiSurface contract", () => {
   });
 
   it("the 1.3 `identity` cell DECLARES a nullable commit — never conflated with cell-pending (absence)", () => {
-    // `commit: null` is a legitimate, DECLARED value on the wire (a dev/off-nix
-    // build with no commit) — schema-valid, unlike an absent field.
     const declaredNoCommit = {
       commit: null,
       surfaceVersion: PADI_SURFACE_VERSION,
@@ -350,14 +209,8 @@ describe("padiSurface contract", () => {
       lifetime: { kind: "forever" as const },
     };
     expect(decodeIdentity(declaredNoCommit)).toEqual(declaredNoCommit);
-    // A real commit round-trips too.
     const withCommit = { ...declaredNoCommit, commit: "abc1234" };
     expect(decodeIdentity(withCommit)).toEqual(withCommit);
-    // `commit` is REQUIRED-but-nullable on the wire shape — an absent `commit` key
-    // fails validation (it must be an explicit `null`, never an omitted field) —
-    // the schema-level half of "pending ≠ declared-null": the client's OWN
-    // pending state is the SUBSCRIPTION never having yielded this shape at all,
-    // never a value that validates with the field missing.
     expect(() =>
       decodeIdentity({
         surfaceVersion: PADI_SURFACE_VERSION,
@@ -369,16 +222,12 @@ describe("padiSurface contract", () => {
   });
 
   it("the `lifetime` field is OPTIONAL — a survivor padi predating it still parses (→ undefined, the row reads '—'), and a live one round-trips its policy", () => {
-    // A padi predating the lifetime field carries no `lifetime` key. It must parse
-    // (optional + additive — no PADI_SURFACE_VERSION bump that would force a drain),
-    // leaving `lifetime` undefined so the dialog row falls back to "—".
     const survivor = decodeIdentity({
       commit: "abc1234",
       surfaceVersion: PADI_SURFACE_VERSION,
       startedAt: 1_700_000_000_000,
     });
     expect(survivor.lifetime).toBeUndefined();
-    // A live padi's projected policy survives the parse verbatim.
     const live = decodeIdentity({
       commit: "abc1234",
       surfaceVersion: PADI_SURFACE_VERSION,
@@ -386,9 +235,6 @@ describe("padiSurface contract", () => {
       lifetime: { kind: "boundToPid", pid: 4321 },
     });
     expect(live.lifetime).toEqual({ kind: "boundToPid", pid: 4321 });
-    // `optionalKey`, never `optional` (PLAN #17): an ABSENT key is the only
-    // spelling of absence on this wire, and it re-encodes ABSENT — never `null`,
-    // which is what `Schema.optional` would have silently produced.
     const encoded = Schema.encodeUnknownSync(PadiIdentitySchema)(
       survivor,
     ) as Record<string, unknown>;
@@ -398,8 +244,6 @@ describe("padiSurface contract", () => {
   it("annotates EVERY member with a forwarding policy — no gap, no orphan", () => {
     const members = new Set(padiMemberKeys());
     const annotated = new Set(Object.keys(PADI_FORWARDING_POLICY));
-    // Every declared member has a policy AND every policy names a real member —
-    // set equality proves both (no unannotated member, no orphan annotation).
     expect(annotated).toEqual(members);
   });
 
@@ -410,10 +254,6 @@ describe("padiSurface contract", () => {
   });
 
   it("carries odu's OWN declarations, not a copy of them", () => {
-    // The sibling's members ARE odu's: the same schema objects, reached through
-    // odu's spec. A copy would be a second statement of odu's contract — the
-    // thing kolu consumes odu's packages to avoid — and it would pass a
-    // deep-equality check for exactly as long as nobody changed odu.
     expect(oduCarriedSurface.spec.cells?.service).toBe(
       oduServiceSurface.spec.cells.service,
     );
@@ -424,12 +264,8 @@ describe("padiSurface contract", () => {
 
   it("serves odu beside padi, at its own tag prefix", () => {
     const tags = [...padiDaemonGroup.requests.keys()];
-    // The sibling's members are reachable, under `surface/odu/*` — so a client
-    // dialling padi sees odu's contract whether or not an odu daemon is running
-    // on that machine.
     expect(tags).toContain("surface/odu/checkout/get");
     expect(tags).toContain("surface/odu/service/get");
-    // …and padi's own members are untouched by the composition.
     expect(tags).toContain("surface/padi/terminals/keys");
   });
 
@@ -439,44 +275,22 @@ describe("padiSurface contract", () => {
       .map(([key]) => key)
       .sort();
     expect(delta).toEqual(["activity", "terminalAttach", "watchStates"]);
-    // The delta members are exactly the three the note names; everything else
-    // (cells, collections, pulses, procedures, the terminalExit event) is value.
     expect(PADI_FORWARDING_POLICY.activity).toBe("delta");
     expect(PADI_FORWARDING_POLICY.terminalAttach).toBe("delta");
-    // A supervision batch is an EVENT list, not a level: replaying one on a
-    // rebind would re-report a nag the consumer already acted on, and its
-    // subscribe-time snapshot is only ever a fresh stream's first frame.
     expect(PADI_FORWARDING_POLICY.watchStates).toBe("delta");
     expect(PADI_FORWARDING_POLICY.subscribeRepoChange).toBe("value");
     expect(PADI_FORWARDING_POLICY.subscribeFileChange).toBe("value");
     expect(PADI_FORWARDING_POLICY.terminals).toBe("value");
     expect(PADI_FORWARDING_POLICY.terminalExit).toBe("value");
-    // The two cells that relocated off koluSurface (W1 padi seam) are value —
-    // a rebind replays the current session / activity-feed snapshot.
     expect(PADI_FORWARDING_POLICY.session).toBe("value");
     expect(PADI_FORWARDING_POLICY.activityFeed).toBe("value");
-    // The 1.2 host-inventory cell is value — a rebind replays the current daemon
-    // scan snapshot (so the re-served surface hands the dialog the bound host's
-    // list identically local and remote).
     expect(PADI_FORWARDING_POLICY.hostInventory).toBe("value");
-    // The 5.7 host-listeners cell is value for the same reason: a rebind replays
-    // the current reading, and each reading stands alone.
     expect(PADI_FORWARDING_POLICY.hostListeners).toBe("value");
-    // The 7.4 roster cell is value: a binder that rebinds mid-settle must be
-    // replayed the CURRENT standing — a hold-open that handed it nothing would
-    // leave it on the `settling` default while padi had long since adopted, or
-    // (worse) on a stale `established` through a recycle.
     expect(PADI_FORWARDING_POLICY.roster).toBe("value");
-    // The 7.4 `pullRequest` stream is value for the same reason as the roster:
-    // every frame is the WHOLE current reading of one branch's pull request, so
-    // a rebind that replays the last one is telling the truth.
     expect(PADI_FORWARDING_POLICY.pullRequest).toBe("value");
   });
 
   it("the terminals value carries the active | sleeping | parked union", () => {
-    // The union accepts all three record states. `parked` is reserved in the
-    // contract from 1.0 (W1.R produces it). Read off the schema's own members —
-    // `Schema.Union`'s `.members`, the successor of zod's `.options`.
     expect(
       PadiTerminalSchema.members
         .map((member) => member.fields.state.literal)
@@ -485,10 +299,6 @@ describe("padiSurface contract", () => {
   });
 
   it("the reserved host axis is optional on the terminals value — absent is valid", () => {
-    // `host` is reserved for the cross-host dock (W4); a W1 record omits it and
-    // still validates, so the axis exists in the contract without a break.
-    // Asserted BEHAVIOURALLY (a record without the key decodes) rather than by
-    // introspecting the field wrapper — the property that matters is the parse.
     expect(padiSurface.spec.collections?.terminals).toBeTruthy();
     expect(accepts(PadiTerminalSchema, parkedRecord())).toBe(true);
     expect(
@@ -497,8 +307,6 @@ describe("padiSurface contract", () => {
   });
 
   it("preview.read is RANGE-CAPABLE and serve-dir-shaped — not a whole-file blob", () => {
-    // The input carries an OPTIONAL raw HTTP `range`, so a `<video>` can seek and
-    // a multi-GB file is never forced whole through the heap; absent = whole file.
     const decodeIn = Schema.decodeUnknownSync(PadiPreviewReadInputSchema);
     const noRange = decodeIn({ repoPath: "/repo", filePath: "a.png" });
     expect(noRange.range).toBeUndefined();
@@ -509,9 +317,6 @@ describe("padiSurface contract", () => {
         range: "bytes=0-1023",
       }).range,
     ).toBe("bytes=0-1023");
-    // The output mirrors `@kolu/serve-dir`'s `ServeResult` — {status, headers}
-    // verbatim + a base64 body — NOT a `{contentBase64, contentType, mtimeMs}`
-    // blob, so a 206/416/Content-Range rides the contract unchanged.
     expect(Object.keys(PadiPreviewReadOutputSchema.fields).sort()).toEqual([
       "bodyBase64",
       "headers",
@@ -528,22 +333,13 @@ describe("padiSurface contract", () => {
 
   it("serves the frozen control core surface (hello · version · drain · clock.now)", () => {
     expect(CONTROL_CORE_VERSION).toBe("1.0");
-    // The frozen `version` cell echoes the control-core version, distinct from
-    // padiSurface's own version cell (which may move; this one never does).
     expect(padiControlSurface.spec.cells?.version.default).toEqual({
       controlCoreVersion: CONTROL_CORE_VERSION,
     });
-    // The frozen control verbs live under the single `control` namespace.
-    // `clockNow` is a frozen member kept FOREVER for cross-version skew, beside
-    // the new framework `system.clockNow` measurement path.
     expect(
       Object.keys(padiControlSurface.spec.procedures?.core ?? {}).sort(),
     ).toEqual(["clockNow", "controlVersion", "drain", "hello"]);
-    // The daemon serves BOTH surfaces on one socket, keyed `padi` + `control`, so
-    // a binder reaches the frozen core even when padiSurface is version-skewed.
     expect(Object.keys(padiDaemonSurfaces).sort()).toEqual(["control", "padi"]);
-    // …and SERVES a third, odu's carried sibling, which it re-serves from odu's
-    // own socket rather than implementing: the two sets differ by exactly that.
     expect(Object.keys(padiServedSurfaces).sort()).toEqual([
       "control",
       "odu",
@@ -554,11 +350,6 @@ describe("padiSurface contract", () => {
       "odu",
       "padi",
     ]);
-    // The hello handshake validates a well-formed identity — including the additive
-    // `startedAt` boot time the binder reads for honest uptime, the additive `commit`
-    // (the RUNNING padi's build the Padi dialog surfaces), and the additive `buildId`
-    // (padi's staleKey — the binder's build-convergence key, #1670). All additive to
-    // the never-served frozen core, so CONTROL_CORE_VERSION stays "1.0".
     const decodeHello = Schema.decodeUnknownSync(PadiHelloSchema);
     const hello = {
       stateRoot: "/home/u/.local/state/padi",
@@ -569,9 +360,6 @@ describe("padiSurface contract", () => {
       buildId: "cafef00d",
     };
     expect(decodeHello(hello)).toEqual(hello);
-    // `commit` AND `buildId` are OPTIONAL as one pair — a survivor predating the pair
-    // omits both and its wire shape still validates. The shared hello reader rejects a
-    // one-sided pair before convergence; the schema remains the frozen decoder.
     const helloNoBuildFields = {
       stateRoot: "/home/u/.local/state/padi",
       surfaceVersion: PADI_SURFACE_VERSION,
@@ -582,21 +370,8 @@ describe("padiSurface contract", () => {
   });
 });
 
-// ── D1 / review #16: the composed daemon's TAG SET ────────────────────────
-//
-// `RpcGroup.make`/`merge` are last-writer-wins `Map.set`s with zero collision
-// detection, so a tag minted twice would vanish without a word. The replacement
-// for the deleted oRPC router-path tests is this: assert the literal tags, on
-// both axes, so a collision is a red test rather than a 404 in production.
-
 describe("padiDaemonContract — the composed tag set (D1 / #16)", () => {
   it("composes the three siblings WITHOUT losing a tag", () => {
-    // The proof itself is the framework's now — `composeSurfaceContracts` ends in
-    // `mergeDisjointGroups`, which claims every scoped sibling's tags and throws
-    // naming both siblings on a collision, so this module's own import-time size
-    // assert was a restatement of a law it no longer owns. What is worth pinning
-    // here is the ARITHMETIC that assert stood for: the composed group carries
-    // exactly what the two siblings declare, neither dropping nor inventing.
     expect(padiDaemonGroup.requests.size).toBe(
       padiSurface.group.requests.size +
         padiControlSurface.group.requests.size +
@@ -614,17 +389,12 @@ describe("padiDaemonContract — the composed tag set (D1 / #16)", () => {
     expect(padi.filter((t) => control.includes(t) || odu.includes(t))).toEqual(
       [],
     );
-    // Every tag the composed group carries comes from exactly one sibling.
     expect([...padiDaemonGroup.requests.keys()].sort()).toEqual(
       [...padi, ...control, ...odu].sort(),
     );
   });
 
   it("the three reserved system/* tags exist ONCE PER SIBLING — the collision a bare merge would have eaten", () => {
-    // Both surfaces declare `system/live`, `system/identity`, `system/clockNow`.
-    // A bare `RpcGroup.merge` would have silently left ONE sibling's liveness
-    // probe answering for the other's. The sibling prefix makes that
-    // unrepresentable; this asserts it rather than assuming it.
     for (const verb of ["live", "identity", "clockNow"]) {
       expect(padiDaemonGroup.requests.has(`surface/padi/system/${verb}`)).toBe(
         true,
@@ -657,22 +427,17 @@ describe("padiDaemonContract — the composed tag set (D1 / #16)", () => {
     ]) {
       expect(padiDaemonGroup.requests.has(tag)).toBe(true);
     }
-    // 5.13: padi runs no updater, so nothing asks it to check or retry one.
     for (const gone of ["checkNow", "retryDownload"]) {
       expect(
         padiDaemonGroup.requests.has(`surface/padi/agentDistro/${gone}`),
       ).toBe(false);
     }
-    // The tag algebra is read off the surface value, never re-spelled by hand —
-    // this is the same expression `buildSurfaceFace` mints with.
     expect(surfaceTag(padiSurfaceSibling.tagPrefix, "lifecycle", "kill")).toBe(
       "surface/padi/lifecycle/kill",
     );
   });
 
   it("a READ-ONLY cell carries no write verb", () => {
-    // `identity` declares `verbs: ["get"]`, so a `set` tag must NOT exist — a
-    // typed-but-unserved write is an API-facing falsehood.
     expect(padiDaemonGroup.requests.has("surface/padi/identity/get")).toBe(
       true,
     );
@@ -681,8 +446,6 @@ describe("padiDaemonContract — the composed tag set (D1 / #16)", () => {
     );
   });
 });
-
-// ── D4: the declared error vocabulary ─────────────────────────────────────
 
 describe("the declared error vocabulary (PLAN D4)", () => {
   it("names exactly the procedures that CAN refuse — and no others", () => {
@@ -696,17 +459,9 @@ describe("the declared error vocabulary (PLAN D4)", () => {
         }
       }
     }
-    // A NEGATIVE test as much as a positive one: a member cannot quietly acquire
-    // an error channel, and a quiet-drop member (`resize`, `sendInput`, `sleep`,
-    // `setActive`, `killAll`, `discardSleeping`,
-    // `preview.repoRootForTerminal`, `session.*`) cannot quietly lose one.
     expect(declared.sort()).toEqual(
       [
-        // `agentDistro.launch` refuses for a host whose agents are not ready
-        // or whose package is older than `--launch`.
         "agentDistro.launch",
-        // `agentDistro.models` refuses with the host's own words: agents not
-        // ready here, or the harness's list command failed.
         "agentDistro.models",
         "chrome.setCanvasLayout",
         "chrome.setIntent",
@@ -735,12 +490,6 @@ describe("the declared error vocabulary (PLAN D4)", () => {
         "screen.text",
         "scratch.write",
         "transcript.exportHtml",
-        // `watch.drain` and `watch.close` both refuse an unopened name, with the
-        // SAME declared error: `open` creates what it names, so it is the only
-        // watch verb with no refusal to declare. "No such subscription" is
-        // declared rather than answered with an empty batch (or a `false`)
-        // precisely so a supervisor cannot read a typo'd name as a quiet
-        // workspace, or as "there was nothing to close".
         "watch.close",
         "watch.drain",
       ].sort(),
@@ -748,9 +497,6 @@ describe("the declared error vocabulary (PLAN D4)", () => {
   });
 
   it("every error round-trips encode → JSON → decode with its tag, data and message intact", () => {
-    // D4's relay-rehydration requirement, proven rather than asserted: a padi
-    // error crosses the binder hop by being decoded and re-encoded, and a
-    // consumer narrows the REHYDRATED value.
     const cases = [
       new TerminalNotFound({ id: "t-1" }),
       new TerminalNotActive({ id: "t-2", state: "sleeping" }),
@@ -767,9 +513,6 @@ describe("the declared error vocabulary (PLAN D4)", () => {
       new KavalContractSkew({ daemonVersion: "6.0", requiredVersion: "7.0" }),
     ];
     for (const original of cases) {
-      // The class IS the schema — a `Schema.TaggedError` is both. The cast
-      // erases only the per-class type parameter, which this loop deliberately
-      // does not name (the point is that EVERY member behaves the same way).
       const schema = original.constructor as unknown as Schema.Codec<
         unknown,
         unknown
@@ -802,9 +545,6 @@ describe("the declared error vocabulary (PLAN D4)", () => {
   });
 
   it("a missing base branch crosses git.getStatus and git.getDiff with its sentence", () => {
-    // The handler raises this for a Branch comparison whose `origin` default
-    // was never fetched. Undeclared, it failed the response encode and the
-    // Branch view showed "Failed to encode response" instead of the fix.
     const sentence =
       "No base branch found — origin/master doesn't exist. Run: git fetch origin && git remote set-head origin --auto";
     const original = new WorktreeBaseBranchMissing({ detail: sentence });
@@ -819,17 +559,12 @@ describe("the declared error vocabulary (PLAN D4)", () => {
   });
 });
 
-// ── #17: byte fixtures for the rolling-deploy defaults ────────────────────
-
 describe("PadiUrgency — the rolling-deploy defaults, in BYTES", () => {
   const decode = Schema.decodeUnknownSync(PadiUrgencySchema);
   const encode = Schema.encodeUnknownSync(PadiUrgencySchema);
   const ID = "123e4567-e89b-12d3-a456-426614174000";
 
   it("ACCEPT-MISSING: an OLDER padi's frame (awaitingIds only) decodes with empty lists", () => {
-    // The documented rolling-deploy tolerance: a newer client reading an older
-    // padi's `urgency` frame parses it rather than failing validation and
-    // breaking the whole cell.
     expect(decode({ awaitingIds: [ID] })).toEqual({
       awaitingIds: [ID],
       finishedIds: [],
@@ -840,17 +575,12 @@ describe("PadiUrgency — the rolling-deploy defaults, in BYTES", () => {
   });
 
   it("a frame from a 7.11 padi, which never says `settled`, reads as settled — what it always meant", () => {
-    // An older padi published a frame only once it had looked, as far as any
-    // reader could tell; reading its frames as unsettled would freeze every
-    // mark on that host until it was upgraded.
     expect(
       decode({ awaitingIds: [], finishedIds: [ID], workingIds: [] }).settled,
     ).toBe(true);
   });
 
   it("EMIT-KEY: a frame this build serves carries every key, in declaration order", () => {
-    // The half decode-equality cannot see — and the half that makes the encoded
-    // bytes identical to what zod's `.default([])` produced.
     expect(JSON.stringify(encode(decode({ awaitingIds: [] })))).toBe(
       '{"awaitingIds":[],"finishedIds":[],"workingIds":[],"lingerIds":[],"settled":true}',
     );
@@ -872,9 +602,6 @@ describe("PadiUrgency — the rolling-deploy defaults, in BYTES", () => {
   });
 
   it("an EXPLICIT undefined is REJECTED — an older padi OMITS the key, it never sends undefined", () => {
-    // `withDecodingDefaultKey` is stricter than zod's `.default()` on in-memory
-    // `undefined` (PLAN #17), deliberately: on a wire, absent and `undefined`
-    // are not two spellings of one fact — only absent ever crosses.
     expect(
       accepts(PadiUrgencySchema, { awaitingIds: [], finishedIds: undefined }),
     ).toBe(false);
@@ -896,9 +623,6 @@ describe("urgencyEqual — the one wire dedup point", () => {
   };
 
   it("tells a frame nobody has looked at from an empty fleet that was looked at", () => {
-    // Both carry four empty lists. If the dedup reads them as one frame, a
-    // quiet host's padi finishes looking and never says so: every reader stays
-    // on the unsettled value it was handed first.
     expect(
       urgencyEqual({ ...empty, settled: false }, { ...empty, settled: true }),
     ).toBe(false);
@@ -909,9 +633,6 @@ describe("urgencyEqual — the one wire dedup point", () => {
 });
 
 describe("the two optional-key spellings on this wire, in BYTES (#17 audit)", () => {
-  // `status.expectedKaval` and the attach frame's `reflowEpoch` are the two
-  // fields the `optionalKey` audit judged differently, and the difference is
-  // load-bearing rather than stylistic — so both verdicts are pinned here.
   const ID = "123e4567-e89b-12d3-a456-426614174000";
   const KAVAL = { staleKey: "abc123", navigableCommit: "deadbeef" };
 
@@ -929,9 +650,6 @@ describe("the two optional-key spellings on this wire, in BYTES (#17 audit)", ()
     });
 
     it("REJECTS a present-but-undefined key — the shape `servePadi` used to seed", () => {
-      // The tightening is a FEATURE here: `servePadi` has the only producer, and
-      // it now spreads. Falsify by restoring `expectedKaval: … : undefined` there
-      // — every `status` subscribe then fails to encode with the string below.
       expect(accepts(PadiStatusSchema, { expectedKaval: undefined })).toBe(
         false,
       );
@@ -939,15 +657,8 @@ describe("the two optional-key spellings on this wire, in BYTES (#17 audit)", ()
   });
 
   describe("the attach snapshot's reflowEpoch is `optional` — five verbatim hops", () => {
-    // Unlike `expectedKaval`, this value is FORWARDED across kaval's decoded
-    // frame → `OpenedAttach` → `TerminalAttachment` → the re-attach frame → here.
-    // Reading an absent optional key yields `undefined`, so every hop re-creates
-    // the key; `Schema.optional` restores exactly zod's tolerance while leaving
-    // the emitted bytes key-omitted.
     const frame = padiSurface.spec.streams.terminalAttach.outputSchema;
     const encode = Schema.encodeUnknownSync(frame);
-    /** The grid every snapshot fixture below rides with — REQUIRED since 7.5,
-     *  so there is no longer a snapshot frame to spell without one. */
     const GRID = { cols: 80, rows: 24 } as const;
     const SNAPSHOT_BYTES =
       '{"kind":"snapshot","data":"hi","topLine":0,"grid":{"cols":80,"rows":24}}';
@@ -998,13 +709,6 @@ describe("the two optional-key spellings on this wire, in BYTES (#17 audit)", ()
       ).toBe(false);
     });
 
-    // `grid` (5.5) rode the SAME five hops and shipped as `optional` for the
-    // same reason. At 7.5 it is REQUIRED — a consumer sizes its terminal to it
-    // before painting, so "absent" has no honest reading left — and the two
-    // producers that used to omit it are gone with it: kaval's 9.0 major
-    // refuses a daemon that predates the field rather than adopting it, and
-    // `local.ts`'s abort-before-snapshot return now says `grid: null`, which
-    // `servePadi` answers by emitting NO snapshot frame at all.
     it("REFUSES a snapshot that states no grid — there is no sizing it", () => {
       expect(accepts(frame, { kind: "snapshot", data: "hi", topLine: 0 })).toBe(
         false,
@@ -1032,8 +736,6 @@ describe("the two optional-key spellings on this wire, in BYTES (#17 audit)", ()
       ).toBe(
         '{"kind":"snapshot","data":"","topLine":0,"grid":{"cols":80,"rows":24}}',
       );
-      // Half a grid is not a size — the both-or-neither rule the attach INPUT
-      // states, holding on the way back too.
       expect(
         accepts(frame, {
           kind: "snapshot",
@@ -1059,9 +761,6 @@ describe("the two optional-key spellings on this wire, in BYTES (#17 audit)", ()
     });
 
     it("a resized frame carries nothing but the grid", () => {
-      // A control frame: no `data`, no `topLine`. What it means is its POSITION
-      // in the stream, which no byte fixture can hold — what IS pinned here is
-      // that it cannot smuggle bytes past a consumer's frame handler.
       expect(
         JSON.stringify(
           encode({ kind: "resized", grid: { cols: 80, rows: 24 } }),

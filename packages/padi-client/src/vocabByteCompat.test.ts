@@ -1,21 +1,3 @@
-/**
- * BYTE fixtures for padi's two hit-list formats (PLAN #17 / `recon/zod.md`).
- *
- * `SavedSession` is padi's conf-store blob AND the user-exportable
- * `kolu-session.json` the client's import hatch ingests, so its encoded bytes
- * are a compatibility surface in BOTH directions: a blob written by a previous
- * release must decode here, and a blob written here must decode there. Decode
- * EQUALITY cannot see that — it is blind to key presence, key order, and to a
- * default that accepts a missing key but then fails to emit it. So every
- * assertion below is on the encoded JSON STRING.
- *
- * `DaemonStatus` is the other half: eleven ANTI-FIELDS make a payload field
- * structurally unspellable on the arms that must not carry it. Review #11 asked
- * for exactly one thing — verify the Effect construct actually REJECTS a present
- * value rather than quietly ignoring it — so each arm is tested in both
- * directions.
- */
-
 import { Result, Schema } from "effect";
 import { describe, expect, it } from "vitest";
 import {
@@ -38,22 +20,14 @@ const accepts = (
   value: unknown,
 ): boolean => Result.isSuccess(Schema.decodeUnknownResult(schema)(value));
 
-/** The ids these fixtures are saved under. A saved record's `id` is a
- *  `TerminalId` by schema — restore re-spawns the terminal under it, so it is a
- *  registry key and a PTY id, not a label — hence real UUIDs here. */
 const SAVED_ID_1 = "11111111-1111-4111-8111-111111111111";
 const SAVED_ID_2 = "22222222-2222-4222-8222-222222222222";
 const SAVED_PARENT_ID = "00000000-0000-4000-8000-000000000000";
 
-/** A minimal ACTIVE saved terminal, spelled as it appears on disk. Field order
- *  is the schema's declaration order: the persisted observation, then the
- *  authored record (server fields, then client chrome), then the discriminant,
- *  then the id — exactly what the zod `.merge` chain produced. */
 const MINIMAL_ACTIVE =
   '{"cwd":"/repo","git":{"kind":"none"},"pr":{"kind":"absent"},"location":{"kind":"local"},"restoreTarget":{"kind":"none"},"lastActivityAt":null,"promptedAt":null,"state":"active","id":"' +
   `${SAVED_ID_1}"}`;
 
-/** The same record with every optional authored + chrome field populated. */
 const FULL_SLEEPING =
   '{"cwd":"/repo","git":{"kind":"none"},"pr":{"kind":"absent"},"location":{"kind":"remote","hostId":"zest"},' +
   '"restoreTarget":{"kind":"exact","agent":{"kind":"claude-code","sessionId":"s-1","resumeRef":"s-1"},"argv":["--model","sonnet"]},' +
@@ -87,16 +61,9 @@ describe("SavedSession — the conf store + the exported kolu-session.json", () 
   });
 
   it('git: a LEGACY stored `"git":null` backfills to unresolved AND re-encodes in the new shape', () => {
-    // The bytes a previous release wrote: `git` was `GitInfo | null`, and there
-    // was no `promptedAt`. The schema alone refuses `null`; the backfill (which
-    // the 1.1.0 state migration and the import hatch both run) is what turns
-    // it into "never checked" — never "not a repo".
     const legacy = MINIMAL_ACTIVE.replace('"git":{"kind":"none"}', '"git":null')
       .replace('"promptedAt":null,', "")
-      // …and it predates the restore target, which the backfill must supply.
       .replace('"restoreTarget":{"kind":"none"},', "");
-    // Absence stays absent: the ladder does not invent a `{ kind: "none" }` where
-    // the record simply never had a target.
     const migrated = MINIMAL_ACTIVE.replace(
       '"git":{"kind":"none"}',
       '"git":{"kind":"unresolved"}',
@@ -114,10 +81,6 @@ describe("SavedSession — the conf store + the exported kolu-session.json", () 
   });
 
   it("activeTerminalId: a LEGACY blob that OMITS the key decodes to null AND re-encodes WITH it", () => {
-    // The whole reason the field carries a decoding default: keep decoding TOTAL
-    // over a blob that pre-dates it. The emit half is what a decode-equality test
-    // cannot see — and it is what keeps a record written here readable as a
-    // current record by the next release, rather than as another legacy one.
     const legacy = `{"terminals":[],"savedAt":1700000000000}`;
     expect(decodeSession(JSON.parse(legacy)).activeTerminalId).toBeNull();
     expect(roundTrip(legacy)).toBe(
@@ -126,9 +89,6 @@ describe("SavedSession — the conf store + the exported kolu-session.json", () 
   });
 
   it("activeTerminalId: an EXPLICIT undefined is REJECTED — absence is the only spelling", () => {
-    // Stricter than zod's `.default(null)` on in-memory `undefined` (PLAN #17),
-    // deliberately: a disk blob omits a key, it never stores `undefined`. Any
-    // in-process caller building a session object must OMIT the key.
     expect(
       accepts(SavedSessionSchema, {
         terminals: [],
@@ -139,10 +99,6 @@ describe("SavedSession — the conf store + the exported kolu-session.json", () 
   });
 
   it("resumableIds: the WIRE-ONLY enrichment stays ABSENT when unstamped, never null", () => {
-    // `optionalKey`, never `optional`: a conf blob and an e2e fixture parse
-    // without it, and a decoded record that lacked it re-encodes without it.
-    // `Schema.optional` would have round-tripped it through an explicit `null`,
-    // which no writer ever produced.
     const encoded = encodeSession(
       decodeSession({ terminals: [], activeTerminalId: null, savedAt: 1 }),
     ) as Record<string, unknown>;
@@ -150,12 +106,6 @@ describe("SavedSession — the conf store + the exported kolu-session.json", () 
   });
 
   it("id: a record whose id is NOT a TerminalId is REFUSED at the decode", () => {
-    // The one field that is a REGISTRY KEY. Restore re-spawns each saved record
-    // under its own id, so a blob that names a terminal "0" asks padi to open a
-    // PTY called "0" and to publish it on a `roster` census whose ids encode as
-    // `TerminalIdSchema` — an outbound encode failure, which tears padi's whole
-    // RPC server down rather than failing one request (#2376). The refusal
-    // therefore belongs HERE, at the door, not downstream of the spawn.
     const terminal = {
       cwd: "/repo",
       git: { kind: "none" },
@@ -171,8 +121,6 @@ describe("SavedSession — the conf store + the exported kolu-session.json", () 
         savedAt: 1,
       }),
     ).toBe(false);
-    // …and the backfill ladder does NOT invent one: an id is not a field a
-    // migration can repair, so a blob carrying a bad one stays refused.
     expect(
       accepts(
         SavedSessionSchema,
@@ -213,8 +161,6 @@ describe("SavedSession — the conf store + the exported kolu-session.json", () 
       id: SAVED_ID_1,
     };
     expect(accepts(SavedTerminalSchema, legacyTerminal)).toBe(false);
-    // ...and the composed backfill ladder makes it decodable again, which is the
-    // property both the migration ladder and the client's import hatch rest on.
     const repaired = backfillSavedSession({
       terminals: [legacyTerminal],
       savedAt: 1,
@@ -228,7 +174,6 @@ describe("SavedSession — the conf store + the exported kolu-session.json", () 
       git: null,
       location: { kind: "local" },
       lastActivityAt: 7,
-      // Captured text: dropped, NEVER parsed into a target.
       lastAgentCommand: "LD_PRELOAD=/x claude --settings '{}'",
       agentSession: { kind: "claude-code", id: "s-9" },
       state: "active",
@@ -245,8 +190,6 @@ describe("SavedSession — the conf store + the exported kolu-session.json", () 
       agent: { kind: "claude-code", sessionId: "s-9", resumeRef: "s-9" },
       argv: [],
     });
-    // The old sticky ref is DROPPED, not carried alongside its successor, and
-    // so is the captured command text.
     expect("agentSession" in (repaired.terminals[0] ?? {})).toBe(false);
     expect("lastAgentCommand" in (repaired.terminals[0] ?? {})).toBe(false);
   });
@@ -272,8 +215,6 @@ describe("SavedSession — the conf store + the exported kolu-session.json", () 
   });
 
   it("a CORRUPT agentSession yields `none` instead of dropping the terminal", () => {
-    // The `safeParse` → `Result` translation, pinned where it bites: a bad
-    // on-disk `kind` must be a BRANCH, never a throw that loses the record.
     const repaired = backfillSavedSession({
       terminals: [
         {
@@ -324,14 +265,10 @@ describe("SavedSession — the conf store + the exported kolu-session.json", () 
       agent: { kind: "claude-code", sessionId: "s-9", resumeRef: "s-9" },
       argv: [],
     });
-    // The forged text is gone, not converted into a flag list.
     expect(JSON.stringify(target)).not.toContain("LD_PRELOAD");
   });
 
   it("leaves an ABSENT restore target absent — absence is its own spelling", () => {
-    // The #1621 rung must not materialize `{ kind: "none" }` where the record
-    // simply had no target: the t1.3 shape keeps absence, so there is one owner
-    // per transition and no invented value to review.
     const repaired = backfillSavedSession({
       terminals: [
         {
@@ -350,9 +287,6 @@ describe("SavedSession — the conf store + the exported kolu-session.json", () 
   });
 
   it("splits the transition across rungs: #1621 emits its era's shape, 1.3.0 converts", () => {
-    // One owner per transition. The #1621 rung COPIES the remembered line into
-    // its era's `{ command, agent }` target and leaves `lastAgentCommand` in
-    // place; the 1.3.0 rung deletes the text and installs `argv: []`.
     const command = "LD_PRELOAD=/x claude --settings '{}'";
     const cutover = backfillSnapshotCutover({
       cwd: "/repo",
@@ -399,14 +333,11 @@ describe("SavedSession — the conf store + the exported kolu-session.json", () 
   });
 
   describe("pr: a resolved PR saved before the forge said draft", () => {
-    /** A resolved PR as a previous release wrote it: every field but
-     *  `isDraft`. */
     const OLD_OK_PR =
       '{"kind":"ok","value":{"number":7,"title":"Fix the parser",' +
       '"url":"https://github.example/o/r/pull/7","state":"open","checks":"pass",' +
       '"checkRuns":[],"reviewDecision":null,"mergeStateStatus":"CLEAN",' +
       '"headSha":"4f21a9c0d3e5b7a9c1d3e5f7a9b1c3d5e7f9a1b3"}}';
-    /** The same PR as this release writes it. */
     const NEW_OK_PR = OLD_OK_PR.replace("}}", ',"isDraft":true}}');
     const withPr = (record: string, pr: string) =>
       record.replace('"pr":{"kind":"absent"}', `"pr":${pr}`);
@@ -420,8 +351,6 @@ describe("SavedSession — the conf store + the exported kolu-session.json", () 
         withPr(FULL_SLEEPING, OLD_OK_PR),
       );
       expect(accepts(SavedSessionSchema, JSON.parse(legacy))).toBe(false);
-      // `pending`, PrResult's "not known right now": not `absent` (the branch
-      // may well have a PR) and not `isDraft: false` (a guess).
       expect(
         JSON.stringify(
           encodeSession(
@@ -465,8 +394,6 @@ describe("PersistedSnapshot — the restore-relevant projection, in bytes", () =
       cwd: "/repo",
       git: { kind: "none" },
       pr: { kind: "absent" },
-      // The live half a full `TerminalSnapshot` carries — dropped structurally,
-      // so a future live field can never silently ride to disk.
       agent: { kind: "claude-code" },
       foreground: { name: "vim", title: null, shell: false },
       ports: { status: "unknown" },
@@ -480,13 +407,6 @@ describe("PersistedSnapshot — the restore-relevant projection, in bytes", () =
 });
 
 describe("PadiProcessMemory — the processMemory cell's wire bytes", () => {
-  // The gap this fills: `ProcessRss` has a byte fixture in `@kolu/terminal-vocab`
-  // and `PortInfo` has one beside it, but the STRUCT that carries two of them
-  // over padi's `processMemory` cell had none — so key order and the shape of
-  // each arm rested on decode equality, which is blind to both. It matters here
-  // because `samplePadiMemory` is the only writer and it now composes the arms
-  // from an Effect fold rather than an async try/catch: the fold is free to
-  // reorder or widen a field without any decode test noticing.
   const encode = (value: PadiProcessMemory): string =>
     JSON.stringify(Schema.encodeUnknownSync(PadiProcessMemorySchema)(value));
 
@@ -502,8 +422,6 @@ describe("PadiProcessMemory — the processMemory cell's wire bytes", () => {
   });
 
   it("the three arms of each side survive the round trip byte-for-byte", () => {
-    // A raced-away kaval beside a readable padi, and the whole-read failure —
-    // the two arms `samplePadiMemory`'s fold must never collapse into each other.
     expect(
       encode({
         padi: { status: "ok", rssBytes: 1 },
@@ -528,11 +446,6 @@ describe("PadiProcessMemory — the processMemory cell's wire bytes", () => {
   });
 
   it("a stale rssBytes on a NON-ok arm never reaches the wire", () => {
-    // The read is tolerant, as everywhere else here: the extra key decodes
-    // rather than failing the frame. What must not happen is the number
-    // SURVIVING — an `absent` that still carried an rssBytes would let a
-    // consumer read a dead process's last RSS as current. The bytes are where
-    // that is visible; decode equality is not.
     const encoded = Schema.encodeUnknownSync(PadiProcessMemorySchema)(
       Schema.decodeUnknownSync(PadiProcessMemorySchema)({
         padi: { status: "absent", rssBytes: 1 },
@@ -544,8 +457,6 @@ describe("PadiProcessMemory — the processMemory cell's wire bytes", () => {
     );
   });
 });
-
-// ── review #11: the eleven anti-fields ────────────────────────────────────
 
 describe("DaemonStatus anti-fields — a present value is REJECTED, not ignored", () => {
   const CONNECTED = {
@@ -567,14 +478,10 @@ describe("DaemonStatus anti-fields — a present value is REJECTED, not ignored"
   });
 
   it("the CONNECTED arm cannot spell the skew fields", () => {
-    // This is the check review #11 asked to VERIFY rather than assume:
-    // `Schema.optionalKey(Schema.Never)` must REFUSE a present value, or the
-    // eleven anti-fields are decoration.
     for (const field of ["daemonVersion", "requiredVersion"]) {
       expect(
         accepts(DaemonStatusSchema, { ...CONNECTED, [field]: "6.0" }),
       ).toBe(false);
-      // An explicit `undefined` is refused too — the key must be ABSENT.
       expect(
         accepts(DaemonStatusSchema, { ...CONNECTED, [field]: undefined }),
       ).toBe(false);
@@ -595,7 +502,6 @@ describe("DaemonStatus anti-fields — a present value is REJECTED, not ignored"
         accepts(DaemonStatusSchema, { ...INCOMPATIBLE, [field]: value }),
       ).toBe(false);
     }
-    // ...but `socketPath` IS spellable on this arm (it is a real field here).
     expect(
       accepts(DaemonStatusSchema, { ...INCOMPATIBLE, socketPath: "/run/k" }),
     ).toBe(true);

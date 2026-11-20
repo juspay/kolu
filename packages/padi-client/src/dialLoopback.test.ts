@@ -1,26 +1,3 @@
-/**
- * The CONSUMER smoke: dial a padi that does not exist.
- *
- * `connectPadi` is the one verb an out-of-repo consumer (olai's server, PR 1a of
- * the orchestrator plan) calls, and the whole claim of this package is that it
- * works with NO padi installed — no daemon binary, no kaval, no PTY host, no
- * spawn. So this test stands up the far end itself: the frozen control core,
- * served on a temp socket by the same `serveOverUnixSocket` a real padi binds
- * with, and then dials it with the real `connectPadi`.
- *
- * That is deliberately the WHOLE local dial path, not a mock of it —
- * `dialSocket` → `socketDuplexLink` over `padiDaemonGroup` → the control-core
- * `hello` → the compatibility gate → the two typed faces built over one
- * dispatch. `packages/padi`'s own `dial.test.ts` covers the same path against a
- * REAL spawned padi and stays there, where the daemon is; what is new here is
- * the arrangement a hydrating consumer is actually in.
- *
- * The far end serves only the CONTROL sibling, which is exactly what makes the
- * point: the frozen core is reachable independently of `padiSurface`'s version,
- * so the third case below — a padi one major ahead — is refused by the gate
- * rather than discovered as a schema-decode failure three calls later.
- */
-
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -40,23 +17,11 @@ import { PADI_SURFACE_VERSION, padiControlSibling } from "./surface.ts";
 const STATE_ROOT = "/tmp/padi-client-smoke";
 const STARTED_AT = 1_700_000_000_000;
 
-/** Everything the temp socket owns, so a failing expectation still tears down. */
 type FakePadi = {
   socketPath: string;
   close: () => Promise<void>;
 };
 
-/**
- * A padi far end that is not a padi: the frozen control core, served on a unix
- * socket, answering `hello` with the version it is told to claim.
- *
- * The serve is the REAL one — `serveOverUnixSocket`, the same function a live
- * padi binds with (`packages/surface-daemon/src/daemonMain.ts`) — so this far
- * end differs from a padi in what it ANSWERS and in nothing else. It sends no
- * readiness banner, and neither does a real padi on this leg: the local
- * unix-socket rendezvous does not carry one (see `dialPadiHello`'s note), so a
- * banner here would test a discipline this leg does not have.
- */
 async function serveFakePadi(surfaceVersion: string): Promise<FakePadi> {
   const dir = mkdtempSync(join(tmpdir(), "padi-client-dial-"));
   const socketPath = join(dir, "padi.sock");
@@ -127,11 +92,6 @@ describe("connectPadi, with no padi installed", () => {
 
     const connection = await Effect.runPromise(connectPadi(live.socketPath));
     try {
-      // The control face, called for real over the wire. The padi face is built
-      // over the SAME dispatch (that is `padiClientOver`'s whole job) — its
-      // members address `surface/padi/*`, which this far end deliberately does
-      // not serve, so what is proved here is that the dispatch is live and the
-      // faces are the ones a consumer holds, not that a fake padi is a padi.
       const version = await Effect.runPromise(
         connection.client.control.surface.core.controlVersion(),
       );
@@ -147,9 +107,6 @@ describe("connectPadi, with no padi installed", () => {
   });
 
   it("REFUSES a padi it cannot speak to, loudly and by type", async () => {
-    // A major ahead — the compatibility gate's whole reason to exist. Note the
-    // frozen core still answered: the refusal is a JUDGEMENT on a readable
-    // hello, never a decode failure.
     const ahead = `${Number(PADI_SURFACE_VERSION.split(".")[0]) + 1}.0`;
     live = await serveFakePadi(ahead);
 

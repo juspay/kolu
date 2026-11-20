@@ -1,20 +1,3 @@
-/**
- * `awaitWatchEvents` — the client half `watch_next` actually runs, pinned over a
- * fake padiSurface client.
- *
- * It had no coverage, and it is where this feature's sharpest defect lived: a
- * declared `WatchSubscriptionNotFound` folded into the retryable `closed` arm,
- * whose own tool text tells the agent its events are safe and to just call
- * again — an infinite retry against a subscription that does not exist. These
- * pin the four properties that keep that from coming back:
- *
- *   1. the pulse subscription is live BEFORE the first drain, so an event
- *      landing between the two is not lost into the gap;
- *   2. `WatchSubscriptionNotFound` PROPAGATES rather than settling `closed`;
- *   3. a dead transport propagates too (it poisons the shared connection);
- *   4. an ordinary pulse-feed end settles `closed`, carrying the retry wording.
- */
-
 import { Effect, Stream } from "effect";
 import { describe, expect, it } from "vitest";
 import type { PadiSurfaceClient } from "./dial.ts";
@@ -38,9 +21,6 @@ type DrainReply = {
   ackAfter: number;
 };
 
-/** A fake padiSurface client exposing just the two members this wait binds.
- *  `pulses` is the doorbell's frame sequence; `onDrain` answers each drain in
- *  order, so a test scripts the interleaving precisely. */
 function fakeClient(opts: {
   pulses: Stream.Stream<{ seq: number }, unknown>;
   onDrain: (call: number, input: unknown) => DrainReply | Error;
@@ -73,9 +53,6 @@ const empty: DrainReply = { events: [], dropped: 0, ackAfter: 0 };
 
 describe("awaitWatchEvents", () => {
   it("drains AFTER the pulse is live — an event landing in the gap is still delivered", async () => {
-    // The first frame is the baseline; the wait must drain having already
-    // subscribed. Draining first and subscribing after would drop exactly the
-    // event that lands between them — the hole this whole feature closes.
     const { client, drainCalls } = fakeClient({
       pulses: Stream.make({ seq: 0 }),
       onDrain: () => ({ events: [settle(7)], dropped: 0, ackAfter: 7 }),
@@ -91,8 +68,6 @@ describe("awaitWatchEvents", () => {
   it("re-drains on a RING, and an empty drain keeps waiting instead of settling a false empty", async () => {
     const { client } = fakeClient({
       pulses: Stream.make({ seq: 0 }, { seq: 1 }, { seq: 2 }),
-      // Baseline drain empty, first ring empty (another consumer got there
-      // first), second ring carries the batch.
       onDrain: (n) =>
         n < 2 ? empty : { events: [settle(9)], dropped: 0, ackAfter: 9 },
     });
@@ -114,8 +89,6 @@ describe("awaitWatchEvents", () => {
   });
 
   it("PROPAGATES WatchSubscriptionNotFound — it must never become a retryable `closed`", async () => {
-    // `closed` tells the agent "your events are still queued, just call again".
-    // For a name padi does not hold, that is an infinite loop being reassured.
     const { client } = fakeClient({
       pulses: Stream.make({ seq: 0 }),
       onDrain: () => new WatchSubscriptionNotFound({ name: NAME, known: [] }),
@@ -126,8 +99,6 @@ describe("awaitWatchEvents", () => {
   });
 
   it("settles `closed` with the retry wording when the pulse feed simply ends", async () => {
-    // A lost doorbell is not a lost subscription: the buffer behind the drain is
-    // the authority, so this is retryable and must SAY the events survive.
     const { client } = fakeClient({
       pulses: Stream.empty,
       onDrain: () => empty,
@@ -160,8 +131,6 @@ describe("awaitWatchEvents", () => {
   });
 
   it("OMITS `after` entirely on a first call rather than spelling undefined", async () => {
-    // The wire field is an `optionalKey`, which accepts an absent key and
-    // REJECTS a present-but-undefined one (#17).
     const { client, lastInput } = fakeClient({
       pulses: Stream.make({ seq: 0 }),
       onDrain: () => ({ events: [settle(1)], dropped: 0, ackAfter: 1 }),

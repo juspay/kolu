@@ -1,60 +1,3 @@
-/**
- * `@kolu/padi-client/surface` — the BROWSER-SAFE face of `@kolu/padi`: `padiSurface`
- * (the Effect Schema contract the client imports), the per-member
- * forwarding-policy annotations, and the frozen control-core types.
- *
- * `@kolu/padi` is BORN in W1.C (the padi plan of record, PR #1649): location is
- * structure — code destined for the per-host workspace daemon must not camp in
- * `packages/server`, or the seal at the end of W1.R would fight gravity and W2.2
- * would be a double move. The PACKAGE is born now; the PROCESS at W2.2. W1.C
- * defines the CONTRACT here — nothing served, zero runtime change. The motion
- * stage (W1.M) then physically relocates the terminal domain OUT of
- * `packages/server` INTO this package, and the rewiring stage (W1.R) serves
- * `padiSurface` natively from the package and migrates the client onto it, one
- * member per commit. No backings adapter ever exists — by the time anything
- * serves, the backing code already lives here.
- *
- * Unlike the frozen `terminalWorkspaceSurface` (3.0, the legacy generic base no
- * longer growing new members), this is a NEW surface — so a new per-host
- * capability lands here without being threaded through that frozen base. It composes the two
- * halves of a terminal record server-side into ONE `terminals` collection
- * (`authored ⋈ snapshot`), folds an `urgency` projection off the registry, and
- * gathers every host-side capability (lifecycle · chrome · attach · screen ·
- * fs/git · worktree · bytes · transcript · session) as procedures/streams.
- *
- * ── Two structural novelties this contract carries ──────────────────────
- *
- *   1. **Per-member forwarding policy** ({@link PADI_FORWARDING_POLICY}). Every
- *      member is typed `value` (hold-open — a rebind replays the current value:
- *      cells, collections, pulses, request/response procedures) or `delta`
- *      (fail-through — a mid-chain padi↔kolu-server disconnect MUST terminate
- *      the downstream browser stream so a scrollback snapshot is only ever the
- *      first frame of a fresh stream: `activity` and `terminalAttach`). W1.C
- *      only DECLARES the annotation; W2.1 graduates the forwarding *machinery*
- *      (the drishti-gated re-serve helpers, into `@kolu/surface`) that reads it.
- *
- *   2. **A reserved optional host axis** on the `terminals` value
- *      ({@link PadiHostAxisSchema}). Absent on every W1 record — one padi serves
- *      one host, so the dock has no foreign host to name yet — but present in
- *      the contract from 1.0 so the cross-host dock (W4) lands without a break.
- *
- * Beside the surface, the frozen {@link padiControlSurface} (hello · version ·
- * drain · clock.now) — version-agnostic, never versions, served for real in
- * W2.2. Its universal hello/drain fragment now comes from
- * `@kolu/surface-daemon`; padi extends that wire with its frozen legacy
- * `version` and `clock.now` members.
- *
- * BROWSER-SAFE face: like `koluSurface` this imports
- * only `@kolu/surface/define`, schema-only modules (its own `./vocab.ts` +
- * `./errors.ts` + `./transcriptSchema.ts`, `kolu-git/schemas`,
- * `@kolu/terminal-vocab/schema`),
- * and `effect` — no `node:`/kaval runtime (that lives beside this, in the node-only
- * side the motion stage adds). The terminal VOCABULARY now lives HERE (`./vocab.ts`,
- * re-exported below): the arrow points `kolu-common → @kolu/padi`, never back. The
- * one remaining edge into kolu-common is the `surfaces` config registry (the
- * coordinator restructures that next).
- */
-
 import {
   composeSurfaceContracts,
   defineSurface,
@@ -69,11 +12,6 @@ import {
   ControlCoreHelloSchema,
   controlCoreProcedureSpec,
 } from "@kolu/surface-daemon/control-core";
-// The bucket VOCABULARY, straight from the leaf that owns the fold it is
-// defined from — not through `terminalVocab.ts`, which type-imports this module
-// back. A value import along that edge would make the pair a runtime cycle, and
-// the layering `terminalVocab.ts`'s header states would be one an import graph
-// refutes.
 import {
   WAIT_STATES,
   WATCH_DEFAULT_STATES,
@@ -174,29 +112,10 @@ import {
   TerminalPlacementSchema,
 } from "./vocab.ts";
 
-// The terminal VOCABULARY (schemas · records · pure helpers) lives HERE, in
-// `@kolu/padi-client` — the terminal domain's client half. `@kolu/padi` depends on
-// this package and serves the same object its clients dial, so there is one
-// vocabulary and not two to keep in step. Re-exported from this browser-safe
-// entry so consumers reach the schemas as `@kolu/padi-client/surface`. The UI-chrome half
-// (`./chromeVocab.ts`, split out in L17) rides the same entry, so the export set is
-// unchanged — a chrome schema is still `@kolu/padi-client/surface`'s to give.
 export * from "./chromeVocab.ts";
-// `diagnostics.read`'s answer (`./diagnostics.ts`) rides the same entry.
 export * from "./diagnostics.ts";
-// kolu's app-owned client-error-policy union (SR11) — declared here (not kolu-common)
-// so `padiSurface`'s per-host members below can reference it without `@kolu/padi`
-// importing `kolu-common` (the seal forbids that arrow); `kolu-common/surface`
-// re-exports it for `koluSurface` and the client. See `./clientPolicy.ts`.
 export type { ClientErrorPolicy, ToastOnlyPolicy } from "./clientPolicy.ts";
-// The DECLARED error vocabulary (PLAN D4) rides the same entry: the classes are
-// both the wire schema this surface declares and the value a client narrows on,
-// so a consumer reaches them where it reaches the members that raise them.
 export * from "./errors.ts";
-// The RESOLVED new-terminal theme policy the binding kolu-server pushes — declared
-// here for the same seal reason as the client-error policy above, and re-exported
-// by `kolu-common/surface` for `koluSurface` and the client. See
-// `./newTerminalPolicy.ts`.
 export {
   DEFAULT_NEW_TERMINAL_POLICY,
   type NewTerminalPolicy,
@@ -204,653 +123,17 @@ export {
   newTerminalPolicyEqual,
 } from "./newTerminalPolicy.ts";
 export * from "./vocab.ts";
-// The agent-distro setting kolu-server pushes and the host status padi reports
-// are VALUE schemas of `@kolu/agent-distro/schema` (kolu's contract with
-// upstream, defined once); only the cells that carry them are declared here.
-// Importers take them from there — no re-export, so there is one door.
-// The transcript-export wire vocabulary rides the same entry as everything else
-// `padiSurface` speaks. It had a door of its own until the two halves of ONE
-// vocabulary were noticed to be split by nothing but which symbols the spec
-// below happens to name: the two RPC schemas arrived through this entry, while
-// `Transcript` / `TranscriptSchema` / `TranscriptHtmlMode` arrived through a
-// second. A consumer should not have to know which half it wants.
 export * from "./transcriptSchema.ts";
-// The CONDUCTOR's wire vocabulary is NOT here: kolu-server hosts the one
-// conversation now, so `ConductorStateSchema` and its family live beside
-// `koluSurface` in `kolu-common/conductor`. padi serves terminals; what a
-// supervisor says to them is the app's contract, not the daemon's.
-
-// ── Version ─────────────────────────────────────────────────────────────
 
 /** The wire-shape `major.minor` this build of `padiSurface` serves and expects.
- *  1.0 is the initial contract (the padi plan of record, PR #1649); 1.1 ADDS the
- *  `lifecycle.recycleKaval` procedure (the "Restart kaval" button's session-
- *  preserving kaval recycle); 1.2 ADDS the `hostInventory` cell (padi serving the
- *  running kaval + padi daemons on its OWN host — the "Running daemons" leak
- *  diagnostic, which rides the re-served surface so it works identically local and
- *  remote); 1.3 ADDS the `identity` cell (padi's own build commit / surfaceVersion /
- *  boot time, the per-host twin of the control-core `hello` — see
- *  {@link PadiIdentitySchema}).
  *
- *  2.0 is the first MAJOR bump, and it carries TWO independent breaking changes that
- *  landed in the same release:
- *
- *  (a) the per-terminal right-panel `collapsed` field is ADDED to
- *  `RightPanelPerTerminalStateSchema` (which rides BOTH the `terminals` metadata
- *  collection AND the `chrome.setRightPanel` command input) — the panel's collapsed
- *  posture moved off the global preference to follow the terminal (#959). Its unsafe
- *  skew direction is old-client/new-padi — the ONE direction `isContractVersionCompatible`
- *  would otherwise WAVE THROUGH (an old client accepts a newer-minor padi): a
- *  `chrome.setRightPanel` write is a whole-record REPLACE (`m.rightPanel = state` in
- *  `terminals.ts`), so an OLDER client that omits `collapsed` has the shared schema's
- *  `.default(false)` fill it in, then the replace CLOBBERS a newer client's persisted
- *  `collapsed:true` on that terminal — silent state loss a minor would not catch
- *  (mirrors `PTY_HOST_CONTRACT_VERSION` 5.0's reasoning).
- *
- *  (b) `fs.statFileMtimeMs` (a stat-mtime probe) is REMOVED and `fs.filePreviewTag`
- *  (a content-hash tag) put in its place — a shape-breaking rename in BOTH directions
- *  (a 1.x binder calling `statFileMtimeMs` on a 2.0 padi, or a 2.0 binder calling
- *  `filePreviewTag` on a 1.x padi, each hit a missing procedure).
- *
- *  Either one alone forces a major: only a major flips `isContractVersionCompatible`
- *  to refuse the skew in BOTH directions, so each side forces an honest "upgrade the
- *  other side" recycle rather than a silently-clobbered record or a vanished procedure.
- *  Additive growth (a new optional field / stream / procedure / cell that does NOT ride
- *  a shared whole-record client write) stays a minor bump; a shape-breaking change — or
- *  a persisted-record field addition on a client-written whole-record command, as in
- *  (a) — is a major. A remote dial gates an incompatible padi via
- *  `isContractVersionCompatible`. Distinct from {@link CONTROL_CORE_VERSION}, which is
- *  frozen forever so a contract-revving deploy can still reach the daemon's control
- *  core.
- *
- *  The read-only, server-seeded `identity` cell also gained an OPTIONAL `lifetime`
- *  field (padi's own `DaemonLifetimeInfo`, for the Padi dialog's lifetime row),
- *  added WITHOUT a contract bump: optional means a binder reading a survivor padi
- *  that predates it parses fine (falls back to "—"), so it needs no forced drain —
- *  the field simply arrives with padi's next respawn (which a code-change deploy
- *  triggers anyway). Kept symmetric with kaval's `system.version` lifetime field.
- *
- *  3.0 is the second MAJOR bump (scrollback-backfill). The `terminalAttach` stream's
- *  output was RESHAPED — from a bare `z.string()` (the bytes to write) to a
- *  discriminated `{ kind:"delta", data } | { kind:"snapshot", data, topLine }` frame
- *  (a `snapshot` carries the absolute mirror-line backfill seed; a `delta` is plain
- *  bytes), mirroring kaval's own `TerminalDataMsg` union rather than flattening it to
- *  an optional field. This is breaking in BOTH skew directions — an old client's
- *  `z.string()` schema rejects a new padi's object frame, and a new client's union
- *  schema rejects an old padi's string frame — so ONLY a major flips
- *  `isContractVersionCompatible` to refuse the skew both ways (an honest "upgrade the
- *  other side" recycle rather than a mis-parsed, dataless, or frozen pane). The
- *  additive `screen.history` procedure
- *  (the client's older-scrollback read) rides the same release; it alone would be a
- *  minor, but the `terminalAttach` reshape forces the major.
- *
- *  3.1 (additive · minor): the scrollback-backfill reflow guard (F3). Three
- *  OPTIONAL adds — a `reflowEpoch` on the `terminalAttach` snapshot frame, an
- *  `epoch` on `screen.history` input, a `stale` on its output — that let a
- *  client whose SHARED mirror a foreign attach reflowed (its own `term.cols`
- *  unchanged) HALT backfill instead of splicing a duplicated/skipped band. All
- *  optional, so both skew directions are graceful: an older 3.0 client ignores
- *  the extra fields, and a 3.1 client meeting a 3.0 padi reads them absent and
- *  runs fail-open (no epoch → no gate, the historical single-width behavior).
- *  A minor, not a major — no reshape, no required field, no emitted variant.
- *
- *  4.0 is a MAJOR bump that REMOVES the dead `lifecycle.restoreSleeping` procedure
- *  (retired per #1784's W12 review disposition: it had no production caller — the
- *  only writer, the client respawn loop, was already deleted; the real cold-boot
- *  restore seeds a sleeping terminal directly via `seedSleepingTerminal` in
- *  `sessionRestore.ts` / `reattach.ts`, never over the wire). A removed procedure is
- *  a shape-break in BOTH directions (an old binder that still called `restoreSleeping`
- *  would hit a missing proc on a 4.0 padi), so — exactly like 3.0's `terminalAttach`
- *  reshape — only a major flips `isContractVersionCompatible` to refuse the skew and
- *  force the honest recycle. The version is an honest statement of the wire SHAPE;
- *  encoding "no caller today" as a minor would bake in exactly the soft assumption the
- *  fail-fast rule rejects. Its consequence is the graceful padi-ONLY drain every
- *  code-change deploy already pays (a newer binder drains the straddling 3.x padi —
- *  save + exit — then respawns it at 4.0): kaval and the PTYs are UNTOUCHED, because a
- *  padi-surface bump does not touch the kaval contract.
- *
- *  4.1 (additive · minor): `daemonStatus` gains the `incompatible` arm — a NEW
- *  EMITTED VARIANT carrying `daemonVersion`/`requiredVersion` (SK4, the
- *  contract-skew-as-a-state fix). The version is an honest statement of the wire
- *  SHAPE: 3.1 stayed minor only because it had "no emitted variant"; here there
- *  IS one, so the minor bump is REQUIRED (the mirror of #1865, which folded an
- *  orphan 4.1 bump BACK because nothing emitted had changed — the two together
- *  teach the rule). Why a minor suffices — both skew directions converge before
- *  an unparseable frame is ever consumed: a NEWER binder (expects 4.1) against
- *  an old 4.0 padi fails `isContractVersionCompatible`'s minor rule (reported
- *  minor must be ≥ expected), so the binder drains-and-replaces the padi before
- *  consuming its surface; an OLDER 4.0 binder against a new 4.1 padi is
- *  version-compatible but BUILD-mismatched, so the build axis
- *  drains-and-replaces padi first — the old client schema (no `incompatible`
- *  arm) never sits against a padi that could emit it. (Two honest caveats on
- *  that second leg: the build drain is FENCED once per binder boot, and
- *  off-nix both build ids are "" so the axis is silent — in those windows an
- *  old binder rides a new padi version-compatibly, and IF that host's kaval
- *  then skews, the emitted `incompatible` frame fails the old client's
- *  discriminated-union parse LOUDLY — fail-fast, never mis-read as another
- *  state. That narrow edge is inherent to any additive minor; the common
- *  nix-run path converges the binder before it can occur.) That is
- *  the answer to "who reports the skew of the skew-reporter": the existing
- *  convergence machinery, before the new arm can reach an old parser.
- *
- *  4.2 (additive · minor): the ACTIVE terminal arm gains `ports` — the listening
- *  TCP ports padi's port sensor attributes to each terminal (PRT1). A new REQUIRED
- *  field on an emitted value, so the same rule 4.1 states applies: the shape a
- *  padi emits changed, therefore the version says so. Required rather than
- *  optional-with-a-default deliberately — an absent `ports` and an empty `ports`
- *  are different facts ("this padi cannot tell you" vs "this terminal serves
- *  nothing"), and spelling them the same would make the second unfalsifiable. The
- *  minor suffices for the reason spelled out at 4.1: a newer binder against an old
- *  4.1 padi fails the minor rule and drains it BEFORE consuming its surface, and an
- *  older binder against a 4.2 padi is build-mismatched and drains it first — so an
- *  old parser never meets a frame carrying (or missing) this field.
- *
- *  4.3 (RESHAPED field · minor): `ports`' `PortInfo` trades `wildcard: boolean`
- *  for `scope: "any" | "loopback" | "interface"` (PRT2). Not additive — a 4.2
- *  frame carries a field this parser no longer knows and lacks one it requires —
- *  yet still a MINOR, and for exactly the reason 4.1 and 4.2 give: the version
- *  gate is what keeps the two apart, and it works in both directions. A newer
- *  binder against a 4.2 padi fails `isContractVersionCompatible`'s minor rule and
- *  DRAINS it before consuming its surface; an older binder against a 4.3 padi is
- *  build-mismatched and drains it first. So no parser ever meets a frame of the
- *  other shape, and the reshape needs no compatibility arm — which is the point:
- *  a `wildcard`-or-`scope` union in the schema would be a permanent fallback path
- *  bought to smooth over a window the convergence machinery already closes. The
- *  reshape itself is in `@kolu/terminal-vocab` ports vocabulary, with the reason.
- *
- *  4.4 (additive · minor): a NEW `fs.listIgnored` procedure — git's collapsed
- *  gitignored listing, behind the Code tab's show-ignored toggle. `fs.listAll` is
- *  UNTOUCHED: an earlier draft grew it an `includeIgnored` flag and a required
- *  `ignoredPaths` output, which would have been a required-field emit change (4.2's
- *  rule) — but it also put a display toggle inside the main file-list query's value
- *  key, blanking the tree and remounting it collapsed on every flip. A separate
- *  procedure is both the better client architecture and the smaller wire change: a
- *  purely ADDITIVE procedure, the plainest minor there is. The minor suffices for
- *  the usual reason — a newer binder against an old 4.3 padi fails
- *  `isContractVersionCompatible`'s minor rule and DRAINS it before consuming its
- *  surface, so a 4.4 client never calls `fs.listIgnored` on a padi that lacks it
- *  (which would be a missing-procedure error, not a graceful absence).
- *
- *  4.5 (RESHAPED procedure input · minor): `session.restore` / `session.import`
- *  replace client-built `resumeIds?: string[]` with host-owned intent
- *  `{ resumeAgents?: boolean (default true), optOutIds?: string[] }`, and the
- *  saved-session cell stamps wire-only `resumableIds` (membership the client
- *  may only subtract from). Not additive — a 4.4 peer that still speaks
- *  `resumeIds` would silently lose toggle-off / opt-out under non-strict zod
- *  strip — so the version says so. The minor suffices for the reason 4.1–4.4
- *  give: convergence + minor-rule drain keeps the two shapes from meeting.
- *
- *  4.6 (additive · minor): a NEW `fs.listDirectory` procedure — ONE level of a
- *  directory, read when the user expands a row `fs.listIgnored`'s `--directory`
- *  collapse left childless (#2091). `fs.listIgnored` is UNTOUCHED, and keeping
- *  the read separate is the same call 4.4 made for the same reason: this input
- *  is keyed by DIRECTORY and fired by a CLICK, so folding it into either
- *  whole-repo listing would put a per-expansion value in that query's key and
- *  blank the tree on every click. Purely additive, so the plainest minor there
- *  is, and the minor suffices for the usual reason — a newer binder against a
- *  4.5 padi fails `isContractVersionCompatible`'s minor rule and DRAINS it
- *  before consuming its surface, so a 4.6 client never calls `fs.listDirectory`
- *  on a padi that lacks it.
- *
- *  4.7 (additive · minor): a NEW `newTerminalPolicy` cell — the RESOLVED
- *  new-terminal theme policy the binding kolu-server pushes, read by
- *  `lifecycle.create` so every face (browser, MCP, CLI) obeys the user's
- *  setting (#2045). Purely additive, and the minor suffices for the usual
- *  reason: a 4.7 binder — which CALLS `newTerminalPolicy.set` — fails
- *  `isContractVersionCompatible`'s minor rule against a 4.6 padi and DRAINS it
- *  before consuming its surface, so the write never lands on a padi that has
- *  no such member.
- *
- *  5.0 is the PROTOCOL-EPOCH flag day (PLAN D6). No payload shape moved — every
- *  member encodes byte-for-byte as it did under zod, which `surface.test.ts`
- *  now asserts as literal JSON strings rather than assumes. What moved is the
- *  framing beneath them: the oRPC peer protocol became Effect RPC ndjson, and
- *  the declared error channel stopped being a code map and became the tagged
- *  classes in `./errors.ts`. Two mutually undecodable epochs must never report
- *  the same version string — a "4.7"-reporting survivor would compare EQUAL to
- *  this build and be adopted as wire-compatible, silently disarming the very
- *  lever the break most needed to name — so the constant bumps even though the
- *  lever is inert across the one boundary that actually changed. The
- *  in-epoch skew mechanism (`isContractVersionCompatible`, the binder's
- *  drain-newer-else-refuse) keeps working unchanged from this epoch forward;
- *  CROSS-epoch peers are the supervisor's `unspeakable-protocol` domain (D6/#3),
- *  which this module never claims to classify.
- *
- *  5.1 (additive · minor): `session.restore` gains an OUTPUT — the active-terminal
- *  marker as of the end of the restore ({@link PadiSessionRestoreOutputSchema}).
- *  The procedure answered `void` before, and the client read the restored active
- *  tile off the `session` cell's NEXT snapshot instead; that is a race the client
- *  cannot win (the cell publishes behind a synchronous disk write, the terminals
- *  do not), and it cost the wrong tile whenever a loaded box lost it. A new
- *  emitted field on an existing procedure, so the same rule 4.1/4.2 state applies:
- *  the shape padi emits changed, therefore the version says so. The minor suffices
- *  for the usual reason — a newer binder against a 5.0 padi fails
- *  `isContractVersionCompatible`'s minor rule and DRAINS it before consuming its
- *  surface, and an older binder against a 5.1 padi is build-mismatched and drains
- *  it first, so no parser meets a frame of the other shape. `session.import` is
- *  UNTOUCHED: it restores a blob the client just handed over and seeds no view, so
- *  giving it an answer nothing reads would be shape for its own sake.
- *
- *  5.2 (additive · minor): a NEW `backups` procedure namespace — `backups.list`
- *  (enumerate the state-backup ring #1658 introduced, with a per-snapshot
- *  session summary) and `backups.restore` (restore a snapshot's session
- *  host-side, riding the same import machinery as `session.import` — and
- *  OUTPUT-LESS for the same reason `session.import` is: it restores a blob the
- *  user just picked and seeds no view from the call, so an answer nothing reads
- *  would be shape for its own sake). Purely additive, so the plainest minor
- *  there is, and the minor
- *  suffices for the usual reason — a newer binder against a 5.1 padi fails
- *  `isContractVersionCompatible`'s minor rule and DRAINS it before consuming
- *  its surface, so a 5.2 client never calls `backups.*` on a padi that lacks
- *  the ring.
- *
- *  5.3 (additive · minor): the agent-STATE watch. A new `watchStates` stream
- *  ({@link PadiWatchStatesInputSchema} → batches of
- *  {@link PadiStateEventSchema}), three new optional params on `watch.open`
- *  ({@link PadiWatchFilterFields}), and `watch.drain`'s `events` widened from
- *  the settle shape to {@link PadiWatchEventSchema} — the union of both event
- *  vocabularies. The widened OUTPUT is why this is a version bump and not a
- *  silent add: a 5.2 consumer's decoder would refuse a `snapshot`/`transition`/
- *  `nag` frame, and only the minor rule keeps it from ever meeting one (a newer
- *  binder against a 5.2 padi drains it before consuming its surface, and an
- *  older binder against a 5.3 padi is build-mismatched and drains it first). It
- *  can also never meet one by accident: a 5.2 caller cannot spell the params
- *  that put a state event in a queue.
- *
- *  5.4 (additive · minor): `screen.image` — the terminal as a rendered PNG
- *  ({@link PadiScreenImageInputSchema} → {@link PadiScreenImageOutputSchema}),
- *  serving the `screen_image` MCP tool and `kolu screenshot`.
- *
- *  A NEW PROCEDURE is exactly the shape the minor rule exists for, and the
- *  reasoning is the CLI/MCP face's, not the browser's. `connectPadi` gates on
- *  {@link isContractVersionCompatible}, and those faces are gate-only — they
- *  never drain (#1313). Left at 5.3, a fresh `kolu screenshot` would ADOPT a
- *  surviving 5.3 padi that does not serve the member and die on a missing
- *  procedure; the minor makes convergence drain-and-respawn it first, which is
- *  the honest recycle. This is the same call kaval's own 7.1 note makes for
- *  `getScreenCells`, and the same one 4.4 (`listIgnored`), 4.6
- *  (`listDirectory`) and 5.2 (backups) made before it.
- *
- *  5.5 (additive · minor): the terminal GRID, on two members, closing the two
- *  halves of one gap — a consumer of a shared pty could not learn the size the
- *  bytes it is being sent are laid out for.
- *
- *    · `streams.terminalAttach`'s `snapshot` frame gains `grid` — the cols×rows
- *      those bytes were serialized at (documented at the field below).
- *    · the terminal RECORD (`TerminalSnapshot.grid`, on the awareness half of
- *      `terminalWorkspace.snapshots`) gains the grid the pty is at NOW,
- *      published by padi's own resize path (`TerminalEndpoint.noteGrid`).
- *
- *  The frame answers "what size are these bytes?"; the record answers "what
- *  size is the terminal?", and only the record answers it CONTINUOUSLY. A
- *  snapshot rides the initial attach and an overflow re-attach and nothing
- *  else, so an attached client that loses last-attach-wins to a second viewer
- *  gets no frame at all — it keeps painting deltas laid out for a grid nothing
- *  ever named. On the record the change is a fact it can observe and re-attach
- *  on. (kolu's own pane does exactly that; see `client/src/terminal/Terminal.tsx`.)
- *
- *  Both are ADDITIVE and OPTIONAL — absent from an older padi, ignored by an
- *  older consumer's decoder — so the minor is the whole obligation, and it is
- *  the CLI/MCP face's reasoning again: those faces gate without draining, so a
- *  fresh consumer must be able to tell a padi that serves the fields from one
- *  that does not. */
-/** 5.6 (additive · minor) — the nag CAP. `watch.open`/`watchStates` gain an
- *  optional `nagCount` (the transport encoding of what both faces spell in one
- *  argument: `--nag 30m/3`), and the `nag` STATE EVENT carries its arithmetic
- *  (`{ index, left? }`). Two optional keys an older decoder strips — so why
- *  not the `resizeTo` class? A stripped `resizeTo` degrades to an OBSERVABLE
- *  baseline (the pty keeps its earlier shape, and 5.5's record grid names it);
- *  a stripped `nagCount` degrades to a behavioural LIE — the face spelled a
- *  cap, the padi serves an UNCAPPED feed, and nothing on the wire says which.
- *  The faces that spell it are 5.4's gate-only faces (`kolu watch`, the MCP
- *  `watch.open` — #1313), so the minor is the whole obligation here too: a
- *  5.6 face REFUSES a surviving 5.5 padi at the gate, and convergence
- *  drain-and-respawns the straddler. The decode also newly refuses
- *  `nagCount` without `nagMs` — the pairing the faces make unparseable — one
- *  refusal, reachable from every entrance.
- *
- *  5.7 (additive · minor) — HOST-WIDE ports. A new read-only `hostListeners` cell
- *  (every TCP listener on the host, claimed ones with their owning program and
- *  unclaimed ones as bare binds), and `PortInfo` — on every terminal record's
- *  `ports` — gains a REQUIRED `command` (the owner's command line). The required
- *  field is why this is a version and not a silent add: a 5.7 decoder refuses a
- *  5.6 padi's `PortInfo`, and the minor rule keeps it from ever meeting one (a
- *  newer binder drains a 5.6 padi before consuming its surface). The other
- *  direction is the ordinary graceful one — an older decoder strips the unknown
- *  key and never subscribes to the new cell.
- *
- *  5.8 (minor) — agent-distro. Two NEW cells: `agentDistro`, the Agents
- *  setting the binding kolu-server pushes (memory-only, `get`/`set`, the
- *  `newTerminalPolicy` shape), and `agentDistroStatus`, padi's read-only report
- *  of whether that profile's agents are on its host (`ready`), being fetched
- *  (`downloading`), or failed to arrive (`error`, with its typed `reason`). The
- *  authored terminal record gains ONE optional field, `agents: { profile,
- *  bundle }`, stamped at spawn when the terminal got agents. A NEW procedure,
- *  `lifecycle.restart`, respawns an active terminal in place (same id, cwd,
- *  layout, parent, theme) and answers `{ id, pid, agents?, resumed }`. The
- *  minor carries the usual obligation: a 5.8 binder CALLS `agentDistro.set`
- *  and may call `lifecycle.restart`, and the minor rule drains a 5.7 padi
- *  before either can reach a padi with no such member.
- *
- *  5.9 (minor) — agent-distro updates. padi now keeps the chosen profile
- *  current on its host on upstream's schedule. The `agentDistroStatus` `ready`
- *  arm gains an OPTIONAL `update: { progress? }` (a run in flight while the old
- *  bundle serves); a NEW read-only cell, `agentDistroReceipt` (the serving
- *  bundle's versions, the last run and who wrote its words, the last few
- *  history events, every profile with a run in flight, and an `error` when
- *  the updater's files would not read); and a NEW
- *  procedure, `agentDistro.checkNow`, which runs an update at once and refuses
- *  with the declared `AgentDistroCheckRefused` while a run is going or nothing
- *  serves. A 5.9 client CALLS `checkNow` and subscribes to the receipt, so the
- *  minor drains a 5.8 padi that has neither.
- *
- *  5.10 (minor) — the terminal record's `git` becomes a three-case `GitFact`
- *  (`unresolved | none | repo`, `@kolu/terminal-vocab`'s `GitFactSchema`) in
- *  place of `GitInfo | null`, so a reader can tell "not a repo" from "git not
- *  checked yet"; the record's `foreground` gains a REQUIRED `shell` (padi's own
- *  `isShellIdle` answer: is the program in front the terminal's shell); and the
- *  authored record gains `promptedAt` (when the current agent first went live —
- *  `null` until then; a key-level backfill, so an older record decodes). The
- *  `git` and `shell` changes are NOT additive — a 5.10 decoder refuses a 5.9
- *  padi's `git: null` (and its `shell`-less foreground), and a 5.9 decoder
- *  refuses a 5.10 padi's `{ kind }`. The minor protects only part of that. A
- *  5.10 binder drains a 5.9 padi before consuming its surface, and a 5.9
- *  binder drains a 5.10 padi too. But an older GATE-ONLY face (`kolu ls`, the
- *  MCP face, `padi-tui --host`) only checks "majors equal and running minor ≥
- *  required" (`isContractVersionCompatible`), so it passes the gate against a
- *  5.10 padi and then meets a decode refusal on the record: loud, but not the
- *  clean `DaemonContractSkewError`, and not the graceful direction 5.7
- *  describes. Kept a minor anyway, as 5.3 and 5.7 were.
- *
- *  5.11 (additive · minor) — agent-distro profile references. The
- *  `agentDistro` setting's `profile` (already a string) may now be a
- *  REFERENCE (a flake reference or a path, `isProfileReference`): padi gives
- *  such a terminal the vanilla bundle with the reference as `AI_PROFILE`, and
- *  publishes its status and receipt under the reference. The record's `agents`
- *  gains an OPTIONAL `effective` (the profile in effect, as the bundle's
- *  `agent-distro --list --json` answered after the spawn), and a NEW read-only
- *  cell, `agentDistroResolved`, says whether the setting's profile resolves on
- *  the host at all (the same listing, asked once per setting). The minor
- *  carries the 5.8 obligation: a 5.11 binder may PUSH a reference, which a 5.10
- *  padi's write gate refuses as an unknown profile, and a 5.11 client
- *  subscribes to the new cell, so the minor drains a 5.10 padi first. An older
- *  decoder strips `effective`, the graceful direction.
- *
- *  5.12 (additive · minor) — the per-host agents retry. A NEW procedure,
- *  `agentDistro.retryDownload`, forgets this host's last download failure for
- *  the profile it is set to and settles it again — the retry the Agents
- *  setting performs when it is switched back on, for ONE host. It takes the
- *  setting already pushed (the cell's `equals` drops a re-push of the same
- *  value, so re-sending the setting could not do it), and is a no-op while
- *  agents are off there. A 5.12 client CALLS it from a machine's host details,
- *  so the minor drains a 5.11 padi that has no such member.
- *
- *  5.13 (minor) — kolu-server delivers every host's agents. padi no longer
- *  runs agent-distro's updater: `agentDistro.checkNow` and
- *  `agentDistro.retryDownload` (and the `AgentDistroCheckRefused` error) are
- *  GONE, and a NEW procedure, `agentDistro.report`, carries the binder's word
- *  on each delivery (`AgentDistroDeliveryReport`: delivering · landed ·
- *  failed), on which padi points `current` at the landed bundle. The
- *  `agentDistroStatus` `error` arm drops its `reason` (it was
- *  `nixMissing | updater`) and keeps only the cause, `message`, and a receipt
- *  run's `by` is `delivery | padi | agent-distro | log` in place of
- *  `updater | padi`. The `ready` arm's optional `update: { progress? }`
- *  is replaced by a REQUIRED `delivering: boolean`, and `downloading` drops its
- *  `progress` (no delivery counts bytes). Not additive in either
- *  direction — the 5.10 shape: a 5.13 binder CALLS `report`, and the minor
- *  drains a 5.12 padi before it can; a gate-only face older than 5.13 meets a
- *  decode refusal on a failed status, loud.
- *
- *  5.14 (additive · minor) — the Inspector's odu CI readout. A NEW stream,
- *  `ciStatus({ terminalId })`, folded odu's board for one terminal's checkout
- *  into a full-replacement frame. RETIRED in 6.0.
- *
- *  6.0 (BREAKING · major) — odu is a SIBLING, not a member. `ciStatus` is gone,
- *  and with it padi's hand-rolled odu client: the daemon now re-serves odu's own
- *  surface at `surface/odu/*` (see {@link oduCarriedSurface}), so a reader
- *  subscribes to odu's `checkout` stream rather than to padi's fold of it. A
- *  major because the member was REMOVED: a 5.14 client subscribing to `ciStatus`
- *  against a 6.0 padi meets a tag nobody serves, and that must refuse at the
- *  handshake rather than hang on a subscription.
- *
- *  7.0 (BREAKING · major) — agent-distro is one package, and profiles are built
- *  and delivered beside it. The `agentDistro` setting's `profile: string`
- *  becomes `profiles: string[]` (the stack, bottom to top); every
- *  `agentDistroStatus` arm that named a profile names the stack (`profiles`),
- *  and `ready` carries the whole `set` instead (the package and the built
- *  profiles new terminals get as `AI_PROFILE` — its stack is theirs);
- *  `agentDistro.report`'s arms name the stack, and `landed` carries the `set`;
- *  the receipt drops `profile`, `bundle` and `versions` for one optional
- *  `serving: { set, versions }`; the record's `agents` becomes
- *  `{ bundle, profiles, effective? }` with `effective` naming the composed
- *  stack (`name`, `description`, `source`). The `agentDistroResolved` cell is
- *  GONE: kolu-server resolves a profile when it builds it, so a host has
- *  nothing to ask. A major because a member was removed and no arm decodes
- *  across the change.
- *
- *  7.1 (additive · minor) — `screen.text` takes `tail`: the last N rendered
- *  lines, the blank viewport below the cursor dropped first, cut by padi so
- *  only the tail crosses the wire (every face used to read the whole
- *  scrollback and slice it). `tail` beside `startLine`/`endLine` is refused at
- *  the decode. The minor carries the 5.6 obligation: a 7.0 padi STRIPS the
- *  unknown key and answers the whole scrollback as if it were the tail — a
- *  behavioural lie, not a graceful degradation — so a 7.1 face REFUSES a
- *  surviving 7.0 padi at the gate, and convergence drain-and-respawns the
- *  straddler.
- *
- *  7.2 (additive · minor) — the ACTIVE-TERMINAL gate answers TWO errors. A new
- *  declared `TerminalNotActive` ({@link TerminalNotActive}: `id` + `state`,
- *  `sleeping | parked`) joins `TerminalNotFound` on every member behind
- *  `requireActiveTerminal` — `screen.state`/`text`/`history`/`image`,
- *  `scratch.write`, `transcript.exportHtml` and `lifecycle.create`'s
- *  `child-of` parent — as {@link TerminalGateErrorSchema}. Until now a
- *  SLEEPING terminal's screen read answered "Terminal <id> not found", which
- *  every face repeated: an agent told a terminal it can see in the roster does
- *  not exist drops it instead of waking it.
- *
- *  A WIDENED ERROR CHANNEL is the 5.3 case, not the `resizeTo` case: a 7.1
- *  consumer's decoder refuses a `TerminalNotActive` frame, so the minor rule is
- *  what keeps it from ever meeting one (a newer binder against a 7.1 padi
- *  drains it before consuming its surface; an older binder against a 7.2 padi
- *  is build-mismatched and drains it first). For the gate-only faces (`kolu`,
- *  the MCP face — #1313) it is the 5.4/7.1 obligation: a 7.2 face asked to
- *  read a sleeping terminal must not be answered the old lie by a surviving
- *  7.1 padi, so it REFUSES one at the gate and convergence respawns the
- *  straddler. The two STREAM members keep answering `TerminalNotFound` for a
- *  dormant id — a `StreamSpec` has no error channel to widen, and the client's
- *  attach loop ends on that tag (`requireAttachableTerminal`).
- *
- *  7.3 (additive · minor) — an agent is PRESENT before it has a session. The
- *  record's `agent` gains a member, `AgentPresenceSchema` (`kolu-agents/vocab`):
- *  `{ kind, state: "starting" | "fresh" | "prompted", sessionId: string | null }`
- *  with every transcript field `null` — padi now publishes an agent from its
- *  FOREGROUND alone (the registry's `cli` match), `starting` while its screen
- *  is drawn, `fresh` once it has settled with nothing submitted to it, and
- *  `prompted` once padi has forwarded a submit to it and no transcript has
- *  spoken yet, where a 7.2 padi published `agent: null` until the agent's
- *  transcript existed (most agents write none until their first prompt; omp
- *  none until its first reply is done). The wait/watch bucket vocabulary
- *  (`WAIT_STATES`) gains `starting` and `fresh` with it: `watch.open`'s and
- *  `watchStates`' `states` accept them, and a state event may carry them;
- *  `prompted` buckets as `working`, so it needs no new word on that wire.
- *
- *  A WIDENED EMITTED UNION, so the 5.3 class: a 7.2 decoder refuses a record
- *  whose agent is a presence, and the minor rule is what keeps it from ever
- *  meeting one (a newer binder against a 7.2 padi drains it before consuming
- *  its surface; an older binder against a 7.3 padi is build-mismatched and
- *  drains it first). For the gate-only faces (`kolu`, the MCP face — #1313) it
- *  is the 7.1 obligation: a 7.3 face that waits for `fresh` or says to a fresh
- *  agent must not be served by a surviving 7.2 padi, which would answer
- *  "no agent — a plain shell" about the very terminal it is waiting on, so it
- *  REFUSES one at the gate and convergence respawns the straddler. A consumer
- *  that reads agent state only through the `agentProjection` folds needs no
- *  code change: the folds decide all three states (`starting`/`fresh` quiet for
- *  attention, idle for urgency, buckets of their own; `prompted` is work). One
- *  that narrows an `AgentInfo` to one kind's info must now rule a presence out
- *  first (`isAgentPresence`).
- *
- *  7.4 (additive · minor) — THE ROSTER IS A FACT, not an absence. A new
- *  read-only `roster` cell ({@link PadiRosterSchema}) carries THE CENSUS of the
- *  terminals padi supervises, or says it has not taken one: `settling` while
- *  the kaval endpoint is being booted-and-reconciled (or recycled),
- *  `established` once it has — with the epoch it was, and the ids it holds.
- *  padi knew this already — the serve-time empty seed its `urgency` fold gates
- *  on (`attention/fleetGate.ts`) — and kept it to itself, so every consumer of
- *  the `terminals` collection had to guess whether an empty roster meant
- *  "nothing is running" or "nothing has been adopted YET". The Conductor's
- *  watch guessed wrong: a redeploy's fresh padi served one information-free
- *  frame and every member terminal of every work was recorded `gone` (#2376).
- *  The ids ride this cell rather than being read off `terminals.keys` beside it
- *  because a reader of TWO members can be told `established` by one and an
- *  empty list by the other — which is what a projection of this surface does
- *  while its collections are still folding ({@link PadiRosterSchema}).
- *
- *  A NEW MEMBER, so the 6.0 class in reverse: a 7.4 binder subscribing `roster`
- *  against a surviving 7.3 padi meets a tag nobody serves. The minor rule is
- *  what keeps it from ever meeting one (a newer binder against a 7.3 padi drains
- *  it before consuming its surface; an older binder against a 7.4 padi is
- *  build-mismatched and drains it first), and a 7.3 CONSUMER is unaffected: it
- *  never asks. A member ADDED is a minor; only a member removed or reshaped —
- *  which breaks a consumer that already reads it — forces the major.
- *
- *  7.4 also ADDS the `pullRequest` STREAM — the pull request of a BRANCH in a
- *  REPOSITORY on this host, snapshot-then-changes ({@link PrResultSchema}, the
- *  same reading the per-terminal `pr` field carries, resolved by the same
- *  `subscribePr` watcher on the same 30 s cadence). It exists because a pull
- *  request belongs to a BRANCH, not to a terminal: kolu's Conductor watches a
- *  piece of work keyed `(host, repo, branch)`, and asking a member terminal's
- *  record for the PR meant the one fact that ENDS a work (the merge) had no
- *  observer the moment the terminals were closed — which is the ordinary end of
- *  a Conductor-run waterfall (#2376). No terminal has to exist for this one.
- *  Same member class as `roster` above: added, so a minor.
- *
- *  7.4 also NARROWS one field of an existing member: a saved terminal's `id`
- *  on the `session` cell is a `TerminalId`, not a bare string
- *  (`SavedTerminalIdSchema`). It is the same member class as an added one for
- *  every READER — the value was always a terminal id and still decodes as a
- *  string — and the narrowing is what makes the WRITER honest: restore now
- *  re-spawns each saved terminal UNDER ITS SAVED ID, so a blob naming a terminal
- *  "0" (only an e2e fixture ever did) asks padi to open a PTY called "0" and to
- *  publish it on the `roster` census above, whose `ids` encode as `TerminalId` —
- *  an outbound encode failure that unwinds the whole mirror kolu-server holds,
- *  leaving every padi procedure answering "no live upstream link" with the
- *  daemon alive and idle (#2376).
- *
- *  7.5 (additive · minor) — THE ATTACH STREAM SAYS WHEN THE PTY RESIZED. A new
- *  `resized` arm on {@link PadiTerminalAttachFrameSchema} carries the pty's new
- *  grid AT ITS POSITION in the byte stream, and the `snapshot` arm's `grid`
- *  becomes REQUIRED. Together they let a consumer change its own terminal's
- *  size at exactly the points the pty's mirror changed its own, which is the
- *  only way the two screens can be made to agree: a viewer used to resize when
- *  its own box moved and the pty resized when that grid reached it a settle
- *  window later, so everything written in between was laid out for one size and
- *  parsed at the other — a cursor row apart, different lines out of scrollback,
- *  and a full-screen program's relative repaint then erasing the wrong rows on
- *  the viewer's side only (#2362, #2372).
- *
- *  A WIDENED EMITTED UNION plus a field made required, so the 5.3/7.3 class, not
- *  the `resizeTo` class: a 7.4 decoder refuses a `resized` frame outright, and a
- *  7.4 PADI omits a grid a 7.5 consumer's decoder now demands. The minor rule is
- *  what keeps either from happening (a newer binder against a 7.4 padi drains it
- *  before consuming its surface; an older binder against a 7.5 padi is
- *  build-mismatched and drains it first), and draining a padi is not what
- *  draining a kaval is — padi hands its terminals back. The kaval contract this
- *  rides on top of took the MAJOR it needed for the same shape (9.0), because
- *  there a skew costs live PTYs.
- *
- *  One LOCAL consequence worth stating, since the wire now forbids what the code
- *  used to permit: an attach torn down before kaval answers describes no screen
- *  at all, so padi emits NO snapshot frame for it rather than one carrying an
- *  invented grid.
- *
- *  7.6 (additive · minor) — WHICH MODELS A HARNESS OFFERS on this host. A new
- *  procedure, `agentDistro.models` (`{ harness, cwd }` →
- *  {@link AgentModelsSchema}): padi runs its serving package's
- *  `agent-distro --models <harness>` in `cwd`, with the profiles a new
- *  terminal here would get, and answers upstream's word — the ids the harness
- *  listed, or `unlisted` for one that cannot list, and how a launch takes a
- *  model. A list command that fails, a host whose agents are not ready, or a
- *  serving package OLDER than `--models` (it says what it answers itself, in
- *  its `share/agent-distro/answers`) is the declared
- *  {@link AgentModelsUnavailable} with the words — never an empty list, and
- *  never an older picker's error read as one. kolu's setup form fills its
- *  model question from it, kolu-server checks a model answer against it, and
- *  the fleet face reads a planner's launch words off it. And the
- *  `agentDistroStatus` cell's `ready` arm gains `answers` (what the serving
- *  package answers), so kolu-server refuses a harness question for a host
- *  whose agents are too old before any form exists. A member added and a
- *  required field on an emitted arm — the 7.4 and 5.3/7.3 classes: a
- *  minor.
- *
- *  7.7 (additive · minor) — HOW A LAUNCH TAKES A MODEL, asked on its own. A
- *  new procedure, `agentDistro.launch` (`{ harness }` →
- *  {@link AgentLaunchSchema}): padi runs its serving package's
- *  `agent-distro --launch <harness>`, which reads the harness's adapter and
- *  runs nothing, so a start never depends on a list that fails today — the
- *  fleet face reads a planner's launch words off this now, not off
- *  `agentDistro.models`. A host whose agents are not ready, or a package
- *  older than `--launch`, is the declared {@link AgentLaunchUnavailable}.
- *  And `agentDistro.models` runs its list in the environment a new terminal
- *  there ends up with — the person's shell, after their dotfiles — so a key
- *  only an rc file exports reaches it; a shell that cannot be asked is
- *  {@link AgentModelsUnavailable} naming it. A member added — the 7.4 class:
- *  a minor.
- *
- *  7.8 (additive · minor) — WHAT THE NEWEST PROMPT SAID. The omp and pi arms of
- *  the record's `agent` gain `lastPromptText` beside `lastPromptId`: the newest
- *  user entry's words, whitespace collapsed and cut to 512 characters, or
- *  `null` when there is none. `agent_say` reports a steer `landed` only when
- *  the prompt that moved carries the words it sent. A required field on an
- *  emitted arm — the 5.3/7.3 class: a minor.
- *
- *  7.9 (additive · minor) — PADI SAYS WHY IT IS SLOW. A new procedure
- *  namespace, `diagnostics`, with one input-less verb: `diagnostics.read`
- *  answers {@link PadiDiagnosticsSchema} — the child processes padi started in
- *  the last minute (per kind: runs, still running, time inside the start call,
- *  start-to-exit, and why each `gh` ran), event-loop stalls, one row per file
- *  watcher with who asked for it, padi's memory, and per-procedure call time
- *  with the part spent in children (#2387). A procedure rather than a cell: it
- *  costs nothing until somebody asks.
- *
- *  A MEMBER ADDED, so the `pullRequest` class: a newer binder against a
- *  surviving 7.8 padi drains it before consuming its surface, so nobody asks a
- *  7.8 padi for a verb it does not serve, and a 7.8 consumer never asks. No
- *  existing member changes shape.
- *
- *  7.10 (additive · minor) — A REPO WITH NO WORKING TREE SAYS SO, AND A MISSING
- *  BASE BRANCH CROSSES THE WIRE. Two changes, one minor. The record's `git`
- *  fact ({@link GitInfoSchema}) gains `isBare`: true when the repo has no
- *  working tree at its root, so the Code tab reads that folder from disk
- *  instead of asking git for a file list it cannot give (#2392). And
- *  `git.getStatus` / `git.getDiff` declare {@link GitBaseReadErrorSchema},
- *  adding {@link WorktreeBaseBranchMissing} — the class their handler always
- *  raised for a Branch comparison whose `origin` default was never fetched, and
- *  which failed the response encode because neither member declared it. A
- *  required field on an emitted value and a widened emitted error union — the
- *  5.3/7.3 class: a minor.
- *
- *  7.11 (additive · minor) — A PULL REQUEST SAYS WHETHER IT IS A DRAFT. The
- *  forge's `PrInfo` gains a required `isDraft`: GitHub retired its `DRAFT`
- *  merge state for this field, so a draft with green checks read as mergeable
- *  (#2410). `PrInfo` rides the record's `pr` fact, the `pullRequest` stream,
- *  and the saved terminals of the `session` cell and the `session.import` and
- *  `test__set` payloads. A required field on an emitted value — the 5.3/7.3
- *  class: a minor. A newer binder drains a surviving 7.10 padi, so no reading
- *  without `isDraft` reaches a consumer. The session side is still a minor: an
- *  older client that SENDS a session whose resolved PR lacks `isDraft` is
- *  refused at the decode, loudly, and nothing is overwritten; padi's own saved
- *  file is brought up by its state rung 1.6.0 (`backfillPrDraft`).
- *
- *  7.12 (additive · minor) — THE URGENCY FOLD SAYS WHEN IT IS NOT YET
- *  EVIDENCE. `PadiUrgency` gains `settled`: false while padi has not finished
- *  looking — before it adopts kaval's terminals, while it re-reads each
- *  adopted survivor's agent for the first time, and through a kaval recycle's
- *  drain — and true otherwise. An empty list in an unsettled frame means
- *  nobody has looked, not that nothing is happening; a reader that took it as
- *  fact dropped every unread mark and then rang for every idle agent after a
- *  redeploy. It rides the value, not the `roster` cell beside it, because two
- *  members arrive apart. A decoding default of `true`: a frame from a 7.11
- *  padi, which omits the key, reads as it always did. */
+ *  Additive growth — a new optional field, stream, procedure or cell that does
+ *  not ride a shared whole-record client write — is a MINOR bump; a
+ *  shape-breaking change, or a persisted-record field added to a client-written
+ *  whole-record command, is a MAJOR, because only a major makes
+ *  `isContractVersionCompatible` refuse the skew in BOTH directions. Distinct
+ *  from {@link CONTROL_CORE_VERSION}, which is frozen so a contract-revving
+ *  deploy can still reach the daemon's control core. */
 export const PADI_SURFACE_VERSION = "7.12";
 
 /** The `version` cell payload — padi's self-declared surface contract version. */
@@ -863,8 +146,6 @@ export type PadiVersion = typeof PadiVersionSchema.Type;
 export const DEFAULT_PADI_VERSION: PadiVersion = {
   contractVersion: PADI_SURFACE_VERSION,
 };
-
-// ── Identity (padi's own build commit · surfaceVersion · boot time) ───────
 
 /** The `identity` cell payload — padi's own honest identity, PER HOST. padi is the
  *  sole authority on its own identity (P3): these are the EXACT facts it already
@@ -915,8 +196,6 @@ export const DEFAULT_PADI_IDENTITY: PadiIdentity = {
   lifetime: { kind: "forever" },
 };
 
-// ── Status (the per-host build-currency axis) ─────────────────────────────
-
 /** The `status` cell payload — host-side facts the dock's kaval column reads
  *  that are NEITHER a daemon-liveness transition (that rides the `daemonStatus`
  *  collection) NOR a terminal record. Today just `expectedKaval` — the identity
@@ -935,8 +214,6 @@ export type PadiStatus = typeof PadiStatusSchema.Type;
 /** The value a fresh `status` subscriber sees before padi seeds it — no expected
  *  kaval known yet. */
 export const DEFAULT_PADI_STATUS: PadiStatus = {};
-
-// ── Roster (has this padi finished adopting its terminals?) ───────────────
 
 /** The `roster` cell payload — THE CENSUS OF THIS HOST'S TERMINALS, or the
  *  statement that there isn't one yet.
@@ -1007,25 +284,6 @@ export const rosterIsEstablished = (
  *  projection's empty seed. */
 export const rosterHolds = (roster: PadiRoster, id: string): boolean | null =>
   roster.kind === "established" ? roster.ids.some((held) => held === id) : null;
-
-// ── Host-daemon inventory rows (the "Running daemons" leak diagnostic) ─────
-//
-// One running kaval / padi the host-daemon scan enumerated — the read-only diagnostic
-// rows the Kaval + Padi info dialogs list so a LEAKED daemon (a pre-upgrade kaval, a
-// second padi at another state-root) is visible AT A GLANCE. (srid hit this dogfooding
-// W2.2: a leaked pre-W2.2 kaval was invisible in the UI — only a `kaval-tui: more than
-// one kaval daemon is running` CLI error surfaced it.) Read-only enumeration: scan the
-// runtime dir, read each gate pid, read-only probe status — it NEVER kills/reaps.
-//
-// These live HERE, in @kolu/padi's browser-safe surface vocabulary, because padi OWNS
-// the daemon domain (it discovers, adopts, and supervises the host's daemons — a kaval
-// gate pid is a padi-domain fact, NOT terminal-awareness). One scan implementation (in
-// @kolu/padi), one wire shape here. kolu-server's local-machine scan
-// (`kolu-common/surface`'s `daemonInventory` cell) IMPORTS these shapes from here — the
-// established `kolu-common → @kolu/padi` direction (the reverse is what the seal forbids).
-//
-// Honesty (#1034): every field the probe couldn't read is an honest `null` (rendered
-// "—"), never a fabricated zero/version.
 
 export const RunningKavalSchema = Schema.Struct({
   /** The rendezvous socket path — the pasteable `--socket` value. */
@@ -1106,8 +364,6 @@ export const DEFAULT_PADI_HOST_INVENTORY: PadiHostInventory = {
   kavals: [],
   padis: [],
 };
-
-// ── The composed `terminals` value — active | sleeping | parked ───────────
 
 /** RESERVED cross-host dock axis. Absent on every W1 record (one padi serves
  *  ONE host, so a canvas holds no foreign host to name), but present in the
@@ -1226,8 +482,6 @@ export function tileTerminalOf(
   return isParkedTerminal(record) ? undefined : record;
 }
 
-// ── The urgency projection (recency-free) ─────────────────────────────────
-
 /** The recency-FREE urgency fold off the registry: how many terminals await
  *  the user, and which. The ONE thing kolu-server reads from every warm binding
  *  (for cross-host badge fan-in), so it deliberately carries ids and NO
@@ -1336,15 +590,6 @@ function sameIds<T>(a: readonly T[], b: readonly T[]): boolean {
   return true;
 }
 
-// ── Procedure I/O schemas (padiSurface's own — NOT the dying root ones) ────
-//
-// These are the NEW contract shapes lifecycle/chrome/screen/bytes/session
-// migrate onto (the root `terminal.*` namespace dies across W1.R). They are
-// intentionally distinct from `kolu-common/contract`'s raw-oRPC schemas — most
-// notably `create` carries only the base chrome, never the three SERVER-DERIVED
-// authored facts (`lastActivityAt`, `promptedAt`, `restoreTarget`) that padi
-// earns from its own observation, so they are not duplicates to fold away.
-
 /** Create input — the BASE `CreateTerminalInputSchema` (client chrome) plus the
  *  REQUIRED `placement` and an optional `cwd`. It derives from the base DIRECTLY
  *  rather than subtracting the three
@@ -1442,106 +687,11 @@ export type AttachCause = (typeof ATTACH_CAUSES)[number];
  *  shared mirror, and on a width change a reflow-epoch bump that stales every
  *  other attached client's backfill cursor). Attaching is a WRITE to shared
  *  state whenever it is present and differs from the terminal's current grid;
- *  the policy is last-attach-wins.
- *
- *  **The multi-client contract, stated (kolu#2101 G8e).** Last-attach-wins is
- *  the WHOLE policy — there is no follow-the-viewer, no smallest-wins, no
- *  ownership. Two viewers on one terminal therefore ping-pong its width, and a
- *  production recording shows exactly that: content re-wrapping 136 → ~65 → 136
- *  mid-session as a desktop and a resumed iOS tab alternately assert. The
- *  consequences each side sees, so nobody has to re-derive them:
- *    - The asserting client gets a snapshot serialized at ITS grid. Correct.
- *    - Every OTHER attached client is TOLD, on its own attach stream, that the
- *      pty is now N columns wide (the `resized` frame, 7.5), and follows — so
- *      it renders N columns of content inside its own 2N-column box, drawn at
- *      the size the bytes are actually laid out for, until it re-asserts.
- *    - A client that wants a different grid re-attaches at it (kolu's pane
- *      watches the record and waits out a settle first), so contention costs a
- *      repaint — never the attach loop, which is the property kolu#2101 G8
- *      restored and pins.
- *
- *  **Telling the viewer — three facts now, because they answer three
- *  questions.** A client used to know only its own grid and the grid it asked
- *  at, so a foreign resize was silent by construction. The tempting proxy — a
- *  `reflowEpoch` bump — was never one, because the epoch also bumps on a RIS
- *  re-anchor (`xterm-kit/src/mirrorAnchor.ts`), so an indicator driven by it
- *  lights on every `clear`. What the stream carries instead:
- *    - **the snapshot frame's `grid`** (REQUIRED at 7.5) — the cols×rows those
- *      BYTES are laid out at. The consumer sizes its terminal to it and then
- *      paints, so painting a screen at the wrong width is no longer a state it
- *      can reach.
- *    - **the `resized` frame** (7.5) — the pty's mirror changed size HERE,
- *      between these two bytes. This is the half nothing could express before:
- *      a foreign resize mid-stream produced no frame at all, so a client
- *      watching only frames painted reflowed bytes forever. It also carries the
- *      consumer's OWN resize back to it, which is what puts the two screens in
- *      step (the pty resizes a settle window after the box moved, not when).
- *    - **the terminal record's grid** (`TerminalSnapshot.grid`) — the grid the
- *      pty is at NOW, published by padi's own resize path. A standing fact
- *      rather than an event, so a client that was not attached at the time can
- *      still see that the terminal is not its size. kolu's pane re-asserts off
- *      this one.
- *  The ping-pong above is unchanged and remains the whole policy — what changed
- *  is that the losing side both SEES it lost and keeps a correct screen while it
- *  has lost, instead of painting bytes whose layout nothing ever told it about.
- *
- *  The fusion is the point. The snapshot is bytes laid out for a specific
- *  cols×rows — cursor moves and wraps only mean anything at the width they were
- *  serialized for. Carrying the grid on the attach REQUEST means the resize and
- *  the serialize are one act, so the bytes and the grid can never be two facts
- *  that raced. Without it the consumer had to publish its size through a
- *  SEPARATE `lifecycle.resize` and hope it landed first — and when it didn't,
- *  nothing repaired the screen, because a same-dimensions resize is (correctly)
- *  a no-op, so no SIGWINCH ever reached the process.
- *
- *  OPTIONAL, and deliberately un-versioned. Absence degrades to exactly the
- *  previous reading in BOTH skew directions — a newer client's grid is stripped
- *  by an older padi, a newer padi serves an older client at the PTY's current
- *  size — which is the `commandRooted`/`shellJoin` class this contract already
- *  carries without a bump, not the emitted-variant class that must recycle. A
- *  bump here would force-recycle a surviving daemon (killing live PTYs) to buy
- *  a graceful improvement. */
+ *  the policy is last-attach-wins, and every other attached client is told the
+ *  new size by a `resized` frame on its own stream. */
 export const PadiTerminalAttachInputSchema = Schema.Struct({
   id: TerminalIdSchema,
-  // ONE optional composite, never two optional scalars: a grid is a cols AND a
-  // rows, so `{ cols }` with no `rows` must not be a sendable request. Splitting
-  // it would make half a grid representable on the wire and push the
-  // both-or-neither rule out into hand-written guards at every reader — the very
-  // class of "valid-looking value nobody can act on" this change exists to
-  // remove. Optional as a UNIT is also what keeps the no-bump property: no schema
-  // here is strict, so an older peer strips an unknown `resizeTo` exactly as it
-  // would strip unknown `cols`/`rows`.
-  //
-  // `optionalKey`, never `optional` (PLAN #17): absent means ABSENT on this
-  // wire — `Schema.optional` would round-trip an explicit `undefined` through
-  // `null`, which is a value no peer ever sent.
   resizeTo: Schema.optionalKey(EndpointGridSchema),
-  //
-  // `cause` (additive · optional · UN-versioned) — WHY the attach was opened,
-  // for the relaying server's telemetry and for nothing else. kolu-server
-  // counts the PTY resizes a `resizeTo` actually performs (`server/src/padi/
-  // attachTelemetry.ts`), and the one fact it cannot derive from the wire is
-  // whether an open was a user looking at a terminal or the client's
-  // foreign-grid watcher re-asserting a grid some other viewer moved: both are
-  // an ordinary subscribe carrying a grid, byte for byte. Only the client knows
-  // which it just did, so only the client can say.
-  //
-  // A DESCRIPTION, never a command: padi reads `id` and `resizeTo` and nothing
-  // else, so a `cause` changes no behaviour on any hop. That is what makes the
-  // strippable-optional argument airtight here — a peer that drops it (an older
-  // padi decoding a newer client, a client too old to send it) degrades to an
-  // attach whose cause is unknown, which is EXACTLY the reading every log had
-  // before this key existed and the baseline the telemetry is written against.
-  // The `resizeTo` class above, then — absence degrades to an observable
-  // baseline — and not the `nagCount` class, whose absence would make the line
-  // assert something untrue. So NO `PADI_SURFACE_VERSION` bump: the version
-  // exists to drain daemons a consumer cannot be served by, and a bump bought
-  // here would force-recycle a surviving daemon (killing live PTYs) to buy a
-  // telemetry breakdown that degrades gracefully by construction.
-  //
-  // `optionalKey`, never `optional`, for the grid's own reason: an attach that
-  // names no cause omits the key, and no peer ever sends an explicit
-  // `undefined` here.
   cause: Schema.optionalKey(Schema.Literals(ATTACH_CAUSES)),
 });
 
@@ -1556,10 +706,9 @@ export const PadiTerminalAttachInputSchema = Schema.Struct({
  *  own `TerminalDataMsg` one hop up.
  *
  *  NAMED and exported because a consumer has to be able to say this type to
- *  write a frame handler at all. See `./attach` for the rules that govern what
- *  a consumer must DO with each arm — in particular that a `snapshot` and a
- *  `resized` both SET the consumer's terminal size, and that a `resized` only
- *  means anything if it is applied in the order it arrived in.
+ *  write a frame handler at all. A `snapshot` and a `resized` both SET the
+ *  consumer's terminal size, and a `resized` only means anything applied in the
+ *  order it arrived in.
  */
 export const PadiTerminalAttachFrameSchema = Schema.Union([
   Schema.Struct({
@@ -1570,59 +719,19 @@ export const PadiTerminalAttachFrameSchema = Schema.Union([
     kind: Schema.Literal("snapshot"),
     data: Schema.String,
     topLine: NonNegativeInt,
-    // `reflowEpoch` (3.1 · additive · optional) — the mirror's reflow
-    // generation this snapshot was serialized under; the client re-seeds
-    // its backfill epoch from it so a foreign-resize reflow halts backfill
-    // rather than corrupts it (F3). Absent from a kaval predating 5.2.
-    //
-    // `Schema.optional`, NOT `optionalKey` — the one place on this wire
-    // that reads the way zod's `.optional()` did, and deliberately. This
-    // value is FORWARDED VERBATIM across five hops of optional-typed
-    // records before it is encoded: kaval's decoded attach frame →
-    // `OpenedAttach.reflowEpoch?` → `TerminalAttachment.reflowEpoch?` →
-    // `reattachingDeltas`' re-attach frame → this frame. Reading an absent
-    // optional key yields `undefined`, so EVERY hop re-creates the key
-    // present-with-`undefined`, and no amount of conditional-spread
-    // discipline at one hop survives the next (`exactOptionalPropertyTypes`
-    // is not set, so the compiler never objects). `optional` is
-    // `optionalKey` + `UndefinedOr`, so the emitted BYTES are unchanged —
-    // the key is omitted, never nulled — and a non-integer is still
-    // rejected. Pinned by a byte fixture in `surface.test.ts`.
     reflowEpoch: Schema.optional(NonNegativeInt),
-    /** `grid` (5.5 · additive · optional; REQUIRED at 7.5) — the cols×rows this
-     *  snapshot was SERIALIZED at, read inside the same synchronous act as the
-     *  bytes and the epoch so it cannot describe a reflow they never saw.
-     *
-     *  REQUIRED, because a consumer now SIZES ITSELF TO IT rather than merely
-     *  comparing against it. A snapshot is bytes already laid out for one
-     *  cols×rows; the consumer sets its terminal to this grid and then paints,
-     *  so "do these bytes fit my screen" stops being a question anything can
-     *  get wrong. An OPTIONAL grid could not carry that rule — absence would
-     *  mean "size however you like", which is the defect itself — and the two
-     *  readings it used to serve are both subsumed:
-     *
-     *    · the OBSERVE-ONLY attach — one that passes no `resizeTo` because it
-     *      has no size to assert (a monitor, a read-only pane, a CLI dumping the
-     *      screen). It sizes to the frame, which is now always there.
-     *    · the FOREIGN-RESIZE reading. A foreign resize now arrives as its own
-     *      `resized` frame on this stream, so a consumer no longer has to infer
-     *      one by comparing a snapshot's grid against its own box.
-     *
-     *  The three producers that could omit it are gone with kaval's 9.0 major:
-     *  an older kaval is refused at the handshake rather than adopted, and
-     *  `local.ts`'s abort-before-snapshot return now says `grid: null`, which
-     *  `servePadi` answers by emitting NO snapshot frame — the honest encoding
-     *  of "this attachment describes no screen". */
+    /** The cols×rows this snapshot was SERIALIZED at, read inside the same
+     *  synchronous act as the bytes and the epoch so it cannot describe a
+     *  reflow they never saw. The consumer sets its terminal to this grid and
+     *  then paints. */
     grid: EndpointGridSchema,
   }),
-  /** The pty's mirror CHANGED SIZE at this point in the stream (kaval contract
-   *  9.0, padi 7.5 — see {@link PADI_SURFACE_VERSION} for why it exists, and
-   *  the multi-client note on the attach INPUT for what it makes observable).
+  /** The pty's mirror CHANGED SIZE at this point in the stream.
    *
    *  A control frame carrying one fact and no bytes, and its POSITION is the
    *  fact: every byte before it was laid out for the old grid, every byte after
-   *  it for the new one. A consumer applies it exactly there and nowhere else;
-   *  `./attach` rule 2 is what a consumer that BUFFERS bytes owes it. */
+   *  it for the new one. A consumer that BUFFERS bytes applies it in the same
+   *  buffer, in line. */
   Schema.Struct({
     kind: Schema.Literal("resized"),
     grid: EndpointGridSchema,
@@ -1633,13 +742,6 @@ export type TerminalAttachFrame = typeof PadiTerminalAttachFrameSchema.Type;
 /** The grid an attach asks for, and the unit a snapshot is laid out at. */
 export type EndpointGrid = typeof EndpointGridSchema.Type;
 
-// The SAME grid rule the attach carries. `resize` and `attach` describe one
-// value with one meaning, reaching the same mutator, so they must not derive it
-// twice — a bare `z.number()` here accepted a float or a negative that kaval
-// rejected one hop later, leaving the boundary that KNOWS what a grid is as the
-// one that didn't enforce it. Tightening rejects only values kaval already
-// refused, so no working call changes behaviour; the loud failure just moves to
-// the boundary that owns the concept.
 export const PadiResizeInputSchema = Schema.Struct({
   ...EndpointGridSchema.fields,
   id: TerminalIdSchema,
@@ -1649,18 +751,6 @@ export const PadiSendInputSchema = Schema.Struct({
   id: TerminalIdSchema,
   data: Schema.String,
 });
-
-// ── Standing settle-event subscriptions (`watch.*`) ───────────────────────
-//
-// A supervisor that is itself a kolu terminal needs none of this: padi delivers
-// into its mailbox along the `parentId` edge. These verbs are for a supervisor
-// that has NO terminal — a coding agent holding only an MCP connection — which
-// the edge therefore cannot reach.
-//
-// The shape is padi's existing PULSE-THEN-REQUERY idiom (`subscribeRepoChange`):
-// instant request/response verbs carry the data, and a stream carries only a
-// doorbell. It is deliberately not a blocking `next` procedure — the buffer is
-// authoritative and server-side, so a MISSED pulse costs a wait, never an event.
 
 /** A settle edge on the wire — "this terminal just started needing someone".
  *
@@ -1704,27 +794,6 @@ export const PadiSettleEventSchema = Schema.Struct({
   intent: Schema.optionalKey(Schema.String),
 });
 export type PadiSettleEvent = typeof PadiSettleEventSchema.Type;
-
-// ── The agent-STATE watch (`states` · `heldForMs` · `nagMs` · `nagCount`) ────
-//
-// The second event source behind the same standing subscriptions, and the whole
-// of `kolu watch`'s supervision face. A settle event is an edge the DAEMON
-// decides for you — "this terminal just started needing someone", with EF2's
-// byte-quiet conjunct baked in. A state event answers the question the
-// SUBSCRIBER asked instead: which agent buckets do I care about, how long must
-// one HOLD before I hear about it, and how often should I be told AGAIN while it
-// keeps holding.
-//
-// It reads the ADAPTER, never the bytes. `agentBucket` folds the state the
-// agent's own adapter published; a quiet screen is not an idle agent — a grok
-// sitting at an empty prompt repaints about once a second, which starved a
-// byte-quiet gate forever (#2177). So `heldForMs` debounces the STATE, and no
-// part of this feed consults output.
-//
-// The knobs are ONE implementation (`attention/stateWatch.ts`) served to both
-// faces: `kolu watch --states/--held-for/--nag 30m/3` subscribes the
-// {@link padiSurface} `watchStates` stream, an MCP orchestrator passes the same
-// knobs as `watch.open` params. Neither face filters anything client-side.
 
 /** The agent buckets a state watch may target — padi's own {@link WAIT_STATES}
  *  (the `agentBucket` fold's vocabulary minus `other`, which no real agent
@@ -1771,9 +840,6 @@ export const PadiWatchFilterFields = {
     Schema.Number.annotate({
       description:
         "Report a terminal only once it has HELD that state this long (milliseconds). Omit (or 0) to report the instant it enters. This is the debounce: an agent that ends its turn and is handed more work inside the window is never reported at all.",
-      // Bounded by the shared `setTimeout` ceiling: these arm real timers in the
-      // daemon, and a value past it overflows to "fire immediately, forever".
-      // Zero is a legal HOLD — report the transition the instant it happens.
     }).check(
       Schema.isInt(),
       Schema.isGreaterThanOrEqualTo(0),
@@ -1912,13 +978,6 @@ export const WATCH_FILTER_KEYS = Object.keys(
 ) as readonly (keyof typeof PadiWatchFilterFields)[];
 
 export const PadiWatchOpenInputSchema = Schema.Struct({
-  // These fields reach MCP verbatim: `kolu-mcp`'s bespoke `watch_open` tool
-  // SPREADS this struct's fields rather than re-declaring them, so this
-  // annotation is the only thing that tells an agent the name is ITS choice and
-  // that reusing it is the point. It had no blurb at all until effect rc.111:
-  // `WatchNameSchema` is already checked, and rc.110 buried an annotation on a
-  // checked schema in an `allOf` branch, so the sentence would have been
-  // written and never rendered.
   name: WatchNameSchema.annotate({
     description:
       "A name YOU choose for this subscription. Reuse the SAME name across restarts — re-opening an existing name reattaches to its queue with your place kept, instead of minting an empty one.",
@@ -1936,11 +995,6 @@ export const PadiWatchOpenInputSchema = Schema.Struct({
       })
       .check(Schema.isNonEmpty()),
   ),
-  // Naming ANY of these turns this subscription into an agent-STATE watch:
-  // it is fed by `stateWatch` (snapshot · transition · nag) instead of the settle
-  // detector (asking · finished · gone). Naming NONE leaves it exactly as it was.
-  // One decision, made by the presence of a knob, so there is no mode flag to
-  // contradict the knobs.
   ...PadiWatchFilterFields,
   ...PadiWatchIgnoreFields,
 });
@@ -2075,42 +1129,12 @@ export const PadiScreenTextInputSchema = Schema.Struct({
 
 /** The most rows one `screen.image` will ever render.
  *
- *  A hard ceiling, not a default: the render cost and the pixel height both
- *  grow linearly with rows, and kolu retains 50,000 lines of scrollback, so an
- *  unbounded request is a way to ask the daemon for a 900,000-pixel-tall PNG.
- *
- *  The two ways to exceed it are answered DIFFERENTLY, because the questions
- *  differ. An explicit `lines` above the cap is REJECTED at the wire rather
- *  than truncated — a caller that asked for 5,000 rows and silently got 200
- *  would be shown a picture that is not the answer to its question. A
- *  `viewport` capture of a terminal taller than the cap (a very tall window)
- *  is TRIMMED to the last `SCREEN_IMAGE_MAX_ROWS` rows, because "show me the
- *  screen" is still answerable and its bottom is the part that matters — and
- *  the reply's own `rows` says how much was captured, so the trim is stated
- *  rather than hidden.
- *
- *  ROWS ONLY, on purpose. The other axis is not a caller's to name — there is
- *  no `cols` in this input, and a terminal's width is whatever its owner
- *  resized it to — so the width of a capture is bounded where the cells are
- *  READ, by kaval's area cap (`SCREEN_CELLS_MAX_CELLS`, `rows * cols`): a
- *  terminal both very tall and very wide comes back at fewer columns, leftmost
- *  kept. The reply's `cols` states that the same way `rows` states this trim.
- *  There is nothing to refuse on that axis and so nothing to check here.
- *
- *  This is kaval's `SCREEN_CELLS_MAX_ROWS` spelled a second time, and the
- *  duplication is deliberate — the same call `vocab.ts` makes for
- *  `PtyHostIdentitySchema` and `DaemonLifetimeInfoSchema`. This module is
- *  BROWSER-SAFE and the client value-imports it (`LOCAL_LOCATION`), while
- *  kaval's only entry is a barrel that re-exports `createPtyHost` — a
- *  `node-pty` child. Importing the constant from there to save a literal
- *  would put the PTY daemon in the browser's module graph, resting on a
- *  bundler's tree-shaking to take it back out again.
- *
- *  Two spellings CAN drift, and the drift is real: it would let a padi-legal
- *  `lines` die as a kaval decode error, collapsing the refuse-vs-trim split
- *  that is deliberate above. So the equality is PINNED by a test on the node
- *  side of the seal (`screenImage.test.ts`), where importing kaval costs
- *  nothing. A pinned duplicate beats an import that crosses a layer. */
+ *  A hard ceiling, not a default. An explicit `lines` above the cap is
+ *  REJECTED at the wire; a `viewport` capture of a taller terminal is TRIMMED
+ *  to the last {@link SCREEN_IMAGE_MAX_ROWS} rows, and the reply's own `rows`
+ *  says how much was captured. Rows only: the width of a capture is bounded
+ *  where the cells are read, by kaval's area cap, and the reply's `cols` states
+ *  it. */
 export const SCREEN_IMAGE_MAX_ROWS = 200;
 
 /** What a legal `lines` is: a whole count of rows, at least one, at most
@@ -2176,12 +1200,6 @@ export const PadiScreenHistoryInputSchema = Schema.Struct({
   id: TerminalIdSchema,
   before: Schema.optionalKey(NonNegativeInt),
   max: PositiveInt,
-  // `epoch` (3.1 · additive · optional) — the reflow generation the caller's
-  // `before` cursor was seeded under (the attach snapshot's `reflowEpoch`). The
-  // host returns an empty `stale` reply when a width reflow has since renumbered
-  // absolute rows, so a client whose shared mirror a foreign resize reflowed
-  // HALTS backfill rather than splices a duplicated/skipped band (F3). Omitted
-  // by an older client — fail-open.
   epoch: Schema.optionalKey(NonNegativeInt),
 });
 
@@ -2374,13 +1392,8 @@ export const PadiBackupsListOutputSchema = Schema.Struct({
  *  pushed into the ring first, so a restore is itself undoable. */
 export const PadiBackupsRestoreInputSchema = Schema.Struct({
   file: Schema.String,
-  // The SAME resume-intent pair `session.restore` declares — composed by field
-  // spread (the repo's `.merge` successor, see vocab.ts's note) rather than a
-  // third hand-copy of the decoding-default policy.
   ...PadiSessionRestoreInputSchema.fields,
 });
-
-// ── The surface ───────────────────────────────────────────────────────────
 
 export const padiSurface = defineSurfaceWithPolicy<ClientErrorPolicy>()({
   cells: {
@@ -2425,7 +1438,6 @@ export const padiSurface = defineSurfaceWithPolicy<ClientErrorPolicy>()({
         finishedIds: [],
         workingIds: [],
         lingerIds: [],
-        // Nothing has been looked at before padi's first frame.
         settled: false,
       } satisfies PadiUrgency,
       equals: urgencyEqual,
@@ -2452,8 +1464,6 @@ export const padiSurface = defineSurfaceWithPolicy<ClientErrorPolicy>()({
     newTerminalPolicy: {
       schema: NewTerminalPolicySchema,
       default: DEFAULT_NEW_TERMINAL_POLICY,
-      // The one bus/wire dedup point: a binder that re-sends the same resolved
-      // fact (any reconnect re-primes this memory-only cell) publishes nothing.
       equals: newTerminalPolicyEqual,
       verbs: ["get", "set"],
       client: { onError: { kind: "toast", label: "New-terminal policy" } },
@@ -2468,8 +1478,6 @@ export const padiSurface = defineSurfaceWithPolicy<ClientErrorPolicy>()({
     agentDistro: {
       schema: AgentDistroSettingSchema,
       default: DEFAULT_AGENT_DISTRO_SETTING,
-      // The one dedup point: a re-push of the same setting (every reconnect)
-      // publishes nothing.
       equals: agentDistroSettingEqual,
       verbs: ["get", "set"],
       client: { onError: { kind: "toast", label: "Agents setting" } },
@@ -2484,7 +1492,6 @@ export const padiSurface = defineSurfaceWithPolicy<ClientErrorPolicy>()({
     agentDistroStatus: {
       schema: AgentDistroStatusSchema,
       default: DEFAULT_AGENT_DISTRO_STATUS,
-      // A progress tick that moved no byte count publishes nothing.
       equals: agentDistroStatusEqual,
       verbs: ["get"],
       client: { onError: { kind: "hostToast", label: "Agents status" } },
@@ -2511,8 +1518,6 @@ export const padiSurface = defineSurfaceWithPolicy<ClientErrorPolicy>()({
     hostListeners: {
       schema: HostListenersSchema,
       default: UNKNOWN_HOST_LISTENERS,
-      // The ONE wire dedup point: a seconds-cadence sampler republishes an
-      // unchanged host on every pass.
       equals: hostListenersEqual,
       verbs: ["get"],
       client: { onError: { kind: "toast", label: "Host listeners" } },
@@ -2594,10 +1599,6 @@ export const padiSurface = defineSurfaceWithPolicy<ClientErrorPolicy>()({
       keySchema: Schema.String,
       schema: DaemonStatusSchema,
       verbs: ["keys", "get"],
-      // 4C RULING: `hostToast` (not the old per-subscription split) — the chip gains
-      // host attribution and a background host's daemon-status failure becomes a
-      // host-named toast (the two srid-ruled deltas). Origin `{ key }` is guaranteed
-      // for an entry member.
       client: { onError: { kind: "hostToast", label: "daemon status" } },
     },
   },
@@ -2674,11 +1675,6 @@ export const padiSurface = defineSurfaceWithPolicy<ClientErrorPolicy>()({
      *  re-attaches end-to-end); the shipped overflow frame (#1591) rides it. */
     terminalAttach: {
       inputSchema: PadiTerminalAttachInputSchema,
-      // A discriminated frame, not a bare string (contract) and not an optional
-      // field: a `delta` is bytes to write; a `snapshot` frame (the first frame
-      // and every overflow re-attach) also carries the absolute mirror-line
-      // `topLine` seed for the client's scrollback-backfill cursor. Mirrors
-      // kaval's own `TerminalDataMsg` union one hop up (see `TerminalAttachFrame`).
       outputSchema: PadiTerminalAttachFrameSchema,
     },
   },
@@ -2721,14 +1717,6 @@ export const padiSurface = defineSurfaceWithPolicy<ClientErrorPolicy>()({
     /** Terminal lifecycle — create · kill · killAll · sleep · wake · restart ·
      *  discardSleeping · resize · sendInput · recycleKaval. */
     lifecycle: {
-      // Every create STATES its placement (`PadiCreateInputSchema`) — a tile of
-      // its own, or a split of a named parent. The `child-of` arm's parent must
-      // be a LIVE terminal, so `create` goes through the same active-terminal
-      // gate the per-terminal verbs do and declares its two answers
-      // ({@link TerminalGateErrorSchema}): no such parent, or a parent that is
-      // asleep/parked (wake it, then split it). A create that states NO
-      // placement is refused a layer earlier, by the input schema itself, and
-      // never reaches this error channel.
       create: {
         input: PadiCreateInputSchema,
         output: TerminalInfoSchema,
@@ -2740,11 +1728,8 @@ export const padiSurface = defineSurfaceWithPolicy<ClientErrorPolicy>()({
         error: TerminalNotFound,
       },
       killAll: {},
-      // `sleep` is a no-op on anything that is not a live local terminal, and
       // `resize`/`sendInput` QUIET-DROP a write that lands just after a kill
-      // (#1628 — an expected race). None of the three can refuse, so none
-      // declares an error: an absent error channel is a statement, not an
-      // omission.
+      // (#1628 — an expected race), so none of these three declares an error.
       sleep: { input: PadiTerminalIdInputSchema },
       wake: {
         input: PadiTerminalIdInputSchema,
@@ -2775,17 +1760,6 @@ export const padiSurface = defineSurfaceWithPolicy<ClientErrorPolicy>()({
        *  resolves once the fresh kaval is connected (or rejects, session safe on
        *  disk to retry/restore). */
       recycleKaval: {
-        // The DECLARED error (SK6): a proven contract skew is the one failure
-        // this procedure can translate — versions ride as TYPED fields on the
-        // error itself (the client narrows on `_tag === "KavalContractSkew"`;
-        // nothing re-parses prose). An undeclared throw stays a DEFECT — the
-        // fail-fast channel for genuinely unexpected failures.
-        //
-        // Under oRPC this was an `errors: { KAVAL_CONTRACT_SKEW: { data } }`
-        // map keyed by a magic code, constructed through an injected
-        // `errors.<CODE>(...)` factory. `Rpc.make` takes ONE error schema, so
-        // the code map collapses into the tagged class itself and the handler
-        // simply FAILS with an instance.
         error: KavalContractSkew,
       },
     },
@@ -2924,9 +1898,6 @@ export const padiSurface = defineSurfaceWithPolicy<ClientErrorPolicy>()({
       read: {
         input: PadiPreviewReadInputSchema,
         output: PadiPreviewReadOutputSchema,
-        // Fail-fast, never a silent truncation: an unranged read whose body
-        // would exceed the inline cap is REFUSED, and the refusal names the
-        // cap so the caller can compute a range from it.
         error: PreviewTooLarge,
       },
       repoRootForTerminal: {
@@ -2993,10 +1964,6 @@ export const padiSurface = defineSurfaceWithPolicy<ClientErrorPolicy>()({
      *  (a remote host's backups live on that box; the map client is the reach). */
     backups: {
       list: { output: PadiBackupsListOutputSchema },
-      // Output-less, like `session.import` and for the same reason (the 5.1
-      // ledger note): the client restores a blob it just picked and seeds no
-      // view from the call, so an active-marker answer would be shape nothing
-      // reads.
       restore: { input: PadiBackupsRestoreInputSchema },
     },
     /** Why this host's padi is slow — children, stalls, watchers, memory and
@@ -3013,8 +1980,6 @@ type PadiSF = SurfaceTypes<typeof padiSurface.spec>;
 
 /** The `terminals` collection key — a terminal id. */
 export type PadiTerminalKey = PadiSF["collections"]["terminals"]["Key"];
-
-// ── Per-member forwarding policy (W1.C declares; W2.1's helpers read) ──────
 
 /** How a re-serve (padi↔kolu-server, W2.1) forwards a member across the hop:
  *   - `value` — HOLD-OPEN: a rebind replays the current value (cells,
@@ -3035,11 +2000,8 @@ export type ForwardingPolicy = "value" | "delta";
  *  the built spec so no member can be added without an annotation, and W2.1's
  *  re-serve helpers read it to type each hop. */
 export const PADI_FORWARDING_POLICY = {
-  // cells
   version: "value",
   identity: "value",
-  // A rebind replays the current roster standing — a binder that reconnects
-  // mid-settle must learn it is still settling, not inherit a stale frame.
   roster: "value",
   urgency: "value",
   status: "value",
@@ -3051,26 +2013,16 @@ export const PADI_FORWARDING_POLICY = {
   hostInventory: "value",
   processMemory: "value",
   activityFeed: "value",
-  // collections
   terminals: "value",
   daemonStatus: "value",
-  // streams — `activity`, `terminalAttach` and `watchStates` are the delta
-  // members: each one's first frame is a fresh snapshot the consumer builds on,
-  // so a rebind must terminate the downstream stream rather than replay a value.
   activity: "delta",
   watchStates: "delta",
-  // A doorbell carries no accumulated state — each pulse stands alone and the
-  // caller requeries, so it forwards as a value like the other pulse streams.
   watchPulse: "value",
   subscribeRepoChange: "value",
   subscribeFileChange: "value",
   terminalAttach: "delta",
-  // A branch's PR reading is a VALUE: every frame is the whole current reading,
-  // so a rebind replaying the last one tells the truth rather than a stale half.
   pullRequest: "value",
-  // events
   terminalExit: "value",
-  // procedure namespaces
   lifecycle: "value",
   chrome: "value",
   screen: "value",
@@ -3080,11 +2032,8 @@ export const PADI_FORWARDING_POLICY = {
   preview: "value",
   transcript: "value",
   watch: "value",
-  // `session` is a cell (get/set) AND a procedure namespace (restore/import),
-  // merged onto one wire node — this single entry annotates the merged member.
   session: "value",
   backups: "value",
-  // A read-only request/response answer, like `backups`.
   diagnostics: "value",
 } as const satisfies Record<string, ForwardingPolicy>;
 
@@ -3127,10 +2076,6 @@ export const ODU_FORWARDING_POLICY = {
  *  {@link padiMemberKeys}, so the contract test can prove
  *  {@link ODU_FORWARDING_POLICY} covers exactly them. */
 export function oduMemberKeys(): string[] {
-  // Read through the SHAPE every surface spec has rather than the narrowed
-  // literal type of this one, so a member kind added to the sibling later is
-  // counted here (and so caught by the policy gate) instead of being invisible
-  // to it.
   const spec: {
     cells?: object;
     collections?: object;
@@ -3146,8 +2091,6 @@ export function oduMemberKeys(): string[] {
     ...Object.keys(spec.procedures ?? {}),
   ];
 }
-
-// ── The frozen control core (defined W1.C; served for real W2.2) ──────────
 
 /** The control core's wire version — FROZEN forever (never versions). padi
  *  serves it BESIDE `padiSurface` so a contract-revving deploy can still reach
@@ -3221,8 +2164,6 @@ export const padiControlSurface = defineSurface({
   },
 });
 
-// ── what padi serves, and what it implements ────────────────────────────────
-
 /**
  * ODU, as padi carries it — the members of odu's OWN contract that cross kolu's
  * wire, assembled from odu's own declarations.
@@ -3272,19 +2213,9 @@ export const padiServedSurfaces = {
 
 /** The combined wire the padi daemon serves — ONE flat `RpcGroup` carrying every
  *  sibling's tags (`surface/padi/*` + `surface/control/*` + `surface/odu/*`),
- *  plus the per-sibling `Surface` values a client builds its faces from.
- *
- *  Composition is the framework's SIBLING algebra (S1/D1): each surface is
- *  re-walked under its own `surface/<key>/` tag prefix, never `RpcGroup.merge`d
- *  — a bare merge is a last-writer-wins `Map.set`, and both siblings carry the
- *  same three reserved `system/*` tags, so merging would silently leave one
- *  sibling's liveness probe answering for the other's. The prefix makes that
- *  collision class unrepresentable; `composeSurfaceContracts` itself makes the
- *  absence of any OTHER collision an assertion rather than an assumption, by
- *  ending in `mergeDisjointGroups` — the framework's one counted, labelled merge
- *  (`@kolu/surface/define`). This file used to restate that proof as an
- *  import-time size assert of its own; the framework proves it now, so the
- *  restatement is gone and the tag SETS are still pinned literally below. */
+ *  plus the per-sibling `Surface` values a client builds its faces from. Each
+ *  surface is re-walked under its own `surface/<key>/` tag prefix, so the
+ *  reserved `system/*` tags of two siblings cannot collide. */
 export const padiDaemonContract = composeSurfaceContracts(padiServedSurfaces);
 export type PadiDaemonContract = typeof padiDaemonContract;
 
@@ -3309,10 +2240,3 @@ export const padiControlSibling: Surface<typeof padiControlSurface.spec> =
  *  and the one a client builds the odu face from. */
 export const oduSibling: Surface<typeof oduCarriedSurface.spec> =
   padiDaemonContract.siblings.odu;
-
-// The composed sibling registry (`surfacesWithPadi = { ...surfaces, padi }`)
-// lives in `kolu-common/surface` now, NOT here: composing the app's `surfaces`
-// with padi's authored surface is an APP concern, and building it here would
-// force padi to import the app's `surfaces` registry — the exact backwards
-// arrow the seal forbids. `@kolu/padi` exports `padiSurface`; the app assembles
-// the registry FROM it.

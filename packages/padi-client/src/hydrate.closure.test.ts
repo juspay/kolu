@@ -1,52 +1,3 @@
-/**
- * The HYDRATE-CLEAN guard: what a consumer installs when it installs
- * `@kolu/padi-client`.
- *
- * The whole reason this package exists is that hydration is per-PACKAGE. An
- * out-of-repo consumer (olai) copies a package directory out of a
- * content-addressed kolu pin and resolves its imports from its own root
- * `node_modules`, so the set it must install is the transitive closure of the
- * manifests — not the set of modules its own code happens to reach. That is why
- * `@kolu/padi` was unusable for a server that only wanted to speak the surface:
- * padi's manifest names kaval, which names `node-pty` (a NATIVE module) and
- * `@xterm/headless`, so "give me a spec object and a dial function" arrived as a
- * PTY host with a compile step.
- *
- * A test that only asserted "no kaval import in this package's sources" would
- * pass while the manifest still dragged kaval in. So this walks BOTH facts:
- *
- *   1. the RUNTIME IMPORT closure from every published entry, via the shared
- *      `walkRuntimeDepEdges` (the same walker each daemon's
- *      `buildId.closure.test.ts` uses — one parser, one ownership rule), which
- *      also proves every edge is a declared `dependencies` edge rather than a
- *      devDependency a hydrated consumer would never install; and
- *   2. the DECLARED manifest closure — the set a hydrating consumer actually
- *      has to copy — against the same allowlist.
- *
- * The related rule — that every manifest in this closure must spell a LITERAL
- * dependency version, since `catalog:` is workspace-local and unresolvable for
- * the repo that copies these directories — is NOT checked here. It has an owner
- * already: `packages/tests/governance/vendorEntries.ts` derives the vendored set
- * from this very closure (`vendoredManifests`), and
- * `packages/tests/governance/effectPin.ts` polices both directions across the
- * whole tree. A second copy here could only drift from them.
- *
- * The two walks get their OWN allowlists — `IMPORTED_ALLOWED` and
- * `DECLARED_ALLOWED` — because they are two different sets and the difference
- * between them is the whole subject of this file. One shared list would have to
- * be the union, which leaves the tighter set unpinned by exactly that
- * difference: a package could leave the import graph, or arrive in it while
- * already sitting in the manifest, and nothing here would notice. Split, the gap
- * is a fact a reviewer can read off two lists instead of slack hiding inside one.
- *
- * The point of both lists is that they are short and that a new name in either is
- * a CONSCIOUS act. A package that shows up uninvited is the boundary leaking:
- * either the code belongs in `@kolu/padi` (the daemon package, which may depend
- * on this one — the arrow points OUT), or the new dependency is one every
- * consumer of the padi contract is now required to install, which is a decision
- * worth a sentence in a PR body.
- */
-
 import { readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -61,8 +12,6 @@ const SRC = dirname(fileURLToPath(import.meta.url));
 const PKG_DIR = resolve(SRC, "..");
 const REPO_ROOT = resolve(PKG_DIR, "..", "..");
 
-/** Every published entry — read off `exports` so a new entry joins the walk by
- *  existing, not by being remembered here. */
 function publishedEntries(): string[] {
   const exportsMap = (
     JSON.parse(readFileSync(join(PKG_DIR, "package.json"), "utf8")) as {
@@ -72,63 +21,14 @@ function publishedEntries(): string[] {
   return Object.values(exportsMap).map((rel) => resolve(PKG_DIR, rel));
 }
 
-/**
- * The workspace packages a consumer of `@kolu/padi-client` must hydrate.
- *
- * Each line is what it costs a server to speak padi's surface:
- *  - `@kolu/surface` + `@kolu/surface-daemon` + `@kolu/surface-daemon-supervisor`
- *    — the transport, the frozen control core, and the socket dial. Already the
- *    shared framework tier every surface consumer installs (drishti's gate list).
- *  - `@kolu/terminal-vocab` — the terminal ids, agent info and snapshot schemas
- *    the surface's records are made of, plus the agent-detection integrations it
- *    declares (`anyagent`, `kolu-{claude-code,codex,grok,opencode,pi,xyne}`),
- *    which are pure schema/parse leaves.
- *  - `kolu-git` / `kolu-github` / `anyforge` — the git and PR shapes padi's
- *    per-terminal sensor puts on every terminal record (`pr`, `git`), and the
- *    fs/git procedure schemas.
- *  - `kolu-transcript-core` — the transcript-export vocabulary.
- *  - `@kolu/log`, `kolu-io`, `kolu-shared`, `nonempty`, `memorable-names` —
- *    zero-dependency leaves reached through the above.
- *
- * NOT here, and this is the whole point: `kaval`, `node-pty`, `@xterm/*`,
- * `terminal-snapshot`, `terminal-themes`, `@kolu/xterm-kit`, `@kolu/serve-dir`,
- * `@kolu/surface-remote`, `@kolu/surface-map`, `kolu-pty`, `pino` — the daemon
- * and TUI tier.
- */
 const DECLARED_ALLOWED = new Set([
-  // The agent-distro value schemas padi's two agents cells carry live once,
-  // in kolu's contract-with-upstream package; its manifest is `effect` plus
-  // `solid-js` (for the logo component), both already in the framework tier.
   "@kolu/agent-distro",
-  // The ACP protocol's own vocabulary, reached THROUGH `kolu-agents` (the
-  // engine seating this package's agent vocabulary names). Nothing in
-  // `@kolu/padi-client` imports it any more — the orchestrator's wire shapes
-  // moved to `kolu-common` with the hosting — but it is still in the closure a
-  // consumer copies, and a closure member nobody declares is the drift this
-  // list exists to catch.
   "@kolu/acp",
-  // The Claude Code agent's own package, reached the same way: `kolu-agents`
-  // seats the engine, and the leg this package's agent vocabulary names lives
-  // there. It arrived in K4 (juspay/kolu#2405), when the leg, the pinned
-  // adapter and the model table became one package both products vendor — a
-  // consumer of the padi contract now copies it too, and its manifest names
-  // `@kolu/acp`, which is already above.
   "@kolu/acp-claude",
-  // agent-distro's own pure vocabulary (its listing, history-line and versions
-  // readers) that `@kolu/agent-distro` builds on — GRAFTED from the npins
-  // `agent-distro` pin into `juspay/agent-distro`, never committed, like the
-  // odu trio below. Its manifest declares no dependency at all, so a hydrating
-  // consumer copies one directory and installs nothing.
   "@juspay/agent-distro",
-  // The one byte formatter (binary units): a zero-dependency leaf. Imported by
-  // `upload.ts` so the drop limit is worded in the units every size is.
   "@kolu/byte-units",
   "@kolu/padi-client",
   "@kolu/surface",
-  // The grafted `@odu/service-client`'s dial reaches it, so a consumer copying
-  // that directory copies this one too (its `packageExtensions` edge) — and with
-  // it the two that `@kolu/surface-app` itself drags in: the browser/CLI socket
-  // stack and the URL/spelling leaf it hands around.
   "@kolu/surface-app",
   "@kolu/url-shape",
   "@kolu/surface-daemon",
@@ -136,16 +36,6 @@ const DECLARED_ALLOWED = new Set([
   "@kolu/terminal-vocab",
   "@kolu/log",
   "@kolu/shell-quote",
-  // odu's own service contract — the cell and stream DECLARATIONS the carried
-  // odu sibling is assembled from (kolu re-serves odu's own members rather than
-  // re-declaring them; see the package's README). GRAFTED from the npins `odu`
-  // pin into `odu/*`, never committed, and one pin's closure rather than one
-  // package:
-  // `service-client` re-publishes the durable record shapes from `run-history`,
-  // which reaches the node-status vocabulary of `run-client`. Their manifests
-  // declare `effect` alone (in odu the `@kolu/*` sources are hydrated from a
-  // pin), so a hydrating consumer copies three directories and installs one
-  // package it already has.
   "@odu/run-client",
   "@odu/run-history",
   "@odu/service-client",
@@ -161,63 +51,16 @@ const DECLARED_ALLOWED = new Set([
   "kolu-omp",
   "kolu-opencode",
   "kolu-pi",
-  // Zero-dependency leaves, both reached only through `kolu-git`'s manifest
-  // (the residual below) — they cost a consumer a directory copy and nothing
-  // else. `kolu-pty` here is the ENV-NAME leaf, not the PTY host: that is
-  // `kaval`, and it is in DAEMON_TIER.
   "kolu-pty",
   "kolu-shared",
   "kolu-transcript-core",
   "kolu-xyne",
   "memorable-names",
   "nonempty",
-  // NOT an npm package and NOT in this repo: grafted from the `juspay/osfacts`
-  // npins pin into `osfacts-client/`, and gitignored.
-  //
-  // It is DECLARED cost and no longer IMPORTED cost, and the distinction is the
-  // whole point of splitting these two lists. Nothing a consumer's `tsc`
-  // compiles resolves it any more — the supervisor's dial leaf means no
-  // published entry reaches `endpoint.ts` — so there is no graft to make the
-  // compiler happy. But hydration is per-MANIFEST: a consumer still copies
-  // `@kolu/surface-daemon-supervisor`'s directory, and its manifest still names
-  // this, so `nix/consumer.nix` still asks for a source (`pinnedSources`)
-  // rather than inventing one. See the README's second-pin section.
   "osfacts-client",
 ]);
 
-/** The packages this package's own code actually REACHES from its published
- *  entries — necessarily a subset of `DECLARED_ALLOWED`, and the assertion below
- *  proves it rather than assuming it.
- *
- *  The three names it drops are the honest cost of hydration being
- *  per-manifest: `kolu-shared`, `kolu-pty` and `memorable-names`
- *  sit in manifests this closure copies, but no import path from a published
- *  entry reaches them. A consumer still copies three directories for code it
- *  never loads — the same shape as the residual named below, several tiers
- *  down, and why the gap is spelled out rather than folded into one lenient
- *  list.
- *
- *  It grew when the walk started counting type edges: `@kolu/log` and
- *  `osfacts-client` were being credited as manifest-only cost while a published
- *  entry really did reach them — through an `import type`, which a consumer's
- *  `tsc` resolves like any other. `osfacts-client` has since LEFT this list
- *  again, and by a real change rather than an inference: the supervisor's dial
- *  leaf means no published entry reaches `endpoint.ts`, so nothing here compiles
- *  the process-identity client. It stays in `DECLARED_ALLOWED` — a hydrating
- *  consumer still copies the directory — but it no longer has to graft the
- *  second pin to make `tsc` pass. That is the gap this split exists to show.
- *
- *  `kolu-io` LEFT that dropped set at juspay/kolu#2286, and by a real change:
- *  `anyagent`'s `AgentTerminalState` now declares the process snapshot an
- *  adapter reads (`readProcessSnapshot(): ProcessSnapshot | null`), because the
- *  HOST memoises that `/proc` read per foreground SAMPLE and shares it rather
- *  than every adapter paying for its own. The type's one home is `kolu-io`, so
- *  the contract names it — through `kolu-io/types`, a deliberately `node:`-free
- *  leaf module, so a consumer's `tsc` compiles one interface rather than the
- *  package's fs/spawn graph. It costs a hydrating consumer nothing new: the
- *  directory was already in `DECLARED_ALLOWED`. */
 const IMPORTED_ALLOWED = new Set([
-  // Reached through `@kolu/agent-distro`'s schemas (see DECLARED_ALLOWED).
   "@juspay/agent-distro",
   "@kolu/agent-distro",
   "@kolu/byte-units",
@@ -228,8 +71,6 @@ const IMPORTED_ALLOWED = new Set([
   "@kolu/surface-daemon",
   "@kolu/surface-daemon-supervisor",
   "@kolu/terminal-vocab",
-  // Reached through the grafted odu trio's `surface` modules (kolu imports
-  // their schemas; see DECLARED_ALLOWED).
   "@odu/run-client",
   "@odu/run-history",
   "@odu/service-client",
@@ -249,14 +90,6 @@ const IMPORTED_ALLOWED = new Set([
   "kolu-xyne",
 ]);
 
-/** Names whose PRESENCE would mean the daemon tier came back.
- *
- *  Every one of these is already caught by the `DECLARED_ALLOWED` check, and
- *  that is not why this list exists. It exists because it is the one assertion a
- *  two-line edit to `DECLARED_ALLOWED` cannot silence: someone who reaches for
- *  `kaval` and quiets the closure check by adding it to the allowlist still
- *  fails here, by name, with the reason. An allowlist records a decision; this
- *  list refuses one. */
 const DAEMON_TIER = [
   "kaval",
   "terminal-snapshot",
@@ -268,58 +101,11 @@ const DAEMON_TIER = [
   "@kolu/padi",
 ];
 
-/** What a consumer copies when it vendors this package: the transitive runtime
- *  closure, as package names, as manifest paths, and as the npm packages those
- *  manifests leave it to install.
- *
- *  The walk is `@kolu/daemon-test-gate`'s, not a local copy — it is the TS
- *  mirror of nix's `depClosure`, and `packages/tests/governance/effectPin.ts`
- *  asks it the same question (which manifests are read outside this workspace
- *  and therefore owe a literal version). Two walks that agree today is how a
- *  gate starts lying, which is why the nix one is held to this one by
- *  `packages/tests/governance/closureWalk.ts` and why the externals below come
- *  out of the SAME pass rather than a second edge rule spelled here. */
 const HYDRATE_CLOSURE = declaredDependencyClosure({
   repoRoot: REPO_ROOT,
   entries: ["@kolu/padi-client"],
 });
 
-/**
- * The npm packages a hydrating consumer must add to its OWN manifest — pinned
- * as a literal set, because the number is the whole claim and an unpinned
- * "smaller than padi" would rot quietly.
- *
- * What carving this package out actually bought: twenty-six externals dropped,
- * `node-pty` (a NATIVE PTY binding, built or prebuilt per platform) and the
- * whole `@xterm/*` suite among them, plus `@resvg/resvg-wasm`, `pino`(+roll,
- * +pretty), `conf`, `marked`, `columnify` and six more `@solid-primitives/*`.
- *
- * The list grows by ONE member's consequence since the odu graft: the grafted
- * `@odu/service-client`'s dial reaches `@kolu/surface-app` (declared for it in
- * `pnpm-workspace.yaml`'s `packageExtensions`, because a grafted manifest cannot
- * name the `@kolu/*` packages its source imports), and that package's own
- * closure is `solid-js`, two `@solid-primitives/*` and `ws` — all but `ws`
- * already here.
- *
- * What is left, and where the remaining fat comes from — say it plainly rather
- * than let a reader assume this list is irreducible:
- *
- *  - `effect`, `@effect/platform-{node,browser}`, `ts-pattern`, `solid-js`,
- *    `@solid-primitives/{rootless,scheduled}` — the framework tier, already
- *    installed by every `@kolu/surface` consumer (drishti, odu).
- *
- * *  - `string-argv` — `anyagent`'s command parse, a pure leaf.
- *  - `@parcel/watcher` (NATIVE), `simple-git`, `p-limit` — `kolu-git`'s, and
- *    `@anthropic-ai/claude-agent-sdk` — `kolu-claude-code`'s. These are the one
- *    residual, and it is the SAME shape as the split this package is: each of
- *    those packages' `/schemas` entry is already a pure-`effect` leaf, but it
- *    shares a MANIFEST with the machinery that produces what it describes, and
- *    hydration is per-manifest. Fixing it is one uniform move across the
- *    integrations tier (vocabulary out of machinery, six packages, ~12 call
- *    sites for `kolu-git/schemas` alone) — a second boundary with its own
- *    consumers, deliberately not folded into this diff. When it lands, delete
- *    these four lines; nothing else here moves.
- */
 const EXPECTED_EXTERNALS = [
   "@agentclientprotocol/sdk",
   "@anthropic-ai/claude-agent-sdk",
@@ -334,15 +120,7 @@ const EXPECTED_EXTERNALS = [
   "solid-js",
   "string-argv",
   "ts-pattern",
-  // `@kolu/surface-app`'s socket dependency, which arrived with the odu graft's
-  // `packageExtensions` edge: a browser or CLI dialling the framework's
-  // websocket route needs it, and nothing in this package's own import graph
-  // did before.
   "ws",
-  // The MCP SDKs (`@modelcontextprotocol/sdk`, `@anthropic-ai/claude-agent-sdk`)
-  // peer-require zod, and pnpm does not apply `overrides` to an auto-installed
-  // peer — so the packages carrying those SDKs declare it. That makes it a
-  // declared edge of this closure, not an assumed one.
   "zod",
 ];
 
@@ -352,14 +130,6 @@ describe("@kolu/padi-client hydrates without the daemon", () => {
       walkRuntimeDepEdges({
         repoRoot: REPO_ROOT,
         entries: publishedEntries(),
-        // TYPE EDGES COUNT. This repo ships raw TypeScript, so a consumer's
-        // `tsc` resolves an `import type` exactly as it resolves a value
-        // import, and fails TS2307 when it cannot. A runtime-only walk sees a
-        // package leave the manifest while staying in the program — which is
-        // precisely how `osfacts-client` was moved to devDependencies here on
-        // the strength of "every non-test use is `import type`", passed this
-        // guard, and broke the first out-of-repo consumer three type sites
-        // later (juspay/kolu#2216, round two).
         includeTypeOnly: true,
       });
 
@@ -370,10 +140,6 @@ describe("@kolu/padi-client hydrates without the daemon", () => {
         `so a devDependency edge here is a module that simply will not resolve there.`,
     ).toEqual([]);
 
-    // The list must also SHRINK honestly. An entry nothing reaches any more is
-    // a cost this file still advertises and a consumer still pays for — which
-    // is exactly what `osfacts-client` became the moment the dial leaf landed,
-    // and exactly the kind of stale line a lenient guard lets sit for a year.
     const stale = [...IMPORTED_ALLOWED]
       .filter((p) => p !== "@kolu/padi-client" && !reachedPackages.includes(p))
       .sort();
@@ -395,26 +161,6 @@ describe("@kolu/padi-client hydrates without the daemon", () => {
         `now has to hydrate these too; say which in IMPORTED_ALLOWED above.`,
     ).toEqual([]);
 
-    // ── The DOORS, not just the packages ────────────────────
-    //
-    // A package-level check answers "may we depend on this at all". It cannot
-    // answer "through which ENTRY", and for a repo that ships raw TypeScript
-    // the entry is what a consumer's `tsc` actually compiles. Reaching
-    // `@kolu/surface-daemon/control-core` costs a consumer one schema module;
-    // reaching bare `@kolu/surface-daemon` costs it the barrel, which
-    // value-re-exports `daemonMain`. Both read as "@kolu/surface-daemon" to the
-    // check above — which is how a module this package documents BROWSER-SAFE
-    // came to pull a daemon's signal handling into an out-of-repo consumer's
-    // program, found by that consumer and not by this guard (juspay/kolu#2216).
-    //
-    // So the doors are pinned. A new one is a deliberate act with a line to
-    // write — and the two BARE barrels this comment used to record as the KNOWN
-    // cost are now CLOSED. Each daemon package grew the leaf entry the old
-    // wording named as the fix: `@kolu/surface-daemon-supervisor/dial` (the
-    // socket dial, the skew signal, the connection shape — no `endpoint.ts`, so
-    // no `osfacts-client` graft in a consumer's tree), `@kolu/surface-daemon/home`
-    // (path algebra) and `@kolu/surface-daemon/lifetime` (a published type). The
-    // list is EMPTY now, and empty is the assertion.
     const daemonBarrels = reachedSpecifiers.filter(
       (spec) =>
         spec === "@kolu/surface-daemon" ||
@@ -433,10 +179,6 @@ describe("@kolu/padi-client hydrates without the daemon", () => {
         "or `@kolu/surface-daemon/lifetime` instead.",
     ).toEqual([]);
 
-    // The containment this file's whole premise rests on: what the code reaches
-    // is a subset of what the manifests cost. Asserted, not assumed — an entry
-    // that appears only in IMPORTED_ALLOWED would mean a module resolves through
-    // an edge no manifest in the closure declares.
     const undeclared = [...IMPORTED_ALLOWED]
       .filter((p) => !DECLARED_ALLOWED.has(p))
       .sort();
@@ -449,8 +191,6 @@ describe("@kolu/padi-client hydrates without the daemon", () => {
   it("declares a manifest closure a consumer can hydrate — no kaval, no node-pty, no TUI tier", () => {
     const closure = HYDRATE_CLOSURE.names;
 
-    // A DAEMON_TIER name that names nothing can never match, so a rename would
-    // leave a dead string that reads like a guard and refuses nothing.
     const members = new Set(
       workspacePackageRoots(REPO_ROOT).map(
         (dir) =>
@@ -486,12 +226,6 @@ describe("@kolu/padi-client hydrates without the daemon", () => {
   });
 
   it("costs a consumer exactly these npm packages — the residual is pinned, not assumed", () => {
-    // The externals come out of the closure walk itself, on the walk's own edge
-    // rule (`dependencies` ∪ `peerDependencies`). Recomputing them here from the
-    // manifest paths is how the two halves of one gate came to hold different
-    // opinions about whether a peer is a runtime edge — and a workspace member
-    // reached only through a peer would then be reported as a third-party
-    // package while its own subtree went unwalked.
     expect(HYDRATE_CLOSURE.externals).toEqual(EXPECTED_EXTERNALS);
   });
 });

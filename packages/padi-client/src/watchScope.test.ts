@@ -1,19 +1,6 @@
-/**
- * Pins the ONE scope constructor and the ONE reader.
- *
- * The pins that matter are the refusals: both never-match shapes are refused
- * HERE, once, which is what let five guards in four spellings — including two
- * that had already drifted apart — collapse into one call. The registry's own
- * pins used to carry two of them; they live here now, beside the code that
- * decides.
- */
-
 import type { TerminalId } from "@kolu/terminal-vocab/schema";
 import { describe, expect, it } from "vitest";
 import { scopeAdmits, WATCH_SCOPE_ALL, watchScopeOf } from "./watchScope.ts";
-// The unwrapper is `./watchScope.testlib.ts`'s — one copy, published, and shared
-// with padi's attention fixture, which is where the second copy of these six
-// lines used to live.
 import { scopeOf as okScope } from "./watchScope.testlib.ts";
 
 const SELF = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa" as TerminalId;
@@ -76,12 +63,10 @@ describe("scopeAdmits — the only reader", () => {
   it("fails CLOSED on the include list and OPEN on the mute", () => {
     const narrowed = okScope({ ids: [LANE] });
     expect(scopeAdmits(narrowed, LANE)).toBe(true);
-    // Not in the list: not reported.
     expect(scopeAdmits(narrowed, SELF)).toBe(false);
 
     const muted = okScope({ mute: [SELF] });
     expect(scopeAdmits(muted, SELF)).toBe(false);
-    // Never named, in neither half: still watched. A new lane is never blind.
     expect(scopeAdmits(muted, LANE)).toBe(true);
   });
 

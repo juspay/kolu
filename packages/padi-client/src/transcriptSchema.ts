@@ -1,10 +1,3 @@
-/** RPC contract schemas for the "Export agent session as HTML" feature.
- *
- *  The unified transcript IR (`Transcript`, `TranscriptEvent`) lives in
- *  `kolu-transcript-core` so per-agent loaders and renderers share one
- *  source of truth. kolu-common re-exports it for consumer convenience
- *  (the client and server both already import from kolu-common). */
-
 import { Schema } from "effect";
 import { TRANSCRIPT_HTML_MODES } from "kolu-transcript-core";
 
@@ -19,8 +12,6 @@ export {
   TranscriptSchema,
 } from "kolu-transcript-core";
 
-/** Derived from the canonical mode list in kolu-transcript-core so the RPC
- *  contract and the renderer provably agree on one value set. */
 export const TranscriptHtmlModeSchema = Schema.Literals(TRANSCRIPT_HTML_MODES);
 
 export const ExportTranscriptHtmlInputSchema = Schema.Struct({
