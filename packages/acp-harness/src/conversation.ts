@@ -1452,8 +1452,6 @@ export const startHarness = async <Row extends AnyRow>(
           rearmedAfterFailure = false;
           if (!compacting.rode) taught = false;
         } else if (event.status !== "in_progress" && !rearmedAfterFailure) {
-          // The next attempt is the agent's to make, and the message it runs
-          // before should carry the rules — once, not after every failure.
           primed = false;
           rearmedAfterFailure = true;
         }
