@@ -6,12 +6,8 @@ export { TaskProgressSchema };
 
 export const XyneInfoSchema = Schema.Struct({
   kind: Schema.Literal("xyne"),
-  /** Xyne's JSONL transcript carries no live phase events (only persisted
-   *  message history), so no busy/attention distinction is derivable —
-   *  permanently `waiting` so the tile can carry the Xyne badge + summary.
-   *  A `Literal` rather than a single-value struct: the value cannot expand
-   *  here without a deliberate schema change, and the terminal-vocab arm's
-   *  structural check still holds. */
+  /** Always `waiting`: Xyne's JSONL transcript carries only persisted
+   *  message history, so no busy/attention distinction is derivable. */
   state: Schema.Literal("waiting"),
   /** Session UUID from the transcript's `{"type":"session"}` header entry
    *  (also the `<id>` in the transcript filename). */
@@ -21,14 +17,13 @@ export const XyneInfoSchema = Schema.Struct({
   model: Schema.NullOr(Schema.String),
   /** Display title from the transcript's sidecar `*_summary.json`. */
   summary: Schema.NullOr(Schema.String),
-  /** Xyne exposes no task checklist on disk — permanently null so the field
-   *  stays honest. */
+  /** Task checklist; always null — Xyne exposes none on disk. */
   taskProgress: Schema.NullOr(TaskProgressSchema),
-  /** Xyne exposes no context-window telemetry on disk — permanently null so
-   *  the field stays honest. */
+  /** Context-window usage; always null — the adapter derives no telemetry
+   *  from the persisted transcript. */
   contextTokens: Schema.NullOr(Schema.Number),
-  /** Epoch-ms the session began (the transcript header's `timestamp`).
-   *  Survives a resume; drives the inspector's "Running for" display. */
+  /** Epoch-ms the session began (the transcript header's `timestamp`);
+   *  survives a resume. */
   startedAt: Schema.NullOr(Schema.Number),
 });
 

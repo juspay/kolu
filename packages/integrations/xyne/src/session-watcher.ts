@@ -11,9 +11,6 @@ import type { Logger } from "kolu-shared";
 import { deriveXyneInfo, type XyneSession } from "./core.ts";
 import type { XyneInfo } from "./schemas.ts";
 
-export const DEBOUNCE_MS = COALESCE_DEBOUNCE_MS;
-export const DEBOUNCE_MAX_MS = COALESCE_MAX_WAIT_MS;
-
 export interface XyneWatcher {
   readonly session: XyneSession;
   destroy(): void;
@@ -45,8 +42,8 @@ export function createXyneWatcher(
   }
 
   const coalesce = createCoalesceSchedule({
-    debounceMs: DEBOUNCE_MS,
-    maxWaitMs: DEBOUNCE_MAX_MS,
+    debounceMs: COALESCE_DEBOUNCE_MS,
+    maxWaitMs: COALESCE_MAX_WAIT_MS,
     onFire: emitIfChanged,
   });
   cleanups.push(() => coalesce.destroy());
@@ -85,8 +82,8 @@ export function createXyneWatcher(
       for (const c of cleanups) {
         try {
           c();
-        } catch {
-          /* ignore teardown races */
+        } catch (err) {
+          log?.warn({ err, session: session.id }, "xyne: cleanup failed");
         }
       }
       cleanups.length = 0;

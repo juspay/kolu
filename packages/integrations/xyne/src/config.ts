@@ -1,9 +1,9 @@
 import os from "node:os";
 import path from "node:path";
 
-/** Root of Xyne's per-user state directory. Contains `auth.json`, models,
- *  settings, and `agent/sessions/`. Overridable via `KOLU_XYNE_DIR` so e2e
- *  fixtures and unit tests never scan the developer's real `~/.xyne`. */
+/** Root of Xyne's per-user state directory (`~/.xyne`): `auth.json`,
+ *  models, settings, and `agent/sessions/`. Overridable via
+ *  `KOLU_XYNE_DIR`. */
 export const XYNE_DIR =
   process.env.KOLU_XYNE_DIR ?? path.join(os.homedir(), ".xyne");
 

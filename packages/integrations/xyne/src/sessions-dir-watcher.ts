@@ -8,12 +8,24 @@ let installed = false;
 
 const POLL_MS = 1000;
 
-function observeNewest(log?: Logger): string {
+type TreeObservation =
+  | { readonly kind: "absent" | "empty" | "raced" | "error" }
+  | { readonly kind: "tree"; readonly digest: string };
+
+const ABSENT: TreeObservation = { kind: "absent" };
+const EMPTY: TreeObservation = { kind: "empty" };
+const RACED: TreeObservation = { kind: "raced" };
+const OBSERVE_ERROR: TreeObservation = { kind: "error" };
+
+function sameObservation(a: TreeObservation, b: TreeObservation): boolean {
+  if (a.kind === "tree" || b.kind === "tree")
+    return a.kind === "tree" && b.kind === "tree" && a.digest === b.digest;
+  return a.kind === b.kind;
+}
+
+function observeNewest(log?: Logger): TreeObservation {
   try {
-    if (!xyneSessionsPresent()) return "absent";
-    // Each `cwdDir` contributes its own parsed-(ts,id) winner + size/mtime/ino.
-    // A global "one winner" identity strands resolution flips in every
-    // non-winner cwd dir for a full poll cycle or longer.
+    if (!xyneSessionsPresent()) return ABSENT;
     const perDir: string[] = [];
     for (const cwdDir of fs.readdirSync(SESSIONS_DIR).sort()) {
       const sub = path.join(SESSIONS_DIR, cwdDir);
@@ -30,17 +42,17 @@ function observeNewest(log?: Logger): string {
       try {
         st = fs.statSync(path.join(sub, winner.name));
       } catch {
-        return "raced";
+        return RACED;
       }
       perDir.push(
         `${cwdDir}/${winner.name}:${st.size}:${st.mtimeMs}:${st.ino}`,
       );
     }
-    if (perDir.length === 0) return "empty";
-    return perDir.join("\n");
+    if (perDir.length === 0) return EMPTY;
+    return { kind: "tree", digest: perDir.join("\n") };
   } catch (err) {
     log?.error({ err, dir: SESSIONS_DIR }, "xyne: sessions observe failed");
-    return "error";
+    return OBSERVE_ERROR;
   }
 }
 
@@ -60,12 +72,10 @@ export function subscribeSessionDirs(
     }
   };
 
-  // Self-rescheduling so slow stats never stack; unref'd so it never holds
-  // the process alive.
   let observed = observeNewest(log);
   const poll = (): void => {
     const cur = observeNewest(log);
-    if (cur !== "error" && cur !== observed) {
+    if (cur.kind !== "error" && !sameObservation(cur, observed)) {
       observed = cur;
       emit();
     }

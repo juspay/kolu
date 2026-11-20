@@ -13,23 +13,32 @@ export function encodeCwd(cwd: string): string {
 const TRANSCRIPT_RE =
   /^([0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}-[0-9]{2}-[0-9]{2}-[0-9]{3}Z)_([0-9a-fA-F-]{36})\.jsonl$/;
 
-/** Pick the newest transcript out of candidate filenames by their parsed
- *  `(timestamp, id)` prefix — never by bytewise string order on the full
- *  name; an unmatched shape is skipped, never ranked. */
-export function newestTranscript(
-  names: string[],
-): { name: string; id: string } | null {
-  let best: { name: string; ts: string; id: string } | null = null;
+export interface TranscriptName {
+  readonly name: string;
+  readonly ts: string;
+  readonly id: string;
+}
+
+function parseTranscriptName(name: string): TranscriptName | null {
+  const m = TRANSCRIPT_RE.exec(name);
+  const ts = m?.[1];
+  const id = m?.[2];
+  return ts === undefined || id === undefined ? null : { name, ts, id };
+}
+
+export function newestTranscript(names: string[]): TranscriptName | null {
+  let best: TranscriptName | null = null;
   for (const name of names) {
-    const m = TRANSCRIPT_RE.exec(name);
-    if (!m) continue;
-    const ts = m[1];
-    const id = m[2];
-    if (ts === undefined || id === undefined) continue;
-    if (best === null || ts > best.ts || (ts === best.ts && id > best.id))
-      best = { name, ts, id };
+    const cur = parseTranscriptName(name);
+    if (cur === null) continue;
+    if (
+      best === null ||
+      cur.ts > best.ts ||
+      (cur.ts === best.ts && cur.id > best.id)
+    )
+      best = cur;
   }
-  return best ? { name: best.name, id: best.id } : null;
+  return best;
 }
 
 export interface XyneTranscriptHeader {
@@ -38,11 +47,9 @@ export interface XyneTranscriptHeader {
   startedAt: number | null;
 }
 
-/** Read the transcript's first line — the `{"type":"session"}` header —
- *  and verify it names `sessionId` (filename carries the fallback when the
- *  header is absent, so src/agent always produces one). Null when the file
- *  is missing or shape-unexpected. One small read: the header is line one,
- *  so the tail-window never applies. */
+/** Read the transcript's first line — the `{"type":"session"}` header — and
+ *  verify it names `expectedSessionId`. Null when the file is missing, the
+ *  first line is not a session header, or its id disagrees. */
 export function readTranscriptHeader(
   transcriptPath: string,
   expectedSessionId: string,
@@ -85,47 +92,63 @@ export function readTranscriptHeader(
   }
 }
 
-/** Latest `model_change` entry's `"<provider>/<modelId>"` in the tail of
- *  the transcript, or null. The model can switch mid-session, so the NEWEST
- *  tail entry wins; a model set at the top of a very long transcript and
- *  never switched is intentionally not chased. Tail-bounded so a multi-GB
- *  transcript is never buffered per re-derive. */
+/** Latest `model_change` entry's `"<provider>/<modelId>"`, or null. The
+ *  model can switch mid-session and the NEWEST entry wins; only the last
+ *  `MODEL_TAIL_BYTES` of the transcript are read, so a model set at the top
+ *  of a very long transcript and never switched is not reported. */
 export function readLatestModel(
   transcriptPath: string,
   log?: Logger,
 ): string | null {
-  let tailText: string;
   try {
-    tailText = fs.readFileSync(transcriptPath, "utf8").slice(-MODEL_TAIL_BYTES);
+    return lastModelChange(readTail(transcriptPath, MODEL_TAIL_BYTES));
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
       log?.error({ err, path: transcriptPath }, "xyne transcript unreadable");
     }
     return null;
   }
-  return lastModelChange(tailText);
 }
 
 const MODEL_TAIL_BYTES = 256 * 1024;
+
+function readTail(filePath: string, maxBytes: number): string {
+  const fd = fs.openSync(filePath, "r");
+  try {
+    const size = fs.fstatSync(fd).size;
+    const start = size > maxBytes ? size - maxBytes : 0;
+    const buf = Buffer.alloc(size - start);
+    const n = fs.readSync(fd, buf, 0, buf.length, start);
+    return buf.subarray(0, n).toString("utf8");
+  } finally {
+    fs.closeSync(fd);
+  }
+}
+
+function parseJsonObject(line: string): Record<string, unknown> | null {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(line);
+  } catch {
+    return null;
+  }
+  return parsed !== null && typeof parsed === "object"
+    ? (parsed as Record<string, unknown>)
+    : null;
+}
 
 function lastModelChange(text: string): string | null {
   const lines = text.split("\n");
   for (let i = lines.length - 1; i >= 0; i--) {
     const line = lines[i];
     if (!line?.includes("model_change")) continue;
-    try {
-      const entry: unknown = JSON.parse(line);
-      if (!entry || typeof entry !== "object") continue;
-      const o = entry as Record<string, unknown>;
-      if (o.type !== "model_change") continue;
-      const provider = typeof o.provider === "string" ? o.provider : null;
-      const modelId = typeof o.modelId === "string" ? o.modelId : null;
-      return provider && modelId
-        ? `${provider}/${modelId}`
-        : (modelId ?? provider);
-    } catch {
-      /* partial tail line */
-    }
+    const o = parseJsonObject(line);
+    if (o === null || o.type !== "model_change") continue;
+    const provider = typeof o.provider === "string" ? o.provider : null;
+    const modelId = typeof o.modelId === "string" ? o.modelId : null;
+    return provider && modelId
+      ? `${provider}/${modelId}`
+      : (modelId ?? provider);
   }
   return null;
 }
@@ -156,18 +179,12 @@ export interface XyneSession {
 }
 
 /** Resolve the Xyne session for a terminal's cwd: the newest
- *  `<ts>_<uuid>.jsonl` under `sessions/<encode(cwd)>/`. Xyne publishes no
- *  live pid→session map, so the newest transcript for the cwd is the best
- *  available identity — the same session `xyne --continue` would reopen.
- *  Deterministic: filename sort is time-ordered by construction (the
- *  `<timestamp>_<id>` prefix), ties broken by the id.
+ *  `<timestamp>_<uuid>.jsonl` under `sessions/<encode(cwd)>/`, at most one.
  *
- *  Contract from `AgentAdapter.resolveSessions`: an empty list is evidence
- *  the terminal runs nothing (a cwd whose per-cwd dir is absent or holds
- *  only sidecars has never hosted an Xyne session here), while NULL means
- *  the store could not be READ at all — the orchestrator releases a held
- *  session on the first and leaves everything alone on the second. Xyne
- *  yields zero or one candidate: the newest transcript for the cwd. */
+ *  `AgentAdapter.resolveSessions` contract: an empty list is evidence the
+ *  terminal runs nothing, while NULL means the store could not be READ at
+ *  all — the orchestrator releases a held session on the first and leaves
+ *  everything alone on the second. */
 export function resolveXyneSessions(
   cwd: string,
   log?: Logger,
@@ -194,10 +211,8 @@ export function resolveXyneSessions(
   ];
 }
 
-/** Singular convenience over `resolveXyneSessions` — folds both the
- *  empty-list and unreadable-store cases into null for callers that
- *  only ask "is there a session here" (the session watcher, unit
- *  tests). */
+/** Singular form of `resolveXyneSessions`: both the empty-list and the
+ *  unreadable-store cases fold into null. */
 export function resolveXyneSession(
   cwd: string,
   log?: Logger,
@@ -207,8 +222,7 @@ export function resolveXyneSession(
 
 /** Epoch-ms an Xyne session began, parsed from the transcript filename's
  *  timestamp prefix (`2026-08-04T01-27-11-247Z` — dashes where ISO wants
- *  colons). Returns null for a name that doesn't parse, never zero or a
- *  synthesized value: an unknown birth stays unknown. */
+ *  colons). Null for a name that does not parse, never zero. */
 export function xyneSessionStartedAt(session: XyneSession): number | null {
   const base = path.basename(session.transcriptPath);
   const m = /^(\d{4}-\d{2}-\d{2})T(\d{2})-(\d{2})-(\d{2})-(\d{3})Z_/.exec(base);
@@ -217,10 +231,10 @@ export function xyneSessionStartedAt(session: XyneSession): number | null {
   return Number.isFinite(ms) ? ms : null;
 }
 
-/** Assemble a full XyneInfo for a matched session. State is honest
- *  `waiting` (the persisted transcript carries no live phase), model is the
- *  tail's newest `model_change`, title the sidecar's — every field read
- *  fresh so a watching re-derive sees the latest turn. */
+/** Assemble a full XyneInfo for a matched session: state `waiting` (the
+ *  persisted transcript carries no live phase), model from the transcript
+ *  tail's newest `model_change`, title from the sidecar. Null when the
+ *  header is unreadable or names a different session id. */
 export function deriveXyneInfo(
   session: XyneSession,
   log?: Logger,
@@ -239,9 +253,8 @@ export function deriveXyneInfo(
   };
 }
 
-/** True when `~/.xyne/agent/sessions` (or the test override) exists —
- *  i.e. Xyne has run here before. `existsSync` never throws, so no catch —
- *  same bare call the other adapters use for home presence. */
+/** True when Xyne's sessions directory exists — i.e. Xyne has run here
+ *  before. */
 export function xyneSessionsPresent(): boolean {
   return fs.existsSync(SESSIONS_DIR);
 }

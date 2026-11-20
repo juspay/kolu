@@ -18,14 +18,16 @@ interface XyneUsage {
   totalTokens: number;
 }
 
-interface XyneContentBlock {
-  type: string;
-  text?: string;
-  thinking?: string;
-  id?: string;
-  name?: string;
-  arguments?: Record<string, unknown> | string;
-}
+type XyneContentBlock =
+  | { type: "text"; text?: string }
+  | { type: "thinking"; thinking?: string }
+  | {
+      type: "toolCall";
+      id?: string;
+      name?: string;
+      arguments?: Record<string, unknown> | string;
+    }
+  | { type: "image" };
 
 interface XyneLine {
   type: string;
@@ -45,8 +47,7 @@ interface XyneLine {
   };
 }
 
-/** Pull plain text out of Xyne's multi-block `content` field:
- *  a text block, a thinking block, or a toolCall. */
+/** Concatenated text and thinking blocks of Xyne's multi-block `content`. */
 export function contentToText(blocks: XyneContentBlock[] | undefined): {
   text: string;
   thinking: string;

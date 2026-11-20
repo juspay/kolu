@@ -1,13 +1,10 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { beforeAll, describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 
 const XYNE_TMP = fs.mkdtempSync(path.join(os.tmpdir(), "kolu-xyne-core-"));
-// `config.ts` evaluates `KOLU_XYNE_DIR` at import time — set it BEFORE the
-// module graph loads (the `beforeAll` would run after the import below).
 process.env.KOLU_XYNE_DIR = XYNE_TMP;
-void beforeAll;
 
 const {
   deriveXyneInfo,
