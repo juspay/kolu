@@ -148,7 +148,7 @@ const StageStrip: Component<{
                   : undefined;
               };
               const cellClass = () =>
-                `block w-full min-w-0 rounded-md border text-center ${cellInk(
+                `relative block w-full min-w-0 rounded-md border text-center ${cellInk(
                   state(),
                 )} ${full() ? "py-0.5" : "py-px"}`;
               const face = () => (
