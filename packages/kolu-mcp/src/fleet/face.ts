@@ -1,47 +1,3 @@
-/**
- * The CLIENT FACE of `fleetSurface` — one object shaped exactly like a dialled
- * surface client, whose members fold kolu-server's host map.
- *
- * ## Why a face and not a served surface
- *
- * The obvious shape is `implementSurface(fleetSurface, deps)` dialled over
- * `directDispatch`, and for a surface that OWNS state it is the right one. This
- * surface owns none. Every member here is a projection of facts that live on
- * other machines, and `implementSurface`'s collection seam is a store:
- * `readAll(): Map<K, V>`, synchronous, answered from memory. Satisfying it
- * would mean MIRRORING every host's roster into this package — a second copy of
- * the thing kolu-server already mirrors, with its own staleness, its own
- * re-subscribe logic, and its own way of being wrong about a host that left
- * between two reads.
- *
- * A projection has no such copy: `terminals.keys()` is the hosts' own key
- * streams merged, `terminals.get(ref)` is the owning host's own `get`
- * forwarded, and a value is as fresh as the host that answered. The adapter
- * never knows the difference — it reads `client.surface.<member>.<verb>()` and
- * gets the streams and effects the contract promises.
- *
- * What `implementSurface` WOULD have given for free is the proof that every
- * declared member is implemented. {@link faceGaps} is that proof, taken at boot
- * from the spec's own verb resolvers: a member added to `fleetSurface` with no
- * implementation here refuses to serve rather than failing at an agent's first
- * call.
- *
- * ## Liveness
- *
- * Each aggregate re-subscribes when the ROSTER moves and re-emits when any
- * host's own stream does — both of them `overHosts.ts`'s doing, the one
- * implementation of "a leg per connected host, re-opened as the map moves"
- * that kolu-server's conductor watch reads through too. That is what makes a
- * host arriving mid-conversation visible: the MCP adapter holds a subscription
- * to `surface://collections/terminals`, and a new host's terminals arrive on
- * it as a `notifications/resources/updated` — no reopened session, no new
- * server.
- *
- * The merge emits on EVERY host's frame rather than waiting for all of them:
- * one unreachable-but-connected host must not be able to withhold the whole
- * fleet's roster from a read.
- */
-
 import type { PadiSurfaceClient } from "@kolu/padi-client/dial";
 import type {
   PadiRoster,
@@ -85,36 +41,12 @@ import {
   standingWords,
 } from "./works.ts";
 
-// The four repo-scoped verbs take padi's own input, plus a host. Named off the
-// SCHEMAS padi declares them with, so a field added upstream arrives here
-// without an edit and a renamed one stops this compiling.
 type GitStatusInput = typeof GitStatusInputSchema.Type;
 type GitDiffInput = typeof GitDiffInputSchema.Type;
 type FsListAllInput = typeof FsListAllInputSchema.Type;
 type FsFileInput = typeof FsFileInputSchema.Type;
 
-/** One per-host stream, tagged with its host and merged with its siblings,
- *  re-folded into a fleet-wide value on every frame — the FOLD half of
- *  {@link overConnectedHosts}, which owns following the roster itself.
- *
- *  `mapAccum`, not `scan`: `scan` emits its seed first, and a seeded empty
- *  frame on a resource read is the lie this whole face exists to prevent — an
- *  agent reading "no terminals" from a fleet that has not answered yet.
- *
- *  For the same reason the FIRST frame is withheld until EVERY connected host
- *  has spoken. A resource read takes the first frame, so emitting on the first
- *  host's snapshot would answer "the fleet is these two terminals" while a
- *  third was on a machine that had simply not replied yet — a partial roster an
- *  agent cannot tell from a complete one. Every surface member opens with a
- *  snapshot by contract, so this waits on an obligation rather than on luck,
- *  and it waits only on CONNECTED hosts — one that is not connected is not in
- *  the fold at all, and is refused by name when addressed.
- *
- *  A generation with no connected host at all answers `empty` ONCE, which is
- *  the one thing a fold has to say that a standing watch does not: a read of a
- *  fleet where nothing is answering must return the empty answer rather than
- *  hang on a stream that will never speak. */
-function foldHosts<T, F>(
+function foldOnceEveryHostHasSpoken<T, F>(
   hosts: FleetHosts,
   per: (padi: PadiSurfaceClient) => Stream.Stream<T, unknown>,
   fold: (seen: ReadonlyMap<string, T>, live: readonly string[]) => F,
@@ -131,31 +63,20 @@ function foldHosts<T, F>(
             () => new Map<string, T>(),
             (seen, [host, value]) => {
               seen.set(host, value);
+              const everyHostHasSpoken = seen.size >= live.length;
               return [
                 seen,
-                seen.size < live.length ? [] : [fold(seen, live)],
+                everyHostHasSpoken ? [fold(seen, live)] : [],
               ] as const;
             },
           ),
   );
 }
 
-/** Every terminal on every connected host, host-qualified, in roster order
- *  (local first) and each host's own order within it.
- *
- *  A host whose roster is SETTLING contributes NOTHING YET rather than an
- *  empty list: padi serves a surface from the moment it starts, before it has
- *  adopted the terminals it supervises, and a reader of this list takes "not
- *  in it" for "not there" (juspay/kolu#2376). The ids are therefore taken off
- *  the host's `roster` cell, which carries the census and the standing in ONE
- *  frame — a list read from the `terminals` collection beside that standing
- *  can be the empty seed of a projection that folded the cell first, which is
- *  the same defect one layer down. Same rule, same member, as the watcher and
- *  the browser read. */
 function fleetTerminalKeys(
   hosts: FleetHosts,
 ): Stream.Stream<string[], unknown> {
-  return foldHosts<readonly TerminalId[], string[]>(
+  return foldOnceEveryHostHasSpoken<readonly TerminalId[], string[]>(
     hosts,
     (padi) =>
       Stream.map(
@@ -173,10 +94,8 @@ function fleetTerminalKeys(
   );
 }
 
-/** Who needs someone, fleet-wide: each host's four id lists, host-qualified
- *  and concatenated in roster order. */
 function fleetUrgency(hosts: FleetHosts): Stream.Stream<FleetUrgency, unknown> {
-  return foldHosts<PadiUrgency, FleetUrgency>(
+  return foldOnceEveryHostHasSpoken<PadiUrgency, FleetUrgency>(
     hosts,
     (padi) => padi.surface.urgency.get(undefined),
     (seen, live) => {
@@ -200,13 +119,6 @@ function fleetUrgency(hosts: FleetHosts): Stream.Stream<FleetUrgency, unknown> {
   );
 }
 
-/** One roster row. A host that is not answering still has a row — the nulls
- *  ARE the answer, and they are what lets an agent read "that machine is
- *  warming" instead of inferring it from a call that failed.
- *
- *  It takes a key the ROSTER produced, so there is no membership check here:
- *  {@link fleetRoster} walks `hosts.keys()`, and a key read out of the live
- *  pool one line earlier cannot be a stranger's. */
 function hostRow(
   hosts: FleetHosts,
   key: string,
@@ -248,20 +160,6 @@ function hostRow(
   );
 }
 
-/** THE WHOLE ROSTER, re-read on every move — one answer to "which hosts can I
- *  use", rather than a key set plus a read per host.
- *
- *  Rows are gathered CONCURRENTLY: each connected host's row is two first-frame
- *  reads off that host's own mirror, and done in series the roster would wait
- *  for the sum of every host's priming instead of the slowest one. Order is
- *  the roster's either way (`Effect.all` answers in input order), so local
- *  stays first.
- *
- *  A host that is connected and CANNOT answer fails this read, by name
- *  (`firstFrameOrThrow` says which host and which member). That is the honest
- *  trade for one read: the alternative is a row of invented nulls that reads
- *  exactly like a host that is merely warming, which is the fallback this
- *  face's whole refusal vocabulary exists to avoid. */
 function fleetRoster(
   hosts: FleetHosts,
 ): Stream.Stream<readonly FleetHost[], unknown> {
@@ -275,35 +173,14 @@ function fleetRoster(
   );
 }
 
-/** THE WORKS, AS THE RESOURCE CARRIES THEM — kolu's record, plus this fleet's
- *  reading of the host each member terminal is on.
- *
- *  The two halves come from different owners and that is the whole of this
- *  function: the WORK is kolu-server's (it is stored, and it outlives this
- *  conversation), and whether a member's host is still here is the POOL's,
- *  read at the instant of the read like every other member. A member whose
- *  host has left keeps its row with two nulls rather than being dropped — "I
- *  am running something I can no longer reach" is the answer, and dropping it
- *  would read as a work that never had it.
- *
- *  Both lookups are synchronous and local: no host is dialled to answer this,
- *  so a fleet with an unreachable member still answers "what am I running"
- *  whole. What a terminal is doing RIGHT NOW is `terminals` and the tools;
- *  this is the work and nothing more. */
 function worksRows(hosts: FleetHosts, works: FleetWorks): FleetWorksView {
   const fleet = new Set(hosts.keys());
   const rows = works.rows();
   return {
     works: rows.works.map((work) => ({
       ...work,
-      // THE SETUP'S TWO ANSWERS, as arms: the port answers an Option — the
-      // ONE reading of whether a setup question has a value — and the wire
-      // says which of the two it is rather than handing a reader a null.
       mode: answerSaid(work.mode),
       onGreen: answerSaid(work.onGreen),
-      // THE WORDS ARE THIS FACE'S. `kolu-work` answers a token — who is
-      // waited on and why — and the sentence an agent reads is written here,
-      // where the rest of this resource's vocabulary is.
       standing: {
         who: WAITER_OF[work.standing.why],
         what: standingWords(work.standing),
@@ -318,16 +195,6 @@ function worksRows(hosts: FleetHosts, works: FleetWorks): FleetWorksView {
   };
 }
 
-/** ... now, and on every move of EITHER half. The record moves without the
- *  Conductor touching it (an agent stops, a member terminal goes away, CI
- *  turns red, a human answers a question) and so does the roster under it, so
- *  both are subscribed: a reader holding this resource hears a host leave as
- *  readily as a work ending.
- *
- *  The current rows go out BEFORE either subscription, for the reason
- *  {@link hostRoster} states: a resource read takes the first frame, and a
- *  stream that only spoke on change would hang on a conversation that is
- *  running nothing. */
 function fleetWorks(
   hosts: FleetHosts,
   works: FleetWorks,
@@ -350,9 +217,6 @@ function fleetWorks(
   );
 }
 
-/** The host a repo-scoped verb names, and that host's client. These four verbs
- *  address a repository rather than a terminal, so the host is a field of their
- *  own rather than something a reference carries. */
 function onNamedHost<I extends { readonly host: string }>(
   hosts: FleetHosts,
   input: I,
@@ -367,19 +231,6 @@ function onNamedHost<I extends { readonly host: string }>(
   }));
 }
 
-/** padi's record, as a FLEET row: the host it came from, its own reference,
- *  and its parent's.
- *
- *  The lift happens here rather than at the host because padi is answering
- *  about its own machine, where a bare id is unambiguous. It is the MERGE that
- *  makes identity ambiguous, so the merge is what owes every row its host —
- *  the same rule `terminals.keys` and the urgency fold already follow, applied
- *  to the one member that hands back a record instead of a list.
- *
- *  `as FleetTerminal`: the padi record is a three-arm union and TypeScript
- *  widens a spread of one to its own arm's shape, so the three overridden
- *  fields cannot be proven to land on the arm they came from. The schema one
- *  file over is the real check, and it is per-arm for exactly this reason. */
 function fleetTerminalRow(
   host: string,
   id: string,
@@ -395,10 +246,6 @@ function fleetTerminalRow(
   } as FleetTerminal;
 }
 
-/** The whole face. The works arrive beside the hosts because one member —
- *  `works` — is about KOLU'S RECORD rather than about the fleet, and it is a
- *  port for the same reason the host map is: kolu-server owns the works, this
- *  package only projects them. */
 export function fleetClientFace(
   hosts: FleetHosts,
   works: FleetWorks,
@@ -419,15 +266,9 @@ export function fleetClientFace(
           ),
       },
       hosts: {
-        // The WHOLE roster, not just the connected part: "which machines exist
-        // and what is each doing" is the question this resource answers, and a
-        // warming host omitted from it reads as a host that is not yours.
         get: () => fleetRoster(hosts),
       },
       works: {
-        // What this conversation is running, with each member's host read as
-        // it stands now — the one member whose value belongs to kolu's record
-        // rather than to the fleet.
         get: () => fleetWorks(hosts, works),
       },
       urgency: { get: () => fleetUrgency(hosts) },
@@ -438,11 +279,6 @@ export function fleetClientFace(
           ),
       },
       lifecycle: {
-        // A KILL THAT LANDED is one the Conductor caused, and the work it
-        // belonged to is told so (`closed`) — otherwise the `gone` it would
-        // ring at the turn's end is a wake about the Conductor's own action.
-        // Told at the reference padi answered with, re-qualified, which is the
-        // spelling the members are keyed by.
         kill: (input: { id: string }) =>
           Effect.flatMap(
             requireTerminal(hosts, input.id),
@@ -474,21 +310,10 @@ export function fleetClientFace(
             padi.surface.fs.readFile(rest),
           ),
       },
-      // No `watch` member: the fleet face no longer serves a standing
-      // subscription at all. The conductor is WOKEN by kolu-server (the works
-      // and their members, `works.ts`) rather than draining a queue it has to
-      // stay in a call for, and `fleetSurface` dropped the member to match — a
-      // face answering a verb its own spec does not declare is a tool nothing
-      // can reach and a reader cannot explain.
     },
   };
 }
 
-/** Every `<member>.<verb>` the spec declares and the face does not answer.
- *
- *  The verb sets come from the FRAMEWORK's own resolvers, not a second reading
- *  of `spec.verbs`, so "which verbs does a cell with `verbs: ["get"]` have" is
- *  answered here exactly as `defineSurface` answered it when it minted them. */
 function faceGaps(spec: SurfaceSpec, face: SurfaceClientCallable): string[] {
   const gaps: string[] = [];
   const need = (member: string, verb: string): void => {
@@ -508,11 +333,6 @@ function faceGaps(spec: SurfaceSpec, face: SurfaceClientCallable): string[] {
   return gaps;
 }
 
-/** Refuse to serve a face that does not answer its own contract. This is the
- *  one thing `implementSurface` would have given for free, and it is worth
- *  taking at boot: an unimplemented member is otherwise a tool that lists fine
- *  and fails at the first call, in a conversation that has already been told
- *  the terminal is there. */
 export function assertFleetFaceComplete(face: SurfaceClientCallable): void {
   const gaps = faceGaps(fleetSurface.spec, face);
   if (gaps.length > 0) {

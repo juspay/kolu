@@ -1,40 +1,3 @@
-/**
- * THE PIECES OF WORK, as the fleet face reaches them — a port, and the five
- * tools that move them.
- *
- * kolu-server owns the works: they are stored with the rest of kolu's state,
- * they are what the server's watcher reads to decide which terminals can wake
- * a turn, and they outlive this MCP face entirely — a reconnecting conductor
- * finds the same works, and so does a NEW conversation ("New session" clears
- * the chat and keeps the work). So the face holds none of it — the same
- * reasoning `FleetHosts` is built on one file over, for the same reason: a
- * second copy inside this package is a copy that can be wrong.
- *
- * What the face DOES own is the vocabulary:
- *
- *  - `work_open` names a piece of work (title, and the host, repo and branch
- *    that ARE it) AND carries its setup questions, which kolu puts to the
- *    human as ONE form; the answers become decisions on the work, and the
- *    mode, the harness and model per role and what to do on green are
- *    READINGS of them.
- *  - `work_adopt` brings a terminal that already exists into a work, in a
- *    role — the roster check and the found-state answer `watch_terminal` had,
- *    plus the two facts that make a member a member.
- *  - `work_leave` takes one out; `work_note` puts a line on the timeline;
- *    `work_ask` asks the human something ABOUT a work, so the answer is kept
- *    with the work rather than lost with the conversation.
- *
- * READING them is a RESOURCE, not a sixth tool: `works`
- * (`surface://cells/works`), served off this port's {@link FleetWorks.rows}.
- * A conversation that could only MOVE its works would have to remember them
- * across restarts, and the observed failure that rule was written for is a
- * restarted Conductor saying it is "not certain" what it is running.
- *
- * A ROLE AND A WORK ARE REQUIRED, not defaulted. "Make me a terminal" with no
- * work is a terminal nobody is watching and no card to find it on; the
- * refusal costs one turn, the silence costs the run.
- */
-
 import type { AgentModelLaunch } from "@kolu/agent-distro/models";
 import type { PadiSurfaceClient } from "@kolu/padi-client/dial";
 import type { PadiTerminal } from "@kolu/padi-client/surface";
@@ -258,22 +221,11 @@ export interface FleetWorks {
   check(work: string): Option.Option<"unknown-work" | "work-ended">;
 }
 
-/** Why a call about a work was refused, as this face reports it — the kinds
- *  the conductor raises, re-declared nowhere: both ends build from the one
- *  tuple in `kolu-work`'s `refusal.ts`. */
 export interface WorkRefusalDetail extends Record<string, unknown> {
   readonly kind: WorkRefusalKind;
   readonly work?: string;
 }
 
-/** The conductor's refusal, as the failure an agent reads — its own sentence
- *  kept whole, because it names what to do: which setup key was not asked,
- *  which work has ended. Anything else is a fault and says so.
- *
- *  `instanceof` the class the host actually threw: every refusal kind is a
- *  reading of the record, so the class lives in `kolu-work` — which this face
- *  already depends on — and the duck-typed read that used to stand here
- *  (because the arrow could not point back) is gone. */
 const refusalFailure = (err: unknown, work: string): ToolFailure =>
   err instanceof WorkRefusal
     ? new ToolFailure<WorkRefusalDetail>(err.why, { kind: err.kind, work })
@@ -282,12 +234,6 @@ const refusalFailure = (err: unknown, work: string): ToolFailure =>
         { kind: "work-call-failed", work },
       );
 
-/** WHERE A WORK STANDS, in the words an AGENT reads it in.
- *
- *  The model answers a token and every face spells it: the card writes a lead
- *  and a live check tally, and this writes the half-sentence that follows
- *  "waiting on". One table here rather than a phrase in the model is what
- *  lets the two differ without either rewriting the other's prose. */
 export const standingWords = (standing: Standing): string => {
   switch (standing.why) {
     case "question":
@@ -303,8 +249,6 @@ export const standingWords = (standing: Standing): string => {
       return "watching";
     case "working":
       return "agents at work";
-    // A FINISHED work: how it ended is the whole answer, and the outcome
-    // carries what that takes — which pull request, or who stopped it.
     default:
       switch (standing.outcome.kind) {
         case "merged":
@@ -319,9 +263,6 @@ export const standingWords = (standing: Standing): string => {
   }
 };
 
-/** The pre-check, as a sentence. Written HERE rather than passed through the
- *  port because the port answers a question ("is this work there?") and the
- *  prose that goes with the answer is the face's own vocabulary. */
 export const workCheckFailure = (
   work: string,
   refused: "unknown-work" | "work-ended",
@@ -337,11 +278,6 @@ const OptionsSchema = Schema.Array(
   Schema.String.check(Schema.isMinLength(1)),
 ).check(Schema.isMinLength(1));
 
-/** A role's harness or model, NAMED in the setup: kolu draws the options (the
- *  harnesses this kolu carries; what the harness offers on the work's host)
- *  and words the question. `options` and `question` are refused, not
- *  ignored — there is no way to offer a harness or a model through this
- *  tool. */
 const KoluChoiceSetupSchema = Schema.Struct({
   key: KoluChoiceKeySchema.annotate({
     description:
@@ -362,10 +298,6 @@ const WorkOpenArgsSchema = Schema.Struct({
     description:
       'What this piece of work IS, in a few words a person would recognise on a card — the thing being built, not the procedure ("rename the dock\'s badge", not "waterfall"). Not a sentence: no parentheses, no issue or PR numbers, and nothing "like" another piece of work — what prompted it belongs in the request, which kolu keeps.',
   }),
-  // A WORK IS ITS KEY: the branch on a machine, or the terminal being
-  // watched. Not a setup question — the machine a work runs on identifies it,
-  // and a thing that identifies a work cannot be a question that may go
-  // unanswered. Opening the same key twice is the SAME work, carried on with.
   host: Schema.optionalKey(
     Schema.String.check(Schema.isMinLength(1)).annotate({
       description:
@@ -390,12 +322,6 @@ const WorkOpenArgsSchema = Schema.Struct({
         "A plain WATCH of one terminal somebody else started, by its `<host>/<id>` ref — instead of host/repo/branch. The work is keyed by that terminal.",
     }),
   ),
-  // THE TWO QUESTIONS WHOSE ANSWERS ARE READ BACK AS VOCABULARY, typed as
-  // that vocabulary. `modeOf` and `onGreenOf` read a decision only when the
-  // answer is one of their words, so a `mode` question offering "the full
-  // thing" would be answered, stored, and then read as NOTHING — a work with
-  // no mode, and nobody able to say why. The decoder refuses it instead, with
-  // the words in the message. The other four are KOLU'S to offer.
   setup: Schema.Array(
     Schema.Union([
       Schema.Struct({
@@ -493,9 +419,6 @@ const WorkNoteArgsSchema = Schema.Struct({
 });
 type WorkNoteArgs = typeof WorkNoteArgsSchema.Type;
 
-/** Why adopting a terminal was refused. `not-a-fleet-ref` / `unknown-host` /
- *  `host-not-connected` are `hosts.ts`'s own refusals, re-raised verbatim;
- *  this module adds only the last one. */
 export interface AdoptRefusal extends Record<string, unknown> {
   readonly kind: "terminal-not-in-roster";
   readonly id: string;
@@ -514,21 +437,6 @@ export type WorkMemberFound =
   | { readonly kind: "no-agent" }
   | { readonly kind: "agent"; readonly agent: string; readonly bucket: string };
 
-/** Refuse unless the host's roster actually holds this terminal RIGHT NOW.
- *
- *  The roster, not a record read: a `get` on an unknown key is a declared
- *  per-member error whose shape differs by arm, while "is it in the census" is
- *  the exact question — does this host have a terminal by that name — and it is
- *  one frame. A dormant terminal PASSES: a sleeping worker is a thing a
- *  conductor legitimately adopts (it wakes when the human wakes it), and this
- *  tool writes nothing into the terminal, so there is no live PTY to need.
- *
- *  ONE frame, off ONE member: the census rides the roster's own standing
- *  (`padiSurface` 7.4), so "it is not there" and "that list is not a census
- *  yet" are read from the same value and can never be mixed from two that
- *  arrived apart — which is what reading the `terminals` collection beside the
- *  standing allowed, through any projection that folds them separately
- *  (#2376). */
 function requireInRoster(
   hosts: FleetHosts,
   ref: string,
@@ -548,10 +456,7 @@ function requireInRoster(
       ): Effect.Effect<{ id: string; padi: PadiSurfaceClient }, ToolFailure> =>
         standing === "held"
           ? Effect.succeed({ id, padi })
-          : // ABSENT FROM A LIST THAT MAY NOT BE A CENSUS. A padi that has not
-            // finished adopting its terminals has no census to be absent from,
-            // so an absence is only an absence once the roster is ESTABLISHED.
-            Effect.fail(
+          : Effect.fail(
               new ToolFailure<AdoptRefusal>(
                 standing === "absent"
                   ? `${ref} is not a terminal on that host — nothing by that name is in its roster, so adopting it would mean waiting for news that can never come. Read the terminals resource for the live list.`
@@ -563,9 +468,6 @@ function requireInRoster(
   );
 }
 
-/** The record, read as the one sentence the answer carries. The SAME reading
- *  `agent_say` makes (padi's own `activeAgent` narrowing plus the shared
- *  bucket fold), so "what state is it in" has one answer across this face. */
 function foundState(
   ref: string,
   id: string,
@@ -600,17 +502,9 @@ function foundState(
   );
 }
 
-/** The sentence every asking tool ends its answer with. ONE place, because
- *  the two tools say the same thing and the thing they say is the whole rule:
- *  the question is put, you are not waiting for it, and the answer comes back
- *  as a turn kolu starts. */
 const ASKED_SAID =
   "Asked. The question is in front of the human now and NOTHING is waiting on them: say what you asked, END YOUR TURN, and kolu will wake you with their answer — who answered, from where, and what they said. Never poll the `works` resource for it, and never ask the same question again because no answer came back: it is already on the card, and asking twice puts two forms in front of them.";
 
-/** THE KEY `work_open` NAMES — a branch on a machine, or the terminal to
- *  watch. Refused here rather than halfway in: a work with no machine is a
- *  work with no identity, and the Conductor is owed the sentence that says to
- *  ask the human which one. */
 const workKeyOfArgs = (args: WorkOpenArgs): WorkKey => {
   if (args.watch !== undefined) return { kind: "watch", terminal: args.watch };
   if (
@@ -631,13 +525,6 @@ const workKeyOfArgs = (args: WorkOpenArgs): WorkKey => {
   };
 };
 
-/** The setup the tool was called with, as the record's own asks — THE EDGE
- *  where the wire's optional `given` becomes an arm. A model writes JSON and
- *  "I was not told" is a key it leaves out; the record takes
- *  {@link Given}, so this is the one place the two meet and nothing below it
- *  has to decide what a missing key meant. The two offered keys carry their
- *  options and their words; kolu's own four carry nothing but what the
- *  request gave, because the options are kolu's. */
 const setupAsksOf = (args: WorkOpenArgs): ReadonlyArray<SetupAsk> =>
   args.setup.map((one): SetupAsk => {
     const given: Given<string> =
@@ -649,10 +536,6 @@ const setupAsksOf = (args: WorkOpenArgs): ReadonlyArray<SetupAsk> =>
       : { key: one.key, given };
   });
 
-/** ONE SETUP ANSWER, as the agent reads it back: the value, or the fact that
- *  the question has none yet. An arm rather than a null, for the reason the
- *  record has arms — "unanswered" is a state of the question, and an agent
- *  acting on `null` cannot tell it from a mode called nothing. */
 export type SetupAnswerSaid<V extends string> =
   | { readonly kind: "unanswered" }
   | { readonly kind: "answered"; readonly value: V };
@@ -665,10 +548,6 @@ export const answerSaid = <V extends string>(
     onSome: (one): SetupAnswerSaid<V> => ({ kind: "answered", value: one }),
   });
 
-/** THE SETUP AS IT NOW READS, for the agent — `kolu-work`'s one reading, with
- *  each role's {@link RoleSetup} handed on whole: `not-chosen`, `harness`, or
- *  `harness-and-model` says exactly how far that role's setup got, which is
- *  what the Conductor needs to know before it creates anything. */
 interface SetupSaid {
   readonly host: string;
   readonly mode: SetupAnswerSaid<WorkMode>;
@@ -686,7 +565,6 @@ const setupSaid = (setup: SetupReading): SetupSaid => ({
   onGreen: answerSaid(setup.onGreen),
 });
 
-/** `work_open` — state a piece of work, and ask its setup in one form. */
 export function workOpenTool(works: FleetWorks): BespokeTool {
   return {
     input: WorkOpenArgsSchema,
@@ -719,7 +597,6 @@ export function workOpenTool(works: FleetWorks): BespokeTool {
   };
 }
 
-/** `work_ask` — a question about a work, kept with the work. */
 export function workAskTool(works: FleetWorks): BespokeTool {
   return {
     input: WorkAskArgsSchema,
@@ -731,10 +608,6 @@ export function workAskTool(works: FleetWorks): BespokeTool {
       const { work, questions } = args as WorkAskArgs;
       return Effect.try({
         try: () => ({
-          // THE EDGE: the tool's JSON leaves out what it was not told, and
-          // the record takes an arm for each — the header a face draws the
-          // decision under, the file a person must read, whether more than
-          // one option may be picked. Converted once, here.
           ...works.ask(
             work,
             questions.map((one) => ({
@@ -755,7 +628,6 @@ export function workAskTool(works: FleetWorks): BespokeTool {
   };
 }
 
-/** `work_adopt` — a terminal that already exists joins a work, in a role. */
 export function workAdoptTool(
   hosts: FleetHosts,
   works: FleetWorks,
@@ -775,10 +647,6 @@ export function workAdoptTool(
         Effect.flatMap(
           foundState(id, terminal.id, terminal.padi),
           (found): Effect.Effect<unknown, ToolFailure> => {
-            // The member is recorded AFTER the state is read, so the answer and
-            // the record describe the same moment: a terminal joined first and
-            // read second could ring for a change that happened in between
-            // while this answer still called it idle.
             try {
               works.join(id, work, role, "asked");
             } catch (err: unknown) {
@@ -792,9 +660,6 @@ export function workAdoptTool(
                   works.rows().works.find((one) => one.id === work),
                 ),
                 {
-                  // The join above said this work is there; a read that finds
-                  // no row answers the one member it just put in it rather
-                  // than an empty list that reads as a work with nobody.
                   onNone: () => [id],
                   onSome: (one) => one.members.map((two) => two.ref),
                 },
@@ -808,7 +673,6 @@ export function workAdoptTool(
   };
 }
 
-/** `work_leave` — a member's part is done. */
 export function workLeaveTool(works: FleetWorks): BespokeTool {
   return {
     input: WorkLeaveArgsSchema,
@@ -816,17 +680,9 @@ export function workLeaveTool(works: FleetWorks): BespokeTool {
     title: "Take a terminal out of its piece of work",
     description:
       'A member\'s part is done, or the human asked you to drop it: this terminal stops being part of its work and stops waking you. Answers `left`: `{kind: "left", work}` naming the work it was taken out of, or `{kind: "not-a-member"}` — which is not an error (a terminal that died has already left by itself). Closing a terminal yourself needs no call here — one you close with `lifecycle_kill` leaves in silence.',
-    // No roster check, deliberately: the common reason to let a member go is
-    // that it is finished or gone, and refusing to forget a terminal because
-    // it no longer exists would leave a work unable to shed exactly the
-    // members that should go.
     handler: (args, _bundle, _signal) =>
       Effect.sync(() => {
         const { id } = args as WorkLeaveArgs;
-        // WHICH WORK IT LEAVES is read BEFORE it leaves — afterwards there is
-        // no row holding it — and answered as an arm: "it was nobody's
-        // member" is a thing this says, not a work called null. The port is
-        // told to drop it either way; the row only names what it left.
         const was = Option.fromUndefinedOr(
           works
             .rows()
@@ -843,7 +699,6 @@ export function workLeaveTool(works: FleetWorks): BespokeTool {
   };
 }
 
-/** `work_stop` — the one ending the Conductor can write. */
 export function workStopTool(works: FleetWorks): BespokeTool {
   return {
     input: WorkStopArgsSchema,
@@ -864,7 +719,6 @@ export function workStopTool(works: FleetWorks): BespokeTool {
   };
 }
 
-/** `work_note` — the one line the Conductor writes on a timeline. */
 export function workNoteTool(works: FleetWorks): BespokeTool {
   return {
     input: WorkNoteArgsSchema,
@@ -885,16 +739,6 @@ export function workNoteTool(works: FleetWorks): BespokeTool {
   };
 }
 
-/** The host's reading of one member, as the `works` resource carries it — the
- *  port's row plus whether this fleet can still reach the machine it is on.
- *
- *  The two halves come from different owners and that is the whole of this
- *  function: the MEMBER is kolu-server's (it is stored with the work), and
- *  whether its host is still here is the POOL's, read at the instant of the
- *  read like every other member. A ref whose host has left keeps its row with
- *  two nulls rather than being dropped — "I am running something I can no
- *  longer reach" is the answer, and dropping it would read as a work that
- *  never had it. */
 export const memberWithHost = (
   hosts: FleetHosts,
   fleet: ReadonlySet<string>,

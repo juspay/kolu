@@ -1,44 +1,5 @@
-/**
- * The composite `wait_*` tools — the MCP face's done-signals, and the
- * load-bearing rows of the /orchestrator·/kolu skill-parity contract (the
- * send → settle → Enter → settle dispatch loop is the whole protocol):
- *
- *   - `wait_outputSettled` — block until a terminal's output is idle for N ms:
- *     the `kaval-tui wait --until idle:<ms>` done-signal, watched client-side
- *     off padiSurface's `terminalAttach` snapshot|delta stream (consumed,
- *     never rendered — the graduation pin's second non-canvas consumer).
- *     The idle signal only; `match:` stays CLI-only.
- *   - `wait_agentState` — block until a terminal's detected agent enters a
- *     target bucket: the `padi-tui wait --until <buckets>` done-signal, riding
- *     the dial kit's `awaitAgentState` (the VERBATIM twin this graduation
- *     exists for).
- *
- * Both take the two kolu#2139 modifiers, because the races those close are
- * races between CALLS and an agent driving over MCP makes exactly the same
- * three-call loop a CLI one does: `settledMs` (a conjunct — met needs the
- * condition to hold AND the output to have been quiet) and `screenTail` (the met
- * carries the last N screen lines, read inside the same wait). Both are
- * forwarded to padi's engine through the two named waits rather than around
- * them, because those waits own the met frames these tools document — see
- * `awaitAgentState`. `wait_agentState` with both is the `kolu debrief` protocol,
- * and this face states it in the tool description instead of shipping a third
- * composed tool (see the note there).
- *
- * Both are client-side scaffolding over `@kolu/surface/wait`'s `runWait` —
- * NOT padiSurface procedures; padi gains no wait verb. The subscriptions
- * thread `STREAM_RETRY` (`unenrolledStreamCall`), so a stream blip
- * resubscribes transparently and the fresh snapshot re-arms the idle window;
- * a dead transport rejects non-retryably and surfaces as a typed `closed`
- * outcome the agent can retry.
- */
-
 import { refusingAsleep } from "./asleep.ts";
 import { padiOf } from "./bundleClient.ts";
-// The dial kit arrives dynamically, INSIDE the handlers: this module is on the
-// static tree-build path of every `kolu` invocation (the surface face mounts
-// the table), so the waiters' socket/mirror closure may only load at call
-// time. WAIT_STATES has a schema home of its own and belongs here statically.
-// The tail RULE is padi's: `ScreenTextTailSchema` is what its decode accepts.
 import { ScreenTextTailSchema } from "@kolu/padi-client/surface";
 import {
   MAX_TIMER_MS,
@@ -52,24 +13,6 @@ import type { AgentInfo } from "@kolu/terminal-vocab/schema";
 import { TerminalIdSchema } from "@kolu/terminal-vocab/schema";
 import { Effect, Schema } from "effect";
 
-// ── Shared arg pieces ─────────────────────────────────────────────────────
-
-/** A milliseconds field: a positive integer inside the shared `setTimeout`
- *  ceiling, carrying the blurb an MCP host renders.
- *
- *  `isInt()` is load-bearing, not decoration. Bare `Schema.Number`'s ENCODED
- *  form is the Infinity/NaN-tolerant union (`jsonSchemaBridge.ts` divergence
- *  2), and a `description` or a bound placed on the decoded number never
- *  reaches it — the bridge collapses the union to a naked `{"type":"number"}`
- *  with no blurb and no bounds, whichever order they were written in.
- *  `isInt()` is what puts the field on a representable `integer` node, which
- *  is the only node the blurb and `exclusiveMinimum`/`maximum` can ride on.
- *
- *  There used to be a second rule here — ANNOTATE FIRST, CHECK SECOND — because
- *  up to effect rc.110 an annotation on an already-checked schema was emitted
- *  inside an `allOf` branch no host reads. rc.111 compacts a check onto the
- *  node it constrains, so the order no longer matters. Both halves are pinned
- *  in `argSchemas.test.ts`. */
 export const MillisecondsSchema = (description: string) =>
   Schema.Number.annotate({ description }).check(
     Schema.isInt(),
@@ -83,13 +26,6 @@ const TimeoutMsSchema = Schema.optionalKey(
   ),
 );
 
-/** The `--snapshot` modifier, as an MCP option: how much screen a met carries.
- *
- *  LINES, not a boolean: padi's engine reads the met's screen with
- *  `screen.text { tail }`, so the count rides the read itself and only those
- *  lines cross the wire (`kolu wait --snapshot N` asks the same way). One
- *  number says both "yes, capture" and "this much", so there is no way to ask
- *  for a screen and forget to bound it. */
 const ScreenTailSchema = Schema.optionalKey(
   ScreenTextTailSchema.annotate({
     description:
@@ -97,26 +33,12 @@ const ScreenTailSchema = Schema.optionalKey(
   }),
 );
 
-/** Serialize a wait outcome to the tool's JSON frame via the shared
- *  {@link waitOutcomeJson} (which owns the four terminal arms and the union
- *  re-spell). The MCP face NESTS the met payload under `met`, never spread flat:
- *  a flat spread would let a payload key silently overwrite the envelope's
- *  reserved `id`/`result` (the collision `WaitMet`'s `kind?: never` closes one
- *  layer down, reopened at the wire) — nesting makes it inexpressible for ANY
- *  payload shape. The param stays `WaitMet`-typed for the same reason.
- *
- *  The met's `screen`, when there is one, is already the last `screenTail`
- *  lines — padi cut it before it crossed the wire, with the same fold
- *  `screen_text`'s own `tail` and `kolu wait --snapshot` get — so this
- *  projection passes it through untouched. */
 export function waitJson<Met extends WaitMet>(
   id: string,
   outcome: WaitOutcome<Met>,
 ): Record<string, unknown> {
   return waitOutcomeJson(id, outcome, (met) => ({ met }));
 }
-
-// ── wait_outputSettled ────────────────────────────────────────────────────
 
 export const WaitOutputSettledArgsSchema = Schema.Struct({
   id: TerminalIdSchema,
@@ -128,35 +50,12 @@ export const WaitOutputSettledArgsSchema = Schema.Struct({
 });
 export type WaitOutputSettledArgs = typeof WaitOutputSettledArgsSchema.Type;
 
-// No `settledMs` here, deliberately: this condition IS a quiescence window, and
-// a second one over it would only ever mean "quiet for max(idleMs, settledMs)"
-// — every setting of it is already spellable with `idleMs`. The conjunct earns
-// its place on `wait_agentState`, where the condition is a bucket and quiet is
-// genuinely a second, independent fact. See `awaitOutputSettled`'s own note.
 export const waitOutputSettledTool: BespokeTool = {
   input: WaitOutputSettledArgsSchema,
   mutates: false,
   title: "Wait for a terminal to go quiet",
   description:
     'Block until a terminal\'s output has been idle for idleMs milliseconds — the agent-agnostic done-signal (the dispatch loop\'s "observe the TUI settle" step). Pass screenTail: N to also get the last N screen lines, read inside the same wait, instead of a follow-up screen_text the terminal can move under. Returns {result: "met", met: {fired, elapsedMs, screen?}} or {result: "timeout"|"gone"|"closed", elapsedMs?, error?}. ONLY "gone" means the terminal is dead: "closed" means this subscription dropped while the terminal was still live, so retry rather than concluding anything about the agent. A terminal that is ASLEEP is REFUSED immediately (an error naming it, with state "sleeping" or "parked") rather than waited on — wake it and wait again. To supervise several terminals without re-arming a wait per turn, prefer watch_open + watch_next.',
-  // The one bespoke tool that does NOT compose a surface member: padi's
-  // `awaitOutputSettled` is a Promise-shaped waiter that takes an AbortSignal,
-  // so this LIFTS it rather than composing it. That is why `signal` survives on
-  // `BespokeTool.handler` at all — it is forwarded to the scaffold, and the
-  // request edge's own interruption is what aborts it.
-  //
-  // The `tryPromise` is the OPTIONS form on purpose: a zero-arg `async` fn
-  // mints no AbortSignal, and a fiber interrupt can then never reach the
-  // waiter — on the argv face, where `signal` arrives as `undefined`, a
-  // Ctrl-C against an unbounded wait would hang instead of the matrix's 130.
-  // `signal ?? fiberSignal`: the MCP edge's request signal when one was
-  // handed, the fiber's own interrupt handle in every other case.
-  // `refusingAsleep`: the engine REFUSES a wait on a dormant terminal up front
-  // with padi's declared `TerminalNotActive` rather than settling an outcome
-  // that would be a lie (a sleeping terminal is not `gone`, and `closed` would
-  // tell a driver to retry a subscription that can never open). That refusal
-  // arrives here inside `tryPromise`'s `UnknownError`, which `asleep.ts`
-  // unwraps, so the agent gets the sentence AND the structured arm.
   handler: (args, client, signal) =>
     refusingAsleep(
       Effect.tryPromise(async (fiberSignal) => {
@@ -177,8 +76,6 @@ export const waitOutputSettledTool: BespokeTool = {
       }),
     ),
 };
-
-// ── wait_agentState ───────────────────────────────────────────────────────
 
 export const WaitAgentStateArgsSchema = Schema.Struct({
   id: TerminalIdSchema,
@@ -202,19 +99,9 @@ export const waitAgentStateTool: BespokeTool = {
   input: WaitAgentStateArgsSchema,
   mutates: false,
   title: "Wait for a terminal's agent state",
-  // The recommended combination is named in the description rather than shipped
-  // as a third `wait_debrief` tool: over MCP it is three JSON keys, so a
-  // composed tool would buy no ergonomics an agent can feel while costing a
-  // whole tool's worth of description in every request's context — and it would
-  // force `kolu debrief`'s protocol constants out of the CLI leaf that owns
-  // them into a home both faces reach, for defaults each face can just state.
   description:
     'Block until a terminal\'s detected agent state enters a target bucket (working / awaiting / waiting / starting / fresh) — the precise agent-state done-signal. An agent ALREADY in a target bucket resolves immediately. To wait for a worker you have just LAUNCHED to be sayable, pass until: ["fresh"]: that is the agent up with its screen settled and nothing said to it yet, which is when agent_say takes (it REFUSES an agent that is still "starting"). To ask "is this worker\'s turn REALLY over, and what did it say?" in ONE race-free call — the `kolu debrief` protocol — pass until: ["awaiting","waiting"], settledMs: 15000, screenTail: 40; the three-call version (wait for the bucket, wait for quiet, read the screen) has a hole in each gap. Returns {result: "met", met: {agent, elapsedMs, screen?}} or {result: "timeout"|"gone"|"closed", elapsedMs?, error?}. ONLY "gone" means the terminal is dead: "closed" means this subscription dropped while the terminal was still live, so retry rather than concluding anything about the agent. A terminal that is ASLEEP is REFUSED immediately (an error naming it, with state "sleeping" or "parked") rather than waited on — wake it and wait again. To supervise several terminals without re-arming a wait per turn, prefer watch_open + watch_next.',
-  // Lifted, not composed — same reason as `wait_outputSettled` above,
-  // including the AbortSignal the one-form `tryPromise` would leave unmilled
-  // (a Ctrl-C on an unbounded argv wait would hang, never the matrix's 130).
   handler: (args, client, signal) =>
-    // Refused up front for a dormant terminal — see `wait_outputSettled`.
     refusingAsleep(
       Effect.tryPromise(async (fiberSignal) => {
         const { id, until, settledMs, screenTail, timeoutMs } =

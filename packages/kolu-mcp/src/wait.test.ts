@@ -1,11 +1,3 @@
-/**
- * `awaitOutputSettled` — the MCP face's idle done-signal over padiSurface,
- * driven through a fake snapshot-then-delta client (the same harness shape
- * padi-tui's read.test uses). Pins the outcome matrix: idle-met, gone via the
- * exit event, gone via feed-end + absent key, closed via feed-end + present
- * key (loud, never a false met), and timeout. Plus the tool's JSON frame.
- */
-
 import type { PadiSurfaceClient } from "@kolu/padi-client/dial";
 import type { KoluSurfaceClients } from "./bundleClient.ts";
 import { awaitOutputSettled } from "@kolu/padi-client/watch";
@@ -18,22 +10,10 @@ type AttachFrame =
   | { kind: "snapshot"; data: string; topLine: number }
   | { kind: "delta"; data: string };
 
-/** A pushable source: each subscriber replays the queued frames, then receives
- *  every later `push`, and completes on `end()`.
- *
- *  A member verb now hands back a LAZY `Stream` and takes no `AbortSignal`
- *  (D10/#18), so the fake mints one subscription per call and teardown is the
- *  consumer INTERRUPTING it (`iterateUntilAborted`'s `iter.return()`) — which
- *  closes the stream's scope and runs the release below. It is a `Stream.callback`
- *  rather than an async generator for exactly that reason: a generator parked in
- *  `await` cannot be resumed by `return()`, so an interrupt would never unwind
- *  and `runWait` (which awaits its watchers) would hang. `torn` records the
- *  releases so a test can assert a subscription was actually let go. */
 class FakeStream<T> {
   private readonly frames: T[] = [];
   private readonly live = new Set<Queue.Queue<T, Cause.Done>>();
   private ended = false;
-  /** How many subscriptions the CONSUMER released (not ended by `end()`). */
   torn = 0;
   push(v: T): void {
     this.frames.push(v);
@@ -44,7 +24,6 @@ class FakeStream<T> {
     for (const q of this.live) Queue.endUnsafe(q);
     this.live.clear();
   }
-  /** The lazy `Stream` a member verb hands back. */
   stream(): Stream.Stream<T> {
     return Stream.callback<T>((queue) =>
       Effect.acquireRelease(
@@ -66,17 +45,10 @@ function fakeClient(
   streams: {
     attach: FakeStream<AttachFrame>;
     exit: FakeStream<{ exitCode: number }>;
-    /** THE HOST'S CENSUS, as padi states it — the ids the `roster` cell
-     *  carries. Pushing `[]` is the terminal leaving it. */
     keys: FakeStream<string[]>;
   },
   screenText?: string,
   asked: unknown[] = [],
-  /** THE HOST'S ROSTER STANDING — a padi that has not finished adopting its
-   *  terminals is `settling`, and an id missing from a settling roster is no
-   *  evidence of anything. The census rides the SAME frame as the standing
-   *  (#2376), so a lost feed's membership read asks that one member.
-   *  Established unless a case says otherwise. */
   standing: "established" | "settling" = "established",
 ): PadiSurfaceClient {
   return {
@@ -85,10 +57,6 @@ function fakeClient(
       terminalExit: { get: () => streams.exit.stream() },
       terminals: {
         keys: () => streams.keys.stream(),
-        // The engine reads the RECORD before it subscribes anything, so it can
-        // REFUSE a wait on a dormant terminal instead of waiting on one
-        // (kolu#2361). These cases are all about a LIVE terminal, so the
-        // record says `active`.
         get: () => Stream.make({ state: "active" }),
       },
       roster: {
@@ -111,11 +79,6 @@ function fakeClient(
   } as unknown as PadiSurfaceClient;
 }
 
-/** The value a BUNDLE-ROOT verb is handed: kolu's rooted bundle, padi as its
- *  unprefixed core — the same shape `serveKoluMcp`'s injected factory produces.
- *  The `awaitOutputSettled` cases below call the PRIMITIVE, which takes padi's
- *  client directly, so the two are kept apart rather than one standing in for
- *  the other. */
 const bundle = (padi: PadiSurfaceClient): KoluSurfaceClients => ({
   core: padi,
 });
@@ -150,7 +113,6 @@ describe("awaitOutputSettled — the idle done-signal over padiSurface", () => {
     const s = streams();
     s.attach.push(snapshot);
     const started = Date.now();
-    // Keep the terminal noisy for ~60ms, then go quiet.
     const noise = setInterval(
       () => s.attach.push({ kind: "delta", data: "x" }),
       15,
@@ -161,9 +123,6 @@ describe("awaitOutputSettled — the idle done-signal over padiSurface", () => {
       idleMs: 40,
     });
     expect(outcome).toMatchObject({ kind: "met", fired: "idle" });
-    // It cannot have settled before the noise stopped + the window: the last
-    // delta lands at ≥45ms (ticks at 15/30/45), so met is ≥85ms — asserted
-    // with a few ms of timer-jitter slack.
     expect(Date.now() - started).toBeGreaterThanOrEqual(80);
   });
 
@@ -181,7 +140,7 @@ describe("awaitOutputSettled — the idle done-signal over padiSurface", () => {
   it("a feed end with the id ABSENT from an ESTABLISHED roster is gone", async () => {
     const s = streams();
     s.attach.push(snapshot);
-    s.keys.push([]); // the roster no longer carries t1
+    s.keys.push([]);
     s.attach.end();
     s.exit.end();
     const outcome = await awaitOutputSettled(fakeClient(s), {
@@ -192,9 +151,6 @@ describe("awaitOutputSettled — the idle done-signal over padiSurface", () => {
   });
 
   it("a feed end with the id absent from a SETTLING roster is closed", async () => {
-    // A padi that has not finished adopting its terminals serves a roster
-    // that is not a census: "not in the list" is "no answer yet", and the
-    // outcome whose whole meaning is "retry, conclude nothing" is `closed`.
     const s = streams();
     s.attach.push(snapshot);
     s.keys.push([]);
@@ -213,7 +169,7 @@ describe("awaitOutputSettled — the idle done-signal over padiSurface", () => {
   it("a feed end with the id STILL live is closed — loud, never a false met", async () => {
     const s = streams();
     s.attach.push(snapshot);
-    s.keys.push([ID]); // still live: a dropped feed, not an exit
+    s.keys.push([ID]);
     s.attach.end();
     s.exit.end();
     const outcome = await awaitOutputSettled(fakeClient(s), {
@@ -227,18 +183,10 @@ describe("awaitOutputSettled — the idle done-signal over padiSurface", () => {
   });
 
   it("PIN: the lost-feed membership read is BOUNDED — a silent roster never outlives the wait", async () => {
-    // settleOnLostFeed's roster read rides the SAME retry-mounted client as
-    // the attach feed, so a wedged-but-alive link retries the snapshot forever.
-    // Under oRPC the bound was an AbortSignal threaded into the read; a member
-    // verb has no signal any more (D10/#18), so the bound is `ctx.signal`
-    // INTERRUPTING the subscription. Same hazard, restated on the Effect axis:
-    // the feed ends, the roster never yields a snapshot, and the wait must
-    // still settle on its timeout AND release that subscription.
     const s = streams();
     s.attach.push(snapshot);
     s.attach.end();
     s.exit.end();
-    // The census is deliberately never pushed and never ended — the wedged read.
     const outcome = await awaitOutputSettled(fakeClient(s), {
       id: ID,
       idleMs: 60_000,
@@ -249,19 +197,11 @@ describe("awaitOutputSettled — the idle done-signal over padiSurface", () => {
   });
 
   it("PIN: a DEAD-transport attach error PROPAGATES (rejects), never folds to closed", async () => {
-    // A dead transport poisons the shared connection — it must reject out of
-    // awaitOutputSettled so surface-mcp's withClient resets it, not settle a
-    // clean `closed` that leaves the caller reusing a dead socket (codex F2).
-    // The dead-transport vocabulary is now the shared TAGGED error (D4), not an
-    // ORPCError code.
     const dead = new SurfaceStdioTransportClosed({ reason: "pipe closed" });
     const client = {
       surface: {
         terminalAttach: { get: () => Stream.fail(dead) },
         terminalExit: { get: () => Stream.fail(dead) },
-        // Dead on EVERY member the wait touches, the record read and the
-        // roster included: the point of this case is that the transport
-        // failure propagates.
         terminals: {
           keys: () => Stream.fail(dead),
           get: () => Stream.fail(dead),
@@ -275,9 +215,6 @@ describe("awaitOutputSettled — the idle done-signal over padiSurface", () => {
   });
 
   it("PIN: a non-positive / over-ceiling idleMs fails fast (RangeError)", async () => {
-    // The exported primitive validates the timer range at its boundary — a
-    // direct caller can't get a false near-instant met off an overflowed window
-    // (codex F5).
     await expect(
       awaitOutputSettled(fakeClient(streams()), { id: ID, idleMs: 0 }),
     ).rejects.toThrow(RangeError);
@@ -311,9 +248,6 @@ describe("awaitOutputSettled — the idle done-signal over padiSurface", () => {
 
 describe("waitJson — the wire envelope", () => {
   it("PIN: a met payload can never clobber the envelope's reserved keys", () => {
-    // The met payload nests under `met` — a payload carrying `id`/`result`
-    // keys serializes intact WITHOUT overwriting the envelope (the flat-spread
-    // collision the review caught; nesting makes it inexpressible).
     const hostile = {
       kind: "met",
       id: "payload-id",
@@ -351,9 +285,6 @@ describe("waitOutputSettledTool — the JSON frame", () => {
   });
 
   it("PIN: `screenTail` reaches padi's read — the screen crosses the wire already cut", async () => {
-    // Unbounded, a 40-line ask would put the whole scrollback on the wire and
-    // into the agent's context (kolu#2152). The cut is padi's now, so the
-    // number has to REACH the read; the face passes the reply through as is.
     const s = streams();
     s.attach.push(snapshot);
     const cut = "line two\nline three";
@@ -375,8 +306,6 @@ describe("waitOutputSettledTool — the JSON frame", () => {
   });
 
   it("PIN: no `screenTail` means no `screen` key — the frame every caller already reads", async () => {
-    // `screen.text` fails in this client, so a wait that asked for no capture
-    // reading one at all would surface as a `closed` rather than a met.
     const s = streams();
     s.attach.push(snapshot);
     const result = (await Effect.runPromise(
@@ -393,9 +322,6 @@ describe("waitOutputSettledTool — the JSON frame", () => {
 });
 
 describe("waitAgentStateTool — the modifiers reach padi", () => {
-  /** A client whose roster holds one terminal with a live `waiting` agent, and
-   *  whose attach feed the test drives. Enough for `awaitAgentState` to match on
-   *  its first frame, which is what makes the conjunct's effect observable. */
   function agentClient(attach: FakeStream<AttachFrame>): PadiSurfaceClient {
     const record = {
       state: "active",
@@ -427,11 +353,6 @@ describe("waitAgentStateTool — the modifiers reach padi", () => {
   }
 
   it("PIN: `settledMs` keeps the wait open while bytes still move", async () => {
-    // The kolu#2139 failure as an MCP caller sees it: the agent's bucket is
-    // already `waiting` on the first frame while a subagent keeps printing. If
-    // the tool advertises `settledMs` and drops it on the way to padi, this is a
-    // met at t≈0 — an advertised option that does nothing, which is worse than
-    // not having one (kolu#2152).
     const attach = new FakeStream<AttachFrame>();
     attach.push(snapshot);
     const noise = setInterval(
@@ -477,8 +398,6 @@ describe("waitAgentStateTool — the modifiers reach padi", () => {
         result: "met",
         met: { agent: { kind: "claude-code", state: "waiting" } },
       });
-      // The published frame, unchanged: the engine's `fired` tag does not ride
-      // it, and a wait that asked for no screen carries no `screen` key.
       expect(Object.keys(result.met as object).sort()).toEqual([
         "agent",
         "elapsedMs",

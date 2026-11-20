@@ -1,15 +1,3 @@
-/**
- * The v1 expose map + the NAMED DENIALS, pinned end-to-end:
- *
- *   - the map resolves against the REAL padiSurface spec (a renamed member
- *     fails at resolve, not at an agent's first call);
- *   - the served face advertises EXACTLY the ratified tool + resource set;
- *   - every named denial is (a) a real spec member — a denial naming nothing
- *     is stale — (b) absent from the map, and (c) UNREACHABLE through a live
- *     served face: calling a denied procedure fails as unknown, subscribing a
- *     denied stream fails as unknown (default deny, proven at the wire).
- */
-
 import { padiSurface } from "@kolu/padi-client/surface";
 import {
   resolveExpose,
@@ -22,8 +10,6 @@ import { afterEach, describe, expect, it } from "vitest";
 import { KOLU_MCP_DENIED, KOLU_MCP_EXPOSE } from "./expose.ts";
 import { KOLU_MCP_TOOLS } from "./tools.ts";
 
-/** Every member path the spec declares: top-level primitive keys plus
- *  `<ns>.<verb>` for procedures — the universe a denial must name into. */
 function specMembers(): Set<string> {
   const spec = padiSurface.spec;
   const members = new Set<string>([
@@ -64,9 +50,6 @@ describe("KOLU_MCP_EXPOSE — the ratified v1 map", () => {
       "screen_history",
       "watch_close",
     ]);
-    // The read/write split is the authz bit the host renders — pin it. The two
-    // watch verbs MUTATE: they create and destroy daemon-side state that
-    // outlives the call, which is exactly what a standing subscription is.
     const mutating = resolved.tools.filter((t) => t.mutates).map((t) => t.name);
     expect(mutating.sort()).toEqual(["lifecycle_kill", "watch_close"]);
   });
@@ -83,16 +66,8 @@ describe("KOLU_MCP_EXPOSE — the ratified v1 map", () => {
       "watch_next",
       "watch_open",
     ]);
-    // The wait/watch reads + snapshot read are read-only; create and the send
-    // mutate.
-    // `watch_next` DRAINS a queue, which is a daemon-side write — but it is
-    // declared read-only deliberately: what it mutates is the caller's OWN
-    // cursor, and marking it mutating would put a confirmation prompt in front
-    // of the one call a supervisor makes in a loop.
     expect(KOLU_MCP_TOOLS.lifecycle_create?.mutates).toBe(true);
     expect(KOLU_MCP_TOOLS.lifecycle_sendInput?.mutates).toBe(true);
-    // `agent_say` TYPES into a terminal — the same write `lifecycle_sendInput`
-    // makes, plus the agent's own submit keys.
     expect(KOLU_MCP_TOOLS.agent_say?.mutates).toBe(true);
     expect(KOLU_MCP_TOOLS.screen_text?.mutates).toBe(false);
     expect(KOLU_MCP_TOOLS.screen_image?.mutates).toBe(false);
@@ -124,13 +99,6 @@ describe("KOLU_MCP_DENIED — every denial is real, absent, and unreachable", ()
   });
 
   it("no denied member is served under its own wire name by a bespoke tool", () => {
-    // DENIED means UNREACHABLE, and the wire-level case below proves it by
-    // calling every denial. A bespoke tool named for a denied member would
-    // answer that call and quietly turn the refusal into a service — so the
-    // list keeps its meaning by asserting the absence here rather than by
-    // skipping such members downstream. A verb that SHOULD be served under its
-    // own name is a supersession, not a denial: it belongs out of this list and
-    // in the module doc beside `screen.text` (see the next case).
     for (const { member } of KOLU_MCP_DENIED) {
       const wireName = member.replace(".", "_");
       expect(
@@ -141,11 +109,6 @@ describe("KOLU_MCP_DENIED — every denial is real, absent, and unreachable", ()
   });
 
   it("each SUPERSEDED procedure is absent from the map and served by its same-named bespoke tool", () => {
-    // The third category, which until now was recorded only in a comment: a
-    // procedure the face serves through a bespoke tool of the SAME wire name,
-    // because the raw verb is the lesser one. Both halves have to hold — absent
-    // from the map (or `@kolu/surface-mcp`'s boot-time collision gate throws)
-    // and present in the registry (or the verb silently vanishes from the face).
     for (const member of [
       "screen.text",
       "lifecycle.sendInput",
@@ -168,14 +131,6 @@ describe("the served face — default deny at the wire", () => {
     teardown = undefined;
   });
 
-  /** Serve the REAL map + tools over an in-memory pair. The client factory
-   *  REJECTS by default — none of the asserted surfaces (tools/list,
-   *  resources/list, an unknown-tool call, an unknown-resource subscribe) may
-   *  ever dial padi.
-   *
-   *  A caller passes its own factory only to reach a tool body that refuses
-   *  BEFORE it touches the client: dispatch dials first, so the default factory
-   *  would answer with a link failure instead of the refusal under test. */
   async function servedFace(
     client?: () => RootedSurfaceClients,
   ): Promise<Client> {
@@ -234,12 +189,9 @@ describe("the served face — default deny at the wire", () => {
       "surface://collections/daemonStatus",
       "surface://collections/terminals",
     ]);
-    // activity — the named denial (no current-value snapshot) — is not exposed.
     await expect(
       mcp.subscribeResource({ uri: "surface://streams/activity" }),
     ).rejects.toThrow(/cannot subscribe to unknown resource/);
-    // terminalAttach — the named denial — is not a resource and can't be
-    // subscribed into existence.
     await expect(
       mcp.subscribeResource({ uri: "surface://streams/terminalAttach" }),
     ).rejects.toThrow(/cannot subscribe to unknown resource/);
@@ -247,8 +199,6 @@ describe("the served face — default deny at the wire", () => {
 
   it("calling a DENIED procedure fails as unknown — for every denied verb", async () => {
     const mcp = await servedFace();
-    // Every dotted denial is a procedure — construct the call it would have
-    // been exposed as and assert the face refuses it by name.
     const deniedTools = KOLU_MCP_DENIED.filter(({ member }) =>
       member.includes("."),
     ).map(({ member }) => member.replace(".", "_"));
@@ -263,17 +213,6 @@ describe("the served face — default deny at the wire", () => {
   });
 
   it("a sendInput refusal reaches the agent as DATA, across the package seam", async () => {
-    // The promise the README, the changelog and docs/mcp.mdx all make is about
-    // what comes back OVER THE WIRE — and the path that delivers it spans two
-    // packages: this face raises `ToolFailure`, `@kolu/surface-mcp`'s `failFrom`
-    // discriminates it by NOMINAL `instanceof` across that boundary, `fail`
-    // normalizes the detail, and the SDK serializes the result. Every hop but
-    // this assertion is covered by a unit test on one side or the other; the
-    // seam itself — the one place a nominal check can silently stop matching —
-    // was covered nowhere.
-    //
-    // The refusal is raised before the handler touches the client, so a stub
-    // that is never called is enough to get past dispatch's dial.
     const mcp = await servedFace(() => ({ core: { surface: {} } }));
 
     const res = await mcp.callTool({
@@ -287,7 +226,6 @@ describe("the served face — default deny at the wire", () => {
 
     expect(res.isError).toBe(true);
     expect(res.structuredContent).toEqual({ kind: "text-and-key" });
-    // The prose still reads as prose, and still carries the adapter's brand.
     expect(String((res.content as { text: string }[])[0]?.text)).toContain(
       "can't be combined",
     );

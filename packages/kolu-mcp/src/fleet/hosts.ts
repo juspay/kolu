@@ -1,22 +1,3 @@
-/**
- * The PORT kolu-server implements, and the two refusals every lifted call goes
- * through before it dials anything.
- *
- * The fleet face holds NO host map of its own. kolu-server already mirrors
- * every padi — membership, reachability, the live client — and a second copy
- * inside this package would be a copy that can be wrong: a host that left would
- * keep answering until something noticed. So the port is the narrowest thing a
- * projection needs (who is there, what are they called, which are answering,
- * tell me when that moves) and kolu-server stays the one authority.
- *
- * **A host that is not connected is refused BY NAME.** The alternative — an
- * empty list, a terminal that is "not found" — is the failure mode this whole
- * face exists to avoid: an agent reads silence as "that host has nothing
- * running", carries on, and reports a clean sweep over a machine it never
- * reached. So every refusal says which host and what state it is in, as prose
- * for the model and as `structuredContent` for a driver.
- */
-
 import type { PadiSurfaceClient } from "@kolu/padi-client/dial";
 import { ToolFailure } from "@kolu/surface-mcp/tools";
 import { Effect } from "effect";
@@ -43,16 +24,6 @@ export interface FleetHosts {
   subscribe(cb: () => void): () => void;
 }
 
-/** MEMBERSHIP alone: this key names a host the fleet holds, or a refusal
- *  listing the ones it does.
- *
- *  Its own function because {@link requireHost} is membership AND reachability
- *  and the two refusals are different sentences: a host that is in the fleet
- *  but not answering is told what it is doing, where a key nobody holds is
- *  told the roster. Split here, once, so the two readings cannot teach an
- *  agent two grammars for one mistake. Module-private: every caller wants the
- *  pair, and the roster resource that once wanted this half alone now answers
- *  rows straight off `hosts.keys()`. */
 function requireMember(
   hosts: FleetHosts,
   key: string,
@@ -69,8 +40,6 @@ function requireMember(
   });
 }
 
-/** The padi behind a host key — a member that is ALSO answering — or a refusal
- *  naming the host and its state. */
 export function requireHost(
   hosts: FleetHosts,
   key: string,
@@ -93,9 +62,6 @@ export function requireHost(
   );
 }
 
-/** One terminal reference, resolved: the split plus the host's live client.
- *  The refusal for a malformed reference is raised HERE rather than by the
- *  grammar leaf, so it reaches the agent as data like every other one. */
 export function requireTerminal(
   hosts: FleetHosts,
   ref: string,

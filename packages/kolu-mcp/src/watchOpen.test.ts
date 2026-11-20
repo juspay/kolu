@@ -1,9 +1,3 @@
-/**
- * Pins `watch_open`'s ignoreSelf resolution — the face-level half. padi never
- * sees the boolean: this process either names its containing terminal as an
- * ignore id, or refuses the param.
- */
-
 import type { PadiSurfaceClient } from "@kolu/padi-client/dial";
 import type { KoluSurfaceClients } from "./bundleClient.ts";
 import type { PadiWatchOpenInput } from "@kolu/padi-client/surface";
@@ -13,10 +7,6 @@ import { Effect, Stream } from "effect";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { resolveWatchOpenInput, watchOpenTool } from "./watchOpen.ts";
 
-/** padi's input, or the refusal raised as the tool handler raises it — so these
- *  pins read as a caller experiences them, while the pure half answers in values
- *  like its CLI twin. The second argument is the ROSTER the stamp is confirmed
- *  against; `[]` is a padi that has never heard of this terminal. */
 const plan = (
   ...args: Parameters<typeof resolveWatchOpenInput>
 ): PadiWatchOpenInput => {
@@ -55,7 +45,6 @@ describe("resolveWatchOpenInput", () => {
     expect(input.nagMs).toBe(1_800_000);
     expect(input.nagCount).toBe(3);
 
-    // A bare interval — number or string — keeps today's meaning: forever.
     const bare = plan({ name: "campaign", nagMs: "30m" }, [], {});
     expect(bare.nagMs).toBe(1_800_000);
     expect(Object.hasOwn(bare, "nagCount")).toBe(false);
@@ -79,8 +68,6 @@ describe("resolveWatchOpenInput", () => {
     } catch (e) {
       expect(e).toBeInstanceOf(ToolFailure);
       expect((e as ToolFailure).message).toMatch(/KAVAL_TERMINAL_ID/);
-      // This face's own sentence: a tool caller has `ignoreIds`, never
-      // `--ignore <id>`, so padi holds the fact and not the wording.
       expect((e as ToolFailure).message).toMatch(/^ignoreSelf:/);
       expect((e as ToolFailure).message).toMatch(/ignoreIds/);
       expect((e as ToolFailure).detail).toEqual({
@@ -117,10 +104,6 @@ describe("resolveWatchOpenInput", () => {
   });
 
   it("refuses a STRAY stamp before it refuses the scope it would make empty", () => {
-    // The stamp is resolved fully — fleet arm included — BEFORE the scope, so
-    // this request (ids fully covered by a mute whose self is a stray stamp)
-    // gets the SAME refusal the CLI gives it. Built the other way round, this
-    // face said "can never match" and the CLI said "not in fleet".
     try {
       plan({ name: "campaign", ids: [SELF], ignoreSelf: true }, [LANE], {
         KAVAL_TERMINAL_ID: SELF,
@@ -150,9 +133,6 @@ describe("resolveWatchOpenInput", () => {
   });
 });
 
-/** A padi whose roster is exactly `live`, and whose `watch.open` records what it
- *  was handed. `terminals.keys` opens with a SNAPSHOT frame, as the real one
- *  does — `readTerminalKeys` treats an empty stream as a link failure. */
 const fakePadi = (live: readonly TerminalId[]) => {
   const opened: PadiWatchOpenInput[] = [];
   const client = {
@@ -166,8 +146,6 @@ const fakePadi = (live: readonly TerminalId[]) => {
       },
     },
   } as unknown as PadiSurfaceClient;
-  // What a BUNDLE-ROOT verb is handed: kolu's rooted bundle, padi as its
-  // unprefixed core — the same value `serveKoluMcp`'s injected factory produces.
   return { client: { core: client } satisfies KoluSurfaceClients, opened };
 };
 
@@ -192,9 +170,6 @@ describe("watch_open — ignoreSelf against a fleet that has never heard of us",
   });
 
   it("REFUSES when it is not — the same question the CLI asks, on the face that used to skip it", async () => {
-    // `kolu mcp` honors --host / --socket, so this server can be fronting
-    // another machine's fleet. Fail-open here would mute nobody and return
-    // success, which is the one thing ignoreSelf refuses to do.
     const { client, opened } = fakePadi([LANE]);
     await expect(
       Effect.runPromise(
@@ -210,8 +185,6 @@ describe("watch_open — ignoreSelf against a fleet that has never heard of us",
 
   it("names the terminal, the way out, and the restart that re-keys them", async () => {
     const { client } = fakePadi([LANE]);
-    // On the ERROR channel — which is what `failFrom` reads the detail off, and
-    // what keeps a refusal from looking like a defect in this server.
     const err: ToolFailure = await Effect.runPromise(
       Effect.catch(
         watchOpenTool.handler(

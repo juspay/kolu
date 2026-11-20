@@ -1,52 +1,5 @@
-/**
- * `screen_text` — the MCP face's snapshot read, wrapping padiSurface's
- * `screen.text` with the TAIL mode the driving skills lean on ("read the last
- * N lines" — kaval-tui's `snapshot --viewport` idiom — stays ONE cheap call
- * for the agent instead of a whole-scrollback read it must slice itself).
- *
- * The raw procedure's `startLine`/`endLine` window is an absolute-line
- * addressing an agent can't use without already knowing the buffer length, so
- * the bespoke tool exposes `{ id, tail? }`: omitted tail returns the whole
- * rendered text; `tail: N` returns the last N lines. The cut is padi's
- * (`screen.text { tail }`), so only the tail crosses the padi hop (local
- * socket or the ssh pipe) as well as the MCP-host↔agent one.
- *
- * The arg schema is an Effect Schema. Its per-field blurbs are not decoration:
- * they are what teaches a coding agent that `tail` counts LINES. Two authoring
- * laws make them land where a host renders them, both pinned by
- * `argSchemas.test.ts`:
- *
- *   - the annotation sits INSIDE `optionalKey` — on the encoded-side node,
- *     before any wrapper;
- *   - the numeric advertises as an INTEGER, never as bare `Schema.Number`.
- *     A bare number's encoded form is the `"NaN"`/`"Infinity"` union
- *     (`jsonSchemaBridge.ts` divergence 2), which the bridge collapses to a
- *     naked `{"type":"number"}` — carrying neither the blurb nor the bounds.
- *     `.check(Schema.isInt())` is what puts the field on a node they can ride.
- *
- * There used to be a third: **ANNOTATE FIRST, CHECK SECOND**.
- * `SchemaAST.annotate` attaches to a schema's LAST CHECK when it has one, and
- * up to effect rc.110 the converter emitted a check's annotations inside an
- * `allOf` branch — where no MCP host looks for a property description. Since
- * `Schema.Int` is itself `Schema.Number.check(isInt())`, even a bare
- * `Schema.Int.annotate({description})` lost the blurb, and every arg schema in
- * this package was spelled annotate-first by hand. effect rc.111 COMPACTS a
- * check's keywords and annotations onto the node they constrain, so the order
- * no longer matters — and the bounds themselves now reach the host too, which
- * an `allOf` branch never did.
- *
- * Two residual traps survive the fix, both narrow:
- *   - a check whose keyword COLLIDES with one already on the node still splits
- *     into `allOf`, because merging would silently change the constraint;
- *   - a `Schema.makeFilter` check contributes no JSON-Schema keyword and is
- *     dropped whole, annotation included — so a blurb must go on the base
- *     BEFORE such a check. `create.ts`'s `worktree` is this package's one
- *     field still subject to it.
- */
-
 import { refusingAsleep } from "./asleep.ts";
 import { padiOf } from "./bundleClient.ts";
-// The tail RULE is padi's — its decode is what the value meets.
 import { ScreenTextTailSchema } from "@kolu/padi-client/surface";
 import type { BespokeTool } from "@kolu/surface-mcp/tools";
 import { TerminalIdSchema } from "@kolu/terminal-vocab/schema";
@@ -69,16 +22,8 @@ export const screenTextTool: BespokeTool = {
   title: "Read a terminal's screen",
   description:
     "A terminal's rendered screen + scrollback as plain text — the snapshot face. Pass tail: N to read only the last N lines (the cheap settle-check read).",
-  // No `signal`: a surface procedure ref carries no cancellation handle any
-  // more (D10/#18 — Effect RPC has none, and interruption is the fiber's), and
-  // the handler's effect is already run under the request's signal by
-  // `surface-mcp`'s ONE CallTool edge.
   handler: (args, client) => {
     const { id, tail } = args as ScreenTextArgs;
-    // `refusingAsleep`: padi answers a DORMANT terminal with the declared
-    // `TerminalNotActive`, which would otherwise reach the agent as prose with
-    // no structured arm (a declared error off a wire hop is not a
-    // `ToolFailure`). Tagged here so "it is asleep, wake it" arrives as data.
     return refusingAsleep(
       padiOf(client).surface.screen.text(
         tail === undefined ? { id } : { id, tail },

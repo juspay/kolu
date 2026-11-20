@@ -1,19 +1,3 @@
-/**
- * THE COMMAND A PLANNER OR IMPLEMENTOR STARTS WITH — built by kolu from the
- * work's saved setup, never written by the Conductor.
- *
- * The harness and the model are the human's answers on the work, judged
- * again against what kolu offers on the work's host, and how that harness
- * takes a model is the host's own word — upstream's adapter answering
- * `agent-distro --launch` through padi ({@link FleetWorks.startOf}), which
- * runs no harness, so a start never waits on a model list. So the one place
- * a model flag is spelled is the harness's adapter in agent-distro, and the
- * one source of a waterfall agent's command is this module: a planner
- * started with a command that disagrees with its setup, or on a saved answer
- * kolu no longer offers, is not something `lifecycle_create` can be asked
- * for.
- */
-
 import {
   type AgentModelLaunch,
   modelLaunchWords,
@@ -24,8 +8,6 @@ import { Effect } from "effect";
 import { type WaterfallRole, WorkRefusal } from "kolu-work";
 import type { FleetWorks } from "./works.ts";
 
-/** The shell line that starts `harness` on `model`: the environment the
- *  launch takes first, then the harness and its model words. */
 export function startCommand(
   harness: string,
   launch: AgentModelLaunch,
@@ -40,8 +22,6 @@ export function startCommand(
   ].join(" ");
 }
 
-/** The `run` a planner or implementor of `work` is created with, on `host` —
- *  or the refusal that says why there is none. */
 export function waterfallRun(
   works: FleetWorks,
   call: {

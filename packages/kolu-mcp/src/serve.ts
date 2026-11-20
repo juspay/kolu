@@ -1,26 +1,3 @@
-/**
- * `serveKoluMcp` — the kolu MCP face: `padiSurface` re-exposed to a coding
- * agent over MCP via `@kolu/surface-mcp`, curated by the ratified v1 expose
- * map ({@link KOLU_MCP_EXPOSE}) plus the face's bespoke tools.
- *
- * This package owns ZERO connect code — the composition root (kolu-cli)
- * injects `connect`, a factory producing a CONNECTED, padi-scoped client
- * (local digest-keyed socket or the ssh stdio dial). The factory is re-invoked
- * by the adapter after a drop, which is exactly the restart discipline's
- * redial hook: kolu-cli's factory re-RESOLVES the running padi's socket and
- * re-runs the hello/compat gate. The socket path is keyed by a digest of the
- * STATE-ROOT (stable across a normal restart/upgrade — a padi that respawns at
- * the same state-root listens at the same path), so the re-resolve is for
- * robustness (a moved state-root, a different running daemon) and the compat
- * gate is what proves the new generation speaks our contract — a padi restart
- * heals here without this package knowing what a socket is. The package
- * manifest is the graduation fence: padi/surface deps only, no kolu app package.
- *
- * The connection also carries the transport's close announcement, so a restart
- * costs no request — see {@link OwnedSurfaceConnection.onClose}
- * (juspay/kolu#2082).
- */
-
 import { padiSurface } from "@kolu/padi-client/surface";
 import type { KoluSurfaceClients } from "./bundleClient.ts";
 import {
@@ -30,10 +7,6 @@ import {
 import type { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
 import { KOLU_MCP_EXPOSE } from "./expose.ts";
-// The tool table's home: `tools.ts`, NOT serve.ts — it is also `kolu
-// surface`'s verb table, and must stay loadable without the MCP SDK (see that
-// module's header). This module CONSUMES it; the barrel and the
-// `kolu-mcp/tools` subpath re-export it from its home.
 import { KOLU_MCP_TOOLS } from "./tools.ts";
 
 /** A live, padi-scoped connection the injected factory produces — the adapter's
@@ -79,9 +52,6 @@ export async function serveKoluMcp(
   opts: ServeKoluMcpOptions,
 ): Promise<{ server: Server; close: () => Promise<void> }> {
   return serveSurfaceAsMcp({
-    // kolu's bundle is the degenerate one: padi is the unprefixed CORE and there
-    // are no siblings, so every tool name and every `surface://` URI this face
-    // serves is exactly what it was before the adapter learned to compose.
     core: { surface: padiSurface, expose: KOLU_MCP_EXPOSE },
     client: opts.connect,
     tools: KOLU_MCP_TOOLS,

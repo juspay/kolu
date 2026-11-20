@@ -1,36 +1,9 @@
-/**
- * kolu-mcp — the kolu MCP face, in its TWO projections.
- *
- *   - **`serveKoluMcp`** — one host, over stdio: a pure `padiSurface` client
- *     re-exposed to coding agents via `@kolu/surface-mcp`. This is what `kolu
- *     mcp` serves to an agent working INSIDE a terminal, and its terminal ids
- *     are bare.
- *   - **`serveKoluFleetMcp`** — every host, in kolu-server: the SAME tool list
- *     lifted over kolu-server's host map, where a terminal is `host/id`. This
- *     is what the one conductor conversation holds, over a loopback
- *     streamable-HTTP transport kolu-server owns.
- *
- * The manifest is the graduation fence: this package depends on padi/surface
- * packages ONLY — no kolu app package — so `kolu mcp` provably serves agents
- * with no kolu-server behind it (the second-frontend proof, headless leg). That
- * holds for the fleet face too: it takes kolu-server's host map through a PORT
- * ({@link FleetHosts}) rather than importing kolu-server, so the arrow still
- * points one way.
- */
-
-// WHAT the injected factory must hand back — kolu's rooted bundle, padi as its
-// core — and the one hop a bundle-root verb takes to reach padi through it.
 export { type KoluSurfaceClients, padiOf } from "./bundleClient.ts";
 export {
   KOLU_FLEET_EXPOSE,
   KOLU_MCP_DENIED,
   KOLU_MCP_EXPOSE,
 } from "./expose.ts";
-// The FLEET face: its contract, the port kolu-server implements, the identity
-// grammar, and the serve function. The grammar is ALSO published as the leaf
-// subpath `kolu-mcp/fleetRef` for a consumer that must not take this barrel's
-// MCP-SDK chain (`@kolu/acp-harness`); it is re-exported here so a consumer
-// that already has the barrel does not need a second import path.
 export {
   type FleetHost,
   FleetHostSchema,
@@ -44,22 +17,11 @@ export {
   FLEET_SETTLE_CAP_MS,
   KOLU_FLEET_TOOL_NAMES,
 } from "./fleet/lift.ts";
-// WHAT THE FLEET FACE SERVES, as addresses — every static resource, the shape
-// of a terminal's record address, and whether an address is served, all
-// resolved through `@kolu/surface-mcp`'s own composition and reader. Published
-// beside the tool names for the same reason: the Conductor's teaching script
-// states these addresses in its own words, and its test pins the script against
-// these values rather than literals, so a renamed resource goes red there.
 export {
   isKoluFleetAddress,
   KOLU_FLEET_RECORD_ADDRESS,
   KOLU_FLEET_RESOURCES,
 } from "./fleet/addresses.ts";
-// FOLLOWING EVERY CONNECTED HOST OVER TIME — the combinator the face's own
-// folds are built on, published because kolu-server's conductor watch needs
-// exactly it and a second hand-rolled follow would drift from this one about
-// the thing that matters: which CLIENT a leg is read through. A leaf beside
-// the port, not a package; `fleet/overHosts.ts` says why.
 export { overConnectedHosts } from "./fleet/overHosts.ts";
 export {
   type FleetTerminalRef,
@@ -70,12 +32,6 @@ export {
   type ServeKoluFleetMcpOptions,
   serveKoluFleetMcp,
 } from "./fleet/serve.ts";
-// KOLU'S PIECES OF WORK, as this face reaches them — kolu-server implements
-// the port and owns the record (a work outlives the conversation that opened
-// it); the face moves it with five tools and SERVES it as the `works`
-// resource, which is what `rows` is for. `KOLU_FLEET_TOOL_NAMES` is the static
-// roll of what the fleet face serves, for a consumer (the conductor's teaching
-// script and its test) that needs the names without minting a face.
 export type {
   FleetFinishedWorkRow,
   FleetWatchJoin,
@@ -93,8 +49,4 @@ export {
   type ServeKoluMcpOptions,
   serveKoluMcp,
 } from "./serve.ts";
-// The tool table's home: `tools.ts`, NOT serve.ts — it is also `kolu
-// surface`'s verb table, and must stay loadable without the MCP SDK (see that
-// module's header). The same name reaches the `kolu-mcp/tools` subpath
-// without this barrel's SDK chain, as those tools mount it.
 export { KOLU_MCP_TOOLS } from "./tools.ts";

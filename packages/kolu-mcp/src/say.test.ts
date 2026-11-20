@@ -1,20 +1,3 @@
-/**
- * `resolveSay` — the recipe selection and every refusal, pinned apart from the
- * wire (the tool handler is text → settle → keys over this).
- *
- * The RECORDS here are padi's own shape, cast once at the fixture: what this
- * file is about is the decision table over `(agent, state)`, and the per-agent
- * recipes it reads are the real ones from `kolu-agents` — a test that stubbed
- * them would pin this file's idea of claude-code's keys rather than the one
- * `agent_say` will actually press.
- *
- * The ONE place a stub is right is the last suite: the two refusals for an
- * agent kolu cannot steer are unreachable through the registry (all seven
- * shipped agents have a measured recipe for both states), so they are reached
- * through the vocabulary ARGUMENT `resolveSay` takes — a branch nobody can
- * enter is a branch nobody has run.
- */
-
 import type { PadiTerminal } from "@kolu/padi-client/surface";
 import { ToolFailure } from "@kolu/surface-mcp";
 import { describe, expect, it } from "vitest";
@@ -37,7 +20,6 @@ import {
 
 const ID = "11111111-1111-4111-8111-111111111111";
 
-/** An ACTIVE terminal running `kind` in `state`. */
 const withAgent = (kind: string, state: string): PadiTerminal =>
   ({
     state: "active",
@@ -45,7 +27,6 @@ const withAgent = (kind: string, state: string): PadiTerminal =>
     agent: { kind, state },
   }) as unknown as PadiTerminal;
 
-/** An active terminal at a plain shell — the `agent: null` case. */
 const SHELL = {
   state: "active",
   title: "shell",
@@ -85,9 +66,6 @@ describe("resolveSay — which keys, and what they do", () => {
   });
 
   it("a FRESH agent — up, settled, never prompted — gets the idle keys", () => {
-    // padi's presence, before the agent has written a line of transcript.
-    // This is the moment a conductor briefs a worker it just launched, and a
-    // first prompt is an ordinary idle submit.
     const say = resolveSay(ID, "here is the brief", withAgent("omp", "fresh"));
     expect(say.working).toBe(false);
     expect(say.keys).toEqual(agentVocab("omp").say?.idle);
@@ -95,9 +73,6 @@ describe("resolveSay — which keys, and what they do", () => {
   });
 
   it("a PROMPTED agent — submitted to, no transcript yet — is WORKING, and a second say steers or queues", () => {
-    // The window between a fresh agent's first submit and its first transcript
-    // line (omp's lasts the whole first reply). Read as idle, a second say here
-    // would press the idle keys into an agent that is working.
     const omp = resolveSay(ID, "also this", withAgent("omp", "prompted"));
     expect(omp.working).toBe(true);
     expect(omp.keys).toEqual(agentVocab("omp").say?.working?.keys);
@@ -111,9 +86,6 @@ describe("resolveSay — which keys, and what they do", () => {
   });
 
   it("a WORKING agent gets its mid-turn keys and its own delivery word", () => {
-    // Two agents measured to differ in exactly this, which is the whole reason
-    // the answer carries a delivery at all: omp hands the words to the running
-    // turn, claude-code holds them for the next one.
     const steering = resolveSay(
       ID,
       "also the Nile",
@@ -142,10 +114,6 @@ describe("resolveSay — which keys, and what they do", () => {
   });
 
   it("every agent kolu detects has a recipe for both states", () => {
-    // The fence that matters for the tool's promise ("the conductor never
-    // needs per-agent key knowledge again"): an agent added to the registry
-    // without a measured recipe fails HERE, beside the claim, rather than in a
-    // live turn as a refusal nobody expected.
     for (const kind of [
       "claude-code",
       "codex",
@@ -177,15 +145,10 @@ describe("resolveSay — every refusal reaches the agent as DATA", () => {
     const refusal = refusalFrom("ship it", SHELL);
     expect(refusal.detail).toEqual({ kind: "no-agent", id: ID });
     expect(refusal.message).toMatch(/no agent/);
-    // The recovery is named, so a driver that genuinely meant the shell knows
-    // which tool to reach for.
     expect(refusal.message).toMatch(/lifecycle_sendInput/);
   });
 
   it("an agent still COMING UP is refused — its screen is still being drawn", () => {
-    // Keys pressed into a TUI that has not finished painting itself are read
-    // by whatever it draws next, if anything. The refusal names the wait that
-    // ends it rather than inviting a blind resend.
     const refusal = refusalFrom(
       "here is the brief",
       withAgent("omp", "starting"),
@@ -200,9 +163,6 @@ describe("resolveSay — every refusal reaches the agent as DATA", () => {
   });
 
   it("a DORMANT terminal is refused as asleep, not as a shell with no agent", () => {
-    // The trap this closes: a sleeping record carries no agent, so a reader
-    // that only asked "is there an agent" would tell the conductor its worker
-    // is a plain shell.
     const asleep = { state: "sleeping" } as unknown as PadiTerminal;
     const refusal = refusalFrom("ship it", asleep);
     expect(refusal.detail).toMatchObject({
@@ -217,8 +177,6 @@ describe("resolveSay — every refusal reaches the agent as DATA", () => {
   });
 
   it("the refusal names the terminal, so the fleet face can re-qualify it", () => {
-    // `fleet/lift.ts` rewrites `detail.id` and the prose into `<host>/<id>`;
-    // that only works while every refusal carries the bare id it names.
     const refusal = refusalFrom("ship it", SHELL);
     expect(refusal.detail).toMatchObject({ id: ID });
     expect(refusal.message).toContain(ID);
@@ -226,12 +184,6 @@ describe("resolveSay — every refusal reaches the agent as DATA", () => {
 });
 
 describe("the two refusals no shipped agent can reach", () => {
-  // Every one of the seven agents kolu detects has a measured recipe, and
-  // every recipe answers for both states — which is the promise the suite
-  // above pins, and which makes these two arms unreachable through the
-  // registry. They are kept because the brief requires an agent kolu cannot
-  // steer to be REFUSED with a reason rather than guessed at, and they are
-  // reached here the only honest way: by handing the resolver a vocabulary.
   const fake = (say: SayVocabulary["say"]): SayVocabulary => ({
     displayName: "Rumour",
     say,
@@ -259,7 +211,6 @@ describe("the two refusals no shipped agent can reach", () => {
       working: null,
       verified: "a test",
     });
-    // Idle: the same vocabulary says the words plainly.
     const said = resolveSay(
       ID,
       "ship it",
@@ -278,7 +229,6 @@ describe("the two refusals no shipped agent can reach", () => {
         id: ID,
         agent: "omp",
       });
-      // The recovery, named: wait for the turn and say it then.
       expect(refusal.message).toMatch(/Wait for it to finish/);
       return;
     }
@@ -301,8 +251,6 @@ describe("sayTook — did the keys take, and what the answer says either way", (
   });
 
   it("a fresh agent padi saw the submit reach is `submit-landed`, never claimed as a turn begun", () => {
-    // The keys this tool pressed are what make it `prompted`, so that reading
-    // proves the Enter got there — not that the agent answered.
     const took = started({
       kind: "met",
       agent: agentPresence("omp", "prompted", null),
@@ -313,8 +261,6 @@ describe("sayTook — did the keys take, and what the answer says either way", (
   });
 
   it("an idle agent that does NOT start is an ANSWER, not a failure — and it names the screen read", () => {
-    // The failure mode this exists to stop: a tool that reports nothing but
-    // "sent" invites the caller to say it again, which types the prompt twice.
     const took = started({ kind: "timeout", elapsedMs: 3000 });
     expect(took).toMatchObject({ observed: "did-not-begin", waitedMs: 3000 });
     expect(took.note).toContain("keys were sent");
@@ -396,8 +342,6 @@ describe("steerVerdict — where a steer stands when the watch runs out", () => 
   const ABSENT: PaneReading = { kind: "absent" };
 
   it("a new prompt CARRYING THESE WORDS is LANDED, held or not", () => {
-    // The step ended between the two reads: the pane emptied because the turn
-    // took the words.
     expect(verdict(omp("7d8bf8bc"), ABSENT)).toEqual({
       kind: "landed",
       elapsedMs: 6500,
@@ -405,9 +349,6 @@ describe("steerVerdict — where a steer stands when the watch runs out", () => 
   });
 
   it("a new prompt carrying SOMEONE ELSE'S words is not landed", () => {
-    // An older held steer handed over, or the human typing in that terminal,
-    // inside the watch. The id moved; what was said is still in the input
-    // box, and a caller told `landed` would never send it again.
     expect(
       verdict(omp("7d8bf8bc", "whatever the human just typed"), ABSENT),
     ).toEqual({ kind: "did-not-land", waitedMs: 6500 });
@@ -445,8 +386,6 @@ describe("steerVerdict — where a steer stands when the watch runs out", () => 
   });
 
   it("no live agent in the record after the keys is CANNOT-TELL", () => {
-    // Nothing was read that says the words did not arrive — saying they did
-    // not would be reporting an absence kolu never saw.
     expect(verdict(null, ABSENT).kind).toBe("cannot-tell");
   });
 });

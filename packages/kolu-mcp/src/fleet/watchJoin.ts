@@ -1,21 +1,4 @@
 /**
- * HOW A TERMINAL CAME TO BE A MEMBER — the whole vocabulary, in one place.
- *
- * This word crosses three boundaries: an MCP tool records it (`work_adopt`,
- * `lifecycle_create`), the Conductor's rules decide `ready` and `ended` from it
- * (`kolu-conductor`'s `WatchJoin`), and it is written to disk with each
- * member's wake bookkeeping (`kolu-conductor`'s persisted works). Spelled once per
- * boundary, a fourth join would COMPILE in all three and then be refused at the
- * next boot's record decode — after the write that made the file unreadable.
- *
- * **A LEAF with no imports at all**, for the same reason `./ref.ts` is one: the
- * rules package reaches it as `kolu-mcp/fleetWatchJoin` and must not take an
- * edge to the MCP SDK, to padi-client or to effect to learn three words. The
- * effect SCHEMA built on this tuple lives in `./fleetSurface.ts`, where effect
- * is allowed, and the persisted field builds its own from the same tuple.
- */
-
-/**
  * The joins, as the tuple both schemas are built from.
  *
  * - `created` — the Conductor opened it (`lifecycle_create`) with no command.

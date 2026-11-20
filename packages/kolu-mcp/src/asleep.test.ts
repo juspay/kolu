@@ -1,15 +1,3 @@
-/**
- * "That terminal is asleep", as the AGENT receives it — the sentence and the
- * structured arm (kolu#2361).
- *
- * padi's gate now answers `TerminalNotActive` for a terminal that is in the
- * roster but dormant, and a declared error decoded off a surface hop is NOT a
- * `ToolFailure` — so without the mapping in `asleep.ts` it would reach the
- * agent as prose with no `structuredContent` at all. That is what this pins:
- * the kind, the tag, the id and the state a driver branches on, beside the
- * sentence the model reads.
- */
-
 import { TerminalNotActive } from "@kolu/padi-client/surface";
 import { ToolFailure } from "@kolu/surface-mcp/tools";
 import { Effect } from "effect";
@@ -50,9 +38,6 @@ describe("the asleep refusal an agent reads", () => {
   });
 
   it("unwraps the `cause` the waits' `tryPromise` wraps a rejection in", () => {
-    // The `wait_*` tools lift a Promise-shaped waiter, so the engine's refusal
-    // arrives inside an `UnknownError`. Reading only the top of that chain is
-    // how a typed refusal silently becomes prose.
     const wrapped = Object.assign(new Error("An error occurred"), {
       cause: asleep("3f1c"),
     });

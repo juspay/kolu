@@ -1,39 +1,3 @@
-/**
- * The FLEET face over a two-host fixture — the projection's whole contract,
- * driven through a real served MCP face.
- *
- * Two fake padis behind a fake {@link FleetHosts}, because every claim this
- * face makes is about N hosts and none of them is observable with one: that an
- * id is host-qualified, that a call lands on the RIGHT machine, that two
- * queues merge into one ordered drain, that a host arriving mid-watch flows in
- * and a host leaving says `gone`, and that a host which is not connected is
- * refused BY NAME rather than answered with an empty list.
- *
- * WHAT THE FIXTURE IS, AND WHAT IT IS NOT — stated here because the previous
- * version of this sentence is the reason a production bug lived behind a green
- * suite. Each host's padi used to be a hand-written object literal cast to
- * `PadiSurfaceClient`. A cast makes ANY shape a padi client, so the thing this
- * file exercised was the fleet face against a client the file itself had
- * invented — and kolu-server's real client, built by `padiClientOver` over a
- * surface it was never bound to, failed every terminal-level call in
- * production (`no handler bound at "surface/padi/terminals/keys"`) while this
- * suite stayed green.
- *
- * So each padi here is now a HANDLER RECORD at padi's own wire tags, dialled
- * through the real `padiClientOver` + `directDispatch`. That pins the FACE
- * half end to end: the tag each member is dialled at, the face walk that mints
- * them, and the fail-loud resolver that refuses a tag nothing is bound at. A
- * member renamed in `padiSurface` now breaks this file instead of passing.
- *
- * The half it still cannot pin is kolu-server's MOUNTING — which handlers the
- * client is pointed at, and whether a host's calls carry the host-map's
- * `{ mapKey, input }` envelope. That needs `padiHostMap` + `serveHostMap`,
- * which live behind kolu-server's dependencies, so it is pinned where the
- * mounting lives: `packages/server/src/fleet/fleetHosts.test.ts`, whose
- * fixture serves the real map over a stub pool and calls a terminal member
- * through it.
- */
-
 import { type PadiSurfaceClient, padiClientOver } from "@kolu/padi-client/dial";
 import {
   type PadiTerminal,
@@ -77,8 +41,6 @@ const ALPHA_1 = "11111111-1111-4111-8111-111111111111" as TerminalId;
 const ALPHA_2 = "22222222-2222-4222-8222-222222222222" as TerminalId;
 const BETA_1 = "33333333-3333-4333-8333-333333333333" as TerminalId;
 
-/** A value with subscribers, as a snapshot-then-change `Stream` — the shape
- *  every padi cell and collection-keys member has on the wire. */
 interface Cell<T> {
   readonly value: T;
   set(next: T): void;
@@ -114,9 +76,6 @@ function cell<T>(initial: T): Cell<T> {
   };
 }
 
-/** What padi serves as a terminal record — and it carries NO `id`: on a face
- *  that serves one machine the collection KEY is the identity, which is
- *  precisely why the fleet face has to put an addressable one on the row. */
 const terminalRecord = (title: string, parentId?: TerminalId): PadiTerminal =>
   ({
     state: "active",
@@ -125,12 +84,6 @@ const terminalRecord = (title: string, parentId?: TerminalId): PadiTerminal =>
     ...(parentId === undefined ? {} : { parentId }),
   }) as unknown as PadiTerminal;
 
-/** The same record with a live agent in it — what `agent_say` reads to decide
- *  whose keys to press. The agent carries EVERY field its wire schema has —
- *  padi serves a whole `AgentInfo` and `agent_say` decodes one — with
- *  `fields` for the facts a test is about (omp's `lastPromptId` /
- *  `lastPromptText`, which a steer's landing is read off). A superset: a key
- *  another agent's schema does not have is ignored by the decode. */
 const withAgent = (
   title: string,
   kind: string,
@@ -169,47 +122,19 @@ interface FakePadi {
   readonly client: PadiSurfaceClient;
   readonly calls: string[];
   add(id: TerminalId, title: string, parentId?: TerminalId): void;
-  /** Put a live agent of `kind` in `state` into that terminal's record. */
   runAgent(id: TerminalId, kind: string, state: string, fields?: object): void;
-  /** Arm that terminal's agent to BEGIN WORKING when a submit key (`\r`)
-   *  reaches it — a TUI accepting a prompt, which is what `agent_say`'s "did
-   *  it take" wait watches for. */
   startsWorkingOnSubmit(id: TerminalId, kind: string): void;
-  /** Arm that terminal's WORKING omp to answer a steer's Enter as omp 18.20.2
-   *  did when measured: `holds` — a step it cannot interrupt is running, so
-   *  the words are DRAWN in its steering pane and its transcript gains
-   *  nothing; `takes` — the turn took them, so its transcript gains a new
-   *  prompt carrying them; `takes-late` — the turn took them as the watch ran
-   *  out, so the pane is already empty and the record only catches up
-   *  afterwards; `steals` — a DIFFERENT message landed in the window (an
-   *  older held steer handed over, the human typing); `dies` — the terminal
-   *  went away on the keys. Unarmed, the Enter does nothing at all. */
   steersLike(
     id: TerminalId,
     behaviour: "holds" | "takes" | "takes-late" | "steals" | "dies",
   ): void;
-  /** Put that terminal to sleep IN ITS RECORD — padi's `state` arm, which is
-   *  what any reader of the roster sees (distinct from `sleep`, which is the
-   *  screen-read gate). */
   park(id: TerminalId, state: "sleeping" | "parked"): void;
   remove(id: TerminalId): void;
-  /** Queue a settle event and ring the pulse, as padi's registry would. */
   fire(id: TerminalId, kind: "asking" | "finished" | "gone"): void;
   setUrgency(next: PadiUrgency): void;
-  /** Make this padi REFUSE every `watch.open` — a host that is answering but
-   *  cannot carry a subscription (a padi mid-restart, a registry at its cap).
-   *  `null` restores it. */
   refuseWatchOpen(why: string | null): void;
-  /** Make `lifecycle.sendInput` fail — how a create stops PARTWAY with a real
-   *  terminal already on the canvas. */
   refuseSendInput(why: string | null): void;
-  /** Make this padi's SCREEN READS answer the active-terminal gate's dormant
-   *  refusal — what a terminal that has been put to sleep answers (kolu#2361).
-   *  `null` restores it. */
   sleep(id: TerminalId | null): void;
-  /** Drop every subscription this padi holds, keeping the client — a padi
-   *  that RESTARTED under a mirror that never dropped, so nothing upstream
-   *  observed a disconnect and the next drain finds no such queue. */
   forgetWatches(): void;
   readonly openedWatches: string[];
   readonly closedWatches: string[];
@@ -217,10 +142,6 @@ interface FakePadi {
 
 function fakePadi(host: string, seeded: readonly TerminalId[]): FakePadi {
   const calls: string[] = [];
-  // One cell PER RECORD, because a collection `get` is a live stream on the
-  // wire: a terminal whose agent starts working while something is watching
-  // it publishes that, and a fixture that answered one frame and completed
-  // would make every state change after the first unobservable.
   const records = new Map<TerminalId, Cell<PadiTerminal>>(
     seeded.map((id) => [id, cell(terminalRecord(`${host} ${id.slice(0, 4)}`))]),
   );
@@ -239,31 +160,19 @@ function fakePadi(host: string, seeded: readonly TerminalId[]): FakePadi {
   const queue: PadiWatchEvent[] = [];
   const openedWatches: string[] = [];
   const closedWatches: string[] = [];
-  /** Open subscription names → the watermark each has acknowledged. */
   const open = new Map<string, number>();
   let seq = 0;
   let watchOpenRefusal: string | null = null;
   let sendInputRefusal: string | null = null;
-  /** Terminals whose agent begins WORKING when its submit key arrives, by the
-   *  agent kind that is in them. */
   const startsOnSubmit = new Map<TerminalId, string>();
-  /** Terminals whose working omp answers a steer, and how. */
   const steers = new Map<
     TerminalId,
     "holds" | "takes" | "takes-late" | "steals" | "dies"
   >();
-  /** What each terminal's screen draws, when a steer has changed it. */
   const screens = new Map<TerminalId, string>();
-  /** The last TEXT written to each terminal — what a submit hands over. */
   const typed = new Map<TerminalId, string>();
-  /** The one terminal this padi reports as ASLEEP, if any. */
   let sleeping: TerminalId | null = null;
 
-  /** ONE host's padi, as a HANDLER RECORD at the tags padi's own face dials —
-   *  `surfaceTag(padiSurfaceSibling.tagPrefix, member, verb)`, minted by the
-   *  framework from padi's own sibling, never typed out here. Every member
-   *  this fixture serves therefore has to exist, at its real name, in the real
-   *  surface. */
   const at = (member: string, verb: string): string =>
     surfaceTag(padiSurfaceSibling.tagPrefix, member, verb);
   const handlers = {
@@ -275,9 +184,6 @@ function fakePadi(host: string, seeded: readonly TerminalId[]): FakePadi {
       }),
     [at("status", "get")]: () => Stream.make({}),
     [at("urgency", "get")]: () => urgency.stream(),
-    // THE ROSTER STANDING: this fixture's padi has adopted its terminals, so
-    // its key list is a census — which is what lets a reader of it conclude
-    // that a terminal missing from it is really not there.
     [at("roster", "get")]: () => roster.stream(),
     [at("terminals", "keys")]: () => keys.stream(),
     [at("terminals", "get")]: ({ key }: { key: TerminalId }) => {
@@ -287,8 +193,6 @@ function fakePadi(host: string, seeded: readonly TerminalId[]): FakePadi {
     [at("screen", "text")]: (input: { id: TerminalId }) =>
       Effect.suspend(() => {
         calls.push(`screen.text:${input.id}`);
-        // padi's active-terminal gate: a dormant record is refused by name,
-        // never as "not found" (kolu#2361).
         return input.id === sleeping
           ? Effect.fail(
               new TerminalNotActive({ id: input.id, state: "sleeping" }),
@@ -318,10 +222,6 @@ function fakePadi(host: string, seeded: readonly TerminalId[]): FakePadi {
         if (sendInputRefusal !== null) {
           return Effect.fail(new Error(sendInputRefusal));
         }
-        // A submit KEY landing on an agent that was armed to start: what a
-        // real TUI does a beat after its Enter, and the only way an
-        // in-process fixture can let `agent_say`'s "did it take" wait observe
-        // the thing it is there to observe.
         const { id, data } = input as { id: TerminalId; data: string };
         const starting = startsOnSubmit.get(id);
         const record = records.get(id);
@@ -329,10 +229,6 @@ function fakePadi(host: string, seeded: readonly TerminalId[]): FakePadi {
         if (data === "\r" && starting !== undefined && record !== undefined) {
           record.set(withAgent(`${host} agent`, starting, "thinking"));
         }
-        // A steer's Enter on a working omp, as measured: held in the pane,
-        // taken into the transcript as a new prompt (at once, or a beat after
-        // the watch's cap — the record is derived from a POLLED transcript
-        // read, so it lags the pane), or a terminal that dies on the keys.
         const steer = steers.get(id);
         if (data === "\r" && steer !== undefined && record !== undefined) {
           const words = typed.get(id) ?? "";
@@ -357,16 +253,8 @@ function fakePadi(host: string, seeded: readonly TerminalId[]): FakePadi {
           } else if (steer === "takes") {
             took();
           } else if (steer === "takes-late") {
-            // The turn took the words in the last moment of the cap: they
-            // have LEFT the pane and the record has not caught up. A REAL
-            // timer, deliberately: what is under test is a wait against the
-            // host clock inside a live surface mirror, which a fake clock
-            // cannot drive (the same reason this suite's steer tests already
-            // run at 15 s).
             setTimeout(took, SAY_STEER_CAP_MS + 200).unref();
           } else if (steer === "steals") {
-            // Someone else's words landed in the window — an older held steer
-            // handed over, or the human typing in that terminal.
             record.set(
               withAgent(`${host} agent`, "omp", "thinking", {
                 lastPromptId: "p-someone-else",
@@ -374,7 +262,6 @@ function fakePadi(host: string, seeded: readonly TerminalId[]): FakePadi {
               }),
             );
           } else {
-            // The terminal died on the keys.
             records.delete(id);
             keys.set([...records.keys()]);
           }
@@ -386,11 +273,6 @@ function fakePadi(host: string, seeded: readonly TerminalId[]): FakePadi {
         calls.push(`git.getStatus:${input.repoPath}`);
         return { files: [], branch: host };
       }),
-    // padi's own rule, because the fleet leans on it: a FRESH subscription
-    // starts acknowledged at the daemon's current sequence (it reports what
-    // happens next), and a RE-ATTACH keeps the watermark it had — which is
-    // what makes a reconnect hand over what was queued while the link was
-    // down instead of skipping it.
     [at("watch", "open")]: (input: { name: string }) =>
       Effect.suspend(() => {
         openedWatches.push(input.name);
@@ -440,22 +322,11 @@ function fakePadi(host: string, seeded: readonly TerminalId[]): FakePadi {
         open.delete(input.name);
         return Effect.succeed({});
       }),
-    // The output feed `agent_say`'s settle (and every `wait_*`) subscribes to.
-    // ONE snapshot frame and then silence, which is a terminal that has
-    // finished redrawing — so the idle window fires instead of the call
-    // spending its whole cap.
     [at("terminalAttach", "get")]: () =>
       Stream.make({ kind: "snapshot", data: `screen of ${host}` }),
     [at("watchPulse", "get")]: () => pulse.stream(),
   } as unknown as SurfaceHandlers;
 
-  // THE REAL FACE WALK — `padiClientOver`, the one kolu-server hands the fleet
-  // face, over an in-process dispatch into the record above. A hand-built
-  // object cast to `PadiSurfaceClient` is what this used to be, and it is
-  // exactly what let the production bug ship: the cast makes any shape a padi
-  // client, so a face that dials tags nothing is bound at looks identical to
-  // one that works. Built this way the fixture cannot pass unless padi's face
-  // and this padi's handlers agree on every tag.
   const client = padiClientOver(directDispatch({ handlers })).padi;
 
   return {
@@ -523,7 +394,6 @@ function fakePadi(host: string, seeded: readonly TerminalId[]): FakePadi {
   };
 }
 
-/** kolu-server's host map, as a test holds it: a mutable roster of states. */
 function fakeFleet(
   seed: readonly {
     key: string;
@@ -578,60 +448,33 @@ function fakeFleet(
   };
 }
 
-/** The one text body a `resources/read` answers with, as JSON. The SDK types
- *  `contents` as text-or-blob; every resource this face serves is text, so the
- *  read is narrowed here once rather than at each assertion. */
 const jsonOf = (result: {
   readonly contents: readonly Record<string, unknown>[];
 }): unknown => JSON.parse(String(result.contents[0]?.text));
 
-/** A waterfall role's start, as kolu-server answers it for a setup it still
- *  offers: the saved harness and model, and the host's launch. */
 interface SetUpStart {
   readonly harness: string;
   readonly model: string;
   readonly launch: AgentModelLaunch;
 }
 
-/** omp's launch, as its adapter answers it: a flag before its arguments. */
 const MODEL_FLAG: AgentModelLaunch = { kind: "flag", flag: "--model" };
 
-/** kolu's pieces of work, as a test holds them: one work opened per
- *  `work_open`, add-ordered members, in memory, recording HOW each joined,
- *  every terminal the conductor has spoken to, and what the server's watcher
- *  last SAW in each one. The real record is stored with the rest of kolu's
- *  state and read by that watcher — this face moves it and serves it back,
- *  which is exactly what these tests are about. */
 function fakeWorks(): FleetWorks & {
-  /** Open a work the way kolu-server would, without going through the tool —
-   *  for the cases that are about something else and need a work to hang it
-   *  on. */
   seed(id: string, title?: string): string;
   joinOf(ref: string): FleetWatchJoin | undefined;
   roleOf(ref: string): string | undefined;
-  /** Every member ref, across every work — what most of these cases assert. */
   refs(): string[];
-  /** What the SERVER's watcher does between turns: it reads a member terminal
-   *  and writes back what it found. Nothing on this face does it, and the
-   *  `works` resource has to show it. */
   sawIn(ref: string, name: string, agent: string | null): void;
-  /** End a work, as kolu-server would when its PR merged. */
   end(id: string): void;
   readonly saids: string[];
-  /** Every `closed` the face told the record, in order. */
   readonly closeds: string[];
-  /** Every `work_open` that reached the port — with the setup AS THE RECORD
-   *  TAKES IT, which is what the tool's edge conversion is about — every
-   *  `work_ask`, and every note. */
   readonly opened: { title: string; setup: ReadonlyArray<SetupAsk> }[];
   readonly asks: {
     work: string;
     questions: Parameters<FleetWorks["ask"]>[1];
   }[];
   readonly notes: { work: string; text: string }[];
-  /** What a waterfall role of a seeded work starts on — what `startOf`
-   *  answers once kolu-server has judged the saved setup against its offer
-   *  and read the host's launch — or the refusal it answers instead. */
   setUp(
     work: string,
     role: "planner" | "implementor",
@@ -827,8 +670,6 @@ function fakeWorks(): FleetWorks & {
       works.delete(id);
       moved();
     },
-    /** STOP — the one ending the Conductor itself can write, which for this
-     *  fixture is the same move as the forge ending one. */
     stop(id: string) {
       self.end(id);
     },
@@ -841,7 +682,6 @@ function fakeWorks(): FleetWorks & {
   return self;
 }
 
-/** The two-host fixture, at module scope so both suites raise it. */
 function twoHostFleet() {
   const alpha = fakePadi("local", [ALPHA_1, ALPHA_2]);
   const beta = fakePadi("remote:box", [BETA_1]);
@@ -854,9 +694,6 @@ function twoHostFleet() {
 
 describe("the fleet face's git reads", () => {
   it("declare padi's own error set, so a missing base branch reaches the agent", () => {
-    // The fleet face forwards to padi's members; an error padi declares and
-    // the fleet face does not fails the fleet's response encode instead of
-    // reaching an agent calling `git_getStatus`.
     const fleetGit = fleetSurface.spec.procedures.git;
     const padiGit = padiSurface.spec.procedures.git;
     expect(fleetGit.getStatus.error).toBe(padiGit.getStatus.error);
@@ -871,9 +708,6 @@ describe("the fleet face over two hosts", () => {
     teardown = undefined;
   });
 
-  /** The record these cases create INTO. A terminal belongs to a piece of
-   *  work and nothing is created outside one, so even the addressing cases
-   *  name a work — this is it, and nothing here reads it back. */
   const addressingWorks = fakeWorks();
   addressingWorks.seed("work:1");
 
@@ -884,9 +718,6 @@ describe("the fleet face over two hosts", () => {
       hosts,
       transport: serverTransport,
       serverInfo: { name: "kolu-fleet", version: "0.0.0-test" },
-      // These cases are about addressing, not about the works — the port is
-      // handed one that already holds the work they name, and nothing here
-      // reads it back.
       works: addressingWorks,
     });
     const mcp = new Client({ name: "test-client", version: "0.0.0" });
@@ -915,21 +746,14 @@ describe("the fleet face over two hosts", () => {
 
   it("a terminal record is read from the host that owns it, and SAYS so", async () => {
     const { beta, fleet } = twoHosts();
-    // A split living inside another terminal on the same host — the one place
-    // a record carries a second id of its own.
     beta.add(BETA_1, "box worker", ALPHA_1);
     const mcp = await servedFleet(fleet.hosts);
-    // The ESCAPED spelling of a reference (`encodeURIComponent`, what an `{id}`
-    // expansion writes) names the same record as the one handed out.
     const record = jsonOf(
       await mcp.readResource({
         uri: `surface://collections/terminals/${encodeURIComponent(`remote:box/${BETA_1}`)}`,
       }),
     ) as { id: string; parentId: string; host: string; title: string };
     expect(record.title).toBe("box worker");
-    // Every id on the row is one the TOOLS on this face accept. A bare `id`
-    // here is a row an agent reads and cannot act on: `lifecycle_kill` refuses
-    // it as "not a fleet terminal reference".
     expect(record.id).toBe(`remote:box/${BETA_1}`);
     expect(record.parentId).toBe(`remote:box/${ALPHA_1}`);
     expect(record.host).toBe("remote:box");
@@ -941,9 +765,6 @@ describe("the fleet face over two hosts", () => {
   });
 
   it("reads a record at the reference the face hands out — local and remote, unescaped", async () => {
-    // A reference is `host/id`, so the URI an agent writes by pasting one
-    // after the collection has a slash in its name. Both arms, because
-    // `local/<id>` carries the slash too.
     const { fleet } = twoHosts();
     const mcp = await servedFleet(fleet.hosts);
     const asked = (ref: string) => `surface://collections/terminals/${ref}`;
@@ -954,8 +775,6 @@ describe("the fleet face over two hosts", () => {
       id: `local/${ALPHA_1}`,
       host: "local",
     });
-    // The answer comes back at the address the caller WROTE — an agent handed
-    // a different one reads it as a second, secret spelling.
     expect(local.contents[0]?.uri).toBe(localUri);
 
     expect(
@@ -972,9 +791,6 @@ describe("the fleet face over two hosts", () => {
       updates.push(note.params.uri);
     });
     await mcp.subscribeResource({ uri });
-    // The opening snapshot is announced too, after the pusher's debounce — so
-    // wait until it has been heard, and only then clear: what arrives after the
-    // change is the change.
     await vi.waitFor(() => {
       expect(updates).toContain(uri);
     });
@@ -993,8 +809,6 @@ describe("the fleet face over two hosts", () => {
   it("a reference that names no terminal gets the host's own answer", async () => {
     const { fleet } = twoHosts();
     const mcp = await servedFleet(fleet.hosts);
-    // A well-formed reference, to a terminal that is on the OTHER host: the
-    // address is right in shape, so it is read, and the read finds nothing.
     const uri = `surface://collections/terminals/local/${BETA_1}`;
     const refusal = await mcp.readResource({ uri }).then(
       () => null,
@@ -1034,10 +848,6 @@ describe("the fleet face over two hosts", () => {
   });
 
   it("`hosts` answers the whole roster — every host and its facts — in ONE read", async () => {
-    // The question an agent asks first is "which hosts can I use", and the
-    // answer has to arrive whole. As a COLLECTION this resource was its key
-    // set: five strings, and a per-host template URI an agent had to guess at
-    // to learn anything else. One read, every row.
     const { fleet } = twoHosts();
     const mcp = await servedFleet(fleet.hosts);
     expect(
@@ -1090,11 +900,6 @@ describe("the fleet face over two hosts", () => {
   });
 
   it("a SLEEPING terminal is refused by name, with its id re-qualified", async () => {
-    // The refusal an agent on this face actually reads. Two things have to be
-    // true at once: it must say the terminal is ASLEEP (not "not found" — a
-    // terminal it can see in the roster), and the id it names must be the
-    // FLEET reference, in the prose as well as in the data, or the agent is
-    // handed an id every tool on this face refuses.
     const { beta, fleet } = twoHosts();
     beta.sleep(BETA_1);
     const mcp = await servedFleet(fleet.hosts);
@@ -1162,13 +967,10 @@ describe("the fleet face over two hosts", () => {
       },
     });
     expect(res.isError).toBe(true);
-    // The terminal EXISTS on box. An id the agent cannot pass back is an
-    // orphan it was told about and cannot remove.
     expect(res.structuredContent).toMatchObject({
       kind: "stopped-partway",
       landed: { id: `remote:box/${BETA_1}` },
     });
-    // The prose the model actually reads carries the same reference.
     expect(JSON.stringify(res.content)).toContain(`remote:box/${BETA_1}`);
     const killed = await mcp.callTool({
       name: "lifecycle_kill",
@@ -1262,8 +1064,6 @@ describe("`agent_say` over the fleet", () => {
   it("types the words, presses the submit keys, and reports that it TOOK", async () => {
     const { alpha, fleet } = twoHostFleet();
     alpha.runAgent(ALPHA_1, "omp", "waiting");
-    // The agent accepts the prompt a beat after its Enter — so the "did it
-    // take" wait sees the bucket turn `working`, which is the whole claim.
     alpha.startsWorkingOnSubmit(ALPHA_1, "omp");
     const mcp = await servedFleet(fleet.hosts);
 
@@ -1283,8 +1083,6 @@ describe("`agent_say` over the fleet", () => {
       },
       took: { observed: "began-working" },
     });
-    // TWO writes, in order: the text, then the submit — never one fused write,
-    // which is the paste-debounce race this whole protocol exists for.
     const writes = alpha.calls.filter((one) =>
       one.startsWith("lifecycle.sendInput:"),
     );
@@ -1295,9 +1093,6 @@ describe("`agent_say` over the fleet", () => {
   });
 
   it("tells the record it SPOKE, at the fleet reference", async () => {
-    // The member's held news is about a state the conductor has now acted on;
-    // the server withdraws it on this call, which is what stops a wake about
-    // the worker that was just briefed.
     const { alpha, fleet } = twoHostFleet();
     alpha.runAgent(ALPHA_1, "claude-code", "tool_use");
     const works = fakeWorks();
@@ -1321,18 +1116,12 @@ describe("`agent_say` over the fleet", () => {
       arguments: { id: `local/${ALPHA_1}`, text: "skip the review" },
     });
 
-    // claude-code holds a mid-turn message for the NEXT turn — so the answer
-    // says `queue`, and a conductor reading it knows the worker has not heard
-    // this yet. There is no state change to wait for, so none is waited for.
     expect(res.structuredContent).toMatchObject({
       said: { agent: "claude-code", working: true, delivery: "queue" },
       took: { observed: "not-observable" },
     });
   });
 
-  /** A steer into a WORKING omp, through the whole face: the record says what
-   *  its transcript's newest prompt is, and the stand-in TUI answers the one
-   *  Enter as omp 18.20.2 did when measured. */
   async function steerOmp(
     behaviour: "holds" | "takes" | "takes-late" | "steals" | "dies" | "drops",
     words: string,
@@ -1353,11 +1142,6 @@ describe("`agent_say` over the fleet", () => {
   }
 
   it("a steer HELD behind a step omp cannot interrupt is reported as held, after ONE Enter", async () => {
-    // The bug: a steer sent while omp ran a long tool call sat in its
-    // steering pane, and `agent_say` answered "steer" — words it never saw
-    // land. Measured, a held steer is delivered when the step ends, and a
-    // second Enter would deliver it by killing the step: so the answer names
-    // the hold, and the keys stay ONE Enter.
     const { took, writes } = await steerOmp(
       "holds",
       "STEER-FOUR: also say the word LYCHEE.",
@@ -1380,25 +1164,16 @@ describe("`agent_say` over the fleet", () => {
   }, 15_000);
 
   it("a steer the turn took AS THE WATCH RAN OUT is landed, not did-not-land", async () => {
-    // The record a verdict reads is derived from a polled, coalesced
-    // transcript read, so a steer taken in the last moment of the cap has
-    // left the pane and is not in the record yet. Reading the two
-    // back-to-back answered `did-not-land` for words that had landed — and
-    // the caller is told to go say it again.
     const { took } = await steerOmp("takes-late", "skip the review");
     expect(took).toMatchObject({ observed: "landed" });
   }, 20_000);
 
   it("SOMEONE ELSE'S prompt landing in the window is not this steer landing", async () => {
-    // An older held steer handed over, or the human typing in that terminal:
-    // the newest prompt moves while what was said is still in the input box.
     const { took } = await steerOmp("steals", "skip the review");
     expect(took).toMatchObject({ observed: "did-not-land" });
   }, 20_000);
 
   it("a terminal that DIES after the keys answers lost-sight, never an error", async () => {
-    // The keys were pressed. A failure here reads as "say it again", and
-    // there is nothing left to say it to.
     const { took } = await steerOmp("dies", "skip the review");
     expect(took).toMatchObject({ observed: "lost-sight", why: "gone" });
   }, 20_000);
@@ -1464,10 +1239,6 @@ describe("the conductor's pieces of work", () => {
   }
 
   it("states the rules the Conductor's script leaves to the tools themselves", async () => {
-    // `teaching.md` says a rule once, and a rule about one tool is said in
-    // THAT tool's description, which the model reads with the tool. These are
-    // the rules the script relies on finding here (its inventory ids beside
-    // each), read off the face the Conductor is actually handed.
     const { fleet } = twoHostFleet();
     const mcp = await servedFleet(fleet.hosts, fakeWorks());
     const { tools } = await mcp.listTools();
@@ -1508,7 +1279,6 @@ describe("the conductor's pieces of work", () => {
 
   const SETUP = [
     { key: "mode", question: "Which mode?", options: ["full", "trivial"] },
-    // kolu's own four: NAMED, never offered.
     { key: "planner.harness" },
     { key: "planner.model" },
     { key: "implementor.harness" },
@@ -1537,9 +1307,6 @@ describe("the conductor's pieces of work", () => {
     });
 
     expect(res.isError ?? false, JSON.stringify(res.content)).toBe(false);
-    // The answer is the setup READ BACK off the decisions, each answer as an
-    // ARM — plus the ask the rest went out as. NOTHING WAITED for the human:
-    // the call answered with `asked`, and their answers arrive as a wake.
     expect(res.structuredContent).toMatchObject({
       work: "work:1",
       setup: {
@@ -1568,9 +1335,6 @@ describe("the conductor's pieces of work", () => {
       ask: "ask:work:1",
       asked: true,
     });
-    // THE EDGE: what reached the port is the RECORD's shape — every question
-    // carries `given: {kind: "ask"}`, because this call gave no answers. The
-    // tool's wire leaves `given` out; nothing below the tool sees that.
     expect(works.opened).toEqual([
       {
         title: "a stored piece of work",
@@ -1690,7 +1454,6 @@ describe("the conductor's pieces of work", () => {
     expect(planner.isError ?? false, JSON.stringify(planner.content)).toBe(
       false,
     );
-    // What was typed IS the saved setup, in the flag omp's adapter names.
     expect(planner.structuredContent).toMatchObject({
       ran: "omp --model anthropic/claude-fable-5-2",
     });
@@ -1701,7 +1464,6 @@ describe("the conductor's pieces of work", () => {
     ]);
     expect(works.joinOf(`local/${BETA_1}`)).toBe("created-run");
 
-    // A harness that takes its model in a config layer gets it there.
     const implementor = await mcp.callTool({
       name: "lifecycle_create",
       arguments: {
@@ -1755,8 +1517,6 @@ describe("the conductor's pieces of work", () => {
     ]);
     const works = fakeWorks();
     works.seed("work:1");
-    // What kolu-server answers for a planner model saved as words: the
-    // answer, and why — `startOf` judged it, and the face passes it on.
     works.setUp(
       "work:1",
       "planner",
@@ -1781,7 +1541,6 @@ describe("the conductor's pieces of work", () => {
     expect(JSON.stringify(res.content)).toContain(
       '\\"fable 5.2\\" is not a model id',
     );
-    // Nothing reached the host: no terminal, and nothing typed.
     expect(
       alpha.calls.filter(
         (one) =>
@@ -1836,13 +1595,8 @@ describe("the conductor's pieces of work", () => {
     });
 
     expect(res.isError ?? false, JSON.stringify(res.content)).toBe(false);
-    // The FLEET reference, not padi's bare id: the members are read back by
-    // tools that only accept `<host>/<id>`, so a bare id here would be a
-    // member nothing on this face can name.
     expect(works.refs()).toEqual([`local/${BETA_1}`]);
     expect(works.roleOf(`local/${BETA_1}`)).toBe("other");
-    // A bare shell: nothing was asked to run in it, so there is no bring-up
-    // that can end without an agent.
     expect(works.joinOf(`local/${BETA_1}`)).toBe("created");
   });
 
@@ -1866,17 +1620,10 @@ describe("the conductor's pieces of work", () => {
       },
     });
 
-    // The difference the server acts on: a terminal whose command ran and
-    // came back to the prompt with no agent ever seen is news, where a shell
-    // nobody ran anything in is simply a shell.
     expect(works.joinOf(`local/${BETA_1}`)).toBe("created-run");
   });
 
   it("a create for a work that is not there is refused with NOTHING created", async () => {
-    // The rule the whole model rests on: a terminal is made INTO a piece of
-    // work. Discovering that the work is unknown after padi had spawned a
-    // shell would leave a terminal nobody is watching and no card to find it
-    // on, so the check happens before anything is routed anywhere.
     const alpha = fakePadi("local", [ALPHA_1]);
     const fleet = fakeFleet([
       { key: "local", display: "this machine", padi: alpha },
@@ -1946,19 +1693,12 @@ describe("the conductor's pieces of work", () => {
       },
     });
 
-    // The terminal LANDED (the refusal names it), but the call did not
-    // succeed — and the join hangs off the answer, so there is no member. The
-    // conductor is told what landed and can adopt it itself.
     expect(res.isError).toBe(true);
     expect(res.structuredContent).toMatchObject({ kind: "stopped-partway" });
     expect(works.refs()).toEqual([]);
   });
 
   it("a kill that LANDS tells the record the Conductor closed it; a refused one tells it nothing", async () => {
-    // The defect this guards: the Conductor closed its planner and
-    // implementor after a merge and was then woken — `… gone · … gone` — about
-    // its own action. The face is where the kill is seen to land, so it is
-    // what says so, at the fleet reference the members are keyed by.
     const { fleet } = twoHostFleet();
     const works = fakeWorks();
     works.seed("work:1");
@@ -1976,8 +1716,6 @@ describe("the conductor's pieces of work", () => {
     expect(works.closeds).toEqual([`remote:box/${BETA_1}`]);
     expect(works.refs()).toEqual([]);
 
-    // A kill that never reached padi closed nothing, so the record must not be
-    // told it did: that terminal is still there, still worth a `gone`.
     fleet.setState("remote:box", "warming");
     const refused = await mcp.callTool({
       name: "lifecycle_kill",
@@ -2004,8 +1742,6 @@ describe("the conductor's pieces of work", () => {
     });
 
     expect(res.isError ?? false, JSON.stringify(res.content)).toBe(false);
-    // The found state is the BASELINE — the conductor is told it here
-    // precisely because it will never arrive as a wake.
     expect(res.structuredContent).toEqual({
       work: "work:1",
       role: "implementor",
@@ -2049,8 +1785,6 @@ describe("the conductor's pieces of work", () => {
       found: { kind: "no-agent" },
     });
 
-    // A dormant terminal is adoptable (the human may wake it), and the answer
-    // says so rather than calling it a plain shell.
     alpha.park(ALPHA_2, "parked");
     const parked = await mcp.callTool({
       name: "work_adopt",
@@ -2076,9 +1810,6 @@ describe("the conductor's pieces of work", () => {
       arguments: { id: `local/${ALPHA_1}`, work: "work:1", role: "other" },
     });
 
-    // A re-adopt still answers the found state — the question "what is it
-    // doing now" is worth answering every time — and the membership is
-    // unmoved.
     expect(res.structuredContent).toMatchObject({
       members: [`local/${ALPHA_1}`],
       found: { kind: "no-agent" },
@@ -2152,8 +1883,6 @@ describe("the conductor's pieces of work", () => {
       left: { kind: "left", work: "work:1" },
     });
 
-    // A terminal that already died has left by itself, so letting it go again
-    // says `not-a-member` — never an error a conductor has to handle.
     const again = await mcp.callTool({
       name: "work_leave",
       arguments: { id: `local/${ALPHA_1}` },
@@ -2205,17 +1934,10 @@ describe("the conductor's pieces of work", () => {
     });
 
     expect(res.isError ?? false, JSON.stringify(res.content)).toBe(false);
-    // THE ASK, and the sentence that says the turn is over. No answers: the
-    // human has not seen the question yet, and the call did not wait to find
-    // out — which is what keeps an MCP client's five-minute tool deadline off
-    // a person reading a plan.
     const asked = res.structuredContent as { ask: string; said: string };
     expect(asked.ask).toMatch(/^ask:/);
     expect(asked.said).toContain("END YOUR TURN");
     expect(asked).not.toHaveProperty("answers");
-    // ... and what reached the record: the ARMS. The tool's wire leaves out
-    // what it was not told (`multiple`, `file`), and the question put on the
-    // work says which of the two it is instead.
     expect(works.asks).toEqual([
       {
         work: "work:1",
@@ -2282,9 +2004,6 @@ describe("the conductor's pieces of work", () => {
   });
 
   it("`works` reads the record back — the members, their hosts as the fleet stands NOW, and the last thing kolu saw", async () => {
-    // The failure this resource exists for: a Conductor that had restarted
-    // could move its work and never read it, so it said it was "not certain"
-    // what it was running and then adopted terminals that were long gone.
     const { beta, fleet } = twoHostFleet();
     beta.runAgent(BETA_1, "codex", "thinking");
     const works = fakeWorks();
@@ -2302,8 +2021,6 @@ describe("the conductor's pieces of work", () => {
         role: "implementor",
       },
     });
-    // What the server's watcher writes back between turns, and the only place
-    // a name or an agent on a member comes from.
     works.sawIn(`remote:box/${BETA_1}`, "the implementor", "codex");
 
     expect(
@@ -2332,14 +2049,11 @@ describe("the conductor's pieces of work", () => {
             {
               ref: `local/${ALPHA_1}`,
               role: "planner",
-              // Nothing has read it yet — said as `null` rather than as a
-              // terminal that is called nothing.
               name: null,
               agent: null,
               joined: "asked",
               hostName: "this machine",
               hostState: "connected",
-              // The Conductor drives it — nobody has taken it over.
               driver: "conductor",
             },
             {
@@ -2360,9 +2074,6 @@ describe("the conductor's pieces of work", () => {
   });
 
   it("a member whose host is NOT answering says so, and one whose host has left keeps its row", async () => {
-    // Both halves matter to an agent deciding what it still has: a warming
-    // host is one to wait for, and a host that is gone is one to let go of.
-    // Dropping the second member would read as a work that never had it.
     const { fleet } = twoHostFleet();
     const works = fakeWorks();
     works.seed("work:1");
@@ -2392,9 +2103,6 @@ describe("the conductor's pieces of work", () => {
           members: [
             {
               ref: `remote:box/${BETA_1}`,
-              // Nothing is invented for a host this fleet no longer holds:
-              // the member is still part of the work, and there is nothing to
-              // reach it through.
               hostName: null,
               hostState: null,
             },
@@ -2427,10 +2135,6 @@ describe("the conductor's pieces of work", () => {
   });
 
   it("a subscriber hears a move nobody on this face made", async () => {
-    // The record changes under the conversation — an agent stops, a member
-    // terminal goes away, a person answers a question in the browser — and a
-    // conductor that only learned of it by calling something would act on a
-    // terminal that is not there. The subscription is how it hears instead.
     const { fleet } = twoHostFleet();
     const works = fakeWorks();
     works.seed("work:1");
@@ -2444,13 +2148,9 @@ describe("the conductor's pieces of work", () => {
       updates.push(note.params.uri);
     });
     await mcp.subscribeResource({ uri: "surface://cells/works" });
-    // Whatever subscribing itself announces has landed by the time a round
-    // trip to the same server has: the count below is what the MOVE adds.
     await mcp.readResource({ uri: "surface://cells/works" });
     const before = updates.length;
 
-    // The move this face did NOT make: kolu-server dropping a member that
-    // went away.
     works.leave(`local/${ALPHA_1}`);
 
     await vi.waitFor(() => {
@@ -2474,8 +2174,6 @@ describe("one expose map, two projections", () => {
   it("both projections mint the same TERMINAL verbs", () => {
     const { stdio, fleet } = resolved();
     expect(names(stdio)).toEqual([
-      // Stdio only — it reads one host's padi, and `fleetSurface` declares no
-      // per-host member to hang it on.
       "diagnostics_read",
       "fs_listAll",
       "fs_readFile",
@@ -2483,7 +2181,6 @@ describe("one expose map, two projections", () => {
       "git_getStatus",
       "lifecycle_kill",
       "screen_history",
-      // Stdio only — the fleet face serves no standing subscription at all.
       "watch_close",
     ]);
     expect(names(fleet)).toEqual([
@@ -2494,9 +2191,6 @@ describe("one expose map, two projections", () => {
       "lifecycle_kill",
       "screen_history",
     ]);
-    // What may be DONE to a terminal is still one list: the only difference is
-    // the subscription verb, which has no member on the fleet surface to hang
-    // on.
     const mutates = (one: ReturnType<typeof resolveExpose>) =>
       Object.fromEntries(one.tools.map((tool) => [tool.name, tool.mutates]));
     for (const name of names(fleet)) {
@@ -2517,13 +2211,8 @@ describe("one expose map, two projections", () => {
       "hosts",
       "terminals",
       "urgency",
-      // The one resource the stdio face has no counterpart for: this face
-      // serves one conversation's RECORD — kolu's pieces of work.
       "works",
     ]);
-    // ... and `hosts` is a CELL, which is what makes the roster one read: a
-    // collection's resource is its key SET plus a per-item template, and an
-    // agent that reads a key set still knows nothing about any host in it.
     expect(fleet.resources.find((r) => r.key === "hosts")?.kind).toBe("cell");
     expect(fleet.resourceTemplates.map((t) => t.key)).toEqual(["terminals"]);
   });
@@ -2565,9 +2254,6 @@ describe("one expose map, two projections", () => {
         "work_open",
         "work_stop",
       ]);
-      // The removed four, named so a re-addition is a deliberate edit to this
-      // list rather than a quiet widening: each is a call with no end, and the
-      // conductor's turn is a conversation a human may be trying to speak into.
       for (const gone of [
         "wait_agentState",
         "watch_open",
@@ -2576,8 +2262,6 @@ describe("one expose map, two projections", () => {
       ]) {
         expect(tools.map((tool) => tool.name)).not.toContain(gone);
       }
-      // `kolu mcp` keeps every one of them — the reduction is this face's, not
-      // the tool table's.
       expect(Object.keys(KOLU_MCP_TOOLS).sort()).toEqual([
         "agent_say",
         "lifecycle_create",
@@ -2589,10 +2273,6 @@ describe("one expose map, two projections", () => {
         "watch_next",
         "watch_open",
       ]);
-      // The static roll the conductor's teaching script is pinned against —
-      // every name in it is actually served, and nothing served is missing
-      // from it. (The raw-procedure tools come from the expose map, not this
-      // list, so they are subtracted rather than expected here.)
       const served = tools.map((tool) => tool.name);
       expect([...KOLU_FLEET_TOOL_NAMES].sort()).toEqual([
         "agent_say",
@@ -2640,13 +2320,10 @@ describe("one expose map, two projections", () => {
           idleMs: FLEET_SETTLE_CAP_MS + 1,
         },
       });
-      // REFUSED, not clamped: a clamp answers "met" after three seconds to a
-      // caller that believed it had waited ten minutes.
       expect(res.isError).toBe(true);
       expect(JSON.stringify(res.content)).toContain(
         String(FLEET_SETTLE_CAP_MS),
       );
-      // The cap is advertised, so a model reads it before it tries.
       const { tools } = await mcp.listTools();
       const wait = tools.find((tool) => tool.name === "wait_outputSettled");
       expect(JSON.stringify(wait?.inputSchema)).toContain(

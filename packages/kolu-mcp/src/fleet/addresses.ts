@@ -1,23 +1,7 @@
-/**
- * WHAT THE FLEET FACE SERVES, as addresses — resolved from the same spec and
- * the same expose map `./serve.ts` serves, through `@kolu/surface-mcp`'s own
- * composition and reader, so "which addresses are there" is answered once and
- * cannot drift from what the face registers.
- *
- * Published because the Conductor's teaching script
- * (`packages/conductor/src/teaching.md`) states these addresses in its own
- * words, and kolu-server's `teaching.test.ts` pins the script against these
- * values: a renamed resource turns that test red instead of teaching a dead
- * address.
- */
-
 import { resolveBundle, servesAddress } from "@kolu/surface-mcp";
 import { KOLU_FLEET_EXPOSE } from "../expose.ts";
 import { fleetSurface } from "./fleetSurface.ts";
 
-/** The fleet face's composition: one core and no siblings, exactly as
- *  `./serve.ts` serves it. Resolved once, at load — the spec and the map are
- *  constants. */
 const FLEET = resolveBundle({
   core: { surface: fleetSurface, expose: KOLU_FLEET_EXPOSE },
 });

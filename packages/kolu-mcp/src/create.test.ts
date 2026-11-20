@@ -1,17 +1,3 @@
-/**
- * `lifecycle_create` — the worktree-capable bespoke create, pinned at both
- * altitudes:
- *
- *   1. the PURE directory gate (`resolveCreateDirectory`) — the CLI's
- *      combination matrix, refused as data;
- *   2. the WIRE — a served face with a recording fake padi proves the
- *      worktree → create → sendInput composition (order, arguments, the
- *      worktree's path becoming the terminal's cwd, `run` typed with its
- *      submit), that a refusal reaches the agent as `structuredContent`,
- *      and that a sequence stopping partway names the survivors as data
- *      (`stopped-partway` + `landed`) instead of erasing them.
- */
-
 import { padiSurface } from "@kolu/padi-client/surface";
 import {
   type SurfaceClientCallable,
@@ -52,8 +38,6 @@ describe("resolveCreateDirectory — the directory gate matrix", () => {
     });
   });
 
-  /** Assert a gate refuses as DATA — the `ToolFailure` an agent reads out of
-   *  `structuredContent`, not a sentence it would have to parse. */
   const refusalOf = (run: () => unknown): unknown => {
     try {
       run();
@@ -81,9 +65,6 @@ describe("resolveCreateDirectory — the directory gate matrix", () => {
       { kind: "cwd-and-worktree" },
     ],
     [
-      // An agent's relative path has no base it chose: this server's cwd is
-      // wherever its MCP host spawned it, so resolving against it would cut a
-      // worktree in a repository nobody named.
       "a relative repo",
       { repo: "some/repo", worktree: "fix-1" },
       { kind: "relative-repo", repo: "some/repo" },
@@ -92,10 +73,6 @@ describe("resolveCreateDirectory — the directory gate matrix", () => {
     expect(refusalOf(() => resolveCreateDirectory(args))).toEqual(detail);
   });
 
-  // Blankness is its own gate, ahead of the directory read: an empty value is
-  // not an argument to interpret, it is a variable that did not expand. The
-  // wire refuses `intent: ""` but accepts `"  "`, which is why `intent` — not a
-  // directory field at all — is covered here too.
   it.each([
     ["worktree", { repo: "/r", worktree: "  " }],
     ["cwd", { cwd: "" }],
@@ -117,9 +94,6 @@ describe("lifecycle_create at the wire — the CLI composition, one tool call", 
     teardown = undefined;
   });
 
-  /** A recording fake padi: every surface call lands in `calls` in program
-   *  order, and each verb's answer (or failure) is the test's to choose. The
-   *  members return EFFECTS, as the real dialed client's procedures do. */
   function fakePadi(behavior?: {
     createFails?: Error;
     sendInputFails?: Error;
@@ -204,13 +178,11 @@ describe("lifecycle_create at the wire — the CLI composition, one tool call", 
       "lifecycle.sendInput",
     ]);
     expect(calls[0]!.input).toEqual({ repoPath: "/r", name: "fix-1" });
-    // The worktree IS the cwd; the tool-only fields never reach the wire.
     expect(calls[1]!.input).toEqual({
       placement: { kind: "toplevel" },
       cwd: "/r/.worktrees/fix-1",
       intent: "fix #1",
     });
-    // …and the command is TYPED, with its submit, never a spawn argv.
     expect(calls[2]!.input).toEqual({ id: ID, data: "claude\r" });
   });
 
@@ -226,8 +198,6 @@ describe("lifecycle_create at the wire — the CLI composition, one tool call", 
     expect(res.isError ?? false).toBe(false);
     expect(res.structuredContent).toEqual({ id: ID, pid: 4242 });
     expect(calls.map((c) => c.verb)).toEqual(["lifecycle.create"]);
-    // The placement rides through to the wire verbatim — this face forwards the
-    // agent's stated intent, it does not re-decide it.
     expect(calls[0]!.input).toEqual({ placement: { kind: "toplevel" } });
   });
 
@@ -247,10 +217,6 @@ describe("lifecycle_create at the wire — the CLI composition, one tool call", 
   });
 
   it("REFUSES a create with no placement, naming both spellings — nothing dials padi", async () => {
-    // The rule this PR exists for, at the face an agent actually calls. The
-    // refusal is the shared wire schema's, so the sentence an agent gets here is
-    // byte-identical to the one padi would have sent — and it arrives before any
-    // verb runs, so a driver's retry has nothing to clean up.
     const { calls, client } = fakePadi();
     const mcp = await servedFace(client);
 
@@ -268,9 +234,6 @@ describe("lifecycle_create at the wire — the CLI composition, one tool call", 
   });
 
   it("REFUSES a placement that names a third arm, with the same sentence", async () => {
-    // A model that invents `{"kind":"split"}` is the same failure as omitting
-    // the field — it did not learn the vocabulary — so it gets the same answer
-    // rather than a schema-shaped one it would have to decode.
     const { calls, client } = fakePadi();
     const mcp = await servedFace(client);
 
@@ -343,10 +306,6 @@ describe("lifecycle_create at the wire — the CLI composition, one tool call", 
   });
 
   it("a create with NOTHING behind it fails as the daemon's own error, not as a survivors report", async () => {
-    // The mirror of the case above: with no worktree ahead of it, a failing
-    // `lifecycle.create` has produced nothing. Reporting "these already exist"
-    // over an empty list would be a false alarm, and `stopped-partway`'s
-    // documented recovery ("act on what landed") would name nothing.
     const { client } = fakePadi({
       createFails: new Error("terminal budget exhausted"),
     });
