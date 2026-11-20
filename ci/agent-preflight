@@ -29,14 +29,16 @@ system="$(nix eval --impure --raw --expr builtins.currentSystem)"
 echo "ci/agent-preflight: ${flake} · ${system} · source ${agent_flake_ref}"
 echo "realising the agent closure into this host's store (what provisioning ships from):"
 
-installables=""
+installables=()
+count=0
 while IFS= read -r package; do
   [ -z "$package" ] && continue
-  installables="${installables} ${agent_flake_ref}#packages.${system}.${package}"
+  installables[count]="${agent_flake_ref}#packages.${system}.${package}"
+  count=$((count + 1))
 done <<< "$packages"
+[ "$count" -gt 0 ] || die "${packages_json} exposes no agent packages"
 
-# shellcheck disable=SC2086  # deliberate word-splitting of the installable list
-nix build -L --no-link --print-out-paths --accept-flake-config $installables \
+nix build -L --no-link --print-out-paths --accept-flake-config "${installables[@]}" \
   || die "could not realise the agent closure — a remote provisioned from this artifact WILL compile from source"
 
 echo

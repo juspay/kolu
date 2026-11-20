@@ -36,10 +36,6 @@ jobs:
       # Warm what people actually build. `head.sha` is empty on non-PR events,
       # where the fallback is checkout's own default (the pushed master commit /
       # the dispatched ref) — the correct tree there already.
-      #
-      # No new exposure: this is `pull_request`, not `pull_request_target`, so a
-      # fork PR gets no `ODU_CACHE_TOKEN` and cannot push regardless of which of
-      # the two trees is checked out. Both refs already run this PR's Nix code.
       - uses: actions/checkout@v4
         with:
           ref: ${{ github.event.pull_request.head.sha }}

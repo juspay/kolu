@@ -1,120 +1,31 @@
-# A leaf may also be SHARDED across the platform's venue pool with
-# `[metadata("odu:shard=N")]`. N is a CEILING, not a reservation: odu takes
-# whatever slots are free (one of them is the run's own primary box), tells
-# every slice the total it actually got in `ODU_SHARD_TOTAL`, and numbers the
-# slices from ZERO in `ODU_SHARD_INDEX`. The leaf divides its own work from that
-# pair, so the work stays whole whatever total comes back. Each borrowed box
-# also runs its own copy of the leaf's dependency closure, which is what the
-# `<recipe>[k-of-N]` and `<recipe>[k-of-N]::<dep>` nodes are — a leaf earns a
-# shard only by being slower than that burst. Every slice folds into the ONE
-# `<recipe>@<platform>` GitHub context, whose duration is the slowest slice, so
-# ci/protect never grows a shard name. Our darwin pool is a single host, so
-# nothing is ever free to borrow there and every darwin lane resolves to TOTAL=1.
-#
-# Two leaves are sharded today: `e2e` (cucumber owns the split) and `daemon`
-# (vitest `--shard`, which is what makes a leaf whose wall time is a handful of
-# expensive files — not one long suite — divide at all). Each owns its own
-# translation of the zero-based `ODU_SHARD_*` pair; see the recipes below.
-
 set working-directory := '..'
 
 nix_shell := if env('IN_NIX_SHELL', '') != '' { '' } else { 'nix develop --accept-flake-config -c' }
 
 # Pipeline root: every recipe listed here becomes a (recipe × platform) node.
-# Body is empty — the runner expands `depends_on` from this DAG and executes
-# each leaf via `just --no-deps <recipe>`. `just ci` (without the runner) still
-# works for single-platform local runs via the [parallel] expansion.
-#
-# Dependency edges exist to ORDER work, and every edge is latency: a node
-# can't start until all its deps finish. The runner already fans these out
-# maximally, so the wall-clock is the *critical path* — the longest dependency
-# chain. We keep that path as short as honestly possible:
-#
-#   * `nix` owns the runnable Kolu flake: packages, checks, and dev shells,
-#     plus its whole-flake evaluation/schema gate.
-#   * Website, example, and CI-tool Nix outputs live in independent subflakes.
-#     Their nodes depend on `nix` so Nix builds do not fight over CPU, memory,
-#     and store locks; each remains a separate status and source boundary.
-#   * Every other node that invokes `nix build` depends on `nix`: e2e's
-#     `.#koluBin`, smoke's `.#default`, and the pnpm hash rebuild. Their
-#     commands remain self-contained, but start from a warmed store after the
-#     root evaluator/build process has exited instead of competing with it for
-#     CPU, memory, and Nix locks.
-#   * `home-manager` is the one deliberate exception — its recipe owns why.
-#
-# The remaining edges intentionally trade critical-path length for lower peak
-# contention.
 [linux]
 [macos]
 [parallel]
 [metadata("ci")]
 default: nix agent-flake-nix agent-bake agent-models agent-published website-nix website-pnpm-hash-fresh surface-examples-nix solid-browser-example-nix odu-nix home-manager e2e e2e-governance dev-smoke smoke fmt biome unit daemon upgrade-window surface-example-build surface-app-example-build pnpm-hash-fresh
 
-# Single per-platform `pnpm install`. The runner fans every recipe out into
-# its own process and starts them all in parallel as soon as setup completes,
-# so any two recipes that each shell out to `pnpm install` against the same
-# workspace race and corrupt each other's node_modules (node-pty's native
-# postinstall is the visible failure). Funnel every pnpm consumer through
-# this node and call pnpm/biome directly downstream — do not invoke top-level
-# `just <recipe>` recipes that carry their own `install` dep.
+# Single per-platform `pnpm install`; every pnpm consumer funnels through it.
 install:
     {{ nix_shell }} just _materialize-pinned-members
     {{ nix_shell }} pnpm install --frozen-lockfile
 
-# Verify the root pnpmDeps hash matches what fetchPnpmDeps produces from
-# ./pnpm-lock.yaml. The website's independent twin is
-# `website-pnpm-hash-fresh`.
-#
-# Two builds are required, not one: `nix build --rebuild` errors with
-# "outputs ... are not valid, so checking is not possible" when the store
-# path doesn't exist yet. The first `nix build` realizes the path (from
-# substituter or fresh fetch); --rebuild then forces re-execution and
-# compares, so a stale cached artifact at the declared hash (local store
-# or cache.kolu.dev/kolu-r2) can't silently satisfy a hash that no longer
-# matches the lockfile.
+# Verify the root pnpmDeps hash against what fetchPnpmDeps produces from ./pnpm-lock.yaml.
 pnpm-hash-fresh: nix
     nix build .#pnpmDeps --no-link
     nix build --rebuild .#pnpmDeps --no-link
 
-# The single ordinary-Nix gate for each platform:
-#
-# 1. Build every root-flake package, check, and dev shell for the current
-#    system. Names come from the flake, so a new output cannot silently escape
-#    CI (see ci/flake-build). This includes the workspace typecheck.
-# 2. Run `nix flake check --no-build` as the whole-output evaluation/schema
-#    gate. Step 1 already realizes the check derivations; this command exists
-#    only to validate the flake structure and evaluation.
-#
-# `--link` IS THE PUSH: odu globs `result*` in the directory the recipe ran in
-# and pushes each closure to the cache this repo already substitutes from, so
-# a `--no-link` build warms nothing (`ci/README.md`, "The cache is warmed by
-# the run"). Carried by the three invocations the GitHub workflow used to
-# `warm`; `surface-examples-nix`, `solid-browser-example-nix` and
-# `home-manager` below each own why they do not.
-#
-# `[metadata("odu:pin")]` HOLDS WHAT THAT PUSH LANDED: on a run on the default
-# branch odu re-points the pin `juspay/kolu@master/<system>` at this closure, so
-# GC never collects master's linux build. That is the same pin name
-# `.github/workflows/nix-cache.yml` makes for aarch64-darwin, so the two systems
-# share one naming scheme and linux needs no workflow of its own. A run on any
-# other branch — every PR — still pushes, and pins nothing.
+# The single ordinary-Nix gate for each platform.
 [metadata("odu:pin")]
 nix:
     bash ci/flake-build --link .
     nix flake check --no-build --accept-flake-config -L
 
-# Evaluate every remote-agent package from the exact minimal source flake baked
-# into Kolu's wrappers. The package names come from Kolu's agent manifest,
-# and the system comes from Nix itself: no platform or consumer-owned map can
-# drift from the source flake. Keep this CI-only so a fresh `nix run` does not
-# pay to evaluate remote agents it may never provision.
-#
-# LOAD-BEARING, not a nicety. `default.nix`'s build-input prove covers only the
-# manifest's `prove` list — `padi-agent`, the attr both dial paths actually
-# resolve, cannot be proven there (it references the baked source itself; see
-# that file's expose/prove note). This recipe is therefore the ONLY gate on the
-# exposed attrs. Delete it and a fileset gap that reaches `default` or the TUIs
-# surfaces at dial time on a user's box.
+# Evaluate every remote-agent package from the minimal source flake baked into Kolu's wrappers.
 agent-flake-nix: nix
     #!/usr/bin/env bash
     set -euo pipefail
@@ -131,55 +42,31 @@ agent-flake-nix: nix
     done <<< "$agent_packages"
 
 # Build and schema-check the website subflake after the root Kolu build exits.
-# Packages and checks are both required; the website intentionally has no
-# development shell of its own. `--link` for the same reason `nix` carries it:
-# the website's closure shares nothing with the root flake (`./website` pins
-# its own nixpkgs), so this lane is its only writer.
 website-nix: nix
     bash ci/flake-build --link --kinds packages,checks ./website
     nix flake check ./website --no-build --accept-flake-config -L
 
-# Verify website/pnpm-lock.yaml against the website subflake's declared fixed
-# output hash. The first build realizes the path; --rebuild then proves the
-# cached path was not masking a stale hash.
+# Verify website/pnpm-lock.yaml against the website subflake's declared fixed output hash.
 website-pnpm-hash-fresh: website-nix
     nix build ./website#pnpm-deps --no-link
     nix build --rebuild ./website#pnpm-deps --no-link
 
-# Build every Nix package shipped by the @kolu/surface examples. These depend
-# on Kolu's workspace source and pnpm closure, so run after the root Nix gate.
-#
-# No `--link`: these build docsites nobody substitutes, so they stay out of
-# the cache exactly as they stayed out of the GitHub workflow's warm set.
+# Build every Nix package shipped by the @kolu/surface examples.
 surface-examples-nix: nix
     bash ci/flake-build --kinds packages ./packages/surface/example
     nix flake check ./packages/surface/example --no-build --accept-flake-config -L
 
 # Build the @kolu/solid-browser docsite from its independent example subflake.
-# No `--link`, same reason as `surface-examples-nix`.
 solid-browser-example-nix: nix
     bash ci/flake-build --kinds packages ./packages/solid-browser/example
     nix flake check ./packages/solid-browser/example --no-build --accept-flake-config -L
 
-# Build the repository-pinned Odu coordinator from ci/flake.nix. Odu drives the
-# pipeline, but its package must not make `nix run` evaluate CI tooling.
-# `--link`: `./ci` pins its own nixpkgs too, so nothing else warms it.
+# Build the repository-pinned Odu coordinator from ci/flake.nix.
 odu-nix: nix
     bash ci/flake-build --link --kinds packages ./ci
     nix flake check ./ci --no-build --accept-flake-config -L
 
-# Build the separate home-manager example flake. Deliberately NOT dependent on
-# `nix`: `--override-input kolu .` builds the same kolu derivations `ci::nix`
-# builds, and Nix's per-derivation build lock makes whichever node arrives
-# second WAIT, never rebuild — so an edge guards nothing and only serializes
-# this node behind the root gate. Darwin checks the activation package and
-# launchd configuration. Linux checks the NixOS configuration and runs the
-# service, adoption, and upgrade VM tests.
-#
-# No `--link`, and never add one: these outputs are NixOS system toplevels and
-# VM-test runners for an EXAMPLE configuration. Nobody substitutes them, and a
-# machine that did would be pulling a test fixture's system closure out of
-# kolu's cache.
+# Build the separate home-manager example flake against this checkout.
 home-manager:
     if [ "$(uname)" = Darwin ]; then \
       bash ci/flake-build --kinds checks ./nix/home/example -- --override-input kolu .; \
@@ -187,72 +74,27 @@ home-manager:
       bash ci/flake-build --kinds checks --nixos-toplevels ./nix/home/example -- --override-input kolu .; \
     fi
 
-# Boot the packaged Kolu and verify /api/health — runtime smoke that catches
-# packaging regressions where `nix build` passes but the binary crashes at
-# boot (e.g. missing workspace dep — see #761). smoke.sh shells out to
-# `nix build .#default` itself. The `nix` dependency means that command starts
-# from an already-realized path rather than competing with the full-output
-# build; the node remains separate because booting the result is a distinct
-# runtime proof.
+# Boot the packaged Kolu and verify /api/health.
 smoke: nix
     {{ nix_shell }} bash dev/skills/ci/smoke.sh
 
-# `smoke`'s dev-mode twin. `smoke` boots the PACKAGED binary; this one boots
-# `just dev` and asserts the browser console is clean — the only node that
-# exercises Vite's DEV module graph, which is untree-shaken and therefore the
-# only place a server-only module reached through a package barrel is visible
-# (kolu#2042: `node:fs` in the browser, `nix build` and the whole e2e suite
-# green, `just dev` dead on load).
-#
-# Needs no `nix build`, so it does NOT depend on `nix` — it runs from source
-# like `unit` does. `--no-deps`: ci::install already installed the workspace,
-# and a second concurrent `pnpm install` corrupts the shared node_modules/.bin
-# (see the funnel rule at the top of this file).
+# `smoke`'s dev-mode twin: boot `just dev` and assert the browser console is clean.
 dev-smoke: install
     {{ nix_shell }} just --no-deps test-dev
 
-# The working-tree agent bake's regression guard (#2039) — rationale lives with
-# the recipe (root justfile `test-agent-bake`). Its own node because `dev-smoke`
-# cannot cover it: that one enters at `_dev-parallel`, which is deliberately
-# nix-free. Depends on `nix` so the realize is an already-built store lookup
-# rather than a build racing ci::nix for the same drv.
+# The working-tree agent bake's regression guard (#2039).
 agent-bake: nix
     {{ nix_shell }} just --no-deps test-agent-bake
 
-# Padi's model call against the TWO REAL PACKAGES — this tree's floor and
-# upstream's package from the commit before `--models` existed — rationale with
-# the recipe (root justfile `test-agent-models`). A LANE, not a check inside
-# `ci::nix`: real launchers want a writable HOME, and a harness that lists asks
-# its own catalogue, neither of which the build sandbox has. Depends on
-# `install` (vitest) and `nix` so both `nix build`s are already-realized
-# lookups rather than builds racing ci::nix.
+# Padi's model call against the two real packages — this tree's floor and upstream's.
 agent-models: install nix
     {{ nix_shell }} just --no-deps test-agent-models
 
-# Can every kind of host take the package kolu DELIVERS — upstream's newest
-# published, which is what every host actually serves — and does it answer
-# every call kolu's contract makes? Rationale with the recipe (root justfile
-# `test-agent-published`). A LANE because it reads upstream's HTTPS index and
-# pulls that closure from upstream's binary cache; a sandboxed check has no
-# network and could only stay silent, which is how the model question shipped
-# unanswerable on every delivered host. RED until upstream publishes a package
-# that each kind of host takes and that answers, and green then with no change
-# in this repo.
+# Can every kind of host take the package kolu delivers, and answer every call its contract makes?
 agent-published: install nix
     {{ nix_shell }} just --no-deps test-agent-published
 
-# `just test` builds `.#koluBin` itself (justfile `test` recipe). Depend on
-# `nix` as well as the shared pnpm install so that build is an already-realized
-# lookup, not a concurrent Nix build.
-#
-# The sharded browser leaf (the shard contract is at the top of this file):
-# the browser suite is the longest pole on the Linux lane and dwarfs the burst
-# `install`+`nix` copies a borrowed box pays, so it is worth up to four slots.
-# Cucumber owns the actual split (`CUCUMBER_SHARD`, packages/tests/cucumber.js);
-# this recipe only translates odu's zero-based index into Cucumber's one-based
-# one, and refuses a pair that does not parse. With neither variable set — a
-# local `just ci::e2e`, and every darwin lane — this is the command it has
-# always been.
+# The browser e2e suite, sharded: odu's zero-based pair becomes Cucumber's `CUCUMBER_SHARD`.
 [metadata("odu:shard=4")]
 e2e: install nix
     #!/usr/bin/env bash
@@ -269,83 +111,20 @@ e2e: install nix
     fi
     CUCUMBER_RETRY=$([ "$(uname)" = Darwin ] && echo 2 || echo 1) {{ nix_shell }} just --no-deps test
 
-# Wave 0's non-browser guard: parse the real Gherkin suite, compare its
-# immutable inventory with every committed inventory reachable from HEAD, and
-# require a landed coverage-ledger row for every scenario revision that
-# disappeared. Attributed for both platforms so the platform-specific default
-# counts stay executable facts on whichever lane a run names.
+# Wave 0's non-browser guard over the Gherkin suite's committed inventories.
 e2e-governance: install
     {{ nix_shell }} just --no-deps test-e2e-governance
 
-# Run the canonical fork-free unit recipe after this CI process's install. The
-# root recipe owns package concurrency; `--no-deps` preserves CI's single-install
-# funnel rather than replaying the root recipe's install dependency.
+# Run the canonical fork-free unit recipe after this CI process's install.
 unit: install
     {{ nix_shell }} just --no-deps test-unit
 
-# The daemon-forking packages' suites as their OWN required node (juspay/kolu#1375 A7).
-# Default-OFF gating means `unit` alone would silently skip every daemon suite
-# forever with CI still green; making `daemon` a distinct DAG node (asserted present
-# by daemon-node.test.ts) is what keeps that coverage from evaporating in a recipe
-# refactor. Sets the gate + the run-bind leash (a spawned daemon dies with the run);
-# CI boxes are leased/contained, so the fork storm cannot reach production.
-#
-# `unit` and `daemon` PARTITION the workspace rather than both traversing it: a
-# package declares `test:unit` or `test:daemon`, and `pnpm -r` skips whichever it
-# does not declare (`no-ungated-forks.test.ts` fails if a manifest and its gate
-# call sites disagree). Before that split every fork-free test in the tree ran
-# twice per run — the whole `unit` node, ~5m, on the critical path for nothing.
-#
-# `daemon` deliberately does NOT depend on `unit`. Its lone incident — the macOS
-# `petit` SIGKILL pair (docs/ci-flakes.md) — had two causes, unbounded package
-# concurrency and `unit`/`daemon` traversing the same workspace, and the root
-# recipes' `--workspace-concurrency=1` bound and the partition above each fixed
-# one. So it was a third fix for a cause the other two had already removed — a
-# darwin remedy, levied on the Linux lane.
-#
-# What it cost was structural: `unit` on `daemon`'s critical path, and that
-# closure replayed on every borrowed shard box before its own slice.
-#
-# SHARDED (the shard contract is at the top of this file): the Linux lane's
-# second-longest pole. Its wall time is a handful of expensive FILES, not one
-# long suite — `packages/padi/src/dial.test.ts` alone is ~170 s of padi's 308 s,
-# almost all of it wall-clock deadlines baked into ONE test — so no package-level
-# fan-out helps and a borrowed box is already worth it.
-#
-# N is MEASURED, not guessed. One run at a time with the whole pool free
-# (`selectors: ["ci::daemon"]`, x86_64-linux), the folded `ci::daemon` duration
-# and the slowest slice against the ceiling — measured while the node still
-# carried the `unit` edge, so each borrowed box's closure included it:
-#
-#     N   folded daemon   slowest slice
-#     2        352 s           352 s
-#     3        284 s           284 s
-#     4        245 s           229 s
-#     5        146 s           146 s
-#     6        144 s           144 s
-#
-# The slowest slice stops moving between 5 and 6 (146 s → 144 s, inside host
-# noise), so 5 is the ceiling: past it a shard only costs a saturated pool and
-# an extra `install` closure without shortening the lane. The residual is
-# padi's ~70 s `dial.test.ts` — ONE file, indivisible by any file-level split —
-# plus the primary box's own `install` closure, which a shard cannot borrow
-# away. These six runs had the pool to themselves; `e2e` shares the SAME
-# optional-worker pool (each root takes a prefix up to its own ceiling, so the
-# two compete only when both are live), which is why the ceiling is not raised
-# further: a count the pool cannot feed is a wait, not a speedup.
+# The daemon-forking packages' suites as their own required node (juspay/kolu#1375 A7).
 [metadata("odu:shard=5")]
 daemon: install
     {{ nix_shell }} just --no-deps test-daemon
 
-# Mixed-version daemon upgrade-window — the REAL previous-release e2e (boot the
-# previous tag's kaval, current padi against it, Restart kaval). Slow by design:
-# fetches tags, nix-builds previous-tag #kaval AND current #kaval, refuses if
-# their store paths are identical (that would collapse the window to a
-# same-version recycle — the failure mode that green-washed a first landing),
-# then runs one vitest file under the daemon gate. Both platforms.
-# KOLU_UPGRADE_WINDOW_REQUIRE=1 makes a missing/non-tag/identical previous a
-# hard fail (so CI never silently skips or same-versions). Depends on `nix`
-# so the current flake is already warm; the previous-ref build is additional.
+# Mixed-version daemon upgrade-window — the real previous-release e2e.
 upgrade-window: install nix
     #!/usr/bin/env bash
     set -euo pipefail
@@ -416,34 +195,18 @@ upgrade-window: install nix
       KOLU_CURRENT_KAVAL_STORE="$KOLU_CURRENT_KAVAL_STORE" \
       {{ nix_shell }} pnpm --filter @kolu/padi exec vitest run src/upgradeWindow/previousRelease.e2e.test.ts
 
-# Build EVERY @kolu/surface example client (the base example, remote-process-monitor,
-# and the fleet-top tutorial parts) — the `@kolu/surface-example*` filter runs
-# `build:client` in each package that defines it and skips those that don't (the
-# stdio-only mini-ci, the daemon-only fleet-top part 2). Catches example-only
-# regressions the workspace-wide typecheck doesn't see — broken Tailwind imports,
-# JSX errors, missing imports in the production bundle. These are LIVING DOCS: the
-# tutorial pages embed this code, so its clients must BUILD, not just typecheck.
-# (The fleet-top-agent binary is a subflake package output, built by
-# `surface-examples-nix`.)
-# Cheap (~1s).
+# Build every @kolu/surface example client.
 surface-example-build: install
     {{ nix_shell }} pnpm --filter "@kolu/surface-example*" build:client
 
-# Build the @kolu/surface-app library's example app (vite client). Same purpose
-# as surface-example-build but for surface-app: catches example-only regressions
-# the workspace-wide typecheck misses — broken composition (installSurfaceApp,
-# composeSurfaces, implementSurfaceApp), Tailwind/JSX errors, missing bundle
-# imports. Cheap (~1s).
+# Build the @kolu/surface-app library's example app (vite client).
 surface-app-example-build: install
     {{ nix_shell }} pnpm --filter @kolu/surface-app-example build:client
 
 fmt: install
     {{ nix_shell }} just _fmt-check
 
-# Biome lint — recommended preset with each deliberately-advisory rule
-# explicitly off (with a reason) in biome.jsonc. `--error-on-warnings` makes
-# the gate fail on *any* warning, not just errors, so warning-severity lint
-# debt can no longer accrue invisibly on master (#1362).
+# Biome lint — the recommended preset, failing on any warning.
 biome: install
     {{ nix_shell }} biome lint --error-on-warnings .
 
@@ -451,30 +214,11 @@ biome: install
 attach:
     nix run ./ci#odu -- ci attach
 
-# The final green-gate: the COMPLETE required-status-check set, which is two
-# lists — odu's canonical `<recipe>@<platform>` contexts for the gated CI
-# platform (`x86_64-linux`, pinned by the script so the required list can never
-# drift with a machine-local host file; pass `--platform aarch64-darwin` to add
-# a darwin lane deliberately), PLUS the GitHub Actions contexts that
-# `.github/workflows/nix-cache.yml` posts for the binary-cache warm — those stay
-# two-platform, and the macOS one stays required, because a cold darwin cache is
-# what #2101 was about. This is the source of truth for "is CI done"; verify
-# each is green with `gh pr checks`.
-# Extra args pass straight through to odu, so `just ci::protect --dry-run`
-# prints the whole set without touching the branch.
-#
-# The two lists live in two places GitHub enforces together; which goes where,
-# and why the classic list is replaced rather than appended to, is odu's
-# behaviour and lives in `ci/protect`'s header, the one place to update when it
-# moves. The cache warm has to be gated, not merely green: when it was
-# green-but-not-required, a deploy off that commit found no agent closure in
-# the cache and compiled the daemon on the remote host over ssh
-# (juspay/kolu#2101, G7).
+# The final green-gate: the complete required-status-check set.
 protect *args:
     bash ci/protect {{ args }}
 
-# Bring the pool up to strength: (re)create any missing/unhealthy slot, leave
-# healthy (warm) slots untouched. Size with KOLU_CI_POOL (default 8).
+# Bring the pool up to strength; healthy (warm) slots are left untouched.
 pool-ensure:
     bash dev/skills/ci/pu/pool.sh
 

@@ -1,62 +1,4 @@
 #!/usr/bin/env bash
-# Set the branch's required status checks to the COMPLETE gate: odu's canonical
-# DAG contexts PLUS the GitHub Actions contexts that guard the binary-cache warm.
-# The two halves live in two different places GitHub enforces together:
-#
-#   ruleset            odu's `<recipe>@<platform>` DAG contexts (odu writes it)
-#   classic protection EXACTLY this file's cache-warm contexts (this script)
-#
-#     ci/protect --dry-run            # print the complete required set
-#     ci/protect --contexts-only      # print only this file's GHA contexts
-#     ci/protect                      # apply it to the default branch
-#     ci/protect --branch some-branch # …to another branch
-#
-# WHY TWO HOMES, AND WHY THE CLASSIC LIST IS REPLACED, NEVER APPENDED TO
-# ---------------------------------------------------------------------
-# `odu ci protect` writes the `required_status_checks` rule of the repository
-# RULESET governing the branch, and nothing else — it never touches classic
-# branch protection. That rule is odu's: its PUT replaces the ruleset's rules
-# wholesale with the list its canonical DAG produces, and it has no
-# extra-context flag, so a cache-warm context added to the ruleset by hand
-# survives exactly until the next protect. A merge must satisfy the ruleset AND
-# classic protection, so classic protection is where this script's half goes.
-#
-# And it is REPLACED, every run, with exactly the derived set — never appended
-# to, never a copy of the `ci::*` list. An earlier version POSTed (appended)
-# here, written for an odu that replaced the classic list itself. Once odu moved
-# to the ruleset, nothing reset the classic list any more: the append hit a
-# context already present and GitHub answered 422, and a context whose job no
-# longer existed (`build-and-push (ubuntu-latest)`, after that matrix went
-# darwin-only) stayed required — posted by nothing, it blocked every merge. A
-# replace makes both unspellable: a second run is a no-op, and a renamed job's
-# old context leaves the gate the next time anyone protects. No `ci::*` context
-# belongs in the classic list either: a second copy of the ruleset's list goes
-# stale, the same way, the day a recipe is renamed.
-#
-# THE CONTEXT NAMES ARE DERIVED FROM THE WORKFLOW, NEVER SPELLED HERE
-# -------------------------------------------------------------------
-# A check-run's name — which IS the branch-protection context string — is
-# `<job-id> (<matrix value>)` for a single-dimension matrix job with no `name:`
-# override. So the workflow file is the source of truth and this script parses
-# it: EVERY job, each with one matrix dimension and one flow sequence of values
-# (`build-and-push` warms the cache; `publish-closures` writes the closure
-# index a trust-free remote dial reads — both deploy-critical, both gated). A hardcoded
-# `build-and-push (macos-latest)` here would be a second source of truth that
-# goes stale the day the job or the matrix is renamed — and it would go stale
-# SILENTLY, by requiring a context nothing posts (which blocks every merge) or
-# by dropping one nothing gates (which restores the incident above).
-#
-# Every departure from that shape is a HARD failure naming the workflow file.
-# There is no partial extraction and no empty list: this script would rather
-# refuse to touch branch protection than set a gate it cannot justify.
-#
-# ONE SHAPE IS EXEMPT, and only this one: a job whose `if:` says
-# `github.event_name == 'push'` never runs on a pull request. GitHub reports it
-# there as SKIPPED, which says nothing about the commit, so there is no result
-# to gate on — and it carries no matrix, so this parse could not name a context
-# for it anyway. `linux-pin` is that job: it starts the pod's run of master,
-# which is meaningless on a PR. Any OTHER `if:` is a hard failure — this parse
-# will not guess when a job does and does not really run.
 
 set -euo pipefail
 
@@ -142,9 +84,8 @@ gha_contexts() {
       if (njobs == 0) bail("no `jobs:` mapping with a job under it")
       for (j = 1; j <= njobs; j++) {
         job = jobs[j]
-        # A push-only job only ever skips on a pull request, so it is not a
-        # gateable context. Matched without a literal quote character: this
-        # awk program lives inside a single-quoted shell string.
+        # Matched without a literal quote character: this awk program lives
+        # inside a single-quoted shell string.
         if (guard[j] != "") {
           if (guard[j] ~ /github\.event_name[[:space:]]*==[[:space:]]*.push./) continue
           bail("job `" job "` has an `if:` this parse cannot reason about: " guard[j])
@@ -242,14 +183,11 @@ else
   echo "ci/protect: setting ${repo}@${branch}'s classic required checks to exactly the ${workflow##*/} contexts:"
   LC_ALL=C comm -13 <(lines "$have") <(lines "$want") | sed 's/^/  + /'
   LC_ALL=C comm -23 <(lines "$have") <(lines "$want") | sed 's/^/  - /'
-  # An ARRAY, not a string: every one of these names contains a space
-  # (`build-and-push (macos-latest)`), so an unquoted word-split would send two
-  # mangled contexts instead of one real one.
   gh_args=()
   while IFS= read -r context; do
     gh_args+=(-f "contexts[]=${context}")
   done <<< "$want"
-  # PUT, not POST: this endpoint's PUT replaces the list (the header says why).
+  # PUT, not POST: this endpoint's PUT replaces the list.
   gh api -X PUT "${classic}/contexts" "${gh_args[@]}" > /dev/null \
     || die "could not set the cache-warm contexts on ${repo}@${branch}"
 

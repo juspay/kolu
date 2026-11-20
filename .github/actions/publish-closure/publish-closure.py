@@ -34,6 +34,7 @@ Subcommands, one per step of `action.yml`:
                store of its own, as a consumer does, and verify it.
 """
 import argparse
+import dataclasses
 import json
 import os
 import pathlib
@@ -177,28 +178,43 @@ def pinned(ref_url: str, ref_hash: str) -> str:
     return f"{ref_url}{separator}narHash={quote(ref_hash)}"
 
 
-def push_plan(cache: str, kind: str) -> dict:
+@dataclasses.dataclass(frozen=True)
+class AtticPush:
+    """Where `attic push` sends a closure: the server and the cache name its
+    substituter URL carries, and the credential attic reads."""
+    server: str
+    cache: str
+    credential = "ATTIC_TOKEN"
+
+
+@dataclasses.dataclass(frozen=True)
+class OduPush:
+    """Which odu pushes a closure — this repository's npins pin, url AND hash.
+    An odu push needs no address of its own: the cache states its push origin
+    and bucket, so the only fact left is WHICH odu runs."""
+    pin_url: str
+    pin_hash: str
+    credential = "ODU_CACHE_TOKEN"
+
+
+def push_plan(cache: str, kind: str):
     """What a push of KIND to CACHE needs, beyond the cache URL itself.
 
     `resolve` calls it so a malformed declaration fails before a closure is
-    built, and `push` calls it to run the client — the values are a pure
-    function of the same inputs, so the two cannot disagree about the target.
-    An odu push needs no address of its own: the cache states its push origin
-    and bucket, so the only fact left is WHICH odu runs — this repository's pin.
+    built, and `push` calls it to run the client — one plan, built from the
+    same inputs, so the two cannot name different targets.
 
     THE ONE THING STILL CHECKED ABOUT AN ODU SUBSTITUTER IS ITS SCHEME. `odu
     cache push --cache <url>` reads `<url>/nix-cache-info` with the bucket
     token as a Bearer header, so a plaintext URL would put the credential on
     the wire — refused here, before a closure is built, rather than leaked."""
     if kind == "attic":
-        server, cache_name = attic_target(cache)
-        return {"server": server, "cache-name": cache_name}
+        return AtticPush(*attic_target(cache))
     if urlsplit(cache).scheme != "https":
         die(f"{cache} is not an https substituter — the odu pusher sends the bucket "
             "token to <substituter>/nix-cache-info as a Bearer header, which must not "
             "travel in clear")
-    pin_url, pin_hash = odu_pin()
-    return {"pin-url": pin_url, "pin-hash": pin_hash}
+    return OduPush(*odu_pin())
 
 
 def resolve(args) -> int:
@@ -330,21 +346,26 @@ def push(args) -> int:
 
     odu's push has one success: every path stored (`200`), or a non-zero exit.
     There is no "held, catching up" answer to wait on, so a green push is one the
-    verify step below can fetch back from."""
+    verify step below can fetch back from.
+
+    A run asked to publish does not silently skip the push when its credential
+    is absent: the plan names the one variable its client reads, and a pusher
+    without it fails here."""
     plan = push_plan(args.cache, args.pusher)
     paths = store_paths(args.directory, args.rev_key, args.system)
-    if args.pusher == "attic":
+    token = os.environ.get(plan.credential, "")
+    if not token:
+        die(f"the {args.pusher} pusher has no {plan.credential} — "
+            "the declaration's cache needs its credential")
+    if isinstance(plan, AtticPush):
         if not args.attic_nixpkgs:
             die("push --pusher attic needs --attic-nixpkgs — the caller's pinned nixpkgs")
-        token = os.environ.get("ATTIC_TOKEN", "")
-        if not token:
-            die("the attic pusher has no ATTIC_TOKEN — the declaration's cache needs its credential")
         run(["nix", "profile", "add", f"{args.attic_nixpkgs}#attic-client"])
-        run(["attic", "login", "--set-default", "publish", plan["server"], token])
-        run(["attic", "push", "--stdin", f"publish:{plan['cache-name']}"], stdin=paths)
+        run(["attic", "login", "--set-default", "publish", plan.server, token])
+        run(["attic", "push", "--stdin", f"publish:{plan.cache}"], stdin=paths)
     else:
         run(["nix", "run", "--accept-flake-config",
-             f"{pinned(plan['pin-url'], plan['pin-hash'])}#odu",
+             f"{pinned(plan.pin_url, plan.pin_hash)}#odu",
              "--", "cache", "push", "--whole", "--cache", args.cache, *paths])
     return 0
 

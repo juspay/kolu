@@ -48,20 +48,15 @@ die() {
   exit 1
 }
 
-# The header block above IS the help text — derived, never a line range, so
-# editing the header cannot silently truncate `--help`.
 usage() {
   awk 'NR > 1 && !/^#/ { exit } NR > 1' "$0" | sed 's/^# \?//'
   exit 2
 }
 
-# Splits $1 on commas into the fixed global `split_csv_out`. Callers copy it
-# out; see the nix_args comment below for why this script must run on bash 3.2.
-# A nameref (`local -n`, bash 4.3+) would read better and dies on macos-latest.
+# A nameref (`local -n`, bash 4.3+) would replace this fixed global, and dies on
+# macos-latest's bash 3.2 (see the `nix_args` comment above).
 split_csv() {
-  local IFS=,
-  # shellcheck disable=SC2206
-  split_csv_out=($1)
+  IFS=, read -ra split_csv_out <<< "$1"
 }
 
 while (( $# > 0 )); do
@@ -164,19 +159,13 @@ fi
 
 (( ${#outputs[@]} > 0 )) || die "nothing to build for ${system} (${flake})"
 
-# --no-link, or an out-link prefix naming the flake that was built.
-#
 # `--link` IS THE PUSH: odu collects a node's outputs by globbing `result*` in
-# the directory the recipe ran in, so a `--no-link` build warms nothing. The
-# whole mechanism is `ci/README.md`'s "The cache is warmed by the run".
+# the directory the recipe ran in, so a `--no-link` build warms nothing.
 #
-# The prefix is the FLAKE PATH and nothing else — `result-root`,
-# `result-website`, `result-ci`. One `--link` recipe per flake, so that is
-# already unique, and the links then say which flake they came from rather
-# than restating the recipe's `--kinds`. Uniqueness matters because those
-# recipes run CONCURRENTLY in one directory and nix names a multi-output build
-# `<prefix>`, `<prefix>-1`, … — a shared prefix would have two builds
-# overwriting each other's links and pushing a partial set.
+# The prefix must be unique per flake: these recipes run concurrently in one
+# directory and nix names a multi-output build `<prefix>`, `<prefix>-1`, … — a
+# shared prefix has two builds overwriting each other's links and pushing a
+# partial set.
 build_args=(--no-link)
 if (( link )); then
   slug=${flake#./}

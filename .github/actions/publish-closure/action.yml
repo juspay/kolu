@@ -85,9 +85,9 @@ runs:
       run: |
         set -euo pipefail
         if [ -z "$SOURCE" ] && [ -z "$REV_KEY" ]; then REV_KEY="$REV"; fi
-        # shellcheck disable=SC2086 # INSTALLABLES is space-separated on purpose
+        read -ra installables <<< "$INSTALLABLES"
         python3 "$SCRIPT" resolve --rev "$REV" --repository "$REPOSITORY" --source "$SOURCE" \
-          --sidecar "$SIDECAR" --rev-key "$REV_KEY" $INSTALLABLES >> "$GITHUB_OUTPUT"
+          --sidecar "$SIDECAR" --rev-key "$REV_KEY" ${installables[@]+"${installables[@]}"} >> "$GITHUB_OUTPUT"
         echo "system=$(nix config show system)" >> "$GITHUB_OUTPUT"
         echo "rev=$REV" >> "$GITHUB_OUTPUT"
         echo "directory=$RUNNER_TEMP/closure-index" >> "$GITHUB_OUTPUT"
@@ -106,8 +106,8 @@ runs:
         set -euo pipefail
         args=(index --rev "$REV" --rev-key "$REV_KEY" --system "$SYSTEM" --directory "$OUT")
         [ "$LATEST" = "true" ] && args+=(--latest)
-        # shellcheck disable=SC2086
-        python3 "$SCRIPT" "${args[@]}" $INSTALLABLES
+        read -ra installables <<< "$INSTALLABLES"
+        python3 "$SCRIPT" "${args[@]}" ${installables[@]+"${installables[@]}"}
 
     - name: Run each rewritten program
       if: runner.os == 'Linux'
@@ -121,40 +121,9 @@ runs:
         SMOKE: ${{ inputs.smoke }}
       run: |
         set -euo pipefail
-        # shellcheck disable=SC2086
+        read -ra installables <<< "$INSTALLABLES"
         python3 "$SCRIPT" smoke --rev-key "$REV_KEY" --system "$SYSTEM" \
-          --directory "$OUT" --smoke "$SMOKE" $INSTALLABLES
-
-    # `secrets` cannot be read in an `if:`, and a run that was asked to publish
-    # must not silently skip it because a token is absent — so the credential
-    # the DECLARATION's pusher needs is asserted here, before anything is
-    # pushed. The one run with no credential by design is a fork pull request
-    # (`pull_request`, not `_target`: no secrets), which skips the push, the
-    # import guard and the index below.
-    - name: Fail when the pusher has no credential
-      if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork != true
-      shell: bash
-      env:
-        PUSHER: ${{ steps.resolve.outputs.pusher }}
-        ATTIC_TOKEN: ${{ inputs.attic-token }}
-        ODU_CACHE_TOKEN: ${{ inputs.odu-cache-token }}
-      run: |
-        set -euo pipefail
-        case "$PUSHER" in
-          attic)
-            [ -n "$ATTIC_TOKEN" ] || {
-              echo "::error::the declaration's pusher is attic, but attic-token is empty"
-              exit 1
-            } ;;
-          odu)
-            [ -n "$ODU_CACHE_TOKEN" ] || {
-              echo "::error::the declaration's pusher is odu, but odu-cache-token is empty"
-              exit 1
-            } ;;
-          *)
-            echo "::error::unknown pusher ${PUSHER:-<none>} — expected attic or odu"
-            exit 1 ;;
-        esac
+          --directory "$OUT" --smoke "$SMOKE" ${installables[@]+"${installables[@]}"}
 
     - name: Push the closures
       if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork != true

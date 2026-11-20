@@ -84,13 +84,15 @@ if outcome:
 
 
 def push_stub(root: Path) -> dict:
-    """A PATH with both clients on it, recording into `root`."""
+    """A PATH with both clients on it, recording into `root`, and the odu
+    bucket credential its pusher reads."""
     tools = root / "bin"
     tools.mkdir(exist_ok=True)
     for name in ("nix", "attic"):
         (tools / name).write_text(PUSH_STUB)
         (tools / name).chmod(0o755)
-    return dict(os.environ, PATH=f"{tools}:{os.environ['PATH']}", PC_PUSH=str(root))
+    return dict(os.environ, PATH=f"{tools}:{os.environ['PATH']}", PC_PUSH=str(root),
+                ODU_CACHE_TOKEN="t")
 
 
 def write_entries(root: Path, system="x86_64-linux", attr="padi",
@@ -375,6 +377,15 @@ class Push(unittest.TestCase):
                          "--attic-nixpkgs", "x", env=env)
             self.assertNotEqual(r.returncode, 0)
             self.assertIn("no ATTIC_TOKEN", r.stderr)
+
+    def test_an_odu_pusher_without_its_token_is_refused_not_skipped(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            write_entries(root)
+            env = dict(push_stub(root), ODU_CACHE_TOKEN="")
+            r = self.push(root, "--cache", "https://odu.example.invalid", "--pusher", "odu", env=env)
+            self.assertNotEqual(r.returncode, 0)
+            self.assertIn("no ODU_CACHE_TOKEN", r.stderr)
 
     def test_an_attic_pusher_needs_the_callers_pinned_nixpkgs(self):
         with tempfile.TemporaryDirectory() as d:
