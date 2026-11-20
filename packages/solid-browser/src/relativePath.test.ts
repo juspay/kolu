@@ -73,7 +73,6 @@ describe("resolveLinkHref", () => {
   });
 
   it("strips a #fragment or ?query before resolving", () => {
-    // The document opens; scrolling to the in-doc heading is the host's concern.
     expect(resolveLinkHref("README.md", "docs/guide.md#install")).toBe(
       "docs/guide.md",
     );

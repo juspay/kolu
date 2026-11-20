@@ -1,7 +1,3 @@
-# Nix package for the @kolu/solid-browser example docsite.
-#
-# The example reuses Kolu's workspace source and pnpm closure without entering
-# the runnable Kolu flake's package set.
 {
   outputs = { ... }:
     let

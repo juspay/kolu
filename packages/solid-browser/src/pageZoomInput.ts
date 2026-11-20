@@ -1,17 +1,11 @@
-/** The browser's own page magnification, refused once — the single home for
- *  this rule and for why kolu wants it.
- *
- *  A trackpad pinch reaches a page as a `wheel` event carrying `ctrlKey: true`,
+/** A trackpad pinch reaches a page as a `wheel` event carrying `ctrlKey: true`,
  *  the same shape as Ctrl+mouse-wheel, which no browser can tell it apart from.
  *  Left alone either one magnifies the whole document
  *  (`visualViewport.scale > 1`), and an app sized to its window never wants
  *  that: the layout keeps the window's width, so magnifying it only pushes the
  *  right-hand side and the bottom off screen (#2354).
  *
- *  Pure and framework-free — no solid-js, no DOM library — like its sibling
- *  `./backForwardInput`, because the rule has a consumer on each side of a
- *  sandbox: kolu's own window, and the in-iframe artifact-sdk bundle. A
- *  sandboxed frame's wheel events are dispatched to ITS document and never
+ *  A sandboxed frame's wheel events are dispatched to ITS document and never
  *  reach the parent window, so the frame must refuse magnification itself —
  *  with the same rule, not a second copy of it. */
 

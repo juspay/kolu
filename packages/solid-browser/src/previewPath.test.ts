@@ -2,9 +2,6 @@ import { describe, expect, it } from "vitest";
 import { type PreviewPathCodec, pathFromPreviewPathname } from "./previewPath";
 
 describe("pathFromPreviewPathname", () => {
-  // A representative per-segment codec — same shape as a host's real
-  // preview-URL encoding (kolu's `encodePreviewPath`): each path segment is
-  // percent-encoded independently, separators preserved.
   const codec: PreviewPathCodec = {
     encode: (p) => p.split("/").map(encodeURIComponent).join("/"),
     decode: (s) => s.split("/").map(decodeURIComponent).join("/"),

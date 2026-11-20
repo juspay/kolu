@@ -1,10 +1,5 @@
 import type { Doc } from "../docsite";
 
-/** The doc set this host browses — a mini handbook *about* @kolu/solid-browser,
- *  so reading it through the viewer both demonstrates and explains the package.
- *  This map is exactly the volatility this host injects: kolu injects "git repo
- *  + mode → file"; here it's "slug → page". The history controller behind the
- *  ◀ ▶ buttons is identical in both. */
 export const HOME = "index";
 
 export const DOCS: Record<string, Doc> = {

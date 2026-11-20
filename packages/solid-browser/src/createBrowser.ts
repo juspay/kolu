@@ -1,22 +1,3 @@
-/** `createBrowser` — the history organ of a browser, as a reactive controller
- *  over an opaque location type. This is what makes back/forward *fall out for
- *  free* once a host routes its navigation through one front door: a stack of
- *  visited locations plus a cursor into it, with the two operations a back
- *  button needs — traverse without recording — kept distinct from the one an
- *  address bar needs — assign *and* record.
- *
- *  It is deliberately ignorant of what a "location" is. `L` can be a URL, a
- *  `{ path, line }` pair, a repo-relative file in a git mode, an ssh target —
- *  the controller only ever stores, compares (via the host's `isSameEntry`),
- *  and replays them. That is the whole point of the package: a second host
- *  plugs in its own `L` and gets the same history semantics. No DOM, no
- *  `history.pushState`, no git — just the stack algebra, made reactive with
- *  solid-js signals so a toolbar's ◀/▶ enablement tracks it without wiring.
- *
- *  The forward-truncation rule is the one piece of non-obvious browser
- *  behaviour: navigating *after* going back forks history — the entries you
- *  could have gone forward to are discarded, exactly as every browser does. */
-
 import { createSignal } from "solid-js";
 
 export type Browser<L> = {
@@ -80,8 +61,6 @@ export function createBrowser<L>(
   options: CreateBrowserOptions<L> = {},
 ): Browser<L> {
   const { initial, isSameEntry, maxEntries = DEFAULT_MAX_ENTRIES } = options;
-  // Hoist the finiteness check — maxEntries is a closed-over constant so
-  // computing it inside navigate() on every push is needless work.
   const bounded = Number.isFinite(maxEntries);
   const seeded = initial !== undefined;
   const [entries, setEntries] = createSignal<L[]>(seeded ? [initial] : []);
@@ -95,8 +74,6 @@ export function createBrowser<L>(
     const cur = current();
     const c = cursor();
     if (cur !== null && isSameEntry?.(cur, loc)) {
-      // Same logical page — refresh the entry in place, leave the cursor and
-      // any forward entries untouched (replaceState semantics, not pushState).
       setEntries((es) => {
         const next = [...es];
         next[c] = loc;
@@ -104,9 +81,6 @@ export function createBrowser<L>(
       });
       return;
     }
-    // Push: drop any forward tail (fork), append, advance. When the result
-    // would exceed the cap, evict the oldest entries from the front and shift
-    // the cursor down by the same count so it still points at `loc`.
     const next = [...entries().slice(0, c + 1), loc];
     const overflow = bounded ? Math.max(0, next.length - maxEntries) : 0;
     setEntries(overflow > 0 ? next.slice(overflow) : next);

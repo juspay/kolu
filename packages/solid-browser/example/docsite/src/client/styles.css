@@ -32,7 +32,6 @@ body {
   background: var(--panel);
 }
 
-/* browser chrome */
 .chrome {
   display: flex;
   align-items: center;
@@ -85,7 +84,6 @@ body {
   color: var(--muted);
 }
 
-/* body */
 .body {
   display: flex;
   min-height: 320px;

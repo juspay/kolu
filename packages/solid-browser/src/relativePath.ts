@@ -1,12 +1,3 @@
-/** GitHub-style relative-ref resolution — pure, framework-free, host-agnostic.
- *
- *  Resolves a **relative ref** inside rendered prose (a Markdown `[doc](../x.md)`
- *  or `![](logo.png)`) against the source document's own directory, the way
- *  GitHub does. It knows nothing about git, repos, or kolu — a "document path"
- *  is whatever opaque string the host resolves content from. */
-
-// `hasOwnScheme` lives in the zero-dep `@kolu/url-shape` leaf, so this resolver
-// stays node-pure — no edge into `@kolu/solid-markdown` (solid-js + DOMPurify).
 import { hasOwnScheme } from "@kolu/url-shape";
 
 /** Resolve a repo-relative ref (image `src` or link `href`) to a document path,
@@ -19,13 +10,8 @@ export function resolveRelativePath(
   ref: string,
 ): string | null {
   const trimmed = ref.trim();
-  // A ref that carries its own origin/scheme is not a document path — bail.
-  // The shape test is shared with the markdown href policy (`safeHref`) so
-  // "has its own origin" lives in one place.
   if (trimmed === "" || hasOwnScheme(trimmed)) return null;
 
-  // Root-absolute "/x" resolves from the root; everything else from the source
-  // document's own directory.
   const baseDir = trimmed.startsWith("/") ? "" : posixDir(fromPath);
   let pathStart = 0;
   while (trimmed[pathStart] === "/") pathStart++;
@@ -50,30 +36,17 @@ export function resolveLinkHref(fromPath: string, href: string): string | null {
   return resolveRelativePath(fromPath, path);
 }
 
-/** Directory portion of a path (`"docs/a.md"` → `"docs"`, `"README.md"` → `""`). */
 function posixDir(p: string): string {
   const i = p.lastIndexOf("/");
   return i < 0 ? "" : p.slice(0, i);
 }
 
-/** Join `baseDir` + `relPath`, decode each rel segment's URL escapes to its
- *  on-disk name, and collapse `.` / `..`. Returns null when the result escapes
- *  the root (a leading `..`), is empty, or a segment decodes to something that
- *  smuggles a separator/traversal past the split (`%2f`, `%2e%2e`, a malformed
- *  escape).
- *
- *  The decode matters because a host that re-encodes per segment (kolu's
- *  `buildTerminalFileUrl`) would otherwise double-encode an author's
- *  `my%20images/logo.png` to `my%2520images` and 404. `baseDir` comes from the
- *  source document's own (trusted, not URL-encoded) path, so only the rel
- *  segments are decoded. */
 function normalizeRepoPath(baseDir: string, relPath: string): string | null {
   const out: string[] = [];
-  // Base segments are trusted path parts — pushed verbatim (no decode).
   for (const seg of baseDir ? baseDir.split("/") : []) {
     if (seg === "" || seg === ".") continue;
     if (seg === "..") {
-      if (out.length === 0) return null; // escapes the root
+      if (out.length === 0) return null;
       out.pop();
     } else {
       out.push(seg);
@@ -84,16 +57,14 @@ function normalizeRepoPath(baseDir: string, relPath: string): string | null {
     try {
       seg = decodeURIComponent(raw);
     } catch {
-      return null; // malformed percent-escape
+      return null;
     }
     if (seg === "" || seg === ".") continue;
     if (seg === "..") {
-      if (out.length === 0) return null; // escapes the root
+      if (out.length === 0) return null;
       out.pop();
       continue;
     }
-    // A decoded `/` or `\` would smuggle a path boundary the split couldn't
-    // see (`%2f`, `%5c`); reject it so the encoded form can't traverse.
     if (seg.includes("/") || seg.includes("\\")) return null;
     out.push(seg);
   }

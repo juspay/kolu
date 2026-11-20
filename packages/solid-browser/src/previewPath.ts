@@ -1,11 +1,3 @@
-/** Sandboxed-preview pathname inversion — pure, framework-free, host-agnostic.
- *
- *  Maps a **preview pathname** reported by a sandboxed iframe (after an in-frame
- *  `<a>` click) back to the document path it shows, by inverting the host's
- *  preview-URL encoding through an injected codec. It knows nothing about git,
- *  repos, or kolu — the codec is the host's contract, and a "document path" is
- *  whatever opaque string the host resolves content from. */
-
 /** The host's preview-URL codec — how it encodes a document path into the path
  *  segment of a sandboxed-preview URL, and back. Injected because the encoding
  *  is the host's contract (kolu's lives in `kolu-common/preview`), not this
@@ -50,8 +42,6 @@ export function pathFromPreviewPathname(
   try {
     return codec.decode(encodedNext);
   } catch {
-    // A malformed percent-sequence can only arrive if the previewed page
-    // crafted a bogus pathname — treat it as "no navigation".
     return null;
   }
 }

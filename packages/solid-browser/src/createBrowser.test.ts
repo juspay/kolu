@@ -36,7 +36,6 @@ describe("createBrowser", () => {
     expect(b.back()).toBe("b");
     expect(b.canForward()).toBe(true);
     expect(b.back()).toBe("a");
-    // Already at the start: no move, no spurious value.
     expect(b.back()).toBe(null);
     expect(b.current()).toBe("a");
   });
@@ -60,12 +59,12 @@ describe("createBrowser", () => {
     b.navigate("a");
     b.navigate("b");
     b.navigate("c");
-    b.back(); // now at "b", with "c" ahead
+    b.back();
 
     b.navigate("d");
     expect(b.current()).toBe("d");
-    expect(b.canForward()).toBe(false); // "c" was discarded
-    expect(b.length()).toBe(3); // [a, b, d]
+    expect(b.canForward()).toBe(false);
+    expect(b.length()).toBe(3);
     expect(b.back()).toBe("b");
     expect(b.back()).toBe("a");
   });
@@ -89,13 +88,11 @@ describe("createBrowser", () => {
     const b = createBrowser<Loc>({ isSameEntry: (a, c) => a.id === c.id });
     b.navigate({ id: 1, ref: 10 });
     b.navigate({ id: 2 });
-    b.back(); // at {id:1}, with {id:2} ahead
+    b.back();
 
-    // Same logical page (id 1), new ref — refresh in place, don't duplicate.
     b.navigate({ id: 1, ref: 20 });
     expect(b.length()).toBe(2);
     expect(b.current()).toEqual({ id: 1, ref: 20 });
-    // The forward tail survived the in-place refresh.
     expect(b.canForward()).toBe(true);
     expect(b.forward()).toEqual({ id: 2 });
   });
@@ -115,15 +112,13 @@ describe("createBrowser", () => {
     b.navigate(2);
     b.navigate(3);
     expect(b.length()).toBe(3);
-    // The fourth push evicts entry 1; cursor stays on the newest.
     b.navigate(4);
     expect(b.length()).toBe(3);
     expect(b.current()).toBe(4);
     expect(b.canForward()).toBe(false);
-    // Back/forward now retrace only the retained window [2, 3, 4].
     expect(b.back()).toBe(3);
     expect(b.back()).toBe(2);
-    expect(b.back()).toBe(null); // 1 fell off the front
+    expect(b.back()).toBe(null);
     expect(b.current()).toBe(2);
   });
 
@@ -141,7 +136,6 @@ describe("createBrowser", () => {
     });
     b.navigate({ id: 1 });
     b.navigate({ id: 2 });
-    // Same logical page as the current entry — refresh in place, no growth.
     b.navigate({ id: 2, ref: 9 });
     expect(b.length()).toBe(2);
     expect(b.current()).toEqual({ id: 2, ref: 9 });

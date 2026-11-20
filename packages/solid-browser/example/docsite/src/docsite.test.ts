@@ -42,9 +42,9 @@ describe("doc-site — a second host reusing @kolu/solid-browser's createBrowser
     const site = createDocSite(DOCS, "index");
     site.open("guide");
     site.open("api");
-    site.back(); // at "guide", "api" ahead
+    site.back();
 
-    site.open("index"); // forks — the forward "api" is discarded
+    site.open("index");
     expect(site.currentSlug()).toBe("index");
     expect(site.canForward()).toBe(false);
 
@@ -55,7 +55,7 @@ describe("doc-site — a second host reusing @kolu/solid-browser's createBrowser
   it("re-opening the current doc does not deepen history (isSameEntry)", () => {
     const site = createDocSite(DOCS, "index");
     site.open("guide");
-    site.open("guide"); // same slug — no new entry
+    site.open("guide");
     site.back();
     expect(site.currentSlug()).toBe("index");
     expect(site.canBack()).toBe(false);

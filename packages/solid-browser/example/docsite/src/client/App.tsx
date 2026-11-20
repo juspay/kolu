@@ -3,18 +3,9 @@ import { For, onCleanup, Show } from "solid-js";
 import { createDocSite } from "../docsite";
 import { DOCS, HOME } from "./docs";
 
-/** The doc-set viewer. The whole back/forward feature is `site` — i.e.
- *  `createBrowser` from @kolu/solid-browser. This component only renders the
- *  page `site` says is current and routes clicks back into it. Because
- *  createBrowser is reactive, the ◀/▶ enablement and the content track
- *  navigation with no extra wiring. */
 export default function App() {
   const site = createDocSite(DOCS, HOME);
 
-  // The mouse's dedicated back/forward (X1/X2) buttons drive the doc-site too —
-  // the whole app is the browser here, so listen app-wide. The shared binder
-  // owns the swallow/act/preventDefault protocol so the page's own history isn't
-  // navigated as well.
   onCleanup(
     attachBackForwardMouse(window, {
       onBack: () => site.back(),
