@@ -9,7 +9,6 @@ import { afterAll, describe, expect, it } from "vitest";
 
 const log = silentLogger;
 
-// Point the agent dir at a temp dir BEFORE importing modules that capture it.
 const tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), "kolu-omp-tr-test-"));
 process.env.KOLU_OMP_DIR = tmpHome;
 

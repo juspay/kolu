@@ -72,19 +72,40 @@ export type BreadcrumbRead =
   | { kind: "absent" }
   | { kind: "unusable" };
 
-type CrumbContent =
-  | {
-      kind: "named";
-      target: string;
-      fresh: boolean;
-      session: OmpSession | null;
-    }
+interface NamedCrumb {
+  target: string;
+  fresh: boolean;
+  session: OmpSession | null;
+}
+
+type CrumbBytes =
+  | ({ kind: "named" } & NamedCrumb)
   | { kind: "absent" }
   | { kind: "unusable" };
 
 const CRUMB_CACHE_MAX = 512;
 
-const crumbs = stampedCache<CrumbContent>(CRUMB_CACHE_MAX);
+const crumbs = stampedCache<CrumbBytes>(CRUMB_CACHE_MAX);
+
+/** omp honours a crumb whose session file exists, or one marked `fresh`, and
+ *  ignores every other — so a crumb it would ignore is `absent` whatever its
+ *  own name parsed into. */
+function crumbVerdict(
+  crumb: NamedCrumb,
+  targetLive: boolean,
+  file: string,
+  log?: Logger,
+): BreadcrumbRead {
+  if (!targetLive) return { kind: "absent" };
+  if (crumb.session === null) {
+    log?.error(
+      { file, target: crumb.target },
+      "omp: breadcrumb session path unparseable",
+    );
+    return { kind: "unusable" };
+  }
+  return { kind: "found", session: crumb.session };
+}
 
 /** Read a terminal breadcrumb into the session it names.
  *
@@ -98,23 +119,17 @@ const crumbs = stampedCache<CrumbContent>(CRUMB_CACHE_MAX);
  *  The TRANSCRIPT's existence is stat'd on EVERY call, never cached: it is a
  *  fact about a different file, and a crumb whose target was deleted must stop
  *  reading as `found` even though the crumb itself never moved. Only the crumb
- *  parse rides the stamp.
- *
- *  ORDER MATTERS, and it is omp's: the dead-target check comes BEFORE the
- *  name-parse verdict. A stale crumb whose session file is gone AND whose name
- *  this parser cannot read is `absent` — omp would ignore that crumb too — not
- *  a fault. Parsing first turned it into a reconcile-rate `unusable` + error
- *  log, which is why the cached half answers `session: null` for an unparseable
- *  name instead of deciding it. */
+ *  parse rides the stamp. */
 export function readBreadcrumb(file: string, log?: Logger): BreadcrumbRead {
   const content = crumbs.read(file, (stat) =>
     readCrumbContent(file, stat, log),
   );
   if (content.kind !== "named") return { kind: content.kind };
-  let exists: boolean;
+  let targetLive: boolean;
   try {
-    exists =
-      fs.statSync(content.target, { throwIfNoEntry: false })?.isFile() === true;
+    targetLive =
+      fs.statSync(content.target, { throwIfNoEntry: false })?.isFile() ===
+        true || content.fresh;
   } catch (err) {
     log?.error(
       { err, file, target: content.target },
@@ -122,22 +137,14 @@ export function readBreadcrumb(file: string, log?: Logger): BreadcrumbRead {
     );
     return { kind: "unusable" };
   }
-  if (!exists && !content.fresh) return { kind: "absent" };
-  if (content.session === null) {
-    log?.error(
-      { file, target: content.target },
-      "omp: breadcrumb session path unparseable",
-    );
-    return { kind: "unusable" };
-  }
-  return { kind: "found", session: content.session };
+  return crumbVerdict(content, targetLive, file, log);
 }
 
 function readCrumbContent(
   file: string,
   stat: fs.Stats | undefined,
   log?: Logger,
-): CrumbContent {
+): CrumbBytes {
   if (stat === undefined) return { kind: "absent" };
   let raw: string;
   try {

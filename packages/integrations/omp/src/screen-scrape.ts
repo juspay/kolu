@@ -3,7 +3,26 @@ import type { OmpInfo } from "./schemas.ts";
 
 export const TAIL_REGION_LINES = 40;
 
-const PROMPT_MARKERS: readonly RegExp[] = [/^╭─ Allow tool: /m, /^╭─ Ask\b/m];
+interface DialogMarker {
+  corner: string;
+  title: string;
+}
+
+const ROUND_CORNER = "╭─ ";
+
+const DIALOG_MARKERS: readonly DialogMarker[] = [
+  { corner: ROUND_CORNER, title: "Allow tool" },
+  { corner: ROUND_CORNER, title: "Ask" },
+];
+
+const PROMPT_MARKERS: readonly RegExp[] = DIALOG_MARKERS.map(
+  ({ corner, title }) =>
+    new RegExp(`^${escapeForRegExp(corner + title)}\\b`, "m"),
+);
+
+function escapeForRegExp(literal: string): string {
+  return literal.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
 
 function tailRegion(screenText: string): string[] {
   const lines = screenText.split("\n");

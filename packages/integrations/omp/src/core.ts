@@ -24,32 +24,14 @@ interface OmpEntry {
 }
 
 /** Derive omp state + telemetry from a transcript's tail lines (oldest first).
- *  One backward walk tracking three independent signals with different
- *  stopping conditions —
  *
- *   - state: first `message` entry that participates in a model turn.
- *     `assistant stopReason toolUse` → `tool_use`; ANY other recorded reason →
- *     `waiting` (omp persists an assistant entry only on completion, so the
- *     record's existence IS the answer); an assistant entry with no reason
- *     recorded (a torn write) or a `user` / `toolResult` tail → `thinking`
- *     (the model is running or about to be re-invoked). Interactive roles are
- *     walked past, so a trailing compaction or extension entry while omp sits
- *     idle reads the prior turn rather than fabricating work.
- *   - model: newest of a `model_change` entry's `model` (the user's explicit
- *     switch, which is also written at an idle prompt) and the newest assistant
- *     entry's own `message.model`. Read on every entry, independent of the
- *     state gate, so an in-flight thinking tail still carries the badge.
- *   - contextTokens: newest assistant entry's usage
- *     (`input + cacheRead + cacheWrite`). Read on every entry, so the turn's own
- *     assistant record accounts rather than one hop back.
- *   - lastPromptId / lastPromptText: the newest `user` message entry's `id`
- *     and its text. omp writes a steer as a user entry only when the running
- *     turn TAKES it, so a new id whose text is the words said is the proof a
- *     steer landed — `agent_say` reads both.
+ *  Each field is an independent projection of the newest entry that answers
+ *  it, read by the reducer of the same name below. `null` means no entry in
+ *  the tail answered that projection; `null` for the whole result means no
+ *  entry carried a turn at all (a file with only its title slot and header),
+ *  which is "nothing to publish yet" rather than a fabricated state.
  *
- *  Pure — unit-testable without touching the filesystem. Returns null when the
- *  tail carries no turn entry at all (a file with only its title slot and
- *  header): "nothing to publish yet", never a fabricated state. */
+ *  Pure — unit-testable without touching the filesystem. */
 export function deriveOmpState(lines: string[]): {
   state: OmpInfo["state"];
   model: string | null;
@@ -60,78 +42,100 @@ export function deriveOmpState(lines: string[]): {
   let state: OmpInfo["state"] | null = null;
   let model: string | null = null;
   let contextTokens: number | null = null;
-  let lastPromptId: string | null = null;
-  let lastPromptText: string | null = null;
+  let prompt: OmpPrompt | null = null;
 
   for (let i = lines.length - 1; i >= 0; i--) {
-    const raw = lines[i];
-    if (raw === undefined) continue;
     if (
       state !== null &&
       model !== null &&
       contextTokens !== null &&
-      lastPromptId !== null
+      prompt !== null
     )
       break;
-    let entry: OmpEntry;
-    try {
-      entry = JSON.parse(raw) as OmpEntry;
-    } catch {
-      continue;
-    }
-
-    if (model === null) {
-      if (entry.type === "model_change" && typeof entry.model === "string") {
-        model = entry.model;
-      } else if (
-        entry.type === "message" &&
-        entry.message?.role === "assistant" &&
-        typeof entry.message.model === "string"
-      ) {
-        model = entry.message.model;
-      }
-    }
-
-    if (
-      contextTokens === null &&
-      entry.type === "message" &&
-      entry.message?.role === "assistant"
-    ) {
-      const usage = entry.message.usage;
-      if (usage) {
-        contextTokens =
-          (usage.input ?? 0) + (usage.cacheRead ?? 0) + (usage.cacheWrite ?? 0);
-      }
-    }
-
-    if (
-      lastPromptId === null &&
-      entry.type === "message" &&
-      entry.message?.role === "user" &&
-      typeof entry.id === "string"
-    ) {
-      lastPromptId = entry.id;
-      lastPromptText = promptTextOfParts(entry.message.content);
-    }
-
-    if (state === null && entry.type === "message") {
-      const role = entry.message?.role;
-      if (role === "assistant") {
-        const stopReason = entry.message?.stopReason;
-        state =
-          stopReason === "toolUse"
-            ? "tool_use"
-            : stopReason === undefined
-              ? "thinking"
-              : "waiting";
-      } else if (role === "user" || role === "toolResult") {
-        state = "thinking";
-      }
-    }
+    const entry = parseEntry(lines[i]);
+    if (entry === null) continue;
+    state ??= stateOf(entry);
+    model ??= modelOf(entry);
+    contextTokens ??= contextTokensOf(entry);
+    prompt ??= promptOf(entry);
   }
 
   if (state === null) return null;
-  return { state, model, contextTokens, lastPromptId, lastPromptText };
+  return {
+    state,
+    model,
+    contextTokens,
+    lastPromptId: prompt?.id ?? null,
+    lastPromptText: prompt?.text ?? null,
+  };
+}
+
+function parseEntry(raw: string | undefined): OmpEntry | null {
+  if (raw === undefined) return null;
+  try {
+    return JSON.parse(raw) as OmpEntry;
+  } catch {
+    return null;
+  }
+}
+
+/** omp persists an assistant entry only once it completes, so a recorded
+ *  `stopReason` means the turn ended and `toolUse` is its only working one; an
+ *  assistant entry with no reason at all is a shape omp's writer cannot
+ *  produce, and reads as in flight rather than a falsely completed turn.
+ *  Interactive roles (`bashExecution`, `developer`, …) answer nothing, so the
+ *  walk continues to the genuine prior turn. */
+function stateOf(entry: OmpEntry): OmpInfo["state"] | null {
+  if (entry.type !== "message") return null;
+  const role = entry.message?.role;
+  if (role === "assistant") {
+    const stopReason = entry.message?.stopReason;
+    if (stopReason === "toolUse") return "tool_use";
+    return stopReason === undefined ? "thinking" : "waiting";
+  }
+  return role === "user" || role === "toolResult" ? "thinking" : null;
+}
+
+function modelOf(entry: OmpEntry): string | null {
+  if (entry.type === "model_change" && typeof entry.model === "string") {
+    return entry.model;
+  }
+  if (
+    entry.type === "message" &&
+    entry.message?.role === "assistant" &&
+    typeof entry.message.model === "string"
+  ) {
+    return entry.message.model;
+  }
+  return null;
+}
+
+function contextTokensOf(entry: OmpEntry): number | null {
+  if (entry.type !== "message" || entry.message?.role !== "assistant") {
+    return null;
+  }
+  const usage = entry.message.usage;
+  if (!usage) return null;
+  return (usage.input ?? 0) + (usage.cacheRead ?? 0) + (usage.cacheWrite ?? 0);
+}
+
+interface OmpPrompt {
+  id: string;
+  text: string | null;
+}
+
+/** omp writes a steer as a user entry only when the running turn takes it, so
+ *  a new id whose text is the words said is the proof a steer landed —
+ *  `agent_say` reads both, which is why they move together. */
+function promptOf(entry: OmpEntry): OmpPrompt | null {
+  if (
+    entry.type !== "message" ||
+    entry.message?.role !== "user" ||
+    typeof entry.id !== "string"
+  ) {
+    return null;
+  }
+  return { id: entry.id, text: promptTextOfParts(entry.message.content) };
 }
 
 /** Tail window for the state fold. omp entries are many small lines, but a
@@ -153,23 +157,23 @@ export const TITLE_SLOT_BYTES = 256;
  *  here. A slot that cannot be parsed, or that parses to something other than an
  *  object, is a fault and IS logged. */
 export function readTitleSlot(file: string, log?: Logger): string | null {
-  let size: number;
+  let head: string;
   try {
-    size = fs.statSync(file).size;
+    const fd = fs.openSync(file, "r");
+    try {
+      const buf = Buffer.alloc(TITLE_SLOT_BYTES);
+      const read = fs.readSync(fd, buf, 0, TITLE_SLOT_BYTES, 0);
+      head = buf.toString("utf8", 0, read);
+    } finally {
+      fs.closeSync(fd);
+    }
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
       log?.error({ err, path: file }, "omp: title slot unreadable");
     }
     return null;
   }
-  const lines = readTailLines({
-    path: file,
-    size: Math.min(size, TITLE_SLOT_BYTES),
-    maxBytes: TITLE_SLOT_BYTES,
-    onError: (err) =>
-      log?.error({ err, path: file }, "omp: title slot unreadable"),
-  });
-  const line = lines?.[0];
+  const line = head.split("\n")[0];
   if (!line) return null;
   let slot: unknown;
   try {

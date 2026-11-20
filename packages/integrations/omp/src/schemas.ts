@@ -1,8 +1,3 @@
-/** Effect Schema definitions for oh-my-pi session info — browser-safe.
- *
- *  Anything exported here MUST stay free of `node:*` imports and filesystem
- *  access — Effect Schema and `anyagent`'s schema re-exports only. */
-
 import {
   type AgentVocab,
   type FlagArity,
