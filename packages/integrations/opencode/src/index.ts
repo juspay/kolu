@@ -1,15 +1,4 @@
 /**
- * OpenCode integration — public barrel.
- *
- * Module layout:
- *   - `core.ts`            — leaf helpers (SQLite lookup, state derivation,
- *                            running-tool detection, token lookup)
- *   - `wal-watcher.ts`     — refcounted shared WAL subscription
- *   - `session-watcher.ts` — per-session lifecycle object built on `core` + WAL
- *   - `agent-adapter.ts`  — `AgentAdapter` instance the server consumes
- *   - `schemas.ts`         — Effect Schema definitions + types (browser-safe)
- *   - `config.ts`          — env-resolved DB/WAL paths
- *
  * Peers import from their leaves; `index.ts` is a pure barrel so nothing
  * has to reach back through it. Breaks the index ↔ session-watcher ↔
  * agent-adapter cycle (#710).
@@ -47,7 +36,6 @@ export {
 } from "./transcript.ts";
 export { subscribeOpenCodeDb } from "./wal-watcher.ts";
 
-// ── The plugin — the ONE contribution the registry (`kolu-agents`) folds. ──
 import type { AgentPlugin } from "anyagent";
 import type { Fetcher } from "kolu-transcript-core";
 import { opencodeAdapter } from "./agent-adapter.ts";

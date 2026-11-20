@@ -9,16 +9,11 @@ import {
   runningToolsBucket,
 } from "./core.ts";
 
-/** A Logger whose four methods are vi spies — lets a test assert which
- *  level fired and with what message/context. */
 function spyLog() {
   return { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() };
 }
 
-/** The OpenCode 2.x tables kolu reads — the columns it touches, with the
- *  upstream index names, as measured on a v2.0.29 database. The e2e fixture
- *  builder in `packages/tests` writes the same shape; it is inlined here so
- *  the unit test stays package-local. */
+/** The OpenCode 2.x tables kolu reads, as measured on a v2.0.29 database. */
 const V2_SCHEMA = `
 CREATE TABLE session_v2 (id TEXT PRIMARY KEY, parent_id TEXT, directory TEXT NOT NULL, title TEXT, revert TEXT, time_created INTEGER NOT NULL, time_updated INTEGER NOT NULL, time_archived INTEGER);
 CREATE TABLE session_message (id TEXT PRIMARY KEY, session_id TEXT NOT NULL, type TEXT NOT NULL, seq INTEGER NOT NULL, time_created INTEGER NOT NULL, time_updated INTEGER NOT NULL, data TEXT NOT NULL);
@@ -30,12 +25,9 @@ CREATE INDEX session_message_session_time_created_id_idx ON session_message (ses
 interface Row {
   type: string;
   data: unknown;
-  /** Defaults to the row's seq — set it to disagree with seq. */
   time_created?: number;
 }
 
-/** One session `s1` (in `/repo`) holding `rows` in seq order. `data` is
- *  JSON-encoded unless it is already a string (to plant a malformed blob). */
 function withSession(
   rows: Row[],
   session: { revert?: unknown } = {},
@@ -138,9 +130,6 @@ describe("parseMessageState", () => {
   });
 
   it("stays silent for valid JSON with an unmodelled type", () => {
-    // A parseable blob is not an anomaly worth an error — only malformed
-    // JSON is. This guards the error path from firing on rows we simply
-    // don't map to a state.
     const log = spyLog();
     expect(
       parseMessageState("system", JSON.stringify({ text: "x" }), log),
@@ -186,9 +175,6 @@ describe("deriveSessionState", () => {
   });
 
   it("looks past system / synthetic / idle rows to the latest turn", () => {
-    // A settled 2.x session often ends on a non-conversational row (a
-    // tool-rename notice, a turn-end marker) — picking that as "the latest
-    // message" would leave a live session with no state at all.
     const db = withSession([
       { type: "user", data: { text: "go" } },
       {
@@ -250,8 +236,6 @@ describe("findSessionsByDirectory", () => {
   });
 
   it("fails loud on a pre-2.0 database — null and an error, never an empty list", () => {
-    // `null` is "could not read the store"; `[]` would claim "no sessions
-    // here" and release the terminal's match.
     const db = new DatabaseSync(":memory:");
     db.exec(
       "CREATE TABLE session (id TEXT, directory TEXT, time_updated INTEGER, time_archived INTEGER)",
@@ -267,9 +251,6 @@ describe("findSessionsByDirectory", () => {
 
 describe("getLatestAssistantFacts", () => {
   it("keeps the latest assistant's model and tokens when a newer user prompt starts the next turn", () => {
-    // The regression this guards: both facts used to be read off the single
-    // newest message, so a user prompt as the newest row blanked the
-    // published model and token count for that whole window.
     const db = withSession([
       {
         type: "assistant",
@@ -290,7 +271,6 @@ describe("getLatestAssistantFacts", () => {
 
     expect(getLatestAssistantFacts("s1", undefined, db)).toEqual({
       model: "anthropic/claude-opus-4-6",
-      // input + output + reasoning + cache.read + cache.write — the TUI's sum.
       contextTokens: 3_000 + 10 + 5 + 20_000 + 1,
     });
   });
@@ -335,8 +315,6 @@ describe("getLatestAssistantFacts", () => {
   });
 
   it("counts nothing when the revert boundary names no message", () => {
-    // Upstream's `lastAssistantWithUsage` returns undefined for a boundary it
-    // cannot find — the TUI then shows no context usage at all.
     const db = withSession(
       [{ type: "assistant", data: { tokens: usage(100) } }],
       {

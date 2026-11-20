@@ -1,15 +1,3 @@
-/**
- * OpenCodeWatcher — encapsulates all per-session lifecycle state.
- *
- * Wraps `kolu-shared`'s generic `createDebounceWatcher` with opencode's
- * SQLite refresh logic. The factory owns the destroy flag, debounce
- * timer, DB lifetime, equality-gated dispatch, and lifecycle logs;
- * this file only owns the per-event `refresh` body.
- *
- * The server's opencode adapter creates one of these per matched
- * session and replaces it on session change.
- */
-
 import type { DatabaseSync } from "node:sqlite";
 import { agentInfoEqual } from "anyagent";
 import type { Logger } from "kolu-shared";
@@ -25,17 +13,10 @@ import {
 import type { OpenCodeInfo } from "./schemas.ts";
 import { subscribeOpenCodeDb } from "./wal-watcher.ts";
 
-// --- Tuning constants ---
-
 /** Trailing-edge debounce for WAL fs.watch callbacks. OpenCode streams
  *  parts during generation, and Linux fs.watch fires multiple events per
- *  write — without debouncing, `refresh` runs dozens of times per second
- *  during active use, each call running two SQL queries. 150 ms coalesces
- *  bursts into one handler run while keeping user-perceptible lag
- *  imperceptible. Matches TRANSCRIPT_DEBOUNCE_MS in kolu-claude-code. */
+ *  write. Matches TRANSCRIPT_DEBOUNCE_MS in kolu-claude-code. */
 const WAL_DEBOUNCE_MS = 150;
-
-// --- Watcher ---
 
 export interface OpenCodeWatcher {
   readonly session: OpenCodeSession;
@@ -55,30 +36,15 @@ export function createOpenCodeWatcher(
   onChange: (info: OpenCodeInfo) => void,
   log?: Logger,
 ): OpenCodeWatcher {
-  // Session start time = the earliest message's `time_created`, immutable once
-  // a message exists. Resolve it lazily and cache: null until the first message
-  // lands, then the indexed query never runs again for this watcher.
   let startedAt: number | null = null;
 
   function refresh(db: DatabaseSync): OpenCodeInfo | null {
-    // State includes the running tool parts (`tool_use` / `awaiting_user`).
     const derived = deriveSessionState(session.id, log, db);
     if (!derived) {
-      // deriveSessionState already logged the precise cause — a debug
-      // "no messages yet" for an empty session, or an error for a malformed
-      // latest row. Don't flatten both back into one ambiguous line here.
       return null;
     }
 
-    // Re-read title on each refresh so mid-conversation title changes
-    // (e.g. OpenCode auto-generating a title after the first exchange)
-    // are picked up live, not stuck at the snapshot from session match.
     const summary = getSessionTitle(session.id, log, db) ?? session.title;
-    // Model and context tokens come from ASSISTANT messages, not from
-    // `derived` — `derived` reads the newest user/assistant message, which is
-    // a user prompt (naming no model, carrying no tokens) for the whole
-    // Thinking window. Both are session facts: OpenCode matches a session to
-    // a terminal once, and the model it runs is stable across its turns.
     const assistant = getLatestAssistantFacts(session.id, log, db);
     startedAt ??= getSessionStartedAt(session.id, log, db);
 
@@ -103,11 +69,8 @@ export function createOpenCodeWatcher(
     onChange(info);
   }
 
-  // Hoist the DB connection across the watcher's lifetime so we don't
-  // open/close on every WAL event. Safe in WAL mode: an open connection
-  // holds no locks until you start a transaction, and our queries are
-  // autocommit. See README's OpenCode Status section for the full
-  // locking analysis.
+  // Safe in WAL mode: an open connection holds no locks until a transaction
+  // starts, and our queries are autocommit.
   const db = openDb(log);
 
   return createDebounceWatcher({

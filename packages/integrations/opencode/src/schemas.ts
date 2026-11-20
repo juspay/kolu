@@ -1,12 +1,8 @@
 /** Effect Schema definitions for OpenCode session info — browser-safe.
  *
- *  Lives in its own module so `kolu-common` (and any client code) can import
- *  the schema without pulling the package root, which imports `node:sqlite`
- *  via `DatabaseSync`. Mirrors the `anyforge/schemas` precedent. See
- *  juspay/kolu#682.
- *
  *  Anything exported here MUST stay free of `node:*` imports and filesystem
- *  access — `effect`'s Schema and `anyagent`'s schema re-exports only. */
+ *  access — `effect`'s Schema and `anyagent`'s schema re-exports only
+ *  (juspay/kolu#682). */
 
 import {
   type AgentVocab,
@@ -49,16 +45,12 @@ export const OpenCodeInfoSchema = Schema.Struct({
 
 export type OpenCodeInfo = typeof OpenCodeInfoSchema.Type;
 
-/** OpenCode frame mark — simple-icons `opencode`, 24×24. ONE mark for both the
- *  tile-chrome icon and the dock pip. */
 const OPENCODE_MARK = {
   viewBox: "0 0 24 24",
   paint: "fill" as const,
   paths: ["M22 24H2V0h20zM17 4.8H7v14.4h10z"],
 };
 
-/** OpenCode's vocabulary — display name, brand mark, CLI grammar, resume
- *  policy, and wire schema. */
 export const opencodeVocab: AgentVocab<OpenCodeInfo> = {
   kind: "opencode",
   displayName: "OpenCode",

@@ -1,9 +1,3 @@
-/**
- * Shared WAL watcher for OpenCode's database. Wraps anyagent's
- * `createWalSubscription` — the refcounted singleton, parent-dir
- * fallback, and promote-on-appearance dance all live upstream.
- */
-
 import { createWalSubscription } from "kolu-shared/sqlite";
 import { OPENCODE_DB_PATH, OPENCODE_DB_WAL_PATH } from "./config.ts";
 

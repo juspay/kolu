@@ -59,11 +59,8 @@ describe("opencodeAdapter.resolveSessions", () => {
   });
 
   it("hands back EVERY session in the directory, not just the newest", () => {
-    // Two harnesses in one repo: the adapter cannot tell which session is this
-    // terminal's, so it offers both and the orchestrator's ownership arbiter
-    // gives each terminal one of its own (juspay/kolu#2057). A `LIMIT 1` here
-    // would not mirror the rows — the arbiter refuses to lend — but it would
-    // leave the second OpenCode terminal's row permanently blank.
+    // The orchestrator's ownership arbiter gives each terminal a session of
+    // its own out of this list (juspay/kolu#2057).
     findSessionsMock.mockReturnValue([{ id: "newer" }, { id: "older" }]);
     const state = makeState({ readForegroundBasename: () => "opencode" });
     expect(
@@ -72,8 +69,6 @@ describe("opencodeAdapter.resolveSessions", () => {
   });
 
   it("passes a null through — an unreadable DB is not an empty directory", () => {
-    // Null means the query threw; the orchestrator must be able to tell that
-    // from "this directory has no sessions", which releases the terminal's own.
     findSessionsMock.mockReturnValue(null);
     const state = makeState({ readForegroundBasename: () => "opencode" });
     expect(opencodeAdapter.resolveSessions(state, noopLog)).toBeNull();

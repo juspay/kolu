@@ -1,11 +1,3 @@
-/** Byte-level wire contract for `OpenCodeInfoSchema`.
- *
- *  `OpenCodeInfo` rides the surface wire to the client (agent info on a
- *  terminal). The encoded JSON — key ORDER included — is the contract, so
- *  these tests assert the exact `JSON.stringify` output rather than mere
- *  decode-equality, and pin the decode direction for the payloads a peer
- *  actually emits. */
-
 import { Schema } from "effect";
 import { describe, expect, it } from "vitest";
 import { type OpenCodeInfo, OpenCodeInfoSchema } from "./schemas.ts";
@@ -21,7 +13,6 @@ describe("OpenCodeInfoSchema — encoded bytes", () => {
       sessionId: "ses_01H8XYZ",
       model: "litellm/glm-latest",
       summary: "Refactor the WAL watcher",
-      // OpenCode 2.x has no todo table — always null on the wire.
       taskProgress: null,
       contextTokens: 41_233,
       startedAt: 1_750_000_000_000,
@@ -102,7 +93,6 @@ describe("OpenCodeInfoSchema — decode", () => {
         summary: null,
         taskProgress: null,
         contextTokens: null,
-        // startedAt absent
       }),
     ).toThrow();
   });

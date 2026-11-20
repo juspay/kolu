@@ -1,6 +1,3 @@
-/** Configuration constants for the OpenCode integration.
- *  Leaf module — no imports from other package files. */
-
 import os from "node:os";
 import path from "node:path";
 

@@ -103,10 +103,6 @@ describe("eventsFromMessageParts", () => {
   });
 
   it("inlines a child subagent run when given an inlineSubtask resolver", () => {
-    // Mirrors what the real loader does: the `subagent` tool's metadata
-    // carries `sessionID` (the child session id) and `state.input`
-    // carries `description`. The resolver is responsible for loading
-    // the child's events; here we stub it.
     const stubChildEvents = [
       { kind: "user" as const, text: "child prompt", ts: 4000 },
       {
@@ -150,7 +146,6 @@ describe("eventsFromMessageParts", () => {
         { kind: "subtask_end", ts },
       ],
     );
-    // tool_call, tool_result, then start, child events, end.
     expect(events.map((e) => e.kind)).toEqual([
       "tool_call",
       "tool_result",
@@ -235,9 +230,6 @@ describe("eventsFromMessageParts", () => {
   });
 
   it("skips empty text and reasoning parts (streaming artifacts)", () => {
-    // OpenCode sometimes leaves text parts with empty/whitespace-only
-    // text behind — passing those through produced ghost assistant
-    // cards in the export with no body.
     const events = eventsFromMessageParts("assistant", null, 1000, [
       { type: "text", text: "" },
       { type: "text", text: "   " },
@@ -377,10 +369,8 @@ describe("normalizeOpenCodeToolInput", () => {
 
 describe("stripDispatchPrompt", () => {
   it("drops a leading user event so subagent dispatches don't masquerade as human prompts", () => {
-    // The bug: when @explore is invoked via the task tool, OpenCode
-    // writes the dispatch prompt into the child session as role:"user".
-    // The export was attributing the parent agent's prompt to the human
-    // because we recursed and rendered that user event verbatim.
+    // OpenCode writes the dispatch prompt into the child session as
+    // role:"user".
     const events = stripDispatchPrompt([
       { kind: "user", text: "the parent agent's dispatch prompt", ts: 1 },
       { kind: "reasoning", text: "thinking", ts: 2 },

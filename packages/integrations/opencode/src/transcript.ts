@@ -1,33 +1,3 @@
-/** One-shot transcript loader for the HTML export feature.
- *
- *  Reads the OpenCode (≥ 2.0) SQLite DB end-of-session (no live tailing)
- *  and normalizes the `session_message` row sequence to the unified IR. A
- *  user row carries its prompt as `data.text`; an assistant row carries its
- *  parts inline as `data.content[]`. Tool parts carry BOTH the call input
- *  and the eventual output on the same entry — we emit them as a paired
- *  `tool_call` + `tool_result` so the renderer can collapse/expand
- *  independently of the agent.
- *
- *  Cross-session resolution: OpenCode's `subagent` tool (`task` before
- *  the 2.x rename) spawns a child session (`session_v2.parent_id` = the
- *  caller) and writes the subagent's full activity to that child. The
- *  parent's tool only carries the subagent's final reply — exporting the
- *  parent in isolation would lose every subagent's actual reasoning,
- *  tool calls, and reply. So this loader:
- *    1. Walks `parent_id` up to the root before loading, so a click on
- *       a child subagent session expands to the user's full conversation.
- *    2. For every subagent tool call it encounters, reads the child
- *       session id off its state metadata (or its output envelope) and
- *       recursively inlines that child's events between
- *       `subtask_start` / `subtask_end` boundary markers.
- *
- *  Only `user` and `assistant` rows are read; the non-conversational rows
- *  2.x also writes (such as `system` tool-rename notices, `synthetic`
- *  injected instructions, `compaction` summaries, `idle` turn-end markers)
- *  don't read as conversation content. The IR's
- *  `subtask_start`/`subtask_end` events are emitted by the loader's
- *  recursion, not pulled from the DB. */
-
 import type { DatabaseSync } from "node:sqlite";
 import type { Logger } from "kolu-shared";
 import { withDb as sharedWithDb } from "kolu-shared/sqlite";
@@ -46,14 +16,8 @@ import {
 } from "./core.ts";
 import { opencodeVocab } from "./schemas.ts";
 
-/** Defensive cap on the parent-id walk. OpenCode shouldn't produce
- *  cycles (each child is created with `parentID = current`), but a
- *  bounded walk + visited-set keeps a corrupt row from looping
- *  forever. 64 hops is well past any realistic subagent nesting. */
 const MAX_PARENT_HOPS = 64;
 
-/** Walk `parent_id` to the root. Returns the input id unchanged when no
- *  parent exists. Cycle-safe via a visited set. */
 function walkToRoot(db: DatabaseSync, sessionId: string): string {
   const seen = new Set<string>();
   let current = sessionId;
@@ -69,7 +33,6 @@ function walkToRoot(db: DatabaseSync, sessionId: string): string {
   return current;
 }
 
-/** Look up display metadata for a session row. */
 function fetchSessionDisplay(
   db: DatabaseSync,
   sessionId: string,
@@ -87,8 +50,7 @@ function fetchSessionDisplay(
 
 /** Map an OpenCode tool name + raw input object onto the typed
  *  `ToolInput` union. OpenCode uses camelCase (`filePath`, `oldString`)
- *  vs Claude's snake_case — that's the entire reason this normalizer
- *  exists per-vendor. Exported for testing. */
+ *  vs Claude's snake_case. */
 export function normalizeOpenCodeToolInput(
   toolName: string,
   raw: unknown,
@@ -148,9 +110,7 @@ export function normalizeOpenCodeToolInput(
     case "skill":
     case "Skill": {
       // Mirror Claude Code's Skill payload shape (`{ skill, args }`)
-      // and accept either casing OpenCode might land on. If a future
-      // OpenCode release uses a different field, we'll learn about it
-      // when this branch starts producing empty names.
+      // and accept either casing OpenCode might land on.
       const argsField = typeof o.args === "string" ? (o.args as string) : null;
       return {
         kind: "skill",
@@ -168,10 +128,8 @@ export function normalizeOpenCodeToolInput(
       };
     }
     case "question": {
-      // OpenCode's question carries `{ questions: Prompt[] }`. Each
-      // Prompt has a text field; we surface the first question's text
-      // so the renderer's "Ask · …" summary actually shows what was
-      // asked rather than dumping JSON.
+      // OpenCode's question carries `{ questions: Prompt[] }`; each Prompt
+      // has a text field.
       const questions = Array.isArray(o.questions) ? o.questions : [];
       const first = questions[0] as Record<string, unknown> | undefined;
       const text =
@@ -196,7 +154,6 @@ export function normalizeOpenCodeToolInput(
 /** The tools whose call spawns a child session. */
 const SUBAGENT_TOOLS: ReadonlySet<string> = new Set(["subagent", "task"]);
 
-/** A tool part's output as text: its text content blocks joined. */
 function toolOutputText(part: ContentPart): string {
   return (part.state?.content ?? [])
     .map((c) => (c.type === "text" && typeof c.text === "string" ? c.text : ""))
@@ -218,25 +175,18 @@ function extractTaskChildSessionId(part: ContentPart): string | null {
 }
 
 /** When inlining a subagent's child session into the parent transcript,
- *  drop the leading `user` event. That event is the parent agent's
- *  dispatch prompt — OpenCode writes it as `role: "user"` because from
- *  the subagent's POV its caller is the user. Without stripping it, the
- *  export visually attributes the dispatch text to the human, which is
- *  wrong. The dispatch is already represented by the `subtask_start`
- *  divider (agent name + short description) and the `task` tool call's
- *  input (full prompt, visible when the Tools toggle is on). Subsequent
- *  user events in the child session — if any — would come from later
- *  task_id resumption dispatches and stay as-is. Exported for testing. */
+ *  drop the leading `user` event: OpenCode writes the parent's dispatch
+ *  prompt as `role: "user"` because from the subagent's POV its caller is
+ *  the user. */
 export function stripDispatchPrompt(
   childEvents: TranscriptEvent[],
 ): TranscriptEvent[] {
   return childEvents[0]?.kind === "user" ? childEvents.slice(1) : childEvents;
 }
 
-/** Build transcript events from a single message's parts. Exported
- *  for unit testing. The `inlineSubtask` callback lets the caller
- *  resolve task-tool calls into nested events; passing `undefined`
- *  preserves the legacy non-recursive behavior the unit tests rely on. */
+/** Build transcript events from a single message's parts. The
+ *  `inlineSubtask` callback resolves subagent-tool calls into nested
+ *  events; `undefined` keeps the fold non-recursive. */
 export function eventsFromMessageParts(
   messageRole: "user" | "assistant",
   modelLabel: string | null,
@@ -252,9 +202,7 @@ export function eventsFromMessageParts(
   for (const p of parts) {
     if (p.type === "text" && typeof p.text === "string") {
       // OpenCode streams text in deltas and sometimes leaves empty text
-      // parts behind (a part row created when a streaming delta starts
-      // but never receives content, or a turn that ends mid-stream).
-      // They render as empty assistant cards if we pass them through.
+      // parts behind, which render as empty assistant cards.
       if (p.text.trim().length === 0) continue;
       if (messageRole === "user") {
         out.push({ kind: "user", text: p.text, ts: messageTs });
@@ -293,8 +241,6 @@ export function eventsFromMessageParts(
       if (SUBAGENT_TOOLS.has(p.name) && inlineSubtask) {
         const childId = extractTaskChildSessionId(p);
         if (childId) {
-          // We don't model subagent dispatch shapes in the IR, so the
-          // description comes from the raw input here.
           const rawInput = p.state?.input;
           const description =
             (typeof rawInput === "object" &&
@@ -308,7 +254,6 @@ export function eventsFromMessageParts(
         }
       }
     }
-    // Other part types carry no conversation content — silently skip.
   }
   return out;
 }
@@ -322,9 +267,6 @@ function withDb<T>(
   return sharedWithDb<DatabaseSync, T>(openDb, fn, errorMsg, errorCtx, log);
 }
 
-/** Load the events for a single session, recursing into child sessions
- *  spawned via the `task` tool. `visited` guards against cycles in the
- *  unlikely event a child references a session already on the stack. */
 function loadSessionEvents(
   db: DatabaseSync,
   sessionId: string,
@@ -368,12 +310,8 @@ function loadSessionEvents(
     try {
       data = parseData(row.data);
     } catch {
-      // Drop the whole message — OpenCode writes this JSON itself, so a
-      // parse failure is exotic.
       continue;
     }
-    // A user row's prompt is its `text`; an assistant row's parts are its
-    // `content[]`. Both go through the same part fold.
     const parts: ContentPart[] =
       row.type === "user"
         ? typeof data.text === "string"
@@ -393,20 +331,17 @@ function loadSessionEvents(
   return events;
 }
 
-/** Read all messages for a session and emit a unified Transcript.
- *  Walks `parent_id` to the root first so subagent-invocation child
- *  sessions expand to the user's full conversation, then recursively
- *  inlines any subagent tool's child session activity. Returns null if the
- *  DB is unavailable; throws if the session id is unknown. */
+/** Read all messages for a session and emit a unified Transcript. Walks
+ *  `parent_id` to the root first so subagent-invocation child sessions
+ *  expand to the user's full conversation, then recursively inlines any
+ *  subagent tool's child session activity. Returns null if the DB is
+ *  unavailable; throws if the session id is unknown. */
 export const loadOpenCodeTranscript: Fetcher = (input, log) => {
   return withDb(
     (db) => {
       const rootId = walkToRoot(db, input.sessionId);
       const visited = new Set<string>();
       const events = loadSessionEvents(db, rootId, visited);
-      // If we walked up, the root carries the conversation's true title
-      // and cwd. Prefer those over the kolu-runtime metadata that
-      // described the (possibly child) session the user clicked on.
       const rootDisplay =
         rootId === input.sessionId ? null : fetchSessionDisplay(db, rootId);
       const transcript: Transcript = {
