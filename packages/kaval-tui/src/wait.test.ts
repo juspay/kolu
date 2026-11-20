@@ -1,18 +1,3 @@
-/**
- * Integration proof for `wait` over the REAL transport — an in-process pty-host
- * served on a real unix socket, dialed via the CLI's own `connectPtyHost`. Drives
- * `awaitOutputCondition` directly (NOT `cmdWait`, which calls `process.exit` and
- * would kill the runner). The output source is a `cat` PTY: writing to it makes
- * the tty echo bytes back as `terminalAttach` deltas at test-controlled times, so
- * quiescence detection is exercised against real PTY output (no hooks, no
- * busy-word table) with the emit timing in the test's hands.
- *
- * It pins the acceptance criteria: a terminal that goes quiet resolves `idle`
- * after the window; one that keeps emitting blocks until the `--timeout`; a regex
- * matches new output; a terminal that exits first resolves `gone` (exit 3); and a
- * Ctrl+C (signal abort) resolves `interrupted`. `parseUntil` is unit-tested
- * separately (pure, no socket).
- */
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -43,18 +28,11 @@ const sleep = (ms: number): Promise<void> =>
 let listener: PtyHostSocketListener;
 let conn: Connection;
 let killAll: () => Promise<unknown>;
-/** The dial is a SCOPED effect now, so the suite holds a scope of its own for
- *  the connection's lifetime and closes it in `afterAll` — the test's equivalent
- *  of the one scope a command opens. */
 let connScope: Scope.Closeable;
 
-/** Run a wait at the test's own process edge — a test IS one. */
 const runWait = <A>(effect: Effect.Effect<A, unknown>): Promise<A> =>
   Effect.runPromise(effect);
 
-/** Spawn a `cat` PTY (a pure echo — writes come straight back as output deltas)
- *  and return its id. The id is minted client-side, so it's the resolved full id
- *  with no list round-trip. */
 async function spawnCat(): Promise<string> {
   const id = newPtyId();
   await Effect.runPromise(
@@ -126,11 +104,8 @@ describe("parseUntil — the --until grammar (pure)", () => {
   });
 
   it("rejects an idle window above the setTimeout ceiling", () => {
-    // 2_147_483_648 = MAX_TIMER_MS + 1: a larger timer overflows and fires
-    // near-instantly, so it must fail loud rather than coerce to a false idle.
     expect(parseUntil("idle:2147483648").kind).toBe("error");
     expect(parseUntil("idle:99999999999999").kind).toBe("error");
-    // The boundary itself is still accepted.
     expect(parseUntil("idle:2147483647")).toEqual({
       kind: "idle",
       ms: 2147483647,
@@ -145,19 +120,16 @@ describe("parseUntil — the --until grammar (pure)", () => {
 
   it("rejects an empty or invalid match pattern", () => {
     expect(parseUntil("match:").kind).toBe("error");
-    expect(parseUntil("match:[").kind).toBe("error"); // unterminated class
+    expect(parseUntil("match:[").kind).toBe("error");
   });
 
   it("rejects an unknown --until form", () => {
     expect(parseUntil("settled").kind).toBe("error");
-    expect(parseUntil("idle").kind).toBe("error"); // no colon
+    expect(parseUntil("idle").kind).toBe("error");
   });
 });
 
 describe("waitResultJson — the --json frame the driver consumes (pure)", () => {
-  // Pins the public `--json` contract the kolu skill / README document: a
-  // uniform `result` discriminant for EVERY outcome (not just `met`), the
-  // success-only `fired` detail, and the conditional `matchedLine` / `error`.
   it("emits a `result` discriminant for every outcome, with met-only details", () => {
     expect(
       waitResultJson("abc", { kind: "met", fired: "idle", elapsedMs: 42 }),
@@ -188,7 +160,6 @@ describe("waitResultJson — the --json frame the driver consumes (pure)", () =>
       id: "abc",
       result: "interrupted",
     });
-    // `closed` carries `error` only when one was recorded — omitted otherwise.
     expect(waitResultJson("abc", { kind: "closed" })).toEqual({
       id: "abc",
       result: "closed",
@@ -203,7 +174,7 @@ describeDaemon(
   "awaitOutputCondition — idle quiescence over a real socket",
   () => {
     it("resolves `idle` after the window once a terminal goes quiet", async () => {
-      const id = await spawnCat(); // cat is silent with no input
+      const id = await spawnCat();
       const outcome = await runWait(
         awaitOutputCondition(conn.client, {
           id,
@@ -214,7 +185,6 @@ describeDaemon(
       expect(outcome.kind).toBe("met");
       if (outcome.kind === "met") {
         expect(outcome.fired).toBe("idle");
-        // It waited out the quiet window rather than firing instantly.
         expect(outcome.elapsedMs).toBeGreaterThanOrEqual(250);
       }
     });
@@ -228,8 +198,7 @@ describeDaemon(
           timeoutMs: 8000,
         }),
       );
-      // Emit three bursts ~120ms apart (each resets the window), then stay quiet.
-      await sleep(100); // let the subscription + snapshot settle first
+      await sleep(100);
       for (let i = 0; i < 3; i++) {
         await write(id, `burst-${i}\n`);
         await sleep(120);
@@ -238,8 +207,6 @@ describeDaemon(
       expect(outcome.kind).toBe("met");
       if (outcome.kind === "met") {
         expect(outcome.fired).toBe("idle");
-        // It fired only AFTER the bursts stopped: ~360ms of emitting + the 400ms
-        // window, so the window was reset by each delta rather than firing at 400ms.
         expect(outcome.elapsedMs).toBeGreaterThanOrEqual(600);
       }
     });
@@ -247,8 +214,6 @@ describeDaemon(
     it("BLOCKS until --timeout while output keeps coming", async () => {
       const id = await spawnCat();
       let writing = true;
-      // Drive a delta every 100ms — well inside the 500ms idle window, so idle can
-      // never accumulate and the wait must run to the 1500ms timeout.
       const pump = (async () => {
         while (writing) {
           await write(id, "x\n");
@@ -265,7 +230,7 @@ describeDaemon(
           }),
         );
         expect(outcome.kind).toBe("timeout");
-        expect(Date.now() - t0).toBeGreaterThanOrEqual(1400); // ran to the cap
+        expect(Date.now() - t0).toBeGreaterThanOrEqual(1400);
       } finally {
         writing = false;
         await pump;
@@ -288,12 +253,6 @@ describeDaemon("awaitOutputCondition — match, exit, and interrupt", () => {
     void p.finally(() => {
       resolved = true;
     });
-    // Re-emit the marker until the wait sees it — NOT a single write after a
-    // fixed sleep. `match` deliberately skips the snapshot, so a marker that
-    // lands BEFORE the attach subscription is live is lost to prior screen
-    // state; a one-shot write after a guessed delay would flake on a slow CI.
-    // Whichever write lands as the first post-subscribe delta matches, with no
-    // assumption about when the subscription settled.
     while (!resolved) {
       await write(id, "KAVAL-WAIT-MARK\n");
       await sleep(25);
@@ -302,9 +261,6 @@ describeDaemon("awaitOutputCondition — match, exit, and interrupt", () => {
     expect(outcome.kind).toBe("met");
     if (outcome.kind === "met") {
       expect(outcome.fired).toBe("match");
-      // Narrow on the discriminant the assertion above just proved, so reading
-      // `matchedLine` needs no presence guard (the split union ties it to
-      // `fired === "match"`).
       if (outcome.fired === "match")
         expect(outcome.matchedLine).toContain("KAVAL-WAIT-MARK");
     }
@@ -315,7 +271,6 @@ describeDaemon("awaitOutputCondition — match, exit, and interrupt", () => {
     const p = runWait(
       awaitOutputCondition(conn.client, {
         id,
-        // A long idle window the kill must short-circuit before it could fire.
         condition: { kind: "idle", ms: 5000 },
         timeoutMs: 10000,
       }),
@@ -325,15 +280,11 @@ describeDaemon("awaitOutputCondition — match, exit, and interrupt", () => {
     await Effect.runPromise(conn.client.surface.terminal.kill({ id }));
     const outcome = await p;
     expect(outcome.kind).toBe("gone");
-    expect(Date.now() - t0).toBeLessThan(3000); // not the 5s window / 10s timeout
+    expect(Date.now() - t0).toBeLessThan(3000);
   });
 
   it("resolves `interrupted` when the caller asks it to stop", async () => {
-    const id = await spawnCat(); // silent, so only the stop can settle it
-    // The Ctrl+C seam is a `stop` EFFECT rather than an `AbortSignal`, and it is
-    // deliberately not fiber interruption: `interrupted` is an outcome this wait
-    // REPORTS (`--json` emits a frame for it), and an interrupted fiber reports
-    // nothing.
+    const id = await spawnCat();
     const stop = Deferred.makeUnsafe<void>();
     const p = runWait(
       awaitOutputCondition(conn.client, {

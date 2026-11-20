@@ -51,7 +51,6 @@ describe("tildeify", () => {
   it("leaves non-home paths and a missing home untouched", () => {
     expect(tildeify("/etc/nixos", "/home/srid")).toBe("/etc/nixos");
     expect(tildeify("/home/srid/x")).toBe("/home/srid/x");
-    // shares a prefix but isn't actually under home — must NOT be collapsed
     expect(tildeify("/home/sridhar", "/home/srid")).toBe("/home/sridhar");
   });
 });
@@ -74,9 +73,6 @@ describe("formatList", () => {
           foregroundProcess: "node",
         }),
         entry({
-          // A full-length uuid: the rendered id column truncates to the first
-          // SHORT_ID_LEN chars (`7f3e0a91`), while ids already shorter than that
-          // (`abc` above) pass through unchanged.
           id: "7f3e0a91-aaaa-bbbb-cccc-dddddddddddd",
           pid: 12,
           cwd: "/etc",
@@ -90,12 +86,9 @@ describe("formatList", () => {
     const lines = out.split("\n");
     expect(lines).toHaveLength(3);
     expect(lines[0]).toMatch(/^ID\s+PID\s+IDLE\s+CMD\s+CWD$/);
-    // title wins when set; short id passes through unchanged (<8 chars)
     expect(lines[1]).toMatch(
       /^abc\s+100\s+5s\s+claude: implement\s+~\/code\/kolu$/,
     );
-    // falls back to the foreground command when the title is empty, and the
-    // long uuid is truncated to its 8-char short form
     expect(lines[2]).toMatch(/^7f3e0a91\s+12\s+2m\s+vim\s+\/etc$/);
   });
 
@@ -128,8 +121,6 @@ describe("formatListJson", () => {
 
 describe("formatSend — the human trailer", () => {
   it("shows byte count, short id, and the pasted mark for a text send", () => {
-    // A text send carries NO keys (text + --key is a hard error), so the pasted
-    // mark stands alone — the two marks never co-occur.
     expect(
       formatSend({
         id: "a1b2c3d4-1111-2222-3333-444455556666",
@@ -175,8 +166,6 @@ describe("shortId", () => {
 });
 
 describe("resolveTerminalId", () => {
-  // Named (not indexed) so each is a plain `string` under
-  // noUncheckedIndexedAccess. ID_A and ID_B share the `7f3e0a9` prefix.
   const ID_A = "7f3e0a91-aaaa-bbbb-cccc-dddddddddddd";
   const ID_B = "7f3e0a92-eeee-ffff-0000-111111111111";
   const ID_C = "a18c9ff0-2222-3333-4444-555555555555";
@@ -195,8 +184,6 @@ describe("resolveTerminalId", () => {
   });
 
   it("returns the exact id even when it's a prefix of a longer one", () => {
-    // "7f3e0a91" exactly matches one id and prefixes no longer one, so the
-    // exact-match short-circuit must win over the startsWith scan.
     const withNested = [...ids, "7f3e0a91"];
     expect(resolveTerminalId("7f3e0a91", withNested)).toEqual({
       kind: "found",
@@ -225,8 +212,6 @@ describe("resolveTerminalId", () => {
   });
 
   it("rejects an empty query even with one live terminal (no footgun)", () => {
-    // "" is a prefix of every id, so without the guard a single live terminal
-    // would resolve — an accidentally-empty `$id` must fail loud instead.
     expect(resolveTerminalId("", [ID_A])).toEqual({ kind: "none" });
     expect(resolveTerminalId("", ids)).toEqual({ kind: "none" });
   });

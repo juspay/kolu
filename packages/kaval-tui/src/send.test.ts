@@ -24,7 +24,6 @@ describe("resolveSendInput — the arg-legality matrix", () => {
     expect(resolveSendInput({ ...base, hasPositional: true })).toEqual({
       kind: "positional",
     });
-    // the --file path rides the descriptor (no separate channel, no cast)
     expect(resolveSendInput({ ...base, file: "/tmp/brief.md" })).toEqual({
       kind: "file",
       path: "/tmp/brief.md",
@@ -52,11 +51,10 @@ describe("resolveSendInput — the arg-legality matrix", () => {
   });
 
   it("text + --key is a hard error teaching the two-command flow", () => {
-    // The core fix: the dropped-Enter trap is unspellable, not warned about.
     const err = () =>
       resolveSendInput({ ...base, hasPositional: true, hasKeys: true });
     expect(err).toThrow(/can't be combined/);
-    expect(err).toThrow(/--key Enter/); // it teaches the submit-as-its-own-command step
+    expect(err).toThrow(/--key Enter/);
   });
 
   it("a text source from ANY channel + --key is rejected (file, stdin too)", () => {
@@ -100,7 +98,7 @@ describe("rejectUnknownSendFlags — no silently-ignored flag on send", () => {
   it("--submit gets a migration message pointing at the two-command pattern", () => {
     const err = () => rejectUnknownSendFlags(["submit"]);
     expect(err).toThrow(/--submit was removed/);
-    expect(err).toThrow(/--key Enter/); // teaches the separate submit step
+    expect(err).toThrow(/--key Enter/);
   });
 
   it("--submit takes precedence even mixed with another unknown flag", () => {
@@ -214,9 +212,6 @@ describe("planSend — building the single write", () => {
   });
 
   it("refuses an empty text arm — a 0-byte write is a no-op, not a submit", () => {
-    // A direct caller can't mint a no-op plan from an empty --file / empty pipe /
-    // empty positional; the plan boundary rejects it (cmdSend catches it first
-    // with a source-named error).
     expect(() =>
       planSend({ kind: "text", text: "", paste: undefined, fromStream: false }),
     ).toThrow(/empty text send/);
@@ -233,7 +228,7 @@ describe("planSend — building the single write", () => {
   });
 
   it("counts total UTF-8 bytes of the write", () => {
-    const text = "café\nlatte"; // é is 2 bytes, the \n forces paste
+    const text = "café\nlatte";
     const plan = planSend({
       kind: "text",
       text,

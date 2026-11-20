@@ -5,7 +5,6 @@ import {
   isValidEscapeChar,
 } from "./escape.ts";
 
-/** Feed `chunks` and flatten the result into (forwarded-string, actions). */
 function scan(
   chunks: string[],
   escapeChar?: string,
@@ -24,8 +23,6 @@ function scan(
 
 describe("createEscapeScanner — the ssh line-start model", () => {
   it("passes ordinary input through byte-identically", () => {
-    // The ~ is mid-line (after "A"), so nothing is eaten — Ctrl chords
-    // (\x03), CSI input (\x1b[A), and multibyte text all pass untouched.
     const input = "ls -la\rgit status\réñ \x03\x1b[A~not-at-start";
     const { forwarded, actions } = scan([input]);
     expect(forwarded).toBe(input);
@@ -91,10 +88,10 @@ describe("createEscapeScanner — the ssh line-start model", () => {
   });
 
   it("forwards multibyte UTF-8 split across chunks byte-identically", () => {
-    const bytes = Buffer.from("café", "utf8"); // é is 2 bytes
+    const bytes = Buffer.from("café", "utf8");
     const scanner = createEscapeScanner();
     const events = [
-      ...scanner.feed(bytes.subarray(0, 4)), // splits é mid-character
+      ...scanner.feed(bytes.subarray(0, 4)),
       ...scanner.feed(bytes.subarray(4)),
     ];
     const out = Buffer.concat(
@@ -110,14 +107,12 @@ describe("createEscapeScanner — the ssh line-start model", () => {
   });
 
   it("isValidEscapeChar accepts one printable ASCII char, rejects the rest", () => {
-    // The CLI boundary (main.ts) is the single enforcement site; the scanner
-    // trusts its caller. Validate the predicate directly.
     expect(isValidEscapeChar("~")).toBe(true);
     expect(isValidEscapeChar("%")).toBe(true);
-    expect(isValidEscapeChar("ab")).toBe(false); // multi-char
-    expect(isValidEscapeChar("\x01")).toBe(false); // control char
-    expect(isValidEscapeChar("é")).toBe(false); // multibyte
-    expect(isValidEscapeChar("")).toBe(false); // empty
+    expect(isValidEscapeChar("ab")).toBe(false);
+    expect(isValidEscapeChar("\x01")).toBe(false);
+    expect(isValidEscapeChar("é")).toBe(false);
+    expect(isValidEscapeChar("")).toBe(false);
   });
 });
 

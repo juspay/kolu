@@ -1,62 +1,28 @@
-/**
- * The ssh-style line-start escape for `kaval-tui attach` — the ONLY thing the
- * raw passthrough ever intercepts. Every other byte (every Ctrl chord, every
- * mid-line `~`) reaches the inner program unmodified; see the "Detach /
- * escape" decision in `docs/atlas/src/content/atlas/pty-daemon-tui.mdx`.
- *
- * Semantics (the ssh model):
- *   - The escape char is recognised only *immediately after* a newline (CR or
- *     LF), and at session start — exactly when ssh would recognise it.
- *   - `<esc>.` detach · `<esc><esc>` one literal escape char · `<esc>?` help.
- *   - `<esc>` followed by anything else forwards BOTH bytes (nothing is eaten).
- *   - Inside a bracketed paste (CSI 200~ … CSI 201~ on stdin — the local
- *     terminal wraps pastes once the snapshot re-enables ?2004h) recognition
- *     is suspended entirely, so a pasted "\n~." cannot detach.
- *
- * The machine runs on BYTES, not strings: a multibyte character split across
- * stdin chunks must round-trip unmangled, so decoding to UTF-8 happens
- * downstream (attach.ts's StringDecoder), never here. State (pending escape,
- * line-start, partial paste marker) survives chunk boundaries.
- */
-
 import { createPasteTracker } from "@kolu/terminal-protocol";
 
 export type EscapeEvent =
-  /** Bytes to forward to the PTY, in order relative to the other events. */
   | { kind: "forward"; data: Buffer }
-  /** `<esc>.` — detach: the caller tears down; the PTY lives on. */
   | { kind: "detach" }
-  /** `<esc>?` — print the escape help to the *local* tty (nothing forwards). */
   | { kind: "help" };
 
 export interface EscapeScanner {
-  /** Scan one stdin chunk; returns the ordered events it produced. */
   feed(chunk: Buffer): EscapeEvent[];
 }
 
 const CR = 0x0d;
 const LF = 0x0a;
+const DETACH_BYTE = ".".charCodeAt(0);
+const HELP_BYTE = "?".charCodeAt(0);
 
-/** `--escape` accepts one printable ASCII char (multi-byte or control chars
- *  would break the byte-level machine / steal chords the inner program owns). */
 export function isValidEscapeChar(s: string): boolean {
   return /^[\x20-\x7e]$/.test(s);
 }
 
-/** `escapeChar` MUST already be a single printable ASCII char — validate it at
- *  the CLI boundary with `isValidEscapeChar` (main.ts does). The byte machine
- *  assumes `escByte = escapeChar.charCodeAt(0)` is one byte. */
 export function createEscapeScanner(escapeChar = "~"): EscapeScanner {
   const escByte = escapeChar.charCodeAt(0);
 
-  // Session start counts as line-start (ssh behaviour): `kaval-tui attach`
-  // then immediately `~.` works without first pressing Enter.
   let atLineStart = true;
-  // Saw the escape char at line start; holding it until the command byte
-  // (which may arrive in the next chunk) decides its fate.
   let pendingEscape = false;
-  // The paste markers, matched incrementally — a marker split across stdin
-  // chunks must still flip the paste state.
   const paste = createPasteTracker();
 
   return {
@@ -69,9 +35,6 @@ export function createEscapeScanner(escapeChar = "~"): EscapeScanner {
           out.length = 0;
         }
       };
-      // Forward one byte: track line-start and the paste-start marker. The
-      // marker bytes themselves forward too — the inner program asked for
-      // bracketed paste, so it expects them.
       const forward = (b: number): void => {
         out.push(b);
         atLineStart = b === CR || b === LF;
@@ -83,8 +46,6 @@ export function createEscapeScanner(escapeChar = "~"): EscapeScanner {
           out.push(b);
           paste.step(b);
           if (!paste.inPaste) {
-            // Whatever the paste contained, its tail on the wire is the end
-            // marker — not a newline — so the next char is mid-line.
             atLineStart = false;
           }
           continue;
@@ -92,19 +53,17 @@ export function createEscapeScanner(escapeChar = "~"): EscapeScanner {
         if (pendingEscape) {
           pendingEscape = false;
           if (b === escByte) {
-            forward(escByte); // <esc><esc> → one literal escape char
-          } else if (b === 0x2e /* "." */) {
+            forward(escByte);
+          } else if (b === DETACH_BYTE) {
             flush();
             events.push({ kind: "detach" });
-          } else if (b === 0x3f /* "?" */) {
+          } else if (b === HELP_BYTE) {
             flush();
             events.push({ kind: "help" });
-            // Nothing was forwarded, so the PTY's line state is unchanged —
-            // another escape works immediately (matches ssh's ~?).
             atLineStart = true;
           } else {
-            forward(escByte); // not a command: the held escape char…
-            forward(b); // …and the byte both forward, nothing is eaten
+            forward(escByte);
+            forward(b);
           }
           continue;
         }

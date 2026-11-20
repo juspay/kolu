@@ -1,14 +1,3 @@
-/**
- * Smoke test for `kaval-tui history` against a REAL kaval over a unix socket:
- * the older-scrollback read the subcommand pages. Exercises the two shapes the
- * command issues — a single self-seeded page (`--lines N`, `before` omitted) and
- * the full paged dump (`before` = each reply's `topLine`, to exhaustion) — and
- * proves it reaches content the bounded attach snapshot does NOT carry, which is
- * the whole reason the verb exists. The verb's arithmetic (the seam guarantee,
- * eviction, fidelity) is pinned in kaval's `ptyHostHistory.test.ts`; this proves
- * the wire path the CLI actually uses.
- */
-
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -35,7 +24,6 @@ const silentLog = {
 
 let listener: PtyHostSocketListener;
 let conn: Connection;
-/** The dial is scoped now; the suite owns a scope for the connection's life. */
 let connScope: Scope.Closeable;
 
 const label = (i: number) => `H${String(i).padStart(4, "0")}`;
@@ -80,7 +68,6 @@ describeDaemon(
   "history verb over a real socket (the kaval-tui history path)",
   () => {
     it("serves older scrollback beyond the bounded attach snapshot", async () => {
-      // Print 1200 deterministic lines — well past the bounded snapshot — then hold.
       const id = newPtyId();
       await Effect.runPromise(
         conn.client.surface.terminal.spawn(
@@ -105,10 +92,6 @@ describeDaemon(
         ).text.includes(label(1199)),
       );
 
-      // The bounded attach snapshot does NOT carry the oldest lines. Read it
-      // through the shared first-frame primitive, which takes the member
-      // `Stream` itself: `Stream.runHead` establishes the subscription, takes
-      // the snapshot, and interrupts the rest.
       const first = await Effect.runPromise(
         firstFrameOrThrow(
           conn.client.surface.terminalAttach.get({ id }),
@@ -119,9 +102,6 @@ describeDaemon(
         throw new Error(`expected a snapshot first frame, got "${first.kind}"`);
       expect(first.data).not.toContain(label(0));
 
-      // `--lines N` path: one self-seeded page (before omitted) of the older lines
-      // just above the screen — non-empty, and older than the newest content. The
-      // pager sends no epoch, so every reply is a `chunk` arm.
       const page = await Effect.runPromise(
         conn.client.surface.terminal.getHistory({
           id,
@@ -132,8 +112,6 @@ describeDaemon(
       expect(page.chunk).not.toBe("");
       expect(page.chunk).not.toContain(label(1199));
 
-      // Full-dump path: page from the screen top to the oldest retained line; the
-      // union of pages must reach the very first line the snapshot omitted.
       let before: number | undefined;
       let reachedOldest = false;
       let guard = 0;
@@ -142,10 +120,6 @@ describeDaemon(
         const res = await Effect.runPromise(
           conn.client.surface.terminal.getHistory({
             id,
-            // Absent, never an explicit `undefined` — `before` is
-            // `Schema.optionalKey` and the wire rejects the latter (PLAN #17).
-            // Spelled the same way the shipped pager spells it, so this smoke
-            // test keeps proving the shipped call shape.
             ...(before === undefined ? {} : { before }),
             max: 500,
           }),

@@ -1,8 +1,3 @@
-/**
- * Pure-logic unit tests for the `create` subcommand — no socket, no tty. The
- * spawn RPC round-trip (that the host accepts this composed input) is covered
- * e2e in `attach.test.ts` against a real in-process pty-host.
- */
 import { describe, expect, it } from "vitest";
 import {
   buildCreateInput,
@@ -13,16 +8,12 @@ import {
 } from "./create.ts";
 
 describe("buildCreateInput", () => {
-  // The socket this daemon was dialed on — stamped into the terminal as
-  // KAVAL_SOCKET so a process inside can reach the daemon that owns it.
   const SOCK = "/tmp/kaval-501/pty-host.sock";
 
   it("composes a fully-specified plain-shell input from the canonical base — argv=[$SHELL], no rcfiles", () => {
     const input = buildCreateInput({
       id: "abc",
       cwd: "/work",
-      // SHELL is on the canonical allowlist; a non-canonical caller var (FOO) is NOT
-      // forwarded — the env is composed from the base, never copied wholesale.
       env: { SHELL: "/bin/zsh", FOO: "bar" },
       kavalSocket: SOCK,
     });
@@ -59,10 +50,7 @@ describe("buildCreateInput", () => {
       command: ["htop", "-d", "5"],
       kavalSocket: SOCK,
     });
-    // argv IS the command — the shell is not consulted when one is passed.
     expect(input.argv).toEqual(["htop", "-d", "5"]);
-    // #1872: a command-rooted spawn is flagged so the host seeds it + the
-    // sensors read foreground==root as busy.
     expect(input.commandRooted).toBe(true);
   });
 
@@ -82,15 +70,12 @@ describe("buildCreateInput", () => {
       id: "x",
       cwd: "/",
       env: {
-        // canonical base (functional + presentation) — kept:
         HOME: "/home/u",
         PATH: "/usr/bin",
         SHELL: "/bin/sh",
         USER: "u",
         LANG: "en_US.UTF-8",
-        // an allowlisted key present but undefined (ProcessEnv hole) — dropped:
         DISPLAY: undefined,
-        // non-canonical caller vars — dropped, NOT forwarded:
         NOT_CANONICAL: "1",
         AWS_SECRET_ACCESS_KEY: "shhh",
       },
@@ -111,10 +96,6 @@ describe("buildCreateInput", () => {
   });
 
   it("--env round-trips env names that collide with Object.prototype keys (constructor/prototype/__proto__)", () => {
-    // codex F3: these are valid env-var names, not something to reject. The composer's
-    // null-prototype records carry them as DATA, not prototype mutations. `__proto__`
-    // must be an OWN key on the extraEnv (a plain `{__proto__: x}` literal would set the
-    // prototype), so build extraEnv on a null-proto object.
     const extraEnv: Record<string, string> = Object.create(null);
     const pairs: [string, string][] = [
       ["constructor", "c"],
@@ -122,7 +103,7 @@ describe("buildCreateInput", () => {
       ["__proto__", "pp"],
     ];
     for (const [k, v] of pairs) {
-      extraEnv[k] = v; // variable key → index signature, so no `.constructor` Function type
+      extraEnv[k] = v;
     }
     const input = buildCreateInput({
       id: "x",
@@ -131,8 +112,6 @@ describe("buildCreateInput", () => {
       extraEnv,
       kavalSocket: SOCK,
     });
-    // All three reached the child env as OWN data properties — read via descriptor to
-    // dodge the `.constructor` accessor / the `__proto__` getter that a `.` read hits.
     expect(
       Object.getOwnPropertyDescriptor(input.env, "constructor")?.value,
     ).toBe("c");
@@ -149,8 +128,6 @@ describe("buildCreateInput", () => {
       id: "x",
       cwd: "/",
       env: { SHELL: "/bin/sh", PATH: "/usr/bin" },
-      // FOO is not on the base — the explicit escape hatch re-adds it; PATH is on the
-      // base — an explicit --env overrides it (layered after the base).
       extraEnv: { FOO: "bar", PATH: "/custom/bin" },
       kavalSocket: SOCK,
     });
@@ -159,10 +136,6 @@ describe("buildCreateInput", () => {
   });
 
   it("stamps KAVAL_TERMINAL_ID with the terminal's own id, overwriting an inherited one", () => {
-    // A process inside the terminal reads its OWN id from the env (the
-    // self-knowledge twin of KAVAL_SOCKET). If this CLI runs inside an outer
-    // kolu terminal its env already carries the OUTER id, so the stamp must win —
-    // the spawned terminal is its own, not the outer one.
     const input = buildCreateInput({
       id: "fresh",
       cwd: "/",
@@ -174,9 +147,6 @@ describe("buildCreateInput", () => {
   });
 
   it("stamps KAVAL_SOCKET, overwriting any value inherited from the env", () => {
-    // If this CLI is itself running inside a kaval terminal, its process.env
-    // already carries the OUTER daemon's KAVAL_SOCKET. The spawned terminal is
-    // owned by the daemon we dialed, so its stamp must win.
     const input = buildCreateInput({
       id: "x",
       cwd: "/",
@@ -193,14 +163,6 @@ describe("buildCreateInput", () => {
     ).toBe(id);
   });
 
-  // SPAWN1 red-first pin (#1872), parameterized over BOTH spawn modes. The caller may
-  // itself be an orchestrating Claude session, whose private identity vars
-  // (CLAUDE_CODE_CHILD_SESSION=1 + kin) MUST NOT ride into the spawned terminal: a claude
-  // that sees CLAUDE_CODE_CHILD_SESSION classifies itself as a nested child and never
-  // persists its conversation (real data loss — 3 agents, A/B-proven in
-  // agent-spawn-first-class.mdx). The #1872 field repro was COMMAND mode
-  // (`create -- claude`); a shell-mode-only pin would let a command-mode regression — the
-  // exact #1872 shape — pass. Both modes must strip the identity vars.
   it.each([
     { mode: "shell mode (plain $SHELL)", command: undefined },
     {
@@ -229,15 +191,12 @@ describe("buildCreateInput", () => {
 });
 
 describe("buildRemoteCreateInput", () => {
-  // The remote (`--host`) composer must use the REMOTE host's facts (from
-  // `system.info`), not this CLI's process facts — a local cwd/env/$SHELL would
-  // be wrong on another machine (and a wholesale local env leaks secrets).
   const localEnv = {
-    SHELL: "/usr/bin/fish", // local login shell — must NOT reach the remote
-    HOME: "/home/laptop-user", // local home — must NOT reach the remote
-    AWS_SECRET_ACCESS_KEY: "shhh", // a local secret — must NOT be shipped
-    TERM: "xterm-256color", // presentation — safe to carry
-    LANG: "en_US.UTF-8", // presentation — safe to carry
+    SHELL: "/usr/bin/fish",
+    HOME: "/home/laptop-user",
+    AWS_SECRET_ACCESS_KEY: "shhh",
+    TERM: "xterm-256color",
+    LANG: "en_US.UTF-8",
   };
   const host = {
     shell: "/bin/bash",
@@ -247,25 +206,18 @@ describe("buildRemoteCreateInput", () => {
 
   it("uses the host's shell + home + PATH, never the local ones", () => {
     const input = buildRemoteCreateInput({ id: "r1", host, localEnv });
-    expect(input.argv).toEqual(["/bin/bash"]); // host shell, not /usr/bin/fish
-    expect(input.cwd).toBe("/home/prod"); // host home, not /home/laptop-user
+    expect(input.argv).toEqual(["/bin/bash"]);
+    expect(input.cwd).toBe("/home/prod");
     expect(input.env.HOME).toBe("/home/prod");
     expect(input.env.SHELL).toBe("/bin/bash");
-    // The host's PATH — so the remote shell can find external commands (a shell
-    // with no PATH exits 127 on the first one, killing the PTY instantly).
     expect(input.env.PATH).toBe("/run/current-system/sw/bin:/usr/bin:/bin");
   });
 
   it("ships ONLY presentation env + host shell/home/PATH — no wholesale local env / secrets", () => {
     const input = buildRemoteCreateInput({ id: "r1", host, localEnv });
-    // The local secret never crosses the wire.
     expect("AWS_SECRET_ACCESS_KEY" in input.env).toBe(false);
-    // Presentation vars are carried (they describe the attaching terminal).
     expect(input.env.TERM).toBe("xterm-256color");
     expect(input.env.LANG).toBe("en_US.UTF-8");
-    // The whole env is exactly host-derived HOME/SHELL/PATH + the passthrough set,
-    // plus the terminal's own id (stamped for both composers — the id is the
-    // terminal's, wherever it runs).
     expect(input.env).toEqual({
       HOME: "/home/prod",
       SHELL: "/bin/bash",
@@ -279,11 +231,9 @@ describe("buildRemoteCreateInput", () => {
   it("falls back to a baseline PATH when the host reports none (older daemon)", () => {
     const input = buildRemoteCreateInput({
       id: "r1",
-      host: { shell: "/bin/bash", home: "/home/prod" }, // no path
+      host: { shell: "/bin/bash", home: "/home/prod" },
       localEnv: {},
     });
-    // Not empty — a usable baseline covering NixOS + FHS, so the remote shell
-    // still finds the common tools instead of dying on the first command.
     expect(input.env.PATH).toContain("/run/current-system/sw/bin");
     expect(input.env.PATH).toContain("/usr/bin");
   });
@@ -317,23 +267,20 @@ describe("buildRemoteCreateInput", () => {
       localEnv,
       extraEnv: { FOO: "bar", PATH: "/custom/bin" },
     });
-    // Added on top of the host base, and able to override a host-derived var.
     expect(input.env.FOO).toBe("bar");
     expect(input.env.PATH).toBe("/custom/bin");
-    // The local secret still never crosses the wire — extraEnv is explicit-only.
     expect("AWS_SECRET_ACCESS_KEY" in input.env).toBe(false);
   });
 
   it("--env round-trips a __proto__ key on the remote path too (null-proto base, codex F3)", () => {
     const extraEnv: Record<string, string> = Object.create(null);
-    extraEnv.__proto__ = "pp"; // own key on a null-proto object
+    extraEnv.__proto__ = "pp";
     const input = buildRemoteCreateInput({
       id: "r1",
       host,
       localEnv,
       extraEnv,
     });
-    // Reached the child env as an OWN data property, not a prototype mutation.
     expect(Object.getOwnPropertyDescriptor(input.env, "__proto__")?.value).toBe(
       "pp",
     );
@@ -345,7 +292,6 @@ describe("newPtyId", () => {
     const a = newPtyId();
     const b = newPtyId();
     expect(a).not.toBe(b);
-    // v4 uuid shape (the form kolu-server / `list` show a short prefix of).
     expect(a).toMatch(
       /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/,
     );
@@ -378,9 +324,6 @@ describe("formatCreate", () => {
   });
 
   it("strips control bytes from the cwd and program so the line can't be injected", () => {
-    // A cwd carrying a newline + raw ESC sequence (an attacker-influenceable cwd
-    // — the daemon echoes back whatever it spawned in) must not break the line
-    // or paint terminal control effects: `sanitizeCell` collapses the controls.
     const evil: CreateResult = {
       id: "a8f1c2d3-1111-2222-3333-444455556666",
       pid: 12843,
@@ -388,7 +331,6 @@ describe("formatCreate", () => {
     };
     const line = formatCreate(evil, { program: "ba\x1bsh", home: "/home/u" });
     expect(line).toBe("spawned a8f1c2d3 · ba sh · ~/co de [31m (pid 12843)");
-    // No raw ESC or newline survives into the human line.
     expect(line).not.toMatch(/[\x00-\x1f\x7f]/);
   });
 });

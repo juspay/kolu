@@ -1,12 +1,3 @@
-/**
- * End-to-end attach over the REAL transport: an in-process pty-host served on
- * a real unix socket, dialed via `connectPtyHost`, with `runAttach` driven
- * through a fake `AttachTty` (PassThrough stdin, captured stdout) — the whole
- * Phase 2 loop minus the actual tty: spawn → snapshot paint → keystroke
- * round-trip → `~.` detach (PTY survives) → exit-code discrimination.
- * The escape machine's byte-level behaviour is pinned separately in
- * `escape.test.ts`; this file covers the loop's wiring.
- */
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -38,10 +29,6 @@ import { resolveTerminalId, shortId } from "./render.ts";
 import { planSend, type SendPlan } from "./send.ts";
 import { executeSendPlan } from "./sendExec.ts";
 
-/** A plain sleep. It used to live in `wait.ts` as the package's one
- *  `setTimeout` wrapper; production has no use for it any more (the wait's idle
- *  window is a queue timeout, the attach's re-subscribe pause an `Effect.sleep`),
- *  so it lives with its last consumer instead of being kept alive as an export. */
 const delay = (ms: number): Promise<void> =>
   new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -53,13 +40,8 @@ const silentLog = {
   child: () => silentLog,
 } as unknown as InProcessPtyHostDeps["log"];
 
-/** Placeholder for the dialed socket `create` stamps as KAVAL_SOCKET — irrelevant
- *  to these tests (they exercise the spawn round-trip, not env inheritance). */
 const KAVAL_SOCK = "/tmp/kaval-test/pty-host.sock";
 
-/** A minimal fully-specified spawn — a plain `$SHELL` run with no login flag, no
- *  rc files (the host derives nothing from policy since B0). Delegates to the
- *  production composer so the test shape can't drift from what `create` sends. */
 const spawnInput = (cwd: string): PtyHostSpawnInput =>
   buildCreateInput({
     id: newPtyId(),
@@ -70,9 +52,7 @@ const spawnInput = (cwd: string): PtyHostSpawnInput =>
 
 interface FakeTty {
   tty: AttachTty;
-  /** Everything runAttach painted on the "screen" so far. */
   out(): string;
-  /** Type raw bytes as the user. */
   type(s: string): void;
 }
 
@@ -95,10 +75,6 @@ function fakeTty(): FakeTty {
   };
 }
 
-/** A view of `client` whose `surface.terminal.write` runs `hook` (e.g. a delay)
- *  before delegating — used to widen the window between "write enqueued" and
- *  "write landed" so the detach-ordering guarantee is testable. Everything else
- *  passes straight through. */
 function clientWithSlowWrite(
   client: PtyTuiClient,
   hook: Effect.Effect<void>,
@@ -106,9 +82,6 @@ function clientWithSlowWrite(
   const terminal = new Proxy(client.surface.terminal, {
     get(target, prop, receiver) {
       if (prop === "write") {
-        // A member call is an EFFECT, so the delay composes in front of it
-        // rather than wrapping a promise — the write still happens exactly once,
-        // and only when the attach loop runs the value it was handed.
         return (input: { id: string; data: string }) =>
           Effect.flatMap(hook, () => target.write(input));
       }
@@ -138,7 +111,6 @@ async function until(
 
 let listener: PtyHostSocketListener;
 let conn: Connection;
-/** The dial is scoped now; the suite owns a scope for the connection's life. */
 let connScope: Scope.Closeable;
 let killAll: () => Promise<unknown>;
 
@@ -177,7 +149,6 @@ describeDaemon("runAttach — over a real unix socket", () => {
       runAttach(conn.client, "00000000-0000-0000-0000-000000000000", { tty }),
     );
     expect(outcome).toEqual({ kind: "not-found" });
-    // Honest failure: nothing was painted on the local screen.
     expect(out()).toBe("");
   });
 
@@ -185,9 +156,6 @@ describeDaemon("runAttach — over a real unix socket", () => {
     timeout: 30_000,
   }, async () => {
     const dir = mkdtempSync(join(tmpdir(), "kolu-create-"));
-    // A client-minted id, exactly as `newPtyId()` produces — assert the host
-    // accepts our fully-specified input and echoes the id back (the round-trip
-    // `create` relies on so the printed id is the one `attach` then resolves).
     const id = "11111111-2222-3333-4444-555555555555";
     const result = await Effect.runPromise(
       conn.client.surface.terminal.spawn(
@@ -213,9 +181,6 @@ describeDaemon("runAttach — over a real unix socket", () => {
   }, async () => {
     const dir = mkdtempSync(join(tmpdir(), "kolu-create-cmd-"));
     const id = "22222222-3333-4444-5555-666666666666";
-    // A command (not $SHELL) that prints a marker then stays alive, so the PTY
-    // is still listable when we read its screen — proves the `[command…]`
-    // positional reaches the host's spawn verbatim.
     await Effect.runPromise(
       conn.client.surface.terminal.spawn(
         buildCreateInput({
@@ -246,12 +211,6 @@ describeDaemon("runAttach — over a real unix socket", () => {
   }, async () => {
     const dir = mkdtempSync(join(tmpdir(), "kolu-termid-"));
     const id = "44444444-5555-6666-7777-888888888888";
-    // Echo the env var the child ACTUALLY received — end-to-end proof that
-    // KAVAL_TERMINAL_ID rides composer → wire → real PTY → shell, not merely that
-    // the composer stamped it. The `$KAVAL_TERMINAL_ID` is expanded by the spawned
-    // `sh`, so a match means the child's environment carried it. `env: process.env`
-    // may itself carry an OUTER id (this test can run inside a kolu terminal) — a
-    // match on THIS id also proves the stamp overwrote the inherited one.
     await Effect.runPromise(
       conn.client.surface.terminal.spawn(
         buildCreateInput({
@@ -286,8 +245,6 @@ describeDaemon("runAttach — over a real unix socket", () => {
   }, async () => {
     const dir = mkdtempSync(join(tmpdir(), "kolu-snap-bound-"));
     const id = "33333333-4444-5555-6666-777777777777";
-    // Print 60 numbered lines into the default 24-row grid, so the top scrolls
-    // out of the visible screen — the exact long-buffer case #1607 hit.
     await Effect.runPromise(
       conn.client.surface.terminal.spawn(
         buildCreateInput({
@@ -316,7 +273,6 @@ describeDaemon("runAttach — over a real unix socket", () => {
       },
     );
 
-    // Full read keeps the scrolled-off top.
     const full = (
       await Effect.runPromise(
         conn.client.surface.terminal.getScreenText({ id }),
@@ -325,7 +281,6 @@ describeDaemon("runAttach — over a real unix socket", () => {
     expect(full).toContain("L01");
     expect(full).toContain("L60");
 
-    // --viewport: only the visible screen (the daemon's own 24 rows) — drops L01.
     const viewport = (
       await Effect.runPromise(
         conn.client.surface.terminal.getScreenText({
@@ -337,8 +292,6 @@ describeDaemon("runAttach — over a real unix socket", () => {
     expect(viewport).toContain("L60");
     expect(viewport).not.toContain("L01");
 
-    // --tail 3: exactly the last 3 rendered lines (the bottom of the buffer —
-    // L60 plus the blank cursor line, never the scrolled-off top).
     const tail = (
       await Effect.runPromise(
         conn.client.surface.terminal.getScreenText({
@@ -362,17 +315,12 @@ describeDaemon("runAttach — over a real unix socket", () => {
     const { tty, out, type } = fakeTty();
     const done = Effect.runPromise(runAttach(conn.client, id, { tty }));
 
-    // The one-shot notice + the snapshot paint arrive first.
     await until(() => out().includes("snapshot restored"), "attach notice");
     expect(out()).toContain(`PTY pid ${pid}`);
 
-    // A typed command flows stdin → escape machine → write RPC → PTY →
-    // deltas → the local screen. $((…)) keeps the marker out of the echoed
-    // command line, so a match proves the shell really ran it.
     type("echo MARK-$((6 * 7))\r");
     await until(() => out().includes("MARK-42"), "echo round-trip");
 
-    // Line-start ~. detaches; the PTY must survive the client leaving.
     type("\r~.");
     const outcome = await done;
     expect(outcome).toEqual({ kind: "detached" });
@@ -407,12 +355,6 @@ describeDaemon("runAttach — over a real unix socket", () => {
     );
     const { tty, out, type } = fakeTty();
 
-    // ssh-style escape ordering, pinned tightly: a slow write must still flush
-    // BEFORE runAttach resolves detached. We wrap the client so `terminal.write`
-    // is artificially slow and flips `writeLanded` only once the RPC truly
-    // completes. If detach returned without draining the wire queue, `done`
-    // would resolve while the write is still in flight and `writeLanded` would
-    // be false — so this assertion fails loudly on the F2 regression.
     let writeLanded = false;
     const slowClient = clientWithSlowWrite(
       conn.client,
@@ -426,14 +368,10 @@ describeDaemon("runAttach — over a real unix socket", () => {
     const done = Effect.runPromise(runAttach(slowClient, id, { tty }));
     await until(() => out().includes("snapshot restored"), "attach notice");
 
-    // The command and the line-start detach land in ONE stdin burst:
-    // `echo …\r` is forwarded, then `~.` detaches.
     type("echo PRE-DETACH-$((3 * 5))\r~.");
     expect(await done).toEqual({ kind: "detached" });
-    // The forwarded write completed before runAttach handed back `detached`.
     expect(writeLanded).toBe(true);
 
-    // And the PTY survived the detach and ran the pre-detach line.
     const { entries } = await Effect.runPromise(
       conn.client.surface.terminal.list({}),
     );
@@ -466,7 +404,6 @@ describeDaemon("runAttach — over a real unix socket", () => {
     await until(() => out().includes("kaval-tui escapes"), "help text");
     type("~.");
     expect(await done).toEqual({ kind: "detached" });
-    // The help went to the LOCAL tty only — the PTY's screen never saw it.
     const { text } = await Effect.runPromise(
       conn.client.surface.terminal.getScreenText({
         id,
@@ -485,20 +422,13 @@ describeDaemon("send — over the same real unix socket", () => {
       conn.client.surface.terminal.spawn(spawnInput(dir)),
     );
 
-    // The canonical two-command shape `cmdSend` drives: the literal text as one
-    // send, then an explicit `--key Enter` as its OWN send — `send` never adds an
-    // Enter on its own, and text+key in one command is forbidden. A plain shell
-    // has no paste debounce, so back-to-back sends run it. `$((…))` keeps the
-    // marker out of the echoed command line, so a screen match proves the shell
-    // really ran the input (not that the bytes were merely echoed). Both go
-    // through the shipped executor, covering the write round-trip.
     const textPlan = planSend({
       kind: "text",
       text: "echo SENDMARK-$((6 * 7))",
       paste: undefined,
       fromStream: false,
     });
-    const enterPlan = planSend({ kind: "keys", keyData: "\r" }); // a standalone `--key Enter`
+    const enterPlan = planSend({ kind: "keys", keyData: "\r" });
     expect(textPlan.write).toBe("echo SENDMARK-$((6 * 7))");
     expect(enterPlan.write).toBe("\r");
     const writeToPty = (data: string) =>
@@ -526,27 +456,12 @@ describeDaemon("send — over the same real unix socket", () => {
 describeDaemon(
   "send — canonical two-command submit against a real paste-debounce TUI",
   () => {
-    // A real PTY running the scripted TUI that reproduces Claude Code's #1 failure
-    // mode: an Enter within FIXTURE_DEBOUNCE_MS of a bracketed paste is DROPPED, a
-    // later one submits. There is NO grace baked into `send` — the caller submits
-    // as a SEPARATE command AFTER observing the TUI settle (`wait --until idle`).
-    // The fixture's debounce is deliberately short; the observed-settle wait below
-    // clears it with a wide margin, while a same-breath Enter falls inside it.
     const FIXTURE = fileURLToPath(
       new URL("./paste-debounce-tui.fixture.mjs", import.meta.url),
     );
     const DEBOUNCE_MS = 120;
-    // Stands in for the caller's `kaval-tui wait <id> --until idle:<ms>` — the
-    // OBSERVE step. `kaval` can't know when the TUI settled, but the caller can:
-    // after the paste the fixture emits nothing, so an idle window this wide is a
-    // real "no output for IDLE_MS" signal, and (being > DEBOUNCE_MS) it guarantees
-    // the follow-up Enter lands PAST the debounce. Only baking a sleep into `send`
-    // itself is forbidden — the caller waiting is the whole model.
     const IDLE_MS = 400;
 
-    /** Spawn the fixture in a real PTY and wait until it's listening. `extraEnv`
-     *  lets a test tune the fixture — e.g. hold the busy burst open (FIXTURE_BUSY_TICKS)
-     *  so the "mid-turn" case is deterministic rather than racing a ~500ms window. */
     async function spawnFixture(
       extraEnv: Record<string, string> = {},
     ): Promise<string> {
@@ -555,16 +470,10 @@ describeDaemon(
         conn.client.surface.terminal.spawn(
           buildCreateInput({
             id: newPtyId(),
-            // `env` is mined for the canonical base (PATH, so `node` resolves); the
-            // fixture's own config vars are NOT canonical, so they ride the explicit
-            // `--env` escape hatch (extraEnv) — the same path a real caller uses to add
-            // a var the clean base drops. This also exercises extraEnv over a real spawn.
             cwd: dir,
             env: process.env,
             extraEnv: {
               FIXTURE_DEBOUNCE_MS: String(DEBOUNCE_MS),
-              // The fixture recognizes the SAME bracketed-paste markers `planSend`
-              // wraps text with — pass the protocol constants so it can't drift.
               FIXTURE_PASTE_START: BRACKETED_PASTE_START,
               FIXTURE_PASTE_END: BRACKETED_PASTE_END,
               ...extraEnv,
@@ -578,8 +487,6 @@ describeDaemon(
       return id;
     }
 
-    /** The FULL scrollback (not the viewport) so a marker can't scroll away behind
-     *  the fixture's busy-stream output. */
     async function screenOf(id: string): Promise<string> {
       const { text } = await Effect.runPromise(
         conn.client.surface.terminal.getScreenText({
@@ -606,9 +513,6 @@ describeDaemon(
       return screen;
     }
 
-    /** Drive a send byte-plan against the PTY through the SHIPPED executor —
-     *  `executeSendPlan` (the same function `cmdSend` runs), over this suite's
-     *  socket write — so the acceptance test validates the real sequencing. */
     const runPlan = (id: string, plan: SendPlan): Promise<void> =>
       Effect.runPromise(
         executeSendPlan(
@@ -623,14 +527,12 @@ describeDaemon(
         ),
       );
 
-    /** Send just the text (a bracketed paste, no Enter) — step 1 of the flow. */
     const sendText = (id: string, text: string, fromStream = false) =>
       runPlan(
         id,
         planSend({ kind: "text", text, paste: undefined, fromStream }),
       );
 
-    /** Submit as its OWN command — step 3, after the observed settle. */
     const sendEnter = (id: string) =>
       runPlan(id, planSend({ kind: "keys", keyData: "\r" }));
 
@@ -638,13 +540,6 @@ describeDaemon(
       timeout: 30_000,
     }, async () => {
       const id = await spawnFixture();
-      // The raw bytes of `send <id> "text" --key Enter` — paste then Enter written
-      // back-to-back, no gap. The Enter races into the debounce and is dropped,
-      // leaving the prompt staged. `resolveSendInput` makes this UNSPELLABLE at the
-      // CLI (text + --key is a hard error), and `planSend` now makes it unspellable
-      // at the plan boundary too — so we compose the two writes the old combined
-      // plan emitted (the bracketed paste, then the Enter) to reproduce the
-      // forbidden same-breath byte sequence at the wire and prove WHY it's dropped.
       const pastePlan = planSend({
         kind: "text",
         text: "start the turn",
@@ -659,7 +554,6 @@ describeDaemon(
         (s) => s.includes("DROPPED"),
         "the same-breath Enter to be dropped",
       );
-      // The whole point: the turn did NOT start — the prompt sat staged, unsent.
       expect(screen).not.toContain("SUBMITTED");
     });
 
@@ -667,11 +561,8 @@ describeDaemon(
       timeout: 30_000,
     }, async () => {
       const id = await spawnFixture();
-      // 1. the text (paste, no Enter).
       await sendText(id, "explain the architecture of this repo");
-      // 2. observe the TUI settle (the `wait --until idle` step).
       await delay(IDLE_MS);
-      // 3. submit as its own command — now past the debounce, so it lands.
       await sendEnter(id);
       await untilScreen(
         id,
@@ -683,26 +574,16 @@ describeDaemon(
     it("(b) BUSY agent (mid-turn, streaming): the two-command submit still lands, never lost", {
       timeout: 30_000,
     }, async () => {
-      // Hold the first turn's busy burst open (200 × 25ms ≈ 5s) so it is STILL
-      // streaming when the second prompt lands — otherwise a slow CI loop could let
-      // the first turn print DONE T1 first, and the test would no longer prove the
-      // mid-turn case it claims. The assertion below pins that determinism.
       const id = await spawnFixture({ FIXTURE_BUSY_TICKS: "200" });
       await sendText(id, "first prompt");
       await delay(IDLE_MS);
       await sendEnter(id);
-      // Wait until the first turn is UNDERWAY (the fixture is streaming busy output).
       const midTurn = await untilScreen(
         id,
         (s) => s.includes("SUBMITTED#1"),
         "first turn to start",
       );
-      // The first turn must still be mid-stream — DONE T1 not yet printed — so the
-      // second submit genuinely lands at a BUSY agent, not a quiesced one.
       expect(midTurn).not.toContain("DONE T1");
-      // Second prompt while it's mid-stream. For a busy agent the settle signal is
-      // the paste's own debounce clearing (output isn't idle — the agent is
-      // streaming), so wait past DEBOUNCE_MS, then submit as its own command.
       await sendText(id, "second prompt while busy");
       await delay(IDLE_MS);
       await sendEnter(id);
@@ -717,15 +598,12 @@ describeDaemon(
       timeout: 30_000,
     }, async () => {
       const id = await spawnFixture();
-      // ~4KB, arriving in several socket chunks — the fixture reassembles the paste
-      // across chunk boundaries; a unique tail proves nothing was truncated. NOTE:
-      // this fixture models the paste-DEBOUNCE (an Enter too soon is dropped), which
-      // the two-command flow beats. It does NOT model Claude Code's large-paste
-      // COLLAPSE (folding a big paste into a "[Pasted text +N lines]" placeholder
-      // that then won't submit on Enter) — that is Bug A, which survives the
-      // canonical flow against a real claude and is tracked open (issue #1702).
+      // This fixture models the paste-DEBOUNCE only. Claude Code's large-paste
+      // COLLAPSE (a big paste folded into a "[Pasted text +N lines]" placeholder
+      // that then won't submit on Enter) survives the canonical flow and is
+      // tracked open as issue #1702.
       const big = `${"X".repeat(4000)}ENDMARK-c0ffee`;
-      await sendText(id, big, /* fromStream */ true); // a stream payload auto-pastes
+      await sendText(id, big, true);
       await delay(IDLE_MS);
       await sendEnter(id);
       await untilScreen(
@@ -747,18 +625,11 @@ describeDaemon("runKill — over the same real unix socket", () => {
       conn.client.surface.terminal.spawn(spawnInput(dir)),
     );
 
-    // Live and listable first.
     const { entries } = await Effect.runPromise(
       conn.client.surface.terminal.list({}),
     );
     expect(entries.some((e) => e.id === id)).toBe(true);
 
-    // `kaval-tui kill <id>` resolves the short id (or any unique prefix) to the
-    // full id before killing — the same `resolveTerminalId` step the dispatch
-    // runs via `resolveOne`. Resolve from the short form so the resolve is
-    // load-bearing, then feed THAT id into `runKill` — the SAME command body
-    // `main.ts`'s `kill` branch invokes (not the bare RPC), so this exercises the
-    // confirmation line and the kill RPC the shipped command runs.
     const resolved = resolveTerminalId(
       shortId(id),
       entries.map((e) => e.id),
@@ -766,18 +637,14 @@ describeDaemon("runKill — over the same real unix socket", () => {
     expect(resolved).toEqual({ kind: "found", id });
     if (resolved.kind !== "found") throw new Error("unreachable");
 
-    // Drive the real command body; capture its stderr confirmation through the
-    // injected sink instead of the process's stderr.
     let confirmed = "";
     await Effect.runPromise(
       runKill(conn, resolved.id, (line) => {
         confirmed += line;
       }),
     );
-    // The one-line confirmation names the short id, like `attach`'s trailers.
     expect(confirmed).toBe(`— killed ${shortId(id)}\n`);
 
-    // And the daemon really tore the PTY down: it drops out of the inventory.
     let gone = false;
     await until(
       () => gone,
