@@ -34,16 +34,15 @@ const GlyphSvg: Component<{ def: PipGlyphDef }> = (props) => {
 
 export const StatePip: Component<{
   variant: PipVariant;
-  /** Who is driving this terminal — agent brand mark, or `"shell"`. Defaults
-   *  to shell. */
+  /** Who is driving this terminal — agent brand mark, or `"shell"` (default). */
   glyph?: PipGlyphId;
   /** Activity motion channel. Default `"none"` (still). */
   motion?: PipMotionKind;
-  /** Raw meaningful PTY output — a11y "live output" only (not effective-active). */
+  /** Raw meaningful PTY output — adds an a11y "live output" note only. */
   bytesLive?: boolean;
-  /** Live shell paint — binder already decided; leaf trusts the boolean. */
+  /** Paint as a live plain shell. */
   shellLive?: boolean;
-  /** Unread obligation corner badge (amber). Needs-you is paint/glow, not this. */
+  /** Unread obligation corner badge. */
   alert?: boolean;
   alertLabel?: string;
   class?: string;

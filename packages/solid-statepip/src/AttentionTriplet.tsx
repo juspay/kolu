@@ -5,11 +5,8 @@ import {
   UNSEEN_COUNT_CLASS,
 } from "./pipVariant.ts";
 
-/** The needs-you capsule as an ELEMENT — the violet silhouette with something
- *  in it. Exported so a surface that wants the shape (the dock's wait chip,
- *  which carries a duration instead of a count) reaches for the component
- *  rather than hand-composing this package's raw token beside its own
- *  padding. */
+/** The needs-you capsule as an ELEMENT — the violet silhouette with arbitrary
+ *  content (the dock's wait chip carries a duration instead of a count). */
 export const NeedsYouCapsule: Component<{
   title?: string;
   testid?: string;
@@ -82,20 +79,15 @@ const CountCapsule: Component<{
 
 export const AttentionTriplet: Component<{
   /** Terminals with something happening in them — agents in flight, agents
-   *  still settling after a turn, and plain shells that are printing. The one
-   *  activity predicate (`attentionActive`), so this number always equals the
-   *  number of moving marks in the scope it summarises. Omitted by a surface
-   *  that carries this fact elsewhere — the host tab runs a stripe along its
-   *  bottom edge instead. Omitted, never passed as a fabricated 0. */
+   *  still settling after a turn, and plain shells that are printing. Omitted
+   *  by a surface that carries this fact elsewhere; never a fabricated 0. */
   active?: number;
   /** Agents blocked on your input (`awaiting_user`). */
   asking: number;
   /** Finished terminals you have not opened. */
   unseen: number;
   /** You are LOOKING at this scope — unseen suppresses, because arriving is
-   *  what clears it. The rule lives here, once, taking the surface's own
-   *  `active` flag, rather than as an `active ? 0 : count` ternary at each
-   *  call site. */
+   *  what clears it. */
   viewing?: boolean;
   /** The pill geometry — the only per-surface pixel (e.g. `min-w-4 px-1 h-4`). */
   sizeClass: string;
@@ -105,8 +97,7 @@ export const AttentionTriplet: Component<{
   onUnseen?: () => void;
   /** a11y scope for the counts' sentences — a host label or repo name. */
   scopeLabel?: string;
-  /** Extra classes on the root — applied only when the triplet renders at all,
-   *  so an empty triplet contributes zero width (no phantom padding). */
+  /** Extra classes on the root — applied only when the triplet renders. */
   class?: string;
 }> = (props) => {
   const scope = () => (props.scopeLabel ? ` on ${props.scopeLabel}` : "");

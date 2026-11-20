@@ -1,12 +1,3 @@
-/* `@kolu/solid-statepip`, whole — the pip's sheet AND its prerequisites.
- *
- * Import THIS after `tailwindcss` and you owe nothing else: the token sheet
- * every colour below resolves, the sheet itself, and the `@source` that keeps
- * the component's utility classes from being tree-shaken away. A wrong order
- * renders a row with no layout at all, silently.
- *
- * The granular `./statepip.css` door stays — it is the piece this file is
- * composed FROM, and a surface assembling a different set reaches for it. */
 @import "@kolu/theme/theme.css";
 @import "./statepip.css";
 @source "./";
