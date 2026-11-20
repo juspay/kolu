@@ -1409,6 +1409,8 @@ export const startHarness = async <Row extends AnyRow>(
         // sentence a person reads, and a notice is where it is said.
         notice(event.message);
         return;
+      case "compaction":
+        return;
     }
     // A MEMBER ADDED WITHOUT A CASE FAILS HERE, which is what keeps this door
     // and the union one fact rather than two.

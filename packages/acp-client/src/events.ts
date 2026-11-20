@@ -32,6 +32,7 @@ import type {
   ToolStatus,
   Usage,
 } from "@kolu/acp/wire";
+import type { CompactionStatus } from "@kolu/acp";
 import type { Schema } from "effect";
 
 /**
@@ -398,6 +399,16 @@ export type AgentEvent =
    *  Arrives several times a turn — the agent revises both halves as it goes —
    *  and the panel holds the newest. */
   | { readonly _tag: "usage"; readonly usage: Usage }
+  /** Where the agent's compaction of this conversation is, as it last
+   *  reported it. `summary` is every chunk and replacement folded so far,
+   *  `""` until one arrives; a duplicate terminal report repeats it. */
+  | {
+      readonly _tag: "compaction";
+      readonly id: string;
+      readonly status: CompactionStatus;
+      readonly summary: string;
+      readonly error: string | null;
+    }
   /** Which stored conversation this now is. `title` is `null` until the agent
    *  has written one. */
   | {

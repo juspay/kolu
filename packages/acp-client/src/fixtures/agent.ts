@@ -84,6 +84,7 @@ interface Message {
     readonly prompt?: ReadonlyArray<Record<string, unknown>>;
     readonly mcpServers?: ReadonlyArray<{ readonly name?: string }>;
     readonly _meta?: unknown;
+    readonly clientCapabilities?: unknown;
   };
   readonly result?: unknown;
 }
@@ -163,6 +164,8 @@ const blocks: Array<unknown> = [];
 /** ... and the words STEERED into a running turn, in order — the only record
  *  that a steer really landed, since nothing else about it reaches a reader. */
 const steered: Array<string> = [];
+/** ... and what the client said it supports, at the handshake. */
+let capabilities: unknown = null;
 /**
  * `--ask-about-the-left-session`: every `session/new` after the first sends a
  * PERMISSION REQUEST naming the session being left, and holds its own answer
@@ -536,6 +539,7 @@ function handle(message: Message): void {
         setTimeout(() => handle(message), 500);
         return;
       }
+      capabilities = message.params?.clientCapabilities ?? null;
       respond(message.id, {
         protocolVersion: 1,
         agentCapabilities: {
@@ -866,6 +870,50 @@ function turn(message: Message): void {
     // ... and the same opens as WHOLE ENTRIES, so a test can read the one key
     // the adapter's arm selection turns on.
     says(JSON.stringify(handedRaw));
+    finish(message.id, "end_turn");
+    return;
+  }
+  if (text === "capabilities") {
+    says(JSON.stringify(capabilities));
+    finish(message.id, "end_turn");
+    return;
+  }
+  if (text === "compact" || text === "compactFails") {
+    // A COMPACTION AT THE START OF A TURN: the opening frame, the summary in
+    // chunks, the terminal frame, then the status-only duplicate of it the
+    // pinned adapter sends with the token counts.
+    const compactionId = `compaction-${prompts.length}`;
+    const report = (body: Record<string, unknown>): void =>
+      update(session, {
+        sessionUpdate: "compaction_update",
+        compactionId,
+        ...body,
+      });
+    report({ status: "in_progress" });
+    if (text === "compactFails") {
+      report({
+        status: "failed",
+        error: "the summary request was refused (overloaded)",
+      });
+    } else {
+      for (const chunk of ["Two works are open. ", "Nothing waits on you."])
+        update(session, {
+          sessionUpdate: "compaction_summary_chunk",
+          compactionId,
+          content: { type: "text", text: chunk },
+        });
+      report({ status: "completed" });
+      report({
+        status: "completed",
+        _meta: { contextCompaction: { trigger: "automatic" } },
+      });
+      update(session, {
+        sessionUpdate: "usage_update",
+        used: 14000,
+        size: 1000000,
+      });
+    }
+    says("carried on");
     finish(message.id, "end_turn");
     return;
   }
