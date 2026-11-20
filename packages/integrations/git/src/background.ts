@@ -17,7 +17,6 @@ export function backgroundGitEnv(): NodeJS.ProcessEnv {
   };
 }
 
-/** A `simple-git` client whose background reads cannot take optional locks. */
 export function backgroundGit(baseDir?: string): SimpleGit {
   return simpleGit({ baseDir, allowEnvironment: ["GIT_OPTIONAL_LOCKS"] }).env(
     backgroundGitEnv(),

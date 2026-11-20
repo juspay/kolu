@@ -1,10 +1,3 @@
-/**
- * Git repository resolution — resolves repo context from a directory path.
- *
- * Pure git operations with no server dependencies. The server's metadata
- * provider calls these functions and bridges results into its event system.
- */
-
 import fs from "node:fs";
 import path from "node:path";
 import type { WatchAsker } from "kolu-io";
@@ -19,8 +12,7 @@ import type { GitInfo } from "./schemas.ts";
 
 /** Strip embedded credentials (`https://user:token@host/…` → `https://host/…`)
  *  before a remote URL is persisted or published. scp-style `git@host:path`
- *  carries no secret (the `git` user is not a credential) and is returned
- *  unchanged. */
+ *  carries no secret and is returned unchanged. */
 function stripRemoteCredentials(url: string): string {
   try {
     const u = new URL(url);
@@ -35,10 +27,6 @@ function stripRemoteCredentials(url: string): string {
   }
 }
 
-/** Best-effort `origin` remote URL with credentials stripped, or null when
- *  the repo has no `origin` (or git fails). Never throws — a remote-less repo
- *  is normal (#1244), so this degrades to null rather than failing the whole
- *  GitInfo resolve. */
 async function resolveRemoteUrl(
   git: SimpleGit,
   log?: Logger,
@@ -73,27 +61,13 @@ export async function resolveGitInfo(
 ): Promise<GitResult<GitInfo>> {
   try {
     const git = backgroundGit(cwd);
-    // Bare repos (core.bare=true) have no work tree, so `--show-toplevel`
-    // throws on them. Detect up front and return a GitInfo rooted at the
-    // bare repo's own location — the palette consumer treats the result as
-    // "a repo you can spawn a worktree from," which is exactly right.
     const isBare =
       (await git.raw(["rev-parse", "--is-bare-repository"])).trim() === "true";
     if (isBare) {
-      // Derive the repo location from `--git-dir`, not cwd. For a canonical
-      // bare repo (`/tmp/foo` bare, cwd == bare dir) the two coincide. For
-      // project layouts where a bare `.git` sits inside a working dir
-      // (`/home/user/proj/.git` with sibling `proj/.worktrees/`), cwd can be
-      // anywhere around `.git` — falling back to `basename(cwd)` would
-      // report the wrong name (e.g. `.worktrees`).
       const gitDirAbs = await fs.promises.realpath(
         path.resolve(cwd, (await git.raw(["rev-parse", "--git-dir"])).trim()),
       );
       const gitDirBase = path.basename(gitDirAbs);
-      // Three shapes:
-      //   /proj/.git        → root /proj,        name proj
-      //   /foo.git          → root /foo.git,     name foo
-      //   /foo (bare dir)   → root /foo,         name foo
       const isDotGit = gitDirBase === ".git";
       const repoRoot = isDotGit ? path.dirname(gitDirAbs) : gitDirAbs;
       const repoName = isDotGit
@@ -103,7 +77,6 @@ export async function resolveGitInfo(
       try {
         branch = (await git.raw(["symbolic-ref", "--short", "HEAD"])).trim();
       } catch {
-        // Detached HEAD in a bare repo (unusual but possible).
         branch = (await git.revparse(["--abbrev-ref", "HEAD"])).trim();
       }
       return ok({
@@ -124,13 +97,6 @@ export async function resolveGitInfo(
     } catch {
       branch = (await git.revparse(["--abbrev-ref", "HEAD"])).trim();
     }
-    // --git-common-dir returns the shared .git dir; for worktrees it points
-    // back to the main repo's .git, letting us derive the real repo name.
-    // The path is relative to cwd (where simple-git runs), not repoRoot.
-    // realpath normalizes symlinks (e.g. /tmp → /private/tmp on macOS)
-    // so the comparison with repoRoot (which git already resolved) is
-    // reliable. Async (`fs.promises`) so the symlink walk never blocks the
-    // event loop on a slow/hung mount — this runs on every GitInfo resolve.
     const gitCommonDir = (await git.revparse(["--git-common-dir"])).trim();
     const mainRepoRoot = path.dirname(
       await fs.promises.realpath(path.resolve(cwd, gitCommonDir)),
@@ -147,10 +113,7 @@ export async function resolveGitInfo(
       isBare: false,
     });
   } catch (e) {
-    // Log so unexpected failures (permission errors, missing git binary)
-    // surface instead of being silently treated as "not a repo".
     const message = e instanceof Error ? e.message : String(e);
-    // "not a git repository" is the expected case — log at debug, not error.
     if (/not a git repository/i.test(message)) {
       log?.debug({ err: message, cwd }, "git: not a repo");
       return err({ code: "NOT_A_REPO" });
@@ -173,26 +136,13 @@ export function gitInfoEqual(a: GitInfo | null, b: GitInfo | null): boolean {
   );
 }
 
-/**
- * Subscribe to the GitInfo stream for a cwd. Owns the full resolve + watch
- * + re-resolve loop: initial resolve, dedup via `gitInfoEqual`, and the
- * two watcher modes — `.git/HEAD` while in a repo, the cwd entry watcher
- * while out, swapping as the resolved state flips. The cwd watcher is what
- * makes `git init` in the current shell cwd reach the client without an
- * OSC 7 re-emit (the shell doesn't re-emit because cwd didn't change).
+/** Subscribe to the GitInfo stream for a cwd: initial resolve, dedup via
+ *  `gitInfoEqual`, and the two watcher modes — `.git/HEAD` while in a repo, the
+ *  cwd entry watcher while out, swapping as the resolved state flips.
  *
- * `onChange` fires for the FIRST answer unconditionally — `null` (not a repo)
- * included, so a caller can tell "resolved, not a repo" from "not resolved yet"
- * — then once per actual change, never for a dedup miss. Initial resolve is
- * best-effort: if the cwd isn't a git repo at start, the cwd
- * watcher sits waiting for `.git` to appear; the HEAD watcher takes over
- * once it does.
- *
- * Callers are the sole source of truth for current GitInfo — never re-read
- * the value elsewhere to drive control flow. The returned handle's `stop()`
- * tears down whichever watcher is active; `setCwd(next)` swaps the watched
- * directory.
- */
+ *  `onChange` fires for the FIRST answer unconditionally, `null` (not a repo)
+ *  included, then once per actual change. `stop()` tears down whichever watcher
+ *  is active; `setCwd(next)` swaps the watched directory. */
 type WatcherMode = "head" | "cwd";
 type WatcherSlot = { mode: WatcherMode; stop: () => void };
 
@@ -204,16 +154,12 @@ export function subscribeGitInfo(
 ): { setCwd(next: string): void; stop(): void } {
   let currentCwd = initialCwd;
   let currentInfo: GitInfo | null = null;
-  // False until the first answer is published: that one goes out even when it
-  // is `null`, because "not a repo" is an answer the caller has not heard yet.
-  let answered = false;
-  // Head mode watches `.git/HEAD` (in-repo); cwd mode watches the parent
-  // for `.git` appearing (out-of-repo). The two are mutually exclusive.
+  let hasPublishedFirstAnswer = false;
   let watcher: WatcherSlot | null = null;
-  // Set by `stop()` so an in-flight `resolve()` that resumes after teardown
-  // can't re-install a watcher via `ensureMode` — the resulting orphan
-  // would leak past the subscription's lifetime.
   let stopped = false;
+
+  const resultIsForCurrentCwd = (cwdAtStart: string): boolean =>
+    cwdAtStart === currentCwd;
 
   function handleWatcherEvent(): void {
     void resolve();
@@ -223,10 +169,6 @@ export function subscribeGitInfo(
     if (mode === "cwd") {
       return watchCwdForGitDir(currentCwd, asker, handleWatcherEvent, log);
     }
-    // In-repo: watch HEAD (branch identity) and the shared config (remote URL)
-    // together — a change to either re-resolves GitInfo. Both are refcounted
-    // shared singletons, so this adds no OS handle when another watcher on the
-    // same repo already exists.
     const stopHead = watchGitHead(currentCwd, asker, handleWatcherEvent, log);
     const stopConfig = watchGitConfig(
       currentCwd,
@@ -254,19 +196,7 @@ export function subscribeGitInfo(
   async function resolve(): Promise<void> {
     const cwdAtStart = currentCwd;
     const result = await resolveGitInfo(cwdAtStart, log);
-    // Discard the result if the subscription was stopped during the await:
-    // `ensureMode` would otherwise install a fresh watcher with no path to
-    // retire it, and `onChange` would fire past the caller's stop barrier.
-    if (stopped) return;
-    // Discard the result if cwd flipped during the await — a fresh resolve
-    // is already in flight for the new cwd and will publish the right
-    // state. Acting on a stale cwd here would re-swap watchers and emit a
-    // GitInfo for a directory we're no longer in.
-    if (cwdAtStart !== currentCwd) return;
-    // A failure other than "not a repo" (git missing, dubious ownership, a
-    // timeout) is NOT an answer: publishing `null` would tell the caller "not
-    // a repo" when the sensor never found out. Log it, keep watching for
-    // `.git`, and publish nothing — the caller stays on what it last heard.
+    if (stopped || !resultIsForCurrentCwd(cwdAtStart)) return;
     if (!result.ok && result.error.code !== "NOT_A_REPO") {
       log?.error(
         { code: result.error.code, cwd: currentCwd },
@@ -277,20 +207,12 @@ export function subscribeGitInfo(
     }
     const next: GitInfo | null = result.ok ? result.value : null;
     ensureMode(next !== null ? "head" : "cwd");
-    if (answered && gitInfoEqual(next, currentInfo)) return;
-    answered = true;
+    if (hasPublishedFirstAnswer && gitInfoEqual(next, currentInfo)) return;
+    hasPublishedFirstAnswer = true;
     currentInfo = next;
     onChange(next);
   }
 
-  // Kick the watcher install off immediately (before the first `resolve()`
-  // await) so the window where fs events could be dropped is as small as
-  // possible. `hasGitDir` is a single fast stat that picks the likely mode
-  // up front, avoiding a cwd→head install/retire flip once `resolve()`
-  // confirms the repo. The install itself now settles asynchronously (the
-  // leaf watcher resolves its git dir off the event loop); any event in that
-  // sub-millisecond attach window is covered by `resolve()` re-reading
-  // current state and by the `setCwd` defense below.
   ensureMode(hasGitDir(currentCwd) ? "head" : "cwd");
   void resolve();
 
@@ -298,10 +220,6 @@ export function subscribeGitInfo(
     setCwd(next: string): void {
       if (stopped) return;
       if (next === currentCwd) {
-        // Same cwd — the cwd watcher catches `.git` appearing. This is a
-        // belt-and-braces re-resolve for platforms or filesystems where the
-        // watcher might miss the event (e.g. polling fallback under a
-        // bind-mounted container fs).
         if (currentInfo === null && hasGitDir(next)) void resolve();
         return;
       }

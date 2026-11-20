@@ -1,15 +1,3 @@
-/** File tree browsing — git-filtered file listing and file reading.
- *
- *  `listAll` uses `git ls-files --cached --others --exclude-standard` to
- *  enumerate tracked + untracked-but-not-ignored paths in one shot, so it never
- *  walks `node_modules/`, `.git/`, build artifacts, etc. `listIgnored` is its
- *  exact complement — the same enumeration for what git DOES ignore, collapsed
- *  so a fully-ignored directory costs one entry rather than its whole subtree.
- *  Union the two and you have the working tree.
- *
- *  `listDirectory` is the on-demand counterpart to that collapse: one level of
- *  a directory, read when the user expands a row the collapse left childless. */
-
 import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
 import {
@@ -29,17 +17,9 @@ import { MAX_READ_BYTES } from "./schemas.ts";
 const execFileAsync = promisify(execFile);
 
 /** Single spawn/parse/error path shared by the two `git ls-files` listings.
- *  Owns the `ls-files -z` invocation, the maxBuffer ceiling, the NUL split +
- *  empty-entry filter, and the GIT_FAILED error envelope; callers supply the
- *  selection flags and the message prefix used on failure.
- *
- *  `-z` is load-bearing: without it git quotes "unusual" path bytes per
- *  `core.quotePath` — a unicode name like `People/Amélie.md` comes back as the
- *  C-escaped, double-quote-wrapped `"People/Am\303\251lie.md"`. The leading
- *  quote then becomes part of the first path segment (a spurious `"People`
- *  folder) and the leaf renders as `Am\303\251lie.md"`. `-z` emits each path
- *  verbatim, NUL-terminated and unquoted, so accented/emoji/CJK names reach the
- *  tree intact. */
+ *  `-z` is load-bearing: without it git C-quotes and double-quote-wraps
+ *  "unusual" path bytes per `core.quotePath`, so `People/Amélie.md` arrives as
+ *  `"People/Am\303\251lie.md"`. */
 async function gitLsFiles(
   repoPath: string,
   selectionArgs: string[],
@@ -64,12 +44,7 @@ async function gitLsFiles(
   }
 }
 
-/** Flat list of every repo-relative path (tracked + untracked-but-not-ignored).
- *  One-shot snapshot for Pierre's `@pierre/trees`, which builds the tree
- *  hierarchy itself from a flat path list.
- *
- *  @param repoPath  Absolute path to the repo root.
- *  @param log       Optional logger. */
+/** Flat list of every repo-relative path (tracked + untracked-but-not-ignored). */
 export async function listAll(
   repoPath: string,
   log?: Logger,
@@ -82,19 +57,9 @@ export async function listAll(
   );
 }
 
-/** Repo-relative entries git *ignores* — the exact complement of `listAll`'s
- *  `--cached --others --exclude-standard` (union the two and you have the whole
- *  working tree). `--directory` collapses a fully-ignored directory to its name
- *  (so `node_modules/` is one entry, not thousands); a directory entry KEEPS
- *  git's trailing slash, which is Pierre's own folder-key format — the Code tab
- *  hands it straight through as the marker for a childless dimmed row. The
- *  watcher needs no stripped variant: it resolves every entry to an absolute
- *  path, and `path.resolve` normalizes the trailing separator away. Note: this
- *  does NOT list `.git` (git never reports its own dir); callers that need it
- *  ignored must add it themselves.
- *
- *  @param repoPath  Absolute path to the repo root.
- *  @param log       Optional logger. */
+/** Repo-relative entries git *ignores* — the exact complement of `listAll`.
+ *  `--directory` collapses a fully-ignored directory to its name, keeping git's
+ *  trailing slash. Does NOT list `.git`: git never reports its own dir. */
 export async function listIgnored(
   repoPath: string,
   log?: Logger,
@@ -107,53 +72,33 @@ export async function listIgnored(
   );
 }
 
-/** How many symlink `stat`s `listDirectory` keeps in flight at once. Sized just
- *  above libuv's default 4-thread filesystem pool, so the pool stays fed without
- *  queueing work it cannot start. */
+/** Sized just above libuv's default 4-thread filesystem pool. */
 const STAT_CONCURRENCY = 8;
 
+/** Which of `names` (resolved under `abs`) are symlinks to a directory, at most
+ *  `STAT_CONCURRENCY` stats in flight. A broken link is not a directory; every
+ *  other stat failure fails the whole listing. */
+async function directoryLinks(
+  abs: string,
+  names: readonly string[],
+): Promise<Set<string>> {
+  const limit = pLimit(STAT_CONCURRENCY);
+  const directories = new Set<string>();
+  await limit.map(names, async (name) => {
+    try {
+      if ((await stat(path.join(abs, name))).isDirectory()) {
+        directories.add(name);
+      }
+    } catch (e: unknown) {
+      if (!isFileGoneError(e)) throw e;
+    }
+  });
+  return directories;
+}
+
 /** ONE level of a directory's contents, repo-relative, with git's trailing
- *  slash on each subdirectory — the same folder-key format `listIgnored` emits,
- *  so the two listings compose in the tree without a translation step. That
- *  format is CONSUMED by `isDirectoryPath` in `@kolu/solid-pierre/paths`, which
- *  declares itself the one place the trailing-slash fact is spelled; a change to
- *  either side has to find the other, and this cross-reference is the thread.
- *
- *  This exists to answer an EXPAND of a collapsed ignored directory. Those rows
- *  are the one place the flat `listAll`/`listIgnored` snapshot deliberately
- *  stops: `--directory` collapses a wholly-ignored directory to its name, which
- *  is what keeps `node_modules/` at one row instead of thousands, but it also
- *  means the tree holds no child to paint when the user opens that row. Reading
- *  the level on demand restores the contents without giving the collapse up.
- *
- *  ONE level, not a recursive walk, is what bounds the cost: expanding
- *  `node_modules/` reads a single directory and hands back package names, each
- *  collapsed and expandable in its own turn. A recursive listing — the only
- *  thing `git ls-files` can produce here, since it has no depth limit — would
- *  be ~100k paths for that same click.
- *
- *  No ignore filtering, and none is missing: git collapses a directory only
- *  when EVERYTHING beneath it is ignored, so every entry inside a collapsed row
- *  is ignored as of the listing that named it. Filtering would be a second,
- *  weaker authority answering a question git has already settled.
- *  (`browse.test.ts` checks that against git itself rather than trusting the
- *  argument.)
- *
- *  That invariant is a SNAPSHOT, not a standing guarantee: this read happens on
- *  a click, some time after `listIgnored` collapsed the row. If a file beneath
- *  it became tracked in between, it comes back here and paints as a dimmed
- *  ignored row until the next listing corrects it. Re-checking each entry
- *  against git would cost a second process per expand to narrow a window the
- *  next repo-change pulse closes anyway — the same staleness the collapsed row
- *  already carries, not a new one.
- *
- *  Same traversal guard as `readFile` — the directory key arrives over the wire.
- *  A missing or unreadable directory returns an err rather than an empty list:
- *  a cleaned build output must not paint as an authoritative empty folder.
- *
- *  @param repoPath  Absolute path to the repo root.
- *  @param dirPath   Path relative to repo root, with or without trailing slash.
- *  @param log       Optional logger. */
+ *  slash on each subdirectory — the folder-key format `listIgnored` emits. A
+ *  missing or unreadable directory returns an err, never an empty list. */
 export async function listDirectory(
   repoPath: string,
   dirPath: string,
@@ -161,71 +106,24 @@ export async function listDirectory(
 ): Promise<GitResult<string[]>> {
   const resolved = await resolveExistingUnder(repoPath, dirPath, log);
   if (!resolved.ok) return resolved as GitResult<string[]>;
-  // `rel` is the lexically normalized key with any trailing slash already gone
-  // (`path.relative` erases it), so the two spellings a caller may hold —
-  // Pierre's folder key `out/` and the bare `out` — converge here.
   const { abs, rel } = resolved.value;
   try {
     const entries = await readdir(abs, { withFileTypes: true });
-    // Row per entry, filled in place so the emitted order matches `readdir`'s
-    // regardless of the order the symlink probes below happen to settle in.
-    const rows: string[] = new Array(entries.length);
-    const links: number[] = [];
-    entries.forEach((e, i) => {
+    const linkNames = entries
+      .filter((e) => !e.isDirectory() && e.isSymbolicLink())
+      .map((e) => e.name);
+    const linkedDirectories = await directoryLinks(abs, linkNames);
+    const rows = entries.map((e) => {
       const child = rel === "" ? e.name : `${rel}/${e.name}`;
-      if (e.isDirectory()) rows[i] = `${child}/`;
-      else {
-        rows[i] = child;
-        // `withFileTypes` has `lstat` semantics, so a symlink reports
-        // `isDirectory() === false` — and pnpm's `node_modules` is almost
-        // entirely symlinked package directories, the headline case of this
-        // whole feature. The LINK's type is therefore the wrong authority for
-        // "is this row a folder": `stat` follows it and answers from the TARGET.
-        if (e.isSymbolicLink()) links.push(i);
-      }
-    });
-    // Resolve the symlinks with BOUNDED concurrency. The two unbounded shapes
-    // are each wrong on the input this feature exists for — a directory that can
-    // hold six figures of entries. Unlimited `Promise.all` over the level
-    // schedules one stat per symlink at once: a promise/libuv queue spike.
-    // Fully sequential pays a round trip per link, which at even a fraction of
-    // a millisecond each is tens of seconds of dead UI on one click. `p-limit`
-    // overlaps the I/O without ever holding more than `STAT_CONCURRENCY`
-    // requests in flight — the scheduling itself is a solved, focused problem;
-    // hand-rolling a worker-pool loop here would just be a second, private
-    // implementation of what the library already gets right.
-    //
-    // Following a link is safe by construction — the expand this row enables
-    // goes back through `resolveExistingUnder`, whose realpath check refuses a
-    // target outside the repo, loudly.
-    //
-    // Only a BROKEN link is absorbed, staying the leaf it already is. Every
-    // other stat failure — EACCES, EIO, ELOOP, EMFILE — is a real fault, and
-    // answering it with a plain file row would both hide the fault and put back
-    // the wrong-row/EISDIR behaviour this branch exists to remove. Those escape
-    // `limit.map` and fail the whole listing loudly (its rejection propagates
-    // the same as a bare `Promise.all` would).
-    const limit = pLimit(STAT_CONCURRENCY);
-    await limit.map(links, async (i) => {
-      const entry = entries[i];
-      if (!entry) return; // links only ever holds indices readdir handed back
-      try {
-        const target = await stat(path.join(abs, entry.name));
-        if (target.isDirectory()) rows[i] = `${rows[i]}/`;
-      } catch (statErr: unknown) {
-        if (!isFileGoneError(statErr)) throw statErr;
-      }
+      // `withFileTypes` has `lstat` semantics, so a symlink reports
+      // `isDirectory() === false`; `stat` answers from the target.
+      return e.isDirectory() || linkedDirectories.has(e.name)
+        ? `${child}/`
+        : child;
     });
     return ok(rows);
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : String(e);
-    // A directory cleaned between the listing and the click (the headline
-    // race this function exists to answer) is EXPECTED, not a fault — same
-    // classification as `readFile`/`filePreviewTag`, so it logs at debug, not
-    // error (errors-must-log-at-error reserves `error` for genuine faults). It
-    // still gets its OWN tag, not `GIT_FAILED` (no git subprocess ran here):
-    // `unwrapGit` maps it to a typed `NOT_FOUND` structurally, rather than the
-    // wire contract resting on an errno string surviving two re-wraps intact.
     if (isFileGoneError(e)) {
       log?.debug({ err: msg, repoPath, dirPath }, "listDirectory: dir gone");
       return err({ code: "FILE_GONE", path: dirPath, message: msg });
@@ -238,11 +136,7 @@ export async function listDirectory(
   }
 }
 
-/** Read a file's UTF-8 content, guarded against path traversal.
- *
- *  @param repoPath  Absolute path to the repo root.
- *  @param filePath  Path relative to repo root.
- *  @param log       Optional logger. */
+/** Read a file's UTF-8 content, guarded against path traversal. */
 export async function readFile(
   repoPath: string,
   filePath: string,
@@ -255,8 +149,7 @@ export async function readFile(
   try {
     const buf = await fsReadFile(resolved.value.abs);
     if (buf.length > MAX_READ_BYTES) {
-      // May split a multi-byte UTF-8 sequence at the boundary; Node
-      // replaces the incomplete trailing character with U+FFFD.
+      // Node replaces a split multi-byte UTF-8 sequence with U+FFFD.
       return ok({
         content: buf.subarray(0, MAX_READ_BYTES).toString("utf-8"),
         truncated: true,
@@ -265,9 +158,6 @@ export async function readFile(
     return ok({ content: buf.toString("utf-8"), truncated: false });
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : String(e);
-    // Same structural classification as `listDirectory`: the delete-while-
-    // viewing race is its own tag, so the typed `NOT_FOUND` on the wire comes
-    // from the sum type rather than from re-sniffing a re-wrapped message.
     if (isFileGoneError(e))
       return err({ code: "FILE_GONE", path: filePath, message: msg });
     return err({ code: "GIT_FAILED", message: `Failed to read file: ${msg}` });
@@ -275,43 +165,9 @@ export async function readFile(
 }
 
 /** A cache-buster TAG for the iframe preview URL (the `?v=<tag>` on the binary
- *  route). The contract: the tag changes **iff the file's bytes change**, so an
- *  edit reloads the preview but an identical-content rewrite does NOT. The
- *  latter — a `git checkout` across branches, or a formatter's atomic
- *  write-and-rename — bumps mtime without changing content, and a mtime-keyed
- *  URL would reload the iframe and scroll a mid-scrolled preview to the top.
- *
- *  So the tag is a hash of the CONTENT, not the mtime: the file's bytes are the
- *  honest identity of "has this preview changed?", where mtime is only a proxy
- *  that a working-tree re-materialization falsely trips. The WHOLE file is
- *  hashed — no size cutoff, no leading-bytes shortcut — so a tail-only edit of a
- *  large previewable file (a 40 MiB generated HTML report, a big PDF) is never
- *  silently missed: every previewable kind reflects its full content, not a
- *  prefix that a mid/tail edit leaves untouched.
- *
- *  Bounded heap regardless of size: the bytes stream through one open handle in
- *  the read-stream's fixed-size chunks (`createReadStream`'s default 64 KiB
- *  highWaterMark), fed to the hash chunk-by-chunk — so even a multi-GB video is
- *  hashed without ever landing whole in the (possibly remote) padi heap,
- *  honoring serve-dir's never-buffer invariant on this identity path too. The
- *  single open handle pins ONE inode: an atomic write-and-rename mid-hash yields
- *  a consistent snapshot of the file we opened, never a torn stat/read pair
- *  where the size and the bytes describe different inodes (the same reason
- *  serve-dir derives size + body from one `open`, not a `stat(path)` then a
- *  separate read of the path).
- *
- *  The bytes are read once per on-disk *change* (the `subscribeFileChange` pulse
- *  is debounced and fires only on real repo events, never on a timer), and only
- *  for the bounded set of binary-previewable kinds. Same path-traversal guard as
- *  `readFile`.
- *
- *  Cancellable: the caller (a superseded `createPolledQuery`) aborts the request
- *  `signal` when its input changes or a fresh pulse re-fires. We check it before
- *  opening and between chunks so a hash whose result is already stale — most
- *  costly on a multi-GB video where a full read runs for seconds — stops promptly
- *  instead of burning disk and CPU while overlapping the next scan. On abort we
- *  re-throw the abort (not a `GIT_FAILED` err) so the surface framework sees a
- *  cancellation, and the catch does not misclassify it as an I/O fault to log. */
+ *  route): it changes iff the file's bytes change, so an identical-content
+ *  rewrite leaves a mid-scrolled preview alone. Hashes the WHOLE file, streamed
+ *  through one open handle, and aborts promptly when `signal` fires. */
 export async function filePreviewTag(
   repoPath: string,
   filePath: string,
@@ -324,12 +180,8 @@ export async function filePreviewTag(
   try {
     signal?.throwIfAborted();
     const hash = createHash("sha1");
-    // One open handle for the whole read: size-and-bytes-from-one-inode (no
-    // TOCTOU on an atomic replace) and a bounded, streamed hash (never a
-    // whole-file slurp, whatever the size). `autoClose: false` so the `finally`
-    // owns the handle's close deterministically — including when an abort throws
-    // out of the loop mid-read (the iterator's `return()` destroys the stream,
-    // then `finally` closes the fd we still own).
+    // `autoClose: false` so the `finally` owns the close even when an abort
+    // throws out of the loop mid-read.
     const fh = await fsOpen(abs, "r");
     try {
       for await (const chunk of fh.createReadStream({ autoClose: false })) {
@@ -337,42 +189,14 @@ export async function filePreviewTag(
         hash.update(chunk as Buffer);
       }
     } finally {
-      // Close failures are not actionable once the read is done, and must never
-      // MASK a real error propagating out of the try (JS discards the original
-      // throw when a `finally` throws) — swallow close's own error so the
-      // caught error below is the true root cause.
       await fh.close().catch(() => {});
     }
     return ok(hash.digest("hex"));
   } catch (e: unknown) {
-    // A superseded query aborted mid-hash: propagate the cancellation untouched
-    // — it is neither a missing file nor an I/O fault, so it must not log or
-    // collapse to a `GIT_FAILED` err the endpoint would then re-throw opaquely.
-    // Key off the ERROR's identity (the `AbortError` `throwIfAborted` raises),
-    // not `signal.aborted`: a genuine I/O fault that happens to land after the
-    // signal aborted for an unrelated reason must still be logged as a fault,
-    // not silently misread as the cancellation.
     if (e instanceof DOMException && e.name === "AbortError") throw e;
     const msg = e instanceof Error ? e.message : String(e);
-    // A file deleted while the Code tab is viewing it (ENOENT) is EXPECTED — the
-    // delete-while-viewing race `unwrapGit` maps to a typed NOT_FOUND — so it
-    // logs at debug, not error. Any other failure is a genuine, unexpected
-    // preview I/O fault and MUST surface at error level for operators
-    // (errors-must-log-at-error). The gone-file test is the SAME predicate
-    // `readFile` and `listDirectory` apply — one source of truth, so they
-    // can't drift.
     if (isFileGoneError(e)) {
       log?.debug({ err: msg, repoPath, filePath }, "preview-tag file gone");
-      // Its OWN tag, like `readFile` and `listDirectory`. Returning `GIT_FAILED`
-      // here made the classification depend on an errno string surviving into
-      // an `ORPCError` message — and once `isFileGoneError` was narrowed to
-      // trust a present `code` alone, that stopped working: `unwrapGit` mapped
-      // `GIT_FAILED` to an `ORPCError` whose own `code` is
-      // `INTERNAL_SERVER_ERROR`, so servePadi's now-removed `fileGoneAsNotFound`
-      // wrapper read THAT code and never looked at the preserved message.
-      // Deleting an open image/PDF/video then surfaced a visible error instead
-      // of being swallowed. Tagging it here settles the question before any wire
-      // wrapper can obscure the errno.
       return err({ code: "FILE_GONE", path: filePath, message: msg });
     }
     log?.error({ err: msg, repoPath, filePath }, "preview-tag hash failed");

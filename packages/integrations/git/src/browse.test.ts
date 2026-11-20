@@ -19,8 +19,7 @@ describe("listAll", () => {
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "kolu-listall-test-"));
     execFileSync("git", ["init", "-q"], { cwd: tmpDir });
     fs.mkdirSync(path.join(tmpDir, "People"));
-    // A plain file, a unicode (accented) file inside a folder, and a CJK
-    // name — git C-quotes the latter two unless `-z` is passed.
+    // git C-quotes non-ASCII paths (octal escapes, quote-wrapped) unless `-z`.
     fs.writeFileSync(path.join(tmpDir, "foo.md"), "plain\n");
     fs.writeFileSync(path.join(tmpDir, "People", "Amélie.md"), "bio\n");
     fs.writeFileSync(path.join(tmpDir, "メモ.txt"), "memo\n");
@@ -31,10 +30,6 @@ describe("listAll", () => {
   });
 
   it("returns unicode paths verbatim — no C-quoting, no spurious folder", async () => {
-    // The reported bug: without `-z`, git emits `"People/Am\303\251lie.md"`
-    // (octal-escaped, double-quote-wrapped). The leading `"` became a
-    // spurious `"People` folder and the leaf rendered as `Am\303\251lie.md"`.
-    // With `-z` the path arrives intact and the tree builds correctly.
     const result = await listAll(tmpDir);
     expect(result.ok).toBe(true);
     if (!result.ok) return;
@@ -42,7 +37,6 @@ describe("listAll", () => {
     expect(paths).toContain("People/Amélie.md");
     expect(paths).toContain("メモ.txt");
     expect(paths).toContain("foo.md");
-    // No entry should carry a wrapping quote or an octal escape.
     for (const p of paths) {
       expect(p).not.toContain('"');
       expect(p).not.toContain("\\3");
@@ -71,8 +65,6 @@ describe("listIgnored", () => {
     const result = await listIgnored(tmpDir);
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    // The slash is the directory marker downstream consumers key on (Pierre's
-    // childless dimmed folder row; the watcher strips it).
     expect(result.value).toContain("secret.log");
     expect(result.value).toContain("build/");
     expect(result.value).not.toContain("build/out.js");
@@ -86,22 +78,14 @@ describe("listIgnored", () => {
     if (!all.ok || !ignored.ok) return;
     expect(all.value).toContain("kept.md");
     expect(all.value).toContain(".gitignore");
-    // Disjoint: no entry is claimed by both listings.
     const tracked = new Set(all.value);
     expect(ignored.value.filter((p) => tracked.has(p))).toEqual([]);
-    // Together, the whole working tree — with the ignored side COLLAPSED, so
-    // `build/` stands in for its contents.
     expect([...all.value, ...ignored.value].sort()).toEqual(
       [".gitignore", "build/", "kept.md", "secret.log"].sort(),
     );
   });
 
   it("feeds the watcher's parcel ignore as absolute, slash-free paths", async () => {
-    // The property that is actually observable: `path.resolve` erases git's
-    // trailing directory slash, so the collapsed `build/` entry reaches parcel
-    // as a plain absolute directory path (which prunes the whole subtree).
-    // Asserted here rather than at a slash-stripping listing variant, which no
-    // consumer could tell apart from `listIgnored`.
     const result = await _computeIgnore(tmpDir);
     if (!result.ok) throw new Error(`git could not list: ${result.error.code}`);
     const ignore = result.value;
@@ -130,10 +114,6 @@ describe("listDirectory", () => {
   });
 
   it("reads ONE level, marking subdirectories with git's trailing slash", async () => {
-    // The listing that answers an expand of a collapsed ignored directory.
-    // One level, so expanding `node_modules/` costs a readdir rather than the
-    // ~100k-path recursive listing `git ls-files` would have to produce; the
-    // subdirectory comes back collapsed and expandable in its own turn.
     const result = await listDirectory(tmpDir, "out/");
     expect(result.ok).toBe(true);
     if (!result.ok) return;
@@ -143,8 +123,6 @@ describe("listDirectory", () => {
   });
 
   it("accepts the directory key with or without the trailing slash", async () => {
-    // The caller holds Pierre's folder key (`out/`); the slash is presentation,
-    // not identity, so both spellings must resolve to the same listing.
     const withSlash = await listDirectory(tmpDir, "out/");
     const without = await listDirectory(tmpDir, "out");
     expect(withSlash.ok && without.ok).toBe(true);
@@ -153,10 +131,8 @@ describe("listDirectory", () => {
   });
 
   it("needs no gitignore filtering — git only collapses a WHOLLY ignored dir", async () => {
-    // Why a bare readdir is the honest listing here rather than a lax one:
-    // `--directory` collapses a directory only when everything beneath it is
-    // ignored, so inside a collapsed row there is nothing to filter out. The
-    // property is checked against git itself so the assumption can't rot.
+    // git's `--directory` collapses a directory only when everything beneath
+    // it is ignored.
     const ignored = await listIgnored(tmpDir);
     expect(ignored.ok).toBe(true);
     if (!ignored.ok) return;
@@ -167,35 +143,25 @@ describe("listDirectory", () => {
     const tracked = await listAll(tmpDir);
     expect(tracked.ok).toBe(true);
     if (!tracked.ok) return;
-    // Not one child is something git would have listed as tracked.
     const trackedSet = new Set(tracked.value);
     expect(children.value.filter((p) => trackedSet.has(p))).toEqual([]);
   });
 
   it("refuses to escape the repo root", async () => {
-    // Same traversal guard as `readFile` — a directory key arriving over the
-    // wire must not read outside the repo it names.
     const result = await listDirectory(tmpDir, "../");
     expect(result.ok).toBe(false);
   });
 
   it("errors on a directory that is gone", async () => {
-    // A stale expand (the build output was cleaned between listing and click)
-    // must surface, not silently paint an empty folder as authoritative.
     const result = await listDirectory(tmpDir, "out/nope/");
     expect(result.ok).toBe(false);
     if (result.ok) return;
-    // Its OWN tag, not the borrowed `GIT_FAILED` — `unwrapGit` turns this into
-    // the typed NOT_FOUND the wire contract promises, structurally.
     expect(result.error.code).toBe("FILE_GONE");
   });
 
   it("follows a symlinked directory — pnpm's node_modules is mostly links", async () => {
-    // `readdir({ withFileTypes: true })` has lstat semantics, so a symlink
-    // reports `isDirectory() === false` and would render as a slash-free FILE
-    // leaf: clickable, and `fs.readFile` answers EISDIR. Under pnpm most of
-    // `node_modules` is exactly this shape, which is the case this whole
-    // feature exists for.
+    // `readdir({ withFileTypes: true })` has lstat semantics: a symlink reports
+    // `isDirectory() === false`, and `fs.readFile` on it answers EISDIR.
     const linked = fs.mkdtempSync(path.join(os.tmpdir(), "kolu-listdir-link-"));
     try {
       fs.mkdirSync(path.join(linked, "real"), { recursive: true });
@@ -212,7 +178,6 @@ describe("listDirectory", () => {
       expect(result.ok).toBe(true);
       if (!result.ok) return;
       expect(result.value).toContain("link-to-dir/");
-      // A broken link has no target to ask, so it stays the leaf it is.
       expect(result.value).toContain("link-broken");
     } finally {
       fs.rmSync(linked, { recursive: true, force: true });
@@ -220,18 +185,12 @@ describe("listDirectory", () => {
   });
 
   it("fails the listing when a symlink cannot be stat'd for a NON-gone reason", async () => {
-    // Only a BROKEN link may be absorbed as a leaf. Every other stat failure —
-    // EACCES, EIO, ELOOP — is a real fault, and answering it with a plain file
-    // row would both hide the fault and put back the wrong-row/EISDIR
-    // behaviour the follow-the-link branch exists to remove.
-    //
-    // ELOOP is the one such failure reachable without root: a symlink cycle.
+    // ELOOP is the one stat failure reachable without root: a symlink cycle.
     const looped = fs.mkdtempSync(path.join(os.tmpdir(), "kolu-listdir-loop-"));
     try {
       fs.symlinkSync(path.join(looped, "b"), path.join(looped, "a"));
       fs.symlinkSync(path.join(looped, "a"), path.join(looped, "b"));
       const result = await listDirectory(looped, "");
-      // The whole listing fails loudly rather than reporting `a`/`b` as files.
       expect(result.ok).toBe(false);
       if (result.ok) return;
       expect(result.error.code).toBe("GIT_FAILED");
@@ -270,9 +229,6 @@ describe("readFile", () => {
   });
 
   it("returns error for non-existent file", async () => {
-    // `FILE_GONE`, not `GIT_FAILED` — the missing-path axis has its own tag so
-    // `unwrapGit` can map it to the typed NOT_FOUND the Code tab's
-    // delete-while-viewing handling keys on, without sniffing an errno string.
     const result = await readFile(tmpDir, "nope.txt");
     expect(result.ok).toBe(false);
     if (!result.ok) {
@@ -331,13 +287,8 @@ describe("filePreviewTag — preview cache-buster", () => {
   });
 
   it("hashes the WHOLE file — a tail-only edit past 32 MiB still moves the tag", async () => {
-    // A large previewable HTML/PDF (a generated report) can exceed any prefix
-    // cutoff. The tag must reflect the file's FULL content, not a leading slice:
-    // an edit confined to the tail — same size, identical first 32 MiB — must
-    // still move the tag, or a big scrollable preview would silently freeze on
-    // stale bytes. Guards against a size-capped / leading-bytes-only shortcut.
     const p = path.join(tmpDir, "big.html");
-    const head = Buffer.alloc(40 * 1024 * 1024, 0x61); // 40 MiB of 'a'
+    const head = Buffer.alloc(40 * 1024 * 1024, 0x61);
     fs.writeFileSync(p, Buffer.concat([head, Buffer.from("<!-- tail A -->")]));
     const before = await filePreviewTag(tmpDir, "big.html");
     fs.writeFileSync(p, Buffer.concat([head, Buffer.from("<!-- tail B -->")]));
@@ -348,18 +299,9 @@ describe("filePreviewTag — preview cache-buster", () => {
   });
 
   it("keeps the tag STABLE when the file is rewritten with identical bytes (git checkout / atomic rewrite)", async () => {
-    // The reported regression: a preview scrolled to the middle reloads and
-    // jumps to the top at "random" times while a remote terminal grinds a PR
-    // loop. Cause: the iframe URL is cache-busted by mtime, and a `git checkout`
-    // across branches — or a formatter's write-and-rename — rewrites the
-    // working-tree file with the SAME bytes but a NEW mtime. The tag must track
-    // the CONTENT, not the mtime: identical bytes ⇒ identical tag ⇒ no reload.
     const p = path.join(tmpDir, "stable.html");
     const bytes = "<h1>unchanged</h1>\n";
 
-    // Two fixed, far-apart mtimes stand in for "the working tree was
-    // re-materialized later" — deterministic, no reliance on wall-clock or
-    // filesystem mtime resolution.
     fs.writeFileSync(p, bytes);
     fs.utimesSync(
       p,
@@ -368,7 +310,6 @@ describe("filePreviewTag — preview cache-buster", () => {
     );
     const first = await filePreviewTag(tmpDir, "stable.html");
 
-    // Identical bytes, later mtime — exactly what a same-content checkout does.
     fs.writeFileSync(p, bytes);
     fs.utimesSync(
       p,
@@ -382,16 +323,10 @@ describe("filePreviewTag — preview cache-buster", () => {
 
     expect(first.ok && second.ok).toBe(true);
     if (!first.ok || !second.ok) return;
-    // Was RED against the old mtime-based tag; GREEN now the tag hashes content.
     expect(second.value).toBe(first.value);
   });
 
   it("aborts a superseded hash via the request signal instead of running to completion", async () => {
-    // A superseded preview query (input changed, or a fresh file-change pulse
-    // re-fired) aborts its request `signal`; the whole-file hash — costly on a
-    // multi-GB video — must stop promptly, not run to completion. A pre-aborted
-    // signal propagates the cancellation rather than collapsing to a GIT_FAILED
-    // err the endpoint would re-throw opaquely.
     const p = path.join(tmpDir, "abortable.bin");
     fs.writeFileSync(p, Buffer.alloc(4 * 1024 * 1024, 0x7));
     const ac = new AbortController();
@@ -418,14 +353,6 @@ describe("filePreviewTag — preview cache-buster", () => {
   });
 
   it("tags a gone file FILE_GONE, not GIT_FAILED", async () => {
-    // Delete-while-viewing for a BINARY preview. This must be settled here,
-    // structurally, rather than by an errno string surviving onto the wire:
-    // `unwrapGit` maps `GIT_FAILED` to an `ORPCError` whose own `code` is
-    // `INTERNAL_SERVER_ERROR`, and servePadi's now-removed `fileGoneAsNotFound`
-    // wrapper used to read a present code as authoritative — so a `GIT_FAILED`
-    // here reached the client as a visible error instead of the swallowed
-    // `NOT_FOUND` the Code tab expects, and the open image/PDF/video lost its
-    // last preview.
     const result = await filePreviewTag(tmpDir, "never-existed.bin");
     expect(result.ok).toBe(false);
     if (result.ok) return;

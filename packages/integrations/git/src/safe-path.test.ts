@@ -26,8 +26,6 @@ describe("resolveUnder (lexical)", () => {
   });
 
   it("does NOT resolve symlinks — a symlink string still under root passes", () => {
-    // The whole reason resolveExistingUnder exists: this lexical check is
-    // blind to where `leak` actually points on disk.
     const res = resolveUnder(root, "leak");
     expect(res.ok).toBe(true);
   });
@@ -74,8 +72,6 @@ describe("resolveExistingUnder (lexical + symlink authority)", () => {
 
   it("rejects a path under an intermediate directory symlink that escapes", async () => {
     fs.writeFileSync(path.join(outside, "secret.txt"), "TOP SECRET");
-    // `escape/` is a directory symlink pointing out of the repo; reading
-    // `escape/secret.txt` must be rejected even though no `..` appears.
     fs.symlinkSync(outside, path.join(root, "escape"));
     const res = await resolveExistingUnder(root, "escape/secret.txt");
     expect(res.ok).toBe(false);
@@ -89,7 +85,6 @@ describe("resolveExistingUnder (lexical + symlink authority)", () => {
   });
 
   it("passes a non-existent path through so the caller's fs op can 404/ENOENT", async () => {
-    // No realpath target → no readable file to leak → not an escape.
     const res = await resolveExistingUnder(root, "does-not-exist.txt");
     expect(res.ok).toBe(true);
     if (!res.ok) return;
@@ -132,9 +127,8 @@ describe("assertRealpathUnder", () => {
   });
 
   it("resolves symlinks on the root too (symlinked checkout stays valid)", async () => {
-    // `realpath(root)` matters: if we only realpath'd the target, a repo
-    // reached through a symlink (macOS /tmp -> /private/tmp, a symlinked
-    // checkout) would make every legitimate file look like an escape.
+    // macOS /tmp is a symlink to /private/tmp, so the root is realpath'd too —
+    // otherwise every file under a symlinked checkout looks like an escape.
     fs.writeFileSync(path.join(root, "real.txt"), "x");
     const rootLink = path.join(outside, "rootlink");
     fs.symlinkSync(root, rootLink);

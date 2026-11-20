@@ -1,19 +1,38 @@
-/**
- * Git worktree operations — create and remove worktrees.
- * Worktrees are stored in `.worktrees/<name>` relative to the main repo root.
- */
-
 import fs from "node:fs";
 import path from "node:path";
 import type { Logger } from "kolu-shared";
-import { simpleGit } from "simple-git";
-import { err, type GitResult, ok } from "./errors.ts";
+import { type SimpleGit, simpleGit } from "simple-git";
+import { err, type GitError, type GitResult, ok } from "./errors.ts";
 
-/** Resolve the main repo root from any path inside a repo (including worktrees). */
 async function resolveMainRepoRoot(repoPath: string): Promise<string> {
   const git = simpleGit(repoPath);
   const gitCommonDir = (await git.revparse(["--git-common-dir"])).trim();
   return path.dirname(fs.realpathSync(path.resolve(repoPath, gitCommonDir)));
+}
+
+/** The collision that stops a worktree being created at `.worktrees/<name>`,
+ *  or `null` when the name is free. A previous removal deletes the directory
+ *  but can leave the branch behind, so both are asked about. */
+async function worktreeCollision(
+  git: SimpleGit,
+  targetPath: string,
+  name: string,
+): Promise<GitError | null> {
+  if (fs.existsSync(targetPath)) {
+    return {
+      code: "WORKTREE_NAME_COLLISION",
+      name,
+      message: `A worktree directory already exists at ${targetPath}`,
+    };
+  }
+  const ref = `refs/heads/${name}`;
+  const heads = await git.raw(["for-each-ref", "--format=%(refname)", ref]);
+  if (!heads.split("\n").some((line) => line.trim() === ref)) return null;
+  return {
+    code: "WORKTREE_NAME_COLLISION",
+    name,
+    message: `Branch '${name}' already exists`,
+  };
 }
 
 /** Detect the default branch name on the remote (e.g. "main" or "master"). */
@@ -50,8 +69,6 @@ export async function worktreeCreate(
 
     log?.info({ mainRoot }, "fetching origin");
     await git.fetch("origin");
-    // Best-effort: update origin/HEAD to match remote's actual default branch.
-    // Non-fatal — detectDefaultBranch has its own fallback chain.
     try {
       await git.remote(["set-head", "origin", "--auto"]);
     } catch (e) {
@@ -64,25 +81,8 @@ export async function worktreeCreate(
 
     const targetPath = path.join(mainRoot, ".worktrees", name);
 
-    // Check for both directory and branch collision — a previous worktree
-    // removal deletes the directory but leaves the branch behind.
-    if (fs.existsSync(targetPath)) {
-      return err({
-        code: "WORKTREE_NAME_COLLISION",
-        name,
-        message: `A worktree directory already exists at ${targetPath}`,
-      });
-    }
-    try {
-      await git.raw(["rev-parse", "--verify", `refs/heads/${name}`]);
-      return err({
-        code: "WORKTREE_NAME_COLLISION",
-        name,
-        message: `Branch '${name}' already exists`,
-      });
-    } catch {
-      // Branch doesn't exist — good
-    }
+    const collision = await worktreeCollision(git, targetPath, name);
+    if (collision) return err(collision);
 
     log?.info(
       { targetPath, branch: name, base: `origin/${defaultBranch}` },
@@ -115,20 +115,21 @@ export async function worktreeRemove(
     const mainRoot = await resolveMainRepoRoot(worktreePath);
     const git = simpleGit(mainRoot);
 
-    // Detect the branch checked out in this worktree before removing it
     let branch: string | null = null;
     try {
       branch = (
         await simpleGit(worktreePath).raw(["rev-parse", "--abbrev-ref", "HEAD"])
       ).trim();
-    } catch {
-      // Worktree may already be partially removed
+    } catch (e) {
+      log?.warn(
+        { worktreePath, err: e instanceof Error ? e.message : String(e) },
+        "could not read the worktree's branch; removing without deleting it",
+      );
     }
 
     log?.info({ mainRoot, worktreePath, branch }, "removing worktree");
     await git.raw(["worktree", "remove", worktreePath, "--force"]);
 
-    // Clean up the branch (force delete — these are ephemeral Kolu-created branches)
     if (branch && branch !== "HEAD") {
       try {
         await git.raw(["branch", "-D", branch]);

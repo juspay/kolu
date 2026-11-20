@@ -1,17 +1,3 @@
-/**
- * Refcounted shared `.git/index` watcher.
- *
- * Catches staging-area changes — `git add`, `git rm`, `git restore --staged`,
- * partial commits, merges. Editor saves do not touch `.git/index`; that
- * axis is `watchWorkingTree`.
- *
- * Same dir+filename pattern as `head-watcher.ts` — both watch the gitDir
- * itself and filter for the file of interest. Two filter-keyed watchers on
- * the same gitDir don't share an `fs.watch` handle (one per filter); the
- * cost is one extra inotify watch per repo, traded for keeping the
- * abstraction uniform across axes.
- */
-
 import { createDirFilenameWatcher } from "kolu-io";
 import { resolveGitDir, WATCHER_DEBOUNCE_MS } from "./git-dir.ts";
 

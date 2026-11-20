@@ -1,9 +1,3 @@
-/**
- * The watcher rows `diagnostics.read` reports: one row per OS watch, naming
- * whoever asked for it at the top of the chain — a terminal or a stream, never
- * the composed watcher in between.
- */
-
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
@@ -80,7 +74,7 @@ describe("watcher rows", () => {
     expect(treeRow(repo)?.lastInstallMs.kind).toBe("measured");
     expect(treeRow(repo)?.ignoredPaths).toEqual({
       kind: "measured",
-      value: 1, // `.git` alone: nothing in this repo is ignored
+      value: 1,
     });
 
     stopA();
@@ -101,7 +95,6 @@ describe("watcher rows", () => {
       ).toBe(true);
       expect(treeRow(repo)?.rebuilds).toBe(0);
 
-      // Un-ignoring `dist/` changes the set git lists, so the watch rebuilds.
       fs.writeFileSync(path.join(repo, ".gitignore"), "");
       expect(await waitFor(() => (treeRow(repo)?.rebuilds ?? 0) > 0)).toBe(
         true,

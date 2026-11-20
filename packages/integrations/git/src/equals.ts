@@ -1,16 +1,3 @@
-/** Equality predicates for streamed snapshot dedup.
- *
- * Co-located with the schemas they cover (`schemas.ts` types and
- * `browse.ts` outputs) so a schema change forces the predicate to update
- * in the same review. Streaming endpoint handlers pass these directly to
- * the snapshot-stream helper — one named predicate per output type, no
- * `JSON.stringify` shortcuts that silently break on a non-serializable
- * field addition.
- *
- * Each predicate is hand-written rather than a deep-equal library
- * because the output shapes are small and stable; making the comparison
- * explicit names exactly which fields participate in identity, which is
- * what dedup needs anyway. */
 import type {
   FsListAllOutput,
   FsReadFileOutput,
@@ -64,15 +51,9 @@ export function gitStatusOutputEqual(
   a: GitStatusOutput,
   b: GitStatusOutput,
 ): boolean {
-  // The status is a discriminated union on `mode`; a mode change is a change.
   if (a.mode !== b.mode) return false;
   if (!arrayEqual(a.files, b.files, changedFileEqual)) return false;
   if (a.mode === "local" && b.mode === "local") {
-    // `workingTree` is NOT derivable from `files[]` (it splits staged vs
-    // unstaged, which the collapsed file codes drop), and `branch` ahead/behind
-    // moves on a commit that leaves the file list untouched — so both are
-    // compared here, or the watcher stream would fail to re-yield after a
-    // `git add` / `git commit`.
     return (
       branchStatusEqual(a.branch, b.branch) &&
       workingTreeEqual(a.workingTree, b.workingTree)

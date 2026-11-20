@@ -1,16 +1,3 @@
-/**
- * Refcounted shared `.git/logs/HEAD` watcher.
- *
- * Catches HEAD movements that don't rewrite `.git/HEAD` — commits on the
- * current branch, rebases, merges, resets, fast-forward pulls. Branch
- * identity changes (the file `.git/HEAD` itself) are owned by
- * `watchGitHead`. The two together cover all HEAD-related volatility.
- *
- * `.git/logs/HEAD` updates on every HEAD movement and is a stable path
- * (vs. `.git/refs/heads/<current-branch>`, which moves on every branch
- * switch). Same dir+filename pattern as `head-watcher.ts`.
- */
-
 import fs from "node:fs";
 import path from "node:path";
 import { createDirFilenameWatcher } from "kolu-io";
@@ -21,18 +8,10 @@ const reflogWatcher = createDirFilenameWatcher({
     const gitDir = await resolveGitDir(cwd);
     if (gitDir === null) return null;
     const logsDir = path.join(gitDir, "logs");
-    // A fresh `git init` with no commits has no `.git/logs/` yet — treat
-    // that as "axis-not-watchable-here" silently. The first commit creates
-    // the dir but won't trigger this watcher (we already returned no-op
-    // for the original subscribe). Other axes catch the first-commit case
-    // (HEAD content change, index update); a reflog-only event before
-    // any commit isn't a thing.
     try {
       await fs.promises.access(logsDir);
       return logsDir;
     } catch {
-      // logs/ doesn't exist yet (fresh repo, no commits) — treat as
-      // not-watchable and return null silently. See comment above.
       return null;
     }
   },

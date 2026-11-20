@@ -20,9 +20,6 @@ describe("getDiff path authority", () => {
   });
 
   it("rejects a repo-local symlink escaping the root before the --no-index fallback reads it", async () => {
-    // The local-untracked branch diffs `/dev/null` against the resolved
-    // absolute path; a `leak.txt -> /outside/secret.txt` symlink would
-    // surface the external file's content verbatim without the realpath guard.
     const secret = path.join(outside, "secret.txt");
     fs.writeFileSync(secret, "TOP SECRET\n");
     fs.symlinkSync(secret, path.join(repo, "leak.txt"));
@@ -39,11 +36,9 @@ describe("getDiff path authority", () => {
   });
 
   it("renders a tracked symlink pointing outside the repo (pathspec, never read off disk)", async () => {
-    // A *tracked* symlink to an outside target is diffed via `git diff HEAD --
-    // <rel>`, where `rel` is a pathspec git resolves against the tree — it
-    // never dereferences the working-tree link. The realpath guard must stay
-    // scoped to the untracked `--no-index` fallback so this case keeps
-    // rendering regardless of whether the target exists on the host.
+    // A tracked symlink is diffed via `git diff HEAD -- <rel>`, where `rel` is
+    // a pathspec git resolves against the tree — it never dereferences the
+    // working-tree link.
     const secret = path.join(outside, "secret.txt");
     fs.writeFileSync(secret, "TOP SECRET\n");
 
@@ -52,8 +47,6 @@ describe("getDiff path authority", () => {
     await git.addConfig("user.email", "test@example.com");
     await git.addConfig("user.name", "Test");
     await git.checkoutLocalBranch("main");
-    // Commit the symlink, then retarget it in the working tree so the tracked
-    // `git diff HEAD -- <rel>` path produces a real (non-empty) diff.
     fs.symlinkSync(secret, path.join(repo, "link"));
     await git.add("link");
     await git.commit("add link");
@@ -61,8 +54,6 @@ describe("getDiff path authority", () => {
     fs.symlinkSync(path.join(outside, "other.txt"), path.join(repo, "link"));
 
     const result = await getDiff(repo, "link", "local");
-    // The only requirement is that the symlink-resolving guard does NOT reject
-    // this tracked diff based on the host filesystem.
     expect(result.ok).toBe(true);
   });
 });
@@ -79,10 +70,6 @@ describe("getStatus branch mode — no resolvable base", () => {
   });
 
   it("degrades gracefully on a fresh repo with no remote and no commits (issue #1244)", async () => {
-    // `git init` with no remote and no commits: there is no `origin`, so
-    // branch mode has nothing to diff against. It must NOT error — an error
-    // here is logged at ERROR by the surface's onStreamReadError on every
-    // repo-change tick (the bug). Expect an empty, base-less status instead.
     await simpleGit(repo).init();
 
     const result = await getStatus(repo, "branch");
@@ -95,8 +82,6 @@ describe("getStatus branch mode — no resolvable base", () => {
   });
 
   it("degrades gracefully on a remote-less repo that has commits", async () => {
-    // Even with local history, a repo with no `origin` remote has no base
-    // branch to compare against — branch mode is meaningless, not broken.
     const git = simpleGit(repo);
     await git.init();
     await git.addConfig("user.email", "test@example.com");
@@ -113,17 +98,11 @@ describe("getStatus branch mode — no resolvable base", () => {
     if (result.value.mode !== "branch") return;
     expect(result.value.files).toEqual([]);
     expect(result.value.base).toBeNull();
-    // Branch mode compares HEAD vs merge-base, so the working-tree section
-    // counts and the HEAD-vs-upstream header don't apply — the `branch` arm of
-    // the union simply doesn't carry them (unrepresentable, not nulled).
     expect("branch" in result.value).toBe(false);
     expect("workingTree" in result.value).toBe(false);
   });
 
   it("still surfaces the actionable error when an origin remote exists but isn't fetched", async () => {
-    // A repo *with* an `origin` remote whose default branch hasn't been
-    // fetched is a genuinely actionable state — the user can run `git fetch`.
-    // Keep the BASE_BRANCH_NOT_FOUND error so explicit Branch mode can prompt.
     const git = simpleGit(repo);
     await git.init();
     await git.addConfig("user.email", "test@example.com");
@@ -165,19 +144,16 @@ describe("getStatus local mode — branch tracking + working-tree counts (R4.7)"
     await git.add("tracked.txt");
     await git.commit("init");
 
-    // A bare local remote, pushed with -u so HEAD tracks origin/main.
     await simpleGit().raw(["init", "--bare", remote]);
     await git.addRemote("origin", remote);
     await git.raw(["push", "-u", "origin", "main"]);
 
-    // One commit AHEAD of the upstream, then a working tree with one of each
-    // section: a staged-new file, an unstaged edit, and an untracked file.
     fs.writeFileSync(path.join(repo, "committed.txt"), "x\n");
     await git.add("committed.txt");
     await git.commit("ahead by one");
     fs.writeFileSync(path.join(repo, "staged.txt"), "s\n");
     await git.add("staged.txt");
-    fs.writeFileSync(path.join(repo, "tracked.txt"), "one\ntwo\n"); // unstaged edit
+    fs.writeFileSync(path.join(repo, "tracked.txt"), "one\ntwo\n");
     fs.writeFileSync(path.join(repo, "untracked.txt"), "u\n");
 
     const result = await getStatus(repo, "local");
@@ -186,7 +162,6 @@ describe("getStatus local mode — branch tracking + working-tree counts (R4.7)"
     expect(result.value.mode).toBe("local");
     if (result.value.mode !== "local") return;
 
-    // Local mode never resolves a base — the `local` arm doesn't carry the field.
     expect("base" in result.value).toBe(false);
     expect(result.value.branch).toEqual({
       name: "main",
@@ -195,11 +170,10 @@ describe("getStatus local mode — branch tracking + working-tree counts (R4.7)"
       behind: 0,
     });
     expect(result.value.workingTree).toEqual({
-      staged: 1, // staged.txt (index A)
-      modified: 1, // tracked.txt (working-tree M, unstaged)
-      untracked: 1, // untracked.txt
+      staged: 1,
+      modified: 1,
+      untracked: 1,
     });
-    // The file list still carries every changed path (drill-in source).
     const paths = result.value.files.map((f) => f.path);
     expect(paths).toEqual(
       expect.arrayContaining(["staged.txt", "tracked.txt", "untracked.txt"]),
@@ -248,10 +222,8 @@ describe("getStatus branch mode — unicode paths", () => {
   });
 
   it("returns a unicode branch-diff path verbatim — no C-quoting, no spurious folder", async () => {
-    // The branch-mode file list comes from `git diff --name-status <base>`.
-    // Without `core.quotePath=false`, git emits `"People/Am\303\251lie.md"`
-    // (octal-escaped, quote-wrapped); the leading quote then became a spurious
-    // `"People` folder and the leaf rendered as `Am\303\251lie.md"`.
+    // Without `core.quotePath=false`, git emits `"People/Am\303\251lie.md"` —
+    // octal-escaped and double-quote-wrapped.
     const leaf = "Amélie.md";
     const rel = `People/${leaf}`;
 
@@ -263,8 +235,6 @@ describe("getStatus branch mode — unicode paths", () => {
     fs.writeFileSync(path.join(repo, "README.md"), "base\n");
     await git.add(".");
     await git.commit("base");
-    // Synthesize the remote-tracking base `getStatus` diffs against, with no
-    // real remote: point `origin/main` (and origin/HEAD) at the base commit.
     await git.raw(["update-ref", "refs/remotes/origin/main", "HEAD"]);
     await git.raw([
       "symbolic-ref",
@@ -301,11 +271,6 @@ describe("getDiff — a directory replaced by a file", () => {
     fs.rmSync(repo, { recursive: true, force: true });
   });
 
-  // The Code tab folds a type change to ONE row — the path itself — and drops
-  // the paths beneath it from the tree. That is only honest if the row's diff
-  // is a real git pathspec: `-- skills/odu` must match the file at that path
-  // AND every file under it, in both directions of the change, so no hunk is
-  // lost.
   const writeDir = () => {
     fs.mkdirSync(path.join(repo, "skills", "odu"), { recursive: true });
     fs.writeFileSync(path.join(repo, "skills", "odu", "SKILL.md"), "# odu\n");

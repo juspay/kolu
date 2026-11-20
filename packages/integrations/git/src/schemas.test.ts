@@ -1,12 +1,3 @@
-/** Wire-shape guards for the git schemas.
- *
- * These shapes cross process boundaries (browser ↔ kolu-server, and the
- * ssh-mirrored remote surface between builds), so the assertions here are on
- * the ENCODED BYTES — `JSON.stringify(Schema.encodeSync(S)(v))` — not just on
- * decode-equality. A field rename, a key-order change, or an `optionalKey`
- * silently becoming a nulled key would all pass a round-trip test and still
- * break a peer running a different build. */
-
 import { Result, Schema } from "effect";
 import { describe, expect, it } from "vitest";
 import {
@@ -21,7 +12,6 @@ import {
   WorktreeNameSchema,
 } from "./schemas.ts";
 
-/** Encode to the wire and render the exact bytes a peer would receive. */
 function wire<A, E>(schema: Schema.Codec<A, E>, value: A): string {
   return JSON.stringify(Schema.encodeSync(schema)(value));
 }
@@ -45,8 +35,6 @@ describe("GitInfo wire bytes", () => {
   });
 
   it("reads a terminal saved before isBare as having a working tree", () => {
-    // A saved session from before the field must still load; the live git
-    // sensor replaces the value on restore.
     expect(
       Schema.decodeUnknownSync(GitInfoSchema)({
         repoRoot: "/repo",
@@ -98,11 +86,6 @@ describe("GitChangedFile wire bytes", () => {
   });
 
   it("accepts an explicit `oldPath: undefined` and encodes it to no key", () => {
-    // The zod original was `z.string().optional()`, which accepted the key
-    // present-but-`undefined`. Mapping law #17 says match it exactly, so this
-    // is `Schema.optional`, not `Schema.optionalKey`. Consumers OUTSIDE this
-    // package read `file.oldPath` off a decoded record and forward it verbatim,
-    // so present-but-`undefined` is a shape that really crosses the wire.
     expect(
       Schema.decodeUnknownSync(GitChangedFileSchema)({
         path: "a.ts",
@@ -199,10 +182,6 @@ describe("GitStatusOutput wire bytes", () => {
 });
 
 describe("GitDiffInput wire bytes", () => {
-  // The Code tab builds this input by forwarding a `GitChangedFile`'s
-  // `oldPath` straight through, so the common case — a plain edit, no rename —
-  // is the key PRESENT and `undefined`. Encoding it must succeed and must emit
-  // no `oldPath` key at all.
   it("encodes a non-rename request, dropping the undefined oldPath", () => {
     expect(
       wire(GitDiffInputSchema, {

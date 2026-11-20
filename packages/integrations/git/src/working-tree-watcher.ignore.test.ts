@@ -4,17 +4,11 @@
  * Git reads ignore rules from three places: `.gitignore` files in the tree,
  * `info/exclude` in the common git dir (shared by every worktree), and the
  * global ignore file (`core.excludesFile`, else `$XDG_CONFIG_HOME/git/ignore`).
- * When any of them un-ignores a directory, the Code tab must hear about it —
- * its tracked and ignored listings re-read together — and the directory must
- * join the watch, so a write inside it pulses too.
  *
- * Every case drives `watchWorkingTree` and waits on its listener, the way the
- * Code tab does. The environment points git's global config and XDG config
- * home at temp files, so no case reads or writes the developer's own global
- * ignore file — and the developer's own settings cannot shadow these.
+ * The environment points git's global config and XDG config home at temp
+ * files, so no case reads or writes the developer's own global ignore file.
  *
- * All cases gate on an event ARRIVING, so they run on linux/inotify only — see
- * `SKIP_DARWIN_FSWATCH`.
+ * All cases gate on an event ARRIVING, so they run on linux/inotify only.
  */
 
 import { execFileSync } from "node:child_process";
@@ -36,7 +30,6 @@ function git(cwd: string, ...args: string[]): void {
   execFileSync("git", args, { cwd, stdio: "pipe" });
 }
 
-/** Captured `log.info` messages, so a case can count watcher installs. */
 const lines: string[] = [];
 const log = {
   info: (_fields: unknown, msg: string) => lines.push(msg),
@@ -47,8 +40,6 @@ const log = {
 const installs = (): number =>
   lines.filter((l) => l === "git: working-tree watcher installed").length;
 
-/** Longer than the ignore-rule dir watchers' 1s stat poll plus every debounce
- *  in the chain — enough for any refresh an edit could trigger to have run. */
 const SETTLE_MS = 1800;
 
 describe.skipIf(SKIP_DARWIN_FSWATCH)(
@@ -58,7 +49,6 @@ describe.skipIf(SKIP_DARWIN_FSWATCH)(
     let xdgConfigHome: string;
     const offs: Array<() => void> = [];
 
-    /** A committed repo at `root/<name>` holding an untracked `.waterfall/`. */
     function initRepo(name: string): string {
       const repo = path.join(root, name);
       fs.mkdirSync(path.join(repo, "src"), { recursive: true });
@@ -78,16 +68,12 @@ describe.skipIf(SKIP_DARWIN_FSWATCH)(
       fs.writeFileSync(file, content);
     }
 
-    /** Subscribe, counting every pulse after the install's own tick. */
     async function watch(repo: string): Promise<{ fired: () => number }> {
       let fired = 0;
       offs.push(await subscribeInstalled(repo, () => fired++, log));
       return { fired: () => fired };
     }
 
-    /** The reported bug, from any rule file: with `.waterfall/` ignored by
-     *  `ruleFile`, rewriting that file without the line must pulse the
-     *  listener, and a write inside `.waterfall/` afterwards must pulse too. */
     async function expectUnignoreFollowed(
       repo: string,
       edit: () => void,
@@ -139,8 +125,6 @@ describe.skipIf(SKIP_DARWIN_FSWATCH)(
     }, 30_000);
 
     it("follows the common dir's info/exclude from a linked worktree", async () => {
-      // The `~/code/kolu` layout: a bare `.git` and linked worktrees, all
-      // reading ONE `info/exclude`.
       const project = path.join(root, "project");
       const bare = path.join(project, ".git");
       fs.mkdirSync(project);
@@ -161,17 +145,13 @@ describe.skipIf(SKIP_DARWIN_FSWATCH)(
       const exclude = path.join(repo, ".git", "info", "exclude");
       writeFile(exclude, ".waterfall/\n");
       await watch(repo);
-      // Let the rule watchers' own attach ticks run their refresh.
       await sleep(SETTLE_MS);
       const before = installs();
 
-      // A duplicate line and a rule matching nothing — what agents append to
-      // the shared exclude file all day.
       fs.appendFileSync(exclude, ".waterfall/\nnothing-here/\n");
       await sleep(SETTLE_MS);
       expect(installs()).toBe(before);
 
-      // The watcher was listening all along: a real change rebuilds, once.
       writeFile(exclude, "");
       expect(await waitFor(() => installs() > before)).toBe(true);
       await sleep(SETTLE_MS);
@@ -185,8 +165,6 @@ describe.skipIf(SKIP_DARWIN_FSWATCH)(
       const pulses = await watch(repo);
       const before = installs();
 
-      // The `.gitignore` write pulses on its own — it is a working-tree file.
-      // What it must ALSO do is bring `dist/` into the watch.
       writeFile(path.join(repo, ".gitignore"), "");
       await waitFor(() => installs() > before);
       await quiesce(pulses.fired);
@@ -214,8 +192,8 @@ describe.skipIf(SKIP_DARWIN_FSWATCH)(
     }, 30_000);
 
     it("follows a global ignore symlink re-pointed at different rules", async () => {
-      // The home-manager layout: the configured path is a symlink into a
-      // store directory that never changes; activation swaps the link.
+      // The home-manager layout: `core.excludesFile` is a symlink into a store
+      // directory that never changes; activation swaps the link.
       const repo = initRepo("repo");
       const storeA = path.join(root, "store-a", "ignore");
       const storeB = path.join(root, "store-b", "ignore");
