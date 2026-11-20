@@ -10,34 +10,42 @@ export function hasOwnScheme(src: string): boolean {
   );
 }
 
-/** `host:port` in the form a URL parser accepts, bracketing an IPv6 literal.
+const IPV6_BRACKETS = /^\[|\]$/g;
+const IPV4_LOOPBACK_BLOCK = /^127(?:\.\d{1,3}){3}$/;
+
+/** An IPv6 literal without the brackets the URL form puts round it; any other
+ *  host unchanged. The inverse of the bracketing {@link hostAuthority} does. */
+function bareHost(host: string): string {
+  return host.replace(IPV6_BRACKETS, "");
+}
+
+/** `host:port` in the form a URL parser accepts; an IPv6 literal comes back
+ *  bracketed whether it arrived bracketed or bare. A colon can only occur in
+ *  an IPv6 literal, never in a registered name or an IPv4 literal.
  *
- *  `location.hostname` and Node's `AddressInfo.address` both hand an IPv6
- *  address over without the brackets the URL form requires. */
+ *  Node's `AddressInfo.address` hands an IPv6 address over bare. */
 export function hostAuthority(host: string, port: number): string {
-  return `${host.includes(":") ? `[${host}]` : host}:${port}`;
+  const bare = bareHost(host);
+  return `${bare.includes(":") ? `[${bare}]` : bare}:${port}`;
 }
 
 /** Is this hostname a loopback / all-interfaces bind spelling: `localhost`, the
  *  entire `127.0.0.0/8`, IPv6 loopback, `0.0.0.0` (and its IPv6 twin)? Accepts
  *  an IPv6 literal with or without brackets. */
 export function isLoopbackHostname(host: string): boolean {
-  const h = host
-    .trim()
-    .toLowerCase()
-    .replace(/^\[|\]$/g, "");
+  const h = bareHost(host.trim().toLowerCase());
   if (h === "localhost") return true;
   if (h === "0.0.0.0") return true;
   if (h === "::" || h === "0:0:0:0:0:0:0:0") return true;
   if (h === "::1" || h === "0:0:0:0:0:0:0:1") return true;
-  if (/^127(?:\.\d{1,3}){3}$/.test(h)) return true;
+  if (IPV4_LOOPBACK_BLOCK.test(h)) return true;
   return false;
 }
 
 /** A loopback URL taken apart — port, path, query, hash. `null` when the text
  *  is not a loopback URL (non-http(s), non-loopback host, unparseable). */
 export type LoopbackUrl = {
-  /** Hostname as the URL parser reports it (IPv6 bare, no brackets). */
+  /** Hostname with no brackets, even for an IPv6 literal. */
   host: string;
   port: number;
   /** Scheme the printout used. */
@@ -70,9 +78,7 @@ export function parseLoopbackUrl(text: string): LoopbackUrl | null {
     return null;
   }
   if (url.protocol !== "http:" && url.protocol !== "https:") return null;
-  // Some URL implementations hand IPv6 hostnames still bracketed; normalise so
-  // consumers never have to strip twice.
-  const host = url.hostname.replace(/^\[|\]$/g, "");
+  const host = bareHost(url.hostname);
   if (!isLoopbackHostname(host)) return null;
   const port =
     url.port === "" ? (url.protocol === "https:" ? 443 : 80) : Number(url.port);

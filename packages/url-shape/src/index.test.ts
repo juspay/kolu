@@ -21,10 +21,14 @@ describe("hasOwnScheme", () => {
 });
 
 describe("hostAuthority", () => {
-  it("re-brackets an IPv6 literal, which every source hands over bare", () => {
+  it("brackets an IPv6 literal, bare or already bracketed", () => {
     expect(hostAuthority("fd7a:1:2::2", 8123)).toBe("[fd7a:1:2::2]:8123");
     expect(hostAuthority("::", 7314)).toBe("[::]:7314");
     expect(`http://${hostAuthority("::1", 7714)}`).toBe("http://[::1]:7714");
+    expect(hostAuthority("[::1]", 7714)).toBe("[::1]:7714");
+    expect(hostAuthority(new URL("http://[::1]:7714/").hostname, 7714)).toBe(
+      "[::1]:7714",
+    );
   });
 
   it("leaves a registered name or an IPv4 literal exactly as it was", () => {
