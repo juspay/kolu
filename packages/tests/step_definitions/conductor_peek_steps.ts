@@ -145,12 +145,21 @@ async function waitForDriver(
   driver: "conductor" | "you",
 ): Promise<void> {
   await pollFor({
-    observe: () => world.page.locator(LOCK).last().getAttribute("data-driver"),
-    isDone: (seen) => seen === driver,
+    observe: async () => ({
+      driver: await world.page.locator(LOCK).last().getAttribute("data-driver"),
+      cardRef: await world.page
+        .locator(CARD)
+        .last()
+        .getAttribute("data-lock-terminal"),
+      peekRef: `${await world.page.locator(PEEK).getAttribute("data-peek-host")}/${await world.page.locator(PEEK).getAttribute("data-peek-terminal")}`,
+      toasts: await world.page.locator("[data-sonner-toast]").allTextContents(),
+      errors: world.errors,
+    }),
+    isDone: (seen) => seen.driver === driver,
     timeoutMs: POLL_TIMEOUT,
     onTimeout: (last, ms) =>
       new Error(
-        `the peek said ${JSON.stringify(last)} after ${ms}ms, expected ${JSON.stringify(driver)}`,
+        `the peek said ${JSON.stringify(last?.driver)} after ${ms}ms, expected ${JSON.stringify(driver)}; card ${JSON.stringify(last?.cardRef)}; peek ${JSON.stringify(last?.peekRef)}; toasts ${JSON.stringify(last?.toasts)}; page errors ${JSON.stringify(last?.errors)}`,
       ),
   });
 }
