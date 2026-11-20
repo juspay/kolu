@@ -7,12 +7,7 @@ import type { Accessor, JSX } from "solid-js";
  *    - both          → consumers that can supply source and a separate URL
  *  The host supplies the source renderer and rendered renderer list that match
  *  this shape; `FileView` offers the Source ⇄ Rendered toggle when both are
- *  available for the same file.
- *
- *  `content` and `truncated` are nested under `source` so their presence is
- *  coupled structurally: a file either has a source form (text + its
- *  truncation flag, as one unit) or it doesn't. The flat shape would admit
- *  the illegal `{ url, truncated }`-without-content state. */
+ *  available for the same file. */
 export type FileData = {
   /** Path the file lives at — drives renderer matching and labels. */
   path: string;

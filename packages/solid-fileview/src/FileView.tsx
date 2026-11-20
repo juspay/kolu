@@ -48,20 +48,20 @@ export function FileView<TFile extends FileData = FileData>(
   const hasRendered = () => matchedRendered() != null;
   const both = () => hasSource() && hasRendered();
 
-  const [chosen, setChosen] = createSignal<FileViewMode | null>(null);
+  const [assertedMode, assertMode] = createSignal<FileViewMode | null>(null);
 
   createEffect(
     on(
       () => props.mode,
       (m) => {
-        if (m != null) setChosen(m);
+        if (m != null) assertMode(m);
       },
     ),
   );
 
   const mode = createMemo<FileViewMode>(() => {
-    const picked = chosen();
-    if (picked) return picked;
+    const asserted = assertedMode();
+    if (asserted) return asserted;
     if (both()) return props.defaultMode ?? "rendered";
     return hasRendered() ? "rendered" : "source";
   });
@@ -78,7 +78,7 @@ export function FileView<TFile extends FileData = FileData>(
   return (
     <div class="flex h-full w-full flex-col">
       <Show when={both()}>
-        <FileViewToggle mode={mode()} onChange={setChosen} />
+        <FileViewToggle mode={mode()} onChange={assertMode} />
       </Show>
       <div class="relative min-h-0 flex-1">
         <Show when={both()} fallback={active()}>
@@ -103,27 +103,45 @@ function KeepAliveMode<TFile extends FileData>(props: {
   file: TFile;
   render: (file: Accessor<TFile>) => JSX.Element;
 }): JSX.Element {
-  const visited = createMemo<boolean>((was) => was || props.show, false);
-  const heldFile = createMemo<TFile>((prev) =>
-    props.show || prev === undefined ? props.file : prev,
-  );
+  const shown = () => props.show;
+  const mounted = createLatched(shown);
+  const heldFile = createHeld(() => props.file, shown);
   return (
-    <Show when={visited()}>
-      <div
-        class="h-full w-full"
-        style={{
-          position: props.show ? "relative" : "absolute",
-          inset: "0",
-          "content-visibility": props.show ? "visible" : "hidden",
-        }}
-        inert={!props.show}
-        aria-hidden={!props.show}
-      >
-        {props.render(heldFile)}
-      </div>
+    <Show when={mounted()}>
+      <HiddenPane hidden={!props.show}>{props.render(heldFile)}</HiddenPane>
     </Show>
   );
 }
+
+function createLatched(show: Accessor<boolean>): Accessor<boolean> {
+  return createMemo<boolean>((latched) => latched || show(), false);
+}
+
+function createHeld<T>(
+  value: Accessor<T>,
+  show: Accessor<boolean>,
+): Accessor<T> {
+  return createMemo<T>((held) =>
+    show() || held === undefined ? value() : held,
+  );
+}
+
+const HiddenPane: Component<{ hidden: boolean; children: JSX.Element }> = (
+  props,
+) => (
+  <div
+    class="h-full w-full"
+    style={{
+      position: props.hidden ? "absolute" : "relative",
+      inset: "0",
+      "content-visibility": props.hidden ? "hidden" : "visible",
+    }}
+    inert={props.hidden}
+    aria-hidden={props.hidden}
+  >
+    {props.children}
+  </div>
+);
 
 const FileViewToggle: Component<{
   mode: FileViewMode;
