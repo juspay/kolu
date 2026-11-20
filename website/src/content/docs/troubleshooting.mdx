@@ -137,10 +137,10 @@ anything, so a session thrown away on purpose comes back the same way.
 Restoring a padi snapshot re-spawns its terminals beside your current ones,
 agents resumed and nothing killed. Restoring the server store applies live,
 with no restart. Your preferences, your host pool and [the
-Conductor](/conductor#what-a-backup-of-kolu-holds)'s pieces of work come back
-at once, and the running Conductor takes the restored works rather than writing
-over them. Every restore snapshots the current state first, so a restore is
-itself undoable.
+Conductor](/conductor#what-a-backup-of-kolu-holds)'s pieces of work and memory
+come back at once, and the running Conductor takes the restored ones rather
+than writing over them. Every restore snapshots the current state first, so a
+restore is itself undoable.
 
 A backup does not hold two things. The Conductor's **conversation** is not in
 it: its other half lives in the agent's own session store, which kolu does not
@@ -154,16 +154,16 @@ could not copy first. Fix the disk and try again; the session is still there.
 
 ## The Conductor says it cannot read one of its records
 
-[The Conductor](/conductor) keeps four saved records: its pieces of work, what
-it remembers about their terminals, the conversation's own record, and the
-transcript. When one of them will not read, the Conductor's panel says so in
+[The Conductor](/conductor) keeps five saved records: its pieces of work, what
+it remembers about their terminals, its [memory](/conductor-memory), the
+conversation's own record, and the transcript. When one of them will not read, the Conductor's panel says so in
 plain words, shows what the read tripped on, and offers two buttons. You never
 have to edit a file, and kolu comes back without a restart.
 
 | Button | What it does |
 | --- | --- |
 | **Restore the newest backup that reads** | Walks the backup ring newest first and takes the newest snapshot this build can read, naming it. The current state is snapshotted first, so this is undoable. Not offered for the transcript. |
-| **Start with no works** | Starts that record empty. The wording follows the record: no works, no remembered terminals, a fresh conversation, or an empty transcript. It asks you to confirm first. |
+| **Start with no works** | Starts that record empty. The wording follows the record: no works, no remembered terminals, nothing remembered, a fresh conversation, or an empty transcript. It asks you to confirm first. |
 
 A restore writes only the records the message was about, so your preferences
 and host pool stay as they are. The transcript is not in backups, which is why

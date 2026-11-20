@@ -17,7 +17,7 @@ import Steps from "../../components/docs/Steps.astro";
 The **Conductor** is one chat with an agent that runs the agents in your terminals. You say what you want done; it opens a piece of work, creates terminals on the host that work belongs on, briefs their agents, and answers their questions or brings them to you.
 
 <Aside type="caution" title="alpha">
-  The Conductor is alpha, and its shape is still changing. Upgrading kolu can leave you with a new, empty conversation: the old transcript is not carried over. Keep anything you need outside it, in the repository or in a file.
+  The Conductor is alpha, and its shape is still changing. Upgrading kolu can leave you with a new, empty conversation: the old transcript is not carried over. Keep what it should know in its [memory](/conductor-memory).
 </Aside>
 
 ## What it is
@@ -134,7 +134,8 @@ The header shows who the agent is signed in as, the **model**, the [context used
 
 | ⋯ menu item | What it does |
 | --- | --- |
-| **New session** | Starts an empty conversation: the messages and their attached files are deleted. The pieces of work stay. It asks first, and there is no undo. |
+| **New session** | Starts an empty conversation: the messages and their attached files are deleted. The pieces of work and the memory stay. It asks first, and there is no undo. |
+| **Memory** | Opens the [Memory sheet](/conductor-memory#the-memory-sheet): what the Conductor remembers, and its proposals waiting on you. |
 | **Sign in again…** | Opens the sign-in, even while signed in. **Sign in…** when not. |
 | **Copy transcript** | Copies the whole conversation as plain text. |
 | **How to use** | Opens the help. On a wide window it is a column beside the chat, folded away while a file is open. |
@@ -215,7 +216,7 @@ A **waterfall** takes a change from request to merged PR. Ask for one, or ask th
 
 kolu, not the Conductor, offers the harness and the model, and starts each agent on exactly what you chose: see [the setup form](/conductor-setup).
 
-The Conductor never implements anything itself, never starts an agent or opens a PR without your approval, and never closes an implementor before its PR is merged or closed. Its standing instructions open every new session's transcript, and come again after a restart and around each [compaction](/conductor-memory).
+The Conductor never implements anything itself, never starts an agent or opens a PR without your approval, and never closes an implementor before its PR is merged or closed. Its standing instructions and memory open every new session's transcript, and come again after a restart and around each [compaction](/conductor-memory).
 
 ## After a restart
 
@@ -225,7 +226,7 @@ An agent that finished while kolu-server was down still wakes the Conductor, and
 
 ### What a backup of kolu holds
 
-kolu's [rotated snapshots](/troubleshooting#kolu-lost-my-session-or-my-settings-look-wrong) hold the pieces of work with their members, and restoring one puts them back live, without the conversation or a finished work's kept files.
+kolu's [rotated snapshots](/troubleshooting#kolu-lost-my-session-or-my-settings-look-wrong) hold the pieces of work with their members, and the memory. Restoring one puts them back live, without the conversation or a finished work's kept files.
 
 <LinkCard
   title="Agent Fleets"

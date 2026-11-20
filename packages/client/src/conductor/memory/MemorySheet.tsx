@@ -31,7 +31,7 @@ import { InlineConfirm } from "../../ui/InlineConfirmButton";
 import ModalDialog from "../../ui/ModalDialog";
 import { surface } from "../../ui/Surface";
 import { useShown } from "../../ui/shown";
-import { editMemory } from "./MemoryEditor";
+import { editMemory, memoryEditorOpen } from "./MemoryEditor";
 import { memoryImport } from "./MemoryImport";
 import MemoryProposalCard from "./MemoryProposalCard";
 import { memorySheet, useMemory } from "./useMemory";
@@ -67,7 +67,7 @@ const EntryCard: Component<{ entry: MemoryEntry }> = (props) => {
       class="rounded-lg border border-edge px-3 py-2"
     >
       <div class="flex items-baseline justify-between gap-2">
-        <p class="m-0 text-[0.82rem] text-fg">
+        <p data-testid="memory-entry-title" class="m-0 text-[0.82rem] text-fg">
           {props.entry.title}
           <Show when={props.entry.about}>
             {(about) => (
@@ -201,6 +201,7 @@ export const MemorySheet: Component = () => {
     <ModalDialog
       open={memorySheet.open()}
       onOpenChange={memorySheet.onOpenChange}
+      dismissible={!memoryEditorOpen() && !memoryImport.open()}
       size="md"
     >
       <Dialog.Content

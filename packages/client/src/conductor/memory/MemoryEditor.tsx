@@ -31,6 +31,9 @@ export const editMemory = (what: MemoryEditing): void => {
   setEditing(what);
 };
 
+/** Whether the editor is open — the sheet under it holds still meanwhile. */
+export const memoryEditorOpen = (): boolean => editing() !== null;
+
 const HEADINGS: Record<MemoryEditing["kind"], string> = {
   add: "Add a memory",
   entry: "Edit memory",

@@ -26,8 +26,13 @@ vi.mock("../useConductorFacts", () => ({
     agentName: "Claude Code",
   }),
 }));
-vi.mock("./MemoryEditor", () => ({ editMemory: () => {} }));
-vi.mock("./MemoryImport", () => ({ memoryImport: { openDialog: () => {} } }));
+vi.mock("./MemoryEditor", () => ({
+  editMemory: () => {},
+  memoryEditorOpen: () => false,
+}));
+vi.mock("./MemoryImport", () => ({
+  memoryImport: { openDialog: () => {}, open: () => false },
+}));
 vi.mock("./MemoryProposalCard", () => ({ default: () => null }));
 vi.mock("./useMemory", () => ({
   memorySheet: { open: () => true, onOpenChange: () => {}, close: () => {} },
