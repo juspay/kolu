@@ -240,6 +240,7 @@ const open = async (
     whenReplayed?: "drop" | "keep";
     compacts?: HarnessOptions<FixtureRow>["compacts"];
     onCompaction?: HarnessOptions<FixtureRow>["onCompaction"];
+    teaching?: HarnessOptions<FixtureRow>["teaching"];
     /** Extra argv for the fixture — a scripted agent that models two agents
      *  takes the difference on its command line rather than in a second copy
      *  of sixty lines of JSON-RPC. */
@@ -284,7 +285,7 @@ const open = async (
     mcpServers: extra.mcpServers ?? [
       { kind: "stdio", name: "kolu", command: "/bin/true", args: [], env: {} },
     ],
-    teaching: TEACHING,
+    teaching: extra.teaching ?? TEACHING,
     taught: extra.taught ?? false,
     ...(extra.compacts === undefined ? {} : { compacts: extra.compacts }),
     ...(extra.onCompaction === undefined
@@ -2379,5 +2380,42 @@ describe("the standing prompt around a compaction", () => {
     await send(running, "hello");
     expect(running.harness.state().usage).toBeNull();
     expect(await taughtSoFar(running)).toEqual([true, false]);
+  });
+});
+
+describe("the standing prompt, when the caller's words move", () => {
+  const send = async (running: Running, text: string): Promise<void> => {
+    await running.harness.prompt(typed(text, []), false);
+    await settled(running, `the \`${text}\` turn never ended`);
+  };
+  const bodies = async (running: Running): Promise<ReadonlyArray<string>> =>
+    (await asked(running, "prompts")) as ReadonlyArray<string>;
+
+  test("a teaching function is read at the moment of sending", async () => {
+    let words = "# [kolu] How you work\nthe first rules";
+    const running = await open("agent.ts", { teaching: () => words });
+    words = "# [kolu] How you work\nthe rules as they stand when sent";
+    await send(running, "hello");
+    expect((await bodies(running))[0]).toBe(
+      "# [kolu] How you work\nthe rules as they stand when sent\n\nhello",
+    );
+  });
+
+  test("teachAgain puts the words under the next message only, and starts no turn", async () => {
+    let words = "rules, version one";
+    const running = await open("agent.ts", { teaching: () => words });
+    await send(running, "one");
+    await send(running, "two");
+    words = "rules, version two";
+    running.harness.teachAgain();
+    expect(running.harness.state().taught).toBe(false);
+    await send(running, "three");
+    await send(running, "four");
+    expect(await bodies(running)).toEqual([
+      "rules, version one\n\none",
+      "two",
+      "rules, version two\n\nthree",
+      "four",
+    ]);
   });
 });

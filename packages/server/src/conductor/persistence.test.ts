@@ -409,6 +409,7 @@ function hostOver(): {
         // The wipe reports the removes itself now (the harness owns the rows);
         // nothing in this file asks it to.
         clearSession: async () => {},
+        teachAgain: () => {},
         stop: async () => {
           // A real `stop()` lets the session go and publishes one final state
           // saying so. Modelled because this file is where it bites: the flush

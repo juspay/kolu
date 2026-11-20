@@ -229,6 +229,9 @@ interface Spawned {
    *  caller holds that this harness never minted, which is how kolu's own
    *  rows (a question about a work, a notice) leave with the chat. */
   readonly wiped: () => ReadonlyArray<string>;
+  /** How many times this conversation was told its next message is taught
+   *  again — what a change to the memory's entries asks of it. */
+  readonly taughtAgain: () => number;
 }
 
 /** WHICH CONVERSATION a spawn was asked for — the id its opening names, or
@@ -260,6 +263,7 @@ function fakeSpawner(): {
     }> = [];
     let wakeFails: string | null = null;
     const wiped: string[] = [];
+    let taughtAgain = 0;
     let state: HarnessState = {
       ...DEFAULT_CONDUCTOR_STATE,
       phase: "idle",
@@ -338,6 +342,9 @@ function fakeSpawner(): {
           appends: [],
         });
       },
+      teachAgain: () => {
+        taughtAgain += 1;
+      },
       stop: async () => {
         stops += 1;
         alive = false;
@@ -374,6 +381,7 @@ function fakeSpawner(): {
         wakeFails = why;
       },
       wiped: () => wiped,
+      taughtAgain: () => taughtAgain,
     });
     return harness;
   };
@@ -1553,6 +1561,11 @@ describe("a dead adapter (M3)", () => {
   });
 });
 
+/** The standing prompt as it would go out now — the host hands a function,
+ *  read at the moment of sending. */
+const wordsOf = (teaching: string | (() => string)): string =>
+  typeof teaching === "string" ? teaching : teaching();
+
 describe("the standing prompt (M5)", () => {
   it("names the HOST, and leaves `$HOME` to be the cwd", async () => {
     const r = rig();
@@ -1560,12 +1573,13 @@ describe("the standing prompt (M5)", () => {
     const agent = r.spawns[0];
     if (agent === undefined) throw new Error("the host spawned nothing");
     expect(agent.options.cwd).toBe(HOME);
-    expect(agent.options.teaching).toContain(`You run on ${HOST}`);
+    const taught = wordsOf(agent.options.teaching);
+    expect(taught).toContain(`You run on ${HOST}`);
     // The old defect, stated as a negative: a directory is not a machine.
-    expect(agent.options.teaching).not.toContain(HOME);
+    expect(taught).not.toContain(HOME);
     // …and the fleet grammar is TAUGHT, not assumed: one conversation over
     // every host is only usable if `host/id` is the identity on the wire.
-    expect(agent.options.teaching).toContain("`host/id`");
+    expect(taught).toContain("`host/id`");
   });
 
   it("names only verbs the session actually has", async () => {
@@ -1589,7 +1603,7 @@ describe("the standing prompt (M5)", () => {
     const agent = r.spawns[0];
     if (agent === undefined) throw new Error("the host spawned nothing");
     const named = new Set(
-      [...agent.options.teaching.matchAll(/`([a-z]+_[a-zA-Z]+)`/g)]
+      [...wordsOf(agent.options.teaching).matchAll(/`([a-z]+_[a-zA-Z]+)`/g)]
         .map((hit) => hit[1])
         .filter((name): name is string => name !== undefined),
     );
@@ -5354,6 +5368,40 @@ describe("the human's choices on the memory", () => {
   });
 });
 
+describe("the human's own hand on the memory", () => {
+  it("teaches the next message again on an edit, a delete and an import", async () => {
+    const r = rig();
+    await r.host.prompt("hello", [], [], false);
+    const agent = r.spawns[0];
+    if (agent === undefined) throw new Error("the host spawned nothing");
+    const entry = r.host.saveMemory(
+      { title: "Never merge on a Friday", about: null, body: "Not even one." },
+      null,
+    );
+    r.host.saveMemory(
+      { title: "Never merge on a Friday", about: null, body: "Not one." },
+      entry.id,
+    );
+    r.host.deleteMemory(entry.id);
+    r.host.importMemory([
+      { title: "Imported", about: null, body: "From a file." },
+    ]);
+    expect(agent.taughtAgain()).toBe(4);
+  });
+
+  it("with no conversation up, marks the saved one as owing its rules again", async () => {
+    const r = rig({
+      record: { ...EMPTY_PERSISTED_CONDUCTOR, cwd: HOME, taught: true },
+    });
+    r.host.saveMemory(
+      { title: "Never merge on a Friday", about: null, body: "Not even one." },
+      null,
+    );
+    await r.host.dispose();
+    expect(r.record.value().taught).toBe(false);
+  });
+});
+
 describe("the Conductor's proposals", () => {
   const ADD = {
     kind: "add",
@@ -5404,5 +5452,72 @@ describe("the Conductor's proposals", () => {
     expect(() => r.host.proposeMemory(ADD, null)).toThrow(
       /declined this on .* Do not propose it again\./u,
     );
+  });
+});
+
+describe("a proposal is not memory", () => {
+  const ADD = {
+    kind: "add",
+    title: "Run the linter before opening a pull request",
+    about: "demo-app",
+    body: "`just lint` must pass first.",
+  } as const;
+
+  const spoken = async (r: Rig): Promise<Spawned> => {
+    await r.host.prompt("hello", [], [], false);
+    const agent = r.spawns.at(-1);
+    if (agent === undefined) throw new Error("the host spawned nothing");
+    return agent;
+  };
+
+  it("is in the memory block as a title waiting on the human, never as a fact", async () => {
+    const r = rig();
+    const agent = await spoken(r);
+    r.host.proposeMemory(ADD, null);
+    const words = wordsOf(agent.options.teaching);
+    expect(words).toContain(
+      "## Waiting on the human, not remembered\n- Run the linter before opening a pull request",
+    );
+    expect(words).not.toContain("just lint");
+    expect(agent.taughtAgain()).toBe(0);
+  });
+
+  it("becomes an entry only when the human approves it, and that rides the next message", async () => {
+    const r = rig();
+    const agent = await spoken(r);
+    const { id } = r.host.proposeMemory(ADD, null);
+    r.host.approveMemory(id, null);
+    expect(agent.taughtAgain()).toBe(1);
+    expect(wordsOf(agent.options.teaching)).toContain(
+      "# [kolu] What you remember\n\n## Run the linter before opening a pull request\nAbout: demo-app\n\n`just lint` must pass first.",
+    );
+  });
+
+  it("declined, sends nothing again", async () => {
+    const r = rig();
+    const agent = await spoken(r);
+    const { id } = r.host.proposeMemory(ADD, null);
+    r.host.declineMemory(id);
+    expect(agent.taughtAgain()).toBe(0);
+  });
+
+  it("survives a restart, a new session and a compaction still waiting, never an entry", async () => {
+    const first = rig();
+    const agent = await spoken(first);
+    const { id } = first.host.proposeMemory(ADD, null);
+    agent.options.onCompaction?.({
+      id: "c1",
+      status: "completed",
+      summary: "Two works are open.",
+      error: null,
+      teaching: "sent",
+    });
+    await first.host.newSession();
+    expect(first.host.memory().entries).toEqual([]);
+    await first.host.dispose();
+
+    const second = rig({ memory: first.memory.value() });
+    expect(second.host.memory().entries).toEqual([]);
+    expect(second.host.memory().proposals.map((one) => one.id)).toEqual([id]);
   });
 });

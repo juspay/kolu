@@ -165,9 +165,15 @@ describe("who the Conductor is", () => {
     ).toBe(true);
   });
 
-  it("R5: keeps what is worth keeping in a file, not in its memory", () => {
+  it("R5: remembers only what the human approved, and proposes the rest", () => {
     expect(
-      says(WHO, /only this conversation/, /file on zest/, /agent writes/),
+      says(
+        WHO,
+        /only what the human approved/,
+        /`memory_propose`/,
+        /nothing is\s+remembered until the human approves it/,
+        /never ask them about it/,
+      ),
     ).toBe(true);
   });
 });

@@ -45,7 +45,7 @@ Feature: The Conductor compacts its own conversation
     When I send the conductor the prompt "be 250000 tokens long"
     Then the conductor transcript should show a row of kind "agent" saying "now 250000"
     When I send the conductor the prompt "which kolu blocks"
-    Then the conductor transcript should show a row of kind "agent" saying "carried: [kolu] How you work"
+    Then the conductor transcript should show a row of kind "agent" saying "carried: [kolu] How you work · [kolu] What you remember"
     When I send the conductor the prompt "which kolu blocks"
     Then the conductor transcript should show a row of kind "agent" saying "carried: nothing"
     And there should be no page errors

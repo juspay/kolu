@@ -139,6 +139,7 @@ import {
   type MemoryProposal,
   type MemoryText,
   memoryView,
+  proposalTitle,
 } from "kolu-common/conductorMemory";
 import {
   ConductorRefused,
@@ -230,6 +231,7 @@ import {
   type MemoryImported,
   memoryStore,
 } from "./memoryStore.ts";
+import { memoryBlock } from "./memoryBlock.ts";
 import { recordWrites } from "./recordWrites.ts";
 import { teaching } from "./teaching.ts";
 import { wakes } from "./wakes.ts";
@@ -1227,7 +1229,14 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
   const memories = memoryStore({
     records,
     publish: (memory) => deps.publishMemory(memoryView(memory)),
-    entriesChanged: () => {},
+    entriesChanged: () => {
+      if (harness !== null) {
+        harness.teachAgain();
+        return;
+      }
+      taught = false;
+      records.schedule("record");
+    },
     now: () => new Date(),
   });
 
@@ -1851,7 +1860,8 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
         // own, not the one a person's terminal happens to have.
         configDir: conductorConfigDir(process.env, home),
         mcpServers: [kolu],
-        teaching: teaching(hostName),
+        teaching: () =>
+          `${teaching(hostName)}\n\n${memoryBlock(memories.read())}`,
         // ... AND WHETHER IT HAS ALREADY GONE OUT in the conversation being
         // resumed. A harness is replaced for reasons that have nothing to do
         // with the chat, and one told nothing put the standing prompt back
@@ -2640,7 +2650,25 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
     },
     proposeMemory: (change, why) => {
       remembered();
-      return memories.propose(change, why, turnOf(rows()));
+      const proposal = memories.propose(change, why, turnOf(rows()));
+      applyRows({
+        upserts: [
+          {
+            kind: "memory-proposal",
+            id: `kolu:memory:${proposal.id}`,
+            seq: (rows().at(-1)?.seq ?? 0) + 1,
+            since: proposal.at,
+            proposal: proposal.id,
+            title: proposalTitle(memories.read(), proposal),
+            change: proposal.change,
+            why: proposal.why,
+            ended: null,
+          },
+        ],
+        removes: [],
+        appends: [],
+      });
+      return proposal;
     },
     reloadRecords: () => {
       if (read) {
