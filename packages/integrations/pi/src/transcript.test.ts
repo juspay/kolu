@@ -68,7 +68,6 @@ describe("parsePiTranscript", () => {
             isError: false,
           },
         }),
-        // Interactive artifact — skipped.
         line({
           type: "message",
           id: "b1",
@@ -127,9 +126,6 @@ describe("parsePiTranscript — tree semantics", () => {
     });
 
   it("renders only the ACTIVE branch: entries off the last entry's parentId chain are dropped", () => {
-    // File order interleaves an abandoned branch (b1→b2, dead-ends the
-    // line) with the live one: pi's /tree navigation re-pointed the leaf
-    // from b2 back to u1, and the visible conversation is u1→a1→a2.
     const events = parsePiTranscript(
       [
         msg("u1", null, "user", "first prompt"),
@@ -244,9 +240,6 @@ describe("loadPiTranscript", () => {
     expect(t?.events[0]).toMatchObject({ kind: "user", text: "hi" });
   });
 
-  // describeDaemon-gated: the stand-in foreground pi is a real forked child
-  // (the adapter must read a LIVE process's exec-time env), so this whole
-  // case runs only where forks are allowed.
   describeDaemon("adapter-registered redirected store", () => {
     it("the exporter finds the session in the redirected store", () => {
       // The redirect lives in the CHILD's env — Linux's /proc exposes a
@@ -257,7 +250,6 @@ describe("loadPiTranscript", () => {
       const id = "dddddddd-0000-4000-8000-00000000000d";
       const customRoot = path.join(tmpHome, "custom-sessions");
       fs.mkdirSync(customRoot, { recursive: true });
-      // A redirected store lays its session files FLAT, attributed by header cwd.
       fs.writeFileSync(
         path.join(customRoot, `2026-08-24T00-00-00-000Z_${id}.jsonl`),
         line({
@@ -275,10 +267,6 @@ describe("loadPiTranscript", () => {
           }) +
           "\n",
       );
-      // Drive the adapter's resolution the way the sensors do: a live "pi"
-      // foreground process carrying pi's own override env — /proc exposes the
-      // exec-time env, so the stand-in must be a spawned child, not this
-      // process with a mutated process.env.
       const child = spawn(
         process.execPath,
         ["-e", "setTimeout(()=>{}, 30_000)"],
@@ -299,7 +287,6 @@ describe("loadPiTranscript", () => {
       } finally {
         child.kill();
       }
-      // Exporter finds it via the registered root (default tree holds nothing).
       expect(
         loadPiTranscript({
           sessionId: id,
@@ -315,9 +302,6 @@ describe("loadPiTranscript", () => {
   });
 
   it("refuses a `--no-session` invocation — the cwd's sessions belong to earlier runs", () => {
-    // A flat redirected store holding one session for this cwd. `--no-session`
-    // writes nothing, so offering that file would resume a stranger's
-    // conversation; without the flag the same store resolves it.
     const cwd = "/work/no-session-project";
     const id = "eeeeeeee-0000-4000-8000-00000000000e";
     const customRoot = fs.mkdtempSync(
@@ -332,7 +316,6 @@ describe("loadPiTranscript", () => {
       cwd,
       readForegroundBasename: () => "pi",
       lastAgentCommandName: null,
-      // The live process's own argv/env — injected so the test needs no fork.
       readProcessSnapshot,
     });
     const live =
@@ -345,8 +328,6 @@ describe("loadPiTranscript", () => {
       expect(
         piAdapter.resolveSessions(state(live(["pi"])), log)?.map((s) => s.id),
       ).toEqual([id]);
-      // Both spellings of the flag, and the guard must not fall through to the
-      // default store: the read that answers `--no-session` is the ONLY read.
       expect(
         piAdapter.resolveSessions(state(live(["pi", "--no-session"])), log),
       ).toEqual([]);
@@ -356,8 +337,6 @@ describe("loadPiTranscript", () => {
           log,
         ),
       ).toEqual([]);
-      // A failed read is "cannot judge" (null = keep what was published), never
-      // an invitation to attribute the cwd's stale session.
       expect(
         piAdapter.resolveSessions(
           state(() => null),

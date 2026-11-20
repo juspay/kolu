@@ -1,21 +1,3 @@
-/** One-shot transcript loader for the HTML export feature.
- *
- *  Pi's session JSONL lines carry one entry each; only `message` entries
- *  become conversation IR events, and within them only the four model-turn
- *  roles. Everything else — the `session` header, `model_change` /
- *  `thinking_level_change`, `compaction` / `branch_summary` summaries,
- *  `label`, `custom` / `custom_message`, and the interactive `bashExecution`
- *  / `custom` message roles — is state-derivation or extension material, not
- *  conversation, so it is skipped.
- *
- *  Entries form a tree (`id`/`parentId`) because pi supports in-file
- *  branching (`/tree` navigation): abandoned branches stay in the file
- *  interleaved with the live conversation. The export walks the parentId
- *  chain back from the file's LAST entry — pi's own `buildContextEntries()`
- *  does the same to reconstruct the active path — and emits only entries on
- *  that chain, in file order. Abandoned branches, which a dead file cannot
- *  present as anything but confusion, are dropped. */
-
 import fs from "node:fs";
 import type { Logger } from "kolu-shared";
 import {
@@ -40,7 +22,6 @@ interface PiEntry {
     role?: string;
     model?: string;
     content?: unknown;
-    /** assistant toolCall blocks + toolResult envelope fields. */
     toolCallId?: string;
     isError?: boolean;
   };
@@ -158,8 +139,6 @@ export function parsePiTranscript(content: string): TranscriptEvent[] {
   for (const line of content.split("\n")) {
     if (line.length === 0) continue;
     try {
-      // Malformed line — skip. A truncated final write is the only
-      // practical failure mode; one corrupt entry must not fail the export.
       ordered.push(JSON.parse(line) as PiEntry);
     } catch {
       // skip
@@ -169,8 +148,6 @@ export function parsePiTranscript(content: string): TranscriptEvent[] {
   for (const entry of ordered) {
     if (typeof entry.id === "string") byId.set(entry.id, entry);
   }
-  // Tree linkage exists at all? Older pi files carry ids but no parent
-  // chain — filter ONLY on a linkage witness so such files render whole.
   const hasLinkage = ordered.some(
     (e) => typeof e.parentId === "string" && byId.has(e.parentId),
   );
@@ -196,14 +173,6 @@ export function parsePiTranscript(content: string): TranscriptEvent[] {
   return events;
 }
 
-/** Resolve the transcript path by scanning the cwd's session directories
- *  for the file whose id matches (pi's `--session <id>` accepts the same id
- *  the filename carries). Searches the DEFAULT store first, then every
- *  redirected store the adapter has seen a terminal resolve
- *  (`knownSessionStores`) — an exported session is usually one kolu detected,
- *  so its (possibly redirected) store is in that set. Returns null when no
- *  candidate store holds the id — the exporter shows "not found", never a
- *  fabricated path. */
 function findTranscriptPath(
   sessionId: string,
   cwd: string,
@@ -212,10 +181,6 @@ function findTranscriptPath(
   const stores = new Map(
     [defaultSessionStore(), ...knownSessionStores()].map((s) => [s.root, s]),
   );
-  // An UNREADABLE store is a real fault and must not collapse to "not
-  // found" — remember the first one and throw it if NOTHING else locates
-  // the session (a stale registered store — a wiped redirect — must not mask
-  // an id genuinely held by a later candidate).
   let firstFault: Error | null = null;
   for (const store of stores.values()) {
     const sessions = findSessionsByDirectory(cwd, store, log);
@@ -235,8 +200,6 @@ function findTranscriptPath(
  *  after the file was positively found (a race mid-export must not render as
  *  "session does not exist"). */
 export const loadPiTranscript: Fetcher = (input, log) => {
-  // Without a cwd there is no session directory to locate the id in —
-  // the same "transcript not findable" null claude-code returns.
   if (input.cwd === null) return null;
   const path = findTranscriptPath(input.sessionId, input.cwd, log);
   if (!path) return null;

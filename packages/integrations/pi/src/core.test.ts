@@ -68,7 +68,6 @@ describe("findSessionsByDirectory", () => {
       "2026-02-01T00-00-00-000Z_bbbbbbbb-0000-0000-0000-00000000000b.jsonl";
     fs.writeFileSync(file(newest), "");
     fs.writeFileSync(file("prompt_history.jsonl"), "");
-    // Force mtimes: newest file must also be newest by mtime.
     const t = new Date();
     fs.utimesSync(file(newest), new Date(t.getTime() - 1000), t);
     const old =
@@ -119,7 +118,6 @@ describe("findSessionsByDirectory", () => {
       "2026-08-24T00-00-00-000Z_cccccccc-0000-4000-8000-00000000000c.jsonl",
       "/redir/project",
     );
-    // Another cwd's session sits side by side — must NOT attribute.
     file(
       "2026-08-24T00-00-01-000Z_eeeeeeee-0000-4000-8000-00000000000e.jsonl",
       "/OTHER/project",
@@ -131,7 +129,6 @@ describe("findSessionsByDirectory", () => {
     expect(
       findSessionsByDirectory("/OTHER/project", store)?.map((s) => s.id),
     ).toEqual(["eeeeeeee-0000-4000-8000-00000000000e"]);
-    // An unparseable header simply does not attribute.
     fs.writeFileSync(
       path.join(
         customRoot,
@@ -155,30 +152,11 @@ describe("piHomePresent", () => {
   });
 });
 
-// --- subscribeSessionsTree (externalChanges wake source) ---
-
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 // FS-event delivery latency is backend-dependent (FSEvents on a loaded
 // darwin box routinely exceeds a fixed 300ms window) — park on the
 // CONDITION, not a sleep calendar.
-/** Wait for an fs.watch-driven predicate, landing ANOTHER session file in the
- *  watched directory between attempts. FSEvents on darwin coalesces and can
- *  drop a one-shot create — a single `waitFor` budget races that latency (the
- *  watchGitHead darwin-only flake in #320).
- *
- *  The retry stimulus must be a MEMBERSHIP change, because that is the only
- *  thing `subscribeSessionsTree` reports: its child watcher fans out on
- *  `eventType === "rename"` and deliberately ignores `change`, since content
- *  appends are the per-session traffic externalChanges must not report. The
- *  previous version re-wrote `file` with its own bytes, which is a `change`
- *  and nothing else — so every retry after the first was INERT, and a create
- *  event that was dropped or that landed before the watch armed could never be
- *  recovered no matter how many attempts remained. That stayed hidden while
- *  the `daemon` lane was padded out by 41 fork-free packages; running these
- *  suites back-to-back on a loaded box made the first create lose the race,
- *  and the retries had nothing to offer. Each attempt now lands a distinct new
- *  file — the same event the tests are actually asserting on. */
 async function waitForWatch(
   cond: () => boolean,
   file: string,
@@ -209,13 +187,6 @@ describe("subscribeSessionsTree", () => {
   }, async () => {
     const root = path.join(tmpHome, "sessions");
     fs.rmSync(root, { recursive: true, force: true });
-    // Pre-create the ROOT itself: the "the sessions root appears AFTER
-    // subscribe" arc is dir-appear-watcher's own coverage — re-driving it
-    // here made the test hostage to kqueue delivery latency on darwin CI
-    // hosts (sibling lanes churning $TMPDIR push the ancestor-descend past
-    // any fixed window). What THIS test owns is the tree logic below: a
-    // per-cwd dir created later must get a child watch, and its session
-    // files must fan out.
     fs.mkdirSync(root, { recursive: true });
     let fired = 0;
     const stop = subscribeSessionsTree(
@@ -226,8 +197,6 @@ describe("subscribeSessionsTree", () => {
       () => {},
     );
     try {
-      // The per-cwd dir AND its file are created after install — the root
-      // watch must arm the child, and the file create must fan out.
       const dir = sessionDirFor("/late/project");
       fs.mkdirSync(dir, { recursive: true });
       const file = path.join(
@@ -295,8 +264,6 @@ describe("subscribeSessionsTree", () => {
   });
 });
 
-// --- derivePiState (pure fold) ---
-
 const header =
   '{"type":"session","version":3,"id":"s","timestamp":"2026-08-23T19:48:21.451Z","cwd":"/x"}';
 const user = (text = "hi") =>
@@ -334,8 +301,6 @@ describe("derivePiState", () => {
   it("trailing toolResult → thinking (model about to be re-invoked), model still published from the in-flight turn's own assistant entry", () => {
     const r = derivePiState([header, user(), assistant("toolUse"), toolResult]);
     expect(r?.state).toBe("thinking");
-    // Model is decoupled from the state gate: a thinking tail still shows
-    // the turn's model (no flickering badge mid-tool-loop).
     expect(r?.model).toBe("m");
   });
 
@@ -361,7 +326,6 @@ describe("derivePiState", () => {
   });
 
   it("model badge on a thinking tail: a PRE-turn model_change is superseded by the turn's own assistant entry (newest-first order decides), a MID-loop switch wins", () => {
-    // Switch happened before the prompt: the assistant record is newer.
     expect(
       derivePiState([
         header,
@@ -371,8 +335,6 @@ describe("derivePiState", () => {
         toolResult,
       ])?.model,
     ).toBe("in-turn-model");
-    // Mid-tool-loop switch: pi will use the new model for the next
-    // re-invoke — that is the newer truth.
     expect(
       derivePiState([
         header,
@@ -467,8 +429,6 @@ describe("derivePiState — the newest prompt, which a landed steer moves", () =
   const prompt = (id: string) => user(id).replace('"id":"u"', `"id":"${id}"`);
 
   it("finds the prompt behind a tool call, after the turn signals are settled", () => {
-    // The newest entries settle state and context first; the walk then only
-    // parses candidate lines, and the prompt must still be one of them.
     const turn = [
       header,
       prompt("f674c007"),
@@ -478,16 +438,12 @@ describe("derivePiState — the newest prompt, which a landed steer moves", () =
       toolResult,
     ];
     expect(derivePiState(turn)?.lastPromptId).toBe("f674c007");
-    // pi writes the held steer as a user entry when the `bash` call ends.
     expect(derivePiState([...turn, prompt("1930b347")])?.lastPromptId).toBe(
       "1930b347",
     );
   });
 
   it("reads that entry's TEXT, which is what makes a landing THIS steer's", () => {
-    // Without it, any prompt moving inside `agent_say`'s watch — an older
-    // held steer being handed over, the human typing — reads as the words
-    // landing.
     expect(derivePiState([header, user("ship it")])?.lastPromptText).toBe(
       "ship it",
     );

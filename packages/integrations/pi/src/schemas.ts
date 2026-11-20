@@ -87,9 +87,6 @@ export const PiInfoSchema = Schema.Struct({
 
 export type PiInfo = typeof PiInfoSchema.Type;
 
-/** Pi letterform mark — a geometric π (pi ships no flat vector mark; the agent
- *  is named for the constant), 24×24. ONE mark for both the tile-chrome icon
- *  and the dock pip. */
 const PI_MARK = {
   viewBox: "0 0 24 24",
   paint: "fill" as const,
@@ -144,11 +141,6 @@ export const piVocab: AgentVocab<PiInfo> = {
       ["--name", "value"],
       ["-n", "value"],
     ]),
-    // Pi's one-shot surface (`-v`, `--export`, `--list-models`, `-p`) and its
-    // subcommand words (`list`, `config`, …) used to be carved out here so a
-    // TYPED line could not enter the recent-agents MRU. Nothing reads a typed
-    // line any more: the MRU is fed by a detected LIVE agent, so a one-shot
-    // invocation (which has no session and exits) can never appear in it.
   },
   resume: {
     byId: (id) => `--session ${id}`,
@@ -158,16 +150,6 @@ export const piVocab: AgentVocab<PiInfo> = {
     // id from a fresh invocation, while the absolute path opens unconditionally.
     ref: (info) => info.sessionPath,
   },
-  // Measured: `pi` 1.5.2 in a kolu terminal on 2026-11-15. Idle, text plus one
-  // Enter submits. WHILE WORKING, the same one Enter puts the line in pi's own
-  // steering pane ("Steering: … ↳ Alt+Up to edit all queued messages"), and pi
-  // holds it until the running step ENDS — a 120-second `bash` call held it to
-  // the end and then handed it over on its own. A second Enter on the empty
-  // prompt does nothing. The user entry lands in the transcript only when the
-  // turn takes the words, which is what `lastPromptId` reads. Measured against
-  // a stand-in OpenAI-compatible model on 127.0.0.1 (a `bash` tool call, then
-  // an echo of the user messages it received), because this machine's gateway
-  // refuses pi's key: the TUI is pi's own, and the model only paces the turn.
   say: {
     idle: ["Enter"],
     working: {

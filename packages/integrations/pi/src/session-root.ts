@@ -1,39 +1,7 @@
-/** Pi session-store resolution — the per-terminal answer to "where does
- *  THIS pi keep its sessions".
- *
- *  Pi's own precedence (pi 0.84.2's CLI entry point, verified in its bundle
- *  against a live redirected session):
- *
- *    1. `--session-dir <dir>`          (argv)
- *    2. `PI_CODING_AGENT_SESSION_DIR`  (env, `~` expanded)
- *    3. `sessionDir` in `<agentDir>/settings.json`
- *    4. `<agentDir>/sessions` where `agentDir = PI_CODING_AGENT_DIR ?? ~/.pi/agent`
- *
- *  Step 4 is the one integrations get wrong: `PI_CODING_AGENT_DIR` moves
- *  pi's WHOLE agent directory, sessions included — it is not config-only.
- *  Agent harnesses set it per run, so assuming `~/.pi/agent/sessions` misses
- *  every harness-launched pi on the machine.
- *
- *  These overrides live in the pi process's own argv/environment, not in
- *  padi's, so resolution reads the foreground process (`kolu-io`'s
- *  `readProcessSnapshot`, shared with every integration that needs a live
- *  process's argv/env) and folds it through the chain. A snapshot that
- *  can't be read (the pi exited mid-read — routine; a host mounted
- *  `hidepid` — deliberate op policy) resolves to kolu's DEFAULT root: never
- *  an error, never a wrong `[]` answer from the arbiter — only the
- *  per-invocation overrides are forfeited, which is the honest information
- *  available.
- *
- *  `--no-session` produces no store at all. This module still folds its other
- *  links (it is pure given argv/env); the ADAPTER refuses the invocation before
- *  asking, so no stale cwd session is ever attributed to it. */
-
 import fs from "node:fs";
 import path from "node:path";
 import type { Logger } from "kolu-shared";
 
-/** Expand a leading `~` (pi expands the env var; normalize its flag the
- *  same way so both spellings of a redirected store agree). */
 function expandHome(input: string, home: string): string {
   return input === "~"
     ? home
@@ -42,9 +10,6 @@ function expandHome(input: string, home: string): string {
       : input;
 }
 
-/** Absolutize a redirect value the way pi does — relative paths resolve
- *  against pi's launch cwd, for which the terminal's current cwd is the
- *  best available witness (pi rarely moves the store mid-tty). */
 function absolutize(input: string, home: string, cwd: string): string {
   const expanded = expandHome(input, home);
   return path.isAbsolute(expanded) ? expanded : path.resolve(cwd, expanded);
@@ -69,12 +34,6 @@ export function parseSessionDirFlag(argv: readonly string[]): string | null {
   return null;
 }
 
-/** `sessionDir` from `<agentDir>/settings.json` — pi reads the same key
- *  (`startupSettingsManager.getSessionDir()`), so a settings-redirected pi
- *  is findable without any env at all. Absent file / absent key: undefined.
- *  A CORRUPT settings file or unreadable dir is logged and skipped — pi's
- *  own startup would fail on it, and kolu must not inherit that failure
- *  into a detection crash; detection simply falls through the chain. */
 function readSettingsSessionDir(
   agentDir: string,
   log?: Logger,
@@ -84,7 +43,7 @@ function readSettingsSessionDir(
   try {
     raw = fs.readFileSync(file, "utf8");
   } catch {
-    return undefined; // no settings file — the common case
+    return undefined;
   }
   try {
     const parsed: unknown = JSON.parse(raw);

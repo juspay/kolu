@@ -1,20 +1,3 @@
-/**
- * PiWatcher — per-session lifecycle. Watches the session's JSONL transcript
- * with the shared append-robust subscription (`subscribeFileAppends`, which
- * tolerates absence, fires on the absent→present transition, and keys on
- * `size:mtime:ino` so a `/compact` rewrite also re-fires) plus the shared
- * coalesce schedule, and emits `PiInfo` on change, gated by the schema's own
- * equivalence — every field, so a new prompt id (a steer that landed while the
- * state stayed `thinking`) is a change.
- *
- * Pure observer: never creates paths under `~/.pi/agent`.
- *
- * Debounce rationale mirrors grok's (`session-watcher.ts` there): during an
- * active turn pi appends per tool call, so a pure trailing-edge debounce
- * would starve; `createCoalesceSchedule` with maxWait caps the freeze while
- * quiet turns still settle fast.
- */
-
 import { Schema } from "effect";
 import {
   COALESCE_DEBOUNCE_MS,
@@ -27,8 +10,6 @@ import type { Logger } from "kolu-shared";
 import { derivePiInfo, type PiSession } from "./core.ts";
 import { type PiInfo, PiInfoSchema } from "./schemas.ts";
 
-/** Equality over EVERY field of `PiInfo`, derived from its schema — the shared
- *  `agentInfoEqual` compares only the fields every agent has. */
 const samePiInfo = Schema.toEquivalence(PiInfoSchema);
 
 export interface PiWatcher {
@@ -43,16 +24,12 @@ export function createPiWatcher(
 ): PiWatcher {
   let destroyed = false;
   let lastInfo: PiInfo | null = null;
-  // The fold's three summary truths: a name, `null` (no session_info in the
-  // 256 KB window — "unknown", merge the cache), or `""` (the newest
-  // session_info carries no name — pi's explicit `/name`-clear; drop the
-  // cache, do NOT resurrect a deleted title).
   let lastKnownSummary: string | null = null;
 
   function emitIfChanged(): void {
     if (destroyed) return;
     const derived = derivePiInfo(session, log);
-    if (derived === null) return; // absent transcript / no turn entries yet
+    if (derived === null) return;
     let summary: string | null;
     if (derived.summary === "") {
       lastKnownSummary = null;
@@ -113,7 +90,6 @@ export function createPiWatcher(
     { session: session.id, path: session.transcriptPath },
     "pi: session watcher installed",
   );
-  // Initial emit — lights the indicator immediately on match.
   emitIfChanged();
 
   return {

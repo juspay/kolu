@@ -1,11 +1,3 @@
-/** Wire-format gate for `PiInfoSchema`.
- *
- *  `PiInfo` rides the agent-info wire (padi → client) and is folded into
- *  terminal-vocab's `AgentInfoSchema` union on the `kind` discriminant, so
- *  both directions are pinned here at the BYTE level rather than by
- *  decode-equality: the encoded JSON string (field order included) and the
- *  tolerances a rolling deploy leans on. Mirrors grok's gate. */
-
 import { Schema } from "effect";
 import { describe, expect, it } from "vitest";
 import { type PiInfo, PiInfoSchema, piSteerPane } from "./schemas.ts";
@@ -104,7 +96,6 @@ describe("piSteerPane", () => {
   it("finds its own line in the pane, and only its own", () => {
     expect(piSteerPane(HELD, "PI-STEER-ONE")).toEqual({ kind: "holds" });
     expect(piSteerPane(HELD, "something else")).toEqual({ kind: "absent" });
-    // A held message these words merely START is not these words.
     expect(piSteerPane(HELD, "PI-STEER-ONE and also run the tests")).toEqual({
       kind: "absent",
     });

@@ -137,9 +137,6 @@ describe("resolveSessionDir", () => {
   });
 });
 
-// The end-to-end of the chain: with env shaped exactly like a harnessed pi
-// (only PI_CODING_AGENT_DIR set — the launch pattern that produced the /
-// tmp/pi-agent-* blind spot), resolution lands inside it.
 describe("resolveSessionDir — the harness pattern", () => {
   it("resolves <PI_CODING_AGENT_DIR>/sessions", () => {
     const r = resolveSessionDir({
