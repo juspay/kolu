@@ -76,7 +76,7 @@ export const CONTEXTUAL_TIPS = {
    *  the moment to say that line can be opened without leaving the chat. */
   conductorLook: {
     id: "conductor-look",
-    text: "An agent the Conductor started gets a status line in the chat — press Look on it to read the last lines of its screen right there, refreshed while it stays open",
+    text: "An agent the Conductor started gets a status line in the chat — press Look on it to watch its screen live in a window over the chat, and take it over from there",
     doc: "conductor",
   },
   /** The first time a conversation OFFERS steering — the only moment the

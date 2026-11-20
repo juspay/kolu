@@ -28,6 +28,7 @@ import {
   FIXTURE_LIST_FAILS,
   fixtureClaudeRelay,
 } from "../support/agentDistroFixture.ts";
+import { readBufferText } from "../support/buffer.ts";
 import { type PrFixture, statePullRequest } from "../support/fake-gh.ts";
 import {
   expectNoDiagramError,
@@ -1399,20 +1400,14 @@ Then(
     // bugs, and a bare "nothing matched" names none of them.
     await pollFor({
       observe: async () =>
-        (
-          (await this.page
-            .locator(`${LOOK} [data-testid="conductor-look-tail"]`)
-            .last()
-            .textContent({ timeout: 1_000 })
-            .catch(() => null)) ?? "(no tail)"
-        )
+        (await readBufferText(this.page, '[data-testid="peek-screen"]'))
           .replace(/\s+/g, " ")
           .trim(),
       isDone: (seen) => seen.includes(text),
       timeoutMs: POLL_TIMEOUT,
       onTimeout: (last, elapsedMs) =>
         new Error(
-          `the look never showed ${JSON.stringify(text)}; after ${elapsedMs}ms it said ${JSON.stringify(last)}`,
+          `the peek never showed ${JSON.stringify(text)}; after ${elapsedMs}ms it said ${JSON.stringify(last)}`,
         ),
     });
   },
@@ -1439,7 +1434,6 @@ Then(
       `${LOOK} [data-testid="conductor-look-toggle"]`,
       0,
     );
-    await waitForCount(this, `${LOOK} [data-testid="conductor-look-tail"]`, 0);
   },
 );
 
@@ -2259,20 +2253,14 @@ Then(
   async function (this: KoluWorld, text: string) {
     await pollFor({
       observe: async () =>
-        (
-          (await this.page
-            .locator(`${WORK_COLUMN} [data-testid="conductor-look-tail"]`)
-            .last()
-            .textContent({ timeout: 1_000 })
-            .catch(() => null)) ?? "(no tail)"
-        )
+        (await readBufferText(this.page, '[data-testid="peek-screen"]'))
           .replace(/\s+/g, " ")
           .trim(),
       isDone: (seen) => seen.includes(text),
       timeoutMs: POLL_TIMEOUT,
       onTimeout: (last, elapsedMs) =>
         new Error(
-          `the member's look never showed ${JSON.stringify(text)}; after ${elapsedMs}ms it said ${JSON.stringify(last)}`,
+          `the member's peek never showed ${JSON.stringify(text)}; after ${elapsedMs}ms it said ${JSON.stringify(last)}`,
         ),
     });
   },

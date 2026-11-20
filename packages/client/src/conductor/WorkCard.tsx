@@ -582,7 +582,6 @@ const WorkCard: Component<{
                               >
                                 {(split) => (
                                   <ConductorLook
-                                    rowId={`work:${one.terminal}`}
                                     host={split().host}
                                     id={split().id}
                                     toggleTestId="work-member-look"
