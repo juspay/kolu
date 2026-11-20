@@ -1,18 +1,3 @@
-/**
- * WHAT A HOST'S FRAMES MEAN — the whole of the watch that is a function, with
- * no stream anywhere in it.
- *
- * Two halves: the rules that read padi's records directly (what a terminal is
- * CALLED, where it is working and what PR it carries), and the reading itself:
- * what padi's urgency lists, its roster and those records say each member
- * terminal is DOING.
- *
- * The records are REAL ones — composed through padi's own
- * `composeTerminalMetadata`, the join that produces every record this watch
- * ever reads. A hand-built object cast to the record type would make this file
- * prove something about a shape it invented.
- */
-
 import type { PadiTerminal, PadiUrgency } from "@kolu/padi-client/surface";
 import {
   composeTerminalMetadata,
@@ -37,15 +22,9 @@ interface Over {
   asleep?: boolean;
   agent?: boolean;
   shellInFront?: boolean;
-  /** padi's PRESENCE for an agent that is in the foreground with no session
-   *  yet — the record a terminal has between the agent program appearing and
-   *  its transcript landing. Mutually exclusive with `agent`, which is an
-   *  agent that HAS a session. */
   presence?: AgentPresence["state"];
 }
 
-/** One record, the way padi composes one: the authored half (where it is, what
- *  it is called, the parent it hangs off) joined with an observation. */
 const record = (over: Over): PadiTerminal =>
   composeTerminalMetadata(
     {
@@ -62,9 +41,6 @@ const record = (over: Over): PadiTerminal =>
       cwd: "/tmp",
       git: { kind: "none" },
       pr: { kind: "pending" },
-      // The PRESENCE arm is built by the registry's own constructor, so a
-      // field added to that shape reaches this fixture rather than letting it
-      // compose a record padi could never publish.
       agent:
         over.presence !== undefined
           ? agentPresence("claude-code", over.presence, null)
@@ -102,10 +78,6 @@ const QUIET: PadiUrgency = {
   settled: true,
 };
 
-/** One READY host's last word, as a leg accumulates it: the watched ids, padi's
- *  fold, the roster (every watched id, unless the case says otherwise) and the
- *  records read on the leg. Ready because padi said its roster is a census —
- *  the arm the two cases below prove is the only one a level comes from. */
 const reading = (over: {
   watched: readonly string[];
   urgency?: Partial<PadiUrgency>;
@@ -129,8 +101,6 @@ describe("what a terminal is called", () => {
   });
 
   it("is EMPTY when nothing is known, rather than invented", () => {
-    // The conversation keeps whatever its entry already remembered; a reading
-    // that made something up would overwrite it.
     expect(recordName(record({}))).toBe("");
     expect(recordName(undefined)).toBe("");
   });
@@ -145,10 +115,6 @@ describe("what a host's frames say about each watched terminal", () => {
   });
 
   it("says NOTHING about a host whose roster has not been established", () => {
-    // #2376, as a type rather than a rule: a padi that has not finished
-    // adopting has no roster on its arm, so there is no empty list to read an
-    // absence off. Every member of every work on that host used to be recorded
-    // `gone` on the one information-free frame a fresh padi serves.
     expect(
       readingsOf({
         kind: "settling",
@@ -171,9 +137,6 @@ describe("what a host's frames say about each watched terminal", () => {
   });
 
   it("is ASLEEP for a terminal padi still lists with its PTY released", () => {
-    // The one reading that never rings on its own: a slept terminal has no
-    // agent in it, so it is in none of the four lists — and "no agent" must
-    // not read as a shell that just finished something.
     expect(
       readingsOf(
         reading({
@@ -197,8 +160,6 @@ describe("what a host's frames say about each watched terminal", () => {
   });
 
   it("counts a LINGERING agent as still working", () => {
-    // padi splits a waiting agent into "lingering" and "finished" on its own
-    // quiet rule, and only the second half is the end of a turn.
     expect(
       readingsOf(
         reading({
@@ -218,15 +179,10 @@ describe("what a host's frames say about each watched terminal", () => {
       }),
     );
     expect(seen.map((one) => one.level)).toEqual(["shell"]);
-    // Reported, never concluded from: whether this is the end of a command
-    // kolu typed is two readings of it, and that rule lives in `watching.ts`.
     expect(seen[0]?.foregroundShell).toBe(true);
   });
 
   it("reads an agent that is COMING UP and one that is FRESH off the record", () => {
-    // Neither is in any of padi's four lists — there is no transcript yet to
-    // put them there — and before presence the watch said nothing at all about
-    // this terminal, which is exactly the moment the Conductor is waiting for.
     const seen = readingsOf(
       reading({
         watched: [SPLIT, PLANNER],
@@ -237,8 +193,6 @@ describe("what a host's frames say about each watched terminal", () => {
       }),
     );
     expect(seen.map((one) => one.level)).toEqual(["starting", "fresh"]);
-    // The agent is NAMED on both, which is what makes the entry's agent stick
-    // from the moment the program appears.
     expect(seen.map((one) => one.agent)).toEqual([
       "claude-code",
       "claude-code",
@@ -246,16 +200,10 @@ describe("what a host's frames say about each watched terminal", () => {
   });
 
   it("says NOTHING about a terminal in no list whose record has not arrived", () => {
-    // Either there is no agent in it or there is one in a state padi puts in
-    // no list, and the frames so far cannot tell those apart. The next one
-    // says more; a silence is the answer that never misleads.
     expect(readingsOf(reading({ watched: [SPLIT] }))).toEqual([]);
   });
 
   it("says NOTHING about an agent in no list whose state is not a presence", () => {
-    // It has a session, so it is past the two presence states, and padi puts
-    // it in none of the four lists: there is nothing honest to say about it,
-    // and that is unchanged by presence existing.
     expect(
       readingsOf(
         reading({ watched: [SPLIT], records: { [SPLIT]: { agent: true } } }),
@@ -286,10 +234,6 @@ describe("what a host's frames say about each watched terminal", () => {
         hostName: "this machine",
         name: "write the migration",
         agent: "claude-code",
-        // No git fact on this record: it is said as `null` rather than
-        // invented, so the timeline records nothing about where it works. The
-        // PULL REQUEST is not on a reading at all — it belongs to the work's
-        // branch, and the watch reads it once for the work.
         git: null,
         foregroundShell: null,
         level: "asking",
@@ -299,7 +243,6 @@ describe("what a host's frames say about each watched terminal", () => {
 });
 
 describe("what a pull request reading says about checks and merging", () => {
-  /** One resolved PR, as padi's `pullRequest` stream carries it. */
   const resolved = (
     checks: "pending" | "pass" | "fail" | null,
     mergeStateStatus:
@@ -337,7 +280,6 @@ describe("what a pull request reading says about checks and merging", () => {
     if (read.kind !== "pr") throw new Error(`no PR: ${read.kind}`);
     return read.pr;
   };
-  /** The merge answer of a PR that is not a draft. */
   const mergeOfReady = (...args: Parameters<typeof resolved>) => {
     const readiness = resolved(...args).readiness;
     if (readiness.kind !== "ready") throw new Error("a draft");
@@ -345,9 +287,6 @@ describe("what a pull request reading says about checks and merging", () => {
   };
 
   it("keeps the checks as the rollup says them, whatever the merge state", () => {
-    // THE CASE THAT WOKE THE HUMAN TOO EARLY: the checks that had reported
-    // passed, twenty-three required ones had not started. The checks say
-    // passed — nothing is running — and the merge state says blocked.
     expect(resolved("pass", "BLOCKED").checks).toEqual({
       kind: "rollup",
       rollup: "pass",
@@ -385,8 +324,6 @@ describe("what a pull request reading says about checks and merging", () => {
   });
 
   it("reads a draft as a draft, whatever GitHub's merge state says", () => {
-    // GitHub works a draft's merge state out as if it were ready: a draft
-    // with green checks says CLEAN. A draft carries no merge answer at all.
     for (const state of [
       "CLEAN",
       "HAS_HOOKS",

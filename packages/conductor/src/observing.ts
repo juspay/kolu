@@ -1,33 +1,3 @@
-/**
- * WHAT AN OBSERVATION MEANS TO A PIECE OF WORK — the padi↔timeline seam, and
- * the one pass that applies it.
- *
- * This is the only code in kolu that knows BOTH vocabularies: a host's record
- * (`pr.checks === "pass"`, a reading of `asleep`) and the model's (`kind:
- * "checks-passed"`, `by: "ci"`). Its mirror image — frames to a reading —
- * is a module with its own test (`./readings.ts`), and its sibling — is this
- * worth waking the Conductor — is another (`./members.ts`).
- *
- * ## One pass per reading
- *
- * {@link Observing.observe} walks a frame's readings ONCE, and each reading
- * moves one work value through every arm in turn: the ring event, the PR, the
- * departure, the worktree, the files.
- *
- * ## What is pure, and why it matters
- *
- * {@link ringEvent}, {@link prEvents} and {@link fileEvents} take a work and
- * answer a work. They are the half that revs with the forge and the
- * `.waterfall` convention, and they are exercised by calling them
- * (`./observing.test.ts`).
- *
- * ## Nothing here ENDS a work for going quiet
- *
- * The only ending this module writes is the forge's: a merge or a close, each
- * carrying the pull request's own number. A terminal that went away LEAVES —
- * the work stays open with no terminals, and the card says exactly that.
- */
-
 import type { PrResult } from "@kolu/terminal-vocab/schema";
 import { Option, Schema } from "effect";
 import {
@@ -58,17 +28,10 @@ import type { RecordWrites } from "./recordWrites.ts";
 import type { WorkFiles } from "./workFiles.ts";
 import type { WorkStore } from "./workStore.ts";
 
-/** Two members' WRITTEN halves, compared by what they say — derived from the
- *  schema, so a field the watch grows is compared without an edit here. What
- *  it decides is whether the `members` key is owed a write. */
 const sameWatch = Schema.toEquivalence(MemberWatchSchema);
 
 /** WHAT A RING PUTS ON THE TIMELINE, beside waking the conversation — none
- *  for the two readings that put nothing on it.
- *
- *  The same word in both places wherever there is one: a reader of the card
- *  and the agent reading its wake are told the same thing happened. The two
- *  that differ say why below. */
+ *  for the two readings that put nothing on it. */
 export const ringEvent = (
   ref: string,
   level: ConductorWakeEvent["level"],
@@ -87,8 +50,6 @@ export const ringEvent = (
         why: { kind: "none" },
       });
     case "asleep":
-      // Nothing an agent did: a person (or kolu) put the terminal away, and
-      // the agent in it went with it.
       return Option.some({
         at,
         by: "kolu",
@@ -97,10 +58,6 @@ export const ringEvent = (
         why: { kind: "none" },
       });
     case "ended":
-      // The command ran and gave the prompt back with NO agent ever in the
-      // terminal — the agent the Conductor asked for never came up. For a
-      // reader of the timeline that is the same ending as an exit, so it is
-      // spelled as one, with the reason saying which kind it was.
       return Option.some({
         at,
         by: "kolu",
@@ -109,20 +66,15 @@ export const ringEvent = (
         why: { kind: "reason", text: "ended without an agent" },
       });
     case "gone":
-      // Not an event of its own: a terminal that went away LEFT the work,
-      // and `leaveWork` writes that with its reason.
       return Option.none();
     case "taken-over":
     case "handed-back":
-      // Not a reading at all: a person took the keys, and the event for
-      // that was written where it happened (`./workStore.ts`'s `handover`).
       return Option.none();
     default:
       return level satisfies never;
   }
 };
 
-/** Two merge answers say the same thing. */
 const sameMerge = (a: MergeState, b: MergeState): boolean => {
   switch (a.kind) {
     case "can":
@@ -141,10 +93,8 @@ const sameMerge = (a: MergeState, b: MergeState): boolean => {
  *  A WORK HAS ONE PULL REQUEST, and kolu reads it where it lives: the branch.
  *  The reading comes from the work's own watch (`readings.ts`'s `prReading`
  *  over padi's `pullRequest` stream for `(repo, branch)`), so there is one
- *  reader, no member has to exist for the work to learn that its PR was
- *  merged, and the ping-pong two out-of-phase terminal sensors wrote between
- *  them (juspay/kolu#2376: 429 of one real work's 465 events) has no source
- *  left.
+ *  reader and no member has to exist for the work to learn that its PR was
+ *  merged.
  *
  *  A CHECK EVENT IS ABOUT A COMMIT, and one is recorded when the rollup's
  *  word CHANGES for that PR at that commit — the same rule the merge answer
@@ -168,16 +118,8 @@ const sameMerge = (a: MergeState, b: MergeState): boolean => {
  *  again on the forge says nothing here. Reopen on the card, or `work_open`
  *  on the same key, is the way back. */
 export const prEvents = (work: Work, pr: WatchPr, at: string): Work => {
-  // A finished work learns nothing from the forge: it is not even watched,
-  // and Reopen is the one way back.
   if (work.state.kind === "ended") return work;
   let next = work;
-  // THE FORGE'S ANSWER FOR THIS BRANCH IS THIS WORK'S PULL REQUEST. A number
-  // the timeline has not got yet is a PR opening — the first one, or the next
-  // one on a branch whose last was closed while kolu was not looking. Its
-  // address is kept with it, so the number is a link for as long as the
-  // work is kept; a PR recorded before kolu kept addresses learns its own
-  // from the first reading that has it (`linkPr`).
   if (!Option.exists(prOf(next), (one) => one.number === pr.number)) {
     next = recordEvent(next, {
       at,
@@ -190,10 +132,6 @@ export const prEvents = (work: Work, pr: WatchPr, at: string): Work => {
       draft: pr.readiness.kind,
     });
   } else next = linkPr(next, pr.number, pr.url);
-  // MARKED READY, OR TURNED BACK INTO A DRAFT: recorded when the forge's word
-  // differs from the timeline's, for an open PR — a PR opened before kolu kept
-  // the word learns it here too. BEFORE the reading below: the check and merge
-  // comparisons must see the merge answer the flip forgot.
   if (
     pr.state === "open" &&
     Option.exists(prOf(next), (one) => one.draft !== pr.readiness.kind)
@@ -208,7 +146,6 @@ export const prEvents = (work: Work, pr: WatchPr, at: string): Work => {
     });
   }
   const reading = prOf(next);
-  /** What the timeline last said about THIS PR at THIS commit. */
   const about = <E extends { readonly pr: number; readonly head: CheckHead }>(
     last: (one: PrReading) => Option.Option<E>,
   ): Option.Option<E> =>
@@ -216,9 +153,6 @@ export const prEvents = (work: Work, pr: WatchPr, at: string): Work => {
       Option.flatMap(reading, last),
       (one) => one.pr === pr.number && sameHead(one.head, pr.head),
     );
-  // ONE TABLE for the check correspondence (`kolu-work`'s `CHECK_STEP`): the
-  // event this rollup becomes and what the timeline would then read back are
-  // the same row, so they cannot disagree about a check.
   if (pr.checks.kind === "rollup") {
     const step = CHECK_STEP[pr.checks.rollup];
     if (
@@ -238,14 +172,6 @@ export const prEvents = (work: Work, pr: WatchPr, at: string): Work => {
       });
     }
   }
-  // WHETHER THE FORGE WOULD MERGE IT, recorded when the answer CHANGES for
-  // this PR at this commit — `unsettled` included, so GitHub recomputing a
-  // commit (the base moved) takes back the `can` it had, and a push never
-  // inherits the last commit's answer. Only while the PR is open and READY: a
-  // draft carries no merge answer (GitHub works one out as if it were ready),
-  // and the timeline reads it as `cannot: draft` on its own. A reading with
-  // no merge state at all (`unreported`) is a padi older than the field: it
-  // says nothing, and the card says GitHub has not answered.
   if (pr.state === "open" && pr.readiness.kind === "ready") {
     const merge = pr.readiness.merge;
     if (
@@ -367,12 +293,8 @@ export const observing = (deps: {
 }): Observing => {
   const nowIso = (): string => new Date().toISOString();
 
-  /** The member terminals whose `.waterfall/` is being listed RIGHT NOW. One
-   *  listing per terminal at a time. */
   const listing = new Set<string>();
 
-  /** A MEMBER'S `.waterfall/`, LISTED — and every path kolu has not seen
-   *  before put on the timeline. */
   const listFiles = (
     id: string,
     ref: string,
@@ -404,7 +326,6 @@ export const observing = (deps: {
 
   return {
     observe: (seen) => {
-      // FOUR DIFFERENT QUESTIONS, and none of them is the others.
       let saidSomethingNew = false;
       let moved = false;
       let membership = false;
@@ -413,15 +334,8 @@ export const observing = (deps: {
       let read = false;
       for (const one of seen) {
         const found = deps.store.at(one.ref);
-        // Not a member (any more): the watcher re-scopes asynchronously, so a
-        // frame in flight across a departure is ordinary rather than a fault.
         if (found === undefined) continue;
         const was = found.member;
-        // WHERE IT IS WORKING, kept on the MEMBER the first time a record
-        // says it: a work's files outlive the terminal that wrote them, and
-        // the member row is where the path belongs now that membership is a
-        // map of its own. The first answer sticks — an `unread` member takes
-        // the path this reading has, and nothing moves it afterwards.
         const learnt =
           was.worktree.kind === "unread" && one.git !== null
             ? Option.some<Worktree>({
@@ -429,9 +343,6 @@ export const observing = (deps: {
                 path: one.git.worktree,
               })
             : Option.none<Worktree>();
-        // ONE ROW IN, ONE ROW OUT — `observed` carries the whole member, so
-        // the model's half is never re-attached by hand here (a field added
-        // to it would have been silently dropped on the next host read).
         const sighting = observed(
           Option.match(learnt, {
             onNone: () => was,
@@ -441,7 +352,6 @@ export const observing = (deps: {
         );
         deps.members.set(one.ref, sighting.member);
         if (Option.isSome(learnt)) watched = true;
-        // THE LEVEL CHANGED, as THIS PROCESS saw it.
         const changed = was.last?.level !== one.level;
         if (changed) read = true;
         const stamp = nowIso();
@@ -452,10 +362,7 @@ export const observing = (deps: {
         )
           rows = true;
         if (!sameWatch(saved(sighting.member), saved(was))) watched = true;
-        // WHAT A PERSON CALLS THIS HOST, remembered for a wake that is not
-        // about a reading.
         deps.hostNamed(one.host, one.hostName);
-        // BACK TO WORKING WITHDRAWS WHAT IT WAS GOING TO SAY.
         if (one.level === "working" && !deps.handoverHeld(one.ref))
           deps.withdraw(one.ref);
         if (changed && sighting.ring !== null) {
@@ -465,23 +372,14 @@ export const observing = (deps: {
             onSome: (event) => recordEvent(work, event),
           });
         }
-        // THE PULL REQUEST IS NOT READ HERE. It belongs to the work's branch
-        // and the work's own watch reads it ({@link Observing.observedPr}) —
-        // a member terminal's record is no longer a door onto the timeline.
         if (work !== found.work) {
           deps.store.save(found.id, work);
           moved = true;
         }
-        // A TERMINAL THAT WENT AWAY LEAVES — and the work does not end for
-        // it. `leave` writes the departure, drops the member row and wakes
-        // the Conductor ONCE if that was the last one.
         if (sighting.drop) {
           deps.store.leave(one.ref, "gone");
           membership = true;
         }
-        // THE FILES, off a level change: the moment an agent stops, asks or
-        // comes up is the moment its `.waterfall/` has just changed, and a
-        // member that has gone has no worktree left to read.
         const where = sighting.member.worktree;
         if (changed && !sighting.drop && where.kind === "read")
           listFiles(found.id, one.ref, {
@@ -496,23 +394,13 @@ export const observing = (deps: {
       if (deps.publishState()) saidSomethingNew = true;
       if (moved) deps.store.changed();
       if (watched) deps.records.schedule("members");
-      // HOW EACH MEMBER STANDS, straight from the loop that moved it.
       if (read) deps.store.publishReadings();
-      // TWO FACTS, TWO SINKS. Every reader of the rows is owed a redraw when
-      // anything about a member moved; the watch re-scopes only when the SET
-      // of members did — a rename or an agent appearing must not tear down
-      // every host's standing reads.
       if (membership || rows) deps.worksMoved();
       if (membership) deps.watchScopeMoved();
       if (!saidSomethingNew) return;
       deps.flush();
     },
     observedPr: (id, reading) => {
-      // WHAT THE FORGE SAID, or nothing. Every arm but `ok` is "kolu does not
-      // know" — a resolve in flight, a remote no adapter serves, a `gh` that
-      // would not answer — and a work must never learn its PR closed because
-      // the forge stopped answering. A BROKEN reading is refused for this
-      // one work, as an error: the watch goes on serving every other.
       const read = prReading(reading);
       if (read.kind === "unknown") return;
       if (read.kind === "broken") {
@@ -522,26 +410,15 @@ export const observing = (deps: {
       const found = deps.store.get(id);
       if (Option.isNone(found)) return;
       const work = found.value;
-      // A READING MOVES A WORK IN PROGRESS, and nothing else (`prEvents`).
       const next = prEvents(work, read.pr, nowIso());
-      // IDEMPOTENT BY CONSTRUCTION: the reading is compared with the TIMELINE,
-      // so the same reading twice — the next poll, the first look after a
-      // restart — is the same work value back and nothing is written.
       if (next === work) return;
-      // `save` is what ends it: the members go with the ending in that one
-      // write (they LEAVE the work; no terminal is killed), the open questions
-      // are dropped, and the files are kept.
       deps.store.save(id, next);
       deps.store.changed();
       if (deps.publishState()) deps.flush();
     },
     saidTo: (ref) => {
       const found = deps.store.at(ref);
-      // Not a member: the fleet face says this about every `agent_say`, and
-      // most terminals on a fleet belong to no work.
       if (found === undefined) return;
-      // The news it was about to make is the state the Conductor has just
-      // acted on, so it goes — and the member re-baselines at that state.
       deps.withdraw(ref);
       const member = found.member;
       deps.members.set(ref, spokenTo(member));

@@ -1,19 +1,3 @@
-/**
- * ONE READING OF ONE MEMBER TERMINAL — the vocabulary every half of the
- * observation chain is written in, and nothing else.
- *
- * A LEAF, deliberately. The chain is `padi frames → ./readings.ts →
- * ./members.ts (is this worth waking the Conductor?) + ./observing.ts (what
- * does it mean to the work?) → the store`, and all four of those modules speak
- * these three shapes. Declared in the RULES module, as they were, the most
- * depended-upon thing in the chain would live inside the most volatile one;
- * here both rule modules import downwards and neither imports the other.
- *
- * Nothing in here decides anything: no rule, no clock, no I/O. What an
- * observation MEANS is `./members.ts`'s (a wake level) and `./observing.ts`'s
- * (a timeline event).
- */
-
 import type { ConductorReadingLevel } from "kolu-common/conductor";
 import type { CheckHead, MergeState, WorkId } from "kolu-work";
 
@@ -141,12 +125,7 @@ export interface WatchObservation {
   /** Whether padi's foreground process IS the terminal's own shell — an idle
    *  prompt with nothing running in front of it. `null` when the reading has
    *  no foreground to report: a sleeping terminal (its PTY is released), one
-   *  that is gone, or a record padi has not sampled a foreground for yet.
-   *
-   *  Reported rather than folded into the level because the DECISION it feeds
-   *  is `./members.ts`'s: `ended` is "the command ran and we are back at the
-   *  prompt", which is two readings of this one fact and not a state padi has
-   *  a word for. */
+   *  that is gone, or a record padi has not sampled a foreground for yet. */
   readonly foregroundShell: boolean | null;
   /** The repository this terminal is in, off the same record. The PR is NOT
    *  here: a pull request belongs to the WORK (its branch), and is observed

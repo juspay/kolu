@@ -1,22 +1,3 @@
-/**
- * EVERY MEMBER TERMINAL — ONE map, keyed by fleet ref, holding the whole of
- * what kolu knows about it: which work it is doing, in what role, since when,
- * where it is working, and the watch's own memory of the terminal.
- *
- * ONE map rather than a members array inside each work plus a parallel
- * bookkeeping record beside them. Holding it in two places cost five
- * invariants nothing enforced; holding membership inside the work cost the
- * biggest one of all — a terminal could be a member of two works at once, and
- * that is a card claiming an agent another card is also claiming. Here, a
- * terminal is in AT MOST ONE WORK by construction: it has one row.
- *
- * The SAVED half is the watch's own six fields, listed at the write
- * (`./members.ts`'s `saved`): the row holds the model's four as well, so a
- * rest-spread would write them a second time inside `watch`. The two runtime
- * fields — the last reading and whether the next one baselines — are not in
- * that list, so they cannot be written by accident.
- */
-
 import type { MemberReading } from "kolu-common/works";
 import type { WorkId, WorkMember, WorkRole } from "kolu-work";
 import {

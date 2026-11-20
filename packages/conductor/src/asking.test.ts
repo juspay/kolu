@@ -1,15 +1,3 @@
-/**
- * A FORM ANSWERED WITH A QUESTION LEFT BLANK — through the one path every
- * face answers by (`asking.answer`), out to the transcript row and the
- * Conductor's wake.
- *
- * The defect this guards: a blank question used to be recorded as answered
- * with nothing, so the setup read it as missing while `work_open` read it as
- * answered, and nothing would ever ask it again. Now a blank question stays
- * asked in the same form, the row says the form is partly answered, and the
- * Conductor is told which questions are settled and which are still open.
- */
-
 import { Option } from "effect";
 import type { ConductorWorkAskStanding } from "kolu-common/conductor";
 import {
@@ -57,7 +45,6 @@ const SETUP: ReadonlyArray<Question> = [
   },
 ];
 
-/** `asking` over a work held in a map, with every row move and wake kept. */
 const rig = () => {
   const works = new Map<WorkId, Work>([
     [
@@ -108,16 +95,14 @@ describe("a form answered with one question left blank", () => {
         values: new Map([
           ["q-mode", ["trivial"]],
           ["q-ih", ["omp"]],
-          // The model was left blank: its options never loaded.
+
           ["q-im", []],
         ]),
       },
     });
 
-    // The reply says the form is only partly answered, and which is open.
     expect(outcome).toEqual({ kind: "part", open: ["q-im"] });
-    // The record: two settled with their values, the blank one still asked
-    // in the same form — so the one reading says it is open, not answered.
+
     expect(setupStanding(r.work(), "mode")).toEqual({
       kind: "answered",
       value: "trivial",
@@ -126,7 +111,7 @@ describe("a form answered with one question left blank", () => {
       kind: "open",
       ask,
     });
-    // The row in the chat is still being answered, with what was filled in.
+
     expect(r.rows.at(-1)).toEqual({
       kind: "part",
       answers: [
@@ -134,7 +119,7 @@ describe("a form answered with one question left blank", () => {
         { key: "q-ih", values: ["omp"] },
       ],
     });
-    // The Conductor is told what was answered and what is still open.
+
     const text = wakeText([], () => null, r.news);
     expect(text).toContain("ANSWERED PART");
     expect(text).toContain("mode: trivial");

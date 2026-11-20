@@ -1,17 +1,3 @@
-/**
- * WHAT A SETTLED ASK SAYS — to the transcript row it was said in, and to the
- * Conductor that is owed the ending.
- *
- * Both readings are built off the record AFTER it moved, so what the
- * conversation hears is what the card shows. They live here, apart from
- * {@link ./asking.ts}, because the two writers that settle a question are not
- * the same module: a person's ANSWER is recorded by `asking`, and a question
- * DROPPED by the ending of its work is recorded by the single writer
- * ({@link ./workStore.ts}) in the same step as the ending. One spelling of
- * "what that ask ended as", read by both, and no edge from the writer back
- * into `asking`.
- */
-
 import { Array as Arr, Option } from "effect";
 import type {
   ConductorWorkAnswer,
@@ -30,32 +16,16 @@ import {
 } from "kolu-work";
 import type { AnsweredNews, NewsQuestion, NewsSaid } from "./wakeText.ts";
 
-/** WHAT A REPLY WAS, and — where a person made it — the face they made it
- *  from. A DROPPED ask has no face: nobody answered it. */
 export type AskHow =
   | { readonly how: "answered"; readonly from: AnsweredFromFace }
   | { readonly how: "declined"; readonly from: AnsweredFromFace }
   | { readonly how: "dropped" };
 
-/** THE DECISIONS A REPLY WAS ABOUT — the ones that were still open when it
- *  arrived, in the order they were asked. Read BEFORE the record moves,
- *  because afterwards nothing distinguishes them from the answers the request
- *  itself gave in the same ask (a `work_open` whose setup was half `given`
- *  carries both under one id) — and because a question left blank is still
- *  open afterwards, which is a thing the news has to say about it.
- *
- *  Not "what it settled": an answer settles only the questions it gives a
- *  value for ({@link answerAsk}), and the rest of this list is what is still
- *  in front of the human. */
 export const stillOpen = (work: Work, ask: string): ReadonlyArray<string> =>
   work.decisions
     .filter((one) => one.ask === ask && one.kind === "asked")
     .map((one) => one.id);
 
-/** WHAT ONE SETTLED QUESTION WAS ANSWERED WITH — none for one that was
- *  declined or dropped, which is what those arms mean. The record's own two
- *  shapes: one of kolu's words for a setup question, what was said for a
- *  question about the work. */
 const saidOf = (one: Settled): Option.Option<NewsSaid> =>
   one.topic === "work"
     ? one.answer.how === "answered"
@@ -65,9 +35,6 @@ const saidOf = (one: Settled): Option.Option<NewsSaid> =>
       ? Option.some<NewsSaid>({ kind: "value", value: one.answer.value })
       : Option.none();
 
-/** ... and the words it is named by: a setup question is its KEY (the name
- *  kolu asks and reads it back under), a question about the work is its short
- *  header, or the whole question when it was given none. */
 const labelOf = (one: Decision): string =>
   one.topic === "work"
     ? one.header.kind === "header"
@@ -75,8 +42,6 @@ const labelOf = (one: Decision): string =>
       : one.question
     : one.key;
 
-/** The values a face logs for one answered question — the picks, and the
- *  words typed beside them. */
 const valuesOf = (said: NewsSaid): ReadonlyArray<string> => {
   if (said.kind === "value") return [said.value];
   switch (said.said.kind) {
@@ -91,9 +56,6 @@ const valuesOf = (said: NewsSaid): ReadonlyArray<string> => {
   }
 };
 
-/** WHAT A PERSON FILLED IN ON THIS FORM, by decision — every question of the
- *  ask a face answered. An answer the REQUEST gave is not one of them: it was
- *  never put to anybody, so the row that logs the form has no field for it. */
 const filledIn = (
   work: Work,
   ask: string,
@@ -115,12 +77,6 @@ const filledIn = (
     });
   });
 
-/** WHERE THE ROW IN THE CHAT STANDS after a reply — the same fact the work's
- *  decisions hold, said in the row the questions were asked in.
- *
- *  `part` is bug 2 in the chat: what was filled in is logged and the rest is
- *  still asked, in the same row, so the form a person left half done is the
- *  form they come back to. */
 export const askStanding = (
   work: Work,
   ask: string,
@@ -138,10 +94,6 @@ export const askStanding = (
     : { kind: "answered", answers };
 };
 
-/** The news one reply makes, for the wake that carries it — off the questions
- *  that were OPEN when it arrived, so a setup the request half-answered does
- *  not read back its own `given` values as news, and a question left blank
- *  says that it is still open rather than vanishing from the account. */
 export const askNews = (
   id: WorkId,
   work: Work,
@@ -176,20 +128,14 @@ export const askNews = (
   }
 };
 
-/** ONE ASK, SETTLED — everything the two readers of that fact need, minted
- *  by whoever settled it so neither reader has to go back to the record. */
 export interface SettledAsk {
   readonly ask: string;
-  /** What the transcript row it was said in now says. */
+
   readonly standing: ConductorWorkAskStanding;
-  /** ... and what the Conductor is woken with. */
+
   readonly news: AnsweredNews;
 }
 
-/** THE WORK ENDED UNDER ITS QUESTIONS — every one still open is recorded as
- *  dropped, and each says so twice over: nobody can answer a question about a
- *  work that is over. The record moves here, in the caller's one write, so
- *  the ending and the dropping are the same step. */
 export const dropOpenAsks = (
   id: WorkId,
   work: Work,
@@ -216,14 +162,6 @@ export const dropOpenAsks = (
   };
 };
 
-/** THE OPEN QUESTIONS A NEW FORM TAKES THE PLACE OF — dropped on the record,
- *  and the row of any ask they leave with nothing open settled as
- *  `withdrawn`, exactly as {@link dropOpenAsks} does it.
- *
- *  NO NEWS. The Conductor itself asked for this (it called `work_open` again,
- *  and the questions it is about to put supersede these), so there is nobody
- *  to wake about it — unlike a work ending under its questions, which is
- *  something that happened TO the conversation. */
 export const dropSuperseded = (
   work: Work,
   ids: ReadonlySet<string>,

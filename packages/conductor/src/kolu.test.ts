@@ -1,10 +1,3 @@
-/**
- * The kolu reading of each tool, against the shapes those tools really take
- * and answer — and the property a production transcript lost: whatever the
- * agent wrote, the reading encodes under the row schema it is served and
- * persisted through.
- */
-
 import {
   type ConductorKoluCall,
   ConductorToolRowSchema,
@@ -15,7 +8,7 @@ import { koluCallOf, refineKoluCall } from "./kolu.ts";
 
 const T = "7f3e0a91-0000-4000-8000-000000000000";
 const PARENT = "11111111-2222-4333-8444-555555555555";
-/** A terminal on a remote host, as a production ref spelled one. */
+
 const WATCHED = "39738f3c-5472-44a4-9bc1-2d084fdf526b";
 
 const NO_SUBJECT = { terminalId: null, host: null };
@@ -167,8 +160,6 @@ describe("each kolu tool is read off the fields it really carries", () => {
   });
 });
 
-// ── Whatever the agent writes, the reading encodes ──────────────────────────
-
 const TOOLS = [
   "lifecycle_create",
   "lifecycle_sendInput",
@@ -180,8 +171,6 @@ const TOOLS = [
   "work_leave",
 ] as const;
 
-/** What an agent (or a half-written frame) might put in any slot. The valid
- *  refs are here too, so a subject is minted as well as refused. */
 const WRITTEN: ReadonlyArray<unknown> = [
   "track-alien-ray",
   "",
@@ -210,8 +199,6 @@ const WRITTEN: ReadonlyArray<unknown> = [
   [],
 ];
 
-/** Every key any reader looks at, nested where the tools nest it, holding
- *  the one value. */
 const everywhere = (value: unknown): Record<string, unknown> => ({
   id: value,
   name: value,
@@ -239,7 +226,6 @@ const everywhere = (value: unknown): Record<string, unknown> => ({
 
 const encodeRow = Schema.encodeUnknownSync(ConductorToolRowSchema);
 
-/** The reading as the row it rides — the shape that failed to encode. */
 const asRow = (tool: string, kolu: ConductorKoluCall) => ({
   id: "call-1",
   seq: 1,
@@ -260,13 +246,13 @@ describe("a reading encodes under the row schema whatever the agent wrote", () =
       for (const answer of shapes) {
         const call = koluCallOf(tool, input, answer);
         if (call === null) throw new Error(`${tool} is not read`);
-        // Which terminal: both halves, or neither.
+
         expect(call.terminalId === null).toBe(call.host === null);
         expect(() => encodeRow(asRow(tool, call))).not.toThrow();
         readings.push(call);
       }
     }
-    // ... and a frame refining an earlier one keeps that true.
+
     for (let i = 1; i < readings.length; i += 1) {
       const folded = refineKoluCall(
         readings[i - 1] ?? null,
