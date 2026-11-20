@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { buildPngScene as BuildPngScene } from "./png.ts";
+import type { SnapshotScene } from "./scene.ts";
 
 const PNG = new Uint8Array([137, 80, 78, 71]);
 
@@ -7,13 +8,15 @@ const threads: FakeWorker[] = [];
 
 const wedge = new Set<number>();
 
+const IDLE_REFS = -1;
+
 type Listener = (arg: never) => void;
 
 class FakeWorker {
   readonly index = threads.length;
   readonly listeners = new Map<string, Set<Listener>>();
   terminated = false;
-  refs = 0;
+  refCount = 0;
 
   constructor() {
     threads.push(this);
@@ -40,10 +43,10 @@ class FakeWorker {
       (fn as (a: unknown) => void)(arg);
   }
   ref(): void {
-    this.refs += 1;
+    this.refCount += 1;
   }
   unref(): void {
-    this.refs -= 1;
+    this.refCount -= 1;
   }
   postMessage(): void {
     if (wedge.has(this.index)) return;
@@ -114,7 +117,7 @@ describe("sceneToPng", () => {
 
     const dead = threads[0];
     expect(dead?.terminated).toBe(true);
-    expect(dead?.refs).toBe(-1);
+    expect(dead?.refCount).toBe(IDLE_REFS);
 
     await expect(sceneToPng(scene(buildPngScene))).resolves.toEqual(PNG);
     expect(threads).toHaveLength(2);
@@ -133,7 +136,10 @@ describe("sceneToPng", () => {
     const { buildPngScene, sceneToPng } = await load();
     const wrong = {
       ...scene(buildPngScene),
-      font: { family: "Comic Sans", size: 15 },
+      font: {
+        family: "Comic Sans" as SnapshotScene["font"]["family"],
+        size: 15,
+      },
     };
     await expect(sceneToPng(wrong)).rejects.toThrow(/must come from/);
     expect(threads).toHaveLength(0);

@@ -2,7 +2,7 @@ import { readFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { parentPort } from "node:worker_threads";
 import { initWasm, Resvg } from "@resvg/resvg-wasm";
-import { loadSnapshotFonts } from "./pngFonts.ts";
+import { PNG_FONT_STACK } from "./pngFonts.ts";
 
 export interface PngRasteriseRequest {
   readonly svg: string;
@@ -24,7 +24,7 @@ const require = createRequire(import.meta.url);
 await initWasm(
   await readFile(require.resolve("@resvg/resvg-wasm/index_bg.wasm")),
 );
-const fontBuffers = await loadSnapshotFonts();
+const fontBuffers = await PNG_FONT_STACK.load();
 
 /** Rasterise one document.
  *
@@ -54,19 +54,23 @@ function rasterise(req: PngRasteriseRequest): Uint8Array {
   }
 }
 
+function transferableBytes(png: Uint8Array): ArrayBuffer {
+  const { buffer } = png;
+  if (!(buffer instanceof ArrayBuffer)) {
+    throw new Error(
+      "terminal-snapshot: the rasteriser returned a PNG backed by shared memory, which cannot be handed across by transfer.",
+    );
+  }
+  return buffer;
+}
+
 port.on("message", (req: PngRasteriseRequest) => {
   let reply: PngRasteriseReply;
   let transfer: ArrayBuffer[] = [];
   try {
     const png = rasterise(req);
-    const { buffer } = png;
-    if (!(buffer instanceof ArrayBuffer)) {
-      throw new Error(
-        "terminal-snapshot: the rasteriser returned a PNG backed by shared memory, which cannot be handed across by transfer.",
-      );
-    }
+    transfer = [transferableBytes(png)];
     reply = { ok: true, png };
-    transfer = [buffer];
   } catch (cause) {
     reply = {
       ok: false,

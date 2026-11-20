@@ -1,8 +1,4 @@
-/** A colour as the VT stream expressed it.
- *
- *  A closed union rather than a nullable index + a nullable rgb: "palette 4"
- *  and "rgb #000004" are different facts that happen to share a number, and
- *  an illegal combination (both, neither) is unrepresentable here. */
+/** A colour as the VT stream expressed it. */
 export type CellColor =
   | { readonly kind: "default" }
   | { readonly kind: "palette"; readonly index: number }
@@ -26,37 +22,25 @@ export interface SnapshotCell {
   readonly bg: CellColor;
   readonly bold: boolean;
   readonly italic: boolean;
-  /** SGR 2. Rendered as a fill mixed toward the background, which is how a
-   *  terminal shows it — and it matters: an agent TUI uses dim as its
-   *  secondary voice (Claude Code's tool-result lines), so painting it at full
-   *  intensity is the picture disagreeing with the screen. */
+  /** SGR 2. Rendered as a fill mixed toward the background. */
   readonly dim: boolean;
   /** SGR 4. Drawn as a rule under the cell rather than a font feature, so both
    *  backends get the same line in the same place. */
   readonly underline: boolean;
-  /** ANSI reverse-video. Kept as the ATTRIBUTE, not pre-swapped colours: the
-   *  swap is a rendering act, and doing it here would mean a consumer that
-   *  wants the raw fact (a text export, a diff) can't get it back. */
+  /** ANSI reverse-video, as the ATTRIBUTE: the swap is a rendering act, so a
+   *  consumer that wants the raw fact still has it. */
   readonly inverse: boolean;
 }
 
-/** One row of the grid — only the cells worth painting.
- *
- *  Blank, unstyled cells are omitted rather than carried as empty entries: a
- *  terminal screen is mostly blank, so a row is typically a handful of cells,
- *  and this is what keeps the grid cheap enough to put on a wire. */
+/** One row of the grid — only the cells worth painting. Blank, unstyled cells
+ *  are omitted rather than carried as empty entries. */
 export interface SnapshotRow {
   readonly cells: readonly SnapshotCell[];
 }
 
 /** A rectangular slice of a terminal's screen, ready to render.
  *
- *  There is deliberately NO `rows` field. It would be a second authority for
- *  a number `lines.length` already holds, and a consumer would then have to
- *  pick one — which is exactly the bug shape that hides in a flat product of
- *  fields: a grid claiming 200 rows while carrying 3 reads perfectly well
- *  field-by-field, and sizes an image 200 rows tall with 3 rows of content in
- *  it. Row count is asked of the lines. */
+ *  There is deliberately NO `rows` field: row count is `lines.length`. */
 export interface SnapshotGrid {
   readonly cols: number;
   readonly lines: readonly SnapshotRow[];
@@ -109,6 +93,11 @@ function isBlank(cell: SnapshotCell): boolean {
   );
 }
 
+const isTrailingHalf = (width: number): boolean => width === 0;
+
+const fitsWithinSlice = (x: number, width: number, cols: number): boolean =>
+  x + width <= cols;
+
 /** Read a row of an xterm buffer into the wire-ready row shape.
  *
  *  `startLine`/`rowCount` bound the read; a line the buffer doesn't have
@@ -139,8 +128,8 @@ export function readGrid(
       const raw = line.getCell(x, scratch);
       if (!raw) continue;
       const width = raw.getWidth();
-      if (width === 0) continue;
-      if (x + width > cols) continue;
+      if (isTrailingHalf(width)) continue;
+      if (!fitsWithinSlice(x, width, cols)) continue;
       const cell: SnapshotCell = {
         col: x,
         chars: raw.getChars(),

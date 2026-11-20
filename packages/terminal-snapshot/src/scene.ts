@@ -1,6 +1,6 @@
 import type { ITheme } from "terminal-themes";
 import { parseColor, type RGB } from "terminal-themes/color";
-import type { CellColor, SnapshotGrid } from "./cell.ts";
+import type { CellColor, SnapshotCell, SnapshotGrid } from "./cell.ts";
 
 /** Window chrome geometry, in logical pixels. Shared by both backends so the
  *  daemon's PNG and the browser's PNG frame the terminal identically. */
@@ -17,16 +17,12 @@ export const CHROME = {
   brandRightMargin: 14,
   /** Title-bar type size. A property of the BAR, not of the terminal's font
    *  size: the bar is a fixed `titleHeight` and the traffic-light dots never
-   *  scale, so a user zoomed to 24px must not push the caption out of its own
-   *  chrome — and the daemon rendering at 15px and the browser at 14 must not
-   *  caption the same terminal at two different sizes. */
+   *  scale. */
   titleSize: 13,
   /** Wordmark type size, one step below the caption. Same reasoning. */
   brandSize: 12,
-  /** Width of the window outline's stroke. On the scene beside the outline box
-   *  it is inset by, so neither backend hardcodes it: the line width and where
-   *  the line lands are one decision, and both used to be spelled as bare
-   *  numbers in both painters. */
+  /** Width of the window outline's stroke, beside the outline box it is inset
+   *  by: the line width and where the line lands are one decision. */
   strokeWidth: 1,
 } as const;
 
@@ -38,8 +34,15 @@ const DOT_COLORS = ["#ff5f57", "#febc2e", "#28c840"] as const;
 const UNPAINTABLE =
   /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F-\u009F\uFFFE\uFFFF]|\p{Surrogate}/gu;
 
-function paintable(s: string): string {
-  return s.replace(UNPAINTABLE, "");
+declare const paintableText: unique symbol;
+
+/** Text a backend may draw. Every code point no renderer can paint has been
+ *  dropped, so a glyph or a caption carrying this type needs no further
+ *  cleaning in either backend. {@link dropUnpaintable} is its only maker. */
+export type PaintableText = string & { readonly [paintableText]: true };
+
+function dropUnpaintable(s: string): PaintableText {
+  return s.replace(UNPAINTABLE, "") as PaintableText;
 }
 
 const CUBE_STEPS: readonly [number, number, number, number, number, number] = [
@@ -64,18 +67,13 @@ function rgbColor(packed: number): string {
   return `rgb(${(packed >> 16) & 0xff},${(packed >> 8) & 0xff},${packed & 0xff})`;
 }
 
-export const CELL_HEIGHT_RATIO = 1.2;
+const DESCENDER_HEADROOM = 1.2;
 
 /** Row height for a given type size — the ONE derivation both backends land
- *  on.
- *
- *  A function here rather than a formula re-spelled per backend: every caller
- *  in the tree passed the identical `Math.ceil(fontSize * 1.2)`, kept in
- *  agreement by three comments, which is exactly the prose-kept agreement this
- *  module exists to abolish. A caller that really does render at another line
- *  height still passes its own {@link SceneInput.cellH}. */
+ *  on. A caller that really does render at another line height still passes
+ *  its own {@link SceneInput.cellH}. */
 export const cellHeight = (fontSize: number): number =>
-  Math.ceil(fontSize * CELL_HEIGHT_RATIO);
+  Math.ceil(fontSize * DESCENDER_HEADROOM);
 
 export interface ResolvedTheme {
   readonly fg: string;
@@ -108,12 +106,20 @@ export function resolveTheme(theme: ITheme): ResolvedTheme {
   };
 }
 
-function paletteColor(idx: number, t: ResolvedTheme): string {
+declare const paletteIndexBrand: unique symbol;
+
+type PaletteIndex = number & { readonly [paletteIndexBrand]: true };
+
+function paletteIndex(idx: number): PaletteIndex {
   if (idx < 0 || idx > 255) {
     throw new Error(
       `terminal-snapshot: palette index ${idx} is outside xterm's 256-colour table`,
     );
   }
+  return idx as PaletteIndex;
+}
+
+function paletteColor(idx: PaletteIndex, t: ResolvedTheme): string {
   if (idx < 16) return t.ansi[idx] ?? t.fg;
   if (idx < 232) return cubeColor(idx);
   return greyColor(idx);
@@ -128,7 +134,7 @@ function resolveColor(
     case "rgb":
       return rgbColor(color.value);
     case "palette":
-      return paletteColor(color.index, t);
+      return paletteColor(paletteIndex(color.index), t);
     case "default":
       return fallback;
   }
@@ -158,16 +164,13 @@ export interface SceneRect extends SceneBox {
 /** One cell's glyphs, positioned at its own top-left corner in scene
  *  coordinates.
  *
- *  Deliberately PER CELL rather than per run of same-styled text. A terminal
- *  is a grid: every cell owns a fixed box, and a run drawn as one string
- *  would let the font's own shaping decide the advances — which for kolu's
- *  default (FiraCode, a ligature font) visibly slides `!=` and `=>` off the
- *  grid. One positioned draw per cell is what makes the picture a grid
- *  again, in both backends. */
+ *  PER CELL rather than per run of same-styled text: every cell owns a fixed
+ *  box, where a run drawn as one string would let the font's own shaping
+ *  decide the advances and slide `!=` and `=>` off the grid. */
 export interface SceneGlyph {
   readonly x: number;
   readonly y: number;
-  readonly text: string;
+  readonly text: PaintableText;
   readonly fill: string;
   readonly bold: boolean;
   readonly italic: boolean;
@@ -182,7 +185,7 @@ export interface SceneText {
   readonly x: number;
   readonly y: number;
   readonly size: number;
-  readonly text: string;
+  readonly text: PaintableText;
   /** How `x` reads: the text's centre, or its right-hand end. */
   readonly anchor: "middle" | "end";
 }
@@ -199,13 +202,12 @@ export interface SnapshotScene {
   readonly width: number;
   readonly height: number;
   readonly radius: number;
-  /** The font both backends draw every glyph with. Deliberately only the two
-   *  facts a backend still needs at DRAW time: the cell advance and the row
-   *  height are layout inputs, and every position they produce is already
-   *  absolute in the boxes and glyphs below — carrying them out again would be
-   *  a second, unread authority for numbers the scene has already spent. */
+  /** The font both backends draw every glyph with. Only the two facts a
+   *  backend still needs at DRAW time: the cell advance and the row height are
+   *  layout inputs, and every position they produce is already absolute in the
+   *  boxes and glyphs below. */
   readonly font: {
-    readonly family: string;
+    readonly family: PaintableText;
     readonly size: number;
   };
   readonly window: {
@@ -214,14 +216,7 @@ export interface SnapshotScene {
     readonly strokeWidth: number;
     /** The rounded rect the window is filled with, clipped to and stroked
      *  along — already inset by half the stroke, so the line lands ON the
-     *  window boundary rather than straddling it.
-     *
-     *  A finished BOX rather than the inset alone. The inset was
-     *  `strokeWidth / 2`, derivable from its own sibling, and a backend holding
-     *  it still had to spell `width - strokeWidth` itself to use it — two
-     *  arithmetic steps re-done per backend on the shape the scene is most
-     *  insistent both backends draw identically. Handing over the rectangle
-     *  leaves neither of them anything to compute. */
+     *  window boundary rather than straddling it. */
     readonly outline: SceneBox;
   };
   readonly titleBar: {
@@ -230,20 +225,15 @@ export interface SnapshotScene {
     readonly fg: string;
     /** The terminal's caption, centred in the bar. */
     readonly title: SceneText;
-    /** The caller's wordmark, right-aligned. The browser draws its logo just left
-     *  of this — the one piece of the title bar a scene cannot carry, because
-     *  a decoded raster is not a value. */
+    /** The caller's wordmark, right-aligned. The browser draws its logo just
+     *  left of this — the one piece of the title bar a scene cannot carry,
+     *  because a decoded raster is not a value. */
     readonly brand: SceneText;
     readonly dots: readonly SceneDot[];
   };
-  /** The terminal grid's own box within the window.
-   *
-   *  Geometry with no fill, deliberately. The terminal background and the
-   *  window background are not two decisions that happen to agree — they are
-   *  ONE value (`theme.bg`) read twice, so a `fill` here made both backends
-   *  repaint a region the window fill had already painted that exact colour.
-   *  The box stays because where the grid sits is a real answer this layout
-   *  gives; the redundant paint does not. */
+  /** The terminal grid's own box within the window. Geometry with no fill: the
+   *  terminal background IS the window background (one `theme.bg`), already
+   *  painted over the whole rounded rect. */
   readonly term: SceneBox;
   /** Cell backgrounds — only those that differ from the terminal background,
    *  so a plain screen emits none. */
@@ -258,7 +248,7 @@ export interface SceneInput {
   readonly label: string;
   /** Wordmark, right-aligned in the title bar. An INPUT for the same reason
    *  {@link label} is: whose product this is, is not a fact about a terminal
-   *  grid. kolu passes "kolu". */
+   *  grid. */
   readonly brand: string;
   readonly fontFamily: string;
   readonly fontSize: number;
@@ -269,6 +259,19 @@ export interface SceneInput {
    *  authority for the derivation; it stays an input so a caller that really
    *  does render at another line height can say so. */
   readonly cellH: number;
+}
+
+function assertCellFitsGrid(cell: SnapshotCell, cols: number): void {
+  if (cell.col < 0 || cell.col >= cols) {
+    throw new Error(
+      `terminal-snapshot: cell at column ${cell.col} is outside the ${cols}-column grid it was read from`,
+    );
+  }
+  if (cell.col + cell.width > cols) {
+    throw new Error(
+      `terminal-snapshot: a width-${cell.width} cell at column ${cell.col} overruns the ${cols}-column grid it was read from`,
+    );
+  }
 }
 
 /** Lay a grid out into backend-free drawing instructions. Pure. */
@@ -305,16 +308,7 @@ export function buildScene(input: SceneInput): SnapshotScene {
       let fg = resolveColor(cell.fg, theme, theme.fg);
       let bg = resolveColor(cell.bg, theme, theme.bg);
       if (cell.inverse) [fg, bg] = [bg, fg];
-      if (cell.col < 0 || cell.col >= grid.cols) {
-        throw new Error(
-          `terminal-snapshot: cell at column ${cell.col} is outside the ${grid.cols}-column grid it was read from`,
-        );
-      }
-      if (cell.col + cell.width > grid.cols) {
-        throw new Error(
-          `terminal-snapshot: a width-${cell.width} cell at column ${cell.col} overruns the ${grid.cols}-column grid it was read from`,
-        );
-      }
+      assertCellFitsGrid(cell, grid.cols);
       const x = termX + cell.col * cellW;
       if (bg !== theme.bg) {
         rects.push({ x, y, w: cellW * cell.width, h: cellH, fill: bg });
@@ -329,7 +323,7 @@ export function buildScene(input: SceneInput): SnapshotScene {
           fill: ink,
         });
       }
-      const chars = paintable(cell.chars);
+      const chars = dropUnpaintable(cell.chars);
       if (chars !== "" && chars !== " ") {
         glyphs.push({
           x,
@@ -347,7 +341,7 @@ export function buildScene(input: SceneInput): SnapshotScene {
     width,
     height,
     radius: CHROME.radius,
-    font: { family: paintable(fontFamily), size: fontSize },
+    font: { family: dropUnpaintable(fontFamily), size: fontSize },
     window: {
       bg: theme.bg,
       border,
@@ -367,14 +361,14 @@ export function buildScene(input: SceneInput): SnapshotScene {
         x: width / 2,
         y: textY,
         size: CHROME.titleSize,
-        text: paintable(label),
+        text: dropUnpaintable(label),
         anchor: "middle",
       },
       brand: {
         x: width - CHROME.brandRightMargin,
         y: textY,
         size: CHROME.brandSize,
-        text: paintable(brand),
+        text: dropUnpaintable(brand),
         anchor: "end",
       },
       dots,

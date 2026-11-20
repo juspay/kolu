@@ -1,9 +1,8 @@
-import { describe, expect, it } from "vitest";
-import {
-  assertFamilyCoverage,
-  familyNamesOf,
-  PNG_FONT_FAMILIES,
-} from "./pngFonts.ts";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import { afterEach, describe, expect, it } from "vitest";
+import { familyNamesOf, PNG_FONT_STACK } from "./pngFonts.ts";
 
 function utf16be(value: string): number[] {
   return [...value].flatMap((ch) => {
@@ -102,37 +101,59 @@ describe("familyNamesOf", () => {
   });
 });
 
-describe("assertFamilyCoverage", () => {
-  const full = () =>
-    PNG_FONT_FAMILIES.map((name) => face([{ nameId: 1, value: name }]));
+describe("the font stack is the only way to the faces", () => {
+  const dirs: string[] = [];
+  const previous = process.env.KOLU_SNAPSHOT_FONTS_DIR;
 
-  it("accepts a face set that declares every family the document may name", () => {
-    expect(() =>
-      assertFamilyCoverage(full(), ["a.ttf"], "/fonts"),
-    ).not.toThrow();
+  afterEach(async () => {
+    if (previous === undefined) delete process.env.KOLU_SNAPSHOT_FONTS_DIR;
+    else process.env.KOLU_SNAPSHOT_FONTS_DIR = previous;
+    await Promise.all(dirs.splice(0).map((d) => rm(d, { recursive: true })));
   });
 
-  it("names the family a renamed face took away", () => {
-    const renamed = PNG_FONT_FAMILIES.map((name) =>
-      face([
-        {
-          nameId: 1,
-          value: name === "Symbols Nerd Font Mono" ? "Symbols Nerd Font" : name,
-        },
-      ]),
+  async function fontDirOf(faces: readonly Uint8Array[]): Promise<string> {
+    const dir = await mkdtemp(path.join(tmpdir(), "terminal-snapshot-fonts-"));
+    dirs.push(dir);
+    await Promise.all(
+      faces.map((f, i) => writeFile(path.join(dir, `face-${i}.ttf`), f)),
     );
-    expect(() => assertFamilyCoverage(renamed, ["sym.ttf"], "/fonts")).toThrow(
+    return dir;
+  }
+
+  const stackNamed = (as: (family: string) => string) =>
+    fontDirOf(
+      PNG_FONT_STACK.families.map((family) =>
+        face([{ nameId: 1, value: as(family) }]),
+      ),
+    );
+
+  it("loads every face when the directory declares every family", async () => {
+    process.env.KOLU_SNAPSHOT_FONTS_DIR = await stackNamed((family) => family);
+    await expect(PNG_FONT_STACK.load()).resolves.toHaveLength(
+      PNG_FONT_STACK.families.length,
+    );
+  });
+
+  it("names the family a renamed face took away", async () => {
+    process.env.KOLU_SNAPSHOT_FONTS_DIR = await stackNamed((family) =>
+      family === "Symbols Nerd Font Mono" ? "Symbols Nerd Font" : family,
+    );
+    await expect(PNG_FONT_STACK.load()).rejects.toThrow(
       /"Symbols Nerd Font Mono"/,
     );
   });
 
-  it("refuses a directory of faces that declare nothing the document names", () => {
-    expect(() =>
-      assertFamilyCoverage(
-        [face([{ nameId: 1, value: "Comic Sans MS" }])],
-        ["comic.ttf"],
-        "/fonts",
-      ),
-    ).toThrow(/pngFonts\.ts have parted/);
+  it("refuses a directory of faces that declare nothing the document names", async () => {
+    process.env.KOLU_SNAPSHOT_FONTS_DIR = await fontDirOf([
+      face([{ nameId: 1, value: "Comic Sans MS" }]),
+    ]);
+    await expect(PNG_FONT_STACK.load()).rejects.toThrow(
+      /pngFonts\.ts have parted/,
+    );
+  });
+
+  it("refuses a directory with no faces in it at all", async () => {
+    process.env.KOLU_SNAPSHOT_FONTS_DIR = await fontDirOf([]);
+    await expect(PNG_FONT_STACK.load()).rejects.toThrow(/holds no font faces/);
   });
 });

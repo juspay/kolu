@@ -1,19 +1,67 @@
 import { readdir, readFile } from "node:fs/promises";
 import path from "node:path";
 
-export const PNG_PRIMARY_FACE = "FiraCode Nerd Font Mono";
+/** The families a PNG document may name and the faces that answer them, as
+ *  one value: the only way to reach the faces is {@link FontStack.load}, which
+ *  refuses a font directory that cannot declare every family in the list.
+ *
+ *  Ordered most-specific first because resvg falls back along the family list
+ *  in the DOCUMENT, not along the order buffers were registered in. */
+class FontStack {
+  readonly families: readonly string[];
+  /** The face every other is a fallback for. */
+  readonly primary: string;
+  /** The family list as a document spells it. */
+  readonly document: string;
 
-export const PNG_FONT_FAMILIES: readonly string[] = [
-  PNG_PRIMARY_FACE,
+  constructor(families: readonly [string, ...string[]]) {
+    this.families = families;
+    this.primary = families[0];
+    this.document = families.join(", ");
+  }
+
+  async load(): Promise<Uint8Array[]> {
+    const dir = fontDir();
+    const files = (await readdir(dir)).filter((f) => /\.(?:ttf|otf)$/i.test(f));
+    if (files.length === 0) {
+      throw new Error(
+        `terminal-snapshot: ${dir} holds no font faces — the Nix font closure (nix/packages/fonts) is broken. A screenshot rendered in no font at all is not a degraded render, it is tofu.`,
+      );
+    }
+    const faces = await Promise.all(
+      files.map((f) => readFile(path.join(dir, f))),
+    );
+    this.#assertCoverage(faces, files, dir);
+    return faces;
+  }
+
+  #assertCoverage(
+    faces: readonly Uint8Array[],
+    files: readonly string[],
+    dir: string,
+  ): void {
+    const present = new Set(faces.flatMap((f) => [...familyNamesOf(f)]));
+    const missing = this.families.filter((f) => !present.has(f));
+    if (missing.length === 0) return;
+    throw new Error(
+      `terminal-snapshot: ${dir} has no face whose \`name\` table declares ${missing
+        .map((f) => `"${f}"`)
+        .join(
+          ", ",
+        )} — the Nix font closure (nix/packages/fonts/snapshot.nix) and the family list in pngFonts.ts have parted, most likely on a nixpkgs bump that renamed a face's internal family. resvg resolves fallbacks by the DOCUMENT's family names, so this renders tofu for every glyph the first face lacks while still producing a valid-looking PNG. Read ${files.length} face(s): ${files.join(", ")}. Families found: ${[...present].sort().join(", ")}.`,
+    );
+  }
+}
+
+export const PNG_FONT_STACK = new FontStack([
+  "FiraCode Nerd Font Mono",
   "Symbols Nerd Font Mono",
   "DejaVu Sans Mono",
   "Noto Sans Symbols 2",
   "Noto Sans Symbols",
-];
+]);
 
-export const PNG_FONT_FAMILY = PNG_FONT_FAMILIES.join(", ");
-
-export function fontDir(): string {
+function fontDir(): string {
   const dir = process.env.KOLU_SNAPSHOT_FONTS_DIR;
   if (!dir) {
     throw new Error(
@@ -73,38 +121,6 @@ export function familyNamesOf(face: Uint8Array): readonly string[] {
     (nameId === NAME_ID_TYPOGRAPHIC_FAMILY ? typographic : legacy).push(value);
   }
   return typographic.length > 0 ? typographic : legacy;
-}
-
-export function assertFamilyCoverage(
-  faces: readonly Uint8Array[],
-  files: readonly string[],
-  dir: string,
-): void {
-  const present = new Set(faces.flatMap((f) => [...familyNamesOf(f)]));
-  const missing = PNG_FONT_FAMILIES.filter((f) => !present.has(f));
-  if (missing.length === 0) return;
-  throw new Error(
-    `terminal-snapshot: ${dir} has no face whose \`name\` table declares ${missing
-      .map((f) => `"${f}"`)
-      .join(
-        ", ",
-      )} — the Nix font closure (nix/packages/fonts/snapshot.nix) and the family list in pngFonts.ts have parted, most likely on a nixpkgs bump that renamed a face's internal family. resvg resolves fallbacks by the DOCUMENT's family names, so this renders tofu for every glyph the first face lacks while still producing a valid-looking PNG. Read ${files.length} face(s): ${files.join(", ")}. Families found: ${[...present].sort().join(", ")}.`,
-  );
-}
-
-export async function loadSnapshotFonts(): Promise<Uint8Array[]> {
-  const dir = fontDir();
-  const files = (await readdir(dir)).filter((f) => /\.(?:ttf|otf)$/i.test(f));
-  if (files.length === 0) {
-    throw new Error(
-      `terminal-snapshot: ${dir} holds no font faces — the Nix font closure (nix/packages/fonts) is broken. A screenshot rendered in no font at all is not a degraded render, it is tofu.`,
-    );
-  }
-  const faces = await Promise.all(
-    files.map((f) => readFile(path.join(dir, f))),
-  );
-  assertFamilyCoverage(faces, files, dir);
-  return faces;
 }
 
 function readTag(bytes: Uint8Array, at: number): string {
