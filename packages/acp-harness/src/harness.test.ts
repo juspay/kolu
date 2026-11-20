@@ -2324,6 +2324,19 @@ describe("the standing prompt around a compaction", () => {
     expect(await taughtSoFar(running)).toEqual([true, false, false, true]);
   });
 
+  test("a compaction before the first message of a session is answered keeps the rules that message carried", async () => {
+    const seen: Array<Compaction> = [];
+    const running = await open("agent.ts", {
+      compacts,
+      onCompaction: (compaction) => seen.push(compaction),
+    });
+    await send(running, "compact");
+    expect(seen.at(-1)).toMatchObject({ status: "completed", rules: "sent" });
+    expect(running.harness.state().taught).toBe(true);
+    await send(running, "hello");
+    expect(await taughtSoFar(running)).toEqual([true, false]);
+  });
+
   test("a new session is taught its first message and not the second, usage or none", async () => {
     const running = await open("agent.ts", { compacts });
     await send(running, "hello");

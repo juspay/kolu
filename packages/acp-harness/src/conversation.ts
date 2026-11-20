@@ -1108,10 +1108,13 @@ export const startHarness = async <Row extends AnyRow>(
   /** Whether the session this harness is in was LOADED rather than opened
    *  new — its usage is not known until a turn reports one. */
   let loaded = false;
-  /** What {@link heard} was when a message was taught for a compaction the
-   *  agent was about to run, or `null` while none has been — the latch that
-   *  keeps it to once ({@link HarnessOptions.compacts}). */
-  let primedAt: number | null = null;
+  /** Whether a message has been taught for a compaction the agent was about
+   *  to run — the latch that keeps it to once ({@link HarnessOptions.compacts}). */
+  let primed = false;
+  /** What {@link heard} was when the standing prompt last went out, for
+   *  whatever reason, or `null` while it has not in this session: a
+   *  compaction that begins with the number unmoved began under it. */
+  let taughtAt: number | null = null;
   /** The compaction last reported, and whether the standing prompt rode the
    *  message it began under before the agent said anything of that turn. */
   let compacting: { readonly id: string; readonly rode: boolean } | null = null;
@@ -1339,8 +1342,7 @@ export const startHarness = async <Row extends AnyRow>(
         return;
       case "usage":
         usage = event.usage;
-        if (primedAt !== null && options.compacts?.(event.usage) === false)
-          primedAt = null;
+        if (primed && options.compacts?.(event.usage) === false) primed = false;
         publish();
         return;
       case "servers":
@@ -1453,10 +1455,10 @@ export const startHarness = async <Row extends AnyRow>(
         if (compacting?.id !== event.id)
           compacting = {
             id: event.id,
-            rode: primedAt !== null && heard === primedAt,
+            rode: taughtAt !== null && heard === taughtAt,
           };
         const completed = event.status === "completed";
-        if (event.status !== "in_progress") primedAt = null;
+        if (event.status !== "in_progress") primed = false;
         if (completed && !compacting.rode) taught = false;
         options.onCompaction?.({
           id: event.id,
@@ -1696,7 +1698,8 @@ export const startHarness = async <Row extends AnyRow>(
     // is exactly an agent with no memory of it.
     taught = false;
     loaded = false;
-    primedAt = null;
+    primed = false;
+    taughtAt = null;
     compacting = null;
     // ... AND THE INTERRUPTION COMES BACK. The latch is about a SESSION the
     // adapter poisoned, not about the agent: a conversation that is over
@@ -1952,10 +1955,11 @@ export const startHarness = async <Row extends AnyRow>(
     const compacts = options.compacts;
     const due =
       compacts !== undefined &&
-      primedAt === null &&
+      !primed &&
       (usage === null ? loaded : compacts(usage));
     if (taught && !due) return body;
-    if (due) primedAt = heard;
+    if (due) primed = true;
+    taughtAt = heard;
     taught = true;
     // A PRODUCT WITH NOTHING TO TEACH hands over no words, and its first
     // message then goes out exactly as it composed it: a blank line above it
