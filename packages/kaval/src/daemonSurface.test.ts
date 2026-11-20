@@ -1,16 +1,3 @@
-/**
- * The kaval daemon wire: the pty-host surface at its historic flat tags plus the
- * frozen control fragment as a `control` sibling, assembled into ONE group.
- *
- * Two things are pinned here, and the first is the load-bearing one. Composition
- * used to be a hand-splice of two finalized oRPC contracts re-adapted against a
- * widened matcher (two `as any` casts, and no way to see a collision); it is now
- * a disjoint union of two flat tag maps. Review #16 says a group assembled that
- * way has ZERO type-level safety and `RpcGroup.merge` silently drops a colliding
- * tag — so the ROUTE SET IS THE SPEC, and it is asserted literally below rather
- * than inferred.
- */
-
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -35,19 +22,7 @@ afterEach(async () => {
   process.env = { ...savedEnv };
 });
 
-/** The FULL wire the daemon advertises, spelled out. Two things it proves that a
- *  size check alone cannot: every historic pty-host tag survived composition
- *  unrenamed and unprefixed (padi and kaval-tui address these literal strings),
- *  and the control fragment landed under `surface/control/` — the stable path
- *  `probeDaemonIdentity` dials at any pty-host version skew.
- *
- *  Note the SIX reserved `system/*` tags: three for the pty half at
- *  `surface/system/*` and three for the control sibling at
- *  `surface/control/system/*`. Every surface carries those three, which is the
- *  ONE overlap a bare merge would have collided — and the sibling prefix is what
- *  keeps them disjoint. Their presence here is the proof. */
 const EXPECTED_DAEMON_TAGS = [
-  // pty-host streams
   "surface/activity/get",
   "surface/commandRun/get",
   "surface/cwd/get",
@@ -56,7 +31,6 @@ const EXPECTED_DAEMON_TAGS = [
   "surface/inventory/get",
   "surface/terminalAttach/get",
   "surface/title/get",
-  // pty-host procedures
   "surface/system/heartbeat",
   "surface/system/info",
   "surface/system/version",
@@ -70,14 +44,11 @@ const EXPECTED_DAEMON_TAGS = [
   "surface/terminal/resize",
   "surface/terminal/spawn",
   "surface/terminal/write",
-  // pty-host reserved members
   "surface/system/clockNow",
   "surface/system/identity",
   "surface/system/live",
-  // the frozen control fragment, as a sibling
   "surface/control/core/drain",
   "surface/control/core/hello",
-  // …and ITS reserved members, at their own prefix
   "surface/control/system/clockNow",
   "surface/control/system/identity",
   "surface/control/system/live",
@@ -95,9 +66,6 @@ describe("kaval daemon group", () => {
       ptyHostSurface.group.requests.size +
         kavalControlSurface.group.requests.size,
     );
-    // Stated on the other axis too: no tag of one half appears in the other. A
-    // future member named `control` on the pty surface would fail HERE with the
-    // colliding name, not as a mysteriously missing route at runtime.
     const ptyTags = new Set(ptyHostSurface.group.requests.keys());
     const overlap = [...kavalControlSurface.group.requests.keys()].filter(
       (tag) => ptyTags.has(tag),
@@ -129,8 +97,6 @@ describe("kaval daemon surface", () => {
       rcDir: mkdtempSync(join(tmpdir(), "kaval-control-rc-")),
       lifetime: { kind: "forever" },
     });
-    // Both channels must stay closed over the one boot record, rather than
-    // re-reading mutable ambient identity at request/composition time.
     process.env.KAVAL_COMMIT_HASH = "changed-after-boot";
     process.env.KAVAL_BUILD_ID = "changed-after-boot";
     expect(Object.isFrozen(ptyHost)).toBe(true);
@@ -141,9 +107,6 @@ describe("kaval daemon surface", () => {
       stateRoot: "/run/user/1000/kaval-test",
     });
     runtimes.push(runtime);
-    // ONE dispatch over the composed handlers, two faces on top of it — which is
-    // the whole point of a flat tag namespace: each face is built from the
-    // STANDALONE surface it belongs to and neither learns it was composed.
     const dispatch = directDispatch(runtime);
     const pty = ptyHostClientOver(dispatch);
     const control = buildSurfaceFace(kavalControlSurface, dispatch).surface
@@ -152,7 +115,6 @@ describe("kaval daemon surface", () => {
       drain(): Effect.Effect<void, unknown>;
     };
 
-    // Existing consumers keep the exact historic path and shape.
     const version = await Effect.runPromise(pty.surface.system.version({}));
     expect(Object.keys(version).sort()).toEqual([
       "contractVersion",
@@ -177,16 +139,9 @@ describe("kaval daemon surface", () => {
       buildId: "kaval-build-7",
     });
 
-    // Letter: the frozen void verb refuses, loudly and with its reason. kaval
-    // cannot drain (ending the process destroys its live PTYs), and `core.drain`
-    // declares no error schema — so the refusal is an undeclared DEFECT rather
-    // than a member error a supervisor could narrow on and "handle" (PLAN D4).
-    // What a caller can rely on is that it REJECTS and says why.
     await expect(Effect.runPromise(control.drain())).rejects.toThrow(
       /not drainable/,
     );
-    // Effect: neither a silent success nor a daemon-killing implementation can
-    // pass — the same daemon still answers both identity channels afterward.
     await expect(Effect.runPromise(control.hello())).resolves.toEqual(hello);
     await expect(
       Effect.runPromise(pty.surface.system.heartbeat({})),
@@ -194,8 +149,6 @@ describe("kaval daemon surface", () => {
       ts: expect.any(Number),
     });
 
-    // The pty-host face is a valid, complete view of the composed daemon: its
-    // members answer at the same tags they would standing alone.
     await expect(
       Effect.runPromise(pty.surface.terminal.list({})),
     ).resolves.toEqual({

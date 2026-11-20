@@ -1,10 +1,3 @@
-/**
- * The host's init-file materialisation — the only spawn-time job left after the
- * B0 inversion that isn't pure node-pty. Covers the round-trip (write → paths →
- * remove), nested names (zsh's `zdotdir-<id>/.zshrc`), empty-dir pruning, and
- * the containment guard that a name can't escape `rcDir`.
- */
-
 import { existsSync, mkdtempSync, readFileSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -33,11 +26,6 @@ describe("writeInitFiles / removeInitFiles", () => {
   });
 
   it("REPLACES a stale leftover from a daemon that died without cleaning up", () => {
-    // The name carries the terminal id, the daemon removes it when the PTY ends,
-    // and it refuses to spawn an id it already holds live — so a file still here
-    // when a spawn asks for its name is residue of a SIGKILLed daemon. Refusing
-    // it made a terminal that keeps its id across a recycle (padi's same-id
-    // restore) un-spawnable with `EEXIST` for the life of the runtime dir.
     const rcDir = freshRcDir();
     writeInitFiles(rcDir, [{ name: "bashrc-T1", content: "stale" }]);
     expect(
@@ -58,8 +46,8 @@ describe("writeInitFiles / removeInitFiles", () => {
     expect(existsSync(zdotdir)).toBe(true);
     removeInitFiles(rcDir, written);
     expect(existsSync(zshrc)).toBe(false);
-    expect(existsSync(zdotdir)).toBe(false); // pruned
-    expect(existsSync(rcDir)).toBe(true); // never pruned past rcDir
+    expect(existsSync(zdotdir)).toBe(false);
+    expect(existsSync(rcDir)).toBe(true);
   });
 
   it("rejects a name that escapes rcDir (traversal / absolute) before writing anything", () => {
@@ -69,8 +57,6 @@ describe("writeInitFiles / removeInitFiles", () => {
         writeInitFiles(rcDir, [{ name: bad, content: "x" }]),
       ).toThrow(/escapes rcDir/);
     }
-    // a legitimate sibling write alongside a bad one is not partially applied:
-    // resolution happens before any write.
     expect(() =>
       writeInitFiles(rcDir, [
         { name: "ok", content: "x" },
@@ -82,8 +68,6 @@ describe("writeInitFiles / removeInitFiles", () => {
 
   it("rolls back already-written files when a later write fails midway", () => {
     const rcDir = freshRcDir();
-    // First file writes fine; the second targets a path whose parent is an
-    // existing FILE, so mkdirSync(recursive) throws ENOTDIR partway through.
     writeInitFiles(rcDir, [{ name: "blocker", content: "x" }]);
     expect(() =>
       writeInitFiles(rcDir, [
@@ -91,8 +75,6 @@ describe("writeInitFiles / removeInitFiles", () => {
         { name: join("blocker", "nested"), content: "2" },
       ]),
     ).toThrow();
-    // The first file from the failing call must not survive (rolled back);
-    // the pre-existing unrelated file is untouched.
     expect(existsSync(join(rcDir, "first"))).toBe(false);
     expect(existsSync(join(rcDir, "blocker"))).toBe(true);
   });

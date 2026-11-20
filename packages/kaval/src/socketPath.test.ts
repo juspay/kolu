@@ -1,11 +1,3 @@
-/**
- * Pins kolu's names on the rendezvous path — app dir `kolu`, file
- * `pty-host.sock` — for both anchors. The mechanism (override handling, the
- * XDG/`/tmp/<app>-$UID` split, and the `$TMPDIR`-independence regression
- * behind the macOS "no pty-host socket" bug) is pinned generically in
- * `@kolu/surface`'s `unix-socket.test.ts`; what would break kolu-server ↔
- * kaval-tui rendezvous from HERE is only a drift in these names.
- */
 import {
   chmodSync,
   type PathLike,
@@ -52,19 +44,6 @@ import {
 
 const REAL_GETUID = process.getuid;
 
-/** Simulate a platform without uid semantics (Windows) for the duration of a
- *  discovery test: `process.getuid` becomes undefined, so (a) discovery SKIPS its
- *  owner-only check (returning true, the documented no-uid behaviour) and (b) the
- *  `/tmp` fallback root's namespace grammar keys on `-shared` instead of `-$UID`.
- *
- *  Why: discovery now unions BOTH runtime roots, so it always also scans the real
- *  `/tmp`. A dev box can hold genuine off-XDG `/tmp/kaval-<hex>-$UID` daemons; with
- *  a real uid they'd match the grammar and leak into a test's results. Under the
- *  no-uid grammar those real daemons match neither the ownership nor the `-shared`
- *  suffix, so ONLY the test's own XDG-seeded dirs are found — the scan is HERMETIC
- *  without weakening the production ownership check (pinned separately, under a
- *  real uid, by "skips a name-matching namespace whose dir is not owner-only" and
- *  the both-roots regression). Restored in each describe's `afterEach`. */
 function simulateNoUidPlatform(): void {
   process.getuid = undefined;
 }
@@ -72,9 +51,6 @@ function restoreUid(): void {
   process.getuid = REAL_GETUID;
 }
 
-/** Seed the one filesystem fact discovery consumes: this exact rendezvous path
- * is a socket inode. Real listen/close behavior belongs to socketDaemon.test;
- * using net.Server here made pure traversal tests wait on the kernel. */
 function seedSocket(path: string): void {
   fakeSocketPaths.add(path);
 }
@@ -107,7 +83,6 @@ describe("getPtyHostSocketPath", () => {
     expect(getPtyHostSocketPath(undefined, "kaval")).toBe(
       "/run/user/1000/kaval/pty-host.sock",
     );
-    // default is unchanged
     expect(getPtyHostSocketPath()).toBe("/run/user/1000/kolu/pty-host.sock");
   });
 });
@@ -124,7 +99,6 @@ describe("legacyKavalSocketPath — the W2.2 upgrade adopt-hint (binder hints it
     expect(legacyKavalSocketPath(7681)).toBe(
       "/run/user/1000/kaval-7681/pty-host.sock",
     );
-    // Gate stem stays bare under instance mode (never kaval-7681.pid).
     const { resolveDaemonHome } = await import("@kolu/surface-daemon");
     expect(
       resolveDaemonHome({
@@ -148,15 +122,13 @@ describe("legacyKavalSocketPath — the W2.2 upgrade adopt-hint (binder hints it
 describe("discoverPtyHostSockets", () => {
   const savedXdg = process.env.XDG_RUNTIME_DIR;
   afterEach(() => {
-    vi.restoreAllMocks(); // the off-XDG grammar test stubs process.getuid
-    restoreUid(); // the hermetic tests below null process.getuid directly
+    vi.restoreAllMocks();
+    restoreUid();
     if (savedXdg === undefined) delete process.env.XDG_RUNTIME_DIR;
     else process.env.XDG_RUNTIME_DIR = savedXdg;
     fakeSocketPaths.clear();
   });
 
-  /** Seed socket facts at `<runtime>/<ns>/pty-host.sock`. Each namespace dir is
-   * created `0o700` to mirror the serving side's ownership boundary. */
   function seed(namespaces: string[]): string {
     const runtime = mkdtempSync(join(tmpdir(), "kdisc-"));
     for (const ns of namespaces) {
@@ -167,7 +139,7 @@ describe("discoverPtyHostSockets", () => {
   }
 
   it("finds per-port server namespaces and a bare standalone one", async () => {
-    simulateNoUidPlatform(); // hermetic: don't let real off-XDG /tmp daemons leak in
+    simulateNoUidPlatform();
     const runtime = seed(["kaval-7681", "kaval-18331", "kaval", "unrelated"]);
     process.env.XDG_RUNTIME_DIR = runtime;
     const found = discoverPtyHostSockets().sort();
@@ -181,9 +153,9 @@ describe("discoverPtyHostSockets", () => {
   });
 
   it("ignores a namespace dir with no socket yet", async () => {
-    simulateNoUidPlatform(); // hermetic: don't let real off-XDG /tmp daemons leak in
+    simulateNoUidPlatform();
     const runtime = seed(["kaval-7681"]);
-    mkdirSync(join(runtime, "kaval-9999")); // dir but no pty-host.sock
+    mkdirSync(join(runtime, "kaval-9999"));
     process.env.XDG_RUNTIME_DIR = runtime;
     expect(discoverPtyHostSockets()).toEqual([
       join(runtime, "kaval-7681", PTY_HOST_SOCK_FILE),
@@ -191,36 +163,23 @@ describe("discoverPtyHostSockets", () => {
   });
 
   it("returns [] when the runtime root is unreadable / absent", () => {
-    // Both roots empty: the XDG root doesn't exist and (under the no-uid grammar)
-    // the /tmp fallback matches nothing — so the union is genuinely empty.
     simulateNoUidPlatform();
     process.env.XDG_RUNTIME_DIR = join(tmpdir(), "kdisc-does-not-exist-xyz");
     expect(discoverPtyHostSockets()).toEqual([]);
   });
 
-  // A namespace whose name matches but whose dir is NOT owner-only must be
-  // skipped: discovery re-checks the same ownership boundary the serving side
-  // enforces, because the off-XDG `/tmp/<ns>-$UID/` root is shared and the
-  // `-$UID` in the NAME is not proof of ownership. We can't chown a dir to
-  // another uid without root, so we make it fail the OTHER half of the check —
-  // loosen its mode so group/other bits are set (mode 0o755) — and a seeded
-  // socket-inode fact inside it must still not be discovered.
   it.runIf(process.getuid)(
     "skips a name-matching namespace whose dir is not owner-only",
     async () => {
       const runtime = mkdtempSync(join(tmpdir(), "kdisc-priv-"));
       const okDir = join(runtime, "kaval-7681");
       const looseDir = join(runtime, "kaval-9000");
-      mkdirSync(okDir, { mode: 0o700 }); // owner-only, like production
+      mkdirSync(okDir, { mode: 0o700 });
       mkdirSync(looseDir, { mode: 0o700 });
       seedSocket(join(okDir, PTY_HOST_SOCK_FILE));
       seedSocket(join(looseDir, PTY_HOST_SOCK_FILE));
-      chmodSync(looseDir, 0o755); // group/other access — not owner-only
+      chmodSync(looseDir, 0o755);
       process.env.XDG_RUNTIME_DIR = runtime;
-      // The owner-only dir's socket is returned; the loose one is dropped
-      // despite holding a name-matching socket. This runs under a REAL uid (it
-      // pins the ownership check), so assert membership to tolerate a genuine
-      // off-XDG daemon on the box.
       const found = new Set(discoverPtyHostSockets());
       expect(found.has(join(okDir, PTY_HOST_SOCK_FILE))).toBe(true);
       expect(found.has(join(looseDir, PTY_HOST_SOCK_FILE))).toBe(false);
@@ -228,33 +187,15 @@ describe("discoverPtyHostSockets", () => {
     },
   );
 
-  // The off-XDG `/tmp/<ns>-$UID/` branch is the historically buggy macOS/launchd
-  // fallback (see socketPath.ts's module doc): the root is the SHARED `/tmp` and
-  // the namespace dirs carry a `-$UID` suffix. The ONLY thing unique to this
-  // branch is that `-$UID` name decoration — the traversal, privacy check, and
-  // socket-inode check are the same code the XDG cases above already exercise.
-  // And discovery does not re-spell that decoration: it reads the names back from
-  // the same `getRuntimeSocketPath` builder construction uses, so the two cannot
-  // drift by design.
-  //
-  // So we pin exactly that unique surface, WITHOUT touching the user's real
-  // `/tmp/kaval-$UID` rendezvous dirs (a unit test that recursively removed those
-  // would clobber a developer's running standalone daemon). Mock `getuid` to a
-  // fixed fake uid and assert the builder both halves call decorates the off-XDG
-  // path with `-$UID`, for the bare and the per-port namespace alike.
   describe.runIf(process.getuid)("off-XDG /tmp/<ns>-$UID name grammar", () => {
     const FAKE_UID = 424242;
 
     it("decorates the bare and per-port namespaces with -$UID off XDG", () => {
       delete process.env.XDG_RUNTIME_DIR;
       vi.spyOn(process, "getuid").mockReturnValue(FAKE_UID);
-      // Bare standalone daemon → /tmp/kaval-<uid>/pty-host.sock.
       expect(getPtyHostSocketPath(undefined, KAVAL_NS_PREFIX)).toBe(
         `/tmp/${KAVAL_NS_PREFIX}-${FAKE_UID}/${PTY_HOST_SOCK_FILE}`,
       );
-      // Per-port server daemon → /tmp/kaval-<port>-<uid>/pty-host.sock. This is
-      // the suffix discovery's portedRe must (and does, reading it back from the
-      // same builder) accept. Spelled via instance mode (not pre-joined app).
       expect(legacyKavalSocketPath(7681)).toBe(
         `/tmp/${KAVAL_NS_PREFIX}-7681-${FAKE_UID}/${PTY_HOST_SOCK_FILE}`,
       );
@@ -262,13 +203,6 @@ describe("discoverPtyHostSockets", () => {
   });
 });
 
-// THE REGRESSION for juspay/kolu#2286's second contributor: discovery used to
-// `readdirSync("/tmp")` on EVERY scan, on top of the env-derived root, so a
-// production host whose `/tmp` holds 209 K entries paid that walk twice per 10 s
-// inventory tick for a drawer its daemons never bind in. Discovery now scans the
-// regime IN FORCE and nothing else. Runs under a REAL uid — it seeds a genuine
-// `/tmp/kaval-<hex>-$UID` daemon, the exact shape the old union found — so the
-// assertions are about THAT seeded daemon, never an exact set.
 describe.runIf(process.getuid)(
   "discoverKavalCandidates — scans the regime in force, and only that one",
   () => {
@@ -284,11 +218,7 @@ describe.runIf(process.getuid)(
 
     it("ignores a /tmp daemon while $XDG_RUNTIME_DIR is set, and finds it once it is not", async () => {
       const uid = process.getuid?.();
-      if (uid === undefined) return; // guarded by describe.runIf; narrows the type
-      // A daemon in the /tmp fallback drawer. Its namespace is unique to THIS test
-      // run (a hex pid suffix) and ends in `-$UID`, so it matches the off-XDG
-      // grammar without ever colliding with (or touching) a real `/tmp/kaval-*`
-      // daemon on the box.
+      if (uid === undefined) return;
       const tmpNs = `${KAVAL_NS_PREFIX}-de${process.pid.toString(16)}-${uid}`;
       const tmpDir = join("/tmp", tmpNs);
       mkdirSync(tmpDir, { recursive: true, mode: 0o700 });
@@ -296,7 +226,6 @@ describe.runIf(process.getuid)(
       const tmpSock = join(tmpDir, PTY_HOST_SOCK_FILE);
       seedSocket(tmpSock);
 
-      // A daemon in the XDG drawer.
       const xdgRoot = mkdtempSync(join(tmpdir(), "kboth-xdg-"));
       dirs.push(xdgRoot);
       mkdirSync(join(xdgRoot, KAVAL_NS_PREFIX), {
@@ -306,15 +235,11 @@ describe.runIf(process.getuid)(
       const xdgSock = join(xdgRoot, KAVAL_NS_PREFIX, PTY_HOST_SOCK_FILE);
       seedSocket(xdgSock);
 
-      // XDG set ⇒ the XDG drawer IS the regime, and `/tmp` is not walked at all.
       process.env.XDG_RUNTIME_DIR = xdgRoot;
       const withXdg = new Set(discoverPtyHostSockets());
       expect(withXdg.has(xdgSock)).toBe(true);
       expect(withXdg.has(tmpSock)).toBe(false);
 
-      // XDG unset ⇒ `/tmp` IS the regime in force, so the same daemon is found.
-      // (The XDG daemon's root is $XDG itself, so it is unreachable here — by
-      // construction, not by policy.)
       delete process.env.XDG_RUNTIME_DIR;
       const offXdg = new Set(discoverPtyHostSockets());
       expect(offXdg.has(tmpSock)).toBe(true);
@@ -323,11 +248,6 @@ describe.runIf(process.getuid)(
   },
 );
 
-// The STRUCTURAL `kind` each candidate carries (decided at the matching branch, the
-// inverse of `instance-mode decoration`) + the gate-pid enrichment `discoverKavalDaemons` adds —
-// the read-only enumeration the Kaval info dialog lists. Exercised over seeded
-// socket-inode facts + real gate files, so the classification (esp. the LEGACY
-// `port` leak signal) and the gate read are pinned without opening OS sockets.
 describe("discoverKavalDaemons + candidate kind", () => {
   const savedXdg = process.env.XDG_RUNTIME_DIR;
   afterEach(() => {
@@ -347,7 +267,7 @@ describe("discoverKavalDaemons + candidate kind", () => {
   }
 
   it("classifies standalone / stateRoot (manifest) / legacy port by matching branch", async () => {
-    simulateNoUidPlatform(); // hermetic: don't let real off-XDG /tmp daemons leak in
+    simulateNoUidPlatform();
     const digest = "680023982235a767";
     const runtime = seed([`kaval-${digest}`, "kaval-7692", "kaval"]);
     writeStateRootManifest(
@@ -361,7 +281,6 @@ describe("discoverKavalDaemons + candidate kind", () => {
     expect(byKind.get(join(runtime, "kaval", PTY_HOST_SOCK_FILE))).toBe(
       "standalone",
     );
-    // The LEGACY pre-W2.2 keying — a kaval NOT owned by any padi, the leak signal.
     expect(byKind.get(join(runtime, "kaval-7692", PTY_HOST_SOCK_FILE))).toBe(
       "port",
     );
@@ -371,9 +290,8 @@ describe("discoverKavalDaemons + candidate kind", () => {
   });
 
   it("reads the gate pid from kaval.pid beside the socket (null when absent)", async () => {
-    simulateNoUidPlatform(); // hermetic: don't let real off-XDG /tmp daemons leak in
+    simulateNoUidPlatform();
     const runtime = seed(["kaval-7692", "kaval"]);
-    // Write a gate holding a pid for one, leave the other gate-less.
     writeFileSync(join(runtime, "kaval-7692", KAVAL_GATE_FILE), "4242\n");
     process.env.XDG_RUNTIME_DIR = runtime;
     const byGate = new Map(
@@ -386,19 +304,10 @@ describe("discoverKavalDaemons + candidate kind", () => {
   });
 });
 
-// The selection policy (explicit wins; else discover; one→use it;
-// many→ambiguous-with-labels; none→bare default) plus the candidate labels — the
-// inverse of `instance-mode decoration` — live here, beside the construction they decode,
-// so both consumers (pulam's daemon, kaval-tui) only render their own
-// many/none error surface. Discovery is exercised over seeded socket-inode
-// facts, so the policy is pinned without waiting on kernel socket scheduling.
 describe("resolveRunningKavalSocket", () => {
   const savedXdg = process.env.XDG_RUNTIME_DIR;
   const savedKavalSocket = process.env.KAVAL_SOCKET;
   beforeEach(() => {
-    // $KAVAL_SOCKET now takes precedence over discovery; clear it so the
-    // discovery-path tests below aren't hijacked by an inherited value, and each
-    // env-precedence test sets it explicitly.
     delete process.env.KAVAL_SOCKET;
   });
   afterEach(() => {
@@ -419,20 +328,11 @@ describe("resolveRunningKavalSocket", () => {
     return runtime;
   }
 
-  // $KAVAL_SOCKET is stamped into every PTY a kaval/padi spawns; inside a kolu
-  // terminal it names the exact daemon that owns you, so it must win over the
-  // env-blind discovery scan (the ambiguous "more than one daemon" bug). These
-  // pin the precedence chain --socket → $KAVAL_SOCKET → discover.
   it("returns $KAVAL_SOCKET and does NOT consult discovery when it is set", async () => {
-    // Seed TWO daemons so discovery, IF consulted, would return `many`. With
-    // $KAVAL_SOCKET set we get `env` instead — behavioural proof the env
-    // short-circuits the scan (a `many` here would mean discovery ran).
-    simulateNoUidPlatform(); // hermetic: only the seeded daemons count
+    simulateNoUidPlatform();
     const runtime = seed(["kaval", "kaval-7692"]);
     process.env.XDG_RUNTIME_DIR = runtime;
-    // Sanity: without the env var, this exact state IS ambiguous.
     expect(resolveRunningKavalSocket(undefined).kind).toBe("many");
-    // With it, the scan is never reached.
     process.env.KAVAL_SOCKET = "/run/user/1000/kaval-abc123/pty-host.sock";
     expect(resolveRunningKavalSocket(undefined)).toEqual({
       kind: "env",
@@ -449,8 +349,6 @@ describe("resolveRunningKavalSocket", () => {
   });
 
   it("returns an explicit socket verbatim, without discovery", () => {
-    // No XDG root seeded — discovery would find nothing — yet the explicit path
-    // is returned as-is, proving it short-circuits discovery.
     process.env.XDG_RUNTIME_DIR = join(tmpdir(), "kresolve-none-xyz");
     expect(resolveRunningKavalSocket("/x/kaval.sock")).toEqual({
       kind: "explicit",
@@ -459,7 +357,7 @@ describe("resolveRunningKavalSocket", () => {
   });
 
   it("discovers a single running kaval → one", async () => {
-    simulateNoUidPlatform(); // hermetic: only the seeded daemon counts
+    simulateNoUidPlatform();
     const runtime = seed(["kaval-7692"]);
     process.env.XDG_RUNTIME_DIR = runtime;
     expect(resolveRunningKavalSocket(undefined)).toEqual({
@@ -469,7 +367,6 @@ describe("resolveRunningKavalSocket", () => {
   });
 
   it("falls back to the bare default → none when nothing is running", () => {
-    // Both roots empty under the no-uid grammar, so discovery is genuinely empty.
     simulateNoUidPlatform();
     process.env.XDG_RUNTIME_DIR = join(tmpdir(), "kresolve-empty-xyz");
     expect(resolveRunningKavalSocket(undefined)).toEqual({
@@ -479,7 +376,7 @@ describe("resolveRunningKavalSocket", () => {
   });
 
   it("reports every candidate with an UNAMBIGUOUS namespace label → many", async () => {
-    simulateNoUidPlatform(); // hermetic: only the seeded daemons count
+    simulateNoUidPlatform();
     const runtime = seed(["kaval", "kaval-7692"]);
     process.env.XDG_RUNTIME_DIR = runtime;
     const resolved = resolveRunningKavalSocket(undefined);
@@ -488,10 +385,6 @@ describe("resolveRunningKavalSocket", () => {
     const byLabel = new Map(
       resolved.candidates.map((c) => [c.socket, c.label] as const),
     );
-    // Under XDG the bare `kaval/` IS the standalone daemon and `kaval-7692/` IS a
-    // kolu-server on port 7692 — discovery decides each at its matching branch,
-    // so the port candidate is named outright, NOT hedged as "port 7692, or a
-    // standalone kaval" (the basename-reparse confusion this fix removes).
     expect(byLabel.get(join(runtime, "kaval", PTY_HOST_SOCK_FILE))).toBe(
       "standalone kaval",
     );
@@ -501,12 +394,7 @@ describe("resolveRunningKavalSocket", () => {
   });
 
   it("labels a padi's kaval-<digest> from its state-root manifest, distinct from a legacy port", async () => {
-    // A padi's kaval lives under `kaval-<digest>/` with a `state-root` manifest;
-    // discovery labels it by that state-root (the digest carries no meaning). A
-    // legacy in-process kolu-server's `kaval-<port>/` has NO manifest, so it keeps
-    // the port label — manifest presence is the discriminant, so an all-decimal
-    // digest could never masquerade as a port.
-    simulateNoUidPlatform(); // hermetic: only the seeded daemons count
+    simulateNoUidPlatform();
     const digest = "680023982235a767";
     const runtime = seed([`kaval-${digest}`, "kaval-7692"]);
     writeStateRootManifest(

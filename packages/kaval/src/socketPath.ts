@@ -1,27 +1,3 @@
-/**
- * The well-known unix-socket path where kolu-server serves the in-process
- * pty-host and `kaval-tui` connects to it. Single source of truth so the
- * server and the CLI — two separate packages, two separate processes —
- * compute it identically.
- *
- * The rendezvous mechanics (why a stable path; why the off-systemd fallback
- * is a fixed `/tmp/<app>-$UID/`, NOT `os.tmpdir()` whose `$TMPDIR` form
- * diverged between a launchd server and a `nix run` CLI on macOS — the
- * "no pty-host socket at /tmp/kolu/..." bug) live with
- * `resolveDaemonHome` / `daemonHome` in `@kolu/surface-daemon` (which reuses
- * `getRuntimeSocketPath` for the runtime-dir algebra); this module pins
- * kaval's names and discovery on top of that home.
- *
- * padi spawns its kaval under a DIGEST-keyed namespace (`kaval-<digest>/`, the
- * digest taken from padi's state-root, with a `state-root` manifest beside the
- * socket so discovery can label it), so two padis on one box never collide on a
- * single gate (the prod incident where a second server recycled the first's
- * daemon). A bare standalone kaval is still `kaval/`. The legacy per-port
- * `kaval-<port>/` — the old in-process kolu-server keying — is retired; discovery
- * below still recognizes it for the transition. The consequence either way: there
- * is no one fixed path a flag-less `kaval-tui` can assume, so it
- * `discoverPtyHostSockets()` the running daemon instead.
- */
 import {
   lstatSync,
   mkdirSync,
@@ -115,12 +91,7 @@ export function getPtyHostSocketPath(override?: string, app = "kolu"): string {
 }
 
 /** The LEGACY per-port kaval socket path — `$XDG_RUNTIME_DIR/kaval-<port>/
- *  pty-host.sock` — the pre-W2.2 in-process kolu-server keying. Retired for
- *  CONSTRUCTION (padi keys its kaval by a state-root digest now), but a W2.2
- *  kolu-server hands THIS path (computed from its OWN listen port) to padi as an
- *  adopt HINT so the first W2.2 boot ADOPTS the running pre-W2.2 kaval instead of
- *  leaking it (the upgrade-migration bridge). Spelled via `instance: String(port)`
- *  so the gate stem stays bare `kaval.pid`. */
+ *  pty-host.sock` — as the pre-W2.2 in-process kolu-server minted it. */
 export function legacyKavalSocketPath(port: number): string {
   return resolveDaemonHome({
     app: KAVAL_NS_PREFIX,
@@ -130,68 +101,16 @@ export function legacyKavalSocketPath(port: number): string {
   }).socketPath;
 }
 
-/** Re-export the owner-only privacy predicate from the daemon spine — discovery
- *  and construction share one body (no parallel kaval copy). */
 export { isPrivateOwnedDir };
 
-/** Discover the rendezvous sockets of running pty-host daemons under the runtime
- *  root THIS process's environment puts it in — the env-derived
- *  `$XDG_RUNTIME_DIR/kaval*` when XDG is set, else the fixed `/tmp/kaval-$UID*`
- *  fallback — EACH LABELED by the branch that matched: a bare standalone
- *  `kaval/` (→ "standalone kaval"), a padi's digest-keyed `kaval-<digest>/`
- *  (labeled from its state-root manifest → "kolu @ <state-root>"), and, for the
- *  transition, a legacy `kaval-<port>/` (no manifest, numeric suffix → "kolu-server
- *  on port <port>"). Lets a flag-less `kaval-tui` dial the daemon without knowing
- *  padi's digest, and a `many`-candidate error name each one.
- *
- *  ONE regime is scanned, not both. This used to union the env-derived root with
- *  the `/tmp` fallback ALWAYS, so that an XDG-set caller could still see a daemon
- *  some XDG-unset process had bound under `/tmp`. That union cost a full
- *  `readdirSync("/tmp")` on every scan, and `/tmp` on a long-lived host is not a
- *  small directory: on the box that reported juspay/kolu#2286 it held 209 K
- *  entries, and padi's 10 s host-inventory tick (which scans kaval AND padi) spent
- *  22% of the daemon's busy time doing nothing but reading it. The cross-regime
- *  sighting it bought is a DIAGNOSTIC nicety — padi's adopt path never relied on
- *  it (padi keeps its own multi-regime union, where the extra drawers are small)
- *  — so the regime in force is the regime scanned.
- *
- *  Neither root nor the env's namespace decoration is re-spelled here: both are
- *  READ BACK from `resolveDaemonHome` itself, so discovery can never spell the
- *  path shape differently than construction. Build the bare daemon's socket path,
- *  then walk back up — its grandparent is the root to scan, its parent's basename
- *  is the (possibly `-$UID`-decorated) bare namespace dir. The per-port pattern is
- *  the same decoration with a `(\d+)` capture substituted for the port, learnt
- *  from a probe build with port `0`.
- *
- *  Labeling is derived from THIS match — not a later re-parse of the basename.
- *  That distinction matters: a re-parse of a bare
- *  `kaval-7692` basename alone can't tell a port from an off-XDG `-$UID` suffix
- *  and would have to hedge ("port 7692, or a standalone kaval"). Here, a name that
- *  equals `bareName` IS the standalone daemon and a name that matches the ported
- *  pattern IS a kolu-server — the ambiguity never arises because the matching
- *  branch already decided, against this user's actual `bareName`/`portedRe`.
- *
- *  A name match is necessary but NOT sufficient: every candidate's namespace dir
- *  must also pass the same owner-only privacy check the serving side enforces, so
- *  a sibling another local user planted under the shared `/tmp` root (whose name
- *  they can spell freely, `-$UID` and all) is never dialed. The socket inode must
- *  itself be a socket — not any file a name-squatter dropped in. Returns every
- *  surviving `<ns>/pty-host.sock`; never throws (an unreadable root → []). */
+/** Every surviving `<ns>/pty-host.sock` under the runtime root, each labeled by
+ *  the namespace branch it matched. Strictly read-only: it stats dirs and reads
+ *  manifests, never dials, kills or reaps; an unreadable root yields []. */
 export function discoverKavalCandidates(): KavalSocketCandidate[] {
-  // The bare daemon's home: `<root>/<bareDir>/`. Whatever shape surface gives
-  // it (XDG `kaval/`, or `/tmp` `kaval-$UID/`) the decoration is baked into
-  // `bareDir`, never re-decided here. Multi-instance probe uses `instance: "0"`
-  // — never a pre-joined `kaval-0` as `app` (that would mint a wrong gate stem).
   const bareDir = kavalHome().dir;
   const root = dirname(bareDir);
   const bareName = basename(bareDir);
 
-  // Learn the env's decoration from the builder too: a probe with sentinel
-  // instance `0` yields the decorated per-instance name; turn its literal `0`
-  // into a `([0-9a-f]+)` capture that matches BOTH a legacy `kaval-<port>` (the
-  // in-process kolu-server, digits) AND a padi's `kaval-<digest>` (lowercase hex)
-  // — then read the suffix back to disambiguate by the manifest below. (Escape
-  // the rest so a `/tmp` path can't inject regex metacharacters.)
   const decoratedName = basename(kavalHome("0").dir);
   const decoratedRe = new RegExp(
     `^${decoratedName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace("0", "([0-9a-f]+)")}$`,
@@ -205,52 +124,40 @@ export function discoverKavalCandidates(): KavalSocketCandidate[] {
   }
   const found: KavalSocketCandidate[] = [];
   for (const name of entries) {
-    // A name match alone is never ownership: require the namespace dir to be ours
-    // and owner-only (the serving-side boundary), so a sibling another local user
-    // planted under a shared `/tmp` root (whose name they can spell freely) is
-    // never dialed or read.
     const dir = join(root, name);
     if (name !== bareName && decoratedRe.exec(name) === null) continue;
     if (!isPrivateOwnedDir(dir)) continue;
 
-    // Classify by the branch that matches — this IS the label. A bare name is the
-    // standalone daemon; a decorated one is EITHER a padi's `kaval-<digest>` (a
-    // state-root manifest present → label by that state-root) OR a legacy
-    // in-process kolu-server's `kaval-<port>` (no manifest, a numeric suffix →
-    // label by port). Manifest presence is the discriminant, so a digest that
-    // happens to be all-decimal never masquerades as a port.
-    let label: string;
-    let kind: KavalCandidateKind;
-    let stateRoot: string | undefined;
-    if (name === bareName) {
-      label = "standalone kaval";
-      kind = "standalone";
-    } else {
-      const suffix = decoratedRe.exec(name)?.[1] ?? "";
-      stateRoot = readStateRootManifest(dir);
-      if (stateRoot !== undefined) {
-        label = `kolu @ ${stateRoot}`;
-        kind = "stateRoot";
-      } else if (/^\d+$/.test(suffix)) {
-        label = `kolu-server on port ${suffix}`;
-        kind = "port";
-      } else {
-        label = `kaval ${suffix}`;
-        kind = "unknown";
-      }
-    }
-    // The inode must itself be an actual socket — not any file a name-squatter
-    // dropped in.
     const sock = join(dir, PTY_HOST_SOCK_FILE);
-    if (isSocketInode(sock)) {
-      found.push({ socket: sock, label, kind, stateRoot });
-    }
+    if (!isSocketInode(sock)) continue;
+    found.push({
+      socket: sock,
+      ...classifyNamespace(dir, name, bareName, decoratedRe),
+    });
   }
   return found;
 }
 
-/** Resolve a kaval home under the runtime regime THIS process is in — pure, no
- *  env mutation. The one inversion of the construction builder discovery uses. */
+function classifyNamespace(
+  dir: string,
+  name: string,
+  bareName: string,
+  decoratedRe: RegExp,
+): { label: string; kind: KavalCandidateKind; stateRoot?: string } {
+  if (name === bareName) {
+    return { label: "standalone kaval", kind: "standalone" };
+  }
+  const suffix = decoratedRe.exec(name)?.[1] ?? "";
+  const stateRoot = readStateRootManifest(dir);
+  if (stateRoot !== undefined) {
+    return { label: `kolu @ ${stateRoot}`, kind: "stateRoot", stateRoot };
+  }
+  if (/^\d+$/.test(suffix)) {
+    return { label: `kolu-server on port ${suffix}`, kind: "port" };
+  }
+  return { label: `kaval ${suffix}`, kind: "unknown" };
+}
+
 function kavalHome(instance?: string): ResolvedDaemonHome {
   return resolveDaemonHome({
     app: KAVAL_NS_PREFIX,
@@ -338,36 +245,9 @@ export type KavalSocketResolution =
   | { kind: "explicit" | "env" | "one" | "none"; socket: string }
   | { kind: "many"; candidates: KavalSocketCandidate[] };
 
-/** Resolve which running kaval to dial, in precedence order (padi's
- *  `resolveRunningPadiSocket` is the near-twin — with ONE deliberate difference:
- *  padi breaks a several-daemons tie by picking the PRIMARY one, and this does
- *  not. That rule exists because padi's flag-less face is dialed by HEADLESS
- *  callers that cannot answer a pick-one prompt (`kolu mcp` out of a systemd
- *  unit, juspay/kolu#2154); a kaval is spawned BY a padi and every kolu PTY
- *  carries `$KAVAL_SOCKET`, so nothing headless reaches a flag-less `kaval-tui`
- *  and the several case here has produced no failure to fix. Mirror it if one
- *  ever does — not on symmetry alone.
- *
- *  That argument covers the PRIMARY rule and nothing else. padi's change carried
- *  a SECOND rule this side has not adopted — a resolution is structure, one
- *  function (`localPadiSocket`) owns both refusal sentences, and a face renders
- *  no candidate list — and that one has nothing to do with headless callers.
- *  There is no `localKavalSocket`, so `kaval-tui` still hand-rolls its `many`
- *  message (omitting `$KAVAL_SOCKET` from the way out, the same drift padi's
- *  copy had) and still lets `none` fall through to a bare success that dials a
- *  socket nothing serves. Known debt, stated here rather than left for the next
- *  reader to rediscover; it is a `kaval-tui` fix, not a resolution one):
- *   1. an explicit `--socket` path wins verbatim — a user-supplied override;
- *   2. `$KAVAL_SOCKET` — stamped into every PTY a kaval/padi spawns (the `$TMUX`
- *      convention) — names the daemon that OWNS this terminal, so a flag-less
- *      `kaval-tui` INSIDE a kolu terminal "just works" and an agent driving its
- *      siblings never falls through to discovery's ambiguous `many`. Authoritative
- *      when set+non-empty: it SHORT-CIRCUITS discovery entirely (no scan runs);
- *   3. else discover the running daemon: padi keys its kaval by a digest of its
- *      state-root (`kaval-<digest>/`), so there is no single fixed path to assume.
- *      Exactly one found → `one`; more than one → `many`, each candidate LABELED
- *      (the caller renders a pick-one error); none → `none` with the bare `kaval`
- *      default, so a connect error names a sensible path. */
+/** Which running kaval to dial: an explicit path wins, then `$KAVAL_SOCKET`,
+ *  then discovery — exactly one is `one`, several are `many` (the caller
+ *  renders the choice), none is the default namespace path. */
 export function resolveRunningKavalSocket(
   explicit?: string,
 ): KavalSocketResolution {
@@ -384,8 +264,6 @@ export function resolveRunningKavalSocket(
     return { kind: "one", socket: first.socket };
   }
   if (rest.length > 0) {
-    // Each candidate already carries the label `discoverKavalCandidates` decided
-    // at its matching branch — no re-parse, no hedge.
     return { kind: "many", candidates: found };
   }
   return {

@@ -1,18 +1,3 @@
-/**
- * Pins kaval's state-root self-exit (zombie hygiene): a padi-spawned kaval whose
- * ephemeral state-root is deleted out from under it — an e2e/nix-shell run's temp
- * dir removed when the shell exits — must reap ITSELF rather than linger as a
- * leaked daemon holding a socket forever. The mechanism is the spine's ANCHOR
- * invariant (`@kolu/surface-daemon`, juspay/kolu#2010); what these pin is kaval's
- * WIRING of it — the anchor thunk that re-reads the `state-root` manifest padi
- * writes beside kaval's socket, reaped through the spine's normal teardown
- * (socket unlinked, gate released).
- *
- * A standalone kaval has NO manifest, so its anchor thunk stays `undefined` and
- * it is deliberately never reaped — its reason to exist isn't tied to any
- * state-root. These run the REAL `runKavalDaemon` in-process with a tiny poll
- * interval so the reap is observable in milliseconds.
- */
 import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -25,8 +10,6 @@ import { silentLogger as silentLog } from "@kolu/log/loggerStubs.testutil";
 const sleep = (ms: number): Promise<void> =>
   new Promise((r) => setTimeout(r, ms));
 
-// Every daemon a test starts, tracked so a failing assertion can't leave it
-// running: `afterEach` aborts each and awaits its clean exit.
 const started: Array<{ ac: AbortController; exit: Promise<DaemonExit> }> = [];
 afterEach(async () => {
   for (const d of started.splice(0)) {
@@ -43,8 +26,6 @@ interface Started {
   exit: Promise<DaemonExit>;
 }
 
-/** Start a real kaval daemon on a fresh temp rendezvous dir, polling its
- *  state-root every 20ms. Optionally seed the `state-root` manifest first. */
 function startKaval(opts: { stateRoot?: string }): Started {
   const dir = mkdtempSync(join(tmpdir(), "kaval-selfexit-"));
   const socketPath = join(dir, "pty-host.sock");
@@ -73,11 +54,8 @@ describe("kaval daemon — state-root self-exit", () => {
     expect(existsSync(d.socketPath)).toBe(true);
     expect(existsSync(d.gatePath)).toBe(true);
 
-    // Delete the state-root out from under the daemon — the nix-shell/e2e teardown.
     rmSync(stateRoot, { recursive: true, force: true });
 
-    // The daemon reaps itself: its promise resolves as the spine's anchor-gone
-    // shutdown and the socket + gate are gone (torn down via the normal path).
     const result = await d.exit;
     expect(result).toEqual({ kind: "shutdown", reason: "anchor-gone" });
     expect(existsSync(d.socketPath)).toBe(false);
@@ -89,20 +67,16 @@ describe("kaval daemon — state-root self-exit", () => {
     const d = startKaval({ stateRoot });
     await d.ready;
 
-    // Well past several poll intervals (20ms each), the daemon is STILL serving —
-    // a live state-root must never trip the self-exit.
     const outcome = await Promise.race([
       d.exit.then(() => "exited" as const),
       sleep(200).then(() => "up" as const),
     ]);
     expect(outcome).toBe("up");
     expect(existsSync(d.socketPath)).toBe(true);
-    rmSync(stateRoot, { recursive: true, force: true }); // afterEach reaps the daemon
+    rmSync(stateRoot, { recursive: true, force: true });
   }, 15000);
 
   it("never watches a standalone kaval (no state-root manifest)", async () => {
-    // No manifest written — a bare `kaval` daemon. The watcher finds nothing to
-    // watch and never self-exits, even across many poll intervals.
     const d = startKaval({});
     await d.ready;
     const outcome = await Promise.race([

@@ -1,14 +1,3 @@
-/**
- * Falsifiability test for the R-4 Phase 1 transport: the pty-host handlers
- * served over a REAL unix socket and consumed over a REAL `net.Socket` via
- * `unixSocketLink` — the exact path kaval-tui uses, minus the CLI formatting
- * (covered by kaval-tui's render test). A green run proves the pty-host's served
- * wire holds over the socket transport, not just the in-process loopback. The
- * transport hardening itself (stale-inode clearing, regular-file/EACCES
- * refusals, dir privacy) is pinned generically in `@kolu/surface`'s
- * `unix-socket.test.ts`; here we pin the kolu wrapper's promise — a usable
- * listener on success, a harmless no-op on refusal.
- */
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -40,10 +29,6 @@ function makeServed(opts?: { dataMaxQueue?: number }): PtyHostServed {
   return served;
 }
 
-/** Dial `path` and build the pty-host FACE over the link's dispatch — the two
- *  halves a wire consumer now assembles itself (`unixSocketLink` hands back a
- *  transport-neutral `{ dispatch, dispose }`, and `ptyHostClientOver` types it
- *  from the surface's own spec). Exactly what kaval-tui assembles. */
 async function connectTo(
   path: string,
 ): Promise<{ client: PtyHostClient; dispose: () => Promise<void> }> {
@@ -114,16 +99,12 @@ describeDaemon(
     });
 
     it("degrades to a no-op (never throws) when the path is already served", async () => {
-      // A second instance racing for the same path must NOT crash the caller
-      // (the e2e harness boots many servers sharing the default socket). It
-      // resolves to a harmless no-op while the original keeps serving.
       const second = await servePtyHostOverUnixSocket({
         socketPath,
         served: makeServed(),
         log: silentLog,
       });
       expect(() => second.close()).not.toThrow();
-      // the original listener is untouched and still serving
       const { client, dispose } = await connect();
       expect(
         (await Effect.runPromise(client.surface.terminal.list({}))).entries,
@@ -133,13 +114,6 @@ describeDaemon(
   },
 );
 
-// The `overflow` control frame must survive the REAL socket + ndjson
-// serialization boundary — not just the in-process loopback that
-// `inProcessPtyHost.test.ts` exercises. This is the exact attach transport
-// kaval-tui / pulam / kolu-server consume, so a serialization or schema mistake
-// in the `{ kind: "overflow" }` variant would only ever surface here. The
-// listener gets its OWN host bound to a 1-deep data queue so the slow-subscriber
-// drop is deterministic; the shared listener above keeps the default cap.
 describeDaemon(
   "servePtyHostOverUnixSocket — `overflow` frame crosses the socket",
   () => {
@@ -161,11 +135,6 @@ describeDaemon(
     afterAll(() => ovfListener.close());
 
     it("yields a typed `overflow` frame to a slow subscriber over the real socket", async () => {
-      // Two SEPARATE connections. `ctrl` drives the terminal (spawn / write /
-      // getScreenText / kill); `attachConn` carries ONLY the un-drained attach
-      // stream. They must not share a socket: a saturated attach stream
-      // backpressures its whole connection, so a shared-socket `getScreenText`
-      // would deadlock behind the very stream we are deliberately not reading.
       const ctrl = await connectTo(ovfSocketPath);
       const attachConn = await connectTo(ovfSocketPath);
       const cwd = mkdtempSync(join(tmpdir(), "kolu-pty-ovf-cwd-"));
@@ -173,12 +142,6 @@ describeDaemon(
         ctrl.client.surface.terminal.spawn(spawnInput(cwd)),
       );
 
-      // Pull the snapshot — that runs the subscription (it subscribes to the
-      // data channel) — then STOP reading. Unlike the in-process loopback, a
-      // few chunks won't trip the drop here: the server drains the 1-deep channel
-      // straight into the socket's kernel buffer. We need a CONTINUOUS flood so
-      // the kernel buffer fills, the server's socket write backpressures, and the
-      // channel then overflows its 1-deep bound while we look away.
       const iter = openStream(
         attachConn.client.surface.terminalAttach.get({ id }),
       );
@@ -186,9 +149,6 @@ describeDaemon(
       expect(snap.done).toBe(false);
       if (!snap.done) expect(snap.value.kind).toBe("snapshot");
 
-      // `yes` floods the PTY without bound; the drop sheds the wedged attach
-      // subscriber while the screen mirror (a separate, always-drained consumer)
-      // keeps flowing, so `getScreenText` over `ctrl` still answers.
       await Effect.runPromise(
         ctrl.client.surface.terminal.write({ id, data: "yes OVFLINE\n" }),
       );
@@ -201,13 +161,8 @@ describeDaemon(
         await new Promise((r) => setTimeout(r, 50));
       }
       expect(text).toContain("OVFLINE");
-      // Give the flood a beat to saturate the attach socket and latch the drop
-      // before we start reading.
       await new Promise((r) => setTimeout(r, 500));
 
-      // Drain: a typed `overflow` frame must arrive over the socket — eventually,
-      // after the buffered deltas. The bound is generous because the kernel socket
-      // buffer drains many laggard frames before the bounded queue trips the drop.
       const kinds = await drainForOverflow(iter, 5000);
       expect(kinds).toContain("overflow");
 

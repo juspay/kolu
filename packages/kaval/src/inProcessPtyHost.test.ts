@@ -1,15 +1,3 @@
-/**
- * The in-process identity-link path: the contract corpus
- * (`contractCorpus.testlib.ts`) instantiated over `createInProcessPtyHost`'s
- * `directDispatch` client — the fast path kolu-server's web tier uses — plus the
- * one mechanism that is identity-link-specific and has no socket analogue: the
- * close-before-kill silence `local.ts` relies on to keep an intentional kill
- * from surfacing as a `terminalExit`.
- *
- * The SAME corpus runs over a real spawned daemon's socket in
- * `socketDaemon.test.ts`, so the two links are pinned to identical behaviour.
- */
-
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -43,8 +31,6 @@ function makeClient(opts?: { dataMaxQueue?: number }): PtyHostClient {
 
 const makeCwd = (): string => mkdtempSync(join(tmpdir(), "kolu-inproc-"));
 
-// The full contract corpus over the identity link. One host backs the whole
-// suite; the corpus reaps its PTYs in afterAll.
 runContractCorpus({
   label: "identity link",
   makeHost: async () => ({ client: makeClient(), dispose: () => {} }),
@@ -55,13 +41,6 @@ describeDaemon(
   "createInProcessPtyHost — identity-link-specific mechanism",
   () => {
     it("terminalAttach on an unknown PTY rejects with the structured PtyNotFound local.ts reads", async () => {
-      // The corpus asserts only "rejects" for the stream (over a wire the failure
-      // is an undeclared DEFECT — a `StreamSpec` has no error channel to declare
-      // on — and races a transport close). Here, on the identity link, the
-      // precise shape IS deterministic: `directDispatch` runs the very handler
-      // stream, so the `PtyNotFound` instance reaches the consumer intact. That
-      // is the shape kolu-server's `local.ts` re-attach loop reads as "the PTY is
-      // gone" (vs "the stream dropped"), so pin it here.
       const client = makeClient();
       const iterate = async (): Promise<void> => {
         const it = openStream(
@@ -75,10 +54,6 @@ describeDaemon(
     });
 
     it("inventory yields a snapshot first, then created/exited deltas (snapshot-then-deltas)", async () => {
-      // The contract kolu-server's live reconciler reads: the first frame is a
-      // snapshot of every live PTY, then membership deltas. Spawn one BEFORE
-      // subscribing so it appears in the snapshot; spawn a second AFTER so it
-      // arrives as a `created`; kill it for the `exited`.
       const client = makeClient();
       const { id: first } = await Effect.runPromise(
         client.surface.terminal.spawn(spawnInput(makeCwd())),
@@ -93,9 +68,6 @@ describeDaemon(
       const { id: second } = await Effect.runPromise(
         client.surface.terminal.spawn(spawnInput(makeCwd())),
       );
-      // The snapshot already contained `first`, so the next NEW-id frame is the
-      // `created` for `second` (a duplicate of `first` can't occur — it was live
-      // before we subscribed).
       const created = await nextFrame(it);
       expect(created).toMatchObject({ kind: "created", entry: { id: second } });
 
@@ -108,12 +80,6 @@ describeDaemon(
     });
 
     it("a closed exit subscription stops without delivering the exit (the kill-silence mechanism)", async () => {
-      // The mechanism `local.ts` relies on to keep an intentional kill silent:
-      // `teardownSensors` ends the exit tap BEFORE the kill, so the tap stops
-      // rather than yielding an exit code that would become a `terminalExit`.
-      // Under Effect that teardown is fiber INTERRUPTION rather than an
-      // `AbortSignal` (D10/#18) — `iterator.return()` is how a non-Effect
-      // consumer spells it — and the contract must honour it just the same.
       const client = makeClient();
       const { id } = await Effect.runPromise(
         client.surface.terminal.spawn(spawnInput(makeCwd())),
@@ -121,34 +87,20 @@ describeDaemon(
       const it = openStream(client.surface.exit.get({ id }));
       const next = it.next();
       closeStream(it);
-      let deliveredExit = false;
-      try {
-        const r = await next;
-        if (!r.done) deliveredExit = true; // yielded despite the teardown
-      } catch {
-        // teardown surfaced as a throw — also "stopped without delivering"
-      }
-      expect(deliveredExit).toBe(false);
+      const outcome = await next.then(
+        (r) => (r.done ? "ended" : "delivered"),
+        () => "threw" as const,
+      );
+      expect(outcome).not.toBe("delivered");
       await Effect.runPromise(client.surface.terminal.kill({ id }));
     });
 
     it("commandRun replays the last command to a late subscriber (snapshot-first)", async () => {
-      // The bug this fixes (issue #1558): a sensor that subscribes AFTER the
-      // OSC 633;E mark — a pulam that attaches lazily, or one that restarts
-      // mid-session — never learned the command, so a command-only agent like
-      // codex (it runs as `node`) showed as a non-agent `node`. The retention
-      // `commandRun` source now replays the last command snapshot-first, exactly
-      // as `foreground` already replays the current process.
       const client = makeClient();
       const { id } = await Effect.runPromise(
         client.surface.terminal.spawn(spawnInput(makeCwd())),
       );
 
-      // Drive a command-run and confirm an EARLY subscriber sees it live, so the
-      // host's retention is in place before the late subscriber joins.
-      // `subscribeFrames`, not a bare open: the subscription must be ESTABLISHED
-      // before the mark is driven, or the host's retention would replay it to a
-      // late subscriber and the "live frame" would be the replayed one.
       const early = subscribeFrames(client.surface.commandRun.get({ id }));
       await Effect.runPromise(
         client.surface.terminal.write({
@@ -160,9 +112,6 @@ describeDaemon(
       expect(liveFrame).toContain("codex");
       early.close();
 
-      // The repro: a NEW subscriber, joining after the mark, must still receive
-      // the command — snapshot-first, on its very first frame. Before the fix it
-      // got nothing and this hangs to the nextFrame timeout.
       const late = openStream(client.surface.commandRun.get({ id }));
       const replayFrame = await nextFrame(late);
       expect(replayFrame).toContain("codex");
@@ -172,9 +121,6 @@ describeDaemon(
     });
 
     it("a command-rooted spawn's commandRun snapshot replays the seed verbatim (#1872)", async () => {
-      // The seed is SENSOR data, not a command: a late subscriber (padi adopts
-      // post-spawn) replays it so it can name the foreground process — nothing
-      // reparses it into argv any more, which is why the frame carries no dialect.
       const client = makeClient();
       const { id } = await Effect.runPromise(
         client.surface.terminal.spawn({
@@ -193,28 +139,16 @@ describeDaemon(
     it("terminalAttach yields a typed `overflow` frame when a slow subscriber is dropped", {
       timeout: 20000,
     }, async () => {
-      // The R5 bug: kaval sheds a slow attach subscriber by ENDING its iterator —
-      // which, before this fix, was indistinguishable on the wire from a PTY exit,
-      // so the consumer (kolu-server's web tier) treated the drop as terminal and
-      // froze scrollback instead of re-attaching. The fix surfaces a typed
-      // `overflow` control frame as the stream's last frame, so the drop is
-      // distinguishable from a graceful end. A 1-deep data queue makes the drop
-      // deterministic.
       const client = makeClient({ dataMaxQueue: 1 });
       const { id } = await Effect.runPromise(
         client.surface.terminal.spawn(spawnInput(makeCwd())),
       );
 
-      // Read the snapshot first — that pull starts the (lazy) source generator,
-      // so it subscribes to the data channel before we flood it. Then STOP
-      // reading: live PTY output piles into this subscriber's 1-deep queue and
-      // trips the slow-subscriber drop while we look away.
       const iter = openStream(client.surface.terminalAttach.get({ id }));
       const snap = await iter.next();
       expect(snap.done).toBe(false);
       if (!snap.done) expect(snap.value.kind).toBe("snapshot");
 
-      // Produce well more than one chunk of output without reading any of it.
       for (let i = 0; i < 8; i++) {
         await Effect.runPromise(
           client.surface.terminal.write({
@@ -223,9 +157,6 @@ describeDaemon(
           }),
         );
       }
-      // Poll the rendered mirror (a separate RPC — it does NOT drain the attach
-      // stream) until the last line lands, proving the host produced the output
-      // and so the drop has latched before we start reading.
       let text = "";
       for (let i = 0; i < 120; i++) {
         ({ text } = await Effect.runPromise(
@@ -236,9 +167,6 @@ describeDaemon(
       }
       expect(text).toContain("OVF-7");
 
-      // Drain: the contract must surface a typed `overflow` frame. Before the fix
-      // the stream simply ended here (no such frame) — the exact ambiguity the fix
-      // removes. A small bound suffices in-process (the held delta, then overflow).
       const kinds = await drainForOverflow(iter, 20);
       expect(kinds).toContain("overflow");
 

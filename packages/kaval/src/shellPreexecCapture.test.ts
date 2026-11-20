@@ -1,28 +1,3 @@
-/**
- * The OSC 633;E command-capture contract under a REAL interactive bash on a
- * real PTY — including a hostile-but-popular dotfile environment: bash-preexec
- * (what atuin / ble.sh / oh-my-bash install), which takes over the DEBUG trap
- * at the first prompt.
- *
- * Repro for #2119: with bash-preexec in the user's rc, the FIRST command of
- * every shell was never marked — and an agent launch is typically the first
- * command (kolu's own restore resume-writes always are), so those terminals
- * silently never earned a resumable restoreTarget.
- *
- * These tests drive the genuine production surface end to end: the wrapper
- * rcfile `prepareShellInit` plans (kolu-pty), an interactive bash spawned on a
- * node-pty PTY, and kaval's own OSC 633 parse observed through
- * `subscribeCommandRun`'s retained frame (the ONE public reader of the mark —
- * the sensor's snapshot-first source).
- * A pipe-based harness cannot express this — bash-preexec refuses to dispatch
- * when stdout is not a tty, and PROMPT_COMMAND/readline need a real prompt
- * cycle — hence a PTY test here rather than in kolu-pty's subprocess suite.
- *
- * The bash-preexec fixture is a verbatim vendored copy of v0.6.0 (MIT,
- * https://github.com/rcaloras/bash-preexec) so the test is hermetic: it must
- * not depend on the developer's dotfiles or a store path.
- */
-
 import { execFileSync } from "node:child_process";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -40,21 +15,12 @@ const FIXTURE_BASH_PREEXEC = join(
   "bash-preexec-0.6.0.fixture.sh",
 );
 
-/** A distinctive marker printed at every prompt so the tests can count
- *  completed prompt cycles. Emitted from a PROMPT_COMMAND element, NOT via a
- *  static `PS1=`: a box with a system-wide prompt framework (the CI pool
- *  boxes run starship from /etc/bashrc) re-generates PS1 at every prompt from
- *  its own PROMPT_COMMAND hook, silently clobbering any PS1 the user rc set —
- *  while PROMPT_COMMAND elements are additive and survive every framework's
- *  self-install (bash-preexec's included, which sanitizes but preserves them). */
 const PROMPT = "KOLU_TEST_PROMPT>";
 const PROMPT_MARK_RC = [
   `__kolu_test_prompt_mark() { printf '%s' '${PROMPT}'; }`,
   `PROMPT_COMMAND="__kolu_test_prompt_mark\${PROMPT_COMMAND:+;$PROMPT_COMMAND}"`,
 ].join("\n");
 
-/** The command `subscribeCommandRun` replays on attach — the sensor's
- *  snapshot-first source, and the only public reader of the retained mark. */
 function retainedCommand(
   host: PtyHost,
   id: PtyId,
@@ -66,8 +32,6 @@ function retainedCommand(
   );
 }
 
-/** Wait for `fn`, failing with `diagnose()`'s output in the error — a CI box
- *  can't be attached to, so the timeout itself must say what the shell showed. */
 async function waitFor(
   fn: () => boolean | Promise<boolean>,
   diagnose: () => string,
@@ -81,8 +45,6 @@ async function waitFor(
   }
 }
 
-/** Interactive bash resolved from PATH (the nix devshell's, never /bin/bash —
- *  `selectShellInit` keys on the `/bash` suffix, which both spell). */
 function resolveBash(): string {
   const bash = execFileSync("/bin/sh", ["-c", "command -v bash"], {
     encoding: "utf8",
@@ -99,14 +61,6 @@ describeDaemon("OSC 633;E capture in a real interactive bash", () => {
     host?.dispose();
     host = undefined;
     for (const dir of tempDirs.splice(0)) {
-      // `dispose()` above signals the PTY's bash to die; it does not wait for
-      // it. A shell still flushing (its `.bash_history`, a wrapper rcfile)
-      // re-populates the directory under the recursive walk, and the rm fails
-      // ENOTEMPTY — which surfaced the moment the `daemon` lane stopped being
-      // padded by 41 fork-free packages and started running these suites
-      // back-to-back on a loaded box. `maxRetries`/`retryDelay` are node's own
-      // answer to exactly this (it retries EBUSY/ENOTEMPTY/EPERM); a bare rm
-      // was racing a process it never waited for.
       rmSync(dir, {
         recursive: true,
         force: true,
@@ -116,9 +70,6 @@ describeDaemon("OSC 633;E capture in a real interactive bash", () => {
     }
   });
 
-  /** Spawn an interactive bash through the REAL spawn plan: a temp HOME whose
-   *  `.bashrc` is `userRc`, the wrapper rcfile from `prepareShellInit`
-   *  materialised verbatim, and the shell on a genuine PTY. */
   function spawnInteractiveBash(userRc: string): {
     id: string;
     promptCount: () => number;
@@ -155,8 +106,6 @@ describeDaemon("OSC 633;E capture in a real interactive bash", () => {
     return { id, promptCount, screen };
   }
 
-  /** Type one command at the current prompt and wait for the next prompt —
-   *  i.e. a full read → execute → prompt cycle, like a user at the keyboard. */
   async function runCommand(
     t: { id: string; promptCount: () => number; screen: () => string },
     command: string,
@@ -166,21 +115,14 @@ describeDaemon("OSC 633;E capture in a real interactive bash", () => {
     await waitFor(() => t.promptCount() > before, t.screen);
   }
 
-  /** The user rc of an atuin-style setup: bash-preexec sourced from the rc,
-   *  exactly as `atuin init bash` arranges (bash-preexec first, then hooks). */
   const bashPreexecRc = [
     PROMPT_MARK_RC,
     `source '${FIXTURE_BASH_PREEXEC}'`,
     "",
   ].join("\n");
 
-  /** A plain rc — no DEBUG-trap contenders. */
   const plainRc = `${PROMPT_MARK_RC}\n`;
 
-  // Generous per-test timeouts: a cold CI box pays real startup cost for an
-  // interactive bash (replayed /etc/profile and all), and the inner waitFors
-  // carry the screen in their failure — a vitest-level timeout would say
-  // nothing. 60s per test dwarfs any loaded-box stall.
   const SLOW = { timeout: 60_000 };
 
   it(
@@ -190,9 +132,6 @@ describeDaemon("OSC 633;E capture in a real interactive bash", () => {
       const t = spawnInteractiveBash(bashPreexecRc);
       await waitFor(() => t.promptCount() >= 1, t.screen);
       await runCommand(t, "echo t1");
-      // The agent-launch slot: command #1. Before the fix, bash-preexec's
-      // first-prompt DEBUG-trap takeover left its dispatch gate closed for
-      // exactly this command, and the mark never fired.
       await waitFor(
         async () => (await retainedCommand(host!, t.id)) === "echo t1",
         t.screen,

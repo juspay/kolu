@@ -1,15 +1,3 @@
-/**
- * The spawn handler's init-file rollback when `host.spawn` itself throws.
- *
- * The host materialises the client's `initFiles` BEFORE node-pty forks, and
- * registers their cleanup as the PTY's `onDispose`. If the fork throws, that
- * `onDispose` never fires — so the handler must remove the files it wrote
- * inline before rethrowing, or a failed spawn leaks wrapper rc files under
- * `rcDir`. node-pty doesn't throw synchronously for bad shells/cwds (the
- * failure surfaces async on the child), so we mock the primitive to make
- * `spawn` throw deterministically and assert the disk is clean.
- */
-
 import { existsSync, mkdtempSync, readdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -18,9 +6,6 @@ import { silentLogger as silentLog } from "@kolu/log/loggerStubs.testutil";
 import { expect, it, vi } from "vitest";
 import { Effect } from "effect";
 
-// Mock the primitive so `createPtyHost().spawn` throws synchronously. Only the
-// members the spawn path touches need to exist; `has`/`list` back the handler's
-// existence guard and are harmless no-ops here.
 vi.mock("./ptyHost.ts", () => ({
   createPtyHost: () => ({
     spawn: () => {
@@ -49,8 +34,6 @@ describeDaemon(
             argv: ["/bin/bash"],
             cwd: rcDir,
             env: {},
-            // One flat + one nested file (the zsh ZDOTDIR shape) so the prune of
-            // the dir the write created is exercised on the failure path too.
             initFiles: [
               { name: "bashrc-fail", content: "export X=1" },
               { name: join("zdotdir-fail", ".zshrc"), content: "export Y=2" },

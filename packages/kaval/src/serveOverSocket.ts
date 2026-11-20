@@ -1,28 +1,3 @@
-/**
- * Serve a top-level pty-host router over a unix-domain socket — the socket
- * link the in-process header promises ("Reused over a socket by the
- * surviving daemon"). kolu-server uses it for R-4 Phase 1 (so `kaval-tui`
- * can reach the live PTYs); Phase B's standalone daemon reuses it unchanged.
- *
- * The transport lifecycle (probe, stale-inode clearing, dir-privacy gate,
- * listen, per-connection serving) is `serveOverUnixSocket` in
- * `@kolu/surface/unix-socket` — generic and never-crashing: every failure
- * mode resolves to a no-op listener with a machine-readable `outcome`. This
- * module is the kolu voice on top: it maps each outcome to an operator-facing
- * log line with the kolu-specific advice (what the socket is for, which flag
- * to reach for). The caller passes the served wire
- * (`createInProcessPtyHost`'s `served` — `{ group, handlers }`); the handlers
- * are shared across connections (and with the in-process `directDispatch`
- * client).
- *
- * `serveOverUnixSocket` lost its `log` option in the Effect port (S4 deleted
- * `UnixSocketLogger`); juspay/kolu#2101 N3 restored it, REQUIRED this time, and
- * it now narrates the listener's own lifetime (bound / post-listen fault /
- * closed). The division of voice is unchanged: the transport narrates the
- * listener, this module narrates the BIND-TIME verdicts with the kolu-specific
- * advice — so `log` is required here too, and there is no way to serve a
- * pty-host socket that nobody is listening to the health of.
- */
 import {
   serveOverUnixSocket,
   type UnixSocketListener,
@@ -39,11 +14,6 @@ export type PtyHostSocketListener = Pick<
   "socketPath" | "close"
 >;
 
-/** The kolu-flavored warning for each way `serveOverUnixSocket` can refuse
- *  to bind. The socket serves the FULL `ptyHostSurface`
- *  (write/kill/spawn/getScreenText), so the privacy refusals are security
- *  refusals; the rest are single-server-model collisions where
- *  `--pty-host-socket` is the way out. */
 function describeRefusal(
   outcome: Exclude<UnixSocketServeOutcome, { kind: "listening" }>,
 ): { msg: string; ctx: Record<string, unknown> } {

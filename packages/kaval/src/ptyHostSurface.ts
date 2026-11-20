@@ -1,57 +1,3 @@
-/**
- * `ptyHostSurface` — the typed contract for talking to a `kaval`.
- *
- * `kaval` owns **only** the PTY: the node-pty children, the
- * `@xterm/headless` screen mirror, and the raw VT-derived taps. It knows
- * nothing of git / PR / agent-detection — that volatile, most-edited code
- * runs in padi, which consumes these raw taps and runs detection fresh. This
- * contract is the `PtyHost` interface projected
- * onto a wire: control RPCs (spawn / kill / write / resize / list / screen)
- * plus the raw tap streams (attach bytes · cwd · title · command-run ·
- * foreground · exit).
- *
- * Today the surviving kaval daemon serves this contract over its unix socket;
- * padi is its supervisor and primary client. `kaval-tui` reaches the same
- * surface locally, while its ssh stdio front reaches the daemon remotely. The
- * transport-independent client face (`PtyHostClient`, derived from this spec)
- * keeps those consumers invariant. The frozen control identity/drain fragment is
- * served beside this versioned surface, so connection identity is established
- * before this wire is judged for compatibility. See
- * `docs/atlas/src/content/atlas/pty-daemon.mdx` (Fresh approach).
- *
- * Contract version. Keyed on the *wire shape*, not the kolu binary — so a
- * future long-lived daemon survives kolu upgrades that don't touch this
- * shape. The consumer decides compatibility via `isContractVersionCompatible`
- * from `@kolu/surface/define`; an incompatible skew is the (rare, accepted)
- * forced restart. The *build
- * identity* — a finer per-build key for an "update pending" nudge on a
- * wire-compatible but stale survivor — remains a separate frozen-control
- * concern; this module defines only the versioned wire shape.
- *
- * Layering note. Co-locating the contract here gives `kaval` a
- * **contract-definition-only** dependency on `@kolu/surface` (just
- * `defineSurface`, which itself pulls only `effect`'s `Schema` + `RpcGroup`).
- * PTY ids
- * cross the wire as opaque strings — the host neither mints nor interprets
- * them, so it carries no domain schema; the consumer (kolu-server) validates
- * ids against its own `TerminalIdSchema` at its own boundary. The contract and
- * the host version are one change-axis (they have moved together every time
- * the host interface changed), so they must not be allowed to drift apart. The
- * accepted cost: a breaking `defineSurface` API change forces a re-release even
- * though node-pty / the screen mirror are untouched. If that ever bites, the
- * escape hatch is a standalone dependency-free contract package —
- * over-engineering today for a stably co-versioned pair.
- *
- * The wire is **fully specified** (B0, the kaval inversion): `spawn` carries
- * the complete `{argv, env, initFiles}` the host is to execute, and the host
- * derives *nothing* from its own `process.env`. All spawn policy — env basis,
- * identity vars, shell-init rcfiles — is composed by the client (kolu-server's
- * `kolu-pty`) against `system.info`'s host facts, then handed over as data.
- * The host writes the rcfiles it is given, spawns the argv verbatim, and asks
- * no questions. This is what lets a remote host run the same code with no
- * kolu in it. See `docs/atlas/src/content/atlas/pty-daemon.mdx` (B0).
- */
-
 import type { DaemonLifetimeInfo } from "@kolu/surface-daemon";
 import {
   defineSurface,
@@ -66,304 +12,16 @@ import type {
   SnapshotRow,
 } from "terminal-snapshot";
 
-/** A whole positive count — the `z.number().int().positive()` of this wire.
- *  Named once so every grid dimension, chunk bound and scrollback depth is the
- *  SAME check rather than three re-derivations that can drift. */
 const PositiveInt = Schema.Int.check(Schema.isGreaterThan(0));
 
-/** A whole non-negative count/index — the `z.number().int().nonnegative()` of
- *  this wire (line cursors, tail lengths). */
 const NonNegativeInt = Schema.Int.check(Schema.isGreaterThanOrEqualTo(0));
 
-/** The wire-shape `major.minor` version this build serves and expects.
- *  Bumped only when `ptyHostSurface` itself changes shape: minor for additive
- *  changes (a new optional field / procedure / stream), major for breaking
- *  ones. Internal refactors (the kolu binary, the provider DAG) do NOT bump
- *  it — that's the point, so a long-lived pty-host survives most kolu
- *  upgrades. Bumped to 3.0 by B0: `spawn` became fully specified (breaking)
- *  and `system.info` was added. Bumped to 3.1 (additive · minor): the
- *  host-global `inventory` stream — a daemon that predates it (a 3.0 survivor)
- *  is wire-incompatible and forced to recycle, never silently degraded to a
- *  boot-only adoption. Bumped to 3.2 (additive · minor): the new
- *  `system.processMemory` verb reports the daemon's `rss` so the server can
- *  surface kaval's memory on the rail — a 3.1 survivor (lacking the verb) is
- *  recycled on adoption rather than silently reporting no daemon memory.
- *  Bumped to 3.3 (additive · minor): the `commandRun` stream gained a required
- *  `replayed` field on each frame (snapshot-replay vs. live mark; REMOVED again at
- *  7.1 — see [#2326] below) — a 3.2
- *  survivor would serve bare `{ command }` frames the new schema rejects, so it
- *  is recycled on adoption rather than feeding the server unparseable marks.
- *  Bumped to 4.0 (breaking · major): `getScreenText`'s input was *reshaped*, not
- *  extended — the positional `startLine` / `endLine` / `tailLines` fields were
- *  removed and replaced by a single optional `extent` discriminated union
- *  ({ full | range | tail | viewport }, viewport = the host's own visible
- *  `rows`). This is NOT additive in either skew direction: a new daemon serving
- *  the 4.0 schema would silently STRIP an old 3.x client's legacy `tailLines`
- *  (zod drops unknown keys) and return the full scrollback — the exact
- *  full-buffer poll cost this change removes — while an old 3.x daemon would
- *  ignore a new client's `extent`. A major bump makes the predicate reject the
- *  skew in BOTH directions (`major` mismatch), so each side forces an honest
- *  recycle instead of a silently-wrong bound.
- *  Bumped to 5.0 (BREAKING · major): `terminalAttach` gained an `overflow`
- *  control frame — a NEW discriminant the host EMITS on the existing attach
- *  stream when it drops a slow subscriber, so a consumer re-attaches for a fresh
- *  snapshot rather than mistaking the drop for a PTY exit. Unlike the additive
- *  minor bumps above, a new EMITTED union variant is NOT backwards-compatible in
- *  the direction `isContractVersionCompatible` actually allows: an older client
- *  accepts a newer-minor daemon (reported minor >= its own), then meets an
- *  `overflow` frame its `terminalAttach` schema cannot discriminate — it either
- *  rejects the parse or writes a dataless frame. A field-add survives that
- *  direction (the old client strips the unknown key); an emitted variant does
- *  not. Every prior bump's breaking direction was new-client/old-daemon, which
- *  the predicate already recycles; this one's is old-client/new-daemon, which a
- *  minor bump would silently wave through. So it is a major bump: a 4.x peer on
- *  EITHER side is now a clean skew (recycled / refused with an honest restart
- *  message) instead of a silent mis-parse.
- *
- *  `system.version` also gained an optional `lifetime` sibling of `identity` (the
- *  daemon's `DaemonLifetimeInfo`, for the Kaval dialog's lifetime row) — added
- *  WITHOUT a contract bump, exactly like `identity` itself. `isContractVersionCompatible`
- *  only accepts `reported.minor >= expected.minor`, so a bump would make a surviving
- *  pre-field 5.0 kaval a SKEW against a freshly-deployed 5.1 padi, and a skewed kaval
- *  is RECYCLED — its live PTYs killed (unlike padi, which drains). A cosmetic readout
- *  must never cost a terminal: leaving the field optional at 5.0 keeps the survivor
- *  handshake-compatible (adopted, PTYs intact), and the reader falls back to "—" until
- *  the user's next kaval restart reports it.
- *
- *  Bumped to 5.1 (additive · minor): scrollback-backfill. Two shape changes,
- *  both breaking only in the new-client/old-daemon direction the predicate
- *  already recycles. (1) A new `terminal.getHistory` read verb serves older
- *  mirror scrollback in cursor-paged chunks (the client backfills its own
- *  scrollback as it scrolls up; `kaval-tui history` is a second consumer). (2)
- *  The `terminalAttach` `snapshot` frame gained a required `topLine` — the
- *  absolute mirror-line seed the client's backfill cursor starts from. Like the
- *  3.3 `commandRun.replayed` add, a 5.0 survivor serving a bare `{ kind, data }`
- *  snapshot frame is rejected by the new schema and RECYCLED on adoption, rather
- *  than seeding the client's backfill from a missing anchor. The attach snapshot
- *  is also now BOUNDED (the recent screenful, not the whole 10k mirror) — a
- *  payload-size change, invisible to the wire shape, so it needs no bump on its
- *  own.
- *
- *  Why the bounded snapshot stays a MINOR (the old-client/new-daemon direction).
- *  A 5.0 client accepting a 5.1 daemon (minor >= its own, the direction the
- *  predicate waves through) strips the unknown `topLine`, lacks `getHistory`, and
- *  now paints only the ~1000-line bounded snapshot where it once got the full
- *  mirror — it shows LESS scrollback. Unlike the 4.0 `getScreenText` reshape
- *  (which returned the WRONG bytes — a full buffer where a tail was asked — and
- *  mis-parsed a legacy field), this is a GRACEFUL degradation: no mis-parse, no
- *  corruption, the PTY fully usable, just a shorter cold-attach history. That is
- *  exactly the class the lifetime field above kept OPTIONAL rather than bump — "a
- *  cosmetic readout must never cost a terminal." A major here would make an old
- *  padi meeting a new surviving kaval a SKEW and RECYCLE it — killing the user's
- *  live PTYs — to buy back scrollback depth on a downgrade-only path (a newer
- *  kaval under an older padi arises only when padi is rolled BACK while its kaval
- *  survives). And the end-to-end client↔padi skew that actually reaches a browser
- *  is already refused by `PADI_SURFACE_VERSION`'s 3.0 major (the `terminalAttach`
- *  reshape). So this leg stays minor: graceful, PTY-preserving, and belt-and-
- *  suspendered by the padi major. */
-/*  Bumped to 5.2 (additive · minor): the scrollback-backfill reflow guard (F3).
- *  (1) the `terminalAttach` snapshot frame carries an OPTIONAL `reflowEpoch` —
- *  the mirror's reflow generation the snapshot was serialized under; (2)
- *  `getHistory` input gains an OPTIONAL `epoch` the client echoes; (3)
- *  `getHistory` output is reshaped to a `chunk | stale` DISCRIMINATED UNION (the
- *  stale-reflow halt as its own arm, not a `stale` flag — invalid-states-
- *  unrepresentable). Together they let a client whose shared mirror a FOREIGN
- *  attach reflowed (its own `term.cols` unchanged) HALT backfill instead of
- *  splicing a duplicated/skipped band. Skew stays graceful in the accepting
- *  direction: the `stale` arm is reachable ONLY when the caller sends `epoch`, so
- *  a 5.1 client (which sends none) receives only `chunk` frames and strips the
- *  extra `kind` key — fail-open, exactly as before. The other direction
- *  (new-client/old-daemon: a 5.2 client's union schema meets a 5.1 daemon's flat
- *  reply) is the usual `reported.minor < expected.minor` recycle every minor bump
- *  already forces, before any `getHistory` call runs. */
-/*  #1872 (spawn-detection): `commandRooted` — an OPTIONAL boolean added to BOTH
- *  the spawn input and the inventory list entry — rides at 5.2 with NO bump. It
- *  is a field-add, not a new emitted union variant, and its absence degrades to
- *  EXACTLY today's reading in both skew directions: a survivor daemon that never
- *  sets it, or a survivor server that strips it, simply reads every PTY as
- *  shell-rooted — the pre-fix behavior, never a mis-parse. This is the negative
- *  of the emitted-variant rule the recent worked examples teach: the #1865
- *  orphan-4.1 fold-back (an optional field kept a survivor adopted) vs #1876's
- *  incompatible-arm bump (a new emitted variant an old peer cannot discriminate,
- *  so it MUST recycle). `commandRooted` is the former, and a bump would
- *  force-recycle a surviving kaval — killing its live PTYs — to buy a feature
- *  whose absence is the status quo. Same call the `lifetime` field made at 5.0:
- *  a cosmetic/graceful readout must never cost a terminal.
- *
- *  #1872 also adds an OPTIONAL `shellJoin` to the `commandRun` frame (the retained
- *  command's quoting dialect, so a replayed seed vs a raw 633 line is reparsed with
- *  the right tokenizer) — same additive-optional call, NO bump: a survivor that
- *  omits it degrades to the raw (`string-argv`) reading, the pre-fix behavior.
- *  [#2326] That `shellJoin` field is REMOVED again (the sensor no longer reparses
- *  the mark at all — see below), and — being `optionalKey` — its removal needs NO
- *  bump: a survivor that still emits it is stripped by this schema, and a consumer
- *  of a survivor that omits it reads the same `command`. Nothing branches on the
- *  value any more, so there is no behaviour to mis-parse.
- *  The `command` mark itself is declared a SENSOR: no consumer may replay it.
- *
- *  [#2326] The `replayed` flag is REMOVED too, and THIS one forces the "8.0" bump
- *  below. It was a REQUIRED field (3.3), so it is not the `shellJoin` case: a 7.1
- *  consumer meeting a newer daemon that omits it rejects the whole frame. And a
- *  rejected frame here is not cosmetic — `commandRun` is a pure-enrichment tap
- *  with no `onError`/retry, so it dies at the first mark for that terminal's
- *  life: every shim hint and the launch-window `unknown` fence, on every
- *  terminal of a rolled-back install. The honest answer is the 3.3 reasoning
- *  again — an incompatible shape change RECYCLES the survivor (its session parks
- *  and restores) rather than serving frames the peer cannot read. */
-/*  Bumped to 5.3 (MINOR): the host-global `activity` stream (meaningful-output
- *  edges). This is a NEW EMITTED STREAM MEMBER, not an optional field — a survivor
- *  5.2 daemon does not serve it at all, so a 5.3 consumer subscribing would hit a
- *  missing stream. Unlike `commandRooted`/`lifetime` (optional fields whose absence
- *  degrades to the status quo), there is no graceful degradation for an absent
- *  stream live-activity cutover depends on — so the minor bump correctly
- *  force-recycles a surviving old kaval (its session parks + restores) rather than
- *  leave a consumer talking to a stream that isn't there.
- *
- *  Bumped to 6.0 (BREAKING · major): `system.processMemory` is REMOVED after padi
- *  moved both its own and kaval's RSS reads to one baked osfacts `--mem` call. A
- *  5.3 client meeting a 6.0 daemon would call a missing procedure; a 6.0 client
- *  meeting a 5.3 daemon simply leaves a dead member unused. Only a major rejects
- *  both directions, so rollback never waves the missing-procedure direction
- *  through. `system.version` is byte-for-byte unchanged — its exact schema pin
- *  remains the frozen handshake used before compatibility is judged.
- *
- *  Bumped to 7.0 (BREAKING · major) — the **protocol-epoch flag day** (PLAN D6).
- *  Nothing in the *payload* shapes below moved: every member encodes byte-for-byte
- *  as it did under zod, which the fixtures in `ptyHostSurface.test.ts` assert as
- *  literal JSON strings rather than assume. What moved is the FRAMING underneath
- *  them — this surface used to ride oRPC's base64+newline peer protocol and now
- *  rides Effect RPC ndjson. That is a declared flag day, not a negotiation: a 6.0
- *  daemon cannot be asked its version at all, because its first frame is
- *  undecodable by a 7.0 client (and vice versa). Cross-epoch peers are therefore
- *  observed as an *unspeakable protocol* at the transport — the supervisor's
- *  domain (D6/#3), never this constant's.
- *
- *  So why bump, if the lever is inert across the only boundary that changed?
- *  Because this constant is the **in-epoch skew mechanism**, and it must keep
- *  working from the flag day forward (PLAN D6's final bullet). Leaving it at "6.0"
- *  would let two mutually undecodable epochs report the SAME version string, so
- *  the first genuine in-epoch shape change would have no honest predecessor to
- *  compare against — and a `6.0`-reporting survivor adopted by a 7.x padi would be
- *  waved through as compatible on the strength of a string it can no longer even
- *  transmit. The major digit names the epoch; the minor resumes its usual additive
- *  duty from here, exactly as it did across 3.x–5.x. */
-/*  Bumped to 7.1 (MINOR · additive): `terminal.getScreenCells`, the attributed
- *  read a rendered screenshot is drawn from (padi's `screen.image`, the
- *  `screen_image` MCP tool, `kolu screenshot`).
- *
- *  A NEW PROCEDURE is a new emitted member, so this follows the 5.3 activity-stream
- *  precedent, not the `commandRooted` optional-field one: a survivor 7.0 daemon
- *  does not serve it at all, and a 7.1 padi calling it would hit a missing
- *  procedure rather than degrade. The minor bump makes that skew a RECYCLE (the
- *  session parks and restores) instead of a runtime hole.
- *
- *  The competing call was to add it with NO bump and let a survivor answer
- *  screenshot requests with a loud per-call failure — `commandRooted`'s rule that
- *  "a cosmetic readout must never cost a terminal", and a screenshot is cosmetic.
- *  It was rejected because the two cases differ in WHERE the absence lands:
- *  `commandRooted` absent degrades to the pre-existing reading with nothing to
- *  explain, while a missing procedure surfaces as an unspeakable-member error at
- *  the wire — the class of failure this constant exists to convert into an honest,
- *  managed recycle. The park/restore cost is bounded and already the routine price
- *  of every other additive member.
- *
- *  Bumped to 8.0 (BREAKING · major): `commandRun` loses its REQUIRED `replayed`
- *  field (see [#2326] above). A required-field REMOVAL is the 3.3 shape inverted
- *  — a survivor that still sends it is fine (stripped), but an OLD consumer
- *  meeting this daemon rejects every frame, and the tap has no retry, so that
- *  terminal keeps no marks for the life of the process. A MINOR is not enough:
- *  `isContractVersionCompatible` is `major equal && reported.minor >= expected`,
- *  so a 7.2 daemon reads as compatible to a 7.1 consumer and the skew is waved
- *  through. The file's own precedent for OLD-consumer/new-daemon is the major at
- *  the `overflow` variant (`:111-118`): only a major rejects BOTH directions, so
- *  rollback never waves a shape the peer cannot decode through. The recycle is
- *  honest (session parks and restores).
- *
- *  **kolu#2362 rides at 8.0 with NO bump — a BEHAVIOUR change, not a shape
- *  change.** Nothing on this wire moved: no new frame kind, no new field, no new
- *  member. Two things the host DOES moved, and both are expressed entirely in
- *  frames 5.0 already defined.
- *
- *  (1) A data subscriber is now dropped on a BYTE budget — "more queued for you
- *  than a fresh bounded snapshot would cost" — instead of only at 10,000 queued
- *  chunks. (2) A REAL resize opens a WINDOW (a flat 600 ms from the latest
- *  resize) during which
- *  parsed output is WITHHELD rather than published. At close, output that fits
- *  the budget is simply delivered — nothing visible happens to the consumer at
- *  all, which is the common case for a plain shell — and output larger than the
- *  budget is discarded in favour of dropping the subscribers, who then see the
- *  SAME `overflow` frame they have handled since 5.0 and the same fresh
- *  snapshot.
- *
- *  So there are exactly two consumer-visible differences, both TIMING: deltas
- *  may arrive up to the window late after a resize, and an attach that lands
- *  inside a window already open may wait for it (an attach whose OWN `resizeTo`
- *  opens the window is not delayed).
- *
- *  Why that is safe in both skew directions. An OLD consumer against a NEW
- *  daemon already handles `overflow` (it is 5.0's whole reason for the major) and
- *  already has no deadline on the first frame — an attach has always waited on a
- *  remote host over ssh, and the cap is an order of magnitude under the
- *  supervisor's adoption timeouts. A NEW consumer against an OLD daemon sees
- *  exactly today's behaviour: fewer overflow frames and no window, which is the
- *  status quo, not a lie. A version bump would therefore buy nothing and cost a
- *  forced recycle — killing live PTYs — which is the one price this file keeps
- *  refusing to pay for something that degrades gracefully.
- *
- *  Bumped to 9.0 (BREAKING · major): the attach stream gained a `resized`
- *  frame, and its `snapshot` frame's `grid` became REQUIRED.
- *
- *  The frame says WHERE IN THE BYTE STREAM the mirror changed size. Until now a
- *  consumer could only learn a resize had happened out of band — it published a
- *  grid and the host acted on it some time later — so a viewer's own terminal
- *  and this host's mirror changed size at two different points in one stream of
- *  bytes. Everything written in that gap was laid out for one grid and parsed at
- *  the other, and the two screens diverged: a cursor row apart, different lines
- *  pulled out of scrollback, and a full-screen program's relative repaint
- *  ("up N, erase below, redraw") then erasing the wrong rows on the viewer's
- *  side only. With the frame, a viewer resizes AT the frame and the two screens
- *  cannot disagree about a resize at all (kolu#2362, kolu#2372).
- *
- *  A TYPED frame, never an escape sequence inside `delta` bytes: program output
- *  is untrusted and would be able to forge an in-band marker (`scrollbackBack-
- *  fill.ts` already has to defend its own seed seam with a per-frame token).
- *
- *  Both halves are the `overflow` class at 5.0, which is the file's precedent
- *  for a MAJOR: a NEW EMITTED VARIANT is the one direction
- *  `isContractVersionCompatible` waves through (`major equal && reported.minor
- *  >= expected`), so an 8.x consumer would accept this daemon and then meet a
- *  frame its schema cannot discriminate. The required `grid` is the same shape
- *  inverted — an 8.x DAEMON omitting it fails a 9.0 consumer's decode on every
- *  attach. Only a major rejects both directions. The producer has supplied a
- *  real grid on every snapshot since 5.4, so nothing here is newly knowable;
- *  what changes is that a consumer may now RELY on it, which is what lets it
- *  size its renderer to the bytes instead of guessing.
- *
- *  The price is the one this file keeps refusing elsewhere, and it is paid
- *  deliberately: every surviving kaval is recycled on deploy, so every host's
- *  terminals park and restore. A cosmetic readout must never cost a terminal —
- *  but this is not a readout. Without it a pane silently paints a screen the
- *  program never drew, which is the defect, and no optional field can fix it:
- *  absence would mean "resize whenever you like", exactly today's behaviour. */
 export const PTY_HOST_CONTRACT_VERSION = "9.0";
 
-/** PTY ids are opaque strings on the wire — the host neither mints nor
- *  interprets them. kolu validates against its own `TerminalIdSchema` at its
- *  boundary; the host only round-trips the string. */
 const PtyIdSchema = Schema.String;
 
 const TerminalIdInputSchema = Schema.Struct({ id: PtyIdSchema });
 
-/** The single bound axis of a screen read, as a closed union — so the host
- *  can't be handed two conflicting bounds (a tail AND a viewport) to silently
- *  choose between. Omit it for the full buffer. `viewport` carries no payload:
- *  it resolves to the last `rows` rendered lines against the host's own live
- *  grid, which the caller can't know (a CLI's stdout is usually a pipe, never
- *  the daemon terminal's size).
- *
- *  The VOCABULARY is shared with `getScreenCells` (see
- *  {@link ScreenCellsInputSchema}); the CEILING is not — a full-scrollback
- *  read is a string here and a 50,000-row attributed frame there. */
 const ScreenExtentSchema = Schema.Union([
   Schema.Struct({ kind: Schema.Literal("full") }),
   Schema.Struct({
@@ -373,9 +31,6 @@ const ScreenExtentSchema = Schema.Union([
   }),
   Schema.Struct({
     kind: Schema.Literal("tail"),
-    // "Last N lines" — N is a count, so a negative is meaningless. Reject it at
-    // the wire boundary (fail loud) rather than letting a `Math.max(0, …)`
-    // clamp downstream turn it into a silent empty read.
     lines: NonNegativeInt,
   }),
   Schema.Struct({ kind: Schema.Literal("viewport") }),
@@ -386,67 +41,10 @@ const ScreenReadInputSchema = Schema.Struct({
   extent: Schema.optionalKey(ScreenExtentSchema),
 });
 
-/** The most rows ONE attributed-cell read will ever serve.
- *
- *  A cell costs ~30x its character on the wire, so a bound that is fine for
- *  `getScreenText` is not fine here: `full` over kolu's 50,000-line retention
- *  is a frame far past `RPC_MAX_FRAME_BYTES`. padi caps its own `screen.image`
- *  face too — this is the wire's ceiling underneath that one, so the bound is
- *  a property of the contract rather than of whichever caller remembered.
- *
- *  Rows are the only axis a CALLER can name, which is why this one is a wire
- *  check. What the read actually costs is an area — see
- *  {@link SCREEN_CELLS_MAX_CELLS}. */
 export const SCREEN_CELLS_MAX_ROWS = 200;
 
-/** The most CELLS one attributed read will ever serve — the ceiling that
- *  actually binds.
- *
- *  A row cap alone bounded one axis of a two-axis cost. Nothing bounds
- *  columns: `terminal.resize` takes a bare positive `cols`, so the width is
- *  whatever the OS ioctl accepts, and a screen 200 rows tall and 1,000 columns
- *  wide is 200,000 cells — an eighth of a megapixel of `<text>` elements (the
- *  renderer emits one per CELL, deliberately, for ligature safety), which
- *  reintroduces on the column axis exactly the multi-second stall the row cap
- *  was built to remove.
- *
- *  An AREA rather than a second axis ceiling, because two independent
- *  ceilings multiply: even a tight 200x200 pair still admits 40,000 cells, and
- *  a generous one admits millions. `rows * cols` is the number the cost is
- *  actually linear in, so it is the number to bound.
- *
- *  26,000 is 200 x 130 — the exact grid BOTH of this subsystem's worst-case
- *  measurements were taken on: the 4.1 MB frame that motivated
- *  {@link omittedWhenDefault}, and the 2,482 ms rasterise `terminal-snapshot`'s
- *  `pngWorker.ts` records. Holding the area there is what keeps those two
- *  numbers the worst case rather than a sample of it.
- *
- *  The two axes trade, which is the point of an area: a 300-column terminal
- *  gets its full width at 80 rows, and an 80x24 shell is nowhere near the
- *  ceiling either way. Only a read that is BOTH very tall and very wide is
- *  trimmed. */
 export const SCREEN_CELLS_MAX_CELLS = 26_000;
 
-/** The slice a read of `rows` x `cols` actually gets, trimmed to both
- *  ceilings.
- *
- *  ROWS are honoured first and trimmed only by {@link SCREEN_CELLS_MAX_ROWS},
- *  because rows are the axis a caller can NAME: an explicit `tail.lines` past
- *  the cap is refused at the wire (a caller that asked for 5,000 rows and
- *  silently got 200 would be shown a picture that is not the answer to its
- *  question), and a `viewport` of a taller terminal keeps the BOTTOM rows —
- *  where the prompt is.
- *
- *  COLUMNS then absorb whatever the area cap still needs, and take the
- *  LEFTMOST — a terminal's left edge carries the prompt, the tree glyphs and
- *  the structure, while its right edge is mostly the ragged ends of lines.
- *  Nothing to refuse on this axis: no caller can state a width, so a trim here
- *  is never a caller being told something other than what it asked for. It is
- *  STATED, not hidden — the grid carries the `cols` it was actually read at,
- *  and padi's `screen.image` reply echoes it.
- *
- *  A zero-row read (an empty buffer) keeps the full width: there is no area to
- *  divide, and a zero `cols` is not a grid any renderer would accept. */
 export function boundScreenCells(
   rows: number,
   cols: number,
@@ -459,13 +57,6 @@ export function boundScreenCells(
   };
 }
 
-/** The slice a PICTURE read can ask for — deliberately narrower than
- *  {@link ScreenExtentSchema}, which the text read uses.
- *
- *  No `full` and no `range`: a screenshot is drawn of the present tense, and
- *  an unbounded attributed read is a footgun rather than a feature. Same
- *  vocabulary, so `resolveScreenExtent` still resolves both slices with one
- *  answer to "what does viewport mean". */
 const ScreenCellsInputSchema = Schema.Struct({
   id: PtyIdSchema,
   extent: Schema.optionalKey(
@@ -481,23 +72,8 @@ const ScreenCellsInputSchema = Schema.Struct({
   ),
 });
 
-/** The wire form of `terminal-snapshot`'s {@link CellColor} — a cell colour
- *  exactly as the VT stream expressed it, NOT a resolved pixel. "palette 4"
- *  only becomes a colour once someone knows which theme is on, and this daemon
- *  does not: kolu's themes are a per-terminal user choice padi holds.
- *
- *  `satisfies WireSchema<T>` on this and the three below is what stops the
- *  schema and the TS type it mirrors drifting: they are one vocabulary spelled
- *  twice — once for the wire, once for the renderer that reads it — and a
- *  field added to either without the other now fails typecheck here instead of
- *  being silently dropped at encode. Same idiom, same reason, as
- *  {@link DaemonLifetimeInfoSchema} below. */
 const CellColorSchema = Schema.Union([
   Schema.Struct({ kind: Schema.Literal("default") }),
-  // Bounded to xterm's actual 256-colour table. `NonNegativeInt` alone let a
-  // stale or lying peer send index 300, which the renderer's greyscale ramp
-  // extrapolates into an out-of-range channel — a valid-looking PNG with
-  // garbage colours. Refused at decode instead.
   Schema.Struct({
     kind: Schema.Literal("palette"),
     index: NonNegativeInt.check(Schema.isLessThanOrEqualTo(255)),
@@ -505,81 +81,34 @@ const CellColorSchema = Schema.Union([
   Schema.Struct({ kind: Schema.Literal("rgb"), value: NonNegativeInt }),
 ]) satisfies WireSchema<CellColor>;
 
-/** A field whose commonest value is left OFF the wire entirely — absent on
- *  encode, restored on decode — while the decoded type keeps it required.
- *
- *  A screenful of cells is the largest thing this surface ever ships, and
- *  almost every cell is unstyled: at the 200-row cap a frame measured 4.1 MB,
- *  of which `"bold":false,"italic":false,…`, `{"kind":"default"}` twice and
- *  `"width":1` were ~70% of the literal NDJSON bytes (1.24 MB with them
- *  omitted, and ~70% of the 30.7 ms encode / 41.1 ms decode with them).
- *
- *  NOT `Schema.withDecodingDefaultKey`, which is the repo's usual spelling for
- *  a defaulted key: its `encodingStrategy` is either `"passthrough"` (writes
- *  the field, no saving) or `"omit"` (drops it ALWAYS, losing `bold: true`).
- *  The saving needs omission to be CONDITIONAL, which is what the encode
- *  getter below does.
- *
- *  `fallback` and `isFallback` are one fact spelled for each direction and
- *  MUST agree — a value the encoder drops is a value the decoder puts back.
- *  They are two arguments rather than one because "is this the default" is
- *  `===` for a flag and a `kind` test for a colour, and a generic deep compare
- *  run a quarter of a million times a frame would cost more than it saves. */
 function omittedWhenDefault<T>(
   schema: Schema.Codec<T, T, never, never>,
   fallback: T,
-  isFallback: (value: T) => boolean,
 ) {
+  const equivalent = Schema.toEquivalence(schema);
   return Schema.optionalKey(schema).pipe(
     Schema.decodeTo(schema, {
       decode: SchemaGetter.transformOptional<T, T>((encoded) =>
         Option.isNone(encoded) ? Option.some(fallback) : encoded,
       ),
       encode: SchemaGetter.transformOptional<T, T>((value) =>
-        Option.isSome(value) && isFallback(value.value) ? Option.none() : value,
+        Option.isSome(value) && equivalent(value.value, fallback)
+          ? Option.none()
+          : value,
       ),
     }),
   );
 }
 
-/** The three defaults worth omitting, named once each and reused across the
- *  eight cell keys that take them. */
-const AbsentWhenFalse = omittedWhenDefault(
-  Schema.Boolean,
-  false,
-  (flag) => flag === false,
-);
-const AbsentWhenDefaultColor = omittedWhenDefault(
-  CellColorSchema,
-  { kind: "default" },
-  (color) => color.kind === "default",
-);
-/** 1 or 2 — the only widths `readGrid` emits. 0 is the trailing half of a
- *  wide glyph, dropped at the read, so admitting it here would only let a
- *  peer hand a renderer a zero-width cell to paint. */
+const AbsentWhenFalse = omittedWhenDefault(Schema.Boolean, false);
+const AbsentWhenDefaultColor = omittedWhenDefault(CellColorSchema, {
+  kind: "default",
+});
 const AbsentWhenSingleWidth = omittedWhenDefault(
   PositiveInt.check(Schema.isLessThanOrEqualTo(2)),
   1,
-  (width) => width === 1,
 );
 
-/** The wire form of {@link SnapshotCell}. `width` is the VT display width: 1
- *  ordinary, 2 for the leading half of a wide glyph. The TRAILING half is
- *  never emitted — it is already covered by its leader, and sending it would
- *  let a renderer double-strike the glyph.
- *
- *  Only `col` and `chars` are always on the wire; the other eight ride
- *  {@link omittedWhenDefault}, so an ordinary cell is `{"col":7,"chars":"a"}`.
- *  The DECODED shape is unchanged and every field stays required — see
- *  `terminal-snapshot/src/cell.ts`, which is what a renderer reads; the
- *  omission is an encoding, not a hole in the vocabulary.
- *
- *  No `PTY_HOST_CONTRACT_VERSION` bump: `terminal.getScreenCells` — the only
- *  member this shape reaches — is itself new at 7.1, so there is no released
- *  peer that could meet a cell of either spelling. Were it older, this WOULD
- *  be a major: an old client's all-required schema rejects a new daemon's
- *  omitted key, and that is the old-client/new-daemon direction the
- *  compatibility predicate waves through. */
 const SnapshotCellSchema = Schema.Struct({
   col: NonNegativeInt,
   chars: Schema.String,
@@ -593,69 +122,23 @@ const SnapshotCellSchema = Schema.Struct({
   inverse: AbsentWhenFalse,
 }) satisfies WireSchema<SnapshotCell>;
 
-/** The wire form of {@link SnapshotRow} — only the cells worth painting; a
- *  blank unstyled cell is omitted, which is what keeps a screenful an ordinary
- *  frame rather than a chunked transfer. */
 const SnapshotRowSchema = Schema.Struct({
   cells: Schema.Array(SnapshotCellSchema),
 }) satisfies WireSchema<SnapshotRow>;
 
-/** The wire form of {@link SnapshotGrid} — a rectangular slice of the screen
- *  as attributed cells. See `terminal-snapshot/src/cell.ts` for why the row
- *  count is `lines.length` and not a field of its own, and why a line the
- *  mirror doesn't have comes back as an empty row rather than a hole. */
 const SnapshotGridSchema = Schema.Struct({
-  // `PositiveInt`, the same rule {@link PtyGridSchema} states for a live PTY's
-  // grid: a zero-column screen is not a screen, and admitting one here let a
-  // peer hand the renderer a grid whose cells are all out of bounds.
   cols: PositiveInt,
   lines: Schema.Array(SnapshotRowSchema),
 }) satisfies WireSchema<SnapshotGrid>;
 
-/** A PTY grid — cols AND rows, together or not at all. The ONE grid rule this
- *  surface has: every member that carries a grid reuses it, so tightening the
- *  rule is one edit rather than a re-derivation per member. */
 export const PtyGridSchema = Schema.Struct({
   cols: PositiveInt,
   rows: PositiveInt,
 });
 export type PtyGrid = typeof PtyGridSchema.Type;
 
-/** Attach input: the PTY, plus — optionally — a grid to RESIZE it to first.
- *
- *  `resizeTo` is not a description of the caller; it is a command. The host
- *  runs the full `resize()` before serializing: SIGWINCH to the child, a reflow
- *  of the SHARED mirror, and on a width change a reflow-epoch bump that stales
- *  every other attached client's backfill cursor. Attaching is therefore a
- *  WRITE to shared, process-visible state whenever this is present and differs
- *  from the PTY's current grid; the cross-client policy is last-attach-wins.
- *
- *  It is fused with the attach on purpose: the snapshot is bytes laid out for a
- *  specific cols×rows, so resize-and-serialize must be ONE act — rather than
- *  the consumer publishing its size through a separate `resize` and hoping it
- *  lands first. When it didn't, nothing repaired the screen: a same-dimensions
- *  `resize` is (correctly) a no-op, so no SIGWINCH reached the process and the
- *  consumer was left reflowing a snapshot laid out for a width it never had.
- *  Omit it only when the caller has no grid of its own (a CLI dumping the
- *  screen), which reads the PTY at its current size.
- *
- *  OPTIONAL, and deliberately carried WITHOUT a contract bump. Absence degrades
- *  to exactly the previous reading in both skew directions (a 6.0 daemon strips
- *  it and serializes at its own size; a newer daemon serving an older padi
- *  receives none and does the same) — the `commandRooted` / `shellJoin` class
- *  this contract already documents as no-bump, not the emitted-variant class
- *  that must recycle. Bumping would force-recycle a surviving kaval, killing
- *  the user's live PTYs, to buy a graceful improvement. */
 const TerminalAttachInputSchema = Schema.Struct({
   id: PtyIdSchema,
-  // ONE optional composite, never two optional scalars — see the note on padi's
-  // mirror of this schema. Half a grid is not a size, so it must not be a
-  // sendable request rather than something each reader remembers to discard.
-  //
-  // `optionalKey`, never `optional` (PLAN #17): absent means ABSENT on this wire.
-  // `Schema.optional` would encode an explicit `undefined` as `null`, which zod's
-  // `.optional()` never did — and a `null` here is a fourth state ("resize to
-  // nothing") no reader has an arm for.
   resizeTo: Schema.optionalKey(PtyGridSchema),
 });
 
@@ -713,10 +196,6 @@ const TerminalWriteInputSchema = Schema.Struct({
   data: Schema.String,
 });
 
-// The SAME grid rule the attach carries — `resize` and `attach` describe one
-// value with one meaning, so they must not derive it twice. Spreading
-// `PtyGridSchema.fields` is the Effect spelling of zod's `.extend` and keeps the
-// encoded key order (`cols, rows, id`) byte-identical to the 6.0 wire.
 const TerminalResizeInputSchema = Schema.Struct({
   ...PtyGridSchema.fields,
   id: PtyIdSchema,
@@ -729,85 +208,35 @@ const TerminalListEntrySchema = Schema.Struct({
   pid: Schema.Int,
   cwd: Schema.String,
   lastActivity: Schema.Number,
-  // Added in contract 2.1 (additive · optional): the metadata-tap snapshots, so
-  // a one-shot `list` carries the full picture without per-row tap subscriptions.
-  // The in-process host always populates them; `optional()` keeps an older
-  // server wire-compatible with a 2.1 client.
   title: Schema.optionalKey(Schema.String),
   foregroundProcess: Schema.optionalKey(Schema.String),
-  // Added for #1872 (additive · optional, NO contract bump — see the version
-  // note): whether this PTY's root process IS the spawned command. The workspace
-  // sensors read it to decide if `foreground === root` is an idle shell prompt
-  // or a busy command-rooted agent. Absent = shell-rooted, today's reading.
   commandRooted: Schema.optionalKey(Schema.Boolean),
 });
 
-// A `Schema.Union` of `Schema.Struct`s, NOT a `Schema.TaggedUnion`: the
-// discriminant is this wire's own `kind` field, not Effect's `_tag` convention,
-// and renaming it would break every 6.x-era consumer's reducer AND the byte
-// fixtures below. Effect's union decode tries each member, so a literal `kind`
-// still discriminates exactly as zod's `discriminatedUnion` did.
+const AttachSnapshotFrameSchema = Schema.Struct({
+  kind: Schema.Literal("snapshot"),
+  data: Schema.String,
+  topLine: NonNegativeInt,
+  reflowEpoch: Schema.optionalKey(NonNegativeInt),
+  grid: PtyGridSchema,
+});
+const AttachDeltaFrameSchema = Schema.Struct({
+  kind: Schema.Literal("delta"),
+  data: Schema.String,
+});
+const AttachOverflowFrameSchema = Schema.Struct({
+  kind: Schema.Literal("overflow"),
+});
+const AttachResizedFrameSchema = Schema.Struct({
+  kind: Schema.Literal("resized"),
+  grid: PtyGridSchema,
+});
+
 const TerminalDataMsgSchema = Schema.Union([
-  // `topLine` (contract 5.1) is the absolute mirror-line index of the snapshot's
-  // top row — the seed the client's scrollback-backfill cursor pages older
-  // history down from (`terminal.getHistory`'s first `before`). Required, and
-  // riding on the SAME frame as the bytes it describes, so the seed can never
-  // drift from the snapshot a client actually received.
-  Schema.Struct({
-    kind: Schema.Literal("snapshot"),
-    data: Schema.String,
-    topLine: NonNegativeInt,
-    // `reflowEpoch` (contract 5.2 · additive · optional) — the mirror's reflow
-    // generation this snapshot was serialized under. The client stamps it on
-    // every `getHistory` so a later width reflow (this or a FOREIGN attach's
-    // resize, which renumbers absolute rows) yields a no-splice `stale` reply
-    // instead of a duplicated/skipped backfill band (F3). Optional so an older
-    // 5.1 daemon that omits it leaves the client fail-open (no epoch → no gate,
-    // the historical single-width behavior), no skew refusal.
-    reflowEpoch: Schema.optionalKey(NonNegativeInt),
-    // `grid` (contract 5.4 · additive · optional; REQUIRED at 9.0) — the
-    // cols×rows this snapshot was SERIALIZED at. The same kind of fact as
-    // `topLine` and `reflowEpoch`, riding on the same frame as the bytes it
-    // describes so it can never drift from the snapshot a client actually
-    // received.
-    //
-    // REQUIRED, because a consumer now SIZES ITSELF TO IT. A snapshot is bytes
-    // already laid out for one cols×rows; a client that paints them into a
-    // terminal of any other size is painting a screen the program never drew.
-    // With the grid on the frame it sets its terminal to this grid and then
-    // paints, so the question "do these bytes fit?" has no second answer — and
-    // an optional field cannot carry that, because absence would mean "size
-    // however you like", which is the defect. The producer has supplied a real
-    // grid here since 5.4; 9.0 only makes consumers entitled to it.
-    //
-    // It is also what an OBSERVE-ONLY consumer has instead of an assertion: one
-    // that attaches WITHOUT a `resizeTo` (a monitor, a read-only pane, a CLI
-    // dumping the screen) names no size, so the frame has to be self-describing
-    // or its bytes wrap into garbage.
-    grid: PtyGridSchema,
-  }),
-  Schema.Struct({ kind: Schema.Literal("delta"), data: Schema.String }),
-  // The host dropped THIS attach subscriber for exceeding its buffered-chunk
-  // cap (a slow consumer), then ended the stream. A pure CONTROL frame (no
-  // `data`) — distinct from a PTY exit (the `exit` stream) and from a graceful
-  // end, so a consumer re-attaches for a fresh snapshot instead of treating the
-  // drop as terminal and freezing scrollback. Yielded as the LAST frame before
-  // the stream ends. Added in contract 4.0 (BREAKING · major): a new EMITTED
-  // union variant an older client can't discriminate, so a 3.x peer is a clean
-  // skew rather than a silent mis-parse — see PTY_HOST_CONTRACT_VERSION.
-  Schema.Struct({ kind: Schema.Literal("overflow") }),
-  // The MIRROR JUST CHANGED SIZE, here, at this point in the stream (contract
-  // 9.0 — see PTY_HOST_CONTRACT_VERSION for why this frame exists and why it is
-  // typed rather than an escape inside a `delta`). Published from `resize()`
-  // through the same ordered channel the bytes use, so a subscriber sees: the
-  // bytes parsed before the resize, then this frame, then the bytes parsed
-  // after. That POSITION is the whole of its content.
-  //
-  // A CONTROL frame, like `overflow`: it carries no bytes, it is never withheld
-  // by the resize window (a viewer must learn the new size even while the
-  // repaint is being held), and it costs nothing against the per-subscriber
-  // byte budget. A same-size `resize()` is a no-op and emits nothing.
-  Schema.Struct({ kind: Schema.Literal("resized"), grid: PtyGridSchema }),
+  AttachSnapshotFrameSchema,
+  AttachDeltaFrameSchema,
+  AttachOverflowFrameSchema,
+  AttachResizedFrameSchema,
 ]);
 
 /** A membership change in the host's live-PTY set — the host-global inventory
@@ -838,24 +267,6 @@ const ActivityEdgeSchema = Schema.Struct({ id: PtyIdSchema });
  *  synchronous getter, so the pty-host pushes it as a tap. */
 const ForegroundMsgSchema = Schema.Struct({
   process: Schema.String,
-  /** `Schema.optional`, NOT `optionalKey` — the one field on this wire that keeps
-   *  zod's `.optional()` tolerance, and deliberately (#17 audit).
-   *
-   *  "No foreground pid" is a VALUE here, not an absent fact: `readForegroundPid`
-   *  collapses `tcgetpgrp`'s transient `0` (the window before the child finishes
-   *  `setsid`) to `undefined`, and the in-process type says so — `ForegroundSample`
-   *  declares `foregroundPid: number | undefined` as a REQUIRED key. Both producers
-   *  therefore write the key present-with-`undefined`: the channel publish in
-   *  `ptyHost.ts` and the warm-up snapshot in `inProcessPtyHost.ts` — and the tap
-   *  then FORWARDS whole samples verbatim (`for await (const sample of sub) yield
-   *  sample`), which no conditional spread can discipline. Under `optionalKey` the
-   *  RPC server's chunk encode rejected that frame and killed the whole foreground
-   *  tap — the stream padi's agent detection runs on — invisibly, because the
-   *  in-process link performs no encode and `exactOptionalPropertyTypes` is not set.
-   *
-   *  `optional` is `optionalKey` + `UndefinedOr`, so the emitted BYTES are
-   *  unchanged (the key is omitted, never nulled) and a non-integer pid is still
-   *  rejected. Pinned by a byte fixture in `ptyHostSurface.test.ts`. */
   foregroundPid: Schema.optional(Schema.Int),
 });
 
@@ -874,38 +285,17 @@ export const PtyHostIdentitySchema = Schema.Struct({
 });
 export type PtyHostIdentity = typeof PtyHostIdentitySchema.Type;
 
-/** The daemon's serializable lifetime policy — mirrors `@kolu/surface-daemon`'s
- *  `DaemonLifetimeInfo` (the wire projection of `DaemonLifetime`). Deliberately a
- *  SIBLING of `identity` on `system.version` rather than a member of
- *  `PtyHostIdentitySchema`: that schema doubles as padiSurface's `expectedKaval`
- *  build constant, which has no lifetime — a running daemon's lifetime is a
- *  runtime fact, not a build identity. The produce site (`inProcessPtyHost`'s
- *  `system.version`, fed `lifetimeInfo(lifetime)`) pins this shape to the spine's
- *  `DaemonLifetimeInfo`, so the two can't drift. */
 export const DaemonLifetimeInfoSchema = Schema.Union([
   Schema.Struct({ kind: Schema.Literal("forever") }),
   Schema.Struct({ kind: Schema.Literal("idleTimeout"), ms: Schema.Number }),
   Schema.Struct({ kind: Schema.Literal("boundToPid"), pid: Schema.Number }),
 ]) satisfies WireSchema<DaemonLifetimeInfo>;
 
-// Exported so `systemVersionShape.test.ts` can pin its exact key-set. The frozen
-// control fragment now owns supervisor identity; this legacy procedure stays
-// byte-identical because other consumers still read pid, lifetime, and build
-// readout data from it.
 export const SystemVersionOutputSchema = Schema.Struct({
   contractVersion: Schema.String,
   pid: Schema.Int,
   startedAt: Schema.Number,
-  /** Optional so a future surviving daemon that predates this field stays
-   *  wire-compatible without a forced restart (additive — no
-   *  `PTY_HOST_CONTRACT_VERSION` bump). */
   identity: Schema.optionalKey(PtyHostIdentitySchema),
-  /** The daemon's lifetime policy (`forever` in production; `boundToPid` under a
-   *  test/smoke run) — surfaced for the Kaval dialog's lifetime row. Optional for
-   *  the same reason as `identity`, and added the same way — WITHOUT a
-   *  `PTY_HOST_CONTRACT_VERSION` bump — so a survivor predating it stays
-   *  handshake-compatible (adopted, PTYs intact) rather than being recycled; the
-   *  reader falls back to "—" until the next kaval restart reports it. */
   lifetime: Schema.optionalKey(DaemonLifetimeInfoSchema),
 });
 
@@ -931,17 +321,6 @@ const SystemInfoOutputSchema = Schema.Struct({
   rcDir: Schema.String,
   path: Schema.optionalKey(Schema.String),
 });
-
-// ── The declared error vocabulary (PLAN D4) ─────────────────────────────
-//
-// Two failures on this wire are ACTIONABLE — a caller branches on them — so they
-// are declared as `Schema.TaggedError`es and carried by the members that
-// raise them. Everything else a handler can throw (a duplicate spawn id, a
-// node-pty failure, a termination deadline) stays UNDECLARED and therefore a
-// DEFECT: it crosses opaquely and crashes loudly, which is the correct reading of
-// "the host is broken", not "the request was refused". These two replace the
-// oRPC-era `ORPCError("NOT_FOUND")` / `ORPCError("BAD_REQUEST")` codes; the
-// discriminant is now the `_tag`, not a magic string compared by hand.
 
 /** The host owns no PTY with this id — it exited, or the caller invented the id.
  *
@@ -1055,10 +434,6 @@ export const ptyHostSurface = defineSurface({
         input: TerminalWriteInputSchema,
         output: Schema.Struct({ ok: Schema.Boolean }),
       },
-      // `ok` is a real answer, not a constant: FALSE means the host had no such
-      // PTY (it exited before the call arrived), so the caller's grid claim
-      // landed on nothing. TRUE covers both a real resize and an exact
-      // same-dimensions no-op — either way the PTY now holds that grid.
       resize: {
         input: TerminalResizeInputSchema,
         output: Schema.Struct({ ok: Schema.Boolean }),
@@ -1075,13 +450,6 @@ export const ptyHostSurface = defineSurface({
         error: PtyNotFound,
       },
       getScreenText: {
-        // `extent` is the single bound axis as a discriminated union, so the
-        // host can't be handed two conflicting bounds (a tail AND a viewport)
-        // to silently choose between — only one variant is expressible. Omit it
-        // for the full buffer. `viewport` carries no payload: it resolves to the
-        // last `rows` rendered lines against the host's own live grid (the CLI
-        // can't know it; its stdout is usually a pipe, never the daemon
-        // terminal's size).
         input: ScreenReadInputSchema,
         output: Schema.Struct({ text: Schema.String }),
         error: PtyNotFound,
@@ -1114,26 +482,10 @@ export const ptyHostSurface = defineSurface({
       getHistory: {
         input: Schema.Struct({
           id: PtyIdSchema,
-          // Absolute cursor; omitted starts from the top of the current screen
-          // region (the self-seeding pager entry point).
           before: Schema.optionalKey(NonNegativeInt),
           max: PositiveInt,
-          // `epoch` (contract 5.2 · additive · optional) — the reflow generation
-          // the caller's `before` cursor was seeded under (the attach snapshot's
-          // `reflowEpoch`). The host serves the `stale` output arm when it no
-          // longer matches, so a client whose mirror a foreign resize reflowed
-          // HALTS rather than pages a renumbered cursor (F3). Omitted by an older
-          // client / the self-seeding pager — fail-open (never sees `stale`).
           epoch: Schema.optionalKey(NonNegativeInt),
         }),
-        // A discriminated union, not a flat struct with a `stale` flag: the two
-        // outcomes — a served chunk vs a stale-reflow halt — can't be conflated
-        // (invalid-states-unrepresentable; mirrors this contract's own attach
-        // `snapshot|delta` frame). The `stale` arm is only reachable when the
-        // caller sends `epoch`, so an older (5.1) client — which sends none —
-        // never receives it and reads every reply as a plain chunk (the extra
-        // `kind` key is stripped by its flat schema); the breaking direction is
-        // the usual new-client/old-daemon one the predicate already recycles.
         output: Schema.Union([
           Schema.Struct({
             kind: Schema.Literal("chunk"),

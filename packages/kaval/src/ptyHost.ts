@@ -1,29 +1,3 @@
-/**
- * `PtyHost` — the multi-client PTY-owner primitive.
- *
- * Owns, per PTY: a `node-pty` child, an `@xterm/headless` screen mirror
- * (for cheap late-join snapshots — ~4KB of serialized VT vs replaying raw
- * scrollback), and the VT-derived event taps the rest of kolu reads off a
- * terminal:
- *
- *   - **cwd**         — OSC 7 `file://` reports
- *   - **title**       — OSC 0/2 title changes
- *   - **command-run** — OSC 633 ; E ; `<cmd>` (VS Code's "exact command
- *                       line" mark, emitted by kolu's preexec hook)
- *   - **exit**        — child exit code
- *   - **foregroundPid** — `tcgetpgrp(3)` of the pty, sampled on demand
- *
- * Each tap fans out through a bounded {@link FanOut} so any number of
- * consumers can attach. The host knows nothing about git, PRs, agent
- * detection, the file tree, or any wire protocol — those live above it.
- * It also knows nothing about shell-env preparation: callers hand it a
- * ready `shell` / `args` / `env` (kolu builds those via `kolu-pty`).
- *
- * Transport-agnostic and dependency-light (node-pty + @xterm + a logger),
- * so the same primitive drops into an in-process backend today and a
- * standalone agent later.
- */
-
 import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
@@ -38,104 +12,59 @@ import {
 import { Effect, type Scope, Stream } from "effect";
 import { readGrid, type SnapshotGrid } from "terminal-snapshot";
 import * as pty from "node-pty";
-import { FanOut, type SubscriberOverflow } from "./fanOut.ts";
+import { FanOut, type SubscriberDropped } from "./fanOut.ts";
+import { createRepaintWindow, type RepaintWindow } from "./repaintWindow.ts";
 import {
   boundScreenCells,
   type PtyGrid,
   PtyNotFound,
 } from "./ptyHostSurface.ts";
 
-/** Default terminal grid dimensions (matches xterm/VT100 standard). */
+declare module "node-pty" {
+  interface IPty {
+    readonly foregroundPid?: number;
+  }
+}
+
 const DEFAULT_COLS = 80;
 const DEFAULT_ROWS = 24;
 /** The per-live-terminal headless-mirror depth, in lines — the SINGLE source of
- *  truth for "how deep a mirror kaval keeps per terminal". It lives in kaval
- *  because the mirror lives in kaval: this is the number every spawn path lands
- *  on when it doesn't override scrollback (the in-process host, kaval-tui's
- *  `composeCreateInput`), AND the value the server's `composeSpawnInput` imports
- *  and sends explicitly — so all three paths provably agree.
- *
- *  Deliberately smaller than the CLIENT's visible scrollback (kolu-common's
- *  `DEFAULT_SCROLLBACK`, a distinct axis the user sees in their own tab): kaval
- *  keeps one mirror per live terminal and live terminals accumulate without
- *  bound, so a large shared depth × unbounded terminals exhausted the heap and
- *  SIGABRT'd the daemon. The mirror only needs enough to feed live readers and
- *  repaint a cold-attaching client; a warm client keeps its own buffer and PDF
- *  export reads the client buffer, so shrinking it regresses neither. See
- *  `docs/atlas/src/content/atlas/kaval-heap-oom.mdx`. */
+ *  truth for "how deep a mirror kaval keeps per terminal". It is the number
+ *  every spawn path lands on when it doesn't override scrollback, AND the value
+ *  the server's `composeSpawnInput` imports and sends explicitly. */
 export const DEFAULT_MIRROR_SCROLLBACK = 10_000;
 /** How many scrollback lines the ATTACH snapshot serializes — the recent
  *  screenful a cold/cross-host attach paints instantly, instead of the whole
  *  {@link DEFAULT_MIRROR_SCROLLBACK}-deep mirror. Older lines are streamed in
- *  on demand by {@link PtyHost.getHistory} as the client scrolls up (the
- *  scrollback-backfill feature), so this bound sets the up-front paint cost, not
- *  the reachable history: the full mirror is still readable, one older chunk at
- *  a time. Deliberately far below the mirror depth — the whole point is to stop
- *  shipping 10k lines on every host switch (the W9 full-replay cost). The client
+ *  on demand by {@link PtyHost.getHistory} as the client scrolls up, so this
+ *  bound sets the up-front paint cost, not the reachable history. The client
  *  seeds its backfill cursor from what it actually received, so the exact value
- *  is a perf knob, not a correctness one.
- *
- *  **Kept at 1,000 by kolu#2362, deliberately.** That change made the snapshot
- *  the unit everything else is priced in — a viewer more than one snapshot
- *  behind is dropped and re-synced ({@link MIN_DATA_BUDGET_CHARS}), and a
- *  resize now costs each viewer exactly one — so shrinking it to the screen
- *  alone (the backfill path can serve the rest) would cut both the attach cost
- *  AND the drop threshold. That is a real option and it is NOT taken here:
- *  there was no measurement of what a screen-only snapshot does to the scroll-up
- *  experience, and #2362's Step 0 counters (`deltaChars` / `skipAheads` per
- *  attachment) are what will answer it with numbers rather than a guess. */
+ *  is a perf knob, not a correctness one. */
 export const SNAPSHOT_SCROLLBACK = 1_000;
-/** How many exited-PTY exit codes to retain after teardown, so a late
- *  `exit(id)` succeeds with the real code rather than a fabricated
- *  one. Bounded so the map can't grow without limit. */
 const MAX_EXIT_TOMBSTONES = 1024;
 
-// @xterm packages ship CJS only — use createRequire for clean ESM interop.
 const require = createRequire(import.meta.url);
 const { Terminal } =
   require("@xterm/headless") as typeof import("@xterm/headless");
 const { SerializeAddon } =
   require("@xterm/addon-serialize") as typeof import("@xterm/addon-serialize");
 
-/** The mirror's absolute-line bookkeeping — the eviction origin, the RIS
- *  re-anchor, the reflow generation, and the wrap-head snap — lives in
- *  `@kolu/xterm-kit`'s {@link createMirrorAnchor} / {@link snapToWrapHead} (the
- *  fail-loud reach into `_core.buffers.normal.lines`, pinned by the kit's
- *  `xtermMirrorContract.test.ts`). kaval is a consumer: each {@link Entry} owns
- *  an anchor, driven from the write callback ({@link MirrorAnchor.reanchorIfReset})
- *  and the resize path ({@link MirrorAnchor.bumpReflow}). */
-
-/** The terminal-identity string the headless PTY reports in its XTVERSION
- *  (CSI > q) reply. The DCS reply is built from this — see the XTVERSION
- *  handler in {@link createPtyHost} — so the byte layout lives in one place.
- *  Exported so tests assert against the same source rather than a copy. */
 export const HEADLESS_TERM_ID = "xterm-headless(kolu)";
 
 /** Opaque PTY identifier. */
 export type PtyId = string;
 
-/** Extract plain text from an xterm buffer within a line range, clamped to
- *  what the buffer actually holds.
- *
- *  A pure range read and nothing else. It used to take a `tailLines` shortcut
- *  as well — "the last N rendered lines", resolved against the live buffer
- *  length — from when this was the single translation target for
- *  {@link ScreenExtent}. {@link resolveScreenExtent} is that target now, and it
- *  resolves a tail (and a viewport) into exactly this `[start, end)` before
- *  calling here, so the parameter had no production caller left: two ways to
- *  say one bound, one of them reachable only from a test. */
-export function getScreenText(
+export function readBufferRange(
   buffer: {
     length: number;
     getLine(
       i: number,
     ): { translateToString(trimRight: boolean): string } | undefined;
   },
-  startLine?: number,
-  endLine?: number,
+  range: { start: number; end: number },
 ): string {
-  const end = Math.min(buffer.length, endLine ?? buffer.length);
-  const start = Math.max(0, startLine ?? 0);
+  const end = Math.min(buffer.length, range.end);
+  const start = Math.max(0, range.start);
   const lines: string[] = [];
   for (let i = start; i < end; i++) {
     lines.push(buffer.getLine(i)?.translateToString(true) ?? "");
@@ -144,16 +73,7 @@ export function getScreenText(
 }
 
 /** Resolve a {@link ScreenExtent} to the absolute half-open line range
- *  `[start, end)` it names, clamped to what the buffer actually holds.
- *
- *  ONE resolution shared by every screen read — the plain-text one and the
- *  attributed-cell one. They are two renderings of the SAME slice, and the
- *  only way "the text and the picture show the same thing" can be true by
- *  construction rather than by two switch statements agreeing is for both to
- *  ask this function where the slice is.
- *
- *  `rows` is the live grid height, which only the host knows — it is what
- *  `viewport` resolves against. */
+ *  `[start, end)` it names, clamped to what the buffer actually holds. */
 export function resolveScreenExtent(
   bufferLength: number,
   rows: number,
@@ -172,10 +92,6 @@ export function resolveScreenExtent(
         end: bufferLength,
       };
     case "viewport":
-      // The visible screen = a tail of the live grid's own height. The last
-      // `rows` lines are exactly the viewport in BOTH buffers: the normal
-      // buffer's bottom screenful, and the whole alt buffer (whose length IS
-      // rows) that a full-screen TUI draws into.
       return {
         start: Math.max(0, bufferLength - Math.max(0, rows)),
         end: bufferLength,
@@ -185,10 +101,10 @@ export function resolveScreenExtent(
 
 /** Which slice of the rendered buffer a screen-text read returns — the single
  *  bound axis as a closed set of mutually-exclusive variants, so an illegal
- *  combination (a tail AND a range, a viewport AND a tail) is unrepresentable
- *  rather than resolved by a silent precedence. `viewport` is "the visible
- *  screen", resolved host-side to a tail of the live grid's own `rows` (a
- *  caller can't know it). Absent extent ⇒ the full buffer. */
+ *  combination is unrepresentable rather than resolved by a silent precedence.
+ *  `viewport` is "the visible screen", resolved host-side to a tail of the live
+ *  grid's own `rows` (a caller can't know it). Absent extent ⇒ the full
+ *  buffer. */
 export type ScreenExtent =
   | { kind: "full" }
   | { kind: "range"; startLine?: number; endLine?: number }
@@ -197,11 +113,8 @@ export type ScreenExtent =
 
 /**
  * Per-PTY control + introspection surface vended by {@link PtyHost.handle}.
- *
- * A thin facade over the host's id-keyed methods, so a consumer that holds
- * "one terminal" (the registry entry, the provider DAG) can read/write
- * without threading the id and host through every call. Deliberately omits
- * `dispose()` — termination flows through {@link PtyHost.kill}.
+ * Deliberately omits `dispose()` — termination flows through
+ * {@link PtyHost.kill}.
  */
 export interface PtyHandle {
   /** OS process ID of the PTY's root process — the shell for a shell-rooted PTY,
@@ -223,11 +136,6 @@ export interface PtyHandle {
    *  slice (range / tail / viewport); omit it for the full buffer (scrollback +
    *  viewport). See {@link ScreenExtent}. */
   getScreenText(extent?: ScreenExtent): string;
-  /* Deliberately NO `getScreenCells` twin of the read above. The attributed
-   * read has exactly one consumer — the wire handler in `inProcessPtyHost`,
-   * which holds the host and the id already — so a facade member for it was a
-   * method nothing called, carrying a full docstring that read as API. The
-   * host's {@link PtyHost.getScreenCells} is the one entry point. */
 }
 
 /** What a caller hands the host to spawn a PTY. Env/shell prep is the
@@ -239,13 +147,11 @@ export interface PtySpawnOpts {
   shell: string;
   /** Arguments to the program (e.g. `--rcfile <wrapper>`). */
   args?: string[];
-  /** True when `shell` is not a shell but the ROOT COMMAND itself — a
-   *  `kaval-tui create -- <cmd>` PTY with the command as `argv[0]` and no shell
-   *  wrapping it. The host seeds the retained command from the argv (a
-   *  shell-less PTY never emits the OSC 633;E mark that is otherwise
-   *  `lastCommand`'s only writer), and reports the fact on the inventory row so
-   *  the workspace sensors read foreground==root as BUSY, not as an idle shell
-   *  prompt. Absent/false = shell-rooted, today's behavior. */
+  /** True when `shell` is not a shell but the ROOT COMMAND itself — a PTY with
+   *  the command as `argv[0]` and no shell wrapping it. The host seeds the
+   *  retained command from the argv (such a PTY never emits the OSC 633;E mark
+   *  that is otherwise `lastCommand`'s only writer) and reports the fact on the
+   *  inventory row. Absent/false = shell-rooted. */
   commandRooted?: boolean;
   /** Environment for the child — fully prepared by the caller. */
   env: Record<string, string>;
@@ -270,23 +176,18 @@ export interface PtySpawnResult {
 }
 
 /** One item on a PTY's data feed: bytes the mirror parsed, or the mirror
- *  CHANGING SIZE.
- *
- *  Two kinds in ONE ordered channel, because the order between them is the
- *  fact being published — a separate channel, or no channel at all, would let
- *  a resize race the bytes around it. `ptyHostSurface.ts`'s contract-version
- *  note is where that argument lives; this is its in-process shape.
- *
- *  `resized` is a CONTROL item: it carries no bytes, is never withheld by the
- *  resize window, and costs nothing against the byte budget (see
- *  `dataItemChars`). */
+ *  CHANGING SIZE — two kinds in ONE ordered channel, because the order between
+ *  them is the fact being published: a separate channel would let a resize race
+ *  the bytes around it. `resized` is a CONTROL item: it carries no bytes, is
+ *  never withheld by the resize window, and costs nothing against the byte
+ *  budget (see {@link dataItemChars}). */
 export type PtyDataItem =
   | { kind: "bytes"; data: string }
   | { kind: "resized"; grid: PtyGrid };
 
 /** The byte cost of one data item — the fan-out's budget unit. A `resized` is
- *  free: it is a few numbers, and a consumer that is behind needs the new size
- *  MORE than it needs to be dropped for having been told it. */
+ *  free: a consumer that is behind needs the new size MORE than it needs to be
+ *  dropped for having been told it. */
 export function dataItemChars(item: PtyDataItem): number {
   return item.kind === "bytes" ? item.data.length : 0;
 }
@@ -302,33 +203,25 @@ export interface PtyAttachment {
   /** Absolute mirror-line index of the snapshot's TOP row — the client's seed
    *  cursor for backfill (`getHistory`'s first `before`). Rides WITH the
    *  snapshot, from the same serialize, so the seed can't drift from the bytes
-   *  the client received (an anchor fetched separately would race live output).
-   *  0 for a brand-new/empty PTY. */
+   *  the client received. 0 for a brand-new/empty PTY. */
   topLine: number;
   /** Reflow generation the snapshot (and its `topLine`) was serialized under —
    *  the client stamps it on every `getHistory` so a subsequent width reflow
-   *  (this or another attach's resize) makes the stale absolute cursor a
-   *  no-splice `stale` reply rather than a duplicated/skipped band (F3). */
+   *  makes the stale absolute cursor a no-splice `stale` reply rather than a
+   *  duplicated/skipped band. */
   reflowEpoch: number;
-  /** The grid this snapshot was SERIALIZED at — the same kind of fact as
-   *  `topLine` and `reflowEpoch`, and carried for the same reason: it rides
-   *  WITH the bytes it describes, so it cannot drift from the snapshot the
-   *  consumer received.
-   *
-   *  It exists for the OBSERVE-ONLY attach — one that passes no `resizeTo`
-   *  because it has no size to assert (a monitor, a read-only pane, a CLI
-   *  dumping the screen). Such a consumer never learns what size it got, and a
-   *  renderer sized by guess wraps the bytes into garbage. Every attach can now
-   *  answer "what shape is this screen" from the frame itself. */
+  /** The grid this snapshot was SERIALIZED at, carried WITH the bytes it
+   *  describes so it cannot drift from them. It is how an OBSERVE-ONLY attach
+   *  (one that passes no `resizeTo`) learns what size it got. */
   grid: PtyGrid;
   /** Live output after the snapshot — bytes AND the mirror's own resizes, in
    *  the one order they happened ({@link PtyDataItem}). Ends when the
    *  attachment's scope closes (unsubscribing IS interrupting the consuming
-   *  fiber) or the PTY exits, and FAILS with {@link SubscriberOverflow} when
+   *  fiber) or the PTY exits, and FAILS with {@link SubscriberDropped} when
    *  this attachment lagged past the bound — so the serving layer tells a
    *  slow-consumer drop apart from a graceful end by the channel it arrives on,
    *  not by a flag. */
-  deltas: Stream.Stream<PtyDataItem, SubscriberOverflow>;
+  deltas: Stream.Stream<PtyDataItem, SubscriberDropped>;
 }
 
 /** One older-history chunk from {@link PtyHost.getHistory}: a serialized slice
@@ -339,13 +232,9 @@ export interface PtyAttachment {
  *  off the top of the mirror plus a line's current local buffer index, so it
  *  keeps naming the same line as newer output pushes older lines out:
  *  a `getHistory(before)` returns the `max` lines immediately ABOVE `before`.
- *  Absolute addressing is what makes the seam where backfilled history meets the
- *  client's existing content race-free: new output always appends at the mirror
- *  BOTTOM, never shifting the index of a line the client already holds, so a
- *  served chunk can neither duplicate nor skip a row regardless of how many live
- *  deltas are in flight during the fetch. (A `have`-from-bottom cursor cannot:
- *  it compares the server's produced-line count against the client's received
- *  count, which differ by exactly the in-flight lag.) */
+ *  Absolute addressing is what makes the seam race-free: new output always
+ *  appends at the mirror BOTTOM, never shifting the index of a line the client
+ *  already holds, so a served chunk can neither duplicate nor skip a row. */
 export type PtyHistoryChunk =
   | {
       /** A served slice of older scrollback. */
@@ -368,43 +257,36 @@ export type PtyHistoryChunk =
       /** The caller's stamped `epoch` no longer matches the mirror's current
        *  reflow generation — a width reflow renumbered absolute rows since the
        *  caller's cursor was seeded, so NOTHING is served and the caller HALTS
-       *  backfill until a fresh snapshot re-seeds (F3). Only reachable when the
-       *  caller sends an epoch; an epoch-less caller (older client / self-seeding
-       *  pager) is fail-open and never sees this. A discriminated arm — not a
-       *  `stale: true` flag on a chunk — so an illegal "stale reply that also
-       *  carries real bytes" can't be constructed (matches `TerminalAttachFrame`). */
+       *  backfill until a fresh snapshot re-seeds. Only reachable when the
+       *  caller sends an epoch; an epoch-less caller is fail-open and never sees
+       *  this. */
       kind: "stale";
     };
 
 /** One foreground sample: the node-pty `process` name and the pty's
  *  foreground process-group pid (`tcgetpgrp(3)`). Both are read *at the tty*,
- *  so only the PTY's owner can produce them — in-process a consumer reads
- *  them synchronously off {@link PtyHandle}, but across a socket they can't
- *  be a sync getter, so {@link PtyHost.subscribeForeground} pushes them as a
- *  tap (the provider DAG that interprets them for agent detection runs on
- *  the other side of that socket). */
+ *  so only the PTY's owner can produce them — across a socket they cannot be a
+ *  sync getter, so {@link PtyHost.subscribeForeground} pushes them as a tap. */
 export interface ForegroundSample {
   process: string;
   foregroundPid: number | undefined;
 }
 
 /** A change to the set of live PTYs the host owns — the host-global membership
- *  feed. Unlike the per-PTY taps (cwd/title/command-run/foreground/exit), which
- *  a consumer can only subscribe to once it already KNOWS the id, this announces
- *  ids as they appear and vanish — so a consumer learns about PTYs OTHER clients
- *  spawned (a `kaval-tui create` against the same daemon) without polling
- *  {@link PtyHost.list}. The primitive emits only these deltas; the serving layer
- *  prepends a `list` snapshot (snapshot-then-deltas). */
+ *  feed. Unlike the per-PTY taps, which a consumer can only subscribe to once
+ *  it already KNOWS the id, this announces ids as they appear and vanish, so a
+ *  consumer learns about PTYs OTHER clients spawned without polling
+ *  {@link PtyHost.list}. The primitive emits only these deltas; the serving
+ *  layer prepends a `list` snapshot (snapshot-then-deltas). */
 export type PtyInventoryEvent =
   | { kind: "created"; entry: PtyListEntry }
   | { kind: "exited"; id: PtyId };
 
 /** A MEANINGFUL-OUTPUT edge — this PTY just produced real output, NOT a
- *  resize-driven repaint. Host-global (a consumer subscribes once and hears every
- *  PTY), momentary (no snapshot): a consumer stamps ARRIVAL time on its OWN clock
- *  and derives its own idle windows, so a missed edge across a reconnect only
- *  DELAYS a downstream finish (default-excluded). kaval is the one place that can
- *  exclude the repaint, because it is the one place that knows it just resized. */
+ *  resize-driven repaint. Host-global (a consumer subscribes once and hears
+ *  every PTY), momentary (no snapshot): a consumer stamps ARRIVAL time on its
+ *  OWN clock and derives its own idle windows, so a missed edge across a
+ *  reconnect only DELAYS a downstream finish. */
 export type PtyActivityEdge = { id: PtyId };
 
 /** One row of {@link PtyHost.list}: a live PTY's id, pid, cwd, last activity,
@@ -420,11 +302,10 @@ export interface PtyListEntry {
   title: string;
   /** The PTY's current foreground process name (the running command). */
   foregroundProcess: string;
-  /** True when the PTY's root process IS the spawned command, not a shell —
-   *  a `kaval-tui create -- <cmd>` PTY. The workspace sensors read this to
-   *  decide whether `foreground === root` means an idle shell prompt (a shell
-   *  root) or a busy agent (a command root). Absent/false on the wire = a
-   *  shell-rooted PTY, today's reading. */
+  /** True when the PTY's root process IS the spawned command, not a shell. The
+   *  workspace sensors read this to decide whether `foreground === root` means
+   *  an idle shell prompt (a shell root) or a busy agent (a command root).
+   *  Absent/false on the wire = a shell-rooted PTY. */
   commandRooted: boolean;
 }
 
@@ -437,14 +318,10 @@ export interface PtyHostOptions {
   generateId?: () => PtyId;
   /** Per-attach-subscriber buffered-chunk cap for the data (attach) fan-out
    *  before a slow consumer is dropped (and an `overflow` frame emitted).
-   *  Defaults to the {@link FanOut} default (10,000). Lowered in tests to drive
-   *  the slow-subscriber drop deterministically. */
+   *  Defaults to the {@link FanOut} default (10,000). */
   dataMaxQueue?: number;
 }
 
-/** A PTY grid — cols × rows. Inferred from the surface's one grid schema (the
- *  file's convention for every other wire shape), so the type and the validation
- *  rule are one statement rather than two independently-editable ones. */
 export type { PtyGrid };
 
 /** The optional half of an {@link PtyHost.attach} — a bag rather than a trailing
@@ -455,14 +332,9 @@ export interface PtyAttachOpts {
    *  invalidation, an activity mute, and (on a width change) a reflow-epoch bump
    *  that stales EVERY OTHER attached client's backfill cursor. Attaching is
    *  therefore a WRITE to shared state whenever this is present and differs from
-   *  the PTY's current grid; the policy is last-attach-wins, so a second viewer
-   *  at a different size moves the first one's layout.
-   *
-   *  The fusion is deliberate — a snapshot is bytes laid out for a specific
-   *  cols×rows, so resize-and-serialize must be one act — and this name is what
-   *  makes the write visible at the call site. Omit it only when the caller has
-   *  no grid of its own (a CLI dumping the screen), which reads the PTY at its
-   *  current size. */
+   *  the PTY's current grid; the policy is last-attach-wins. Omit it only when
+   *  the caller has no grid of its own, which reads the PTY at its current
+   *  size. */
   resizeTo?: PtyGrid;
 }
 
@@ -475,7 +347,7 @@ export interface CommandRunSubscription {
    *  command kolu replays: the only readers take its head basename. */
   readonly retained: string | undefined;
   /** Live OSC 633;E marks published AFTER the reading. */
-  readonly marks: Stream.Stream<string, SubscriberOverflow>;
+  readonly marks: Stream.Stream<string, SubscriberDropped>;
 }
 
 /** {@link PtyHost.subscribeForeground}'s two halves, taken in ONE synchronous
@@ -485,7 +357,7 @@ export interface ForegroundSubscription {
    *  a cached one, so a freshly-wired consumer warms its cache immediately. */
   readonly current: ForegroundSample;
   /** Live samples published AFTER the reading. */
-  readonly samples: Stream.Stream<ForegroundSample, SubscriberOverflow>;
+  readonly samples: Stream.Stream<ForegroundSample, SubscriberDropped>;
 }
 
 /** {@link PtyHost.subscribeInventory}'s two halves, taken in ONE synchronous
@@ -496,7 +368,7 @@ export interface InventorySubscription {
   readonly entries: PtyListEntry[];
   /** Membership deltas published AFTER the reading. A `created` also present in
    *  `entries` is impossible; a consumer's adoption is idempotent regardless. */
-  readonly deltas: Stream.Stream<PtyInventoryEvent, SubscriberOverflow>;
+  readonly deltas: Stream.Stream<PtyInventoryEvent, SubscriberDropped>;
 }
 
 /** The multi-client PTY-owner primitive. */
@@ -507,26 +379,24 @@ export interface PtyHost {
    *  {@link PtyAttachOpts.resizeTo}, which mutates state every other attached
    *  client can see), then subscribe-before-serialize: a race-free snapshot +
    *  delta stream for a late-joining client, the two taken in ONE synchronous
-   *  step (see {@link FanOut.subscribeWith}).
+   *  step.
    *
    *  Scoped: the delta subscription is released when the caller's `Scope` closes
-   *  — for a served member, when the consuming fiber is interrupted. There is no
-   *  `AbortSignal` to pass and none to forget; an attach issued on an ALREADY
-   *  interrupted fiber never runs at all, which is what used to need an explicit
-   *  already-aborted fast path (no serialize, and no resize of the shared PTY,
-   *  for a subscriber that has gone). */
+   *  — for a served member, when the consuming fiber is interrupted. An attach
+   *  issued on an ALREADY interrupted fiber never runs at all. */
   attach(
     id: PtyId,
     opts?: PtyAttachOpts,
   ): Effect.Effect<PtyAttachment, never, Scope.Scope>;
   /** Per-PTY cwd update stream (OSC 7). */
-  subscribeCwd(id: PtyId): Stream.Stream<string, SubscriberOverflow>;
+  subscribeCwd(id: PtyId): Stream.Stream<string, SubscriberDropped>;
   /** Per-PTY title update stream (OSC 0/2). */
-  subscribeTitle(id: PtyId): Stream.Stream<string, SubscriberOverflow>;
+  subscribeTitle(id: PtyId): Stream.Stream<string, SubscriberDropped>;
   /** Per-PTY preexec command marks (OSC 633 ; E payloads), with the RETAINED
    *  command read in the same synchronous step (see
    *  {@link CommandRunSubscription}) so a late subscriber learns the command
-   *  that was already marked without a mark in between going missing or double. */
+   *  that was already marked without a mark in between going missing or
+   *  double. */
   subscribeCommandRun(
     id: PtyId,
   ): Effect.Effect<CommandRunSubscription, never, Scope.Scope>;
@@ -540,21 +410,18 @@ export interface PtyHost {
   ): Effect.Effect<ForegroundSubscription, never, Scope.Scope>;
   /** Succeeds with the exit code when the child exits; immediately for an
    *  already-exited PTY (the tombstone keeps the real code). Interrupting the
-   *  waiting fiber deregisters the waiter, so a long-lived host doesn't retain
-   *  one per abandoned subscription (e.g. one per kolu-server restart).
+   *  waiting fiber deregisters the waiter.
    *
    *  FAILS with {@link PtyNotFound} for an id this host has no entry and no
    *  tombstone for — never spawned, or exited far enough back to be evicted past
-   *  {@link MAX_EXIT_TOMBSTONES}. "I don't know this PTY's exit code" is not an
-   *  exit code, so it is not spelled as one. */
+   *  {@link MAX_EXIT_TOMBSTONES}. */
   exit(id: PtyId): Effect.Effect<number, PtyNotFound>;
   /** Write input (keystrokes, pasted text). No-op if the PTY is gone. */
   write(id: PtyId, data: string): void;
   /** Resize the PTY grid + the headless mirror. Returns TRUE when the entry
    *  existed and the grid now holds — whether that took a real resize or was an
    *  exact same-dimensions no-op — and FALSE when there is no such PTY (already
-   *  exited or never spawned), which is the one way a caller's grid claim can
-   *  fail to land here. */
+   *  exited or never spawned). */
   resize(id: PtyId, cols: number, rows: number): boolean;
   /** Kill the PTY. Teardown (fan-outs, mirror, onDispose) runs from the
    *  child's exit, so {@link exit} still resolves. No-op if gone. */
@@ -573,7 +440,7 @@ export interface PtyHost {
   >;
   /** Host-global meaningful-output edges — every PTY's resize-excluded output
    *  bursts. A consumer subscribes ONCE and hears the whole host. */
-  subscribeActivity(): Stream.Stream<PtyActivityEdge, SubscriberOverflow>;
+  subscribeActivity(): Stream.Stream<PtyActivityEdge, SubscriberDropped>;
   /** Whether this host still owns a PTY with `id` (an existence check, not a
    *  data read — distinct from `getCwd(id) !== undefined`, which happens to
    *  coincide today only because cwd is always set at spawn). */
@@ -603,10 +470,8 @@ export interface PtyHost {
    *  `extent` for the viewport, which is what a screenshot means.
    *
    *  Deliberately stops at "what the escape sequences said" and does not
-   *  resolve a colour to a pixel: `palette 4` becomes a theme colour only once
-   *  someone knows WHICH theme, and this mirror doesn't — kolu's themes are a
-   *  per-terminal user choice held by padi. Handing out raw attributes is what
-   *  keeps the PTY host out of the rendering business entirely. */
+   *  resolve a colour to a pixel: a palette index becomes a theme colour only
+   *  once someone knows WHICH theme, and this mirror doesn't. */
   getScreenCells(id: PtyId, extent?: ScreenExtent): SnapshotGrid | undefined;
   /** Serialize the older-history chunk of up to `max` rows sitting immediately
    *  ABOVE absolute mirror line `before` — the backfill read the client pages as
@@ -626,220 +491,46 @@ export interface PtyHost {
   dispose(): void;
 }
 
-/**
- * One open RESIZE WINDOW — the WITHHOLD-AND-DECIDE policy for a PTY whose grid
- * just moved (kolu#2362).
- *
- * A resize is the one moment kaval KNOWS the bytes about to arrive are a redraw
- * of a screen it already mirrors: an agent clears its scrollback and reprints
- * its whole transcript on every SIGWINCH — 0.57–3.5 MB in the sessions measured
- * on #2362 — and a viewer that watches that arrive byte-for-byte sees its
- * terminal scroll through the session for seconds before settling at the end it
- * asked for.
- *
- * What the window does NOT do is drop everyone and make them re-snapshot. That
- * is the right answer for an agent and the wrong one for a plain shell, whose
- * repaint is a hundred bytes: a reset costs that viewer its scrollback above
- * the bounded snapshot (until backfill re-fetches it), its selection, and its
- * scroll position. So the window WITHHOLDS and then DECIDES, with the same
- * question the byte budget already answers — is catching you up cheaper than
- * re-sending the screen?
- *
- *   · While it is open, parsed output is kept here instead of published.
- *   · Past the budget ({@link dataBudgetChars}) the kept bytes are DISCARDED and
- *     `resync` is set, so memory is bounded by the budget, not by the reprint.
- *   · At close, what fits is PUBLISHED — nobody is reset, nobody loses a line —
- *     and `resync` instead drops every subscriber through the existing overflow
- *     path, so each gets exactly one snapshot of the settled screen.
- *
- * The invariants, which the tests pin: no byte is delivered twice, none is lost
- * (a viewer either receives the withheld bytes or a snapshot that already
- * contains them), and the memory held is at most one budget. The first of those
- * is held by {@link claimWithheldOverlap}, not by timing — see there.
- */
-interface ResizeWindow {
-  /** Closes the window {@link RESIZE_WINDOW_MS} after the latest resize — one
-   *  timer, re-armed by a later resize, never extended by output. */
-  timer: ReturnType<typeof setTimeout> | undefined;
-  /** Parsed chunks held back, in arrival order. Empty once `resync` is set. */
-  withheld: string[];
-  /** `withheld`'s total length, so the budget check costs no re-scan. */
-  withheldChars: number;
-  /** The decision, latched as soon as it is forced: this window can no longer
-   *  be settled by replaying what it kept, so its subscribers must re-sync. Set
-   *  by passing the budget, and by a second resize landing inside the window
-   *  (which invalidates everything kept for the grid that just went away). */
-  resync: boolean;
-  /** Attaches parked until this window closes — released after its subscribers
-   *  are settled, so the snapshot they then take already contains the withheld
-   *  bytes their siblings were just sent. Released by teardown too, so a PTY
-   *  that exits mid-window never leaves a fiber parked forever. */
-  waiters: Set<() => void>;
-}
-
 interface Entry {
   id: PtyId;
   proc: pty.IPty;
   headless: InstanceType<typeof Terminal>;
   serialize: InstanceType<typeof SerializeAddon>;
-  /** Memoized attach snapshot for the current publish-epoch — so a burst of
-   *  attaches to one PTY between two mirror mutations (a reconnect storm against
-   *  an idle terminal) shares a single serialize instead of one per attach.
-   *  Read and invalidated ONLY through `snapshotOf` / `invalidateSnapshot`,
-   *  which own the epoch invariant (see their definitions). */
   snapshotCache: string | undefined;
-  /** Memoized BOUNDED attach snapshot (recent screenful + its seed cursor) for
-   *  the current publish-epoch — the cheap paint a cold/cross-host attach gets
-   *  instead of the full-mirror `snapshotCache`. Shares the same epoch invariant:
-   *  read/invalidated only through `boundedSnapshotOf` / `invalidateSnapshot`. */
   boundedSnapshotCache: { snapshot: string; topLine: number } | undefined;
-  /** Absolute-line coordinates over this mirror — the eviction origin (the stable
-   *  coordinate `getHistory` pages by: an absolute index is `anchor.baseLine() +
-   *  localBufferIndex`) and the reflow generation that stales a cursor a WIDTH
-   *  resize or RIS reset renumbered (so a client whose mirror a foreign reflow
-   *  moved HALTS backfill rather than splicing a duplicated/skipped band, F3).
-   *  Driven from the write callback ({@link MirrorAnchor.reanchorIfReset} detects
-   *  the RIS buffer swap) and the resize path ({@link MirrorAnchor.bumpReflow} on
-   *  a cols change); disposed on teardown. See {@link createMirrorAnchor}. */
   anchor: MirrorAnchor;
   cwd: string;
   title: string;
-  /** Wall-clock of the last chunk this PTY wrote — the inventory row's idle
-   *  proxy. */
   lastActivity: number;
-  /** Length (UTF-16 code units) of the most recent BOUNDED snapshot serialized
-   *  for this PTY — the derived half of the data fan-out's byte budget (see
-   *  `dataBudgetChars`). Written by `boundedSnapshotOf`, which is the one
-   *  producer; 0 until a first attach has taken one, where the baked floor
-   *  governs. Kept on the entry rather than read off the memo because the memo
-   *  is invalidated by every parse and the budget must survive that: the
-   *  question it answers is "what would a fresh snapshot cost", and the last one
-   *  taken is the only evidence available. */
   lastBoundedSnapshotChars: number;
-  /** The open RESIZE WINDOW, or `undefined` when this PTY is not inside one.
-   *  Its presence IS the predicate "this output is the resize's repaint" — read
-   *  by the meaningful-output edge and by the withhold-and-decide publish path.
-   *  See {@link ResizeWindow} and {@link RESIZE_WINDOW_MS}. */
-  window: ResizeWindow | undefined;
-  /** Wall-clock of the last meaningful-output edge published, to throttle it (see
-   *  `ACTIVITY_EDGE_THROTTLE_MS`). */
+  repaint: RepaintWindow;
   lastActivityEdgeAt: number;
   exitCode: number | undefined;
-  /** Fibers parked in {@link PtyHost.exit}. A `Set` so an interrupted waiter
-   *  deregisters in O(1) — a long-lived host accumulates and sheds these one per
-   *  kolu-server restart. */
   exitWaiters: Set<(code: number) => void>;
   disposables: { dispose(): void }[];
   data: FanOut<PtyDataItem>;
   cwdFanOut: FanOut<string>;
   titleFanOut: FanOut<string>;
   commandRunFanOut: FanOut<string>;
-  /** Last command line seen on an OSC 633;E mark — or, for a command-rooted PTY,
-   *  the `shellJoin` seed of its spawn argv (`undefined` until then). Retained so
-   *  the `commandRun` source can replay it snapshot-first to a late subscriber —
-   *  mirroring how `foreground` replays the current process. SENSOR DATA ONLY. */
   lastCommand: string | undefined;
-  /** True when this PTY's root process IS the spawned command (no shell) — the
-   *  seed source for `lastCommand` at spawn, and the fact reported on the
-   *  inventory row so the sensors read `foreground === root` as busy. */
   commandRooted: boolean;
   foregroundFanOut: FanOut<ForegroundSample>;
-  /** Dedup key (`process\0foregroundPid`) of the last sample published, so
-   *  a steady foreground doesn't spam the channel across burst samples. */
   lastForegroundKey: string | undefined;
-  /** Wall-clock of the last on-output foreground sample, to throttle it (see
-   *  `FOREGROUND_SAMPLE_THROTTLE_MS`). The OSC samplers are instant and
-   *  unthrottled; this only bounds the output-driven fallback. */
   lastForegroundSampleAt: number;
-  /** Pending burst timers (post-command settle samples); cleared on
-   *  teardown so a killed PTY schedules nothing. */
   foregroundTimers: ReturnType<typeof setTimeout>[];
   onDispose: (() => void) | undefined;
 }
 
-/** Post-command-run foreground re-sample schedule (ms). A command-run mark
- *  (OSC 633;E) fires *before* the spawned process has forked + claimed the
- *  tty, so a single sample at mark time misses it; these delays re-sample
- *  across the ~1s window in which a launched program typically becomes the
- *  foreground. This is pty-host's own settle heuristic — it owns "when does
- *  the tty's foreground change after a command". Each fresh sample is pushed
- *  on the foreground tap (dedup makes redundant ones free), so any consumer
- *  reacting to that tap sees the settled foreground without coupling to this
- *  schedule. */
 const FOREGROUND_SAMPLE_DELAYS_MS = [0, 75, 300, 700, 1200] as const;
 
-/** Min interval (ms) between OUTPUT-driven foreground samples per PTY. The OSC
- *  samplers (title / 633;E) only fire for a shell carrying kolu's rc-hooks; a
- *  bare `kaval-tui create` shell emits none, so without this its `foregroundPid`
- *  is never captured and agent detection (which keys on it) never sees the agent.
- *  A working agent streams output, so sampling on data — throttled — captures its
- *  foreground within the window while bounding the `tcgetpgrp` rate under a flood
- *  of output. Dedup (`lastForegroundKey`) makes a steady foreground free. */
 const FOREGROUND_SAMPLE_THROTTLE_MS = 250;
 
-/** The RESIZE WINDOW: how long after a size change kaval treats a PTY's output
- *  as the SIGWINCH repaint rather than as work (kolu#2362).
- *
- *  ONE clock answering one question — "is this output the resize's repaint?" —
- *  read by both things that ask it: the meaningful-output edge (a repaint is
- *  not work, the old `RESIZE_ACTIVITY_MUTE_MS`, itself the client's older
- *  `RESIZE_ACTIVITY_SUPPRESS_MS` moved to the process that causes the repaint)
- *  and the withhold-and-decide policy below (a repaint is not something a
- *  viewer should watch arrive byte-for-byte). They were briefly two clocks;
- *  two clocks that can disagree about one fact is a defect, not a design.
- *
- *  It does NOT close early on silence, and that is the whole correction over
- *  the first spelling of this change. Measured on omp 18.18.8 against a 3.7 MB
- *  session (the issue's probe, timestamped per read): after a SIGWINCH omp
- *  writes a few KB within ~4 ms, then goes SILENT for 318–375 ms, and only then
- *  emits its whole ~3.5 MB reprint in under 100 ms. A window that closed on
- *  100 ms of quiet would close before the reprint had started, and 99.8% of it
- *  would arrive as ordinary deltas. The pause is the agent thinking, not the
- *  agent finished.
- *
- *  It is a FLAT span, with no extension. An earlier spelling kept the window
- *  open while output was still arriving — "a burst is still in flight" — but a
- *  gap between writes cannot tell a burst from a spinner: any program writing
- *  more often than the extension's own interval holds the window open to its
- *  cap. A working agent's spinner does exactly that, so resizing its tile would
- *  have frozen its output, and the echo of anything typed into it, for seconds.
- *  A reprint that starts after this span is simply published as it arrives, and
- *  the per-subscriber byte budget is what spares a viewer the rest of it: one
- *  drop and one snapshot instead of none. That is the fallback, not the design,
- *  and it is cheaper than freezing every resized terminal that happens to be
- *  busy. */
 const RESIZE_WINDOW_MS = 600;
 
-/** The floor under a data subscriber's byte budget, in UTF-16 code units of
- *  serialized VT text (what `boundedSnapshotOf` produces and what the budget is
- *  otherwise derived from).
- *
- *  The budget says "once more than a fresh snapshot is queued for you, a
- *  snapshot is the cheaper way to catch you up". That reasoning collapses on a
- *  nearly-blank screen, whose bounded snapshot is a few hundred bytes — a single
- *  ordinary PTY read (node-pty hands up 64 KiB at a time) would exceed it and
- *  every viewer of a freshly-spawned shell would thrash the re-snapshot path.
- *  Two full reads is the floor: a viewer that is one chunk behind is not behind.
- *  Baked, not configurable — the fail-fast rule: a derived bound with a baked
- *  floor, never a knob. */
 export const MIN_DATA_BUDGET_CHARS = 128 * 1024;
 
-/** Coalesce the meaningful-output edge to at most one per PTY per window — a
- *  streaming agent produces thousands of chunks/sec, but the edge only needs to
- *  say "still producing", so the wire carries ~5 tiny frames/sec instead. */
-// MUST stay well below the consumer's idle window (TERMINAL_IDLE_AFTER_MS, 1000ms):
-// the fold re-arms its idle timer on each edge, so a throttle >= that window would
-// let a busy terminal expire between edges and flicker its live dot.
 const ACTIVITY_EDGE_THROTTLE_MS = 200;
 
-/** Whether an output chunk at `now` should publish a meaningful-output edge:
- *  NOT inside the resize window (the SIGWINCH repaint is not work) AND not
- *  throttle-coalesced with the last edge. Pure so the resize-exclusion + throttle
- *  are unit-testable without a real PTY or a wall clock.
- *
- *  `inResizeWindow` is the WINDOW ITSELF, not a second deadline computed beside
- *  it: the window already decides when a repaint stops being a repaint, and one
- *  answer cannot disagree with itself. */
 export function shouldEmitActivityEdge(
   now: number,
   inResizeWindow: boolean,
@@ -850,9 +541,8 @@ export function shouldEmitActivityEdge(
 
 /** A dynamic loader's basename — glibc's `ld-linux*.so*`, musl's
  *  `ld-musl-*.so*`, or the bare `ld.so`. Such a process is a loader running a
- *  real program given as its first non-option argument, which is exactly what
- *  a nixpkgs `makeCWrapper` package (`opencode`, and every other
- *  `ld-linux… --argv0 … <binary>` wrapper) execs. */
+ *  real program given as its first non-option argument, which is what a nixpkgs
+ *  `makeCWrapper` package execs. */
 const LOADER_BASENAME = /^(?:ld-(?:linux|musl)[^/]*\.so(?:\.[^/]*)?|ld\.so)$/;
 
 /** The loader options that consume a FOLLOWING argument (`ld.so --help` lists
@@ -868,8 +558,6 @@ const LOADER_VALUE_OPTIONS = new Set([
   "--inhibit-rpath",
 ]);
 
-/** The final path segment — a `node:path`-free basename. kaval stays
- *  dependency-light, and every name here is already POSIX. */
 function lastSegment(p: string): string {
   const i = p.lastIndexOf("/");
   return i === -1 ? p : p.slice(i + 1);
@@ -878,24 +566,20 @@ function lastSegment(p: string): string {
 /** Whether `name` (a basename, or a path whose last segment is one) names a
  *  dynamic loader. See {@link LOADER_BASENAME}.
  *
- *  `undefined` is a REAL input, not a type lie papered over: node-pty's
- *  `process` returns `undefined` on darwin whenever its `pty_getproc` cannot
- *  name the foreground process group — `tcgetpgrp(3)` is -1 in the window
- *  before the child claims the tty, and `p_comm` is empty during an `exec` —
- *  where linux's `|| this._file` always yields a string. An absent name is not
- *  a loader, and the caller keeps it verbatim, exactly as node-pty reported.
- *  Exported for the test that pins that darwin edge. */
+ *  `undefined` is a REAL input: node-pty's `process` returns `undefined` on
+ *  darwin whenever its `pty_getproc` cannot name the foreground process group
+ *  — `tcgetpgrp(3)` is -1 in the window before the child claims the tty, and
+ *  `p_comm` is empty during an `exec` — where linux's `|| this._file` always
+ *  yields a string. An absent name is not a loader. */
 export function isDynamicLoader(name: string | undefined): boolean {
   return name !== undefined && LOADER_BASENAME.test(lastSegment(name));
 }
 
 /** The program a dynamic-loader `argv` will run, or `undefined`.
  *
- *  `undefined` when `argv[0]` is not a loader — the caller keeps node-pty's
- *  answer untouched, so the normal path pays nothing — or when the loader was
- *  invoked with no program at all (`--list`, `--help`, `--verify`). The first
- *  non-option argument is returned whole: every consumer takes `basename`
- *  itself, so the full store path is fine to publish. */
+ *  `undefined` when `argv[0]` is not a loader, or when the loader was invoked
+ *  with no program at all (`--list`, `--help`, `--verify`). The first
+ *  non-option argument is returned whole. */
 export function foregroundNameFromArgv(
   argv: readonly string[],
 ): string | undefined {
@@ -905,7 +589,7 @@ export function foregroundNameFromArgv(
     const arg = argv[i];
     if (arg === undefined) continue;
     if (!arg.startsWith("--")) return arg;
-    if (LOADER_VALUE_OPTIONS.has(arg)) i++; // skip the option's value
+    if (LOADER_VALUE_OPTIONS.has(arg)) i++;
   }
   return undefined;
 }
@@ -913,8 +597,7 @@ export function foregroundNameFromArgv(
 /** `/proc/<pid>/cmdline` split into argv (NUL-separated, trailing empty
  *  dropped), or `undefined` when the read fails — the process is already gone,
  *  or `/proc` is hidden. Linux-only: on Darwin node-pty reports `p_comm`, so
- *  the loader case cannot arise and there is nothing to resolve. Exported for
- *  the real-child test. */
+ *  the loader case cannot arise and there is nothing to resolve. */
 export function readProcCmdline(pid: number): readonly string[] | undefined {
   if (process.platform !== "linux") return undefined;
   try {
@@ -927,24 +610,11 @@ export function readProcCmdline(pid: number): readonly string[] | undefined {
 }
 
 /** The PTY's foreground process name, NORMALIZED for a loader-wrapped command.
- *
- *  node-pty reports the foreground's `argv[0]` basename. For a nixpkgs-wrapped
- *  binary that is the glibc/musl loader (`ld-linux-x86-64.so.2`) rather than
- *  the program it loads, so agent detection would never see `opencode` and
- *  recognition would hang on the shell's OSC 633;E hint. When the reported
- *  name IS a loader, resolve the real program from the foreground process's
- *  own `/proc/<pid>/cmdline`; on any failure keep the loader name — it is the
- *  honest `argv[0]`, not a fabricated value (the same best-effort stance as
- *  padi's `readProcessSnapshot`). This runs on every output burst, so the
- *  loader test is a cheap string match and the `/proc` read happens only for a
- *  loader.
- *
- *  `reported` and `foregroundPid` are two separate syscalls, not one atomic
- *  sample — a foreground that changes between them can pair a loader name with
- *  a non-loader pid. That is harmless here (the non-loader `argv[0]` makes
- *  {@link foregroundNameFromArgv} return `undefined`, so the loader name is
- *  kept) and the next burst sample corrects it, so this stays best-effort and
- *  never throws. */
+ *  node-pty reports the foreground's `argv[0]` basename, which for a
+ *  nixpkgs-wrapped binary is the glibc/musl loader rather than the program it
+ *  loads; when the reported name IS a loader, resolve the real program from the
+ *  foreground process's own `/proc/<pid>/cmdline`, and on any failure keep the
+ *  loader name — it is the honest `argv[0]`. Best-effort, never throws. */
 function normalizeForegroundName(
   reported: string,
   foregroundPid: number | undefined,
@@ -956,13 +626,8 @@ function normalizeForegroundName(
   return foregroundNameFromArgv(argv) ?? reported;
 }
 
-/** Read node-pty's foreground-pid accessor, collapsing the transient 0
- *  (before the child finishes `setsid`) to `undefined`. */
 function readForegroundPid(proc: pty.IPty): number | undefined {
-  // node-pty's IPty type doesn't expose this; the UnixTerminal class does
-  // (juspay fork). Sampled here rather than cached so it always reflects
-  // tcgetpgrp at call time.
-  const pid = (proc as unknown as { foregroundPid?: number }).foregroundPid;
+  const pid = proc.foregroundPid;
   return pid && pid > 0 ? pid : undefined;
 }
 
@@ -972,38 +637,16 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
   const dataMaxQueue = opts.dataMaxQueue;
   const generateId = opts.generateId ?? (() => randomUUID());
   const entries = new Map<PtyId, Entry>();
-  // Bounded tombstone of exit codes for PTYs that have exited and been torn
-  // down — lets exit() honour its "already-exited" contract with the
-  // real code instead of a fabricated 0.
   const exitCodes = new Map<PtyId, number>();
-  // Host-global membership feed — one fan-out for the whole host (not per-PTY,
-  // like the taps), broadcasting a `created`/`exited` from the two `entries`
-  // mutation sites (spawn / teardown). Eager-subscribe, so a spawn racing a
-  // subscriber is captured; never closed except on dispose (host shutdown).
   const inventoryFanOut = new FanOut<PtyInventoryEvent>();
-  // Host-global meaningful-output edges — every PTY's resize-excluded output bursts.
   const activityFanOut = new FanOut<PtyActivityEdge>();
 
-  /** The entry, or the host's DECLARED "no such PTY" — never an anonymous
-   *  `Error`.
-   *
-   *  The serving layer checks liveness once (`requirePtySync`, which raises this
-   *  same class) and this function checks it again one Effect step later, so a
-   *  PTY that exits in the gap surfaces HERE. A consumer recognises a healthy
-   *  exit structurally, by `_tag` (padi's re-open loop is the one that matters:
-   *  tag ⇒ "the PTY is gone, end cleanly"; anything else ⇒ "the chain broke,
-   *  raise a failure"). An untagged `Error` therefore turned a normal exit into a
-   *  spurious loud failure — the producer is the honest place to fix that, not a
-   *  classify-at-the-catch downstream. */
   function requireEntry(id: PtyId): Entry {
     const entry = entries.get(id);
     if (!entry) throw new PtyNotFound({ id });
     return entry;
   }
 
-  /** Project an {@link Entry} to its {@link PtyListEntry} row — the one mapping
-   *  `list()` and the inventory `created` delta share, so a live PTY reads the
-   *  same whether a consumer learns of it by snapshot or by delta. */
   function listEntryOf(entry: Entry): PtyListEntry {
     return {
       id: entry.id,
@@ -1011,18 +654,11 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
       cwd: entry.cwd,
       lastActivity: entry.lastActivity,
       title: entry.title,
-      foregroundProcess: foregroundNameOf(entry),
+      foregroundProcess: readForeground(entry).process,
       commandRooted: entry.commandRooted,
     };
   }
 
-  /** Read `{process, foregroundPid}` at the tty. Cheap: a property read + a
-   *  `tcgetpgrp` syscall — so a subscriber's snapshot takes a FRESH reading
-   *  rather than replaying whatever the dedup below last let through. The
-   *  process name is NORMALIZED through the one {@link normalizeForegroundName}
-   *  (as is {@link foregroundNameOf}'s), so a loader-wrapped command (`opencode`)
-   *  reads as the program it loads on every published path (the `foreground` tap
-   *  and `list.foregroundProcess`). */
   function readForeground(entry: Entry): ForegroundSample {
     const foregroundPid = readForegroundPid(entry.proc);
     return {
@@ -1031,30 +667,11 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
     };
   }
 
-  /** The PTY's normalized foreground process NAME — the cheap loader test
-   *  FIRST, so a name-only consumer never pays a `tcgetpgrp` it has no use for
-   *  (and on darwin, where no reported name is ever a loader, this is exactly
-   *  the pre-normalization cost: the `process` read and nothing more). The
-   *  `foreground` tap reads {@link readForeground} instead, because its sample
-   *  carries the pid. */
-  function foregroundNameOf(entry: Entry): string {
-    const reported = entry.proc.process;
-    return isDynamicLoader(reported)
-      ? normalizeForegroundName(reported, readForegroundPid(entry.proc))
-      : reported;
-  }
-
-  /** {@link foregroundNameOf} by id, or `undefined` if the PTY is gone — the
-   *  ONE lookup `PtyHandle.process` and {@link getProcess} both read through,
-   *  so a name query cannot answer with the raw loader name on one accessor
-   *  and the resolved program on another. */
   function foregroundProcessName(id: PtyId): string | undefined {
     const entry = entries.get(id);
-    return entry === undefined ? undefined : foregroundNameOf(entry);
+    return entry === undefined ? undefined : readForeground(entry).process;
   }
 
-  /** Sample `{process, foregroundPid}` and publish it on the entry's foreground
-   *  tap iff it changed since the last publish (dedup by a compound key). */
   function sampleForeground(entry: Entry): void {
     const sample = readForeground(entry);
     const key = `${sample.process}\u0000${sample.foregroundPid ?? ""}`;
@@ -1063,10 +680,6 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
     entry.foregroundFanOut.publishUnsafe(sample);
   }
 
-  /** Re-sample foreground across the post-command settle window — the agent
-   *  process forks *after* the OSC 633;E mark, so one sample at mark time
-   *  misses it. Timers are tracked on the entry so teardown can clear pending
-   *  ones; each timer removes itself after firing so the array stays bounded. */
   function scheduleForegroundBurst(entry: Entry): void {
     for (const delay of FOREGROUND_SAMPLE_DELAYS_MS) {
       let id: ReturnType<typeof setTimeout>;
@@ -1103,25 +716,12 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
       if (oldest !== undefined) exitCodes.delete(oldest);
     }
     entries.delete(entry.id);
-    // Close any open resize window, AFTER the delete above: a PTY that exits
-    // mid-window must not leave a fiber parked on a window that will never
-    // close, and releasing them once the id is gone means each re-resolves to
-    // the honest `PtyNotFound` rather than serializing a mirror this teardown
-    // has already disposed. The fan-out is already closed by this point, so
-    // the settle branches are no-ops and only the release and the timer clear
-    // do anything — a dead entry schedules nothing.
-    closeResizeWindow(entry);
-    // Announce the membership change AFTER the delete, so a consumer reacting to
-    // `exited` that re-checks `has`/`list` sees the PTY already gone.
+    entry.repaint.settle();
     inventoryFanOut.publishUnsafe({ kind: "exited", id: entry.id });
   }
 
   function spawn(spawnOpts: PtySpawnOpts): PtySpawnResult {
     const id = spawnOpts.id ?? generateId();
-    // An id names one live PTY. In particular, a kill and a same-id wake may
-    // overlap while the old child is still delivering onExit; overwriting its
-    // map slot would let the old teardown delete the replacement. Reject before
-    // node-pty or the headless mirror has any side effects.
     if (entries.has(id)) {
       throw new Error(`pty-host: PTY ${id} already exists`);
     }
@@ -1139,11 +739,6 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
     });
     log.debug({ id, pid: proc.pid }, "spawned");
 
-    // Sanity-check the node-pty fork's foregroundPid accessor — if upstream
-    // changes drop it, fail loud here instead of silently breaking agent
-    // detection. The accessor returns 0 momentarily before the child
-    // finishes setsid, so any number (including 0) means the property
-    // exists.
     if (
       typeof (proc as unknown as { foregroundPid?: unknown }).foregroundPid !==
       "number"
@@ -1153,19 +748,10 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
       );
     }
 
-    // Headless terminal parses PTY output into screen state for
-    // serialization. allowProposedApi is required for SerializeAddon to
-    // access the buffer.
     const headless = new Terminal({
       cols,
       rows,
       scrollback,
-      // Match the client (Terminal.tsx): rewrap the cursor's wrapped line on a
-      // narrowing resize instead of truncating it. The serialized snapshot this
-      // terminal produces is the scrollback a client restores on attach/
-      // reconnect, so a URL left on the cursor line when the PTY resizes must
-      // survive here too — otherwise the restored buffer hands back a clipped
-      // link even though the live client got it right.
       reflowCursorLine: true,
       allowProposedApi: true,
     });
@@ -1178,13 +764,15 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
       headless,
       serialize,
       lastBoundedSnapshotChars: 0,
-      window: undefined,
+      repaint: createRepaintWindow({
+        settleAfterMs: RESIZE_WINDOW_MS,
+        budgetChars: () => dataBudgetChars(entries.get(id)),
+        publish: (data) => entry.data.publishUnsafe({ kind: "bytes", data }),
+        resyncAll: () => entry.data.dropAllUnsafe(),
+      }),
       lastActivityEdgeAt: 0,
       snapshotCache: undefined,
       boundedSnapshotCache: undefined,
-      // Absolute-line origin + reflow generation over the headless mirror. The
-      // anchor subscribes the eviction pin immediately (see createMirrorAnchor);
-      // the write callback and resize path drive it below.
       anchor: createMirrorAnchor(headless),
       cwd: spawnOpts.cwd,
       title: "",
@@ -1192,11 +780,6 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
       exitCode: undefined,
       exitWaiters: new Set(),
       disposables: [],
-      // The data feed is the one fan-out whose items are PTY reads, so it is
-      // the one that carries a BYTE budget: a viewer more than a fresh snapshot
-      // behind is dropped and re-synced instead of being shown the replay (see
-      // `dataBudgetChars`). The metadata taps below keep the item bound alone —
-      // their items are a cwd, a title, a command line.
       data: new FanOut<PtyDataItem>({
         maxQueue: dataMaxQueue,
         byteBudget: {
@@ -1217,108 +800,51 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
     };
     entries.set(id, entry);
 
-    // Lock 1 (#1872) — seed `lastCommand` from the spawn argv for a command-rooted
-    // PTY. Such a PTY has the agent as `argv[0]` and no shell, so it never emits
-    // the OSC 633;E mark that is `lastCommand`'s only other writer — the daemon HAS
-    // the command line and must not discard it. Written on the SAME `lastCommand`
-    // field + channel the 633;E handler uses (so the sync getter and the stream
-    // never disagree), and it is only a SEED — a later live 633;E mark (if a shell
-    // ever runs inside) is the temporal last-writer and overwrites it. `shellJoin`
-    // (the repo's POSIX-quote source of truth) keeps tokens intact so a value with
-    // spaces stays one word if anyone ever re-tokenizes it; today's only reader
-    // takes the head basename. This is SENSOR data: `commandRooted` also stays the
-    // `isShellIdle` seed, and nothing here becomes a command kolu replays.
-    // (We deliberately do NOT seed the title: the title tap is live-only — no
-    // snapshot-first replay — so a seeded title is erased by the foreground
-    // sensor's first sample; the tile carries the agent's foreground process name
-    // instead, and the Dock reads state from the command.)
     if (entry.commandRooted) {
       const command = shellJoin([spawnOpts.shell, ...(spawnOpts.args ?? [])]);
       entry.lastCommand = command;
       entry.commandRunFanOut.publishUnsafe(command);
     }
 
-    // Dispose the anchor's live `onTrim` subscription on teardown. The anchor
-    // keeps a single indirection internally (a RIS swap replaces its handle in
-    // place), so this stays one stable disposable, never one-per-reset (F5).
     entry.disposables.push({ dispose: () => entry.anchor.dispose() });
 
-    // OSC 7 (CWD reporting) — the rc wrapper kolu injects makes the shell
-    // emit these on every prompt.
     entry.disposables.push(
       headless.parser.registerOscHandler(7, (data: string) => {
-        try {
-          const url = new URL(data);
-          if (url.protocol === "file:") {
-            entry.cwd = decodeURIComponent(url.pathname);
-            log.debug({ id, cwd: entry.cwd }, "cwd changed (OSC 7)");
-            entry.cwdFanOut.publishUnsafe(entry.cwd);
-          }
-        } catch {
-          // Ignore malformed OSC 7 data.
+        const url = URL.parse(data);
+        if (url?.protocol === "file:") {
+          entry.cwd = decodeURIComponent(url.pathname);
+          log.debug({ id, cwd: entry.cwd }, "cwd changed (OSC 7)");
+          entry.cwdFanOut.publishUnsafe(entry.cwd);
         }
         return true;
       }),
     );
 
-    // OSC 0/2 title changes — kolu's preexec hook emits OSC 2 before each
-    // command, signalling the foreground process may have changed.
     entry.disposables.push(
       headless.onTitleChange((title: string) => {
         entry.title = title;
         log.debug({ id, title }, "title changed (OSC 0/2)");
         entry.titleFanOut.publishUnsafe(title);
-        // OSC 2 signals the foreground process may have changed — sample now.
         sampleForeground(entry);
       }),
     );
 
-    // OSC 633 ; E ; <command> — VS Code's "exact command line" mark. The
-    // payload arrives as "E;<command>"; accept only the E sub-code so
-    // future VS Code sequences (A/B/C/D) pass through untouched.
-    //
-    // PTY output is a SENSOR. Nothing that executes may read a value whose
-    // provenance is PTY bytes. This payload is attacker-controlled — anyone whose
-    // text the user displays (`cat` a file, curl, an ssh banner) can emit the
-    // mark while the shell is idle, and the normalizer would keep env assignments
-    // and value flags, so `LD_PRELOAD=/x claude --settings '{…}'` would become a
-    // command wake typed into a fresh shell. So the mark stays a sensor here and
-    // downstream: it re-samples the foreground (an agent forks a beat after it)
-    // and its head basename may name a shim for the adapters. A restore replays
-    // the LIVE PROCESS's allowlisted argv plus the OS-derived session identity
-    // (`resumeFormFor`), never this text.
     entry.disposables.push(
       headless.parser.registerOscHandler(633, (data: string) => {
         if (!data.startsWith("E;")) return false;
         const command = data.slice(2);
-        // DEBUG only: the raw command line is whatever the user typed,
-        // including any secrets; consumers normalize before logging at
-        // higher levels.
         log.debug({ id, command }, "command run (OSC 633;E)");
-        // Retain the command BEFORE publishing so `subscribeCommandRun`'s
-        // snapshot-first reading is already current for anyone the publish wakes.
         entry.lastCommand = command;
         entry.commandRunFanOut.publishUnsafe(command);
-        // The agent process forks AFTER this mark — re-sample foreground
-        // across the settle window so detection sees the real foreground.
         scheduleForegroundBurst(entry);
         return true;
       }),
     );
 
-    // XTVERSION (CSI > 0 q): identify the terminal. TUIs like Yazi query this
-    // synchronously at startup and block until they receive a DCS reply. The
-    // headless xterm has no built-in handler, so without this it never answers
-    // — and the browser xterm's reply is filtered out as a late duplicate
-    // (see @kolu/terminal-protocol responseFilter). Answer here so the PTY is
-    // never blocked.
     entry.disposables.push(
       headless.parser.registerCsiHandler(
         { prefix: ">", final: "q" },
         (params) => {
-          // XTVERSION is "CSI > Ps q" with Ps absent or 0. Mirror xterm's own
-          // sendXtVersion: answer only for Ps <= 0, but always consume the
-          // sequence so it never leaks downstream as a no-op CSI.
           const ps = params[0];
           if (typeof ps === "number" && ps > 0) return true;
           proc.write(`\x1bP>|${HEADLESS_TERM_ID}\x1b\\`);
@@ -1327,14 +853,6 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
       ),
     );
 
-    // Forward device-query responses (DA1/DSR) from the headless terminal
-    // back to the PTY. TUIs like Yazi probe terminal capabilities at
-    // startup — the headless terminal answers immediately, avoiding a
-    // round trip to a (possibly absent) client. The forward/drop policy
-    // (CSI/DCS forward; OSC drop — nothing consumes a headless OSC answer,
-    // and a cooked tty echoes it as visible garbage) is shared protocol,
-    // owned by @kolu/terminal-protocol beside the client-side suppression
-    // it reciprocates.
     entry.disposables.push(
       headless.onData((response: string) => {
         if (!shouldForwardHeadlessReply(response)) return;
@@ -1342,36 +860,20 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
       }),
     );
 
-    // PTY data → headless mirror → fan-out. Publish in the headless write
-    // *callback* (post-parse), not on arrival: `@xterm/headless`'s write is
-    // async — the buffer only reflects the data once the callback fires —
-    // so "published" means "parsed into the mirror". That makes attach()'s
-    // synchronous subscribe()+serialize() pair partition the byte stream at
-    // a single point with no gap and no overlap.
     entry.disposables.push(
       proc.onData((data: string) => {
         const now = Date.now();
-        // Stamped on arrival, before the parse.
         entry.lastActivity = now;
-        // Meaningful-output edge — the resize-aware activity signal every consumer
-        // reads. Repaint excluded + throttled (see `shouldEmitActivityEdge`); the
-        // exclusion reads the WINDOW itself, so it can never disagree with the
-        // publish path below about whether this output is a repaint.
         if (
           shouldEmitActivityEdge(
             now,
-            entry.window !== undefined,
+            entry.repaint.isOpen,
             entry.lastActivityEdgeAt,
           )
         ) {
           entry.lastActivityEdgeAt = now;
           activityFanOut.publishUnsafe({ id });
         }
-        // Output-driven foreground sample (throttled) — the fallback for a
-        // hook-less terminal that emits no OSC title/633 to trigger the samplers
-        // above. A working agent streams output, so this captures its
-        // `foregroundPid` so agent detection can key on it; dedup makes a steady
-        // foreground free, and the throttle bounds `tcgetpgrp` under a flood.
         if (
           now - entry.lastForegroundSampleAt >=
           FOREGROUND_SAMPLE_THROTTLE_MS
@@ -1380,24 +882,9 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
           sampleForeground(entry);
         }
         headless.write(data, () => {
-          // New bytes have parsed into the mirror, so the memoized snapshot is
-          // stale: clear it BEFORE publishing, so a cached value always implies
-          // "no parse since it was taken" — the invariant `attach()` leans on.
           invalidateSnapshot(entry);
-          // A full reset (RIS / `ESC c`, terminfo `rs1` for xterm-256color — a
-          // plain `reset` emits it) replaces the normal buffer's line list,
-          // silently orphaning the eviction pin and renumbering absolutes with NO
-          // resize — so a pre-reset cursor would pass the epoch gate and
-          // getHistory would serve the live screen as "older history". The anchor
-          // detects the swap by identity and re-anchors (advance the origin past
-          // the discarded rows, re-subscribe the trim pin, bump the generation so
-          // every outstanding cursor re-seeds — F3 halt-not-corrupt).
           entry.anchor.reanchorIfReset();
-          // Published — or WITHHELD, when a resize window is open. Either way
-          // the chunk is already in the mirror, which is what lets the window
-          // decide later between replaying it and handing out a snapshot that
-          // already contains it.
-          publishParsed(entry, data);
+          entry.repaint.offer(data);
         });
       }),
     );
@@ -1413,10 +900,6 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
       }),
     );
 
-    // The PTY is fully wired and in `entries` — announce it on the membership
-    // feed so a consumer that reacts to `created` and immediately attaches /
-    // lists finds a live, fully-tapped entry. Published last, so the snapshot a
-    // racing inventory subscriber takes is consistent with this delta.
     inventoryFanOut.publishUnsafe({
       kind: "created",
       entry: listEntryOf(entry),
@@ -1425,24 +908,10 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
     return { id, pid: proc.pid };
   }
 
-  // The serialized mirror snapshot for the current publish-epoch is a single
-  // domain concept with one production site and one invalidation seam, so its
-  // memo can't desync across the consumers that read it or the mutators that
-  // dirty it. `snapshotOf` is the only place the mirror is serialized;
-  // `invalidateSnapshot` is the only place the memo is dropped, called from
-  // EVERY mutator of the serialized state (the data-publish path and resize()).
   function snapshotOf(entry: Entry): string {
     entry.snapshotCache ??= entry.serialize.serialize();
     return entry.snapshotCache;
   }
-  /** Local (buffer-relative) row the bounded attach snapshot starts at: the
-   *  recent-screenful window `max(0, len - SNAPSHOT_SCROLLBACK - rows)`, snapped
-   *  BACK over any wrapped-line continuation to the logical line's HEAD. A cut
-   *  that lands mid-wrapped-line would make `serialize` replay the continuation
-   *  as a fresh line (the wrap flag is lost with no preceding row present), so
-   *  the snapshot↔history seam would show a soft-wrapped line as a hard break —
-   *  the same corruption `getHistory` already snaps its own top edge away from.
-   *  A head is `isWrapped === false` (a blank line qualifies). */
   function snapshotStartLocal(entry: Entry): number {
     const normal = entry.headless.buffer.normal;
     return snapToWrapHead(
@@ -1450,11 +919,6 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
       Math.max(0, normal.length - SNAPSHOT_SCROLLBACK - entry.headless.rows),
     );
   }
-  /** Bounded attach snapshot (recent screenful) + its seed cursor, memoized per
-   *  publish-epoch just like {@link snapshotOf}. The `{scrollback}` form keeps
-   *  the addon's faithful restore (cursor position, modes, alt buffer) while
-   *  capping the scrollback depth. Read this — not `snapshotOf` — for attach: it
-   *  is what stops shipping the whole 10k-line mirror on every (re)attach. */
   function boundedSnapshotOf(entry: Entry): {
     snapshot: string;
     topLine: number;
@@ -1462,20 +926,11 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
     entry.boundedSnapshotCache ??= (() => {
       const start = snapshotStartLocal(entry);
       const normal = entry.headless.buffer.normal;
-      // `serialize({scrollback: S})` emits the S scrollback rows above the screen
-      // plus the screen; pick S so the top emitted row is EXACTLY `start` (the
-      // wrap-safe head), so `topLine` names the true first row of the bytes and
-      // the seam is never bisected. Computed and serialized in one synchronous
-      // breath (no await between), so the seed can't drift from the bytes.
       const scrollback = Math.max(
         0,
         normal.length - entry.headless.rows - start,
       );
       const snapshot = entry.serialize.serialize({ scrollback });
-      // The cost of a fresh snapshot, remembered — this is what the data
-      // fan-out's byte budget is derived from (`dataBudgetChars`). Recorded
-      // here because this is the one place a bounded snapshot is produced, so
-      // the budget can never be derived from a number no attach ever paid.
       entry.lastBoundedSnapshotChars = snapshot.length;
       return { topLine: entry.anchor.baseLine() + start, snapshot };
     })();
@@ -1486,18 +941,6 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
     entry.boundedSnapshotCache = undefined;
   }
 
-  /** The most a data subscriber may have QUEUED before it is dropped and
-   *  re-synced, in UTF-16 code units (kolu#2362).
-   *
-   *  DERIVED, not configured: once more bytes are queued for a viewer than a
-   *  fresh bounded snapshot would cost, the snapshot IS the cheaper way to make
-   *  it current — and a far better one, because it is the screen the viewer
-   *  wants rather than the history of how the screen got there. That is the
-   *  whole of the policy; {@link MIN_DATA_BUDGET_CHARS} is the floor under it
-   *  for a screen too small to measure sensibly. A PTY that has gone (the map
-   *  lookup is how the budget reaches the entry from inside the fan-out's own
-   *  closure) reads as the floor, which is unreachable in practice: a closed
-   *  fan-out publishes nothing. */
   function dataBudgetChars(entry: Entry | undefined): number {
     return Math.max(
       MIN_DATA_BUDGET_CHARS,
@@ -1505,146 +948,8 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
     );
   }
 
-  /** The ONE door parsed output leaves by: published now, or withheld for the
-   *  open resize window to decide on at close. See {@link ResizeWindow}. */
-  function publishParsed(entry: Entry, data: string): void {
-    const w = entry.window;
-    if (w === undefined) {
-      entry.data.publishUnsafe({ kind: "bytes", data });
-      return;
-    }
-    // Already past the budget: this window can only end in a re-sync, so there
-    // is nothing to gain by keeping another byte.
-    if (w.resync) return;
-    w.withheld.push(data);
-    w.withheldChars += data.length;
-    if (w.withheldChars > dataBudgetChars(entry)) {
-      // Catching the viewers up would now cost more than re-sending the screen,
-      // which is the same question the per-subscriber byte budget answers — one
-      // policy, asked in two places. Drop what we held: it is memory we have
-      // decided not to use.
-      w.withheld.length = 0;
-      w.withheldChars = 0;
-      w.resync = true;
-    }
-  }
-
-  /** Tell every data subscriber the mirror is now `grid`, AT THIS POINT in
-   *  their byte stream (contract 9.0).
-   *
-   *  Straight to the fan-out, never through {@link publishParsed}: this item is
-   *  a CONTROL fact, not output, and withholding it would leave a viewer
-   *  painting the repaint of a resize nobody told it about. It is free against
-   *  the byte budget ({@link dataItemChars}) for the same reason.
-   *
-   *  "Never withheld" and "always in order" are not in tension, and the reason
-   *  is the window's own rule rather than timing: the only way this can run
-   *  with a window ALREADY open is a second resize, and `openResizeWindow`
-   *  answers that by discarding what it held and latching `resync`. So every
-   *  byte this item could have jumped ahead of is dropped in the same
-   *  synchronous breath, and those subscribers are re-snapshotted at the
-   *  settled screen instead. Nothing is ever delivered out of order; the
-   *  alternative — withholding the size until the window closes — would deliver
-   *  it LATE, which is the defect. */
   function publishResized(entry: Entry, grid: PtyGrid): void {
     entry.data.publishUnsafe({ kind: "resized", grid });
-  }
-
-  /** Open a resize window, or restart the one already open.
-   *
-   *  A SECOND resize inside an open window discards what was kept and latches
-   *  `resync`: those bytes were written for a grid that has just gone away, and
-   *  replaying them into viewers that are about to be told a new size would
-   *  paint a screen nobody ever had. A drag that walks a PTY through five sizes
-   *  therefore settles once, at the end. */
-  function openResizeWindow(entry: Entry): void {
-    const open: ResizeWindow = entry.window ?? {
-      timer: undefined,
-      withheld: [],
-      withheldChars: 0,
-      resync: false,
-      waiters: new Set(),
-    };
-    if (entry.window !== undefined) {
-      open.withheld.length = 0;
-      open.withheldChars = 0;
-      open.resync = true;
-    }
-    entry.window = open;
-    // ONE timer for the whole window, re-armed from the LATEST resize and never
-    // from output — see {@link RESIZE_WINDOW_MS} for why output must not extend
-    // it.
-    clearTimeout(open.timer);
-    open.timer = setTimeout(() => closeResizeWindow(entry), RESIZE_WINDOW_MS);
-  }
-
-  /** The subscriber about to be registered will serialize the mirror in this
-   *  same synchronous step, so anything the open window is holding is ALSO in
-   *  its snapshot — and would reach it a SECOND time when the window closes.
-   *  Discard what is held and latch `resync`; that is the honest cost, and the
-   *  siblings that were counting on those bytes get one snapshot instead.
-   *
-   *  Called from inside `subscribeWith`'s `read()`, because that is the only
-   *  point at which "registered" and "serialized" are one instant. `attach()`
-   *  already tries to keep this unreachable — an attach whose own `resizeTo`
-   *  opens a FRESH window runs before any chunk can be withheld, and one
-   *  arriving into a window already open PARKS instead — but "unreachable"
-   *  there rests on a fiber not yielding between the resize and the
-   *  registration, which `fanOut.ts`'s own header refuses to assume. So the
-   *  partition's hardest invariant — no byte delivered twice — is held HERE, by
-   *  construction, rather than by timing. */
-  function claimWithheldOverlap(entry: Entry): void {
-    const w = entry.window;
-    if (w === undefined || w.withheldChars === 0) return;
-    w.withheld.length = 0;
-    w.withheldChars = 0;
-    w.resync = true;
-  }
-
-  /** Close the window: SETTLE the existing subscribers, then release the parked
-   *  attaches — in that order, so a released attach serializes a mirror whose
-   *  withheld bytes its siblings have already been sent. Reversed, the snapshot
-   *  would contain bytes that were still queued as deltas elsewhere, and the
-   *  "every byte lands in exactly one of snapshot / deltas" partition would hold
-   *  per subscriber but not across them.
-   *
-   *  Idempotent, and called from teardown too: a PTY that exits mid-window must
-   *  not leave a fiber parked on a window that will never close. On that path
-   *  the fan-out is already closed, so both settle branches are no-ops and only
-   *  the release matters. */
-  function closeResizeWindow(entry: Entry): void {
-    const w = entry.window;
-    if (w === undefined) return;
-    // Cleared FIRST: `publishUnsafe` below must publish, not re-withhold.
-    entry.window = undefined;
-    clearTimeout(w.timer);
-    if (w.resync) {
-      entry.data.dropAllUnsafe();
-    } else {
-      for (const chunk of w.withheld)
-        entry.data.publishUnsafe({ kind: "bytes", data: chunk });
-    }
-    w.withheld.length = 0;
-    const waiters = [...w.waiters];
-    w.waiters.clear();
-    for (const release of waiters) release();
-  }
-
-  /** Park until this PTY's resize window closes. The finalizer deregisters the
-   *  waiter, so an interrupted attach releases its slot rather than leaving a
-   *  dead callback for the window to invoke. */
-  function awaitResizeWindow(entry: Entry): Effect.Effect<void> {
-    return Effect.suspend(() => {
-      const w = entry.window;
-      if (w === undefined) return Effect.void;
-      return Effect.callback<void>((resume) => {
-        const waiter = (): void => resume(Effect.void);
-        w.waiters.add(waiter);
-        return Effect.sync(() => {
-          w.waiters.delete(waiter);
-        });
-      });
-    });
   }
 
   function attach(
@@ -1652,67 +957,17 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
     opts?: PtyAttachOpts,
   ): Effect.Effect<PtyAttachment, never, Scope.Scope> {
     const { resizeTo } = opts ?? {};
-    // An attach on a fiber that is ALREADY interrupted — the re-issued half of a
-    // reconnect storm, whose client has gone — does NOTHING, because an
-    // interrupted fiber never runs this effect at all. That includes the resize:
-    // `resizeTo` mutates the SHARED PTY (it SIGWINCHes the child, reflows the
-    // mirror every other client reads, and on a width change bumps the reflow
-    // epoch that stales their backfill cursors), and a subscriber that will never
-    // read a byte must not inflict that on everyone else. Under the AbortSignal
-    // face this needed an explicit already-aborted fast path in front of the
-    // write; under interruption it is structural.
     return Effect.suspend(() => {
       const entry = requireEntry(id);
-      // Size the PTY to the consumer's grid BEFORE serializing, so the snapshot is
-      // bytes laid out for the grid that will paint them. This is the whole point
-      // of carrying the grid on the attach: the resize and the serialize become
-      // ONE act, and "a snapshot for a size the consumer isn't" stops being a
-      // reachable state. Doing it through `resize()` — not a private path — keeps
-      // the single mutator: same-dimensions stays a no-op (so a second viewer at
-      // the same size costs nothing and staleness the reflow epoch guards is not
-      // spuriously bumped), and a genuine change reflows the mirror, invalidates
-      // the snapshot memo, and SIGWINCHes the process exactly as a user resize
-      // does — which is what makes the process repaint into the new grid. This is
-      // the WRITE the `resizeTo` name advertises: it is visible to every other
-      // client attached to this PTY, not private to this attachment.
-      // Whether a window was ALREADY open decides what happens next, so it is
-      // read before the resize can open one.
-      const windowWasOpen = entry.window !== undefined;
+      const windowWasOpen = entry.repaint.isOpen;
       if (resizeTo) resize(id, resizeTo.cols, resizeTo.rows);
-      // An attach whose own `resizeTo` opens a FRESH window is not delayed at
-      // all: nothing has been withheld yet, so subscribing and serializing right
-      // here still partitions the byte stream at a single point, and first paint
-      // costs what it always did. It then receives the withheld bytes, or a
-      // re-sync, when the window closes — like every other viewer.
-      //
-      // An attach arriving into a window that was ALREADY open must PARK. The
-      // bytes that window is holding are already in the mirror, so a snapshot
-      // taken now would contain them AND they would arrive again as deltas at
-      // close: the one duplication this design has to rule out — and the one
-      // `claimWithheldOverlap` then rules out structurally, for the race this
-      // check cannot see. Parking costs it the rest of the window; the
-      // mirror parses throughout, so what moves is only WHEN its one reading is
-      // taken.
       if (!windowWasOpen) return attachNow(id, entry);
-      return Effect.flatMap(awaitResizeWindow(entry), () =>
+      return Effect.flatMap(entry.repaint.awaitSettled(), () =>
         attachNow(id, entry),
       );
     });
   }
 
-  /** The fused subscribe+serialize half of {@link attach}, after any resize
-   *  window it had to wait for has closed.
-   *
-   *  `id` is re-resolved rather than trusting the `entry` the caller parked
-   *  with: a PTY can EXIT while its attach is parked (teardown releases the
-   *  waiters), and that entry's mirror is disposed — serializing it would read
-   *  a dead terminal. Re-resolving gives the same answer an attach to an
-   *  already-gone PTY has always given: `requireEntry` throws `PtyNotFound`,
-   *  which the serving layer carries as a defect because a `StreamSpec` has no
-   *  error channel to declare it on. The parked `entry` is still taken as an
-   *  argument so the common case (same object) needs no second lookup to reason
-   *  about — it is the identity check that makes "the PTY I waited for" and
-   *  "the PTY I serialize" provably the same one. */
   function attachNow(
     id: PtyId,
     parked: Entry,
@@ -1720,37 +975,12 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
     return Effect.suspend(() => {
       const entry = requireEntry(id);
       if (entry !== parked) throw new PtyNotFound({ id });
-      // Subscribe and serialize in ONE synchronous step (`subscribeWith` — the
-      // two halves are not separately spellable): no headless parse, and thus no
-      // post-parse publish, can interleave between them, so every chunk lands in
-      // exactly one of snapshot / deltas.
-      //
-      // The serialize coalesces within the publish-epoch: the first attach
-      // serializes and memoizes via boundedSnapshotOf(); the rest of a burst reuse
-      // the identical immutable string. Race-free — the memo is set through
-      // boundedSnapshotOf() and cleared through invalidateSnapshot() in every
-      // mirror mutator, all synchronous, and publish only fires from a later task;
-      // so a present cache means the mirror is unchanged since it was taken, and
-      // every reusing attacher's deltas begin at the next publish, exactly where
-      // the shared snapshot ends. No gap, no overlap. `topLine` rides with the
-      // snapshot from the same serialize, so the backfill seed can never drift
-      // from the bytes the client received.
       return Effect.map(
         entry.data.subscribeWith(() => {
-          // Anything an open window still holds is about to be in this
-          // snapshot, so it must not also be replayed at close. See
-          // `claimWithheldOverlap` — this is the one instant where the
-          // registration and the serialize are the same step, which is what
-          // makes the claim structural rather than lucky.
-          claimWithheldOverlap(entry);
+          entry.repaint.claimOverlap();
           return {
             ...boundedSnapshotOf(entry),
             reflowEpoch: entry.anchor.reflowEpoch(),
-            // Read INSIDE the same synchronous reading as the serialize and the
-            // epoch — `resize()` mutates the mirror and invalidates the snapshot
-            // memo, both synchronously, so a grid read out here could describe a
-            // reflow the bytes never saw. The whole point of this field is that
-            // it cannot drift from the snapshot it rides with.
             grid: { cols: entry.headless.cols, rows: entry.headless.rows },
           };
         }),
@@ -1773,8 +1003,6 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
         return Effect.callback<number>((resume) => {
           const waiter = (code: number): void => resume(Effect.succeed(code));
           entry.exitWaiters.add(waiter);
-          // Interrupting the waiting fiber deregisters the waiter — a long-lived
-          // host must not retain one per abandoned subscription.
           return Effect.sync(() => {
             entry.exitWaiters.delete(waiter);
           });
@@ -1782,13 +1010,6 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
       }
       const cached = exitCodes.get(id);
       if (cached !== undefined) return Effect.succeed(cached);
-      // Unknown id — never spawned, or exited long enough ago to be evicted from
-      // the tombstone. The host does not KNOW this PTY's exit code, and the one
-      // answer it must never give is `0`: a fabricated SUCCESS that a consumer
-      // reports to the user as "the command finished fine". So it fails with the
-      // host's declared "no such PTY" and the caller decides — `terminate` reads
-      // it as "already gone, nothing to wait for", the `exit` stream member as a
-      // defect (see `inProcessPtyHost`).
       return Effect.fail(new PtyNotFound({ id }));
     });
   }
@@ -1800,9 +1021,6 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
 
   function getScreenState(id: PtyId): string {
     const entry = entries.get(id);
-    // Read through the same memo as attach(): "the current-epoch snapshot" is
-    // one serialized value, computed once and shared by both consumers, not a
-    // second uncached serialize of the identical mirror.
     return entry ? snapshotOf(entry) : "";
   }
 
@@ -1815,24 +1033,9 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
       entry.headless.rows,
       extent,
     );
-    return getScreenText(buffer, start, end);
+    return readBufferRange(buffer, { start, end });
   }
 
-  /** The same slice as {@link getScreenTextFor}, read as attributed cells.
-   *
-   *  Shares {@link resolveScreenExtent} with the text read rather than
-   *  re-switching on the extent — the two are the same slice rendered two
-   *  ways, and a second switch is a second place for "what does viewport
-   *  mean" to drift.
-   *
-   *  A gone PTY answers `undefined`, NOT an empty grid: `{ cols: 0, lines: [] }`
-   *  would be one value carrying two meanings — "this screen is blank" and
-   *  "there is no such terminal" — and every embedder would have to remember to
-   *  compensate the way the wire handler does.
-   *
-   *  The default extent is the VIEWPORT rather than the text read's whole
-   *  buffer: this read is what a picture is drawn from, and 50,000 attributed
-   *  rows is never the ask. */
   function getScreenCellsFor(
     id: PtyId,
     extent: ScreenExtent = { kind: "viewport" },
@@ -1845,22 +1048,6 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
       entry.headless.rows,
       extent,
     );
-    // The ceiling is enforced HERE, where the grid is built — not by the
-    // caller, and not by the schema alone.
-    //
-    // The schema bounds `tail.lines`, which is the only extent a caller can
-    // put a number in. `viewport` carries no number: it resolves to the live
-    // grid's own height, and a terminal resized to 200x2000 makes that a
-    // 2000-row read of ATTRIBUTED cells — roughly two orders of magnitude more
-    // bytes than the same screen as text, and past the 16 MiB frame limit the
-    // socket closes on. Nor is the WIDTH ever a caller's number: `resize` takes
-    // whatever the ioctl accepts, so a wide-enough terminal is the same
-    // ambush on the other axis. padi trims too, but it trims AFTER this hop, so
-    // its cap cannot save a frame that was too large to arrive.
-    //
-    // {@link boundScreenCells} owns which rows and columns survive that (bottom
-    // rows, leftmost columns) and why; the grid it produces reports both, so
-    // the trim is stated rather than hidden.
     const { rows, cols } = boundScreenCells(end - start, entry.headless.cols);
     return readGrid(buffer, cols, end - rows, rows);
   }
@@ -1871,10 +1058,6 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
     max: number,
     epoch?: number,
   ): PtyHistoryChunk {
-    // `max` is a positive row count — a non-positive request is a caller bug
-    // (the wire schema rejects it too), so the primitive fails LOUD rather than
-    // silently returning an empty, exhausted page that a caller reads as "no
-    // more history".
     if (!Number.isInteger(max) || max <= 0)
       throw new RangeError(
         `getHistory: max must be a positive integer, got ${max}`,
@@ -1887,23 +1070,9 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
         topLine: before ?? 0,
         exhausted: true,
       };
-    // Reflow guard (F3): a caller that stamped the generation its `before` cursor
-    // was seeded under is served NOTHING once a width reflow has since renumbered
-    // absolute rows — its cursor names a row the rewrap moved, so paging from it
-    // would splice a duplicated/skipped band. `stale` tells it to HALT until a
-    // fresh snapshot re-seeds. A caller with no epoch (older client / pager) is
-    // fail-open: it pages as before, accepting the historical single-width scope.
     if (epoch !== undefined && epoch !== entry.anchor.reflowEpoch())
       return { kind: "stale" };
     const buffer = entry.headless.buffer.normal;
-    // `before` is the caller's absolute cursor; the row just above it is
-    // `before - anchor.baseLine() - 1` in the current local buffer. Omitted means
-    // "start from the top of the VISIBLE screen" (local `length - rows`) — the
-    // self-seeding entry point a plain pager (`kaval-tui history`) uses instead
-    // of first reading an attach snapshot's `topLine`. It must NOT be the
-    // bounded-snapshot top (`snapshotStartLocal`), which sits ~SNAPSHOT_SCROLLBACK
-    // rows ABOVE the screen: self-seeding there would skip the newest older lines
-    // (the ones between the snapshot top and the screen) the CLI is asked to dump.
     const cursor =
       before ??
       entry.anchor.baseLine() +
@@ -1914,13 +1083,7 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
     );
     if (localEnd < 0)
       return { kind: "chunk", chunk: "", topLine: cursor, exhausted: true };
-    // Snap the top edge back to the logical-line head (see `snapToWrapHead`), so
-    // a chunk boundary never bisects a wrapped line; the caller advances its
-    // cursor by the returned `topLine`, so the extra rows are accounted for.
     const start = snapToWrapHead(buffer, Math.max(0, localEnd - max + 1));
-    // Range serialize on the NORMAL buffer (its scrollback survives an alt-buffer
-    // switch); no modes, no alt-buffer tail — this is raw older content the
-    // client replays through a scratch terminal, not a screen restore.
     const chunk = entry.serialize.serialize({
       range: { start, end: localEnd },
       excludeModes: true,
@@ -1938,88 +1101,28 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
     entries.get(id)?.proc.write(data);
   }
 
-  function resize(id: PtyId, cols: number, rows: number): boolean {
-    const entry = entries.get(id);
-    // The ONE false: no such PTY. Reported rather than swallowed so the caller
-    // can tell "the grid landed" from "there was nothing to land it on".
-    if (!entry) return false;
-    const prevCols = entry.headless.cols;
-    const prevRows = entry.headless.rows;
-    // An EXACT same-dims resize renumbers and reflows nothing — a second viewer
-    // attaching at the same size, or the mount-time re-publish of the current
-    // dims, would otherwise spuriously stale every attached client's cursor
-    // (there is no dedupe upstream). Skip it wholesale — but report TRUE: the
-    // entry exists and is already at the requested grid, which is exactly the
-    // caller's claim satisfied.
-    if (cols === prevCols && rows === prevRows) return true;
-    // A REAL size change opens the RESIZE WINDOW (kolu#2362) — before the
-    // SIGWINCH, so not one byte of the repaint it provokes can escape as
-    // ordinary output.
-    //
-    // The window owns both things that follow from the grid moving: this
-    // output is a repaint and therefore not WORK (the meaningful-output edge
-    // reads the window), and this output is a repaint and therefore not
-    // something a viewer should watch arrive byte-for-byte. An agent reprints
-    // its entire transcript on SIGWINCH — 0.57–3.5 MB in the sessions measured
-    // on #2362, with no synchronized-output wrapper — and a viewer receiving
-    // that byte-for-byte watches the session scroll past for seconds before
-    // landing on the end it asked for.
-    //
-    // What it does NOT do is drop everyone. A plain shell's repaint is a
-    // hundred bytes; resetting its viewers would cost each of them a snapshot,
-    // its scrollback above the bounded window, its selection and its scroll
-    // position — "always resend" in place of "always replay". So the window
-    // WITHHOLDS and decides at close, by the same budget the per-subscriber
-    // bound already uses. See {@link ResizeWindow}.
-    //
-    // ORDER MATTERS, and it is not the obvious one. `headless.resize()` now
-    // drains the mirror's queued writes SYNCHRONOUSLY before it reflows —
-    // `CoreTerminal.resize()` calls `WriteBuffer.flushSync()` first, so an
-    // async write cannot be parsed at a width it was not written for — and
-    // each drained chunk fires the write callback that publishes it. Those
-    // bytes were produced BEFORE this grid change: they are ordinary output,
-    // not the repaint. Draining them while the window is open withholds them,
-    // and anything withheld that is ALSO in a snapshot forces
-    // `claimWithheldOverlap` to re-sync EVERY viewer of this PTY.
-    //
-    // That drain is new in the `@xterm/headless` this repo pins (kolu#2377):
-    // 6.0.0's `resize()` went straight to `_bufferService.resize()` and had no
-    // `flushSync` at all, so a chunk still queued when a resize arrived was
-    // parsed afterwards, at the NEW width. The old ordering here was resting
-    // on that — which is why it only started re-syncing on the bump.
-    //
-    // So: drain and reflow the mirror FIRST, PUBLISH the new size SECOND, open
-    // the window THIRD, and SIGWINCH the child LAST. Nothing can interleave —
-    // all four are synchronous — so not one byte of the repaint can still
-    // escape, and not one pre-resize byte is mistaken for it.
-    //
-    // The publish sits between the drain and the window because those are the
-    // two things that would make it wrong: before the drain, bytes written for
-    // the OLD grid would still follow it; after the window opens, it would be
-    // withheld.
+  function reflowMirrorThenSignalChild(
+    entry: Entry,
+    cols: number,
+    rows: number,
+  ): void {
     entry.headless.resize(cols, rows);
-    // Read back off the MIRROR, not restated from the request: a snapshot's
-    // grid is `entry.headless.cols/rows`, and xterm clamps a degenerate request
-    // to its own minimum — so restating `{ cols, rows }` here would let the two
-    // frames describe one screen with two different sizes.
     publishResized(entry, {
       cols: entry.headless.cols,
       rows: entry.headless.rows,
     });
-    openResizeWindow(entry);
+    entry.repaint.open();
     entry.proc.resize(cols, rows);
-    // resize() reflows the mirror (reflowCursorLine rewraps lines on a width
-    // change), so the serialized layout changes with NO data publish to clear
-    // the memo — invalidate here too, or a same-epoch attach after a resize
-    // hands back the stale pre-resize snapshot.
+  }
+
+  function resize(id: PtyId, cols: number, rows: number): boolean {
+    const entry = entries.get(id);
+    if (!entry) return false;
+    const prevCols = entry.headless.cols;
+    const prevRows = entry.headless.rows;
+    if (cols === prevCols && rows === prevRows) return true;
+    reflowMirrorThenSignalChild(entry, cols, rows);
     invalidateSnapshot(entry);
-    // Only a WIDTH change rewraps and RENUMBERS absolute rows; bump the
-    // generation just for that so a pre-resize `topLine` cursor is served a
-    // `stale` getHistory (F3). A HEIGHT-only change moves the viewport but not
-    // top-anchored absolute indices (eviction is already counted via `onTrim`),
-    // so bumping there would falsely stale cursors the client deliberately keeps
-    // (its own onResize pauses on a cols change only). Bumped AFTER the rewrap so
-    // a getHistory racing this resize reads the new value.
     if (cols !== prevCols) entry.anchor.bumpReflow();
     return true;
   }
@@ -2053,9 +1156,6 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
       Stream.suspend(() => requireEntry(id).cwdFanOut.stream),
     subscribeTitle: (id) =>
       Stream.suspend(() => requireEntry(id).titleFanOut.stream),
-    // The retention is read in the SAME step as the registration, so the mark
-    // that a late subscriber replays and the marks it then hears live partition
-    // the feed exactly once.
     subscribeCommandRun: (id) =>
       Effect.suspend(() => {
         const entry = requireEntry(id);
@@ -2106,21 +1206,7 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
     getHistory,
     handle,
     dispose: () => {
-      // Host shutdown is a REAP, not a hangup: SIGKILL, the same choice (for
-      // the same reason) as the `kill` RPC's terminate — node-pty's default
-      // SIGHUP is only advisory. A leader that ignores/traps SIGHUP survives
-      // it, and so does darwin's `spawn-helper` launcher in its pre-exec
-      // window (it acquires the controlling tty only inside its own slave
-      // `open()`, so until then no hangup — from this kill or from the master
-      // closing — reaches it). Each leader also sits in its OWN session
-      // (setsid), where the daemon dying can never take it along. The aged
-      // ppid-1 `spawn-helper <cwd> /bin/sh` orphans found on rasam are what
-      // the advisory path leaks; a host going away must leave no child to
-      // init.
       for (const entry of [...entries.values()]) entry.proc.kill("SIGKILL");
-      // Host shutdown — end every inventory subscription gracefully. The async
-      // `onExit` → teardown `exited` publishes from the kills above land on a
-      // closed channel (a no-op), which is fine: the host is going away.
       inventoryFanOut.closeUnsafe();
       activityFanOut.closeUnsafe();
     },

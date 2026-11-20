@@ -1,20 +1,3 @@
-/**
- * The `kaval` executable — the standalone PTY daemon's entry point.
- *
- * kaval stands watch over your terminals: it owns the node-pty children, mirrors
- * their screens, serves the taps and `ptyHostSurface` over a unix socket, and
- * outlives the clients that dial it (kaval-tui today; kolu-server from B2). Run
- * it on a box where kolu has never been installed and drive it with kaval-tui —
- * a tmux/zellij-shaped pair, minus the multiplexer's session model.
- *
- *   kaval                  serve at $XDG_RUNTIME_DIR/kaval/pty-host.sock
- *   kaval --socket PATH    serve at an explicit path (gate + rcDir sit beside it)
- *
- * This file is the executable, never an import target — it runs the daemon on
- * load. `daemonProcessMain` owns the process exit (code + crash arm); the
- * lifecycle itself (gate → serve → teardown) is the testable `runKavalDaemon`.
- */
-
 import { parseArgs } from "node:util";
 import { daemonProcessMain, stderrLogger } from "@kolu/surface-daemon";
 import { runKavalDaemon } from "./daemonMain.ts";
@@ -53,9 +36,6 @@ if (values.help) {
 }
 
 if (values.stdio) {
-  // Front the durable daemon over stdin/stdout (the R-2 ssh transport). NEVER
-  // log to stdout here — it is the wire. Resolves when the link ends; the
-  // daemon it fronts keeps running.
   runStdioBridge({ socketOverride: values.socket })
     .then(() => process.exit(0))
     .catch((err: unknown) => {
@@ -63,8 +43,6 @@ if (values.stdio) {
       process.exit(1);
     });
 } else {
-  // The spine owns the rest of this process's life (see tenure.ts) — a live
-  // PTY child or diagnostics timer can't keep a finished daemon alive.
   daemonProcessMain({
     name: "kaval",
     run: () =>

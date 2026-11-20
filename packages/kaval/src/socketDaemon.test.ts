@@ -1,17 +1,3 @@
-/**
- * The standalone-daemon e2e: a REAL spawned `kaval` process, dialed over its
- * unix socket. Two layers:
- *   - the full contract corpus (`contractCorpus.testlib.ts`) over the socket
- *     link, so the daemon is pinned to identity-link behaviour; and
- *   - daemon-only scenarios no in-process test can reach: the single-instance
- *     gate race with real processes, SIGTERM teardown, initFiles materialising
- *     across the process boundary, restart-serves-fresh (no survival in B1),
- *     SIGKILL-mid-attach honesty, and `kaval-tui` driving the real daemon.
- *
- * Every daemon runs on a per-test `mkdtemp` socket (full isolation, no shared
- * $XDG_RUNTIME_DIR), and every test reaps the daemons it spawns.
- */
-
 import { type ChildProcess, spawn } from "node:child_process";
 import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { createRequire } from "node:module";
@@ -39,28 +25,15 @@ const REPO_ROOT = resolve(SRC, "../../..");
 const KAVAL_BIN = join(SRC, "bin.ts");
 const KAVAL_TUI = join(REPO_ROOT, "packages/kaval-tui/src/main.ts");
 
-// Run the daemon IN-PROCESS under tsx's ESM loader — `node --import <loader>
-// <file.ts>` — which is the EXACT launcher shape the shipped flake wrapper uses
-// (`default.nix`'s `kaval` makeWrapper). With the loader there is exactly one
-// process, so a SIGTERM and the exit code reach the daemon directly (its
-// `waitForShutdown` runs, the socket + gate are released). The loader (`tsx`'s
-// "." export, dist/loader.mjs) is resolved via the package so the spawn doesn't
-// depend on a hoisted `.bin/tsx` symlink (pnpm doesn't hoist it to the repo root).
 const TSX_LOADER = pathToFileURL(
   createRequire(import.meta.url).resolve("tsx"),
 ).href;
 
-// tsx's *CLI* (`tsx bin.ts`) — the launcher shape we DELIBERATELY do NOT ship:
-// the CLI forks a child that does NOT relay SIGTERM to the daemon, so it's
-// killed (143) with a leaked socket + gate. The launcher guard below spawns this
-// to pin that failure mode and justify the loader form in default.nix.
-// `dist/cli.mjs` is tsx's `bin`.
 const TSX_CLI = createRequire(import.meta.url)
   .resolve("tsx/package.json")
   .replace(/package\.json$/, "dist/cli.mjs");
 
-/** Spawn a TypeScript entry under tsx's in-process loader, as a real child. */
-function spawnTs(
+function spawnUnderShippedLoader(
   file: string,
   args: string[],
   stdout: "ignore" | "pipe",
@@ -72,10 +45,7 @@ function spawnTs(
   });
 }
 
-/** Spawn a TypeScript entry through tsx's CLI — the forking shape the flake
- *  does NOT ship — so the launcher guard can demonstrate its broken SIGTERM
- *  teardown against the working loader form. */
-function spawnTsCli(file: string, args: string[]): ChildProcess {
+function spawnUnderForkingCli(file: string, args: string[]): ChildProcess {
   assertDaemonSpawnAllowed("a real kaval daemon (tsx CLI fork)");
   return spawn(process.execPath, [TSX_CLI, file, ...args], {
     stdio: ["ignore", "ignore", "ignore"],
@@ -83,10 +53,6 @@ function spawnTsCli(file: string, args: string[]): ChildProcess {
   });
 }
 
-/** A dialed daemon: the pty-host face, and the release of the link's scope.
- *  `unixSocketLink` now hands back a transport-neutral `{ dispatch, dispose }`
- *  (S4), so a consumer assembles the face itself — `dispose` is the ONLY thing
- *  that releases the link's protocol fibers, and it is async. */
 interface Conn {
   client: PtyHostClient;
   dispose: () => Promise<void>;
@@ -102,30 +68,10 @@ interface Daemon {
   gatePath: string;
 }
 
-// A per-test reap backstop ONLY for the daemon-only `describe` below — its
-// `track()`ed children are SIGKILL'd after each of ITS tests. The corpus's
-// shared daemon (spawned in the corpus `beforeAll`) is deliberately NOT tracked
-// here: it must outlive every corpus test and is reaped only by the corpus's
-// own `dispose`. (An earlier version reaped a single global list after every
-// test in the file, which killed the corpus daemon after its first test.)
 const trackedChildren: ChildProcess[] = [];
-// The rendezvous dirs of the daemon-only block's spawns — reaped BY GATE PID
-// after each of ITS tests (below). A child handle alone is not enough: the
-// tsx-CLI launcher guard forks a GRANDCHILD daemon, and SIGKILL-ing the tracked
-// wrapper never reaches the fork — only its gate pid does. (Same scoping as
-// `trackedChildren`: the corpus daemon is not tracked here.)
 const trackedRendezvous: string[] = [];
-// EVERY rendezvous any spawn (corpus + daemon-only) ever claimed — never spliced,
-// so the file-level `afterAll` can assert the whole suite left NO live kaval
-// behind and sweep every dir regardless of pass/fail.
 const allRendezvous: string[] = [];
 
-// Bind EVERY real kaval this suite spawns to the vitest process (its spawns inherit
-// `process.env`), so a signal-killed run that skips the reap hooks still can't
-// strand a detached kaval — it polls this pid and dies once vitest is gone. The
-// gate-pid reaps below stay the fast path; this is the crash-only backstop, the
-// same bind the padi/e2e harnesses set. (The vitest pid outlives every test, so the
-// watcher never fires mid-suite — SIGTERM/gate-race/restart assertions are untouched.)
 beforeAll(() => {
   vi.stubEnv(DAEMON_BIND_PID_ENV, String(process.pid));
 });
@@ -133,58 +79,31 @@ afterAll(() => {
   vi.unstubAllEnvs();
 });
 
-/** The rendezvous dir a socket lives in, and its gate file within it. */
 function rendezvousDir(socketPath: string): string {
   return dirname(socketPath);
 }
 
-/** SIGKILL a single pid, tolerating "already gone" (ESRCH). */
-function sigkillQuietly(pid: number): void {
+function signalIfAlive(pid: number, signal: NodeJS.Signals): void {
   try {
-    process.kill(pid, "SIGKILL");
-  } catch {
-    // Already gone — nothing to kill.
+    process.kill(pid, signal);
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== "ESRCH") throw err;
   }
 }
 
-/** How long the graceful-first reap below waits for a SIGTERM'd daemon to run
- *  its shutdown (which disposes every PTY it owns) before escalating. Leaders
- *  die by SIGKILL inside that shutdown, so a healthy daemon is gone in well
- *  under a second; the bound only matters for a wedged one. */
 const GRACEFUL_REAP_MS = 4_000;
 
-/** Reap whatever pid holds this rendezvous' gate (the daemon, INCLUDING a
- *  forked grandchild), then remove the dir. GRACEFUL-FIRST: SIGTERM, wait for
- *  the daemon to die running its shutdown — `daemonMain`'s `.finally` awaits
- *  `ptyHost.close()`, which SIGKILLs every PTY leader it owns — and only then
- *  SIGKILL a daemon that would not go. A SIGKILL-first reap strands those
- *  leaders: node-pty `setsid`s each into its OWN session, so no kill aimed at
- *  the daemon (or its group) ever reaches them, and the OS backstop — the
- *  master closing hangs up the leader — misses on darwin whenever the
- *  `spawn-helper` launcher has not yet exec'd (it acquires the controlling tty
- *  only inside its own slave `open()`, so pre-exec there is nobody to hang
- *  up). The aged ppid-1 `spawn-helper <kaval-e2e-cwd-*> /bin/sh` orphans found
- *  on rasam are exactly that residue. ESRCH-safe — a cleanly-exited daemon
- *  left a dead/absent gate, so there's simply nothing to kill. */
-async function reapRendezvous(dir: string): Promise<void> {
+async function reapRendezvousGracefullyThenKill(dir: string): Promise<void> {
   const pid = gatePid(join(dir, KAVAL_GATE_FILE));
   if (pid !== undefined && isAlive(pid)) {
-    try {
-      process.kill(pid, "SIGTERM");
-    } catch {
-      // Raced its own exit — already gone.
-    }
+    signalIfAlive(pid, "SIGTERM");
     const deadline = Date.now() + GRACEFUL_REAP_MS;
     while (isAlive(pid) && Date.now() < deadline) await sleep(50);
-    // A daemon that sat out the whole window is wedged; SIGKILL is the honest
-    // last resort (any leaders it still owned are then visibly leaked to the
-    // file-level afterAll assertion, never silently accepted).
-    if (isAlive(pid)) sigkillQuietly(pid);
+    if (isAlive(pid)) signalIfAlive(pid, "SIGKILL");
   }
   rmSync(dir, { recursive: true, force: true });
 }
 
-/** Is a pid still alive? `kill(pid, 0)` sends no signal — it only probes. */
 function isAlive(pid: number): boolean {
   try {
     process.kill(pid, 0);
@@ -204,12 +123,12 @@ function track<T extends Daemon | ChildProcess>(x: T): T {
   return x;
 }
 
-/** Spawn `kaval --socket <path>` as a real process (under tsx). Does NOT wait
- *  for readiness — callers that need it call `waitForSocket`. NOT auto-tracked;
- *  the caller decides its lifetime (corpus dispose vs the daemon-only backstop),
- *  but its rendezvous IS recorded for the file-level leak sweep. */
 function launch(socketPath: string): Daemon {
-  const child = spawnTs(KAVAL_BIN, ["--socket", socketPath], "ignore");
+  const child = spawnUnderShippedLoader(
+    KAVAL_BIN,
+    ["--socket", socketPath],
+    "ignore",
+  );
   const exited = new Promise<number | null>((res) => {
     child.on("exit", (code) => res(code));
   });
@@ -222,17 +141,13 @@ function launch(socketPath: string): Daemon {
   };
 }
 
-// The whole-suite leak assertion (Part 3's pin): after every test has run and
-// every block has reaped its own, NO kaval the suite spawned may still hold a
-// gate. Compute the verdict first, then sweep every rendezvous unconditionally,
-// so a green OR a red run leaves the box clean (a failing test can't strand a
-// daemon), and finally assert.
 afterAll(async () => {
   const leaked = allRendezvous.filter((dir) => {
     const pid = gatePid(join(dir, KAVAL_GATE_FILE));
     return pid !== undefined && isAlive(pid);
   });
-  for (const dir of allRendezvous.splice(0)) await reapRendezvous(dir);
+  for (const dir of allRendezvous.splice(0))
+    await reapRendezvousGracefullyThenKill(dir);
   expect(leaked).toEqual([]);
 });
 
@@ -247,7 +162,6 @@ async function connect(socketPath: string): Promise<Conn> {
   };
 }
 
-/** Poll-connect until the daemon answers a heartbeat, or fail loudly. */
 async function waitForSocket(socketPath: string, ms = 10000): Promise<void> {
   const deadline = Date.now() + ms;
   while (Date.now() < deadline) {
@@ -263,21 +177,16 @@ async function waitForSocket(socketPath: string, ms = 10000): Promise<void> {
   throw new Error(`kaval socket never came up: ${socketPath}`);
 }
 
-/** A fresh per-test socket path under its own private dir. */
 function socketIn(): string {
   return join(mkdtempSync(join(tmpdir(), "kaval-e2e-")), "pty-host.sock");
 }
 
 const makeCwd = (): string => {
-  // A cwd for a spawned shell — recorded in `allRendezvous` so the file-level
-  // sweep removes it too (it has no gate, so `reapRendezvous` just `rmSync`s it).
-  // Without this the harness leaked an empty `kaval-e2e-cwd-*` dir per spawn.
   const dir = mkdtempSync(join(tmpdir(), "kaval-e2e-cwd-"));
   allRendezvous.push(dir);
   return dir;
 };
 
-/** Start a daemon and wait until it serves. */
 async function startDaemon(): Promise<Daemon> {
   const d = launch(socketIn());
   await waitForSocket(d.socketPath);
@@ -289,12 +198,9 @@ async function reap(d: Daemon): Promise<void> {
   await d.exited;
 }
 
-/** Run `kaval-tui <args>` to completion; capture stdout, stderr + exit code. */
 function runKavalTui(
   args: string[],
 ): Promise<{ code: number | null; stdout: string; stderr: string }> {
-  // The runtime leash at the fork site (per-call-site, like spawnTs/spawnTsCli above):
-  // this re-execs a real kaval-tui, so a gate-off vitest must never reach it.
   assertDaemonSpawnAllowed("a real kaval-tui (node --import loader)");
   return new Promise((resolvePromise) => {
     const child = track(
@@ -315,7 +221,6 @@ function runKavalTui(
   });
 }
 
-// ── The contract corpus, over a real spawned daemon's socket ────────────────
 runContractCorpus({
   label: "spawned daemon socket",
   makeHost: async () => {
@@ -323,9 +228,6 @@ runContractCorpus({
     const conn = await connect(d.socketPath);
     return {
       client: conn.client,
-      // A negative-path test that closes the multiplexed transport gets its own
-      // throwaway connection to the SAME daemon, so it never poisons the shared
-      // corpus connection.
       isolated: async () => {
         const probe = await connect(d.socketPath);
         return { client: probe.client, dispose: () => probe.dispose() };
@@ -339,21 +241,10 @@ runContractCorpus({
   makeCwd,
 });
 
-// ── Daemon-only scenarios ───────────────────────────────────────────────────
 describeDaemon("kaval daemon — process-boundary behaviour", () => {
-  // Backstop: reap every daemon/tui this block spawned that a failing test left
-  // alive — SIGKILL the tracked child handles AND reap each rendezvous by its
-  // gate pid (which reaches a forked GRANDCHILD the child handle can't). Runs
-  // after EVERY test, pass or fail, so a failing assertion can't strand a daemon.
-  // Scoped to THIS describe, so it never touches the corpus's shared daemon.
   afterEach(async () => {
-    // Rendezvous reap FIRST: the tracked child handles include these very
-    // daemons, and SIGKILL-ing a handle before its rendezvous reap would
-    // forfeit the graceful window in which the daemon disposes its PTY
-    // leaders — recreating the exact strand the graceful-first reap exists to
-    // prevent. The handle sweep after is the backstop for non-daemon children
-    // (kaval-tui runs) and for a daemon the graceful reap already escalated on.
-    for (const dir of trackedRendezvous.splice(0)) await reapRendezvous(dir);
+    for (const dir of trackedRendezvous.splice(0))
+      await reapRendezvousGracefullyThenKill(dir);
     for (const c of trackedChildren.splice(0)) {
       if (c.exitCode === null) c.kill("SIGKILL");
     }
@@ -361,11 +252,6 @@ describeDaemon("kaval daemon — process-boundary behaviour", () => {
 
   it("serves frozen identity beside the unchanged pty surface and refuses drain without exiting", async () => {
     const d = track(await startDaemon());
-    // ONE link over the daemon's composed group, two faces on top of it — each
-    // built from the STANDALONE surface it belongs to, so neither learns it is
-    // talking to a composed daemon. That is the flat tag namespace's whole
-    // payoff, and it is what the old `implement(widenedContract as any)` splice
-    // existed to fake.
     const link = await unixSocketLink({
       group: kavalDaemonGroup,
       socketPath: d.socketPath,
@@ -383,10 +269,6 @@ describeDaemon("kaval daemon — process-boundary behaviour", () => {
       expect(hello.surfaceVersion).toBe(version.contractVersion);
       expect(hello.startedAt).toBe(version.startedAt);
 
-      // kaval cannot drain (ending the process destroys its live PTYs), and the
-      // frozen `core.drain` declares no error schema — so the refusal crosses as
-      // an undeclared DEFECT (PLAN D4). What a caller relies on is unchanged: it
-      // REJECTS, and the daemon is demonstrably still there afterwards.
       await expect(Effect.runPromise(control.drain())).rejects.toThrow();
       await expect(Effect.runPromise(control.hello())).resolves.toEqual(hello);
       expect(isAlive(d.child.pid ?? -1)).toBe(true);
@@ -400,20 +282,16 @@ describeDaemon("kaval daemon — process-boundary behaviour", () => {
     const a = track(launch(socketPath));
     await waitForSocket(socketPath);
 
-    // A second daemon on the same socket sees the live gate and exits 0.
     const b = track(launch(socketPath));
     expect(await b.exited).toBe(0);
 
-    // A is still serving.
     const c1 = await connect(socketPath);
     await Effect.runPromise(c1.client.surface.system.heartbeat({}));
     await c1.dispose();
 
-    // SIGKILL A — no graceful gate release, so it leaves a stale gate.
     a.child.kill("SIGKILL");
     await a.exited;
 
-    // C reaps the stale gate and serves.
     const c = track(launch(socketPath));
     await waitForSocket(socketPath);
     const c2 = await connect(socketPath);
@@ -425,28 +303,6 @@ describeDaemon("kaval daemon — process-boundary behaviour", () => {
   }, 30000);
 
   it("graceful shutdown reaps a non-tty-aware PTY leader — no orphaned spawn-helper", async () => {
-    // A daemon asked to stop (SIGTERM here; in production the detached daemon
-    // self-exits the same way when its bound run pid vanishes) must reap the
-    // node-pty children it owns. node-pty `setsid`s each PTY into its own
-    // session, so the daemon dying can NEVER let a process-group kill reach them
-    // — only the host disposing each entry (SIGHUP to the leader) does. Before
-    // shutdown was wired to dispose, a SIGTERM'd daemon left the `spawn-helper`
-    // subtree reparented to init and alive, leaking across CI runs (aged orphans
-    // found on rasam) and loading the box — the darwin-under-load flake substrate.
-    //
-    // The pin is a DIRECTLY-spawned, non-tty-aware leader (a bare `sleep`): it
-    // neither reads the pty (so it can't self-exit on the master's EOF) nor
-    // watches the tty — so, unlike a SHELL leader (which reliably self-reaps on
-    // the master's hangup), it cannot RELIABLY be reaped by the OS. darwin's
-    // master-close does hang it up, but only intermittently (observed leaking
-    // once, then reaped on a later 5/5 batch — the aged rasam orphans are that
-    // unreliable tail); the daemon's explicit dispose makes the reap
-    // DETERMINISTIC, which is the fix. A leader that HAS foreground descendants is
-    // reaped whole anyway — the leader's death hangs up its foreground group
-    // (kernel), so the descendants go with it — and a real shell leader self-reaps
-    // on the hangup regardless. Both were verified on rasam: every shell-involved
-    // topology passes even WITHOUT the fix, so the honest reproduction is this
-    // non-self-reaping leader.
     const d = track(await startDaemon());
     const conn = await connect(d.socketPath);
     const { pid } = await Effect.runPromise(
@@ -461,32 +317,16 @@ describeDaemon("kaval daemon — process-boundary behaviour", () => {
     expect(isAlive(pid)).toBe(true);
 
     try {
-      // Graceful stop — daemonMain's shutdown `.finally` awaits the host close,
-      // which must dispose (SIGKILL) the PTY leader before the process exits.
       await reap(d);
 
-      // Reaping is async; poll briefly. RED before the fix: the leader stays
-      // alive past the window (leaked). GREEN after: it is gone.
       for (let i = 0; i < 50 && isAlive(pid); i++) await sleep(100);
       expect(isAlive(pid)).toBe(false);
     } finally {
-      // Never let THIS test strand the leader (e.g. on a RED assertion) — that
-      // would leak exactly the process the test guards against.
-      sigkillQuietly(pid);
+      signalIfAlive(pid, "SIGKILL");
     }
   }, 30000);
 
   it("the rendezvous backstop reaps a daemon's PTY leaders — even one the master-close hangup cannot kill", async () => {
-    // The backstop (afterEach/afterAll → `reapRendezvous`) reaps daemons a
-    // failing test left behind. Reaping the DAEMON alone is not enough: each
-    // PTY leader lives in its own session, so only the daemon's own graceful
-    // shutdown (dispose → SIGKILL per leader) reaches it. The leader here
-    // ignores SIGHUP before exec'ing — modelling the class the OS cannot reap
-    // for us. On darwin that class includes every spawn-helper still pre-exec
-    // (no controlling tty yet, so the dying master hangs up nobody): the aged
-    // ppid-1 orphans found on rasam. A SIGKILL-first backstop leaks this
-    // leader on EVERY platform (verified red on linux); the graceful-first
-    // backstop reaps it deterministically.
     const d = track(await startDaemon());
     const conn = await connect(d.socketPath);
     const { pid } = await Effect.runPromise(
@@ -501,49 +341,22 @@ describeDaemon("kaval daemon — process-boundary behaviour", () => {
     expect(isAlive(pid)).toBe(true);
 
     try {
-      // The exact call the afterEach/afterAll backstops make on a rendezvous
-      // whose daemon is still alive.
-      await reapRendezvous(rendezvousDir(d.socketPath));
+      await reapRendezvousGracefullyThenKill(rendezvousDir(d.socketPath));
 
-      // Graceful-first: the daemon died by running its shutdown (exit 0, not a
-      // SIGKILL's null), and that shutdown took the HUP-immune leader with it.
       expect(await d.exited).toBe(0);
       for (let i = 0; i < 50 && isAlive(pid); i++) await sleep(100);
       expect(isAlive(pid)).toBe(false);
     } finally {
-      // Never let THIS test strand the leader it built to be unreapable.
-      sigkillQuietly(pid);
+      signalIfAlive(pid, "SIGKILL");
     }
   }, 30000);
 
-  /**
-   * juspay/kolu#2101 N2, across the process boundary: **a daemon that cannot
-   * serve its own address exits non-zero, through the G2 fault arm.**
-   *
-   * The wedge is the rendezvous itself: unlink the socket inode under a running,
-   * otherwise-healthy daemon. Its own self-dial can no longer reach it, which is
-   * the same fact the field's comatose kaval presented (a peer that cannot get an
-   * answer out of this daemon) reached by the one route a test can drive from
-   * outside the process. Nothing else in the daemon notices — no handler fails, no
-   * connection closes, `done` never rejects — which is precisely why this arm had
-   * to exist.
-   *
-   * The proof is the DISPOSITION, not the mechanism: a NON-ZERO exit (the
-   * supervisor's only channel for "that was a crash, not a stop") reached through
-   * the ordinary shutdown machinery, so the gate is released and the next launch
-   * is not blocked.
-   */
   it("self-liveness: a daemon whose own address stops answering exits NON-ZERO and releases its gate (#2101 N2)", async () => {
     const d = track(await startDaemon());
     expect(existsSync(d.gatePath)).toBe(true);
 
-    // Take the rendezvous away. The listener is still bound to the (now unlinked)
-    // inode and the process is untouched — only the NAME a dialer resolves is gone.
     rmSync(d.socketPath, { force: true });
 
-    // The derived bound: SELF_PROBE_CEILING (3) consecutive failures at the
-    // production 10 s cadence ≈ 30 s — each dial fails fast (ENOENT), so the 5 s
-    // per-probe deadline is not spent — plus the daemon's own shutdown.
     const code = await Promise.race([
       d.exited,
       sleep(60_000).then(() => "never exited" as const),
@@ -564,12 +377,6 @@ describeDaemon("kaval daemon — process-boundary behaviour", () => {
   }, 30000);
 
   it("the launcher choice is load-bearing: tsx's CLI fork swallows SIGTERM teardown; the loader form (the shipped wrapper) does not", async () => {
-    // The flake wrapper launches kaval as `node --import <tsx loader> bin.ts`,
-    // NOT `tsx bin.ts`. This pins WHY: tsx's CLI forks a child that does NOT
-    // relay SIGTERM to the daemon's `waitForShutdown`, so the daemon is killed
-    // (143) and LEAKS its socket + gate; the one-process loader form delivers
-    // the signal and the daemon tears itself down cleanly (exit 0, both gone).
-    // If someone "simplifies" the wrapper back to `tsx bin.ts`, this guard fires.
     const startGet = (
       spawnFn: (file: string, args: string[]) => ChildProcess,
     ): Promise<{
@@ -580,9 +387,6 @@ describeDaemon("kaval daemon — process-boundary behaviour", () => {
       (async () => {
         const socketPath = socketIn();
         const gatePath = join(dirname(socketPath), KAVAL_GATE_FILE);
-        // The tsx-CLI shape FORKS a grandchild daemon that outlives the tracked
-        // wrapper (the leak this guard demonstrates). Register the rendezvous so
-        // the afterEach reaps that fork BY GATE PID; the wrapper alone can't.
         trackedRendezvous.push(rendezvousDir(socketPath));
         allRendezvous.push(rendezvousDir(socketPath));
         const child = track(spawnFn(KAVAL_BIN, ["--socket", socketPath]));
@@ -599,15 +403,14 @@ describeDaemon("kaval daemon — process-boundary behaviour", () => {
         };
       })();
 
-    // The shipped shape: clean shutdown, exit 0, nothing left behind.
-    const loader = await startGet((f, a) => spawnTs(f, a, "ignore"));
+    const loader = await startGet((f, a) =>
+      spawnUnderShippedLoader(f, a, "ignore"),
+    );
     expect(loader.code).toBe(0);
     expect(loader.socketLeft).toBe(false);
     expect(loader.gateLeft).toBe(false);
 
-    // The forking CLI shape: killed by the signal (143) with a leaked socket +
-    // gate — the failure mode that justifies the loader form in default.nix.
-    const cli = await startGet(spawnTsCli);
+    const cli = await startGet(spawnUnderForkingCli);
     expect(cli.code).not.toBe(0);
     expect(cli.socketLeft || cli.gateLeft).toBe(true);
   }, 30000);
@@ -627,11 +430,9 @@ describeDaemon("kaval daemon — process-boundary behaviour", () => {
         initFiles: [{ name: rcName, content: "# corpus init marker\n" }],
       }),
     );
-    // The file the client named landed on the daemon's disk.
     expect(existsSync(rcPath)).toBe(true);
 
     await Effect.runPromise(conn.client.surface.terminal.kill({ id }));
-    // onDispose removes it; poll briefly for the async cleanup.
     for (let i = 0; i < 60 && existsSync(rcPath); i++) await sleep(50);
     expect(existsSync(rcPath)).toBe(false);
 
@@ -673,9 +474,8 @@ describeDaemon("kaval daemon — process-boundary behaviour", () => {
       const iterator = openStream(
         conn.client.surface.terminalAttach.get({ id }),
       );
-      await iterator.next(); // the snapshot frame
+      await iterator.next();
 
-      // Kill the daemon outright; the next pull must settle (reject or end), not hang.
       d.child.kill("SIGKILL");
       await d.exited;
 
@@ -688,18 +488,9 @@ describeDaemon("kaval daemon — process-boundary behaviour", () => {
       ]);
       expect(outcome).not.toBe("hung");
       closeStream(iterator);
-      // The socket is already gone (daemon SIGKILL'd), so releasing the link's
-      // scope is a no-op on a dead transport — never a failure to surface here.
       await conn.dispose().catch(() => {});
     } finally {
-      // This test SIGKILLs the daemon ON PURPOSE, so nothing ever disposes the
-      // PTY it just spawned: the leader sits in its own session (setsid) where
-      // no kill aimed at the daemon reaches it, and the OS backstop (the dying
-      // master hanging up the leader) misses on darwin whenever the
-      // spawn-helper launcher hasn't exec'd yet — the ppid-1
-      // `spawn-helper <kaval-e2e-cwd-*> /bin/sh` orphans aged days on rasam
-      // came from this very spawn. The strander reaps what it strands.
-      sigkillQuietly(pid);
+      signalIfAlive(pid, "SIGKILL");
     }
   }, 30000);
 
@@ -726,10 +517,6 @@ describeDaemon("kaval daemon — process-boundary behaviour", () => {
   it("kaval-tui create: the CLI spawns through main.ts and the id is then listable", async () => {
     const d = track(await startDaemon());
 
-    // Drive the REAL cleye boundary: `[command...]` after `--` (so the command
-    // keeps its own flags), `--json` for a scriptable `{ id }`, the daemon
-    // socket. This proves dispatch + positional + `--` + `--json` + stdout, not
-    // just `buildCreateInput` in isolation.
     const created = await runKavalTui([
       "create",
       "--socket",
@@ -741,16 +528,11 @@ describeDaemon("kaval daemon — process-boundary behaviour", () => {
       "echo CREATEMARK; sleep 100",
     ]);
     expect(created.code).toBe(0);
-    // `--json` keeps stdout to the scriptable object — the next-step hint is
-    // suppressed there (it rides stderr only on the human path, asserted below).
     const { id } = JSON.parse(created.stdout) as { id: string };
     expect(id).toMatch(
       /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/,
     );
 
-    // The human (non-`--json`) path prints the one-line `spawned …` to stdout
-    // and the `attach with …` next-step hint to STDERR, so stdout stays the
-    // scriptable spawn line.
     const human = await runKavalTui([
       "create",
       "--socket",
@@ -764,8 +546,6 @@ describeDaemon("kaval daemon — process-boundary behaviour", () => {
     expect(human.stdout).toMatch(/^spawned /);
     expect(human.stderr).toContain("attach with `kaval-tui attach");
 
-    // The freshly-minted terminal is live on the daemon — `list` sees the FULL
-    // id (the form `--json` carries), so create→list round-trips end to end.
     const listed = await runKavalTui([
       "list",
       "--socket",
@@ -776,8 +556,6 @@ describeDaemon("kaval daemon — process-boundary behaviour", () => {
     const entries = JSON.parse(listed.stdout) as Array<{ id: string }>;
     expect(entries.some((e) => e.id === id)).toBe(true);
 
-    // …and its screen shows the command's output, proving the `[command...]`
-    // positional reached the host's spawn (not a plain $SHELL).
     const conn = await connect(d.socketPath);
     let screen = "";
     for (let i = 0; i < 100 && !screen.includes("CREATEMARK"); i++) {
@@ -797,12 +575,6 @@ describeDaemon("kaval daemon — process-boundary behaviour", () => {
   it("kaval-tui create: stamps KAVAL_SOCKET so a process inside can reach its daemon", async () => {
     const d = track(await startDaemon());
 
-    // The whole point of the $TMUX-style stamp: a shell spawned in this daemon
-    // has KAVAL_SOCKET pointing at the very socket that owns it, so an agent
-    // running inside can drive its siblings without scanning /tmp. Echo it from
-    // the spawned shell and read it back off the screen — proving the full chain
-    // (CLI resolves the socket → buildCreateInput stamps it → host spawns → the
-    // shell inherits it), which no unit test on buildCreateInput alone can.
     const created = await runKavalTui([
       "create",
       "--socket",
@@ -833,15 +605,9 @@ describeDaemon("kaval daemon — process-boundary behaviour", () => {
   }, 30000);
 
   it("a flag BEFORE the subcommand fails with a flag-order hint, not silent help", async () => {
-    // cleye binds flags only after the subcommand, so `--socket X list` makes it
-    // lose the command. Rather than print bare help (which read as a no-op), the
-    // CLI must steer the user to the right order with a non-zero exit. No daemon
-    // needed — this fails at arg parsing, before any connect.
     const wrong = await runKavalTui(["--socket", "/whatever", "list"]);
     expect(wrong.code).not.toBe(0);
     expect(wrong.stderr).toContain("AFTER the subcommand");
-    // And the conventional order is accepted as far as arg parsing (it then
-    // fails to connect to the bogus path — a *different*, honest error).
     const right = await runKavalTui([
       "list",
       "--socket",
@@ -852,9 +618,6 @@ describeDaemon("kaval daemon — process-boundary behaviour", () => {
   }, 30000);
 
   it("--host and --socket are mutually exclusive: passing both fails with a clear hint", async () => {
-    // The remote (--host, an ssh target) and local (--socket, a path) transports
-    // name two different daemons, so passing both is a usage error rejected at
-    // arg validation — before any connect, so no daemon or ssh is involved.
     const both = await runKavalTui([
       "list",
       "--host",

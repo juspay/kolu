@@ -1,13 +1,3 @@
-/**
- * The coverage ledger — makes "full coverage" mechanical, not aspirational.
- *
- * It introspects the live `ptyHostSurface` for the exact set of streams and
- * procedures it declares, and asserts the contract corpus's `CONTRACT_COVERAGE`
- * manifest equals it. Adding a procedure or stream to the surface without
- * covering it in `contractCorpus.testlib.ts` fails here — the same philosophy as
- * the staleKey closure test and B3's schema-key round-trip.
- */
-
 import { describe, expect, it } from "vitest";
 import { CONTRACT_COVERAGE } from "./contractCorpus.testlib.ts";
 import { ptyHostSurface } from "./ptyHostSurface.ts";

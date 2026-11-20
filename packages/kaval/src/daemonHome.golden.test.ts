@@ -1,13 +1,3 @@
-/**
- * Golden path pins — every kaval-derived path must stay byte-identical to the
- * master-shipped `getRuntimeSocketPath` algebra. A surviving old daemon is
- * found only if the new build derives the same strings.
- *
- * Expected values are frozen via `@kolu/surface/unix-socket`'s builder
- * directly (never through kaval helpers that route through daemonHome), so a
- * swap of the production helpers cannot make these tests tautological.
- */
-
 import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { resolveDaemonHome } from "@kolu/surface-daemon";
@@ -33,7 +23,6 @@ afterEach(() => {
   else process.env.XDG_RUNTIME_DIR = SAVED_XDG;
 });
 
-/** Frozen master formula for a kaval socket under `app` namespace. */
 function masterSocket(app: string): string {
   return getRuntimeSocketPath({ app, file: PTY_HOST_SOCK_FILE });
 }
@@ -95,7 +84,6 @@ describe("daemonHome golden — kaval paths byte-identical to master", () => {
         socketFile: PTY_HOST_SOCK_FILE,
       }).socketPath,
     ).toBe(expected);
-    // Gate stem stays bare under instance mode
     expect(
       resolveDaemonHome({
         app: KAVAL_NS_PREFIX,
@@ -107,14 +95,13 @@ describe("daemonHome golden — kaval paths byte-identical to master", () => {
   });
 
   it("/tmp fallback shape via pure runtimeRoot: null", () => {
-    process.env.XDG_RUNTIME_DIR = "/run/user/1000"; // ambient XDG set
+    process.env.XDG_RUNTIME_DIR = "/run/user/1000";
     const uid = process.getuid?.() ?? "shared";
     const digest = "deadbeefcafebabe";
     const expectedDir = `/tmp/kaval-${digest}-${uid}`;
     const expectedSock = join(expectedDir, PTY_HOST_SOCK_FILE);
 
-    expect(masterSocket(`kaval-${digest}`)).not.toBe(expectedSock); // master uses live env
-    // force /tmp pure — without env mutation
+    expect(masterSocket(`kaval-${digest}`)).not.toBe(expectedSock);
     expect(
       resolveDaemonHome({
         app: KAVAL_NS_PREFIX,

@@ -1,5 +1,3 @@
-/** `buildId.ts` reads the nix-baked identity env, with no dev fallback. */
-
 import { afterEach, expect, it } from "vitest";
 import {
   currentBuildId,
@@ -31,8 +29,6 @@ it("both are empty off-nix (env unbaked) — no dev fallback", () => {
   expect(currentCommitHash()).toBe("");
 });
 
-// The server calls this in-process to learn the kaval it WOULD spawn — the
-// `expected` operand of B3.4's currency nudge (surfaced as `buildInfo.expectedKaval`).
 it("currentPtyHostIdentity assembles the baked id — the server's *expected* kaval", () => {
   process.env.KAVAL_BUILD_ID = "a1b2c3d4";
   process.env.KAVAL_COMMIT_HASH = "deadbee";

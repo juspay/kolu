@@ -1,17 +1,7 @@
-/**
- * The meaningful-output edge's two exclusions, as a pure predicate: the resize
- * repaint is not work, and a flood is coalesced to one edge per throttle window.
- *
- * The resize exclusion reads the resize WINDOW (a boolean — is one open) rather
- * than a mute deadline of its own: the window is kaval's single answer to "is
- * this output the resize's repaint?", and one answer cannot disagree with
- * itself. See `ptyHost.ts`'s `RESIZE_WINDOW_MS`.
- */
-
 import { describe, expect, it } from "vitest";
 import { shouldEmitActivityEdge } from "./ptyHost.ts";
 
-const THROTTLE = 200; // ACTIVITY_EDGE_THROTTLE_MS
+const THROTTLE = 200;
 
 describe("shouldEmitActivityEdge", () => {
   it("emits for fresh output with no resize window open", () => {
@@ -27,7 +17,6 @@ describe("shouldEmitActivityEdge", () => {
   });
 
   it("the window wins even when the throttle would otherwise allow it", () => {
-    // Long since the last edge (throttle satisfied) but still inside the window.
     expect(shouldEmitActivityEdge(5000, true, 0)).toBe(false);
   });
 

@@ -1,19 +1,3 @@
-/**
- * The pty-host wire, pinned two ways.
- *
- * 1. `PTY_HOST_CONTRACT_VERSION` — the in-epoch skew lever.
- * 2. **Byte fixtures** for the shapes `recon/zod.md`'s hit list marks WIRE-CRITICAL
- *    (PLAN #17): the kolu↔kaval socket carries these across builds, so the pin
- *    that matters is the encoded JSON STRING, not decode-equality. A schema whose
- *    decoded values are right but whose bytes moved would pass every other test in
- *    this package and break a live daemon adoption.
- *
- * The fixtures are also the EVIDENCE behind the 7.0 note's claim that the epoch
- * break moved the framing and not the payloads. If a field is ever added,
- * removed, renamed, or turned from an absent-key optional into a nullable, these
- * fail first — before anything reaches a socket.
- */
-
 import { isContractVersionCompatible } from "@kolu/surface/define";
 import { Schema } from "effect";
 import { describe, expect, it } from "vitest";
@@ -25,8 +9,6 @@ import {
   SpawnArgvEmpty,
 } from "./ptyHostSurface.ts";
 
-/** The wire schemas, reached through the SURFACE rather than re-imported — so a
- *  fixture can only ever pin what the surface actually serves. */
 const spec = ptyHostSurface.spec;
 
 // biome-ignore lint/suspicious/noExplicitAny: the spec's schemas are erased at the `SurfaceSpec` boundary (a `WireSchema<unknown>`); these helpers only encode/decode values the fixtures spell literally, and the assertion is the resulting STRING.
@@ -36,15 +18,7 @@ const encodeJson = (schema: AnySchema, value: unknown): string =>
 
 describe("PTY_HOST_CONTRACT_VERSION", () => {
   it("the protocol epoch is the MAJOR — a previous epoch is refused both ways", () => {
-    // The MAJOR is the epoch and is what this case is about; the MINOR moves
-    // with additive changes (7.1 added `terminal.getScreenCells`; 8.0 removed a
-    // required field; 9.0 added the `resized` frame and made the snapshot's
-    // `grid` required), so pinning the whole string here would make every such
-    // change edit a test about the EPOCH.
     expect(PTY_HOST_CONTRACT_VERSION.split(".")[0]).toBe("9");
-    // Both directions are refused, which is what a MAJOR buys. A previous-epoch
-    // peer cannot even be spoken to (framing), but the comparison must never wave
-    // its version string through on the strength of a minor alone.
     expect(isContractVersionCompatible("7.0", PTY_HOST_CONTRACT_VERSION)).toBe(
       false,
     );
@@ -63,8 +37,6 @@ describe("PTY_HOST_CONTRACT_VERSION", () => {
   });
 
   it("a same-major, NEWER-minor daemon stays adoptable — the in-epoch skew mechanism still works", () => {
-    // The reason D6 bumps this constant at all rather than letting it rot: from
-    // the flag day forward, minor additions must keep their old graceful arm.
     expect(isContractVersionCompatible("8.1", "8.0")).toBe(true);
     expect(isContractVersionCompatible("8.0", "8.1")).toBe(false);
   });
@@ -103,8 +75,6 @@ describe("wire byte fixtures — spawn input (the z.record env row of the hit li
   });
 
   it("keeps an arbitrary env KEY verbatim — the record is not a fixed struct", () => {
-    // `z.record(z.string(), z.string())` → `Schema.Record`. A struct would strip
-    // every key it did not declare, silently spawning a shell with no env.
     expect(
       encodeJson(schema, {
         argv: ["/bin/sh"],
@@ -158,15 +128,9 @@ describe("wire byte fixtures — the attach frame union", () => {
     expect(encodeJson(schema, { kind: "delta", data: "x" })).toBe(
       '{"kind":"delta","data":"x"}',
     );
-    // The 5.0 control frame is payload-less BY DESIGN — a `data` key here would
-    // make it indistinguishable from a delta for a consumer that only looks at
-    // shape.
     expect(encodeJson(schema, { kind: "overflow" })).toBe(
       '{"kind":"overflow"}',
     );
-    // The 9.0 control frame carries a grid and NOTHING else: a consumer resizes
-    // its own terminal at this point in the stream and writes no bytes. A `data`
-    // key here would make it a delta a consumer might paint.
     expect(encodeJson(schema, { kind: "resized", grid })).toBe(
       '{"kind":"resized","grid":{"cols":80,"rows":24}}',
     );
@@ -235,20 +199,12 @@ describe("wire byte fixtures — inventory, list entry, getHistory, extent", () 
     expect(
       encodeJson(schema, { id: "t-1", extent: { kind: "viewport" } }),
     ).toBe('{"id":"t-1","extent":{"kind":"viewport"}}');
-    // A `range` with both bounds absent stays a bare discriminant — the
-    // "everything" reading, not `{startLine: null, endLine: null}`.
     expect(encodeJson(schema, { id: "t-1", extent: { kind: "range" } })).toBe(
       '{"id":"t-1","extent":{"kind":"range"}}',
     );
   });
 
   it("encodes an ordinary cell as TWO keys — the omitted defaults are ~70% of the frame", () => {
-    // The saving this encoding exists for is invisible to every other test in
-    // the tree: `contractCorpus` exercises the DECODED grid, where every field
-    // is present by construction, so a regression that quietly stopped
-    // omitting would pass it and simply put the 4.1 MB frame back (measured on
-    // a 200x130 grid: 4,049,022 bytes with the defaults, 668,822 without).
-    // What has to be pinned is the SHAPE on the wire.
     const schema = spec.procedures.terminal.getScreenCells.output;
     const plain = {
       col: 7,
@@ -268,10 +224,6 @@ describe("wire byte fixtures — inventory, list entry, getHistory, extent", () 
   });
 
   it("keeps every NON-default attribute on the wire, and round-trips the pair", () => {
-    // The other half of the rule: omission is conditional, so a styled cell
-    // must still carry all ten keys. `withDecodingDefaultKey`'s `"omit"`
-    // strategy would have dropped `bold: true` with the rest — which is why
-    // this schema hand-rolls the encode getter.
     const schema = spec.procedures.terminal.getScreenCells.output;
     const styled = {
       col: 0,
@@ -291,8 +243,6 @@ describe("wire byte fixtures — inventory, list entry, getHistory, extent", () 
         '"fg":{"kind":"palette","index":4},"bg":{"kind":"rgb","value":7915775},' +
         '"bold":true,"italic":true,"dim":true,"underline":true,"inverse":true}]}]}',
     );
-    // Decoding the compact form puts the defaults BACK: the omission is an
-    // encoding, not a hole in the vocabulary a renderer would have to patch.
     expect(
       Schema.decodeUnknownSync(schema as AnySchema)(
         JSON.parse('{"cols":80,"lines":[{"cells":[{"col":7,"chars":"a"}]}]}'),
@@ -338,13 +288,6 @@ describe("wire byte fixtures — inventory, list entry, getHistory, extent", () 
 });
 
 describe("wire byte fixtures — the foreground tap's absent pid (#17 audit)", () => {
-  // The one field on this wire spelled `Schema.optional` rather than
-  // `optionalKey`. `readForegroundPid` collapses `tcgetpgrp`'s transient `0` to
-  // `undefined`, `ForegroundSample` declares that as a REQUIRED `number |
-  // undefined` key, and the tap forwards whole samples verbatim — so the frame
-  // that reaches this encode genuinely carries the key present-with-`undefined`.
-  // Under `optionalKey` the RPC chunk encode rejected it and took the whole
-  // foreground tap down (invisible in-process, where nothing encodes).
   const foreground = spec.streams.foreground.outputSchema;
 
   it("ACCEPTS a present-but-undefined pid and OMITS it — the zod-era bytes, exactly", () => {
@@ -392,9 +335,6 @@ describe("the declared error vocabulary (PLAN D4)", () => {
   });
 
   it("declares an error on EXACTLY the members that can raise one", () => {
-    // The negative half: a member with no declared error must stay undeclared, so
-    // an undeclared throw there remains a DEFECT (D4) rather than quietly
-    // acquiring an error channel a caller could branch on.
     const declaring = Object.entries(spec.procedures).flatMap(([ns, verbs]) =>
       Object.entries(verbs)
         .filter(([, p]) => "error" in p)

@@ -11,11 +11,11 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   createPtyHost,
   foregroundNameFromArgv,
-  getScreenText,
   HEADLESS_TERM_ID,
   isDynamicLoader,
   type PtyHost,
   type PtyId,
+  readBufferRange,
   readProcCmdline,
   resolveScreenExtent,
 } from "./ptyHost.ts";
@@ -27,14 +27,12 @@ import {
 import { silentLogger as silentLog } from "@kolu/log/loggerStubs.testutil";
 import { runScopedSync, subscribeFrames } from "./streamFrame.testlib.ts";
 
-// @xterm packages ship CJS only — same interop as ptyHost.ts.
 const require = createRequire(import.meta.url);
 const { Terminal } =
   require("@xterm/headless") as typeof import("@xterm/headless");
 const { SerializeAddon } =
   require("@xterm/addon-serialize") as typeof import("@xterm/addon-serialize");
 
-/** Write data to a terminal and wait for it to be processed. */
 function writeAndFlush(
   term: InstanceType<typeof Terminal>,
   data: string,
@@ -42,7 +40,7 @@ function writeAndFlush(
   return new Promise((resolve) => term.write(data, resolve));
 }
 
-describe("getScreenText", () => {
+describe("readBufferRange", () => {
   function createTerminal(
     opts: { cols?: number; rows?: number } = {},
   ): InstanceType<typeof Terminal> {
@@ -55,7 +53,10 @@ describe("getScreenText", () => {
 
   it("returns empty lines for a fresh terminal", () => {
     const term = createTerminal({ rows: 3 });
-    const text = getScreenText(term.buffer.active);
+    const text = readBufferRange(term.buffer.active, {
+      start: 0,
+      end: term.buffer.active.length,
+    });
     expect(text.trim()).toBe("");
     term.dispose();
   });
@@ -63,16 +64,19 @@ describe("getScreenText", () => {
   it("returns written text", async () => {
     const term = createTerminal();
     await writeAndFlush(term, "hello world\r\nsecond line\r\n");
-    const text = getScreenText(term.buffer.active);
+    const text = readBufferRange(term.buffer.active, {
+      start: 0,
+      end: term.buffer.active.length,
+    });
     expect(text).toContain("hello world");
     expect(text).toContain("second line");
     term.dispose();
   });
 
-  it("respects startLine and endLine range", async () => {
+  it("respects the start and end of the range", async () => {
     const term = createTerminal({ rows: 10 });
     await writeAndFlush(term, "line0\r\nline1\r\nline2\r\nline3\r\n");
-    const text = getScreenText(term.buffer.active, 1, 3);
+    const text = readBufferRange(term.buffer.active, { start: 1, end: 3 });
     const lines = text.split("\n");
     expect(lines).toHaveLength(2);
     expect(lines[0]).toContain("line1");
@@ -83,16 +87,12 @@ describe("getScreenText", () => {
   it("clamps out-of-bounds range", async () => {
     const term = createTerminal({ rows: 5 });
     await writeAndFlush(term, "only line\r\n");
-    const text = getScreenText(term.buffer.active, -5, 1000);
+    const text = readBufferRange(term.buffer.active, { start: -5, end: 1000 });
     expect(text).toContain("only line");
     term.dispose();
   });
 });
 
-// The bound-picking these two used to exercise through `getScreenText`'s
-// `tailLines` parameter now lives in `resolveScreenExtent`, which is where
-// BOTH screen reads — the text one and the attributed-cell one — ask what a
-// slice means. Testing it directly is testing the thing that decides.
 describe("resolveScreenExtent", () => {
   it("resolves a tail to the last N lines of the buffer", () => {
     expect(resolveScreenExtent(100, 24, { kind: "tail", lines: 2 })).toEqual({
@@ -109,8 +109,6 @@ describe("resolveScreenExtent", () => {
   });
 
   it("resolves a viewport to a tail of the live grid's own height", () => {
-    // The one bound a caller cannot compute: only the host knows how tall the
-    // PTY currently is.
     expect(resolveScreenExtent(100, 24, { kind: "viewport" })).toEqual({
       start: 76,
       end: 100,
@@ -150,10 +148,6 @@ describe("boundScreenCells", () => {
   });
 
   it("trims COLUMNS to hold the area, which the row cap alone never did", () => {
-    // The hole this closes: 200 rows was legal at any width, and `resize`
-    // takes whatever the ioctl accepts. A 200x1000 read is 200,000 cells — one
-    // `<text>` element each — which is the multi-second stall the row cap was
-    // built to remove, arriving on the other axis.
     const wide = boundScreenCells(200, 1000);
     expect(wide.rows).toBe(200);
     expect(wide.rows * wide.cols).toBeLessThanOrEqual(SCREEN_CELLS_MAX_CELLS);
@@ -166,18 +160,9 @@ describe("boundScreenCells", () => {
   });
 
   it("keeps the full width of an empty read rather than dividing by no rows", () => {
-    // A zero-column grid is not a grid: the wire schema refuses one, and every
-    // cell of it would be out of bounds for the renderer.
     expect(boundScreenCells(0, 200)).toEqual({ rows: 0, cols: 200 });
   });
 });
-
-// ── Loader-wrapped foreground names (nixpkgs `makeCWrapper`) ────────────
-//
-// A nixpkgs-wrapped binary runs as `ld-linux… --argv0 … <binary>`, so node-pty
-// reports the loader as the foreground `argv[0]` basename. These pin the two
-// halves of the normalization kaval applies at its single producer
-// (`readForeground`): the pure argv parse, and the `/proc` read it feeds on.
 
 describe("foregroundNameFromArgv", () => {
   const cases: {
@@ -243,12 +228,6 @@ describe("foregroundNameFromArgv", () => {
   });
 });
 
-// The darwin edge node-pty hands us: its `process` getter returns `undefined`
-// whenever `pty_getproc` cannot name the foreground pgrp — `tcgetpgrp(3)` is -1
-// in the window before the child claims the tty, and `p_comm` is empty during
-// an `exec` (linux's `|| this._file` always yields a string instead). `list()`
-// and the `foreground` tap read a name on every burst, so a predicate that
-// dereferenced `undefined` took the whole terminal list down on darwin.
 describe("isDynamicLoader", () => {
   it("reads an absent name as not-a-loader, never throws", () => {
     expect(isDynamicLoader(undefined)).toBe(false);
@@ -256,18 +235,10 @@ describe("isDynamicLoader", () => {
   });
 });
 
-// Linux-only: on Darwin node-pty reports `p_comm`, so `readProcCmdline` returns
-// `undefined` and there is nothing to read. `skipIf` (not an early `return`)
-// keeps that visible as a SKIP on the macOS lanes rather than a green no-op.
-// Daemon-gated: the real-child read forks a live `process.execPath`, so a bare
-// `vitest` must skip the block (the #1375 fork bomb).
 describeDaemon("readProcCmdline", () => {
   it.skipIf(process.platform !== "linux")(
     "reads a live child's argv from /proc",
     async () => {
-      // `node:fs` only — the same reader the loader path uses, proven against a
-      // real child with known args (the loader case itself needs a real
-      // loader-wrapped binary, which this repo does not ship).
       const code = "setTimeout(() => {}, 10000)";
       const child = spawn(process.execPath, ["-e", code, "kolu-argv-arg"]);
       try {
@@ -284,15 +255,11 @@ describeDaemon("readProcCmdline", () => {
   it.skipIf(process.platform !== "linux")(
     "returns undefined for a pid that cannot be read",
     () => {
-      // A pid above the kernel's maximum can never exist → the read fails.
       expect(readProcCmdline(2 ** 30)).toBeUndefined();
     },
   );
 });
 
-// ── PTY host (real node-pty children) ──────────────────────────────────
-
-/** A minimal env that lets `/bin/sh` find `sleep` etc. */
 const shellEnv = {
   PATH: process.env.PATH ?? "/usr/bin:/bin",
   TERM: "xterm-256color",
@@ -309,9 +276,6 @@ async function waitFor(
   }
 }
 
-/** The command `subscribeCommandRun` replays on attach — the ONE public reader
- *  of the retained mark (the sensor's snapshot-first source). There is no
- *  synchronous getter: a second read path would be a second contract. */
 async function retainedCommand(
   host: PtyHost,
   id: PtyId,
@@ -323,8 +287,6 @@ async function retainedCommand(
   );
 }
 
-/** First frame of a tap, with the subscription ESTABLISHED before this returns
- *  (`subscribeFrames` issues the first pull, which is the subscribe). */
 async function firstEvent<T>(
   stream: Stream.Stream<T, unknown>,
   ms = 3000,
@@ -359,10 +321,6 @@ describeDaemon("createPtyHost", () => {
 
   it("viewport reads only the visible screen (the host's own rows)", async () => {
     host = createPtyHost({ log: silentLog });
-    // A 10-row grid printing 30 lines: scrollback holds L01..L30, but the
-    // visible screen is just the bottom screenful. `viewport` resolves to the
-    // host's live `rows` — the CLI can't know it — so it drops the scrolled-off
-    // top while a full read keeps it.
     const { id } = host.spawn({
       shell: "/bin/sh",
       args: [
@@ -380,7 +338,6 @@ describeDaemon("createPtyHost", () => {
     expect(full).toContain("L01");
     expect(full).toContain("L30");
 
-    // viewport (last `rows` = 10 lines) keeps the bottom of the buffer, never L01.
     const viewport = host.getScreenText(id, { kind: "viewport" });
     expect(viewport).toContain("L30");
     expect(viewport).not.toContain("L01");
@@ -394,17 +351,12 @@ describeDaemon("createPtyHost", () => {
       env: shellEnv,
       cwd: "/tmp",
     });
-    // The attachment's scope spans the whole read: closing it is what
-    // unsubscribes, so the deltas stay live for as long as this body runs.
     await Effect.runPromise(
       Effect.scoped(
         Effect.gen(function* () {
           const { deltas } = yield* host.attach(id);
           const frames = subscribeFrames(deltas);
           let seen = "";
-          // Drain chunks until the marker appears (or the stream stalls). The
-          // feed carries two kinds of item in one order; only the BYTES are
-          // output, and nothing here resizes, so nothing else can arrive.
           while (!seen.includes("live delta")) {
             const item = yield* Effect.promise(() => frames.next(2000));
             if (item.kind === "bytes") seen += item.data;
@@ -430,39 +382,20 @@ describeDaemon("createPtyHost", () => {
   });
 
   it("keeps a wrapped URL on the cursor line intact across a narrowing resize", async () => {
-    // A long URL printed WITHOUT a trailing newline leaves the cursor on the
-    // wrapped line. xterm's reflow defaults to leaving the cursor's line alone
-    // on a narrowing resize (then trims every row to the new width), which
-    // truncates the overflow — a clicked web-link then opens a clipped address.
-    // The headless terminal sets reflowCursorLine:true so the line rewraps and
-    // the URL survives in the screen state a client restores on attach.
     const url =
       "https://example.com/path/to/a/really/long/resource?query=value&another=thing&more=stuff&x=12";
     host = createPtyHost({ log: silentLog });
     const { id } = host.spawn({
       shell: "/bin/sh",
-      // The child must outlive the synchronous resize+read below: its exit
-      // tears the entry down (disposes the headless terminal), after which
-      // getScreenText returns "" and the assertion would fail for the wrong
-      // reason. Sleep long enough to dwarf any scheduler stall — afterEach's
-      // host.dispose() kills it the moment the test returns, so it never lingers.
       args: ["-c", `printf '%s' '${url}'; sleep 30`],
       env: shellEnv,
       cwd: "/tmp",
       cols: 80,
       rows: 24,
     });
-    // Wait until the WHOLE (wrapped) URL has been parsed into the headless
-    // screen. PTY output arrives in arbitrary chunks, so we join the wrapped
-    // rows and wait for the full 92-char URL — not just an interior substring
-    // that lands before the tail does — or the resize could fire on a
-    // half-written URL and the final assertion would fail for the wrong reason.
     const joinedScreen = () => host.getScreenText(id).replace(/\n/g, "");
     await waitFor(() => joinedScreen().includes(url));
-    // Narrow the grid: the URL was wrapped at 80 columns and must rewrap at 40.
     host.resize(id, 40, 24);
-    // Joining the wrapped rows back together must still reproduce the whole URL;
-    // a reflow that dropped the cursor line would leave a gap in the middle.
     expect(joinedScreen()).toContain(url);
   });
 
@@ -486,17 +419,11 @@ describeDaemon("createPtyHost", () => {
       cwd: "/tmp",
     });
     expect(await Effect.runPromise(host.exit(id))).toBe(5);
-    // Entry is gone from list() now, but a late query gets the real code
-    // (the tombstone), not a fabricated 0.
     expect(host.list()).toHaveLength(0);
     expect(await Effect.runPromise(host.exit(id))).toBe(5);
   });
 
   it("exit for an id the tombstone no longer holds FAILS instead of fabricating 0 (K7)", async () => {
-    // Past the tombstone cap (or never spawned at all) the host does not KNOW
-    // the exit code. Answering `0` would be the caught-error→default shape this
-    // repo bans in its most damaging spelling: a fabricated SUCCESS code that a
-    // consumer reports to the user as "the command succeeded".
     host = createPtyHost({ log: silentLog });
     await expect(
       Effect.runPromise(host.exit("00000000-0000-0000-0000-000000000000")),
@@ -504,11 +431,6 @@ describeDaemon("createPtyHost", () => {
   });
 
   it("a PTY gone between the two liveness checks throws the TAGGED PtyNotFound (K6)", async () => {
-    // The attach path checks liveness TWICE: the surface's `requirePtySync`
-    // (typed `PtyNotFound`) and then, one Effect step later, `attach`'s own
-    // `requireEntry`. A PTY that exits in the gap is a HEALTHY exit, and the
-    // consumer (`padi`'s re-open loop) recognises it structurally by `_tag` — so
-    // an untagged `Error` there turns a clean end into a spurious loud failure.
     host = createPtyHost({ log: silentLog });
     const { id } = host.spawn({
       shell: "/bin/sh",
@@ -516,13 +438,9 @@ describeDaemon("createPtyHost", () => {
       env: shellEnv,
       cwd: "/tmp",
     });
-    // Check one passes — the PTY is live.
     expect(host.has(id)).toBe(true);
-    // …and the exit lands in the gap.
     await Effect.runPromise(host.exit(id));
     await waitFor(() => !host.has(id));
-    // Check two must speak the SAME vocabulary. `handle` is `requireEntry`'s
-    // synchronous caller; `attach` is the one the gap is reachable through.
     let thrown: unknown;
     try {
       host.handle(id);
@@ -559,8 +477,6 @@ describeDaemon("createPtyHost", () => {
       env: shellEnv,
       cwd: "/tmp",
     });
-    // The tap hands back the retention AND the live marks in one step; here
-    // nothing is retained yet, so the mark arrives live.
     await Effect.runPromise(
       Effect.scoped(
         Effect.gen(function* () {
@@ -575,10 +491,6 @@ describeDaemon("createPtyHost", () => {
   });
 
   it("retains the last command line so a late reader catches up", async () => {
-    // The retention `commandRun`'s snapshot-first source replays on subscribe:
-    // a sensor attaching AFTER the OSC 633;E mark (e.g. a late/restarted padi)
-    // must still learn the command, so the agent isn't shown as a non-agent
-    // `node`. A long-lived shell keeps the entry alive past the mark.
     host = createPtyHost({ log: silentLog });
     const { id } = host.spawn({
       shell: "/bin/sh",
@@ -592,13 +504,7 @@ describeDaemon("createPtyHost", () => {
     await Effect.runPromise(host.exit(id));
   });
 
-  // ── R2: command-rooted PTYs (#1872 lock 1 — the argv is not discarded) ──
-
   it("seeds the retained command from the argv for a command-rooted PTY", async () => {
-    // A `kaval-tui create -- claude …` PTY has the agent as argv[0] and no
-    // shell, so it never emits the OSC 633;E mark that is otherwise the
-    // retained command's only writer. The daemon received the command line at
-    // spawn — it must not discard it.
     host = createPtyHost({ log: silentLog });
     const { id } = host.spawn({
       shell: "/bin/sh",
@@ -616,15 +522,7 @@ describeDaemon("createPtyHost", () => {
   });
 
   it("does not seed a title (the title tap is live-only, no snapshot replay)", async () => {
-    // The seed is the retained command ONLY: the commandRun source replays
-    // snapshot-first (so a late padi sensor learns the command), but the title
-    // tap is live-only — a seeded title would be erased by the foreground
-    // sensor's first sample, so we deliberately don't seed one. The tile carries
-    // the foreground process name.
     host = createPtyHost({ log: silentLog });
-    // Use `/bin/sh` as argv[0] (a guaranteed-present binary, not a real agent
-    // executable that CI may lack / a dev machine would actually launch) — the
-    // seed is driven by `commandRooted`, not by argv[0] being a real agent.
     const { id } = host.spawn({
       shell: "/bin/sh",
       args: ["-c", "sleep 5"],
@@ -632,7 +530,6 @@ describeDaemon("createPtyHost", () => {
       env: shellEnv,
       cwd: "/tmp",
     });
-    // The command is seeded; the title is not.
     await waitFor(
       async () => (await retainedCommand(host, id)) === "/bin/sh -c 'sleep 5'",
     );
@@ -642,7 +539,6 @@ describeDaemon("createPtyHost", () => {
   });
 
   it("a live 633;E mark overrides the command-rooted seed (precedence)", async () => {
-    // Seed writes first; a real shell command mark is the live last-writer.
     host = createPtyHost({ log: silentLog });
     const { id } = host.spawn({
       shell: "/bin/sh",
@@ -658,9 +554,6 @@ describeDaemon("createPtyHost", () => {
   });
 
   it("does NOT seed a command for a shell-rooted PTY (regression guard)", async () => {
-    // The default (shell) path is unchanged: the retained command stays
-    // undefined until a real 633;E mark — seeding every spawn would mislabel
-    // every shell terminal.
     host = createPtyHost({ log: silentLog });
     const { id } = host.spawn({
       shell: "/bin/sh",
@@ -668,7 +561,6 @@ describeDaemon("createPtyHost", () => {
       env: shellEnv,
       cwd: "/tmp",
     });
-    // A beat for any (erroneous) seed to land; the shell emits no 633;E here.
     await new Promise((r) => setTimeout(r, 200));
     expect(await retainedCommand(host, id)).toBeUndefined();
   });
@@ -685,12 +577,6 @@ describeDaemon("createPtyHost", () => {
   });
 
   it("samples foregroundPid from OUTPUT alone — no OSC hook needed", async () => {
-    // A bare `kaval-tui create` terminal carries none of kolu's rc-hooks, so it
-    // emits no OSC 0/2 title or 633;E command mark — the only two triggers for
-    // the OSC samplers. Agent detection keys on `foregroundPid`, so the
-    // foreground tap must still publish it; the output-driven fallback does. Here
-    // the process only ever PRINTS (no OSC anywhere), yet its foregroundPid lands
-    // on the tap — without the fallback this subscribe would never resolve.
     host = createPtyHost({ log: silentLog });
     const { id, pid } = host.spawn({
       shell: "/bin/sh",
@@ -698,11 +584,6 @@ describeDaemon("createPtyHost", () => {
       env: shellEnv,
       cwd: "/tmp",
     });
-    // The non-interactive `sh -c` runs its commands in its own process group, so
-    // the pty's foreground-group leader is the spawned shell itself. The tap's
-    // `current` reading is taken at subscribe time — before the child has
-    // claimed the tty it can still be undefined — so wait for the live sample
-    // that carries it.
     await Effect.runPromise(
       Effect.scoped(
         Effect.gen(function* () {
@@ -721,9 +602,6 @@ describeDaemon("createPtyHost", () => {
   });
 
   it("trims the headless mirror to its configured scrollback under heavy output", async () => {
-    // The per-terminal mirror is what accumulates in kaval's heap, so it must
-    // honour the (small) spawn scrollback: FIRSTLINE drops, LASTLINE stays, and
-    // the buffer is bounded — not the full 400+ lines. See kaval-heap-oom.mdx.
     host = createPtyHost({ log: silentLog });
     const { id } = host.spawn({
       shell: "/bin/sh",
@@ -744,10 +622,6 @@ describeDaemon("createPtyHost", () => {
   });
 
   it("still serves the live jobs at a small mirror (metadata, scrape tail, cold-attach repaint)", async () => {
-    // Shrinking the mirror must NOT starve the jobs that read it: the OSC
-    // metadata taps are parse-time callbacks (depth-independent), and the
-    // scrape tail + cold-attach snapshot only need the visible screen — all
-    // still work when output far exceeds the tiny scrollback.
     host = createPtyHost({ log: silentLog });
     const { id } = host.spawn({
       shell: "/bin/sh",
@@ -760,24 +634,17 @@ describeDaemon("createPtyHost", () => {
       rows: 24,
       scrollback: 50,
     });
-    // (a) metadata: OSC 7 cwd is parsed regardless of mirror depth.
     await waitFor(() => host.getCwd(id) === "/tmp/deep");
     expect(host.getCwd(id)).toBe("/tmp/deep");
-    // (b) screen-scrape tail still reads the recent screen.
     await waitFor(() => host.getScreenText(id).includes("TAILMARK"));
     expect(host.getScreenText(id, { kind: "tail", lines: 24 })).toContain(
       "TAILMARK",
     );
-    // (c) a cold-attaching client repaints the recent output from the snapshot.
     expect(runScopedSync(host.attach(id)).snapshot).toContain("TAILMARK");
   });
 
   it("answers XTVERSION (CSI > q) so a querying child is unblocked", async () => {
     host = createPtyHost({ log: silentLog });
-    // Emit the XTVERSION query (CSI > 0 q) and idle. The headless handler writes
-    // the DCS reply (`ESC P > | xterm-headless(kolu) ESC \\`) to the child's
-    // PTY; the cooked TTY echoes that input straight back into the mirror, so
-    // the model string appearing on screen proves the child received the reply.
     const { id } = host.spawn({
       shell: "/bin/sh",
       args: ["-c", "printf '\\033[>0q'; sleep 1"],
@@ -790,10 +657,6 @@ describeDaemon("createPtyHost", () => {
 
   it("consumes XTVERSION with Ps > 0 without writing a reply", async () => {
     host = createPtyHost({ log: silentLog });
-    // CSI > 1 q is not a version request; the handler consumes it but must NOT
-    // synthesize a DCS reply. A SENTINEL printed after the query gives the
-    // mirror something to settle on, after which the model string must be
-    // absent — proving no reply was written (and thus nothing echoed back).
     const { id } = host.spawn({
       shell: "/bin/sh",
       args: ["-c", "printf '\\033[>1qSENTINEL_DONE'; sleep 1"],
@@ -806,8 +669,6 @@ describeDaemon("createPtyHost", () => {
 
   it("routes write() to the child and lists live PTYs", async () => {
     host = createPtyHost({ log: silentLog });
-    // A non-interactive shell reads one line and prints an unmistakable reply.
-    // Unlike the old interactive shell, `sh -c` loads no host rc files.
     const { id, pid } = host.spawn({
       shell: "/bin/sh",
       args: [
@@ -863,9 +724,6 @@ describeDaemon("createPtyHost", () => {
 
   it("announces a spawn on the inventory feed as `created`", async () => {
     host = createPtyHost({ log: silentLog });
-    // Subscribe BEFORE spawning — the eager-subscribe contract means a spawn on
-    // the very next line is captured, not raced away. This is the property a
-    // consumer (kolu-server) leans on to never miss an out-of-band create.
     await Effect.runPromise(
       Effect.scoped(
         Effect.gen(function* () {
@@ -892,11 +750,6 @@ describeDaemon("createPtyHost", () => {
 
   it("announces a teardown on the inventory feed as `exited`", async () => {
     host = createPtyHost({ log: silentLog });
-    // Subscribe BEFORE spawning so neither delta can race the subscription:
-    // a `/bin/sh -c 'exit 0'` would otherwise be free to exit (and publish its
-    // `exited` to nobody — dropped, no replay) before a post-spawn subscribe
-    // registers. Spawn a long-lived shell, consume its `created`, then KILL it
-    // to make the `exited` deterministic.
     await Effect.runPromise(
       Effect.scoped(
         Effect.gen(function* () {
@@ -952,25 +805,6 @@ describeDaemon("createPtyHost", () => {
   });
 });
 
-/**
- * The device-query contract — the executable form of the invariant that was
- * previously prose-only on both sides ("client-suppressed ⇒ server-answered",
- * `@kolu/terminal-protocol` (responseFilter) ⇄ the answerer/forwarder here).
- *
- * Every query class the client filter suppresses is in exactly one of two
- * deliberate states, and these tests pin the full table so drift on either
- * side (an xterm upgrade changing what the headless answers; a new suppressed
- * class added to the filter) breaks loudly instead of hanging a TUI silently:
- *
- *   1. ANSWERED — the headless answers it (natively, or via the hand-rolled
- *      XTVERSION handler) and the reply is forwarded to the child. Suppressing
- *      the mirroring client's duplicate is then safe: exactly one answerer.
- *   2. UNIFORMLY SILENT — NOBODY answers through kolu (the headless doesn't
- *      synthesize it, the forwarder drops `ESC ]` regardless, and the client
- *      filter suppresses the browser's theme-derived answer). Programs
- *      querying these (colour reports, window geometry) carry their own
- *      timeout fallbacks; consistent silence beats per-client divergence.
- */
 describeDaemon("device-query contract — suppressed ⇄ answered pairing", () => {
   function freshHeadless(): InstanceType<typeof Terminal> {
     return new Terminal({ cols: 80, rows: 24, allowProposedApi: true });
@@ -989,17 +823,12 @@ describeDaemon("device-query contract — suppressed ⇄ answered pairing", () =
 
   it("every reply the headless natively emits is a shape the client filter suppresses", async () => {
     const term = freshHeadless();
-    // The matrix is DATA in @kolu/terminal-protocol — this test executes it
-    // against a real headless so the policy and implementation can't drift.
     for (const { name, query } of ANSWERED_DEVICE_QUERIES) {
       const replies = await repliesTo(term, query);
       expect(replies.length, `${name}: headless must answer`).toBeGreaterThan(
         0,
       );
       for (const reply of replies) {
-        // The pairing itself: the server's own answer is exactly the shape
-        // the client filter drops — so the duplicate-drop can never eat a
-        // reply the headless wouldn't have produced itself.
         expect(
           isTerminalQueryResponse(reply),
           `${name}: reply ${JSON.stringify(reply)} must match the suppressed grammars`,
@@ -1010,21 +839,12 @@ describeDaemon("device-query contract — suppressed ⇄ answered pairing", () =
   });
 
   it("the hand-rolled XTVERSION reply is a shape the client filter suppresses", () => {
-    // The one class the headless has no built-in answerer for — ptyHost's
-    // CSI > q handler synthesizes the DCS reply (answered behaviorally in
-    // "answers XTVERSION" above); this pins its shape to the filter grammar.
     expect(isTerminalQueryResponse(`\x1bP>|${HEADLESS_TERM_ID}\x1b\\`)).toBe(
       true,
     );
   });
 
   it("colour and window-report queries are uniformly silent — the headless answers none", async () => {
-    // The filter suppresses the BROWSER's answers to these (it has a theme
-    // and a window; the headless has neither), keeping kolu's two clients
-    // consistent with the headless's silence: through kolu, nobody answers,
-    // and the querying program's own timeout fallback kicks in. If an xterm
-    // upgrade starts answering any of these, this pin fails → re-audit the
-    // forwarder's `ESC ]` drop and the filter comments together.
     const term = freshHeadless();
     for (const { name, query } of SILENT_DEVICE_QUERIES) {
       const replies = await repliesTo(term, query);
@@ -1034,12 +854,6 @@ describeDaemon("device-query contract — suppressed ⇄ answered pairing", () =
   });
 
   it("a colour query through a real PTY yields silence, never reply garbage", async () => {
-    // End-to-end form of the same contract, covering the forwarder's
-    // `startsWith("\\x1b]")` drop guard: even if the headless ever emitted an
-    // OSC reply, it must not reach the child (where the cooked tty would echo
-    // it back as visible escape soup — the original yazi-bug class). The
-    // child's raw output (attach deltas, echo included) must never contain a
-    // colour REPLY (`rgb:`), only the query the child itself printed.
     const host = createPtyHost({ log: silentLog });
     const { id } = host.spawn({
       shell: "/bin/sh",
@@ -1067,31 +881,15 @@ describeDaemon("device-query contract — suppressed ⇄ answered pairing", () =
   });
 });
 
-// PR1 of the kaval-memory plan (docs/atlas/.../kaval-memory-architecture.mdx):
-// a reconnect storm — a WebSocket disconnect that interrupts every in-flight
-// attach and re-issues it — must not serialize the mirror N times. These guard
-// the two defenses without bounding the snapshot (that's PR2, and would change
-// what a reload restores): an attach on an already-interrupted fiber does ZERO
-// work, and a burst of attaches within one publish-epoch shares a single
-// serialize.
 describeDaemon("attach() reconnect-storm defenses", () => {
   let host: PtyHost;
 
-  // These tests count serialize() calls, so they settle on output via
-  // getScreenText (a plain buffer read) rather than getScreenState (which now
-  // shares the snapshot memo) — otherwise the settle poll would pre-populate
-  // the memo and skew the count. The aborted test below deliberately differs.
   afterEach(() => {
     vi.restoreAllMocks();
     host?.dispose();
   });
 
   it("does zero work for an attach on an already-interrupted fiber", async () => {
-    // The re-issued half of a reconnect storm, whose client has gone: the attach
-    // must serialize nothing. Under the AbortSignal face this was an explicit
-    // already-aborted fast path returning an empty snapshot; under interruption
-    // it is structural — an interrupted fiber never reaches the attach at all —
-    // so the pin is that the effect is issued and NOTHING happens.
     host = createPtyHost({ log: silentLog });
     const { id } = host.spawn({
       shell: "/bin/sh",
@@ -1099,7 +897,6 @@ describeDaemon("attach() reconnect-storm defenses", () => {
       env: shellEnv,
       cwd: "/tmp",
     });
-    // Settle real on-screen content, so a *live* attach would be non-empty.
     await waitFor(() => host.getScreenState(id).includes("abort marker"));
 
     const serializeSpy = vi.spyOn(SerializeAddon.prototype, "serialize");
@@ -1116,15 +913,6 @@ describeDaemon("attach() reconnect-storm defenses", () => {
   });
 
   it("does not resize the shared PTY for an attach on an already-interrupted fiber", async () => {
-    // `resizeTo` mutates state EVERY attached client can see — it SIGWINCHes the
-    // child, reflows the shared mirror, and on a width change bumps the reflow
-    // epoch that stales other clients' backfill cursors. A subscriber that is
-    // already gone must not inflict that on everyone else. Without the guard a
-    // re-issued reconnect-storm attach carrying a different grid silently
-    // re-sizes a terminal nobody asked to resize.
-    // A 60-column token: one unwrapped row at the spawned 100 columns, but two
-    // rows once reflowed to 37 — so the mirror's own rendered text reports
-    // whether a resize happened, with no test-only accessor to add.
     const wide = "W".repeat(60);
     host = createPtyHost({ log: silentLog });
     const { id } = host.spawn({
@@ -1145,7 +933,6 @@ describeDaemon("attach() reconnect-storm defenses", () => {
       ),
     );
 
-    // Still one unwrapped row — the interrupted attach left the shared grid alone.
     expect(host.getScreenText(id)).toContain(wide);
   });
 
@@ -1160,8 +947,6 @@ describeDaemon("attach() reconnect-storm defenses", () => {
     await waitFor(() => host.getScreenText(id).includes("idle marker"));
 
     const serializeSpy = vi.spyOn(SerializeAddon.prototype, "serialize");
-    // A synchronous burst — no task boundary between calls, so no publish can
-    // interleave: all 25 attaches fall in one publish-epoch.
     const snaps = Array.from(
       { length: 25 },
       () => runScopedSync(host.attach(id)).snapshot,
@@ -1173,11 +958,6 @@ describeDaemon("attach() reconnect-storm defenses", () => {
 
   it("re-serializes after new output ends the epoch (cache cleared on publish)", async () => {
     host = createPtyHost({ log: silentLog });
-    // A long-lived shell reading commands from its stdin: each output chunk is
-    // triggered by an explicit host.write(), NOT a timed printf. So the second
-    // chunk lands strictly after the epoch-1 attaches — the "first arrived,
-    // second not yet" boundary is test-controlled, never a race a slow CI
-    // worker can lose by printing both before the first poll observes either.
     const { id } = host.spawn({
       shell: "/bin/sh",
       env: shellEnv,
@@ -1189,22 +969,17 @@ describeDaemon("attach() reconnect-storm defenses", () => {
     const serializeSpy = vi.spyOn(SerializeAddon.prototype, "serialize");
     runScopedSync(host.attach(id));
     runScopedSync(host.attach(id));
-    expect(serializeSpy).toHaveBeenCalledTimes(1); // epoch 1: coalesced
+    expect(serializeSpy).toHaveBeenCalledTimes(1);
 
-    // A second output chunk publishes and must invalidate the cache — driven by
-    // an explicit write, so it falls strictly after the epoch-1 attaches above.
     host.write(id, "echo second\n");
     await waitFor(() => host.getScreenText(id).includes("second"));
     const { snapshot } = runScopedSync(host.attach(id));
-    expect(serializeSpy).toHaveBeenCalledTimes(2); // epoch 2 re-serialized, not reused
+    expect(serializeSpy).toHaveBeenCalledTimes(2);
     expect(snapshot).toContain("second");
   });
 
   it("re-serializes after a resize reflows the mirror (cache cleared on resize)", async () => {
     host = createPtyHost({ log: silentLog });
-    // A 91-col marker line wraps at the default 80 cols and unwraps at 120, so
-    // the resize reflows the serialized layout — and does so with NO data
-    // publish, the path that exposes the missed invalidation.
     const { id } = host.spawn({
       shell: "/bin/sh",
       args: ["-c", "printf 'WIDEMARK%083d\\n' 0; sleep 1"],
@@ -1214,23 +989,15 @@ describeDaemon("attach() reconnect-storm defenses", () => {
     await waitFor(() => host.getScreenText(id).includes("WIDEMARK"));
 
     const serializeSpy = vi.spyOn(SerializeAddon.prototype, "serialize");
-    // First attach in this epoch serializes and memoizes the 80-col snapshot.
     const first = runScopedSync(host.attach(id)).snapshot;
     expect(serializeSpy).toHaveBeenCalledTimes(1);
 
-    // resize() reflows the mirror with no output to clear the memo — without
-    // invalidation the next same-epoch attach hands back the stale 80-col snap.
     serializeSpy.mockClear();
     host.resize(id, 120, 24);
-    // ASYNC, unlike every other attach in this file: the resize above opened a
-    // resize window (kolu#2362), and an attach arriving into one ALREADY open
-    // parks until it closes before taking its fused subscribe+serialize
-    // reading. The fusion itself is unchanged — still one synchronous step —
-    // but it now happens after a wait, which `runScopedSync` cannot express.
     const second = (await Effect.runPromise(Effect.scoped(host.attach(id))))
       .snapshot;
 
-    expect(serializeSpy).toHaveBeenCalledTimes(1); // re-serialized, not reused
-    expect(second).not.toBe(first); // reflects the new 120-col layout
+    expect(serializeSpy).toHaveBeenCalledTimes(1);
+    expect(second).not.toBe(first);
   });
 });
