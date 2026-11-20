@@ -1,18 +1,3 @@
-// The docs lint: the [lint] rules of the writing standard
-// (dev/skills/docs-writing/SKILL.md), over every page of both doc
-// collections — src/content/docs and src/content/surface. One test per page,
-// named `<collection>/<slug>`, so a single page runs with
-// `node --test --test-name-pattern=<slug> test/docs-lint.test.mjs`.
-//
-// There is no exemption list and no per-page override. The only difference
-// between pages is the one the standard states: a Surface reference page
-// (its `section` ends in "Reference") is not held to the page-length limit.
-//
-// Pages are parsed with the same remark stack the site renders MDX with
-// (unified + remark-parse + remark-mdx + remark-gfm, resolved through
-// @astrojs/mdx), so a table, a list item or a JSX block is exactly what the
-// build sees.
-
 import assert from "node:assert/strict";
 import { readdirSync, readFileSync } from "node:fs";
 import { createRequire } from "node:module";
@@ -46,7 +31,6 @@ const contentDir = (c) => new URL(`../src/content/${c}/`, import.meta.url);
 const parser = unified().use(remarkParse).use(remarkMdx).use(remarkGfm);
 const sentences = new Intl.Segmenter("en", { granularity: "sentence" });
 
-/** Split `---` frontmatter from the body; `offset` is the body's first line. */
 function splitFrontmatter(source) {
   const match = /^---\r?\n([\s\S]*?)\r?\n---\r?\n/.exec(source);
   if (!match) throw new Error("page has no frontmatter");
@@ -58,17 +42,14 @@ function splitFrontmatter(source) {
   };
 }
 
-// Inline code stands in as one neutral token per word, so its words count but
-// its punctuation (`--flag`, `a.b`, `;`) never reads as a dash, a semicolon or
-// a sentence end. The token is capitalised so a sentence that opens with code
-// still starts a new sentence. Expressions and JSX attributes are not running
-// text.
-function plain(node) {
+const CODE_WORD_TOKEN = "X";
+
+function runningTextOf(node) {
   if (node.type === "inlineCode")
     return node.value
       .split(/\s+/)
       .filter(Boolean)
-      .map(() => "X")
+      .map(() => CODE_WORD_TOKEN)
       .join(" ");
   if (node.type === "text") return node.value;
   if (node.type === "break") return " ";
@@ -79,7 +60,7 @@ function plain(node) {
   )
     return "";
   if (!node.children) return "";
-  return node.children.map(plain).join("");
+  return node.children.map(runningTextOf).join("");
 }
 
 const words = (text) =>
@@ -104,7 +85,6 @@ const isSvg = (node) =>
 const isSteps = (node) =>
   node.type === "mdxJsxFlowElement" && node.name === "Steps";
 
-/** Every violation on one page, as `line N: message` strings. */
 function lintPage({ data, body, offset }, { reference }) {
   const problems = [];
   const at = (node) =>
@@ -149,8 +129,6 @@ function lintPage({ data, body, offset }, { reference }) {
   };
 
   let pageWords = 0;
-  // The running text under the current heading (any depth). Tables, code and
-  // <Steps> do not count toward it.
   let section = {
     title: "(opening, before the first heading)",
     node: null,
@@ -163,9 +141,6 @@ function lintPage({ data, body, offset }, { reference }) {
       );
   };
 
-  // A block is a paragraph, or one list item: the item's own paragraphs, read
-  // as one. Everything else inside an item (a nested list, a table, a JSX
-  // block) is walked as content of its own.
   const block = (node, text, inSteps) => {
     const n = words(text);
     pageWords += n;
@@ -183,7 +158,7 @@ function lintPage({ data, body, offset }, { reference }) {
     switch (node.type) {
       case "heading": {
         closeSection();
-        const title = plain(node).trim();
+        const title = runningTextOf(node).trim();
         section = { title, node, words: 0 };
         pageWords += words(title);
         checkSentences(node, title);
@@ -195,12 +170,15 @@ function lintPage({ data, body, offset }, { reference }) {
             node,
             "paragraph opens with a bold run-in — use a heading, a list or a table",
           );
-        block(node, plain(node), inSteps);
+        block(node, runningTextOf(node), inSteps);
         return;
       }
       case "listItem": {
         const isParagraph = (c) => c.type === "paragraph";
-        const text = node.children.filter(isParagraph).map(plain).join(" ");
+        const text = node.children
+          .filter(isParagraph)
+          .map(runningTextOf)
+          .join(" ");
         block(node, text, inSteps);
         for (const child of node.children)
           if (!isParagraph(child)) walk(child, inSteps);
@@ -209,7 +187,7 @@ function lintPage({ data, body, offset }, { reference }) {
       case "table": {
         for (const row of node.children)
           for (const cell of row.children) {
-            const text = plain(cell);
+            const text = runningTextOf(cell);
             const n = words(text);
             pageWords += n;
             if (n > LIMITS.cellWords)

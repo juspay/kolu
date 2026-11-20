@@ -1,10 +1,4 @@
 ---
-/**
- * Surface area pages at /surface/<slug>. getStaticPaths emits every entry in the
- * `surface` collection EXCEPT `index` (the landing, owned by ./index.astro), so
- * this route never double-renders /surface. Slugs are flat (no nested dirs), so
- * a single-segment [slug] param suffices.
- */
 import { getCollection, render } from "astro:content";
 import DocsLayout from "../../layouts/DocsLayout.astro";
 

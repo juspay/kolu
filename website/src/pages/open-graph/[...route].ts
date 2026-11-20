@@ -1,19 +1,3 @@
-/**
- * OG image generator — one PNG per page, generated at build time via
- * `astro-og-canvas` (canvaskit-wasm). Routes:
- *
- *   /open-graph/site.png                  — the home / fallback card.
- *   /open-graph/blog/<slug>.png           — per-blog-post card.
- *   /open-graph/docs/<slug>.png           — per-docs-page card.
- *
- * `BaseLayout.astro` resolves the route via its `ogImageRoute` prop;
- * blog pages pass `blog/<slug>`, the home passes `site`, and any
- * future page can pass its own key.
- *
- * Brand: void background with a middle-step pink inline-start border — same
- * primary palette as the site chrome.
- */
-
 import { getCollection } from "astro:content";
 import { OGImageRoute } from "astro-og-canvas";
 import { KOLU_PALETTE, SITE_DESCRIPTION } from "../../site";

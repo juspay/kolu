@@ -11,9 +11,6 @@ const posts = (await getCollection('blog')).sort(
 );
 const latest = posts[0];
 
-// The feature bands under the demo — one image, one claim each, all stills
-// cropped from the self-filmed hero recording (real product, kept fresh by
-// re-recording). Order tells the product story: notice → act → review → scale.
 const features = [
   {
     eyebrow: 'attention',
@@ -370,9 +367,6 @@ const doors = [
     border-color: var(--color-ink-dim);
     background: var(--color-void-raised);
   }
-  /* The kicker asserts the editor is the wrong shape for this era; this is the
-     one click to where that argument is actually made. Deliberately quieter
-     than the two hero buttons — it's a third path, not a third call to act. */
   .hero-oss {
     margin-top: 1rem;
     font-family: var(--font-mono);
@@ -393,14 +387,12 @@ const doors = [
     gap: 2.5rem;
     align-items: center;
   }
-  /* Alternate sides so the eye zigzags down the page. */
   .feature-band:nth-child(even) .feature-copy {
     order: 2;
   }
   .feature-band:nth-child(even) .feature-shot {
     order: 1;
   }
-  /* The dock closeup is tall and narrow — cap it so it doesn't tower. */
   .feature-band-portrait .feature-shot img {
     max-width: 24rem;
     margin-inline: auto;

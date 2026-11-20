@@ -1,24 +1,4 @@
 ---
-/**
- * A changelog note with three levels of detail:
- *
- *   1. the product-facing headline is always visible;
- *   2. the plain-language explanation opens on demand with native <details>;
- *   3. implementation PRs sit in the open note's provenance footer.
- *
- * Keeping PRs out of the collapsed row is intentional. A changelog is for
- * understanding the product first; the source links remain one click away for
- * readers who want the archaeology.
- *
- *   ### Core Concepts
- *
- *   - <Change kind="fixed" title="Terminals no longer silently freeze" pr={1235}>A
- *     WebSocket that died without notice … resumes without a reload.</Change>
- *
- * One note may cite several PRs when an unreleased feature was refined across
- * multiple changes. Pass `pr` OR `prs`, never both. Omitting both is valid for
- * release notes whose implementation history is not represented by one PR.
- */
 import PR from "./PR.astro";
 import { CHANGE_KIND_LABELS, type ChangeKind } from "../changelog";
 import { changelogEntrySlug } from "../changelog-slug";
@@ -52,7 +32,6 @@ const kindLabel = CHANGE_KIND_LABELS[kind];
 const prIds = prs ?? (pr === undefined ? [] : [pr]);
 
 const provenanceLabel = prIds.length === 1 ? "1 PR" : `${prIds.length} PRs`;
-// The entry's own address: shareable, and what a release's Highlights link to.
 const slug = changelogEntrySlug(title);
 ---
 
@@ -81,8 +60,6 @@ const slug = changelogEntrySlug(title);
 </details>
 
 <style>
-  /* Native details state and the generated toggle glyph require selectors that
-     cannot live on individual utility-classed nodes. */
   .cl-change {
     --note-accent: var(--color-kolu-primary);
     border-top: 1px solid var(--color-rule);
@@ -190,8 +167,6 @@ const slug = changelogEntrySlug(title);
     transition: color 150ms ease;
   }
 
-  /* The title is its own permalink, so it must read as the title until the
-     pointer says otherwise. */
   .cl-change-title a {
     color: inherit;
     text-decoration: none;

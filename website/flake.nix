@@ -1,7 +1,3 @@
-# Kolu website — independent from the runnable Kolu flake.
-#
-# This flake has no inputs. It reuses the repository's npins-backed nixpkgs
-# import through nix/each-system.nix.
 {
   outputs = { ... }:
     let

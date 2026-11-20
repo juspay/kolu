@@ -1,4 +1,3 @@
-/** The release-note kinds, in the order used by totals and filters. */
 export const CHANGE_KIND_LABELS = {
   added: "Added",
   changed: "Changed",
@@ -29,7 +28,6 @@ export const changelogInstallCommand = (tag?: string) =>
 export const isChangeKind = (value: unknown): value is ChangeKind =>
   typeof value === "string" && Object.hasOwn(CHANGE_KIND_LABELS, value);
 
-/** Validate changelog metadata emitted by the remark build plugin. */
 export const readChangelogStats = (value: unknown): ChangelogStat[] => {
   if (!Array.isArray(value))
     throw new Error("Changelog rendering did not emit a stats array");

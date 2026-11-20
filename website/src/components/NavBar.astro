@@ -1,31 +1,14 @@
 ---
-/**
- * The site's top navigation bar — brand mark, primary nav, and the light/dark
- * toggle. Extracted from Header.astro so the exact same bar can be rendered in
- * two places without divergence: Header.astro wraps it in the site's sticky
- * <header> for every page — the file-based ones (landing, blog, changelog) and
- * the docs (DocsLayout renders through the same BaseLayout/Header). So the whole
- * site shares one header.
- *
- * The theme toggle writes the `theme` key and flips the `data-theme` attribute
- * the palette keys on, so it's one control across the site. It also carries the
- * shared <SiteSearch /> (Pagefind), so the same search button sits in the header
- * on every page.
- */
 import SiteSearch from "./SiteSearch.astro";
 
 const { pathname } = Astro.url;
 const base = import.meta.env.BASE_URL.replace(/\/$/, '');
 const href = (p: string) => `${base}${p}` || '/';
 
-// Astro's pathname always starts with the configured `base`; strip it before
-// comparing so "/kolu/blog" still matches as "/blog".
 const normalized = pathname.replace(new RegExp(`^${base}`), '') || '/';
 const isActive = (p: string) =>
   p === '/' ? normalized === '/' : normalized.startsWith(p);
 
-// Docs is the product-docs foyer. Highlight it on every product-docs page,
-// not only /start — and never on the framework docs, the blog, or home.
 const isDocsActive =
   normalized !== '/' &&
   !normalized.startsWith('/blog') &&
@@ -33,9 +16,6 @@ const isDocsActive =
   !normalized.startsWith('/surface') &&
   !normalized.startsWith('/open-graph');
 
-// `hideOnMobile` drops the longest labels below `sm` so the single-row nav fits
-// narrow phones without overflowing. Architecture and Surface live in the
-// footer — they are builder docs, not the product foyer.
 const nav = [
   { label: 'Docs', href: href('/start'), path: '/start', docs: true },
   { label: 'Blog', href: href('/blog'), path: '/blog' },
@@ -101,7 +81,6 @@ const nav = [
       aria-label="Toggle light/dark theme"
       class="relative size-7 rounded-sm border border-transparent hover:border-rule text-ink-dim hover:text-kolu-primary transition-colors flex items-center justify-center"
     >
-      {/* Sun — shown in dark mode (click to go light) */}
       <svg
         class="theme-icon-sun absolute size-4 transition-all"
         viewBox="0 0 16 16"
@@ -115,7 +94,6 @@ const nav = [
         <circle cx="8" cy="8" r="3" />
         <path d="M8 1v2M8 13v2M15 8h-2M3 8H1M13 3l-1.4 1.4M4.4 11.6L3 13M13 13l-1.4-1.4M4.4 4.4L3 3" />
       </svg>
-      {/* Moon — shown in light mode (click to go dark) */}
       <svg
         class="theme-icon-moon absolute size-4 transition-all"
         viewBox="0 0 16 16"

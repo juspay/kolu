@@ -77,20 +77,24 @@ const headingStats = (tree: Root): ChangelogStat[] => {
   return stats;
 };
 
-// Depth-3 headings that are allowed to stand without a docs-page link. Every
-// other heading is a product area and must link to the page that owns it.
-const PLAIN_HEADINGS = new Set(["Before you update", "Performance"]);
+const HEADINGS_WITHOUT_PRODUCT_AREA = new Set([
+  "Before you update",
+  "Performance",
+]);
 
-/**
- * Enforce the ledger's grouping contract at build time (the same shape the
- * `website-docs` instruction teaches): every product-area `###` heading links
- * to an existing docs page, and every `<Change>` entry sits under a heading.
- * Advisory guidance drifts; a failed build does not.
- */
+interface ProductAreaTarget {
+  route: string;
+  anchor: string | undefined;
+}
+
+const productAreaTarget = (link: Link): ProductAreaTarget => {
+  const [route, anchor] = (
+    link.url.startsWith("/") ? link.url.slice(1) : ""
+  ).split("#");
+  return { route, anchor };
+};
+
 const validateLedger = (tree: Root, srcDir: string) => {
-  // A product-area heading must link to a page that exists on the site: a
-  // docs-collection entry (rendered by src/pages/[slug].astro) or a static
-  // top-level route under src/pages/.
   const pageCandidates = (slug: string) =>
     [
       `content/docs/${slug}.mdx`,
@@ -102,29 +106,14 @@ const validateLedger = (tree: Root, srcDir: string) => {
   const pageExists = (slug: string) =>
     pageCandidates(slug).some((candidate) => existsSync(candidate));
 
-  // A product area can be a SECTION of a page rather than a whole page — port
-  // forwarding lives under Add another machine, for one. The fragment is checked, not
-  // merely tolerated: an anchor that no heading in the target page produces is
-  // a link that silently lands at the top, which is exactly the drift this
-  // validator exists to make impossible.
-  const headingSlugs = (slug: string): Set<string> => {
+  const renderedAnchorsOf = (slug: string): Set<string> => {
     const file = pageCandidates(slug).find((c) => existsSync(c));
     const body = file === undefined ? "" : readFileSync(file, "utf8");
-    // A slugger per PAGE, because the slug rule has to be the one that mints the
-    // real anchors — rehype's, which is this same library — and because its
-    // duplicate-suffix counter is per page. A hand-rolled rule beside an
-    // imported `GithubSlugger` is the worst of both: it diverges on unicode, on
-    // `&`, and on repeated headings, and a validator that has drifted from the
-    // renderer either rejects a correct link or accepts a broken one while being
-    // trusted.
     const slugger = new GithubSlugger();
     const slugs = new Set<string>();
     for (const line of body.split("\n")) {
       const heading = /^#{2,4}\s+(.*)$/.exec(line);
       if (!heading) continue;
-      // The markdown STRIPPING stays hand-rolled — undoing inline syntax is a
-      // different job from slugging, and it is what rehype's own AST has already
-      // done by the time the slugger sees a heading's text.
       const text = heading[1]
         .replace(/`/g, "")
         .replace(/\[([^\]]*)\]\([^)]*\)/g, "$1")
@@ -145,22 +134,20 @@ const validateLedger = (tree: Root, srcDir: string) => {
           ? node.children[0]
           : undefined;
       if (!link) {
-        if (!PLAIN_HEADINGS.has(label))
+        if (!HEADINGS_WITHOUT_PRODUCT_AREA.has(label))
           throw new Error(
             `Changelog heading "${label}" must link its product area to a docs page, e.g. \`### [The Dock](/dock)\``,
           );
         continue;
       }
-      const [route, fragment] = (
-        link.url.startsWith("/") ? link.url.slice(1) : ""
-      ).split("#");
+      const { route, anchor } = productAreaTarget(link);
       if (!route || !/^[a-z0-9-]+$/.test(route) || !pageExists(route))
         throw new Error(
           `Changelog heading "${label}" links to "${link.url}", but no page exists at that route (checked src/content/docs/ and src/pages/)`,
         );
-      if (fragment !== undefined && !headingSlugs(route).has(fragment))
+      if (anchor !== undefined && !renderedAnchorsOf(route).has(anchor))
         throw new Error(
-          `Changelog heading "${label}" links to "${link.url}", but "/${route}" has no heading that produces the anchor "#${fragment}"`,
+          `Changelog heading "${label}" links to "${link.url}", but "/${route}" has no heading that produces the anchor "#${anchor}"`,
         );
     } else if (node.type === "list" && !sawHeading) {
       let orphan: string | undefined;
@@ -176,11 +163,6 @@ const validateLedger = (tree: Root, srcDir: string) => {
   }
 };
 
-/**
- * Give changelog headings release-scoped IDs during the MDX build, and expose
- * release totals from the same syntax tree. SSR HTML, Pagefind, and in-page
- * navigation therefore share one set of anchors and one parsed source of truth.
- */
 export function remarkChangelog() {
   return (tree: Root, file: { path?: string; data: AstroFileData }) => {
     const frontmatter = file.data.astro?.frontmatter;
@@ -196,8 +178,6 @@ export function remarkChangelog() {
     });
 
     const kinds = typedStats(tree);
-    // Only releases written in the typed-entry format carry the grouping
-    // contract; 1.0.0 predates it and keeps its plain heading sections.
     if (kinds.length > 0) {
       if (!file.path)
         throw new Error(

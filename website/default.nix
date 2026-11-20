@@ -1,18 +1,19 @@
-# Kolu website — Astro static site build.
-#
-# Output: $out/ is the dist/ directory produced by `pnpm build`, ready to
-# be served as a static site (GitHub Pages, Cloudflare Pages, etc.).
-#
-# Imported from website/flake.nix. Reuses the repository's npins-pinned
-# nixpkgs (via ../nix/nixpkgs.nix) so there is no duplicate pin to keep in
-# sync. `src` is optional and self-contained — it resolves the public/ asset
-# symlinks below.
 { pkgs ? import ../nix/nixpkgs.nix { }
-, src ? # Self-contained website source for the Nix sandbox. The working tree keeps
-  # public/{favicon,kaval-logo,padi-logo}.svg as symlinks into packages/ (one SVG
-  # each on disk, no duplicated bytes) — but those dangle once copied into the
-  # store, so resolve them to real bytes here. Astro/Vite then sees a
-  # complete tree. Add a line per new out-of-tree public/ asset.
+, src ? let
+    outOfTreePublicAssets = {
+      "favicon.svg" = "${../packages/client/favicon.svg}";
+      "kaval-logo.svg" = "${../packages/kaval/logo.svg}";
+      "padi-logo.svg" = "${../packages/padi/logo.svg}";
+    };
+    resolveOutOfTreePublicAssets = pkgs.lib.concatStrings (
+      pkgs.lib.mapAttrsToList
+        (name: storePath: ''
+          rm -f $out/public/${name}
+          cp ${storePath} $out/public/${name}
+        '')
+        outOfTreePublicAssets
+    );
+  in
   pkgs.runCommand "kolu-website-src" { } ''
     cp -r ${pkgs.lib.fileset.toSource {
       root = ./.;
@@ -27,25 +28,14 @@
       ];
     }} $out
     chmod -R u+w $out
-    rm -f $out/public/favicon.svg
-    cp ${../packages/client/favicon.svg} $out/public/favicon.svg
-    rm -f $out/public/kaval-logo.svg
-    cp ${../packages/kaval/logo.svg} $out/public/kaval-logo.svg
-    rm -f $out/public/padi-logo.svg
-    cp ${../packages/padi/logo.svg} $out/public/padi-logo.svg
+    ${resolveOutOfTreePublicAssets}
     cp ${../packages/server/package.json} $out/kolu-server-package.json
     cp ${../scripts/fence-langs.mjs} $out/fence-langs.mjs
   ''
 }:
 let
-  # Website displays Kolu's app version, whose single source of truth is
-  # packages/server/package.json (same as the root derivation). Thread this
-  # through Nix so the sandbox never needs to reach outside `src`.
   version = (pkgs.lib.importJSON ../packages/server/package.json).version;
 
-  # fetchPnpmDeps hash is platform-independent. Regenerate when pnpm-lock.yaml
-  # changes — `just ci::pnpm-hash-fresh` checks this alongside the root's
-  # pnpmDeps. On mismatch, Nix prints the expected hash; paste it back here.
   pnpmDeps = pkgs.fetchPnpmDeps {
     pname = "kolu-website";
     inherit version src;
@@ -76,25 +66,23 @@ let
     fetcherVersion = 3;
   };
 
-  # The docs' <Snippet> component (src/components/docs/Snippet.astro) embeds real,
-  # workspace-typechecked example sources — packages/surface/example/{snippets,
-  # fleet-top} — by reading the files at build time as `../packages/…` relative to
-  # the website root, exactly as the working tree has them (website/ and packages/
-  # are siblings under the repo root). This hermetic sandbox's build root is the
-  # website src ALONE, so those files are absent and `astro build` fails loudly on
-  # the first <Snippet>. Vendor a clean copy (no node_modules/dist) and place it
-  # as the website root's sibling in the build tree (preBuild below), so the same
-  # relative read resolves — the store copy keeps CI faithful to the working tree.
-  exampleSnippetSrc = pkgs.lib.cleanSourceWith {
-    name = "surface-example-snippet-src";
-    src = ../packages/surface/example;
-    filter = path: _type:
-      let s = toString path; in
-      !(pkgs.lib.hasInfix "/node_modules/" s)
-      && !(pkgs.lib.hasSuffix "/node_modules" s)
-      && !(pkgs.lib.hasInfix "/dist/" s)
-      && !(pkgs.lib.hasSuffix "/dist" s);
-  };
+  snippetRoot =
+    let
+      exampleSnippetSrc = pkgs.lib.cleanSourceWith {
+        name = "surface-example-snippet-src";
+        src = ../packages/surface/example;
+        filter = path: _type:
+          let s = toString path; in
+          !(pkgs.lib.hasInfix "/node_modules/" s)
+          && !(pkgs.lib.hasSuffix "/node_modules" s)
+          && !(pkgs.lib.hasInfix "/dist/" s)
+          && !(pkgs.lib.hasSuffix "/dist" s);
+      };
+    in
+    pkgs.runCommand "kolu-website-snippet-root" { } ''
+      mkdir -p $out/packages/surface
+      cp -r ${exampleSnippetSrc} $out/packages/surface/example
+    '';
 
   default = pkgs.stdenv.mkDerivation {
     pname = "kolu-website";
@@ -107,8 +95,6 @@ let
       pkgs.pnpmConfigHook
     ];
 
-    # Astro build is pure JS — skip the fixupPhase (strip/patchShebangs) which
-    # would traverse node_modules for no benefit.
     dontFixup = true;
 
     buildPhase = ''
@@ -117,9 +103,6 @@ let
       runHook postBuild
     '';
 
-    # Unit pins for the shiki eager-langs preload (test/*.test.mjs): the
-    # derived `langs` wiring, grammar-engaged rendering, and the fail-fast
-    # guard — CI-gated here via ci::nix, no separate lane needed.
     doCheck = true;
     checkPhase = ''
       runHook preCheck
@@ -127,22 +110,11 @@ let
       runHook postCheck
     '';
 
-    # Place the vendored example sources as the website root's sibling so
-    # <Snippet>'s `../packages/…` reads resolve in the sandbox (see
-    # exampleSnippetSrc). Runs before `pnpm build`.
-    preBuild = ''
-      mkdir -p ../packages/surface
-      cp -r ${exampleSnippetSrc} ../packages/surface/example
-      chmod -R u+w ../packages
-    '';
+    KOLU_SNIPPET_ROOT = snippetRoot;
 
     installPhase = ''
       runHook preInstall
       cp -r dist $out
-      # Fold the committed Atlas dist in at /atlas/. The notes are
-      # self-contained HTML with inlined CSS and relative cross-links (Astro
-      # `format: "file"`), so they need no Astro/Vite processing — copy them in
-      # verbatim. `kolu.dev/atlas/` serves docs/atlas/dist/index.html.
       cp -r ${../docs/atlas/dist} $out/atlas
       runHook postInstall
     '';
@@ -157,10 +129,6 @@ let
     pname = "kolu-website-typecheck";
   };
 
-  # Every internal link and #anchor in the built site resolves — the same
-  # script `just website::linkcheck` runs over ./dist. Run over the deploy
-  # artefact itself, so a docs link into the folded-in /atlas/ is checked too.
-  # website/flake.nix exposes this as checks.${system}.linkcheck.
   # lychee builds its HTTP client at startup even with --offline, and that
   # client refuses to start without CA roots, so the sandbox gets cacert.
   linkcheck = pkgs.runCommand "kolu-website-linkcheck"

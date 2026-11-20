@@ -1,13 +1,4 @@
 ---
-/**
- * Table of contents for a blog post, built from the `headings` array Astro
- * produces in `render(post)`. Renders H2s as top-level entries with their H3s
- * nested beneath — so it pairs with a two-level post outline. Themed via the
- * global CSS custom properties (tracks light/dark automatically).
- *
- *   const { headings } = await render(post);
- *   <TOC headings={headings} />
- */
 interface Heading {
   depth: number;
   slug: string;

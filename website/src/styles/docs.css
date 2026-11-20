@@ -1,14 +1,3 @@
-/* Docs presentation — loaded by DocsLayout. Covers the markdown prose
- * (`.docs-prose`) and the pieces the migrated pages bring across verbatim: the
- * hand-authored inline SVG diagrams and the tmux/zellij comparison table.
- * Warnings / card grids / steps / link cards are the site-native components in
- * src/components/docs/. Every colour pulls from the global --color-* tokens, so
- * the whole thing tracks the light/dark theme automatically — no hard-coded hex.
- */
-
-/* ── Markdown prose ──────────────────────────────────────────────────────────
-   The docs body. Section headings (h2) get the original pages' pink accent-bar
-   treatment, applied to EVERY page's markdown so a new .md inherits it for free. */
 .docs-prose {
   color: var(--color-ink-dim);
   font-size: 1rem;
@@ -185,7 +174,6 @@
   margin-bottom: 1rem;
 }
 
-/* Markdown tables (the command references + the survival table). */
 .docs-prose table {
   width: 100%;
   border-collapse: collapse;
@@ -216,13 +204,10 @@
   color: var(--color-ink-dim);
 }
 
-/* Horizontal-scroll wrapper for a wide block (the comparison table) so the
-   page body never scrolls sideways on a narrow viewport. */
 .doc-scroll {
   overflow-x: auto;
 }
 
-/* Bordered frame around each diagram — the old `figure` shell. */
 .doc-figure {
   margin: 1.75rem 0;
   border: 1px solid var(--color-rule);
@@ -261,7 +246,6 @@
   line-height: 1.55;
 }
 
-/* ── padi stack diagram ─────────────────────────────────────────────── */
 .pd-d-box {
   fill: var(--color-void-raised);
   stroke: var(--color-rule-strong);
@@ -333,7 +317,6 @@
   font-weight: 650;
 }
 
-/* ── kaval "how it fits" diagram ────────────────────────────────────── */
 .kv-d-logo {
   filter: drop-shadow(
     0 5px 10px color-mix(in srgb, var(--color-void-sunk) 70%, transparent)
@@ -411,7 +394,6 @@
   font-size: 10px;
 }
 
-/* ── architecture stack + survival diagrams ─────────────────────────── */
 .ax-d-logo {
   filter: drop-shadow(
     0 5px 10px color-mix(in srgb, var(--color-void-sunk) 70%, transparent)
@@ -515,10 +497,6 @@
   text-anchor: middle;
 }
 
-/* ── tmux / zellij / kolu comparison table ──────────────────────────── */
-/* Kept as a hand-authored table (not a Markdown one) because each outcome
-   cell is colour- AND glyph-coded by result — a semantic layer a plain
-   Markdown table can't carry. */
 .ax-cmp {
   width: 100%;
   border-collapse: collapse;
@@ -554,9 +532,6 @@
 .ax-cmp td:last-child {
   color: var(--color-ink);
 }
-/* Semantic cell coding — by OUTCOME, uniform across columns. Each class carries
-   a shape glyph as well as a tint, so meaning survives without colour.
-   ✓ win · ~ partial/conditional · ✕ none/no · – not applicable. */
 .ax-cmp td.c-yes {
   background: color-mix(in srgb, var(--color-live-lime) 9%, transparent);
 }
@@ -590,8 +565,6 @@
   font-weight: 700;
 }
 
-/* Identity path block on the architecture page — the durable-vs-address pair.
-   A small sunk terminal panel; comments muted, paths in ink. */
 .doc-term {
   margin: 1.1rem 0;
   border: 1px solid var(--color-rule);

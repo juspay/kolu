@@ -19,7 +19,6 @@ const { Content, headings, remarkPluginFrontmatter } = await render(post);
 
 const minutesRead = remarkPluginFrontmatter?.minutesRead;
 
-// Show a table of contents only when the post is long enough to need one.
 const tocHeadings = headings.filter((h) => h.depth >= 2 && h.depth <= 3);
 const showToc = tocHeadings.length >= 4;
 ---

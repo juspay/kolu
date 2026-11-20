@@ -1,18 +1,10 @@
 @import "tailwindcss";
 
-/* Self-hosted variable fonts (via fontsource, npm-installed, Nix-reproducible). */
 @import "@fontsource-variable/fraunces";
 @import "@fontsource-variable/jetbrains-mono";
 
 @plugin "@tailwindcss/typography";
 
-/* --- Design tokens --------------------------------------------------------
-
-  Kolu's logo palette has three roles:
-  - middle step: primary site action/link color
-  - top step: formatting accent for code, prompts, markers
-  - bottom step: body/detail accent for rules, tips, quotes, diagrams
--------------------------------------------------------------------------- */
 @theme {
   --color-void: #07080d;
   --color-void-raised: #10131c;
@@ -24,11 +16,6 @@
   --color-rule: #1a2330;
   --color-rule-strong: #2e3a4d;
 
-  /* Kolu logo palette. The raw logo-step tokens are fixed points sampled from
-     the mark; the semantic tokens below adapt per theme/use. */
-  /* Primary is a pink point inside the middle step: about 25% from
-     #f43f5e toward #a855f7, so it reads as the logo's middle band without
-     becoming either maroon or purple. */
   --color-kolu-logo-middle: #e14584;
   --color-kolu-logo-middle-hover: #f06aa4;
   --color-kolu-logo-middle-muted: #b83272;
@@ -48,13 +35,10 @@
   --color-kolu-bottom-strong: var(--color-kolu-logo-bottom-strong);
   --color-kolu-bottom-deep: var(--color-kolu-logo-bottom-deep);
 
-  /* Live-state accents from the same palette. */
   --color-live-teal: var(--color-kolu-bottom);
   --color-live-alert: var(--color-kolu-primary);
   --color-live-lime: var(--color-kolu-bottom-strong);
 
-  /* macOS-style window-control dots — used by every faux terminal frame
-     on the site. Kept as tokens so all frames stay in lockstep. */
   --color-dot-close: #ff5f56;
   --color-dot-minimize: #ffbd2e;
   --color-dot-maximize: #27c93f;
@@ -63,25 +47,13 @@
   --font-mono:
     "JetBrains Mono Variable", ui-monospace, "SF Mono", Menlo, Consolas,
     monospace;
-  /* Terminal-native sans — system UI stack across platforms (SF Pro on
-     macOS, Segoe UI Variable on Windows, Cantarell/Inter on Linux/Android).
-     Pairs naturally with JetBrains Mono for chrome accents without
-     descending into all-mono. Used for body, H1/display, and feature
-     headings. Fraunces serif is reserved for blog prose only. */
   --font-sans:
     ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
     "Segoe UI Variable", "Segoe UI", "Inter", Roboto, "Helvetica Neue",
     sans-serif;
 }
 
-/* --- Theme switch --------------------------------------------------------- */
-
-/* Dark is the default; an inline script in BaseLayout sets
-   <html data-theme="light|dark"> before first paint (no FOUC). */
-
 [data-theme="light"] {
-  /* Light-mode shell — cool paper and deep ink, with the same logo
-     palette darkened enough for text contrast. */
   --color-void: #f7f9fc;
   --color-void-raised: #edf2f7;
   --color-void-sunk: #e5ebf3;
@@ -110,12 +82,8 @@
   color-scheme: light;
 }
 
-/* --- Base ------------------------------------------------------------------ */
-
 html {
   background: var(--color-void);
-  /* Subtle character-cell lattice — middle-step dots set the site identity;
-     top/base dots add the formatting colors from the logo body. */
   background-image:
     radial-gradient(circle at 1px 1px, var(--dot-primary) 1px, transparent 0),
     radial-gradient(circle at 15px 15px, var(--dot-cyan) 1px, transparent 0),
@@ -153,11 +121,6 @@ body {
   color: var(--color-void);
 }
 
-/* --- Typography utilities -------------------------------------------------- */
-
-/* Display headings — tight tech-sans with a slight negative tracking
-   so the wordmark + H1 read as confidently constructed rather than
-   editorial. */
 .display {
   font-family: var(--font-sans);
   font-weight: 700;
@@ -197,9 +160,6 @@ body {
   clip-path: inset(50%);
 }
 
-/* --- Theme toggle icons --------------------------------------------------- */
-
-/* Show the sun in dark mode (clicking it moves to light), moon in light. */
 .theme-icon-sun,
 .theme-icon-moon {
   opacity: 0;
@@ -213,8 +173,6 @@ body {
   transform: rotate(0deg) scale(1);
   pointer-events: auto;
 }
-
-/* --- Shiki dual-theme code blocks ----------------------------------------- */
 
 /* Astro emits both light and dark styles as CSS custom properties on
    .astro-code when shikiConfig uses `themes: {light, dark}` with
@@ -238,8 +196,6 @@ body {
   text-decoration: var(--shiki-light-text-decoration) !important;
 }
 
-/* --- Blinking cursor ------------------------------------------------------- */
-
 .cursor::after {
   content: "";
   display: inline-block;
@@ -256,11 +212,6 @@ body {
     opacity: 0;
   }
 }
-
-/* --- Live-state animations -----------------------------------------------
-   Used by the hero terminal frame and canvas demo strip to convey that
-   the dock chips and agent pips are tracking real, changing state — the
-   "this is live" feel without shipping xterm.js on the marketing page. */
 
 @keyframes pulse-dot {
   0%,
@@ -350,10 +301,6 @@ body {
   animation: glow-working 1.6s ease-in-out infinite;
 }
 
-/* Awaiting state is shown via the breath-ring animation and the
-   live-badge dot — NOT by overriding the chip's repo background.
-   That keeps the chip's identity (its repo tint) intact while the
-   ring + badge convey the state. */
 .live-chip-awaiting {
   animation: breath-ring 1.4s ease-in-out infinite;
 }
@@ -382,8 +329,6 @@ body {
   }
 }
 
-/* --- Staggered reveal on load --------------------------------------------- */
-
 .reveal {
   opacity: 0;
   transform: translateY(6px);
@@ -410,8 +355,6 @@ body {
   }
 }
 
-/* --- Inline code ----------------------------------------------------------- */
-
 :not(pre) > code {
   font-family: var(--font-mono);
   background: var(--color-void-raised);
@@ -422,22 +365,7 @@ body {
   color: var(--color-kolu-top-strong);
 }
 
-/* --- Prose (blog post body) -----------------------------------------------
-
-  Applied via `class="prose prose-invert prose-editorial"` — tailwind-typo-
-  graphy supplies the structural rules (paragraph margins, list indents, code
-  spacing); `.prose-editorial` overrides the color tokens and typographic
-  character.
--------------------------------------------------------------------------- */
-
 .prose-editorial {
-  /* Use the non-invert tokens — the blog wrapper applies only `.prose` so
-     these drive both light and dark. Dark = default; light is overridden
-     below via `[data-theme="light"] .prose-editorial`.
-
-     Headings: pure white in dark (maximum pop), near-black in light.
-     Bold: same — weight + colour distinct from body. Inline code uses
-     the logo's top step, creating a separate formatting channel. */
   --tw-prose-body: var(--color-ink);
   --tw-prose-headings: #ffffff;
   --tw-prose-lead: var(--color-ink-dim);
@@ -464,8 +392,6 @@ body {
   line-height: 1.75;
 }
 
-/* Paragraph rhythm — tw-typography gives us top/bottom margins; nudge for
-   a slightly roomier feel that matches the serif body. */
 .prose-editorial p {
   margin-top: 1.35em;
   margin-bottom: 1.35em;
@@ -502,9 +428,7 @@ body {
   color: var(--tw-prose-bold);
 }
 
-/* --- Light-mode prose overrides ------------------------------------------- */
 [data-theme="light"] .prose-editorial {
-  /* Deep ink for headings + bold — near-black on warm paper, max legibility. */
   --tw-prose-headings: #141208;
   --tw-prose-body: var(--color-ink);
   --tw-prose-bold: #141208;
@@ -525,7 +449,6 @@ body {
   border-bottom-color: var(--color-kolu-primary);
 }
 
-/* Code blocks: distinct card with generous breathing room above/below. */
 .prose-editorial pre {
   font-family: var(--font-mono);
   font-variant-ligatures: none;
@@ -570,10 +493,6 @@ body {
   margin-bottom: 1.5em;
 }
 
-/* Tip / callout component — `<Tip title="…">` in MDX posts. Rendered as
-   a tinted rounded card with a run-in label, deliberately different
-   visual grammar from blockquotes (which use a left-bar + italic with
-   no fill) so the two don't blur into each other on the page. */
 .prose-editorial .tip {
   background: color-mix(
     in srgb,
@@ -675,7 +594,6 @@ body {
   border-radius: 0.5rem;
 }
 
-/* Footnote list at end of post — distinguish visually from body paragraphs. */
 .prose-editorial section[data-footnotes] {
   margin-top: 3em;
   padding-top: 1.5em;
@@ -688,25 +606,11 @@ body {
   padding-left: 1.25em;
 }
 
-/* --- Prose (changelog release bodies) ------------------------------------
-
-  Applied via `class="prose prose-changelog"` on each release body wrapper.
-  Lighter than the serif blog prose: mono font stack for headings, arrow
-  bullets, and no Fraunces serif — changelog entries read as structured notes,
-  not long-form articles.
-
-  tailwind-typography provides the reset layer; this class overrides tokens
-  and structure to match the changelog aesthetic.
--------------------------------------------------------------------------- */
-
 .prose-changelog {
   color: var(--color-ink-dim);
   line-height: 1.7;
 }
 
-/* Lead paragraph (a release body's opening summary). Looser leading so the
-   wrapped lines — studded with bordered code chips — don't crowd, and a clear
-   gap before the first section label. */
 .prose-changelog > p:first-child {
   color: var(--color-ink);
   font-size: 1.05rem;
@@ -714,9 +618,6 @@ body {
   margin-bottom: 1.4rem;
 }
 
-/* Section labels (Added / Fixed / Internal) — a compact mono caption with a
-   hairline rule running out to the right margin, separating groups without a
-   tall heading. */
 .prose-changelog h3 {
   display: flex;
   align-items: center;
@@ -727,7 +628,6 @@ body {
   text-transform: uppercase;
   color: var(--color-kolu-primary);
   margin: 1.5rem 0 0.55rem;
-  /* Reset prose-invert heading overrides */
   font-weight: 600;
 }
 .prose-changelog h3::after {
@@ -737,14 +637,10 @@ body {
   background: var(--color-rule);
 }
 
-/* First section header in a body hugs the top — its top margin is dead space
-   between the version header and the first entry. */
 .prose-changelog h3:first-child {
   margin-top: 0;
 }
 
-/* Dense entry list: no inter-row gap — each <Change> row owns its own padding
-   and a full-bleed hover band, so rows pack tight and read as one column. */
 .prose-changelog ul {
   list-style: none;
   padding: 0;
@@ -755,9 +651,6 @@ body {
   position: relative;
 }
 
-/* Plain prose bullets (a release body written without <Change>, e.g. v1.0.0)
-   keep an arrow marker and a little air. <Change> rows bring their own arrow
-   and density, so they get neither. */
 .prose-changelog li:not(:has(.cl-change)) {
   padding-left: 1.35rem;
   margin: 0.5rem 0;

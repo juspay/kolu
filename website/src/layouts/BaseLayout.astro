@@ -7,19 +7,10 @@ import { SITE_DESCRIPTION, SITE_TAGLINE } from "../site";
 interface Props {
   title: string;
   description?: string;
-  /** Route key for the build-time OG image generator at
-   *  `src/pages/open-graph/[...route].png.ts`. Defaults to `"site"`
-   *  (homepage / fallback card). Blog posts pass `"blog/<slug>"` so each
-   *  post gets its own per-title card. */
   ogImageRoute?: string;
-  /** OG type. Defaults to "website"; pass "article" for blog posts. */
   ogType?: "website" | "article";
-  /** Article publish date — emitted as `article:published_time` when
-   *  `ogType === "article"`. */
   pubDate?: Date;
-  /** Article author — emitted as `article:author`. */
   author?: string;
-  /** Pagefind filter/metadata bucket shown in site search. */
   searchSection?: "Site" | "Docs" | "Blog" | "Changelog";
 }
 
@@ -58,7 +49,6 @@ const socialImageAlt =
     <link rel="icon" type="image/svg+xml" href={import.meta.env.BASE_URL + "favicon.svg"} />
     <link rel="sitemap" href={import.meta.env.BASE_URL + "sitemap-index.xml"} />
 
-    {/* Open Graph */}
     <meta property="og:title" content={fullTitle} />
     <meta property="og:description" content={description} />
     <meta property="og:type" content={ogType} />
@@ -90,18 +80,14 @@ const socialImageAlt =
 
     <meta name="color-scheme" content="dark light" />
 
-    {/* FOUC-safe theme bootstrap — runs before any CSS/body paint. */}
     <script is:inline>
       (() => {
-        // Dark by default — kolu.dev is dark-first. Only a stored light choice
-        // flips it. Runs before any paint, so there's no flash.
         const stored = localStorage.getItem("theme");
         const theme = stored === "light" ? "light" : "dark";
         document.documentElement.dataset.theme = theme;
       })();
     </script>
 
-    {/* Per-page <head> extras (e.g. LCP image preloads). */}
     <slot name="head" />
   </head>
   <body class="min-h-screen flex flex-col selection:bg-kolu-primary selection:text-void">

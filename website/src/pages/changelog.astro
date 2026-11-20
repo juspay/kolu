@@ -44,12 +44,9 @@ const isReleased = (entry: ChangelogEntry): entry is ReleasedEntry =>
   entry.data.date instanceof Date &&
   typeof entry.data.summary === "string";
 
-// The masthead summary is authored as inline markdown (bold, `code`, links),
-// so it renders through the same markdown engine the rest of the site uses
-// rather than a hand-rolled formatter.
-const summaryProcessor = await createMarkdownProcessor({});
-const renderSummary = async (summary: string) =>
-  (await summaryProcessor.render(summary)).code;
+const inlineMarkdown = await createMarkdownProcessor({});
+const renderInlineMarkdown = async (markdown: string) =>
+  (await inlineMarkdown.render(markdown)).code;
 
 const all = await getCollection("changelog");
 const unreleasedEntries = all.filter(isUnreleased);
@@ -101,7 +98,7 @@ const releases = await Promise.all(
       installCommand: changelogInstallCommand(tag),
       changeCount: stats.reduce((total, section) => total + section.count, 0),
       stats,
-      summaryHtml: await renderSummary(entry.data.summary),
+      summaryHtml: await renderInlineMarkdown(entry.data.summary),
       Body: rendered.Content,
     };
   }),
@@ -534,10 +531,6 @@ const previousVersion = releases[0]?.version;
     letter-spacing: 0.08em;
   }
 
-  /* The release summary — a full-width band under the version and the change
-     count, so a paragraph never has to share a row with the count column (on a
-     phone that leaves it a sliver). Its inner nodes come from set:html and so
-     cannot carry the scoped attribute — hence :global below. */
   .release-summary {
     grid-column: 1 / -1;
     max-width: 58rem;
@@ -991,8 +984,6 @@ const previousVersion = releases[0]?.version;
     box-shadow: 0 18px 55px -48px var(--color-kolu-bottom);
   }
 
-  /* The summary band carries the block's bottom padding, so the intro above it
-     closes tight against it. */
   .release-masthead-past .release-intro {
     padding-block: 1.25rem 0.85rem;
   }
@@ -1248,8 +1239,6 @@ const previousVersion = releases[0]?.version;
 
   const normalizeSearch = (value: string) => value.toLocaleLowerCase("en-US");
 
-  // The build plugin owns heading IDs. This pass only carries each product-area
-  // label onto its notes so a category name is part of the searchable corpus.
   for (const body of document.querySelectorAll<HTMLElement>(".release-body")) {
     let categoryLabel: string | undefined;
     for (const child of body.children) {
@@ -1333,8 +1322,6 @@ const previousVersion = releases[0]?.version;
       expand.textContent = allOpen ? "Collapse shown" : "Expand shown";
     };
 
-    // A match needs only a short lead-in for orientation, but enough trailing
-    // text to explain why it matters. Snap both edges to whole words.
     const SEARCH_CONTEXT_BEFORE = 44;
     const SEARCH_CONTEXT_AFTER = 78;
     const showSearchContext = (

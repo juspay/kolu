@@ -1,15 +1,4 @@
 ---
-/**
- * Site-wide search — one control rendered in the shared <NavBar />, so the same
- * search button appears in the header on every page. It drives the Pagefind UI
- * (@pagefind/default-ui) directly, loading the /pagefind/ index the postbuild
- * step emits (see package.json `build`). Pagefind indexes the docs pages (they
- * carry data-pagefind-body on the DocsLayout content), and every page carries a
- * Pagefind `section` filter so results read as Docs / Blog / Changelog / Site.
- *
- * The trigger and modal are themed with the site's own --color-* tokens so the
- * button sits flush with the mono nav and the toggle beside it.
- */
 ---
 
 <nav-search class="nav-search">
@@ -41,7 +30,6 @@
 </nav-search>
 
 <script is:inline>
-  // Show ⌘ on Apple platforms — inlined so the shortcut hint never flashes wrong.
   (() => {
     const openBtn = document.querySelector("nav-search button[data-open-modal]");
     const shortcut = openBtn?.querySelector("kbd");
@@ -98,7 +86,6 @@
         if (!searchReady) {
           searchReady = (async () => {
             await loadStylesheet();
-            // @ts-expect-error — no types for @pagefind/default-ui.
             const { PagefindUI } = await import("@pagefind/default-ui");
             new PagefindUI({
               element: "#nav-search__pagefind",
@@ -107,7 +94,7 @@
               filters: {
                 section: "Type",
               },
-              processResult(result: { meta?: { section?: string; title?: string } }) {
+              processResult(result) {
                 const section = result.meta?.section;
                 if (
                   section &&
@@ -212,8 +199,6 @@
     height: 0.95rem;
     flex: none;
   }
-  /* Below `sm` the bar is tight — show just the magnifier, like the other
-     hide-on-mobile nav items. */
   .nav-search-label,
   .nav-search-kbd {
     display: none;
@@ -313,7 +298,6 @@
   [data-search-modal-open] {
     overflow: hidden;
   }
-  /* Theme the Pagefind UI onto the kolu palette so results match the site. */
   #nav-search__pagefind {
     --pagefind-ui-primary: var(--color-kolu-primary);
     --pagefind-ui-text: var(--color-ink-dim);

@@ -1,12 +1,4 @@
 ---
-/**
- * The docs layout — a small, hand-rolled shell built from the site's OWN
- * components (BaseLayout for the head/header/footer, KoluHero for the title,
- * plus a sidebar and an on-this-page TOC). The docs ARE the site's design
- * language by construction: there is no docs framework and no theme-adaptation
- * layer. A three-column grid on wide viewports (sidebar · content · TOC) that
- * collapses gracefully as width drops.
- */
 import type { MarkdownHeading } from "astro";
 import { getCollection, type CollectionEntry } from "astro:content";
 import KoluHero from "../components/KoluHero.astro";
@@ -18,16 +10,11 @@ import "../styles/docs.css";
 interface Props {
   entry: CollectionEntry<"docs"> | CollectionEntry<"surface">;
   headings: MarkdownHeading[];
-  // The doc-shaped collection this page belongs to and the URL prefix its pages
-  // live under. Defaults render the root `docs` collection at /<id>; the Surface
-  // area passes collection="surface" + basePath="/surface".
   collection?: "docs" | "surface";
   basePath?: string;
 }
 const { entry, headings, collection = "docs", basePath = "" } = Astro.props;
 
-// A collection's index page owns the base route itself (/surface), not
-// /surface/index; every other page hangs off the prefix.
 const hrefFor = (id: string) => (id === "index" ? basePath || "/" : `${basePath}/${id}`);
 
 const docs = await getCollection(collection);
@@ -172,8 +159,6 @@ const next = currentIndex >= 0 && currentIndex < docs.length - 1 ? docs[currentI
     color: var(--color-ink-muted);
   }
 
-  /* Drop the TOC first (wide-but-not-huge), then fold the sidebar into its
-     mobile disclosure and go single-column. */
   @media (max-width: 72rem) {
     .docs-shell {
       grid-template-columns: 13rem minmax(0, 1fr);

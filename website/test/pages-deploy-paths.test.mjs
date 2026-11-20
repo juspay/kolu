@@ -1,16 +1,3 @@
-// Drift pin: every out-of-tree file website/default.nix copies into the
-// site's Nix build sandbox (the `${../...}` interpolations — favicon, logos,
-// kolu-server-package.json, the shared fence scanner) must appear in the
-// Pages workflow's push.paths — otherwise changing that file rebuilds the
-// derivation but never triggers the deploy, and kolu.dev goes silently
-// stale. Before this pin the list had already drifted three entries deep
-// (both logos and the server package.json were copied but not listed).
-//
-// Repo-file scope: default.nix and pages.yml live OUTSIDE the fileset the
-// Nix sandbox copies, so this pin runs only from the working tree
-// (`just website::check`); in the sandbox checkPhase it skips loudly rather
-// than fail on files the sandbox deliberately doesn't have.
-
 import assert from "node:assert/strict";
 import { existsSync, readFileSync } from "node:fs";
 import { createRequire } from "node:module";
@@ -21,9 +8,6 @@ const defaultNix = new URL("../default.nix", import.meta.url);
 const pagesYml = new URL("../../.github/workflows/pages.yml", import.meta.url);
 const inWorkingTree = existsSync(defaultNix) && existsSync(pagesYml);
 
-// A real YAML parser for the workflow file (a regex over structured data is
-// brittle to reformatting); `yaml` is astro's own transitive dep, resolved
-// through its require context like the other test-side imports.
 const requireFromAstro = createRequire(
   createRequire(import.meta.url).resolve("astro/package.json"),
 );
@@ -35,8 +19,6 @@ test("every out-of-tree cp-source in default.nix has a pages.yml deploy trigger"
     "repo files absent (Nix sandbox) — runs under just website::check",
 }, () => {
   const nix = readFileSync(fileURLToPath(defaultNix), "utf8");
-  // The cp-source mirrors: ${../path/to/file} interpolations (repo-relative
-  // once the leading ../ — website/'s parent — is stripped).
   const copied = [...nix.matchAll(/\$\{\.\.\/([^}]+)\}/g)].map((m) => m[1]);
   assert.ok(
     copied.length >= 5,
@@ -52,15 +34,15 @@ test("every out-of-tree cp-source in default.nix has a pages.yml deploy trigger"
     "pages.yml push.paths block not found",
   );
 
-  // A trigger covers a copied path if it names it exactly or as a
-  // directory glob (`docs/atlas/dist/**` covers `docs/atlas/dist` and
-  // everything under `docs/atlas/dist/` — but NOT a sibling like
-  // `docs/atlas/dist-staging`, hence the slash-preserving prefix).
-  const covers = (trigger, p) =>
-    trigger === p ||
-    (trigger.endsWith("/**") &&
-      (p === trigger.slice(0, -3) || p.startsWith(trigger.slice(0, -2))));
-  const missing = copied.filter((p) => !triggers.some((t) => covers(t, p)));
+  const triggerCoversPath = (trigger, path) => {
+    if (trigger === path) return true;
+    if (!trigger.endsWith("/**")) return false;
+    const recursiveRoot = trigger.slice(0, -"/**".length);
+    return path === recursiveRoot || path.startsWith(`${recursiveRoot}/`);
+  };
+  const missing = copied.filter(
+    (path) => !triggers.some((trigger) => triggerCoversPath(trigger, path)),
+  );
   assert.deepEqual(
     missing,
     [],

@@ -1,37 +1,20 @@
 ---
-/**
- * Docs sidebar — reads the `docs` collection and lists its pages, grouped by the
- * optional `section` frontmatter and ordered by `order` (ties by title). Pages
- * without a `section` fall in a default "Documentation" group. The grouping is
- * ready for future Diátaxis quadrants, but a group only appears once a page opts
- * into it — no empty sections are ever rendered.
- *
- * On narrow viewports it collapses into a <details> disclosure so it doesn't
- * push the content down (the current page's title labels the summary).
- */
 import { getCollection } from "astro:content";
 
 interface Props {
   current: string;
   currentTitle: string;
-  // Which doc-shaped collection to list, and the URL prefix its pages live
-  // under. Defaults render the root `docs` collection at /<id>; the Surface
-  // area passes collection="surface" + basePath="/surface".
   collection?: "docs" | "surface";
   basePath?: string;
 }
 const { current, currentTitle, collection = "docs", basePath = "" } = Astro.props;
 
-// A collection's index page owns the base route itself (/surface), not
-// /surface/index; every other page hangs off the prefix.
 const hrefFor = (id: string) => (id === "index" ? basePath || "/" : `${basePath}/${id}`);
 
 const DEFAULT_GROUP = "Documentation";
 const entries = await getCollection(collection);
 entries.sort((a, b) => a.data.order - b.data.order || a.data.title.localeCompare(b.data.title));
 
-// Preserve first-seen group order, so sections appear in the order their first
-// page's `order` puts them.
 const groups: { label: string; items: typeof entries }[] = [];
 for (const entry of entries) {
   const label = entry.data.section ?? DEFAULT_GROUP;
@@ -159,8 +142,6 @@ for (const entry of entries) {
     font-weight: 500;
   }
 
-  /* On narrow viewports the sidebar becomes a collapsible disclosure above the
-     content, using the same idiom as the site's other panels. */
   @media (max-width: 60rem) {
     .docs-sidebar--desktop {
       display: none;

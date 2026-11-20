@@ -1,17 +1,4 @@
 ---
-/**
- * The handful of entries in a release worth reading first.
- *
- * A release is a long ledger; a human arriving at it wants the marquee changes
- * before the archaeology. Each item names an entry that lives in the SAME
- * release body and links to that entry's own anchor, so the block is a table of
- * contents for the release rather than a second, drifting summary.
- *
- *   <ChangeHighlights items={[{ title: "…", note: "…" }]} />
- *
- * `title` must match its `<Change title="…">` verbatim — the anchor is derived
- * from it by the shared slug rule.
- */
 import { changelogEntrySlug } from "../changelog-slug";
 
 interface Props {
