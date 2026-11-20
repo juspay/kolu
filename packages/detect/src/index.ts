@@ -1,30 +1,8 @@
-/**
- * ## What this module does NOT decide
- *
- * It reports; it does not editorialize. Every no is a VALUE naming which no it
- * was ({@link Detected}, {@link ProbeFailure}) and nothing here is logged,
- * thrown, or worded for a screen. That division is deliberate and load-bearing
- * for the consumer this was extracted for: whether a missing kolu is worth
- * telling a user about depends on facts kolu cannot see (did anything declare
- * that a workspace should be here?), and the sentence that renders it belongs
- * to whoever draws the screen. Kolu owns which padi and whether it answered;
- * the app owns what to say about it.
- *
- * Nothing here reads `process.env` to DECIDE anything, for the same reason:
- * {@link DetectOptions.path} and {@link DetectOptions.socket} are passed in,
- * so a caller forwarding a socket it inherited and a caller naming one
- * deliberately are the same code path, and a test can drive either without
- * mutating the environment underneath itself. The probe child does inherit
- * this process's environment — a `kolu` needs a real one to run in — but with
- * `PADI_SOCKET` stripped, so the only socket that can reach it is the one the
- * caller named and the probe can never be about a different padi than the
- * recipe it hands back (see {@link ambientEnv}).
- */
-
 import { type ChildProcess, spawn as spawnChild } from "node:child_process";
 import { constants as fsConstants } from "node:fs";
 import { access, stat } from "node:fs/promises";
 import { delimiter, join } from "node:path";
+import type { Readable } from "node:stream";
 
 /** The executable, its verb, and the variable naming which padi — kolu's own
  *  `.mcp.json` entry, so a caller never spells them itself. */
@@ -150,17 +128,20 @@ async function onPath(name: string, path: string): Promise<string | null> {
   for (const dir of path.split(delimiter)) {
     if (dir === "") continue;
     const candidate = join(dir, name);
-    try {
-      const info = await stat(candidate);
-      if (!info.isFile()) continue;
-      await access(candidate, fsConstants.X_OK);
-      return candidate;
-    } catch {
-      // Not there, not a file, or not executable — the next directory is the
-      // answer, exactly as a shell's own lookup would treat it.
-    }
+    if (await isExecutableFile(candidate)) return candidate;
   }
   return null;
+}
+
+async function isExecutableFile(candidate: string): Promise<boolean> {
+  try {
+    const info = await stat(candidate);
+    if (!info.isFile()) return false;
+    await access(candidate, fsConstants.X_OK);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 async function probeCommand(
@@ -172,43 +153,21 @@ async function probeCommand(
   try {
     child = spawnChild(command, [...KOLU_MCP_ARGS], {
       stdio: ["pipe", "pipe", "ignore"],
-      // The child inherits this process's environment for the ordinary reasons
-      // (`HOME`, `NODE_*`, whatever the host was started with) — with
-      // {@link PADI_SOCKET_ENV} STRIPPED first, so the only one that can reach
-      // it is the one the caller named. Deleted rather than blanked: an empty
-      // string is a value kolu would have to interpret, and this is the absence
-      // of an instruction.
-      //
-      // That strip is what keeps the probe and the RECIPE about the same padi.
-      // Without it, a caller that named no socket is handed `env: {}` ("kolu
-      // resolves its own") while the child that produced the evidence quietly
-      // talked to whatever this process happened to carry — so a `reachable`
-      // could be earned against a daemon the caller's real server will never
-      // dial, or a refusal blamed on one it will. The evidence has to come from
-      // the arrangement it describes.
-      env: { ...ambientEnv(), ...env },
+      env: { ...envWithoutPadiSocket(), ...env },
     });
   } catch (cause) {
     return { _tag: "couldNotStart", cause: reasonOf(cause) };
   }
 
-  // A file on PATH with the executable bit is not necessarily a program, and
-  // an exec that fails does so AFTER `spawn` has returned — so the `catch`
-  // above never sees one. It arrives as an `error` EVENT, and it is RACED
-  // rather than merely handled because what FOLLOWS an exec failure is our own
-  // write to a stdin that died with it: unraced, the caller is told "write
-  // after end", a fact about our end of a pipe, instead of the name of the
-  // file that would not run. Listening also keeps that event from reaching a
-  // host process as an uncaught exception.
-  return await Promise.race([unstartable(child), probe(child, deadlineMs)]);
+  return await Promise.race([execFailure(child), probe(child, deadlineMs)]);
 }
 
-function ambientEnv(): NodeJS.ProcessEnv {
+function envWithoutPadiSocket(): NodeJS.ProcessEnv {
   const { [PADI_SOCKET_ENV]: _inherited, ...rest } = process.env;
   return rest;
 }
 
-const unstartable = (child: ChildProcess): Promise<ProbeFailure> =>
+const execFailure = (child: ChildProcess): Promise<ProbeFailure> =>
   new Promise((resolve) => {
     child.once("error", (cause) =>
       resolve({ _tag: "couldNotStart", cause: reasonOf(cause) }),
@@ -248,23 +207,13 @@ export async function probe(
   }, deadlineMs);
 
   try {
-    // Written at once: a server that reads its input in order answers in
-    // order, and one that cannot is one whose answer we would not want.
-    // stdin stays OPEN — a server told its client has gone is entitled to
-    // leave before finishing, and the kill below is what ends this one.
     for (const message of conversation()) {
       stdin.write(`${JSON.stringify(message)}\n`);
     }
 
-    let buffered = "";
-    for await (const chunk of stdout) {
-      buffered += String(chunk);
-      const lines = buffered.split("\n");
-      buffered = lines.pop() ?? "";
-      for (const line of lines) {
-        const verdict = verdictIn(line);
-        if (verdict !== null) return verdict;
-      }
+    for await (const line of linesOf(stdout)) {
+      const verdict = verdictIn(line);
+      if (verdict !== null) return verdict;
     }
     return expired ? { _tag: "timedOut", deadlineMs } : { _tag: "closed" };
   } catch (cause) {
@@ -272,6 +221,16 @@ export async function probe(
   } finally {
     clearTimeout(deadline);
     child.kill("SIGKILL");
+  }
+}
+
+async function* linesOf(stream: Readable): AsyncGenerator<string> {
+  let buffered = "";
+  for await (const chunk of stream) {
+    buffered += String(chunk);
+    const lines = buffered.split("\n");
+    buffered = lines.pop() ?? "";
+    yield* lines;
   }
 }
 
@@ -295,7 +254,12 @@ const conversation = (): ReadonlyArray<unknown> => [
   },
 ];
 
-function verdictIn(line: string): Probe | null {
+interface ProbeReply {
+  readonly result?: unknown;
+  readonly error?: { readonly message?: unknown };
+}
+
+function replyToProbe(line: string): ProbeReply | null {
   if (line.trim() === "") return null;
   let message: unknown;
   try {
@@ -303,16 +267,17 @@ function verdictIn(line: string): Probe | null {
   } catch {
     return null;
   }
-  const shape = message as {
-    readonly id?: unknown;
-    readonly result?: unknown;
-    readonly error?: { readonly message?: unknown };
-  };
-  if (shape.id !== PROBE_ID) return null;
-  if (shape.result !== undefined && shape.result !== null) {
+  const shape = message as ProbeReply & { readonly id?: unknown };
+  return shape.id === PROBE_ID ? shape : null;
+}
+
+function verdictIn(line: string): Probe | null {
+  const reply = replyToProbe(line);
+  if (reply === null) return null;
+  if (reply.result !== undefined && reply.result !== null) {
     return { _tag: "answered" };
   }
-  const said = shape.error?.message;
+  const said = reply.error?.message;
   return {
     _tag: "refused",
     said: typeof said === "string" && said !== "" ? said : null,
