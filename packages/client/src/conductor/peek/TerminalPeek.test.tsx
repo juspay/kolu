@@ -409,19 +409,20 @@ describe("TerminalPeek", () => {
     expect(seam.opened).toHaveLength(0);
   });
 
-  it("raises no card for a key typed at a terminal nobody locks", () => {
-    seam.allowed = true;
-    setMembership(
-      new Map([
-        [
-          `remote:nix@example/${ID}`,
-          { work: "w", title: "w", role: "planner", driver: "you" },
-        ],
-      ]),
-    );
+  it("closes on Esc when the terminal does not hold the keyboard", () => {
     openPeek({ host: "remote:nix@example", id: ID });
     mount();
-    keyDown("a");
-    expect(seam.gateRefs).toHaveLength(0);
+    keyDown("Escape");
+    expect(peekTarget()).toBeNull();
+  });
+
+  it("leaves Esc to the terminal while it holds the keyboard", () => {
+    seam.allowed = true;
+    openPeek({ host: "remote:nix@example", id: ID });
+    mount();
+    const onFocus = seam.props?.onFocus as (focused: boolean) => void;
+    onFocus(true);
+    keyDown("Escape");
+    expect(peekTarget()).not.toBeNull();
   });
 });

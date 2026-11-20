@@ -127,6 +127,12 @@ const PeekWindow: Component<{ target: PeekTarget }> = (props) => {
   onMount(() => contentEl?.focus());
   const blurTerminal = () => contentEl?.focus();
   const onWindowKey = (e: KeyboardEvent): void => {
+    if (e.key === "Escape" && !typing()) {
+      e.preventDefault();
+      e.stopPropagation();
+      closePeek();
+      return;
+    }
     const target = e.target instanceof Element ? e.target : null;
     if (
       !keyRaisesLockOffer({
