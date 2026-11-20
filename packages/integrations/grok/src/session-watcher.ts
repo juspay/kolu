@@ -1,8 +1,4 @@
 /**
- * GrokWatcher — per-session lifecycle. Watches `events.jsonl` +
- * `summary.json` + `signals.json` with a trailing-edge debounce and emits
- * GrokInfo on change, gated by `agentInfoEqual`.
- *
  * Pure observer: never creates paths under `~/.grok`. If a file is
  * missing, watches its parent directory (when that exists) and re-arms
  * when the basename appears — same observe-without-mutate idea as
@@ -34,10 +30,7 @@ import type { Logger } from "kolu-shared";
 import { deriveGrokInfo, type GrokSession } from "./core.ts";
 import type { GrokInfo } from "./schemas.ts";
 
-/** Quiet-window — re-export of the shared constant so #1952 tests pin the
- *  same number the real watcher uses. */
 export const DEBOUNCE_MS = COALESCE_DEBOUNCE_MS;
-/** Hard maxWait — re-export of the shared constant for the starvation pin. */
 export const DEBOUNCE_MAX_MS = COALESCE_MAX_WAIT_MS;
 
 export interface GrokWatcher {
@@ -52,9 +45,6 @@ export function createGrokWatcher(
 ): GrokWatcher {
   let destroyed = false;
   let lastInfo: GrokInfo | null = null;
-  // One teardown collection for every "run on destroy" concern: raw fs.watch
-  // handles wrap to `() => w.close()`, and the append-robust floor
-  // (juspay/kolu#1754) already returns an unsubscribe of the same shape.
   const cleanups: Array<() => void> = [];
 
   function emitIfChanged(): void {
@@ -146,21 +136,12 @@ export function createGrokWatcher(
       label: "grok: events",
     }),
   );
-  // summary.json / signals.json stay edge-only (dir-watch bootstrap for the
-  // temp+rename rewrite). Both are re-read on every events.jsonl tick, so a
-  // dropped edge there only staleness the model/title/token display until the
-  // next events tick — a display-freshness residual, not a state lie (Q6).
   watchPath(session.summaryPath);
-  // signals.json carries contextTokensUsed — re-emit when the window moves.
   watchPath(session.signalsPath);
-  // Standard grep-able watcher-lifecycle line (matches active-sessions-watcher
-  // and the claude-code session watcher) so operator watcher-count correlation
-  // sees this per-session watcher come up.
   log?.info(
     { session: session.id, dir: path.dirname(session.eventsPath) },
     "grok: session watcher installed",
   );
-  // Initial emit — lights the indicator immediately on match.
   emitIfChanged();
 
   return {

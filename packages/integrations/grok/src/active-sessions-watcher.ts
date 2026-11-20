@@ -1,23 +1,3 @@
-/**
- * Process-wide subscription on `active_sessions.json` — the external-
- * change signal that can make `resolveGrokSession` flip without a title
- * event (Grok writes the pid map when a TUI starts, before any phase
- * event lands).
- *
- * Lazy: the orchestrator only calls `install` the first time any
- * terminal reports `isPresent`. One shared watcher for the process —
- * install is once; a second call is a no-op (same contract as codex WAL).
- *
- * Total install: `install` never soft-fails. When `~/.grok` does not
- * exist yet (a first-ever Grok launch on a fresh home), it watches the
- * parent dir for `.grok` appearing and then attaches the real
- * active_sessions watcher — so padi's once-install latch stays valid and
- * the external-change signal is never permanently lost. Pure observer:
- * never creates `~/.grok`; the bootstrap only waits for Grok to create
- * its own tree (same promote-on-appearance dance the codex WAL
- * subscription does upstream).
- */
-
 import { createDirFilenameWatcher } from "kolu-io";
 import fs from "node:fs";
 import path from "node:path";
@@ -27,10 +7,6 @@ import { grokHomePresent } from "./core.ts";
 
 let installed = false;
 
-/** Parent-dir watcher on `~/.grok`, filtered to `active_sessions.json`.
- *  Grok rewrites the file via temp+rename, which destroys an `fs.watch`
- *  pointed at the file itself — the receptacle watches the parent dir so
- *  the rename lands cleanly (same volatility the git watchers plug into). */
 const activeSessionsWatcher = createDirFilenameWatcher({
   resolveDir: async () => GROK_DIR,
   filename: path.basename(ACTIVE_SESSIONS_PATH),
@@ -38,13 +14,6 @@ const activeSessionsWatcher = createDirFilenameWatcher({
   logLabel: "grok: active_sessions",
 });
 
-/** Attach the shared `active_sessions.json` watcher for the process
- *  lifetime. The receptacle already wraps the listener in its own
- *  try/catch + log and logs its own install/retire lifecycle; the extra
- *  guard here routes a throwing `onChange` to the adapter's `onError` so a
- *  caught error surfaces rather than collapsing silently. The unsubscribe
- *  is discarded on purpose (refcount stays 1 — matches the codex WAL
- *  contract). */
 function attach(
   onChange: () => void,
   onError: (err: unknown) => void,
@@ -52,8 +21,6 @@ function attach(
 ): void {
   activeSessionsWatcher.watch(
     "",
-    // The process-wide grok session detector, not any one terminal: the
-    // watch is installed once and serves every terminal running grok.
     "grok session detection",
     () => {
       try {
@@ -92,9 +59,6 @@ export function subscribeActiveSessions(
   let bootstrap: fs.FSWatcher | null = null;
   let bootstrapTimer: ReturnType<typeof setTimeout> | null = null;
 
-  // Promote to the real watcher once `~/.grok` exists: close the bootstrap and
-  // attach. Idempotent (the `!bootstrap` guard) so it's safe to call from both
-  // the debounced dir event and the one-shot post-install reconcile below.
   const promoteIfPresent = (): void => {
     if (!grokHomePresent() || !bootstrap) return;
     bootstrap.close();
@@ -103,10 +67,6 @@ export function subscribeActiveSessions(
       clearTimeout(bootstrapTimer);
       bootstrapTimer = null;
     }
-    // Exact grep-able watcher-retired phrase (matches the receptacle's
-    // install/retire pair) so operator watcher-count correlation sees this
-    // bootstrap close; the reason (real active_sessions watcher now attaching)
-    // lives in this comment.
     log?.info({ dir: GROK_DIR, parent }, "grok: home-dir watcher retired");
     attach(onChange, onError, log);
   };
@@ -122,15 +82,9 @@ export function subscribeActiveSessions(
       bootstrapTimer = setTimeout(promoteIfPresent, 50);
     });
   } catch (err) {
-    // The home dir itself is unwatchable — surface it; the pid-match path
-    // (resolveGrokSession reads active_sessions.json fresh) still works.
     onError(err);
     return;
   }
-  // Exact grep-able watcher-installed phrase (matches the receptacle's
-  // `createDirFilenameWatcher` install log) so this long-lived bootstrap
-  // watcher shows up in operator watcher-count correlation; the reason (real
-  // active_sessions install deferred until ~/.grok appears) lives here.
   log?.info({ dir: GROK_DIR, parent }, "grok: home-dir watcher installed");
   // Close the resolve→install TOCTOU window: `~/.grok` may have been created
   // between the grokHomePresent() check above and the fs.watch install, and a

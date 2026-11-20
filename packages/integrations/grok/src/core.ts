@@ -1,25 +1,9 @@
-/**
- * Grok core — pure functions and IO helpers for detecting Grok Build
- * sessions and deriving state from on-disk session files.
- *
- * Grok stores (under `~/.grok`, overridable via `KOLU_GROK_DIR`):
- *  - `active_sessions.json` — live map of `{ session_id, pid, cwd, opened_at }`
- *  - `sessions/<urlencode(cwd)>/<uuid>/events.jsonl` — phase + turn stream
- *  - `sessions/<urlencode(cwd)>/<uuid>/summary.json` — model, title, timestamps
- *  - `sessions/<urlencode(cwd)>/<uuid>/signals.json` — contextTokensUsed, etc.
- *  - `sessions/<urlencode(cwd)>/<uuid>/chat_history.jsonl` — export transcript
- *
- * No SQLite: watchers are plain fs.watch on JSON / JSONL files.
- */
-
 import fs from "node:fs";
 import path from "node:path";
 import type { Logger } from "kolu-shared";
 import { readTailLines } from "kolu-shared";
 import { ACTIVE_SESSIONS_PATH, GROK_DIR, SESSIONS_DIR } from "./config.ts";
 import type { GrokInfo } from "./schemas.ts";
-
-// --- Path helpers ---
 
 /** URL-encode an absolute cwd the way Grok Build does
  *  (`/home/a/b` → `%2Fhome%2Fa%2Fb`). `encodeURIComponent` matches the
@@ -47,8 +31,6 @@ export function signalsPathFor(cwd: string, sessionId: string): string {
 export function chatHistoryPathFor(cwd: string, sessionId: string): string {
   return path.join(sessionDirFor(cwd, sessionId), "chat_history.jsonl");
 }
-
-// --- Active sessions ---
 
 export interface ActiveSessionEntry {
   session_id: string;
@@ -87,23 +69,16 @@ export function readActiveSessions(
     }
     return out;
   } catch (err) {
-    // ENOENT is the documented pre-first-run absence; anything else
-    // (EACCES, ENOTDIR, JSON.parse SyntaxError) is a real fault that must
-    // surface at error, not hide at debug behind legitimate absence.
     if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
       log?.error(
         { err, path: ACTIVE_SESSIONS_PATH },
         "grok active_sessions unreadable",
       );
-      // Not an empty map — a map we could not read. The ownership arbiter
-      // releases a terminal session on "no session", so the two must differ.
       return "unreadable";
     }
     return [];
   }
 }
-
-// --- Summary ---
 
 export interface GrokSummary {
   sessionId: string;
@@ -144,9 +119,6 @@ export function readSummary(
   }
 }
 
-/** First `string`-typed value among candidates, else null. One idiom for
- *  the "pick the first present string field" pull-outs in `readSummary`,
- *  which Grok writes under either `info.*` or the top level. */
 function firstString(...vals: unknown[]): string | null {
   for (const v of vals) if (typeof v === "string") return v;
   return null;
@@ -157,8 +129,6 @@ function parseIsoMs(iso: string | null): number | null {
   const ms = Date.parse(iso);
   return Number.isFinite(ms) ? ms : null;
 }
-
-// --- Session match ---
 
 export interface GrokSession {
   id: string;
@@ -178,21 +148,10 @@ export interface GrokSession {
  *  grok — observed in the 2026-08-07 incident as `[]` on disk while a grok was
  *  mid-turn. The map is therefore how a pid ACQUIRES its session, never how it
  *  loses it; the release signal is the process itself dying (swept below) or the
- *  foreground moving off it (the caller stops asking).
- *
- *  Without this binding, a clobbered row read as "the session ended": padi tore
- *  down the session watcher under a still-foreground grok and — because the
- *  foreground was a defined non-shell pid, the deliberate keep-last `unknown`
- *  arm — held the last published state for the life of the process. A finished
- *  agent read as still working, and `padi-tui wait --until waiting` hung. */
+ *  foreground moving off it (the caller stops asking). */
 const sessionByPid = new Map<number, GrokSession>();
 
-/** Drop bindings whose process is gone. Runs on every pid resolve, which is
- *  cheap (one `kill(pid, 0)` over a handful of entries) and keeps the window
- *  where a recycled pid could inherit a stale session down to nothing: grok's
- *  own exit rewrites `active_sessions.json`, which wakes a reconcile, so a dead
- *  pid is swept within milliseconds of the death that ended it. `EPERM` means
- *  the pid exists under another user — alive for our purposes. */
+/** `EPERM` means the pid exists under another user — alive for our purposes. */
 function sweepDeadBindings(): void {
   for (const pid of sessionByPid.keys()) {
     try {
@@ -221,25 +180,15 @@ export function resolveGrokSession(
   if (foregroundPid !== undefined) {
     sweepDeadBindings();
     const rows = readActiveSessions(log);
-    // Unreadable is not an empty map: fall through to the remembered binding
-    // rather than reporting this pid has no session.
     if (rows === "unreadable") return sessionByPid.get(foregroundPid) ?? null;
     const active = rows.find((e) => e.pid === foregroundPid);
     if (active) {
-      // A present row is still authoritative — it re-binds, so a pid moved to a
-      // different session follows the map rather than the memory.
       const session = sessionFromIds(active.cwd, active.session_id, log);
       sessionByPid.set(foregroundPid, session);
       return session;
     }
-    // Known process, no row. Either the map was clobbered out from under a
-    // session we already hold (keep it), or this pid was never in the map —
-    // the arrival race, where the TUI is foreground and its row lands later.
-    // The latter stays null: guessing a previous cwd session would flash the
-    // wrong state, and externalChanges rewakes us when the row appears.
     return sessionByPid.get(foregroundPid) ?? null;
   }
-  // No pid sample yet: recency under cwd is the only signal.
   const scan = scanSessionsByCwd(cwd, log);
   return scan === "unreadable" ? null : scan;
 }
@@ -287,12 +236,6 @@ export function resolveGrokSessions(
   return scan ? [scan] : [];
 }
 
-/** Pick the session directory under `sessions/<enc-cwd>/` with the
- *  newest `summary.updated_at` (or mtime). `null` when there is none —
- *  including the ENOENT that means Grok has never run for this cwd —
- *  and `"unreadable"` when the directory is there but could not be listed.
- *  One scan answers both: the ENOENT test already lived here, and probing it
- *  separately meant two syscalls and two copies of the same rule. */
 function scanSessionsByCwd(
   cwd: string,
   log?: Logger,
@@ -348,8 +291,6 @@ function scanSessionsByCwd(
   }
   return best;
 }
-
-// --- State fold ---
 
 /** One table for Grok phase → AgentInfo.state. Unknown phases fold to
  *  `thinking` so an upstream rename degrades to a spinner rather than a
@@ -451,7 +392,7 @@ export function foldEventsState(
       return "thinking";
     }
     if (e.type === "turn_ended") return "waiting";
-    if (e.type === "turn_started") return "thinking"; // open turn, no phase yet
+    if (e.type === "turn_started") return "thinking";
     if (e.type === "phase_changed" && typeof e.phase === "string") {
       return phaseToState(e.phase);
     }
@@ -486,8 +427,6 @@ function phaseToState(phase: string): GrokInfo["state"] {
   return PHASE_TO_STATE[phase as keyof typeof PHASE_TO_STATE] ?? "thinking";
 }
 
-/** Tail-window for events.jsonl. Phases are tiny; 128 KB holds many
- *  thousands of events — more than enough for the latest turn. */
 const EVENTS_TAIL_BYTES = 128 * 1024;
 
 /** Read the events file and fold state. Returns `thinking` when the

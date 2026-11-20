@@ -1,12 +1,3 @@
-/** One-shot transcript loader for the HTML export feature.
- *
- *  Grok Build's conversation lives in `chat_history.jsonl` under the
- *  per-session dir — a flat JSONL of `system` / `user` / `assistant` /
- *  `reasoning` / `tool_result` rows (no SQLite). Only conversation-
- *  relevant rows become IR events; the opening system prompt is dropped
- *  (vendor boilerplate, same choice Claude's loader makes for its
- *  system lines). */
-
 import fs from "node:fs";
 import { contentToText } from "kolu-transcript-core";
 import type {
@@ -21,7 +12,6 @@ import { chatHistoryPathFor } from "./core.ts";
 interface GrokHistoryLine {
   type?: string;
   content?: unknown;
-  /** Synthetic system/user rows (compaction meta, etc.) — skipped. */
   synthetic_reason?: string;
   model_id?: string;
   tool_calls?: Array<{
@@ -31,7 +21,6 @@ interface GrokHistoryLine {
   }>;
   tool_call_id?: string;
   summary?: Array<{ type?: string; text?: string }>;
-  /** Present on some rows; Grok chat_history often omits timestamps. */
   ts?: string;
   timestamp?: string;
 }
@@ -45,8 +34,6 @@ function indexOfCi(haystack: string, needle: string, from = 0): number {
   return haystack.toLowerCase().indexOf(needle.toLowerCase(), from);
 }
 
-/** Drop every `<tag>…</tag>` block (case-insensitive, fixed tag name).
- *  Unclosed open tags drop from the open marker to end of string. */
 function stripBlockTag(s: string, tag: string): string {
   const open = `<${tag}>`;
   const close = `</${tag}>`;
@@ -61,13 +48,12 @@ function stripBlockTag(s: string, tag: string): string {
     out += s.slice(searchFrom, openIdx);
     const afterOpen = openIdx + open.length;
     const closeIdx = indexOfCi(s, close, afterOpen);
-    if (closeIdx < 0) break; // unclosed — drop remainder
+    if (closeIdx < 0) break;
     searchFrom = closeIdx + close.length;
   }
   return out;
 }
 
-/** Extract every closed `<user_query>…</user_query>` body (index scan). */
 function extractUserQueries(raw: string): string[] {
   const open = "<user_query>";
   const close = "</user_query>";
@@ -101,8 +87,6 @@ export function unwrapGrokUserText(raw: string): string {
   const queries = extractUserQueries(raw);
   if (queries.length > 0) return queries.join("\n\n");
 
-  // No well-formed user_query — drop known non-prompt harness blocks and
-  // any leftover open/close tags so a partial write never paints raw XML.
   let out = raw;
   for (const tag of [
     "image_files",
@@ -231,10 +215,9 @@ export function eventsFromGrokLine(entry: GrokHistoryLine): TranscriptEvent[] {
   const ts = parseTs(entry);
   const type = entry.type;
 
-  // Skip synthetic bookkeeping rows (compaction meta, etc.).
   if (entry.synthetic_reason) return [];
 
-  if (type === "system") return []; // system prompt — not conversation
+  if (type === "system") return [];
 
   if (type === "user") {
     const text = unwrapGrokUserText(contentToText(entry.content));
@@ -308,7 +291,6 @@ export function parseGrokChatHistory(content: string): TranscriptEvent[] {
     try {
       entry = JSON.parse(line) as GrokHistoryLine;
     } catch {
-      // Truncated final write — drop the line, keep the export.
       continue;
     }
     for (const ev of eventsFromGrokLine(entry)) events.push(ev);

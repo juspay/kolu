@@ -1,9 +1,3 @@
-/** Effect Schema definitions for Grok session info — browser-safe.
- *
- *  Lives in its own module so `kolu-common` (and any client code) can import
- *  the schema without pulling the package root, which imports `node:fs`.
- *  Mirrors the `kolu-codex/schemas` precedent. */
-
 import {
   type AgentVocab,
   type FlagArity,
@@ -46,8 +40,6 @@ export const GrokInfoSchema = Schema.Struct({
 
 export type GrokInfo = typeof GrokInfoSchema.Type;
 
-/** Grok comet mark — lobehub icon set (xAI/grok is not in simple-icons), 24×24.
- *  ONE mark for both the tile-chrome icon and the dock pip. */
 const GROK_MARK = {
   viewBox: "0 0 24 24",
   paint: "fill" as const,
@@ -73,8 +65,6 @@ export const grokVocab: AgentVocab<GrokInfo> = {
       ["--agent", "value"],
       ["--no-plan", "boolean"],
       ["--no-subagents", "boolean"],
-      // Inline (scrollback) TUI instead of the alternate screen — a launch-shape
-      // choice users re-pick deliberately; must survive recent-agents / resume.
       ["--no-alt-screen", "boolean"],
       ["--reasoning-effort", "value"],
       ["--effort", "value"],

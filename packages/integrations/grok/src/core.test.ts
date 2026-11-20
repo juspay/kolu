@@ -89,9 +89,6 @@ describe("foldEventsState", () => {
     ).toBe("tool_use");
   });
 
-  // Live capture (vira session 019f47d4-…): ask_user_question stays open
-  // under phase tool_execution after permission auto-allow — chrome must
-  // show awaiting_user, not "Running tools".
   it("promotes open ask_user_question over tool_execution phase", () => {
     expect(
       foldEventsState([
@@ -122,9 +119,6 @@ describe("foldEventsState", () => {
     ).toBe("thinking");
   });
 
-  // Turn-scoped: an ask_user_question left open when its turn ends (the
-  // user escaped the prompt / the turn was interrupted) must NOT stick in
-  // awaiting_user — the trailing turn_ended wins.
   it("does not stick in awaiting_user after the turn ends with the prompt open", () => {
     expect(
       foldEventsState([
@@ -136,8 +130,6 @@ describe("foldEventsState", () => {
     ).toBe("waiting");
   });
 
-  // Turn-scoped: a dangling ask_user_question from a prior turn must not
-  // leak into a fresh turn — the newer turn_started resets the window.
   it("does not carry an open ask_user_question into a new turn", () => {
     expect(
       foldEventsState([
@@ -182,14 +174,10 @@ describe("foldEventsState", () => {
     ).toBe("waiting");
   });
 
-  // /goal planner window: between goal_planner_fired and the main
-  // turn_started there is no open turn, so without this recognition the
-  // fold would fall through to the stale turn_ended and paint waiting.
   it("maps goal_planner_fired → thinking", () => {
     expect(
       foldEventsState([{ type: "turn_ended" }, { type: "goal_planner_fired" }]),
     ).toBe("thinking");
-    // completed alone falls back to the last real boundary
     expect(
       foldEventsState([
         { type: "turn_ended" },
@@ -197,7 +185,6 @@ describe("foldEventsState", () => {
         { type: "goal_planner_completed" },
       ]),
     ).toBe("waiting");
-    // happy path: turn_started after the planner window wins on its own
     expect(
       foldEventsState([
         { type: "turn_ended" },
@@ -206,7 +193,6 @@ describe("foldEventsState", () => {
         { type: "turn_started" },
       ]),
     ).toBe("thinking");
-    // sequential re-open: a later fire is active again
     expect(
       foldEventsState([
         { type: "turn_ended" },
@@ -215,14 +201,12 @@ describe("foldEventsState", () => {
         { type: "goal_planner_fired" },
       ]),
     ).toBe("thinking");
-    // completed with no prior fire is a no-op closer
     expect(
       foldEventsState([
         { type: "turn_ended" },
         { type: "goal_planner_completed" },
       ]),
     ).toBe("waiting");
-    // nested multi-fire: stacked completes close every open fire
     expect(
       foldEventsState([
         { type: "turn_ended" },
@@ -299,8 +283,6 @@ describe("resolveGrokSession", () => {
       id,
       events: [{ type: "turn_ended" }],
     });
-    // Stale leftover session under cwd must NOT match a live grok pid
-    // that hasn't written active_sessions yet.
     expect(resolveGrokSession(9999, cwd)).toBeNull();
   });
 
@@ -308,14 +290,6 @@ describe("resolveGrokSession", () => {
     expect(resolveGrokSession(undefined, "/no/such/cwd")).toBeNull();
   });
 
-  // The 2026-08-07 incident. Grok rewrites the WHOLE active_sessions.json array
-  // from a process-local snapshot, so a *concurrent* grok starting or exiting
-  // erases the rows of every other live grok — observed live as `[]` on disk
-  // while a grok was mid-turn. The file is therefore how a binding is ACQUIRED,
-  // never how it is released. Without this, resolveGrokSession went null under a
-  // still-foreground grok, padi tore down the session watcher, and the tile
-  // froze on its last state (`thinking`) for the life of the process.
-  //
   // These use `process.pid` — the one pid a test can be sure is ALIVE, which is
   // the whole precondition: the binding is held for a live process and released
   // for a dead one (see the release test below).
@@ -324,7 +298,6 @@ describe("resolveGrokSession", () => {
     writeActiveSessions([{ session_id: id, pid: process.pid, cwd }]);
     expect(resolveGrokSession(process.pid, cwd)?.id).toBe(id);
 
-    // A concurrent grok exits and rewrites the map without this pid's row.
     writeActiveSessions([]);
     expect(resolveGrokSession(process.pid, cwd)?.id).toBe(id);
   });
@@ -340,8 +313,6 @@ describe("resolveGrokSession", () => {
     expect(resolveGrokSession(deadPid, cwd)?.id).toBe(id);
 
     writeActiveSessions([]);
-    // No row AND no process — nothing left to hold the binding open, so the
-    // memory must not outlive the grok it described.
     expect(resolveGrokSession(deadPid, cwd)).toBeNull();
   });
 
@@ -352,8 +323,6 @@ describe("resolveGrokSession", () => {
     expect(resolveGrokSession(process.pid, cwd)?.id).toBe(id);
 
     writeActiveSessions([]);
-    // The binding is per-pid: a grok that never appeared in the map still
-    // resolves to nothing, so the cwd-guess ban (test above) survives.
     expect(resolveGrokSession(strangerPid, cwd)).toBeNull();
   });
 
@@ -364,8 +333,6 @@ describe("resolveGrokSession", () => {
     writeActiveSessions([{ session_id: id, pid: process.pid, cwd }]);
     expect(resolveGrokSession(process.pid, cwd)?.id).toBe(id);
 
-    // A present row always wins over the remembered binding — the map is
-    // still authoritative when it actually has something to say.
     writeActiveSessions([{ session_id: newerId, pid: process.pid, cwd }]);
     expect(resolveGrokSession(process.pid, cwd)?.id).toBe(newerId);
   });

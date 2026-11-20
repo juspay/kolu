@@ -1,12 +1,3 @@
-/** Wire-format gate for `GrokInfoSchema`.
- *
- *  `GrokInfo` rides the agent-info wire (server → client) and is folded into
- *  kolu-common's `AgentInfoSchema` union on the `kind` discriminant, so both
- *  directions are pinned here at the BYTE level rather than by
- *  decode-equality: the encoded JSON string (field order included) and the
- *  tolerances a rolling deploy leans on (a newer server's extra key must not
- *  break an older client's decode). */
-
 import { Result, Schema } from "effect";
 import { describe, expect, it } from "vitest";
 import { type GrokInfo, GrokInfoSchema } from "./schemas.ts";
