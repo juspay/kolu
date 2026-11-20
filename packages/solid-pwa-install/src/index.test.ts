@@ -123,11 +123,9 @@ describe("detectInstallPlatform", () => {
 });
 
 describe("installInstructions", () => {
-  const nativeOnly: InstallPlatform[] = [
+  const platforms: InstallPlatform[] = [
     "chromium-desktop",
     "chromium-android",
-  ];
-  const manual: InstallPlatform[] = [
     "android-firefox",
     "ios",
     "safari-desktop",
@@ -135,21 +133,8 @@ describe("installInstructions", () => {
     "other",
   ];
 
-  for (const p of nativeOnly) {
-    it(`${p} → canPromptNatively=true`, () => {
-      expect(installInstructions(p).canPromptNatively).toBe(true);
-    });
-  }
-
-  for (const p of manual) {
-    it(`${p} → canPromptNatively=false`, () => {
-      expect(installInstructions(p).canPromptNatively).toBe(false);
-    });
-  }
-
   it("every platform yields a non-empty title and at least one step", () => {
-    const all: InstallPlatform[] = [...nativeOnly, ...manual];
-    for (const p of all) {
+    for (const p of platforms) {
       const info = installInstructions(p);
       expect(info.title.length).toBeGreaterThan(0);
       expect(info.steps.length).toBeGreaterThan(0);

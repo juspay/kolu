@@ -11,8 +11,6 @@ export type InstallPlatform =
 
 /** No DOM access — all inputs passed in.
  *
- *  Order matters: iOS (incl. iPadOS in desktop mode) is detected first because
- *  an iPad reporting a Mac UA would otherwise fall through to `safari-desktop`.
  *  An iPad in "Request Desktop Website" mode sends a macOS Safari UA with no
  *  "iPad" token; the tell is a touch screen on a "Mac" — Macs report
  *  `maxTouchPoints === 0`, iPads report > 1. */
@@ -55,7 +53,6 @@ export function detectInstallPlatform(opts: {
 interface InstallInstructions {
   title: string;
   steps: string[];
-  canPromptNatively: boolean;
 }
 
 const INSTRUCTIONS: Record<InstallPlatform, InstallInstructions> = {
@@ -68,27 +65,22 @@ const INSTRUCTIONS: Record<InstallPlatform, InstallInstructions> = {
       'Tick "Open as window", then Create.',
       "On HTTPS you can also click the install icon in the address bar.",
     ],
-    canPromptNatively: true,
   },
   "chromium-android": {
     title: "Install app",
     steps: ["Open the ⋮ menu.", "Tap Install app (or Add to Home screen)."],
-    canPromptNatively: true,
   },
   "android-firefox": {
     title: "Add to Home screen",
     steps: ["Open the browser menu (⋮).", "Tap Install or Add to Home screen."],
-    canPromptNatively: false,
   },
   ios: {
     title: "Add to Home Screen",
     steps: ["Tap the Share button.", "Choose Add to Home Screen.", "Tap Add."],
-    canPromptNatively: false,
   },
   "safari-desktop": {
     title: "Add to Dock",
     steps: ["Open the File menu.", "Choose Add to Dock."],
-    canPromptNatively: false,
   },
   "firefox-desktop": {
     title: "Install not supported",
@@ -96,14 +88,12 @@ const INSTRUCTIONS: Record<InstallPlatform, InstallInstructions> = {
       "Firefox on desktop has no built-in install.",
       "Open this app in Chrome or Edge to install it.",
     ],
-    canPromptNatively: false,
   },
   other: {
     title: "Install app",
     steps: [
       "Look for an install or Add to Home Screen option in your browser menu.",
     ],
-    canPromptNatively: false,
   },
 };
 
@@ -141,25 +131,20 @@ export function createPwaInstall(): PwaInstall {
           vendor: navigator.vendor,
         });
 
-  const [canPrompt, setCanPrompt] = createSignal(false);
-
-  let deferredPrompt: BeforeInstallPromptEvent | null = null;
+  const [deferredPrompt, setDeferredPrompt] =
+    createSignal<BeforeInstallPromptEvent | null>(null);
 
   onMount(() => {
     if (typeof window === "undefined") return;
 
     const onBeforeInstallPrompt = (e: Event) => {
-      // Keep the browser's mini-infobar from auto-showing so the host owns the
-      // moment — and stash the event so a click can replay it.
+      // `preventDefault` on `beforeinstallprompt` suppresses Chromium's
+      // mini-infobar.
       e.preventDefault();
-      deferredPrompt = e as BeforeInstallPromptEvent;
-      setCanPrompt(true);
+      setDeferredPrompt(e as BeforeInstallPromptEvent);
     };
 
-    const onAppInstalled = () => {
-      deferredPrompt = null;
-      setCanPrompt(false);
-    };
+    const onAppInstalled = () => setDeferredPrompt(null);
 
     window.addEventListener("beforeinstallprompt", onBeforeInstallPrompt);
     window.addEventListener("appinstalled", onAppInstalled);
@@ -167,26 +152,22 @@ export function createPwaInstall(): PwaInstall {
     onCleanup(() => {
       window.removeEventListener("beforeinstallprompt", onBeforeInstallPrompt);
       window.removeEventListener("appinstalled", onAppInstalled);
-      deferredPrompt = null;
+      setDeferredPrompt(null);
     });
   });
 
   const prompt = () => {
-    if (deferredPrompt && installInstructions(platform).canPromptNatively) {
-      const evt = deferredPrompt;
-      deferredPrompt = null;
-      // The browser allows replaying the event only once — drop `canPrompt`
-      // immediately so a second click can't re-enter with a consumed event.
-      setCanPrompt(false);
-      evt.prompt().catch((err: unknown) => {
-        console.warn("[pwa-install] native prompt failed:", err);
-      });
-      return;
-    }
+    const evt = deferredPrompt();
+    if (!evt) return;
+    // Chromium allows a captured event to be replayed only once.
+    setDeferredPrompt(null);
+    evt.prompt().catch((err: unknown) => {
+      console.warn("[pwa-install] native prompt failed:", err);
+    });
   };
 
   return {
-    canPrompt,
+    canPrompt: () => deferredPrompt() !== null,
     platform: () => platform,
     prompt,
   };
