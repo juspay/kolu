@@ -1,14 +1,3 @@
-/**
- * THE RULE THAT SURVIVES THE SPLIT, and the one a reviewer should check every
- * new leg against: **every bet is safe to lose in one direction only, and that
- * is the direction it loses in.** An agent that says none of this matches
- * nothing, and what happens then is that a person is asked. **Nothing is ever
- * approved by failing to recognise it.** A leg that answered a tool name it had
- * not positively recognised, or an allow-option for a tool it could not name,
- * would be approving somebody's permissions on their behalf — which is the one
- * failure in this package that is not recoverable by pressing something.
- */
-
 import type { PermissionOption } from "@agentclientprotocol/sdk";
 import type { Duration } from "effect";
 
@@ -413,10 +402,8 @@ export interface Leg {
    * ONE AGENT'S VOCABULARY, which is why it is a leg's answer: the protocol
    * has a code for "nobody is signed in" and none for "this account cannot",
    * and an agent that says the second does so in structure of its own.
-   * Absent for an agent that says nothing of the kind — optional, like every
-   * agent-specific reading here, because olai vendors this interface and a
-   * required member would break its legs at the next bump. Nothing here is
-   * ever read off the agent's sentence.
+   * Absent for an agent that says nothing of the kind. Nothing here is ever
+   * read off the agent's sentence.
    */
   readonly accountRefusal?: (data: unknown) => boolean;
   /**
@@ -707,12 +694,6 @@ export interface ModelReading {
    * answer for a model that table does not name is `null` — the header draws
    * no number rather than one five times the real size, which is the number a
    * person reads to decide whether to compact.
-   *
-   * OPTIONAL, and that is a rule about this package rather than about context
-   * windows: `@kolu/acp` is a SHARED vocabulary — olai consumes it too — so a
-   * new REQUIRED member would break every leg that was written before it
-   * existed. A reading that omits it is read exactly as one that answers
-   * `null`, which is the same honest "nobody said" the body above argues for.
    */
   readonly windowIn?: (
     labels: ReadonlyMap<string, string>,

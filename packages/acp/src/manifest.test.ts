@@ -32,9 +32,6 @@ interface Source {
   readonly runtime: ReadonlyArray<string>;
 }
 
-/** Every `.ts`/`.tsx` under one package, skipping `node_modules`, `dist` and
- *  `.direnv` BEFORE descending — a late filter walks workspace symlinks and
- *  dies on `ELOOP`, and it is also just faster. */
 const SKIP: Readonly<Record<string, true>> = {
   node_modules: true,
   dist: true,
@@ -78,11 +75,14 @@ const MEMBERS: ReadonlyArray<string> = (() => {
   return found.sort();
 })();
 
+const withoutShebang = (text: string): string =>
+  text.replace(/^#![^\n]*\n/, "");
+
 const tree: ReadonlyMap<string, ReadonlyArray<Source>> = new Map(
   MEMBERS.map((member) => [
     member as string,
     sourcesUnder(path.join(PACKAGES, member)).map((file): Source => {
-      const text = readFileSync(file, "utf8").replace(/^#![^\n]*\n/, "");
+      const text = withoutShebang(readFileSync(file, "utf8"));
       return {
         file,
         specifiers: specifiersOf(text),

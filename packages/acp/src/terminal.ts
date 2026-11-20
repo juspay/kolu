@@ -1,5 +1,3 @@
-/** The terminal-output extension used by Codex and pi. It is opt-in per leg;
- * these metadata fields describe output, never permission or tool identity. */
 export type TerminalUpdate =
   | { readonly kind: "begin"; readonly id: string }
   | { readonly kind: "output"; readonly id: string; readonly data: string }

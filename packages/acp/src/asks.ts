@@ -134,11 +134,10 @@ export const urlOf = (request: CreateElicitationRequest): Form | Refused => {
   };
 };
 
-const urlIn = (request: CreateElicitationRequest): string | null => {
-  if (!("url" in request)) return null;
-  const url = request.url;
-  return typeof url === "string" && url !== "" ? url : null;
-};
+type UrlElicitation = CreateElicitationRequest & { readonly url?: unknown };
+
+const urlIn = (request: UrlElicitation): string | null =>
+  textOr(request.url, null);
 
 /**
  * Which machine a link goes to, for the line beside it.
@@ -162,8 +161,12 @@ export const hostOf = (url: string): string => {
   }
 };
 
-const toolCallOf = (request: CreateElicitationRequest): string | null =>
-  textOr((request as { readonly toolCallId?: unknown }).toolCallId, null);
+type ScopedElicitation = CreateElicitationRequest & {
+  readonly toolCallId?: unknown;
+};
+
+const toolCallOf = (request: ScopedElicitation): string | null =>
+  textOr(request.toolCallId, null);
 
 const fieldsOf = (
   schema: ElicitationSchema | undefined,
@@ -171,9 +174,6 @@ const fieldsOf = (
   const properties = schema?.properties ?? {};
   const required = new Set(schema?.required ?? []);
   const fields: Array<AskField> = [];
-  // Insertion order, which is the order the agent wrote the properties in and
-  // therefore the order it means them to be read: an "Other" box is emitted
-  // straight after the question it belongs to.
   for (const [key, property] of Object.entries(properties)) {
     const field = fieldOf(key, property, required.has(key));
     if (field === null) {
@@ -354,15 +354,17 @@ const answerValueOf = (
 ): string | number | boolean | Array<string> | undefined | Refused => {
   if (field.kind === "choices") {
     const picked = values.filter((value) => value !== "");
-    const stranger = picked.find((value) => !offers(field, value));
-    if (stranger !== undefined) return notAnOption(field, stranger);
+    for (const value of picked) {
+      const within = answerWithinChoices(field, value);
+      if (within instanceof Refused) return within;
+    }
     return picked.length === 0 ? undefined : [...picked];
   }
   const only = (values[0] ?? "").trim();
   if (only === "") return undefined;
   switch (field.kind) {
     case "choice":
-      return offers(field, only) ? only : notAnOption(field, only);
+      return answerWithinChoices(field, only);
     case "boolean":
       return only === YES_NO.yes;
     case "number":
@@ -385,13 +387,15 @@ const answerValueOf = (
   }
 };
 
-const offers = (field: AskField, value: string): boolean =>
-  field.choices.some((choice) => choice.value === value);
-
-const notAnOption = (field: AskField, value: string): Refused =>
-  new Refused(
-    `\`${value}\` is not one of the options ${field.label ?? field.key} offered`,
-  );
+const answerWithinChoices = (
+  field: AskField,
+  value: string,
+): string | Refused =>
+  field.choices.some((choice) => choice.value === value)
+    ? value
+    : new Refused(
+        `\`${value}\` is not one of the options ${field.label ?? field.key} offered`,
+      );
 
 const textOr = <T>(value: unknown, fallback: T): string | T =>
   typeof value === "string" && value !== "" ? value : fallback;

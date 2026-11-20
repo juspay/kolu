@@ -1,4 +1,4 @@
-import type { ClientApp, Stream } from "@agentclientprotocol/sdk";
+import type { AnyMessage, ClientApp, Stream } from "@agentclientprotocol/sdk";
 
 export type ActivityUpdate =
   | {
@@ -51,7 +51,7 @@ export type Heard =
    *  child's ordinary frames inside an envelope unwraps them here, and one
    *  that stamps a request with a session other than the one it belongs to
    *  corrects it. What is enqueued is this value rather than the original. */
-  | { readonly kind: "message"; readonly value: unknown };
+  | { readonly kind: "message"; readonly value: AnyMessage };
 
 /**
  * ONE AGENT'S SPELLING of the channel — data and pure functions, like every
@@ -109,16 +109,15 @@ export const nativeActivity = (
     stream: {
       writable: stream.writable,
       readable: stream.readable.pipeThrough(
-        new TransformStream({
+        new TransformStream<AnyMessage, AnyMessage>({
           transform(message, controller) {
             const heard = dialect.readIn(message);
             if (heard === null) return controller.enqueue(message);
-            const rewritten = (
+            controller.enqueue(
               heard.kind === "message"
                 ? heard.value
-                : { jsonrpc: "2.0", method: METHOD, params: heard.value }
-            ) as typeof message;
-            controller.enqueue(rewritten);
+                : { jsonrpc: "2.0", method: METHOD, params: heard.value },
+            );
           },
         }),
       ),

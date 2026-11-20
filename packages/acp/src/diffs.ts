@@ -25,7 +25,7 @@ export const diffsOf = (
       ? [
           {
             path: relativeTo(cwd, block.path),
-            oldText: block.oldText ?? null,
+            oldText: oldTextOf(block),
             newText: block.newText,
           },
         ]
@@ -33,6 +33,10 @@ export const diffsOf = (
   );
   return diffs.length === 0 ? undefined : diffs;
 };
+
+const oldTextOf = (block: {
+  readonly oldText?: string | null;
+}): FileDiff["oldText"] => block.oldText ?? null;
 
 /**
  * A path as a reader of THIS directory should see it: root-relative when it is
@@ -42,13 +46,6 @@ export const diffsOf = (
  * mostly the reader's home directory. Untouched when it is somewhere else,
  * because a file outside the directory kolu serves is genuinely elsewhere and
  * shortening it would say it was not.
- *
- * String work rather than `node:path`: both sides are already absolute and
- * already normalised by whoever produced them, and the only question being
- * asked is whether one is under the other. Trailing slashes are counted off
- * rather than `replace(/\/+$/, "")` — the same linear spelling the chat
- * package uses for a stored session's `cwd`. An agent keeps the spelling it
- * was handed, and that spelling is protocol input (`js/polynomial-redos`).
  */
 export const relativeTo = (cwd: string, path: string): string => {
   let end = cwd.length;

@@ -11,12 +11,6 @@ export * from "./leg.ts";
  * `--set-default`. So a person who follows any documented path gets a working
  * orchestrator and never has to know this variable exists.
  *
- * `--set-default` RATHER THAN `--set`, and the difference is load-bearing
- * twice: a developer can point one host at a build of the adapter they are
- * working on, and kolu's own e2e suite points it at a scripted agent. A
- * `--set` would win over both — and the suite would silently have been driving
- * the real pinned adapter, which is exactly what it did until this was caught.
- *
  * It names the adapter resource and nothing else. An absent or empty value
  * leaves this engine unseated with a sentence saying why ({@link NotHere}),
  * never a silently missing row.

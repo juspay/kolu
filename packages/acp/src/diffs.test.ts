@@ -73,10 +73,6 @@ describe("how a path reads", () => {
   });
 
   test("a long run of slashes that does not end the cwd is answered at once", () => {
-    // The reason this counts rather than matching: `replace(/\/+$/, "")` is
-    // polynomial on a string of many slashes that do not end it, and cwd is
-    // protocol input (`js/polynomial-redos`, CodeQL alert 15). A tenth of a
-    // second here would be a finding.
     const started = performance.now();
     const cwd = `${"/".repeat(50_000)}x`;
     expect(relativeTo(cwd, `${ROOT}/plan.md`)).toBe(`${ROOT}/plan.md`);

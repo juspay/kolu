@@ -114,20 +114,6 @@ export const AskOutcome = Schema.Struct({
 });
 export type AskOutcome = typeof AskOutcome.Type;
 
-// ── The conversation shapes ───────────────────────────────────────────────
-//
-// The facts a transcript row and a conversation's state are made of, declared
-// ONCE for every product that draws them. Two chat UIs are served from these:
-// kolu's conductor (`kolu-common/src/conductorSchema.ts`, which spreads them
-// into its row schemas) and olai's chat plugin (its own `wire/members.ts`), and each
-// used to spell them a second time. The package that speaks the foreign thing
-// owns its words, and a row shape both panels draw is a word.
-//
-// The ENCODINGS here are kolu's, because kolu writes its rows to disk and a
-// stored row's bytes must not move. Where the two spellings differed the
-// stored one won: `null` where olai left a key absent, so a decoder has one
-// spelling for "nothing said" rather than two.
-
 /**
  * HOW A TOOL CALL IS DOING. A row arrives `pending` and is refined by later
  * frames, so the status is the field a panel reads to know whether a card is
