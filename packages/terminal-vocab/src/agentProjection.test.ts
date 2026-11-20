@@ -1,11 +1,3 @@
-/**
- * The ONE test for the renderer-agnostic agent-state projection — the bucketing,
- * urgency fold, recency format, short name, idle-label fork, and needs-you-first
- * ordering both pulam-tui and pulam-web import. Replaces the hand-mirrored copies
- * that used to live in BOTH `render.test.ts` and `fleet.test.ts`; those now keep
- * only their renderer-specific bits.
- */
-
 import { describe, expect, it } from "vitest";
 import {
   agentBucket,
@@ -29,7 +21,6 @@ import {
 } from "./agentProjection.ts";
 import type { AgentInfo, TerminalSnapshot } from "./schema.ts";
 
-/** A minimal agent for the projection (it reads only `kind`/`state`). */
 const agentVal = (
   state: AgentInfo["state"],
   kind = "claude-code",
@@ -85,8 +76,6 @@ describe("agentPaintClass", () => {
     expect(agentPaintClass("running_background")).toBe("working");
   });
   it("splits the two violet states: awaiting_user is full needs-you, waiting is the dim linger", () => {
-    // The split IS the fucknotif fix: conflating these under one paint name is
-    // how an agent blocked for 20 h rendered at 55% linger strength.
     expect(agentPaintClass("awaiting_user")).toBe("awaiting");
     expect(agentPaintClass("waiting")).toBe("linger");
   });
@@ -145,17 +134,11 @@ describe("relativeTime", () => {
   });
 
   it("says the dash for a host running AHEAD of this clock, not a confident 0s", () => {
-    // The clamp this lost. A remote host a minute ahead puts its event in this
-    // clock's future: the reading is provably wrong, and `0s` is a number
-    // nobody should act on. Every other kolu duration already said the dash
-    // here — this one now agrees with them rather than with itself.
     expect(relativeTime(now + 60_000, now)).toBe(DASH);
   });
 });
 
 describe("fleetStateLabel (idle three-way fork, renderer labels passed in)", () => {
-  // Two label sets — the TUI's ("awaiting you") and the web's ("needs you") —
-  // so the test pins that the ONLY renderer difference is the label words.
   const tui: Record<Urgency, string> = {
     need: "awaiting you",
     work: "working",
@@ -244,7 +227,6 @@ describe("an agent present with no session yet (starting / fresh)", () => {
   it("is QUIET for a person's attention: no list, no badge, no count, no paint", () => {
     for (const state of PRESENCE) {
       const agent = agentVal(state, "omp");
-      // The EF2 verdict cannot drag it into `finished` either.
       expect(attentionClass(agent, false)).toBe("idle");
       expect(attentionClass(agent, true)).toBe("idle");
       expect(attentionCounted(attentionClass(agent, true), false)).toBe(false);

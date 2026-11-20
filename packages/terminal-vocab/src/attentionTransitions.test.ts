@@ -1,7 +1,3 @@
-/** Pins the #1177-class attention transition logic — the pure decision behind
- *  both kolu's browser alerts and padi's supervision-edge delivery, tested off
- *  id-sets without the wire. */
-
 import { describe, expect, it } from "vitest";
 import {
   type AttentionFrame,
@@ -26,7 +22,6 @@ describe("attentionTransitions", () => {
     expect(attentionTransitions(u([], []), u([], ["a"])).candidates).toEqual([
       { id: "a", asking: false },
     ]);
-    // Same set next frame → no new candidate.
     expect(attentionTransitions(u([], ["a"]), u([], ["a"])).candidates).toEqual(
       [],
     );
@@ -35,7 +30,6 @@ describe("attentionTransitions", () => {
   it("ESCALATION finished→asking IS a candidate (the #1177 gate over an idle finish)", () => {
     const t = attentionTransitions(u([], ["a"]), u(["a"], []));
     expect(t.candidates).toEqual([{ id: "a", asking: true }]);
-    // `a` moved between sets, so it did NOT leave the class — no episode end.
     expect(t.ended).toEqual([]);
   });
 
@@ -52,8 +46,6 @@ describe("attentionTransitions", () => {
   });
 
   it("a re-finish AFTER leaving is a fresh candidate again (new episode)", () => {
-    // work → gone from both, then finishes again: episode boundary means it
-    // qualifies to fire once more.
     expect(attentionTransitions(u([], []), u([], ["a"])).candidates).toEqual([
       { id: "a", asking: false },
     ]);
@@ -71,11 +63,6 @@ describe("createAttentionTransitions — the MEMORY the decision needs", () => {
 
   it("COPIES the incoming lists — a caller may hand back the same arrays", () => {
     const t = createAttentionTransitions();
-    // The real callers do exactly this: a SolidJS store that mutates its arrays
-    // in place, and padi's re-folded urgency cell. Holding the reference would
-    // make `prev` and `cur` the same object, so no transition is ever seen and
-    // NOTHING FIRES — a silent failure, which is the one this whole vocabulary
-    // exists to remove.
     const asking: TerminalId[] = [];
     const finished: TerminalId[] = [];
     const live: AttentionFrame = { asking, finished };

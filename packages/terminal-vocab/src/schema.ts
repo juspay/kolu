@@ -1,38 +1,3 @@
-/**
- * The terminal-snapshot vocabulary — the value a host PRODUCER emits and the
- * value kolu's fold accumulates, owned where it is PRODUCED (the sensor set in
- * this package) rather than by any app.
- *
- * The de-entanglement (awareness-derive-store.mdx) splits SAMPLING from
- * REMEMBERING:
- *   - `TerminalSnapshot` is exactly the six fields a memoryless host can RE-SAMPLE:
- *     cwd · git context · forge PR · live agent · foreground process · listening
- *     TCP ports. Composed
- *     from the vendor-neutral leaf schemas (anyforge · kolu-git · kolu-github ·
- *     the per-agent packages) and naming NOTHING app-specific — no `location`
- *     discriminator, no client/UI fields. It is what kolu serves UNCHANGED on its
- *     `terminalWorkspace.snapshots` collection.
- *   - `AgentMemory` is the two facts a host CANNOT re-sample — clock readings
- *     (`lastActivityAt`, `promptedAt`). kolu remembers them; a producer's
- *     `TerminalSnapshot` cannot spell either, and NEITHER can PTY output: a
- *     shell's `OSC 633;E` mark is only a sensor, never a remembered launch line.
- *   - `TerminalState = { snapshot, memory, restoreTarget }` is kolu's fold
- *     accumulator, never on a wire (kolu folds in-process). `restoreTarget` is
- *     the DERIVED resume fact — the agent identity plus the live process's
- *     allowlisted argv, built from ONE observation — and is the value persisted
- *     on the authored record. `TerminalEvent` is the per-field EMIT type a
- *     producer streams.
- *
- * The old persisted-vs-live write fence (and its `AwarenessSink` mutator split) is
- * GONE: the producer is memoryless and the emit type forbids a memory field, so no
- * snapshot can clobber a remembered fact — the fence is the TYPE, not a runtime
- * mutator. kolu recomposes its full `TerminalMetadata` at the CLIENT by JOINING
- * the served `TerminalSnapshot` with a SEPARATE authored record (the app-owned
- * `location` + memory + client-persisted UI fields). That separation is what lets
- * `padi` (the standalone daemon) and `padi-tui` (the viewer) reuse the sensors
- * with zero dependency on any kolu-app package.
- */
-
 import { AgentIdentitySchema, RestoreTargetSchema } from "anyagent/schemas";
 import { PrInfoSchema } from "anyforge/schemas";
 import { Effect, Schema } from "effect";
@@ -45,43 +10,17 @@ import { type GitInfo, GitInfoSchema } from "kolu-git/schemas";
 import { GhUnavailableSchema, reasonForGhCode } from "kolu-github/schemas";
 import { match, P } from "ts-pattern";
 
-// ── Terminal identity ─────────────────────────────────────────────────
-
-// Declared in its own leaf (`./terminalId.ts`, reached as
-// `@kolu/terminal-vocab/terminalId`) so a reader that only asks "is this a
-// terminal id?" need not load this module's whole graph; re-exported here so
-// this stays the schema home every other importer resolves it through.
 export {
   isTerminalId,
   type TerminalId,
   TerminalIdSchema,
 } from "./terminalId.ts";
 
-// ── Client scrollback depth ───────────────────────────────────────────
-
 /** The CLIENT's visible scrollback, in lines — what the browser xterm retains,
  *  what `exportScrollbackAsPdf.ts` serializes, and the ceiling the
- *  scrollback-backfill prepend must never exceed. A terminal-DOMAIN fact both
- *  the app (client + kolu-common) AND the per-host daemon (`@kolu/padi`, for its
- *  startup headroom assertion) must agree on, so it lives HERE — the shared
- *  browser-safe terminal vocabulary — not in `kolu-common/config`: padi asserting
- *  `client scrollback ≥ mirror + snapshot` must not force the forbidden
- *  `@kolu/padi → kolu-common` back-edge, and this value must ride padi's HASHED
- *  build closure so a change to it flips `PADI_BUILD_ID` and recycles a stale
- *  survivor. Sized for multi-hour Claude sessions. A DISTINCT axis from kaval's
- *  smaller per-terminal `DEFAULT_MIRROR_SCROLLBACK` (see
- *  `docs/atlas/src/content/atlas/kaval-heap-oom.mdx`). */
+ *  scrollback-backfill prepend must never exceed. */
 export const DEFAULT_SCROLLBACK = 50_000;
 
-// ── Agent status ──────────────────────────────────────────────────────
-
-// `AgentKindSchema`, `AgentInfoSchema` (the closed union of every agent's info
-// schema), the resume vocabulary (`AgentIdentitySchema`, `RestoreTargetSchema`),
-// and the `resumableCommand` projection are OWNED by the registry
-// (`kolu-agents/vocab`, for the closed union) and `anyagent/schemas` (for the
-// agent-name-free identity/target shapes). Re-exported here so the wake/restore
-// path and kolu-common/surface keep resolving them from this schema home — one
-// declaration, validated once.
 export {
   AgentIdentitySchema,
   AgentInfoSchema,
@@ -90,15 +29,6 @@ export {
   resumableCommand,
 };
 
-// ── PR resolution — closed forge union + wire result ──────────────────
-//
-// anyforge owns the forge-neutral, generic shapes (`PrUnavailableSourceBase`,
-// `PrResult<S>`); each forge adapter owns its own arm (`GhUnavailableSchema`
-// in kolu-github). The CLOSED, exhaustively-matchable union over those arms —
-// and the wire schema pinned to it — composes here, exactly as
-// `AgentInfoSchema` composes the per-agent `*InfoSchema`s above. A new forge's
-// arm joins this union; the anyforge leaf never changes.
-
 /** The closed `PrUnavailableSource` union — one arm per forge adapter.
  *  Discriminated on `provider` so render sites can `match(...).exhaustive()`
  *  and a new forge is a compile error at every dispatch. */
@@ -106,8 +36,7 @@ export const PrUnavailableSourceSchema = Schema.Union([GhUnavailableSchema]);
 export type PrUnavailableSource = typeof PrUnavailableSourceSchema.Type;
 
 /** The wire `PrResult` — anyforge's generic `PrResult<S>` pinned to the closed
- *  `PrUnavailableSource` union. Lives here (not in the leaf) for the same
- *  reason `AgentInfoSchema` does: the leaf names no forge. */
+ *  `PrUnavailableSource` union. */
 export const PrResultSchema = Schema.Union([
   Schema.Struct({ kind: Schema.Literal("pending") }),
   Schema.Struct({ kind: Schema.Literal("ok"), value: PrInfoSchema }),
@@ -121,9 +50,7 @@ export const PrResultSchema = Schema.Union([
 export type PrResult = typeof PrResultSchema.Type;
 
 /** Display reason for a closed-union failure source — exhaustive over every
- *  forge arm. Dispatches the gh arm to kolu-github's `reasonForGhCode`. A new
- *  forge arm is a compile error here until it adds its
- *  `.with({ provider: "…" }, …)` branch. */
+ *  forge arm. Dispatches the gh arm to kolu-github's `reasonForGhCode`. */
 export function reasonForSource(source: PrUnavailableSource): string {
   return match(source)
     .with({ provider: "gh" }, ({ code }) => reasonForGhCode(code))
@@ -139,8 +66,6 @@ export function prUnavailableReason(pr: PrResult): string | null {
 export function prUnavailableSource(pr: PrResult): PrUnavailableSource | null {
   return pr.kind === "unavailable" ? pr.source : null;
 }
-
-// ── Foreground process ────────────────────────────────────────────────
 
 /** Foreground process info from PTY. */
 export const ForegroundSchema = Schema.Struct({
@@ -158,14 +83,6 @@ export const ForegroundSchema = Schema.Struct({
   shell: Schema.Boolean,
 });
 
-// ── Listening TCP ports ───────────────────────────────────────────────
-//
-// The PORT FACTS themselves — `PortInfo`, the fold, the list comparison — live in
-// `./ports.ts` (this package). They are bind vocabulary: nothing in them knows a
-// terminal from an ssh-agent. What is layered here is the part that IS terminal
-// domain — how a terminal SNAPSHOT carries them (`TerminalPorts`' known/unknown
-// two-way) and what kolu's UI decides from them (`portReach`).
-
 export {
   foldBinds,
   foldPorts,
@@ -182,9 +99,6 @@ export {
   widerScope,
 } from "./ports.ts";
 
-// Imported as well as re-exported: `export … from` re-publishes without binding,
-// and the ones below are used right here to build `TerminalPortsSchema`,
-// `HostListenersSchema` and `portReach`.
 import {
   type PortBind,
   PortBindSchema,
@@ -202,25 +116,7 @@ import {
  *     is a real answer: this terminal serves nothing.
  *   - `{ status: "unknown" }` — no scan has ever succeeded for this terminal. A
  *     freshly spawned one before its first pass, and a terminal whose first pass was
- *     BLIND.
- *
- *  The second arm exists because the whole sensor is built on "a blind scan must
- *  never look like an empty one", and a bare array broke that rule in exactly one
- *  place: holding the last good sample covers a later blind pass, but there is
- *  nothing to hold before the first success, so `[]` was published as though
- *  observed. That window is reachable on a healthy host — a first-pass `lsof`
- *  timeout on darwin, a transient `/proc/net/tcp` read failure on linux, or any
- *  unexpected `/proc` errno (which the scan deliberately treats as blindness) — and
- *  none of it requires the terminal's own shell to be unreadable.
- *
- *  A discriminated union rather than a nullable list or a second boolean, for the
- *  same reason {@link ProcessRssSchema} is one: the states are mutually exclusive by
- *  construction, so "unknown AND a stale list" is unrepresentable rather than merely
- *  discouraged. Same in-repo pattern, same rationale.
- *
- *  A consumer that only wants ports reads {@link knownPorts}, which answers `[]` for
- *  unknown — but it must do so KNOWINGLY, at a call site, rather than because the
- *  wire quietly said `[]`. */
+ *     BLIND. */
 export const TerminalPortsSchema = Schema.Union([
   Schema.Struct({
     status: Schema.Literal("known"),
@@ -231,51 +127,31 @@ export const TerminalPortsSchema = Schema.Union([
 export type TerminalPorts = typeof TerminalPortsSchema.Type;
 
 /** The ports a reader can actually name — `[]` when the terminal has never been
- *  successfully scanned. The ONE place "unknown reads as no ports" is spelled, so a
- *  render site is a deliberate caller of it rather than a victim of the wire. */
+ *  successfully scanned. The ONE place "unknown reads as no ports" is spelled. */
 export function knownPorts(ports: TerminalPorts): readonly PortInfo[] {
   return ports.status === "known" ? ports.list : [];
 }
 
 /** Whether a port answers from the VIEWER as-is, and — when it does not — WHICH
  *  mechanism would make it answer. The indivisible decision behind a port chip,
- *  as a tag rather than a sentence.
- *
- *  Four outcomes, because PRT2 must act on each differently: open the URL
- *  directly · relay the port on the kolu host (a loopback bind, invisible from any
- *  other machine) · `ssh -L` through the remote host that owns it · or say plainly
- *  that no door exists. A `string | null` reason collapsed all of that into prose,
- *  so "openable" was spelled as the ABSENCE of a sentence, a render site could only
- *  discriminate by matching English, and rewording the copy meant editing the
- *  decision. */
+ *  as a tag rather than a sentence. */
 export type PortReach =
   | { kind: "direct" }
   | { kind: "needs-forward"; via: "loopback" | "remote-host" }
   /** Bound to ONE specific non-loopback address — on EITHER host. No door kolu
    *  can open reaches it: both forward mechanisms connect to `127.0.0.1` on the
    *  far side, where nothing is listening, so offering a forward produces a
-   *  listener that comes up and then refuses every connection through it.
-   *
-   *  And no direct link either, even when the bind is on the kolu server's own
-   *  host: a host has many addresses, `scope` records that the bind is
-   *  interface-specific WITHOUT recording which one, and a link is built from
-   *  the name in the viewer's address bar — which is a DIFFERENT address of that
-   *  host as often as not (a tailnet `fd7a:…` name over a `192.168.1.5` bind).
-   *  There is no URL kolu can honestly build, which is the whole of this arm. */
+   *  listener that comes up and then refuses every connection through it. */
   | { kind: "no-mechanism"; via: "interface-bind" };
 
 /** The ONE openability decision, for both ends of the wire — the join of a bind
  *  OBSERVATION (which the scanner makes, knowing nothing about kolu) with WHOSE
- *  HOST that bind is on (which only kolu knows).
- *
- *  The four arms follow from what the two forward mechanisms actually dial, not
- *  from a taxonomy:
+ *  HOST that bind is on (which only kolu knows). The four arms:
  *
  *   - `interface`, on EITHER host → nothing to dial and nothing to link. Both
  *     mechanisms reach a loopback, which that listener is not on; and the bind is
  *     on ONE address, which the observation deliberately does not record, so a
- *     link built from the viewer's address bar is a guess. The arm is stated
- *     first because it is the one fact `onKoluHost` does not change.
+ *     link built from the viewer's address bar is a guess.
  *   - not on the kolu host, `any` or `loopback` → `ssh -L` to the far side's
  *     `127.0.0.1`, where both of those binds answer.
  *   - on the kolu host, `loopback` → the in-process relay, which dials
@@ -286,27 +162,14 @@ export type PortReach =
  *  The REMOTE-HOST precedence is load-bearing: an any-address bind on a remote ssh
  *  host is reachable from THAT machine, and `location.hostname` is not that
  *  machine — reading the scope first would offer an open that lands on the kolu
- *  server's own (probably empty) port.
- *
- *  Pure and total over a three-way and a boolean, so there is no "unknown" arm for
- *  a render site to get wrong. It lives in kolu's vocabulary rather than beside
- *  `PortInfo` because `onKoluHost` is the domain: the scanner
- *  reports a bind, and only kolu knows whose host that bind is on. PRT2's forward
- *  manager needs the same judgment server-side, which is why it is here and not in
- *  the component that renders it. */
+ *  server's own (probably empty) port. */
 export function portReach(opts: {
   scope: PortScope;
   onKoluHost: boolean;
 }): PortReach {
-  // `match(...).exhaustive()` over the three-way, so a fourth `PortScope` arm is
-  // a COMPILE error rather than a silent fall-through to `direct` — the single
-  // most consequential wrong answer this function can give (offering a direct
-  // open for a port that may not answer there).
   return match(opts.scope)
     .with(
       "interface",
-      // On both sides of `onKoluHost`: no mechanism dials a single non-loopback
-      // address, and no honest link names one the observation dropped.
       () => ({ kind: "no-mechanism", via: "interface-bind" }) as const,
     )
     .with(P.union("any", "loopback"), (scope) => {
@@ -323,28 +186,12 @@ export function portReach(opts: {
 /** Are two port SAMPLES the same fact? The dedup gate the sensor applies before a
  *  sample reaches the snapshot: an unchanged scan must emit nothing, or a
  *  seconds-cadence ticker would publish a fresh array — and a fresh reference
- *  through the whole reactive chain — on every pass forever.
- *
- *  This is the two-way's own comparison, which is why it lives here rather than
- *  beside {@link samePortList}: the interesting half is the STATUS flip, and
- *  `status` is a terminal-snapshot concept the port vocabulary has no business
- *  knowing. The list comparison it delegates to is the port fact. */
+ *  through the whole reactive chain — on every pass forever. */
 export function portsEqual(a: TerminalPorts, b: TerminalPorts): boolean {
-  // A status flip is always a change: "we finally saw" and "we still cannot see"
-  // are exactly the transitions a dedup gate must not swallow.
   if (a.status !== b.status) return false;
   if (a.status !== "known" || b.status !== "known") return true;
   return samePortList(a.list, b.list);
 }
-
-// ── The HOST's listeners ────────────────────────────────────────────────
-//
-// `TerminalPorts` answers "what is THIS terminal serving?", and a process that
-// detaches (a `setsid` daemon, an `odu web-daemon` coordinator that reparents to
-// init) leaves every terminal's subtree while its server keeps answering. A
-// printed URL for it then read "nothing is listening yet" — a claim about the
-// whole machine made from a look at one subtree. `HostListeners` is the look at
-// the whole machine, from the SAME scan pass.
 
 /** The unclaimed half of a host reading, as its own honest two-way. `unknown`
  *  is a real state on darwin: macOS 27 gates the host-wide socket table, so the
@@ -381,11 +228,7 @@ export type HostPort = typeof HostPortSchema.Type;
  *   - `{ status: "unknown" }` — no pass has succeeded yet: padi has never run a
  *     terminal (its sampler arms on the first one), or the first pass has not
  *     landed. Once armed, the sampler keeps reading the host after the last
- *     terminal closes, so a detached server's door is still reaped when it dies.
- *
- *  A blind pass does NOT flip this to `unknown`: like `TerminalPorts`, the last
- *  good reading is re-served, because one pass that could not see is not news
- *  that every server stopped. */
+ *     terminal closes, so a detached server's door is still reaped when it dies. */
 export const HostListenersSchema = Schema.Union([
   Schema.Struct({
     status: Schema.Literal("known"),
@@ -401,13 +244,7 @@ export const UNKNOWN_HOST_LISTENERS: HostListeners = { status: "unknown" };
 
 /** Are two host readings the same fact? The wire dedup gate for the cell that
  *  carries them — same contract as {@link portsEqual}: a status flip (on either
- *  level) is always a change, and an unchanged host publishes nothing.
- *
- *  DERIVED from the schema rather than walked by hand: a hand-written walk of a
- *  two-level union is one more place a new arm or field has to be remembered, and
- *  a dedup gate that forgets one swallows that field's changes with nothing to
- *  say why. Arrays compare in order, which is the producer's contract (every
- *  list is sorted by port). */
+ *  level) is always a change, and an unchanged host publishes nothing. */
 export const hostListenersEqual: (
   a: HostListeners,
   b: HostListeners,
@@ -416,10 +253,6 @@ export const hostListenersEqual: (
 /** What a host reading says about ONE port — the four answers a reader acts on,
  *  and the ONE place they are derived, so the printed-URL card and the Ports
  *  section cannot disagree about when "nothing is listening" may be said.
- *
- *  The forward reaper deliberately does NOT read it: it asks a looser question
- *  (may this door close?) and counts the claimed half alone as an observation
- *  when the unclaimed half is blind — kolu-server's `hostPortsOf` says why.
  *
  *   - `claimed`   — a readable program holds it.
  *   - `unclaimed` — something holds it; its owner is not visible.
@@ -458,8 +291,6 @@ export function listenerAt(host: HostListeners, port: number): ListenerAt {
   return bind === undefined ? { kind: "absent" } : { kind: "unclaimed", bind };
 }
 
-// ── Git context — an honest three-way fact ─────────────────────────────
-
 /** A terminal's git context as THREE cases, not a `GitInfo | null` that
  *  conflates "not a repo" with "not checked yet" — the same move `pr`
  *  (`kind: "pending"`) and `ports` (`status: "unknown"`) make:
@@ -467,11 +298,7 @@ export function listenerAt(host: HostListeners, port: number): ListenerAt {
  *   - `{ kind: "unresolved" }` — the git sensor has not answered for this
  *     terminal yet (a fresh spawn, a restored record). Says nothing about the cwd.
  *   - `{ kind: "none" }` — the sensor answered: the cwd is not in a git repo.
- *   - `{ kind: "repo", info }` — the sensor answered with the repo.
- *
- *  A reader that needs the repo narrows `kind === "repo"`; a reader that acts on
- *  "not a repo" tests `kind === "none"`, so a terminal whose sensor has not yet
- *  answered is never told it is outside a repo. */
+ *   - `{ kind: "repo", info }` — the sensor answered with the repo. */
 export const GitFactSchema = Schema.Union([
   Schema.Struct({ kind: Schema.Literal("unresolved") }),
   Schema.Struct({ kind: Schema.Literal("none") }),
@@ -484,22 +311,6 @@ export function gitFactOf(info: GitInfo | null): GitFact {
   return info === null ? { kind: "none" } : { kind: "repo", info };
 }
 
-// ── The TerminalSnapshot — what a host PRODUCER emits ──────────────────────
-//
-// The de-entanglement (awareness-derive-store.mdx): a host PRODUCER emits one
-// `TerminalSnapshot` — exactly the six fields it can RE-SAMPLE — and nothing it
-// cannot. The two facts a host genuinely cannot re-sample (a clock reading and
-// the launch invocation) are `AgentMemory`, written by kolu's fold ALONE. The
-// old persisted/live write-fence is gone: the producer is memoryless and cannot
-// CONSTRUCT memory (the type forbids it), so no snapshot can clobber a
-// remembered fact — the fence is the EMIT TYPE, not a runtime mutator split.
-
-/** What a host PRODUCER emits — exactly the fields it can RE-SAMPLE. Local or
- *  remote, the SAME type. Served as-is on kolu's `terminalWorkspace.snapshots`
- *  collection (kolu JOINS it with a separate authored record at the client).
- *  `pr` and `agent` ride here too — both re-samplable; `pr` is restore-relevant
- *  (true-when-dead, persisted like `git`), the live `agent` detail is RAM-only
- *  (lie-when-dead, re-derived on (re)spawn). */
 /** A pty grid — cols × rows, both positive. ONE composite, never two optional
  *  scalars: half a grid is not a size. */
 export const TerminalGridSchema = Schema.Struct({
@@ -508,36 +319,17 @@ export const TerminalGridSchema = Schema.Struct({
 });
 export type TerminalGrid = typeof TerminalGridSchema.Type;
 
-/** Do two grids describe the same layout?
- *
- *  Beside {@link portsEqual} and for its reason: a record on this wire that is
- *  compared per frame needs its comparison stated once, here, rather than
- *  re-spelled at each dedup gate. Both readers ask the same question — the pane
- *  asks whether its measured size still matches what it published, and a holder
- *  of bytes laid out FOR a grid (a serialized screen, a snapshot frame) asks
- *  whether those bytes still describe the pane.
- *
- *  TWO other spellings of this comparison survive, and both are argued rather
- *  than forgotten — read them before adding a third:
- *
- *    · `@kolu/xterm-kit/solid`'s `sameGrid`, over its own structurally-identical
- *      `TerminalGrid`. That kit's manifest declares one dependency-free
- *      workspace leaf (`@kolu/url-shape`) and nothing else, which is the property
- *      that makes it cheap to consume; importing this one would take its closure
- *      from two members to thirteen to share four tokens.
- *    · `@kolu/padi-client/surface`'s `EndpointGridSchema` — a THIRD declaration
- *      of `{ cols, rows }`, on padi's own surface, with its own header claiming
- *      to be "the ONE grid rule on this surface". Collapsing the two RECORDS is
- *      a wire-schema change and wants its own sitting; until then this fold
- *      would only be its last line.
- *
- *  What this one is, meanwhile, is the comparison for the grid a padi frame
- *  carries as a terminal FACT — which is what a dedup gate over the record
- *  compares, and what a consumer holding one off the wire compares. */
+/** Do two grids describe the same layout? */
 export function gridsEqual(a: TerminalGrid, b: TerminalGrid): boolean {
   return a.cols === b.cols && a.rows === b.rows;
 }
 
+/** What a host PRODUCER emits — exactly the fields it can RE-SAMPLE. Local or
+ *  remote, the SAME type. Served as-is on kolu's `terminalWorkspace.snapshots`
+ *  collection (kolu JOINS it with a separate authored record at the client).
+ *  `pr` and `agent` ride here too — both re-samplable; `pr` is restore-relevant
+ *  (true-when-dead, persisted like `git`), the live `agent` detail is RAM-only
+ *  (lie-when-dead, re-derived on (re)spawn). */
 export const TerminalSnapshotSchema = Schema.Struct({
   cwd: Schema.String,
   /** The git context — see {@link GitFactSchema}. */
@@ -552,20 +344,6 @@ export const TerminalSnapshotSchema = Schema.Struct({
   ports: TerminalPortsSchema,
   /** The pty's CURRENT grid — cols × rows.
    *
-   *  It exists so a viewer can learn it LOST last-attach-wins. Attaching is a
-   *  write on a shared pty and the policy is last-attach-wins, so a second
-   *  viewer's terminal is reflowed under it — and the byte stream cannot say so:
-   *  a snapshot rides only the initial attach and an overflow re-attach, never a
-   *  foreign resize, so the loser goes on receiving DELTAS laid out for a grid no
-   *  frame ever named. Its screen garbles and nothing tells it to re-attach.
-   *
-   *  On the RECORD rather than the frame because that is the channel a mirror
-   *  already watches: this collection is reactive, so a consumer observes the
-   *  change and re-attaches, and the fresh snapshot then carries its own
-   *  `grid` (contract 5.5) to size against. The alternative — pushing a snapshot
-   *  to every attached client on every resize — would repaint the world during a
-   *  drag and needs a coalescing design this does not.
-   *
    *  Optional: a padi predating it omits the key, and a consumer that never sees
    *  one behaves exactly as it did before. */
   grid: Schema.optionalKey(TerminalGridSchema),
@@ -573,10 +351,7 @@ export const TerminalSnapshotSchema = Schema.Struct({
 export type TerminalSnapshot = typeof TerminalSnapshotSchema.Type;
 
 /** The agent IDENTITY kolu persists for restore (`kind` + native session
- *  `sessionId`) and the discriminated RESTORE TARGET the fold derives from it —
- *  both OWNED by anyagent/schemas (the resume vocabulary layer), re-exported here
- *  as the schema home kolu-common/surface and the fold resolve them through. The
- *  fold's `restoreTargetFor` PRODUCES the target; `resumeFormFor` CONSUMES it. */
+ *  `sessionId`) and the discriminated RESTORE TARGET the fold derives from it. */
 export type AgentIdentity = typeof AgentIdentitySchema.Type;
 export type RestoreTarget = typeof RestoreTargetSchema.Type;
 
@@ -584,49 +359,26 @@ export type RestoreTarget = typeof RestoreTargetSchema.Type;
  *  readings. Irrecoverable from a screen, so kolu remembers them; written by
  *  kolu's fold ALONE (a producer's `TerminalSnapshot` cannot spell any of them).
  *  Kept FLAT on kolu's authored record (`updateMemory` is the one narrowed
- *  writer), so the on-disk JSON path for each is a top-level key.
- *
- *  There is deliberately NO remembered launch line. A `lastAgentCommand` string
- *  was the forgery hole: `OSC 633;E` text is whatever the user displays, and it
- *  was replayed as a command on wake/restore. What the wake needs instead is the
- *  RESTORE TARGET — a session identity plus the live process's allowlisted argv
- *  — which rides `KoluAuthoredServerFieldsSchema.restoreTarget`, not this
- *  memory. */
+ *  writer), so the on-disk JSON path for each is a top-level key. */
 export const AgentMemorySchema = Schema.Struct({
   /** Workspace-switcher recency: epoch-millis of the last LIVE agent observation,
-   *  on kolu's clock — an agent-IDENTITY change (start / finish / new session)
-   *  stamps immediately, and a same-identity OUTPUT tick stamps through the
-   *  recency throttle (`RECENCY_THROTTLE_MS`, in `fold.ts`) so a stable long-lived
-   *  session tracks its output instead of freezing. HONEST form: an
-   *  idle/never-active terminal is `null` — a real absence, not an in-band `0`.
-   *  The old `0` sentinel did TWO jobs at once (a genuine — if absurd —
-   *  Unix-epoch reading, AND "never active") and collided with a THIRD: the
-   *  client's own "not yet clock-reprojected" absent form
-   *  (`useTerminalMetadata.ts`'s `reprojectClock`, which used to special-case
-   *  `0` to avoid forging a garbage offset timestamp). `null` disambiguates all
-   *  three: it can never be produced by a real clock reading, so a reader that
-   *  needs "is there a recency to compare?" tests `!== null`, not `> 0`.
-   *  A required key (never absent) — always `null` or a real epoch.
+   *  on kolu's clock. HONEST form: an idle/never-active terminal is `null` — a
+   *  real absence, not an in-band `0`. A required key (never absent) — always
+   *  `null` or a real epoch.
    *
    *  The decoding default is a BACKFILL, not a fallback: a record written before
-   *  the field existed decodes to `null` (the honest "never active"), and e2e
-   *  steps rely on it. It is key-level (`withDecodingDefaultKey`) — a MISSING key
-   *  backfills, an explicit `undefined` does not, which is what a wire/disk field
-   *  means. Encoding passes the value through, so a decoded record re-encodes
-   *  WITH the key — the on-disk JSON path for this field is unchanged. */
+   *  the field existed decodes to `null`. It is key-level
+   *  (`withDecodingDefaultKey`) — a MISSING key backfills, an explicit
+   *  `undefined` does not. Encoding passes the value through, so a decoded
+   *  record re-encodes WITH the key. */
   lastActivityAt: Schema.NullOr(Schema.Number).pipe(
     Schema.withDecodingDefaultKey(Effect.succeed(null)),
   ),
   /** When the CURRENT agent (its identity: kind + session id) first went LIVE —
    *  working or blocked on you (`agentLive`, in `agentProjection`) — on kolu's
    *  clock. `null` while no agent runs, and while a freshly started agent still
-   *  sits at its first prompt (`waiting`): that is the fact it exists to carry,
-   *  and `lastActivityAt` cannot, because the identity change stamps recency the
-   *  moment an agent is DETECTED. Stamped once per agent identity; a new identity
-   *  resets it (a new session has its own first prompt). Readers test it against
-   *  `null` only — it is never compared to a clock, so it needs no reprojection.
-   *  Same key-level backfill as `lastActivityAt`: a record written before the
-   *  field existed decodes to `null`. */
+   *  sits at its first prompt (`waiting`). Stamped once per agent identity; a
+   *  new identity resets it. Same key-level backfill as `lastActivityAt`. */
   promptedAt: Schema.NullOr(Schema.Number).pipe(
     Schema.withDecodingDefaultKey(Effect.succeed(null)),
   ),
@@ -634,39 +386,27 @@ export const AgentMemorySchema = Schema.Struct({
 export type AgentMemory = typeof AgentMemorySchema.Type;
 
 /** kolu's stored value: the last-seen `TerminalSnapshot`, the remembered facts,
- *  and the derived resume target. NESTED, not merged, so the half published to
- *  the snapshots collection is `current.snapshot` — structurally WITHOUT the
- *  memory fields, not a runtime strip. `restoreTarget` is the fold's derived
- *  resume fact — the ONE place the agent identity and the process's allowlisted
- *  flags meet, so there is no second "live argv" field to keep in step. The fold
- *  accumulator; never crosses a wire (kolu folds in-process). */
+ *  and the derived resume target. The fold accumulator; never crosses a wire
+ *  (kolu folds in-process). */
 export type TerminalState = {
   snapshot: TerminalSnapshot;
   memory: AgentMemory;
   /** What a wake would do with this terminal — re-derived by the fold on every
-   *  authoritative agent observation (so a same-identity flag sample replaces an
-   *  earlier empty one), and seeded from the durable authored target on
-   *  adopt/wake. `none` is a bare shell. */
+   *  authoritative agent observation, and seeded from the durable authored
+   *  target on adopt/wake. `none` is a bare shell. */
   restoreTarget: RestoreTarget;
 };
 
-/** The async resolution of the agent field made LAWFUL. The session file lands a
- *  beat after the command mark (over the settle window), so a bare `agent: null`
- *  is ambiguous — "no agent" or "not resolved yet?". `"unknown"` means the producer
- *  cannot currently KNOW — either mid-resolution (the session file hasn't landed) OR
- *  the foreground is a defined non-shell process whose session is unresolvable (W12:
- *  an unclean kaval death leaves the stale agent pid as foreground with its session
- *  file gone; we can't tell "ended" from "lost our observer"). Either way kolu KEEPS
- *  its last value, no clobber. `{ value }` is authoritative (kolu APPLIES it, even
- *  when `null` — a SHELL-IDLE null is the session genuinely ended). Never stored —
- *  only the resolved value is. */
+/** The async resolution of the agent field made LAWFUL. `"unknown"` means the
+ *  producer cannot currently KNOW, so kolu KEEPS its last value, no clobber.
+ *  `{ value }` is authoritative (kolu APPLIES it, even when `null` — a
+ *  SHELL-IDLE null is the session genuinely ended). Never stored — only the
+ *  resolved value is. */
 export type Known<T> = "unknown" | { value: T };
 
 /** One authoritative answer to "which agent runs here, and with what flags?" —
  *  the info the adapter resolved and the LIVE process's allowlisted argv tokens,
- *  as ONE value. Keeping them together is what gives the producer a single
- *  dedup key: a same-identity sample that finally reads the process's flags is a
- *  NEW observation, not a discarded detail tick. */
+ *  as ONE value. */
 export type AgentObservation = {
   info: AgentInfo;
   /** `stableFlags`-filtered argv tokens (never the raw process argv). */
@@ -676,11 +416,7 @@ export type AgentObservation = {
 /** A per-field sample a memoryless producer emits. The standing six build the
  *  `TerminalSnapshot`; an `agent` observation carries the whole
  *  {@link AgentObservation} (info + allowlisted argv — STRUCTURED facts read from
- *  the OS, never text from the PTY). A shell's `OSC 633;E` mark emits no event at
- *  all: it is a sensor only (it re-samples the foreground and feeds the adapters'
- *  shim hint), so nothing it carries can reach a remembered fact or a restored
- *  command line. In-process for R9.0 (a plain TS union, no wire schema — the
- *  framed `terminalEvents` stream that serializes these is R9.3). */
+ *  the OS, never text from the PTY). */
 export type TerminalEvent =
   | { kind: "cwd"; cwd: string }
   | { kind: "git"; git: GitFact }
@@ -705,14 +441,10 @@ export function seedSnapshot(cwd: string): TerminalSnapshot {
 }
 
 /** A fresh terminal's empty memory — no recency yet (honest `null`: a fresh
- *  terminal has never had an agent transition). The ONE home for the
- *  memory-default set (a fresh spawn seeds empty memory; wake/adopt seed from
- *  the durable record). */
+ *  terminal has never had an agent transition). */
 export function seedMemory(): AgentMemory {
   return { lastActivityAt: null, promptedAt: null };
 }
-
-// ── Process resident-set size — an honest three-way readout ────────────────
 
 /** A single process's resident-set size as an HONEST three-way state, not a
  *  `number | null` that conflates "no process to measure" with "the read failed".
@@ -721,20 +453,7 @@ export function seedMemory(): AgentMemory {
  *   - `{ status: "absent" }` — there is no process to measure (down / not-yet-
  *     sampled). The expected "no value", not an error.
  *   - `{ status: "error" }` — the process was BELIEVED up yet its RSS read threw.
- *     A real anomaly the rail must surface distinctly from `absent`, so a failed
- *     read never renders identically to "no process" (the
- *     `caught-error-must-not-collapse-to-empty` rule — a server-side log is not a
- *     user surface).
- *
- *  A discriminated union (not an extra error flag beside a nullable number) so the
- *  three states are mutually exclusive by construction — there is no representable
- *  "error AND a stale rss".
- *
- *  Lives on this browser-safe shared-vocab leaf (beside `AgentMemory`/`seedMemory`)
- *  because BOTH `kolu-common/surface` and `@kolu/padi-client/surface` compose it —
- *  kolu-server's memory sampler folds padi's reading into its own `processMemory`
- *  cell — and the package-boundary seal forbids either importing the other. One
- *  declaration, imported both sides: no lockstep copy held together by a comment. */
+ *     A real anomaly the rail must surface distinctly from `absent`. */
 export const ProcessRssSchema = Schema.Union([
   Schema.Struct({ status: Schema.Literal("ok"), rssBytes: Schema.Number }),
   Schema.Struct({ status: Schema.Literal("absent") }),
@@ -742,23 +461,14 @@ export const ProcessRssSchema = Schema.Union([
 ]);
 export type ProcessRss = typeof ProcessRssSchema.Type;
 
-// ── Live-output cadence ────────────────────────────────────────────────────
-
 /** Output quiet-period before a terminal reads as static again — the ONE cadence
  *  the "is this terminal moving bytes right now" signal breathes at on BOTH sides:
  *  padi's `activity` stream (the padi-tui `●`) and the client's
  *  `useAttentionFacts` mirror (the browser green dot). It is a RAW byte-motion signal
  *  with a ~1s trailing window — a stream with sub-second gaps (compiles, `tail -f`)
  *  stays lit, one that pauses longer blinks off then back on when it resumes (so an
- *  agent that pauses >1s between thinking and emitting tokens flickers, by design).
- *
- *  Lives on this browser-safe shared-vocab leaf (beside {@link ProcessRssSchema})
- *  because BOTH `@kolu/padi` and the client (via `kolu-common/surface`) read it, and
- *  the package-boundary seal forbids either importing the other. One declaration, so
- *  the two dots can't drift out of lockstep behind a comment. */
+ *  agent that pauses >1s between thinking and emitting tokens flickers, by design). */
 export const TERMINAL_IDLE_AFTER_MS = 1000;
-
-// ── Schema-derived sub-types ──────────────────────────────────────────
 
 export type AgentKind = typeof AgentKindSchema.Type;
 export type AgentInfo = typeof AgentInfoSchema.Type;
@@ -771,14 +481,6 @@ export type {
   PiInfo,
 } from "kolu-agents/vocab";
 export type Foreground = typeof ForegroundSchema.Type;
-
-// ── fs/git wire schemas (the Code tab's raw reads + change-pulses) ─────────
-//
-// These three shapes back the host-side fs/git reads and their live watcher
-// streams. They live on this browser-safe schema-only leaf (beside the terminal
-// vocabulary) because `@kolu/padi-client/surface` composes them — the Code tab's
-// `fs.readFile` / `subscribeRepoChange` / `subscribeFileChange` members — and the
-// package-boundary seal forbids padi importing them from a node-coupled module.
 
 /** A repo/file change PULSE, not data. kolu-git's `subscribeRepoChange` /
  *  `subscribeFileChange` collapse a burst of fs events into a payload-free
@@ -793,19 +495,13 @@ export const RepoChangePulseSchema = Schema.Struct({
 export type RepoChangePulse = typeof RepoChangePulseSchema.Type;
 
 /** Input for the per-file fs procedures (`readFile`, `filePreviewTag`) and the
- *  `subscribeFileChange` watcher. Deliberately NOT kolu-git's
- *  `FsReadFileInputSchema` (which carries a `terminalId`) — the library reads a
- *  file in a repo; the terminal/iframe-preview orchestration that needs the id
- *  stays kolu-server's. */
+ *  `subscribeFileChange` watcher. */
 export const FsFileInputSchema = Schema.Struct({
   repoPath: Schema.String,
   filePath: Schema.String,
 });
 
-/** Output of `fs.readFile` — the raw text read. Deliberately NOT kolu-git's
- *  `FsReadFileOutputSchema` (the text|binary discriminated union): the
- *  binary-preview/iframe-URL branch is kolu-server orchestration layered on top
- *  of this raw read, never library code. */
+/** Output of `fs.readFile` — the raw text read. */
 export const FsReadFileTextOutputSchema = Schema.Struct({
   content: Schema.String,
   truncated: Schema.Boolean,

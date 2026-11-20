@@ -1,24 +1,3 @@
-/**
- * BYTE-level fixtures for the terminal vocabulary — the formats on the
- * migration's byte-compatibility hit list that THIS package owns.
- *
- * `TerminalSnapshot` is persisted (padi seeds terminals from stored records on
- * cold boot) and served on `terminalWorkspace.snapshots`; `AgentMemory` is the
- * flat on-disk memory pair. Both cross a wire between processes of DIFFERENT
- * builds, so the assertions here are on the encoded JSON **string**, not on
- * decode-equality: a schema change that reorders keys, renames a discriminant,
- * or starts omitting a key would pass a `toEqual` and still break a rolling
- * deploy.
- *
- * The three properties pinned:
- *   1. ENCODED BYTES — `JSON.stringify(encodeSync(...))` character for character.
- *   2. LEGACY DECODE — a record written before `lastActivityAt` existed decodes
- *      to the honest `null` (the documented backfill e2e steps rely on), and a
- *      record written before the launch line was retired decodes without it.
- *   3. DISCRIMINANTS — every arm of the five unions keeps its field name and its
- *      literal values.
- */
-
 import { Schema } from "effect";
 import { describe, expect, it } from "vitest";
 import { PortInfoSchema, TcpPortSchema } from "./ports.ts";
@@ -37,8 +16,6 @@ import {
   TerminalSnapshotSchema,
 } from "./schema.ts";
 
-/** Encode through the schema and serialize — the only assertion that catches a
- *  key reorder, a dropped key, or a renamed discriminant. */
 const encodeJson = <T, E>(schema: Schema.Codec<T, E>) => {
   const encode = Schema.encodeSync(schema);
   return (value: T): string => JSON.stringify(encode(value));
@@ -46,9 +23,6 @@ const encodeJson = <T, E>(schema: Schema.Codec<T, E>) => {
 
 describe("AgentMemory — the flat on-disk memory pair", () => {
   it("encodes lastActivityAt=null and promptedAt=null with the keys PRESENT", () => {
-    // The `null` is a value on disk, not an absence: `withDecodingDefaultKey`
-    // passes through on encode, so a fresh writer emits exactly what every
-    // previous kolu wrote.
     expect(encodeJson(AgentMemorySchema)(seedMemory())).toBe(
       '{"lastActivityAt":null,"promptedAt":null}',
     );
@@ -64,8 +38,6 @@ describe("AgentMemory — the flat on-disk memory pair", () => {
   });
 
   it("has NO remembered launch line — a captured command is not memory", () => {
-    // The forgery fence, expressed as a byte: there is no `lastAgentCommand`
-    // key left to persist, so no PTY mark can become one.
     const decoded = Schema.decodeUnknownSync(AgentMemorySchema)({
       lastActivityAt: 1,
       lastAgentCommand: "LD_PRELOAD=/x claude --settings '{}'",
@@ -76,9 +48,6 @@ describe("AgentMemory — the flat on-disk memory pair", () => {
   });
 
   it("BACKFILLS a legacy record with no lastActivityAt / promptedAt key to null", () => {
-    // The documented rolling-deploy/backfill tolerance: a record persisted
-    // before the field existed must still load, reading as "never active"
-    // rather than a forged Unix-epoch 0.
     expect(Schema.decodeUnknownSync(AgentMemorySchema)({})).toEqual({
       lastActivityAt: null,
       promptedAt: null,
@@ -189,10 +158,6 @@ describe("TerminalSnapshot — the persisted + served producer emission", () => 
   });
 
   it("decodes a payload whose PR carries no checkRuns / review / merge / head keys, and refuses one with no isDraft", () => {
-    // Rolling deploy: the anyforge leaf's field backfills have to survive
-    // being composed into this snapshot, not just decoded standalone. Its
-    // required `isDraft` has no backfill: the 7.11 minor drains a sender that
-    // cannot say it, and a payload without it is refused here too.
     const minimal = {
       number: 1,
       title: "t",
@@ -231,8 +196,6 @@ describe("TerminalSnapshot — the persisted + served producer emission", () => 
         checks: null,
         checkRuns: [],
         reviewDecision: null,
-        // No merge state said — not GitHub's own UNKNOWN (anyforge's
-        // `PrInfoSchema` backfills `null` for a sender older than the field).
         mergeStateStatus: null,
         headSha: null,
         isDraft: false,
@@ -241,12 +204,6 @@ describe("TerminalSnapshot — the persisted + served producer emission", () => 
   });
 
   it("omits an ABSENT grid and appends a PRESENT one, key last", () => {
-    // The record's grid is what a viewer that lost last-attach-wins observes to
-    // learn it lost — so both spellings are load-bearing across a rolling
-    // deploy. ABSENT is the older padi and the terminal nobody has resized yet;
-    // it must stay off the bytes entirely (the seed fixture above pins that),
-    // never a null a consumer would read as a fact. PRESENT appends after
-    // `ports`, so an older consumer's decode is unchanged.
     expect(
       encodeJson(TerminalSnapshotSchema)({
         ...seedSnapshot("/w"),
@@ -260,9 +217,6 @@ describe("TerminalSnapshot — the persisted + served producer emission", () => 
   });
 
   it("refuses half a grid and refuses a grid no pty can have", () => {
-    // ONE composite, both sides positive integers: half a grid is not a size,
-    // and a consumer sizing a renderer by a zero or a fraction renders nothing
-    // or garbage. The refusal is the boundary's, so no consumer re-checks it.
     const decode = (grid: unknown) =>
       Schema.decodeUnknownExit(TerminalSnapshotSchema)({
         ...seedSnapshot("/w"),
