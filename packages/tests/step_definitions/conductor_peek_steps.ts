@@ -132,6 +132,10 @@ Then(
 
 When("I take over from the peek's card", async function (this: KoluWorld) {
   await this.page.locator(`${CARD} [data-testid="work-take-over"]`).click();
+  await this.waitForFrame();
+  this.peekTakeOverToasts = await this.page
+    .locator("[data-sonner-toast]")
+    .allTextContents();
 });
 
 Then(
@@ -167,7 +171,7 @@ async function waitForDriver(
     timeoutMs: POLL_TIMEOUT,
     onTimeout: (last, ms) =>
       new Error(
-        `the peek said ${JSON.stringify(last?.driver)} after ${ms}ms, expected ${JSON.stringify(driver)}; card ${JSON.stringify(last?.cardRef)}; peek ${JSON.stringify(last?.peekRef)}; toasts ${JSON.stringify(last?.toasts)}; page errors ${JSON.stringify(last?.errors)}`,
+        `the peek said ${JSON.stringify(last?.driver)} after ${ms}ms, expected ${JSON.stringify(driver)}; card ${JSON.stringify(last?.cardRef)}; peek ${JSON.stringify(last?.peekRef)}; toasts at click ${JSON.stringify(world.peekTakeOverToasts)}; toasts now ${JSON.stringify(last?.toasts)}; page errors ${JSON.stringify(last?.errors)}`,
       ),
   });
 }
