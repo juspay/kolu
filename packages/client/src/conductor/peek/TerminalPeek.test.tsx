@@ -465,6 +465,22 @@ describe("TerminalPeek", () => {
     expect(peekTarget()).toBeNull();
   });
 
+  it("raises no card for a key typed at a terminal nobody locks", () => {
+    seam.allowed = true;
+    setMembership(
+      new Map([
+        [
+          `remote:nix@example/${ID}`,
+          { work: "w", title: "w", role: "planner", driver: "you" },
+        ],
+      ]),
+    );
+    openPeek({ host: "remote:nix@example", id: ID });
+    mount();
+    keyDown("a");
+    expect(seam.gateRefs).toHaveLength(0);
+  });
+
   it("leaves Esc to the terminal while it holds the keyboard", () => {
     seam.allowed = true;
     openPeek({ host: "remote:nix@example", id: ID });
