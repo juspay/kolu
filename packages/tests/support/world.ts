@@ -195,6 +195,8 @@ export class KoluWorld extends World {
   memberTranscriptPath?: string;
   peekNotedSize?: string;
   peekTakeOverToasts?: string[];
+  peekBar?: { x: number; y: number; width: number };
+  peekGrid?: string;
   /** A terminal's shell pid, read while it still had the keyboard, so an
    *  agent can be staged in it after the scenario has moved elsewhere. */
   notedShellPid?: number;

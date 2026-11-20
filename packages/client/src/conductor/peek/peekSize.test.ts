@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { fitFontSize, peekNatural, peekPans } from "./peekSize";
+import { fitFontSize, peekNatural, peekPans, peekWindowSize } from "./peekSize";
 
 describe("peekNatural", () => {
   it("is the grid at the cell size plus the terminal's padding", () => {
@@ -55,5 +55,22 @@ describe("fitFontSize", () => {
         padX: 26,
       }),
     ).toBe(6);
+  });
+});
+
+describe("peekWindowSize", () => {
+  it("caps the window at the peek's own maximum, inside the browser window", () => {
+    expect(peekWindowSize({ width: 1440, height: 900 })).toEqual({
+      width: 1280,
+      height: 836,
+    });
+    expect(peekWindowSize({ width: 2000, height: 1200 })).toEqual({
+      width: 1280,
+      height: 864,
+    });
+    expect(peekWindowSize({ width: 1000, height: 700 })).toEqual({
+      width: 936,
+      height: 636,
+    });
   });
 });

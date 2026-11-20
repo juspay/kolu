@@ -13,6 +13,20 @@ export interface PeekPad {
 }
 
 export const PEEK_MIN_FONT_SIZE = 6;
+export const PEEK_MARGIN = 64;
+export const PEEK_MAX_WIDTH = 1280;
+export const PEEK_MAX_HEIGHT = 864;
+
+/** The one window size the peek takes on a desktop, taken from the browser window. */
+export function peekWindowSize(win: { width: number; height: number }): {
+  width: number;
+  height: number;
+} {
+  return {
+    width: Math.min(win.width - PEEK_MARGIN, PEEK_MAX_WIDTH),
+    height: Math.min(win.height - PEEK_MARGIN, PEEK_MAX_HEIGHT),
+  };
+}
 
 /** The window size a terminal wants: its grid at its own cell size, plus its padding. */
 export function peekNatural(

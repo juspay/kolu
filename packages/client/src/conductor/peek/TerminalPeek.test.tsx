@@ -286,7 +286,7 @@ describe("TerminalPeek", () => {
     expect(fit).not.toBeNull();
     fit?.click();
     expect(fit?.getAttribute("aria-pressed")).toBe("true");
-    expect(seam.props?.fontSize).toBe(10.5);
+    expect(seam.props?.fontSize).toBe(9.5);
   });
 
   it("offers Take over while the Conductor drives, and is read-only", () => {
@@ -394,6 +394,55 @@ describe("TerminalPeek", () => {
       seam.focusCalls += 1;
     });
     expect(seam.focusCalls).toBe(0);
+  });
+
+  it("keeps one size whatever terminal is in it", () => {
+    const OTHER = "22222222-2222-4222-8222-222222222222" as TerminalId;
+    const member = (role: string) => ({
+      work: "w1",
+      role,
+      joinedAt: "2026-01-01T00:00:00.000Z",
+      worktree: { kind: "unread" },
+    });
+    seam.members = new Map<string, unknown>([
+      [`local/${ID}`, member("planner")],
+      [`local/${OTHER}`, member("implementor")],
+    ]);
+    openPeek({ host: "local", id: ID });
+    mount();
+    const window = document.querySelector<HTMLElement>(
+      '[data-testid="terminal-peek"]',
+    );
+    expect(window?.style.width).toBe("1280px");
+    expect(window?.style.height).toBe("836px");
+    const onGrid = seam.props?.onGrid as (g: {
+      cols: number;
+      rows: number;
+    }) => void;
+    const onCell = seam.props?.onCell as (
+      c: { width: number; height: number },
+      p: { x: number; y: number },
+    ) => void;
+    onGrid({ cols: 80, rows: 24 });
+    onCell({ width: 8.4, height: 17 }, { x: 26, y: 12 });
+    expect(window?.style.width).toBe("1280px");
+    expect(window?.style.height).toBe("836px");
+    onGrid({ cols: 212, rows: 52 });
+    expect(window?.style.width).toBe("1280px");
+    expect(window?.style.height).toBe("836px");
+    document
+      .querySelector<HTMLButtonElement>(
+        `[data-testid="peek-tab"][data-ref="local/${OTHER}"]`,
+      )
+      ?.click();
+    expect(
+      document.querySelector<HTMLElement>('[data-testid="terminal-peek"]')
+        ?.style.width,
+    ).toBe("1280px");
+    expect(
+      document.querySelector<HTMLElement>('[data-testid="terminal-peek"]')
+        ?.style.height,
+    ).toBe("836px");
   });
 
   it("raises the Take over card for a key typed at a driven terminal", () => {

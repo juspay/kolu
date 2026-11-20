@@ -276,3 +276,70 @@ Then("the peek should carry the key bar", async function (this: KoluWorld) {
 Then("the peek should carry no key bar", async function (this: KoluWorld) {
   await waitForCount(this, `${PEEK} [data-testid="mobile-key-bar"]`, 0);
 });
+
+When("I note where the peek's top bar is", async function (this: KoluWorld) {
+  const box = await this.page
+    .locator('[data-testid="peek-head"]')
+    .boundingBox();
+  assert.ok(box !== null, "the peek's top bar had no box");
+  this.peekBar = { x: box.x, y: box.y, width: box.width };
+  this.peekGrid =
+    (await this.page.locator('[data-testid="peek-grid"]').textContent()) ?? "";
+});
+
+When("I switch to the peek's other tab", async function (this: KoluWorld) {
+  const inactive = this.page.locator(
+    `${PEEK} [data-testid="peek-tab"]:not([data-active])`,
+  );
+  const ref = await inactive.first().getAttribute("data-ref");
+  await inactive.first().click();
+  await pollFor({
+    observe: () =>
+      this.page
+        .locator(`${PEEK} [data-testid="peek-tab"][data-active]`)
+        .first()
+        .getAttribute("data-ref"),
+    isDone: (seen) => seen === ref,
+    timeoutMs: POLL_TIMEOUT,
+    onTimeout: (last, ms) =>
+      new Error(
+        `the tab ${JSON.stringify(ref)} did not become active after ${ms}ms (active was ${JSON.stringify(last)})`,
+      ),
+  });
+});
+
+Then(
+  "the peek's terminal should be a different size",
+  async function (this: KoluWorld) {
+    const before = this.peekGrid;
+    assert.ok(before, "no grid was noted before switching");
+    await pollFor({
+      observe: () =>
+        this.page.locator('[data-testid="peek-grid"]').textContent(),
+      isDone: (seen) => seen !== null && seen !== before,
+      timeoutMs: POLL_TIMEOUT,
+      onTimeout: (last, ms) =>
+        new Error(
+          `both terminals are ${JSON.stringify(before)} after ${ms}ms (now ${JSON.stringify(last)}), so this check proved nothing`,
+        ),
+    });
+  },
+);
+
+Then(
+  "the peek's top bar should not have moved",
+  async function (this: KoluWorld) {
+    const before = this.peekBar;
+    assert.ok(before, "no top bar was noted before switching");
+    const box = await this.page
+      .locator('[data-testid="peek-head"]')
+      .boundingBox();
+    assert.ok(box !== null, "the peek's top bar had no box");
+    const round = (n: number) => Math.round(n);
+    assert.deepStrictEqual(
+      { x: round(box.x), y: round(box.y), width: round(box.width) },
+      { x: round(before.x), y: round(before.y), width: round(before.width) },
+      "the peek's top bar moved when the terminal in it changed size",
+    );
+  },
+);

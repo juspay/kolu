@@ -114,3 +114,22 @@ Feature: Peek at a terminal from the Conductor
     When I type "sentinel-phone" into the peek
     Then the peek should have heard "sentinel-phone"
     And there should be no page errors
+
+  Scenario: Switching to a terminal of another size does not move the peek's top bar
+    Given a repo for the work
+    When I ask the conductor to open the work "two sizes"
+    And I answer the work's question with "hand-over" in the chat
+    And I ask the conductor to run the implementor in the work's repo
+    Then the work column should list the terminal as a member
+    When I go to the member terminal
+    And I enter conductor mode
+    And I ask the conductor to run the implementor in the work's repo
+    Then the work column should list the terminal as a member
+    When I look at the member terminal
+    Then the peek should be open
+    And the peek should list 2 tabs
+    When I note where the peek's top bar is
+    And I switch to the peek's other tab
+    Then the peek's terminal should be a different size
+    And the peek's top bar should not have moved
+    And there should be no page errors

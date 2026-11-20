@@ -13,7 +13,7 @@ import {
   onMount,
   Show,
 } from "solid-js";
-import { DEFAULT_FONT_SIZE } from "terminal-themes";
+import { DEFAULT_FONT_SIZE, getThemeByName } from "terminal-themes";
 import type { TerminalGrid } from "@kolu/xterm-kit/solid";
 import { hostLabel } from "../../host/hostChipTone";
 import { fleetTerminalStanding } from "../../palette/fleetTerminals";
@@ -36,6 +36,7 @@ import {
   fitFontSize,
   peekNatural,
   peekPans,
+  peekWindowSize,
 } from "./peekSize";
 import {
   closePeek,
@@ -148,8 +149,9 @@ const PeekWindow: Component<{ target: PeekTarget }> = (props) => {
     personInputAt(ref);
   };
   const win = createWindowSize();
+  const size = () => peekWindowSize(win);
   const availWidth = () =>
-    layoutMode() === "phone" ? win.width : win.width - 66;
+    layoutMode() === "phone" ? win.width : size().width - 2;
 
   const natural = createMemo(() => {
     const g = grid();
@@ -181,11 +183,12 @@ const PeekWindow: Component<{ target: PeekTarget }> = (props) => {
         })
       : DEFAULT_FONT_SIZE;
   };
-  const bodyStyle = () => {
-    const n = natural();
-    return n === null
-      ? { width: "56rem", height: "28rem", "max-width": "100%" }
-      : { width: `${n.width}px`, height: `${n.height}px`, "max-width": "100%" };
+  const themeBackground = () => {
+    const s = standing();
+    return (
+      getThemeByName(s.kind === "here" ? s.meta.themeName : undefined)
+        .background ?? "var(--color-surface-0)"
+    );
   };
 
   return (
@@ -195,10 +198,15 @@ const PeekWindow: Component<{ target: PeekTarget }> = (props) => {
       }}
       tabIndex={-1}
       onKeyDown={onWindowKey}
+      style={
+        layoutMode() === "phone"
+          ? {}
+          : { width: `${size().width}px`, height: `${size().height}px` }
+      }
       data-testid="terminal-peek"
       data-peek-host={props.target.host}
       data-peek-terminal={props.target.id}
-      class="flex min-w-0 max-w-[calc(100vw-4rem)] max-h-[calc(100dvh-4rem)] flex-col overflow-hidden rounded-xl border border-edge-bright bg-surface-1 shadow-2xl shadow-black/60 sm:min-w-[min(38rem,calc(100vw-4rem))] max-sm:h-[var(--app-h,100dvh)] max-sm:max-h-none max-sm:w-full max-sm:max-w-none max-sm:rounded-none max-sm:border-0 outline-none"
+      class="flex min-w-0 flex-col overflow-hidden rounded-xl border border-edge-bright bg-surface-1 shadow-2xl shadow-black/60 max-sm:h-[var(--app-h,100dvh)] max-sm:max-h-none max-sm:w-full max-sm:max-w-none max-sm:rounded-none max-sm:border-0 outline-none"
     >
       <div
         data-testid="peek-head"
@@ -390,8 +398,8 @@ const PeekWindow: Component<{ target: PeekTarget }> = (props) => {
       </div>
       <div
         data-testid="peek-body"
-        class="relative min-h-0 min-w-0 flex-initial max-sm:flex-1"
-        style={layoutMode() === "phone" ? {} : bodyStyle()}
+        class="relative min-h-0 min-w-0 flex-1"
+        style={{ background: themeBackground() }}
       >
         <Show
           when={lookable()}
@@ -411,10 +419,13 @@ const PeekWindow: Component<{ target: PeekTarget }> = (props) => {
             class="h-full w-full overflow-x-auto overflow-y-hidden"
           >
             <div
-              class="h-full"
               style={{
                 width: natural() === null ? "100%" : `${natural()?.width}px`,
                 "min-width": "100%",
+                height:
+                  natural() === null
+                    ? "100%"
+                    : `min(${natural()?.height}px, 100%)`,
               }}
             >
               <PeekTerminal
