@@ -44,29 +44,32 @@ function posixDir(p: string): string {
 function normalizeRepoPath(baseDir: string, relPath: string): string | null {
   const out: string[] = [];
   for (const seg of baseDir ? baseDir.split("/") : []) {
-    if (seg === "" || seg === ".") continue;
-    if (seg === "..") {
-      if (out.length === 0) return null;
-      out.pop();
-    } else {
-      out.push(seg);
-    }
+    if (!applySegment(out, seg)) return null;
   }
   for (const raw of relPath.split("/")) {
-    let seg: string;
-    try {
-      seg = decodeURIComponent(raw);
-    } catch {
-      return null;
-    }
-    if (seg === "" || seg === ".") continue;
-    if (seg === "..") {
-      if (out.length === 0) return null;
-      out.pop();
-      continue;
-    }
-    if (seg.includes("/") || seg.includes("\\")) return null;
-    out.push(seg);
+    const seg = decodeRelSegment(raw);
+    if (seg === null || !applySegment(out, seg)) return null;
   }
   return out.length ? out.join("/") : null;
+}
+
+function decodeRelSegment(raw: string): string | null {
+  let seg: string;
+  try {
+    seg = decodeURIComponent(raw);
+  } catch {
+    return null;
+  }
+  return seg.includes("/") || seg.includes("\\") ? null : seg;
+}
+
+function applySegment(out: string[], seg: string): boolean {
+  if (seg === "" || seg === ".") return true;
+  if (seg !== "..") {
+    out.push(seg);
+    return true;
+  }
+  if (out.length === 0) return false;
+  out.pop();
+  return true;
 }

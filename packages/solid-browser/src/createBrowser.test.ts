@@ -175,11 +175,4 @@ describe("createBrowser", () => {
     expect(b.canBack()).toBe(false);
     expect(b.canForward()).toBe(false);
   });
-
-  // reset() mutates the same signals navigate() does (proven above: canBack
-  // flips after reset), so a reader holding the stable Browser instance sees
-  // the change. That in-place property is the phase-2 fix — history reset by
-  // *replacing* the instance stranded the toolbar's subscriptions on the dead
-  // object and froze the ◀/▶ buttons; the e2e ("back and forward retrace")
-  // guards the reactive wiring end-to-end.
 });

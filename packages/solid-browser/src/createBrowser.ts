@@ -70,21 +70,29 @@ export function createBrowser<L>(
   const canBack = () => cursor() > 0;
   const canForward = () => cursor() < entries().length - 1;
 
+  const refreshCurrentEntry = (loc: L): void => {
+    const c = cursor();
+    setEntries((es) => {
+      const next = [...es];
+      next[c] = loc;
+      return next;
+    });
+  };
+
+  const pushForkingForward = (loc: L): void => {
+    const forked = [...entries().slice(0, cursor() + 1), loc];
+    const evicted = bounded ? Math.max(0, forked.length - maxEntries) : 0;
+    setEntries(evicted > 0 ? forked.slice(evicted) : forked);
+    setCursor((x) => x + 1 - evicted);
+  };
+
   const navigate = (loc: L): void => {
     const cur = current();
-    const c = cursor();
     if (cur !== null && isSameEntry?.(cur, loc)) {
-      setEntries((es) => {
-        const next = [...es];
-        next[c] = loc;
-        return next;
-      });
+      refreshCurrentEntry(loc);
       return;
     }
-    const next = [...entries().slice(0, c + 1), loc];
-    const overflow = bounded ? Math.max(0, next.length - maxEntries) : 0;
-    setEntries(overflow > 0 ? next.slice(overflow) : next);
-    setCursor((x) => x + 1 - overflow);
+    pushForkingForward(loc);
   };
 
   const back = (): L | null => {

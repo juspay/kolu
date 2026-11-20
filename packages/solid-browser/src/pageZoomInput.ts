@@ -3,11 +3,7 @@
  *  Left alone either one magnifies the whole document
  *  (`visualViewport.scale > 1`), and an app sized to its window never wants
  *  that: the layout keeps the window's width, so magnifying it only pushes the
- *  right-hand side and the bottom off screen (#2354).
- *
- *  A sandboxed frame's wheel events are dispatched to ITS document and never
- *  reach the parent window, so the frame must refuse magnification itself —
- *  with the same rule, not a second copy of it. */
+ *  right-hand side and the bottom off screen (#2354). */
 
 /** Refuse page magnification on `target`. Listens in the CAPTURE phase and
  *  `preventDefault`s every `ctrlKey` wheel it sees, so no descendant can reopen
