@@ -3575,6 +3575,44 @@ Then(
   },
 );
 
+/** THE LINE NAMES ONE STAGE: the words a person sees on the strip — every
+ *  piece of text in it that is drawn at a size an eye can read, so the
+ *  one-pixel spoken-only labels are left out — name the stage asked about,
+ *  and no other of the six. */
+Then(
+  "the work's stage line should name {string} and no other stage",
+  async function (this: KoluWorld, label: string) {
+    await showWorkColumn(this);
+    const strip = workCard(this).locator('[data-testid="stage-strip"]');
+    const LABELS = ["Plan", "Approve", "Build", "Review", "Checks", "Merge"];
+    await pollFor({
+      observe: () =>
+        strip
+          .evaluate((el) => {
+            const seen: string[] = [];
+            const walk = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+            for (let node = walk.nextNode(); node; node = walk.nextNode()) {
+              const parent = node.parentElement;
+              if (parent === null || !parent.checkVisibility()) continue;
+              const box = parent.getBoundingClientRect();
+              if (box.width <= 1 || box.height <= 1) continue;
+              const words = (node.textContent ?? "").trim();
+              if (words !== "") seen.push(words);
+            }
+            return seen.join(" ");
+          })
+          .catch(() => ""),
+      isDone: (seen) =>
+        LABELS.every((one) => seen.includes(one) === (one === label)),
+      timeoutMs: POLL_TIMEOUT,
+      onTimeout: (last, ms) =>
+        new Error(
+          `after ${ms}ms the stage line reads ${JSON.stringify(last)}, not one naming ${JSON.stringify(label)} alone`,
+        ),
+    });
+  },
+);
+
 /** THE STRIP IS THE TIMELINE'S INDEX: a press on a cell shows that stage. */
 When(
   "I press the {string} stage on the work's strip",

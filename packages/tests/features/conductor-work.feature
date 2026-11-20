@@ -394,3 +394,12 @@ Feature: A piece of work is a stored thing
     Then the work column should list the terminal as a member
     And nothing on screen should reach past the window's right edge
     And there should be no page errors
+
+  Scenario: The stage line names the stage the work is in, and no other
+    Given a repo for the work
+    When I ask the conductor to open the work "name the stage"
+    And I answer the work's question with "hand-over" in the chat
+    And I ask the conductor to run the implementor in the work's repo
+    Then the work's stage strip should be at "build"
+    And the work's stage line should name "Build" and no other stage
+    And there should be no page errors
