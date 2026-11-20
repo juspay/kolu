@@ -3,6 +3,7 @@ import type { TerminalId } from "kolu-common/surface";
 import { createSignal } from "solid-js";
 import { render } from "solid-js/web";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import type { FleetTerminalStanding } from "../../palette/fleetTerminals";
 import { Shown } from "../../ui/shown";
 import { closePeek, openPeek, peekTarget } from "./usePeek";
 
@@ -11,7 +12,24 @@ const ID = "11111111-1111-4111-8111-111111111111" as TerminalId;
 const seam = vi.hoisted(() => ({
   props: undefined as Record<string, unknown> | undefined,
   members: new Map<string, unknown>(),
+  opened: [] as unknown[],
 }));
+
+const live = (): FleetTerminalStanding => ({
+  kind: "here",
+  meta: {
+    state: "active",
+    foreground: null,
+    agent: {
+      kind: "claude-code",
+      state: "thinking",
+      summary: "writing the plan",
+      taskProgress: null,
+    },
+  } as never,
+});
+
+const [standing, setStanding] = createSignal<FleetTerminalStanding>(live());
 
 vi.mock("./PeekTerminal", () => ({
   default: (props: Record<string, unknown>) => {
@@ -20,19 +38,10 @@ vi.mock("./PeekTerminal", () => ({
   },
 }));
 vi.mock("../../palette/fleetTerminals", () => ({
-  fleetTerminalStanding: () => ({
-    kind: "here",
-    meta: {
-      state: "active",
-      foreground: null,
-      agent: {
-        kind: "claude-code",
-        state: "thinking",
-        summary: "writing the plan",
-        taskProgress: null,
-      },
-    },
-  }),
+  fleetTerminalStanding: () => standing(),
+}));
+vi.mock("../useOpenTile", () => ({
+  useOpenTile: () => (at: unknown) => seam.opened.push(at),
 }));
 vi.mock("../useWorks", () => ({
   useWorkMembers: () => () => seam.members,
@@ -88,8 +97,10 @@ afterEach(() => {
   for (const dispose of disposers.splice(0)) dispose();
   closePeek();
   setShown(true);
+  setStanding(live());
   seam.props = undefined;
   seam.members = new Map();
+  seam.opened = [];
 });
 
 describe("TerminalPeek", () => {
@@ -159,6 +170,44 @@ describe("TerminalPeek", () => {
     openPeek({ host: "remote:nix@example", id: ID });
     mount();
     setShown(false);
+    expect(peekTarget()).toBeNull();
+  });
+
+  it("says a gone terminal has no screen, and cannot open its tile", () => {
+    setStanding({ kind: "gone" });
+    openPeek({ host: "remote:nix@example", id: ID });
+    mount();
+    const empty = document.querySelector('[data-testid="peek-empty"]');
+    expect(empty?.getAttribute("data-standing")).toBe("gone");
+    expect(empty?.textContent).toContain("terminal gone");
+    expect(document.querySelector('[data-testid="peek-screen"]')).toBeNull();
+    expect(
+      document.querySelector<HTMLButtonElement>(
+        '[data-testid="peek-open-tile"]',
+      )?.disabled,
+    ).toBe(true);
+  });
+
+  it("says a sleeping terminal has no screen either", () => {
+    setStanding({
+      kind: "here",
+      meta: { state: "sleeping" } as never,
+    });
+    openPeek({ host: "remote:nix@example", id: ID });
+    mount();
+    expect(
+      document.querySelector('[data-testid="peek-empty"]')?.textContent,
+    ).toContain("asleep");
+    expect(document.querySelector('[data-testid="peek-screen"]')).toBeNull();
+  });
+
+  it("opens the tile and closes the peek", () => {
+    openPeek({ host: "remote:nix@example", id: ID });
+    mount();
+    document
+      .querySelector<HTMLButtonElement>('[data-testid="peek-open-tile"]')
+      ?.click();
+    expect(seam.opened).toEqual([{ host: "remote:nix@example", id: ID }]);
     expect(peekTarget()).toBeNull();
   });
 });

@@ -16,6 +16,7 @@ import { fleetTerminalStanding } from "../../palette/fleetTerminals";
 import ModalDialog from "../../ui/ModalDialog";
 import { useShown } from "../../ui/shown";
 import { useMemberName } from "../memberNames";
+import { useOpenTile } from "../useOpenTile";
 import { ROLE_WORD } from "../workReadings";
 import { useWorkMembers } from "../useWorks";
 import { liveArm, STATUS_DOT, terminalStatus } from "../terminalStatus";
@@ -69,6 +70,8 @@ const PeekWindow: Component<{ target: PeekTarget }> = (props) => {
     fleetTerminalStanding(props.target.host, props.target.id),
   );
   const status = createMemo(() => terminalStatus(standing()));
+  const lookable = () => liveArm(standing()) !== undefined;
+  const openTileAt = useOpenTile();
   const [grid, setGrid] = createSignal<TerminalGrid | null>(
     liveArm(standing())?.grid ?? null,
   );
@@ -152,6 +155,19 @@ const PeekWindow: Component<{ target: PeekTarget }> = (props) => {
         </Show>
         <button
           type="button"
+          data-testid="peek-open-tile"
+          disabled={standing().kind !== "here"}
+          class="shrink-0 cursor-pointer rounded-md border border-edge-bright bg-surface-0 px-2 py-0.5 text-[0.7rem] font-semibold text-accent hover:text-fg disabled:cursor-default disabled:opacity-40"
+          onClick={() => {
+            const at = props.target;
+            closePeek();
+            openTileAt(at);
+          }}
+        >
+          Open tile ↗
+        </button>
+        <button
+          type="button"
           data-testid="peek-close"
           aria-label="Close"
           class="flex h-6 w-6 shrink-0 cursor-pointer items-center justify-center rounded-md text-fg-2 hover:bg-surface-2 hover:text-fg"
@@ -187,7 +203,7 @@ const PeekWindow: Component<{ target: PeekTarget }> = (props) => {
           </Show>
           <Show when={status().doing}>{(doing) => <> · {doing()}</>}</Show>
         </span>
-        <Show when={grid()}>
+        <Show when={lookable() && grid()}>
           {(g) => (
             <span
               data-testid="peek-grid"
@@ -197,40 +213,56 @@ const PeekWindow: Component<{ target: PeekTarget }> = (props) => {
             </span>
           )}
         </Show>
-        <span
-          data-testid="peek-live"
-          data-phase={held() ? "held" : phase()}
-          class="shrink-0 font-mono text-[0.6rem] text-fg-3"
-        >
-          {held()
-            ? "new output below"
-            : phase() === "live"
-              ? "live"
-              : phase() === "reading"
-                ? "reading the screen…"
-                : "reconnecting…"}
-        </span>
+        <Show when={lookable()}>
+          <span
+            data-testid="peek-live"
+            data-phase={held() ? "held" : phase()}
+            class="shrink-0 font-mono text-[0.6rem] text-fg-3"
+          >
+            {held()
+              ? "new output below"
+              : phase() === "live"
+                ? "live"
+                : phase() === "reading"
+                  ? "reading the screen…"
+                  : "reconnecting…"}
+          </span>
+        </Show>
       </div>
       <div
         data-testid="peek-body"
         class="relative min-h-0 min-w-0 flex-initial"
         style={bodyStyle()}
       >
-        <PeekTerminal
-          host={props.target.host}
-          id={props.target.id}
-          fontSize={DEFAULT_FONT_SIZE}
-          mayType={() => false}
-          onGrid={setGrid}
-          onCell={(c, p) => {
-            setCell(c);
-            setPad(p);
-          }}
-          onPhase={setPhase}
-          onHeld={setHeld}
-          onFocus={setFocused}
-          onHandle={setHandle}
-        />
+        <Show
+          when={lookable()}
+          fallback={
+            <div
+              data-testid="peek-empty"
+              data-standing={standing().kind}
+              class="flex h-full w-full flex-col items-center justify-center gap-1 bg-surface-0 p-8 text-center text-[0.8rem] text-fg-2"
+            >
+              <b class="text-[0.9rem] text-fg">{status().state}</b>
+              <span>There is no screen to show.</span>
+            </div>
+          }
+        >
+          <PeekTerminal
+            host={props.target.host}
+            id={props.target.id}
+            fontSize={DEFAULT_FONT_SIZE}
+            mayType={() => false}
+            onGrid={setGrid}
+            onCell={(c, p) => {
+              setCell(c);
+              setPad(p);
+            }}
+            onPhase={setPhase}
+            onHeld={setHeld}
+            onFocus={setFocused}
+            onHandle={setHandle}
+          />
+        </Show>
       </div>
     </Dialog.Content>
   );
