@@ -1,29 +1,7 @@
-/** Markdown → HTML (raw, pre-sanitization). Pure and DOM-free: `marked` in
- *  GFM mode. The default renderer handles GitHub-Flavored Markdown — headings,
- *  tables, task lists, strikethrough, autolinks, links, images — and passes
- *  inline HTML through verbatim, so `<details>`, `<kbd>`, `<img>`, alignment
- *  wrappers and friends survive to the sanitizer.
- *
- *  What this renderer does NOT support — math/LaTeX, emoji shortcodes,
+/** What this renderer does NOT support — math/LaTeX, emoji shortcodes,
  *  @mentions, #issue/SHA autolinks, and the non-GitHub ecosystem syntaxes — is
  *  catalogued in ../LIMITATIONS.md. Keep it in sync when adding or dropping a
- *  feature here. A ` ```mermaid ` fence still renders here as a plain code
- *  block; `mermaidSources` lists the finished ones so the component can have
- *  them drawn (./diagram) and the sanitizer can swap the drawing in.
- *
- *  Link *and* image policy are deliberately *not* applied here. This layer is
- *  purely structural: it emits the default `<a href=…>` / `<img src=…>` tags,
- *  and the per-slot decisions — "is this href safe? should links be anchors at
- *  all? what target/rel? can this image src load?" — all live in the sanitize
- *  pass (./sanitize). That's where markdown `[]()`/`![]()` and inline
- *  `<a>`/`<img>` converge into one tree, so applying the policy there covers
- *  both halves uniformly instead of re-deriving it per source.
- *
- *  The output is *untrusted* HTML: every caller must run it through
- *  `sanitizeHtml` (see ./sanitize) before inserting it into the DOM. Keeping
- *  this layer DOM-free is deliberate — it lets the parse contract be unit
- *  tested in a plain Node environment, where DOMPurify (and `window`) are
- *  absent. */
+ *  feature here. */
 
 import { escapeHtml } from "@kolu/html-escape";
 import { Marked, type Tokens } from "marked";
@@ -59,21 +37,12 @@ export type RenderOptions = {
   frontMatter?: boolean;
 };
 
-// The fixed GFM extension stack — constant across every instance. These are
-// GitHub-Flavored extensions the base parser dropped: stable heading ids (so
-// in-page anchors + footnote back-refs have landing targets), footnotes, and
-// `> [!NOTE]`-style alerts. The plugins reset their slug/counter state per
-// parse, so the cached instance is safe to reuse across documents.
 function useGfmExtensions(inst: Marked): void {
   inst.use(gfmHeadingId());
   inst.use(markedFootnote());
   inst.use(markedAlert());
 }
 
-/** One `[[wikilink]]` token: an Obsidian-style internal reference. `target`
- *  is the note/path (never empty); `heading` is the optional `#…` fragment;
- *  `alias` is the optional `|…` display override; `embed` marks the `![[…]]`
- *  transclusion form, which this renderer deliberately does NOT expand. */
 interface WikilinkToken {
   type: "wikilink";
   raw: string;
@@ -83,29 +52,15 @@ interface WikilinkToken {
   embed: boolean;
 }
 
-// `[[target]]`, `[[target|alias]]`, `[[target#heading]]`, and the `![[…]]`
-// embed form. Each captured part stops at the structural delimiters (`#`, `|`,
-// `]]`) so `target` / `heading` / `alias` split cleanly. `target` is `+`
-// (non-empty); the others are optional. A newline ends the candidate — a
-// wikilink never spans lines.
 const WIKILINK_RE =
   /^(!)?\[\[([^\][\n|#]+)(?:#([^\][\n|]+))?(?:\|([^\][\n]+))?\]\]/;
 
-// The Obsidian-style `[[wikilink]]` inline extension. It desugars a wikilink
-// into the *same* tagged anchor a repo-relative `[]()` link produces — minted
-// here with `data-md-wikilink` so the sanitizer keeps the marker (it's in the
-// document allowlist) and the component routes the click to the host's
-// pathless, vault-wide resolver instead of the directory-relative one. The
-// `![[…]]` embed (transclusion) form is intentionally left inert: it renders as
-// literal text, never expanded into the referenced note's content.
 function useWikilinkExtension(inst: Marked): void {
   inst.use({
     extensions: [
       {
         name: "wikilink",
         level: "inline",
-        // Point the inline lexer at the next `[[` / `![[` so the default text
-        // tokenizer stops there and this extension gets first refusal.
         start(src: string) {
           return src.match(/!?\[\[/)?.index;
         },
@@ -123,14 +78,7 @@ function useWikilinkExtension(inst: Marked): void {
         },
         renderer(token) {
           const w = token as WikilinkToken;
-          // Embeds are out of scope — emit the literal source so `![[Note]]`
-          // shows as text rather than being silently expanded or half-linked.
           if (w.embed) return escapeHtml(w.raw);
-          // Carry the resolver payload (`target` / `target#heading`) on its own
-          // `data-md-wikilink` attribute — never on `href`. The host reads it
-          // back at the click seam and strips the fragment; the anchor has no
-          // navigable href to validate (or to masquerade as a URL). The marker
-          // alone disambiguates a wikilink from a `[]()` relative link.
           const payload = w.heading ? `${w.target}#${w.heading}` : w.target;
           const display = w.alias ?? payload;
           return `<a href="#" data-md-wikilink="${escapeHtml(payload)}">${escapeHtml(display)}</a>`;
@@ -140,10 +88,6 @@ function useWikilinkExtension(inst: Marked): void {
   });
 }
 
-/** The fence language a code block is labelled with: the first word of its
- *  info string, or "" when unlabelled. Shared by the renderer (which stamps it
- *  on `data-lang`) and `mermaidSources`, so both agree on what a mermaid block
- *  is. */
 function fenceLang(token: Tokens.Code): string {
   return (token.lang ?? "").trim().split(/\s+/)[0] ?? "";
 }
@@ -151,17 +95,10 @@ function fenceLang(token: Tokens.Code): string {
 /** The fence language that draws as a diagram. */
 export const DIAGRAM_LANG = "mermaid";
 
-// The per-slot renderer override — the only thing the parser config varies on.
-// Just the code fence today: carry the fence language on `data-lang` so the
-// sanitize pass can find + syntax-highlight the block (see ./highlight), or
-// swap a drawn diagram in for it (see ./diagram).
 function useCodeFenceRenderer(inst: Marked): void {
   inst.use({
     renderer: {
       code(token) {
-        // The sanitizer allowlists `data-lang` but strips `class`, so this is
-        // what survives to drive highlighting. The body is escaped here;
-        // highlighting replaces it with trusted markup downstream.
         const lang = fenceLang(token);
         const attr = lang ? ` data-lang="${escapeHtml(lang)}"` : "";
         return `<pre><code${attr}>${escapeHtml(token.text)}</code></pre>\n`;
@@ -170,14 +107,6 @@ function useCodeFenceRenderer(inst: Marked): void {
   });
 }
 
-// The document-only raw-HTML boundary. `marked`'s `html` hook fires for both
-// raw *block* HTML (`<div>…`) and inline raw *tags* (`<a>`, `<kbd>`, `<pre>`),
-// so escaping it here neutralizes the whole raw-HTML surface for compact/inline
-// at the token level — markdown-*produced* tags (which never flow through this
-// hook) keep rendering. When `rawHtml` is on (the document preview), return
-// false to fall back to marked's default passthrough. The downstream allowlist
-// can't enforce this (it must keep `<h1>`/`<pre>`/`<a>` for markdown output),
-// so the boundary lives here.
 function useRawHtmlPolicy(inst: Marked, rawHtml: boolean): void {
   inst.use({
     renderer: {
@@ -191,21 +120,12 @@ function useRawHtmlPolicy(inst: Marked, rawHtml: boolean): void {
 function buildMarked(breaks: boolean, rawHtml: boolean): Marked {
   const inst = new Marked({ gfm: true, breaks });
   useGfmExtensions(inst);
-  // Wikilinks are a document-preview feature, scoped to the one variant that
-  // admits a document's full surface (`rawHtml` is true only for the document
-  // preview). The compact/inline intent slots leave `[[…]]` as plain text —
-  // their links are off, so a wikilink anchor would just be unwrapped anyway.
   if (rawHtml) useWikilinkExtension(inst);
   useCodeFenceRenderer(inst);
   useRawHtmlPolicy(inst, rawHtml);
   return inst;
 }
 
-/** The leading YAML front-matter block (`---` … `---`) at the very start of a
- *  document: a `---` fence line, the captured YAML body, a closing `---` fence
- *  line, and its line ending. The body-plus-newline is optional, so the empty
- *  block `---\n---\n` matches too (captured body `""`) rather than slipping
- *  through as normal markdown. Only matches a block at the very start. */
 const FRONT_MATTER_RE =
   /^---[ \t]*\r?\n(?:([\s\S]*?)\r?\n)?---[ \t]*(?:\r?\n|$)/;
 
@@ -222,22 +142,9 @@ export function splitFrontMatter(markdown: string): {
 } {
   const m = FRONT_MATTER_RE.exec(markdown);
   if (!m) return { yaml: null, body: markdown };
-  // `null` means *no* front-matter (no match); a matched-but-empty block
-  // (`---\n---`) leaves the optional body group `undefined`, which coalesces to
-  // the empty string — present, but with no metadata. `renderFrontMatterTable`
-  // treats `""` like a non-mapping and renders no table, so the empty block
-  // still vanishes cleanly.
   return { yaml: m[1] ?? "", body: markdown.slice(m[0].length) };
 }
 
-/** Render one front-matter value into a table cell's text. Scalars print as
- *  their string form; a list of scalars joins with commas (the common `tags:`
- *  case); anything deeper (a nested mapping, or a list holding one) falls back
- *  to compact JSON so the structure stays legible without nested tables. A valid
- *  YAML alias can build a cyclic structure (`a: &a [*a]`), which
- *  `JSON.stringify` rejects with a `TypeError` — degrade to a neutral
- *  placeholder so the row still renders. The result is plain text — the caller
- *  escapes it. */
 function formatFrontMatterValue(value: unknown): string {
   const scalar = (v: unknown): string => {
     if (v == null) return "";
@@ -253,11 +160,6 @@ function formatFrontMatterValue(value: unknown): string {
   return Array.isArray(value) ? value.map(scalar).join(", ") : scalar(value);
 }
 
-/** Render a parsed front-matter mapping as a metadata table — the keys in a
- *  header column, their values beside them, GitHub-faithfully. The table is
- *  marked with `data-md-frontmatter` so the stylesheet can give it its own muted
- *  treatment; its text flows through the same sanitizer as the body, so the
- *  values are escaped downstream. */
 function renderFrontMatterTable(entries: [string, unknown][]): string {
   const rows = entries
     .map(
@@ -270,20 +172,10 @@ function renderFrontMatterTable(entries: [string, unknown][]): string {
   return `<table data-md-frontmatter><tbody>${rows}</tbody></table>\n`;
 }
 
-/** Show a front-matter block we can't tabulate as its verbatim source, in a YAML
- *  code block — so malformed (or non-mapping) metadata stays *visible and
- *  fixable* rather than silently dropped, and never misrenders as a stray `<hr>`
- *  + Setext heading. Tagged `data-lang="yaml"` so the code-block pass highlights
- *  it, and run through the same sanitizer as the body, so the text is escaped. */
 function renderRawFrontMatter(yaml: string): string {
   return `<pre><code data-lang="yaml">${escapeHtml(yaml)}</code></pre>\n`;
 }
 
-/** Render a leading YAML front-matter block. A non-empty top-level mapping
- *  becomes a metadata table; an empty block renders nothing; anything else —
- *  malformed YAML, or a valid scalar/list that isn't a key/value mapping — is
- *  shown raw rather than dropped. A broken `---` block must never blow up the
- *  preview, vanish a user's metadata, or render as a half-parsed table. */
 function renderFrontMatter(yaml: string): string {
   if (yaml.trim() === "") return "";
   let data: unknown;
@@ -341,35 +233,19 @@ function rewriteAlerts(html: string): string {
  *  beside marked-footnote's own `data-footnote-ref` / `data-footnote-backref`.
  *  Net: the markers only ever ride the parser's own footnote refs, never a raw
  *  anchor that merely declared them. */
-// Strip every `data-md-footnote*` attribute from an anchor start tag, in any
-// HTML attribute-value form — bare (`data-md-footnote`), double-/single-quoted
-// (`data-md-footnote="x"`, `='x'`), and unquoted (`data-md-footnote=x`). Scoped
-// to the tag's attribute span only: it never sees text nodes, so prose that
-// merely mentions `data-md-footnote` is untouched, and an unquoted spoof value
-// is consumed whole rather than leaving a dangling `=x` welded onto `<a`.
 const DOC_FOOTNOTE_ATTR =
   /\s+data-md-footnote(?:-backref)?(?:\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]*))?/g;
 
 function rewriteFootnotes(html: string): string {
-  return (
-    html
-      // Drop document-authored markers before re-minting (see the spoof guard
-      // above), but only inside anchor start tags — a global text strip would
-      // corrupt prose containing the literal token and mangle unquoted spoof
-      // attributes. Match the whole `<a …>` open tag and clean its attributes.
-      .replace(/<a\b[^>]*>/g, (tag) => tag.replace(DOC_FOOTNOTE_ATTR, ""))
-      .replace(/<a (?=[^>]*\bdata-footnote-ref\b)/g, "<a data-md-footnote ")
-      .replace(
-        /<a (?=[^>]*\bdata-footnote-backref\b)/g,
-        "<a data-md-footnote-backref ",
-      )
-  );
+  return html
+    .replace(/<a\b[^>]*>/g, (tag) => tag.replace(DOC_FOOTNOTE_ATTR, ""))
+    .replace(/<a (?=[^>]*\bdata-footnote-ref\b)/g, "<a data-md-footnote ")
+    .replace(
+      /<a (?=[^>]*\bdata-footnote-backref\b)/g,
+      "<a data-md-footnote-backref ",
+    );
 }
 
-// The soft-break setting and the raw-HTML toggle are the axes that vary the
-// parser, so cache one configured instance per (breaks, rawHtml). Rendering is
-// synchronous, so a shared instance is safe; the cache just avoids rebuilding
-// the renderer on every call.
 const INSTANCES = new Map<string, Marked>();
 function instance(breaks: boolean, rawHtml: boolean): Marked {
   const key = `${breaks}:${rawHtml}`;
@@ -387,32 +263,16 @@ export function renderMarkdownToRawHtml(
   opts: RenderOptions,
 ): string {
   const inst = instance(opts.breaks ?? true, opts.rawHtml ?? true);
-  // Our config is fully synchronous (no async extensions), so both calls
-  // return a string; the union with Promise only arises under `{ async: true }`.
   if (opts.inline) return inst.parseInline(markdown) as string;
-  // Block parse: split front-matter off the body (so it never renders as a
-  // spurious `<hr>` + Setext heading), parse the body, and normalize alerts.
-  // The split runs for *every* block parse — the body must be stripped whether
-  // or not the metadata is shown, or the compact intent slot would render the
-  // `---` block as an hr + heading. The `frontMatter` option gates only whether
-  // that stripped metadata comes back as a table (document) or is dropped
-  // (compact); both are document-level concerns absent inline.
   const { yaml, body } = splitFrontMatter(markdown);
   const meta =
     (opts.frontMatter ?? true) && yaml !== null ? renderFrontMatter(yaml) : "";
   return meta + rewriteFootnotes(rewriteAlerts(inst.parse(body) as string));
 }
 
-// A fence line: up to three spaces of indent, then a run of three or more
-// backticks or tildes. The closer allows only trailing spaces/tabs after it.
 const FENCE_OPENER_RE = /^ {0,3}(`{3,}|~{3,})/;
 const FENCE_CLOSER_RE = /^ {0,3}(`{3,}|~{3,})[ \t]*$/;
 
-/** Whether a fenced code token's closing fence has arrived. Its `text` cannot
- *  tell: an unclosed fence at the end of the input is still a `code` token,
- *  and one character before the closer completes its text equals the finished
- *  text. Its `raw` can: a finished block's last line is a closing fence — the
- *  same character as the opener, at least as many of them, nothing else. */
 function isFinishedFence(token: Tokens.Code): boolean {
   const lines = token.raw.replace(/\n+$/, "").split("\n");
   if (lines.length < 2) return false;

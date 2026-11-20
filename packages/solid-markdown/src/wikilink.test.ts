@@ -3,7 +3,6 @@ import { resolveWikilink } from "./wikilink";
 
 describe("resolveWikilink", () => {
   it("resolves a bare target by basename, extension implied", () => {
-    // `[[Architecture]]` finds Architecture.md anywhere in the repo.
     expect(
       resolveWikilink({
         target: "Architecture",
@@ -13,9 +12,6 @@ describe("resolveWikilink", () => {
   });
 
   it("implies ONLY `.md`, not an arbitrary same-stem extension", () => {
-    // Regression: `[[lua-filters]]` must resolve to lua-filters.md alone — a
-    // same-stemmed `lua-filters.feature` is NOT a candidate (matching any
-    // extension made near every wikilink spuriously ambiguous).
     expect(
       resolveWikilink({
         target: "lua-filters",
@@ -34,15 +30,12 @@ describe("resolveWikilink", () => {
   });
 
   it("does not match a non-`.md` extension for a bare target", () => {
-    // `[[app]]` finds `app` / `app.md` only — never `app.ts`.
     expect(
       resolveWikilink({ target: "app", repoPaths: ["src/app.ts"] }),
     ).toEqual({ kind: "none" });
   });
 
   it("surfaces candidates when the basename is ambiguous", () => {
-    // Two `Note.md` in different directories — a real ambiguity under the
-    // `.md`-implied rule.
     const res = resolveWikilink({
       target: "Note",
       repoPaths: ["src/Note.md", "nested/src/Note.md"],
@@ -78,7 +71,6 @@ describe("resolveWikilink", () => {
   });
 
   it("honours an explicit extension verbatim", () => {
-    // `[[logo.png]]` matches the png, not a sibling logo.svg.
     expect(
       resolveWikilink({
         target: "logo.png",
@@ -88,7 +80,6 @@ describe("resolveWikilink", () => {
   });
 
   it("narrows a qualified target to the matching directory", () => {
-    // `[[docs/guide]]` opens docs/guide.md, never src/guide.md.
     expect(
       resolveWikilink({
         target: "docs/guide",
@@ -116,7 +107,6 @@ describe("resolveWikilink", () => {
     const nfc = "docs/Amélie".normalize("NFC");
     const nfd = `docs/${"Amélie".normalize("NFD")}.md`;
     const res = resolveWikilink({ target: nfc.slice(5), repoPaths: [nfd] });
-    // Returns the verbatim (NFD) repo entry, matched under NFC.
     expect(res).toEqual({ kind: "unique", path: nfd });
   });
 

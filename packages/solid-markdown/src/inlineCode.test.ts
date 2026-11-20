@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { decorateInlineCode, type InlineCodeAction } from "./inlineCode";
 
-/** A host that can act on exactly one name. */
 const only =
   (name: string, current = false) =>
   (text: string): InlineCodeAction | undefined =>
@@ -26,7 +25,6 @@ describe("inline code a host can act on", () => {
     expect(button?.getAttribute("aria-label")).toBe("Open plan.md");
     expect(button?.getAttribute("aria-current")).toBeNull();
     expect(button?.querySelector("code")?.textContent).toBe("plan.md");
-    // The span it did not answer for stays plain code.
     expect(el.querySelectorAll("button")).toHaveLength(1);
     expect(el.querySelectorAll("code")).toHaveLength(2);
   });

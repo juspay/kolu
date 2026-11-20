@@ -1,15 +1,3 @@
-/** URL-scheme policy shared across the parse (./render) and sanitize
- *  (./sanitize) layers. This is a third, independent axis of change — "which
- *  URL schemes are safe to keep" — owned by neither layer: the renderer
- *  allowlists the hrefs it mints, and the sanitizer re-applies the same policy
- *  to inline-HTML anchors + decides which image srcs load as written. DOM-free,
- *  so the parse contract stays Node-testable. */
-
-// `hasOwnScheme` is the pure URL-*shape* predicate (does a ref carry its own
-// origin?), distinct from this module's *policy* (which schemes are allowed).
-// It lives in the zero-dep `@kolu/url-shape` leaf so `@kolu/solid-browser`'s
-// relative-resolver can share it without depending on this (solid-js +
-// DOMPurify) package.
 import { hasOwnScheme } from "@kolu/url-shape";
 
 export { hasOwnScheme };
@@ -23,15 +11,12 @@ export { hasOwnScheme };
 export function safeHref(href: string): string | undefined {
   const trimmed = href.trim();
   if (trimmed === "") return undefined;
-  if (trimmed.startsWith("#")) return trimmed; // in-page anchor
+  if (trimmed.startsWith("#")) return trimmed;
   let url: URL;
   try {
-    // A relative or protocol-relative ref carries no scheme of its own;
-    // resolving against an https base surfaces the effective protocol so the
-    // check below is uniform for absolute and relative hrefs alike.
     url = new URL(trimmed, "https://markdown.local/");
   } catch {
-    return undefined; // unparseable → treat as unsafe, render as plain text
+    return undefined;
   }
   const ok =
     url.protocol === "http:" ||

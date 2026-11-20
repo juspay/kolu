@@ -22,8 +22,6 @@ describe("renderMarkdownToRawHtml — raw-HTML boundary", () => {
   });
 
   it("still renders markdown-produced tags when rawHtml is off", () => {
-    // `#`/`**` produce <h1>/<strong> via the renderer, not the html hook, so
-    // they survive even with raw HTML escaped.
     const out = renderMarkdownToRawHtml("# Heading\n\n**bold**", {
       rawHtml: false,
     });
@@ -58,16 +56,16 @@ describe("hasOwnScheme", () => {
     expect(hasOwnScheme("https://cdn.example.com/x.png")).toBe(true);
     expect(hasOwnScheme("data:image/png;base64,AAAA")).toBe(true);
     expect(hasOwnScheme("mailto:a@b.com")).toBe(true);
-    expect(hasOwnScheme("//cdn.example.com/x.png")).toBe(true); // protocol-rel
-    expect(hasOwnScheme("#section")).toBe(true); // in-page anchor
-    expect(hasOwnScheme("  https://x.test/a  ")).toBe(true); // trimmed first
+    expect(hasOwnScheme("//cdn.example.com/x.png")).toBe(true);
+    expect(hasOwnScheme("#section")).toBe(true);
+    expect(hasOwnScheme("  https://x.test/a  ")).toBe(true);
   });
 
   it("is false for bare repo-relative paths", () => {
     expect(hasOwnScheme("logo.png")).toBe(false);
     expect(hasOwnScheme("./docs/logo.png")).toBe(false);
     expect(hasOwnScheme("../img/x.png")).toBe(false);
-    expect(hasOwnScheme("/img/x.png")).toBe(false); // root-absolute, not scheme
+    expect(hasOwnScheme("/img/x.png")).toBe(false);
   });
 });
 
@@ -110,12 +108,6 @@ describe("renderMarkdownToRawHtml — GFM structure", () => {
   });
 
   it("emits each task checkbox as its list item's leading element, tight or loose", () => {
-    // A tight list (no blank line between items) puts the checkbox directly
-    // under the <li>; a loose list (blank-line-separated, GitHub's common
-    // README shape) wraps it in the item's leading <p>. The sanitize pass
-    // disables both shapes' checkboxes (read-only), so this pins the GFM
-    // task-list output contract — a marked upgrade that changed the wrapper
-    // would fail here rather than silently altering how checkboxes render.
     const tight = html("- [ ] a\n- [ ] b");
     expect(tight).toContain("<li><input");
     const loose = html("- [ ] a\n\n- [ ] b");
@@ -124,9 +116,6 @@ describe("renderMarkdownToRawHtml — GFM structure", () => {
 });
 
 describe("renderMarkdownToRawHtml — images", () => {
-  // The parse layer just emits <img>; the load-or-fallback decision lives in
-  // the DOM sanitize pass (covered by the e2e suite), where markdown- and
-  // inline-HTML images converge.
   it("emits an <img> with src and alt for a markdown image", () => {
     const out = html("![logo](https://cdn.example.com/logo.png)");
     expect(out).toContain('src="https://cdn.example.com/logo.png"');
@@ -188,30 +177,14 @@ describe("renderMarkdownToRawHtml — GFM extensions", () => {
     expect(out).toContain('href="#footnote-1"');
     expect(out).toContain('<section class="footnotes"');
     expect(out).toContain("the note");
-    // The literal marker must NOT leak as text.
     expect(out).not.toContain("[^1]");
   });
 
   it("flags the forward ref with data-md-footnote and the back-ref with data-md-footnote-backref", () => {
-    // marked-footnote marks a forward reference with the bare `data-footnote-ref`
-    // attribute and the back-ref (↩) with `data-footnote-backref`; both are
-    // stripped by the sanitizer. rewriteFootnotes stamps allowlist-safe sibling
-    // flags — `data-md-footnote` on the forward ref (the host opens its
-    // definition in a popover) and `data-md-footnote-backref` on the back-ref
-    // (the popover strips these from its clone) — so each is recognisable after
-    // sanitization. This test pins BOTH contracts: a marked-footnote bump that
-    // changed either marker fails here loudly rather than silently breaking the
-    // popover (a dangling forward ref) or leaving stray ↩ links in it.
     const out = html("body[^1] more\n\n[^1]: the note");
-    // The forward flag rides the forward ref (which still carries
-    // marked-footnote's own `data-footnote-ref`) and nothing else.
     expect(out).toMatch(/<a data-md-footnote [^>]*data-footnote-ref/);
     expect(out.match(/data-md-footnote(?![-\w])/g)).toHaveLength(1);
-    // The forward ref's href targets the definition <li> (`#footnote-1`); the
-    // host resolves the popover content from that landing id.
     expect(out).toContain('href="#footnote-1"');
-    // The back-ref flag rides the back-ref (which still carries marked-footnote's
-    // own `data-footnote-backref`) — and the forward ref does NOT carry it.
     expect(out).toMatch(
       /<a data-md-footnote-backref [^>]*data-footnote-backref/,
     );
@@ -220,11 +193,6 @@ describe("renderMarkdownToRawHtml — GFM extensions", () => {
   });
 
   it("tags every citation of a re-cited footnote, all pointing at one definition", () => {
-    // A footnote cited twice mints two forward refs (`footnote-ref-1` and
-    // `footnote-ref-1-2`), both linking to the single definition `#footnote-1`.
-    // Both citations carry the forward flag; the definition's two back-refs carry
-    // the back-ref flag, never the forward one. The `(?![-\w])` boundary keeps
-    // the forward count from matching the `data-md-footnote-backref` substring.
     const out = html("a[^1] b[^1]\n\n[^1]: once");
     expect(out.match(/data-md-footnote(?![-\w])/g)).toHaveLength(2);
     expect(
@@ -233,29 +201,18 @@ describe("renderMarkdownToRawHtml — GFM extensions", () => {
     expect(out).not.toMatch(
       /data-md-footnote(?![-\w])[^>]*data-footnote-backref/,
     );
-    // Both back-refs carry the back-ref flag and never the forward one.
     expect(out.match(/data-md-footnote-backref/g)).toHaveLength(2);
   });
 
   it("does not let raw HTML spoof the footnote markers", () => {
-    // `data-md-footnote` is allowlisted, so a README's raw inline HTML could
-    // pre-seed it (bare or valued) to opt an arbitrary anchor into the host's
-    // footnote-popover callback. Like the wikilink guard, app-read data hooks
-    // must be parser-minted: rewriteFootnotes strips any document-authored
-    // `data-md-footnote*` token before re-minting, so a raw anchor that merely
-    // declared the marker carries none of it through.
     const out = html(
       'spoof <a data-md-footnote href="#md-footnote-1">x</a> ' +
         '<a data-md-footnote-backref href="#y">y</a> ' +
         '<a data-md-footnote="bogus" href="#z">z</a> ' +
-        // Single-quoted and unquoted spoof values must also be consumed whole,
-        // not leave a dangling `=val` welded onto the `<a` (the bug F6 caught).
         "<a data-md-footnote='q' href=\"#q\">q</a> " +
         '<a data-md-footnote=bare href="#b">b</a>',
     );
     expect(out).not.toContain("data-md-footnote");
-    // The anchors themselves survive intact (just without the spoofed markers);
-    // none collapsed into `<a=…` and none lost its href.
     expect(out).not.toContain("<a=");
     expect(out).toContain(">x</a>");
     expect(out).toContain(">y</a>");
@@ -265,17 +222,11 @@ describe("renderMarkdownToRawHtml — GFM extensions", () => {
   });
 
   it("leaves prose that merely mentions the marker token untouched", () => {
-    // The spoof strip is scoped to anchor start tags, so a README that writes
-    // the literal `data-md-footnote` in plain text keeps its words — a global
-    // text regex would have deleted the token mid-sentence (the bug F6 caught).
     const out = html("Set the data-md-footnote attribute to enable popovers.");
     expect(out).toContain("Set the data-md-footnote attribute to enable");
   });
 
   it("keeps the parser's footnote markers even when raw HTML pre-seeded one", () => {
-    // The strip-then-remint must not collateral-damage a real footnote that
-    // shares the document with a spoof attempt: the genuine `[^1]` ref still
-    // ends up flagged exactly once.
     const out = html(
       'real[^1] and <a data-md-footnote href="#md-x">fake</a>\n\n[^1]: note',
     );
@@ -289,15 +240,12 @@ describe("renderMarkdownToRawHtml — GFM extensions", () => {
     expect(out).toContain('data-md-alert="warning"');
     expect(out).toContain("data-md-alert-title");
     expect(out).toContain("be careful");
-    // The class-based markup and the literal token must be gone.
     expect(out).not.toContain('class="markdown-alert');
     expect(out).not.toContain("[!WARNING]");
   });
 
   it("renders a leading YAML front-matter block as a metadata table", () => {
     const out = html("---\ntitle: Hello\nauthor: Jane\n---\n\n# Real Heading");
-    // The metadata renders as a marked table at the top, not an hr + Setext
-    // heading, and the body still parses as plain markdown below it.
     expect(out).toContain("<table data-md-frontmatter>");
     expect(out).toContain("<th>title</th><td>Hello</td>");
     expect(out).toContain("<th>author</th><td>Jane</td>");
@@ -317,9 +265,6 @@ describe("renderMarkdownToRawHtml — GFM extensions", () => {
   });
 
   it("renders malformed front-matter raw instead of dropping it", () => {
-    // Unparseable YAML (an unterminated flow sequence) can't become a table —
-    // but it must stay *visible and fixable* as a raw YAML code block, never
-    // silently dropped, and never misrendered as a half-parsed table or hr.
     const out = html("---\ntags: [a, b\n---\n\n# Body");
     expect(out).not.toContain("data-md-frontmatter");
     expect(out).toContain('<code data-lang="yaml">');
@@ -328,8 +273,6 @@ describe("renderMarkdownToRawHtml — GFM extensions", () => {
   });
 
   it("renders a non-mapping front-matter block raw, not as a table", () => {
-    // Valid YAML that isn't a key/value mapping (here a bare scalar) has no
-    // rows to tabulate — show it raw rather than dropping the user's content.
     const out = html("---\njust a bare string\n---\n\n# Body");
     expect(out).not.toContain("data-md-frontmatter");
     expect(out).toContain('<code data-lang="yaml">');
@@ -353,18 +296,12 @@ describe("renderMarkdownToRawHtml — GFM extensions", () => {
   });
 
   it("survives a cyclic YAML alias instead of crashing the preview", () => {
-    // `&a [*a]` is valid YAML but builds a self-referential array, which
-    // `JSON.stringify` rejects — formatting must degrade, not throw, and the
-    // document body must still render.
     const out = html("---\na: &a [*a]\n---\n\n# Body");
     expect(out).toContain('<h1 id="body">Body</h1>');
     expect(out).toContain("data-md-frontmatter");
   });
 
   it("makes an empty front-matter block disappear cleanly", () => {
-    // The shortest form, `---\n---`, has no body and no top-level mapping — it
-    // must vanish (no table, no spurious hr) rather than fall through as
-    // markdown.
     const out = html("---\n---\n# Body");
     expect(out).not.toContain("data-md-frontmatter");
     expect(out).not.toContain("<hr>");
@@ -404,8 +341,6 @@ describe("wikilinks", () => {
   });
 
   it("does not produce wikilinks in intent slots (rawHtml off)", () => {
-    // The compact/inline scales don't admit the wikilink syntax — `[[Note]]`
-    // stays literal there, so a chat message can't mint a file-opening anchor.
     const out = renderMarkdownToRawHtml("[[Note]]", { rawHtml: false });
     expect(out).not.toContain("data-md-wikilink");
   });

@@ -30,12 +30,9 @@
 import libraryUrl from "mermaid/dist/mermaid.min.js?url";
 import frameProgram from "./diagram-frame-program.js?raw";
 
-/** One drawn theme of a diagram: serialized SVG text plus its natural size. */
 export type FrameImage = { svg: string; width: number; height: number };
 export type FrameResult = { light: FrameImage; dark: FrameImage };
 
-/** Mermaid rejected the source. Deterministic for a given text, so callers
- *  may remember it; every other rejection is the renderer itself failing. */
 export class DiagramSyntaxError extends Error {
   override name = "DiagramSyntaxError";
 }
@@ -44,24 +41,12 @@ export class DiagramSyntaxError extends Error {
  *  to prove no frame outlives its diagram; rename both together. */
 const RENDERER_FRAME_ATTR = "data-md-diagram-renderer";
 
-// Gantt and timeline diagrams size themselves to the frame's width, so the
-// frame is as wide as the document reading column (`max-w-3xl` minus its
-// padding) — a diagram then fits the column it is shown in.
 const FRAME_WIDTH_PX = 720;
 
-/** How many frames may draw at once. A fresh frame costs a boot plus a first
- *  render; a few in parallel keep a document with several diagrams from
- *  drawing them strictly one after another, without starting a frame per
- *  block at once. */
 const MAX_FRAMES = 3;
 
-/** How long a frame may take to start, and then to load mermaid and draw. */
 const DEADLINE_MS = 10_000;
 
-/** The largest side a drawn diagram may report. A frame's answer is
- *  untrusted, and its size goes straight onto the `<img>`: a 1 × 10,000,000
- *  answer would be a ten-million-pixel-tall row. Real diagrams are far
- *  smaller; anything outside 1…this is a malformed answer. */
 const MAX_DIAGRAM_SIDE_PX = 16_384;
 
 const FRAME_CSP =
@@ -91,9 +76,6 @@ function deadline<T>(work: Promise<T>, what: string): Promise<T> {
   );
 }
 
-/** A frame's report of one drawn image, checked: string SVG and both sides a
- *  whole number of pixels within 1…{@link MAX_DIAGRAM_SIDE_PX}. Anything else
- *  is `undefined` — a malformed answer. */
 export function parseFrameImage(value: unknown): FrameImage | undefined {
   const v = value as Partial<FrameImage> | null;
   const side = (n: unknown): n is number =>
@@ -138,7 +120,6 @@ function fetchLibrary(): Promise<string> {
   return library;
 }
 
-/** Build a frame, have it draw `source`, and remove it — whatever happens. */
 async function drawInNewFrame(source: string): Promise<FrameResult> {
   const el = document.createElement("iframe");
   el.setAttribute("sandbox", "allow-scripts");
@@ -187,7 +168,6 @@ async function drawInNewFrame(source: string): Promise<FrameResult> {
   }
 }
 
-// The frame budget: a draw waits here for one of the MAX_FRAMES slots.
 let busy = 0;
 const waiting: (() => void)[] = [];
 
@@ -200,18 +180,12 @@ async function withFrameSlot<T>(work: () => Promise<T>): Promise<T> {
   try {
     return await work();
   } finally {
-    // Hand the slot straight to the next waiter, or give it back.
     const next = waiting.shift();
     if (next) next();
     else busy -= 1;
   }
 }
 
-/** Draw one mermaid source in a fresh sandboxed frame, light then dark; the
- *  frame is gone by the time this settles. Rejects with `DiagramSyntaxError`
- *  when mermaid rejects the text, or a plain `Error` saying why when the
- *  renderer itself failed (could not load, did not start, timed out, sent a
- *  malformed answer). At most {@link MAX_FRAMES} draw at once. */
 export function renderInFrame(source: string): Promise<FrameResult> {
   return withFrameSlot(() => drawInNewFrame(source));
 }

@@ -11,7 +11,6 @@ const DRAWN: FrameResult = {
   dark: { svg: "<svg>dark</svg>", width: 11, height: 20 },
 };
 
-/** A fake frame: answers with whatever `answer` says and counts renders. */
 function fakeRender(answer: () => Promise<FrameResult>) {
   const calls: string[] = [];
   return {

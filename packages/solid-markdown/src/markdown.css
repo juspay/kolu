@@ -1,37 +1,15 @@
-/* Rendered-Markdown stylesheet for `@kolu/solid-markdown`, scoped to the
- * `.kolu-md` container the component emits. A GitHub-Flavored reading style
- * that is theme-agnostic by construction: every surface is derived from
- * `currentColor` via `color-mix`, so the block inherits the host's foreground
- * and adapts to any background in either light or dark mode with no theme
- * prop. The single app hook is `--color-accent` (links), read with a sane
- * fallback so the package still renders standalone.
- *
- * Wired into the bundle by an `@import` in `packages/client/src/index.css`
- * (mirroring how the package's Tailwind sources are made explicit there),
- * rather than a component-level CSS import that the package's
- * `sideEffects:false` could tree-shake away.
- *
- * Three scales share these rules and diverge only in the size tokens:
- *   - default (`[data-md-variant="document"]`) — full-pane reading scale.
- *   - `[data-md-variant="compact"]`            — chat/dock intent scale.
- *   - `[data-md-variant="inline"]`             — inline-only, no block layout. */
-
 .kolu-md {
-  /* Scale tokens — overridden per variant below. */
   --md-fs: 0.9375rem;
   --md-lh: 1.65;
   --md-gap: 1rem;
   --md-heading-gap: 1.5rem;
 
-  /* Theme-adaptive surfaces, all relative to the inherited text color. */
   --md-muted: color-mix(in oklch, currentColor 62%, transparent);
   --md-border: color-mix(in oklch, currentColor 18%, transparent);
   --md-border-strong: color-mix(in oklch, currentColor 28%, transparent);
   --md-box: color-mix(in oklch, currentColor 7%, transparent);
   --md-box-faint: color-mix(in oklch, currentColor 4%, transparent);
   --md-link: var(--color-accent, #3b82f6);
-  /* Wikilinks read as a different kind of reference from a regular link, so
-   * they get their own (violet) accent rather than `--color-accent`. */
   --md-wikilink: #8b5cf6;
 
   font-size: var(--md-fs);
@@ -42,7 +20,6 @@
   -webkit-text-size-adjust: 100%;
 }
 
-/* ── Vertical rhythm ─────────────────────────────────────────── */
 .kolu-md p,
 .kolu-md blockquote,
 .kolu-md ul,
@@ -63,7 +40,6 @@
   margin-bottom: 0;
 }
 
-/* ── Headings ────────────────────────────────────────────────── */
 .kolu-md h1,
 .kolu-md h2,
 .kolu-md h3,
@@ -101,7 +77,6 @@
   color: var(--md-muted);
 }
 
-/* ── Inline text ─────────────────────────────────────────────── */
 .kolu-md a {
   color: var(--md-link);
   text-decoration: none;
@@ -109,10 +84,6 @@
 .kolu-md a:hover {
   text-decoration: underline;
 }
-/* Obsidian-style wikilinks (`[[Note]]`) must read as a distinct kind of
- * reference from a regular `[]()` link: a violet accent and bracket glyphs mark
- * it as an internal note reference. The marker is stamped by the renderer and
- * kept through sanitization; the host resolves the target pathless on click. */
 .kolu-md a[data-md-wikilink] {
   color: var(--md-wikilink);
   text-decoration: none;
@@ -172,16 +143,11 @@
   border-radius: 4px;
 }
 
-/* ── Code ────────────────────────────────────────────────────── */
 .kolu-md code {
   font-family:
     ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
   font-size: 0.875em;
 }
-/* Inline code: the `:not(pre) >` guard skips fenced-block code, whose parent
- * is `<pre>`. The `> code` arm catches inline code that the inline variant
- * emits as a *direct* child of the root (no wrapping `<p>`), which the
- * descendant form above would miss. */
 .kolu-md :not(pre) > code,
 .kolu-md > code {
   padding: 0.15em 0.4em;
@@ -205,7 +171,6 @@
   font-size: 0.875em;
 }
 
-/* ── Shiki syntax highlighting (document preview) ─────────────── */
 /* Shiki emits dual-theme output (`defaultColor:false`): each token span carries
  * `--shiki-light` / `--shiki-dark` color variables. We pick the light variable
  * by default and swap to dark under `.dark`. Background stays the `.kolu-md pre`
@@ -222,7 +187,6 @@
   color: var(--shiki-dark);
 }
 
-/* ── Code block wrapper + copy button ────────────────────────── */
 .kolu-md-code {
   position: relative;
   margin: 0 0 var(--md-gap);
@@ -262,7 +226,6 @@
   content: "Copied";
 }
 
-/* ── Blockquote ──────────────────────────────────────────────── */
 .kolu-md blockquote {
   padding: 0 0 0 1em;
   color: var(--md-muted);
@@ -275,7 +238,6 @@
   margin-bottom: 0;
 }
 
-/* ── Lists ───────────────────────────────────────────────────── */
 /* Tailwind v4's preflight resets `ul, ol { list-style: none }` app-wide, so
  * the markers must be re-declared here or every list renders as unmarked
  * indented lines (the marker is otherwise gone). Nested unordered lists step
@@ -304,9 +266,6 @@
 .kolu-md li > ol {
   margin: 0.25em 0 0;
 }
-/* GFM task lists: drop the bullet and pull the row back so the checkbox sits
- * at the list margin, the way GitHub renders them. `:has()` is supported in
- * the app's Chromium runtime. */
 .kolu-md li:has(> input[type="checkbox"]) {
   list-style: none;
   margin-left: -1.4em;
@@ -316,10 +275,6 @@
   vertical-align: middle;
 }
 
-/* ── Tables ──────────────────────────────────────────────────── */
-/* `display:block` + `width:max-content` lets a wide table scroll horizontally
- * inside the reading column instead of forcing the whole page wide — the
- * anonymous table box the rows generate keeps the columns aligned. */
 .kolu-md table {
   display: block;
   width: max-content;
@@ -341,15 +296,7 @@
   background: var(--md-box-faint);
 }
 
-/* ── Front-matter ────────────────────────────────────────────── */
-/* A leading YAML `---` block renders as a metadata table (renderFrontMatter-
- * Table stamps `data-md-frontmatter`). It is *metadata*, not document body, so
- * it reads quieter than a GFM table: no cell grid, a single hairline frame, a
- * faint key column, and dimmed text — a header card that sits above the prose
- * rather than competing with it. */
 .kolu-md table[data-md-frontmatter] {
-  /* Override the generic `display:block` reading-table layout: metadata is a
-   * fixed two-column grid that should fill the column, not scroll. */
   display: table;
   width: 100%;
   margin-bottom: var(--md-gap);
@@ -381,27 +328,22 @@
   white-space: pre-wrap;
   word-break: break-word;
 }
-/* Reset the striping the generic table rule paints onto even rows. */
 .kolu-md table[data-md-frontmatter] tbody tr:nth-child(even) {
   background: transparent;
 }
 
-/* ── Rule ────────────────────────────────────────────────────── */
 .kolu-md hr {
   height: 1px;
   border: 0;
   background: var(--md-border);
 }
 
-/* ── Images ──────────────────────────────────────────────────── */
 .kolu-md img {
   max-width: 100%;
   height: auto;
   border-radius: 6px;
   vertical-align: middle;
 }
-/* A repo-relative image that can't load here renders as a labelled chip
- * instead of a broken-image icon (see render.ts). */
 .kolu-md .kolu-md-img-fallback {
   display: inline-flex;
   align-items: center;
@@ -422,7 +364,6 @@
   font-size: 0.9em;
 }
 
-/* ── Details / Summary ───────────────────────────────────────── */
 .kolu-md details {
   padding: 0.5em 1em;
   background: var(--md-box-faint);
@@ -437,7 +378,6 @@
   margin-bottom: 0.5em;
 }
 
-/* ── Alignment wrappers (e.g. <p align="center">) ────────────── */
 .kolu-md [align="center"] {
   text-align: center;
 }
@@ -448,7 +388,6 @@
   text-align: left;
 }
 
-/* ── Definition lists (raw <dl>/<dt>/<dd>) ───────────────────── */
 .kolu-md dt {
   font-weight: 600;
 }
@@ -456,7 +395,6 @@
   margin: 0 0 0.25em 1.5em;
 }
 
-/* ── Figures + table caption ─────────────────────────────────── */
 .kolu-md figure {
   text-align: center;
 }
@@ -474,12 +412,6 @@
   margin-bottom: 0.3em;
 }
 
-/* ── Mermaid diagrams ────────────────────────────────────────── */
-/* A drawn ` ```mermaid ` block is a `<figure data-md-diagram>` holding two
- * images, one per theme (see sanitize.ts). Like the Shiki colour swap above,
- * the light image shows by default and the dark one under `.dark`, so a theme
- * switch never re-renders. Each image carries its natural size: it scales
- * down to the column and is never upscaled. */
 .kolu-md figure[data-md-diagram] img {
   display: block;
   max-width: 100%;
@@ -494,7 +426,6 @@
 .dark .kolu-md figure[data-md-diagram] img[data-md-scheme="dark"] {
   display: block;
 }
-/* Why a finished mermaid block could not be drawn, under its source. */
 .kolu-md [data-md-diagram-error] {
   margin-top: calc(var(--md-gap) * -0.5);
   font-size: 0.85em;
@@ -502,20 +433,10 @@
   white-space: pre-wrap;
 }
 
-/* ── GFM footnotes (marked-footnote) ─────────────────────────── */
-/* The reference superscript links down to a "Footnotes" section at the end.
- * marked-footnote's `class="sr-only"` on the section heading is stripped by
- * the allowlist, so it shows as a small label rather than being hidden — fine
- * for a reading preview. */
 .kolu-md sup a {
   text-decoration: none;
   padding: 0 0.1em;
 }
-/* A clickable footnote marker (the forward ref, tagged `data-md-footnote` by
- * the renderer) reads as a button that opens the note in place: a pointer
- * cursor and a subtle `currentColor` hover tint, matching the stylesheet's
- * theme-agnostic idiom. The back-ref ↩ in the bottom list is untagged and
- * stays a plain jump link. */
 .kolu-md a[data-md-footnote] {
   cursor: pointer;
   padding: 0 0.15em;
@@ -539,10 +460,6 @@
   border-bottom: 0;
 }
 
-/* ── GitHub alerts (> [!NOTE] etc.) ──────────────────────────── */
-/* render.ts rewrites marked-alert's `class="markdown-alert markdown-alert-X"`
- * to a `data-md-alert="X"` attribute (the allowlist drops `class`), and the
- * injected octicon SVG is stripped — the icon comes from CSS instead. */
 .kolu-md [data-md-alert] {
   margin: 0 0 var(--md-gap);
   padding: 0.6em 1em;
@@ -560,9 +477,6 @@
 .kolu-md [data-md-alert] > :last-child {
   margin-bottom: 0;
 }
-/* The colored left border + colored bold title carry the alert type — no
- * icon glyph, which keeps it robust across platforms (emoji fonts vary) and
- * needs no SVG (the octicon the extension injects is stripped anyway). */
 .kolu-md [data-md-alert-title] {
   font-weight: 600;
   text-transform: capitalize;
@@ -584,14 +498,12 @@
   --md-alert-color: #e5534b;
 }
 
-/* ── Compact scale (chat / dock intent body) ─────────────────── */
 .kolu-md[data-md-variant="compact"] {
   --md-fs: 0.8rem;
   --md-lh: 1.5;
   --md-gap: 0.5rem;
   --md-heading-gap: 0.75rem;
 }
-/* No heading rules / borders at chat scale — headings read as bold lines. */
 .kolu-md[data-md-variant="compact"] :is(h1, h2, h3, h4, h5, h6) {
   font-size: 1em;
   padding-bottom: 0;
@@ -602,23 +514,16 @@
   border-radius: 6px;
 }
 
-/* ── Inline variant (single-line annotation slots) ───────────── */
 .kolu-md[data-md-variant="inline"] {
   font-size: inherit;
   line-height: inherit;
 }
-/* Direct-child arm (`> code`) included: the inline parse emits a leading
- * codespan as a direct child of the inline root, which the descendant form
- * (`:not(pre) > code`) would not reach. */
 .kolu-md[data-md-variant="inline"] :not(pre) > code,
 .kolu-md[data-md-variant="inline"] > code {
   padding: 0.1em 0.3em;
   background: color-mix(in oklch, currentColor 12%, transparent);
   border-radius: 3px;
 }
-/* Inline code the host can act on (`inlineCode`): a real button around the
- * same code, so it reads as the code it is, coloured and underlined as a link
- * — and filled while it is the one the host has open (`aria-current`). */
 .kolu-md button[data-md-code-action] {
   all: unset;
   cursor: pointer;

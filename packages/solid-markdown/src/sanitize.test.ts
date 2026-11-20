@@ -77,7 +77,6 @@ describe("sanitizeHtml — document allowlist", () => {
 describe("sanitizeHtml — mermaid diagrams", () => {
   const SOURCE = "flowchart TD\n  A --> B";
   const MARKDOWN = `Before.\n\n\`\`\`mermaid\n${SOURCE}\n\`\`\`\n\nAfter.`;
-  // A hostile drawing: the SVG text carries a script and an event handler.
   const svgUrl = (fill: string) =>
     `data:image/svg+xml;charset=utf-8,${encodeURIComponent(
       `<svg xmlns="http://www.w3.org/2000/svg" onload="window.__xss=1"><script>window.__xss=2</script><rect fill="${fill}"/></svg>`,
@@ -142,8 +141,6 @@ describe("sanitizeHtml — mermaid diagrams", () => {
 
         expect(root.querySelector("pre")?.textContent).toBe(SOURCE);
         expect(error?.textContent).toBe(FAILURE);
-        // The note sits under its block (in the document scope, under the
-        // copy-button wrapper), never above it.
         expect(error?.previousElementSibling?.textContent).toContain(SOURCE);
         expect(error?.querySelector("img")).toBeNull();
         expect(root.querySelector("figure")).toBeNull();

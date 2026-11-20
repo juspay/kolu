@@ -1,25 +1,7 @@
-// The program that runs INSIDE a sandboxed diagram frame (see
-// ./diagram-frame.ts, which inlines this file into the frame's `srcdoc` as
-// text). It is the only code that ever calls mermaid, and it never touches
-// kolu's page: the frame is `sandbox="allow-scripts"`, an opaque origin with
-// no access to the parent's DOM, cookies or storage. Its CSP blocks fetches,
-// images and sockets — but not every way out (a script here can still
-// navigate the frame, or send WebRTC packets). So the frame is single-use: it
-// draws ONE diagram and is thrown away, and never holds more than that one
-// block's text.
-//
-// Protocol, parent ⇄ frame (every message is checked against its sender):
-//   frame  → { kind: "hello" }                   the program is running
-//   parent → { kind: "draw", library, source }   mermaid's single-file build, as text
-//   frame  → { kind: "boot-error", message }
-//          | { kind: "result", ok: true, light, dark }
-//          | { kind: "result", ok: false, message }
-//
 // Plain JavaScript on purpose: it is shipped verbatim, never bundled.
 
 /* global mermaid */
 
-/** The one request this frame answers; any later one is ignored. */
 let asked = false;
 
 /** Post to the parent. The frame's own origin is opaque, and the parent's
@@ -89,8 +71,6 @@ async function draw(library, source) {
     return;
   }
   try {
-    // Light first, then dark: the page shows one or the other by its `.dark`
-    // class, so a theme switch never re-renders.
     const light = await renderTheme(source, "default");
     const dark = await renderTheme(source, "dark");
     reply({ kind: "result", ok: true, light, dark });
@@ -110,7 +90,6 @@ addEventListener("message", (event) => {
     typeof msg.source === "string"
   ) {
     asked = true;
-    // `draw` reports every outcome to the parent itself and never rejects.
     void draw(msg.library, msg.source);
   }
 });
