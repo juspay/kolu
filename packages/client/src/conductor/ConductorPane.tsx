@@ -51,9 +51,9 @@ import ConductorStatus from "./ConductorStatus";
 import ConductorStrip from "./ConductorStrip";
 import ConductorTranscript from "./ConductorTranscript";
 import WorkColumn from "./WorkColumn";
-import { ConductorHelpColumn, ConductorHelpSheet } from "./ConductorHelp";
+import { ConductorHelpSheet } from "./ConductorHelp";
 import TerminalPeek from "./peek/TerminalPeek";
-import { conductorHelpColumn, conductorWide } from "./conductorLayout";
+import { conductorWide } from "./conductorLayout";
 import { useConductor } from "./useConductor";
 import { exitConductorMode } from "./useConductorMode";
 import { createConductorTranscript } from "./useConductorTranscript";
@@ -174,13 +174,10 @@ const ConductorPane: Component<{
   const cardsShown = (): boolean => shown() && !reading();
   /** THE FRAME'S TRACKS, spelled out rather than built — Tailwind reads the
    *  source for its class names, so an arbitrary track list assembled at run
-   *  time is a grid with no CSS behind it. Order is always help ·
-   *  conversation · reader · work; a track with nothing in it is `0px`. */
+   *  time is a grid with no CSS behind it. Order is always conversation ·
+   *  reader · work; a track with nothing in it is `0px`. */
   const tracks = (): string => {
-    if (!reading())
-      return conductorHelpColumn()
-        ? "grid-cols-[calc(var(--container-conductor-help)+var(--spacing-conductor-gutter))_minmax(0,1fr)_auto]"
-        : "grid-cols-[minmax(0,1fr)_auto]";
+    if (!reading()) return "grid-cols-[minmax(0,1fr)_auto]";
     if (!conductorWide()) return "grid-cols-[0px_minmax(0,1fr)]";
     return chatAside()
       ? "grid-cols-[0px_minmax(0,1fr)_0px]"
@@ -233,37 +230,25 @@ const ConductorPane: Component<{
               onSignIn={() => orch.askSignIn()}
             />
             {/* THE FRAME. Tracks declared once and ALWAYS declared: the
-                reading column, the side column beside it on a window wide
-                enough for both, and — one width further out — the HELP as a
-                third track at the head of the row (`conductorLayout.ts`).
-                The side track is `auto`, so with no side column it is simply
-                zero wide: the conversation does not re-flow into a different
-                grid when the panel appears, and the frame on a wide window is
-                constant whether or not anything is being watched.
-
-                THE HELP'S TRACK IS A FIXED WIDTH — its own measure plus the
-                gutter — and it does NOT change when the help is collapsed:
-                the rail sits at the track's start and the rest is margin. So
-                collapsing gives the space back, while the reading column,
-                centred in a track whose width the collapse cannot touch,
-                stays exactly where it was (`ConductorHelp.tsx`).
+                reading column and, on a window wide enough for both, the side
+                column beside it (`conductorLayout.ts`). The side track is
+                `auto`, so with no side column it is simply zero wide: the
+                conversation does not re-flow into a different grid when the
+                panel appears, and the frame on a wide window is constant
+                whether or not anything is being watched.
 
                 A FILE OPEN CHANGES WHAT THE TRACKS ARE FOR, and nothing else:
                 the reader takes about two thirds, the conversation keeps the
-                third beside it, the work column gives way to zero and the
-                help folds (`readerTracks`). Everything but the help stays
-                MOUNTED at zero width — `content-visibility: hidden` and
-                `inert`, the same trick `App.tsx` retains this whole pane with
-                — so "← Work" is a width changing back, not a column of cards
-                and a transcript being built again. */}
+                third beside it and the work column gives way to zero.
+                Everything stays MOUNTED at zero width — `content-visibility:
+                hidden` and `inert`, the same trick `App.tsx` retains this
+                whole pane with — so "← Work" is a width changing back, not a
+                column of cards and a transcript being built again. */}
             <div
               data-testid="conductor-frame"
               data-reading={reading() ? "" : undefined}
               class={`grid min-h-0 flex-1 ${tracks()}`}
             >
-              <Show when={conductorHelpColumn() && !reading()}>
-                <ConductorHelpColumn />
-              </Show>
               {/* ONE COLUMN FOR ALL THREE. The transcript, the status line and
                   the composer are the same measure and the same centre line,
                   so a reply, what it is doing and what you type to it read as
@@ -379,9 +364,8 @@ const ConductorPane: Component<{
                 </Shown.Provider>
               </Show>
             </div>
-            {/* THE SAME WORDS AS A SHEET, mounted once and opened from the
-                `⋯` menu wherever the help is not a column — a phone, and any
-                window below the width the column needs. */}
+            {/* THE HELP, as a sheet mounted once and opened from the header's
+                `?` or the `⋯` menu's How to use. */}
             <ConductorHelpSheet />
             <TerminalPeek />
           </>

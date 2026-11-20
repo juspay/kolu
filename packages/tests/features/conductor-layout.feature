@@ -5,9 +5,8 @@ Feature: The Conductor reads as a conversation
   hold that column and the work beside it, the work in progress stands next to
   the conversation and is always on screen; below that width, and on a phone,
   it is the column the status line's count opens. It is the SAME column in
-  both places, with the same card open in it. On a window wider still the help
-  is a third track at the head of the frame, collapsible into a rail and
-  remembered; everywhere else it is one entry in the `⋯` menu.
+  both places, with the same card open in it. The help is a sheet, one press
+  away behind the `?` in the header and the `⋯` menu's How to use.
 
   Nothing in here reads `0`: a conversation with no work in progress says
   nothing about counts, and there is no control that would open an empty
@@ -75,42 +74,28 @@ Feature: The Conductor reads as a conversation
     And nothing on screen should reach past the window's right edge
     And there should be no page errors
 
-  Scenario: The help is the third track, and what you shut stays shut
-    # The conversation teaches itself: a third column at the head of the
-    # frame, open the first time you arrive. Shut it and it is a rail with
-    # one way back in — and it is still shut after a reload, because whether
-    # it is open rides the same persisted preference every other remembered
-    # panel in this app does. Where it IS a column the `⋯` menu does not
-    # offer the same words a second time; where it is not, that entry is the
-    # only way to them.
-    #
-    # At 1440px, which is over the three-column width and under an ordinary
-    # laptop's: the frame is the thing this scenario is about, not the
-    # roomiest window it could have been given.
+  Scenario: The help opens from the question mark, at every width
+    # The words are short enough to read whole on a laptop: six sections and
+    # nothing to scroll. The `?` is in the header at every desktop width, so a
+    # narrow window reaches the help the way a wide one does.
     When I resize the viewport to 1440x900
-    Then the conductor help column should be open
-    And the help column should teach the conversation, docs and all
-    And the conductor menu should not offer How to use
-    When I collapse the conductor help
-    Then the conductor help column should be a rail with one way back in
-    When I reload the page and wait for ready
-    And I enter conductor mode
-    Then the conductor help column should be a rail with one way back in
-    When I reopen the conductor help
-    Then the conductor help column should be open
-    When I resize the viewport to 1280x768
-    Then the conductor should have no help column
-    When I open How to use from the conductor menu
+    And I open the conductor help
     Then the help sheet should be open
     And the help sheet should teach the conversation, docs and all
+    And the help sheet should fit without scrolling
+    When I press Escape
+    Then the help sheet should not be open
+    And the conductor pane should be visible
+    When I resize the viewport to 900x768
+    And I open the conductor help
+    Then the help sheet should be open
     And there should be no page errors
 
   @mobile
   Scenario: The phone reaches the same words from the menu, inside its 390px
-    # No column on a phone — there is no room for a third track — so the one
-    # entry in the `⋯` menu opens the SAME words as a sheet, and the sheet
-    # stays inside the window like everything else in the conversation.
-    Then the conductor should have no help column
+    # A phone's header has no `?`, so the one entry in the `⋯` menu opens the
+    # SAME words as a sheet, and the sheet stays inside the window like
+    # everything else in the conversation.
     When I open How to use from the conductor menu
     Then the help sheet should be open
     And the help sheet should teach the conversation, docs and all
@@ -130,8 +115,6 @@ Feature: The Conductor reads as a conversation
     And there should be no page errors
 
   Scenario: Esc closes the help sheet and stays in the Conductor
-    When I resize the viewport to 1280x768
-    Then the conductor should have no help column
     When I open How to use from the conductor menu
     Then the help sheet should be open
     When I press Escape

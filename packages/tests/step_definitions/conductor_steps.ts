@@ -2528,40 +2528,36 @@ When(
   },
 );
 
-// ── The help: a column in the gutter, a sheet from the menu ──
+// ── The help: a sheet behind the header's `?` and the menu's How to use ──
 //
-// One set of words in two frames (`helpContent.ts`). These steps never read
+// One set of words in one frame (`helpContent.ts`). These steps never read
 // the sentences themselves — a help text is meant to be reworded — they read
-// the SECTIONS it promises and which frame they arrived in, so a rewrite
-// passes and a section quietly dropped does not.
+// the SECTIONS it promises and the frame they arrived in, so a rewrite passes
+// and a section quietly dropped does not.
 
-const HELP = '[data-testid="conductor-help"]';
-const HELP_TOGGLE = '[data-testid="conductor-help-toggle"]';
+const HELP_OPEN = '[data-testid="conductor-help-open"]';
 const HELP_CONTENT = '[data-testid="conductor-help-content"]';
 const HELP_SECTION = '[data-testid="conductor-help-section"]';
 const HELP_SHEET = '[data-testid="conductor-help-sheet"]';
+const HELP_BODY = '[data-testid="conductor-help-body"]';
 const MENU_HELP = '[data-testid="conductor-menu-help"]';
 
-/** The sections the panel promises, in order — the id each section rides as
+/** The sections the sheet promises, in order — the id each section rides as
  *  data, not its heading, so rewording a heading is not a broken test. */
 const HELP_SECTIONS = [
   "ask",
   "waterfall",
-  "while-it-works",
   "the-card",
   "terminals",
   "the-lock",
-  "files",
-  "mid-work",
-  "wakes",
   "asks",
 ];
 
-/** What one copy of the help is showing, as `id,id,…` — or why it is not
- *  readable, so a failure says which. */
+/** What the help is showing, as `id,id,…` — or why it is not readable, so a
+ *  failure says which. */
 async function helpSectionsIn(
   world: KoluWorld,
-  placement: "column" | "sheet",
+  placement: "sheet",
 ): Promise<string> {
   const copy = `${HELP_CONTENT}[data-placement="${placement}"]`;
   if ((await world.page.locator(copy).count()) === 0) {
@@ -2576,46 +2572,9 @@ async function helpSectionsIn(
   ).join(",");
 }
 
-Then(
-  "the conductor help column should be open",
-  async function (this: KoluWorld) {
-    await waitForValue(
-      "the help column's open state",
-      async () =>
-        (await this.page.locator(HELP).getAttribute("data-open")) ?? "absent",
-      "true",
-    );
-  },
-);
-
-Then(
-  "the conductor help column should be a rail with one way back in",
-  async function (this: KoluWorld) {
-    await waitForValue(
-      "the help column's open state",
-      async () =>
-        (await this.page.locator(HELP).getAttribute("data-open")) ?? "absent",
-      "false",
-    );
-    // Collapsed it carries its words no longer, and exactly one control.
-    await waitForCount(this, `${HELP} ${HELP_CONTENT}`, 0);
-    await waitForCount(this, `${HELP} ${HELP_TOGGLE}`, 1);
-  },
-);
-
-Then(
-  "the conductor should have no help column",
-  async function (this: KoluWorld) {
-    await waitForCount(this, HELP, 0);
-  },
-);
-
-When("I collapse the conductor help", async function (this: KoluWorld) {
-  await this.page.locator(`${HELP} ${HELP_TOGGLE}`).click();
-});
-
-When("I reopen the conductor help", async function (this: KoluWorld) {
-  await this.page.locator(`${HELP} ${HELP_TOGGLE}`).click();
+/** The header's `?` — the help one press away, at every desktop width. */
+When("I open the conductor help", async function (this: KoluWorld) {
+  await this.page.locator(HELP_OPEN).click();
 });
 
 When(
@@ -2628,25 +2587,9 @@ When(
 );
 
 Then(
-  "the conductor menu should not offer How to use",
-  async function (this: KoluWorld) {
-    // Where the help is already a column, the menu entry would be a second
-    // door to the words standing open beside it.
-    await this.page.locator(MENU).click();
-    await waitForAtLeastOne(this, MENU_PANEL);
-    await waitForCount(this, MENU_HELP, 0);
-    await this.page.locator(MENU).click();
-    await waitForCount(this, MENU_PANEL, 0);
-  },
-);
-
-Then(
   "the help {word} should teach the conversation, docs and all",
   async function (this: KoluWorld, placement: string) {
-    assert.ok(
-      placement === "column" || placement === "sheet",
-      `the help has no ${placement} placement`,
-    );
+    assert.ok(placement === "sheet", `the help has no ${placement} placement`);
     await waitForValue(
       `the sections of the help's ${placement}`,
       () => helpSectionsIn(this, placement),
@@ -2660,6 +2603,23 @@ Then(
       (await docs.getAttribute("href")) ?? "",
       /\/conductor\/$/,
       "the help's Full docs link does not point at the Conductor's own page",
+    );
+  },
+);
+
+/** THE WHOLE HELP AT ONCE: the sheet's body holds every word without a
+ *  scrollbar — the point of making it short. */
+Then(
+  "the help sheet should fit without scrolling",
+  async function (this: KoluWorld) {
+    await waitForValue(
+      "the help sheet's overflow",
+      () =>
+        this.page.locator(`${HELP_SHEET} ${HELP_BODY}`).evaluate((body) => {
+          const over = body.scrollHeight - body.clientHeight;
+          return over <= 0 ? "fits" : `${over}px past the bottom`;
+        }),
+      "fits",
     );
   },
 );

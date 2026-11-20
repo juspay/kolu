@@ -4835,3 +4835,57 @@ retirements:
       file: packages/tests/features/conductor.feature
       symbol: "Scenario: Look reads the agent's screen from inside the chat"
       test: The same journey, re-run against the same steps; this revision changed only how the peek is opened and closed, and what stays open across a round trip.
+  - id: replace-f79507f98c15d19ee617
+    revisionId: revision-f79507f98c15d19ee617
+    action: replace
+    status: landed
+    promise: The help is the third track, and what you shut stays shut
+    defectSurface: [conductor, conductor-help]
+    destinationLayer: L1
+    replacements:
+      - file: packages/client/src/conductor/helpContent.test.ts
+        test: "the Conductor's help > has six sections in order and sixteen bullets"
+        lane: unit
+        platforms: [linux, darwin]
+        realism: [production-help-content]
+        reviewEvidence:
+          file: packages/client/src/conductor/helpContent.test.ts
+          test: "the Conductor's help > has six sections in order and sixteen bullets"
+          note: "Not yet confirmed: a human must confirm this. The help column, its rail and its remembered open state were removed; the help is one sheet behind the header's ? and the menu's How to use. The browser survivor opens that sheet at two widths and checks it fits unscrolled; the unit test pins its six sections."
+    survivorRevisionIds: [revision-9ea78cb1a9fd7328deb8]
+  - id: replace-9fd4f8b3f61bd28beac6
+    revisionId: revision-9fd4f8b3f61bd28beac6
+    action: replace
+    status: landed
+    promise: The phone reaches the same words from the menu, inside its 390px
+    defectSurface: [conductor, conductor-help, mobile]
+    destinationLayer: L1
+    replacements:
+      - file: packages/client/src/conductor/helpContent.test.ts
+        test: "the Conductor's help > has six sections in order and sixteen bullets"
+        lane: unit
+        platforms: [linux, darwin]
+        realism: [production-help-content]
+        reviewEvidence:
+          file: packages/client/src/conductor/helpContent.test.ts
+          test: "the Conductor's help > has six sections in order and sixteen bullets"
+          note: "Not yet confirmed: a human must confirm this. The revision only drops its first line, `Then the conductor should have no help column`: there is no help column at any width now. The rest of the journey is the survivor, unchanged."
+    survivorRevisionIds: [revision-8321892b2d7458dec031]
+  - id: replace-934ffdec7574d094c2e3
+    revisionId: revision-934ffdec7574d094c2e3
+    action: replace
+    status: landed
+    promise: Esc closes the help sheet and stays in the Conductor
+    defectSurface: [conductor, conductor-help]
+    destinationLayer: L1
+    replacements:
+      - file: packages/client/src/conductor/helpContent.test.ts
+        test: "the Conductor's help > has six sections in order and sixteen bullets"
+        lane: unit
+        platforms: [linux, darwin]
+        realism: [production-help-content]
+        reviewEvidence:
+          file: packages/client/src/conductor/helpContent.test.ts
+          test: "the Conductor's help > has six sections in order and sixteen bullets"
+          note: "Not yet confirmed: a human must confirm this. The revision only drops its first two lines, the resize below the help column's width and `Then the conductor should have no help column`: the menu offers How to use at every width now. The Esc journey is the survivor, unchanged."
+    survivorRevisionIds: [revision-8bcafdbc869e5a36cc28]

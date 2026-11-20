@@ -12298,6 +12298,42 @@
       "exampleRows": [],
       "executions": 1,
       "firstSeenSha": "f1580398e94c80e21c58d224e08fec7d802fff9d"
+    },
+    {
+      "revisionId": "revision-8bcafdbc869e5a36cc28",
+      "scenarioKey": "scenario-c92c19b1b9c65a3b1747",
+      "feature": "features/conductor-layout.feature",
+      "scenario": "Esc closes the help sheet and stays in the Conductor",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "7e53f2ac0efb3304815c0c1f7784f0f3ee70471c6661054e239f897c410748f6",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "c2c509b75eb6be1843b46297db801a993cab1a39"
+    },
+    {
+      "revisionId": "revision-9ea78cb1a9fd7328deb8",
+      "scenarioKey": "scenario-2389fb993c4dd6363eb7",
+      "feature": "features/conductor-layout.feature",
+      "scenario": "The help opens from the question mark, at every width",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "7144559e68479a6e378ef3b186e16bbeb4c3c9301d1eeb62aaa158813efdccc4",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "c2c509b75eb6be1843b46297db801a993cab1a39"
+    },
+    {
+      "revisionId": "revision-8321892b2d7458dec031",
+      "scenarioKey": "scenario-f317ab033f62238ef993",
+      "feature": "features/conductor-layout.feature",
+      "scenario": "The phone reaches the same words from the menu, inside its 390px",
+      "kind": "scenario",
+      "tags": ["@mobile"],
+      "bodyHash": "5e44cc96170caa5c3efa77ca332c07e13a8e843b2eb1842be443dc66d236df2c",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "c2c509b75eb6be1843b46297db801a993cab1a39"
     }
   ]
 }

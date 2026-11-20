@@ -18,10 +18,7 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import {
-  CONDUCTOR_HELP_FALLBACK,
-  CONDUCTOR_WIDE_FALLBACK,
-} from "./conductorLayout";
+import { CONDUCTOR_WIDE_FALLBACK } from "./conductorLayout";
 
 // `fileURLToPath` + `node:path`, not `new URL(…, import.meta.url)`: the test
 // env's global `URL` is the browser one, which rejects a `file:` base.
@@ -50,38 +47,14 @@ describe("the Conductor's two-column breakpoint", () => {
     );
   });
 
-  it("is the two-column sum plus the help's own track", () => {
-    // THE THIRD TRACK, counted exactly once: the help column and the gutter
-    // beside it, on top of the width the other two already need. Its track
-    // is the same width open or collapsed (`ConductorHelp.tsx`), so this one
-    // number is the whole of what the frame costs — and a window below it
-    // gets the `⋯` menu's sheet instead of a squeezed conversation.
-    expect(rem("--breakpoint-conductor-help")).toBe(
-      rem("--breakpoint-conductor-wide") +
-        rem("--container-conductor-help") +
-        rem("--spacing-conductor-gutter"),
-    );
-  });
-
-  it("needs more room for the help than for the side column alone", () => {
-    // The help is the wider decision of the two: a window that cannot hold
-    // the side column cannot hold a third column either, and the menu entry
-    // is what both of those windows get.
-    expect(rem("--breakpoint-conductor-help")).toBeGreaterThan(
-      rem("--breakpoint-conductor-wide"),
-    );
-  });
 
   it("flips at the same pixel before the stylesheet has applied", () => {
-    // The accessors carry the tokens' values as fallbacks for the first frame
-    // (and for a unit environment with no layout). A fallback nothing compares
-    // is a second spelling of a design number: move a measure, and the frame
-    // before the stylesheet lands would keep flipping at the old one.
+    // The accessor carries the token's value as a fallback for the first
+    // frame (and for a unit environment with no layout). A fallback nothing
+    // compares is a second spelling of a design number: move a measure, and
+    // the frame before the stylesheet lands would keep flipping at the old one.
     expect(CONDUCTOR_WIDE_FALLBACK).toBe(
       `${rem("--breakpoint-conductor-wide")}rem`,
-    );
-    expect(CONDUCTOR_HELP_FALLBACK).toBe(
-      `${rem("--breakpoint-conductor-help")}rem`,
     );
   });
 
