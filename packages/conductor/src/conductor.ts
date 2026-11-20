@@ -133,7 +133,10 @@ import {
 } from "kolu-common/conductor";
 import {
   type ConductorMemoryView,
+  type Memory,
+  type MemoryChange,
   type MemoryEntry,
+  type MemoryProposal,
   type MemoryText,
   memoryView,
 } from "kolu-common/conductorMemory";
@@ -621,6 +624,15 @@ export interface ConductorHost {
   readonly saveMemory: (text: MemoryText, entry: string | null) => MemoryEntry;
   readonly deleteMemory: (entry: string) => void;
   readonly importMemory: (texts: ReadonlyArray<MemoryText>) => MemoryImported;
+  /** The memory as it stands — what the `memory` resource is read from. */
+  readonly memory: () => Memory;
+  /** THE CONDUCTOR PROPOSES. Recorded, waiting on the human, and stamped
+   *  with the turn it came from; throws `MemoryRefused` with the sentence the
+   *  tool answers. */
+  readonly proposeMemory: (
+    change: MemoryChange,
+    why: string | null,
+  ) => MemoryProposal;
   /** READ THE RECORDS AGAIN — the one caller is a recovery that has just put
    *  readable bytes under a record this build refused
    *  ({@link UnreadablePersisted}), and the whole point of it is that nobody
@@ -999,6 +1011,17 @@ const hadATurn = (rows: ReadonlyArray<ConductorRow>): boolean => {
     }
   }
   return false;
+};
+
+/** THE TURN A PROPOSAL CAME FROM — the message that started it, the newest
+ *  line of the person's or wake. Proposals of one turn share it, so they
+ *  ring the bell once. */
+const turnOf = (rows: ReadonlyArray<ConductorRow>): string => {
+  for (let at = rows.length - 1; at >= 0; at -= 1) {
+    const row = rows[at];
+    if (row?.kind === "user" || row?.kind === "wake") return row.id;
+  }
+  return "no-turn";
 };
 
 export function startConductorHost(deps: ConductorDeps): ConductorHost {
@@ -2610,6 +2633,14 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
     importMemory: (texts) => {
       remembered();
       return memories.importEntries(texts);
+    },
+    memory: () => {
+      remembered();
+      return memories.read();
+    },
+    proposeMemory: (change, why) => {
+      remembered();
+      return memories.propose(change, why, turnOf(rows()));
     },
     reloadRecords: () => {
       if (read) {

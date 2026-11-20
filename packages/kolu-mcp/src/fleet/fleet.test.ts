@@ -66,6 +66,11 @@ import { FLEET_SETTLE_CAP_MS, KOLU_FLEET_TOOL_NAMES } from "./lift.ts";
 import { serveKoluFleetMcp } from "./serve.ts";
 import { notAFleetRef } from "./ref.ts";
 import type {
+  FleetMemory,
+  FleetMemoryChange,
+  FleetMemoryView,
+} from "./memory.ts";
+import type {
   FleetWatchJoin,
   FleetWorkMemberRow,
   FleetWorkOpened,
@@ -596,6 +601,48 @@ interface SetUpStart {
 /** omp's launch, as its adapter answers it: a flag before its arguments. */
 const MODEL_FLAG: AgentModelLaunch = { kind: "flag", flag: "--model" };
 
+/** kolu's memory, as a test holds it: what was proposed, and a refusal the
+ *  test can arm. The real record is the server's; this face only reads it
+ *  and asks. */
+type FakeMemory = FleetMemory & {
+  proposed: Array<{ change: FleetMemoryChange; why: string | null }>;
+  refuseWith(why: string | null): void;
+  set(view: FleetMemoryView): void;
+};
+
+function fakeMemory(): FakeMemory {
+  let view: FleetMemoryView = {
+    entries: [],
+    waiting: [],
+    room: { used: 0, of: 16_000 },
+  };
+  let refusal: string | null = null;
+  const readers = new Set<() => void>();
+  const proposed: Array<{ change: FleetMemoryChange; why: string | null }> = [];
+  return {
+    proposed,
+    refuseWith: (why) => {
+      refusal = why;
+    },
+    set: (next) => {
+      view = next;
+      for (const tell of readers) tell();
+    },
+    view: () => view,
+    subscribe: (cb) => {
+      readers.add(cb);
+      return () => {
+        readers.delete(cb);
+      };
+    },
+    propose: (change, why) => {
+      if (refusal !== null) return { kind: "refused", why: refusal };
+      proposed.push({ change, why });
+      return { kind: "waiting", proposal: `p${proposed.length}` };
+    },
+  };
+}
+
 /** kolu's pieces of work, as a test holds them: one work opened per
  *  `work_open`, add-ordered members, in memory, recording HOW each joined,
  *  every terminal the conductor has spoken to, and what the server's watcher
@@ -888,6 +935,7 @@ describe("the fleet face over two hosts", () => {
       // handed one that already holds the work they name, and nothing here
       // reads it back.
       works: addressingWorks,
+      memory: fakeMemory(),
     });
     const mcp = new Client({ name: "test-client", version: "0.0.0" });
     await mcp.connect(clientTransport);
@@ -1249,6 +1297,7 @@ describe("`agent_say` over the fleet", () => {
       transport: serverTransport,
       serverInfo: { name: "kolu-fleet", version: "0.0.0-test" },
       works,
+      memory: fakeMemory(),
     });
     const mcp = new Client({ name: "test-client", version: "0.0.0" });
     await mcp.connect(clientTransport);
@@ -1453,6 +1502,7 @@ describe("the conductor's pieces of work", () => {
       transport: serverTransport,
       serverInfo: { name: "kolu-fleet", version: "0.0.0-test" },
       works,
+      memory: fakeMemory(),
     });
     const mcp = new Client({ name: "test-client", version: "0.0.0" });
     await mcp.connect(clientTransport);
@@ -2515,10 +2565,12 @@ describe("one expose map, two projections", () => {
     ]);
     expect(fleet.resources.map((r) => r.key).sort()).toEqual([
       "hosts",
+      // The two resources the stdio face has no counterpart for: this face
+      // serves one conversation's RECORD — kolu's pieces of work, and what
+      // the Conductor remembers.
+      "memory",
       "terminals",
       "urgency",
-      // The one resource the stdio face has no counterpart for: this face
-      // serves one conversation's RECORD — kolu's pieces of work.
       "works",
     ]);
     // ... and `hosts` is a CELL, which is what makes the roster one read: a
@@ -2540,6 +2592,7 @@ describe("one expose map, two projections", () => {
       transport: serverTransport,
       serverInfo: { name: "kolu-fleet", version: "0.0.0-test" },
       works: fakeWorks(),
+      memory: fakeMemory(),
     });
     const mcp = new Client({ name: "test-client", version: "0.0.0" });
     await mcp.connect(clientTransport);
@@ -2554,6 +2607,7 @@ describe("one expose map, two projections", () => {
         "lifecycle_create",
         "lifecycle_kill",
         "lifecycle_sendInput",
+        "memory_propose",
         "screen_history",
         "screen_image",
         "screen_text",
@@ -2598,6 +2652,7 @@ describe("one expose map, two projections", () => {
         "agent_say",
         "lifecycle_create",
         "lifecycle_sendInput",
+        "memory_propose",
         "screen_image",
         "screen_text",
         "wait_outputSettled",
@@ -2629,6 +2684,7 @@ describe("one expose map, two projections", () => {
       transport: serverTransport,
       serverInfo: { name: "kolu-fleet", version: "0.0.0-test" },
       works: fakeWorks(),
+      memory: fakeMemory(),
     });
     const mcp = new Client({ name: "test-client", version: "0.0.0" });
     await mcp.connect(clientTransport);
@@ -2654,6 +2710,121 @@ describe("one expose map, two projections", () => {
       );
     } finally {
       await mcp.close();
+      await close();
+    }
+  });
+});
+
+describe("the Conductor's memory, on the fleet face", () => {
+  const served = async (
+    memory: FakeMemory,
+  ): Promise<{ mcp: Client; close: () => Promise<void> }> => {
+    const fleet = fakeFleet([
+      {
+        key: "local",
+        display: "this machine",
+        padi: fakePadi("local", [ALPHA_1]),
+      },
+    ]);
+    const [clientTransport, serverTransport] =
+      InMemoryTransport.createLinkedPair();
+    const { close } = await serveKoluFleetMcp({
+      hosts: fleet.hosts,
+      transport: serverTransport,
+      serverInfo: { name: "kolu-fleet", version: "0.0.0-test" },
+      works: fakeWorks(),
+      memory,
+    });
+    const mcp = new Client({ name: "test-client", version: "0.0.0" });
+    await mcp.connect(clientTransport);
+    return {
+      mcp,
+      close: async () => {
+        await mcp.close();
+        await close();
+      },
+    };
+  };
+
+  it("serves the memory as a resource: the entries, the waiting titles and the room", async () => {
+    const memory = fakeMemory();
+    memory.set({
+      entries: [
+        {
+          id: "m1",
+          title: "Squash-merge on demo-app",
+          about: "demo-app",
+          body: "Always squash.",
+        },
+      ],
+      waiting: [{ id: "p2", title: "Never merge on a Friday" }],
+      room: { used: 38, of: 16_000 },
+    });
+    const { mcp, close } = await served(memory);
+    try {
+      expect(
+        jsonOf(await mcp.readResource({ uri: "surface://cells/memory" })),
+      ).toEqual(memory.view());
+    } finally {
+      await close();
+    }
+  });
+
+  it("answers a proposal at once with its id, waiting on the human", async () => {
+    const memory = fakeMemory();
+    const { mcp, close } = await served(memory);
+    try {
+      const res = await mcp.callTool({
+        name: "memory_propose",
+        arguments: {
+          kind: "add",
+          title: "Run the linter before opening a pull request",
+          about: "demo-app",
+          body: "`just lint` must pass first.",
+          why: "you said so on «Fix the login error»",
+        },
+      });
+      expect(res.isError ?? false).toBe(false);
+      expect(res.structuredContent).toMatchObject({ proposal: "p1" });
+      expect(memory.proposed).toEqual([
+        {
+          change: {
+            kind: "add",
+            title: "Run the linter before opening a pull request",
+            about: "demo-app",
+            body: "`just lint` must pass first.",
+          },
+          why: "you said so on «Fix the login error»",
+        },
+      ]);
+    } finally {
+      await close();
+    }
+  });
+
+  it("fails a refused proposal with the reason, and one missing what its kind needs", async () => {
+    const memory = fakeMemory();
+    const { mcp, close } = await served(memory);
+    try {
+      memory.refuseWith(
+        "The human declined this on 20 Nov. It is not remembered. Do not propose it again.",
+      );
+      const refused = await mcp.callTool({
+        name: "memory_propose",
+        arguments: { kind: "forget", entry: "m3" },
+      });
+      expect(refused.isError).toBe(true);
+      expect(JSON.stringify(refused.content)).toContain(
+        "refused: The human declined this on 20 Nov.",
+      );
+      memory.refuseWith(null);
+      const misused = await mcp.callTool({
+        name: "memory_propose",
+        arguments: { kind: "replace", title: "No entry named" },
+      });
+      expect(misused.isError).toBe(true);
+      expect(memory.proposed).toEqual([]);
+    } finally {
       await close();
     }
   });

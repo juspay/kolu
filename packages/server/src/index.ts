@@ -47,7 +47,9 @@ import {
   type PadiEntryFailure,
   padiHostMap,
 } from "kolu-common/surfacesWithPadi";
-import { type FleetWorks, serveKoluFleetMcp } from "kolu-mcp";
+import { type FleetMemory, type FleetWorks, serveKoluFleetMcp } from "kolu-mcp";
+import { MemoryRefused } from "kolu-common/conductorMemory";
+import { fleetMemoryView } from "./conductor/fleetMemory.ts";
 import {
   driverOf,
   hostOf,
@@ -67,6 +69,7 @@ import {
   setConductorFleetHosts,
   setConductorOffer,
   setFleetMcpEndpoint,
+  setMemoryListener,
   setWatchScopeListener,
   setWorksListener,
 } from "./conductor/live.ts";
@@ -790,6 +793,29 @@ export async function bootKoluWeb(flags: KoluBootFlags): Promise<void> {
         : Option.none();
     },
   };
+  // THE CONDUCTOR'S MEMORY, as the fleet face reads and asks for it. The
+  // record is the live host's; a refusal comes back as its sentence, which
+  // the tool answers with.
+  const memoryReaders = new Set<() => void>();
+  const memory: FleetMemory = {
+    view: () => fleetMemoryView(liveServerConductor().memory()),
+    subscribe: (cb) => {
+      memoryReaders.add(cb);
+      return () => {
+        memoryReaders.delete(cb);
+      };
+    },
+    propose: (change, why) => {
+      try {
+        const proposal = liveServerConductor().proposeMemory(change, why);
+        return { kind: "waiting", proposal: proposal.id };
+      } catch (err) {
+        if (err instanceof MemoryRefused)
+          return { kind: "refused", why: err.why };
+        throw err;
+      }
+    },
+  };
   const fleetMcp = await startFleetMcpEndpoint({
     log,
     serve: (transport) =>
@@ -798,6 +824,7 @@ export async function bootKoluWeb(flags: KoluBootFlags): Promise<void> {
         transport,
         serverInfo: { name: "kolu-fleet", version: serverVersion },
         works,
+        memory,
       }),
   });
   // The conductor PROVES this endpoint before it names it to an agent — the
@@ -1206,6 +1233,9 @@ export async function bootKoluWeb(flags: KoluBootFlags): Promise<void> {
   // leaves the scope alone and still changes every row an agent reads.
   setWorksListener(() => {
     for (const tell of worksReaders) tell();
+  });
+  setMemoryListener(() => {
+    for (const tell of memoryReaders) tell();
   });
   setWatchScopeListener(() => conductorWatcher?.scopeMoved());
 

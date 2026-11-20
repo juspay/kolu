@@ -77,6 +77,7 @@ import {
   type MemoryProposal,
   MemoryRefused,
 } from "kolu-common/conductorMemory";
+import { fleetMemoryView } from "./fleetMemory.ts";
 import {
   type ConductorHost,
   EMPTY_PERSISTED_CONDUCTOR,
@@ -5350,5 +5351,58 @@ describe("the human's choices on the memory", () => {
     expect(
       r.transcript.value().rows.find((one) => one.id === row.id),
     ).toMatchObject({ ended: "edited" });
+  });
+});
+
+describe("the Conductor's proposals", () => {
+  const ADD = {
+    kind: "add",
+    title: "Run the linter before opening a pull request",
+    about: "demo-app",
+    body: "`just lint` must pass first.",
+  } as const;
+
+  it("are not in the memory resource's entries until the human approves one", () => {
+    const r = rig();
+    const proposal = r.host.proposeMemory(ADD, "you said so");
+    const waiting = fleetMemoryView(r.host.memory());
+    expect(waiting.entries).toEqual([]);
+    expect(waiting.waiting).toEqual([{ id: proposal.id, title: ADD.title }]);
+
+    r.host.approveMemory(proposal.id, null);
+    const approved = fleetMemoryView(r.host.memory());
+    expect(approved.entries.map((entry) => entry.title)).toEqual([ADD.title]);
+    expect(approved.waiting).toEqual([]);
+  });
+
+  it("carry the turn they came from, so one turn's proposals are one batch", () => {
+    const r = rig({
+      record: { ...EMPTY_PERSISTED_CONDUCTOR, sessionId: "sess-1", cwd: HOME },
+      rows: [
+        {
+          id: "u1",
+          seq: 1,
+          since: T0,
+          kind: "user",
+          text: "always lint",
+          attachments: [],
+        },
+      ],
+    });
+    const one = r.host.proposeMemory(ADD, null);
+    const two = r.host.proposeMemory(
+      { ...ADD, title: "Never merge on a Friday" },
+      null,
+    );
+    expect([one.batch, two.batch]).toEqual(["u1", "u1"]);
+  });
+
+  it("are refused with the store's sentence", () => {
+    const r = rig();
+    const { id } = r.host.proposeMemory(ADD, null);
+    r.host.declineMemory(id);
+    expect(() => r.host.proposeMemory(ADD, null)).toThrow(
+      /declined this on .* Do not propose it again\./u,
+    );
   });
 });

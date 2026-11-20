@@ -66,6 +66,8 @@ let writeReading:
   | null = null;
 /** ...and the `conductorMemory` cell's writer. */
 let writeMemory: ((memory: ConductorMemoryView) => void) | null = null;
+/** Who is owed a re-read of the fleet face's `memory` resource. */
+let onMemory: (() => void) | null = null;
 /** Who is owed a redraw of the `works` resource, or `null` until the boot
  *  wires it — the resource's subscribers, which want every change to a row.
  *  Registered rather than imported for the same reason the cell writers are:
@@ -153,6 +155,10 @@ export function setWorksListener(listen: () => void): void {
 
 export function setWatchScopeListener(listen: () => void): void {
   onWatchScope = listen;
+}
+
+export function setMemoryListener(listen: () => void): void {
+  onMemory = listen;
 }
 
 /** ... and hand over the fleet, which `index.ts` builds before anything can
@@ -264,6 +270,7 @@ export function liveServerConductor(): ConductorHost {
         );
       }
       writeMemory(memory);
+      onMemory?.();
     },
     // What moved, said by the one thing that knows. Unguarded: this is not
     // riding a browser's frame any more, so a listener that throws is a

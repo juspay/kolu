@@ -53,6 +53,7 @@ for an id, and read the host back off anything a tool hands you.
 | one terminal | `surface://collections/terminals/<host>/<id>` | Its name, its agent, and whether it is awake. Paste the name as kolu gives it, nothing escaped: `surface://collections/terminals/remote:prod/9ab1…`. |
 | `hosts` | `surface://cells/hosts` | Each host's name and whether it is connected. It changes while you work, so read it again rather than remembering it. |
 | `works` | `surface://cells/works` | Every piece of work in progress, and the last few finished ones. |
+| `memory` | `surface://cells/memory` | What you remember, as the human approved it, and the titles of your proposals still waiting on them. |
 | `urgency` | `surface://cells/urgency` | Every terminal, on any host, that is asking or has just finished. |
 
 - A tool that refuses because a host is not connected is telling the truth.
