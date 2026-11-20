@@ -76,6 +76,19 @@ export function peekTabs(
   return tabs;
 }
 
+/** Does this key, landing outside the terminal, raise the lock's Take over card? */
+export function keyRaisesLockOffer(i: {
+  key: string;
+  modified: boolean;
+  onButton: boolean;
+  terminalFocused: boolean;
+  mayType: boolean;
+}): boolean {
+  if (i.terminalFocused || i.mayType || i.modified) return false;
+  if (i.onButton && (i.key === "Enter" || i.key === " ")) return false;
+  return i.key.length === 1 || i.key === "Enter" || i.key === "Backspace";
+}
+
 /** The sentence under the peek's terminal: who drives it, and what Esc does. */
 export function peekFootWords(i: {
   driver: "conductor" | "you" | "nobody";

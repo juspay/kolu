@@ -90,6 +90,7 @@ const ModalDialog: Component<{
   refocusOnClose?: boolean;
   size?: "sm" | "md" | "palette" | "lg" | "fit";
   escapeCloses?: boolean;
+  placesOwnFocus?: boolean;
   children: JSX.Element;
 }> = (props) => {
   // Every modal goes through this boundary, so reflecting `open` into the
@@ -123,6 +124,9 @@ const ModalDialog: Component<{
       onOpenChange={withKeyboardDismiss(handleOpenChange)}
       restoreFocus={false}
       onFinalFocus={(e) => e.preventDefault()}
+      onInitialFocus={(e) => {
+        if (props.placesOwnFocus) e.preventDefault();
+      }}
       // terminal.focus() calls (visibility effects, click handlers) emit focusin
       // events that solid-dismissible interprets as the user leaving the dialog.
       closeOnOutsideFocus={false}

@@ -3,6 +3,7 @@ import type { WorkMember } from "kolu-work";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   closePeek,
+  keyRaisesLockOffer,
   openPeek,
   peekFit,
   peekFootWords,
@@ -95,6 +96,31 @@ describe("peekTabs", () => {
     ]);
     const tabs = peekTabs(members, ONE_REF, (_host, id) => id === ONE);
     expect(tabs.map((tab) => tab.openable)).toEqual([true, false]);
+  });
+});
+
+describe("keyRaisesLockOffer", () => {
+  it("raises the card only for a key that would have reached a locked terminal", () => {
+    const base = {
+      key: "a",
+      modified: false,
+      onButton: false,
+      terminalFocused: false,
+      mayType: false,
+    };
+    expect(keyRaisesLockOffer(base)).toBe(true);
+    expect(keyRaisesLockOffer({ ...base, key: "Enter" })).toBe(true);
+    expect(keyRaisesLockOffer({ ...base, terminalFocused: true })).toBe(false);
+    expect(keyRaisesLockOffer({ ...base, mayType: true })).toBe(false);
+    expect(keyRaisesLockOffer({ ...base, modified: true })).toBe(false);
+    expect(keyRaisesLockOffer({ ...base, onButton: true, key: "Enter" })).toBe(
+      false,
+    );
+    expect(keyRaisesLockOffer({ ...base, onButton: true, key: " " })).toBe(
+      false,
+    );
+    expect(keyRaisesLockOffer({ ...base, onButton: true })).toBe(true);
+    expect(keyRaisesLockOffer({ ...base, key: "ArrowUp" })).toBe(false);
   });
 });
 

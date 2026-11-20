@@ -10,6 +10,7 @@ import {
   For,
   on,
   onCleanup,
+  onMount,
   Show,
 } from "solid-js";
 import { DEFAULT_FONT_SIZE } from "terminal-themes";
@@ -22,7 +23,7 @@ import { useShown } from "../../ui/shown";
 import { layoutMode, isTouch } from "../../useMobile";
 import { useMemberName } from "../memberNames";
 import { useOpenTile } from "../useOpenTile";
-import { inputAllowedAt } from "../personInput";
+import { inputAllowedAt, personInputAt } from "../personInput";
 import { useConductor } from "../useConductor";
 import WorkLock from "../WorkLock";
 import { ROLE_WORD } from "../workReadings";
@@ -38,6 +39,7 @@ import {
 } from "./peekSize";
 import {
   closePeek,
+  keyRaisesLockOffer,
   openPeek,
   peekFit,
   peekTabs,
@@ -65,6 +67,7 @@ const TerminalPeek: Component = () => {
       }}
       size="fit"
       escapeCloses={!peekTyping()}
+      placesOwnFocus
     >
       <Show when={peekTarget()} keyed>
         {(target) => <PeekWindow target={target} />}
@@ -116,7 +119,28 @@ const PeekWindow: Component<{ target: PeekTarget }> = (props) => {
       if (now === "you" && before === "conductor") handle()?.focus();
     }),
   );
-  const blurTerminal = () => handle()?.blur();
+  createEffect(() => {
+    const h = handle();
+    if (h !== undefined && !mayType()) h.focus();
+  });
+  let contentEl: HTMLDivElement | undefined;
+  onMount(() => contentEl?.focus());
+  const blurTerminal = () => contentEl?.focus();
+  const onWindowKey = (e: KeyboardEvent): void => {
+    const target = e.target instanceof Element ? e.target : null;
+    if (
+      !keyRaisesLockOffer({
+        key: e.key,
+        modified: e.ctrlKey || e.metaKey || e.altKey,
+        onButton: target?.closest("button") != null,
+        terminalFocused: focused(),
+        mayType: mayType(),
+      })
+    )
+      return;
+    e.preventDefault();
+    personInputAt(ref);
+  };
   const win = createWindowSize();
   const availWidth = () =>
     layoutMode() === "phone" ? win.width : win.width - 66;
@@ -160,10 +184,15 @@ const PeekWindow: Component<{ target: PeekTarget }> = (props) => {
 
   return (
     <Dialog.Content
+      ref={(el: HTMLDivElement) => {
+        contentEl = el;
+      }}
+      tabIndex={-1}
+      onKeyDown={onWindowKey}
       data-testid="terminal-peek"
       data-peek-host={props.target.host}
       data-peek-terminal={props.target.id}
-      class="flex min-w-0 max-w-[calc(100vw-4rem)] max-h-[calc(100dvh-4rem)] flex-col overflow-hidden rounded-xl border border-edge-bright bg-surface-1 shadow-2xl shadow-black/60 sm:min-w-[min(38rem,calc(100vw-4rem))] max-sm:h-[var(--app-h,100dvh)] max-sm:max-h-none max-sm:w-full max-sm:max-w-none max-sm:rounded-none max-sm:border-0"
+      class="flex min-w-0 max-w-[calc(100vw-4rem)] max-h-[calc(100dvh-4rem)] flex-col overflow-hidden rounded-xl border border-edge-bright bg-surface-1 shadow-2xl shadow-black/60 sm:min-w-[min(38rem,calc(100vw-4rem))] max-sm:h-[var(--app-h,100dvh)] max-sm:max-h-none max-sm:w-full max-sm:max-w-none max-sm:rounded-none max-sm:border-0 outline-none"
     >
       <div
         data-testid="peek-head"

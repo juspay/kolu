@@ -16,6 +16,8 @@ const seam = vi.hoisted(() => ({
   took: [] as unknown[],
   gave: [] as unknown[],
   allowed: true,
+  gateRefs: [] as string[],
+  focusCalls: 0,
 }));
 
 const live = (): FleetTerminalStanding => ({
@@ -73,6 +75,10 @@ vi.mock("../useConductor", () => ({
 }));
 vi.mock("../personInput", () => ({
   inputAllowedAt: () => seam.allowed,
+  personInputAt: (ref: string) => {
+    seam.gateRefs.push(ref);
+    return false;
+  },
 }));
 vi.mock("../memberNames", () => ({
   useMemberName: () => (ref: string) => `name:${ref}`,
@@ -131,6 +137,8 @@ afterEach(() => {
   seam.took = [];
   seam.gave = [];
   seam.allowed = true;
+  seam.gateRefs = [];
+  seam.focusCalls = 0;
   setMembership(new Map());
 });
 
@@ -340,5 +348,80 @@ describe("TerminalPeek", () => {
     expect(document.querySelector('[data-testid="peek-esc-hint"]')).toBeNull();
     onFocus(false);
     expect(peekTyping()).toBe(false);
+  });
+
+  const conductorDrives = () => {
+    seam.allowed = false;
+    setMembership(
+      new Map([
+        [
+          `remote:nix@example/${ID}`,
+          { work: "w", title: "w", role: "planner", driver: "conductor" },
+        ],
+      ]),
+    );
+  };
+
+  const handOver = (focus: () => void) => {
+    (seam.props?.onHandle as (h: unknown) => void)({
+      focus,
+      blur: () => {},
+    });
+  };
+
+  const keyDown = (key: string, selector = '[data-testid="terminal-peek"]') => {
+    document
+      .querySelector(selector)
+      ?.dispatchEvent(
+        new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true }),
+      );
+  };
+
+  it("puts the keyboard in a driven terminal so a key reaches the gate", () => {
+    conductorDrives();
+    openPeek({ host: "remote:nix@example", id: ID });
+    mount();
+    handOver(() => {
+      seam.focusCalls += 1;
+    });
+    expect(seam.focusCalls).toBeGreaterThanOrEqual(1);
+  });
+
+  it("leaves the keyboard where it is for a terminal you can type in", () => {
+    openPeek({ host: "remote:nix@example", id: ID });
+    mount();
+    handOver(() => {
+      seam.focusCalls += 1;
+    });
+    expect(seam.focusCalls).toBe(0);
+  });
+
+  it("raises the Take over card for a key typed at a driven terminal", () => {
+    conductorDrives();
+    openPeek({ host: "remote:nix@example", id: ID });
+    mount();
+    keyDown("a");
+    expect(seam.gateRefs).toContain(`remote:nix@example/${ID}`);
+
+    const before = seam.gateRefs.length;
+    keyDown("Enter", '[data-testid="peek-open-tile"]');
+    expect(seam.gateRefs).toHaveLength(before);
+    expect(seam.opened).toHaveLength(0);
+  });
+
+  it("raises no card for a key typed at a terminal nobody locks", () => {
+    seam.allowed = true;
+    setMembership(
+      new Map([
+        [
+          `remote:nix@example/${ID}`,
+          { work: "w", title: "w", role: "planner", driver: "you" },
+        ],
+      ]),
+    );
+    openPeek({ host: "remote:nix@example", id: ID });
+    mount();
+    keyDown("a");
+    expect(seam.gateRefs).toHaveLength(0);
   });
 });
