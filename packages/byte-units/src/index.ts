@@ -1,11 +1,3 @@
-/**
- * How kolu writes a byte count — ONE formatter, with the units picked once:
- * BINARY (KiB · MiB · GiB, powers of 1024), the units Nix reports a closure in,
- * so a download's "1.1 GiB" and `nix path-info -Sh` agree. Every byte figure a
- * person reads in kolu (process memory, snapshot sizes, an agents download)
- * goes through here. Zero dependencies; safe in the browser and in a daemon.
- */
-
 export const KIB = 1024;
 export const MIB = 1024 * KIB;
 export const GIB = 1024 * MIB;
