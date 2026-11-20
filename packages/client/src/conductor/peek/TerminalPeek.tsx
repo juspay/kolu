@@ -17,6 +17,7 @@ import type { TerminalGrid } from "@kolu/xterm-kit/solid";
 import { hostLabel } from "../../host/hostChipTone";
 import { fleetTerminalStanding } from "../../palette/fleetTerminals";
 import ModalDialog from "../../ui/ModalDialog";
+import MobileKeyBar from "../../MobileKeyBar";
 import { useShown } from "../../ui/shown";
 import { layoutMode, isTouch } from "../../useMobile";
 import { useMemberName } from "../memberNames";
@@ -162,11 +163,11 @@ const PeekWindow: Component<{ target: PeekTarget }> = (props) => {
       data-testid="terminal-peek"
       data-peek-host={props.target.host}
       data-peek-terminal={props.target.id}
-      class="flex min-w-0 max-w-[calc(100vw-4rem)] max-h-[calc(100dvh-4rem)] flex-col overflow-hidden rounded-xl border border-edge-bright bg-surface-1 shadow-2xl shadow-black/60 sm:min-w-[min(38rem,calc(100vw-4rem))]"
+      class="flex min-w-0 max-w-[calc(100vw-4rem)] max-h-[calc(100dvh-4rem)] flex-col overflow-hidden rounded-xl border border-edge-bright bg-surface-1 shadow-2xl shadow-black/60 sm:min-w-[min(38rem,calc(100vw-4rem))] max-sm:h-[var(--app-h,100dvh)] max-sm:max-h-none max-sm:w-full max-sm:max-w-none max-sm:rounded-none max-sm:border-0"
     >
       <div
         data-testid="peek-head"
-        class="flex min-w-0 shrink-0 items-center gap-3 border-b border-edge px-3 py-2"
+        class="flex min-w-0 shrink-0 items-center gap-3 border-b border-edge px-3 py-2 max-sm:flex-wrap"
         onPointerDown={blurTerminal}
       >
         <Show
@@ -182,7 +183,7 @@ const PeekWindow: Component<{ target: PeekTarget }> = (props) => {
         >
           <div
             data-testid="peek-tabs"
-            class="flex min-w-0 flex-1 items-end gap-0.5 overflow-x-auto"
+            class="flex min-w-0 flex-1 items-end gap-0.5 overflow-x-auto max-sm:order-last max-sm:basis-full"
           >
             <For each={tabs()}>
               {(tab) => (
@@ -262,7 +263,7 @@ const PeekWindow: Component<{ target: PeekTarget }> = (props) => {
       </div>
       <div
         data-testid="peek-statusline"
-        class="flex min-w-0 shrink-0 items-center gap-2 bg-surface-0 px-3 py-1.5 text-[0.7rem]"
+        class="flex min-w-0 shrink-0 items-center gap-2 bg-surface-0 px-3 py-1.5 text-[0.7rem] max-sm:flex-wrap"
         onPointerDown={blurTerminal}
       >
         <span class="shrink-0 font-mono text-[0.6rem] uppercase tracking-[0.1em] text-accent">
@@ -354,8 +355,8 @@ const PeekWindow: Component<{ target: PeekTarget }> = (props) => {
       </div>
       <div
         data-testid="peek-body"
-        class="relative min-h-0 min-w-0 flex-initial"
-        style={bodyStyle()}
+        class="relative min-h-0 min-w-0 flex-initial max-sm:flex-1"
+        style={layoutMode() === "phone" ? {} : bodyStyle()}
       >
         <Show
           when={lookable()}
@@ -415,6 +416,9 @@ const PeekWindow: Component<{ target: PeekTarget }> = (props) => {
             touch: isTouch(),
           })}
         </p>
+      </Show>
+      <Show when={isTouch() && lookable() && mayType()}>
+        <MobileKeyBar target={props.target} />
       </Show>
     </Dialog.Content>
   );

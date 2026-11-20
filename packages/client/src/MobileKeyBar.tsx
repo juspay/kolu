@@ -20,6 +20,9 @@
 import { Effect } from "effect";
 import { controlByte, NAMED_KEY_BYTES } from "@kolu/terminal-protocol";
 import { type Component, For, Show } from "solid-js";
+import { decodeHostKey } from "kolu-common/hostKey";
+import type { TerminalId } from "kolu-common/surface";
+import { fleetTerminalRef } from "kolu-mcp/fleetRef";
 import {
   applyStickyModifiers,
   stickyAlt,
@@ -27,11 +30,11 @@ import {
   toggleStickyAlt,
   toggleStickyCtrl,
 } from "./terminal/stickyModifiers";
-import { personInput } from "./conductor/personInput";
+import { personInput, personInputAt } from "./conductor/personInput";
 import { runAction } from "./runAction";
 import { useTerminalStore } from "./terminal/useTerminalStore";
 import { isTouch } from "./useMobile";
-import { activePadiRpc } from "./wire";
+import { activePadiRpc, padiRpcOf } from "./wire";
 
 interface Key {
   label: string;
@@ -91,7 +94,9 @@ const KEY_CLASS =
 const KEY_UNARMED_CLASS =
   "bg-surface-2 text-fg-2 hover:bg-surface-3 active:bg-surface-3";
 
-const MobileKeyBar: Component = () => {
+const MobileKeyBar: Component<{
+  target?: { host: string; id: TerminalId };
+}> = (props) => {
   const store = useTerminalStore();
   // 10ms haptic tick — Android only; iOS Safari doesn't implement
   // navigator.vibrate, so the guard makes it a silent no-op there.
@@ -100,17 +105,22 @@ const MobileKeyBar: Component = () => {
   }
 
   function send(data: string) {
-    const id = store.focusedId();
+    const at = props.target;
+    const id = at?.id ?? store.focusedId();
     if (!id) return;
     // THE LOCK — the phone's key bar is a person's keyboard, so it is gated
     // exactly like xterm's `onData` is, and the banner above the bar is where
     // the nudge lands. No haptic tick on a blocked key: the finger must not be
     // told the key went.
-    if (!personInput(id)) return;
+    const allowed = at
+      ? personInputAt(fleetTerminalRef(at.host, at.id))
+      : personInput(id);
+    if (!allowed) return;
     tick();
+    const rpc = at ? padiRpcOf(decodeHostKey(at.host)) : activePadiRpc;
     runAction(
       "send key",
-      activePadiRpc.lifecycle
+      rpc.lifecycle
         .sendInput({ id, data: applyStickyModifiers(data) })
         // A keystroke's delivery has no UI to report to and never had one:
         // the terminal itself is the feedback. `Effect.ignore` says so where
