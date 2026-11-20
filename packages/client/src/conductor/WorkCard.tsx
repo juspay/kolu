@@ -1,36 +1,3 @@
-/** ONE PIECE OF WORK, as a card.
- *
- *  SHUT, it is a few lines and answers the only question a person has while
- *  something is running: what is this, who is it waiting on, and for how long.
- *  The stage strip under those lines is where the time has gone, stage by
- *  stage, and which stage the work is in now.
- *
- *  OPEN, IT STAYS SHORT however long the work runs: it answers "what needs
- *  me, and where is it", and the whole history is one press further. The
- *  questions waiting on you (the SAME form as in the chat — answering either
- *  settles the one question); one row per terminal; the files; the pull
- *  request; the setup as one line and the latest three decisions; and the
- *  timeline of ONE stage — the strip is its index: pressing a cell shows that
- *  stage's events, and "whole timeline" unfolds all of it in place. Then
- *  **Stop**, one of the two ways a piece of work is ended on purpose.
- *
- *  A CARD IS DRAWN FROM THE STATE SUM, and the two faces are built from
- *  different values ({@link CardFace}). An ENDED work says how it ended, what
- *  was kept and where the time went, and offers **Reopen** — and it has no
- *  terminals, no lock and no open question anywhere on it, because the ended
- *  half of the sum has nowhere to put them and this component has nothing to
- *  read them from. That is the whole of the rule: it is not enforced here, it
- *  is unspellable.
- *
- *  NOTHING HERE IS STORED TWICE. The card reads `kolu-work`'s folds over the
- *  record (`standing`, `stages`, `took`) and the three live facts a browser
- *  has anyway — how a member terminal stands, which agent is in it, and a PR's
- *  check runs. A number that moves every second is never written down.
- *
- *  A WORK CHIP ELSEWHERE CAN ASK FOR THIS CARD (`./workListing.ts`'s
- *  `showWork`): it opens, and once it is on screen it scrolls itself into
- *  view and flashes once. */
-
 import { activeArm } from "@kolu/padi-client/surface";
 import { dualPhrase } from "@kolu/terminal-vocab/duration";
 import { fleetTerminalRef } from "kolu-mcp/fleetRef";
@@ -104,20 +71,12 @@ import {
   workSubtitle,
 } from "./workReadings";
 
-/** The two controls on a member's row, which are the terminal's own in the
- *  card's smaller type. */
 const MEMBER_CONTROL =
   "shrink-0 cursor-pointer rounded-sm px-1.5 py-[0.1rem] font-mono text-[0.56rem] font-semibold uppercase tracking-[0.06em] transition-colors";
 
-/** What **Stop** warns about before it acts — the whole of what a person
- *  gives up, and what they do not: the record stays, and Reopen is right
- *  there on the card afterwards. */
 const STOP_COPY =
   "The work is marked stopped and its terminals are released. Nothing is deleted — its decisions and its timeline stay, and you can open it again.";
 
-/** ONE OPEN QUESTION'S PLACE ON THE CARD — what a route onto that question
- *  scrolls to. Whether the question is in view is the question's own to say
- *  (`WorkQuestion`), wherever it is drawn. */
 const AskSlot: Component<{
   ask: string;
   boxes: Map<string, HTMLElement>;
@@ -133,23 +92,10 @@ const AskSlot: Component<{
   );
 };
 
-/** THE TWO FACES, each built from the arm of the state sum it belongs to —
- *  {@link live} for a work in progress (its members, its open questions) and
- *  {@link ended} for one that is over (how, when, what was kept).
- *
- *  A value a face must not show is simply not in the other arm: an ended
- *  work's face has no members and no asks, so the terminals section, the lock
- *  and the question cannot be reached from it at all. */
-
 const WorkCard: Component<{
-  /** The id the work is filed under — its key, canonical. The record carries
-   *  no id of its own, so every act about this work (answering it, stopping
-   *  it, opening a file of it) names this. */
   id: WorkId;
   work: Work;
 }> = (props) => {
-  // The column's clock, stopped while nobody is looking at the pane: every
-  // duration on this card ticks from it, and a hidden pane ticks for nobody.
   const now = useShownClock();
   const seen = useSeen();
   const openTileAt = useOpenTile();
@@ -159,17 +105,9 @@ const WorkCard: Component<{
 
   const isOpen = () => isCardOpen(props.id);
 
-  /** A ROUTE ASKED FOR THIS CARD: once it is on screen, scroll it into view
-   *  and flash it once — onto the question the route named, when it named
-   *  one. Asked of `shown`, as every retained view asks before touching the
-   *  page — a request made while the column is hidden waits for it to come
-   *  back. */
   let card!: HTMLElement;
-  /** The open questions' boxes, by ask — what a route onto one scrolls to. */
   const askBoxes = new Map<string, HTMLElement>();
   const onScreen = useShown();
-  // In view in a focused window, this card is what silences the bell for a
-  // merge it is waiting on.
   const trackCard = trackOnScreen(() => cardOnScreenKey(props.id), onScreen);
   const [flash, setFlash] = createSignal(false);
   let unflash: number | undefined;
@@ -182,13 +120,9 @@ const WorkCard: Component<{
     const want = wantedCard();
     if (want === null || want.id !== props.id || !onScreen()) return;
     cardShown(want.seq);
-    // A second ask while the first still flashes starts it over: the mark
-    // comes off now and goes back on in the next frame.
     setFlash(false);
     clearTimeout(unflash);
     if (frame !== undefined) cancelAnimationFrame(frame);
-    // After the frame that laid the card out: a card the listing has just
-    // opened, or a band that has just come out, has no box until then.
     frame = requestAnimationFrame(() => {
       frame = undefined;
       const question = want.ask === null ? undefined : askBoxes.get(want.ask);
@@ -198,18 +132,12 @@ const WorkCard: Component<{
     });
   });
 
-  /** HOW IT ENDED, or `undefined` while it is in flight. The state's own arm,
-   *  narrowed — not a copy of it. */
-  const ended = createMemo(() => {
+  const endedArm = createMemo(() => {
     const state = props.work.state;
     return state.kind === "ended" ? state : undefined;
   });
 
-  /** WHAT IS RUNNING AND WHAT IS BEING ASKED, or `undefined` for a work that
-   *  is over. EVERY open ask: a Conductor that asks about a failing check
-   *  while a plan approval is still open has put two things to the human, and
-   *  a face that draws one of them makes the second answerable nowhere. */
-  const live = createMemo(() =>
+  const openArm = createMemo(() =>
     props.work.state.kind === "open"
       ? {
           members: membersIn(allMembers(), props.id),
@@ -218,12 +146,8 @@ const WorkCard: Component<{
       : undefined,
   );
 
-  /** The members, in the order a waterfall runs them, each with its live
-   *  standing read ONCE. Three readers want that standing — the agent's name,
-   *  the clock, whether there is anywhere to go — and reading it per reader is
-   *  how one terminal came to be looked up three times a frame. */
   const members = createMemo(() =>
-    (live()?.members ?? []).map((row) => {
+    (openArm()?.members ?? []).map((row) => {
       const split = splitMemberRef(row.terminal);
       const standing =
         split === null
@@ -233,11 +157,6 @@ const WorkCard: Component<{
     }),
   );
 
-  /** WHAT EACH MEMBER IS CALLED — the name the `@` menu would offer for that
-   *  terminal, so the words a person reads here are the words they would type
-   *  into the composer. A terminal the fleet index has not got (its host is
-   *  away) falls back to the short form of its id, which is still something a
-   *  person can match against a tile. */
   const fleet = useFleetTerminalIndex();
   const names = createMemo(() => {
     const byRef = new Map<string, string>();
@@ -253,33 +172,23 @@ const WorkCard: Component<{
 
   const livePr = createMemo(() => livePrOf(members()));
   const checks = createMemo(() => checksTally(Option.fromNullishOr(livePr())));
-  /** All the time this work has waited on you, while it is still running. */
   const onYou = createMemo(() =>
     props.work.state.kind === "open"
       ? timeSpentOnYou(props.work, new Date(now()).toISOString())
       : 0,
   );
 
-  /** WHERE THE FILES COME FROM — the one derivation, shared with the reader a
-   *  file row opens (`workFile.ts`): the live worktree while a member reports
-   *  one, kolu's kept copy otherwise. The card never asks which it got. */
   const source = createMemo(() =>
     workFileSource(props.id, props.work, members()),
   );
 
   const at = createMemo(() => standingLine(props.work, checks()));
 
-  /** THE STAGES, read once for the strip and the timeline it indexes. */
   const read = createMemo(() =>
     stagesOf(props.work, new Date(now()).toISOString()),
   );
-  /** WHAT THE OPEN CARD SHOWS OF ITS TIMELINE — the stage a person pressed
-   *  on the strip (none: the stage the work is in) and whether the whole
-   *  timeline is out. The card's own: a shut card forgets both, so the next
-   *  time it opens it follows the work again. */
   const [pressed, setPressed] = createSignal<StageName | undefined>();
   const [whole, setWhole] = createSignal(false);
-  /** Whether the PR's red gates are unfolded from their one line. */
   const [allFailing, setAllFailing] = createSignal(false);
   createEffect(() => {
     if (isOpen()) return;
@@ -287,12 +196,9 @@ const WorkCard: Component<{
     setWhole(false);
     setAllFailing(false);
   });
-  /** ... read ONCE per redraw, for the strip and the timeline both. */
   const view = createMemo(() =>
     timelineShown(props.work, read(), pressed(), whole()),
   );
-  /** The cell pressed on the strip: the stage whose events the open card
-   *  shows, none while it is shut or the whole timeline is out. */
   const shownStage = (): StageName | undefined => {
     const shown = view().view;
     return isOpen() && shown.kind === "stage" && shown.stage !== "setup"
@@ -317,17 +223,10 @@ const WorkCard: Component<{
           ? props.work.state.outcome.kind
           : undefined
       }
-      // The needs-you edge is the one piece of colour a shut card carries: a
-      // column of five works must say which one is on you without being read.
-      // A card a chip asked for flashes once (`index.css`, `.work-card`).
       class={`work-card min-w-0 scroll-m-3 overflow-hidden rounded-xl border bg-surface-0 ${
         at().who === "you" ? "border-alert/55" : "border-edge"
       }`}
     >
-      {/* THE SHUT FACE. Its press is a button laid UNDER the text rather than
-          wrapped round it, so the PR number it names can be a link of its
-          own: the text lets presses through to the button, and only the
-          links (and the age's tooltip) take them. */}
       <div class="relative px-2.5 py-2">
         <button
           type="button"
@@ -362,8 +261,6 @@ const WorkCard: Component<{
                 )}
               />
             </span>
-            {/* HOW LONG IT HAS WAITED ON YOU, all told — from a whole second,
-                so a setup answered in a blink does not read "you 0s". */}
             <Show when={onYou() >= 1000}>
               <span data-testid="work-on-you" class="shrink-0 text-alert">
                 you {dualPhrase(onYou())}
@@ -378,10 +275,6 @@ const WorkCard: Component<{
           />
         </div>
       </div>
-      {/* THE STRIP, ITS OWN ROW under the head: on a card each cell that has
-          happened is a button that opens the card on that stage's events —
-          the index into the timeline below. Under it, the card's ways on:
-          the chat about it, its link, and its PR while that waits on you. */}
       <div class="px-2.5 pb-2">
         <StageStrip
           stages={read()}
@@ -400,21 +293,10 @@ const WorkCard: Component<{
       </div>
 
       <Show when={isOpen()}>
-        {/* WHAT CHANGES MOST, FIRST. A person opens a card to answer the
-            question, see who is running and what they wrote; the decisions
-            and the timeline are the record behind that, and they are rows
-            of one line each so the whole of an ordinary work fits a laptop
-            screen without scrolling. */}
         <div class="border-t border-edge px-2.5 py-2">
-          <Show when={live()}>
+          <Show when={openArm()}>
             {(asking) => (
               <>
-                {/* THE QUESTIONS, FIRST — a person who opened this card while
-                    it was violet opened it to answer something. EVERY open
-                    ask, not the oldest: a Conductor that asks about a failing
-                    check while a plan approval is still open has put two
-                    things to the human, and a face that draws one of them
-                    makes the second answerable nowhere. */}
                 <For each={asking().asks}>
                   {(ask) => (
                     <AskSlot ask={ask} boxes={askBoxes}>
@@ -431,10 +313,6 @@ const WorkCard: Component<{
                 <Show
                   when={members().length > 0}
                   fallback={
-                    // AN OPEN WORK WITH NOTHING RUNNING IN IT. Losing a
-                    // terminal never ends a work, so this is an ordinary
-                    // state and says so plainly — the Conductor is woken once
-                    // with exactly this, and can join terminals back to it.
                     <p
                       data-testid="work-no-terminals"
                       class="m-0 mb-2.5 font-mono text-[0.62rem] text-fg-3"
@@ -454,8 +332,6 @@ const WorkCard: Component<{
                             one.standing?.kind === "here"
                               ? one.standing.meta
                               : undefined;
-                          /** WHAT IT RUNS: the setup's harness and model for
-                           *  the role, else the agent kolu sees in it. */
                           const runs = () =>
                             Option.getOrElse(
                               roleRuns(props.work, one.member.role),
@@ -471,19 +347,12 @@ const WorkCard: Component<{
                               },
                             );
                           const reading = () => seen().get(one.terminal);
-                          /** WHO IS DRIVING THIS MEMBER, from the one
-                           *  membership index the tile's own frame reads —
-                           *  nothing for a terminal nothing drives
-                           *  (`nobody`), which has no control here. */
                           const driver = (): Lock | undefined => {
                             const at = membership().get(one.terminal);
                             return at === undefined || at.driver === "nobody"
                               ? undefined
                               : at.driver;
                           };
-                          /** The row's head: its role, its name (the way to
-                           *  its tile, while this browser can reach it) and
-                           *  what it runs. */
                           const lead = (
                             <>
                               <span class="shrink-0 rounded-sm bg-conductor/15 px-1 font-mono text-[0.56rem] font-semibold uppercase tracking-[0.08em] text-conductor">
@@ -527,8 +396,6 @@ const WorkCard: Component<{
                               </Show>
                             </>
                           );
-                          /** THE KEYS, WITHOUT TYPING FIRST — the same two
-                           *  calls the terminal's own control makes. */
                           const trail = (
                             <Show when={driver()}>
                               {(who) => (
@@ -568,9 +435,6 @@ const WorkCard: Component<{
                               data-ref={one.terminal}
                               class="min-w-0 text-[0.7rem]"
                             >
-                              {/* ONE ROW: role, name, what it runs, how it
-                                  stands and since when, Look, Take over —
-                                  the screen Look opens goes under it. */}
                               <Show
                                 when={one.split}
                                 fallback={
@@ -589,10 +453,6 @@ const WorkCard: Component<{
                                     lead={lead}
                                     trail={trail}
                                     clock={
-                                      /* SINCE WHEN, and only that: the state
-                                         itself is the status just before it,
-                                         and a second word for it is what a
-                                         phone's row has no room for. */
                                       <Show when={reading()}>
                                         {(read) => (
                                           <span
@@ -619,9 +479,7 @@ const WorkCard: Component<{
             )}
           </Show>
 
-          {/* HOW IT ENDED, on the card of a work that is over: the outcome in
-              the words there are only three of. */}
-          <Show when={ended()}>
+          <Show when={endedArm()}>
             {(done) => (
               <section data-testid="work-outcome" class="mb-2.5">
                 <h4 class="m-0 font-mono text-[0.58rem] uppercase tracking-[0.1em] text-fg-3">
@@ -644,14 +502,10 @@ const WorkCard: Component<{
           <WorkFiles
             id={props.id}
             source={source()}
-            kept={ended() !== undefined}
+            kept={endedArm() !== undefined}
             notKept={Option.getOrUndefined(notKeptOf(props.work))}
           />
 
-          {/* THE PULL REQUEST: its number (a link, off the record), how it
-              stands, its checks — the live tally while a member's record has
-              one, else the last reading the timeline kept — and, while it is
-              open, whether GitHub would merge it. */}
           <Show when={Option.getOrUndefined(prSection(props.work, checks()))}>
             {(pr) => (
               <section data-testid="work-pr" class="mt-2.5">
@@ -677,8 +531,6 @@ const WorkCard: Component<{
                 >
                   {pr().checks}
                 </p>
-                {/* THE RED GATES: one line, cut, with the count — the whole
-                    list in place on a click, and back. */}
                 <Show when={pr().failing.length > 0}>
                   <button
                     type="button"
@@ -719,9 +571,7 @@ const WorkCard: Component<{
             now={now()}
           />
 
-          {/* WHERE THE TIME WENT, for a work that is over: the bar above says
-              it in colour, this says it in figures. */}
-          <Show when={ended() !== undefined}>
+          <Show when={endedArm() !== undefined}>
             <section class="mt-2.5">
               <h4 class="m-0 font-mono text-[0.58rem] uppercase tracking-[0.1em] text-fg-3">
                 Where the time went
@@ -735,13 +585,9 @@ const WorkCard: Component<{
             </section>
           </Show>
 
-          {/* THE ONE CONTROL AT THE FOOT, and which one it is IS the state.
-              Stopping is one of the only two ways a work ends on purpose (the
-              Conductor's `work_stop` is the other); reopening is how an ended
-              one comes back with everything it decided still on it. */}
           <div class="mt-3 border-t border-edge pt-2">
             <Show
-              when={live() !== undefined}
+              when={openArm() !== undefined}
               fallback={
                 <button
                   type="button"

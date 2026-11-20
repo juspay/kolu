@@ -1,11 +1,3 @@
-/**
- * The printed-port index — what a terminal's own buffer says it printed.
- *
- * Driven against a fake buffer rather than a real xterm: the properties pinned
- * here are about WHICH rows get read and how they are joined, and a fake whose
- * rows, wrap flags and markers the test controls states them exactly.
- */
-
 import type { TerminalId } from "kolu-common/surface";
 import { describe, expect, it } from "vitest";
 import {
@@ -31,8 +23,6 @@ describe("portsInText", () => {
   });
 
   it("reads a URL followed by prose punctuation, as the link underline does", () => {
-    // The shared link grammar never ends a URL on `.`, `,` or `)` — so "running
-    // at http://localhost:3000." names port 3000 instead of failing to parse.
     expect(
       portsInText(
         "running at http://localhost:3000. (see http://127.0.0.1:4000), or http://[::1]:5000,",
@@ -47,9 +37,6 @@ describe("portsInText", () => {
   });
 });
 
-/** A fake normal buffer. `rows` are [text, isWrapped]; the cursor sits on the
- *  last row and the viewport is `viewport` rows tall. Markers track a line index
- *  and shift when `trim` drops rows off the top, as xterm's do. */
 function fakeTerminal(viewport = 3) {
   const rows: Array<[string, boolean]> = [];
   let onWrite: (() => void) | undefined;
@@ -116,9 +103,6 @@ function fakeTerminal(viewport = 3) {
         if (m.line < 0) m.isDisposed = true;
       }
     },
-    /** A scrollback backfill: rows spliced in above everything and every
-     *  marker shifted down — no write. The caller reports it to the tracker, as
-     *  the backfill controller's `onPrepended` does. */
     prepend: (...lines: string[]) => {
       rows.unshift(...lines.map((l): [string, boolean] => [l, false]));
       for (const m of markers) m.line += lines.length;
@@ -129,7 +113,6 @@ function fakeTerminal(viewport = 3) {
   };
 }
 
-/** A manual scheduler: nothing runs until `flush`. */
 function manual() {
   let queue: Array<() => void> = [];
   return {
@@ -149,8 +132,6 @@ function manual() {
   };
 }
 
-/** A scheduler the test steps one callback at a time — to interleave buffer
- *  changes BETWEEN two chunks of one pass. */
 function stepper() {
   let queue: Array<() => void> = [];
   return {
@@ -209,8 +190,6 @@ describe("trackPrintedPorts", () => {
   });
 
   it("catches a URL a program redraws INSIDE the viewport above the cursor", () => {
-    // Claude Code re-renders its live region by moving the cursor up. A scan
-    // that resumed from the last row it read would miss the rewritten row.
     const f = fakeTerminal(4);
     const clock = manual();
     const id = nextId();
@@ -243,8 +222,6 @@ describe("trackPrintedPorts", () => {
       { length: SCAN_CHUNK_LINES - 1 },
       (_, i) => `line ${i}`,
     );
-    // The URL's logical line starts on the last row of the first chunk and
-    // wraps into the second — read in halves it would name port 51.
     f.write(...filler, "http://localhost:51", ["73/", true], "tail");
     const clock = manual();
     const id = nextId();
@@ -255,8 +232,6 @@ describe("trackPrintedPorts", () => {
   });
 
   it("reads rows a scrollback BACKFILL splices in above everything", () => {
-    // After a reload the buffer holds only recent rows; scrolling back prepends
-    // older ones through a splice that fires a scroll, not a write.
     const f = fakeTerminal();
     f.write("recent", "prompt");
     const clock = manual();
@@ -272,8 +247,6 @@ describe("trackPrintedPorts", () => {
   });
 
   it("reads a backfill that lands DURING the first multi-chunk pass", () => {
-    // The continuation follows content it already passed; the rows spliced in
-    // above it are still owed a pass from the top — with no later write needed.
     const f = fakeTerminal();
     f.write(
       ...Array.from({ length: SCAN_CHUNK_LINES * 2 }, (_, i) => `line ${i}`),
@@ -281,7 +254,7 @@ describe("trackPrintedPorts", () => {
     const q = stepper();
     const id = nextId();
     const tracker = trackPrintedPorts(f.term, id, q.schedule);
-    q.runOne(); // first chunk only
+    q.runOne();
     f.prepend("http://localhost:18440/", "older");
     tracker.notePrepended();
     q.drain();
@@ -300,7 +273,7 @@ describe("trackPrintedPorts", () => {
       ...Array.from({ length: SCAN_CHUNK_LINES * 2 }, (_, i) => `older ${i}`),
     );
     tracker.notePrepended();
-    q.runOne(); // the pass that reads the first backfill, one chunk in
+    q.runOne();
     f.prepend("http://localhost:5173/", "oldest");
     tracker.notePrepended();
     q.drain();
@@ -309,8 +282,6 @@ describe("trackPrintedPorts", () => {
   });
 
   it("keeps its place when output trims the buffer BETWEEN two chunks", () => {
-    // A continuation that remembered a row NUMBER would start past rows that
-    // moved up under it, and never read them.
     const f = fakeTerminal();
     const rows = Array.from({ length: SCAN_CHUNK_LINES * 2 }, (_, i) =>
       i === SCAN_CHUNK_LINES + 50 ? "http://localhost:4321/" : `line ${i}`,
@@ -326,7 +297,7 @@ describe("trackPrintedPorts", () => {
     const runOne = () => queue.shift()?.();
     const id = nextId();
     const tracker = trackPrintedPorts(f.term, id, schedule);
-    runOne(); // first chunk only
+    runOne();
     expect(printedPortsOf(id)).toEqual([]);
     f.trim(100);
     f.write("more");
@@ -360,9 +331,6 @@ describe("trackPrintedPorts", () => {
   });
 
   it("caps the index and evicts the oldest ports once it grows without bound", () => {
-    // A terminal that prints far more distinct ports than any real session
-    // would (a loop picking a new one each run) must not grow the index
-    // forever — only the most recently seen MAX_TRACKED_PORTS survive.
     const f = fakeTerminal();
     const total = MAX_TRACKED_PORTS + 100;
     for (let i = 0; i < total; i++) {
@@ -374,10 +342,8 @@ describe("trackPrintedPorts", () => {
     clock.flush();
     const ports = printedPortsOf(id);
     expect(ports.length).toBe(MAX_TRACKED_PORTS);
-    // The earliest-printed ports are the ones evicted…
     expect(ports).not.toContain(20000);
     expect(ports).not.toContain(20000 + 99);
-    // …the most recently printed ones survive.
     expect(ports).toContain(20000 + total - 1);
     expect(ports).toContain(20000 + 100);
     tracker.dispose();

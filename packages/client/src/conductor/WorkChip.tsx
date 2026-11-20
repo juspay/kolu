@@ -1,19 +1,3 @@
-/** A PIECE OF WORK YOU CAN GO TO — the work's name (`WorkChipFace`) as a
- *  button: on a chat turn, on a question about a work, in the reader's
- *  header.
- *
- *  Pressing it brings the work's card into view (`showWork`): the reader
- *  gives way, the listing comes out on a narrow window, a finished work's
- *  list opens, and the card opens and is scrolled to. On a touch screen that
- *  press is also how a person sees where the work stands — there is no hover
- *  there — so it lands on the card, which says all of it.
- *
- *  Hover or keyboard focus shows where the work stands without leaving the
- *  chat: its subtitle and age, the card's own standing line, and the small
- *  stage strip — drawn by the same components the card draws, so the two
- *  cannot disagree. The hover card is the repo's tooltip (Corvu), mounted
- *  only while open, so a chat full of chips reads nothing it does not show. */
-
 import Tooltip from "@corvu/tooltip";
 import { dualPhrase } from "@kolu/terminal-vocab/duration";
 import { Option } from "effect";
@@ -38,8 +22,6 @@ import {
 } from "./workReadings";
 import WorkStanding from "./WorkStanding";
 
-/** WHAT THE HOVER CARD SAYS — its own component so that nothing in it is
- *  read until it opens. */
 const WorkChipCard: Component<{ id: WorkId; work: Work }> = (props) => {
   const now = useShownClock();
   const allMembers = useWorkMembers();
@@ -83,8 +65,6 @@ const WorkChipCard: Component<{ id: WorkId; work: Work }> = (props) => {
         size="mini"
         testId="chip-stage-strip"
       />
-      {/* THE CHAT ABOUT IT, from where the work was named — the same act as
-          the card's "About this work". */}
       <button
         type="button"
         data-testid="work-chip-about"
@@ -98,7 +78,6 @@ const WorkChipCard: Component<{ id: WorkId; work: Work }> = (props) => {
 };
 
 const WorkChip: Component<{
-  /** The id the work is filed under. */
   id: WorkId;
   work: Work;
 }> = (props) => (

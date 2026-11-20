@@ -1,25 +1,5 @@
 /// <reference types="node" />
 
-/**
- * REGRESSION PIN (the ownerless-standing-subscription class): a bare module-const
- * `.use()` on a surface cell/collection/stream/event — with NO ambient Solid owner —
- * is the "ownerless" path `@kolu/surface`'s `createKeyedSubscriptionCache` documents:
- * it acquires the shared subscription slot and releases it in the SAME tick, netting
- * the listener count to zero, so the underlying subscription tears down a MICROTASK
- * later — long before the first real (network) value can land. Every reader then sees
- * the honest-unknown default FOREVER: the exact "padi status unknown / build commit —
- * / memory unavailable" symptom this fix retired (`useMemoryUsage.ts`,
- * `useProcessUptime.ts`, `useDaemonInventory.ts`, `useDaemonStatus.ts`'s `padiLinkSub`
- * were all bare module-const `.use()` calls with no owning root).
- *
- * The fix is an app-lifetime `createRoot(() => X.cells.Y.use(...))` wrapper (the idiom
- * `useDaemonStatus.ts`'s `sub` / `useHostInventory.ts`'s `sub` already used correctly).
- * This is a GREP-BASED scan (not a full static analyzer — a plain text heuristic is
- * enough to catch the class, per the fix's own charter), so a FUTURE hook that opens a
- * new standing `.use()` at module scope without an owning `createRoot` fails this test
- * instead of silently freezing at "unknown" for a whole session.
- */
-
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -31,41 +11,38 @@ import {
 
 const SRC_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 
-/** A surface `.use()` call site the base client's ref-counted cache dedups — a cell,
- *  a whole collection, a stream, an event, or the map's `entries` collection. */
+/** A surface `.use()` call site the base client's ref-counted cache dedups. */
 const STANDING_USE_RE =
   /\.(cells|collections|streams|events|entries)(\.\w+)?\.use\(/;
 
-/** How far past a module-top-level `const NAME = ` to look for BOTH a standing `.use()`
- *  call and an owning `createRoot(` — comfortably wider than the real (2-6 line)
- *  pattern, narrow enough not to accidentally absorb a later, unrelated statement. */
-const STATEMENT_WINDOW = 600;
+/** Where a module-top-level declaration ends: the next line that starts a new
+ *  column-0 statement (a declaration's own continuation lines are indented or
+ *  start with a closing bracket). */
+const NEXT_TOP_LEVEL_STATEMENT = /^[A-Za-z_@$]/gm;
 
-/** Every module-TOP-LEVEL (column-0) `const NAME = <standing .use() call>` site with no
- *  `createRoot(` wrapping it, as `"<file>:<line>"` strings. Column-0 `const` is this
- *  biome-formatted tree's actual signal for "module scope" (an indented `const` is
- *  inside a function/component, which has its own reactive owner already). */
+function declarationEnd(text: string, start: number): number {
+  const nextLine = text.indexOf("\n", start);
+  if (nextLine === -1) return text.length;
+  NEXT_TOP_LEVEL_STATEMENT.lastIndex = nextLine + 1;
+  return NEXT_TOP_LEVEL_STATEMENT.exec(text)?.index ?? text.length;
+}
+
+/** Every module-top-level (column-0) `const NAME = <standing .use() call>`
+ *  site with no `createRoot` / `createSharedRoot` owning it, as
+ *  `"<file>:<line>"` strings. */
 function findUnownedStandingSubscriptions(): string[] {
   const violations: string[] = [];
   for (const file of listGuardSourceFiles(SRC_ROOT)) {
     const text = stripComments(readFileSync(file, "utf8"));
     const topLevelConst = /^const\s+\w+\s*=\s*/gm;
-    const starts: number[] = [];
     let m: RegExpExecArray | null = topLevelConst.exec(text);
     while (m !== null) {
-      starts.push(m.index);
+      const stmt = text.slice(m.index, declarationEnd(text, m.index));
+      if (STANDING_USE_RE.test(stmt) && !/create(Shared)?Root[(<]/.test(stmt)) {
+        const line = text.slice(0, m.index).split("\n").length;
+        violations.push(`${file.replace(`${SRC_ROOT}/`, "")}:${line}`);
+      }
       m = topLevelConst.exec(text);
-    }
-    for (const [i, start] of starts.entries()) {
-      const nextConst = starts[i + 1] ?? text.length;
-      const windowEnd = Math.min(start + STATEMENT_WINDOW, nextConst);
-      const stmt = text.slice(start, windowEnd);
-      if (!STANDING_USE_RE.test(stmt)) continue; // not a standing-subscription const
-      // owned — fine. `createSharedRoot(` is the named form of the same app-lifetime
-      // `createRoot` (see `createSharedRoot.ts`), so it owns just as well.
-      if (/create(Shared)?Root\(/.test(stmt)) continue;
-      const line = text.slice(0, start).split("\n").length;
-      violations.push(`${file.replace(`${SRC_ROOT}/`, "")}:${line}`);
     }
   }
   return violations;

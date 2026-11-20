@@ -5,13 +5,6 @@ import {
   savedSplitOf,
 } from "./splitPanelState";
 
-/** The one-source read, as a rule: a tile's split state is the record's, with
- *  the user's in-flight change in front of it and ONE default behind it.
- *
- *  Pinned here because the defect it replaces (kolu#2362) was a second place
- *  for the answer to live: a browser-side copy that said "not collapsed, 30%"
- *  until a restore filled it in, which every mount then laid its tile out from
- *  and wrote back. */
 describe("savedSplitOf", () => {
   const saved = { collapsed: true, panelSize: 0.42 } as const;
   const pending = { collapsed: false, panelSize: 0.25 } as const;
@@ -25,8 +18,6 @@ describe("savedSplitOf", () => {
   });
 
   it("answers ONE default for a terminal whose record says nothing", () => {
-    // A terminal that never had a split, and a brand-new one, read the same —
-    // and read it from here, so no second answer can exist.
     expect(savedSplitOf(undefined, undefined)).toBe(DEFAULT_SPLIT_PANEL_STATE);
     expect(DEFAULT_SPLIT_PANEL_STATE).toEqual({
       collapsed: false,

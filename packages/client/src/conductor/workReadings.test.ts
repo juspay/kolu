@@ -1,14 +1,3 @@
-/**
- * THE WORDS THE COLUMN SAYS, pinned without a browser.
- *
- * `kolu-work` already tests what a work IS (who it waits on, the bar, the
- * durations). What is this module's own is the reading a PERSON gets: the
- * labels the setup is drawn under, the typography of a one-line row, the
- * sentence under a title, the line beside a timeline dot, and the one number
- * on the tab — which is the only fold here that two surfaces share, so it is
- * the one that must not be re-derived anywhere else.
- */
-
 import { Option } from "effect";
 import {
   ABOUT_WORK,
@@ -70,7 +59,6 @@ import {
 const AT = "2026-01-01T10:00:00.000Z";
 const WORK = "branch:local/%2Fhome%2Fsrid%2Fcode%2Fkolu/update-errors";
 
-/** What every decision carries, whatever it is about. */
 interface Over {
   readonly id?: string;
   readonly ask?: string;
@@ -85,9 +73,6 @@ const common = (over: Over, fallbackId: string) => ({
   question: over.question ?? "Approve the plan?",
 });
 
-/** A QUESTION ABOUT THE WORK — the asker's own, with its header, its options
- *  and the file it is about. Each absence is an ARM: a question with no
- *  header is `{kind:"none"}`, never an empty string. */
 const asked = (
   over: Over & {
     readonly header?: string;
@@ -110,8 +95,6 @@ const asked = (
       : { kind: "file", path: over.file },
 });
 
-/** ... answered, with what was SAID: a sum with no "answered with nothing"
- *  arm, which is the whole point of this round. */
 const said = (
   value: Said,
   over: Parameters<typeof asked>[0] = {},
@@ -128,15 +111,12 @@ const picked = (
   from: AnswerFrom = "chat",
 ): Settled => said({ kind: "picked", picked: [one] }, over, from);
 
-/** A question about the work nobody would answer. */
 const declined = (over: Parameters<typeof asked>[0] = {}): Settled => ({
   ...asked(over),
   kind: "settled",
   answer: { how: "declined", at: AT, from: "card" },
 });
 
-/** THE SETUP'S OWN QUESTIONS, by key — labelled by the key's own name, with
- *  no header and no file to carry. */
 const modeAsked = (
   over: Over = {},
 ): Extract<Asked, { topic: "setup"; key: "mode" }> => ({
@@ -201,8 +181,6 @@ const work = (over: Partial<Work> = {}): Work => ({
   ...over,
 });
 
-/** The ONE members map, as the wire hands it over: terminal to its membership
- *  of a work. */
 const members = (
   role: WorkMember["role"] = "planner",
   terminal = "local/a",
@@ -222,8 +200,6 @@ const event = (over: Partial<WorkEvent> & Pick<WorkEvent, "kind">): WorkEvent =>
     ...over,
   }) as WorkEvent;
 
-/** A member joined, as the TIMELINE says it — which is where a role is read
- *  from, so a terminal that has since left is still named by its part. */
 const joined = (terminal = "local/a", role: WorkMember["role"] = "planner") =>
   event({ kind: "joined", about: aboutMember(terminal), role });
 
@@ -237,7 +213,6 @@ describe("what a card's head says", () => {
   });
 
   it("says where the work IS — the repo and the branch of its key", () => {
-    // Setup unanswered: no mode, no PR — the line is the identity alone.
     expect(workSubtitle(work(), Option.none())).toEqual([
       "kolu",
       "update-errors",
@@ -294,8 +269,6 @@ describe("what a card's head says", () => {
   });
 });
 
-/** A PR's life on the timeline: opened, checks passed on one commit, and
- *  then what GitHub said about merging it. */
 const HEAD = { kind: "commit", sha: "abc1234" } as const;
 const opened = event({
   kind: "pr-opened",
@@ -344,7 +317,6 @@ describe("the stages a card draws", () => {
 });
 
 describe("whether a work waits on you", () => {
-  /** By the one needs-you reading. */
   const waitsOnYou = (one: Work): boolean =>
     Option.isSome(needsYouOf("w", one));
 
@@ -544,7 +516,6 @@ describe("the Pull request section", () => {
     expect(Option.map(section.merge, (merge) => merge.reason)).toEqual(
       Option.some("draft"),
     );
-    // A PR whose word kolu never kept claims nothing.
     const unrecorded = event({
       kind: "pr-opened",
       pr: 9,
@@ -583,7 +554,6 @@ describe("what an open card shows of the setup and the decisions", () => {
     expect(line.find((part) => part.key === "on-green")?.answer).toBe(
       "hand-over",
     );
-    // ... and a question about the work is not part of it.
     expect(otherDecisions(one).map((row) => row.answer)).toEqual(["Approve"]);
   });
 });
@@ -609,7 +579,6 @@ describe("which events an open card shows", () => {
       view: { kind: "stage", stage: "plan" },
       rows: rowsOfEvents([0, 1]),
     });
-    // ... and the whole of it folds back to the stage it came from.
     expect(timelineShown(one, read, "plan", true).folded).toEqual({
       kind: "stage",
       stage: "plan",
@@ -664,7 +633,6 @@ describe("which events an open card shows", () => {
         { kind: "event", index: 1 },
         { kind: "folder", folder: ".waterfall/mockup/", indices: [2, 3, 4] },
       ]);
-      // THE TOTAL COUNTS ROWS AS DRAWN, not the events under them.
       expect(shown.total).toBe(3);
     });
 
@@ -700,8 +668,6 @@ describe("which events an open card shows", () => {
 
 describe("where it stands", () => {
   it("leads with the waiter, and puts the live check tally after CI", () => {
-    // A check is about a PR the timeline opened: the one PR rule reads no
-    // check of a PR it never saw open.
     const ci = work({
       events: [
         opened,
@@ -720,8 +686,6 @@ describe("where it stands", () => {
     );
     expect(line.who).toBe("ci");
     expect(line.lead).toBe("CI running");
-    // 14 landed of 23 — the one number the record cannot hold, because it is
-    // only true for the instant it was read.
     expect(line.what).toEqual(Option.some("14 of 23 checks"));
   });
 
@@ -743,7 +707,6 @@ describe("where it stands", () => {
       state: { kind: "ended", at: AT, outcome, kept: [] },
       events: [event({ kind: "ended", outcome })],
     });
-    // Said once: "Merged #7", never "Merged · Merged #7".
     expect(standingLine(over, Option.none())).toMatchObject({
       who: "done",
       lead: "Merged #7",
@@ -821,8 +784,6 @@ describe("the timeline's words", () => {
   });
 
   it("names the decision rather than copying the question's words", () => {
-    // THE DEFECT THIS GUARDS: the timeline used to quote the question, so a
-    // sentence a person already read on the card was read to them twice.
     expect(words(plan, event({ kind: "question", ask: "ask-1" }))).toBe(
       "Asked: Plan approval",
     );
@@ -832,9 +793,6 @@ describe("the timeline's words", () => {
   });
 
   it("says a form answered in parts is answered in parts", () => {
-    // BUG 2, on the timeline: what was filled in is recorded and the rest of
-    // the ask is still in front of the person, so the line must not read as
-    // an answer to the whole of it.
     const line = words(plan, event({ kind: "answered-part", ask: "ask-1" }));
     expect(line).toContain("part");
     expect(line).toContain("still open");
@@ -856,13 +814,10 @@ describe("the timeline's words", () => {
       failing: string[] = [],
     ) =>
       event({ kind, by: "ci", pr: 7, head: { kind: "commit", sha }, failing });
-    // One commit: the oid is on the record, and saying it would be the
-    // card's loudest word for its least interesting fact.
     const one = work({
       events: [check("checks-running", HEAD), check("checks-passed", HEAD)],
     });
     expect(words(one, one.events[0] as WorkEvent)).toBe("CI running");
-    // A push: now the two runs have to be told apart.
     const pushed = work({
       events: [
         ...one.events,
@@ -976,10 +931,6 @@ describe("the timeline's words", () => {
 });
 
 describe("the lock, as a person meets it", () => {
-  /** A work the Conductor DRIVES — mode answered, one planner in the members
-   *  map. The driver is read off the record by `kolu-work`; what is tested
-   *  here is the browser's two answers to it: may this person type, and what
-   *  does the banner say. */
   const driven = work({ decisions: [mode("full")], events: [joined()] });
   const membershipAt = (one: Work) => {
     const at = membershipOf(new Map([[WORK, one]]), members()).get("local/a");
@@ -988,8 +939,6 @@ describe("the lock, as a person meets it", () => {
   };
 
   it("blocks a person's input only while the Conductor is driving", () => {
-    // The three cases every input site passes through this one rule: driven,
-    // taken over, and a terminal the index does not name at all.
     expect(inputAllowed(Option.some(membershipAt(driven)))).toBe(false);
     const mine = takeOver(driven, "local/a", AT);
     expect(inputAllowed(Option.some(membershipAt(mine)))).toBe(true);
@@ -1001,8 +950,6 @@ describe("the lock, as a person meets it", () => {
     expect(lockWords(at, "conductor")).toBe(
       "Driven by the Conductor · Planner · Show agent-distro update errors",
     );
-    // Taken over: the SAME index, read after the act — so the banner, the
-    // dock's mark and the keystroke gate cannot disagree.
     const mine = takeOver(driven, "local/a", AT);
     expect(membershipAt(mine).driver).toBe("you");
     expect(lockWords(membershipAt(mine), "you")).toBe(
@@ -1014,9 +961,6 @@ describe("the lock, as a person meets it", () => {
   });
 
   it("names the Conductor and the part on the card typing raises", () => {
-    // ONE LINE, and no work title in it: the card is centred over the very
-    // terminal it is about, so the words say who holds the keyboard and what
-    // this terminal is for, and nothing a reader can already see.
     expect(lockCardWords(membershipAt(driven))).toBe(
       "The Conductor is driving this terminal · Planner",
     );
@@ -1024,8 +968,6 @@ describe("the lock, as a person meets it", () => {
 
   it("drives NOBODY in a work that drives nothing — a watch", () => {
     const watched = work({ decisions: [mode("watch")], events: [joined()] });
-    // An arm of its own, not an absence: the terminal is a member, and
-    // nothing types into it but the person in front of it.
     expect(membershipAt(watched).driver).toBe("nobody");
     expect(inputAllowed(Option.some(membershipAt(watched)))).toBe(true);
   });
@@ -1047,7 +989,6 @@ describe("the lock, as a person meets it", () => {
         }),
       ),
     ).toBe("You handed the planner back");
-    // The bound's own event: a count, in words, where the stretch happened.
     expect(words(driven, event({ kind: "folded", count: 42 }))).toBe(
       "42 earlier agent state changes",
     );
@@ -1058,12 +999,9 @@ describe("the card's own vocabulary and typography", () => {
   it("labels a setup decision by its key's own name, one label per role", () => {
     expect(decisionLabel(modeAsked())).toBe("Mode");
     expect(decisionLabel(onGreenAsked())).toBe("On green");
-    // A role is ONE row: its harness and its model answer under one label.
     expect(decisionLabel(choiceAsked("planner.harness"))).toBe("Planner");
     expect(decisionLabel(choiceAsked("planner.model"))).toBe("Planner");
     expect(decisionLabel(choiceAsked("implementor.model"))).toBe("Implementor");
-    // Every key has a row, and no key has two. The HOST is not among them:
-    // a work IS its host, so there is nothing there to decide.
     expect([...SETUP_ROWS].flat().sort()).toEqual([...SETUP_KEYS].sort());
   });
 
@@ -1075,8 +1013,6 @@ describe("the card's own vocabulary and typography", () => {
 
   it("stands in a few words of the question for a header of none", () => {
     expect(decisionLabel(asked())).toBe("Approve the plan?");
-    // THE DEFECT THIS GUARDS: a Conductor that reasons inside its question
-    // had that whole paragraph drawn as the row's label.
     expect(
       decisionLabel(
         asked({
@@ -1124,11 +1060,9 @@ describe("the decisions, as the rows a card draws", () => {
       decisionRows(set).map((row) => `${row.label} — ${row.answer}`),
     ).toEqual([
       "Mode — trivial",
-      // ONE row for the role: its harness and its model, not two questions.
       "Implementor — omp · Opus 5.5",
       "On green — hand over",
     ]);
-    // Nothing asked: no rows at all.
     expect(decisionRows(work())).toEqual([]);
   });
 
@@ -1170,9 +1104,6 @@ describe("the tab's one number", () => {
     decisions: [asked({ ask: "ask-work" })],
     events: [event({ kind: "question", by: "agent", ask: "ask-work" })],
   });
-  /** The count over the one needs-you reading of these works and the
-   *  conversation's OWN open asks (the cell's `openAsks`, which never holds
-   *  a work's question). */
   const needsOf = (works: ReadonlyArray<Work>) =>
     needsYou(works.map((one, at): [string, Work] => [`w${at}`, one]));
   const count = (works: ReadonlyArray<Work>, own: ReadonlyArray<string>) =>
@@ -1225,14 +1156,8 @@ describe("a PR's checks", () => {
   });
 });
 
-/** The sum's two arms, as the card reads them — a compile-time claim as much
- *  as a runtime one: an ended work has no `members` and no open asks to draw,
- *  because the ended arm of {@link Decision}'s neighbour has nowhere to put
- *  them. */
 describe("a finished card has nothing to draw terminals or questions from", () => {
   it("has no members in the one map once the work has ended", () => {
-    // Ending removes a work's members in the same step, so the map simply has
-    // no row pointing at it.
     expect(membersIn(new Map(), WORK)).toEqual([]);
   });
 

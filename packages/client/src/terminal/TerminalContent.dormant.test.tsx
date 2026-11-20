@@ -1,16 +1,4 @@
 // @vitest-environment happy-dom
-/**
- * A slept FAMILY renders per PANE: sleep freezes a terminal and its splits
- * together, so the tile keeps its `Resizable` + tab strip while each pane swaps
- * its own `Terminal` for a dormant body — the main pane gets the full
- * (`size="tile"`) body, every dormant split the compact (`size="sub"`) one.
- *
- * This is the regression the old whole-tile swap could not express: with the
- * parent asleep, a sub pane rendered `Terminal` unconditionally, so a dormant
- * child read as an *exited* one (an attach verdict on a PTY-less record). The
- * assertion is therefore negative as well as positive — a dormant pane must show
- * NO live terminal.
- */
 
 import type { ITheme } from "@xterm/xterm";
 import type { TerminalId } from "kolu-common/surface";
@@ -21,8 +9,6 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 const MAIN = "dormant-main" as TerminalId;
 const SUB = "dormant-sub" as TerminalId;
 
-/** Which terminal ids are dormant for the NEXT mount. Flipped per test; each test
- *  mounts once (metas are plain objects, so there is no reactive source to nudge). */
 const h = vi.hoisted(() => ({ dormant: new Set<string>() }));
 
 vi.mock("@corvu/resizable", () => {
@@ -35,9 +21,6 @@ vi.mock("@corvu/resizable", () => {
 
 vi.mock(import("@kolu/padi-client/surface"), async (importOriginal) => ({
   ...(await importOriginal()),
-  // The real one is a discriminant on `state`; the store mock below hands each
-  // pane the state this test set up, so the component's per-pane swap is what is
-  // under test, not the arm helper.
   sleepingArm: (m: { state?: string } | null | undefined) =>
     m?.state === "sleeping" ? (m as never) : undefined,
 }));
@@ -149,11 +132,9 @@ describe("TerminalContent — a dormant family renders pane by pane", () => {
     h.dormant = new Set([MAIN, SUB]);
     mount();
 
-    // Nothing live behind either pane.
     expect(host?.querySelector('[data-testid="main-terminal"]')).toBeNull();
     expect(host?.querySelector('[data-testid="sub-terminal"]')).toBeNull();
 
-    // The tile is still a tile — its split chrome is how the family is shown.
     expect(
       host?.querySelector('[data-testid="sub-panel-tab-bar"]'),
     ).not.toBeNull();

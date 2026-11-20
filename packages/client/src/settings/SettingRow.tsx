@@ -1,14 +1,6 @@
-/** One row in SettingsPopover — label + control on top, optional hint underneath.
- *  Label is the hero (`text-fg font-medium`); hint recedes (`SETTING_VOICE`)
- *  so attention lands on the control, not the copy. TONE_CONFIG owns both the
- *  color class and the glyph prefix so a new tone entry updates both in one
- *  place. Default tone is "muted". Optional `details` render under the hint,
- *  and optional `doc` a trailing docs link below them. */
-
 import { type Component, type JSX, Show } from "solid-js";
 import DocLink, { type DocSlug } from "../ui/DocLink";
 
-/** Per tone: its colour and its glyph. */
 const TONE_CONFIG = {
   muted: { colorClass: "text-fg-3/70", glyph: "" },
   warn: { colorClass: "text-warning", glyph: "⚠ " },
@@ -16,16 +8,12 @@ const TONE_CONFIG = {
 
 export type Hint = { text: string; tone?: keyof typeof TONE_CONFIG };
 
-/** THE hint renderer — how a row's hint looks (its tone's colour and glyph),
- *  decided once. `class` is spacing only. */
 const SettingHint: Component<{
   hint: Hint;
   class?: string;
 }> = (props) => {
   const cfg = () => TONE_CONFIG[props.hint.tone ?? "muted"];
   return (
-    // `whitespace-pre-line`: a hint may carry several lines (the Agents
-    // row's, while agents are off); a one-line hint renders as before.
     <p
       class={`text-xs whitespace-pre-line leading-relaxed ${cfg().colorClass} ${props.class ?? ""}`}
     >
@@ -39,23 +27,14 @@ const SettingHint: Component<{
 
 const SettingRow: Component<{
   label: string;
-  /** Optional mark shown before the label (the Agents row's agent-distro logo). */
   icon?: JSX.Element;
   hint?: Hint;
-  /** Optional detail under the hint (the Agents row's per-host status lines). */
   details?: JSX.Element;
-  /** Optional product-docs slug — renders a "Docs →" link under the hint. */
   doc?: DocSlug;
-  /** Optional quieter link beside "Docs →" (the Agents row's "Provided by
-   *  agent-distro ↗"). */
   aside?: JSX.Element;
   children: JSX.Element;
 }> = (props) => (
   <div>
-    {/* Wrap the control below the label when it can't fit beside it (a wide
-     *  control like the 5-segment "New terminal theme" picker in the narrow
-     *  mobile chrome sheet) rather than clipping it off the popover edge. On a
-     *  wide popover everything stays on one line. */}
     <div class="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
       <span class="flex items-center gap-1.5 text-sm font-medium text-fg">
         {props.icon}

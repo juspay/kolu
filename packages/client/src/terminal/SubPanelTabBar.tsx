@@ -1,5 +1,3 @@
-/** Tab bar for sub-terminals within a parent's sub-panel. */
-
 import { sleepingArm, type TerminalMetadata } from "@kolu/padi-client/surface";
 import { cwdBasename } from "@kolu/terminal-vocab/terminalKey";
 import type { TerminalId } from "kolu-common/surface";
@@ -19,18 +17,8 @@ const SubPanelTabBar: Component<{
   onClose: (id: TerminalId) => void;
   onCreate: () => void;
   onCollapse: () => void;
-  /** May a split be created from here? False on a DORMANT tile: the tab strip is
-   *  still mounted (it is how a slept family is shown), but `child-of` requires a
-   *  live parent, so a `+` could only produce the raw create-failure toast. */
   canCreate: boolean;
 }> = (props) => {
-  // Sub-terminals mount the same `Terminal` component, so each one already
-  // records output under its own `subId` — but the top-level dock/title readers
-  // are keyed by the PARENT id and never surface it. This tab bar is the only
-  // per-sub UI, so it owns the sub-terminal's live-output reader. It reads the
-  // ONE attention value and takes the live leg off it, rather than a separate
-  // `isLive` ingredient: every export beside the value is a route back to the
-  // loose-booleans shape the one-value fact closed.
   const facts = useAttentionFacts();
   return (
     <div
@@ -43,16 +31,11 @@ const SubPanelTabBar: Component<{
           const label = () => {
             const m = meta();
             const base = m ? cwdBasename(m.cwd) : "terminal";
-            // Append 1-based index when multiple tabs share the same name
             const suffixed =
               props.subIds.length <= 1 ? base : `${base} ${index() + 1}`;
-            // Supplant rule: intent line-1 takes the label slot when set.
             return annotationLine(m?.intent, suffixed);
           };
           const isActive = () => props.activeSubTab === id;
-          // A dormant split keeps its tab while it sleeps (sleep freezes the
-          // whole family), so the tab says so: the same ☾ the dock row and the
-          // tile wear, ahead of the label.
           const dormant = () => sleepingArm(meta()) !== undefined;
           return (
             <div class="group relative">

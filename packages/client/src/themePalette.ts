@@ -7,9 +7,6 @@ export interface ThemePaletteDeps {
   handleSetTheme: (name: string) => void;
 }
 
-/** The Set-theme palette state machine, kept pure so preview/cancel/commit
- * behavior is pinned without mounting the whole application. CommandPalette
- * owns when highlight/cancel fire; this owns what each lifecycle edge means. */
 export function themePaletteGroup(
   themeNames: readonly string[],
   deps: ThemePaletteDeps,

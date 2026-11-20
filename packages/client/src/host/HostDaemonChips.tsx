@@ -1,13 +1,3 @@
-/** Per-host Padi + Kaval dual marks — diagnostics-on-demand (quiet strip).
- *
- *  Mounted from `HostDiagnosticsPopover`, not on every strip chip. Each
- *  sub-chip keys off `props.host` via `padiMap.entry(host)` (entry state,
- *  identity, daemonStatus). Click switches to that host before opening the
- *  info dialog so the dialog's active-host detail sections describe it.
- *
- *  COMPACTION: resting state is icon + status dot only. Steady versions,
- *  memory, and update detail live in the Tip / dialogs. */
-
 import type { EntryState } from "@kolu/surface-map";
 import { type HostKey, hostKeysEqual as sameHost } from "kolu-common/hostKey";
 import type { PadiLink, ProcessRss } from "kolu-common/surface";
@@ -51,16 +41,10 @@ import { activeHost, padiMap, setActiveHost } from "../wire";
 import { hostGlance, hostLabel, KAVAL_CHAIN_UNKNOWN } from "./hostChipTone";
 import { useHostKaval } from "./useHostKaval";
 
-/** Map entry → dialog's legacy `PadiLink` vocabulary. Exhaustive on kind. */
 const ENTRY_AS_PADI_LINK: Record<EntryState["kind"], PadiLink | undefined> = {
   connected: "connected",
   warming: "connecting",
   failed: "degraded",
-  // `undefined` — the SAME "no claim" the non-member arm makes, and for the same reason.
-  // `PadiLink` is a vocabulary about padi's own dial (connected / connecting / degraded);
-  // while this browser cannot reach kolu at all, every one of those words would be a claim
-  // about a campaign we are not watching. "connecting" in particular is the exact lie #2129
-  // was: it reads as "padi is working on it" when the truth is that we cannot see padi.
   unobservable: undefined,
   "not-a-member": undefined,
 };
@@ -69,9 +53,6 @@ function entryAsPadiLink(state: EntryState): PadiLink | undefined {
 }
 
 function skewPairFor(host: HostKey): SkewVersionPair | undefined {
-  // The failed arm carries the schema-valid `PadiEntryFailure`, whose
-  // `contract-skew-refused` arm always carries both contract versions (typed
-  // evidence from the standing anomaly — never optional).
   const state = padiMap.entry(host).state();
   if (
     state.kind !== "failed" ||
@@ -82,12 +63,6 @@ function skewPairFor(host: HostKey): SkewVersionPair | undefined {
   return { running, expected };
 }
 
-/** The ONE per-host reader for Padi liveness + entry state — the receptacle for
- *  "how do I read a given host's Padi status from `padiMap`". Both the
- *  presentational {@link PadiMark} and the interactive {@link PadiSubChip} read
- *  through this, so the volatile axis (entry-state → padiLink projection, the
- *  transport-liveness floor) lives in exactly one place, not sprayed across the
- *  static and interactive marks. */
 function useHostPadi(host: HostKey): {
   live: () => boolean;
   entry: () => PadiEntry;
@@ -100,21 +75,10 @@ function useHostPadi(host: HostKey): {
   return { live, entry, link };
 }
 
-// `useHostKaval` — the ONE per-host reader for kaval liveness + daemon status —
-// moved to `./useHostKaval.ts` when the host DOT became its second consumer
-// (#2101 N4). Imported above; the docs for it live at the new home.
-
-/** The ONE per-host `processMemory` reader — the Padi and Kaval sub-chips read
- *  `.padi` and `.kaval` off the SAME cell, so sharing one subscription means a single
- *  memory-poll failure surfaces ONE toast (the cell's declared `Padi/kaval memory`
- *  policy, routed through the interpreter), not one per sub-chip. Same
- *  reader-as-shared-value discipline the daemonStatus reader already follows. */
 function useHostProcessMemory(host: HostKey) {
   return padiMap.entry(host).cells.processMemory.use();
 }
 
-/** The 4-arm process-RSS readout → tooltip text, in ONE place: the Padi and
- *  Kaval tips rendered a byte-identical `match(...).exhaustive()` block each. */
 function formatProcessMemoryText(m: ProcessRss | undefined): string {
   return match(m)
     .with({ status: "ok" }, (d) => `RSS ${formatMiB(d.rssBytes, 0)}`)
@@ -124,13 +88,6 @@ function formatProcessMemoryText(m: ProcessRss | undefined): string {
     .exhaustive();
 }
 
-/** Presentational Padi mark — logo + status dot for a host. Takes the ALREADY-folded
- *  {@link PadiPresence} from its parent (the interactive sub-chip and the static mark each
- *  build it once and hand it in), so the dot tone AND the `data-padi-link` attribute both
- *  project from the ONE presence — the `!live → unknown` floor is inherited by
- *  construction, spelled in neither the dialog nor the rail. The static path wraps this
- *  bare in a span; the interactive path wraps this SAME mark in the dialog-owning
- *  button. */
 const PadiMark: Component<{ presence: PadiPresence }> = (props) => (
   <IdentityMark logoSrc={PADI_LOGO_URL} imgClass="host-daemon-logo">
     <StatusDot
@@ -140,18 +97,8 @@ const PadiMark: Component<{ presence: PadiPresence }> = (props) => (
   </IdentityMark>
 );
 
-/** Presentational Kaval mark — logo + status dot for a host, projected from a
- *  parent-supplied {@link KavalPresence}. Same one-fold-two-placements shape as
- *  {@link PadiMark}: the dot tone and the `data-daemon-state` attribute both read the ONE
- *  presence, so the `!live → unknown` floor is inherited by construction. */
 const KavalMark: Component<{
   presence: KavalPresence;
-  /** This host's kaval needs attention (see {@link kavalAttention}) — surfaces
-   *  it at a glance as a corner pip in the OPPOSITE corner from the state dot,
-   *  toned per AXIS: amber for the currency nudge ("newer build available"),
-   *  danger for a proven contract skew ("incompatible — needs update") — so
-   *  neither looks identical to a current kaval in the chrome (the fuller text
-   *  rides the tooltip + dialog). Static switcher marks don't pass it. */
   attention?: KavalAttention["kind"];
 }> = (props) => (
   <IdentityMark logoSrc={KAVAL_LOGO_URL} imgClass="host-daemon-logo">
@@ -172,12 +119,6 @@ const KavalMark: Component<{
   </IdentityMark>
 );
 
-/** The ONE open/switch seam for a daemon mark: opens the info panel for this
- *  host, switching the canvas to it first when it isn't already active (a
- *  no-op-close toggle only when it already is). Both sub-chips share this so the
- *  switch-first rule — opening an inactive host's panel makes the dialog's
- *  active-host-scoped detail rows describe that host — lives in exactly one
- *  documented place, not duplicated verbatim per mark. */
 function useDaemonMarkOpen(host: HostKey): {
   open: () => boolean;
   setOpen: Setter<boolean>;
@@ -189,24 +130,13 @@ function useDaemonMarkOpen(host: HostKey): {
     if (!alreadyActive) setActiveHost(host);
     setOpen((v) => (alreadyActive ? !v : true));
   };
-  // The dialog's active-host-scoped rows (memory, running-daemon inventory,
-  // convergence, kaval restart) ride the switch-first contract: opening SWITCHES
-  // the canvas to `host`, so those rows describe it. But the active host can
-  // later move OFF `host` while the panel stays open WITHOUT an outside click —
-  // wire.ts's `hostReconcileTarget` auto-switches to LOCAL when `host` silently
-  // departs the pool, and that path never triggers useAnchoredPopover's
-  // outside-click/Escape dismiss. Left open, the panel would blend this host's
-  // props-scoped status with another host's active-host rows (and restart would
-  // recycle the newly-active host). Close it, so a shown panel always describes
-  // the current active host — never a stale cross-host mix.
-  createEffect(() => {
+  const closeWhenActiveHostMovesAway = (): void => {
     if (open() && !sameHost(activeHost(), host)) setOpen(false);
-  });
+  };
+  createEffect(closeWhenActiveHostMovesAway);
   return { open, setOpen, openForHost };
 }
 
-/** The Padi sub-chip for one host — icon + that host's entry-state dot.
- *  Click switches to that host, then opens the complete info panel. */
 const PadiSubChip: Component<{
   host: HostKey;
   mem: ReturnType<typeof useHostProcessMemory>;
@@ -214,13 +144,7 @@ const PadiSubChip: Component<{
   const { open, setOpen, openForHost } = useDaemonMarkOpen(props.host);
   let triggerEl!: HTMLButtonElement;
   const padi = useHostPadi(props.host);
-  // Per-host identity (feeds the presence fold + the `startedAt` reader below).
   const identity = padiMap.entry(props.host).cells.identity.use();
-  // ONE presence fold for this host — the SAME value the dialog renders. The tooltip
-  // version reads off its `connected` arm, so the #1793 liveness floor is inherited by
-  // construction: a version can surface only for a LIVE, identity-confirmed `connected`
-  // link (a degraded-but-live link no longer leaks a stale "contract v9.9"), and the raw
-  // stale `identity` cell is never read for the version at all.
   const presence = createMemo(() =>
     toPadiPresence(padi.link(), padi.live(), identity.value()),
   );
@@ -234,12 +158,6 @@ const PadiSubChip: Component<{
     return padiMap.entry(props.host).clock.toLocal(raw) ?? null;
   };
   const padiMemoryText = (): string => {
-    // Gate on THIS host's entry being CONNECTED, not merely transport-live:
-    // `padi.live()` is only the browser↔kolu-server transport, so a remote host
-    // that failed or is warm-reconnecting keeps a retained RSS in its per-host
-    // `processMemory` cell. Showing that figure next to a failed/connecting dot
-    // reads stale memory as live — the Kaval readout already gates on its daemon
-    // being `connected`, so mirror that here.
     if (!padi.live() || padi.entry().kind !== "connected")
       return "memory unavailable";
     return formatProcessMemoryText(props.mem.value()?.padi);
@@ -247,10 +165,6 @@ const PadiSubChip: Component<{
   const padiTip = (): string => {
     const skew = skewPairFor(props.host);
     return joinTip(
-      // The PADI sub-chip is about padi ALONE: the kaval sub-chip beside it
-      // already carries the kaval verdict, so composing the chain in here would
-      // say the same thing twice in the one place the two are deliberately told
-      // apart.
       `padi ${padi.live() ? hostGlance(padi.entry(), KAVAL_CHAIN_UNKNOWN).title : DAEMON_UNKNOWN_LABEL}`,
       skew
         ? `contract skew v${skew.running} → v${skew.expected}`
@@ -294,8 +208,6 @@ const PadiSubChip: Component<{
   );
 };
 
-/** The Kaval sub-chip for one host — icon + that host's daemon-state dot.
- *  Click switches to that host, then opens the complete info panel. */
 const KavalSubChip: Component<{
   host: HostKey;
   mem: ReturnType<typeof useHostProcessMemory>;
@@ -305,10 +217,6 @@ const KavalSubChip: Component<{
   const clockNow = getClockNow();
   const kaval = useHostKaval(props.host);
   const padiStatus = padiMap.entry(props.host).cells.status.use();
-  // ONE presence fold for this host — the SAME value the dialog renders. The tooltip
-  // version reads off its `connected` arm, so the #1793 liveness floor is inherited by
-  // construction: a version can surface only for a LIVE, identity-confirmed `connected`
-  // daemon, and the raw stale `daemon()` is never read for the version at all.
   const presence = createMemo(() =>
     toKavalPresence(kaval.daemon(), kaval.live()),
   );
@@ -316,8 +224,6 @@ const KavalSubChip: Component<{
     const p = presence();
     return p.kind === "connected" ? p.contractVersion : undefined;
   };
-  // The status word off the ONE presence projection (not a second hand-rolled
-  // live/state/unknown ladder) — so the rail tooltip and the dialog pill can't drift.
   const kavalStateText = (): string =>
     kavalPresencePresentation(presence()).label;
   const kavalUptimeText = (): string | undefined => {
@@ -329,16 +235,10 @@ const KavalSubChip: Component<{
       : `running ${formatUptime(clockNow() - startedAt)}`;
   };
   const kavalMemoryText = (): string => {
-    // `kaval.live()` is already `channelLive(daemonTransportLive(), …)`, so a
-    // separate `!daemonTransportLive()` gate here would be unreachable.
     if (!kaval.live() || kaval.daemon()?.state !== "connected")
       return "memory unavailable";
     return formatProcessMemoryText(props.mem.value()?.kaval);
   };
-  // The at-a-glance attention verdict for THIS host's kaval — the SAME joined
-  // derivation the dialog banner and the canvas skew card read (SK5's one
-  // comparison site). Drives both the corner pip on the mark (glanceable, no
-  // hover) and the tooltip text, per axis.
   const attention = (): KavalAttention =>
     kavalAttention(
       padiStatus.value()?.expectedKaval?.staleKey,
@@ -400,8 +300,6 @@ const KavalSubChip: Component<{
   );
 };
 
-/** Shared per-host process-memory reader + interactive Padi/Kaval sub-chips.
- *  Lives in the diagnostics popover only (quiet strip — no dual-daemon on chips). */
 const InteractiveDaemonMarks: Component<{ host: HostKey }> = (props) => {
   const mem = useHostProcessMemory(props.host);
   return (
@@ -412,8 +310,6 @@ const InteractiveDaemonMarks: Component<{ host: HostKey }> = (props) => {
   );
 };
 
-/** Dual-daemon marks for one host — interactive only, mounted from the
- *  diagnostics popover. */
 export const HostDualDaemonSlot: Component<{ host: HostKey }> = (props) => (
   <div
     class={dualDaemonSlotClass}

@@ -1,17 +1,3 @@
-/** Single tile on the canvas — separated so createDraggable gets its own
- *  reactive owner per tile (required by solid-dnd). Shell only: positioning,
- *  title bar, resize handles. Content is injected via render props — the
- *  canvas module has no knowledge of what renders inside a tile.
- *
- *  Two display modes:
- *  - **Tiled** (default): absolute-positioned at the saved canvas layout,
- *    draggable + resizable. Pan/zoom is composed into each tile's own
- *    `transform` rather than a shared wrapper, so the maximized branch can
- *    sit as a sibling without remounting on every active-id change (#988).
- *  - **Maximized**: `inset-0 z-40` covering the canvas viewport. Drag/resize
- *    disabled. The maximize signal lives in `TerminalCanvas`, exposed here
- *    so chrome reflects state and double-click toggles it. */
-
 import { createDraggable } from "@thisbeyond/solid-dnd";
 import {
   type Component,
@@ -47,92 +33,45 @@ import { tileTransformCSS } from "./viewport/coordinates";
 
 export type { TileTheme };
 
-/** Per-tile render mode — one tile is in `"maximized"` (fills the viewport,
- *  drag/resize disabled), all others are in `"covered"` when the canvas is
- *  maximized (mounted, streaming, but visually behind the z-40 cover and
- *  hidden from assistive tech), or `"tiled"` when the canvas is not
- *  maximized (normal pan/zoom rendering). Unifying these into one union
- *  makes the impossible state `maximized && covered` unrepresentable. */
 export type CanvasTileMode = "tiled" | "maximized" | "covered";
+
+export type TileBodyFacts = {
+  attached: () => boolean;
+  boxDecided: () => boolean;
+};
 
 const CanvasTile: Component<{
   id: string;
   active: boolean;
-  /** Per-tile render mode. Derived in `TerminalCanvas` from the canvas-wide
-   *  posture (`useViewPosture`) and `activeId`. */
   mode: CanvasTileMode;
-  /** Presentational hint — when true and the tile is not active, render
-   *  faded so an inactive ("parked") tile recedes visually. The decision
-   *  itself lives in the caller; the tile shell only honors the bit. */
   dimmed?: boolean;
-  /** Sleeping tile — desaturate / fold on the canvas so dormancy reads as
-   *  a place change, not only a title-bar opacity. Caller owns the fact. */
   sleeping?: boolean;
   theme: TileTheme;
-  /** Per-repo identity color; drives the tile border. */
   repoColor: string;
   onSelect: () => void;
   onClose: () => void;
-  /** Toggle between tiled and maximized. Bound to title-bar double-click. */
   onToggleMaximize: () => void;
   renderTitle: () => JSX.Element;
-  /** Optional actions rendered in the title bar between the title and the
-   *  close button. For domain-specific, tile-type-variable capabilities
-   *  (e.g. terminal screenshot, theme pill). Structural actions (close) are
-   *  hardcoded. */
   renderTitleActions?: () => JSX.Element;
-  /** Optional bar between the title bar and the body, full width (the tile
-   *  tip). It takes its own height; the body shrinks to make room. */
   renderBar?: () => JSX.Element;
-  /** Render the tile's body, told TWO facts, which are not the same fact:
-   *
-   *   - `seen` — can a user SEE it, which the pane turns into "attach / stop
-   *     attaching" (`tileSeen.ts`, `shownPane.ts`), held open for a while
-   *     after the tile stops being seen so a trip away and back is free;
-   *   - `boxDecided` — is its box one this canvas's layout DECIDED, which the
-   *     pane turns into "may I state a size". A covered tile is attached and
-   *     has no decided box: it sits wherever the posture left it, and nobody
-   *     is looking at it to want it any other size.
-   *
-   *  Accessors, so the body subscribes to each rather than re-rendering. */
-  renderBody: (seen: () => boolean, boxDecided: () => boolean) => JSX.Element;
+  renderBody: (facts: TileBodyFacts) => JSX.Element;
   getLayout: (id: string) => TileLayout | undefined;
   startResize: (
     id: string,
     direction: ResizeDirection,
     e: PointerEvent,
   ) => void;
-  /** Canvas viewport pan/zoom — composed into the tile's own transform so
-   *  pan/zoom changes scale & translate this tile in screen-space without
-   *  a wrapper transform. `left/top` stay set to the canvas-space layout
-   *  so test selectors and tools that read tile positions keep working. */
   panX: () => number;
   panY: () => number;
   zoom: () => number;
-  /** Has the camera finished a programmatic flight? A tile swept over on the
-   *  way somewhere is not a tile the user asked to see (`tileSeen.ts`). */
   cameraSettled: () => boolean;
-  /** Canvas viewport size in screen pixels. Lets the tile gate its state-aura
-   *  to on-screen tiles only: a tile panned out of view (or behind a maximized
-   *  tile) mounts no `.tile-aura` at all, so its border animation costs nothing
-   *  — CSS animations otherwise keep running for off-screen elements. */
   viewportSize: () => { width: number; height: number } | undefined;
-  /** Is anybody looking at the CANVAS? (`tileSeen.ts`, `ui/shown.ts`.) Told
-   *  rather than taken from context, so the shell renders outside a `Shown`
-   *  host. */
   viewShown: () => boolean;
-  /** Canvas state-aura tier for this tile — drives the `data-aura` hook the
-   *  border treatment reads. Optional: undefined renders nothing (treated as
-   *  `"none"`). Resolved by `useTileAura`; this resolver drives only the tile
-   *  border. The minimap derives its own bucket→color independently via
-   *  `bucketDescriptor` and does not share this tier. */
   auraTier?: () => TileAura;
 }> = (props) => {
   const isMaximized = () => props.mode === "maximized";
   const isCovered = () => props.mode === "covered";
   const draggable = createDraggable(props.id);
-  /** Where this tile is saved to be — undefined while a host switch-back's
-   *  `canvasLayout` metadata is still in flight. */
   const placed = () => props.getLayout(props.id);
   const layout = () =>
     placed() ?? {
@@ -142,10 +81,6 @@ const CanvasTile: Component<{
       h: DEFAULT_TILE_H,
     };
 
-  // One-shot "tile lands on the plane" — armed only once on mount when the
-  // tile is already tiled + awake + motion-ok. Any cancel path (maximize,
-  // sleep, reduced-motion, animationend/cancel) spends the cue for this
-  // shell instance (not re-armed without remount).
   const [landing, setLanding] = createSignal(false);
   const spendLanding = () => setLanding(false);
   onMount(() => {
@@ -154,8 +89,6 @@ const CanvasTile: Component<{
     setLanding(true);
   });
   createEffect(() => {
-    // Mid-entrance loss of eligibility cancels CSS without animationend —
-    // spend so a later restore/wake never re-plays.
     if (!landing()) return;
     if (props.sleeping || props.mode !== "tiled" || prefersReducedMotion()) {
       spendLanding();
@@ -170,21 +103,7 @@ const CanvasTile: Component<{
   };
 
   const bg = () => props.theme.bg;
-  // Memoized: `showAura` and the `data-aura` attribute both read the tier, and
-  // each read chains through the resolver into store + staleness lookups — so
-  // compute it once per reactive cycle rather than per consumer.
   const aura = createMemo((): TileAura => props.auraTier?.() ?? "none");
-  // Is this tile's screen rect within the canvas viewport (plus a margin so
-  // panning doesn't pop auras in at the very edge)? Mirrors the screen-space
-  // mapping in `tileTransformCSS`: a canvas point (l.x, l.y) lands at
-  // ((l.x - panX) * zoom, (l.y - panY) * zoom). Drag delta is ignored — a tile
-  // being dragged is on-screen by definition. The shell mounts immediately,
-  // but its aura waits until the viewport has a real layout measurement.
-  //
-  // ONE geometry fact, two consumers: the aura below and the tile's `seen`
-  // (hence its pane's attach). An UNPLACED tile is not on screen — it asks
-  // `placed()`, not `layout()`, whose fallback box would put it at the canvas
-  // origin, which is wherever the camera happens to be pointing.
   const onScreen = createMemo(() => {
     const size = props.viewportSize();
     if (!size) return false;
@@ -202,10 +121,6 @@ const CanvasTile: Component<{
       sy < height + m
     );
   });
-  // Can a user see this tile — the rule in `tileSeen.ts`, held open for
-  // SEEN_HOLD_MS past its last sighting so a trip away and back costs the
-  // reader nothing (a detach loses their place in the output). The hold is
-  // owned here, so it dies with the tile.
   const seen = createMemo(() =>
     tileIsSeen({
       viewShown: props.viewShown(),
@@ -216,33 +131,15 @@ const CanvasTile: Component<{
     }),
   );
   const heldSeen = createHeldSeen(seen);
-  /** Is this tile's box one the canvas DECIDED, so its panes may state a size?
-   *
-   *  A different question from `heldSeen`, which says the tile is still
-   *  ATTACHED — one accessor used to stand for both, and a tile parked behind
-   *  a maximized sibling was therefore told it may state a size, measured the
-   *  full-window box it is parked in, and resized a PTY nobody was looking at
-   *  (kolu#2362).
-   *
-   *  So: a COVERED tile has no decided box. The canvas is not laying it out —
-   *  it is holding it. Its panes keep the grid they had, which is the grid
-   *  they will still have when the posture ends, so the return is free too. */
-  const boxDecided = () => !isCovered();
+  const bodyFacts: TileBodyFacts = {
+    attached: heldSeen,
+    boxDecided: () => !isCovered(),
+  };
 
-  // One decision — "is the aura showing" — so the `data-aura` host attribute
-  // and the `.tile-aura` child can't drift. Only TILED tiles animate: a
-  // maximized tile mutes its own aura, a covered tile (behind a maximized
-  // sibling) is hidden, and an off-screen tile is gated out — none should burn
-  // a frame animating a border nobody can see.
   const showAura = createMemo(
     () => aura() !== "none" && props.mode === "tiled" && onScreen(),
   );
 
-  // One-shot finished **exhale** — armed only when the tier *transitions*
-  // into finished while the motion is observable. Any cancel (off-screen
-  // Show gate, active mute, reduced motion, leave finished) spends it so
-  // a later re-show of `.tile-aura` on the same shell never re-plays.
-  // Held ring stays on `data-aura="finished"` alone.
   const [exhale, setExhale] = createSignal(false);
   let prevAura: TileAura = "none";
   createEffect(() => {
@@ -263,18 +160,8 @@ const CanvasTile: Component<{
     if (e.animationName === "tile-aura-exhale") setExhale(false);
   };
 
-  // Active stays full-strength regardless of dimmed — the user is looking
-  // right at it. Inactive defaults to 0.92; dimmed inactive drops to 0.55
-  // so a parked tile recedes without disappearing.
   const inactiveOpacity = () => (props.dimmed ? 0.55 : 0.92);
 
-  // While maximized: ignore drag transform and pin to viewport. While
-  // tiled: absolute-positioned at layout(), with pan/zoom and drag delta
-  // composed into the tile's own transform so the pan/zoom wrapper that
-  // used to host all tiles can go away (its containing-block side-effect
-  // forced the maximized tile into a sibling render branch — see #988).
-  // Transform formula lives in `coordinates.ts` alongside `canvasTransformCSS`
-  // so pan/zoom math stays in one file.
   const tiledStyle = (): JSX.CSSProperties => {
     const l = layout();
     return {
@@ -284,13 +171,6 @@ const CanvasTile: Component<{
       width: `${l.w}px`,
       height: `${l.h}px`,
       "background-color": bg(),
-      // One colour throughout: the repo's identity colour drives the border, the
-      // state aura, AND the active tile's focus cue. The active "you are here"
-      // signal is a crisp repo-colour OUTLINE floating in the moat (`--tile-moat-*`
-      // tokens, shared with the working outer rail in index.css). Drawn outside
-      // the border-box on the constant dark canvas — never over the terminal
-      // body — and not clipped (outer shell is overflow-visible; title/body clip
-      // via the inner shell). `--aura-c` is inherited by `.tile-aura`.
       "border-color": props.repoColor,
       "--aura-c": props.repoColor,
       "z-index": props.active ? Z_CANVAS_TILE_ACTIVE : Z_CANVAS_TILE_INACTIVE,
@@ -315,73 +195,32 @@ const CanvasTile: Component<{
     };
   };
 
-  // Per-mode presentation: ONE switch on `props.mode` is the sole place that
-  // decides geometry + layer + decoration + visibility, returning a complete,
-  // self-sufficient box. The style object alone is always a legal box — no
-  // mode's geometry depends on a second structure firing in lockstep.
-  //
-  // A COVERED TILE IS LEFT ALONE. It keeps its own tiled rect and hides
-  // INTRINSICALLY (`visibility: hidden`), rather than being stretched to the
-  // maximized tile's box:
-  //
-  //  - Intrinsically, not by relying on the maximized tile's `z-40` cover.
-  //    During the window where `activeId` already points at a just-created tile
-  //    that hasn't entered `terminalIds` yet, no maximized tile exists — a
-  //    covered tile carrying only `inert` would paint, flashing the canvas for
-  //    a frame (regressed in #989, which dropped the pre-#988
-  //    `visibility: hidden`). Keep the subtree MOUNTED (`visibility`, not
-  //    `display`): the xterm, its scrollback and the tile's whole tree survive
-  //    being covered, so the trip back is a repaint and not a rebuild — and
-  //    since #2374 its pane stays attached for `SEEN_HOLD_MS`, so the output
-  //    keeps arriving and the reader keeps their place.
-  //  - Its own rect, because a tile nobody is looking at must not be resized.
-  //    The box used to be the maximized tile's, which made switching WHICH
-  //    tile is maximized free at the cost of resizing every covered tile on
-  //    the way into the posture and back out of it — twice, for a screen
-  //    nobody saw. Its panes now measure nothing while it holds (`boxDecided`
-  //    above), so this box is simply where the tile already was: switching
-  //    tells the tile you switch TO the full-window size, once, and tells the
-  //    one you left nothing.
   const presentation = createMemo(
     (): {
       style: JSX.CSSProperties;
       classes: Record<string, boolean>;
+      inert: boolean;
     } => {
-      // The full canvas viewport box — the MAXIMIZED tile's, and only its.
-      // Since #988 dropped the pan/zoom wrapper div, the nearest positioned
-      // ancestor is `canvas-grid-bg` (real viewport rect, untransformed), so
-      // `inset: 0` resolves cleanly to the canvas's screen-space without any
-      // inverse-transform tricks. The dock sits outside this container as a
-      // flex sibling in maximized posture (TerminalCanvas), so the tile
-      // naturally fills the remaining viewport without needing a left-inset
-      // (#904).
       const fullViewportBox: JSX.CSSProperties = {
         position: "absolute",
         inset: 0,
         "background-color": bg(),
       };
-      // `match(...).exhaustive()` (the repo's `prefer-ts-pattern` idiom for a
-      // value-returning dispatch on a string-literal union — cf. Terminal.tsx's
-      // `shouldUseWebgl`) compile-fails if `CanvasTileMode` ever grows a fourth
-      // mode, instead of silently rendering it as a tiled tile. This switch is
-      // load-bearing geometry/layering, so a new mode MUST be a deliberate
-      // decision here, not a default fall-through.
       return match(props.mode)
         .with("maximized", () => ({
-          // Only the maximized tile takes `z-40`, so it paints above its hidden
-          // covered siblings.
           style: { ...fullViewportBox, "z-index": 40 },
           classes: { "border-transparent": true },
+          inert: false,
         }))
         .with("covered", () => ({
           style: { ...tiledStyle(), visibility: "hidden" as const },
           classes: { "border-transparent": true },
+          inert: true,
         }))
         .with("tiled", () => ({
-          // Absolute-positioned at the saved canvas layout, with rounded corners
-          // and a repo-colour border.
           style: tiledStyle(),
           classes: { "rounded-xl": true },
+          inert: false,
         }))
         .exhaustive();
     },
@@ -406,34 +245,11 @@ const CanvasTile: Component<{
         exhale() && showAura() && aura() === "finished" ? "" : undefined
       }
       data-aura={showAura() ? aura() : undefined}
-      // `inert` (when covered) removes the subtree from tab order, blocks
-      // pointer events, and hides from assistive tech in one go — matches
-      // the pre-#988 `visibility: hidden` wrapper without re-introducing
-      // it. xterm.js writes still land in the buffer (no render dependency
-      // on inert), so the dock's buffer previews stay populated.
-      //
-      // Deliberately NOT pairing this with `aria-hidden="true"`: `inert`
-      // already drops the subtree from the accessibility tree, so the
-      // attribute is redundant — and the browser blocks `aria-hidden` on an
-      // ancestor of a focused element (the xterm helper textarea can retain
-      // DOM focus the instant a tile is covered), logging a WAI-ARIA console
-      // warning. `inert` is the spec's recommended replacement precisely
-      // because it hides *and* prevents focus without that conflict.
-      inert={isCovered()}
-      // Clip model is tier-independent: outer shell always overflow-visible so
-      // outside-paint auras (working outer rail, future rings) are free; the
-      // inner shell always clips title/body. Geometry does not branch on aura.
+      inert={presentation().inert}
       class="relative border transition-shadow duration-200 overflow-visible"
-      // Geometry, layer, and visibility all live in `presentation().style` (one
-      // complete box per mode); the classList carries only non-geometric,
-      // mode-specific decoration (rounded corners vs. transparent border).
       classList={presentation().classes}
       style={presentation().style}
       onMouseDown={(event) => {
-        // A live terminal owns the more precise pane landing (main vs split).
-        // Letting this shell-level tile selection run afterward would resolve
-        // the remembered visible split and overwrite an explicit main-pane
-        // click. Chrome and empty tile space still select through this path.
         const target = event.target;
         if (
           target instanceof Element &&
@@ -445,22 +261,7 @@ const CanvasTile: Component<{
       onAnimationEnd={onLandInAnim}
       onAnimationCancel={onLandInAnim}
     >
-      {/* Clip shell — sole clip boundary for title/body (xterm, chrome). */}
       <div class="absolute inset-0 flex flex-col overflow-hidden rounded-[inherit]">
-        {/* Title bar — uses tile foreground at low opacity for guaranteed
-         *  contrast against the tile background, regardless of theme. The
-         *  drag activators only attach when tiled — a maximized tile shouldn't
-         *  start a drag on grab. Double-click toggles maximize.
-         *
-         *  Layout is a 2-column grid: `minmax(0,1fr)` for the identity block,
-         *  `auto` for the action cluster. `items-start` hugs the actions to the
-         *  top edge. `renderTitle()` is spread across the grid via
-         *  `display:contents`, so `TerminalMeta`'s name row lands in column 1
-         *  of row 1 (beside the actions) while its branch/PR row spans BOTH
-         *  columns of row 2 — flowing full-width *under* the top-aligned
-         *  actions instead of being boxed into the narrow left column. Without
-         *  the span, the branch/PR row truncated early with dead space beneath
-         *  a wide action cluster (agent status + theme + icons). */}
         <div
           data-testid="canvas-tile-titlebar"
           class="grid [grid-template-columns:minmax(0,1fr)_auto] items-start gap-x-2 px-3 py-1.5 shrink-0 select-none border-l-4"
@@ -471,19 +272,10 @@ const CanvasTile: Component<{
             "background-color": tileTitleBarBg(props.theme),
             "border-bottom": `1px solid ${tileTitleBarBorder(props.theme)}`,
             "border-left-color": props.repoColor,
-            // Scope theme-derived foreground tiers to the title bar so
-            // chrome buttons read sensible defaults via var(--color-fg-3,
-            // currentColor) without leaking the override into the tile body
-            // (xterm + search overlays use the global tiers there).
             "--color-fg": tileFgTier(props.theme, 1),
             "--color-fg-2": tileFgTier(props.theme, 2),
             "--color-fg-3": tileFgTier(props.theme, 3),
           }}
-          // Non-interactive chrome: prevent the browser's default
-          // mousedown focus shift so clicks on the title bar don't blur
-          // the xterm textarea. solid-dnd's drag uses pointerdown, not
-          // mousedown, so drag is unaffected; child buttons handle their
-          // own focus via stopPropagation on pointerdown.
           onMouseDown={(e) => e.preventDefault()}
           onDblClick={(e) => {
             e.stopPropagation();
@@ -533,16 +325,9 @@ const CanvasTile: Component<{
 
         {props.renderBar?.()}
 
-        {/* Tile body — injected by caller */}
-        {props.renderBody(heldSeen, boxDecided)}
+        {props.renderBody(bodyFacts)}
       </div>
 
-      {/* Resize handles — 4 edges + 4 corners. Invisible; cursor change is the
-       *  affordance. Corners are declared after edges in the record so DOM
-       *  order paints them on top of the edge strips they overlap. Only in
-       *  `tiled` mode — maximized has nothing to resize against, covered tiles
-       *  are inert and should not have interactive handles in the DOM.
-       *  Outside the clip shell so edge hit-targets aren't rounded away. */}
       <Show when={props.mode === "tiled"}>
         <For each={Object.entries(RESIZE_HANDLES)}>
           {([direction, handle]) => (
@@ -556,10 +341,6 @@ const CanvasTile: Component<{
         </For>
       </Show>
 
-      {/* Language C · Run / sweep — agent run-state as MOTION in repo colour
-       *  (`--aura-c`): working = double moat + rotating outer arc; needs-you =
-       *  comet. Driven by `[data-aura]` in index.css. Outside the clip shell
-       *  so the working outer rail can sit in the active-outline moat. */}
       <Show when={showAura()}>
         <div
           class="tile-aura tile-aura-ring"

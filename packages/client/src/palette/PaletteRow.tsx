@@ -1,13 +1,3 @@
-/** Shared four-slot palette row — lead · identity · context · right rail.
- *
- *  Every result kind fills the same slots so a mixed root list stays scannable:
- *  terminal (StatePip + repo eyebrow + branch + intent + recency + `term`),
- *  host (connection dot + user@host + status + `host`),
- *  command (glyph/icon + name + description + keybind + drill chevron + `cmd`).
- *
- *  Kind tags appear only during cross-kind root search (`showKindTag`); scoped
- *  drill-ins drop them as noise. */
-
 import { compactDelta } from "@kolu/terminal-vocab/duration";
 import type { TerminalMetadata } from "@kolu/padi-client/surface";
 import { StatePip } from "@kolu/solid-statepip";
@@ -48,42 +38,22 @@ function encodeHostAttr(h: HostKey): string {
 
 export type PaletteRowMeta = {
   kind: ResultKind;
-  /** Multi-field AND-token corpus (terminal dock fields / host label+status). */
   searchText?: string;
-  /** Server activity / visit-unrelated age for the right-rail stamp (null = never). */
   recencyAt?: number | null;
-  /** When YOU were last on this row, in milliseconds — the visit trail for a
-   *  terminal, the switch trail for a host. Never painted as age (that is
-   *  `recencyAt`, the activity clock).
-   *
-   *  These two clocks are the row's whole time story, and both are GROUNDED
-   *  measurements. The palette's two questions — how warm is this row (ORDER)
-   *  and when were you last here (HIGHLIGHT) — are derived from them where they
-   *  are asked, in `rootIndex`. There is deliberately no stored rank.
-   *
-   *  A plain `number` (0 = never here), unlike `recencyAt` above: both
-   *  producers emit a number, so `null` only ever existed in the type. Same
-   *  shape as `rootIndex`'s — one field, one spelling. */
   visitedAt?: number;
   terminalId?: TerminalId;
-  /** Meta snapshot for fleet rows (may be off the active host). */
   terminalMeta?: TerminalMetadata;
-  /** Precomputed context (intent / foreground only — never the host name). */
   context?: string;
   repoName?: string;
   repoColor?: string;
   branchLabel?: string;
-  /** Branch/intent paint — same fold as dock `annotationColor` / title bar. */
   annotationColor?: string;
   hostKey?: HostKey;
 };
 
-/** Compact right-rail age — `2m` / `1h` / `3d`, empty when never active. */
 function compactRecency(ts: number | null | undefined): string {
   if (ts === null || ts === undefined) return "";
   const d = compactDelta(Date.now() - ts);
-  // Host clock skew — see `compactDelta`. The stamp says so rather than
-  // claiming the terminal was touched "now".
   if (d.kind === "unknown") return DASH;
   if (d.unit === "s") return "now";
   return `${d.value}${d.unit}`;
@@ -103,16 +73,6 @@ const KindTag: Component<{ kind: ResultKind }> = (props) => {
   );
 };
 
-/** StatePip lead — the same mark the dock and the title paint, for a terminal
- *  on ANY host.
- *
- *  It used to fabricate `{isLive:false,isFinished:false,unread:false}` for
- *  anything off the active host, on the belief that activity was an
- *  active-host-only fact. It never was: the attention mirror covers every bound
- *  host, so a background host's agents showed as idle here while its own tab
- *  showed them working — the palette contradicting the tab about the terminal
- *  you were about to switch to. UNREAD is the one genuinely active-host fact
- *  (the dock's per-tile ledger), so it alone is gated. */
 const TerminalLead: Component<{
   id: TerminalId;
   meta: TerminalMetadata;
@@ -122,8 +82,6 @@ const TerminalLead: Component<{
   const onActiveHost = () =>
     !props.hostKey || sameHost(props.hostKey, activeHost());
   const pip = useStatePip(
-    // The row's own host — a fleet row can name a terminal on a host you are
-    // not looking at, and its facts must come off THAT host's frame.
     () => encodeHostKey(props.hostKey ?? activeHost()),
     () => props.id,
     () => props.meta,
@@ -143,9 +101,6 @@ const HostLead: Component<{ host: HostKey }> = (props) => {
   );
 };
 
-/** Compact host chip for cross-host terminal rows — same visual language as the
- *  chrome-bar host strip: identity hue + connection-status dot + hostLabel.
- *  One deliberate place; never also written into the context line. */
 const TerminalHostChip: Component<{ host: HostKey }> = (props) => {
   const state = () => padiMap.entry(props.host).state();
   const kaval = useHostKavalChain(props.host);
@@ -195,7 +150,6 @@ const PaletteRow: Component<{
   cmd: PaletteCommand | PaletteLabel;
   selected: boolean;
   query: string;
-  /** Kind tags only during cross-kind root search. */
   showKindTag: boolean;
   drillable: boolean;
   onSelect: () => void;
@@ -204,8 +158,6 @@ const PaletteRow: Component<{
   const row = () => props.cmd.row;
   const kind = (): ResultKind => row()?.kind ?? "command";
 
-  /** Same headline rule as Dock cards/list: intent line-1 when set, else
-   *  branch (`annotationLine` — the Dock's single derivation). */
   const identityPrimary = (): string => {
     const r = row();
     if (r?.kind === "terminal") {
@@ -221,18 +173,12 @@ const PaletteRow: Component<{
   const contextLine = (): string => {
     const r = row();
     if (r?.kind === "terminal") {
-      // Host is the right-rail chip only — never here.
-      // When intent owns the headline, demote branch into context (Dock
-      // keeps branch off the headline in the same case). Otherwise the
-      // Dock subline (agent summary / foreground).
       if (r.terminalMeta?.intent) return r.branchLabel ?? "";
       if (r.terminalMeta) return rowSubline(r.terminalMeta).text;
       if (r.context) return r.context;
       return props.cmd.description ?? "";
     }
     if (r?.kind === "host" && r.hostKey) {
-      // Prefer explicit context from hostRootActions / Terminals headers
-      // (may be "" when connected+quiet). Fall back only for unstamped rows.
       if (r.context !== undefined) return r.context;
       return hostRowContext(
         padiMap.entry(r.hostKey).state(),
@@ -247,7 +193,6 @@ const PaletteRow: Component<{
     return compactRecency(row()?.recencyAt);
   };
 
-  /** Host chip only when the terminal lives on a non-active host. */
   const foreignHost = (): HostKey | undefined => {
     const r = row();
     if (r?.kind !== "terminal" || !r.hostKey) return undefined;
@@ -290,7 +235,6 @@ const PaletteRow: Component<{
         }
       }}
     >
-      {/* 1 · Lead — always occupied so identity columns align. */}
       <span class="shrink-0 w-4 inline-flex items-center justify-center">
         <Show
           when={
@@ -311,8 +255,6 @@ const PaletteRow: Component<{
         </Show>
       </span>
 
-      {/* 2 · Identity — monogram + repo name (repoColor) + branch/intent
-       *  (annotationColor). Same two-hue vocabulary as the dock row. */}
       <div class="flex items-center gap-1.5 min-w-0 shrink">
         <Show when={terminalRepo()}>
           {(repo) => (
@@ -347,14 +289,11 @@ const PaletteRow: Component<{
               <HighlightedText text={identityPrimary()} query={props.query} />
             }
           >
-            {/* Dock identity path for intents — always markdown-safe, including
-                during typed search (raw `**` must never reappear). */}
             <IntentMarkdownInline markdown={identityPrimary()} />
           </Show>
         </span>
       </div>
 
-      {/* 3 · Context — one truncating line, never wraps. No host text. */}
       <Show when={contextLine()}>
         {(line) => (
           <span class="flex-1 min-w-0 text-fg-3 text-[0.76rem] truncate">
@@ -367,7 +306,6 @@ const PaletteRow: Component<{
         <span class="flex-1 min-w-0" />
       </Show>
 
-      {/* 4 · Right rail — host chip (foreign only) · recency · keybind · kind · › */}
       <span class="ml-auto shrink-0 flex items-center gap-1.5">
         <Show when={foreignHost()}>
           {(host) => <TerminalHostChip host={host()} />}

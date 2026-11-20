@@ -1,16 +1,3 @@
-/** Pure pan animation engine — no viewport coupling, no signals.
- *  Tweens a 2D point from `from` to `to` over `durationMs` via rAF,
- *  calling `onTick(x, y)` each frame. Cancel via the returned
- *  AbortController. Respects `prefers-reduced-motion` by jumping to
- *  the target in a single tick.
- *
- *  A TWEEN ALWAYS LANDS. Frames stop coming while a tab is in the
- *  background, so a flight begun just before the tab went away would
- *  otherwise sit half-finished for as long as the user is elsewhere — and its
- *  readers (`useCanvasViewport`'s `cameraSettled`, hence which tiles count as
- *  seen) would wait with it. Timers do keep running, throttled, so a guard
- *  timer jumps to the target and ends the tween if the frames never arrive. */
-
 export interface Point {
   x: number;
   y: number;
@@ -32,12 +19,10 @@ const DEFAULT_DURATION_MS = 150;
  *  wait that reliably means "the frames are not coming back soon". */
 const HIDDEN_TAB_GRACE_MS = 1_000;
 
-/** Symmetric ease-in-out quadratic. */
 function easeInOutQuad(t: number): number {
   return t < 0.5 ? 2 * t * t : 1 - (-2 * t + 2) ** 2 / 2;
 }
 
-/** Shared canvas motion gate — pan, land-in, finish-exhale all honor this. */
 export function prefersReducedMotion(): boolean {
   if (typeof window === "undefined") return false;
   return (
@@ -67,14 +52,12 @@ export function animatePan(
   let guard: ReturnType<typeof setTimeout> | undefined;
   let landed = false;
 
-  /** Both clocks off: this tween will not tick again. */
   function stop() {
     landed = true;
     clearTimeout(guard);
     cancelAnimationFrame(raf);
   }
 
-  /** The tween is over: stop, and report ONCE. */
   function land() {
     if (landed) return;
     stop();
@@ -91,9 +74,6 @@ export function animatePan(
   }
 
   controller.signal.addEventListener("abort", stop);
-  // Past the tween's own duration plus a background tab's ~1 s timer clamp,
-  // no frame is coming that is going to finish this: put the camera where it
-  // was going and be done.
   guard = setTimeout(() => {
     if (landed) return;
     onTick(to.x, to.y);

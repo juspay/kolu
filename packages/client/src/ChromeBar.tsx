@@ -1,30 +1,3 @@
-/** ChromeBar — the always-visible workspace chrome band.
- *
- *  Left → right: quiet Kolu mark, the TAB ROW — the `◆ Conductor` tab first
- *  (the conversation is a place, drawn as a tab; see `ConductorTab`), then the
- *  host tab strip (primary multi-host nav; Padi/Kaval dual marks ride each
- *  host tab) — and the global control cluster (recorder, view mode, dock,
- *  inspector, settings, command palette). Exactly one tab in that row looks
- *  current. The live-terminal navigator lives on the dock at the canvas's left
- *  edge (#903) — not here.
- *
- *  A single DOCKED full-width top bar in BOTH postures (tiled + maximized):
- *  `relative shrink-0` in flex flow, spanning the whole viewport, so the
- *  canvas and the right inspector panel flow BELOW it rather than the bar
- *  overlaying either. There is no panel-width right-offset — the header reads
- *  as one continuous top rail across the workspace. The band is a NEUTRAL chrome
- *  surface (no host/PWA hue tint) — per-host colour lives on the tabs, so the
- *  active tab's own hue stands out instead of blending into a same-hue band.
- *  `posture.layout()` no longer changes the bar's positioning; it only drives
- *  the `data-maximized` marker. The maximize/restore affordance is one segment
- *  of the two-way `ModeControl` (canvas · maximized), which describes the HOST
- *  TAB underneath and nothing else — so it, and the dock and inspector toggles
- *  that describe the same host tab, are not drawn while the Conductor is the
- *  current place. Their keyboard shortcuts are unchanged.
- *
- *  Mobile uses a different chrome surface — a pull-down sheet — see
- *  `MobileChromeSheet` and `MobileTileView`. */
-
 import { type Component, createMemo, Show } from "solid-js";
 import { dockExpanded, toggleRailCards } from "./canvas/dock/Dock";
 import { useViewPosture } from "./canvas/useViewPosture";
@@ -44,9 +17,6 @@ import IdentityRail from "./ui/IdentityRail";
 import Kbd from "./ui/Kbd";
 import Tip from "./ui/Tip";
 
-// Shared base for the square icon toggles in the control cluster
-// (dock, inspector). Active/idle coloring is layered on via each button's own
-// `classList`. Keep ring/size tweaks here so both toggles stay in lockstep.
 const toggleBtnClass =
   "pointer-events-auto hidden sm:flex items-center justify-center w-7 h-7 rounded-lg transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50";
 
@@ -58,62 +28,26 @@ const ChromeBar: Component<{
   const posture = useViewPosture();
   let settingsTriggerRef!: HTMLButtonElement;
 
-  // True when the terminal is maximized. The header is full-width docked in
-  // BOTH postures now (see the module comment), so this drives only the
-  // `data-maximized` marker.
-  const docked = createMemo(() => posture.layout() === "maximized");
+  const maximized = createMemo(() => posture.layout() === "maximized");
 
   return (
     <header
       data-testid="chrome-bar"
-      data-maximized={docked() ? "" : undefined}
-      // Solid chrome owns this strip's pointer area. Individual controls still
-      // carry their own pointer/focus classes, but empty header space should
-      // behave like header, not click through to the canvas behind it.
-      //
-      // DOCKED full-width in BOTH postures (`relative shrink-0`) so the bar
-      // spans the whole viewport and the canvas + right inspector flow BELOW
-      // it — the tabbed header reads as one continuous top rail. The header is
-      // NEUTRAL (no host/PWA hue tint) — colour lives on the tabs — so the
-      // active tab's hue stands out instead of blending into a same-hue band.
-      // No drop shadow: a shadow under the bar makes the tabs look like they
-      // float ABOVE the content, fighting the connected-tab metaphor. `z-50`
-      // keeps the workspace-switcher dropdown above the maximized tile (z-40).
+      data-maximized={maximized() ? "" : undefined}
       class="chrome-bar-surface relative z-50 flex h-10 shrink-0 items-stretch gap-3 bg-surface-0 px-3 pt-2 pb-0 select-none pointer-events-auto transition-colors duration-150"
     >
-      {/* Quiet Kolu mark — connection + dialogs; versions live in the dialog. */}
       <div class="flex h-8 shrink-0 items-center pointer-events-auto">
         <IdentityRail status={props.status} />
       </div>
 
-      {/* The conversation's tab — FIRST in the tab row, the host tabs' shape,
-       *  on the same rail floor (`items-end`), and a `shrink-0` sibling of the
-       *  strip: the strip's own width is then the row's leftover, which is
-       *  the budget its tabs fold against, with nothing to reserve for it. */}
       <div class="flex shrink-0 items-end pointer-events-none">
         <ConductorTab />
       </div>
 
-      {/* Host tab bar — Home/hostname + connection pip (+ awaiting). Padi/Kaval
-       *  live in the host diagnostics popover (click the status pip). */}
       <div class="flex-1 min-w-0 flex items-end pointer-events-none">
         <HostSelectorStrip />
       </div>
 
-      {/* Control cluster: recorder → view mode → dock → inspector → settings
-       *  → ⌘K. Buttons share the chrome icon hover/focus language.
-       *  These are TOOLBAR icons, not tab-row marks, so they sit vertically
-       *  CENTERED in the full header (symmetric top/bottom padding) rather
-       *  than riding the tab baseline. `-mt-2 h-10` cancels the header's
-       *  `pt-2` and spans the whole 40px so `items-center` lands them dead
-       *  centre.
-       *
-       *  The lone maximize toggle became the two-way `ModeControl`: canvas and
-       *  maximized are mutually exclusive views of the host tab underneath,
-       *  and two separate toggles would let a person spell a state the layout
-       *  does not have. It, the dock and the inspector toggle are about that
-       *  host tab, so the Conductor does not draw them — pressing one there
-       *  used to throw you out of the conversation. */}
       <div class="-mt-2 flex h-10 items-center gap-2 shrink-0">
         <RecordButton />
         <Show when={!conductorMode()}>
@@ -150,9 +84,6 @@ const ChromeBar: Component<{
                 "text-fg-3/40 cursor-not-allowed": !rightPanel.hasTerminals(),
               }}
               data-active={rightPanel.panelOpen() ? "" : undefined}
-              // Dead on an empty workspace: there's no panel to reveal, so the
-              // toggle joins the maximize button in being disabled until a
-              // terminal exists (the keybind/palette no-op via togglePanel too).
               disabled={!rightPanel.hasTerminals()}
               onClick={() => rightPanel.togglePanel()}
               aria-label={ACTIONS.toggleRightPanel.label}

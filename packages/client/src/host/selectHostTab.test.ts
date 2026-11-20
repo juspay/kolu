@@ -1,15 +1,4 @@
 // @vitest-environment happy-dom
-/**
- * The tab row has two halves — the conductor's tab first, then the host tabs —
- * and this pins the trip between them.
- *
- * `⌘⇧O` is a ROUND TRIP: it shows the conversation and the next press puts you
- * back on the host tab you were on, not on the local default and not on
- * whichever host something else touched meanwhile. That holds because the two
- * halves are separate values: selecting the conductor never writes a host
- * key, and `selectHostTab` never writes anything but one.
- */
-
 import { type HostKey, LOCAL_HOST } from "kolu-common/hostKey";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -55,8 +44,6 @@ describe("selectHostTab", () => {
     const writesAfterSwitch = wire.writes;
     toggleConductorMode();
 
-    // Clicking the tab you are already on, while reading the chat, is how a
-    // person asks to go back to it — a no-op would strand them.
     selectHostTab({ kind: "remote", target: "srid@zest" });
     expect(conductorMode()).toBe(false);
     expect(wire.writes).toBe(writesAfterSwitch);
@@ -69,7 +56,6 @@ describe("the ⌘⇧O round trip", () => {
 
     toggleConductorMode();
     expect(conductorMode()).toBe(true);
-    // Showing the conversation touches no host at all.
     expect(wire.host).toBe(ZEST);
     const writesWhileReading = wire.writes;
 

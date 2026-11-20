@@ -24,7 +24,6 @@ describe("highlightSegments", () => {
   });
 
   it("merges adjacent hits from overlapping tokens", () => {
-    // "ab" and "bc" overlap on 'b' → whole "abc" is one hit run
     expect(highlightSegments("abc", "ab bc")).toEqual([
       { text: "abc", hit: true },
     ]);

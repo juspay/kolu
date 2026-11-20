@@ -1,21 +1,3 @@
-/**
- * How an open door READS, and what you can DO with it — in one place, because
- * two surfaces show the same door.
- *
- * The Inspector's ports list and the host tab's dropdown both render a forward:
- * the address it answers on, why it is still open, and the copy/cancel pair. The
- * previous cut factored out three of the five pieces (the pill's class, the
- * origin words, the two buttons) and then reassembled them TWICE, disagreeing on
- * the result — one surface showed `⇄ :61003` with the origin in the tooltip, the
- * other showed `⇄ host:61003` with the origin in a sibling span. The rule this
- * branch states so firmly for COLOUR (one meaning, one declaration, so it
- * survives someone restyling one of them) is exactly as true of the pill's text
- * and its tooltip.
- *
- * The address helpers live here rather than beside the rows for the same reason:
- * what a door is CALLED and what a click on it copies are one fact.
- */
-
 import { toError } from "@kolu/surface/run-stream";
 import { hostAuthority } from "@kolu/url-shape";
 import { Effect } from "effect";
@@ -28,23 +10,14 @@ import { FORWARD_PILL, originTooltip, originWord } from "./forwardTone";
 import { portUrl } from "./portUrl";
 import { cancelForward } from "./useForwards";
 
-/** The address a user can paste — the machine serving this page, and the port
- *  the door answers on. Built through `hostAuthority`, so an IPv6-served kolu
- *  shows the same bracketed spelling the copy button writes. */
 export function pasteableAddress(forward: KoluForward): string {
   return hostAuthority(window.location.hostname, forward.localPort);
 }
 
-/** The URL a forward answers on. Always built from `location.hostname` and the
- *  LOCAL port: the door is on the kolu server's machine, which is the machine
- *  that served this page, and it is the one name reachable by construction. */
 export function forwardUrl(forward: KoluForward): string {
   return portUrl(window.location.hostname, forward.localPort);
 }
 
-/** What a row calls the far end — `pu-dev:5173`, or just `5173` when the far end
- *  is the kolu host itself (naming "local" there would be noise: every row in a
- *  local host's list would carry the same word). */
 export function forwardLabel(forward: KoluForward): string {
   return forward.host.kind === "local"
     ? String(forward.remotePort)
@@ -55,9 +28,6 @@ export const ForwardCopyButton: Component<{ forward: KoluForward }> = (
   props,
 ) => {
   const [copied, setCopied] = createSignal(false);
-  // The flash timer is tracked so a rapid re-click resets it instead of stacking
-  // timers, and a mid-flash unmount cancels it rather than firing setCopied on a
-  // disposed owner — the same discipline CopyCommandButton keeps.
   let flash: ReturnType<typeof setTimeout> | undefined;
   onCleanup(() => clearTimeout(flash));
   return (
@@ -113,9 +83,6 @@ export const ForwardCancelButton: Component<{ forward: KoluForward }> = (
     title={`cancel the forward to ${forwardLabel(props.forward)}`}
     aria-label={`Cancel the forward to ${forwardLabel(props.forward)}`}
     onClick={() => {
-      // No optimistic removal: the server's cell IS the list, and a row that
-      // vanished before its door actually shut would be the exact lie the whole
-      // design avoids. The row goes when the server says it is gone.
       runAction(
         "cancel forward",
         cancelForward(props.forward.key).pipe(
@@ -134,14 +101,6 @@ export const ForwardCancelButton: Component<{ forward: KoluForward }> = (
   </button>
 );
 
-/** The door, as a teal pill: the address it answers on, and — in the tooltip —
- *  why it is still open. A bare `⇄` answered no question (forwarded WHERE?), so
- *  the pill always carries the address, which is also the thing worth pasting.
- *  Teal, never the connection green: one colour per meaning.
- *
- *  `link` is the only difference the two surfaces genuinely have — a ports row
- *  already carries its own open affordance beside the pill, so a second link on
- *  the same row would be two ways to do one thing. */
 export const ForwardPill: Component<{
   forward: KoluForward;
   link?: boolean;
@@ -180,10 +139,6 @@ export const ForwardPill: Component<{
   );
 };
 
-/** Copy and cancel, revealed together. They belong to the DOOR, so every surface
- *  that shows one shows both — quiet until the row is hovered or something in it
- *  is focused, always reachable by keyboard, never shouting on a list the user
- *  is only reading. */
 export const ForwardControls: Component<{ forward: KoluForward }> = (props) => (
   <span class="flex items-baseline gap-1.5 opacity-0 transition-opacity focus-within:opacity-100 group-hover/fwd:opacity-100 motion-reduce:transition-none">
     <ForwardCopyButton forward={props.forward} />

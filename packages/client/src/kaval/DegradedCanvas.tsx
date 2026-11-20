@@ -1,27 +1,3 @@
-/**
- * DegradedCanvas — the honest "the terminal daemon is down" surface.
- *
- * B2's empty-canvas-lie fix: when kaval (the pty-host daemon) is `dead` (never
- * came up at boot) or `degraded` (died mid-session), the canvas must say so —
- * NOT show the same "you have no terminals" welcome that a healthy, empty kolu
- * shows. #1034's worst lie was a respawn-timeout leaving a user staring at an
- * empty canvas indistinguishable from a fresh start, their 20-terminal session
- * seemingly gone. This surface is visibly distinct: a warning-toned card naming
- * the real problem.
- *
- * B3.2 makes it self-healing: a one-click "Restart kaval" recovers the daemon
- * (recycle → fresh) and offers the preserved session for restore on the empty
- * canvas. Here we name what happened and give the user that single button.
- *
- * SK4/SK5 add the third arm: `incompatible` — a PROVEN contract skew. Its card
- * states BOTH versions from the typed status fields and offers the ONE recovery
- * that can work — "Update &amp; restart kaval" (`hosts.renewDaemon`, the binder's
- * drain → re-realise pipeline) — and deliberately NO Restart verb: by the arm's
- * construction a respawn from the host's current closure has already been tried
- * and skewed, so offering Restart would be the dead-end loop this fix removes.
- * The affordance is a total function of the state sum.
- */
-
 import { runAction } from "../runAction";
 import { type Component, type JSX, Show } from "solid-js";
 import DocLink from "../ui/DocLink";
@@ -32,14 +8,6 @@ import UpdateKavalButton from "./UpdateKavalButton";
 import { restartDaemon, restartInFlight } from "./useDaemonRestart";
 import { localDaemonStatus } from "./useDaemonStatus";
 
-/** The restartable down card — `dead` (never came up) / `degraded` (died
- *  mid-session). `downState()` in useDaemonStatus.ts is the single source that
- *  narrows the full `DaemonState` to the down union (a `restarting` daemon is
- *  coming back, not down, so it never renders here). */
-/** The shared danger-card shell — the identical border/icon/heading chrome
- *  both down cards wear. Only the copy and the recovery action differ per arm,
- *  so the shell lives once (the twin of the button-side `InlineConfirmButton`
- *  extraction: one frame, per-arm content). */
 const DangerCard: Component<{
   heading: string;
   versions?: JSX.Element;
@@ -96,8 +64,6 @@ const RestartableCard: Component<{ state: "dead" | "degraded" }> = (props) => {
   );
 };
 
-/** The contract-skew card (SK5) — both versions from the TYPED status fields,
- *  and the renew action. No Restart verb, by construction. */
 const IncompatibleCard: Component<{
   daemonVersion: string;
   requiredVersion: string;
@@ -131,8 +97,6 @@ const IncompatibleCard: Component<{
 );
 
 const DegradedCanvas: Component<{ down: DaemonDownState }> = (props) => {
-  // Discriminate ONCE — each accessor narrows the union, so neither card ever
-  // needs a cast and the affordance stays a total function of the sum.
   const skew = () =>
     props.down.state === "incompatible" ? props.down : undefined;
   const restartable = () =>

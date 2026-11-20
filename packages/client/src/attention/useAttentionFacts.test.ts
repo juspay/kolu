@@ -43,8 +43,6 @@ vi.mock("../wire", () => ({
 }));
 import { useAttentionFacts } from "./useAttentionFacts";
 
-/** Run `body` inside a root that holds the mirror, after the mirror's own
- *  effects have run once. */
 function withMirror(body: () => void): Promise<void> {
   const { promise, resolve, reject } = Promise.withResolvers<void>();
   createRoot((dispose) => {
@@ -104,8 +102,6 @@ it("takes no unsettled frame as a report — padi has not looked yet", async () 
   );
   source.urgency = urgency;
   await withMirror(() => {
-    // Empty because nobody has looked: the attention engine must not take
-    // it as the baseline it later diffs a real frame against.
     expect(hostFrame("local").reported).toBe(false);
     setUrgency(frame({ finishedIds: ["a"] }));
     expect(hostFrame("local").reported).toBe(true);
@@ -123,11 +119,9 @@ it("holds the last settled reading across an unsettled frame — a redeploy does
   await withMirror(() => {
     const before = hostFrame("local").byClass;
     expect(before.finished).toEqual(["a"]);
-    // The fresh padi's first frames: nothing adopted, nothing read.
     setUrgency(frame({ settled: false }));
     expect(hostFrame("local").byClass).toBe(before);
     expect(hostFrame("local").reported).toBe(true);
-    // It has looked: the reading moves again.
     setUrgency(frame({ finishedIds: ["a"] }));
     expect(hostFrame("local").byClass.working).toEqual([]);
   });

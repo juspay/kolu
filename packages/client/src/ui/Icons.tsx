@@ -1,14 +1,3 @@
-/**
- * Shared SVG icon components — centralized so markup stays in sync.
- * Each icon takes an optional `class` prop (defaults to a sensible size).
- * Keep alphabetically sorted when adding new icons.
- *
- * The PR-state glyphs (`PrStateIcon` and the three git marks it switches over)
- * and the checks dot live in `@kolu/solid-dockrow` instead: they are what the
- * dock row's PR pip draws, nothing else in the repo drew them, and the row
- * ships as a package so a fleet mirror gets the badge rather than redrawing it.
- */
-
 import type { AgentMark } from "kolu-agents/vocab";
 import { type Component, For, Show } from "solid-js";
 
@@ -71,10 +60,7 @@ export const HomeIcon: Component<{ class?: string }> = (props) => (
   </svg>
 );
 
-/** Render an agent's brand mark (from the registry) as one SVG. The mark is
- *  DATA (`AgentMark`: viewBox + paint + paths), so ONE component serves every
- *  agent — the hand-drawn per-agent chrome icons are deleted, and an agent's
- *  mark is declared once in its own package (also the dock pip's mark). */
+/** Render an agent's brand mark (from the registry) as one SVG. */
 export const MarkIcon: Component<{ mark: AgentMark; class?: string }> = (
   props,
 ) => (
@@ -246,9 +232,7 @@ export const ResumeIcon: Component<{ class?: string }> = (props) => (
   </svg>
 );
 
-/** Warning triangle — small exclamation, used to flag degraded provider
- *  state (e.g. `gh` not authenticated) in the terminal metadata strip and
- *  inspector. Inherits `currentColor` so callers can tint it via `text-*`. */
+/** Warning triangle. Inherits `currentColor`. */
 export const WarningIcon: Component<{ class?: string }> = (props) => (
   <svg
     class={props.class ?? "w-3.5 h-3.5"}
@@ -283,8 +267,7 @@ export const WebcamIcon: Component<{ class?: string }> = (props) => (
   </svg>
 );
 
-/** Video camera — workspace record button. Paired with `ScreenshotIcon`
- *  (still camera = snapshot, camcorder = recording). */
+/** Video camera — workspace record button. */
 export const RecordIcon: Component<{ class?: string }> = (props) => (
   <svg
     class={props.class ?? "w-3.5 h-3.5"}
@@ -521,8 +504,7 @@ export const RestartIcon: Component<{ class?: string }> = (props) => (
   </svg>
 );
 
-/** Inspector toggle — square with a divider on the right edge.
- *  Filled-right when active to indicate the right panel is open. */
+/** Inspector toggle — filled-right when the right panel is open. */
 export const InspectorToggleIcon: Component<{ active?: boolean }> = (props) => (
   <svg
     class="w-3.5 h-3.5"
@@ -540,9 +522,7 @@ export const InspectorToggleIcon: Component<{ active?: boolean }> = (props) => (
   </svg>
 );
 
-/** Dock (dock) toggle — mirror of InspectorToggleIcon for the
- *  left-edge panel. Filled-left when active = dock is expanded (cards
- *  or mega); empty-left = dock is in rail (collapsed) mode. */
+/** Dock toggle — filled-left when the dock is expanded. */
 export const DockToggleIcon: Component<{ active?: boolean }> = (props) => (
   <svg
     class="w-3.5 h-3.5"

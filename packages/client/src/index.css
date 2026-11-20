@@ -1,141 +1,26 @@
 @import "kolu-fonts";
 @import "tailwindcss";
 
-/* The app's OWN colour palette. `--color-alert`, `--color-surface-1`,
- * `--color-fg-3` and the rest are read by hundreds of app-wide utilities that
- * have nothing to do with a Dock row, so the app states the edge itself rather
- * than inheriting it through the row's sheet — "the app's colour system" and
- * "the Dock row's prerequisites" are two independent concerns, and braiding them
- * meant deleting the Dock from this app would take the palette with it. The
- * doubled `@import` below is deduplicated and a token sheet is idempotent. */
 @import "@kolu/theme/theme.css";
 
-/* `@kolu/solid-dockrow`, WHOLE — the row's sheet, the pip's sheet beneath it,
- * the shared colour palette (`--color-alert`, `--color-accent`, …) all three
- * resolve against, and the `@source` directives that keep each package's own
- * Tailwind utilities from being tree-shaken. ONE import, in an order the
- * packages hold rather than this file.
- *
- * It used to be three `@import`s here plus two `@source`s below, and the order
- * among them was load-bearing and stated only in a README — a wrong one renders
- * a row with no layout at all, silently. kolu got it right; the first outside
- * consumer to render the row obeyed the same instruction in two files
- * independently and could not tell whether it had. The instruction is also not
- * writeable in general, because the sibling paths a `@source` needs are
- * different from every consumer's directory. So it is an invariant now, and
- * kolu reads it through the same door everyone else does.
- *
- * It brings `@kolu/theme` too, and states so — this file's own import above is
- * the app's edge, not a duplicate of the row's. */
 @import "@kolu/solid-dockrow/all.css";
 
-/* `@kolu/solid-fileview`, WHOLE — the same door as the row above, for the same
- * reason. The package ships Tailwind utility classes of its own (the toggle host
- * + image/iframe appliances) that must be scanned or they are tree-shaken away,
- * and the `@source` that scans them is now inside the package, relative only to
- * itself. This file used to spell `@source "../../solid-fileview/src"` — exactly
- * the non-portable sibling path the paragraph above declares unwriteable, three
- * lines under it. */
 @import "@kolu/solid-fileview/all.css";
 
-/* `@kolu/solid-markdown`'s rendered-Markdown stylesheet (`.kolu-md`). The
- * package ships the structural + scale rules; we inline them here — rather
- * than via a component-level CSS import the package's `sideEffects:false`
- * could tree-shake — so the rendered preview, intent body, and dock all pick
- * them up. The sheet reads `--color-accent` (from `@kolu/theme`, above).
- *
- * It gets a granular import and no `all.css`, and that is a decision rather than
- * an omission: markdown ships a PLAIN sheet and no Tailwind utilities at all —
- * its components carry semantic class names (`.kolu-md`, `.shiki`,
- * `.markdown-alert`) and not one utility — so there is nothing for a `@source`
- * to keep alive and no non-portable sibling path to hide. The day it grows one,
- * it gets the same two lines the other three have. */
 @import "@kolu/solid-markdown/markdown.css";
 
-/* `@kolu/solid-logtail`, WHOLE — the tail's sheet is its `@source`: the block is
- * Tailwind utilities and nothing else, and the ones no kolu source spells
- * (`right-1`, this block's Copy corner) are dropped without it. Caught on
- * screen, not by a test: the button landed at the block's left edge. The
- * `@source` inside points Tailwind at the package with a path relative only to
- * itself, like the three doors above. */
 @import "@kolu/solid-logtail/all.css";
 
-/* The `@source` directives for `@kolu/solid-statepip`, `@kolu/solid-dockrow` and
- * `@kolu/solid-fileview` moved INTO those packages' own `all.css`, above — each
- * points Tailwind at itself with a path relative only to itself, which is the
- * only spelling that is correct from a workspace checkout, from a node_modules
- * copy and from a consumer's hydrated tree alike. */
-
-/* Suppress the browser's pull-to-refresh and scroll-chaining at the
- * document level. Without this, swiping down at the top of the
- * sidebar or terminal viewport hijacks the gesture into a page
- * reload — destroying every open terminal session. `contain` keeps
- * the local rubber-band feel intact while killing chain-up. */
 html,
 body {
   overscroll-behavior: contain;
 }
 
-/*
- * App-specific Tailwind tokens. The colour palette lives in `@kolu/theme`
- * (imported above); only the tokens unique to this on-canvas surface stay here.
- */
 @theme {
-  /* The single definition of the `sm` breakpoint — where "mobile" begins.
-   * `useMobile.ts` reads this token (`--breakpoint-sm`) so the JS media query
-   * and Tailwind's `sm:` / `max-sm:` utilities can never disagree by a pixel. */
-  --breakpoint-sm: 40rem; /* 640px */
+  --breakpoint-sm: 40rem;
 
   --font-sans: "DM Sans", ui-sans-serif, system-ui, sans-serif;
 
-  /* ── THE CONDUCTOR'S READING COLUMN ──────────────────────────────────
-   * The conversation is prose, and prose is read in a column. Three
-   * measures, stated once here, and the breakpoint they add up to:
-   *
-   *   --text-chat …… 0.9375rem (15px) with a 1.7 line-height. The body
-   *     size of the whole pane: every row that does not insist on its own
-   *     size (the agent's prose, a bubble, the box you type in) inherits
-   *     it, which is why there are no per-element sizes for body text.
-   *   --container-conductor …… 45rem (720px). Inside its 1.25rem gutters
-   *     that leaves ~42.5rem of text — at 15px DM Sans (~0.52em an
-   *     average character) about 85 characters a line, inside the 70–90
-   *     a person reads without losing their place. Replies used to run
-   *     the full window: ~230 characters at 1568px.
-   *   --container-conductor-side …… 22rem (352px). The watched panel in
-   *     its second placement: a group heading, a terminal's name, its
-   *     host, its clock and Look all fit without wrapping.
-   *   --spacing-conductor-gutter …… 2rem between the two columns.
-   *
-   * --breakpoint-conductor-wide IS THEIR SUM — 45 + 22 + 2 = 69rem
-   * (1104px), the narrowest window where both columns fit at their own
-   * measure. `conductorLayout.ts` reads this token for the one
-   * `matchMedia` the pane asks which placement is live, so the column JS
-   * thinks is on screen and the column CSS draws cannot disagree; the
-   * sum is pinned against these three tokens in `conductorLayout.test.ts`,
-   * so moving a measure without moving the breakpoint fails a test rather
-   * than shipping a side column that overlaps the conversation.
-   *
-   * ── THE HELP COLUMN, THE THIRD TRACK ──────────────────────────────
-   *   --container-conductor-help …… 16rem (256px) at
-   *     --text-conductor-help (12px): about 37 characters a line, so a
-   *     help bullet (`helpContent.ts`: a phrase, not a sentence) is one
-   *     line or two.
-   *
-   * On a window that holds all three, the frame is help · conversation ·
-   * work in progress — and the help's TRACK IS A CONSTANT WIDTH whether
-   * it is open or collapsed. That is the whole trick: collapsed, the
-   * rail sits at the track's start and the rest of the track is margin,
-   * so the space really is given back while the reading column — centred
-   * in a track whose width does not depend on the collapse — does not
-   * move a pixel on the press.
-   *
-   * --breakpoint-conductor-help IS THE THREE TRACKS ADDED UP — the
-   * two-column sum plus the help and the gutter beside it: 69 + 16 + 2 =
-   * 87rem (1392px), so a 1568px window has the frame with room to spare.
-   * Between it and --breakpoint-conductor-wide there are two columns and
-   * the `⋯` menu's `How to use` opens the same words as a sheet, which is
-   * also what a phone gets. `conductorLayout.test.ts` pins this
-   * derivation too. */
   --text-chat: 0.9375rem;
   --text-chat--line-height: 1.7;
   --text-conductor-help: 0.75rem;
@@ -146,45 +31,11 @@ body {
   --spacing-conductor-gutter: 2rem;
   --breakpoint-conductor-wide: 69rem;
   --breakpoint-conductor-help: 87rem;
-  /* ── THE READER'S DOCUMENT ────────────────────────────────────────
-   * A plan is read, not glanced at, so the reader (`reader/WorkReader.tsx`)
-   * sets its document the way a document is set: 50rem of column at 1rem
-   * with a 1.75 line height — about 95 characters of a 16px face, and the
-   * extra leading that makes a long technical page scannable. It is wider
-   * and larger than the conversation's own column on purpose: the chat is a
-   * stream you follow, and this is a page you read and then have to agree
-   * to.
-   *
-   * Tables and code blocks are NOT held to it (`.reader-doc` below). A
-   * table's columns can never be narrower than their longest word, so a
-   * table squeezed into a reading column comes out one word a line — the
-   * defect the reader exists to end. They get the pane's full width and
-   * scroll sideways past it. */
   --container-conductor-reader: 50rem;
   --text-reader: 1rem;
   --text-reader--line-height: 1.75;
 }
 
-/* ── THE READER'S DOCUMENT ──────────────────────────────────────────────
- * The reader (`conductor/reader/WorkReader.tsx`) draws its file with the
- * SAME viewer the Code tab uses, so what is different about reading a plan
- * is stated here, over that viewer's own DOM, rather than in a second
- * renderer that would start identical and drift by a release.
- *
- * THE COLUMN IS THE BLOCK'S, NOT THE PANE'S. The viewer centres its content
- * in its own measure; the reader widens that wrapper to the whole pane and
- * gives the measure to each block instead. That is the whole trick, because
- * it lets exactly two kinds of block out of it:
- *
- *   - a TABLE's columns can never be narrower than their longest word, so a
- *     table in a reading column comes out one word a line (the defect that
- *     sent the plan here from the card). It is allowed the pane's full width
- *     and scrolls sideways past that.
- *   - a CODE BLOCK does not reflow at all; the same rule, the same reason.
- *
- * Both still START at the reading column's own left edge — `min-width` holds
- * them to at least its measure — so a narrow table does not float off the
- * line the prose is set on. */
 .reader-doc .kolu-md {
   --md-fs: var(--text-reader);
   --md-lh: var(--text-reader--line-height);
@@ -204,28 +55,13 @@ body {
 }
 
 .chrome-bar-surface {
-  /* Neutral, glassy rail. The header is NOT tinted by any host/PWA hue — colour
-   * lives on the tabs, so the active tab (its host's hue) stands out instead of
-   * blending into a same-hue band. A faint top sheen reads as glass; a whisper
-   * hairline at the bottom separates the rail from the canvas without a heavy
-   * border. */
   background: var(--color-surface-0);
   box-shadow:
     inset 0 1px 0 color-mix(in oklch, white 6%, transparent),
     0 1px 0 color-mix(in oklch, var(--color-edge) 16%, transparent);
 }
 
-/* ── Host tab bar — browser-style tabs on a quiet rail ───────────────────
- * `--host-hue` is set inline per chip (`hostHue()` → `kolu-common/hostHue`),
- * the SAME palette the PWA theme-color draws from. It tints ONLY the active
- * tab (a soft belly that merges into the canvas). Connection status (green/
- * amber/red) is fact-only and never tinted by host hue. Identity is Home
- * (local) or hostname (remote); padi/kaval live in the diagnostics popover.
- * The CONDUCTOR's tab, first in the row, wears these same classes with the
- * accent as its `--host-hue` (`ConductorTab`) — one shape, one hover, one lit
- * belly for every place in the row, so none of them can drift. */
 .host-tablist {
-  /* Sit tabs on the rail floor so active bottoms feel continuous with canvas. */
   align-items: flex-end;
 }
 .host-tab {
@@ -238,7 +74,6 @@ body {
     border-color 160ms ease,
     color 160ms ease;
 }
-/* Resting tab: quiet text; faint edge + hue wash on hover. */
 .host-tab-idle {
   color: var(--color-fg-2);
 }
@@ -247,8 +82,6 @@ body {
   background: color-mix(in oklch, var(--host-hue) 9%, transparent);
   border-color: color-mix(in oklch, var(--color-edge) 45%, transparent);
 }
-/* Active tab: raised sheet flush with the canvas edge — top highlight, side
- * hairlines, no bottom border so it joins the content plane. */
 .host-tab-active {
   color: var(--color-fg);
   background: color-mix(in oklch, var(--host-hue) 13%, var(--color-surface-0));
@@ -258,21 +91,6 @@ body {
     0 -6px 16px -12px var(--host-hue);
 }
 
-/* ── The CONDUCTOR's tab — the one place in the row that is not a machine ──
- *
- * Every host tab rests as quiet grey text and only the CURRENT one wears its
- * hue. The conductor is not one of a set: it is the single conversation that
- * reaches all of them, and at rest in grey it read as the weakest thing on a
- * row of hosts — the opposite of what it is. So it wears `--color-conductor`
- * (a `@kolu/theme` token, light and dark) AT REST as well as when current:
- * coloured ink, a faint wash and a hairline, so it reads as the special tab
- * from across the room and still as a tab.
- *
- * It also FEEDS `--host-hue`, so the shared `.host-tab-active` belly, hover
- * and focus ring below paint it in the same colour without a second set of
- * rules to keep in step. Declared BEFORE the attention wash: a conductor with
- * questions waiting washes violet exactly like a host does, and the wash must
- * win over this identity. */
 .conductor-tab {
   --host-hue: var(--color-conductor);
 }
@@ -286,8 +104,6 @@ body {
   background: color-mix(in oklch, var(--color-conductor) 20%, transparent);
   border-color: color-mix(in oklch, var(--color-conductor) 48%, transparent);
 }
-/* The lit tab keeps the hue in its BORDER as well as its belly — the belly is
- * a 13% mix over the surface, which on paper is nearly the surface itself. */
 .conductor-tab.host-tab-active {
   border-color: color-mix(
     in oklch,
@@ -295,9 +111,6 @@ body {
     var(--color-edge)
   );
 }
-/* Dark: the same reason the active tab needs 32% instead of 13% — a low mix
- * over near-black collapses to grey, and the resting tab is the one that must
- * still read as coloured. */
 :root.dark .conductor-tab.host-tab-idle {
   background: color-mix(in oklch, var(--color-conductor) 16%, transparent);
   border-color: color-mix(in oklch, var(--color-conductor) 38%, transparent);
@@ -305,29 +118,6 @@ body {
 :root.dark .conductor-tab.host-tab-idle:hover {
   background: color-mix(in oklch, var(--color-conductor) 26%, transparent);
 }
-/* Host-tab attention wash — the AREA channel, ONE rule, two hues.
- *
- * The `AttentionTriplet`'s capsule carries the count; this washes the whole tab
- * so the mark survives peripheral vision. Doubling a dot is a 4× area change and
- * still gets missed; tinting the tab behind it is ~100× (#1990).
- *
- * Two states share the one rule through `--attn`, exactly as the dock row's wash
- * below does — per-state spelling is how needs-you ended up with no wash at all
- * (fucknotif), and it is also how these two blocks drifted 2-4 percentage points
- * apart while a comment claimed they carried "the same lift". The numbers below
- * are the AMBER set: those shipped and were tuned, so they are the ones that win.
- *   · amber `--color-attention` — unseen (finished, unopened). Amber and NOT
- *     `--host-hue`: obligation is a fact about work, not about which host it
- *     happened on, and the hue-per-host palette already spends colour on identity.
- *   · violet `--color-alert` — asking (blocked on you). Declared AFTER amber so
- *     violet wins; the two attributes are also mutually exclusive by predicate
- *     (`HostChip` sets `data-unseen` only when asking is zero), an agent blocked
- *     on you outranking work you haven't opened.
- *
- * Only ever paints an IDLE tab: both attributes are suppressed on the active host
- * (same predicate as the capsule), so this can never fight the active tab's
- * host-hue belly. Placed after `.host-tab-idle:hover` so a hovered washed tab
- * keeps reading as washed. */
 .host-tab[data-unseen] {
   --attn: var(--color-attention);
 }
@@ -343,9 +133,6 @@ body {
   background: color-mix(in oklch, var(--attn) 26%, transparent);
   border-color: color-mix(in oklch, var(--attn) 60%, transparent);
 }
-/* Dark mode: same reason the active tab needs 32% instead of 13% — a low mix
- * over near-black collapses to muddy grey and the tab stops reading as coloured
- * at all. */
 :root.dark .host-tab:is([data-unseen], [data-asking]) {
   background: color-mix(in oklch, var(--attn) 26%, transparent);
   border-color: color-mix(in oklch, var(--attn) 55%, transparent);
@@ -353,9 +140,6 @@ body {
 :root.dark .host-tab:is([data-unseen], [data-asking]):hover {
   background: color-mix(in oklch, var(--attn) 34%, transparent);
 }
-/* Unreachable host — desaturate the tab; struck label is classed in JSX.
- * Active+down keeps the host-hue belly so the selected failed host is still
- * the one that owns the canvas. */
 .host-tab-down {
   opacity: 0.7;
   filter: grayscale(0.35);
@@ -368,9 +152,6 @@ body {
 :root.dark .host-tab-active.host-tab-down {
   background: color-mix(in oklch, var(--host-hue) 22%, var(--color-surface-1));
 }
-/* Dark mode: a 13% hue mixed into the near-black surface collapses to a muddy
- * grey — every host tab then looks the same. Over the dark surface the hue
- * needs far more presence to read AS a colour and to tell hosts apart. */
 :root.dark .host-tab-active {
   background: color-mix(in oklch, var(--host-hue) 32%, var(--color-surface-1));
   border-color: color-mix(in oklch, var(--host-hue) 40%, var(--color-edge));
@@ -382,34 +163,9 @@ body {
   background: color-mix(in oklch, var(--host-hue) 18%, transparent);
   border-color: color-mix(in oklch, var(--color-edge) 55%, transparent);
 }
-/* Padi/Kaval logos live only in the diagnostics popover. */
 .host-daemon-logo {
   opacity: 0.95;
 }
-
-/* ── Pill border channels ────────────────────────────────────
- * Two visual channels live on the pill border:
- *
- *   1. Terminal-active — driven by `--card-color` (repo identity).
- *      `.pill-border-active` paints a static ring; `.pill-glow-inner`
- *      is the inset highlight used when a card is also showing an
- *      agent-state ring on the outside.
- *
- *   2. Agent-state — driven by `--pill-state-color` (bucket accent
- *      from `AGENT_BUCKETS`). Both live states pulse so
- *      motion conveys "alive"; cadence + intensity distinguishes
- *      them. `.pill-border-awaiting` breathes faster (1.6s) and
- *      deeper (20%↔90%) to read as alarm-like; `.pill-border-working`
- *      pulses slower (2.4s) and shallower (35%↔80%) to read as calm
- *      activity. Idle has no class.
- *
- * The two channels never read the same CSS variable, so a card that
- * is both active and has an agent renders an outer bucket-colored
- * ring + an inset repo-colored highlight without conflict.
- *
- * The ring radius defaults to a pill (9999px) but can be overridden
- * per-element via `--pill-border-radius` so the same animation works
- * on rectangular cards (rounded-md / rounded-lg). */
 
 .pill-border {
   position: relative;
@@ -432,10 +188,6 @@ body {
   background: oklch(from var(--card-color) l c h / 0.8);
 }
 
-/* The breathing ring paints its color-mix background ONCE and animates only
- * `opacity` (compositor-accelerated) — animating the `background` color-mix
- * repainted the masked ring every frame (#1308). The trough opacities
- * (.22 ≈ 20/90, .44 ≈ 35/80) preserve the original dim-to-bright range. */
 .pill-border-awaiting::before {
   background: color-mix(
     in oklch,
@@ -474,15 +226,7 @@ body {
   }
 }
 
-/* Honour the user's motion preference: collapse the breathe to a
- * static high-opacity background so awaiting still reads strongly
- * but doesn't pulse. Without this the awaiting ring would flatten
- * to a dim-and-static state visually indistinguishable from idle
- * + working when reduce-motion is requested. */
 @media (prefers-reduced-motion: reduce) {
-  /* Base background already sits on the `::before` at full strength; hold a
-   * static opacity that matches the old reduced-motion strengths
-   * (0.89 ≈ 80/90, 0.75 = 60/80) so awaiting still reads strongly. */
   .pill-border-awaiting::before {
     animation: none;
     opacity: 0.89;
@@ -493,29 +237,10 @@ body {
   }
 }
 
-/* ── Canvas tile state aura · Language C (Run / sweep) ───────────────────────
- * Each live tile surfaces its agent run-state as MOTION on a border ring drawn
- * in the repo's identity colour (`--aura-c` = repoColor — the one colour used
- * throughout this feature: the resting border, the active ring, and this aura
- * all share it, nothing else competes). The treatment carries the state; the
- * colour carries identity.
- *   - working   → "runs": same double-frame geometry as the active tile
- *                 (solid identity border + outer moat); the OUTER rail carries
- *                 a calm rotating highlight (busy, asks nothing).
- *   - needs-you → "sweeps": a comet orbits the ring; its SPEED is the urgency —
- *                 alert fastest, fresh medium, stale slowest (the decay, read as
- *                 a comet winding down).
- *
- * Moat geometry tokens (`--tile-moat-offset` / `--tile-moat-stroke` /
- * `--tile-radius`) are one socket for the active outline AND the working outer
- * rail — change them once. Outer shell is always overflow-visible; title/body
- * clip via the inner shell (CanvasTile). Focusing a tile clears unread and
- * mutes its aura (rule last, so it wins). */
 [data-canvas-tile] {
-  --tile-radius: 0.75rem; /* matches Tailwind rounded-xl on tiled shells */
+  --tile-radius: 0.75rem;
   --tile-moat-offset: 4px;
   --tile-moat-stroke: 1.5px;
-  /* Working outer rail sits just outside the border-box: offset + stroke. */
   --tile-moat-outset: calc(var(--tile-moat-offset) + var(--tile-moat-stroke));
 }
 
@@ -526,14 +251,9 @@ body {
   pointer-events: none;
   overflow: hidden;
   z-index: 5;
-  /* Isolate the aura's paint/layout from the tile + terminal body so an
-   * always-running border animation can never invalidate (repaint) the
-   * xterm canvas underneath it. */
   contain: layout paint;
 }
 
-/* Shared ring-stroke mask (padding-box content xor). Tier rules only set
- * padding / background / motion — not the mask formula. */
 .tile-aura-ring {
   -webkit-mask:
     linear-gradient(#000 0 0) content-box,
@@ -545,16 +265,11 @@ body {
   mask-composite: exclude;
 }
 
-/* working — double frame like the active tile: solid identity border (on the
- * tile) + outer moat. The moat is a full dim rail with a brighter arc that
- * rotates (compositor `transform` only — same model as needs-you). */
 [data-canvas-tile][data-aura="working"] .tile-aura {
   inset: calc(-1 * var(--tile-moat-outset));
-  /* Tile radius + expansion so the outer rail follows the tile curve */
   border-radius: calc(var(--tile-radius) + var(--tile-moat-outset));
   contain: none;
   padding: var(--tile-moat-stroke);
-  /* static full outer rail */
   background: color-mix(in oklch, var(--aura-c) 38%, transparent);
 }
 [data-canvas-tile][data-aura="working"] .tile-aura::before {
@@ -570,13 +285,11 @@ body {
     color-mix(in oklch, var(--aura-c) 65%, white) 348deg,
     transparent 360deg
   );
-  /* slower than needs-you fresh (2.1s) — busy, not urgent */
   animation: tile-aura-spin 2.6s linear infinite;
   will-change: transform;
   filter: brightness(1.15);
 }
 
-/* needs-you — a comet sweeping a masked ring; speed (`--aura-spin`) is urgency */
 [data-canvas-tile][data-aura="alert"] .tile-aura,
 [data-canvas-tile][data-aura="waiting-fresh"] .tile-aura,
 [data-canvas-tile][data-aura="waiting-stale"] .tile-aura {
@@ -596,8 +309,6 @@ body {
     transparent 360deg
   );
   animation: tile-aura-spin var(--aura-spin, 2.1s) linear infinite;
-  /* `transform: rotate` is compositor-friendly; `will-change` keeps the comet
-   * on a stable GPU layer instead of re-promoting/demoting it each frame. */
   will-change: transform;
 }
 @keyframes tile-aura-spin {
@@ -606,13 +317,10 @@ body {
   }
 }
 [data-canvas-tile][data-aura="alert"] .tile-aura {
-  /* Alert is the loudest rung: a thicker ring whose whole perimeter throbs
-     under a fast, extra-bright comet — unmistakable across the canvas. */
   padding: 4px;
   --aura-spin: 0.9s;
   background: color-mix(in oklch, var(--aura-c) 38%, transparent);
   animation: tile-aura-alert-pulse 1.1s ease-in-out infinite;
-  /* `opacity` is compositor-accelerated; hint it so the pulse never repaints. */
   will-change: opacity;
 }
 @keyframes tile-aura-alert-pulse {
@@ -640,10 +348,6 @@ body {
   filter: brightness(0.85) saturate(0.8);
 }
 
-/* finished — post-turn linger: soft held ring. One-shot exhale is gated by
- * `data-exhale` (set only on the tier *transition* into finished) so an
- * off-screen/maximize Show remount of `.tile-aura` does not re-play the
- * motion (the shell tracks the transition). Not a comet. */
 [data-canvas-tile][data-aura="finished"] .tile-aura {
   padding: 3px;
   background: color-mix(in oklch, var(--aura-c) 42%, transparent);
@@ -665,9 +369,6 @@ body {
   }
 }
 
-/* ── Canvas place language (land-in · sleep fold) ───────────────────────────
- * Tiles *arrive* on the plane and *fold* when put to sleep. Filter-only so
- * we never fight the inline pan/zoom `transform` or the per-mode opacity. */
 @keyframes tile-place-in {
   0% {
     filter: brightness(1.35);
@@ -682,15 +383,10 @@ body {
 [data-canvas-tile][data-sleeping] {
   filter: saturate(0.42) brightness(0.72);
 }
-/* Sleep wins over land-in if both are somehow set. */
 [data-canvas-tile][data-sleeping][data-landing] {
   animation: none;
 }
 
-/* ── Work card, brought into view by a work chip ────────────────────────────
- * One ring in the accent that fades, so the eye lands on the card a chip in
- * the chat asked for. Reduced motion skips it: the card is scrolled to
- * either way. */
 @keyframes work-card-flash {
   0% {
     box-shadow: 0 0 0 3px var(--color-accent);
@@ -708,24 +404,14 @@ body {
   }
 }
 
-/* Reduced motion: hold the rotating rails / comet still — the themed ring
- * still reads, it just stops moving. The `[data-aura]` qualifier is
- * load-bearing: the per-state animations are declared at
- * `[data-canvas-tile][data-aura="…"]` specificity (0,3,1), so a bare
- * `[data-canvas-tile] .tile-aura` reset (0,2,1) would lose the cascade and
- * never actually stop the motion. Match the animating selectors' specificity
- * so this override wins. */
 @media (prefers-reduced-motion: reduce) {
-  /* No `::after` aura strip remains (ants retired); ::before carries spin. */
   [data-canvas-tile][data-aura] .tile-aura,
   [data-canvas-tile][data-aura] .tile-aura::before {
     animation: none;
   }
-  /* Finished still reads as a soft ring without the exhale motion. */
   [data-canvas-tile][data-aura="finished"] .tile-aura {
     opacity: 0.4;
   }
-  /* Working keeps the static outer rail without the rotating arc. */
   [data-canvas-tile][data-aura="working"] .tile-aura::before {
     opacity: 0;
   }
@@ -734,35 +420,20 @@ body {
   }
 }
 
-/* The active tile mutes its own aura so it doesn't compete with its brighter
- * focus ring, and the eye-grab always points somewhere new. Last so it wins
- * over the tier rules above. */
 [data-canvas-tile][data-active] .tile-aura {
   opacity: 0.4;
 }
-/* Alert pulse / finished exhale keyframes would otherwise outrank the mute
- * above — a running CSS animation beats normal declarations regardless of
- * selector order. Cancel those motion keyframes on the active tile so the
- * mute (opacity 0.4) wins. */
 [data-canvas-tile][data-active][data-aura="alert"] .tile-aura,
 [data-canvas-tile][data-active][data-aura="finished"] .tile-aura {
   animation: none;
   opacity: 0.4;
 }
 
-/* Inset highlight: marks the pill as ALSO the active terminal when
- * the border is already busy showing agent state. Sits inside the
- * pill so it doesn't compete with the outer animated ring. */
 .pill-glow-inner {
   box-shadow: inset 0 0 0 1px
     oklch(from var(--card-color) l calc(c * 1.5) h / 0.7);
 }
 
-/* ── Record capsule ─────────────────────────────────────────── */
-/* A soft box-shadow halo that grows outward and fades, emulating
- * the universal "live indicator" pulse. Uses ease-out so the ring
- * feels like a gentle emission, not a hard beat. Paused state
- * drops the animation entirely. */
 @keyframes record-capsule-breathe {
   0% {
     box-shadow: 0 0 0 0 color-mix(in srgb, var(--color-danger) 50%, transparent);
@@ -777,19 +448,6 @@ body {
   animation: record-capsule-breathe 2s ease-out infinite;
 }
 
-/* ── Subtle themed scrollbar ─────────────────────────────────── */
-/* Default browser scrollbars look chunky and out-of-place against
- * the panel's frosted surface. `.scrollbar-subtle` gives a thin
- * track + thumb that picks up the theme's `edge` color and fades
- * the track to transparent so it disappears when not needed.
- *
- * Custom CSS (not Tailwind utilities) here is intentional:
- * `styling-tailwind-only` allows the exception "unless truly
- * impossible with Tailwind." Stock Tailwind v4 has no utilities for
- * `::-webkit-scrollbar` pseudo-elements or the Firefox
- * `scrollbar-color` two-color shorthand, so the rule exception
- * applies. Adding `tailwind-scrollbar` would be a new dependency
- * just to encode what these ~25 lines already do. */
 .scrollbar-subtle {
   scrollbar-width: thin;
   scrollbar-color: color-mix(
@@ -817,10 +475,6 @@ body {
   background-clip: padding-box;
 }
 
-/* `.scrollbar-none` keeps `overflow-y: auto` semantics — wheel / trackpad /
- * keyboard scroll all still work — but suppresses the visible track + thumb
- * entirely. Useful for ambient surfaces (the dock) where the
- * scrollbar would be more visual noise than navigation. */
 .scrollbar-none {
   scrollbar-width: none;
 }
@@ -828,19 +482,6 @@ body {
   display: none;
 }
 
-/* ── Cards-mode repo section + rows ────────────────────────────
- * The dock row and the repo CARD it sits in are styled by
- * `@kolu/solid-dockrow/dockrow.css`, which arrives through that package's
- * `all.css` at the top of this file with the row components themselves — the
- * spine, the sticky header wash, the row label, the attention washes, and the
- * `--dock-edge-stripe-w` / `--repo-ink`
- * tokens all ship with the package so this surface and a fleet mirror render
- * one row rather than two that agree today. `--repo-color` is still set INLINE
- * per section from `group.color`, the shared socket every repo-tinted surface
- * below reads. */
-
-/* ── Shared monogram tile (`.repo-monogram`) ───────────────────
- * ONE fill formula for every surface. Size via modifiers only. */
 .repo-monogram {
   flex: none;
   display: grid;
@@ -849,7 +490,6 @@ body {
   font-weight: 800;
   letter-spacing: -0.02em;
   line-height: 1;
-  /* Pastel repo colours fail white-on-pastel contrast — darken fill. */
   color: #fff;
   background: color-mix(in oklch, var(--repo-color) 72%, black);
   box-shadow:
@@ -875,21 +515,15 @@ body {
   border-radius: 4px;
   font-size: 0.55rem;
 }
-/* Thin spine used outside the dock card (palette rows, restore groups).
- * Dock sections keep `--dock-edge-stripe-w` for active-row alignment. */
 .repo-spine {
   border-left: 4px solid var(--repo-color);
 }
-/* Readable fleet-hue text (light → black; dark → white). Used by chips,
- * annotation labels, and host headers so contrast cannot drift. */
 .hue-ink {
   color: color-mix(in oklch, var(--hue) 42%, black);
 }
 :root.dark .hue-ink {
   color: color-mix(in oklch, var(--hue) 78%, white);
 }
-/* Inspector identity chips — frame + hue-ink; call site sets `--chip-hue`
- * (and `--hue` for text). Monogram-bearing variant adds left pad. */
 .fleet-hue-chip {
   display: inline-flex;
   max-width: 100%;
@@ -904,7 +538,6 @@ body {
   font-size: 10px;
   font-weight: 600;
   line-height: 1.5;
-  /* Text colour from .hue-ink via --hue = --chip-hue */
   --hue: var(--chip-hue);
   color: color-mix(in oklch, var(--hue) 42%, black);
 }
@@ -914,11 +547,9 @@ body {
 :root.dark .fleet-hue-chip {
   color: color-mix(in oklch, var(--hue) 78%, white);
 }
-/* Repo name text — readable ink over fleet hue (parent sets --repo-color). */
 .repo-name-ink {
   color: var(--repo-ink);
 }
-/* Branch / intent text (parent sets --annotation-color → --hue). */
 .annotation-ink {
   --hue: var(--annotation-color);
   color: color-mix(in oklch, var(--hue) 42%, black);
@@ -926,7 +557,6 @@ body {
 :root.dark .annotation-ink {
   color: color-mix(in oklch, var(--hue) 78%, white);
 }
-/* Restore / soft group band. */
 .repo-group-band {
   border-left: 4px solid var(--repo-color);
   border-radius: 0 8px 8px 0;
@@ -944,7 +574,6 @@ body {
   text-transform: uppercase;
   color: var(--repo-ink);
 }
-/* Palette host section header — host-hue wash (not attention). */
 .palette-host-header {
   display: flex;
   width: 100%;
@@ -965,7 +594,6 @@ body {
     color-mix(in oklab, var(--host-hue) 20%, var(--color-surface-1)) 0%,
     color-mix(in oklab, var(--host-hue) 5%, var(--color-surface-1)) 100%
   );
-  /* Host text ink — same formula as .hue-ink via --hue. */
   --hue: var(--host-hue);
   color: color-mix(in oklch, var(--hue) 42%, black);
 }
@@ -975,26 +603,11 @@ body {
 .palette-host-header:hover {
   filter: brightness(1.06);
 }
-/* Host chip in palette — identity hue frame; status dot stays fact-only. */
 .palette-host-chip {
   border-color: color-mix(in oklab, var(--host-hue) 40%, var(--color-edge));
   background: color-mix(in oklab, var(--host-hue) 12%, var(--color-surface-2));
 }
 
-/* ── Rail-mode chip ────────────────────────────────────────────
- * Rail mode renders one 32 px chip per terminal showing two-letter
- * initials (repo letter + branch/intent letter). Repo colour tints
- * the chip's bg and ring; bucket state animates the ring (breath for
- * awaiting, spin-glow for working, flat otherwise); active wears an
- * accent halo; unread shows an alert badge top-right. Five signals
- * stack on a single 32 × 32 tile.
- *
- * `--repo-color` is inline-set per-chip from `info.repoColor` — the
- * same socket the cards spine / sticky header read, so every
- * repo-tinted dock surface plugs into one name. The bg-vs-ring
- * distinction is a static formula difference (18% vs 70% mix), one
- * input suffices. Bucket / active / unread are data-attributes the
- * selectors below react to. */
 .dock-rail-chip {
   position: relative;
   width: 32px;
@@ -1036,9 +649,6 @@ body {
   font-weight: 500;
   margin-left: 1px;
 }
-/* Emoji / symbol sub-glyph — drop the fade and the monospace weight so
-   the icon reads at the same visual weight as the cards-mode intent
-   line that the user actually typed. */
 .dock-rail-chip-sub[data-glyph] {
   opacity: 1;
   font-weight: 400;
@@ -1053,12 +663,6 @@ body {
 .dock-rail-chip[data-bucket="working"] {
   border-color: var(--color-busy);
 }
-/* Paint fold never emits data-bucket="none" (paintDockRow maps none→idle —
- * Option C identity glyph). Dim rules keyed on none were unreachable for both
- * RailChip and RailSubChip; deleted rather than re-keying to idle. */
-/* Activity motion on a child (compositor-friendly — #1308). Driven by
- * bindStatePip's motion kind (data-motion), same fold as cards StatePip:
- * glow = needs-you; spin = working / live / waiting-until-EF2. */
 .dock-rail-chip-glow {
   position: absolute;
   inset: 0;
@@ -1093,8 +697,6 @@ body {
     transform: rotate(1turn);
   }
 }
-/* Active halo — same accent treatment cards mode uses for the active
- * row, condensed into a ring around the chip. */
 .dock-rail-chip[data-active]::before {
   content: "";
   position: absolute;
@@ -1103,12 +705,6 @@ body {
   border: 2px solid var(--color-accent);
   pointer-events: none;
 }
-/* Unread badge — the rail's STANDALONE unread corner badge. The glyph-only
- * rail chip has no StatePip core to anchor a ring/badge onto, so it draws its
- * own. Uses `--color-attention` (the shared unread-alert amber token) so it
- * reads as the same "you have an unopened notification" cue the StatePip rows
- * paint with their corner badge — not the cool `--color-alert` "your turn"
- * violet that paints the awaiting *state*. */
 .dock-rail-chip[data-unread]::after {
   content: "";
   position: absolute;
@@ -1149,9 +745,6 @@ body {
     monospace;
   pointer-events: none;
 }
-/* Repo divider — a 2 px tinted strip between adjacent chips from
- * different repos, carrying the same repo color the section header
- * uses in cards mode. Reads as a section break at 44 px width. */
 .dock-rail-section-mark {
   width: 24px;
   height: 2px;
@@ -1164,7 +757,6 @@ body {
   margin-top: 0;
 }
 @media (prefers-reduced-motion: reduce) {
-  /* Freeze the glow to a static themed ring (it still reads as state). */
   .dock-rail-chip-glow {
     animation: none;
   }
@@ -1173,13 +765,6 @@ body {
   }
 }
 
-/* ── Host tab working stripe ────────────────────────────────── */
-/* A rust segment sweeping along the host tab's bottom edge while any terminal
-   on that host is active (`HostTabWorkingStripe`; geometry is in its classes:
-   absolute, 2px, inset 10px, so the tab's box never changes). Only the ACTIVE
-   colour paints here — never `--host-hue`, never a connection colour. The
-   segment is 30% of the track, so it travels from -100% to +334% of its own
-   width: fully off the left edge to fully off the right. */
 .host-tab-stripe {
   background: color-mix(in oklch, var(--color-busy) 20%, transparent);
 }
@@ -1196,16 +781,11 @@ body {
   }
 }
 @media (prefers-reduced-motion: reduce) {
-  /* The sweep stops; the track and a STATIC segment stay, so the fact is
-     never carried by motion alone. */
   .host-tab-stripe-segment {
     animation: none;
   }
 }
 
-/* ── Image preview checkerboard background ──────────────────── */
-/* Canonical four-gradient checkerboard; transparent PNGs read against the dark
-   panel. Opacity 8% matches the canvas grid's visual weight. */
 .image-preview-checkerboard {
   background-image:
     linear-gradient(45deg, rgba(255, 255, 255, 0.08) 25%, transparent 25%),
@@ -1220,20 +800,7 @@ body {
     -10px 0;
 }
 
-/* ── Canvas grid background ─────────────────────────────────── */
-/* Fine dot grid grounds the freeform canvas in space without drawing a busy
-   lattice over the tiles — one soft dot per cell. The dot uses the edge color
-   at low opacity so it adapts to light/dark themes; the size and position ride
-   the zoom-scaled inline `background-size`/`background-position` vars, so the
-   dots pan and scale with the canvas. */
 .canvas-grid-bg {
-  /* The canvas floor picks up the ACTIVE host's hue (`--canvas-hue`, published
-   * on the App-level canvas wrapper in App.tsx — the `relative flex flex-1
-   * min-h-0` div, NOT TerminalCanvas, so it inherits into every canvas surface)
-   * as a faint wash, so switching
-   * hosts gently re-colours the whole workspace — the "room" cue — while the
-   * active tab's stronger hue still stands out above it. Falls back to the
-   * neutral surface before a hue is set. */
   background-color: color-mix(
     in oklch,
     var(--canvas-hue, var(--color-surface-0)) 5%,

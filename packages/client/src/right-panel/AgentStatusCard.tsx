@@ -1,18 +1,3 @@
-/** AgentStatusCard — the Inspector's tier-1 lead: "what is this agent doing,
- *  and does it need me?", answered before a single label is read.
- *
- *  Replaces the old label/value "Agent" section. The state is the headline —
- *  a chip painted from the shared semantic buckets (`stateTones`: needs-you
- *  violet vs working rust, the same families the dock StatePip and the header
- *  AgentIndicator use), echoed by the card's left rail so the answer reads
- *  peripherally. The task summary is the second line; model / running-for /
- *  task progress / workflow / context size fold into one quiet mono meta row.
- *
- *  Context renders as a compact count ("488K"), full count in the tooltip.
- *  Deliberately NO capacity meter: `TerminalMetadata` carries no context
- *  *limit* (it varies per model), and inventing a denominator client-side
- *  would be a guess presented as a fact. */
-
 import type { AgentInfo } from "kolu-common/surface";
 import { type Component, Show } from "solid-js";
 import { useDuration } from "../terminal/staleness";
@@ -28,13 +13,6 @@ import {
   stateTones,
 } from "../ui/agentDisplay";
 
-/** Tone → the card's two paints, one entry per tone so a new bucket is a single
- *  edit here. The linger bucket (post-turn `waiting`) keeps the violet family at
- *  reduced strength, mirroring `AWAITING_LINGER_CLASS` in the header cluster.
- *  The quiet bucket is an agent that is only PRESENT (`starting` / `fresh`):
- *  the card's own neutral edge and the muted `fg-3` the Inspector uses for a
- *  fact nobody needs to act on — and never the pulse, which is a claim that
- *  something is running. */
 const TONE: Record<
   AgentStateTone,
   { chip: string; rail: string; pulse: boolean }
@@ -108,7 +86,6 @@ const AgentStatusCard: Component<{ agent: AgentInfo }> = (props) => {
             </span>
           )}
         </Show>
-        {/* Boxed so a legitimate `0` still renders (Show is truthy-gated). */}
         <Show
           when={
             props.agent.contextTokens != null

@@ -8,7 +8,6 @@ import {
   optionsShown,
 } from "./AskOptions";
 
-/** Ninety models, as a gateway lists them. */
 const MODELS: ReadonlyArray<AskOption> = Array.from({ length: 90 }, (_, n) =>
   askOption(`provider/model-${String(n).padStart(2, "0")}`),
 );
@@ -17,7 +16,6 @@ const BEFORE = "provider/model-07";
 
 const values = (list: ReadonlyArray<AskOption>) => list.map((one) => one.value);
 
-/** The list as the form hands it over: the last one chosen first. */
 const chips = defaultFirst(MODELS, Option.some(LAST));
 
 const atRest = (picked: ReadonlyArray<string>, usedBefore = [LAST, BEFORE]) =>
@@ -50,7 +48,6 @@ describe("what a long option list draws", () => {
   });
 
   it("draws nothing at rest when nothing was used before", () => {
-    // The head of an alphabetical list is not a recommendation.
     const view = atRest([], []);
     expect(view.shown).toEqual([]);
     expect(view.hidden).toBe(90);

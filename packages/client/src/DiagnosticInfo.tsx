@@ -1,8 +1,3 @@
-/** Diagnostic Info — runtime state dump for support tickets and
- *  self-diagnosis. Opened from command palette → Debug → Diagnostic
- *  info. Content split into `<DiagnosticInfoContent/>` so a future
- *  always-visible dev inspector can reuse it without the modal chrome. */
-
 import { runAction, type UiAction } from "./runAction";
 import { toError } from "@kolu/surface/run-stream";
 import { Effect } from "effect";
@@ -45,10 +40,6 @@ import {
 } from "./ui/useMemoryUsage";
 import { layoutMode } from "./useMobile";
 
-/** A per-process RSS display projected for the JSON snapshot — the byte figure
- *  when a live process answered, `"error"` when a believed-up process's read
- *  failed, or `null` (nothing to measure). Keeps a failed read distinct from
- *  no-data so the snapshot never conflates the two. */
 function rssFigure(
   d: { kind: "ok"; rssBytes: number } | { kind: "error" } | null,
 ): number | "error" | null {
@@ -64,9 +55,6 @@ const WEBGL2_SUPPORTED = (() => {
   return !!canvas.getContext("webgl2");
 })();
 
-/** One-shot browser facts read at first render. Stable for the session,
- *  so no reactive source needed — keeps this module's dependency surface
- *  small. */
 function browserFacts() {
   return {
     userAgent: navigator.userAgent,
@@ -83,40 +71,17 @@ const DiagnosticInfoContent: Component<{ activeId: TerminalId | null }> = (
   const browser = browserFacts();
   const store = useTerminalStore();
   const facts = useAttentionFacts();
-  // The server's build identity, off the cell the provider already subscribes —
-  // read here and handed down, so the snapshot builder opens no subscription of
-  // its own (it promises to make no network call).
   const pwa = useSurfaceApp<KoluBuildInfo>();
-  // padi's own diagnostics for the active host — asked once as the dialog
-  // opens, and again on the section's Refresh. The dump below carries the
-  // same answer, with its fetch state, so a bug report has it.
   const padiDiagnostics = createPadiDiagnosticsFetch();
 
-  /** The attention snapshot — every terminal's paint inputs beside the counts'
-   *  inputs, plus this host's mirrored urgency frame, so a "why does the tab
-   *  say 2 when I see 3 working" report carries its own diagnosis. The two
-   *  sides are captured from the SAME render, so a disagreement in the dump is
-   *  a real disagreement and not two reads a second apart. */
   const attention = createMemo(() => {
     const encHost = encodeHostKey(activeHost());
     const urgency = hostFrame(encHost);
     const rows = store.terminalIds().map((id) => {
       const meta = store.getMetadata(id);
       if (!meta) return null;
-      // Bind through the REAL binder, off the REAL attention value, rather
-      // than re-deriving either here — a diagnostic that re-spells the rule it
-      // is diagnosing can drift from it and quietly report the wrong thing.
       const attention = facts.attentionOf(encHost, id);
       const pip = bindStatePip({ meta, attention, unread: false });
-      // `attentionClass` on the row IS padi's own verdict for this terminal —
-      // it is read straight back off the mirrored frame's id lists. A blank
-      // `agentState` beside a class of `working` is a client/server SYNC gap;
-      // both blank while the title spins is a DETECTION gap. The pair is what
-      // tells them apart. (This used to carry four `padiSaysX` booleans beside
-      // it, each an `includes()` scan of the SAME frame the class came off, so
-      // each was `attentionClass === "X"` re-derived — a second source in name
-      // only, which could never have disagreed and so could never have caught
-      // anything.)
       return attentionDiagnostic({
         id,
         meta,
@@ -128,21 +93,6 @@ const DiagnosticInfoContent: Component<{ activeId: TerminalId | null }> = (
       });
     });
     const terminals = rows.filter((r) => r !== null);
-    // Terminals padi COUNTS that this list never even examined. The client
-    // enumerates top-level terminals; padi's urgency folds every terminal
-    // record, INCLUDING split children — so an agent working in a split is
-    // counted by the host tab and has no row here at all. Without this the
-    // section cheerfully reports "paint and counts agree on every terminal"
-    // while an entire working agent is missing from its own audit (that false
-    // green is exactly how a 4-vs-3 mismatch reached a user).
-    //
-    // It folds through `hostActiveIds` — the very function the `active` count
-    // beside it folds through — rather than hand-unioning class lists. Doing
-    // that by hand reproduced the membership rule (and got it wrong): the hand
-    // union ignored `liveIds`, so a PRINTING agentless split, which IS in
-    // `hostActiveIds` and IS in the count, never landed here, and the section
-    // printed a green "paint and counts agree" over exactly the case it exists
-    // to catch. One population, one fold.
     const seen = new Set(terminals.map((t) => t.id));
     const uncounted = hostActiveIds(urgency)
       .filter((id: TerminalId) => !seen.has(id))
@@ -151,15 +101,11 @@ const DiagnosticInfoContent: Component<{ activeId: TerminalId | null }> = (
       host: encHost,
       hostLive: urgency.live,
       counts: {
-        // The tab renders ACTIVE (working + lingering + printing shells), so
-        // the dump must show the number the tab shows, not a leg of it.
         active: hostActiveIds(urgency).length,
         working: urgency.byClass.working.length,
         lingering: urgency.byClass.linger.length,
         asking: urgency.byClass.asking.length,
       },
-      // A terminal this list can't see is a disagreement too — the count says
-      // it exists and every visible surface says it doesn't.
       disagreements:
         terminals.filter((t) => t.disagreement !== null).length +
         uncounted.length,
@@ -179,22 +125,11 @@ const DiagnosticInfoContent: Component<{ activeId: TerminalId | null }> = (
         activeId: props.activeId,
         terminalCount: getDiagnostics().length,
         jsHeap: readJsHeap(),
-        // The three server-side processes' RSS, off the `processMemory` cell (the
-        // same source the rail reads). `serverRss` is always a real figure (the
-        // server measures itself); `padiRss`/`kavalRss` are the honest three-way —
-        // the byte figure when the process answered, `"error"` when a believed-up
-        // process's read failed, or `null` (nothing to measure) — so the snapshot
-        // never conflates a failed read with no-data. padi owns kaval now, so its
-        // RSS rides padi's readout, folded into this cell server-side.
         serverRss: serverRssBytes() ?? null,
         padiRss: rssFigure(padiMemoryDisplay()),
         kavalRss: rssFigure(kavalMemoryDisplay()),
         domNodes: document.getElementsByTagName("*").length,
         canvases: webgl.totalDomCanvases,
-        // Page-attention state AT SNAPSHOT TIME. The parked-rAF freeze
-        // signature is visibility "visible" + hidden false + hasFocus FALSE
-        // (window occluded by app-switch — see renderRecovery.ts). Captured
-        // here, not per-terminal, since it's a whole-document fact.
         page: {
           visibility: document.visibilityState,
           hidden: document.hidden,
@@ -206,14 +141,8 @@ const DiagnosticInfoContent: Component<{ activeId: TerminalId | null }> = (
         const bufferLen = refs?.xterm.buffer.active.length ?? null;
         return {
           id: d.id,
-          // What the terminal IS — the grid the bytes in its buffer are laid
-          // out for, which moves only when the pty says its mirror did.
           cols: d.term.cols,
           rows: d.term.rows,
-          // What this pane's BOX wants, and has asked the pty for. The two
-          // differ for a settle window plus a round trip after a box change;
-          // stuck apart means the pane's publish is not reaching the pty. Null
-          // is "never measured", which is also "no attach stream has opened".
           wantedCols: d.wanted?.cols ?? null,
           wantedRows: d.wanted?.rows ?? null,
           measured: d.wanted !== null,
@@ -223,13 +152,7 @@ const DiagnosticInfoContent: Component<{ activeId: TerminalId | null }> = (
           atlas: refs?.probes.webglAtlas() ?? null,
           bufferBytes: refs?.probes.bufferBytes() ?? null,
           scrollLock: d.scrollLock,
-          // Full transition ring for the JSON dump — the live row above only
-          // shows the latest one (#1272 field diagnosis).
           scrollLockEvents: refs?.probes.scrollLockEvents() ?? [],
-          // Render-pipeline state — climbing msSinceLastPaint with
-          // debouncerPending=true while bufferBytes grows is the parked-rAF
-          // freeze; debouncerPending=false with a stale paint means refreshRows
-          // was never called (a kolu write-path/routing bug instead).
           render: {
             msSinceLastPaint: refs?.probes.msSinceLastPaint() ?? null,
             debouncerPending: refs?.probes.renderDebouncerPending() ?? null,
@@ -281,9 +204,6 @@ const DiagnosticInfoContent: Component<{ activeId: TerminalId | null }> = (
           >
             Docs →
           </DocLink>
-          {/* The wire's own account of itself, as plain text (kolu#2101 J2) —
-              beside, not instead of, the JSON dump: the JSON is the whole
-              runtime state, this is the block that proves a wire incident. */}
           <CopyDiagnosticsButton serverBuild={pwa.server()} />
           <button
             type="button"
@@ -406,8 +326,6 @@ const DiagnosticInfoContent: Component<{ activeId: TerminalId | null }> = (
             <Row label="Page">
               {(() => {
                 const p = snapshot().session.page;
-                // visible + no focus = window occluded by app-switch: the
-                // condition that parks xterm's rAF and freezes paints.
                 const occluded = !p.hidden && !p.hasFocus;
                 return (
                   <span
@@ -422,15 +340,8 @@ const DiagnosticInfoContent: Component<{ activeId: TerminalId | null }> = (
           </div>
         </Section>
 
-        {/* Attention — the paint inputs beside the count inputs. A row turns
-         *  red when the two disagree, which is the bug this section exists to
-         *  make self-reporting rather than pixel-forensic. */}
         <Section title="Attention">
           <div class="text-[11px] font-mono space-y-1">
-            {/* The visible line a user copies into a bug report must show the
-             *  number the TAB shows — it read `working`, a leg of it, which is
-             *  the "tab says 2, I see 3" confusion reproduced inside the tool
-             *  built to resolve it. Legs stay, in parentheses. */}
             <Row label="host counts">
               <span class="tabular-nums">
                 {attention().counts.active} active ({attention().counts.working}{" "}
@@ -451,9 +362,6 @@ const DiagnosticInfoContent: Component<{ activeId: TerminalId | null }> = (
                 {attention().disagreements} disagreement(s) — details below
               </div>
             </Show>
-            {/* Counted-but-invisible: the host tab includes these, no row in
-             *  this list (or the dock) does. A split child running an agent is
-             *  the known case. */}
             <For each={attention().uncounted}>
               {(u) => (
                 <div class="border-l-2 border-danger pl-2 text-[10px] text-danger">
@@ -558,9 +466,6 @@ const DiagnosticInfoContent: Component<{ activeId: TerminalId | null }> = (
                       <span
                         class={
                           d.render.debouncerPending &&
-                          // null = never painted, the most severe unknown
-                          // (renderRecovery documents it so) — reds it too,
-                          // rather than `?? 0` masquerading as the healthiest.
                           (d.render.msSinceLastPaint === null ||
                             d.render.msSinceLastPaint > PAINT_STALL_WARN_MS)
                             ? "text-danger font-semibold"
@@ -615,8 +520,6 @@ const DiagnosticInfoContent: Component<{ activeId: TerminalId | null }> = (
 
         <PadiDiagnosticsSection fetch={padiDiagnostics} />
 
-        {/* Debug-only instrumentation for #591 (WebGL zombie-context leak).
-            Remove this section when the leak is root-caused and fixed. */}
         <Section title="WebGL lifecycle">
           <div class="space-y-0.5">
             <Row label="Created">
@@ -726,8 +629,6 @@ const DiagnosticInfoContent: Component<{ activeId: TerminalId | null }> = (
   );
 };
 
-/** Diagnostic-info open-state — the component owns it. Opened from the
- *  command palette's Debug group. */
 export const diagnosticDialog = createDisclosure();
 
 const DiagnosticInfo: Component<{

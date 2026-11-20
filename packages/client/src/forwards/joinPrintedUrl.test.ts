@@ -1,13 +1,3 @@
-/**
- * The printed-URL join decision table — including blind vs unbacked, and the
- * host-wide arms.
- *
- * A printed URL never creates a fact. These pins keep the arms honest: external
- * is "not our problem", joined is "this terminal serves it", elsewhere and
- * unclaimed are "the HOST serves it", unbacked is "looked at the whole host and
- * nothing is there", blind is "couldn't look".
- */
-
 import type {
   HostListeners,
   KoluForward,
@@ -75,9 +65,6 @@ describe("joinPrintedPort — the decision table", () => {
   });
 
   it("is ELSEWHERE for a detached server the tile does not hold but the host does", () => {
-    // The screenshot this arm exists for: `odu web-daemon` printed its URL from
-    // this terminal, then reparented to init. The old join said "nothing is
-    // listening yet"; the host says otherwise, with the program and its door.
     const daemon = info(18440, "bun");
     expect(
       joinPrintedPort({
@@ -118,8 +105,6 @@ describe("joinPrintedPort — the decision table", () => {
   });
 
   it("is BLIND, not unbacked, when the tile says no but the host cannot be read", () => {
-    // The old join's lie, pinned shut: a look at one subtree is not a look at
-    // the machine.
     expect(
       joinPrintedPort({
         port: 9000,
@@ -131,7 +116,6 @@ describe("joinPrintedPort — the decision table", () => {
   });
 
   it("is BLIND when the port is unclaimed-or-absent and the unclaimed half is blind", () => {
-    // macOS 27: another user's server may hold it, so "nothing" is not ours to say.
     expect(
       joinPrintedPort({
         port: 9000,
@@ -162,8 +146,6 @@ describe("joinPrintedPort — the decision table", () => {
   });
 
   it("does not invent a join from a forward alone", () => {
-    // A door with no listener behind it is still unbacked for a PRINTED URL —
-    // the door may be a ⌘K manual for something that died.
     expect(
       joinPrintedPort({
         port: 5173,

@@ -31,7 +31,6 @@ describe("arrangeRepoIslands", () => {
     const c = arranged.get("c");
     const d = arranged.get("d");
     if (!a || !b || !c || !d) throw new Error("Expected all entries");
-    // 2×2 grid: row 0 = a, b; row 1 = c, d. col 0 = a, c; col 1 = b, d.
     expect(a.y).toBe(b.y);
     expect(c.y).toBe(d.y);
     expect(a.x).toBe(c.x);

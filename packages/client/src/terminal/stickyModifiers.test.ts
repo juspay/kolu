@@ -8,7 +8,6 @@ import {
   toggleStickyCtrl,
 } from "./stickyModifiers";
 
-// Module-level singleton state — reset before each case so order doesn't leak.
 beforeEach(() => clearStickyModifiers());
 
 describe("toggle / clear", () => {
@@ -70,7 +69,6 @@ describe("applyStickyModifiers", () => {
     toggleStickyCtrl();
     expect(applyStickyModifiers("a")).toBe("\x01");
     expect(stickyCtrl()).toBe(false);
-    // Subsequent input is no longer modified.
     expect(applyStickyModifiers("a")).toBe("a");
   });
 

@@ -7,9 +7,6 @@ import {
   type PaletteItem,
 } from "./CommandPalette";
 
-// Keep the palette's real list rendering; replace surrounding app services
-// and row decoration with inert surfaces (same seam as
-// CommandPalette.render.test.tsx).
 vi.mock("@corvu/dialog", () => ({
   default: {
     Content: (props: { children: JSX.Element }) => <div>{props.children}</div>,
@@ -69,9 +66,6 @@ it("keeps a distinct row's key stable when its neighbours move", () => {
   );
 });
 
-// The defect this guards: `keyArray` stores one node per key, so a repeated
-// key made the list hand the same node to two entries on the next refresh —
-// a row vanished, and Solid's node bookkeeping stopped matching the DOM.
 it("paints every same-named row, and keeps painting it across a refresh", () => {
   const tree = (): PaletteItem[] => [
     { kind: "action", name: "spare", onSelect: () => {} },

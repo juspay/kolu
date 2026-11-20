@@ -13,8 +13,6 @@ describe("kavalCmd", () => {
   });
 
   it("carries a quoted <prompt> placeholder for send (it's a template, not runnable)", () => {
-    // `send` refuses an empty payload, so the copied line is a template to
-    // complete; the placeholder lands quoted because `<`/`>` aren't bare-safe.
     expect(kavalCmd("send", "0a1b2c3d", undefined)).toBe(
       "kaval-tui send 0a1b2c3d '<prompt>'",
     );
@@ -45,8 +43,6 @@ describe("kavalCmd", () => {
 
   it("quotes a socket path with spaces so it stays a single argv token", () => {
     const cmd = kavalCmd("attach", "0a1b2c3d", "/tmp/my sock/pty-host.sock");
-    // The whole point: a shell re-parsing the copied command recovers the path
-    // as ONE argument, not two — so the pasted command targets the right daemon.
     expect(shellSplit(cmd)).toEqual([
       "kaval-tui",
       "attach",
@@ -58,8 +54,6 @@ describe("kavalCmd", () => {
 
   it("neutralizes shell metacharacters in a socket path", () => {
     const cmd = kavalCmd("snapshot", "0a1b2c3d", "/tmp/$(rm -rf ~)/sock");
-    // The `$(…)` must be inside a single-quoted run so a paste can't execute it,
-    // and re-tokenizing recovers the path verbatim as one argv element.
     expect(cmd).toContain("'/tmp/$(rm -rf ~)/sock'");
     expect(shellSplit(cmd)).toEqual([
       "kaval-tui",

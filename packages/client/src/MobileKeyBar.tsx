@@ -1,22 +1,3 @@
-/** Mobile key bar — sends the keys a soft keyboard can't: Esc, Tab,
- *  Shift+Tab, arrows, Ctrl+C, `/`, and a dedicated Enter that bypasses
- *  the IME (some Android keyboards swallow Enter as a literal newline
- *  in xterm's hidden textarea instead of dispatching a keydown).
- *
- *  Two leading toggles arm sticky Ctrl / Alt: tap to arm, then the next
- *  character — typed on the soft keyboard or sent from this bar — folds
- *  into the chord (Ctrl+R, Alt+f, …) and the modifier disarms. See
- *  `terminal/stickyModifiers.ts`; the fold itself is applied both here and
- *  in the terminal's `onData`, so soft-keyboard letters compose too.
- *
- *  Shown only on coarse-pointer devices. Stateless beyond the shared
- *  sticky-modifier signal — writes escape sequences straight to the PTY via
- *  padi's lifecycle.sendInput, with a 10ms haptic tick on devices that
- *  support navigator.vibrate. Targets the store's `focusedId` — the active
- *  split when one has focus, not the tile root — so the keys reach whichever
- *  terminal the user is typing into (soft-keyboard letters already do, via
- *  xterm's own onData). */
-
 import { Effect } from "effect";
 import { controlByte, NAMED_KEY_BYTES } from "@kolu/terminal-protocol";
 import { type Component, For, Show } from "solid-js";
@@ -39,16 +20,9 @@ interface Key {
   testId: string;
 }
 
-// ^C is the Ctrl-fold of `c` (0x03) drawn from the shared fold, not a re-typed
-// literal. `c` sits in the foldable 0x40–0x5f range so the fold always yields a
-// byte; guard it so a future fold change that broke it crashes loudly here
-// rather than sending `undefined` to a PTY.
 const CTRL_C = controlByte("c");
 if (CTRL_C === undefined) throw new Error("Ctrl+C must fold to a control byte");
 
-// Byte values come from @kolu/terminal-protocol's shared key table / Ctrl fold,
-// so the bar speaks the one vocabulary the rich client and the `send` CLI do;
-// only the labels, testIds, and the literal `/` are bar-local.
 const KEYS: readonly Key[] = [
   { label: "Esc", data: NAMED_KEY_BYTES.esc, testId: "esc" },
   { label: "Tab", data: NAMED_KEY_BYTES.tab, testId: "tab" },
@@ -79,11 +53,6 @@ const MODS: readonly Mod[] = [
   { label: "Alt", testId: "alt", armed: stickyAlt, toggle: toggleStickyAlt },
 ];
 
-// Column count derived from the control lists so the "two rows" invariant is
-// mechanical, not a hardcoded literal that silently goes ragged when a key is
-// added. ceil(total / 2) is the minimal column count that yields exactly two
-// rows for any control count — including an odd total, where a plain /2 would
-// produce a fractional `repeat()` and break the grid.
 const COLS = Math.ceil((KEYS.length + MODS.length) / 2);
 
 const KEY_CLASS =
@@ -102,19 +71,12 @@ const MobileKeyBar: Component = () => {
   function send(data: string) {
     const id = store.focusedId();
     if (!id) return;
-    // THE LOCK — the phone's key bar is a person's keyboard, so it is gated
-    // exactly like xterm's `onData` is, and the banner above the bar is where
-    // the nudge lands. No haptic tick on a blocked key: the finger must not be
-    // told the key went.
     if (!personInput(id)) return;
     tick();
     runAction(
       "send key",
       activePadiRpc.lifecycle
         .sendInput({ id, data: applyStickyModifiers(data) })
-        // A keystroke's delivery has no UI to report to and never had one:
-        // the terminal itself is the feedback. `Effect.ignore` says so where
-        // the bare `void` only implied it.
         .pipe(Effect.ignore),
     );
   }
@@ -130,12 +92,6 @@ const MobileKeyBar: Component = () => {
         class="grid gap-1 px-2 py-1.5 bg-surface-1 border-t border-edge"
         style={{ "grid-template-columns": `repeat(${COLS}, minmax(0, 1fr))` }}
         data-testid="mobile-key-bar"
-        // The key bar lives inside MobileTileView's swipe wrapper, whose
-        // touchstart/touchend cycle terminals on a horizontal swipe. A
-        // finger drag across these keys would otherwise bubble up and switch
-        // the active terminal mid-type.
-        // stopPropagation on touchstart keeps the wrapper from ever recording
-        // a swipe origin here — same guard the pull/dock handles use.
         onTouchStart={(e: TouchEvent) => e.stopPropagation()}
       >
         <For each={MODS}>

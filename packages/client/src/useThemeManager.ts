@@ -1,9 +1,3 @@
-/** Theme management — preview/commit lifecycle, independent of terminal CRUD.
- *
- *  Singleton: pulls live state from `useTerminalStore`, mutates server
- *  state via the typed RPC client directly. Callers (App.tsx, palette,
- *  pill swatches) just call `useThemeManager()` — no deps to wire. */
-
 import { toError } from "@kolu/surface/run-stream";
 import { Effect } from "effect";
 import type { TerminalId } from "kolu-common/surface";
@@ -35,9 +29,6 @@ function init() {
     return (id !== null && getThemeName(id)) || DEFAULT_THEME_NAME;
   });
 
-  // HOST-SCOPING: host-INDEPENDENT by design — a transient live-preview overlay
-  // (theme is the canonical non-per-host category); writes go to the active host
-  // correctly via `activePadiRpc.chrome.setTheme`.
   const [previewThemeName, setPreviewThemeName] = createSignal<
     string | undefined
   >(undefined);
@@ -48,10 +39,6 @@ function init() {
 
   const activeTheme = createMemo(() => getThemeByName(activeThemeName()));
 
-  /** A tile's resolved theme name before the default fallback: the active
-   *  tile's live preview if any, else its committed `themeName` (which may be
-   *  unset). Shared by the ITheme and name-string accessors below so the
-   *  preview-vs-committed rule lives in exactly one place. */
   function effectiveThemeName(id: TerminalId): string | undefined {
     const preview = store.activeId() === id ? previewThemeName() : undefined;
     return preview ?? getThemeName(id);
@@ -84,25 +71,6 @@ function init() {
     setThemeName(id, themeName);
   }
 
-  /** Shuffle the active terminal to a random theme. Random — not argmax —
-   *  because argmax ping-pongs (theme A's farthest neighbour is theme B,
-   *  and B's farthest is A, so repeated ⌘J just bounces between two).
-   *  Excludes every live terminal's bg so we don't land on a duplicate of
-   *  a sibling, and stays under the chroma cap so we don't surface neon
-   *  yellow. New-terminal creation uses spread mode instead —
-   *  see {@link pickTheme} for the rationale.
-   *
-   *  Draws from the `shuffleBehavior` preference's pool (`dark`/`light`/`auto`
-   *  restrict to a luminance family; `colourful` keeps saturated tints;
-   *  `random` uses the whole catalogue) — the same pool a `shuffle` new
-   *  terminal uses. Independent of the `newTerminalTheme` creation strategy:
-   *  ⌘⇧J is an explicit action and always shuffles, even when new terminals
-   *  are set to `inherit`.
-   *
-   *  Resolution stays LOCAL here on purpose: ⌘⇧J is a live viewer act on the
-   *  focused tile, so it draws from what this viewer sees. Create-time policy
-   *  moved to padi (`servePadi`'s `lifecycle.create`) so every face obeys it —
-   *  same preference, two sites, deliberately. */
   function handleShuffleTheme() {
     const id = store.activeId();
     if (id === null) return;

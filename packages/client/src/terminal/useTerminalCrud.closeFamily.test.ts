@@ -1,27 +1,9 @@
 // @vitest-environment happy-dom
-/**
- * The close path routes PER ARM and evicts DEEPEST-FIRST.
- *
- * ARM: a live tile can hold a split that was slept on its own, and the close must
- * then DISCARD that split while it KILLS the tile. Sending the dormant split a
- * kill is the bug this pins: the server answers `TerminalNotFound` for a sleeping
- * id, the close path swallows it (`Effect.ignore`) and evicts locally — so the
- * sleeping record survives with a `parentId` naming a killed terminal, the
- * autosave persists the orphan, and the next boot's restore refuses it
- * ("missing parent") forever.
- *
- * ORDER: a split's eviction re-homes the children that survive it. Evicting a
- * middle split before its own child would re-home that child against a record the
- * same close already removed — a `setParent` into the void. Deepest-first makes
- * that unspellable, which the `chrome.setParent` spy below asserts (it would
- * otherwise be called for a 3-deep family).
- */
 
 import { Effect } from "effect";
 import { describe, expect, it, vi } from "vitest";
 
 const h = vi.hoisted(() => {
-  /** id → parentId (null for a tile). Mutated per test. */
   const tree = new Map<string, string | null>();
   const sleeping = new Set<string>();
   return {
@@ -65,7 +47,6 @@ vi.mock("./useTerminalStore", () => {
     git: { kind: "none" },
     cwd: "/work/repo",
   });
-  /** Every descendant of `id`, in tree-map order (the store's flat projection). */
   const descendants = (id: string): string[] => {
     const out: string[] = [];
     for (const [child] of h.tree) {
@@ -112,8 +93,6 @@ vi.mock("./useSubPanel", async (importOriginal) => {
   const actual = await importOriginal<typeof import("./useSubPanel")>();
   return {
     ...actual,
-    // The REAL `repairTileTabs` stays — it is the eviction cleanup under test's
-    // own path; only the singleton it drives is stubbed.
     useSubPanel: () =>
       ({
         collapsePanel: vi.fn(),
@@ -201,10 +180,7 @@ describe("closing a mixed family", () => {
 
     await Effect.runPromise(crud.handleKillWithSubs(TILE as never));
 
-    // The split takes its own arm…
     expect(h.discard).toEqual([SPLIT]);
-    // …and the tile its own. Crucially, no kill was ever aimed at the dormant
-    // split — that is the request the server answers `TerminalNotFound`.
     expect(h.kill).toEqual([TILE]);
   });
 
@@ -226,9 +202,6 @@ describe("closing a mixed family", () => {
     ]);
     const crud = useTerminalCrud();
 
-    // The server removes the whole dormant subtree in one call; the CLIENT's
-    // local eviction must not promote a grandchild whose record is already gone.
-    // Evicting the middle split first would fire `setParent(GRAND, TILE)`.
     await Effect.runPromise(
       crud.handleDiscard(TILE as never).pipe(Effect.ignore),
     );

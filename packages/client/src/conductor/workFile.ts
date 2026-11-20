@@ -1,23 +1,3 @@
-/** A WORK'S FILES — where they are read from, what they are called, and the
- *  bytes behind the one that is open.
- *
- *  TWO PLACES, one shape. While a work is in flight its files are in a
- *  member's worktree on that member's host, read through the same padi
- *  procedures the Code tab reads a repo with. When it has ended, kolu has
- *  copied them into its own state directory and serves them over
- *  `/api/works/<work>/files/<path>` — the worktree may be gone by then, and a
- *  plan nobody can open is a plan nobody kept.
- *
- *  WHICH OF THE TWO IS CHOSEN ONCE, HERE. The card's list, the reader's tabs,
- *  the reader's document and its comments used to branch on `place === null`
- *  at five sites, with the list derivation written out twice; now
- *  {@link workFileSource} picks the strategy and every face holds the source
- *  and asks it — the same ignorance `BrowseFileDispatcher` already has about
- *  which transport handed it a file.
- *
- *  Both transports answer `@kolu/solid-fileview`'s two shapes, so the ONE
- *  viewer draws either without knowing which it got. */
-
 import type { FileWithSource, FileWithUrl } from "@kolu/solid-fileview";
 import { Effect, Option } from "effect";
 import { decodeHostKey } from "kolu-common/hostKey";
@@ -59,27 +39,16 @@ export interface WorkFilesRead {
   readonly more: boolean;
 }
 
-/** WHERE A WORK'S FILES COME FROM — the live worktree, or kolu's own copy.
- *
- *  `at` is the terminal the bytes (and the comments on them) belong to, and
- *  `null` is the whole of "these are the files kolu kept": a kept file has no
- *  tree to anchor a comment to, and every face reads that one flag rather
- *  than re-deciding what a `null` place means. */
 export interface WorkFileSource {
+  /** The terminal the bytes (and the comments on them) belong to, and `null`
+   *  is the whole of "these are the files kolu kept". */
   readonly at: { host: string; terminalId: TerminalId } | null;
   readonly list: () => Promise<WorkFilesRead>;
   readonly read: (path: string) => Promise<FileWithSource | FileWithUrl>;
 }
 
-/** The file's own name, as every face of a work says it: the directory a
- *  waterfall writes into is where kolu looks, not a thing a person reads. */
 export const workFileName = waterfallFileName;
 
-/** WHERE A WORK'S LIVE FILES ARE — the first member whose own git reading
- *  names a worktree, in the order a waterfall runs its members.
- *
- *  A work that has ENDED has no members at all, so this answers `null` for
- *  one by construction, and the kept copy is what every face then reads. */
 function workPlaceOf(members: ReadonlyArray<WorkMemberRow>): WorkPlace | null {
   for (const { terminal } of members) {
     const split = splitMemberRef(terminal);
@@ -113,13 +82,6 @@ export function workFileSource(
 ): WorkFileSource {
   const place = workPlaceOf(members);
   if (place === null) {
-    // THE KEPT COPY, which only a work that has ENDED has. A work still in
-    // progress whose members report no worktree has nowhere to read from at
-    // all — that is the `none` arm, not an empty kept copy. Read HERE, while
-    // the caller's memo is tracking, not inside `list`: the work is a live
-    // record that is updated in place, so the copy landing a moment after
-    // the work ended must re-choose the source, or the card says "Nothing
-    // was written" over files kolu has just kept.
     const rows = Option.match(keptOf(work), {
       onNone: (): ReadonlyArray<WorkFileRow> => [],
       onSome: (kept) =>
@@ -141,14 +103,6 @@ export function workFileSource(
   };
 }
 
-/** THE WORK'S FILES AS ROWS, for a face that draws them — one derivation,
- *  used by the card's list and by the reader's tabs.
- *
- *  A failed read is read as the EMPTY list, never by touching the resource's
- *  value: a Solid resource RE-THROWS its failure at whoever reads it, and
- *  both faces read this inside their render — so a worktree kolu could not
- *  list used to take the whole page down ("kolu broke") instead of the one
- *  line the section already has for saying so. */
 export function createWorkFiles(source: Accessor<WorkFileSource | null>): {
   readonly rows: Accessor<ReadonlyArray<WorkFileRow>>;
   readonly more: Accessor<boolean>;
@@ -165,12 +119,6 @@ export function createWorkFiles(source: Accessor<WorkFileSource | null>): {
   };
 }
 
-/** Every file under a member's `.waterfall/`, worktree-relative, at any
- *  depth — `kolu-common`'s one walk over this host's `fs.listDirectory`, the
- *  same walk kolu's own watch takes when it records a `file` event. A
- *  worktree with no `.waterfall/` is the empty list (the walk's rule);
- *  anything else (a host that went away mid-read) stays a failure, which the
- *  card says in a line. */
 function listLiveFiles(place: WorkPlace): Promise<WorkFilesRead> {
   const fs = padiMap.entry(decodeHostKey(place.host)).procedures.fs;
   return runActionPromise(
@@ -185,10 +133,6 @@ function listLiveFiles(place: WorkPlace): Promise<WorkFilesRead> {
   );
 }
 
-/** The bytes of one file in a member's worktree, as the viewer takes them.
- *  A previewable binary never travels the wire: it is a URL the browser loads
- *  through the host's own file route, with the content hash as its cache key
- *  so an identical rewrite does not reload the image. */
 function readWorkFile(
   place: WorkPlace,
   path: string,
@@ -217,9 +161,6 @@ function readWorkFile(
   );
 }
 
-/** The bytes of a file kolu kept — fetched from its own route, same origin.
- *  A binary is handed over as the URL itself; text is read so the markdown
- *  renderer has something to render. */
 async function readKeptFile(
   work: WorkId,
   path: string,

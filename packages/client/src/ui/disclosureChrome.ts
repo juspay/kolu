@@ -1,16 +1,22 @@
-/** The one part of the native-`<details>` chrome that CAN be shared between
- *  `Disclosure` and `Section`'s collapsible variant: the `<summary>` reset.
- *
- *  Its siblings can't be. The chevron's rotate variant is `group-open/<name>`,
- *  and the two components must use DIFFERENT group names — a `Disclosure` nests
- *  inside a collapsible `Section` (the CLI reference inside Attach), so one
- *  shared name would rotate the inner chevron whenever the outer section is
- *  open. Tailwind extracts such variants only from literal class strings, so the
- *  name cannot be a parameter; each component keeps its own literal, and this
- *  module holds the part that is genuinely one decision. */
-
 /** Kills the native marker and makes the whole summary row a pointer target.
- *  `list-none` + the `::-webkit-details-marker` rule are both needed — Firefox
- *  and WebKit hide the triangle by different means. */
+ *  `list-none` and the `::-webkit-details-marker` rule are both needed —
+ *  Firefox and WebKit hide the triangle by different means. */
 export const SUMMARY_RESET =
   "flex cursor-pointer select-none list-none items-center gap-1.5 [&::-webkit-details-marker]:hidden";
+
+const CHEVRON_BASE =
+  "h-3 w-3 shrink-0 transition-transform motion-reduce:transition-none";
+
+/** The `<details>` root class and its matching chevron class, per disclosure
+ *  group. Tailwind extracts `group-open/<name>` variants from literal source
+ *  text, so a group's pair is spelled out once here instead of at each site. */
+export const DISCLOSURE_GROUPS = {
+  sec: {
+    root: "group/sec",
+    chevron: `${CHEVRON_BASE} text-fg-3/60 group-open/sec:rotate-90`,
+  },
+  disc: {
+    root: "group/disc",
+    chevron: `${CHEVRON_BASE} group-open/disc:rotate-90`,
+  },
+} as const;

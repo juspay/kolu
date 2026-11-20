@@ -3,7 +3,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { animatePan } from "./animatedPan";
 
-/** A tab in the background: frames stop coming, timers keep running. */
 function stopFrames(): () => void {
   const realRaf = globalThis.requestAnimationFrame;
   const realCancel = globalThis.cancelAnimationFrame;
@@ -19,8 +18,6 @@ describe("animatePan", () => {
   let restoreFrames: (() => void) | undefined;
 
   beforeEach(() => {
-    // Only the timer half is faked — rAF is replaced by hand above, because
-    // the point is that it NEVER fires.
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
   });
 
@@ -46,9 +43,6 @@ describe("animatePan", () => {
 
     expect(done).not.toHaveBeenCalled();
     vi.advanceTimersByTime(2_000);
-    // The camera is where it was going, and the tween reported itself over —
-    // so nothing downstream waits for a frame the background tab will not
-    // produce until the user comes back (`cameraSettled`).
     expect(ticks.at(-1)).toEqual([400, 200]);
     expect(done).toHaveBeenCalledTimes(1);
   });
@@ -65,8 +59,6 @@ describe("animatePan", () => {
     );
     controller.abort();
     vi.advanceTimersByTime(2_000);
-    // Whatever cancelled the tween is the new truth: the guard must not drag
-    // the camera to a target nobody asked for any more.
     expect(ticks).toEqual([]);
     expect(done).not.toHaveBeenCalled();
   });

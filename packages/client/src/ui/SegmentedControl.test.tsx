@@ -1,14 +1,4 @@
 // @vitest-environment happy-dom
-/**
- * `SegmentedControl`'s keyboard contract, for every caller: ONE tab stop (a
- * roving tabindex) — the caller's `restingValue` when it gives one, else the
- * pressed option — and ← → / Home / End move focus within the group without
- * picking; Enter or Space on the focused option picks it once, as does a
- * click. With no value, nothing is pressed. The option in view is the focused
- * one while focus is in the group, else the pressed one, else the tab stop.
- * Re-emitted options for the same values keep their buttons and the focus, and
- * autofocus never steals focus from something else.
- */
 
 import { createSignal } from "solid-js";
 import { render } from "solid-js/web";
@@ -103,9 +93,9 @@ describe("SegmentedControl — the roving tab stop", () => {
     c.key("ArrowRight");
     expect(document.activeElement).toBe(c.button("juspay"));
     expect(c.tabStops()).toEqual(["juspay"]);
-    c.key("ArrowRight"); // wraps
+    c.key("ArrowRight");
     expect(document.activeElement).toBe(c.button("off"));
-    c.key("ArrowLeft"); // wraps back
+    c.key("ArrowLeft");
     expect(document.activeElement).toBe(c.button("juspay"));
     c.key("Home");
     expect(document.activeElement).toBe(c.button("off"));
@@ -119,7 +109,6 @@ describe("SegmentedControl — the roving tab stop", () => {
   });
 
   it("a resting option holds the stop while another is pressed; Enter acts on it", () => {
-    // Off pressed, the keyboard resting on a profile: Enter turns it on.
     const c = mount("off", "vanilla");
     expect(c.pressed()).toEqual(["off"]);
     expect(c.tabStops()).toEqual(["vanilla"]);
@@ -166,8 +155,6 @@ describe("SegmentedControl — picking from the keyboard", () => {
   });
 
   it("with no focus in the group, the pressed option is in view — not the resting one", () => {
-    // Off pressed, the keyboard resting on a profile: the line under the
-    // control must say what Off means until focus enters the group.
     const c = mount("off", "vanilla");
     expect(c.viewTrail).toEqual(["off"]);
     expect(c.tabStops()).toEqual(["vanilla"]);
@@ -182,8 +169,6 @@ describe("SegmentedControl — picking from the keyboard", () => {
   });
 
   it("reports the resting option, not a pressed value the options do not hold", () => {
-    // An unknown stored choice: nothing it names is on offer, so the stop — and
-    // what the host is told — is the resting option.
     const c = mount("gone" as V, "vanilla");
     expect(c.viewTrail).toEqual(["vanilla"]);
     expect(c.tabStops()).toEqual(["vanilla"]);

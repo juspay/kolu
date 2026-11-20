@@ -1,8 +1,3 @@
-/** Top-center tip banner — a distinct surface for tips so they don't
- *  blend into the bottom-right toast stream (success / error / warning
- *  notifications). Pure animation surface; `useTips` owns when a tip
- *  becomes active and when it auto-dismisses. */
-
 import {
   type Component,
   createEffect,
@@ -21,10 +16,7 @@ const TipBanner: Component = () => {
 
   createEffect(
     on(activeTip, (tip) => {
-      // <Show> unmounts the DOM when tip is null — nothing to animate out.
       if (!tip) return;
-      // Start off-screen, then flip on next frame so the CSS transition
-      // runs instead of snapping straight to the final position.
       setVisible(false);
       const raf = requestAnimationFrame(() => setVisible(true));
       onCleanup(() => cancelAnimationFrame(raf));

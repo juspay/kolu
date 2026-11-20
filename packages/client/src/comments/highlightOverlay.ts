@@ -1,14 +1,3 @@
-/** Parent-side overlay that highlights existing comments in-place on the
- *  currently-displayed file. Delegates the re-find + register work to
- *  `applyHighlights` in `@kolu/artifact-sdk/client` — the SAME function
- *  the in-iframe SDK uses — so the behavior is bit-identical across
- *  surfaces.
- *
- *  Browser support: Chrome 105+, Safari 17.2+, Firefox 140+. On older
- *  browsers, comments still appear in the tray; the in-place highlight
- *  silently degrades to nothing (the core function's `Highlight` guard
- *  short-circuits). */
-
 import {
   applyHighlights,
   COMMENT_HIGHLIGHT_NAME_PREFIX,
@@ -27,15 +16,8 @@ import {
 } from "solid-js";
 import { walkShadowRoots } from "../dom/shadowWalk";
 import { useCommentScrollRequest } from "./scrollRequest";
-import type { Comment } from "./types";
+import type { BrowseSurface, Comment } from "./types";
 
-/** Resolve the root the highlight overlay should walk for re-find +
- *  Range construction. Pierre's virtualized path nests a `<diffs-container>`
- *  custom element with its own shadow root, so we descend through any shadow
- *  trees and return the first one found. Otherwise — a light-DOM surface like
- *  the rendered Markdown preview — fall back to the host element itself, so
- *  the re-find haystack is the view's subtree, not the whole app page (which
- *  must match the root `useTextSelection` anchored the quote against). */
 function findHostRoot(host: HTMLElement): QuoteRoot {
   return walkShadowRoots(host, (sr) => sr) ?? host;
 }
@@ -43,33 +25,21 @@ function findHostRoot(host: HTMLElement): QuoteRoot {
 export interface OverlayOptions {
   host: Accessor<HTMLElement | undefined>;
   comments: Accessor<Comment[]>;
-  /** Re-run on this ticker — caller bumps when the host's text content
-   *  changed (file swap, content stream tick). The overlay re-finds the
-   *  ranges since stored Ranges would point at stale text nodes. */
-  contentTick?: Accessor<unknown>;
-  /** When true, watch the host subtree for DOM replacement and re-apply the
-   *  highlights when it changes. Set for the rendered Markdown preview, whose
-   *  renderer reassigns `innerHTML` *after* mount — Shiki warms lazily and the
-   *  `html` memo re-runs, swapping every text node. `contentTick` (the source
-   *  string) doesn't move on that swap, so any CSS Highlight ranges applied
-   *  beforehand would point at detached nodes and silently vanish. Off for the
-   *  source / diff surfaces: Pierre's virtualizer churns its subtree on every
-   *  scroll, and a MutationObserver there would thrash — those re-finds ride
-   *  `contentTick` + the scroll-request rAF instead. */
+  contentTick?: Accessor<string | undefined>;
   observeMutations?: boolean;
-  /** Which browse surface this overlay belongs to, when the file is
-   *  multi-surface (Markdown's Source ⇄ Rendered). Since the keep-alive toggle
-   *  now mounts BOTH surfaces at once, the overlay only owns the scroll request
-   *  whose `surface` matches — otherwise the hidden/wrong surface, whose effect
-   *  runs independently, could consume-and-clear a request meant for the other
-   *  surface (a prose-only quote that doesn't exist in source, or vice versa),
-   *  so the intended surface never scrolls. Undefined for single-surface views
-   *  (plain source, diff) — those match a request with no surface. */
-  surface?: Accessor<"source" | "prose" | undefined>;
+  surface?: Accessor<BrowseSurface | undefined>;
+}
+
+function trackReapplyTriggers(
+  opts: OverlayOptions,
+  domTick: Accessor<number>,
+): void {
+  opts.contentTick?.();
+  domTick();
 }
 
 export function useHighlightOverlay(opts: OverlayOptions): void {
-  if (!window.CSS?.highlights || !window.Highlight) return; // unsupported
+  if (!window.CSS?.highlights || !window.Highlight) return;
   // A per-INSTANCE highlight name + style element. The CSS Custom Highlight
   // registry is one global map keyed by name, and `applyHighlights` *replaces*
   // the named highlight on each call — so two text surfaces mounted at once (the
@@ -99,26 +69,12 @@ export function useHighlightOverlay(opts: OverlayOptions): void {
     return root;
   };
 
-  // Mutation re-application is immediate, but keep a ticker for the separate
-  // scroll-request path below: a prose DOM swap must still give a pending tray
-  // jump another chance against the freshly-rendered nodes.
   const [domTick, setDomTick] = createSignal(0);
 
-  // Watch the host subtree only for prose surfaces. Kept in its own effect so
-  // it tracks `host` alone — the observer isn't torn down and rebuilt on a
-  // comments/content re-apply.
-  // `applyHighlights` uses the CSS Highlight API, which sets no DOM nodes, so
-  // our own re-apply never re-triggers the observer.
   createEffect(() => {
     if (!opts.observeMutations) return;
     const host = opts.host();
     if (!host) return;
-    // Re-anchor once at the NEXT microtask, after the browser has delivered the
-    // whole mutation-observer checkpoint. Applying inside our observer callback
-    // can still run before a later observer mutates the same rendered subtree;
-    // routing through a Solid signal goes too far the other way and leaves the
-    // repair waiting on a deferred reactive pass under load. One microtask is
-    // the exact boundary we need: after all observers, before paint.
     let queued = false;
     let disposed = false;
     const observer = new MutationObserver(() => {
@@ -141,23 +97,12 @@ export function useHighlightOverlay(opts: OverlayOptions): void {
   createEffect(() => {
     const host = opts.host();
     const comments = opts.comments();
-    opts.contentTick?.(); // dependency
-    domTick(); // dependency — retry pending scroll work after a prose DOM swap
+    trackReapplyTriggers(opts, domTick);
     if (!host) return;
     const root = applyCurrentHighlights(host, comments);
 
-    // After the highlight set is applied for this file, consume any
-    // pending scroll request. We resolve the target comment's range
-    // fresh inside the rAF below (don't trust a stored Range across
-    // renders — the DOM may have been replaced).
     const req = scroll.request();
     if (!req) return;
-    // Only the overlay whose surface matches the request owns it. Both
-    // Source ⇄ Rendered surfaces are kept alive now, so without this gate the
-    // wrong surface could find-or-fail and `scroll.clear()` the request before
-    // the intended surface — re-running after its own lazy Shiki/Markdown swap
-    // — gets to scroll. `undefined === undefined` matches the
-    // single-surface views (plain source, diff) against a surface-less request.
     if (req.surface !== opts.surface?.()) return;
     const target = comments.find((c) => c.id === req.commentId);
     if (!target) return;

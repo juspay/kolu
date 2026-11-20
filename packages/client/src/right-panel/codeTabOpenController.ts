@@ -7,7 +7,6 @@ import { match } from "ts-pattern";
 import { runOwnedAction } from "../runAction";
 import type { LineRef } from "../ui/lineRef";
 
-/** The complete owner of a Code-tab selection slot and open request. */
 export interface CodeTabScope {
   host: HostKey;
   terminalId: TerminalId;
@@ -15,24 +14,18 @@ export interface CodeTabScope {
   mode: CodeTabView;
 }
 
-/** Stable equality for the complete owner of a Code-tab request. */
 export function codeTabScopesEqual(a: CodeTabScope, b: CodeTabScope): boolean {
   const left = codeTabScopeIdentity(a);
   const right = codeTabScopeIdentity(b);
   return left.every((value, index) => value === right[index]);
 }
 
-/** Collision-safe key for state scoped to one REPO SLOT of the Code tab — the
- *  (host, repo, mode) triple, deliberately WITHOUT the terminal. The file list,
- *  the lazily-loaded folder levels, the tree's expansion and the filename filter
- *  are all facts about the repo, so moving focus between two panes of one repo
- *  must not reset any of them. (The terminal id IS part of a `CodeTabScope`,
- *  which owns the open-request identity and the preview URL — those really are
- *  per-pane.) */
-export function codeTabRepoSlotKey(scope: CodeTabScope | null): string | null {
-  return scope === null
+export type RepoSlot = Pick<CodeTabScope, "host" | "repoRoot" | "mode">;
+
+export function codeTabRepoSlotKey(slot: RepoSlot | null): string | null {
+  return slot === null
     ? null
-    : JSON.stringify([encodeHostKey(scope.host), scope.repoRoot, scope.mode]);
+    : JSON.stringify([encodeHostKey(slot.host), slot.repoRoot, slot.mode]);
 }
 
 function codeTabScopeIdentity(
@@ -46,23 +39,16 @@ function codeTabScopeIdentity(
   ];
 }
 
-/** A captured user intent to navigate one exact Code-tab owner to a file ref. */
 export interface OpenInCodeTabRequest {
-  /** The exact host + terminal + repository + mode allowed to consume this request. */
   scope: CodeTabScope;
-  /** Parsed `path:line[-end]` to navigate to. */
   ref: LineRef;
-  /** Terminal cwd at dispatch time, for cwd-relative references. */
   cwd?: string;
-  /** Whether a unique-basename match may resolve an otherwise missing path. */
   allowBasenameFallback?: boolean;
 }
 
-/** Current reactive facts used to decide whether and how a request may land. */
 export interface CodeTabOpenSnapshot<Paths> {
   request: OpenInCodeTabRequest | null;
   scope: CodeTabScope | null;
-  /** Owner stamped on the retained inventory, or null when it is unscoped. */
   inventoryScope: CodeTabScope | null;
   paths: Paths;
   inventoryPending: boolean;
@@ -72,16 +58,6 @@ export interface CodeTabOpenSnapshot<Paths> {
 interface CodeTabOpenControllerOptions<Paths, Resolved> {
   snapshot: () => CodeTabOpenSnapshot<Paths>;
   resolve: (request: OpenInCodeTabRequest, paths: Paths) => Resolved | null;
-  /** Read the authoritative inventory for this request — a DESCRIPTION, so this
-   *  controller cancels a superseded read by interrupting its fiber. It takes no
-   *  cancellation token because it no longer needs one: cancellation IS
-   *  interruption (D10/#18).
-   *
-   *  Interruption does not REPLACE the `isCurrent` gate below, and must not: it
-   *  is asynchronous, so a read already past its last suspension can still
-   *  answer after the interrupt is requested. The gate is what refuses that
-   *  answer. Two mechanisms, two jobs — stop the work, and refuse a stale
-   *  result. */
   readFresh: (
     request: OpenInCodeTabRequest,
     includeIgnored: boolean,
@@ -102,14 +78,6 @@ export type CodeTabSelectionInventoryVerdict =
   | "confirm-fresh"
   | "clear";
 
-/**
- * Reconcile the selected file with the retained tree inventory.
- *
- * A direct fresh read can resolve a just-created file before the retained tree
- * catches up. That fresh verdict pins the selection through the stale window;
- * once the retained inventory contains the path, the pin is consumed and later
- * removal is authoritative again.
- */
 export function codeTabSelectionInventoryVerdict(
   selectedPath: string | null,
   inventoryPending: boolean,
@@ -123,31 +91,41 @@ export function codeTabSelectionInventoryVerdict(
   return freshSelectionPath === selectedPath ? "keep" : "clear";
 }
 
+interface RetirableFiber {
+  readonly retired: boolean;
+  hold: (fiber: Fiber.Fiber<unknown, never>) => void;
+  retire: () => void;
+}
+
+function createRetirableFiber(): RetirableFiber {
+  let held: Fiber.Fiber<unknown, never> | null = null;
+  let retired = false;
+  return {
+    get retired(): boolean {
+      return retired;
+    },
+    hold: (fiber) => {
+      if (retired) fiber.interruptUnsafe();
+      else held = fiber;
+    },
+    retire: () => {
+      retired = true;
+      held?.interruptUnsafe();
+      held = null;
+    },
+  };
+}
+
 type OpenAttempt =
   | { kind: "idle" }
   | {
       kind: "refreshing";
       request: OpenInCodeTabRequest;
       includeIgnored: boolean;
-      /** The read's own fiber — interrupting it IS the cancel. A mutable slot
-       *  because the attempt is recorded BEFORE the fork: `Effect.runFork` runs
-       *  on the calling stack until the effect suspends, so a read that answers
-       *  without suspending (an in-process double) would otherwise land against
-       *  an attempt this line had not yet stored, and be discarded as stale. */
-      fiber: { current: Fiber.Fiber<unknown, never> | null };
-      /** Latched by `retire`/`complete` BEFORE the interrupt, so a frame already
-       *  queued behind the interruption is still refused. */
-      retired: { value: boolean };
+      fiber: RetirableFiber;
     }
   | { kind: "complete"; request: OpenInCodeTabRequest };
 
-/**
- * Own the consume-once, latest-request-wins lifecycle for Code-tab opens.
- *
- * The presenter supplies current facts and atomic outcome verbs. This controller
- * alone owns request identity, cancellation, retained-then-fresh resolution,
- * and the final consume-once verdict.
- */
 export function createCodeTabOpenController<Paths, Resolved>(
   options: CodeTabOpenControllerOptions<Paths, Resolved>,
 ): void {
@@ -161,14 +139,10 @@ export function createCodeTabOpenController<Paths, Resolved>(
       .with({ kind: "refreshing" }, (refreshing) => refreshing)
       .otherwise(() => null);
 
-  /** Stop the live read: latch it retired FIRST, then interrupt. The order is
-   *  the point — the latch is synchronous and the interrupt is not, so the
-   *  window between them is exactly where a late frame would otherwise land. */
   const stopRefreshing = (): void => {
     const refreshing = refreshingAttempt();
     if (refreshing === null) return;
-    refreshing.retired.value = true;
-    refreshing.fiber.current?.interruptUnsafe();
+    refreshing.fiber.retire();
   };
 
   const retire = (): void => {
@@ -182,18 +156,18 @@ export function createCodeTabOpenController<Paths, Resolved>(
     apply();
   };
 
-  const isCurrent = (
+  const stillOwnsLatestIntent = (
     request: OpenInCodeTabRequest,
     includeIgnored: boolean,
-    token: { value: boolean },
+    fiber: RetirableFiber,
   ): boolean => {
     const refreshing = refreshingAttempt();
     if (
       refreshing === null ||
       refreshing.request !== request ||
       refreshing.includeIgnored !== includeIgnored ||
-      refreshing.retired !== token ||
-      token.value
+      refreshing.fiber !== fiber ||
+      fiber.retired
     ) {
       return false;
     }
@@ -228,10 +202,6 @@ export function createCodeTabOpenController<Paths, Resolved>(
       current.scope === null ||
       !codeTabScopesEqual(current.scope, request.scope)
     ) {
-      // A scope mismatch can be transient: the producer may have selected a
-      // different terminal in the same batch, while this consumer still sees
-      // the prior projection. Abort work tied to the departed scope, but keep
-      // the latest request eligible for the matching scope to arrive.
       retire();
       return;
     }
@@ -264,41 +234,33 @@ export function createCodeTabOpenController<Paths, Resolved>(
     if (refreshingAttempt() !== null) return;
 
     const includeIgnored = current.includeIgnored;
-    const retired = { value: false };
-    const fiber: { current: Fiber.Fiber<unknown, never> | null } = {
-      current: null,
-    };
-    attempt = { kind: "refreshing", request, includeIgnored, fiber, retired };
-    // The whole read AND its landing live on one fiber, so interrupting it stops
-    // both. Recovered to a total program before the fork: the outcome is applied
-    // by `complete`, which is this controller's one landing verb.
-    fiber.current = runOwnedAction(
-      "open in code tab",
-      options.readFresh(request, includeIgnored).pipe(
-        Effect.map((paths) => () => {
-          const freshResolved = options.resolve(request, paths);
-          if (freshResolved === null) {
-            complete(request, () => options.onNotFound(request));
-            return;
-          }
-          complete(request, () =>
-            options.onResolved(request, freshResolved, "fresh"),
-          );
-        }),
-        Effect.catch((raw) =>
-          Effect.succeed(() => {
-            const error = raw instanceof Error ? raw : new Error(String(raw));
-            complete(request, () => options.onError(request, error));
+    const fiber = createRetirableFiber();
+    attempt = { kind: "refreshing", request, includeIgnored, fiber };
+    fiber.hold(
+      runOwnedAction(
+        "open in code tab",
+        options.readFresh(request, includeIgnored).pipe(
+          Effect.map((paths) => () => {
+            const freshResolved = options.resolve(request, paths);
+            if (freshResolved === null) {
+              complete(request, () => options.onNotFound(request));
+              return;
+            }
+            complete(request, () =>
+              options.onResolved(request, freshResolved, "fresh"),
+            );
           }),
-        ),
-        Effect.tap((land) =>
-          Effect.sync(() => {
-            // A superseded read no longer belongs to the latest user intent; its
-            // answer — success OR failure — must not land over the replacement
-            // request. Checked HERE, after the read, because interruption alone
-            // cannot guarantee this frame never runs.
-            if (isCurrent(request, includeIgnored, retired)) land();
-          }),
+          Effect.catch((raw) =>
+            Effect.succeed(() => {
+              const error = raw instanceof Error ? raw : new Error(String(raw));
+              complete(request, () => options.onError(request, error));
+            }),
+          ),
+          Effect.tap((land) =>
+            Effect.sync(() => {
+              if (stillOwnsLatestIntent(request, includeIgnored, fiber)) land();
+            }),
+          ),
         ),
       ),
     );

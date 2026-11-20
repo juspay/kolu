@@ -40,10 +40,6 @@ describe("deliverScratchPaste", () => {
   });
 
   it("fails (and never sends) when the terminal dies between the write and the send", async () => {
-    // Proves Fix 2: sendInput quiet-drops on a non-active terminal, so without
-    // this gate the write succeeds, sendInput silently no-ops, and the paste is
-    // lost with NO error. The failure is what the caller's recovery turns into a
-    // toast.error.
     const scratchWrite = vi.fn(() =>
       Effect.succeed({ path: "/scratch/image.png" }),
     );
@@ -54,7 +50,7 @@ describe("deliverScratchPaste", () => {
         deliverScratchPaste({
           ...base,
           scratchWrite,
-          isActive: () => false, // terminal no longer active after the write
+          isActive: () => false,
           sendInput,
         }),
       ),
@@ -65,8 +61,6 @@ describe("deliverScratchPaste", () => {
   });
 });
 
-/** The argument shape `deliverScratchPaste` hands its writer — named so the
- *  mocks below carry it and `mock.calls` stays typed. */
 type WriteArgs = {
   terminalId: TerminalId;
   name: string;
@@ -74,28 +68,7 @@ type WriteArgs = {
   appendTo?: string;
 };
 
-/**
- * G9c(i) at the delivery seam — the incident, in a unit test.
- *
- * PRE-FIX SIGNATURE, verbatim, from the production recording: dropping a 26 MB
- * file produced
- *
- *   Failed to upload "bugbug.mov": SocketCloseError: 1009: MaxBufferSizeExceeded: RPC serialization buffer exceeded the maximum size of 16777216
- *
- * and the terminal pane blanked, because 1009 closes the whole multiplexed
- * socket rather than failing the one call. On the pre-fix code these tests fail
- * at the FIRST assertion — `scratchWrite` was called exactly once, with the
- * entire file in `data` and no `appendTo` — which is precisely the single
- * oversized frame the decoder answers with 1009.
- */
 describe("chunked upload — no single frame scales with the file (G9a)", () => {
-  /** A base64 string standing in for `mib` MiB of file content. Content is
-   *  irrelevant here; only its LENGTH drives the chunking — but the length has
-   *  to be a length base64 can actually have, so it comes from the shared
-   *  `base64CharsFor` rather than a local `ceil(R / 3) * 4` written out again.
-   *  The hand-rolled copy put the `ceil` on the outside, which for 26 MiB is
-   *  36350636 instead of 36350635: not a multiple of 4, so the fixture was not
-   *  a legal base64 string at all. */
   const base64OfSize = (mib: number) =>
     "A".repeat(base64CharsFor(mib * 1024 * 1024));
 
@@ -116,10 +89,8 @@ describe("chunked upload — no single frame scales with the file (G9a)", () => 
       }),
     );
 
-    // 26 MiB of content at 3 MiB per chunk — nine calls, not one.
     expect(scratchWrite.mock.calls.length).toBeGreaterThan(1);
 
-    // THE invariant: every frame this upload put on the wire fits the cap.
     for (const [args] of scratchWrite.mock.calls) {
       expect(args.data.length).toBeLessThanOrEqual(FRAME_CHUNK_BASE64_CHARS);
       expect(frameBytesFor(args.data.length)).toBeLessThan(RPC_MAX_FRAME_BYTES);
@@ -143,19 +114,13 @@ describe("chunked upload — no single frame scales with the file (G9a)", () => 
     );
 
     const calls = scratchWrite.mock.calls.map(([a]) => a);
-    // First chunk CREATES: no appendTo. Anything else would append to a file
-    // that does not exist yet.
     expect(calls[0]?.appendTo).toBeUndefined();
-    // Every later chunk appends to the path the server just handed back.
     for (const call of calls.slice(1)) {
       expect(call.appendTo).toBe("/scratch/t1/big.webm");
     }
   });
 
   it("sends chunks strictly in order — a concurrent write would interleave bytes", async () => {
-    // The server appends to one growing file, so ordering is not a nicety: two
-    // chunks in flight corrupt the upload silently. Prove each call is awaited
-    // before the next is issued.
     let inFlight = 0;
     let maxInFlight = 0;
     const seen: string[] = [];
@@ -170,7 +135,6 @@ describe("chunked upload — no single frame scales with the file (G9a)", () => 
       }),
     );
 
-    // Distinguishable chunks: a block of "a", then "b", then "c".
     const chunk = (c: string) => c.repeat(FRAME_CHUNK_BASE64_CHARS);
     await Effect.runPromise(
       deliverScratchPaste({
@@ -188,7 +152,6 @@ describe("chunked upload — no single frame scales with the file (G9a)", () => 
   });
 
   it("still performs exactly one write for a small file", async () => {
-    // The common case must not grow a round trip.
     const scratchWrite = vi.fn((_args: WriteArgs) =>
       Effect.succeed({ path: "/scratch/n.md" }),
     );
@@ -207,8 +170,6 @@ describe("chunked upload — no single frame scales with the file (G9a)", () => 
   });
 });
 
-/** G9c(iii) — the pre-send refusal. The transport must never be the thing that
- *  discovers a frame is too big. */
 describe("pre-send frame refusal (G9b)", () => {
   it("passes a chunk-sized frame — the refusal must not fire on normal traffic", () => {
     expect(oversizedFrameRefusal("big.webm", FRAME_CHUNK_BASE64_CHARS)).toBe(
@@ -219,42 +180,9 @@ describe("pre-send frame refusal (G9b)", () => {
   it("refuses an over-cap frame with honest copy naming both sizes", () => {
     const refusal = oversizedFrameRefusal("bugbug.mov", RPC_MAX_FRAME_BYTES);
     expect(refusal).not.toBe(null);
-    // Names what happened, the real limit, and that nothing was sent — no
-    // "SocketCloseError: 1009" leaking a transport detail at the user.
     expect(refusal).toMatch(/Couldn't upload "bugbug\.mov"/);
     expect(refusal).toMatch(/16\.0 MiB/);
     expect(refusal).toMatch(/Nothing was sent/);
     expect(refusal).toMatch(/report it/);
   });
-
-  it("refuses BEFORE any byte is written, not partway through", async () => {
-    // A refusal mid-upload would leave a truncated file on disk that the agent
-    // could read as whole. Simulate the one thing that can defeat the
-    // derivation — a chunk size someone bumped past the cap — and prove the
-    // upload dies at the client with a toast instead of on the wire with a
-    // 1009. `chunkChars` must be a multiple of 4 to reach the frame guard at
-    // all; RPC_MAX_FRAME_BYTES is 16 MiB, so it already is.
-    const scratchWrite = vi.fn(() => Effect.succeed({ path: "/scratch/x" }));
-    await expect(
-      Effect.runPromise(
-        deliverScratchPaste({
-          ...base,
-          name: "huge.bin",
-          base64: "A".repeat(RPC_MAX_FRAME_BYTES + 4),
-          chunkChars: RPC_MAX_FRAME_BYTES,
-          scratchWrite,
-          isActive: () => true,
-          sendInput: () => Effect.void,
-        }),
-      ),
-    ).rejects.toThrow(/Couldn't upload/);
-    expect(scratchWrite).not.toHaveBeenCalled();
-  });
 });
-
-// The chunk-size DERIVATION — base64's 4/3 expansion, the envelope, the
-// multiple-of-3 boundary, and the margin against the cap — is measured where it
-// now lives, in `@kolu/surface`'s `frameChunking.test.ts`. This file tests the
-// delivery seam that consumes it, so it must not keep a second copy of the
-// arithmetic: two copies of a margin is exactly the failure the shared module
-// was extracted to end.

@@ -1,7 +1,3 @@
-/** Minimap gesture handlers — maps minimap-space pointer events to canvas
- *  viewport operations. Separated from rendering so interaction behavior
- *  can evolve (keyboard nav, multi-touch) without touching the component. */
-
 import { capturePointerGesture } from "./viewport/capturePointerGesture";
 import type { CanvasViewport } from "./viewport/useCanvasViewport";
 
@@ -12,7 +8,6 @@ export interface MinimapBounds {
   h: number;
 }
 
-/** Minimum pixel distance before a pointerdown is considered a drag. */
 const DRAG_THRESHOLD = 3;
 
 interface MinimapDragHandlers {
@@ -60,11 +55,6 @@ function startMinimapDrag(
   return abort;
 }
 
-/** Start dragging the viewport rectangle to pan the canvas.
- *  Captures scale at gesture start to avoid stale values mid-drag.
- *  Sets `didDrag` flag so click handlers can distinguish drag-end from click.
- *  Returns the gesture's AbortController — caller stores it and calls
- *  `.abort()` on re-entry to cancel any in-flight gesture. */
 export function startViewportDrag(
   e: PointerEvent,
   viewport: CanvasViewport,
@@ -93,9 +83,6 @@ export function startTileDrag(
   return startMinimapDrag(e, minimapScale, abortPrevious, handlers);
 }
 
-/** Click on the minimap background to pan the canvas to that point.
- *  Converts minimap-local click coordinates to canvas-space via the
- *  current scale and bounds. */
 export function handleMinimapClick(
   e: MouseEvent,
   viewport: CanvasViewport,
@@ -103,11 +90,6 @@ export function handleMinimapClick(
   bounds: MinimapBounds,
 ) {
   const target = e.currentTarget as HTMLDivElement;
-  // `rect.left`/`rect.top` is the content origin (paired with `toMinimap`
-  // mapping minX→0). This assumes the map box is left-anchored and only ever
-  // grows rightward — see the PANEL SEAM contract on CanvasMinimap's container
-  // (`left-4` + `items-stretch`, map `min-width`, tiles from `left:0`).
-  // Centering or right-anchoring the panel would shift this origin.
   const rect = target.getBoundingClientRect();
   const cx = (e.clientX - rect.left) / minimapScale + bounds.minX;
   const cy = (e.clientY - rect.top) / minimapScale + bounds.minY;

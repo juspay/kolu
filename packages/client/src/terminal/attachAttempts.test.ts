@@ -10,11 +10,6 @@ describe("onlyWhenCurrent", () => {
   });
 
   it("silences EVERY effect a superseded attempt can still trigger", () => {
-    // The ones that bite are not frame delivery — they are the lifecycle hooks
-    // that reach past it. A superseded loop's transport-retry and re-attach
-    // hooks would RESET the screen, wiping the successor's authoritative
-    // snapshot; its render-recovery ping would report activity for a stream
-    // nobody reads. All of them go through the same guard.
     const gate = createAttemptGate();
     const old = gate.open();
     const onRetry = vi.fn();
@@ -35,8 +30,6 @@ describe("onlyWhenCurrent", () => {
   });
 
   it("keeps silencing however late the superseded effect fires", () => {
-    // Scroll lock can stash a write callback until the user unlocks, so a
-    // superseded effect can arrive arbitrarily long after the restart.
     const gate = createAttemptGate();
     const old = gate.open();
     const effect = vi.fn();
@@ -55,8 +48,6 @@ describe("createAttemptGate", () => {
   });
 
   it("supersedes the previous attempt when a successor opens", () => {
-    // The restart window: the old loop has been aborted but has not unwound, so
-    // both attempts exist at once. Everything it still delivers must be inert.
     const gate = createAttemptGate();
     const old = gate.open();
     const successor = gate.open();
@@ -65,9 +56,6 @@ describe("createAttemptGate", () => {
   });
 
   it("stays superseded — a stale attempt never becomes current again", () => {
-    // A queued frame or a stashed write callback can arrive long after the
-    // restart (scroll lock can hold a chunk until the user unlocks). Age must
-    // not make it live again.
     const gate = createAttemptGate();
     const old = gate.open();
     gate.open();
@@ -76,10 +64,6 @@ describe("createAttemptGate", () => {
   });
 
   it("lets only the first of several stale callbacks install a successor", () => {
-    // Several superseded callbacks can each reach the restart path. Guarding on
-    // isCurrent() means the first one installs the replacement and the rest are
-    // already stale, so one restart yields exactly one live attempt — not a
-    // cascade of loops each racing the others.
     const gate = createAttemptGate();
     const stale = gate.open();
     const restarts: number[] = [];
@@ -92,8 +76,6 @@ describe("createAttemptGate", () => {
   });
 
   it("gives each attempt its own identity rather than sharing one flag", () => {
-    // Two gates are independent: one terminal restarting must not silence
-    // another's in-flight attempt.
     const a = createAttemptGate().open();
     const b = createAttemptGate();
     b.open();

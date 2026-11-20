@@ -1,38 +1,3 @@
-/**
- * The rows of the ports section — in two groups, "from this terminal" and
- * "elsewhere on this host" — joined to the forwards kolu holds.
- *
- * There used to be two titled groups that were a mistake: a PORTS group and a
- * FORWARDED PORTS group rendered a forwarded port twice. They merged into one
- * list, and that stays true — every port is still ONE row, carrying its door.
- * The two groups here answer a different question, and each port lands in
- * exactly one of them.
- *
- * **From this terminal** is what the tile serves: every port its panes' process
- * subtrees hold, plus every server whose URL a pane PRINTED that NO terminal's
- * subtree holds — a server that detached. A printed URL of a server another
- * terminal runs stays that terminal's (it shows below, linked to it). The second kind is the reason the host-wide scan
- * exists — `odu web-daemon`, anything under `setsid`, reparents to init and
- * leaves the subtree while it keeps serving the URL the terminal printed. The
- * printed URL is an entry point, never a fact: the row exists because the HOST
- * reading positively holds the port, and the print only says which tile it
- * belongs with.
- *
- * **Elsewhere on this host** is the rest of what has a story:
- *  - every listener a readable (same-user) program holds — the user's own servers;
- *  - an unclaimed socket (another user's) only when a terminal printed its URL or
- *    a door already points at it — a system daemon otherwise has no business here;
- *  - every door with nothing behind it (`orphan`) — a ⌘K forward, or one whose
- *    listener died before the reap. A forward is a fact about the HOST, and an
- *    open door must stay somewhere it can be cancelled from.
- *
- * kolu's OWN relay listeners are left out: a door is shown as the row it serves,
- * and its local listener appearing as a second row would be the double rendering
- * the merge removed.
- *
- * A pure join, so the grouping and ordering are testable without a DOM.
- */
-
 import {
   type HostListeners,
   type KoluForward,
@@ -42,51 +7,21 @@ import {
   type PortBind,
 } from "kolu-common/surface";
 
-/** Why a row is in the group it is in. */
-export type PortOrigin =
-  /** In one of this tile's process subtrees. */
-  | "subtree"
-  /** Printed by this tile, held by no terminal's subtree (the scanner's
-   *  `heldByTerminal`) — detached. */
-  | "printed"
-  /** On the host, with a story, and not this tile's. */
-  | "host";
+export type PortOrigin = "subtree" | "printed" | "host";
 
-/** Anything that names one listener — a `PortRow` listener arm, a printed-URL
- *  join's listening arm, a `listenerAt` hit: a claimed listener carries its
- *  `info`, an unclaimed one only its `bind`. */
 type Listener = { bind: PortBind } | { info: PortInfo };
 
-/** The bind behind a listener, whoever holds it — a `PortInfo` IS a bind, so a
- *  reader that needs only the bind (scope, family) asks this rather than
- *  re-projecting the two arms at its own call site. */
 export function bindOf(x: Listener): PortBind {
   return "bind" in x ? x.bind : x.info;
 }
 
-/** Who holds a listener, in words: the owner's full command line (the program
- *  NAME alone cannot tell four `bun …/main.ts web <dir>` servers apart), or the
- *  honest "owner not visible" for a socket the scanner could not attribute. The
- *  ONE spelling, so the Ports row and the printed-URL card say the same thing. */
 export function listenerLabel(x: Listener): string {
   return "bind" in x ? "owner not visible" : x.info.command;
 }
 
-/** One row of the section.
- *
- *  `port` — a listener a readable program holds, with its door if it has one.
- *  `unclaimed` — a listener whose owner is not visible to the scanner.
- *  `orphan` — a door on this host with no listener behind it (yet, or ever).
- *
- *  A discriminated union rather than a `PortInfo` with optional fields, because
- *  the arms genuinely differ in what they can show: an unclaimed row has a bind
- *  but no program, an orphan has neither. A shared shape would be half-empty on
- *  two arms and a render site would have to guess which. */
 export type PortRow =
   | {
       kind: "port";
-      /** The arm-independent KEY the list is rendered and `data-port`-tagged by
-       *  — carried because the orphan arm has no `info` to project it from. */
       port: number;
       info: PortInfo;
       origin: PortOrigin;
@@ -101,129 +36,108 @@ export type PortRow =
     }
   | { kind: "orphan"; port: number; forward: KoluForward };
 
-/** Which group a row belongs to — the ONE statement of it. `portGroups` files
- *  rows by it, and the row's `data-group` and the section's serving-link gate
- *  read it, so the array a row sits in and the predicate cannot disagree. */
 export function rowGroup(row: PortRow): "here" | "elsewhere" {
   return row.kind === "orphan" || row.origin === "host" ? "elsewhere" : "here";
 }
 
-/** What the host's terminals say, as seen from ONE tile — the four sets the join
- *  reads, arriving as one value so they are the same host at the same moment
- *  (`HostTerminals` is their source). */
 export interface TerminalsView {
-  /** The tile's subtree ports, already folded across its panes. */
   tilePorts: readonly PortInfo[];
-  /** Ports whose URLs this tile's panes printed. */
   printedHere: ReadonlySet<number>;
-  /** Ports whose URLs any terminal on this host printed. */
   printedOnHost: ReadonlySet<number>;
 }
 
 export interface PortGroups {
-  /** What this terminal serves — its subtrees' ports and the servers it printed. */
   here: PortRow[];
-  /** The rest of the host that has a story, then the doors with nothing behind them. */
   elsewhere: PortRow[];
 }
 
-/** Group what the tile and the host serve, joined to what kolu has opened. */
-export function portGroups(opts: {
-  /** The host's terminals, from the inspected tile. */
-  terminals: TerminalsView;
-  /** The host's listeners — `unknown` leaves only the subtree rows and doors. */
+interface RowContext {
   host: HostListeners;
-  /** The doors on the inspected terminal's host. ALREADY host-scoped by the
-   *  caller (`forwardsForHost`), so this function does not re-filter. */
-  forwards: readonly KoluForward[];
-  /** kolu's own relay listeners on this host — every door's LOCAL port when the
-   *  host is the kolu server's own, and empty otherwise. */
+  doorOf: ReadonlyMap<number, KoluForward>;
   doorPorts: ReadonlySet<number>;
-}): PortGroups {
-  const doorOf = new Map(opts.forwards.map((f) => [f.remotePort, f]));
-  const taken = new Set<number>();
-  const byPort = (a: PortRow, b: PortRow) => a.port - b.port;
+  taken: Set<number>;
+}
 
-  // ── From this terminal ────────────────────────────────────────────────
-  const { tilePorts, printedHere, printedOnHost } = opts.terminals;
+const byPort = (a: PortRow, b: PortRow) => a.port - b.port;
 
-  /** The row for what `listenerAt` found, or `undefined` when nothing listens. */
-  const rowAt = (
-    at: ListenerAt,
-    port: number,
-    origin: "printed" | "host",
-  ): PortRow | undefined => {
-    const forward = doorOf.get(port);
-    if (at.kind === "claimed") {
-      return { kind: "port", port, info: at.info, origin, forward };
-    }
-    if (at.kind === "unclaimed") {
-      return { kind: "unclaimed", port, bind: at.bind, origin, forward };
-    }
-    return undefined;
-  };
-  const here: PortRow[] = tilePorts.map((info) => {
-    taken.add(info.port);
+function rowAt(
+  ctx: RowContext,
+  at: ListenerAt,
+  port: number,
+  origin: "printed" | "host",
+): PortRow | undefined {
+  const forward = ctx.doorOf.get(port);
+  if (at.kind === "claimed") {
+    return { kind: "port", port, info: at.info, origin, forward };
+  }
+  if (at.kind === "unclaimed") {
+    return { kind: "unclaimed", port, bind: at.bind, origin, forward };
+  }
+  return undefined;
+}
+
+function rowsFromTerminal(
+  ctx: RowContext,
+  terminals: TerminalsView,
+): PortRow[] {
+  const rows: PortRow[] = terminals.tilePorts.map((info) => {
+    ctx.taken.add(info.port);
     return {
       kind: "port",
       port: info.port,
       info,
       origin: "subtree",
-      forward: doorOf.get(info.port),
+      forward: ctx.doorOf.get(info.port),
     };
   });
-  for (const port of printedHere) {
-    if (taken.has(port) || opts.doorPorts.has(port)) continue;
-    const at = listenerAt(opts.host, port);
-    // A print claims a server only when no terminal's subtree holds it — that
-    // is what "detached" means, and the scanner states it on the row. A server
-    // another terminal runs stays that terminal's, below. `absent`/`unknown`
-    // make no row: a row here would be a chip made from text.
+  for (const port of terminals.printedHere) {
+    if (ctx.taken.has(port) || ctx.doorPorts.has(port)) continue;
+    const at = listenerAt(ctx.host, port);
     if (at.kind === "claimed" && at.info.heldByTerminal) continue;
-    const row = rowAt(at, port, "printed");
+    const row = rowAt(ctx, at, port, "printed");
     if (row === undefined) continue;
-    here.push(row);
-    taken.add(port);
+    rows.push(row);
+    ctx.taken.add(port);
   }
-  here.sort(byPort);
+  return rows.sort(byPort);
+}
 
-  // ── Elsewhere on this host ────────────────────────────────────────────
-  const elsewhere: PortRow[] = [];
-  if (opts.host.status === "known") {
-    // Every port either half holds, each judged by `listenerAt` — the same bind
-    // choice the printed-URL card makes, so a port never reads reachable in one
-    // place and not reachable in the other.
-    const claimedPorts = new Set(opts.host.claimed.map((p) => p.port));
-    const hostPorts = new Set(claimedPorts);
-    if (opts.host.unclaimed.status === "known") {
-      for (const b of opts.host.unclaimed.list) hostPorts.add(b.port);
-    }
-    for (const port of hostPorts) {
-      if (taken.has(port) || opts.doorPorts.has(port)) continue;
-      const at = listenerAt(opts.host, port);
-      // Another user's socket has a story only when printed, forwarded, or
-      // sharing its port with one of our own listeners (whose narrower bind it
-      // out-ranked — dropping the port would hide our program too).
-      if (
-        at.kind === "unclaimed" &&
-        !doorOf.has(port) &&
-        !printedOnHost.has(port) &&
-        !claimedPorts.has(port)
-      ) {
-        continue;
-      }
-      const row = rowAt(at, port, "host");
-      if (row === undefined) continue;
-      elsewhere.push(row);
-      taken.add(port);
-    }
+function rowsElsewhereOnHost(
+  ctx: RowContext,
+  printedOnHost: ReadonlySet<number>,
+): PortRow[] {
+  if (ctx.host.status !== "known") return [];
+  const rows: PortRow[] = [];
+  const claimedPorts = new Set(ctx.host.claimed.map((p) => p.port));
+  const hostPorts = new Set(claimedPorts);
+  if (ctx.host.unclaimed.status === "known") {
+    for (const b of ctx.host.unclaimed.list) hostPorts.add(b.port);
   }
-  elsewhere.sort(byPort);
+  for (const port of hostPorts) {
+    if (ctx.taken.has(port) || ctx.doorPorts.has(port)) continue;
+    const at = listenerAt(ctx.host, port);
+    if (
+      at.kind === "unclaimed" &&
+      !ctx.doorOf.has(port) &&
+      !printedOnHost.has(port) &&
+      !claimedPorts.has(port)
+    ) {
+      continue;
+    }
+    const row = rowAt(ctx, at, port, "host");
+    if (row === undefined) continue;
+    rows.push(row);
+    ctx.taken.add(port);
+  }
+  return rows.sort(byPort);
+}
 
-  // Every door with no listener behind it, AFTER every listener: the section's
-  // subject is what is serving; a door onto nothing is the footnote.
-  const orphans = opts.forwards
-    .filter((f) => !taken.has(f.remotePort))
+function orphanRows(
+  ctx: RowContext,
+  forwards: readonly KoluForward[],
+): PortRow[] {
+  return forwards
+    .filter((f) => !ctx.taken.has(f.remotePort))
     .sort((a, b) => a.remotePort - b.remotePort)
     .map(
       (forward): PortRow => ({
@@ -232,6 +146,24 @@ export function portGroups(opts: {
         forward,
       }),
     );
+}
 
-  return { here, elsewhere: [...elsewhere, ...orphans] };
+export function portGroups(opts: {
+  terminals: TerminalsView;
+  host: HostListeners;
+  forwards: readonly KoluForward[];
+  doorPorts: ReadonlySet<number>;
+}): PortGroups {
+  const ctx: RowContext = {
+    host: opts.host,
+    doorOf: new Map(opts.forwards.map((f) => [f.remotePort, f])),
+    doorPorts: opts.doorPorts,
+    taken: new Set<number>(),
+  };
+  const here = rowsFromTerminal(ctx, opts.terminals);
+  const elsewhere = rowsElsewhereOnHost(ctx, opts.terminals.printedOnHost);
+  return {
+    here,
+    elsewhere: [...elsewhere, ...orphanRows(ctx, opts.forwards)],
+  };
 }

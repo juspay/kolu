@@ -1,19 +1,4 @@
 // @vitest-environment happy-dom
-/**
- * The Agents choice, through its one writer:
- *
- *  - Settings' list writes each edit at once — the WHOLE list — and never
- *    touches the switch; a reference it adds is remembered for the field's
- *    suggestions;
- *  - the welcome step's list starts EMPTY whatever is stored — Juspay is
- *    never there unless its one-click row is pressed — and is held, written
- *    only by "Turn on"
- *    (agents on with it). A preference write elsewhere never throws away the
- *    list being put together.
- *
- *  Settings offers Juspay as its field's first suggestion; the welcome step
- *  as a visible one-click row above its list.
- */
 
 import type { AgentDistroSetting } from "@kolu/agent-distro/schema";
 import type { AgentDistroListing } from "kolu-common/surface";
@@ -54,7 +39,6 @@ vi.mock("../wire", async () => {
 
 const NEVER: AgentDistroSetting = { enabled: false, profiles: [] };
 
-// The live facts this row reads: the package, nothing resolved yet.
 vi.mock("./useAgentDistro", () => ({
   agentDistroListing: (): AgentDistroListing => ({
     kind: "available",
@@ -76,7 +60,6 @@ afterEach(() => {
   h.writes = [];
 });
 
-/** Write the one preferences cell the way another surface would. */
 function writePrefs(patch: Partial<TestPrefs>): void {
   const prefs = h.prefs?.();
   if (prefs === undefined || h.setPrefs === undefined)
@@ -112,7 +95,6 @@ function mount(deferred: boolean) {
       ].map((r) => r.dataset.reference),
     input: () => q<HTMLInputElement>("[data-testid=agents-profile-input]"),
     juspay: () => q<HTMLButtonElement>("[data-testid=agents-add-juspay]"),
-    /** The field's suggestions, as focusing it opens them. */
     suggested: () => {
       q<HTMLInputElement>("[data-testid=agents-profile-input]")?.focus();
       return [
@@ -159,7 +141,6 @@ describe("Settings' list", () => {
       enabled: true,
       profiles: ["github:juspay/skills"],
     });
-    // Juspay is no longer suggested once the list holds it.
     input.blur();
     expect(ui.suggested().map((o) => o.dataset.value)).not.toContain(
       "github:juspay/skills",
@@ -174,7 +155,6 @@ describe("Settings' list", () => {
       enabled: true,
       profiles: ["github:juspay/skills", "~/my-profile"],
     });
-    // Remembered for the field's suggestions — Juspay is always suggested.
     expect(h.prefs?.().agentProfilesRecent).toEqual(["~/my-profile"]);
     expect(input.value).toBe("");
 
@@ -214,14 +194,12 @@ describe("the welcome step's held list", () => {
     });
     const ui = mount(true);
     expect(ui.rows()).toEqual([]);
-    // Offered, not chosen.
     expect(ui.juspay()).toBeDefined();
   });
 
   it("writes nothing until Turn on, then agents on with the list", () => {
     writePrefs({ agentDistro: null });
     const ui = mount(true);
-    // Juspay is the visible one-click row, not a suggestion in the field.
     expect(ui.suggested().map((o) => o.dataset.value)).not.toContain(
       "github:juspay/skills",
     );

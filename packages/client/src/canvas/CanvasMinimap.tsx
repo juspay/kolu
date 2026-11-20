@@ -1,5 +1,3 @@
-/** Canvas minimap — spatial overview of all tiles + integrated zoom controls. */
-
 import { sleepingArm, type TerminalMetadata } from "@kolu/padi-client/surface";
 import {
   type Component,
@@ -26,38 +24,14 @@ import type { TileLayout } from "./TileLayout";
 import { useTileTheme } from "./useTileTheme";
 import { useCanvasViewport } from "./viewport/useCanvasViewport";
 
-/** Minimap target dimensions in pixels. */
 const MAP_W = 180;
 const MAP_H = 120;
-/** Padding around tile bounding box in canvas-space units. */
 const MAP_PAD = 100;
-/** Diameter (px) of the ghost marker rendered for parked tiles when the
- *  user has hidden them. Big enough to click/drag without being visually
- *  loud. */
 const GHOST_PX = 6;
-/** Duration + easing for the morph between full rect and ghost. Shared by
- *  the tile and the bucket badge so the geometry change and the badge fade
- *  always run on the same clock. */
 const MORPH_TRANSITION = "duration-300 ease-out";
-/** Focused transition property list for the morphing tile. `transition-all`
- *  would force the browser to watch every animatable property — including
- *  hover-induced ring/shadow shifts and inherited color cascades — across
- *  every minimap tile on every reactive tick (pan, zoom, staleness check).
- *  Naming the four properties we actually animate lets the compositor
- *  short-circuit the rest. */
 const TILE_TRANSITION_PROPS =
   "transition-[left,top,width,height,background-color,border-color,border-radius]";
 
-/** Build the hover tooltip for a minimap tile. Closes #870: the previous
- *  `title={id}` showed the opaque terminal id; now it shows the same
- *  identity pair the workspace switcher uses (`repo · branch[ #suffix]`)
- *  plus a presence-specific duration line. Multi-line via `\n` — supported in
- *  modern browsers' `title` attribute.
- *
- *  The second line is keyed on the tile's presence so it reads truthfully per
- *  arm (F5): a SLEEPING tile shows "Asleep <since slept>" from `sleptAt`, not
- *  the "Active <ago>" wording a bare not-parked tile gets — a slept tile is
- *  decoupled from staleness (`parked=false`) but is emphatically not active. */
 function tileTooltip(
   info: TerminalDisplayInfo,
   meta: TerminalMetadata,
@@ -83,10 +57,6 @@ function tileTooltip(
   return lines.join("\n");
 }
 
-/** Icon button rendered in the right half of the minimap zoom bar — sits
- *  after the zoom controls behind a left divider. Today only used by the
- *  arrange button; the window-selector trigger renders compact text instead
- *  (matching the zoom-reset button style). */
 const ZoomBarButton: Component<{
   testId: string;
   title: string;
@@ -108,22 +78,11 @@ const CanvasMinimap: Component<{
   shown: boolean;
   tileIds: string[];
   getLayout: (id: string) => TileLayout | undefined;
-  /** Activate a tile (make it the focused terminal). */
   onSelect: (id: string) => void;
   onStartTileDrag: (id: string) => {
     preview: (dx: number, dy: number) => void;
     commit: (dx: number, dy: number) => void;
   } | null;
-  /** Optional: trigger the arrange-by-repo command. When provided, the
-   *  zoom bar grows an arrange button that fires this callback. Hidden
-   *  for single-tile workspaces (a single-tile arrange is a visual no-op,
-   *  same gate as the palette entry).
-   *
-   *  Why a prop and not `useCanvasArrange()` directly: arrange is a
-   *  command wired once in App.tsx (it shares the palette/centering
-   *  policy), so the canvas hands the minimap the already-bound
-   *  `handleCanvasAutoArrange`. The prop keeps the minimap ignorant of
-   *  the arrange policy itself. */
   onAutoArrange?: () => void;
 }> = (props) => {
   const viewport = useCanvasViewport();
@@ -132,12 +91,8 @@ const CanvasMinimap: Component<{
   const tileTheme = useTileTheme();
   const [hoveringViewport, setHoveringViewport] = createSignal(false);
   const [draggingViewport, setDraggingViewport] = createSignal(false);
-  // Shared per-device activity window — same signal consumed by the
-  // dock-row bucket classifier and the badge gate, so a user who
-  // shortens the window in one place shortens it everywhere.
   const isParked = useStaleCheck();
 
-  // ── Bounding box of all tiles ──
   const bounds = createMemo(
     (previous: {
       minX: number;
@@ -178,13 +133,11 @@ const CanvasMinimap: Component<{
     { minX: 0, minY: 0, maxX: 1, maxY: 1, w: 1, h: 1 },
   );
 
-  // ── Scale factor: fit bounding box into MAP_W × MAP_H ──
   const minimapScale = createMemo(() => {
     const b = bounds();
     return Math.min(MAP_W / b.w, MAP_H / b.h);
   });
 
-  // ── Canvas → minimap coordinate transform ──
   const toMinimap = (cx: number, cy: number, scale: number) => {
     const b = bounds();
     return {
@@ -193,7 +146,6 @@ const CanvasMinimap: Component<{
     };
   };
 
-  // ── Viewport rectangle in minimap space ──
   const viewportRect = createMemo(() => {
     const s = minimapScale();
     const z = viewport.zoom();
@@ -204,21 +156,14 @@ const CanvasMinimap: Component<{
     return { x: pos.x, y: pos.y, w: vw * s, h: vh * s };
   });
 
-  // ── Minimap box dimensions — asymmetric by design (see PANEL SEAM): `minW`
-  //    is a FLOOR (applied as `min-width`; the box may render wider when the
-  //    zoom bar is the wider half), while `h` is the EXACT height (the height
-  //    constraint wins the scale, so the box is exactly this tall). `minW` is
-  //    NOT the rendered width — don't read it as such. ──
-  const mapDims = createMemo(() => {
+  const mapContent = createMemo(() => {
     const b = bounds();
     const s = minimapScale();
-    return { minW: b.w * s, h: b.h * s };
+    return { contentWidthPx: b.w * s, contentHeightPx: b.h * s };
   });
 
-  // ── Viewport rect drag ──
   let abortDrag: AbortController | null = null;
   let abortTileDrag: AbortController | null = null;
-  // Suppress map click immediately after a drag ends
   let suppressNextClick = false;
   function handleViewportDrag(e: PointerEvent) {
     abortDrag = startViewportDrag(
@@ -235,7 +180,6 @@ const CanvasMinimap: Component<{
 
   function handleMapPointerDown(e: PointerEvent) {
     const map = e.currentTarget as HTMLDivElement;
-    // rect.left/top = content origin (left-anchored box — see PANEL SEAM below).
     const rect = map.getBoundingClientRect();
     const localX = e.clientX - rect.left;
     const localY = e.clientY - rect.top;
@@ -251,7 +195,6 @@ const CanvasMinimap: Component<{
 
   function handleMapPointerMove(e: PointerEvent) {
     const map = e.currentTarget as HTMLDivElement;
-    // rect.left/top = content origin (left-anchored box — see PANEL SEAM below).
     const rect = map.getBoundingClientRect();
     const localX = e.clientX - rect.left;
     const localY = e.clientY - rect.top;
@@ -265,53 +208,27 @@ const CanvasMinimap: Component<{
     );
   }
 
-  // ── Click on minimap background → pan to that point ──
   function handleMapClick(e: MouseEvent) {
     if (suppressNextClick) {
       suppressNextClick = false;
       return;
     }
-    // PANEL SEAM dead-zone: the map box can render wider than its scaled
-    // content (it stretches to the zoom-bar floor — see container comment).
-    // That extra right-hand width is inert padding with no represented tile
-    // space, so a click there must NOT pan — otherwise localX/minimapScale
-    // maps it far past the bounding box's upper X. Tiles map [0, minW] onto
-    // the full bounds width, so reject any click past minW. (Height always
-    // equals scaled content, so only width grows a dead zone.)
     const rect = (e.currentTarget as HTMLDivElement).getBoundingClientRect();
-    if (e.clientX - rect.left > mapDims().minW) return;
+    if (e.clientX - rect.left > mapContent().contentWidthPx) return;
     handleMinimapClick(e, viewport, minimapScale(), bounds());
   }
 
   return (
     <div
       data-testid="canvas-minimap"
-      // PANEL SEAM — the map + zoom bar are one pill sharing exactly one width
-      // = max(map content, bar content). Enforced by three facts that must
-      // change together: (1) this container is absolute/no-width so it
-      // shrink-to-fits its widest child and uses `items-stretch` to widen both
-      // halves; (2) the map uses `min-width` (not `width`) so it floors at
-      // scaled content but stretches wider; (3) the zoom bar declares NO width
-      // so its controls set the floor. Change none in isolation — e.g. giving
-      // the bar a width, switching to `items-start`, or putting `width` back on
-      // the map all silently break the shared-width seam.
-      //
-      // Also: the box only ever grows RIGHTWARD from `left-4`, which the gesture
-      // code depends on (see minimapGestures.ts `getBoundingClientRect` —
-      // `rect.left` is the content origin, paired with `toMinimap` mapping
-      // minX→0). Centering or right-anchoring the panel breaks BOTH the seam and
-      // the click/drag origin.
       class="absolute bottom-4 left-4 z-20 flex flex-col items-stretch gap-px"
     >
-      {/* Minimap visualization */}
       <div
         data-testid="minimap-map"
         class="rounded-t-lg bg-surface-2/80 backdrop-blur-sm border border-b-0 border-edge/40 overflow-hidden"
-        // `min-width` (not `width`) is fact (2) of the PANEL SEAM — see the
-        // container comment above.
         style={{
-          "min-width": `${mapDims().minW}px`,
-          height: `${mapDims().h}px`,
+          "min-width": `${mapContent().contentWidthPx}px`,
+          height: `${mapContent().contentHeightPx}px`,
         }}
         classList={{
           "cursor-default": !hoveringViewport() && !draggingViewport(),
@@ -323,29 +240,12 @@ const CanvasMinimap: Component<{
         onPointerLeave={() => setHoveringViewport(false)}
         onClick={handleMapClick}
       >
-        {/* Tile rectangles */}
         <For each={props.tileIds}>
           {(id) => {
             const layout = () => props.getLayout(id);
             const theme = () => tileTheme(id);
-            // Per-tile display info, resolved once and shared by the
-            // geometry memo and the badge-state memo. Without this both
-            // walked the store's keyed map independently.
             const info = createMemo(() => store.getDisplayInfo(id));
-            // The LIVE record — presence/bucket read off this, not off the
-            // display-info snapshot, so the minimap badge tracks agent/sleep
-            // changes at the leaf (see `terminalDisplay.ts`).
             const meta = createMemo(() => store.getMetadata(id));
-            // Single accessor that yields all the per-tile data the
-            // rectangle needs, or null when the tile isn't ready yet
-            // (no layout, or either half of the record still arriving). The
-            // `Show` below narrows once instead of forcing a non-null assertion
-            // on `getDisplayInfo` per field. Gates on `meta()` PRESENCE too —
-            // the same both-present contract every other canvas consumer holds
-            // (via `pairDisplayRow`), so an info-present/meta-absent skew never
-            // renders a half-tile (a `none` presence + opaque-id tooltip). This
-            // reads the `meta` REFERENCE only (turnover), not its leaves, so
-            // agent/sleep leaf churn still leaves geometry untouched.
             const tile = createMemo(() => {
               const l = layout();
               const i = info();
@@ -360,23 +260,11 @@ const CanvasMinimap: Component<{
                 repoColor: i.repoColor,
               };
             });
-            // Reactive accessor: which presence visual this tile gets, as ONE
-            // discriminant (mirroring the dock's `classifyDockRow` priority)
-            // rather than an enum plus parallel booleans whose legal
-            // combinations are a hand-enforced subset. `bucket` carries the
-            // agent sub-classification (awaiting / working) and is only
-            // meaningful when `presence === "agent"` — it drives the dot color
-            // and testid. Split from `tile()` so the minute-by-minute staleness
-            // tick doesn't invalidate the rectangle geometry — only the badge
-            // surface re-runs. Memoized because the JSX reads it per tile per tick.
             const state = createMemo(() => {
               const mt = meta();
               if (!mt)
                 return { presence: "none" as const, bucket: "none" as const };
               const bucket = metaBucket(mt);
-              // Sleeping FIRST (a deliberate dormant state, DECOUPLED from
-              // staleness — never parked-ghosted, however long it slept); then
-              // parked staleness; then agent presence; else none.
               const presence = sleepingArm(mt)
                 ? ("sleeping" as const)
                 : isParked(mt.lastActivityAt)
@@ -386,18 +274,12 @@ const CanvasMinimap: Component<{
                     : ("none" as const);
               return { presence, bucket };
             });
-            // Hover tooltip — repo · branch[ #suffix] + last-active duration,
-            // sourced from the same identity key the workspace switcher uses.
-            // Falls back to the bare id when display info hasn't arrived yet
-            // (Show guards prevent ever rendering that case, but the accessor
-            // stays total).
             const tooltip = () => {
               const i = info();
               const mt = meta();
               return i && mt ? tileTooltip(i, mt, state().presence) : id;
             };
             const handleTileClick = (e: MouseEvent) => {
-              // Don't let this also trigger the background pan-to-point.
               e.stopPropagation();
               if (suppressNextClick) {
                 suppressNextClick = false;
@@ -421,19 +303,12 @@ const CanvasMinimap: Component<{
                 },
               });
             };
-            // One morphing element covers both the full rect and the 6 px
-            // parked-ghost; CSS interpolates between them so the tile glides
-            // when `parked()` flips instead of popping.
             const presence = () => state().presence;
             const parked = () => presence() === "parked";
             const sleeping = () => presence() === "sleeping";
             const isActive = () => tileStore.isActiveTile(id);
             const hasAgent = () => presence() === "agent";
             const badgeVisible = () => hasAgent();
-            // Parked-bg comes from the `bg-fg-3/40` class (see classList) so a
-            // theme or Tailwind-color-space change flows through. Inline bg
-            // is for non-parked only — `theme().bg` is a dynamic per-repo
-            // color that can't be a static Tailwind token.
             const tileStyle = (t: {
               x: number;
               y: number;
@@ -442,8 +317,6 @@ const CanvasMinimap: Component<{
               repoColor: string;
             }): JSX.CSSProperties => {
               if (sleeping()) {
-                // Moonlit, dimmed, full-size — visually distinct from both an
-                // active repo-color tile and the parked ghost.
                 return {
                   left: `${t.x}px`,
                   top: `${t.y}px`,
@@ -462,8 +335,6 @@ const CanvasMinimap: Component<{
                   border: "1px solid transparent",
                 };
               }
-              // Fill mixes repo identity into the theme bg so small minimap
-              // tiles stay scannable (1px borders alone blur at 160px).
               return {
                 left: `${t.x}px`,
                 top: `${t.y}px`,
@@ -477,8 +348,6 @@ const CanvasMinimap: Component<{
               <Show when={tile()}>
                 {(t) => (
                   <div
-                    // Identity stable across the morph; parked-ness queried
-                    // via `data-parked`, not by swapping the testid.
                     data-testid="minimap-tile-rect"
                     data-tile-id={id}
                     data-bucket={state().bucket}
@@ -488,10 +357,6 @@ const CanvasMinimap: Component<{
                       "rounded-full bg-fg-3/40": parked(),
                       "rounded-sm hover:opacity-100": !parked(),
                       "ring-1 ring-accent/60": isActive(),
-                      // Active needs solid chrome behind its ring; parked is
-                      // already dim from bg-color so don't double-dim. Other
-                      // inactive tiles fade to 70 % so the badge + active
-                      // tile dominate.
                       "opacity-100": isActive() || parked(),
                       "opacity-70": !isActive() && !parked(),
                     }}
@@ -500,8 +365,6 @@ const CanvasMinimap: Component<{
                     onPointerDown={handleTilePointerDown}
                     onClick={handleTileClick}
                   >
-                    {/* Mount-gate stays open while parked so a bucket→none
-                        flip mid-park doesn't cut the opacity fade short. */}
                     <Show when={hasAgent() || parked()}>
                       <span
                         data-testid={`minimap-${state().bucket}-dot`}
@@ -523,7 +386,6 @@ const CanvasMinimap: Component<{
           }}
         </For>
 
-        {/* Viewport rectangle */}
         <div
           data-testid="minimap-viewport-rect"
           class="absolute pointer-events-none border-2 border-accent/50 rounded-sm"
@@ -538,9 +400,6 @@ const CanvasMinimap: Component<{
         />
       </div>
 
-      {/* Zoom bar — sits flush below the map. NO explicit width is fact (3) of
-          the PANEL SEAM: its controls' natural width sets the panel floor. See
-          the container comment above. */}
       <div
         data-testid="minimap-zoombar"
         class="flex items-center gap-px bg-surface-2/80 backdrop-blur-sm border border-t-0 border-edge/40 overflow-hidden rounded-b-lg"

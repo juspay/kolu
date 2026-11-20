@@ -1,20 +1,3 @@
-/** The tip in the bar under a tile's title bar — which ONE thing to suggest
- *  for a terminal, given what that terminal is doing, and what its chips type.
- *  Pure: no Solid, no I/O; `TileTip.tsx` feeds it.
- *
- *  A tip is a readout of the terminal's state: it shows whenever its condition
- *  holds and goes when it no longer does. Nothing is remembered. Both rungs
- *  need agents on this terminal, and read the package's harnesses off the
- *  listing:
- *    - the shell in front, in a repo → "launch an agent", one chip per harness
- *      the package brings (a chip types its name and presses Enter);
- *    - one of those harnesses in front (by its command name — known the moment
- *      it starts, before kolu has detected the agent) and no live turn yet → a
- *      plugin skill (the chip inserts its invocation, no Enter).
- *
- *  Otherwise `quiet`, with why: the state calls for no tip, or the tile is not
- *  the active one. Pending facts are not faults; broken invariants throw. */
-
 import type { TerminalAgents } from "@kolu/agent-distro/schema";
 import { agentChipProfile } from "@kolu/agent-distro/status";
 import { agentBucket } from "@kolu/terminal-vocab/agentProjection";
@@ -26,55 +9,35 @@ import type {
 import type { AgentDistroListing } from "kolu-common/surface";
 import type { PluginSkill } from "./pluginSkills";
 
-/** What a tip's chip does when clicked. */
 export type TipAction =
-  /** Type the harness's name and press Enter. */
   | { readonly kind: "launch"; readonly harness: string }
-  /** Type `text` into the agent's input, no Enter. */
   | { readonly kind: "insert"; readonly text: string };
 
-/** One click target: the words on it, and what clicking does. */
 export interface TipChip {
   readonly label: string;
   readonly action: TipAction;
 }
 
-/** Where the suggestion comes from, shown at the bar's right end. */
 export type TipSource =
   | {
       readonly kind: "agent-distro";
-      /** The profile in effect, as the tile's pill names it — `undefined`
-       *  with none (`agentChipProfile`). */
       readonly profile: string | undefined;
     }
   | { readonly kind: "kolu-plugin" };
 
-/** What the fold reads off one terminal and the app. */
 export interface TerminalTipFacts {
-  /** This terminal's tile is the active one. */
   readonly active: boolean;
-  /** The terminal's git context. */
   readonly git: GitFact;
-  /** What is in front of the shell, or `null` before the first sample. */
   readonly foreground: Foreground | null;
-  /** The detected agent, or `null` (none yet, or at the shell). */
   readonly agent: Pick<AgentInfo, "kind" | "state"> | null;
-  /** When the current agent first went live (`AgentMemory.promptedAt`). */
   readonly promptedAt: number | null;
-  /** The agents padi put on this terminal's PATH — absent when none. */
   readonly agents: TerminalAgents | undefined;
-  /** The package listing; `undefined` until its first frame. */
   readonly listing: AgentDistroListing | undefined;
-  /** The plugin skill the skill tip offers. */
   readonly skill: PluginSkill;
 }
 
-/** `id` names the rung (for `data-tip-id` and tests); nothing is stored
- *  under it. */
 export type TerminalTip = Tip | Quiet;
 
-/** A tip's words, as the bar shows them: a bold lead, the chips, and the
- *  rest of the sentence (empty when the chips say it all). */
 export interface Tip {
   readonly kind: "tip";
   readonly id: string;
@@ -88,25 +51,16 @@ export type Quiet = { readonly kind: "quiet"; readonly why: string };
 
 export const quiet = (why: string): Quiet => ({ kind: "quiet", why });
 
-/** The whole sentence, for screen readers and the tab's tooltip. */
 export function tileTipSentence(tip: Tip): string {
   const said = `${tip.lead}: ${tip.chips.map((c) => c.label).join(", ")}`;
   return tip.rest === "" ? said : `${said} ${tip.rest}`;
 }
 
-/** How a harness runs one of kolu's plugin skills, by its command name (as
- *  the agent-distro listing names it): the words on the chip, which it
- *  inserts into the agent's input (the user finishes it). Every harness
- *  agent-distro ships takes a slash command — confirmed for claude, omp and
- *  pi; assumed for codex and opencode. Exhaustive over the names the listing
- *  produces: a new harness name throws until it is decided here
- *  (`skillInvocation.test.ts` walks the pinned agent-distro's harnesses). */
 export function skillInvocation(harness: string, name: string): string {
   switch (harness) {
     case "claude":
     case "omp":
     case "pi":
-    // Not yet confirmed live:
     case "codex":
     case "opencode":
       return `/${name}`;
@@ -117,7 +71,6 @@ export function skillInvocation(harness: string, name: string): string {
   }
 }
 
-/** Pick this terminal's tip: the one its state calls for, on the active tile. */
 export function terminalTip(facts: TerminalTipFacts): TerminalTip {
   const c = candidate(facts);
   if (c.kind === "quiet") return c;
@@ -140,8 +93,6 @@ function candidate(facts: TerminalTipFacts): TerminalTip {
   const fg = facts.foreground;
   if (fg === null) return quiet("foreground not sampled yet");
   if (!fg.shell) {
-    // A harness of the package in front, by name: it is known as the process
-    // starts, while the agent itself is detected only once it has a session.
     if (!harnesses.includes(fg.name)) return quiet(`${fg.name} is running`);
     return skillTip(facts, fg.name);
   }
@@ -162,8 +113,6 @@ function candidate(facts: TerminalTipFacts): TerminalTip {
     kind: "tip",
     id: "tip-launch-agent",
     lead: "Launch an agent",
-    // Every harness of the package, in the listing's order — none is guessed
-    // at. Launching is the suggestion, so each chip runs its harness.
     chips: harnesses.map((harness) => ({
       label: harness,
       action: { kind: "launch", harness },
@@ -173,11 +122,8 @@ function candidate(facts: TerminalTipFacts): TerminalTip {
   };
 }
 
-/** The skill tip for `harness` in front: until its first live turn. */
 function skillTip(facts: TerminalTipFacts, harness: string): TerminalTip {
   const agent = facts.agent;
-  // Not detected yet is the usual case right after launch; once detected, it
-  // must still be waiting for the first message.
   if (agent !== null) {
     if (facts.promptedAt !== null) return quiet("the first prompt went out");
     const bucket = agentBucket(agent.state);
@@ -188,16 +134,8 @@ function skillTip(facts: TerminalTipFacts, harness: string): TerminalTip {
         return quiet(`${harness} is asking you something`);
       case "other":
         return quiet(`${harness} is in an unknown state`);
-      // STILL COMING UP: the chip types into the agent's input, and an agent
-      // whose screen is still being drawn has no input to type into — the
-      // keystrokes would land in a box that is about to be repainted. The tip
-      // is a moment away, so it waits rather than misfiring.
       case "starting":
         return quiet(`${harness} is still starting`);
-      // UP, SETTLED, NEVER PROMPTED — the exact moment this tip is FOR: an
-      // empty input waiting for a first message, which is what the chip
-      // inserts. Same arm as `waiting` (a detected agent between turns that
-      // nobody has spoken to yet).
       case "fresh":
       case "waiting":
         break;
@@ -212,8 +150,6 @@ function skillTip(facts: TerminalTipFacts, harness: string): TerminalTip {
     kind: "tip",
     id: `tip-skill:${harness}`,
     lead: "Try a skill",
-    // Into the agent's input, cursor left after it: the user finishes the
-    // message and sends it.
     chips: [{ label, action: { kind: "insert", text: `${label} ` } }],
     rest: `— ${facts.skill.blurb}`,
     source: { kind: "kolu-plugin" },

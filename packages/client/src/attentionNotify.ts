@@ -1,82 +1,47 @@
-/** The ONE OS-notification delivery seam for the whole client.
- *
- *  A single `createNotify` instance owned by the ONE attention module
- *  (`attention/useAttention`) — so the origin's ONE service worker has ONE seam
- *  (see `@kolu/surface-app/notify`),
- *  one permission request, and one tag-keyed multi-window de-dup discipline,
- *  never two hand-rolled copies of the same landmine handling.
- *
- *  The click payload is DISCRIMINATED by `kind` so a per-terminal click, a
- *  cross-host click and a conductor question each route to their own
- *  handler and can never cross-deliver (a `host` payload can never be read as a
- *  `terminal` one, or vice versa). The two arms that NAME A TERMINAL carry the
- *  originating `host`: a notification outlives the active-host selection, so
- *  clicking one must switch back to the host it fired FOR before focusing the
- *  terminal — otherwise the id routes against whatever padi happens to be
- *  active, focusing the wrong host's terminal (or nothing). The conductor
- *  arm carries neither, because one conversation covers every machine: there is
- *  no host to switch back to and no terminal to focus. */
-
 import { createNotify } from "@kolu/surface-app/notify";
 import { Result, Schema } from "effect";
 import { isEncodedHostKey } from "kolu-common/hostKey";
-import { type TerminalId, TerminalIdSchema } from "kolu-common/surface";
+import { TerminalIdSchema } from "kolu-common/surface";
 import { type WorkRoute, workRouteOf } from "./deepLink";
 
-/** zod's `safeParse` in Effect terms — a `Result`, so a malformed id is a BRANCH
- *  (drop the envelope) rather than a throw out of the notification router. */
-const decodeTerminalId = Schema.decodeUnknownResult(TerminalIdSchema);
+const EncodedHostKey = Schema.String.check(
+  Schema.makeFilter((s) =>
+    isEncodedHostKey(s) ? undefined : "not a canonical encoded host key",
+  ),
+);
 
-/** The routing payload carried on an attention notification. `kind` is the
- *  discriminant the single `notify.onClick` router switches on; `host` is the
- *  encoded host key the click switches to before focusing. */
-export type AttentionClick =
-  | { kind: "terminal"; host: string; terminalId: TerminalId }
-  | { kind: "host"; host: string; id: TerminalId }
-  /** A question THE CONDUCTOR is waiting on that belongs to no work. One
-   *  conversation covers every host, so this arm carries neither a terminal
-   *  id nor a host key — the click opens the conversation and nothing else. */
-  | { kind: "conductor" }
-  /** A piece of work that needs you — the click takes the one route to a
-   *  work (`#/work/…`'s), onto its card and the question. */
-  | WorkRoute;
+const AttentionClickSchema = Schema.Union([
+  Schema.Struct({ kind: Schema.Literal("conductor") }),
+  Schema.Struct({
+    kind: Schema.Literal("terminal"),
+    host: EncodedHostKey,
+    terminalId: TerminalIdSchema,
+  }),
+  Schema.Struct({
+    kind: Schema.Literal("host"),
+    host: EncodedHostKey,
+    id: TerminalIdSchema,
+  }),
+]);
 
-/** Validate a click envelope the framework relays (a live postMessage or a
- *  cold-start URL param). A stale notification from before an app upgrade, or a
- *  `{}` a degraded worker substitutes, fails this and is dropped — never routed
- *  to `deps.focusTerminal(undefined)`. Boundary DOMAIN validation, not just "is a
- *  string": the `host` must be a canonical encoded key (else `decodeHostKey` throws
- *  at click time) and the terminal id a real UUID (`TerminalIdSchema`), so a
- *  malformed value can never be cast to `TerminalId`/`HostKey` and routed. */
+const WorkClickSchema = Schema.Struct({
+  kind: Schema.Literal("work"),
+  work: Schema.Unknown,
+  ask: Schema.optionalKey(Schema.Unknown),
+});
+
+const decodeClick = Schema.decodeUnknownResult(AttentionClickSchema);
+const decodeWorkClick = Schema.decodeUnknownResult(WorkClickSchema);
+
+export type AttentionClick = typeof AttentionClickSchema.Type | WorkRoute;
+
 function parseAttentionClick(data: unknown): AttentionClick | undefined {
-  if (typeof data !== "object" || data === null) return undefined;
-  const d = data as Record<string, unknown>;
-  if (d.kind === "conductor") {
-    // The one arm with nothing in it at all: answer it here rather than
-    // falling into the shared host/terminal-id check below, which would drop
-    // every conductor envelope for lacking fields it never had.
-    return { kind: "conductor" };
-  }
-  if (d.kind === "work") {
-    // The same check a `#/work/…` link gets: a work id that names a work
-    // key, an ask that is a question id or none.
-    const route = workRouteOf(d.work, d.ask ?? null);
-    return Result.isSuccess(route) ? route.success : undefined;
-  }
-  if (d.kind !== "terminal" && d.kind !== "host") return undefined;
-  // BOTH variants carry the same two facts, so validate them ONCE: a canonical
-  // encoded `host` (the click switches to it — else `decodeHostKey` throws at
-  // click time) and a real terminal id (it focuses one — a `TerminalId`, not
-  // merely "a string"). The variants differ only in that id's field NAME
-  // (`terminalId` vs `id`), so only the final shape branches.
-  if (typeof d.host !== "string" || !isEncodedHostKey(d.host)) return undefined;
-  const idField = d.kind === "terminal" ? d.terminalId : d.id;
-  const id = decodeTerminalId(idField);
-  if (Result.isFailure(id)) return undefined;
-  return d.kind === "terminal"
-    ? { kind: "terminal", host: d.host, terminalId: id.success }
-    : { kind: "host", host: d.host, id: id.success };
+  const click = decodeClick(data);
+  if (Result.isSuccess(click)) return click.success;
+  const work = decodeWorkClick(data);
+  if (Result.isFailure(work)) return undefined;
+  const route = workRouteOf(work.success.work, work.success.ask ?? null);
+  return Result.isSuccess(route) ? route.success : undefined;
 }
 
-/** The app-wide notification seam (module singleton — created once, shared). */
 export const notify = createNotify<AttentionClick>(parseAttentionClick);

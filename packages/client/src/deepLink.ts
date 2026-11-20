@@ -1,40 +1,9 @@
-/** The deep-link grammar — a hash-URL parser that turns a `#/…` fragment into a
- *  fully-formed navigation request, or an explicit "invalid"/"none" verdict.
- *  Never a partially-valid route: a link is parsed to a total `DeepLink`, or it
- *  is rejected whole (`invalid`) — the router that consumes this can act on a
- *  `DeepLink` without re-checking any field.
- *
- *  Boundary DOMAIN validation, borrowed verbatim (bar the shape) from
- *  `attentionNotify.ts`'s click-envelope guard: `<host>` must be a canonical
- *  encoded key (`isEncodedHostKey` — else `decodeHostKey` throws at route time)
- *  and `<terminalId>` a real UUID (`TerminalIdSchema`). Same two facts every
- *  attention-notification click already carries, validated the same way.
- *
- *  The grammar (v1, the whole menu):
- *
- *    #/h/<host>                                  → switch the host binding
- *    #/t/<host>/<terminalId>                     → that host + the tile focused
- *    #/t/<host>/<terminalId>/code?path=<p>&line=<n>  → the Code tab, <p> open (at <n>)
- *    #/t/<host>/<terminalId>/inspector           → the Inspector tab
- *    #/work/<workId>                             → the Conductor, that work's card
- *    #/work/<workId>/ask/<askId>                 → …and that question brought into view
- *    #/settings                                  → the settings dialog
- *
- *  `line` lives INSIDE the code variant (a line without a path has no encoding),
- *  and `<host>` is carried as its encoded string (decoded at route time, exactly
- *  as the notification path does), never a decoded `HostKey`. A `<workId>` is
- *  ONE path segment — the work's id percent-encoded whole ({@link workLink}),
- *  since the id itself carries `/` — and must decode to a work key
- *  (`kolu-work`'s `workKeyOf`), or the link is refused. */
-
 import { Option, Result, Schema } from "effect";
 import { isEncodedHostKey } from "kolu-common/hostKey";
 import { type TerminalId, TerminalIdSchema } from "kolu-common/surface";
 import { type WorkId, workKeyOf } from "kolu-work";
 import { hashSegments } from "./hashPath";
 
-/** zod's `safeParse` in Effect terms — a `Result`, so a bad id segment is a
- *  BRANCH (an `invalid` verdict) rather than a throw out of the parser. */
 const decodeTerminalId = Schema.decodeUnknownResult(TerminalIdSchema);
 
 /** A fully-formed, ready-to-route navigation request. Every field is validated;
@@ -53,9 +22,6 @@ export type DeepLink =
   | WorkRoute
   | { kind: "settings" };
 
-/** THE ROUTE TO A WORK — its id, and the question to bring into view when
- *  there is one. What a `#/work/…` link, a notification's click and Copy link
- *  all carry. */
 export interface WorkRoute {
   readonly kind: "work";
   readonly work: WorkId;
@@ -77,8 +43,6 @@ export function workRouteOf(
   return Result.succeed({ kind: "work", work, ask });
 }
 
-/** THE ADDRESS OF A WORK, as a `#/…` fragment — what Copy link copies and
- *  what the mark on a dock row points at. */
 export const workLink = (work: WorkId, ask: string | null = null): string =>
   `#/work/${encodeURIComponent(work)}${
     ask === null ? "" : `/ask/${encodeURIComponent(ask)}`
@@ -100,10 +64,6 @@ const invalid = (reason: string): ParsedDeepLink => ({
 
 /** Parse a raw `location.hash` (with or without the leading `#`) into a verdict. */
 export function parseDeepLink(hash: string): ParsedDeepLink {
-  // The mechanics — the `#`, the query split, the segments, the decode — are
-  // the shared leaf's (`hashPath.ts`); what is this module's is the GRAMMAR
-  // over them and what each refusal means here: a route kolu never produced
-  // is a toast, an address with no route at all is silence.
   const read = hashSegments(hash);
   if (read.kind === "empty") return { kind: "none" };
   if (read.kind === "bad") return invalid(read.reason);
@@ -165,9 +125,6 @@ export function parseDeepLink(hash: string): ParsedDeepLink {
       const lineRaw = params.get("line");
       let line: number | null = null;
       if (lineRaw !== null) {
-        // A positive SAFE integer only — reject 0, negatives, decimals,
-        // non-numerics, AND digit strings that overflow to Infinity or round
-        // past Number.MAX_SAFE_INTEGER to a different line.
         const n = Number(lineRaw);
         if (!/^[0-9]+$/.test(lineRaw) || !Number.isSafeInteger(n) || n < 1) {
           return invalid(`?line must be a positive integer: ${lineRaw}`);

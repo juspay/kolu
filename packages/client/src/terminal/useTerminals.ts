@@ -1,15 +1,3 @@
-/** Terminal session state — thin composition shell.
- *
- *  ARCHITECTURE: This file wires together focused modules:
- *    - useTerminalStore.ts    — live subscriptions + client view state
- *    - useTerminalCrud.ts     — create, kill, close-all, theme, copy
- *    - useSessionRestore.ts   — hydration, session restore
- *    - useWorktreeOps.ts      — worktree create/remove
- *  (Agent-attention alerts moved out to the ONE cross-host owner,
- *  `attention/useAttention.ts`, wired in `App.tsx`.)
- *  New features should go in the appropriate module (or a new one),
- *  not back into this composition root. See #221, #242. */
-
 import { encodeHostKey } from "kolu-common/hostKey";
 import type { TerminalId } from "kolu-common/surface";
 import { createMemo } from "solid-js";
@@ -39,21 +27,6 @@ export function useTerminals() {
       store.terminalLabel(id),
     );
 
-  /** Open one terminal's exit subscription — purely to TOAST the exit code.
-   *  Called from `useTerminalExits` inside the per-terminal reactive owner
-   *  `mapArray` keys to the live list, so the subscription's `onCleanup` is
-   *  disposed when the terminal leaves the list — no manual `createRoot`.
-   *
-   *  This event does NOT drive terminal-removal cleanup: the very list-removal
-   *  that should trigger it disposes THIS subscription (the owner leaves the
-   *  list first), so the event usually loses the race and never fires — the
-   *  #1652 regression. The FULL cleanup (sub promotion, sub-panel switch/
-   *  collapse, panel + MRU eviction, focus auto-switch) is therefore list-driven
-   *  via `useActiveReconcile` (installed below), independent of this event. So a
-   *  missed exit event costs at most the toast, never correctness — matching the
-   *  stale-session `TerminalNotFound` race below (swallowed in `onError`; the
-   *  retry fence never retries a non-transport failure), where the terminal is
-   *  still removed via the list subscription. */
   function subscribeExit(id: TerminalId) {
     padiMap.useEntry(activeHost).events.terminalExit.use(
       () => ({ id }),
@@ -69,20 +42,6 @@ export function useTerminals() {
       },
       {
         onError: (err) => {
-          // Stale-session re-subscribe to a terminal the restarted server no
-          // longer has: padi raises `TerminalNotFound`. Expected (the list
-          // subscription already removed it), so swallow it rather than log a
-          // scary fault. Everything else is a real error worth surfacing.
-          //
-          // Matched STRUCTURALLY on the `_tag` (see `rpc/declaredErrors`): on a
-          // STREAM member this failure is undeclared, so it can arrive as a bare
-          // defect rather than a decoded class instance.
-          //
-          // There is no unmount-abort arm any more: teardown is a fiber
-          // interrupt, and `runStreamScoped` reports NOTHING once a subscription
-          // is stopped — so an unmount can no longer reach this callback at all
-          // (D10/#18). The old `isExpectedCleanupError` guard is deleted with the
-          // `AbortController` that raised it.
           if (isDeclared(err, TERMINAL_NOT_FOUND)) return;
           console.error("Exit stream error:", err);
         },
@@ -92,13 +51,6 @@ export function useTerminals() {
 
   const crud = useTerminalCrud();
 
-  // Keep exactly one exit subscription per live terminal (top-level and sub),
-  // keyed to the server list so kills/exits dispose it. See useTerminalExits.
-  // `allTerminalIds` is the ONE memoized projection of the list ids — also fed to
-  // the reconcile + adopt hooks below (not re-mapped per hook). `parentOf` is the
-  // store's OWN 3-valued edge (absent ≠ root), shared by both hooks so their
-  // walks answer exactly what the canvas and the Dock see, and `activeHostKey`
-  // the ONE host-scope key both host-scope their snapshot on.
   const allTerminalIds = createMemo(
     () => store.listSub()?.map((t) => t.id) ?? [],
   );
@@ -106,45 +58,14 @@ export function useTerminals() {
   const activeHostKey = () => encodeHostKey(activeHost());
   useTerminalExits({ ids: allTerminalIds, subscribe: subscribeExit });
 
-  // The FULL terminal-removal cleanup, driven off the LIST (not the raceable
-  // `terminalExit` event): when a terminal departs the list — natural PTY exit,
-  // kill, discard — its tree/chrome is reconciled (sub promotion, sub-panel
-  // switch/collapse, panel + MRU eviction, focus auto-switch). Installed HERE
-  // (not in useTerminalStore) because it needs BOTH the store and crud, and
-  // useTerminalStore's factory can't reach crud without a require cycle. See
-  // useActiveReconcile.
   useActiveReconcile({
     rawList: allTerminalIds,
     parentOf,
-    // Host-scope the reconcile: a switch replaces the whole list, and the baseline
-    // must reset rather than evict the departed host's tiles (no wrong-host writes).
     activeHostKey,
     evictDeparted: crud.evictDeparted,
-    // Only react to a departure when the terminal list is AUTHORITATIVE (a
-    // complete census) — during a supervised recycle/restart the drain empties the
-    // list and restore undoes it, so a departure isn't a user close and the client
-    // is not the lifecycle authority (see useActiveReconcile). The ONE named
-    // census fact `useDeepLinks`'s gone-verdict also gates on (#1900).
     listIsAuthoritative,
   });
 
-  // Make an EXTERNALLY-created split (padi-tui `create --parent`, another client)
-  // behave like a manual one: expand the parent's panel and — unless a live split
-  // is already active — select the new tab. Reacts to the arrival on the list, so
-  // no actor has to reach into the browser's sub-panel state. Host-scoped and
-  // gated on the restore seed so it never fights hydration. See useAdoptNewSplit.
-  //
-  // Installed BEFORE useSessionRestore so adopt observes the pre-seed phase on the
-  // seed-boundary flush. On the flush where the last terminal's metadata arrives,
-  // hydration flips the restore latch to `seeded` (a plain non-reactive write) and
-  // seeds each panel in the SAME batch; an adopt run that sampled the just-flipped
-  // `seeded` for a sub first entering the snapshot on that flush would false-adopt
-  // it (re-opening a restored-collapsed panel, persisting the wrong state). Adopt
-  // runs first for TWO independent reasons: it is created first (creation order),
-  // AND its effect is memo-backed (`on(snapshot)`) while hydration is a plain
-  // effect — SolidJS schedules a memo-backed effect ahead of a plain one. So it
-  // samples the pre-flip `decided`, baselines the sub, and skips; hydration then
-  // owns the seed. (Verified against the installed runtime in useAdoptNewSplit.test.)
   const subPanel = useSubPanel();
   const rightPanel = useRightPanel();
   useAdoptNewSplit({
@@ -156,7 +77,6 @@ export function useTerminals() {
       expandPanel: subPanel.expandPanel,
       activeSubTab: (parentId) => subPanel.paneChrome(parentId).activeSubTab,
       setActiveSubTab: subPanel.setActiveSubTab,
-      // The funnel knows the split's own parent, which is the source it has.
       seedSplitTab: (subId, parentId) =>
         rightPanel.seedSplitTab(parentId)(subId),
     },

@@ -1,8 +1,3 @@
-/** Export picker for agent transcripts.
- *
- *  The choice happens before generation so the lightweight chat log does not
- *  carry full tool payloads hidden inside the file. */
-
 import Dialog from "@corvu/dialog";
 import type { TranscriptHtmlMode } from "@kolu/padi-client/surface";
 import type { Component } from "solid-js";

@@ -1,50 +1,3 @@
-/** LOOK — the agent a create card started, seen from the chat.
- *
- *  A `lifecycle_create` card that names its terminal is the Conductor's line
- *  about an agent: "the planner is up". This is what turns that line into
- *  something a person can check without leaving the conversation. Two parts:
- *
- *  THE STATUS LINE is always there and costs nothing. It reads the terminal
- *  out of the fleet roster the client already mirrors for every host
- *  (`fleetTerminalStanding`, the same per-host streams the switcher and the `@`
- *  menu read), so it opens no stream of its own: the agent's state, how far
- *  through its own task list it is when it keeps one (`7/12`, the fraction
- *  the tile's meta line and the Inspector's card print — the record is
- *  already in hand, so this is the one place the Conductor's rows and its
- *  agent lines both get it from), and what the agent says it is doing. A
- *  terminal no longer in that roster says "terminal gone", and a sleeping one
- *  says "asleep": neither has a live screen, so neither offers Look.
- *
- *  A terminal with NO agent is read through its foreground program: the shell
- *  is "no agent · at the shell", anything else "no agent · running <name>".
- *  There is no guess to make here any more — an agent that is COMING UP is on
- *  the record as one (padi publishes `starting` while its screen is still
- *  being drawn, `fresh` once it has settled and before anyone has prompted
- *  it), so this line reads it off the record like every other state, and the
- *  one case left is a terminal that really has no agent in it.
- *
- *  THE TAIL is what Look opens: the last {@link LOOK_LINES} lines of that
- *  terminal's screen, as read-only text, read with `screen.text { id, tail }`
- *  from the terminal's OWN host and re-read every {@link LOOK_EVERY_MS} ms. It
- *  reads only while somebody can see it — open, on screen, in a visible tab,
- *  and in a conductor pane that is the shown view (`useShown`) —
- *  because a transcript can hold a dozen agent lines and each one left open
- *  would otherwise poll a machine forever for a box scrolled out of view, or
- *  for a conversation the reader left ten minutes ago. Closed, nothing is
- *  fetched: the reader is a child that exists only while the tail is open, so
- *  closing it is what ends the work.
- *
- *  WHETHER IT IS OPEN lives outside the card, keyed by the row's id. The pane
- *  itself is retained across a tab switch now, so this is no longer what
- *  survives that trip — but the transcript still replaces a row OBJECT on
- *  every update and still moves a settled call into its "Details" fold, which
- *  rebuilds the card under the person who opened it. A Look opened on the
- *  planner is expected still open when the card comes back, so the answer
- *  stays keyed by the row rather than held in the card.
- *
- *  A failed read is SHOWN, beside whatever the last good read was — never an
- *  empty box, which would read as an agent with nothing on its screen. */
-
 import { makeEventListener } from "@solid-primitives/event-listener";
 import { LogTail, type LogLine } from "@kolu/solid-logtail";
 import { toError } from "@kolu/surface/run-stream";
@@ -85,17 +38,8 @@ export const LOOK_LINES = 40;
 /** How often an open, visible Look re-reads its terminal. */
 export const LOOK_EVERY_MS = 2_000;
 
-/** Which rows have Look open, by row id. Module-level so the answer outlives
- *  the card that drew it — a fold swallowing a settled call, a row object
- *  replaced by an update (see the header). */
 const [opened, setOpened] = createStore<Record<string, true | undefined>>({});
 
-/** The dot's paint, per agent tone — the same families the dock pip and the
- *  Inspector's status card use: rust working, violet needs-you, violet at half
- *  strength for an agent that has finished its turn, and the muted `fg-3` both
- *  for an agent that is only PRESENT (`starting` / `fresh`) and for a terminal
- *  with no agent at all. The two share a dot deliberately: neither is anything
- *  happening, and the WORDS beside it are what tell them apart. */
 const DOT: Record<AgentStateTone | "none", string> = {
   busy: "bg-busy animate-pulse motion-reduce:animate-none",
   alert: "bg-alert",
@@ -104,23 +48,9 @@ const DOT: Record<AgentStateTone | "none", string> = {
   none: "bg-fg-3",
 };
 
-/** The status line's words: what the terminal is, how far through its task
- *  list the agent in it says it is, and what it says it is doing (when it
- *  says anything). */
 interface Status {
   readonly tone: keyof typeof DOT;
   readonly state: string;
-  /** HOW MANY OF ITS OWN TASKS ARE DONE — `7/12` and the sentence that says
-   *  what the fraction counts — for an agent that reports a task list, and
-   *  `null` for one that does not (most states, and every agent that keeps no
-   *  list). The fraction is the formatter the tile's meta line and the
-   *  Inspector's card already print, so the Conductor does not spell progress
-   *  a second way.
-   *
-   *  It costs no reading of its own: it is on the record this line is already
-   *  holding, which is what makes it drawable on the transcript's agent lines
-   *  and on every watched row, in both placements, without a subscription per
-   *  row. */
   readonly progress: { readonly text: string; readonly title: string } | null;
   readonly doing: string | null;
 }
@@ -132,35 +62,14 @@ const ConductorLook: Component<{
   /** The ENCODED host key the terminal lives on (`local`, `remote:…`). */
   host: string;
   id: TerminalId;
-  /** What the Look/Hide button is found by. The transcript's agent lines are
-   *  `conductor-look-toggle`; the watched panel draws the SAME peek under its
-   *  own name, so a test can say which of the two it pressed. */
   toggleTestId?: string;
-  /** HOW LONG IT HAS STOOD THIS WAY, drawn between the state and the Look —
-   *  the watched panel's clock, which belongs on this line because this line
-   *  is what it is a duration OF. Absent on the transcript's agent lines,
-   *  which say what a call did and not how long ago.
-   *
-   *  An element rather than a number: what is honest to count differs by
-   *  state (kolu keeps no per-state timestamp — see the watched panel), so
-   *  the words are the caller's and this component only gives them their
-   *  place. */
   clock?: JSX.Element;
-  /** What leads the line, before the state's dot — a work card's member
-   *  row puts the terminal's role, its name and its harness here, so the
-   *  member is ONE line with its Look on it. */
   lead?: JSX.Element;
-  /** ... and what ends it, after the Look — that row's Take over. */
   trail?: JSX.Element;
 }> = (props) => {
   const standing = createMemo(() =>
     fleetTerminalStanding(props.host, props.id),
   );
-  /** The terminal's live arm, when it has one — the ONE read of the standing
-   *  both the words and the Look button derive from. Only an ACTIVE terminal
-   *  has a screen: a sleeping one is in the roster but `screen.text` cannot
-   *  read it, so "asleep" is a status with nothing behind it — like "terminal
-   *  gone". */
   const live = createMemo(() => {
     const now = standing();
     return now.kind === "here" ? activeArm(now.meta) : undefined;
@@ -168,11 +77,6 @@ const ConductorLook: Component<{
   const lookable = () => live() !== undefined;
   const { showTipOnce } = useTips();
   const shown = useShown();
-  // The first agent line with something to look at is the moment Look is
-  // worth announcing; `showTipOnce` keeps it to once per browser. A pane kept
-  // alive behind a host tab must not spend that one announcement on a toast
-  // over somebody's terminal, so it waits until the conversation is the view
-  // being read.
   createEffect(() => {
     if (shown() && lookable()) showTipOnce(CONTEXTUAL_TIPS.conductorLook);
   });
@@ -234,12 +138,6 @@ const ConductorLook: Component<{
             progress: null,
             doing: "at the shell",
           };
-        // NO AGENT IS NOW A FACT, not an absence to read around. padi puts an
-        // `agent` on the record the moment one of its registered CLIs is the
-        // foreground program — `starting` while its screen is still being
-        // drawn, `fresh` once it has settled — so the branch above has
-        // already answered for every agent coming up. What reaches here is a
-        // terminal running something that is not an agent, and it says so.
         return {
           tone: "none",
           state: "no agent",
@@ -258,8 +156,6 @@ const ConductorLook: Component<{
       data-standing={standing().kind}
       class="col-span-full min-w-0"
     >
-      {/* ONE LINE, always: in a narrow column the status gives way first,
-          then a lead's own parts down to their floors. */}
       <div class="flex min-w-0 items-center gap-2">
         {props.lead}
         <span class={`h-2 w-2 shrink-0 rounded-full ${DOT[status().tone]}`} />
@@ -268,10 +164,6 @@ const ConductorLook: Component<{
           class="min-w-0 flex-1 truncate text-fg-2"
         >
           <span class="font-semibold text-fg">{status().state}</span>
-          {/* BESIDE THE STATE, ahead of what it is doing: `working · 7/12 ·
-              writing the plan`. The fraction is the one number on this line, so
-              it is `tabular-nums` — a row whose count ticks over must not shift
-              the words after it. */}
           <Show when={status().progress}>
             {(tasks) => (
               <>
@@ -309,13 +201,8 @@ const ConductorLook: Component<{
   );
 };
 
-/** The open tail, and the reading behind it. Exists only while Look is open on
- *  a terminal the roster still has — so its owner IS the reading's lifetime. */
 const LookTail: Component<{ host: string; id: TerminalId }> = (props) => {
   let box!: HTMLDivElement;
-  /** On screen — the transcript scrolls, and an agent line an hour up is not
-   *  being looked at whatever its toggle says. `false` until the observer has
-   *  said otherwise, so nothing is read for a box nobody has seen yet. */
   const [onScreen, setOnScreen] = createSignal(false);
   const [tabVisible, setTabVisible] = createSignal(
     document.visibilityState === "visible",
@@ -331,19 +218,13 @@ const LookTail: Component<{ host: string; id: TerminalId }> = (props) => {
     onCleanup(() => observer.disconnect());
   });
 
-  /** The last good read, or `null` before the first one lands. */
   const [lines, setLines] = createSignal<readonly LogLine[] | null>(null);
-  /** The last read's failure, cleared by the next read that succeeds. */
   const [failure, setFailure] = createSignal<string | null>(null);
 
   const shown = useShown();
+  const readable = (): boolean => shown() && onScreen() && tabVisible();
   createEffect(() => {
-    // THREE GATES, one of them not about this box at all: the pane may be
-    // retained behind a host tab, in which case the whole conversation is off
-    // screen however well laid out this tail is. It is asked FIRST and as a
-    // contextual fact — never inferred from the element, whose observer and
-    // measurements describe layout rather than attention.
-    if (!shown() || !onScreen() || !tabVisible()) return;
+    if (!readable()) return;
     const host = decodeHostKey(props.host);
     const id = props.id;
     const readOnce = Effect.suspend(() =>
@@ -362,8 +243,6 @@ const LookTail: Component<{ host: string; id: TerminalId }> = (props) => {
         onFailure: (err) => Effect.sync(() => setFailure(failureSentence(err))),
       }),
     );
-    // Owned by THIS effect run: a re-run (scrolled away, tab hidden) or the
-    // tail closing interrupts the loop, mid-read or mid-sleep.
     runOwnedAction(
       "read the terminal's last lines",
       Effect.forever(
@@ -423,8 +302,6 @@ const LookTail: Component<{ host: string; id: TerminalId }> = (props) => {
   );
 };
 
-/** A read's failure as the sentence a person reads. A tagged surface error
- *  with no message of its own is named by its tag rather than shown blank. */
 function failureSentence(err: unknown): string {
   const error = toError(err);
   if (error.message !== "") return error.message;

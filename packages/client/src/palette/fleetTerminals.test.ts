@@ -7,7 +7,7 @@ import {
   createStableFleetRows,
   type FleetTerminalRow,
   groupFleetByHost,
-  isTileTerminal,
+  isCanvasRoot,
   orderHostsActiveFirst,
   rankFleetTerminalRows,
 } from "./fleetTerminals";
@@ -51,13 +51,11 @@ describe("rankFleetTerminalRows", () => {
       row(remote, "x", 10),
       row(local, "y", 10),
     ]);
-    // local encodes before remote under localeCompare of encodeHostKey
     expect(ranked.map((r) => r.id)).toEqual(["y", "x"]);
   });
 });
 
-describe("isTileTerminal — split children are not switcher rows", () => {
-  /** Parent edge from a partial map: missing key → absent from the census. */
+describe("isCanvasRoot — split children are not switcher rows", () => {
   const edge =
     (parents: Record<string, string | null>) =>
     (id: TerminalId): TerminalId | null | undefined => {
@@ -67,27 +65,23 @@ describe("isTileTerminal — split children are not switcher rows", () => {
     };
 
   it("includes a root tile", () => {
-    expect(isTileTerminal("R" as TerminalId, edge({ R: null }))).toBe(true);
+    expect(isCanvasRoot("R" as TerminalId, edge({ R: null }))).toBe(true);
   });
 
   it("excludes a split child, at any depth", () => {
     const parentOf = edge({ R: null, M: "R", G: "M" });
-    expect(isTileTerminal("M" as TerminalId, parentOf)).toBe(false);
-    expect(isTileTerminal("G" as TerminalId, parentOf)).toBe(false);
+    expect(isCanvasRoot("M" as TerminalId, parentOf)).toBe(false);
+    expect(isCanvasRoot("G" as TerminalId, parentOf)).toBe(false);
   });
 
   it("includes a split whose parent is GONE — it paints as a tile everywhere else", () => {
-    // The parent was killed or parked with no browser attached to re-home the
-    // child, so its `parentId` dangles. The canvas and the Dock both paint it as
-    // a top-level tile; a `!parentId` test would hide it from the switcher only,
-    // making a live terminal findable from nowhere.
-    expect(isTileTerminal("G" as TerminalId, edge({ G: "gone" }))).toBe(true);
+    expect(isCanvasRoot("G" as TerminalId, edge({ G: "gone" }))).toBe(true);
   });
 
   it("includes cycle members — they are painted as tiles, never hidden", () => {
     const parentOf = edge({ A: "B", B: "A" });
-    expect(isTileTerminal("A" as TerminalId, parentOf)).toBe(true);
-    expect(isTileTerminal("B" as TerminalId, parentOf)).toBe(true);
+    expect(isCanvasRoot("A" as TerminalId, parentOf)).toBe(true);
+    expect(isCanvasRoot("B" as TerminalId, parentOf)).toBe(true);
   });
 });
 

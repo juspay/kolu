@@ -1,27 +1,3 @@
-/** The transcript REDUCER — the one place a wire frame becomes the row list the
- *  panel draws.
- *
- *  The member is explicitly discriminated (`{kind:"snapshot"|"delta"}`) for a
- *  reason this file has to honour: the framework's retry fence re-runs a dropped
- *  stream from the top, so the first frame after a reconnect is a FULL
- *  replacement. A snapshot therefore ASSIGNS — it never merges — and only a
- *  delta upserts, removes and appends. Merging a replayed snapshot into a
- *  populated map is how every row comes to exist twice.
- *
- *  Rows are kept in `seq` order rather than arrival order: a delta may refine a
- *  row minted long ago (a tool call completing, a plan replaced), and a reader
- *  that appended refinements would scatter one conversation across its own
- *  timeline.
- *
- *  The READER RULES live here too, beside the rows they read: a run of
- *  identical notices draws as one (`foldNoticeRuns`), the settled tool calls
- *  between two boundaries fold into one "Details" as they settle
- *  (`foldToolRuns`), the same failure in a row draws as one line with its
- *  count (`foldFailureRuns`), and the call that produced a question draws
- *  nothing — the ask row IS the question (`asksThroughForm` on the row). All
- *  of them are pure, so what the panel draws is decided in a unit test, and
- *  none rewrites a row — `Copy transcript` still reads them all. */
-
 import type { Saying } from "@kolu/acp/wire";
 import { isTerminalId } from "@kolu/terminal-vocab/terminalId";
 import {
@@ -39,9 +15,6 @@ import {
   toolLabel,
 } from "./toolCard";
 
-/** What the panel reads: the rows in conversation order, plus the `seq` of the
- *  last frame folded in (the writer's own ordering stamp, kept so a reader can
- *  tell a fresh stream's first frame from a continuation). */
 export interface TranscriptState {
   readonly seq: number;
   readonly rows: readonly ConductorRow[];
@@ -49,11 +22,6 @@ export interface TranscriptState {
 
 export const EMPTY_TRANSCRIPT: TranscriptState = { seq: 0, rows: [] };
 
-/** Splice one piece of streamed prose into the row it belongs to. The offset
- *  arithmetic is `appendedText`, shared with kolu-server's fold. The one case the data
- *  cannot repair is a piece that starts PAST the end — a frame went missing —
- *  so it is reported here rather than passed over in silence; the next snapshot
- *  is what actually fixes it. */
 function appendSaying(
   rows: readonly ConductorRow[],
   saying: Saying,
@@ -65,9 +33,6 @@ function appendSaying(
   }
   const row = rows[index];
   if (row === undefined) return rows;
-  // The plan row is the one kind with no `text` at all — it is replaced
-  // wholesale on every update — so an append addressed to one is a producer bug,
-  // and saying so beats silently growing a field the renderer never reads.
   if (row.kind === "plan") {
     console.warn(
       "conductor transcript: append addressed to a plan row",
@@ -90,12 +55,6 @@ function appendSaying(
   return next;
 }
 
-/** Insert or replace one row, keeping the list ordered by `seq`. A row's `seq`
- *  is stable for its lifetime, so a refinement lands exactly where the original
- *  did: the scan below finds the row by id first, and only a genuinely new row
- *  walks for its `seq` position. A linear walk, not a bisection — a transcript
- *  is a few hundred rows and a new row almost always belongs at the end, which
- *  the walk reaches in one pass over a list the renderer iterates anyway. */
 function upsert(
   rows: readonly ConductorRow[],
   row: ConductorRow,
@@ -112,8 +71,27 @@ function upsert(
   return next;
 }
 
-/** Fold one wire frame into the current state. Pure — the panel's store wraps
- *  it, and the unit tests drive it with hand-built frames. */
+type ConductorDelta = Extract<ConductorFrame, { kind: "delta" }>;
+
+type DeltaStage = (
+  rows: readonly ConductorRow[],
+  delta: ConductorDelta,
+) => readonly ConductorRow[];
+
+const retire: DeltaStage = (rows, delta) => {
+  if (delta.removes.length === 0) return rows;
+  const gone = new Set(delta.removes);
+  return rows.filter((row) => !gone.has(row.id));
+};
+
+const upsertAll: DeltaStage = (rows, delta) =>
+  delta.upserts.reduce<readonly ConductorRow[]>(upsert, rows);
+
+const appendAll: DeltaStage = (rows, delta) =>
+  delta.appends.reduce<readonly ConductorRow[]>(appendSaying, rows);
+
+const DELTA_PIPELINE: readonly DeltaStage[] = [retire, upsertAll, appendAll];
+
 export function applyFrame(
   prev: TranscriptState,
   frame: ConductorFrame,
@@ -124,60 +102,22 @@ export function applyFrame(
       rows: [...frame.rows].sort((a, b) => a.seq - b.seq),
     };
   }
-  // REMOVES → UPSERTS → APPENDS, the order stated on `ConductorFrameSchema`
-  // and obeyed by kolu-server's own fold of the same frame. It is the only order that
-  // reads a frame as "this is what the conversation is now": a row the producer
-  // retired and re-minted in one frame (an ask settled and re-asked) survives,
-  // and a piece of prose can address a row the same frame just created.
-  let rows = prev.rows;
-  if (frame.removes.length > 0) {
-    const gone = new Set(frame.removes);
-    rows = rows.filter((row) => !gone.has(row.id));
-  }
-  for (const row of frame.upserts) rows = upsert(rows, row);
-  for (const saying of frame.appends) rows = appendSaying(rows, saying);
-  return { seq: frame.seq, rows };
+  return {
+    seq: frame.seq,
+    rows: DELTA_PIPELINE.reduce((rows, stage) => stage(rows, frame), prev.rows),
+  };
 }
 
-/** One row as the panel DRAWS it: the row, and how many identical ones in a
- *  row it stands for. `repeat` is 1 for everything that is not a run. */
 export interface TranscriptEntry {
   readonly row: ConductorRow;
   readonly repeat: number;
 }
 
-/** Collapse every RUN of consecutive notices with identical text to the first
- *  of them, carrying the count.
- *
- *  The same rule kolu-server reads persisted dividers by (`oneDividerPerReset`,
- *  `server/src/conductor/persisted.ts`), and for the same reason: eight
- *  `the agent exited (code 0, signal none)` rows in a row are one fact written
- *  eight times by a loop, and a transcript that already carries them must stop
- *  showing eight of them — a reader rule, so nothing is re-minted and nothing
- *  on disk is rewritten. ADJACENT only: the same sentence an hour later is a
- *  second event and keeps its own row, because what makes a run one fact is
- *  that nothing happened between them.
- *
- *  The first is kept, because that is when it happened — and because its id is
- *  the one the list is keyed by, so a run that grows does not re-create the
- *  subtree it is drawn in. */
 export function foldNoticeRuns(
   rows: readonly ConductorRow[],
 ): readonly TranscriptEntry[] {
   const entries: TranscriptEntry[] = [];
   for (const row of rows) {
-    // NOT DRAWN AT ALL — and decided HERE, at the one door every row passes
-    // through on its way to being drawn, rather than at the `<Match>` that
-    // would have rendered the card: everything downstream counts entries (the
-    // "Details" fold's number, the failure runs, the keyed list), so a row
-    // suppressed at the render site would still be counted by all of them and
-    // leave a fold that says 4 and opens on 3. Nothing is REWRITTEN: `Copy
-    // transcript` reads the rows themselves and still has the call.
-    //
-    // WHICH call that is came decided: the harness asked the agent's own leg
-    // whether this tool's question reaches a person as a form, and the row
-    // carries the answer. The name it was decided from is one adapter's
-    // spelling and stays upstream of here.
     if (row.kind === "tool" && row.asksThroughForm === true) continue;
     const last = entries[entries.length - 1];
     if (
@@ -194,15 +134,6 @@ export function foldNoticeRuns(
   return entries;
 }
 
-/** One thing the transcript DRAWS, in order: an entry (a row, a notice run
- *  already folded to one), a FOLD — a closed "Details" holding the settled
- *  tool calls of one stretch of the Conductor's work — or a FAILURE RUN, the
- *  same failure several times in a row, drawn as one line with its count.
- *  `key` is what the list is keyed by: a row's own id; for a fold the id of the
- *  boundary that OPENS its run ({@link FOLD_AT_TOP} for the top of the
- *  transcript) — which exists from the run's first call on and never changes
- *  after, however many calls settle into it and whatever closes it later; and
- *  for a failure run the id of its first failure. */
 export type TranscriptItem =
   | {
       readonly kind: "entry";
@@ -217,24 +148,11 @@ export type TranscriptItem =
   | {
       readonly kind: "failures";
       readonly key: string;
-      /** The tool, as its cards name it. */
       readonly tool: string;
-      /** What the line SAYS after the count — the first failure's reason
-       *  whole, plus `+N more` when the others differ from it. A sentence,
-       *  not the stripped string the failures were grouped by. */
       readonly reason: string;
       readonly rows: readonly ConductorToolRow[];
     };
 
-/** Does this tool call stay IN THE FLOW rather than joining a fold? Each arm
- *  is something a reader would lose by having to open a disclosure for it:
- *   - a call still RUNNING keeps its clock where it can be seen, and joins the
- *     fold the moment it settles;
- *   - a FAILED or STRANDED call is news, never machinery;
- *   - a BACKGROUND TASK still out is live work, and the strip's reveal points
- *     at its row;
- *   - a create card that names its terminal is the agent line — its status
- *     and its Look are the point of drawing it. */
 function staysInFlow(row: ConductorToolRow): boolean {
   if (row.status === "pending" || row.status === "in_progress") return true;
   if (row.status === "failed" || row.stranded === true) return true;
@@ -242,20 +160,8 @@ function staysInFlow(row: ConductorToolRow): boolean {
   return agentLineSubject(row) !== null;
 }
 
-/** The key of a fold whose run opens the transcript: no row precedes it. */
 const FOLD_AT_TOP = "fold:top";
 
-/** Fold the machinery out of the way AS IT GOES: the settled calls of a RUN of
- *  tool rows are ONE closed "Details" carrying its count, so the conversation
- *  reads as the sentences it is — while the Conductor is still working, too.
- *  The count grows as more calls settle.
- *
- *  A run is everything between two BOUNDARIES — an `agent`, `user`, `wake` or
- *  `divider` row, or the top of the transcript — and nothing folds across
- *  one, so a fold never swallows a message of yours or outlives a session.
- *  Rows inside a run that are not plain tool calls (a question, the plan card,
- *  a notice) and calls that {@link staysInFlow} keep their own place in the
- *  flow; the fold takes the place of the FIRST call it holds. */
 export function foldToolRuns(
   entries: readonly TranscriptEntry[],
 ): readonly TranscriptItem[] {
@@ -285,11 +191,6 @@ export function foldToolRuns(
 
   for (const entry of entries) {
     const kind = entry.row.kind;
-    // A WAKE is a boundary like a message of yours, and for the same reason:
-    // it STARTS a turn. The calls before it belong to the work that was
-    // running when the terminal rang, and a fold that reached across it would
-    // put the Conductor's answer to the wake in the same closed "Details" as
-    // whatever it had been doing beforehand.
     if (
       kind !== "agent" &&
       kind !== "user" &&
@@ -307,46 +208,28 @@ export function foldToolRuns(
   return items;
 }
 
-/** One failed call as the run rule handles it: the `key` two failures are the
- *  SAME failure by, and the `said` a line would draw. */
+const REASON = Symbol("comparable failure reason");
+
+interface ComparableReason {
+  readonly [REASON]: string;
+}
+
 interface Failure {
   readonly tool: string;
-  /** The reason with every terminal it names taken out — so "Terminal A not
-   *  found" and "Terminal B not found" match. For COMPARING only: it is a
-   *  sentence with a hole in it, and the hole is often where the sentence
-   *  began ("… is not a terminal on that host"). */
-  readonly key: string;
-  /** The reason WHOLE, exactly as the card says it. */
+  readonly key: ComparableReason;
   readonly said: string;
   readonly row: ConductorToolRow;
 }
 
-/** The ADDRESS-ISH runs of a sentence — everything that is not whitespace or a
- *  quote. A reason names a terminal either bare (`local/9ab1…`) or inside a
- *  URI (`unknown resource "surface://collections/terminals/remote:box/9ab1…"`),
- *  and each of those is one run. */
 const ADDRESS_RUNS = /[^\s"'`]+/g;
 
-/** What a sentence puts AFTER an address and is not part of it. */
 const TRAILING_PUNCTUATION = /[.,;:!?)\]]+$/;
 
-/** One run with the terminal REFERENCE it ends in taken out: the id, and the
- *  host key in front of it when one is there.
- *
- *  Asked of the two vocabularies that own the halves — `isTerminalId` and
- *  `isEncodedHostKey` — rather than of a shape this file invents, so a run
- *  that merely looks like one (`surface://collections/terminals/` in front of
- *  the reference, a path segment called `local` that is not a host) keeps
- *  whatever is not a reference. That is what lets failures of a tool kolu does
- *  not recognise fold: their reason differs only inside a URI, which no
- *  `kolu` reading of the call could have pointed at. */
 function withoutTerminalRef(run: string): string {
   const addressed = run.replace(TRAILING_PUNCTUATION, "");
   const punctuation = run.slice(addressed.length);
   const idAt = addressed.lastIndexOf("/");
   if (!isTerminalId(addressed.slice(idAt + 1))) return run;
-  // Everything up to and including the separator before the id, minus the
-  // host key when the segment before the id is one.
   const head = addressed.slice(0, idAt + 1);
   const hostAt = head.slice(0, -1).lastIndexOf("/");
   const host = head.slice(hostAt + 1, -1);
@@ -355,19 +238,7 @@ function withoutTerminalRef(run: string): string {
   );
 }
 
-/** The reason two failures are the SAME failure by: the sentence with every
- *  terminal taken out of it — the one the CALL was about, when kolu read the
- *  call at all, and every reference the sentence spells, whether kolu knew
- *  the tool or not.
- *
- *  Both, because they answer different halves. The call's own subject names
- *  the terminal however the row spells it, including a name that is not an
- *  id; the run walk catches what a reason mentions on its own — a reference
- *  inside a URI, in a tool kolu has no reading of at all
- *  (`ReadMcpResourceTool`, answering `unknown resource
- *  "surface://collections/terminals/remote:box/9ab1…"` three times about three
- *  terminals). */
-function failureKey(row: ConductorToolRow, said: string): string {
+function failureKey(row: ConductorToolRow, said: string): ComparableReason {
   const subject = callSubject(row.kolu);
   const withoutSubject =
     subject === null
@@ -375,10 +246,12 @@ function failureKey(row: ConductorToolRow, said: string): string {
       : said
           .replaceAll(`${subject.host}/${subject.id}`, "")
           .replaceAll(subject.id, "");
-  return withoutSubject
-    .replace(ADDRESS_RUNS, withoutTerminalRef)
-    .replace(/\s+/g, " ")
-    .trim();
+  return {
+    [REASON]: withoutSubject
+      .replace(ADDRESS_RUNS, withoutTerminalRef)
+      .replace(/\s+/g, " ")
+      .trim(),
+  };
 }
 
 function failureOf(item: TranscriptItem): Failure | null {
@@ -389,15 +262,6 @@ function failureOf(item: TranscriptItem): Failure | null {
   return { tool: toolLabel(row), key: failureKey(row, said), said, row };
 }
 
-/** The sentence the folded line draws, from the failures it stands for: the
- *  FIRST reason whole, and — when the others are not word for word the same —
- *  `+N more` for the rest.
- *
- *  The two jobs are separate on purpose. Failures are grouped by a reason with
- *  the terminal id cut out of it, and that string is not a sentence: drawing
- *  it gave the human `watch_terminal failed 2 times: is not a terminal on
- *  that host — …`, a line starting mid-clause because the words it began with
- *  were the id. So the comparison keeps its hole and the line never shows it. */
 function failureSentence(run: readonly Failure[]): string {
   const [first, ...rest] = run;
   if (first === undefined) return "";
@@ -407,20 +271,10 @@ function failureSentence(run: readonly Failure[]): string {
   return others === 0 ? first.said : `${first.said} +${others} more`;
 }
 
-/** The same failure IN A ROW draws as one line carrying its count —
- *  "screen_text failed 6 times: …" — that opens to the individual cards. The
- *  notice rule's idea (`foldNoticeRuns`) applied to failed calls: a failure is
- *  still news, so this is not the Details fold and it stays in the flow; it
- *  only stops saying the same thing six times. "In a row" is as DRAWN:
- *  anything drawn between two failures — the Details fold, a boundary, a
- *  running call, a different failure — separates them, and a settled call
- *  that joined a fold drawn earlier does not. One failure on its own is drawn
- *  as it was. */
 export function foldFailureRuns(
   items: readonly TranscriptItem[],
 ): readonly TranscriptItem[] {
   const out: TranscriptItem[] = [];
-  /** The failures drawn in a row so far, all THE SAME one. */
   let run: { item: TranscriptItem; failure: Failure }[] = [];
 
   const flush = () => {
@@ -445,7 +299,7 @@ export function foldFailureRuns(
       failure === null ||
       last === undefined ||
       failure.tool !== last.tool ||
-      failure.key !== last.key
+      failure.key[REASON] !== last.key[REASON]
     ) {
       flush();
     }
@@ -456,15 +310,6 @@ export function foldFailureRuns(
   return out;
 }
 
-/** ONE ROW as plain text — what the header menu's `Copy transcript` puts on
- *  the clipboard, per row.
- *
- *  The panel's own drawing is not reachable from a clipboard: a tool card is
- *  a component, a plan is a list of chips, an ask is a form. So each row is
- *  reduced to the sentence a person would have read out — who said it, and
- *  what it said — and the kinds that carry no prose say what KIND they were
- *  rather than disappearing, because a transcript with the tool calls
- *  silently removed reads as a conversation that never did anything. */
 function rowText(row: ConductorRow): string {
   switch (row.kind) {
     case "user":
@@ -479,10 +324,6 @@ function rowText(row: ConductorRow): string {
     case "tool":
       return `tool: ${row.text} [${row.status}]`;
     case "ask": {
-      // THE EXCHANGE, not the headline: a question and what was said to it is
-      // the part of a conversation somebody pasting it into an issue most
-      // needs, and the card on screen reads the same lines
-      // ({@link ./askRecord}) so the clipboard cannot disagree with it.
       const lead = askLead(row);
       return [
         `ask:${lead === null ? "" : ` ${lead}`}`,
@@ -493,10 +334,6 @@ function rowText(row: ConductorRow): string {
         ...(row.ask.outcome === null ? [] : [`  [${row.ask.outcome.how}]`]),
       ].join("\n");
     }
-    // A QUESTION ABOUT A PIECE OF WORK is a row saying it was asked here; the
-    // question and its answer live on the WORK's decisions, which this fold
-    // has no record of — so the line says what happened and names the work,
-    // rather than inventing an exchange it cannot see.
     case "work-ask":
       return `ask about ${row.work}`;
     case "notice":
@@ -504,16 +341,10 @@ function rowText(row: ConductorRow): string {
     case "divider":
       return `— ${row.text} —`;
     case "wake":
-      // The ACCOUNT, not the headline: a transcript pasted into an issue is
-      // read by somebody reconstructing what the agent was told, and the
-      // headline is this browser's summary of it.
       return `${row.from}: ${row.text}`;
   }
 }
 
-/** The whole conversation as text, in the order it is drawn in. A blank line
- *  between rows, because two rows run together are one paragraph to whoever
- *  pastes this into an issue. */
 export function transcriptText(rows: readonly ConductorRow[]): string {
   return rows.map(rowText).join("\n\n");
 }

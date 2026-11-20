@@ -1,14 +1,3 @@
-/** Pure, side-effect-free presentation for kolu-server's binding to padi — the
- *  `padiLink` → tone/label table the host-chip dot and the Padi dialog read.
- *
- *  Mirrors kaval's `daemonPresentation`: the padi status dot is the padiLink sibling
- *  of {@link kavalPresencePresentation}, floored on transport liveness the same way (a dead
- *  browser↔kolu-server ws leaves the retained `padiLink` STALE, so the dot reads the
- *  grey "unknown" tone rather than a definite verdict painted off a value the dead
- *  channel can no longer confirm). Reuses `toneDot` + `DAEMON_UNKNOWN_DOT` from
- *  `daemonPresentation` so the padi and kaval dots can't drift on what
- *  "ok/warming/down/unknown" looks like. */
-
 import type { PadiLink } from "kolu-common/surface";
 import { match } from "ts-pattern";
 import {
@@ -19,11 +8,6 @@ import {
   toneDot,
 } from "../kaval/daemonPresentation";
 
-/** The single source of truth for "what does `padiLink` state X mean visually."
- *  One row per state, keyed by `PadiLink`, so a new link state is a compile-forced
- *  row rather than N scattered edits. `connecting` warms (the binding is
- *  (re)establishing), `connected` is healthy, `degraded` is down — an honest
- *  unhealthy pip when padi has dropped, never a fake green. */
 export const PADI_LINK_PRESENTATION: Record<
   PadiLink,
   { tone: DaemonTone; label: string }
@@ -33,61 +17,18 @@ export const PADI_LINK_PRESENTATION: Record<
   degraded: { tone: "down", label: "disconnected" },
 };
 
-/** padi's honest identity, once known — the fields the Padi dialog shows for a
- *  `connected` bind (build commit, contract/surface version, standing convergence
- *  anomaly). `buildCommit` is MANDATORY here — but nullable: a `null` is padi's OWN
- *  DECLARED fact ("this build has no commit", a dev/off-nix build), never a
- *  placeholder for "not sampled yet". That absence is a DIFFERENT state entirely —
- *  the whole per-host `identity` cell reading `undefined` (not yet arrived) — which
- *  {@link toPadiPresence} floors to `warming`, never `connected`. So "connected but
- *  identity unknown" stays IMPOSSIBLE TO CONSTRUCT, while "connected with a
- *  DECLARED-null commit" is legal and distinct — see `padiPresentation.test-d.ts`'s
- *  pins for both. */
 export type PadiIdentityView = {
   buildCommit: string | null;
   surfaceVersion: string;
-  /** padi's lifetime policy (`forever` in production; `boundToPid` under a
-   *  test/smoke run) — surfaced for the Padi dialog's lifetime row. A live padi
-   *  seeds it; `undefined` for a survivor padi predating the wire field, which the
-   *  row renders as "—". */
   lifetime: DaemonLifetimeView | undefined;
 };
 
-/** The Padi dialog/rail's own honest presence sum — narrower than the raw wire facts
- *  (`padiLink` + padi's per-host `identity` cell), which the dialog used to read
- *  directly with `??`/ternary fallbacks to "unknown"/"—"/"unavailable" even while
- *  `padiLink` read `connected` (the P4 escape hatch this type retires). `identity` is
- *  MANDATORY on the `connected` arm, so "connected but identity unknown" is
- *  IMPOSSIBLE TO CONSTRUCT — see `padiPresentation.test.ts`'s `@ts-expect-error` pin.
- *  Every render site must go through {@link toPadiPresence}, never read
- *  `padiLink`/the identity cell's raw value etc. directly. */
 export type PadiPresence =
   | { kind: "connected"; identity: PadiIdentityView }
-  /** A LIVE link coming up — `connecting`, or `connected` before its identity cell has
-   *  arrived. Warms (pulses), never green, never a fact. */
   | { kind: "warming" }
-  /** No trustworthy state at all — a dead/half-open channel (not live) or pre-first-value.
-   *  Grey "unknown", distinct from `warming` (the {@link kavalPresencePresentation} `unknown`
-   *  twin): a dead channel must not paint a warming pulse implying "coming up" (#1793). */
   | { kind: "unknown" }
   | { kind: "down" };
 
-/** Project the raw wire facts into the client's own honest {@link PadiPresence} — the
- *  ONE place "connected" is decided. Floored on `live` (the browser↔kolu-server ws
- *  liveness) exactly like the dot it feeds ({@link padiPresencePresentation}): a dead/half-open
- *  channel can't confirm ANY state, so it folds to `unknown` (never a stale "connected"
- *  claim over a value the
- *  dead channel can no longer refresh).
- *
- *  `identity` is the ACTIVE host's per-host `identity` cell value (`padiMap.useEntry
- *  (activeHost).cells.identity`) — `undefined` means the cell hasn't arrived over the
- *  wire yet (a genuinely PENDING state, "still learning who this is") and folds to
- *  `warming`, exactly like a not-yet-landed identity sampler tick used to. This is
- *  DELIBERATELY a single object parameter, not two nullable strings: `identity.commit`
- *  being `null` is padi's OWN DECLARED "no commit" fact (a dev/off-nix build) and
- *  reads as `connected` — the two "unknown"s (pending vs declared-null) can never be
- *  conflated by a `??` because they are different TYPES here (absent object vs a
- *  present object with a null field), not the same nullable string. */
 export function toPadiPresence(
   link: PadiLink | undefined,
   live: boolean,
@@ -99,15 +40,11 @@ export function toPadiPresence(
       }
     | undefined,
 ): PadiPresence {
-  // A dead/half-open channel or pre-first-value can't confirm ANY state → `unknown`.
   if (!live || link === undefined) return { kind: "unknown" };
   return match(link)
-    .with("connecting", () => ({ kind: "warming" }) as const) // a LIVE link still coming up
+    .with("connecting", () => ({ kind: "warming" }) as const)
     .with("degraded", () => ({ kind: "down" }) as const)
     .with("connected", () =>
-      // The identity cell PENDING (not yet arrived) is a genuinely unknown-identity
-      // state, never a synthesized "connected with no commit" — fold to warming
-      // (LIVE, coming up), not `unknown`.
       identity === undefined
         ? ({ kind: "warming" } as const)
         : ({
@@ -122,18 +59,6 @@ export function toPadiPresence(
     .exhaustive();
 }
 
-/** The presentation of a padi {@link PadiPresence} — its dot tone, its status word, AND
- *  the label's text tone, as ONE value from ONE `match` (the padi twin of
- *  {@link kavalPresencePresentation}). "The presentation of a presence" is a single
- *  concept: a new presence arm updates all three facets here at once, never in parallel
- *  exhaustive matches kept arm-aligned by hand. Both the dialog (a single memo, reading
- *  `.dot`/`.label`/`.textClass`) and the rail mark (reading `.dot`) share it, so the
- *  `!live → unknown` floor — folded into {@link toPadiPresence} — reaches every surface.
- *  `unknown` is grey + `text-fg-3`; the other arms reuse {@link PADI_LINK_PRESENTATION}'s
- *  tone/label so a `warming` reads "connecting…" and a `down` reads "disconnected". NOTE a
- *  live-but-pre-identity `connected` link folds to `warming`, so it reads the warming pulse
- *  + "connecting…" (aligned with the rail attribute and the dialog), never a premature
- *  green. */
 export function padiPresencePresentation(presence: PadiPresence): {
   dot: string;
   label: string;
@@ -153,13 +78,6 @@ export function padiPresencePresentation(presence: PadiPresence): {
   };
 }
 
-/** The `PadiLink` a presence renders AS (its dot tone, label, and `data-padi-link` attr
- *  all derive from this), or `"unknown"` for a dead/half-open channel. The ONE
- *  presence→link fold — {@link padiPresencePresentation} and the padi rail mark's
- *  `data-padi-link` attr (the machine-readable twin of the dot tone that e2e selectors key
- *  on) both read it. A live-but-pre-identity `connected` link folds to `warming` →
- *  `"connecting"` (never a premature `"connected"`), aligning the dot, label, and rail
- *  attribute. */
 export function presenceLink(presence: PadiPresence): PadiLink | "unknown" {
   return match(presence)
     .with({ kind: "unknown" }, () => "unknown" as const)
@@ -169,12 +87,6 @@ export function presenceLink(presence: PadiPresence): PadiLink | "unknown" {
     .exhaustive();
 }
 
-/** The Padi host-chip REMOTE-HOST segment — names WHERE padi is and reads as
- *  remote. `boundHost` is `daemonScanBoundHost()`: the ssh host kolu-server's padi
- *  is bound to (`KOLU_PADI_HOST`), or `null` for a LOCAL binding. Returns the
- *  `ssh · <host>` label ONLY when bound remotely, and `null` when local — so the
- *  local chip stays byte-identical (no host noise). One source of truth for the
- *  chip render AND its tooltip fragment, tested pure. */
 export function padiBoundHostSegment(boundHost: string | null): string | null {
   return boundHost ? `ssh · ${boundHost}` : null;
 }

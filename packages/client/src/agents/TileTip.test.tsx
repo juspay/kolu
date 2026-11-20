@@ -1,26 +1,4 @@
 // @vitest-environment happy-dom
-/**
- * The tile tip's bar, mounted against mocked app state. It renders the fold's
- * answer and nothing else:
- *  - each tip: its lead, chips, rest and source;
- *  - the chips are the only click targets, and type for you: each launch chip
- *    launches its own harness (name + Enter), the skill chip inserts `/kolu `
- *    with no Enter — whichever harness is in front;
- *  - the launch chips that do not fit go behind a `+N` chip whose menu launches
- *    the picked one;
- *  - the bar opens while its state holds and folds away otherwise (another
- *    tile active, a command in front, an agent at work), with a 220ms height
- *    transition that reduced motion turns off;
- *  - a press on the bar neither selects nor drags the tile;
- *  - two sizes, one preference: the bar's chevron folds it to a tab hanging
- *    from the title bar, the tab opens the bar again, and both follow the
- *    state;
- *  - tone "Tint": accent-washed surface, accent lead and left edge, a solid
- *    accent chip, a muted source;
- *  - ambient tips off, or a sleeping terminal: no tip;
- *  - the in-body overlay is gone: the terminal does not mount it.
- */
-
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -29,7 +7,6 @@ import { render } from "solid-js/web";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const state = vi.hoisted(() => ({
-  // Filled in below, once solid-js is importable.
   tipsOn: undefined as unknown as () => boolean,
   setTipsOn: undefined as unknown as (v: boolean) => void,
   meta: undefined as unknown as () => unknown,
@@ -41,14 +18,11 @@ const state = vi.hoisted(() => ({
   setCollapsed: undefined as unknown as (v: boolean) => void,
 }));
 
-// The size is one preference: read and written through the wire.
 vi.mock("../wire", () => ({
   preferences: () => ({ tipBarCollapsed: state.collapsed() }),
   updatePreferences: (p: { tipBarCollapsed: boolean }) =>
     state.setCollapsed(p.tipBarCollapsed),
 }));
-// The tooltip renders its trigger and keeps its words where a test can read
-// them.
 vi.mock("../ui/Tip", () => ({
   default: (p: { label: string; children: unknown }) => {
     const el = document.createElement("div");
@@ -76,7 +50,6 @@ vi.mock("../terminal/useTerminalCrud", () => ({
     }),
   }),
 }));
-// The send path is mocked: running an action records what it would type.
 vi.mock("../runAction", () => ({
   runAction: (
     _label: string,
@@ -133,7 +106,6 @@ const AGENTS = {
 const REPO = { kind: "repo", info: { repoName: "kolu" } };
 const NO_REPO = { kind: "none" };
 const SHELL = { name: "zsh", title: null, shell: true };
-/** `name` in front of the shell. */
 const running = (name: string) => ({ name, title: null, shell: false });
 const CLAUDE_STARTED = { foreground: running("claude") };
 const CLAUDE_WAITING = {
@@ -141,8 +113,6 @@ const CLAUDE_WAITING = {
   agent: { kind: "claude-code", state: "waiting" },
 };
 
-/** A live terminal's record at the shell in a repo, only the fields the tip
- *  reads. */
 function live(over: Record<string, unknown> = {}) {
   return {
     state: "active",
@@ -229,7 +199,6 @@ describe("TileTip — the bar for each rung", () => {
         .querySelector('[data-testid="tile-tip-source"]')
         ?.textContent?.trim(),
     ).toBe("kolu plugin");
-    // The agent-distro logo marks agent-distro only.
     expect(
       document.querySelector('[data-testid="agent-distro-logo"]'),
     ).toBeNull();
@@ -299,7 +268,6 @@ describe("TileTip — the chip types for you", () => {
   it("the rest of the bar is not a click target", () => {
     state.setMeta(live(CLAUDE_STARTED));
     mount();
-    // The chip, and the chevron that folds the bar.
     expect(
       Array.from(bar()?.querySelectorAll("button") ?? []).map((b) =>
         b.getAttribute("data-testid"),
@@ -326,7 +294,6 @@ describe("TileTip — the chip types for you", () => {
 describe("TileTip — rung 2's chips that do not fit go behind +N", () => {
   afterEach(() => vi.restoreAllMocks());
 
-  /** Every chip 60px wide, in a 200px row: two fit beside the `+N`. */
   function narrow() {
     vi.spyOn(HTMLElement.prototype, "offsetWidth", "get").mockReturnValue(60);
     vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockReturnValue(200);
@@ -468,7 +435,6 @@ describe("TileTip — two sizes: the bar and the tab", () => {
       "Open the tip: Launch an agent",
     );
     expect(slot()?.getAttribute("data-size")).toBe("tab");
-    // Folding typed nothing.
     expect(state.typed).toEqual([]);
   });
 

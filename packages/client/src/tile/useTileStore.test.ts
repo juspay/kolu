@@ -5,12 +5,6 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 type TestMeta = Partial<TerminalMetadata>;
 
-// Stub the two upstream hooks so the registry loads under Node and we can drive
-// it from a signal-backed terminal list (exactly as a server delta would move
-// `terminalIds()`). The mock returns the bag's functions DIRECTLY — so a re-
-// exposed selection accessor is reference-identical to its source, which is how
-// the test proves "one source of truth" and that the `terminalIds` stable-ref
-// keystone (#1425) is inherited verbatim.
 const bag = vi.hoisted(() => ({
   terminalIds: (() => []) as () => TerminalId[],
   metaOf: ((_id: TerminalId) => undefined) as (
@@ -46,13 +40,10 @@ import { useTileStore } from "./useTileStore";
 const tids = (...xs: string[]) => xs as TerminalId[];
 const tid = (x: string) => x as TerminalId;
 
-// Drive the registry from a signal-backed terminal list + a static metadata
-// table. Wired BEFORE the first `useTileStore()` call so the singleton factory
-// captures these reactive sources.
 const [ids, setIds] = createSignal<TerminalId[]>(tids("a", "b"));
 const META: Record<string, TestMeta> = {
   a: { canvasLayout: { x: 1, y: 2, w: 3, h: 4 } },
-  b: {}, // a terminal with no saved layout yet
+  b: {},
 };
 bag.terminalIds = ids;
 bag.metaOf = (id) => META[id];
@@ -81,14 +72,12 @@ describe("useTileStore projection", () => {
   });
 
   it("tracks the live set reactively (a closed terminal drops its tile)", () => {
-    setIds(tids("a")); // "b" closed
+    setIds(tids("a"));
     expect(store.tileIds()).toEqual(["a"]);
     expect(store.tileCount()).toBe(1);
   });
 
   it("inherits the terminalIds memo reference verbatim — the #1425 keystone", () => {
-    // The registry re-exposes the stabilized memo itself, so its no-op-skip
-    // (stable array reference on a metadata-only tick) carries over for free.
     expect(store.tileIds).toBe(bag.terminalIds);
   });
 });
@@ -109,8 +98,10 @@ describe("useTileStore layout (registry hides where it lives)", () => {
     expect(bag.persistCanvasLayout).toHaveBeenCalledWith("a", next);
   });
 
-  it("does not write for a tile that does not exist", () => {
-    store.setLayout(tid("zzz"), { x: 0, y: 0, w: 1, h: 1 });
+  it("throws instead of writing for a tile that does not exist", () => {
+    expect(() =>
+      store.setLayout(tid("zzz"), { x: 0, y: 0, w: 1, h: 1 }),
+    ).toThrow(/no tile for id/);
     expect(bag.persistCanvasLayout).not.toHaveBeenCalled();
   });
 });

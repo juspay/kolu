@@ -140,8 +140,6 @@ describe("selectWelcomeMoments", () => {
 });
 
 describe("latchKnown — the first-run flag keeps its last known reading", () => {
-  /** Run `steps` against a latch over a settable reading; return what the
-   *  latch read after each. */
   function trail(steps: readonly (boolean | undefined)[]) {
     return createRoot((dispose) => {
       const [reading, setReading] = createSignal<boolean | undefined>();
@@ -161,7 +159,6 @@ describe("latchKnown — the first-run flag keeps its last known reading", () =>
   });
 
   it("a pick that this machine has not caught up with keeps the row", () => {
-    // not done → picked, padi still `off` (not known) → downloading → ready.
     expect(trail([false, undefined, false, true])).toEqual([
       undefined,
       false,

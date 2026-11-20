@@ -14,8 +14,6 @@ describe("isStale", () => {
       why: "lastActivityAt=null → never observed, never stale",
     },
     {
-      // 0 is no longer an in-band "never observed" sentinel — it is a real
-      // (if absurd) epoch, and the honest form ages it like any other.
       lastActivityAt: 0,
       thresholdMs: HOUR,
       expected: true,

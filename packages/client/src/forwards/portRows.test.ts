@@ -1,16 +1,3 @@
-/**
- * What the ports section shows — two groups, "from this terminal" and
- * "elsewhere on this host", each port in exactly one of them, each carrying its
- * door inline.
- *
- * The one-row-per-port rule is older than the groups and stays: a forwarded
- * port once rendered as a chip in one group AND a row in another, and two
- * renderings of one fact invite the reader to hunt for the difference. What the
- * groups add is the host: a server that detached from the terminal that started
- * it is still that terminal's when the terminal printed its URL, and every other
- * listener with a story is listed below.
- */
-
 import type {
   HostListeners,
   KoluForward,
@@ -55,8 +42,6 @@ const forward = (
   createdAt: 0,
 });
 
-/** A host reading; `inTerminal` names the claimed ports some terminal's
- *  subtree holds (the scanner's `heldByTerminal`). */
 const hostOf = (
   claimed: PortInfo[],
   unclaimed: PortBind[] = [],
@@ -72,7 +57,6 @@ const hostOf = (
 
 const none = new Set<number>();
 
-/** The join with every input at its empty default, overridden per case. */
 function groups(
   opts: Partial<
     Omit<Parameters<typeof portGroups>[0], "terminals"> & TerminalsView
@@ -122,13 +106,10 @@ describe("from this terminal", () => {
     expect(g.here[0]).toMatchObject({
       forward: expect.objectContaining({ localPort: 61000 }),
     });
-    // …and not again below, though the host reading holds it too.
     expect(g.elsewhere).toEqual([]);
   });
 
   it("claims a DETACHED server whose URL this tile printed", () => {
-    // The headline: `odu web-daemon` reparented to init, so no subtree holds
-    // 18440 — but this tile printed its URL and the host positively holds it.
     const daemon = port(18440, "bun odu web-daemon");
     const g = groups({
       host: hostOf([daemon]),
@@ -149,15 +130,12 @@ describe("from this terminal", () => {
   });
 
   it("makes NO row from a printed URL the host does not hold", () => {
-    // A printed URL is an entry point, never a fact. "Nothing is listening"
-    // belongs on the printed-URL card, not as a chip made from text.
     expect(
       groups({ host: hostOf([]), printedHere: new Set([3000]) }).here,
     ).toEqual([]);
   });
 
   it("leaves a printed server another terminal runs with THAT terminal", () => {
-    // An agent echoing another tile's vite URL does not make this tile its home.
     const g = groups({
       host: hostOf([port(5173)], [], [5173]),
       printedHere: new Set([5173]),
@@ -167,9 +145,6 @@ describe("from this terminal", () => {
   });
 
   it("claims a printed server even while some OTHER terminal is unscanned", () => {
-    // Held-by-terminal is the scanner's fact from one pass — a terminal whose
-    // own record has not landed (or whose root is unreadable) cannot make every
-    // detached server on the host unclaimable.
     const g = groups({
       host: hostOf([port(18440, "bun odu web-daemon")]),
       printedHere: new Set([18440]),
@@ -225,8 +200,6 @@ describe("elsewhere on this host", () => {
   });
 
   it("hides another user's socket unless a terminal printed it or a door points at it", () => {
-    // A system daemon on 631 has no story here; one a terminal printed does, and
-    // so does one kolu already opened a door onto.
     const g = groups({
       host: hostOf([], [bind(631), bind(8443), bind(5432)]),
       printedOnHost: new Set([8443]),
@@ -242,9 +215,6 @@ describe("elsewhere on this host", () => {
   });
 
   it("shows a port by the bind a door can use when both halves hold it", () => {
-    // Our interface-only 5173 and another user's loopback 5173: the row carries
-    // the loopback bind (reachable through a door) and does not borrow our
-    // program's command — matching the printed-URL card's answer.
     const g = groups({
       host: hostOf(
         [{ ...port(5173), scope: "interface" }],
@@ -255,8 +225,6 @@ describe("elsewhere on this host", () => {
   });
 
   it("leaves out kolu's own relay listeners", () => {
-    // A door is shown as the row it serves. Its local listener as a second row
-    // is the double rendering the one-row rule removed.
     const g = groups({
       host: hostOf([port(5173), port(61000, "node kolu-server")]),
       forwards: [forward(5173, 61000)],
@@ -266,8 +234,6 @@ describe("elsewhere on this host", () => {
   });
 
   it("keeps a door with nothing behind it — as a trailing orphan", () => {
-    // A ⌘K manual forward, or one whose listener died before the reap. Dropping
-    // it would leave an open door with nothing anywhere to cancel it from.
     const g = groups({
       host: hostOf([port(3000)]),
       forwards: [forward(9229, 61000, "manual")],

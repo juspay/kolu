@@ -9,8 +9,6 @@ import {
 
 const T = (s: string) => s as TerminalId;
 
-/** Build a parent-edge reader from a partial map. Missing keys → `undefined`
- *  (absent from the census); explicit `null` → root. */
 function edge(
   parents: Record<string, string | null>,
 ): (id: TerminalId) => TerminalId | null | undefined {
@@ -44,12 +42,10 @@ describe("rootAncestorOf", () => {
 
 describe("descendantsByRoot (canvas flat splits)", () => {
   it("lands a 3-deep chain's every descendant under the root, in server order", () => {
-    // Server order: root, middle, grandchild, then an unrelated second child of root.
     const ids = [T("R"), T("M"), T("G"), T("C")];
     const parentOf = edge({ R: null, M: "R", G: "M", C: "R" });
     const byRoot = descendantsByRoot(ids, parentOf);
     expect(byRoot.get(T("R"))).toEqual([T("M"), T("G"), T("C")]);
-    // No other roots minted.
     expect([...byRoot.keys()]).toEqual([T("R")]);
   });
 
@@ -85,7 +81,6 @@ describe("descendantsByRoot (canvas flat splits)", () => {
   });
 });
 
-/** Every id in the tree, depth-first — the fold every tree consumer performs. */
 function flattenPanes(nodes: readonly PaneNode[]): TerminalId[] {
   return nodes.flatMap((n) => [n.id, ...flattenPanes(n.children)]);
 }
@@ -111,11 +106,6 @@ describe("paneTreeOf (Dock indented splits)", () => {
     ]);
   });
 
-  // THE invariant, and the whole reason the tree is a re-shaping of the flat
-  // list rather than a second walk: the canvas paints `flat`, the Dock folds
-  // the tree, and the two can never cover different terminals. Two independent
-  // traversals is exactly how a split of a split ended up with a canvas tab and
-  // no dock row at all (#2059).
   it("covers EXACTLY the flat canvas list — same ids, no more, no fewer", () => {
     const ids = [
       T("R"),
@@ -123,7 +113,6 @@ describe("paneTreeOf (Dock indented splits)", () => {
       T("G"),
       T("C"),
       T("GG"),
-      // Cycle + orphan: excluded from the flat list, so excluded from the tree.
       T("A"),
       T("B"),
       T("orphan"),
@@ -148,9 +137,6 @@ describe("paneTreeOf (Dock indented splits)", () => {
   });
 
   it("throws rather than silently re-homing a pane whose parent is not in the tile", () => {
-    // Unreachable through `descendantsByRoot` (an accepted descendant's whole
-    // chain is accepted too), so a throw here means the index broke — fail
-    // loudly instead of quietly moving the pane up to the root.
     expect(() =>
       paneTreeOf(T("R"), [T("G")], edge({ R: null, G: "M", M: "R" })),
     ).toThrow(/no parent in the tile/);

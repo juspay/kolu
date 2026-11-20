@@ -1,7 +1,3 @@
-/** Settings popover — reads and writes preferences via the wire singletons
- *  (`preferences()` / `updatePreferences(...)`). Only needs open/close state
- *  and trigger ref from the parent. */
-
 import type {
   NewTerminalTheme,
   Preferences,
@@ -27,18 +23,12 @@ const SCHEME_OPTIONS: readonly SegmentedControlOption<ColorScheme>[] = [
   { value: "system", label: "System" },
 ];
 
-/** Reactive hint table — re-read on every color-scheme change. */
 const SCHEME_HINT: Record<ColorScheme, Hint> = {
   light: { text: "Light UI at all times." },
   dark: { text: "Dark UI at all times." },
   system: { text: "Match your OS appearance." },
 };
 
-/** Auto  = system chooses per tile (WebGL on the recently-active tiles plus
- *          their active splits, DOM on others — see `canUseWebgl`, #1399).
- *  WebGL = WebGL on every tile (higher throughput; reintroduces #575
- *          context-budget risk with many terminals).
- *  DOM   = force DOM everywhere; no font shift on focus swap. */
 const RENDERER_OPTIONS: readonly SegmentedControlOption<
   Preferences["terminalRenderer"]
 >[] = [
@@ -47,8 +37,6 @@ const RENDERER_OPTIONS: readonly SegmentedControlOption<
   { value: "dom", label: "DOM" },
 ];
 
-/** Reactive hint table — re-read on every renderer change. "warn" tone flags
- *  the WebGL-every-tile context-thrash trade-off surfaced in #636. */
 const RENDERER_HINT: Record<Preferences["terminalRenderer"], Hint> = {
   auto: {
     text: "WebGL on recently-active tiles, DOM elsewhere — same grid either way.",
@@ -60,16 +48,12 @@ const RENDERER_HINT: Record<Preferences["terminalRenderer"], Hint> = {
   dom: { text: "DOM renderer; lowest GPU but more RAM. Auto is recommended." },
 };
 
-/** New-terminal creation strategy. `Inherit` copies the active terminal's
- *  theme (set one, every new terminal follows); `Shuffle` auto-picks a distinct
- *  tint via the Shuffle behaviour below. */
 const NEW_TERMINAL_THEME_OPTIONS: readonly SegmentedControlOption<NewTerminalTheme>[] =
   [
     { value: "inherit", label: "Inherit" },
     { value: "shuffle", label: "Shuffle" },
   ];
 
-/** Reactive hint table — re-read on every new-terminal-theme change. */
 const NEW_TERMINAL_THEME_HINT: Record<NewTerminalTheme, Hint> = {
   inherit: { text: "New terminals copy the active terminal's theme." },
   shuffle: {
@@ -77,9 +61,6 @@ const NEW_TERMINAL_THEME_HINT: Record<NewTerminalTheme, Hint> = {
   },
 };
 
-/** Shuffle pool — governs both a `Shuffle` new terminal and the ⌘⇧J action.
- *  `Auto` tracks the app's light/dark mode; `Dark`/`Light` force that family;
- *  `Colourful` prefers saturated (non-grey) tints; `Random` spans the catalogue. */
 const SHUFFLE_BEHAVIOR_OPTIONS: readonly SegmentedControlOption<ShuffleBehavior>[] =
   [
     { value: "random", label: "Random" },
@@ -89,7 +70,6 @@ const SHUFFLE_BEHAVIOR_OPTIONS: readonly SegmentedControlOption<ShuffleBehavior>
     { value: "colourful", label: "Colourful" },
   ];
 
-/** Reactive hint table — re-read on every shuffle-behaviour change. */
 const SHUFFLE_BEHAVIOR_HINT: Record<ShuffleBehavior, Hint> = {
   random: { text: "Any tint, light or dark — the whole catalogue." },
   dark: { text: "Dark tints only." },
@@ -112,8 +92,6 @@ const SettingsPopover: Component<{
     open: () => props.open,
     onDismiss: () => props.onOpenChange(false),
     anchor: "bottom-end",
-    // The Agents add-a-profile menu is portalled out of this panel but opened
-    // from it: a click there is not outside.
     isInside: (node) =>
       (node instanceof Element ? node : node.parentElement)?.closest(
         `[data-testid="${AGENTS_PROFILE_MENU_TESTID}"]`,
@@ -128,10 +106,6 @@ const SettingsPopover: Component<{
         <div
           ref={panelRef}
           data-testid="settings-popover"
-          // A fixed width that fits every row: hints wrap instead of setting the
-          // width, so switching a setting never moves the panel's left edge.
-          // Capped to the window below the top bar and scrolled within, so a
-          // short window still reaches the last row (the Agents profile list).
           class={`fixed z-50 ${chrome.class} p-4 w-[min(92vw,30rem)] max-h-[calc(100dvh-3.5rem)] overflow-y-auto overscroll-contain space-y-4`}
           style={{ ...panelStyle(), ...chrome.style }}
         >

@@ -1,22 +1,3 @@
-/** THE OPTIONS OF ONE QUESTION, pressable — and, past a handful of them, a
- *  box that searches the list and a list that rests on what was used before.
- *
- *  Two questions in a work's setup are drawn from a list kolu reads live: the
- *  harnesses this kolu carries, and the models a harness offers on the work's
- *  host. The second of those is routinely dozens of ids, and a row of ninety
- *  chips is not a list a person reads — so the same component that draws four
- *  options draws ninety as the few this person has used before, a box that
- *  searches all of them, and a line that unfolds the rest
- *  ({@link optionsShown}). Nothing else about a question changes with its
- *  length.
- *
- *  Searching is a plain case-insensitive contains over the value and the note
- *  beside it, the reading {@link AgentsProfileList}'s add-field already uses
- *  for its suggestions. It is NOT the palette's ranking: these options are a
- *  closed list a person is looking AT, and a ranked reorder would move the
- *  thing they were reaching for.
- */
-
 import { Option } from "effect";
 import { type Component, createMemo, createSignal, For, Show } from "solid-js";
 
@@ -33,11 +14,6 @@ export interface AskOption {
  *  every model id. */
 export const askOption = (value: string): AskOption => ({ value, note: "" });
 
-/** THE DEFAULT IS DRAWN FIRST. What this person chose last time leads the
- *  list wherever it is drawn, so the thing already selected is also the thing
- *  under their eyes; the rest keep the order they came in. A value that is
- *  not among them (nothing remembered, or a model this host no longer lists)
- *  leaves the list exactly as it was. */
 export function defaultFirst(
   options: ReadonlyArray<AskOption>,
   value: Option.Option<string>,
@@ -49,9 +25,6 @@ export function defaultFirst(
   return [first, ...options.filter((one) => one !== first)];
 }
 
-/** More options than this and the list gets a box to search it and rests on
- *  what was used before — about where a row of chips stops being something
- *  read at a glance. */
 export const OPTION_SEARCH_FROM = 8;
 
 /** The options whose value or note contains `text`, any case. */
@@ -67,19 +40,6 @@ function matching(
   );
 }
 
-/** WHAT A LIST DRAWS, and how many of its options that leaves out.
- *
- *  - A short list is drawn whole.
- *  - A search draws what matches in the WHOLE list.
- *  - Unfolded, a long list is drawn whole.
- *  - At rest, a long list draws what this person used before and what is
- *    picked now (so a model picked from a search stays under their eyes once
- *    the box is cleared), in the list's own order — which leads with the last
- *    one chosen ({@link defaultFirst}). Nothing used before draws nothing:
- *    the head of an alphabetical list is not a recommendation.
- *
- *  `hidden` counts what the rest state leaves out; it is 0 wherever the whole
- *  list, or a search of it, is drawn. */
 export function optionsShown(list: {
   readonly options: ReadonlyArray<AskOption>;
   readonly usedBefore: ReadonlyArray<string>;
@@ -99,8 +59,6 @@ export function optionsShown(list: {
   return { shown, hidden: list.options.length - shown.length };
 }
 
-/** One option chip. The SELECTED state is layered on through `classList`, so
- *  the shape of a chip is written once and only the two colours branch. */
 const OPTION_CLASS = "rounded-md border px-2.5 py-1 text-fg cursor-pointer";
 
 const BOX_CLASS =
@@ -124,7 +82,6 @@ const AskOptions: Component<{
 }> = (props) => {
   const [text, setText] = createSignal("");
   const [unfolded, setUnfolded] = createSignal(false);
-  /** Read by the list and by the two lines under it. */
   const view = createMemo(() =>
     optionsShown({
       options: props.options,
@@ -177,8 +134,6 @@ const AskOptions: Component<{
           </For>
         </div>
       </Show>
-      {/* THE REST OF A LONG LIST, said in one line: how many more, and the
-          two ways to them. Folds back the same way once unfolded. */}
       <Show
         when={
           long() && text().trim() === "" && (unfolded() || view().hidden > 0)

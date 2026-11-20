@@ -14,7 +14,6 @@ describe("connectTailClock — when the connect log last moved", () => {
   it("counts from the first frame that showed the last line, not from each re-delivery", () => {
     const tail = [line("pulling …"), line("copying path 'x'…")];
     noteConnectTail("h", tail, 1_000);
-    // The same tail re-sent every tick, as fresh objects off the wire.
     noteConnectTail(
       "h",
       tail.map((l) => ({ ...l })),

@@ -1,16 +1,9 @@
 /** Inline disclosure — a native `<details>` with a rotating chevron summary.
- *
- *  Used for the Inspector's tier-3 "reference" content (a green check list,
- *  repo paths, the kaval CLI cheatsheet): folded until asked for, or until it
- *  becomes exceptional. The `open` prop is a *reactive default*, not a
- *  controlled value: an effect re-asserts it whenever it CHANGES (so a check
- *  run flipping to `fail` auto-expands the list even mid-session), while a
- *  manual toggle in between is left alone — the user's click wins until the
- *  fact changes again. Native `<details>` carries the keyboard/ARIA behavior,
- *  so there is no toggle state to hand-roll. */
+ *  `open` is a reactive DEFAULT, not a controlled value: it is re-asserted
+ *  whenever the value changes, and a manual toggle in between is left alone. */
 
 import { type Component, createEffect, createMemo, type JSX } from "solid-js";
-import { SUMMARY_RESET } from "./disclosureChrome";
+import { DISCLOSURE_GROUPS, SUMMARY_RESET } from "./disclosureChrome";
 import { ChevronRightIcon } from "./Icons";
 
 const Disclosure: Component<{
@@ -21,26 +14,20 @@ const Disclosure: Component<{
   children: JSX.Element;
 }> = (props) => {
   let el!: HTMLDetailsElement;
-  /** The docstring's promise — a manual toggle survives until the FACT changes
-   *  — is a promise about the VALUE, not about how often the expression behind
-   *  it recomputes. A bare `createEffect(() => { el.open = props.open })` honors
-   *  it only for callers that happen to pass a narrow leaf read: it re-asserts
-   *  on every DEPENDENCY tick, so a caller passing `open={bundle().hasException}`
-   *  (one memo carrying several PR fields) slams the list shut on an unrelated
-   *  title or check-run update — mid-CI-run, which is exactly when the user has
-   *  it open. `createMemo`'s default `===` equality stops the propagation at the
-   *  boolean, so the effect fires only on a genuine flip and no caller can
-   *  express the bug. */
   const open = createMemo(() => props.open ?? false);
   createEffect(() => {
     el.open = open();
   });
   return (
-    <details ref={el} class="group/disc" data-testid={props["data-testid"]}>
+    <details
+      ref={el}
+      class={DISCLOSURE_GROUPS.disc.root}
+      data-testid={props["data-testid"]}
+    >
       <summary
         class={`${SUMMARY_RESET} py-0.5 font-mono text-[10.5px] text-fg-3 transition-colors hover:text-fg`}
       >
-        <ChevronRightIcon class="h-3 w-3 shrink-0 transition-transform group-open/disc:rotate-90 motion-reduce:transition-none" />
+        <ChevronRightIcon class={DISCLOSURE_GROUPS.disc.chevron} />
         {props.summary}
       </summary>
       <div class="pl-4 pt-1">{props.children}</div>

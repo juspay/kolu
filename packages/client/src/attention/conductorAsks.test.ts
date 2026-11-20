@@ -1,7 +1,3 @@
-/** The Conductor's bell: when something that needs you rings. Each case is
- *  one a person would notice — a stray ring for an old wait, a second ring for
- *  the same one, or a new one that stayed silent. */
-
 import { Option } from "effect";
 import {
   ABOUT_WORK,
@@ -81,7 +77,6 @@ function harness() {
       rang.push({ items: items.map((one) => one.wanted), own }),
   };
   const raw = createConductorBell(hooks);
-  /** One reading, and the decision the page makes about it once drawn. */
   const bell = {
     observe: (one: BellReading): void => {
       raw.observe(one);
@@ -96,9 +91,7 @@ describe("the Conductor's bell decides after the page has drawn", () => {
     const { raw, rang, gates } = harness();
     raw.observe(reading([]));
     const asked = question(KOLU, "a1");
-    // The reading lands; the question's box is mounted but not yet measured.
     expect(raw.observe(reading([asked]))).toBe(true);
-    // The page draws it and the observer reports it in view.
     gates.onScreen.add(asked.key);
     raw.settle();
     expect(rang).toEqual([]);
@@ -175,9 +168,6 @@ describe("the Conductor's bell", () => {
   });
 
   it("does not ring for a work's wait it only discovers as its record arrives", () => {
-    // The works load one record at a time after the conversation's first
-    // frame: a work met for the first time already waiting was waiting
-    // before this browser looked.
     const { bell, rang } = harness();
     bell.observe(reading([], { works: new Set(), workAsks: ["a1"] }));
     bell.observe(reading([question(KOLU, "a1"), merge(OLAI, 700, "c88")]));
@@ -192,9 +182,6 @@ describe("the Conductor's bell", () => {
   });
 
   it("judges a work's question by its work, though the question arrives before the work's record", () => {
-    // The real page: the server's list of open questions about works lands
-    // first, the work's record a moment later. The question is never the
-    // conversation's, so the Conductor being on screen does not silence it…
     const { raw, rang, gates } = harness();
     raw.observe(reading([], { works: new Set() }));
     gates.conversation = true;
@@ -205,7 +192,6 @@ describe("the Conductor's bell", () => {
     raw.observe(reading([asked]));
     raw.settle();
     expect(rang).toEqual([{ items: ["May I?"], own: null }]);
-    // … and it in view is what does: the same arrival, drawn and seen.
     const second = harness();
     second.raw.observe(reading([], { works: new Set() }));
     second.raw.observe(reading([], { works: new Set(), workAsks: ["a1"] }));
@@ -247,7 +233,6 @@ describe("the Conductor's bell, over real work records", () => {
   const AT = (minute: number): string =>
     new Date(Date.UTC(2026, 10, 18, 1, minute)).toISOString();
 
-  /** A full work set to hand its PR over on green, its implementor working. */
   const handOver = (): Work => {
     const questions = [
       {
@@ -319,8 +304,6 @@ describe("the Conductor's bell, over real work records", () => {
         head: HEAD,
         failing: [],
       }),
-      // What GitHub answers for a green draft. Even on the record, it is
-      // not a merge anybody can do.
       forge(20, {
         kind: "merge-state",
         pr: 702,

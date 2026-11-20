@@ -122,11 +122,7 @@ describe("CanvasTile shell selection", () => {
   });
 
   it("tells a covered tile it is still attached but has no decided box", () => {
-    // The two facts a tile states about its body, and the whole of kolu#2362
-    // §3: a tile parked behind a maximized sibling keeps its feed (a reader's
-    // place in the output survives the trip) and states NO size, because the
-    // canvas is not laying it out — it is holding it.
-    const answers: Array<{ seen: boolean; boxDecided: boolean }> = [];
+    const answers: Array<{ attached: boolean; boxDecided: boolean }> = [];
     dispose = render(
       () => (
         <CanvasTile
@@ -139,8 +135,11 @@ describe("CanvasTile shell selection", () => {
           onClose={vi.fn()}
           onToggleMaximize={vi.fn()}
           renderTitle={() => <span>Tile</span>}
-          renderBody={(seen, boxDecided) => {
-            answers.push({ seen: seen(), boxDecided: boxDecided() });
+          renderBody={(facts) => {
+            answers.push({
+              attached: facts.attached(),
+              boxDecided: facts.boxDecided(),
+            });
             return <div data-testid="body" />;
           }}
           getLayout={() => ({ x: 10, y: 20, w: 100, h: 100 })}
@@ -156,10 +155,8 @@ describe("CanvasTile shell selection", () => {
       host,
     );
 
-    expect(answers).toEqual([{ seen: false, boxDecided: false }]);
+    expect(answers).toEqual([{ attached: false, boxDecided: false }]);
     const tile = host.querySelector<HTMLElement>("[data-testid=canvas-tile]");
-    // And its box is its OWN rect, not the maximized tile's: there is nothing
-    // to measure differently when the posture ends.
     expect(tile?.style.visibility).toBe("hidden");
     expect(tile?.style.left).toBe("10px");
     expect(tile?.style.width).toBe("100px");
@@ -179,8 +176,8 @@ describe("CanvasTile shell selection", () => {
           onClose={vi.fn()}
           onToggleMaximize={vi.fn()}
           renderTitle={() => <span>Tile</span>}
-          renderBody={(_seen, boxDecided) => {
-            answers.push(boxDecided());
+          renderBody={(facts) => {
+            answers.push(facts.boxDecided());
             return <div data-testid="body" />;
           }}
           getLayout={() => ({ x: 0, y: 0, w: 100, h: 100 })}

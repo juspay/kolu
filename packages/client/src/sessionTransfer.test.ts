@@ -1,17 +1,24 @@
 import { LOCAL_LOCATION, type SavedSession } from "@kolu/padi-client/surface";
+import { Result } from "effect";
 import { describe, expect, it, vi } from "vitest";
 
-// `sessionTransfer` imports `solid-sonner` (for toast) at module scope, which
-// transitively pulls `solid-js/web`'s SSR build and fails to load under the
-// Node test runner. `parseSavedSession` is pure (no toast, no DOM) by design,
-// so stub the module out — the test never exercises the toast path.
 vi.mock("solid-sonner", () => ({ toast: {} }));
 
 import { parseSavedSession } from "./sessionTransfer";
 
-/** The id the fixtures are saved under. A saved record's `id` is a `TerminalId`
- *  by schema — restore re-spawns the terminal under it — so an export that
- *  names one anything else is refused by this very hatch. */
+const parsed = (text: string): SavedSession => {
+  const result = parseSavedSession(text);
+  if (Result.isFailure(result))
+    throw new Error(`expected a session, got: ${result.failure}`);
+  return result.success;
+};
+
+const refusal = (text: string): string => {
+  const result = parseSavedSession(text);
+  if (Result.isSuccess(result)) throw new Error("expected a refusal");
+  return result.failure;
+};
+
 const T1 = "11111111-1111-4111-8111-111111111111";
 
 const valid: SavedSession = {
@@ -21,9 +28,6 @@ const valid: SavedSession = {
       state: "active",
       cwd: "/home/user",
       git: { kind: "none" },
-      // `pr` is a persisted (restore-relevant) field after the
-      // awareness-derive-store cutover (PR #1621), so a current-schema export
-      // carries it verbatim and the parse round-trips with no backfill.
       pr: { kind: "absent" },
       location: LOCAL_LOCATION,
       restoreTarget: { kind: "none" },
@@ -37,7 +41,7 @@ const valid: SavedSession = {
 
 describe("parseSavedSession", () => {
   it("accepts a valid session export and round-trips it", () => {
-    expect(parseSavedSession(JSON.stringify(valid))).toEqual(valid);
+    expect(parsed(JSON.stringify(valid))).toEqual(valid);
   });
 
   it("accepts an empty-terminals session", () => {
@@ -46,50 +50,35 @@ describe("parseSavedSession", () => {
       activeTerminalId: null,
       savedAt: 1,
     };
-    expect(parseSavedSession(JSON.stringify(empty))).toEqual(empty);
+    expect(parsed(JSON.stringify(empty))).toEqual(empty);
   });
 
   it("rejects text that is not JSON", () => {
-    expect(() => parseSavedSession("not json")).toThrow(/valid JSON/);
+    expect(refusal("not json")).toMatch(/valid JSON/);
   });
 
   it("rejects JSON that is not a session export", () => {
-    expect(() => parseSavedSession(JSON.stringify({ foo: "bar" }))).toThrow(
+    expect(refusal(JSON.stringify({ foo: "bar" }))).toMatch(
       /valid kolu session export/,
     );
   });
 
   it("rejects a session whose terminals are malformed", () => {
     const bad = { terminals: [{ id: T1 }], savedAt: 1 };
-    expect(() => parseSavedSession(JSON.stringify(bad))).toThrow(
-      /valid kolu session export/,
-    );
+    expect(refusal(JSON.stringify(bad))).toMatch(/valid kolu session export/);
   });
 
   it("backfills a legacy export missing state/location/pr so the recovery hatch works", () => {
-    // A `kolu-session.json` exported before the schema gained the now-required
-    // `state` discriminant, `location`, and (with the awareness-derive-store
-    // cutover, PR #1621) the now-persisted `pr`. The export pre-dates the
-    // migration ladder, so without the import-side backfill the discriminated
-    // schema rejects it and the recovery hatch can't recover the very backup it
-    // exists for. The backfill repairs all three: `state: "active"` (every
-    // pre-discriminant terminal was live), `location: LOCAL_LOCATION`, and
-    // `pr: { kind: "absent" }` (the live PR sensor re-resolves on restore).
-    // `lastActivityAt` rides through verbatim — it predates these bumps. The
-    // old nullable `git` becomes the three-case fact. A record with no resume
-    // target keeps ABSENT (`none` is not invented for it).
     const legacy = {
       terminals: [{ id: T1, cwd: "/home/user", git: null, lastActivityAt: 0 }],
       activeTerminalId: T1,
       savedAt: 1_700_000_000_000,
     };
-    expect(parseSavedSession(JSON.stringify(legacy))).toEqual({
+    expect(parsed(JSON.stringify(legacy))).toEqual({
       ...legacy,
       terminals: [
         {
           ...legacy.terminals[0],
-          // The old `git: null` could mean "no repo" or "not sensed yet"; it
-          // imports as `unresolved` and restore re-samples it.
           git: { kind: "unresolved" },
           state: "active",
           location: LOCAL_LOCATION,
@@ -101,9 +90,6 @@ describe("parseSavedSession", () => {
   });
 
   it("imports an export taken before the PR said draft, with that PR pending", () => {
-    // A resolved PR saved without `isDraft`, which a decode now requires. The
-    // import forgets the reading — `pending`, "not known right now" — rather
-    // than guessing; the PR sensor reads it again once the terminal runs.
     const before = {
       ...valid,
       terminals: [
@@ -126,20 +112,13 @@ describe("parseSavedSession", () => {
         },
       ],
     };
-    expect(parseSavedSession(JSON.stringify(before))).toEqual({
+    expect(parsed(JSON.stringify(before))).toEqual({
       ...valid,
       terminals: [{ ...valid.terminals[0], pr: { kind: "pending" } }],
     });
   });
 
   it("maps a pre-cutover agentSession to an `exact` target from its STRUCTURED identity — the captured command is dropped, never parsed", () => {
-    // The awareness-derive-store cutover (PR #1621) collapsed the sticky
-    // `agentSession: { kind, id }` resume ref into the fold-derived discriminated
-    // `restoreTarget`. The identity is structured data, so it still maps to an
-    // `exact` target (the EXACT conversation, #1495) — `id` → `sessionId` — with an
-    // EMPTY argv (the flags return on the next live sample). The captured
-    // `lastAgentCommand` is DELETED and never read: re-parsing it is the forgery
-    // hole. The record predates persisted `pr`, so it is backfilled `absent`.
     const legacy = {
       terminals: [
         {
@@ -156,7 +135,7 @@ describe("parseSavedSession", () => {
       activeTerminalId: T1,
       savedAt: 1_700_000_000_000,
     };
-    expect(parseSavedSession(JSON.stringify(legacy))).toEqual({
+    expect(parsed(JSON.stringify(legacy))).toEqual({
       ...legacy,
       terminals: [
         {
@@ -183,10 +162,6 @@ describe("parseSavedSession", () => {
   });
 
   it("maps a pre-cutover command WITHOUT an agentSession to `none` — a bare shell, never a re-parsed command", () => {
-    // A record that remembered a launch command but never captured the session id
-    // has nothing honest to resume: `legacyMostRecent` is retired, and turning the
-    // captured text back into a target is the forgery hole. It imports resumable by
-    // nothing — wake lands on a bare shell.
     const legacy = {
       terminals: [
         {
@@ -202,7 +177,7 @@ describe("parseSavedSession", () => {
       activeTerminalId: T1,
       savedAt: 1_700_000_000_000,
     };
-    expect(parseSavedSession(JSON.stringify(legacy))).toEqual({
+    expect(parsed(JSON.stringify(legacy))).toEqual({
       ...legacy,
       terminals: [
         {
@@ -221,10 +196,6 @@ describe("parseSavedSession", () => {
   });
 
   it("ignores a captured command that names a DIFFERENT agent than the structured identity", () => {
-    // A cross-agent pre-cutover record: the structured `agentSession` is a
-    // claude-code conversation while the remembered line says opencode. There is
-    // no pair to reconcile any more — the line is dropped, and the resume target
-    // comes from the identity alone, so a wrong-agent resume is unspellable.
     const legacy = {
       terminals: [
         {
@@ -241,7 +212,7 @@ describe("parseSavedSession", () => {
       activeTerminalId: T1,
       savedAt: 1_700_000_000_000,
     };
-    expect(parseSavedSession(JSON.stringify(legacy))).toEqual({
+    expect(parsed(JSON.stringify(legacy))).toEqual({
       ...legacy,
       terminals: [
         {
@@ -268,21 +239,14 @@ describe("parseSavedSession", () => {
   });
 });
 
-/** juspay/kolu#2101 G9a sweep. `session.import` is client→server, the direction
- *  where an oversized frame closes the socket rather than failing the call. */
 describe("parseSavedSession refuses a file too big for one wire frame", () => {
   it("rejects before parsing, naming both sizes", () => {
-    // 5 MiB of JSON — past the ~4 MiB cap, and two orders of magnitude past any
-    // real export. Deliberately VALID JSON so the refusal cannot be mistaken
-    // for the malformed-JSON branch: the size gate must run first.
     const huge = `{"pad":"${"x".repeat(5 * 1024 * 1024)}"}`;
-    expect(() => parseSavedSession(huge)).toThrow(/the limit is/);
-    expect(() => parseSavedSession(huge)).toThrow(/5\.0 MiB/);
+    expect(refusal(huge)).toMatch(/the limit is/);
+    expect(refusal(huge)).toMatch(/5\.0 MiB/);
   });
 
   it("still accepts an ordinary export", () => {
-    // Guard the guard: a cap that rejects real sessions would be worse than no
-    // cap. This is the same round-trip the suite above exercises.
-    expect(() => parseSavedSession(JSON.stringify(valid))).not.toThrow();
+    expect(parsed(JSON.stringify(valid))).toEqual(valid);
   });
 });

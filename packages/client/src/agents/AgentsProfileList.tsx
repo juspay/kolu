@@ -1,38 +1,3 @@
-/** The Agents profile list: the profiles stacked over the harnesses, in stack
- *  order, each row its index, title (`agentProfileTitle`, the reference beside
- *  it when they differ), whether kolu-server could build it
- *  (`agentsResolvedLine`: pending, resolved, or Nix's / agent-distro's own
- *  words, red, with what that means for new terminals — Settings only) and ✕.
- *  With two rows or more, each moves up or down by its own buttons (plain
- *  buttons, so Tab reaches them and Enter or Space presses them; the focus
- *  stays on the moved row).
- *
- *  An empty list draws no rows: it is the harnesses as agent-distro ships
- *  them. The list ENDS with one read-only row — a repository's own
- *  `plugin.json` composes over everything above it — the one place the
- *  stacking rule is stated. It is not an entry of the setting, so it cannot be
- *  moved or removed.
- *
- *  With `prominentJuspay` (the welcome step), the list OPENS with a one-click
- *  "+ Juspay" row while the list does not hold it — the first-run choice made
- *  obvious, still a click and never a default; the field then suggests only
- *  the rest. Settings passes nothing: Juspay is its field's first suggestion.
- *
- *  Below it, the way to add anything: a field that takes any reference or path,
- *  with a menu of suggestions (`profileSuggestions`: Juspay's first, then the
- *  references added before, none the list holds). The menu opens when the
- *  field takes the focus, from the chevron inside its right edge, or by typing
- *  (which filters it) or ↓. ↑/↓ move, Enter adds the row in view — or, with no
- *  row in view, the text — and a click adds a row. The field never refuses
- *  what it is given; whether it builds is its row's line to say. Escape closes
- *  the menu (or, closed, empties the field). The menu is portalled, in the
- *  shared popover scaffold (`useAnchoredPopover`, `surface()`); Settings
- *  counts a click inside it as inside itself.
- *
- *  It holds no setting of its own: every edit hands the WHOLE next list to the
- *  caller, which writes it (Settings) or keeps it until "Turn on" (the welcome
- *  step). */
-
 import {
   AGENTS_UNRESOLVED_MEANS,
   type AgentsResolvedLine,
@@ -57,20 +22,14 @@ import { surface } from "../ui/Surface";
 import { useAnchoredPopover } from "../ui/useAnchoredPopover";
 import FailureWords from "./FailureWords";
 
-/** The add field's menu test id — Settings' outside-click dismiss reads it,
- *  so a pick in this portalled menu does not close Settings. */
 export const AGENTS_PROFILE_MENU_TESTID = "agents-profile-menu";
 
-/** One row as the list draws it: a reference, how it is named, and — where
- *  the list shows it — whether it builds. */
 export interface ProfileListRow {
   readonly reference: string;
   readonly title: string;
   readonly line?: AgentsResolvedLine;
 }
 
-/** The rows that match `text` — its value, title or note contains it, any
- *  case. */
 function matching(
   suggestions: readonly ProfileSuggestion[],
   text: string,
@@ -84,15 +43,12 @@ function matching(
   );
 }
 
-/** The field that adds a reference or a path to the list. */
 const AddField: Component<{
   suggestions: readonly ProfileSuggestion[];
-  /** Add `text` (the caller trims it and drops a repeat). */
   onAdd: (text: string) => void;
 }> = (props) => {
   const [draft, setDraft] = createSignal("");
   const [open, setOpen] = createSignal(false);
-  // Typing filters; the chevron shows every row.
   const [filtering, setFiltering] = createSignal(false);
   const [active, setActive] = createSignal<number | undefined>();
   const rows = createMemo(() =>
@@ -133,8 +89,6 @@ const AddField: Component<{
     open,
     onDismiss: close,
     anchor: "bottom-start",
-    // The field sits at the foot of Settings, which is capped to the window:
-    // the menu opens upward when there is more room there.
     flip: true,
   });
   const chrome = surface({ radius: "lg", shadow: "light", portalled: true });
@@ -165,8 +119,6 @@ const AddField: Component<{
           setDraft(e.currentTarget.value);
           show(true);
         }}
-        // Native, so Escape can stop here: with the menu open it closes the
-        // menu, not Settings around it.
         on:keydown={(e) => {
           switch (e.key) {
             case "ArrowDown":
@@ -205,7 +157,6 @@ const AddField: Component<{
           aria-controls="agents-profile-options"
           tabIndex={-1}
           class="absolute inset-y-0 right-0 flex w-8 cursor-pointer items-center justify-center rounded-r-lg text-fg-3 transition-colors hover:text-fg"
-          // Keep the focus in the input: a blur there closes the menu.
           onMouseDown={(e) => e.preventDefault()}
           onClick={() => {
             if (open()) close();
@@ -246,7 +197,6 @@ const AddField: Component<{
                     "bg-surface-3 text-fg": active() === i(),
                     "text-fg-2 hover:bg-surface-2": active() !== i(),
                   }}
-                  // Keep the focus in the input: a blur there closes the menu.
                   onMouseDown={(e) => e.preventDefault()}
                   onMouseEnter={() => setActive(i())}
                   onClick={() => add(row.value)}
@@ -274,8 +224,6 @@ const AddField: Component<{
   );
 };
 
-/** A row's line: pending, resolved, or the failure's own words in red —
- *  Nix's output under them — with what it means for new terminals. */
 const ResolvedLine: Component<{ line: AgentsResolvedLine }> = (props) => (
   <div
     data-testid="agents-resolved"
@@ -314,21 +262,31 @@ const ResolvedLine: Component<{ line: AgentsResolvedLine }> = (props) => (
   </div>
 );
 
-/** A row's small square action button. */
 const ROW_BUTTON =
   "grid h-6 w-6 shrink-0 cursor-pointer place-items-center rounded-md text-fg-3 transition-colors hover:bg-surface-3 hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 disabled:cursor-default disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-fg-3";
 
 type RowAction = "up" | "down" | "remove";
 
+function restoreRowFocus(
+  list: HTMLOListElement,
+  target: { readonly reference: string; readonly action: RowAction },
+): void {
+  const row = [
+    ...list.querySelectorAll<HTMLElement>("[data-testid=agents-profile-row]"),
+  ].find((el) => el.dataset.reference === target.reference);
+  const buttons = row
+    ? [...row.querySelectorAll<HTMLButtonElement>("button[data-action]")]
+    : [];
+  const button =
+    buttons.find((b) => b.dataset.action === target.action && !b.disabled) ??
+    buttons.find((b) => !b.disabled);
+  button?.focus();
+}
+
 const AgentsProfileList: Component<{
-  /** The list's rows, in stack order. */
   rows: readonly ProfileListRow[];
-  /** The add field's suggestions (`profileSuggestions`). */
   suggestions: readonly ProfileSuggestion[];
-  /** Offer Juspay as a visible one-click row above the list, and not in the
-   *  field's menu (the welcome step). */
   prominentJuspay?: boolean;
-  /** The whole next list, after one edit. */
   onChange: (next: readonly string[]) => void;
 }> = (props) => {
   const references = createMemo(() => props.rows.map((r) => r.reference));
@@ -337,16 +295,10 @@ const AgentsProfileList: Component<{
   );
   let list: HTMLOListElement | undefined;
 
-  // Where the focus goes once an edit has redrawn the list: the same button
-  // of the moved row — or, after a removal, of the row that took its place.
-  // A moved node can lose the focus as the list reorders, so it is put back
-  // explicitly — once the list has actually changed (Settings' write comes
-  // back through the preferences cell), not before.
   const [refocus, setRefocus] = createSignal<
     | {
         readonly reference: string;
         readonly action: RowAction;
-        /** The list as it was when the edit was made. */
         readonly before: string;
       }
     | undefined
@@ -356,17 +308,7 @@ const AgentsProfileList: Component<{
     const now = JSON.stringify(references());
     if (target === undefined || list === undefined || now === target.before)
       return;
-    const row = [
-      ...list.querySelectorAll<HTMLElement>("[data-testid=agents-profile-row]"),
-    ].find((el) => el.dataset.reference === target.reference);
-    const buttons = row
-      ? [...row.querySelectorAll<HTMLButtonElement>("button[data-action]")]
-      : [];
-    // A row moved to an end has that direction disabled: take the other one.
-    const button =
-      buttons.find((b) => b.dataset.action === target.action && !b.disabled) ??
-      buttons.find((b) => !b.disabled);
-    button?.focus();
+    restoreRowFocus(list, target);
     setRefocus(undefined);
   });
 

@@ -34,25 +34,15 @@ import type { TerminalId } from "kolu-common/surface";
  *  Holding fewer live contexts also lowers the steady-state GPU/VRAM baseline. */
 export const WEBGL_CONTEXT_CAP = 8;
 
-/** The minimal slice of a tile's sub-panel state that determines its WebGL
- *  footprint — pure booleans/ids, no SolidJS store, so the cost model is
- *  node-testable in isolation. */
 interface PanelWebglShape {
   collapsed: boolean;
   activeSubTab: TerminalId | null;
 }
 
-/** Does this tile have an expanded, active split? The single home for the
- *  split-cost axis (#1399): a split that is collapsed is invisible and holds no
- *  context, an expanded one with an active sub-tab does. Both `tileWebglCost`
- *  and the store's `holdsWebgl` build on this one sub-fact, so the budgeted
- *  count and the per-terminal grant can't drift apart. */
 function hasActiveSplit(panel: PanelWebglShape): boolean {
   return !panel.collapsed && panel.activeSubTab !== null;
 }
 
-/** Whether `childId` is the tile's expanded, active split — i.e. the one
- *  sub-terminal that inherits the tile's WebGL slot. */
 export function isActiveSplit(
   panel: PanelWebglShape,
   childId: TerminalId,
@@ -60,23 +50,10 @@ export function isActiveSplit(
   return hasActiveSplit(panel) && panel.activeSubTab === childId;
 }
 
-/** A tile's WebGL-context cost: 1 for its main pane, +1 for an expanded, active
- *  split — the quantity `admitWebglTiles` counts against the cap (#575). Built on
- *  `hasActiveSplit`, so it stays in lockstep with the per-terminal grant. */
 export function tileWebglCost(panel: PanelWebglShape): number {
   return 1 + (hasActiveSplit(panel) ? 1 : 0);
 }
 
-/** Greedily admit `ordered` tiles (most-recently-active first) until the next
- *  one would push the running `costOf` total past `cap` (cost per tile comes from
- *  `tileWebglCost`). Pure (no SolidJS / DOM) so the #1399 cap policy — admit the
- *  whole working set, but never overflow Chrome's per-tab limit — is
- *  unit-testable in isolation.
- *
- *  **Precondition:** `costOf(id)` must return a positive integer for every id.
- *  A non-positive cost would let a tile be admitted without advancing the running
- *  total toward `cap`, silently over-admitting past Chrome's context limit — the
- *  #575 failure this cap exists to prevent — so it throws rather than over-admit. */
 export function admitWebglTiles(
   ordered: readonly TerminalId[],
   costOf: (id: TerminalId) => number,

@@ -1,33 +1,7 @@
-/** Per-host WIRE SUBSCRIPTIONS retained across switch-away (padi W9 — completing
- *  W7's K1). The acceptance suite for the six per-host readouts (`terminalKeys`,
- *  the `terminals` collection, saved session, activity feed, daemon status, and
- *  padi's `roster` standing) moved
- *  OUT of `wire.ts`'s `useEntry(activeHost)` block and INTO the retained
- *  `scopedByEntry` owner via `hostScope/createHostWire`.
- *
- *  The pin: a host's wire subscriptions are opened LAZILY on first activation,
- *  RETAINED across every switch-away (NOT torn down and reopened from pending —
- *  the ~1s canvas-rebuild W9 removes), and DISPOSED only when the host leaves
- *  `padiMap.entries`. If a future edit regresses these back onto `useEntry`
- *  (dispose-on-key-change), the "opened stays 1 across A→B→A" assertion fails —
- *  the structural guard that switch-back has no resubscribe, so no pending window
- *  can exist.
- *
- *  Same real-owner fixture as `perHostViewState.test.ts`: a REAL `scopedByEntry`
- *  over the shared mock `padiMap` (`hostScope/mockHostMap.testlib`), membership
- *  driven by `addHost`/`removeHost`/`resetHosts` and the active host by one
- *  module-stable signal. The mock's `entry(host)` is instrumented so each retained
- *  cell/collection `.use()` records an open + an `onCleanup`, giving the lifecycle
- *  the assertions below read via `wireLifecycle`. */
-
 import type { HostKey } from "kolu-common/hostKey";
 import { batch, createRoot, createSignal } from "solid-js";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-// The `./wire` mock stands up the mock `padiMap` (with the instrumented `entry`)
-// the real owner reads — its `entry().collections.terminals.unenrolledKeys` is the
-// keys stream `createHostWire` opens — and the per-tab `activeHost` signal that
-// drives per-host keying.
 const bag = vi.hoisted(() => ({
   activeHost: (() => ({ kind: "local" })) as () => HostKey,
 }));
@@ -39,7 +13,6 @@ vi.mock("./wire", async () => {
   return {
     padiMap: mockPadiMap,
     activeHost: () => bag.activeHost(),
-    // The GROUNDED accessor the per-host scope reads — the shared testlib composition.
     groundedActiveHost: mockGroundedActiveHost(() => bag.activeHost()),
   };
 });
@@ -53,19 +26,14 @@ import {
   wireLifecycle,
 } from "./hostScope/mockHostMap.testlib";
 
-/** Solid flushes membership/keying (and the keyArray render effect that builds an
- *  owner) on a microtask; a macrotask drains it. */
 const flush = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
 
 const HOST_A: HostKey = { kind: "local" };
 const HOST_B: HostKey = { kind: "remote", target: "B" };
 
-// Module-level STABLE active-host signal (the app-lifetime owner tracks it ONCE).
 const [driveHost, setDriveHost] = createSignal<HostKey>(HOST_A);
 bag.activeHost = driveHost;
 
-/** A real host switch: ADD the target as a member and make it active, in one
- *  batch — the owner builds (first activation) or re-keys `activeScope()` to it. */
 function switchTo(host: HostKey): void {
   batch(() => {
     addHost(host);
@@ -74,8 +42,6 @@ function switchTo(host: HostKey): void {
 }
 
 beforeEach(() => {
-  // Empty membership FIRST — disposes the prior test's per-host owners — then reset
-  // the active host and the lifecycle tallies for clean per-test isolation.
   resetHosts();
   setDriveHost(HOST_A);
   resetWireLog();
@@ -85,23 +51,16 @@ describe("per-host wire subscriptions (padi W9 — instant host switch-back)", (
   it("opens a host's wire subs LAZILY on first activation — a member you never visit costs nothing", async () => {
     await createRoot(async (dispose) => {
       try {
-        // Visit A (the default active host): its owner builds, opening its subs.
-        // `createHostWire` opens FIVE subs through the instrumented `entry(host)`
-        // (terminals, session, roster, activityFeed, daemonStatus); the sixth,
-        // terminalKeys, rides `createReactiveSubscription` and is not counted here.
         switchTo(HOST_A);
         void activeScope();
         await flush();
         expect(wireLifecycle(HOST_A).opened).toBe(5);
 
-        // Add B as a MEMBER but never make it active: a background host you have not
-        // visited gets no owner and opens NO subscriptions (the lazy cost floor).
         addHost(HOST_B);
         void activeScope();
         await flush();
         expect(wireLifecycle(HOST_B).opened).toBe(0);
 
-        // Only on first activation does B's owner build → its wire subs open, once.
         switchTo(HOST_B);
         void activeScope();
         await flush();
@@ -121,7 +80,6 @@ describe("per-host wire subscriptions (padi W9 — instant host switch-back)", (
         await flush();
         expect(wireLifecycle(HOST_A).opened).toBe(5);
 
-        // Switch AWAY to B: B builds its own subs; A is RETAINED (not disposed).
         switchTo(HOST_B);
         void activeScope();
         await flush();
@@ -129,9 +87,6 @@ describe("per-host wire subscriptions (padi W9 — instant host switch-back)", (
         expect(wireLifecycle(HOST_A).opened).toBe(5);
         expect(wireLifecycle(HOST_A).disposed).toBe(0);
 
-        // Switch BACK to A: its owner was retained, so it is NOT rebuilt — `opened`
-        // stays 5 (a `useEntry` regression would reopen it, making this 10). This is
-        // the structural proof that switch-back has no pending window.
         switchTo(HOST_A);
         void activeScope();
         await flush();
@@ -143,19 +98,9 @@ describe("per-host wire subscriptions (padi W9 — instant host switch-back)", (
     });
   });
 
-  // NOTE (#1763): the per-host daemon pending-window anchor (`wire.daemonPendingAnchorMs`)
-  // that this block used to pin is GONE — the canvas boot ceiling no longer lives inside the
-  // per-host wire scope (it could only fire for the daemon leg, and only while `activeScope()`
-  // was defined). Its "revisited wedged host earns no fresh grace" property now rides the
-  // per-host episode anchor in `bootDeadline.ts` (retained across switch, pruned on membership
-  // exit), and the removal-race property it also pinned ("no active host ⇒ no spurious timeout")
-  // holds BY CONSTRUCTION there: the anchor keys off `activeHost()`, which is never undefined.
-  // Both are pinned in `bootDeadline.test.ts`, not here.
-
   it("DISPOSES a host's wire subs only when it leaves membership", async () => {
     await createRoot(async (dispose) => {
       try {
-        // Visit A then B so both have live retained owners.
         switchTo(HOST_A);
         void activeScope();
         await flush();
@@ -164,8 +109,6 @@ describe("per-host wire subscriptions (padi W9 — instant host switch-back)", (
         await flush();
         expect(wireLifecycle(HOST_A).disposed).toBe(0);
 
-        // A leaves the pool (e.g. the user ✕'d its chip) while B stays active: A's
-        // owner — and every retained subscription in it — disposes; B is untouched.
         removeHost(HOST_A);
         void activeScope();
         await flush();

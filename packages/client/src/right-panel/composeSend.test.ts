@@ -20,12 +20,9 @@ describe("planComposeSend", () => {
   });
 
   it("never synthesizes a submit Enter — the plan ends with the text", () => {
-    // The honest-send contract: the write carries the draft and nothing more.
-    // Neither branch may append a trailing CR/LF of its own.
     expect(planComposeSend("run tests")).not.toMatch(/[\r\n]$/);
     const multi = planComposeSend("a\nb");
     expect(multi).toBe(`${BRACKETED_PASTE_START}a\nb${BRACKETED_PASTE_END}`);
-    // The only newline is the interior one the user typed, inside the markers.
     expect(multi?.endsWith(BRACKETED_PASTE_END)).toBe(true);
   });
 

@@ -51,7 +51,6 @@ const SHELL: TerminalTipFacts["foreground"] = {
   shell: true,
 };
 
-/** `name` in front of the shell — a harness, or any other program. */
 const running = (name: string): TerminalTipFacts["foreground"] => ({
   name,
   title: null,
@@ -75,7 +74,6 @@ const facts = (over: Partial<TerminalTipFacts> = {}): TerminalTipFacts => ({
   ...over,
 });
 
-/** The tip's id, words, chips and source, or `quiet: <why>`. */
 function show(f: TerminalTipFacts) {
   const t = terminalTip(f);
   switch (t.kind) {

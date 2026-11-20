@@ -1,8 +1,3 @@
-/** The dock's unread marks are this browser's memory of what it announced and
- *  you have not opened — and a reload must not forget them. Each "page" below
- *  is a fresh module graph over the same `localStorage`, which is what a
- *  reload is. */
-
 import { Effect } from "effect";
 import { encodeHostKey, LOCAL_HOST } from "kolu-common/hostKey";
 import type { TerminalId } from "kolu-common/surface";
@@ -10,18 +5,12 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { AttentionRecord } from "../attention/savedAttention";
 import type { HostViewState } from "./createViewState";
 
-// Focusing reports the active terminal to the host; nothing here is about that.
 vi.mock("../wire", () => ({
   padiRpcOf: () => ({ chrome: { setActive: () => Effect.void } }),
 }));
 
 const A = "11111111-1111-4111-8111-111111111111" as TerminalId;
 
-/** Load the page: a fresh module graph, this host's view state in it, and the
- *  host's attention record the engine raises marks on. The dynamic imports
- *  after `resetModules` ARE the reload — static imports would share one
- *  in-memory record across every "page" (and Solid itself is part of the graph
- *  being reloaded, so its owner must come from the same one). */
 async function loadPage(): Promise<{
   view: HostViewState;
   marks: AttentionRecord;

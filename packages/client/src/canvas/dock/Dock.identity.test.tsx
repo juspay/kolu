@@ -1,7 +1,4 @@
 // @vitest-environment happy-dom
-/** Exercise the production Dock / DockList keyed loops with fresh tree objects.
- * Only the row's external services and paint are replaced; structural owners
- * (section, cluster, row) and their accessor props are the actual components. */
 import { createMemo, createSignal, type JSX } from "solid-js";
 import { render } from "solid-js/web";
 import { expect, it, vi } from "vitest";
@@ -162,7 +159,6 @@ for (const kind of ["desktop", "touch"] as const)
       expect(rows[0]?.textContent).toBe("1");
       expect(rows[1]?.textContent).toBe("0");
       expect(fixture.builds).toBe(builds);
-      // Both accessor props are rechecked once, with no owner reconstruction.
       expect(fixture.wakes).toBe(4);
     } finally {
       dispose();

@@ -32,8 +32,6 @@ const parent: RankedDockRow = {
       bucket: "working",
       pip: "working",
       asking: false,
-      // A split OF the shell split — the section fold must reach it too, or a
-      // nested agent's attention never lands in the header count.
       ts: 1,
       depth: 2,
     },
@@ -51,8 +49,6 @@ const group: DockGroup = {
 
 describe("sectionAttentionIds", () => {
   it("includes every split — shell and agent — so row marks and header agree", () => {
-    // Asking still self-excludes agentless ids inside the fold; membership
-    // no longer re-gates on kind (that was the chrome-complecting gate).
     expect(sectionAttentionIds(group)).toEqual([parentId, shellId, agentId]);
   });
 });

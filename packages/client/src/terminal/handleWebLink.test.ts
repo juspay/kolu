@@ -1,9 +1,3 @@
-/**
- * Web-link policy — loopback → card, ⌘-click → raw, external → raw.
- *
- * Pure over the event modifiers + URI shape; the card store is the act.
- */
-
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { handleWebLink } from "./handleWebLink";
 import {

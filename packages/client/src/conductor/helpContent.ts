@@ -1,56 +1,9 @@
-/** HOW TO USE THE CONDUCTOR — the words, written once.
- *
- *  A person arriving at this conversation for the first time is looking at a
- *  box and a blinking cursor, and nothing on screen says that `@` reaches
- *  every host, that a turn can be steered while it runs, or that they never
- *  have to ask "are you done". So the pane teaches, in the margin: a column in
- *  the reading column's own gutter on a wide window (`ConductorHelp.tsx`), the
- *  same words as a sheet from the `⋯` menu everywhere else.
- *
- *  ONE COPY. The column and the sheet render THIS list — a second copy is how
- *  a help text comes to describe a chord that was renamed a release ago. Every
- *  statement here is read off the build it describes, not off a wish:
- *
- *    - `@` and `/` are the composer's own two completions, and `@` spans every
- *      host (`ConductorComposer.tsx`).
- *    - A waterfall ASKS ITS OWN setup questions first. Which ones, and how a
- *      mode changes what follows, is the script's (`packages/conductor/src/
- *      teaching.md`) and revs with the procedure — so the help says THAT it
- *      asks and not WHICH, because a list here is a copy of a document this
- *      module cannot see, and the copy is the half that goes stale.
- *    - The status line names what is running and for how long; the work
- *      column is the side track on a wide window and behind the status
- *      line's count otherwise; a member's name goes to it and `Look` peeks
- *      (`ConductorStatus.tsx`, `WorkColumn.tsx`, `ConductorLook.tsx`).
- *    - Enter queues at the agent, the steer chord goes into the running turn
- *      while the status line offers it, and `■ Stop` is beside Send.
- *    - A wake is kolu ringing the conversation when a watched agent is ready
- *      — its screen has settled, before it has said a word — stops, asks, or
- *      leaves (`wake.ts`'s own levels), drawn as the transcript line that
- *      opens with `kolu`.
- *    - A question arrives as a form, and the tab's badge turns the needs-you
- *      violet while it stands (`ConductorTab.tsx`).
- *
- *  SKIMMED, NOT READ. Each section is two or three bullets, a phrase each, and
- *  a bullet is a row of TYPED parts so the panel can draw each kind the way
- *  the screen does: a key as a keycap, a thing to type as code a person could
- *  copy, a word the screen shows set off as that word. Prose that names a key
- *  in letters is prose nobody scans.
- *
- *  STATIC. No counts, no live data, nothing that has to be re-read while a
- *  turn runs: this is the manual, and the conversation beside it is the state.
- *  The one thing computed is a key's label, printed in the reader's own idiom
- *  (`formatKeybind`) rather than spelled `⌥⏎` at a Linux reader. */
-
 import { formatKeybind, type Keybind } from "../input/keyboard";
 import { isMac as detectedIsMac } from "../input/platform";
 import { boolPref } from "../persistedPref";
 import { createDisclosure } from "../ui/createDisclosure";
 import { STEER_KEYBIND } from "./steer";
 
-/** The sections, in the order they are read. The id is what a test and a
- *  stylesheet address a section BY, so a reworded heading is not a broken
- *  selector. */
 export type HelpSectionId =
   | "ask"
   | "waterfall"
@@ -63,19 +16,11 @@ export type HelpSectionId =
   | "wakes"
   | "asks";
 
-/** One piece of a bullet, by what it IS rather than how it looks:
- *
- *  - `text` — the help's own words;
- *  - `key` — a key to press, already labelled for this platform;
- *  - `code` — something to type, verbatim;
- *  - `screen` — a word the screen itself shows (a button, a line's opener),
- *    so the help points at what is actually there. */
 export interface HelpPart {
   readonly kind: "text" | "key" | "code" | "screen";
   readonly text: string;
 }
 
-/** One bullet: a phrase, as a row of parts. */
 export type HelpItem = readonly HelpPart[];
 
 export interface HelpSection {
@@ -88,8 +33,6 @@ const text = (words: string): HelpPart => ({ kind: "text", text: words });
 const code = (typed: string): HelpPart => ({ kind: "code", text: typed });
 const screen = (word: string): HelpPart => ({ kind: "screen", text: word });
 
-/** The help, with every key labelled for one platform — the reader's own by
- *  default. */
 export function helpSections(
   isMac: boolean = detectedIsMac,
 ): readonly HelpSection[] {
@@ -223,21 +166,9 @@ export function helpSections(
   ];
 }
 
-/** IS THE HELP COLUMN OPEN — a device preference, through the one persisted
- *  preference seam every other remembered panel in this app rides
- *  (`persistedPref.ts`'s `boolPref`, as the Code tab's ignored-files toggle
- *  does). Open on a first visit, and whatever you left it as on every visit
- *  after that, reloads included.
- *
- *  Module level, like the other panel prefs: the pane is retained for the
- *  page's life, but the fact outlives the PAGE, and a signal inside a
- *  component would only have said the first half. */
 export const [helpOpen, setHelpOpen] = boolPref({
   name: "kolu-conductor-help-open",
   fallback: true,
 });
 
-/** The sheet the `⋯` menu's `How to use` opens, below the help column's width
- *  and on a phone — the repo's one disclosure shape, co-located with the words
- *  it shows (`ShortcutsHelp`'s precedent). */
 export const helpSheet = createDisclosure();

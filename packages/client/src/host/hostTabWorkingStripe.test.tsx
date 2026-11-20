@@ -1,16 +1,4 @@
 // @vitest-environment happy-dom
-/**
- * The host tab's running stripe: the "something is happening on this machine"
- * fact, drawn along the tab's bottom edge.
- *
- * It replaced a spinner + count beside the host name, whose coming and going
- * changed the tab's width and shifted every tab after it. So the contract is:
- * mounted only while a terminal is active, gone otherwise; no layout of its
- * own; painted in the active colour only, never a connection colour (the dot
- * owns "connected"); and under reduced motion the sweep stops but the stripe
- * stays visible.
- */
-
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -31,8 +19,6 @@ afterEach(() => {
   host = undefined;
 });
 
-/** The stripe inside a stand-in for the tab: `.host-tab` is `relative` in the
- *  real shell, which is what the stripe's absolute box anchors to. */
 function mountInTab(active: () => number) {
   host = document.createElement("div");
   document.body.append(host);
@@ -51,15 +37,12 @@ function mountInTab(active: () => number) {
   };
 }
 
-/** `index.css` with comments stripped, so prose that NAMES a forbidden token
- *  (the stripe's own header says "never `--host-hue`") is not read as a rule. */
 const indexCss = () =>
   readFileSync(
     join(dirname(fileURLToPath(import.meta.url)), "../index.css"),
     "utf8",
   ).replace(/\/\*[\s\S]*?\*\//g, "");
 
-/** Every rule body in `index.css` whose selector names the stripe. */
 function stripeRules(css: string): string[] {
   return [...css.matchAll(/([^{}]*\.host-tab-stripe[^{}]*)\{([^{}]*)\}/g)].map(
     (m) => `${m[1]}{${m[2]}}`,
@@ -73,7 +56,6 @@ describe("HostTabWorkingStripe", () => {
     expect(stripe()).toBeNull();
     setActive(2);
     expect(stripe()).not.toBeNull();
-    // Gone, not hidden: the DOM carries nothing once work stops.
     setActive(0);
     expect(stripe()).toBeNull();
   });
@@ -85,9 +67,6 @@ describe("HostTabWorkingStripe", () => {
     const idleHeight = tab.offsetHeight;
     setActive(1);
     const classes = (stripe()?.className ?? "").split(/\s+/);
-    // The positioning is what keeps the box still; happy-dom does no layout, so
-    // these classes are the load-bearing assertion here, and the recorded
-    // evidence measures the real tab in a browser.
     expect(classes).toEqual(
       expect.arrayContaining([
         "absolute",
@@ -107,7 +86,6 @@ describe("HostTabWorkingStripe", () => {
       ...(stripe()?.querySelectorAll("*") ?? []),
     ] as Element[];
     for (const el of subtree) {
-      // The dot's palette (`hostChipTone`): emerald / amber / red / fg-3.
       expect(el.className).not.toMatch(
         /(^|\s)(bg|text|border|ring)-(emerald|amber|red|fg-3)/,
       );
@@ -117,7 +95,6 @@ describe("HostTabWorkingStripe", () => {
     for (const rule of rules) {
       expect(rule).not.toMatch(/--host-hue|--color-(ok|success|warn|danger)/);
     }
-    // The active colour, the same rust as the working spinner.
     expect(rules.join("\n")).toMatch(/var\(--color-busy\)/);
   });
 
@@ -134,7 +111,6 @@ describe("HostTabWorkingStripe", () => {
     expect(reduced).toMatch(
       /\.host-tab-stripe-segment\s*\{\s*animation:\s*none;?\s*\}/,
     );
-    // Freezing the motion must not take the fact with it.
     expect(reduced).not.toMatch(/display:\s*none|opacity:\s*0|visibility/);
   });
 

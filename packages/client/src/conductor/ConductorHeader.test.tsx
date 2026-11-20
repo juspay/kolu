@@ -1,28 +1,4 @@
 // @vitest-environment happy-dom
-/**
- * THE `⋯` IS A MENU, AND THE MENU ASKS BEFORE IT DESTROYS ANYTHING.
- *
- * The defect these pin landed on a real conversation: the `⋯` in the header
- * started a new session on the press. A `⋯` promises *there is more here* and
- * promises nothing about what, so it is pressed to LOOK — and what came back
- * was a conversation that had moved on without being asked.
- *
- * So the first test is about what the button does NOT do, and it asserts on
- * the verbs rather than on the pixels: a menu that opened and also acted would
- * look exactly right.
- *
- * The rest are the menu's own rules — one confirm in front of the wipe, and
- * rows that exist only while they mean something (`Stop` needs a running
- * turn). Absent rather than disabled: a greyed row is still a row a person
- * reaches for. Signing in is the one door that is ALWAYS there, named for the
- * state it is in.
- *
- * The last block is the ROW'S ONE LINE-HEIGHT. There is no layout in this
- * environment — happy-dom has no boxes to measure — so what is pinned is the
- * CAUSE the measured misalignment came from: the row declares one leading and
- * no child declares a second one. (The numbers themselves were taken in a real
- * browser: every child's box centre and text centre now land on one pixel.)
- */
 
 import {
   DEFAULT_CONDUCTOR_STATE,
@@ -47,9 +23,6 @@ vi.mock("./useConductor", () => ({
   useConductor: () => verbs,
 }));
 
-/** The repo's ONE clipboard write path — the component must reach it rather
- *  than `navigator.clipboard`, which is the write that fails over plain
- *  `http://`. */
 const writeTextToClipboard = vi.hoisted(() =>
   vi.fn((_text: string) => Effect.void),
 );
@@ -101,8 +74,6 @@ function mount(
     ),
     root,
   );
-  // The panel is PORTALLED — it lives on `document.body`, beside the mount
-  // point rather than inside it, so the whole document is the search.
   return {
     at: (testid) =>
       document.querySelector<HTMLElement>(`[data-testid="${testid}"]`) ??
@@ -122,17 +93,12 @@ describe("the header's ⋯", () => {
     open(at);
 
     expect(at("conductor-menu-panel")).toBeDefined();
-    // The whole defect, stated: the press moved the conversation.
     expect(verbs.clearSession).not.toHaveBeenCalled();
     expect(verbs.newSession).not.toHaveBeenCalled();
     expect(verbs.cancel).not.toHaveBeenCalled();
   });
 
   it("takes the menu off the page when the pane stops being the shown view", () => {
-    // The pane is RETAINED behind a host tab, and this menu is PORTALLED to
-    // the document — so hiding the pane hides everything except exactly this.
-    // An open `⋯` panel left over a person's terminals would take their next
-    // click and their next `Escape`.
     const [shown, setShown] = createSignal(true);
     const { at } = mount({}, shown);
     open(at);
@@ -147,14 +113,11 @@ describe("the header's ⋯", () => {
     open(at);
 
     at("conductor-menu-new-session")?.click();
-    // The first press ARMS. Nothing is gone yet, and the pair that can undo
-    // the decision is on screen.
     expect(verbs.clearSession).not.toHaveBeenCalled();
     expect(at("conductor-menu-new-session-cancel")).toBeDefined();
 
     at("conductor-menu-new-session-confirm")?.click();
     expect(verbs.clearSession).toHaveBeenCalledTimes(1);
-    // The WIPE, never the divider-and-carry-on verb beside it.
     expect(verbs.newSession).not.toHaveBeenCalled();
   });
 
@@ -187,8 +150,6 @@ describe("the header's ⋯", () => {
     dispose?.();
     root?.remove();
 
-    // SIGNED IN AND STILL A DOOR: an account at its limit, the wrong account
-    // and a stale login are all signed in, and the agent offers nothing.
     const inside = mount({
       identity: {
         kind: "account",
@@ -216,10 +177,6 @@ describe("the header's ⋯", () => {
   });
 
   it("holds the tool-server roster — read in here, not a strip on every screen", () => {
-    // `kolu ✓ · plus the agent's own` stood above every conversation all day.
-    // It answers a question a person asks now and then, so it is read behind
-    // the one press that promises *there is more here* — and the tick is
-    // still the AGENT'S word about the server, not kolu's.
     const { at } = mount({
       servers: [
         { name: "kolu", standing: "connected", said: null, where: null },
@@ -244,8 +201,6 @@ describe("the header's ⋯", () => {
     expect(rows.map((row) => row.dataset.server)).toEqual(["kolu", "notes"]);
     expect(rows[0]?.dataset.standing).toBe("connected");
     expect(rows[0]?.textContent).toContain("✓");
-    // The agent's own sentence about why it is not on that server is the
-    // whole answer to the question this section gets opened with.
     expect(rows[1]?.textContent).toContain("the token expired");
     expect(panel?.textContent).toContain("plus the agent's own");
   });

@@ -1,9 +1,3 @@
-/** The tree right-click menu's item composition. Two decisions gate the
- *  Download entry — the row is a file, and the file still has bytes on disk
- *  (the active view's git status does not mark it deleted) — plus the hook
- *  call itself. happy-dom (this package's test env) runs the real renderer, so
- *  the assertions are on the menu the user would see. */
-
 import type {
   ContextMenuItem,
   ContextMenuOpenContext,
@@ -82,8 +76,6 @@ describe("makeTreeContextMenu", () => {
   });
 
   it("offers no Download for a file the view marks deleted", () => {
-    // A diff view lists changed files, including deletions — a path with no
-    // bytes left behind it.
     const { labels } = renderMenu(FILE_ROW, {
       gitStatus: () => [{ path: "api/handler.ts", status: "deleted" }],
     });
@@ -98,8 +90,6 @@ describe("makeTreeContextMenu", () => {
   });
 
   it("offers no view switch where the other views do not exist", () => {
-    // A bare repository's folder is browse-only: an "Open Local diff" entry
-    // there would land on a view that cannot exist.
     const { labels } = renderMenu(FILE_ROW, { viewsAvailable: () => false });
     expect(labels).toEqual(["Copy path", "Download"]);
   });

@@ -1,10 +1,3 @@
-/** Live "this is the card you'll get" preview for the New terminal flow.
- *
- *  Shown while the palette is drilled into New terminal (repo pick or
- *  worktree-name + agent). Same identity atoms as dock / tile: monogram,
- *  fleet hue, annotation colour, agent mark — so create is "name the
- *  thing, then place it," not "spawn, then recognize it." */
-
 import type { TerminalMetadata } from "@kolu/padi-client/surface";
 import { terminalKey } from "@kolu/terminal-vocab/terminalKey";
 import type { Component } from "solid-js";
@@ -26,16 +19,11 @@ export type CreatePreviewModel = {
   repoName: string;
   repoColor: string;
   annotation: string;
-  /** Fleet identity hue when the annotation is a real branch/label; `null`
-   *  for provisional chrome copy ("worktree name…", "choose a destination"). */
   annotationColor: string | null;
   agentLabel: string;
   AgentIcon: Component<{ class?: string }>;
 };
 
-/** True when the palette path is inside the New terminal create flow.
- *  Root segment only (name + kind) — a host/repo named "New terminal" deeper
- *  in the path must not mount this preview. */
 export function isNewTerminalPath(
   path: readonly { name: string; kind: string }[],
 ): boolean {
@@ -43,19 +31,15 @@ export function isNewTerminalPath(
   return root?.name === NEW_TERMINAL_GROUP && root.kind === "group";
 }
 
-/** Dim monogram when no real repo identity is known yet. */
 const NEUTRAL_REPO_COLOR = "oklch(0.55 0.01 250)";
 
-/** One model shape — branches only choose the semantic inputs. */
 function buildModel(
   repoName: string,
   annotation: string,
   agentLabel: string,
   AgentIcon: Component<{ class?: string }>,
   opts?: {
-    /** Annotation is provisional UI copy, not a branch/label identity. */
     provisionalAnnotation?: boolean;
-    /** Repo name is provisional chrome ("new"), not a real group. */
     provisionalRepo?: boolean;
   },
 ): CreatePreviewModel {
@@ -64,8 +48,6 @@ function buildModel(
   const colorKeys: string[] = [];
   if (!provisionalRepo) colorKeys.push(repoName);
   if (!provisionalAnno) colorKeys.push(annotation);
-  // Fail loud like fleet/inspector — assignColors covers every key it was
-  // given; a miss is a programmer bug, not a soft neutral.
   const colors = colorKeys.length > 0 ? assignColors(colorKeys) : null;
   let repoColor = NEUTRAL_REPO_COLOR;
   if (!provisionalRepo) {
@@ -97,9 +79,6 @@ function buildModel(
   };
 }
 
-/** Derive the preview from palette navigation state. Pure function of the
- *  explicit args — callers pass `defaultRepo` (e.g. recentRepos[0]); this fold
- *  never reads ambient feeds itself. */
 export function createPreviewModel(
   path: readonly { name: string; kind: string }[],
   mode: PaletteMode,
@@ -110,16 +89,12 @@ export function createPreviewModel(
 ): CreatePreviewModel | null {
   if (!isNewTerminalPath(path)) return null;
 
-  // Worktree leaf: New terminal › $repo (value input).
   if (mode.kind === "value" && path.at(-1)?.kind === "value") {
     const leaf = mode.leaf;
     const repoName = leaf.name;
     const typed = query.trim();
     const agentLabel =
       highlighted?.kind === "label" ? highlighted.name : "Plain shell";
-    // The label already carries the agent's registry mark (the value group
-    // builds its rows through `iconForKind`), so the preview reads it off the
-    // highlighted row instead of re-deriving a kind from displayed text.
     const AgentIcon =
       (highlighted?.kind === "label" ? highlighted.icon : undefined) ??
       TerminalIcon;
@@ -132,7 +107,6 @@ export function createPreviewModel(
     );
   }
 
-  // New terminal root: highlight drives preview.
   if (
     highlighted?.kind === "action" &&
     highlighted.name === "In current directory"
@@ -153,9 +127,6 @@ export function createPreviewModel(
     );
   }
 
-  // Filtering with zero matches → no executable selection: never claim a
-  // recent repo the Enter path cannot create. Quiet root may hint at the
-  // optional recent-repo default; otherwise provisional chrome.
   const noExecutable =
     mode.kind === "filter" && query.trim().length > 0 && !highlighted;
   const hintRepo = !noExecutable ? defaultRepo : null;
@@ -197,10 +168,6 @@ const CreateIdentityPreview: Component<{
   return (
     <Show when={model()}>
       {(preview) => {
-        // Every read stays a CALL: the memo hands back a fresh model on each
-        // keystroke / highlight move while the Show condition never goes falsy,
-        // so unwrapping the accessor here would freeze the card on the first
-        // model. Non-keyed Show keeps the subtree alive across those recomputes.
         const annotationColor = () => preview().annotationColor;
         const annotationStyle = () => {
           const color = annotationColor();

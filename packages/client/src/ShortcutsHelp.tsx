@@ -1,5 +1,3 @@
-/** Modal overlay showing all keyboard shortcuts. */
-
 import Dialog from "@corvu/dialog";
 import { type Component, For } from "solid-js";
 import { ACTIONS, type ActionId } from "./input/actions";
@@ -10,13 +8,8 @@ import Kbd from "./ui/Kbd";
 import ModalDialog from "./ui/ModalDialog";
 import { surface } from "./ui/Surface";
 
-/** Shortcuts-help open-state — the component owns it. Opened from the `Cmd+/`
- *  chord (`useActionContext`) and the "Keyboard shortcuts" palette command. */
 export const shortcutsHelp = createDisclosure();
 
-/** Curated display order for the shortcuts help overlay. Referencing actions
- *  by id (instead of restating label/keybind) keeps the overlay in sync with
- *  any chord reassignment in the registry. */
 const HELP_ORDER: readonly { id: ActionId; label?: string }[] = [
   { id: "commandPalette" },
   { id: "openWorkspaceSwitcher" },

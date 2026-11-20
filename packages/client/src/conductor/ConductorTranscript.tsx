@@ -1,31 +1,3 @@
-/** The conversation itself.
- *
- *  One row per kind, and the kinds are not interchangeable: what a person typed
- *  is QUOTED and never rendered as markdown (a prompt containing `#` is not a
- *  heading, and a prompt containing a script is not something to interpret),
- *  while the agent's prose IS markdown, at chat scale. A plan is a card because
- *  it is replaced wholesale on every update; a tool call is a card because it
- *  has a status that moves.
- *
- *  Scroll follows the conversation only while the reader is FOLLOWING it, and
- *  that is a fact about the reader — held in `transcriptScroll.ts`, decided by
- *  their own scrolling — never a measurement taken off the container after new
- *  rows have been drawn into it. Once somebody scrolls up to read something, a
- *  streaming turn must not yank them back (the one behaviour that makes a live
- *  transcript unusable); the way back is OFFERED, as the terminal's own
- *  `ScrollToBottom` pill. The same fact decides where a fresh mount lands,
- *  which is why it cannot live here: this component is re-created on every
- *  activation of the entry.
- *
- *  The settled tool calls between two boundaries — prose, a message of yours,
- *  a divider — are folded into one closed "Details" as they settle
- *  (`foldToolRuns`), so the conversation reads as its sentences even while the
- *  Conductor works; what a reader would lose by folding — a running call, a
- *  failure, the line about an agent — stays in the flow. The same failure in a
- *  row is said once, with its count (`foldFailureRuns`), and the call that
- *  asked a question draws nothing at all — the ask row below it IS the
- *  question, so its card said the same words twice (`transcript.ts`). */
-
 import { formatBytes } from "@kolu/byte-units";
 import type {
   ConductorRow,
@@ -35,6 +7,7 @@ import type {
 import { Key } from "@solid-primitives/keyed";
 import type { WorkId } from "kolu-work";
 import {
+  type Accessor,
   type Component,
   createContext,
   createEffect,
@@ -43,7 +16,6 @@ import {
   For,
   Match,
   on,
-  onMount,
   Show,
   Switch,
   useContext,
@@ -80,12 +52,6 @@ import WorkQuestion from "./WorkQuestion";
 
 const NO_WORKS: ReadonlyArray<WorkId> = [];
 
-/** WHAT EVERY ROW READS ABOUT ITS TURN — the turn (`./turnWorks.ts`: the row
- *  that starts it, and the works it is about), and which works hold which
- *  files, for the prose's file links. A context rather than a prop, because
- *  the rows folded under a Details are drawn by the same row component. It
- *  has no default: a row drawn outside a transcript is a mistake to see, not
- *  a row that quietly shows no works. */
 interface Turns {
   readonly turnOf: (rowId: string) => Turn;
   readonly holders: () => FileHolders;
@@ -99,15 +65,11 @@ const useTurns = (): Turns => {
   return turns;
 };
 
-/** The same works, in the same order: what keeps a row's chips from being
- *  redrawn on every streamed chunk of its turn. */
 const sameWorks = (
   a: ReadonlyArray<WorkId>,
   b: ReadonlyArray<WorkId>,
 ): boolean => a.length === b.length && a.every((one, i) => one === b[i]);
 
-/** A TURN'S WORKS, AS CHIPS, on a line of their own — the ones this browser
- *  has the record of. */
 const TurnChips: Component<{ works: ReadonlyArray<WorkId> }> = (props) => {
   const map = useWorkMap();
   return (
@@ -126,10 +88,6 @@ const TurnChips: Component<{ works: ReadonlyArray<WorkId> }> = (props) => {
   );
 };
 
-/** THE WORKS OF A TURN WITH NO PROMPT ROW to carry them — rows before the
- *  first message — drawn above the item that holds the turn's first row,
- *  whether that is a row, a fold or a run of failures. A turn that starts
- *  with your message or a wake-up draws them there instead. */
 const TurnHead: Component<{ rows: ReadonlyArray<ConductorRow> }> = (props) => {
   const turns = useTurns();
   const works = createMemo(
@@ -150,31 +108,10 @@ const TurnHead: Component<{ rows: ReadonlyArray<ConductorRow> }> = (props) => {
   );
 };
 
-/** WHICH FOLDED LINES SOMEBODY HAS PRESSED, by the id of the row that starts
- *  the turn — an OVERRIDE of the default (`quietChat`'s `open`), not a copy
- *  of it, so a turn nobody has touched keeps following the rule as newer
- *  replies arrive and the newest one moves on without a press.
- *
- *  Module-level, like the composer's draft: the conversation is re-created on
- *  every visit to the entry, and a line a person opened must still be open
- *  when they come back from a host tab. It is DRAWING and nothing else —
- *  never persisted, never sent. */
 const [pressed, setPressed] = createSignal<Readonly<Record<string, boolean>>>(
   {},
 );
 
-/** THE ONE LINE A FOLDED TURN IS — when it rang, which works it is about, and
- *  the first sentence of what kolu said about them.
- *
- *  A `<button>` rather than a `<details>`: the chips inside it are the work's
- *  own face (no button of their own) and the line must stay one tab stop,
- *  while the rows it opens are the transcript's own — they stay where they
- *  are in the column and are only HIDDEN, so opening a line is never a
- *  subtree being built again.
- *
- *  ON A PHONE it is two lines — the chips over the sentence — because a work's
- *  title and a sentence cannot share 390px without one of them becoming three
- *  words and an ellipsis. */
 const FoldLine: Component<{
   turn: QuietTurn;
   works: ReadonlyArray<WorkId>;
@@ -193,15 +130,9 @@ const FoldLine: Component<{
       data-quiet={props.turn.says.kind === "prose" ? undefined : ""}
       aria-expanded={props.open}
       onClick={toggle}
-      // A RUN OF FOLDED LINES IS A LIST, packed at the column's own gap; an
-      // open turn keeps the clear gap between turns.
       class="flex w-full min-w-0 cursor-pointer flex-wrap items-baseline gap-x-2 gap-y-0.5 rounded-sm text-left"
       classList={{ "mt-4": props.open }}
     >
-      {/* WHEN, AND WHICH WORKS — on a line of its own when there are several,
-          so the sentence is never squeezed to nothing beside them. Open, the
-          chips are the wake row's own (pressable, under it), so the line
-          keeps only its clock. */}
       <span
         class="flex min-w-0 max-w-full items-center gap-1.5"
         classList={{ "basis-full": !props.open && props.works.length > 1 }}
@@ -230,10 +161,6 @@ const FoldLine: Component<{
           </For>
         </Show>
       </span>
-      {/* THE NEWS ITSELF, one line that gives way with an ellipsis — and
-          wraps under the chips, never shrinks to nothing beside them. Open,
-          a reply's sentence is the first line of the reply drawn under it,
-          so it is not said twice; a note or a silence is still said here. */}
       <Show when={!(props.open && props.turn.says.kind === "prose")}>
         <span
           data-testid="conductor-fold-says"
@@ -257,13 +184,6 @@ const FoldLine: Component<{
   );
 };
 
-/** A QUESTION KOLU ASKED ABOUT A PIECE OF WORK, where it was asked.
- *
- *  The row is the conversation's log that the question went out; the WORK is
- *  what a person answers, so this looks the work up and hands the decision
- *  itself to the one component every face draws. A work this browser has not
- *  got (it ended and was swept, or the frame has not arrived) draws nothing
- *  rather than an empty form: the row above it still says what was asked. */
 const ChatWorkQuestion: Component<{ row: ConductorWorkAskRow }> = (props) => {
   const works = useWorkMap();
   const work = createMemo(() => works().get(props.row.work));
@@ -281,36 +201,51 @@ const ChatWorkQuestion: Component<{ row: ConductorWorkAskRow }> = (props) => {
   );
 };
 
+function followTranscriptWhileShown(watch: {
+  readonly scroller: () => HTMLDivElement;
+  readonly newRows: Accessor<string>;
+  readonly proseRedraws: Accessor<number>;
+  readonly shown: Accessor<boolean>;
+  readonly onNewsBelow: (news: boolean) => void;
+}): void {
+  let placed = false;
+  createEffect(
+    on(
+      [watch.newRows, watch.proseRedraws, transcriptPinned, watch.shown],
+      ([drawn, , pinned, visible], prev) => {
+        const el = watch.scroller();
+        if (prev === undefined || (visible && !placed)) {
+          applyTranscriptScroll(el);
+          placed = el.scrollHeight > el.clientHeight;
+          return;
+        }
+        if (!visible) return;
+        if (pinned) {
+          el.scrollTop = el.scrollHeight;
+          watch.onNewsBelow(false);
+          return;
+        }
+        if (prev[0] !== drawn) watch.onNewsBelow(true);
+      },
+    ),
+  );
+}
+
 const ConductorTranscript: Component<{
   rows: readonly ConductorRow[];
-  /** Each row's turn (`./turnWorks.ts`) — read ONCE by the pane, over these
-   *  same rows, for the transcript and the scope bar over it. */
   turns: ReadonlyMap<string, Turn>;
   pending: boolean;
   error: Error | undefined;
   containerRef: (el: HTMLDivElement) => void;
 }> = (props) => {
   let scroller!: HTMLDivElement;
-  /** Has the restore landed on a column that actually has height? A mount
-   *  whose rows arrive one frame later measures zero, and `scrollTop` clamps
-   *  to 0 against it — which is the top, i.e. the defect. So the restore is
-   *  re-applied until there is something to scroll. */
-  let placed = false;
-  /** What is DRAWN: a run of identical notices is one row carrying its count
-   *  (`foldNoticeRuns`), never eight copies of one fact; the settled tool
-   *  calls of a run are one closed "Details" (`foldToolRuns`); and the same
-   *  failure in a row is one line with its count (`foldFailureRuns`). */
   const items = createMemo(() =>
     foldFailureRuns(foldToolRuns(foldNoticeRuns(props.rows))),
   );
-  /** Which work holds which file, built once per change of the works — what
-   *  the prose's file links read. The turns are the pane's (`props.turns`). */
   const workMap = useWorkMap();
   const holders = createMemo(() => fileHolders(workMap()));
   const turns = () => props.turns;
   const turnsContext: Turns = {
-    // Every row of `props.rows` has a turn, and every row drawn is one of
-    // them: both lists are read off the same rows in the same tick.
     turnOf: (rowId) => {
       const turn = turns().get(rowId);
       if (turn === undefined)
@@ -320,18 +255,10 @@ const ConductorTranscript: Component<{
     holders,
   };
 
-  /** THE FOLD: which turns are one line, what the line says, which one is
-   *  open before anybody presses, and how many replies have landed since the
-   *  last thing a person typed. The notes are read once per change of the
-   *  works, never per streamed chunk of the chat. */
   const notes = createMemo(() => agentNotes(workMap()));
   const quiet = createMemo(() => quietChat(props.rows, notes()));
-  /** Is this turn open — what somebody pressed, or the rule. */
   const opened = (turn: QuietTurn): boolean =>
     pressed()[turn.head] ?? turn.open;
-  /** Does this row belong to the work the chat is pointed at? The SAME
-   *  `turnWorks` reading the chips are drawn from, so a turn whose chip says
-   *  a work and a turn the scope keeps are the same turns by construction. */
   const inScope = (rowId: string): boolean => {
     const id = chatScope()?.id;
     return (
@@ -339,81 +266,25 @@ const ConductorTranscript: Component<{
     );
   };
 
-  // BEFORE the follow effect below, and that order is the fix: declared first,
-  // so Solid runs it first and the first follow check measures a container
-  // already at the reader's position instead of a fresh one at 0 (which it
-  // would correctly read as "scrolled far up" and refuse to move).
-  onMount(() => applyTranscriptScroll(scroller));
-
-  /** New rows arrived while the reader was away from the end — what makes the
-   *  pill's ring, so it says "there is something new down there" rather than
-   *  only "you are not at the bottom". */
   const [unseen, setUnseen] = createSignal(false);
 
-  /** What a frame may change: how many rows there are and how long the last
-   *  one's text is. The text matters as much as the count — a streaming
-   *  paragraph grows one row for a whole turn, and following only new rows
-   *  would leave the view a paragraph behind. */
-  const signature = createMemo(() => {
+  const newRowsSignature = createMemo(() => {
     const rows = props.rows;
     const last = rows[rows.length - 1];
     return `${rows.length}:${last === undefined || last.kind === "plan" ? 0 : last.text.length}`;
   });
 
-  /** How many times a row's prose DOM was rewritten. It matters for the one
-   *  rewrite no text change announces — a diagram landing, which grows the
-   *  row a second after its fence closed — and is harmless for the others (a
-   *  re-pin is idempotent). Its own dep of the follow effect below, and
-   *  deliberately NOT part of `signature`: the pill's "something new down
-   *  there" ring compares `signature`, and a diagram replacing its own source
-   *  is not new. Opening a folded list writes no HTML and never bumps it, so a
-   *  press does not start re-pinning the view. */
-  const [redraws, setRedraws] = createSignal(0);
-  const noteRedrawn = () => setRedraws((n) => n + 1);
+  const [proseRedrawTick, setProseRedrawTick] = createSignal(0);
 
-  const shown = useShown();
-  createEffect(
-    // `on`, so the body's reads of the ELEMENT are not dependencies and the
-    // deps are exactly these four: what was drawn, a row redrawn in place,
-    // whether the reader is following, and whether the conversation is the
-    // view being read. The pin is a dep because the pill and a sent message
-    // re-pin with no row arriving, and the view must move then too; a redraw
-    // is one because a diagram landing grows its row with no text arriving.
-    //
-    // SHOWN is a dep rather than a guard that returns early for a reason: a
-    // hidden pane has no layout at all (`content-visibility: hidden` skips the
-    // subtree), so a scroll written there would land on a column of height 0
-    // and clamp to the top — the reader's position, thrown away by the very
-    // mechanism meant to preserve it. Rows that arrive while away leave the
-    // remembered offset alone, and coming back re-runs this with the column
-    // laid out again.
-    on(
-      [signature, redraws, transcriptPinned, shown],
-      ([drawn, , pinned, visible], prev) => {
-        if (!visible) return;
-        if (!placed) {
-          applyTranscriptScroll(scroller);
-          placed = scroller.scrollHeight > scroller.clientHeight;
-          return;
-        }
-        // NOT `atEnd(scroller)`. The rows are already in the column by now, so
-        // that measurement answers about the chunk that just landed, not about
-        // the reader — which is precisely how the transcript stopped following.
-        if (pinned) {
-          scroller.scrollTop = scroller.scrollHeight;
-          setUnseen(false);
-          return;
-        }
-        if (prev !== undefined && prev[0] !== drawn) setUnseen(true);
-      },
-    ),
-  );
+  followTranscriptWhileShown({
+    scroller: () => scroller,
+    newRows: newRowsSignature,
+    proseRedraws: proseRedrawTick,
+    shown: useShown(),
+    onNewsBelow: setUnseen,
+  });
 
   return (
-    // The scroller's POSITIONED parent, and that is all it is for: the pill is
-    // `absolute`, and anchored to the scroller itself it would scroll away with
-    // the conversation, while anchored to the pane it would sit over the
-    // composer.
     <div class="relative flex-1 min-h-0 min-w-0 flex flex-col">
       <div
         data-testid="conductor-transcript"
@@ -421,33 +292,10 @@ const ConductorTranscript: Component<{
           scroller = el;
           props.containerRef(el);
         }}
-        // Every way the view can move ends here — wheel, drag, keyboard, and
-        // the pin above — so there is no path that leaves the remembered
-        // position behind. Recording on unmount instead would read a detached
-        // element, whose scrollTop browsers are free to have already reset.
         onScroll={(event) => rememberTranscriptScroll(event.currentTarget)}
-        // A wheel notch UP, read before the browser has moved anything. The
-        // `scroll` above is dispatched a frame later, by which time a chunk
-        // may have re-pinned the view — and that event would then measure the
-        // end and call the reader "following", so the reader fights the
-        // transcript and loses. This decides the intent; `scroll` still
-        // corrects the pixel.
         onWheel={(event) => {
           if (event.deltaY < 0) unpinTranscript(event.currentTarget);
         }}
-        // `min-w-0` + `overflow-x-hidden`: this column is a flex child of the
-        // pane, and a flex child floors at its CONTENT unless told otherwise —
-        // one card holding an unbroken line would make the column, and then
-        // the document, as wide as that line. The hidden axis is the backstop:
-        // a row that overflows anyway is clipped here instead of reaching the
-        // page.
-        //
-        // `gap-2` is the gap INSIDE one turn — a reply, the cards it made and
-        // the plan it wrote belong together. The clear gap BETWEEN turns is
-        // the margin a turn's first row carries (`TranscriptRow`), so the two
-        // distances are a pair rather than one spacing used twice. `px-5` is
-        // the reading column's gutter, shared with the status line and the
-        // composer below.
         class="flex-1 min-h-0 min-w-0 overflow-y-auto overflow-x-hidden flex flex-col gap-2 px-5 py-3"
       >
         <Show when={props.error}>
@@ -463,20 +311,9 @@ const ConductorTranscript: Component<{
         <Show when={props.pending && props.rows.length === 0}>
           <p class="text-fg-3 text-xs">Opening the conversation…</p>
         </Show>
-        {/* KEYED, and that is the difference between a live conversation and
-            an unusable one. The reducer replaces a row OBJECT on every chunk
-            and every tool update, so a reference-keyed list rebuilds the
-            `Markdown` subtree per chunk and the card per update — which
-            collapses an open `<details>`, loses `ConductorDiffs`' expansion and
-            throws away the caret inside a half-filled ask. A row's key is its
-            id; a fold's is the id of the boundary that opens its run. Both are
-            stable for the thing's life, and an item never changes kind under
-            its key. */}
         <TurnsContext.Provider value={turnsContext}>
           <Key each={items()} by={(item) => item.key}>
             {(item) => {
-              /** The row this item starts at — which turn it belongs to, and
-               *  whether it is that turn's head, where the one line goes. */
               const first = createMemo(() => rowsOf(item())[0] as ConductorRow);
               const turn = createMemo(() => {
                 const one = quiet().of.get(first().id);
@@ -489,8 +326,6 @@ const ConductorTranscript: Component<{
                 NO_WORKS,
                 { equals: sameWorks },
               );
-              /** A QUESTION IS NEVER FOLDED AWAY: it is the one thing in the
-               *  conversation that waits on a person. */
               const asked = createMemo(() => turn().asks.has(first().id));
               const drawn = createMemo(
                 () =>
@@ -499,9 +334,6 @@ const ConductorTranscript: Component<{
               );
               return (
                 <>
-                  {/* THE HEADING OVER THE RUN OF UNASKED REPLIES — only in
-                      the whole conversation: a chat pointed at one work is
-                      not a run of anything. */}
                   <Show
                     when={
                       chatScope() === null &&
@@ -533,12 +365,6 @@ const ConductorTranscript: Component<{
                       open={opened(turn())}
                     />
                   </Show>
-                  {/* HIDDEN, NEVER UNMOUNTED. `display: contents` leaves the
-                      item exactly where it was in the column — its own flex
-                      child, with the column's gaps — so a line that opens and
-                      closes is a class changing, not a `Markdown` subtree,
-                      an open `<details>` and a half-filled ask being built
-                      again. */}
                   <div classList={{ contents: drawn(), hidden: !drawn() }}>
                     <TurnHead rows={rowsOf(item())} />
                     <Switch>
@@ -559,7 +385,7 @@ const ConductorTranscript: Component<{
                           <TranscriptRow
                             row={entry().row}
                             repeat={entry().repeat}
-                            onRedrawn={noteRedrawn}
+                            onRedrawn={() => setProseRedrawTick((n) => n + 1)}
                           />
                         )}
                       </Match>
@@ -571,12 +397,6 @@ const ConductorTranscript: Component<{
           </Key>
         </TurnsContext.Provider>
       </div>
-      {/* THE TERMINAL'S OWN PILL, not a second one that looks like it: the
-          affordance for "you are not following, here is the way back" already
-          exists and a reader meets it in both places. The press writes the ONE
-          fact and nothing else — the effect above moves the view, exactly as it
-          does for an arriving row, so there is no second path to the end that
-          could disagree with the first. */}
       <ScrollToBottom
         visible={!transcriptPinned()}
         active={unseen()}
@@ -586,24 +406,15 @@ const ConductorTranscript: Component<{
   );
 };
 
-/** The arms of an item, narrowed — what lets each `<Match>` hand its child a
- *  typed accessor instead of re-checking the kind inside it. */
 const foldRowsOf = (item: TranscriptItem) =>
   item.kind === "fold" ? item.rows : undefined;
 const failuresOf = (item: TranscriptItem) =>
   item.kind === "failures" ? item : undefined;
 const entryOf = (item: TranscriptItem) =>
   item.kind === "entry" ? item.entry : undefined;
-/** The rows an item draws, in order — what its turn's head is read from. */
 const rowsOf = (item: TranscriptItem): ReadonlyArray<ConductorRow> =>
   item.kind === "entry" ? [item.entry.row] : item.rows;
 
-/** A run of the Conductor's tool calls, folded. A plain `<details>`, CLOSED
- *  until somebody opens it, and owned by the DOM: the list keys it by the
- *  boundary that opens its run, so the element — and whether it is open —
- *  survives every call that joins it and the prose that later closes it. The
- *  strip's reveal opens it from outside, as the row's `<details>` ancestor
- *  (`revealTranscriptRow`). */
 function TranscriptFold(props: { rows: readonly ConductorToolRow[] }) {
   const count = () => props.rows.length;
   return (
@@ -626,11 +437,6 @@ function TranscriptFold(props: { rows: readonly ConductorToolRow[] }) {
   );
 }
 
-/** The same failure several times in a row, said ONCE: "screen_text failed
- *  6 times: …", in the danger colour and in the flow — a failure is news, so
- *  unlike the Details fold this line is the news itself. It opens to the
- *  individual cards. Keyed by its first failure, so a seventh joining it keeps
- *  the element, and whether it is open. */
 function TranscriptFailures(props: {
   tool: string;
   reason: string;
@@ -656,16 +462,12 @@ function TranscriptFailures(props: {
   );
 }
 
-/** One row. `onRedrawn` reaches the agent row's prose (see `redraws` in the
- *  transcript); a row inside a tool fold is never prose, so those omit it. */
 function TranscriptRow(props: {
   row: ConductorRow;
   repeat: number;
   onRedrawn?: () => void;
 }) {
   const turns = useTurns();
-  /** The works this row's turn is about — the same list, by value, until the
-   *  turn names another. */
   const works = createMemo(() => turns.turnOf(props.row.id).works, NO_WORKS, {
     equals: sameWorks,
   });
@@ -675,18 +477,6 @@ function TranscriptRow(props: {
         data-testid="conductor-row"
         data-row-kind={props.row.kind}
         data-row-id={props.row.id}
-        // A row is a flex item of the column above, so it needs the same floor
-        // released — without it the row passes its card's content width straight
-        // up and the `min-w-0` above has nothing to do.
-        //
-        // THE GAP BETWEEN TURNS, as a margin on the row that STARTS one: a
-        // person's message is the top of a new exchange. Everything else in a
-        // turn keeps the column's smaller `gap-2`, so the page reads as a few
-        // blocks rather than one evenly-spaced list — which is how a reply and
-        // the message it answers came to look equally far apart from
-        // everything around them. A TURN KOLU WOKE carries that gap on its
-        // fold line instead (`FoldLine`), which is above the wake row and is
-        // there whether the turn is open or closed.
         class="min-w-0"
         classList={{
           "self-end max-w-[86%] mt-4": props.row.kind === "user",
@@ -734,10 +524,6 @@ function TranscriptRow(props: {
           <Match when={props.row.kind === "tool" && props.row}>
             {(row) => <ConductorToolCard row={row()} />}
           </Match>
-          {/* A QUESTION ABOUT A PIECE OF WORK is drawn off the WORK, not off
-            this row: the row says it was asked here (and goes when the chat
-            goes), while the decision behind it is the thing a person
-            answers — here, on the card, or in the reader. */}
           <Match when={props.row.kind === "work-ask" && props.row}>
             {(row) => <ChatWorkQuestion row={row()} />}
           </Match>
@@ -748,8 +534,6 @@ function TranscriptRow(props: {
             {(row) => (
               <p class="font-mono text-[0.68rem] text-fg-3">
                 {row().text}
-                {/* The count is the whole point of folding the run: ONE row, and
-                  it still says how many times the thing happened. */}
                 <Show when={props.repeat > 1}>
                   <span
                     data-testid="conductor-notice-repeat"
@@ -775,9 +559,6 @@ function TranscriptRow(props: {
           </Match>
         </Switch>
       </div>
-      {/* THE WORKS YOUR MESSAGE'S TURN IS ABOUT, at the head of the reply — on
-        the reply's side of the column, not inside your bubble. A wake-up
-        carries its own under its line. */}
       <Show when={props.row.kind === "user" && works().length > 0}>
         <TurnChips works={works()} />
       </Show>
@@ -785,29 +566,8 @@ function TranscriptRow(props: {
   );
 }
 
-/** THE MACHINE'S LINE — kolu itself starting a turn, because a watched
- *  terminal stopped, asked, or died.
- *
- *  FULL WIDTH ON THE LEFT, never the human's right-hand bubble: a person
- *  scrolling back must be able to tell at a glance which lines they wrote and
- *  which kolu did, and the side of the column is the fastest such signal there
- *  is. For the same reason there is no *send again*: this row is not a message
- *  that can be re-sent — what it says is how something STOOD when it rang, and
- *  the thing that rang rings again.
- *
- *  ONE LINE, which OPENS. The account handed to the agent is several
- *  paragraphs about each terminal; the headline is derived from the events
- *  (`wakeHeadline`) because the account's own first line is the briefing's
- *  opening, not the news. A plain `<details>`, owned by the DOM like the tool
- *  fold above — the list is keyed by row id, so an open disclosure survives
- *  every refinement of the row around it.
- *
- *  The `queued` / `delivery` marks are the user row's, minus the retry: a turn
- *  kolu started can wait behind one, be refused, or go unanswered exactly as a
- *  typed message can. */
 function WakeRow(props: {
   row: Extract<ConductorRow, { kind: "wake" }>;
-  /** The works this wake-up's turn is about, drawn under its line. */
   works: ReadonlyArray<WorkId>;
 }) {
   const mark = (): "queued" | "refused" | "unanswered" | undefined =>
@@ -815,9 +575,6 @@ function WakeRow(props: {
   const when = createMemo(() => wakeWhen(props.row.since));
 
   return (
-    /* `data-levels` is the row's news as DATA — the levels of its events, in
-       event order — so a test can assert that a `ready` wake was drawn without
-       pinning the wording of the headline above it. */
     <div
       data-testid="conductor-wake"
       data-levels={props.row.events.map((event) => event.level).join(" ")}
@@ -837,9 +594,6 @@ function WakeRow(props: {
               <span class="shrink-0 text-fg-3 tabular-nums">· {clock()}</span>
             )}
           </Show>
-          {/* The news gives way first at a phone's width — the speaker and the
-              clock are two short words and the headline is as long as the
-              names of the terminals that rang. */}
           <span
             data-testid="conductor-wake-headline"
             class="min-w-0 flex-1 truncate text-fg"
@@ -854,10 +608,6 @@ function WakeRow(props: {
           {props.row.text}
         </p>
       </details>
-      {/* THE WORKS IT IS ABOUT, as chips on a line of their own under the
-          wake-up — which piece of work rang is the first thing a person
-          needs from it, and a chip is a button, which a summary must not
-          hold. */}
       <Show when={props.works.length > 0}>
         <div data-testid="conductor-wake-works" class="mt-1 font-sans">
           <TurnChips works={props.works} />
@@ -882,39 +632,22 @@ function WakeRow(props: {
 
 function UserRow(props: { row: Extract<ConductorRow, { kind: "user" }> }) {
   const orch = useConductor();
-  /** The mark a message wears when it did not simply go.
-   *
-   *  `refused` means nothing took it, so *send again* sends it for the FIRST
-   *  time and the retry is honest. `unanswered` means it went out and nothing
-   *  came back — an agent that took it and went silent looks identical to one
-   *  that never took it, so no retry is offered rather than one that might
-   *  double the message. */
   const mark = (): "queued" | "refused" | "unanswered" | undefined =>
     props.row.queued === true ? "queued" : props.row.delivery;
-  // Always an array on the decoded row — the schema defaults it — so there is
-  // no second spelling of "none" to read.
-  const attachments = () => props.row.attachments;
 
   return (
     <>
-      {/* A pasted image with no words is a whole message — the quote would be
-          an empty bubble above it. */}
       <Show when={props.row.text !== ""}>
-        {/* NO SIZE OF ITS OWN — the pane's `text-chat` body size, like the
-            replies it sits among: a bubble a point smaller than the answer to
-            it reads as a footnote to the conversation rather than half of it.
-            It is aligned by `self-end` on the row, which is the READING
-            COLUMN's right edge now, not the window's. */}
         <blockquote class="rounded-[0.75rem_0.75rem_0.2rem_0.75rem] border border-accent/30 bg-accent/15 px-3 py-2 whitespace-pre-wrap m-0">
           {props.row.text}
         </blockquote>
       </Show>
-      <Show when={attachments().length > 0}>
+      <Show when={props.row.attachments.length > 0}>
         <div
           data-testid="conductor-row-attachments"
           class="mt-1 flex flex-wrap justify-end gap-1.5"
         >
-          <For each={attachments()}>
+          <For each={props.row.attachments}>
             {(attachment) => (
               <div
                 data-testid="conductor-row-attachment"
@@ -965,10 +698,6 @@ function UserRow(props: { row: Extract<ConductorRow, { kind: "user" }> }) {
                       : "not sent"
                   : "no answer"}
             </span>
-            {/* THE DOOR, BESIDE THE FAILURE IT FIXES: a refusal the agent
-                said (in structure, never in prose) an account could clear.
-                Nobody signed in already has the agent's own row on screen;
-                this is for the account that IS signed in and cannot. */}
             <Show when={what() === "refused" && props.row.signIn === "account"}>
               <button
                 type="button"
@@ -985,18 +714,10 @@ function UserRow(props: { row: Extract<ConductorRow, { kind: "user" }> }) {
                 data-testid="conductor-send-again"
                 class="text-accent hover:underline cursor-pointer"
                 onClick={() =>
-                  // The retry carries exactly what the first attempt did: the
-                  // row names files kolu-server is already holding under its state
-                  // root, so a row minted a moment ago and one restored after
-                  // a restart send the same message. Only the thumbnail is
-                  // this browser's, and no wire ever carried it.
-                  // Never a steer: the turn this message was refused by is
-                  // over, and a retry is the message being sent for the first
-                  // time.
                   orch.prompt(
                     props.row.text,
                     props.row.mentions ?? [],
-                    attachments(),
+                    props.row.attachments,
                     false,
                   )
                 }

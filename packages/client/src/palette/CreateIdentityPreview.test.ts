@@ -95,7 +95,6 @@ describe("createPreviewModel", () => {
     );
     expect(model?.repoName).toBe("spacetime");
     expect(model?.annotation).toBe("worktree name…");
-    // Provisional chrome copy is not a fleet identity key.
     expect(model?.annotationColor).toBeNull();
     expect(model?.repoColor).toMatch(/^oklch\(/);
   });

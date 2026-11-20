@@ -1,17 +1,4 @@
 // @vitest-environment happy-dom
-/**
- * The Inspector's trailing "also forwarded on this host" row — the second
- * surface the field verdict named. Its label was static copy and its link was an
- * invisible underline on the port number.
- *
- * The label IS the link now, and it says which terminal: that row exists
- * precisely because the port belongs to some terminal OTHER than the one on
- * screen, so "which one?" is the whole question, and a phrase that answers it
- * with a category ("this host") answers a smaller one.
- *
- * When nothing is attributed the old sentence stands, unlinked — honest static
- * copy about a door whose server kolu cannot find.
- */
 
 import type { KoluForward } from "kolu-common/surface";
 import { render } from "solid-js/web";

@@ -1,7 +1,3 @@
-/** The composer's keyboard rule: `Enter` sends only when no menu is open, the
- *  arrows walk a wrapping list, and Tab can never send. Plus the rule that
- *  moves the highlight on its own — a new question, and nothing else. */
-
 import { createRoot, createSignal } from "solid-js";
 import { describe, expect, it } from "vitest";
 import {
@@ -22,8 +18,6 @@ describe("completionIntent", () => {
   });
 
   it("accepts instead of sending while a menu is open", () => {
-    // `@fix⏎` completed the token rather than sending a prompt that names a
-    // terminal nobody has.
     expect(completionIntent("Enter", false, 3, 2)).toEqual({
       kind: "accept",
       index: 2,
@@ -54,8 +48,6 @@ describe("completionIntent", () => {
   });
 
   it("clamps a selection the list has outgrown", () => {
-    // One more typed letter can shrink the matches under the highlight; the
-    // key still lands on a row that exists.
     expect(completionIntent("Enter", false, 2, 7)).toEqual({
       kind: "accept",
       index: 1,
@@ -68,7 +60,6 @@ describe("completionIntent", () => {
 
   it("closes on Escape only while the menu is open", () => {
     expect(completionIntent("Escape", false, 2, 0)).toEqual({ kind: "close" });
-    // With no menu the key belongs to the pane, which leaves the mode.
     expect(completionIntent("Escape", false, 0, 0)).toEqual({ kind: "pass" });
   });
 });
@@ -81,8 +72,6 @@ const typed = (query: string): TokenQuery => ({
 
 describe("completionQuestion", () => {
   it("tells a bare trigger apart from no token at all", () => {
-    // `@` alone lists every terminal — a question with an empty answer typed
-    // so far, not the absence of one.
     expect(completionQuestion(typed(""), null)).not.toBe(
       completionQuestion(null, null),
     );
@@ -108,9 +97,6 @@ describe("createCompletionHighlight", () => {
   it("survives a fleet tick and starts over on a new question", () =>
     createRoot((dispose) => {
       const [query, setQuery] = createSignal("fi");
-      // Stands in for `candidates()`: every terminal's intent, cwd and agent
-      // state feed the match list, so it ticks whenever any agent moves — while
-      // the menu is open and somebody is halfway through `↓↓⏎`.
       const [fleetTick, setFleetTick] = createSignal(0);
       const [selected, setSelected] = createCompletionHighlight(() => {
         fleetTick();

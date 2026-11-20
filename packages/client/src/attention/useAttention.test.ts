@@ -1,9 +1,3 @@
-/** A page that resumes from what it saved can raise marks on its first frame —
- *  and whether it may depends on a preference the server sends a moment after
- *  the page loads. Until that frame lands, `preferences()` answers the
- *  defaults (alerts on), so a user who switched **Attention alerts** off would
- *  be marked on every reload whose padi frame beat the preferences frame. */
-
 import type { Preferences } from "kolu-common/surface";
 import type { TerminalId } from "kolu-common/surface";
 import { createRoot, createSignal } from "solid-js";
@@ -19,8 +13,6 @@ vi.mock("../wire", () => ({
   preferencesArrived: () => wire.arrived(),
   preferences: () => ({ attentionAlerts: wire.alerts() }) as Preferences,
 }));
-// The per-host mirror is driven by hand below; the Conductor's side of the
-// bell has nothing to say here.
 vi.mock("./useAttentionFacts", () => ({ useAttentionFacts: () => ({}) }));
 vi.mock("../conductor/useConductorFacts", () => ({
   conductorAsks: () => undefined,
@@ -49,7 +41,7 @@ vi.mock("../attentionNotify", () => ({
   },
 }));
 
-import { registerHostFacts, writeHostMarks } from "./attentionMarks";
+import { registerHostAttention } from "./attentionMarks";
 import { attentionRecordOf } from "./savedAttention";
 import { useAttention } from "./useAttention";
 
@@ -60,7 +52,6 @@ const flush = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
 beforeEach(() => localStorage.clear());
 
 it("a resumed first frame raises no mark before the preferences have arrived, nor after they say alerts are off", async () => {
-  // The last page saw nothing finished; while kolu was down A finished.
   attentionRecordOf("local").remember({
     frame: { asking: [], finished: [] },
     latched: [],
@@ -72,13 +63,14 @@ it("a resumed first frame raises no mark before the preferences have arrived, no
   wire.alerts = alerts;
   await createRoot(async (dispose) => {
     try {
-      registerHostFacts("local", () => ({
-        reported: true,
-        live: true,
-        liveIds: [],
-        byClass: { asking: [], working: [], linger: [], finished: [A] },
-      }));
-      writeHostMarks("local", {});
+      registerHostAttention("local", {
+        facts: () => ({
+          reported: true,
+          live: true,
+          liveIds: [],
+          byClass: { asking: [], working: [], linger: [], finished: [A] },
+        }),
+      });
       useAttention({
         activeId: () => null,
         focusedId: () => null,
@@ -88,9 +80,7 @@ it("a resumed first frame raises no mark before the preferences have arrived, no
         activeAgentState: () => undefined,
       });
       await flush();
-      // Defaults say alerts are on; that is not the user's answer yet.
       expect(attentionRecordOf("local").isUnread(A)).toBe(false);
-      // The user's answer: off.
       setAlerts(false);
       setArrived(true);
       await flush();

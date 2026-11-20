@@ -1,14 +1,3 @@
-/** Export the active terminal's available scrollback as a printable PDF.
- *
- *  Serializes whatever the xterm ring buffer currently holds (scrollback +
- *  viewport — NOT the full session, which may have scrolled past the buffer
- *  cap) to themed HTML via xterm's SerializeAddon, opens it in a new window
- *  with the live theme and FiraCode Nerd Font applied, and triggers the
- *  browser print dialog. The user picks "Save as PDF" from there.
- *
- *  Client-side only — the server's headless xterm has no theme, so
- *  serializing there would produce unstyled HTML. */
-
 import { escapeHtml } from "@kolu/html-escape";
 import type { TerminalMetadata } from "@kolu/padi-client/surface";
 import type { TerminalId } from "kolu-common/surface";
@@ -29,10 +18,6 @@ export function exportScrollbackAsPdf(
   const bodyHtml = refs.serialize.serializeAsHTML({
     includeGlobalBackground: true,
   });
-  // The SAME title the clipboard PNG carries. This used to compose its own
-  // "repo (branch)" beside `screenshotTerminal`'s, and the two had already
-  // parted on the absent-metadata arm ("Terminal" here, "terminal" there), so
-  // one terminal exported under two names depending on which button you hit.
   const label = terminalExportTitle(meta);
   // Pull the active theme off the live xterm so the popup matches exactly
   // what the user sees — serializeAsHTML only emits a global background,
@@ -72,9 +57,6 @@ export function exportScrollbackAsPdf(
   win.document.open();
   win.document.write(doc);
   win.document.close();
-  // Wait for fonts to load before printing so glyph metrics are stable.
-  // Fall through to print() on any fonts.ready failure — unstyled print is
-  // still better than a silent no-op.
   const print = () => {
     win.focus();
     win.print();

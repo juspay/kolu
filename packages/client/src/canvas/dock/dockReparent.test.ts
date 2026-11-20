@@ -11,8 +11,6 @@ import {
   rowIdOfDragId,
 } from "./dockReparent";
 
-/** A census keyed by id: missing key → `undefined` (absent from the census),
- *  `null` → a root, a string → that parent. */
 function census(edges: Record<string, string | null | undefined>): ParentEdge {
   return (id) => edges[id];
 }
@@ -137,8 +135,6 @@ describe("dropHighlightOf — one rule, two readers", () => {
   });
 });
 
-/** `closestCenter` reads only `draggable.transformed.center` and
- *  `droppable.layout.center` — the fakes carry exactly those. */
 function drag(id: string, center: { x: number; y: number }): Draggable {
   return { id, transformed: { center } } as unknown as Draggable;
 }

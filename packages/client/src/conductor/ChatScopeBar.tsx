@@ -1,16 +1,3 @@
-/** WHAT THE CHAT IS POINTED AT, said over the chat.
- *
- *  While the conversation is about one piece of work (`./chatScope.ts`), the
- *  transcript below is showing some of its turns and not others, and a view
- *  that hides things must say so where the hiding happens — a person who
- *  scrolled to the top of a filtered chat and found four lines where there
- *  were forty has no other way to learn why. So the bar names the work with
- *  its own chip, counts what it is keeping, and holds the way out.
- *
- *  The count is the SAME `turnWorks` reading the transcript filters by and
- *  the chips are drawn from — the pane reads it once and hands it to both —
- *  so "5 of 15" cannot disagree with what is on screen. */
-
 import type { ConductorRow } from "kolu-common/conductor";
 import { type Component, createMemo, Show } from "solid-js";
 import { chatScope, showAllChat } from "./chatScope";
@@ -44,9 +31,6 @@ const ChatScopeBar: Component<{
           class="flex min-w-0 items-center gap-2 border-b border-edge px-5 py-2 text-[0.72rem] text-fg-2"
         >
           <span class="shrink-0">Only</span>
-          {/* THE WORK'S OWN FACE, not its title in a different font: the
-              chip in the bar, the chips on the turns below it and the chip
-              in the box are one drawing of one thing. */}
           <WorkChipFace work={only().record} />
           <span class="min-w-0 truncate text-fg-3 tabular-nums">
             · {only().shown} of {only().total}{" "}

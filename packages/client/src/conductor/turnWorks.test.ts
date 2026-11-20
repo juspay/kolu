@@ -1,6 +1,3 @@
-/** Which works a chat turn is about — read off the rows already in it and the
- *  works' own timelines. */
-
 import type { ConductorRow } from "kolu-common/conductor";
 import { endWork, joinWork, openWork, type Work, type WorkId } from "kolu-work";
 import { describe, expect, it } from "vitest";
@@ -37,8 +34,6 @@ const row = (id: string, minute: number) => ({
   since: at(minute),
 });
 
-/** A message of yours, naming terminals and — since a mention is either —
- *  pieces of work. */
 const user = (
   id: string,
   minute: number,
@@ -114,7 +109,6 @@ const workAsk = (id: string, minute: number, of: WorkId) =>
     work: of,
   }) satisfies ConductorRow;
 
-/** The works of each row's turn, as the transcript reads them. */
 const read = (
   rows: readonly ConductorRow[],
   works: ReadonlyMap<WorkId, Work>,
@@ -149,8 +143,6 @@ describe("the works of a chat turn", () => {
   });
 
   it("reads a WORK you mentioned as the work of that turn, outright", () => {
-    // No terminal of B is named anywhere in the turn: the mention says the
-    // work itself, which is what `@page-chats-open-in-a-pane` sends.
     const rows = [user("u", 5, [], [B]), agent("r", 6)];
     expect(read(rows, works).get("r")).toEqual([B]);
   });
@@ -175,8 +167,6 @@ describe("the works of a chat turn", () => {
   });
 
   it("names the row that starts each turn, a turn with no prompt row too", () => {
-    // Rows before the first prompt are a turn of their own: its works are
-    // drawn on its first row, whatever kind that is.
     const rows = [
       tool("t0", 1, PLANNER),
       agent("r0", 2),

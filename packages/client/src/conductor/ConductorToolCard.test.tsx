@@ -1,15 +1,4 @@
 // @vitest-environment happy-dom
-/**
- * A tool card about a terminal on ANOTHER host.
- *
- * One conversation drives terminals everywhere, so `fix-parser` alone does not
- * say where the agent typed — the card has to name the machine, and its "open
- * tile" has to land on that machine's tab rather than focusing an id the
- * currently-selected host has never heard of. The row carries the two halves
- * separately (`terminalId` + `host`, the sides of the `host/id` the fleet face
- * spoke), and this pins that the card uses both.
- */
-
 import type { ConductorToolRow } from "kolu-common/conductor";
 import type { HostKey } from "kolu-common/hostKey";
 import type { TerminalId } from "kolu-common/surface";
@@ -26,8 +15,6 @@ vi.mock("../host/selectHostTab", () => ({
 vi.mock("../canvas/dock/useDockFocus", () => ({
   useDockFocus: () => (id: TerminalId) => landed.focused.push(id),
 }));
-// The diffs block drags in the whole code viewer (and its Nix-backed grammar
-// aliases) for a row that carries none — stub it so this file tests the card.
 vi.mock("./ConductorDiffs", () => ({ default: () => null }));
 
 import ConductorToolCard from "./ConductorToolCard";
@@ -102,8 +89,6 @@ describe("a tool card naming a terminal on another host", () => {
   });
 
   it("offers nothing to open for a call whose ref could not be resolved", () => {
-    // Both halves are null together: a card that guessed the local host would
-    // send a person to a tab that never had this terminal.
     const el = mount(null);
     expect(
       el.querySelector('[data-testid="conductor-tool-open-tile"]'),
@@ -113,9 +98,6 @@ describe("a tool card naming a terminal on another host", () => {
 });
 
 describe("a failed call", () => {
-  /** A `screen_text` on a terminal padi does not hold, as the adapter reports
-   *  it: the tool's words fenced in the call's content, and the same words read
-   *  where the screen would be. */
   const failedRead = {
     kind: "tool",
     id: "row-2",
@@ -195,8 +177,6 @@ describe("the payload under a card kolu recognises", () => {
     return root;
   };
 
-  /** What a `create` answers: the same facts the card's own words already
-   *  say, in JSON. */
   const ANSWER = `{"id":"remote:naiveintent/${TERMINAL}","pid":0,"ran":"omp"}`;
 
   const created = {
@@ -218,15 +198,12 @@ describe("the payload under a card kolu recognises", () => {
 
   it("keeps it behind the disclosure instead of printing it under the words", () => {
     const el = mountRow(created);
-    // NOTHING raw in the flow: every body on this card is inside a fold.
     for (const pre of el.querySelectorAll("pre")) {
       expect(pre.closest("details")).not.toBeNull();
     }
     expect(el.querySelector("details summary")?.textContent).toContain(
       "answer",
     );
-    // What is left once the fold is taken away is the card's own words — and
-    // the payload is not among them.
     for (const fold of el.querySelectorAll("details")) fold.remove();
     expect(el.textContent ?? "").not.toContain('"pid"');
   });

@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { CanvasTileMode } from "./CanvasTile";
 import {
   createHeldSeen,
-  SEEN_HOLD_MS,
+  SEEN_DETACH_GRACE_MS,
   type TileSeenFacts,
   tileIsSeen,
 } from "./tileSeen";
@@ -19,7 +19,6 @@ const facts = (over: Partial<TileSeenFacts> = {}): TileSeenFacts => ({
 
 describe("tileIsSeen", () => {
   it("sees the maximized tile", () => {
-    // It fills the viewport, so its own rect against the camera says nothing.
     expect(tileIsSeen(facts({ mode: "maximized", onScreen: false }))).toBe(
       true,
     );
@@ -30,7 +29,6 @@ describe("tileIsSeen", () => {
   });
 
   it("sees the active tile the user has panned away from", () => {
-    // The keyboard still reaches it, so its output must keep arriving.
     expect(tileIsSeen(facts({ onScreen: false, active: true }))).toBe(true);
   });
 
@@ -53,17 +51,12 @@ describe("tileIsSeen", () => {
   });
 
   it("does not count a tile the camera is merely flying over", () => {
-    // A host switch or a restored session pans the camera; a tile swept
-    // through the viewport on the way is not one the user asked to look at.
     expect(tileIsSeen(facts({ onScreen: true, cameraSettled: false }))).toBe(
       false,
     );
   });
 
   it("keeps the maximized and the active tile seen through a flight", () => {
-    // Neither asks where the camera is — the maximized tile fills the
-    // viewport, and the active tile is the one taking the keystrokes (a
-    // terminal you just created is active while the canvas flies to it).
     expect(
       tileIsSeen(
         facts({ mode: "maximized", onScreen: false, cameraSettled: false }),
@@ -90,8 +83,6 @@ describe("createHeldSeen", () => {
     vi.useRealTimers();
   });
 
-  /** Drive the hold over a signal, returning both ends — plus how many times
-   *  the held answer actually CHANGED, which is what a pane acts on. */
   function harness(initial: boolean) {
     return createRoot((d) => {
       dispose = d;
@@ -122,7 +113,7 @@ describe("createHeldSeen", () => {
     const { held, setSeen, changes } = harness(true);
     setSeen(false);
     expect(held()).toBe(true);
-    vi.advanceTimersByTime(SEEN_HOLD_MS - 1);
+    vi.advanceTimersByTime(SEEN_DETACH_GRACE_MS - 1);
     expect(held()).toBe(true);
     vi.advanceTimersByTime(1);
     expect(held()).toBe(false);
@@ -132,21 +123,17 @@ describe("createHeldSeen", () => {
   it("changes nothing when the tile is seen again inside the hold", () => {
     const { held, setSeen, changes } = harness(true);
     setSeen(false);
-    vi.advanceTimersByTime(SEEN_HOLD_MS - 1);
+    vi.advanceTimersByTime(SEEN_DETACH_GRACE_MS - 1);
     setSeen(true);
     expect(held()).toBe(true);
-    // The pending let-go was spent, not merely outvoted.
-    vi.advanceTimersByTime(SEEN_HOLD_MS * 2);
+    vi.advanceTimersByTime(SEEN_DETACH_GRACE_MS * 2);
     expect(held()).toBe(true);
-    // No detach, no re-attach: the pane was never told anything.
     expect(changes()).toBe(0);
   });
 
   it("gives a tile that was never seen nothing to hold", () => {
-    // Off screen at mount: not attached, so time alone owes it nothing — and
-    // the first sighting is the FIRST thing its pane is ever told.
     const { held, setSeen, changes } = harness(false);
-    vi.advanceTimersByTime(SEEN_HOLD_MS * 2);
+    vi.advanceTimersByTime(SEEN_DETACH_GRACE_MS * 2);
     expect(held()).toBe(false);
     expect(changes()).toBe(0);
     setSeen(true);
@@ -157,11 +144,10 @@ describe("createHeldSeen", () => {
   it("restarts the hold on each departure, not each leaving frame", () => {
     const { held, setSeen } = harness(true);
     setSeen(false);
-    vi.advanceTimersByTime(SEEN_HOLD_MS - 1);
+    vi.advanceTimersByTime(SEEN_DETACH_GRACE_MS - 1);
     setSeen(true);
     setSeen(false);
-    // A fresh departure gets a fresh window.
-    vi.advanceTimersByTime(SEEN_HOLD_MS - 1);
+    vi.advanceTimersByTime(SEEN_DETACH_GRACE_MS - 1);
     expect(held()).toBe(true);
     vi.advanceTimersByTime(1);
     expect(held()).toBe(false);
@@ -172,8 +158,7 @@ describe("createHeldSeen", () => {
     setSeen(false);
     dispose?.();
     dispose = undefined;
-    vi.advanceTimersByTime(SEEN_HOLD_MS * 2);
-    // Disposed owner: the pending flip was cancelled, not applied late.
+    vi.advanceTimersByTime(SEEN_DETACH_GRACE_MS * 2);
     expect(held()).toBe(true);
   });
 });

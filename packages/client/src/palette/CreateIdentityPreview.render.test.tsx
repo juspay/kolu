@@ -1,15 +1,4 @@
 // @vitest-environment happy-dom
-/**
- * The "Will create" card must track the palette while it stays mounted.
- *
- * Inside the New terminal flow the model accessor never returns null, so the
- * non-keyed `<Show>` callback runs exactly once. A body that unwraps the
- * accessor into a const paints the FIRST model forever — the card kept naming
- * the old repo/branch/agent while the user had drilled into another repo and
- * typed a new name. These tests drive the props through that transition with
- * the card never unmounting.
- */
-
 import { createSignal } from "solid-js";
 import { render } from "solid-js/web";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -55,7 +44,6 @@ const leafPath = [
   { name: "spacetime", kind: "value" },
 ] as const;
 
-/** Root-level highlight on another repo — where the stale card froze. */
 const highlightedRepo: PaletteCommand = {
   kind: "value",
   name: "kolu",
@@ -108,7 +96,6 @@ describe("CreateIdentityPreview — live card, never a frozen snapshot", () => {
     setQuery("feat-fun-ui");
     setHighlighted({ kind: "label", name: "claude", data: "claude" });
 
-    // Same mounted card — the model never went null, so nothing remounted.
     expect(
       host?.querySelectorAll('[data-testid="create-identity-preview"]'),
     ).toHaveLength(1);

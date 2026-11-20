@@ -1,24 +1,3 @@
-/**
- * The grid publish, driven the way `Terminal.tsx` drives it — through the REAL
- * `runAction` edge, so the toast these tests assert on is the one a user sees.
- *
- * kolu#2101 H1 (the lid-close field test). During the ~15s between a browser
- * waking and a remote host reconverging, every pane on that host re-measures and
- * republishes its grid. The relay answers with the correct, typed refusal —
- * `reServeSurface: procedure "lifecycle.resize" invoked with no live upstream
- * link` — which is deliberately UNTAGGED (`reServeSurface.ts`: a re-served
- * procedure's error schema is the AGENT's, so the refusal has no channel to
- * travel on) and therefore crosses as a DEFECT. A defect skips the action's own
- * `Effect.catch` entirely and lands at `runAction`'s edge, which reports it:
- *
- *     publish terminal grid failed unexpectedly: reServeSurface: procedure
- *     "lifecycle.resize" invoked with no live upstream link
- *
- * Three panes, three identical red toasts, for an expected transient that
- * self-heals. The gate below is on the client's OWN fact (is this terminal's
- * host entry `connected`?), never on the refusal's prose.
- */
-
 import type { TerminalGrid } from "@kolu/xterm-kit/solid";
 import { Effect } from "effect";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -40,14 +19,6 @@ vi.mock("solid-sonner", () => ({
   }),
 }));
 
-/** The relay's refusal, verbatim (`reServeSurface.ts`'s
- *  `upstreamUnavailable`), raised the way it crosses the wire: as a DEFECT.
- *
- *  Reconstructed here rather than imported: the client must NOT depend on
- *  `@kolu/surface-remote`'s class or on this string — matching the refusal's
- *  prose client-side is exactly the coupling H1 refuses. The literal lives in
- *  the FIXTURE so a test can reproduce the incident's signature; the code under
- *  test never sees it. */
 const REFUSAL =
   'reServeSurface: procedure "lifecycle.resize" invoked with no live upstream link';
 const refusalDefect = () =>
@@ -57,7 +28,6 @@ const refusalDefect = () =>
     throw err;
   });
 
-/** Let the fire-and-forget fiber `runAction` forks reach its observer. */
 const settle = async () => {
   for (let i = 0; i < 10; i++) await new Promise((r) => setTimeout(r, 0));
 };
@@ -87,17 +57,9 @@ describe("publishGridAction", () => {
     );
     await settle();
 
-    // The publish never happened, so the refusal was never provoked…
     expect(resize).not.toHaveBeenCalled();
-    // …and nothing reached the user or the defect edge. PRE-FIX (this same test
-    // against an ungated `publishGridAction`) this line reproduced the field
-    // test's toast verbatim:
-    //   publish terminal grid failed unexpectedly: reServeSurface: procedure
-    //   "lifecycle.resize" invoked with no live upstream link
     expect(toastSpy.error.mock.calls).toEqual([]);
     expect(err).not.toHaveBeenCalled();
-    // The suppression is SAID — quietly, once, naming the pane, the entry kind
-    // and the grid.
     expect(info).toHaveBeenCalledTimes(1);
     expect(String(info.mock.calls[0]?.[0])).toContain("80×24");
     expect(String(info.mock.calls[0]?.[0])).toContain('"warming"');
@@ -123,9 +85,6 @@ describe("publishGridAction", () => {
 
     expect(resize).toHaveBeenCalledTimes(1);
     expect(toastSpy.error).toHaveBeenCalledTimes(1);
-    // The incident's exact signature — the gate must not have widened into a
-    // swallow of the error CLASS. A host the client believes is up that refuses
-    // a resize is a real fault and stays loud.
     expect(String(toastSpy.error.mock.calls[0]?.[0])).toBe(
       `publish terminal grid failed unexpectedly: ${REFUSAL}`,
     );
@@ -153,9 +112,6 @@ describe("publishGridAction", () => {
   });
 
   it("a DECLARED resize failure on a connected host still toasts with its message", async () => {
-    // The pre-existing arm, unchanged: a typed failure (not a defect) reaches
-    // the action's own `Effect.catch`, which reports it next to the logic that
-    // produced it (`dev/skills/kolu-client/SKILL.md`).
     const resize = vi.fn(() => Effect.fail(new Error("kaval said no")));
 
     runAction(
@@ -199,13 +155,6 @@ describe("publishGridAction", () => {
   });
 });
 
-/** The publisher, driven the way a pane drives it: grids in, resizes out.
- *
- *  Fake timers, because the settle window is the thing under test — a real
- *  250ms wait per case would buy nothing but a slow suite. The publish itself
- *  still goes through the REAL `runAction` edge, and the resize stubs are
- *  synchronous, so a fired publish has already called `resize` by the time the
- *  advance returns. */
 describe("createGridPublisher", () => {
   beforeEach(() => vi.useFakeTimers());
   afterEach(() => {
@@ -213,10 +162,8 @@ describe("createGridPublisher", () => {
     vi.restoreAllMocks();
   });
 
-  /** One pane's publisher over a mutable host state and a recording PTY. */
   function harness(init?: { host?: string }) {
     let host = init?.host ?? "connected";
-    /** The server-side PTY, as kaval holds it. */
     let ptyGrid = "80×24";
     const resize = vi.fn((g: TerminalGrid) =>
       Effect.sync(() => {
@@ -242,20 +189,12 @@ describe("createGridPublisher", () => {
     };
   }
 
-  // ── The settle window (kolu#2362 §5) ────────────────────────────────────
-  //
-  // A divider drag published five resizes in 220ms across two agent terminals,
-  // each one a SIGWINCH and a full repaint from the agent underneath — and, now
-  // that kaval re-snapshots its subscribers on a real resize, a snapshot fanned
-  // out to every viewer of that terminal. The user asked for one resize.
-
   it("publishes ONCE for a drag, carrying the grid the drag ended at", async () => {
     const h = harness();
     for (const cols of [120, 110, 100, 90, 80]) {
       h.publisher.publish({ cols, rows: 40 });
       await vi.advanceTimersByTimeAsync(40);
     }
-    // Nothing yet: every frame of the gesture re-armed the window.
     expect(h.resize).not.toHaveBeenCalled();
 
     await vi.advanceTimersByTimeAsync(GRID_SETTLE_MS);
@@ -264,7 +203,6 @@ describe("createGridPublisher", () => {
   });
 
   it("publishes again once the pane moves after the window closed", async () => {
-    // A DELAY, not a drop: a later real resize is a later real publish.
     const h = harness();
     h.publisher.publish({ cols: 80, rows: 24 });
     await vi.advanceTimersByTimeAsync(GRID_SETTLE_MS);
@@ -277,10 +215,6 @@ describe("createGridPublisher", () => {
   });
 
   it("publishes nothing after cancel — a tile torn down, or hidden, mid-drag", async () => {
-    // Both callers say the same thing: this measurement is no longer owed to
-    // the PTY. A tile that is gone must not resize one a quarter second later,
-    // and a pane the user just hid must not resize one for a screen nobody is
-    // looking at (`shownPane.ts` — the reveal's attach restates the grid).
     const h = harness();
     h.publisher.publish({ cols: 132, rows: 43 });
     h.publisher.cancel();
@@ -289,9 +223,6 @@ describe("createGridPublisher", () => {
   });
 
   it("a cancel drops the pending publish, not the publisher", async () => {
-    // Hiding is not a teardown: the same pane is revealed again, re-fits and
-    // must publish normally. A cancel that left the publisher dead would turn
-    // one tile switch into a pane whose size the PTY never hears again.
     const h = harness();
     h.publisher.publish({ cols: 132, rows: 43 });
     h.publisher.cancel();
@@ -303,44 +234,22 @@ describe("createGridPublisher", () => {
     expect(h.ptyGrid()).toBe("100×30");
   });
 
-  // ── The suppressed publish is never re-fired (kolu#2101 K4) ─────────────
-  //
-  // H1's gate drops the publish while the host is not connected on the
-  // argument that "the post-convergence re-attach restates it". The grid effect
-  // fires once per GRID CHANGE, though, and nothing re-observes the host
-  // returning to `connected` — so if the open attach produces no frame, no
-  // failure and no end across the outage window (law-2 weather, or simply a
-  // quiet pane), the drop is permanent. Measured pre-fix, driving exactly that:
-  //
-  //   pane measured          : 132×43
-  //   pty grid during outage : 80×24 (resize calls: 0)
-  //   pty grid AFTER the host flipped back to "connected": 80×24
-  //   lifecycle.resize calls, total                      : 0
-  //
-  // Reachable on the LOCAL host too — `daemon.restart` drains it out of
-  // `connected`.
-
   it("(K4) a grid suppressed while the host is down is re-published ONCE on the connected flip", async () => {
     vi.spyOn(console, "info").mockImplementation(() => {});
     const h = harness();
 
-    // The lid closes, then the user drags the split divider.
     h.setHost("warming");
     h.publisher.publish({ cols: 132, rows: 43 });
     await vi.advanceTimersByTimeAsync(GRID_SETTLE_MS);
     expect(h.resize).not.toHaveBeenCalled();
     expect(h.ptyGrid()).toBe("80×24");
 
-    // The host reconverges. The attach is SILENT — no frame, no failure, no end
-    // — so nothing re-opens it and, pre-fix, nothing ever restated the grid.
     h.setHost("connected");
     h.publisher.republishSuppressed();
     expect(h.resize).toHaveBeenCalledTimes(1);
     expect(h.resize).toHaveBeenCalledWith({ cols: 132, rows: 43 });
     expect(h.ptyGrid()).toBe("132×43");
 
-    // ONCE. The effect re-runs on every host-state tick, and a second write of
-    // the same grid must cost nothing.
     h.publisher.republishSuppressed();
     h.publisher.republishSuppressed();
     expect(h.resize).toHaveBeenCalledTimes(1);
@@ -356,9 +265,6 @@ describe("createGridPublisher", () => {
     vi.spyOn(console, "info").mockImplementation(() => {});
     const h = harness({ host: "failed" });
 
-    // Three suppressed measurements during one outage, each its own settled
-    // publish: only the last one describes the pane, and replaying the earlier
-    // two would move the shared PTY backwards.
     for (const cols of [100, 120, 132]) {
       h.publisher.publish({ cols, rows: 40 });
       await vi.advanceTimersByTimeAsync(GRID_SETTLE_MS);
@@ -368,8 +274,6 @@ describe("createGridPublisher", () => {
     h.publisher.republishSuppressed();
     expect(h.resize.mock.calls).toEqual([[{ cols: 132, rows: 40 }]]);
 
-    // A publish that goes through normally supersedes the latch, so a LATER
-    // flip cannot replay a grid the pane has already moved past.
     h.publisher.publish({ cols: 80, rows: 24 });
     await vi.advanceTimersByTimeAsync(GRID_SETTLE_MS);
     h.publisher.republishSuppressed();
@@ -379,10 +283,6 @@ describe("createGridPublisher", () => {
     ]);
   });
 
-  // The latch is bookkept at FIRE time, which is what makes this case work: a
-  // publish still sitting in the window owes the PTY nothing yet, so the flip
-  // sees an honest empty latch — and the publish, when it fires, meets the host
-  // state it is actually judged against.
   it("(K4) a host that flips back MID-WINDOW still gets the grid, once", async () => {
     vi.spyOn(console, "info").mockImplementation(() => {});
     const h = harness({ host: "warming" });
@@ -395,7 +295,6 @@ describe("createGridPublisher", () => {
 
     await vi.advanceTimersByTimeAsync(GRID_SETTLE_MS);
     expect(h.resize.mock.calls).toEqual([[{ cols: 132, rows: 43 }]]);
-    // …and the latch is empty afterwards: the grid landed.
     h.publisher.republishSuppressed();
     expect(h.resize).toHaveBeenCalledTimes(1);
   });

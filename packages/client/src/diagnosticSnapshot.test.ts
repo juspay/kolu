@@ -1,31 +1,5 @@
 import { RpcClientError } from "effect/rpc/RpcClientError";
 import { SocketReadError } from "effect/socket/Socket";
-/**
- * THE FALSIFIER for kolu#2101 J2: the snapshot must be able to prove the field
- * incident by itself.
- *
- * The incident: a woken tab whose socket, watchdog and header dot were all
- * healthy while every fenced subscription in it was parked on a re-dial the
- * protocol swallowed. The two arms below are that exact drive, before and after
- * stable Effect transport failures, differing in ONE fact — whether a frame arrived after the current
- * socket opened:
- *
- *   PRE-J1  the entries subscription hears nothing after the reopen → the
- *           snapshot NAMES it, verdict `parked`, last frame frozen before the
- *           wire's open-since.
- *   STABLE Effect reports the failed heartbeat, the fence re-subscribes, a frame lands
- *           → the same subscription reads `live`.
- *
- * The registry side is REAL (`@kolu/surface/subscriptions`, driven through its
- * own writer); the wire's dial history is SCRIPTED, because on stable Effect this park can
- * no longer be produced by driving a real link — the fix is unconditional, and a
- * knob to disable it would be the defect this repo's fail-fast rule forbids. The
- * REAL-link half of the same claim is asserted in
- * `packages/surface/src/links/socketRedialLaws.test.ts` (law 3, "THE FIELD
- * SHAPE"), which drives a served surface over a silently-killed socket and pins
- * the registry's recovered numbers off it.
- */
-
 import type { HostKey } from "kolu-common/hostKey";
 import {
   registerSubscription,
@@ -36,9 +10,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const T_SUBSCRIBED = 1_700_000_000_000;
 const T_FIRST_FRAME = T_SUBSCRIBED + 1_000;
-/** The swallowed dial — no `open`, no close code, no server-side trace at all. */
 const T_SWALLOWED = T_SUBSCRIBED + 3_000;
-/** The socket the tab is sitting on now. Every parked verdict is measured here. */
 const T_REOPEN = T_SUBSCRIBED + 5_000;
 const T_CAPTURE = T_SUBSCRIBED + 9_000;
 
@@ -63,11 +35,6 @@ const dials = [
   },
 ];
 
-/** An entry lens that answers `state()` and NOTHING else. Reaching for
- *  `collections` / `streams` / `procedures` here would open a subscription or
- *  issue a call — a network round-trip inside a diagnostic that promises none,
- *  and useless in exactly the case it exists for (a wire that is lying). So the
- *  lens throws rather than quietly allowing it. */
 const entryLens = (state: unknown) =>
   new Proxy(
     { state: () => state },
@@ -102,9 +69,6 @@ const {
 } = await import("./diagnosticSnapshot");
 const { recordProbeSettled } = await import("./wireProbes");
 
-/** The tab's two long-lived subscriptions, opened on the socket that later died
- *  silently. `entries[local]` is the one that drives the tab dots and the boot
- *  canvas — the subscription whose park the field saw. */
 function openTheTabsSubscriptions(): {
   entries: SubscriptionProbe;
   preferences: SubscriptionProbe;
@@ -129,8 +93,6 @@ afterEach(() => {
 describe("the snapshot proves the park by itself", () => {
   it("PRE-J1: names the parked subscription, with its frame frozen before the wire opened", () => {
     openTheTabsSubscriptions();
-    // …and then nothing. The wire re-dialled underneath (dial #2 swallowed, #3
-    // open at T_REOPEN) and the orphaned subscriptions were never re-driven.
     vi.setSystemTime(T_CAPTURE);
     const snap = collectDiagnosticSnapshot();
 
@@ -140,30 +102,23 @@ describe("the snapshot proves the park by itself", () => {
     );
     expect(entries?.verdict).toBe("parked");
     expect(entries?.lastFrameAt).toBe(T_FIRST_FRAME);
-    // The proof, spelled out: the last frame predates the socket the tab is
-    // sitting on. Nothing else in the client could state this.
     expect(entries?.lastFrameAt as number).toBeLessThan(
       snap.wire.openSince as number,
     );
-    expect(entries?.state).toBe("live"); // not ended, not erroring — the disease
+    expect(entries?.state).toBe("live");
     expect(
       snap.subscriptions
         .filter((s) => s.verdict === "parked")
         .map((s) => s.label),
     ).toEqual(["entries[local]", "preferences"]);
 
-    // And in the text a user actually pastes.
     const text = formatDiagnosticSnapshot(snap);
     expect(text).toContain("PARKED entries[local]");
-    // The dial nothing else in the system records — not the client, not the
-    // console, not the server's log, because the server never saw a connection.
     expect(text).toContain("ended-without-open");
   });
 
   it("a stable heartbeat failure and re-subscription land reads live", () => {
     const { entries, preferences } = openTheTabsSubscriptions();
-    // Stable Effect broadcasts a missed heartbeat as a transport failure;
-    // the retry fence re-subscribes and the fresh snapshot arrives.
     vi.setSystemTime(T_REOPEN + 120);
     entries.retry(
       new RpcClientError({
@@ -192,25 +147,18 @@ describe("the snapshot proves the park by itself", () => {
   });
 
   it("says `unknown`, never `parked`, while the wire is not open", () => {
-    // A wire that is not open has no current socket, so nothing can be said
-    // about how stale a subscription is relative to one. Answering `parked`
-    // there would report an ordinary disconnection as the incident, and this
-    // block's whole value is that a verdict in it means something.
     openTheTabsSubscriptions();
     vi.setSystemTime(T_CAPTURE);
     const parked = collectDiagnosticSnapshot().subscriptions[0];
     if (parked === undefined) throw new Error("no subscription registered");
     expect(parked.verdict).toBe("parked");
     expect(subscriptionVerdict(parked, undefined)).toBe("unknown");
-    // …and an ended or failed subscription answers with its own state, not with
-    // a staleness verdict it cannot have.
     expect(subscriptionVerdict({ ...parked, state: "ended" }, T_REOPEN)).toBe(
       "ended",
     );
     expect(subscriptionVerdict({ ...parked, state: "failed" }, T_REOPEN)).toBe(
       "failed",
     );
-    // Opened ON the current socket with no frame yet is honest warming.
     expect(
       subscriptionVerdict(
         { ...parked, subscribedAt: T_REOPEN + 1, lastFrameAt: undefined },
@@ -230,10 +178,8 @@ describe("the block a user pastes", () => {
     );
     expect(order.every((i) => i >= 0)).toBe(true);
     expect([...order].sort((a, b) => a - b)).toEqual(order);
-    // Never fabricated: no probe has settled in this tab, and the block says so.
     expect(text).toContain("last probe: unknown");
     expect(text).toContain("last stale verdict: unknown");
-    // Build identity is stated even when only some of it is known.
     expect(text).toContain("server commit: unknown");
     expect(text).toContain("daemon contract version: 5.1");
   });
@@ -242,9 +188,6 @@ describe("the block a user pastes", () => {
     openTheTabsSubscriptions();
     vi.setSystemTime(T_CAPTURE);
     const snap = collectDiagnosticSnapshot();
-    // The stamp comes off the map's OWN per-key subscription in the liveness
-    // registry — `surface-map`'s entry state carries no timestamp, and widening
-    // it for a client-side need would cost every consumer of a shared package.
     expect(snap.hosts).toEqual([
       {
         key: "local",
@@ -263,16 +206,12 @@ describe("the block a user pastes", () => {
     const snap = collectDiagnosticSnapshot();
     expect(snap.wire.lastProbeOk).toBe(true);
     expect(snap.wire.lastProbeAt).toBe(T_REOPEN + 500);
-    // The stale verdict is the fingerprint of the cycle the park rode in on, so
-    // it is kept even after a later probe answers.
     expect(snap.wire.lastStaleAt).toBe(T_SWALLOWED);
   });
 
   it("builds synchronously off client-held state — no promise, no wire call", () => {
     openTheTabsSubscriptions();
     vi.setSystemTime(T_CAPTURE);
-    // The entry lens throws on any reach past `state()` (see `entryLens`), so a
-    // builder that opened a subscription or issued a call could not get here.
     const snap = collectDiagnosticSnapshot();
     expect(snap).not.toBeInstanceOf(Promise);
     expect(snap.capturedAt).toBe(T_CAPTURE);

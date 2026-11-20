@@ -1,11 +1,3 @@
-/** Modal editor for terminal intent — Kolu's single picker for the
- *  free-form annotation attached to each terminal.
- *
- *  Layout: textarea (write) above a markdown preview, with a curated
- *  emoji quick-row that inserts at the textarea cursor. Save commits;
- *  Clear nukes the whole intent; Esc cancels. Mirrors `SettingsPopover`'s
- *  modal-dialog scaffold via `<ModalDialog>` (Corvu under the hood). */
-
 import { runAction, type UiAction } from "../runAction";
 import { toError } from "@kolu/surface/run-stream";
 import { Effect } from "effect";
@@ -20,15 +12,12 @@ import {
 } from "solid-js";
 import { toast } from "solid-sonner";
 import { writeTextToClipboard } from "@kolu/solid-logtail";
+import { modalScopeAttrs } from "../input/keyboard";
 import { CloseIcon, CopyIcon } from "../ui/Icons";
 import ModalDialog from "../ui/ModalDialog";
 import { surface } from "../ui/Surface";
 import { IntentMarkdownBlock } from "./IntentMarkdown";
 
-/** Curated emoji quick-row. Pairs glyph with a short label that
- *  doubles as the title-tooltip and as the search target for fuzzy
- *  intent (`type "rocket" + click` lands the user on 🚀). Keep short;
- *  free-form input handles the long tail. */
 const QUICK_ROW: readonly { emoji: string; label: string }[] = [
   { emoji: "🏠", label: "home" },
   { emoji: "🧪", label: "experiment" },
@@ -68,9 +57,6 @@ const IntentEditorDialog: Component<{
     ),
   );
 
-  /** Insert `text` at the textarea's current cursor position; if there's
-   *  a selection, replace it. Preserves the rest of the value and moves
-   *  the cursor to just after the inserted text. */
   function insertAtCursor(text: string) {
     const el = textareaRef();
     if (!el) {
@@ -83,7 +69,6 @@ const IntentEditorDialog: Component<{
     const after = el.value.slice(end);
     const next = `${before}${text}${after}`;
     setDraft(next);
-    // Restore focus + position cursor after the inserted text on next tick.
     queueMicrotask(() => {
       el.focus();
       const cursor = start + text.length;
@@ -133,7 +118,7 @@ const IntentEditorDialog: Component<{
       initialFocusEl={textareaRef()}
     >
       <Dialog.Content
-        data-kolu-modal="true"
+        {...modalScopeAttrs()}
         class={`${chrome.class} p-4 text-sm w-[min(560px,calc(100vw-2rem))]`}
         style={chrome.style}
       >
@@ -171,15 +156,8 @@ const IntentEditorDialog: Component<{
           placeholder={"🏠 main\n\nWhat are you doing in this terminal?"}
           spellcheck={false}
           onKeyDown={(e) => {
-            // Cmd/Ctrl+Enter saves. The `data-kolu-modal="true"` on
-            // Dialog.Content makes `useShortcuts.ts` bail before
-            // dispatching the global "New terminal" altKeybind for
-            // events that originate inside the editor; the inner
-            // stopPropagation is belt-and-braces for any other
-            // bubble-phase handler that might still react.
             if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
               e.preventDefault();
-              e.stopPropagation();
               save();
             }
           }}

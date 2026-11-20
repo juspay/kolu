@@ -1,24 +1,3 @@
-/** MobilePullChrome — the touch layout's persistent top pull-down chrome: the
- *  always-visible pull-handle and the chrome sheet drawer it opens (global
- *  controls + the host row).
- *
- *  This is the mobile analog of the desktop `ChromeBar`, and it lives at the
- *  SAME altitude — a sibling ABOVE the canvas `<Switch>` in `App.tsx`, present
- *  in EVERY canvas mode. It used to live inside `MobileTileView`, which only
- *  renders in the `workspace` mode; that trapped the host row there, so
- *  switching to a host that was still `connecting`/`warming` (or a `down` /
- *  `hostFailed` host) replaced the whole tile view with a full-screen status
- *  canvas and took the pull-handle with it — leaving a phone user with **no way
- *  to reach the host row and switch away**. Hoisting the chrome up here fixes
- *  that class uniformly: the handle is reachable while a host comes up, fails,
- *  or has zero terminals, exactly as the desktop host strip always is.
- *
- *  The handle names WHERE YOU ARE: the Conductor while it is the current
- *  place, otherwise the ACTIVE terminal's compact meta when there is one (the
- *  `workspace` case) and a plain "kolu" otherwise — so a not-yet-connected
- *  host reads cleanly without a stale terminal title, and the conversation is
- *  never captioned with a terminal it is not showing. */
-
 import Drawer from "@corvu/drawer";
 import { type Component, Show } from "solid-js";
 import { useConductorBadge } from "./conductor/useConductorFacts";
@@ -35,9 +14,6 @@ import {
 import { withKeyboardDismiss } from "./ui/dismissSoftKeyboard";
 import { clientStale, StaleBadge } from "./ui/StaleBadge";
 
-/** Minimum downward pull (px) on the chrome handle before the drawer commits to
- *  opening. Sits above the browser's tap-slop (≈10px) and below a casual finger
- *  jitter so a real tap still opens via the click handler. */
 const PULL_OPEN_THRESHOLD = 24;
 /** Corvu @0.2.4 defaults `snapPoints` to `[0, 1]`, but on the mouse-click open
  *  path it reads the signal before the default attaches and trips a
@@ -52,24 +28,10 @@ const MobilePullChrome: Component<{
   onOpenPalette: () => void;
 }> = (props) => {
   const store = useTerminalStore();
-  // The one count of what is waiting on you — the tab's and the OS badge's.
   const badge = useConductorBadge();
-  // The open state is a module singleton (`useChromeDrawer`, imported aliased
-  // above) so the `#/settings` deep link can raise the drawer that hosts the
-  // settings popover on touch.
-  // Every dismiss path — backdrop tap, drag-to-close (both via Corvu's
-  // onOpenChange) and the in-sheet buttons (`onClose`, routed through
-  // `handler(false)`) — funnels through this so the soft keyboard never lingers
-  // on a touch device after the drawer goes away.
   const onChromeOpenChange = withKeyboardDismiss(setChromeOpen);
-  // Pull-handle drag state. Not reactive — only the touch handlers read it.
   let pullStartY: number | null = null;
 
-  // The active terminal's display row — the slow decorations paired with the
-  // live record, gated both-present through the shared `pairDisplayRow`. Reads
-  // `activeId()` once and gates once, so `TerminalMetaCompact` gets a coherent
-  // (info, meta) pair (no info-present/meta-absent skew) exactly as the desktop
-  // header does.
   const activeRow = () => {
     const id = store.activeId();
     return id !== null
@@ -79,9 +41,6 @@ const MobilePullChrome: Component<{
 
   return (
     <>
-      {/* Top pull-handle — opens the chrome drawer on tap or downward-drag past
-       *  `PULL_OPEN_THRESHOLD`. Always present on the touch layout, whatever the
-       *  canvas is showing. */}
       <button
         type="button"
         data-testid="mobile-pull-handle"
@@ -109,9 +68,6 @@ const MobilePullChrome: Component<{
           pullStartY = null;
         }}
       >
-        {/* Grip pill — sized to mirror the left dock handle's grab bar
-         *  (`h-16 w-2`, a 64×8 px footprint) so both edges advertise an equally
-         *  large drag affordance, just rotated 90°. */}
         <span class="w-16 h-2 rounded-full bg-fg-3/40" aria-hidden="true" />
         <div class="flex items-center gap-2 w-full">
           <Show
@@ -137,18 +93,11 @@ const MobilePullChrome: Component<{
               )}
             </Show>
           </Show>
-          {/* At-a-glance "client out of sync with server" catch — the mobile
-           *  echo of the desktop rail's `≠ srv` badge, on the always-visible
-           *  handle so drift is caught without opening the sheet (which carries
-           *  the Reload action). */}
           <Show when={clientStale()}>
             <div data-testid="mobile-stale-badge" class="ml-auto shrink-0">
               <StaleBadge />
             </div>
           </Show>
-          {/* WHAT NEEDS YOU, at rest — the same one count the desktop tab
-           *  wears, on the one piece of chrome a phone always shows, so a wait
-           *  on you is seen without pulling the sheet down. */}
           <Show when={badge.waiting() > 0}>
             <span
               data-testid="mobile-handle-needs-you"
@@ -162,9 +111,6 @@ const MobilePullChrome: Component<{
         </div>
       </button>
 
-      {/* Chrome (top pull-down) drawer — global controls + the host row.
-       *  Carries `CORVU_SNAP_WORKAROUND` — same #977 sidestep as the dock drawer
-       *  in `MobileTileView`, since both open via mouse-click. */}
       <Drawer
         side="top"
         open={chromeOpen()}

@@ -1,11 +1,3 @@
-/** Bottom strip mounted under the Code tab content. Lists all comments
- *  for the active repoRoot across every file (browse + branch diff + HTML
- *  iframe artifacts). "Copy to clipboard" flushes the queue as Markdown
- *  and clears it.
- *
- *  Hidden when the queue is empty — no toggle, no mode. Visibility =
- *  `comments.length > 0` by construction. */
-
 import { runAction, type UiAction } from "../runAction";
 import { toError } from "@kolu/surface/run-stream";
 import { Effect } from "effect";
@@ -24,10 +16,6 @@ export type CommentsTrayProps = {
 };
 
 export const CommentsTray: Component<CommentsTrayProps> = (props) => {
-  // `createMemo` re-derives the store when `props.terminalId` changes —
-  // switching to a different terminal swaps the visible queue, and any
-  // race between meta resolution and mount can't lock the tray onto a
-  // stale key (the same trap the previous `const store = ...` form had).
   const store = commentsForTerminal(() => props.terminalId);
 
   const copy = (): UiAction =>

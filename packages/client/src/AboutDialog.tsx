@@ -1,7 +1,3 @@
-/** The "About kolu" modal — server identity, repo link, shell commit, and the
- *  live server process id. Opened from the "About kolu" palette command; owns
- *  its open-state so App.tsx only mounts it. */
-
 import Dialog from "@corvu/dialog";
 import { shellCommit } from "@kolu/surface-app/lifecycle";
 import type { Component } from "solid-js";
@@ -13,7 +9,6 @@ import ModalDialog from "./ui/ModalDialog";
 import { surface } from "./ui/Surface";
 import { useServerIdentity } from "./useServerIdentity";
 
-/** About-dialog open-state — the component owns it. */
 export const aboutDialog = createDisclosure();
 
 const chrome = surface({ portalled: true });

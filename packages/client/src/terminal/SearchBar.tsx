@@ -1,5 +1,3 @@
-/** Search bar overlay for find-in-terminal. Wraps @xterm/addon-search. */
-
 import { makeEventListener } from "@solid-primitives/event-listener";
 import type {
   ISearchOptions,
@@ -31,7 +29,6 @@ const SEARCH_OPTIONS: ISearchOptions = {
   },
 };
 
-/** Small icon button used for prev/next/close actions. */
 function IconButton(props: {
   onClick: () => void;
   label: string;
@@ -50,13 +47,10 @@ function IconButton(props: {
   );
 }
 
-/** Find-in-terminal search bar — overlays the active terminal with incremental search, match navigation, and result count. */
 const SearchBar: Component<{
   searchAddon: SearchAddon;
   open: boolean;
   onClose: () => void;
-  /** Fired right before a find call moves the viewport to a match — lets
-   *  the owner register the jump as user scroll intent (#1272). */
   onNavigate?: () => void;
 }> = (props) => {
   let inputRef!: HTMLInputElement;
@@ -72,13 +66,11 @@ const SearchBar: Component<{
   );
   onCleanup(() => disposable.dispose());
 
-  // Focus input when opened; clear decorations when closed
   createEffect(
     on(
       () => props.open,
       (open) => {
         if (open) {
-          // rAF: input is inside <Show> and may not be in DOM yet when the effect runs
           requestAnimationFrame(() => {
             inputRef?.focus();
             inputRef?.select();
@@ -140,7 +132,6 @@ const SearchBar: Component<{
         return;
       }
 
-      // Enter = next, Shift+Enter = previous
       if (e.key === "Enter" && document.activeElement === inputRef) {
         e.preventDefault();
         if (e.shiftKey) findPrevious();

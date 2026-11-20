@@ -16,8 +16,6 @@ vi.mock("../hostScope/hostScopes", () => ({
       focusedTerminalId: () => h.focused,
       writeFocus: h.writeFocus,
     },
-    // No terminals collection in these tests: every tile's record is absent,
-    // so the split state reads its one default (`splitPanelState.ts`).
     wire: { terminals: undefined },
   }),
 }));

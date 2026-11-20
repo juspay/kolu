@@ -6,7 +6,6 @@ const A = "11111111-1111-4111-8111-111111111111" as TerminalId;
 const B = "22222222-2222-4222-8222-222222222222" as TerminalId;
 const NAME = "kolu-attention:local";
 
-/** A browser's storage, held across "page loads" the way localStorage is. */
 function memoryStorage(): Storage {
   const items = new Map<string, string>();
   return {

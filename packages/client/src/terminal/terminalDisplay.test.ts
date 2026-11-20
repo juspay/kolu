@@ -65,8 +65,6 @@ describe("assignColors", () => {
     const r3 = assignColors(["a", "b", "zeta"]);
     expect(r1.get("a")).toBe(r2.get("a"));
     expect(r1.get("b")).toBe(r2.get("b"));
-    // Adding keys that would sort earlier under a set-relative allocator
-    // must not recolour an existing identity.
     expect(r3.get("a")).toBe(r1.get("a"));
     expect(r3.get("b")).toBe(r1.get("b"));
   });
@@ -77,7 +75,6 @@ describe("assignColors", () => {
   });
 
   it("does not collide ordinary distinct names that shared a % 360 bucket", () => {
-    // Regression: integer `% 360` made `repo-15` and `repo-28` identical.
     const result = assignColors(["repo-15", "repo-28"]);
     expect(result.get("repo-15")).not.toBe(result.get("repo-28"));
   });
@@ -109,11 +106,6 @@ describe("buildTerminalDisplayInfos", () => {
   });
 
   it("does NOT carry the live terminal record (stale-snapshot class is unspellable)", () => {
-    // The display info rides the `displayInfos` memo, which only rebuilds on
-    // git / cwd / membership — NOT on pr / agent / foreground. Carrying `meta`
-    // here once let a consumer read those fast fields off a snapshot the memo
-    // never refreshed (the header lagged the dock on PR). This asserts the
-    // photocopy is gone for good: live facts must come from `getMetadata(id)`.
     const info = buildTerminalDisplayInfos(
       ["id-1"],
       () => makeMeta({ git: makeGit() }),
@@ -181,9 +173,6 @@ describe("buildTerminalDisplayInfos", () => {
   });
 
   it("does NOT collide non-git terminals at different paths sharing a basename", () => {
-    // Same basename, different paths → same `group` but different `label`
-    // (the shortened cwd disambiguates). Suffix only fires when the full
-    // (group, label) pair collides — same shape as git.
     const result = buildTerminalDisplayInfos(
       ["aaaa-1", "bbbb-2"],
       (id) =>
@@ -214,14 +203,6 @@ describe("buildTerminalDisplayInfos", () => {
   });
 });
 
-/** The title the two client-side exports (clipboard PNG, printed PDF) share.
- *
- *  The composition itself is `terminalCaption`'s and is pinned in
- *  `@kolu/terminal-vocab`; what is pinned HERE is the agreement — that this
- *  helper hands back exactly what padi's daemon-side screenshot captions the
- *  same terminal with, so the browser PNG and the agent PNG cannot part — plus
- *  the one arm the vocabulary deliberately refuses to own: metadata that has
- *  not arrived. */
 describe("terminalExportTitle", () => {
   it("is the SAME caption the daemon's screenshot uses", () => {
     const meta = makeMeta({
@@ -236,9 +217,6 @@ describe("terminalExportTitle", () => {
   });
 
   it("names the absent record once, for both exports", () => {
-    // The PDF said "Terminal" and the screenshot said "terminal"; one terminal,
-    // two names. Lowercase kept — it shares a title bar with the lowercase
-    // `kolu` wordmark and stands in for repo/directory names, never title-cased.
     expect(terminalExportTitle(undefined)).toBe("terminal");
   });
 });

@@ -1,21 +1,3 @@
-/** A host tab's agents mark: agent-distro's logo right after the host name, with
- *  the host's agent state as its treatment (the fold is `agentMarkOf`):
- *
- *   - ready: the mark in the tab's own text colour — and while kolu delivers a
- *     newer set there (the old one still serves), a turning arc around it; when
- *     its last update failed, a warning dot (its agents keep working, so the
- *     mark keeps its plain colour);
- *   - downloading (kolu delivering a first set): the same turning arc;
- *   - failed: the mark in the warning colour, with a warning dot;
- *   - checking (connected, no status yet): the mark dimmed, a turning arc;
- *   - none (agents off, or no bake): nothing — the tab is exactly as without.
- *
- *  The arc never fills: a delivery's copies report no byte counts, so it
- *  says only that one is under way. Hover says it in words; a click opens THAT
- *  machine's host details, whose agents section carries its profile, the
- *  build it serves, its last delivery, its own events and its check —
- *  without switching the tab. */
-
 import { encodeHostKey, type HostKey } from "kolu-common/hostKey";
 import { type Component, createMemo, onCleanup, Show } from "solid-js";
 import {
@@ -27,11 +9,8 @@ import AgentDistroLogo from "@kolu/agent-distro/solid";
 import { type AgentMark, agentMarkLabel } from "@kolu/agent-distro/status";
 import { agentsWhere, hostAgentMark } from "./useAgentDistro";
 
-/** The ring: r=10 in a 24 box, so its length is 2π·10. */
 const RING = 2 * Math.PI * 10;
 
-/** Something is under way there: kolu delivering (a first set, or a newer one
- *  while the old serves), or the host's status not heard yet. */
 function busy(mark: AgentMark): boolean {
   return (
     mark.kind === "downloading" ||
@@ -40,12 +19,10 @@ function busy(mark: AgentMark): boolean {
   );
 }
 
-/** Its agents keep working, but its last update failed. */
 function updateFailed(mark: AgentMark): boolean {
   return mark.kind === "ready" && mark.updateFailed !== undefined;
 }
 
-/** A third of a faint ring, turning — still under reduced motion. */
 const Arc: Component = () => (
   <svg
     viewBox="0 0 24 24"
@@ -58,7 +35,6 @@ const Arc: Component = () => (
       r="10"
       fill="none"
       stroke-width="2"
-      // The track: the tab's text colour, faint — reads on light and dark chrome.
       style={{ stroke: "color-mix(in oklch, currentColor 14%, transparent)" }}
     />
     <circle
@@ -81,7 +57,6 @@ const AgentDistroHostMark: Component<{
   measuring?: boolean;
 }> = (props) => {
   const mark = createMemo(() => hostAgentMark(props.host));
-  /** Who the words are about, named as the host tab names it. */
   const where = () => agentsWhere(props.host);
   const box = () => (
     <button
@@ -93,8 +68,6 @@ const AgentDistroHostMark: Component<{
       aria-label={agentMarkLabel(mark(), where())}
       tabIndex={props.measuring ? -1 : undefined}
       onClick={(e) => {
-        // The mark sits inside the tab: opening the details must not switch
-        // host. The panel mounts at the shell and hangs off this mark.
         e.stopPropagation();
         openHostDiagnostics(encodeHostKey(props.host), e.currentTarget);
       }}
@@ -109,7 +82,6 @@ const AgentDistroHostMark: Component<{
       </Show>
       <AgentDistroLogo size={13} />
       <Show when={mark().kind === "failed" || updateFailed(mark())}>
-        {/* The warning dot, haloed in the strip's own background. */}
         <span
           aria-hidden="true"
           class="absolute -right-0.5 -top-0.5 h-[7px] w-[7px] rounded-full bg-warning"

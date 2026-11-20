@@ -1,7 +1,3 @@
-/** The walk law: a jump that CYCLES, so repeat clicks reach every target
- *  instead of bouncing on the first — a thing you would otherwise only
- *  discover from behaviour. */
-
 import { describe, expect, it } from "vitest";
 import { nextAfter } from "./nextAfter";
 

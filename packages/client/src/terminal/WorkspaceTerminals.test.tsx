@@ -51,9 +51,6 @@ it("moves the same terminal DOM between desktop and touch shells", () => {
 it("switches hosts when each pane appears after its id", async () => {
   const host = document.createElement("div");
   document.body.append(host);
-  // The desktop canvas gates every tile behind async per-host facts (tile
-  // content + display info), so a pane can mount AFTER its id is listed. A
-  // host switch swaps the ids wholesale while the old bodies are live.
   const [ids, setIds] = createSignal(["a1", "a2"]);
   const [ready, setReady] = createStore<Record<string, boolean>>({
     a1: true,
@@ -88,7 +85,6 @@ it("switches hosts when each pane appears after its id", async () => {
   try {
     setIds(["b1", "b2"]);
     await settle();
-    // B's records arrive a beat after the switch.
     setReady({ b1: true, b2: true });
     await settle();
     expect(bodyInPane("b1")).not.toBeNull();
@@ -98,8 +94,6 @@ it("switches hosts when each pane appears after its id", async () => {
     await settle();
     expect(bodyInPane("a1")).not.toBeNull();
     expect(bodyInPane("a2")).not.toBeNull();
-    // A body never starts life outside a real pane (it would measure a bogus
-    // grid and re-attach once moved).
     expect(mountedWithoutPane).toEqual([]);
   } finally {
     dispose();
@@ -110,9 +104,6 @@ it("switches hosts when each pane appears after its id", async () => {
 it("asks the shell that is placing the body whether it can be seen", () => {
   const host = document.createElement("div");
   document.body.append(host);
-  // Each shell answers for itself: the canvas from its camera, the touch pane
-  // from its active tile. The body reads whichever shell is placing it now —
-  // and a swap re-points that without rebuilding the body.
   const [desktop, setDesktop] = createSignal(true);
   const [onCanvas, setOnCanvas] = createSignal(false);
   let mounts = 0;
@@ -144,8 +135,6 @@ it("asks the shell that is placing the body whether it can be seen", () => {
     expect(seen()).toBe(false);
     setOnCanvas(true);
     expect(seen()).toBe(true);
-    // The touch shell shows its one tile unconditionally, so the canvas's
-    // answer stops being the body's the moment the shell swaps.
     setDesktop(false);
     setOnCanvas(false);
     expect(seen()).toBe(true);

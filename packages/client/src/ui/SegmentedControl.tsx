@@ -1,25 +1,10 @@
-/** Segmented control — a row of mutually-exclusive buttons. The single
- *  receptacle for "render a row of visible options, report the one the user
- *  picks": SettingsPopover uses the plain enum form (color scheme, theme mode,
- *  terminal renderer); the Code tab's scope switcher uses the same primitive
- *  with per-option icons, change-count badges, and a group divider plus a
- *  `toolbar` ARIA role. Every button gets a `data-testid` of the form
- *  `${testIdPrefix}-${value}` so e2e tests can click the option directly.
+/** Segmented control — a row of mutually-exclusive buttons. Every button gets
+ *  a `data-testid` of the form `${testIdPrefix}-${value}`.
  *
- *  The "rich" affordances (icon / hint / badge / dividerBefore, and the
- *  control-level `ariaRole` / `ariaLabel` / `dataMode` / `touch`) are all
- *  optional and inert when unset, so the plain settings call sites render
- *  exactly as before while the scope switcher renders the toolbar variant
- *  (and grows its hit targets on a coarse pointer when `touch` is set).
- *
- *  Keyboard, for every caller: ONE tab stop (a roving tabindex) — the
- *  caller's `restingValue` when it gives one, else the pressed option — and
- *  ← → (Home / End) move focus
- *  within the group, wrapping; Enter or Space picks the focused option, once.
- *  Neither Corvu nor `@solid-primitives` ships a roving-focus primitive, so it
- *  lives here, once. Buttons are keyed by `value` (`Key`), so a caller that
- *  hands in fresh option objects for the same values (a re-emitted listing)
- *  keeps the very buttons — and the focus — it had. */
+ *  Keyboard: ONE tab stop (a roving tabindex) — `restingValue` when given,
+ *  else the pressed option — ← → / Home / End move focus within the group,
+ *  wrapping; Enter or Space picks the focused option, once. Buttons are keyed
+ *  by `value`, so re-emitted option objects keep their buttons and focus. */
 
 import { Key } from "@solid-primitives/keyed";
 import {
@@ -38,25 +23,18 @@ import { Dynamic } from "solid-js/web";
 export interface SegmentedControlOption<T extends string> {
   value: T;
   label: string;
-  /** Leading glyph. The host owns the icon registry so the control doesn't
-   *  import every possible icon. Renders in the toolbar variant only. */
+  /** Leading glyph; renders in the toolbar variant only. */
   icon?: Component<{ class?: string }>;
   /** Tooltip (title attr) — a longer description shown on hover. */
   hint?: string;
-  /** Change-count badge; rendered only when present and `> 0`. Absent means
-   *  the option is never badged (a structurally non-badgeable option, or one
-   *  with no number to show right now). */
+  /** Change-count badge; rendered only when present and `> 0`. */
   badge?: number;
-  /** Draw a group divider immediately before this option. The host sets it on
-   *  the first option of a new visual group; the control draws the divider
-   *  with no inter-option comparison. */
+  /** Draw a group divider immediately before this option. */
   dividerBefore?: boolean;
 }
 
-/** The roving tab stop — ONE rule: the option focus last moved to while inside
- *  the group, else the resting one (where the caller wants the keyboard to
- *  land), else the pressed one, else the first. Each candidate counts only if
- *  the options hold it. */
+/** The roving tab stop: the option focus last moved to while inside the group,
+ *  else the resting one, else the pressed one, else the first. */
 export function rovingTabStop<T extends string>(input: {
   readonly options: readonly { readonly value: T }[];
   readonly focused: T | undefined;
@@ -98,42 +76,29 @@ export default function SegmentedControl<T extends string>(props: {
   /** The pressed option — `undefined` when none is (nothing chosen yet). */
   value: T | undefined;
   onChange: (value: T) => void;
-  /** Where the keyboard rests on entering the group when the pressed option is
-   *  not the one to act on — say, nothing pressed yet, or a pressed "Off" whose
-   *  Enter should turn something on. Wins over `value` for the tab stop; leave
-   *  it unset and the pressed option (else the first) holds it. */
+  /** Where the keyboard rests on entering the group; wins over `value` for
+   *  the tab stop. */
   restingValue?: T;
-  /** Focus the tab stop when the control mounts — only if nothing else holds
-   *  the focus (or what holds it is in the same dialog), so a control that
-   *  mounts late never steals it from, say, an open palette. */
+  /** Focus the tab stop on mount, only if nothing else holds the focus. */
   autofocus?: boolean;
-  /** Told the option in view — at mount and each time it moves: the one under
-   *  the keyboard focus while focus is in the group, else the pressed one, else
-   *  the tab stop ({@link rovingTabStop}). THE answer to "which option is in
-   *  view", so a caller that speaks about it never re-derives it — and a
-   *  resting option the keyboard has not reached never reads as the choice. */
+  /** Told the option in view — the focused one while focus is in the group,
+   *  else the pressed one, else the tab stop. */
   onInViewChange?: (value: T | undefined) => void;
   /** Prefix for `data-testid` attributes on the group and each option. */
   testIdPrefix: string;
-  /** ARIA role for the group container. `"toolbar"` opts into the rich
-   *  scope-switcher chrome (icons, badges, dividers, per-button active
-   *  styling); unset keeps the plain enum chrome the settings popover uses. */
+  /** ARIA role for the group container; `"toolbar"` opts into the rich
+   *  scope-switcher chrome. */
   ariaRole?: "toolbar";
   /** Accessible label for the group, used when `ariaRole` is set. */
   ariaLabel?: string;
-  /** Mirror the active `value` onto a `data-mode` attribute on the group, so
-   *  tests can read the selection without interaction. */
+  /** Mirror the active `value` onto a `data-mode` attribute on the group. */
   dataMode?: boolean;
-  /** Enlarge the toolbar variant's hit targets for a coarse pointer (the host
-   *  passes `isTouch()`): segments grow 20px → 28px tall so a tap clears the
-   *  WCAG 2.2 24px floor, mirroring the Code-tab tree's touch density. Ignored
-   *  by the plain (settings) variant. */
+  /** Enlarge the toolbar variant's hit targets for a coarse pointer. */
   touch?: boolean;
 }): JSX.Element {
   const buttons = new Map<T, HTMLButtonElement>();
   const [focused, setFocused] = createSignal<T | undefined>();
   const focusOn = (value: T | undefined) => setFocused(() => value);
-  // A memo: every button reads it, and the caller hears it only when it moves.
   const tabStop = createMemo(() =>
     rovingTabStop({
       options: props.options,
@@ -143,16 +108,12 @@ export default function SegmentedControl<T extends string>(props: {
     }),
   );
   const tabIndexOf = (value: T) => (tabStop() === value ? 0 : -1);
-  // In view: the tab stop while focus is in the group (or nothing offered is
-  // pressed), else the pressed option — never a resting one the keyboard has
-  // not reached.
   const inView = createMemo(() => {
     const pressed = props.value;
     const offered =
       pressed !== undefined && props.options.some((o) => o.value === pressed);
     return focused() !== undefined || !offered ? tabStop() : pressed;
   });
-  // A render effect, so the caller hears it before the first paint.
   createRenderEffect(on(inView, (v) => props.onInViewChange?.(v)));
   const keep = (value: T) => (el: HTMLButtonElement) => {
     buttons.set(value, el);
@@ -162,8 +123,6 @@ export default function SegmentedControl<T extends string>(props: {
   };
   const onKeyDown = (value: T) => (e: KeyboardEvent) => {
     if (e.metaKey || e.ctrlKey || e.altKey || e.shiftKey) return;
-    // Enter / Space pick the focused option HERE, with the browser's own
-    // activation prevented, so a pick is exactly one change.
     if (e.key === "Enter" || e.key === " ") {
       e.preventDefault();
       props.onChange(value);
@@ -176,8 +135,6 @@ export default function SegmentedControl<T extends string>(props: {
     const next = props.options[to];
     if (next !== undefined) buttons.get(next.value)?.focus();
   };
-  // Leaving the group hands the tab stop back to the resting option, else the
-  // pressed one.
   const onFocusOut = (e: FocusEvent) => {
     const to = e.relatedTarget;
     if (
@@ -188,7 +145,6 @@ export default function SegmentedControl<T extends string>(props: {
   };
   onMount(() => {
     if (!props.autofocus) return;
-    // After the frame, so a dialog's own initial focus does not win over it.
     requestAnimationFrame(() => {
       const stop = tabStop();
       const target = stop === undefined ? undefined : buttons.get(stop);

@@ -1,11 +1,6 @@
-/** Canvas viewport conductor — singleton state that wires together
- *  gesture input, transform math, and CSS coordinate generation.
- *
- *  Consumers import only this module. The three internal modules
- *  (gestures, transforms, coordinates) are implementation details. */
-
 import { type Accessor, batch, onCleanup, createSignal } from "solid-js";
 import { createResizeObserver } from "@solid-primitives/resize-observer";
+import type { HostCamera } from "../../hostScope/createCamera";
 import { activeScope } from "../../hostScope/hostScopes";
 import type { TileLayout } from "../TileLayout";
 import { animatePan } from "./animatedPan";
@@ -17,56 +12,46 @@ import {
 import { type GesturePolicy, installGestures } from "./gestures";
 import {
   accumulateZoom,
-  applyGestureBatch,
+  applyZoomThenPan,
   computeCenterPan,
   type GestureBatch,
+  NO_ZOOM,
   normalizeDelta as normalizeDeltaPure,
   snapToGrid as snapToGridPure,
   viewportCenter as viewportCenterPure,
   zoomToCenter as zoomToCenterPure,
 } from "./transforms";
 
-// ── Per-host camera state (read/written on the ACTIVE host's owner) ──
-//
-// The live pan/zoom is no longer three module-scope signals shared by every host
-// (the camera bug's birthplace — bridged to per-host storage by the deleted
-// `useCanvasCameraSwap` swap effect, a race a defer-guard could never close). It
-// lives in the ACTIVE host's `scopedByEntry` owner (`hostScope/createCamera`), so
-// switching hosts shows that host's RETAINED pose by construction — there is no
-// restore step to race the incoming tile's mount, so "pans to empty" cannot arise.
-// The per-canvas GESTURE / animation / container machinery below stays module
-// scope (one active canvas at a time) and reads/writes whichever host is active
-// through these accessors. During the removal race `cam()` is `undefined`: reads
-// floor (0 / 1), writes no-op — `wire.ts` re-points `activeHost` a tick later.
-const cam = () => activeScope()?.camera;
-const panX = (): number => cam()?.panX() ?? 0;
-const panY = (): number => cam()?.panY() ?? 0;
-const zoom = (): number => cam()?.zoom() ?? 1;
-// A pose write marks the host's camera `positioned` inside the setter itself
-// (`hostScope/createCamera`) — the switch-in center decision (TerminalCanvas)
-// reads that to pick "seed on the active tile" (a never-positioned host) vs.
-// "keep the retained pose, re-center only if stale". `cam()` is `undefined` only
-// during the removal race, so the optional-chain no-ops.
-const setPanX = (v: number): void => cam()?.setPanX(v);
-const setPanY = (v: number): void => cam()?.setPanY(v);
-const setZoom = (v: number): void => cam()?.setZoom(v);
+type CameraControls = Pick<
+  HostCamera,
+  "panX" | "panY" | "zoom" | "setPanX" | "setPanY" | "setZoom"
+>;
 
-/** Container ref, set on mount. */
+const NEUTRAL_CAMERA: CameraControls = {
+  panX: () => 0,
+  panY: () => 0,
+  zoom: () => 1,
+  setPanX: () => {},
+  setPanY: () => {},
+  setZoom: () => {},
+};
+
+const cameraOrNeutral = (): CameraControls =>
+  activeScope()?.camera ?? NEUTRAL_CAMERA;
+const panX = (): number => cameraOrNeutral().panX();
+const panY = (): number => cameraOrNeutral().panY();
+const zoom = (): number => cameraOrNeutral().zoom();
+const setPanX = (v: number): void => cameraOrNeutral().setPanX(v);
+const setPanY = (v: number): void => cameraOrNeutral().setPanY(v);
+const setZoom = (v: number): void => cameraOrNeutral().setZoom(v);
+
 let containerEl: HTMLDivElement | null = null;
-// HOST-SCOPING: host-INDEPENDENT by design — DOM viewport; the camera is per-host above.
 const [observedSize, setObservedSize] = createSignal<{
   width: number;
   height: number;
 }>();
-/** Cleanup function for the current gesture listeners. */
 let cleanupGestures: (() => void) | null = null;
-/** In-flight pan animation (if any) — cancelled by any gesture or
- *  instant pan so external input always wins over an ongoing tween. */
 let currentAnim: AbortController | null = null;
-// The in-flight half of {@link CanvasViewport.cameraSettled}, which is where
-// the fact is read and explained.
-// HOST-SCOPING: host-INDEPENDENT by design — a property of the ONE in-flight
-// animation the module already owns beside it (`currentAnim`), not of a host.
 const [panAnimating, setPanAnimating] = createSignal(false);
 
 function cancelPanAnimation() {
@@ -75,34 +60,14 @@ function cancelPanAnimation() {
   setPanAnimating(false);
 }
 
-// ── rAF-coalesced gesture application ──
-//
-// Wheel events arrive at ~166/s — several per animation frame. Writing
-// panX/panY/zoom on *every* event makes every mounted tile recompute its
-// transform per event, even though only the last state before the next paint is
-// ever shown. #1308 measured that write-storm (a zoom fling = 9,600 tile writes)
-// and under a throttled CPU it dropped frames — p99 past 33ms, 148 dropped
-// frames at 6× (docs/perf-investigations/canvas-gesture-p99.md). We accumulate
-// the frame's pan delta (sum) and zoom (a per-event-clamped running factor,
-// toward the last anchor) and apply them ONCE per rAF. For a pure-pan or
-// pure-zoom frame — and a wheel event is pan XOR zoom, so a gesture is
-// overwhelmingly one — the per-frame state is identical to the per-event path
-// (`applyGestureBatch` telescopes the math, `accumulateZoom` clamps per event),
-// so feel is unchanged. A frame that mixes both is a bounded, non-accumulating
-// approximation (see `applyGestureBatch`). The per-event hot path mutates fields
-// of the existing `pending` batch (zero allocation); the single `{ ...EMPTY }`
-// clone happens only per-frame/per-discard.
 const EMPTY: GestureBatch = {
   panDx: 0,
   panDy: 0,
-  zoomFactor: 1,
+  netClampedZoomRatio: NO_ZOOM,
   zoomAnchorX: 0,
   zoomAnchorY: 0,
 };
 let pending: GestureBatch = { ...EMPTY };
-// Viewport zoom at the moment this frame's zoom accumulation began. Captured
-// once per batch (when `pending.zoomFactor` is still 1) so per-event clamping
-// in `accumulateZoom` is anchored to the same start the per-event path saw.
 let zoomStart = 1;
 let gestureRaf = 0;
 
@@ -113,10 +78,8 @@ function scheduleGestureFlush() {
 
 function flushGesture() {
   gestureRaf = 0;
-  const result = applyGestureBatch(panX(), panY(), zoom(), pending);
+  const result = applyZoomThenPan(panX(), panY(), zoom(), pending);
   pending = { ...EMPTY };
-  // Equal-value writes are no-ops (SolidJS skips on Object.is), so a pure-pan
-  // frame never notifies zoom dependents and vice versa.
   batch(() => {
     setPanX(result.panX);
     setPanY(result.panY);
@@ -124,9 +87,6 @@ function flushGesture() {
   });
 }
 
-/** Drop any queued gesture delta — a programmatic absolute pan/zoom (or a
- *  container swap) is the new truth, so a frame-late fling delta must not land
- *  on top of it. */
 function discardPendingGesture() {
   if (gestureRaf) {
     cancelAnimationFrame(gestureRaf);
@@ -135,32 +95,16 @@ function discardPendingGesture() {
   pending = { ...EMPTY };
 }
 
-/** Abort every transient input competing with an authoritative write on the
- *  ACTIVE host — the in-flight pan tween AND the queued gesture delta. Two callers
- *  share this one seam so neither can forget half the arbitration:
- *    - the active-host SWITCH (`useCanvasCenterOnSwitch`) calls it up front so a
- *      frame-late callback can't land the OUTGOING host's motion in the INCOMING
- *      host's per-host camera — both the animation callback and `flushGesture`
- *      write pan/zoom through `activeScope()` (module-scope machinery, one active
- *      canvas), which re-keys to the new host on switch;
- *    - an authoritative ABSOLUTE write (`setPan` / `startAnimatedPan` /
- *      zoom-to-center) is the new truth, so it must kill both competing input
- *      sources rather than let a frame-late fling delta stack on top of it. */
 function abortTransientInput() {
   cancelPanAnimation();
   discardPendingGesture();
 }
 
-// ── Public API ──
-
 export interface CanvasViewport {
   panX: Accessor<number>;
   panY: Accessor<number>;
   zoom: Accessor<number>;
-  /** Set container ref — installs gesture listeners. The caller answers the
-   *  two `GesturePolicy` facts the gesture layer can't see for itself. */
   setContainerRef: (el: HTMLDivElement, policy: GesturePolicy) => void;
-  /** Divide a screen-space delta by zoom for canvas-space positioning. */
   normalizeDelta: (dx: number, dy: number) => { dx: number; dy: number };
   /** Pan so a specific tile is centered. Animates over ~150ms. Cancels on
    *  any subsequent gesture or `setPan` call. Respects
@@ -172,42 +116,18 @@ export interface CanvasViewport {
   /** Set pan offset directly (canvas-space coordinates). Instant — for
    *  per-frame gesture updates that must not animate. */
   setPan: (x: number, y: number) => void;
-  /** Abort transient input aimed at the active host — the in-flight pan
-   *  animation and any queued gesture flush. Called on an active-host switch so a
-   *  frame-late callback cannot write the OUTGOING host's motion into the INCOMING
-   *  host's per-host camera (the module-scope machinery writes through
-   *  `activeScope()`, which re-keys to the new host on switch). */
   abortTransientInput: () => void;
   /** Whether the mounted viewport has received its first layout measurement. */
   mounted: Accessor<boolean>;
   viewportSize: () => { width: number; height: number };
-  /** Canvas-space point at the viewport center — the forward projection of
-   *  pan+zoom+size that consumers use to drop a tile under the camera. `null`
-   *  before the container mounts (no real dimensions yet), mirroring
-   *  `centerOnTile`/`panTo`: callers must guard rather than place at a bogus
-   *  origin-derived point. */
   viewportCenter: () => { x: number; y: number } | null;
-  /** Snap a value to the canvas grid. */
   snapToGrid: (value: number) => number;
-  /** CSS background-position for the grid, tracking pan+zoom. */
   gridBgPosition: Accessor<string>;
-  /** CSS background-size for the grid, tracking zoom. */
   gridBgSize: Accessor<string>;
-  /** CSS transform for the inner canvas div. */
   canvasTransform: Accessor<string>;
-  /** Step zoom in toward viewport center. */
   zoomIn: () => void;
-  /** Step zoom out from viewport center. */
   zoomOut: () => void;
-  /** Reset zoom to 100%, keeping the same center point. */
   resetZoom: () => void;
-  /** Has the camera stopped moving under its own steam? False only while a
-   *  PROGRAMMATIC pan tween is running (`centerOnTile` / `panTo`) — centring
-   *  on a tile, landing a restored session, the switch-in re-centre. A tile
-   *  the camera merely flies OVER is not a tile anybody is looking at, so it
-   *  waits for the pose the camera lands on before counting itself seen
-   *  (`tileSeen.ts`). A user's own pan is settled by this measure: they are
-   *  looking as they go. */
   cameraSettled: Accessor<boolean>;
 }
 
@@ -232,9 +152,6 @@ function setContainerRef(el: HTMLDivElement, policy: GesturePolicy) {
   cleanupGestures = installGestures(
     el,
     {
-      // Accumulate per-event; `flushGesture` applies the frame's batch once.
-      // `cancelPanAnimation` stays synchronous so a wheel still interrupts an
-      // in-flight tween on the very first event, not a frame later.
       onPan: (dx, dy) => {
         cancelPanAnimation();
         pending.panDx += dx;
@@ -243,9 +160,7 @@ function setContainerRef(el: HTMLDivElement, policy: GesturePolicy) {
       },
       onZoom: (factor, sx, sy) => {
         cancelPanAnimation();
-        // First zoom contribution of this frame: anchor the running clamped
-        // zoom to the live signal so per-event clamping matches the old path.
-        if (pending.zoomFactor === 1) zoomStart = zoom();
+        if (pending.netClampedZoomRatio === NO_ZOOM) zoomStart = zoom();
         accumulateZoom(pending, zoomStart, factor);
         pending.zoomAnchorX = sx;
         pending.zoomAnchorY = sy;
@@ -303,10 +218,6 @@ function startAnimatedPan(target: { panX: number; panY: number }) {
         setPanY(y);
       });
     },
-    // Reached the target: the pose is the one the user asked for, so the
-    // tiles it shows are the tiles to attach. (An ABORT doesn't land here —
-    // `cancelPanAnimation` clears the flag itself, because whatever cancelled
-    // the tween is the new truth.)
     { onDone: () => setPanAnimating(false) },
   );
 }
@@ -329,7 +240,6 @@ function setPan(x: number, y: number) {
   });
 }
 
-// The observed viewport changes even when the camera remains still.
 function viewportSize() {
   const size = observedSize();
   if (!size)
@@ -340,7 +250,6 @@ function viewportSize() {
 }
 
 function viewportCenter() {
-  // There is no viewport center until the canvas mounts.
   if (!observedSize()) return null;
   const { width, height } = viewportSize();
   return viewportCenterPure(panX(), panY(), width, height, zoom());

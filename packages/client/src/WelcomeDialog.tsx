@@ -1,9 +1,3 @@
-/** The welcome, on demand. `EmptyState` shows the moments inline at zero
- *  terminals; this dialog re-summons the same content anytime via the palette
- *  "Tutorial" command — so the welcome is never lost once you're working. There
- *  is no "seen" state: zero terminals always shows it, opening a terminal is the
- *  dismissal, and this command is the explicit re-entry. */
-
 import Dialog from "@corvu/dialog";
 import type { PwaInstall } from "@kolu/solid-pwa-install";
 import type { Component } from "solid-js";
@@ -14,8 +8,6 @@ import WelcomeMoments from "./WelcomeMoments";
 
 const chrome = surface({ portalled: true });
 
-/** Welcome-dialog open-state — the component owns it. Re-summoned by the
- *  "Tutorial" palette command; zero terminals shows the same moments inline. */
 export const welcomeDialog = createDisclosure();
 
 const WelcomeDialog: Component<{

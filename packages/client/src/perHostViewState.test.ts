@@ -1,36 +1,9 @@
-/** Per-host VIEW POSTURE + dock filters (padi W7 TIER A) — the acceptance suite for
- *  the view facts moved INTO the per-host `scopedByEntry` owner: the fullscreen
- *  posture (`canvasMaximized`) in `hostScope/createViewState`, and the two dock
- *  filters (`activityWindow`, `showSleeping`) in the sibling `hostScope/createHostPrefs`
- *  (the sticky prefs a close-all must NOT clear). (The right-panel collapsed bit is
- *  neither — it's per-TILE, on `TerminalMetadata.rightPanel`, so the panel's
- *  posture follows the tile while its tab/selection follow the focused pane, #959.)
- *  Each follows the maximized pattern: SET on host A → switch to
- *  host B sees the DEFAULT → switch BACK to A sees A's value RESTORED (the owner is
- *  RETAINED across a switch-away, disposed only on membership exit). All three are
- *  PERSISTED per host, so each also asserts its PER-HOST localStorage key is written
- *  (`kolu-canvasMaximized:<host>` / `kolu-activityWindow:<host>` / `kolu-showSleeping:<host>`)
- *  — the trade that buys reload-survival while keeping each host's value isolated.
- *  `canvasMaximized` adds a dedicated reload repro (a FRESH owner reads the persisted
- *  key back) because restoring that reload-survival is exactly this fix — the W7
- *  in-memory signal had dropped it.
- *
- *  Same real-owner fixture as `perHostCanvas.test.ts`: a REAL `scopedByEntry` over
- *  the shared mock `padiMap` (`hostScope/mockHostMap.testlib`), membership driven by
- *  `addHost`/`resetHosts` and the active host by one module-stable signal. Unlike
- *  perHostCanvas, `./persistedPref` is NOT mocked here — the filters write happy-dom's
- *  real `localStorage`, so the per-host key assertion is falsifiable (`beforeEach`
- *  clears it for isolation). */
-
 import { Effect } from "effect";
 import type { HostKey } from "kolu-common/hostKey";
 import type { TerminalId } from "kolu-common/surface";
 import { batch, createRoot, createSignal } from "solid-js";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-// The `./wire` mock stands up the mock `padiMap` the real owner reads + the per-tab
-// `activeHost` signal that drives its per-host keying. `writeActive`'s active-tile
-// report rides the shared map's `entry().procedures.chrome.setActive` (a no-op here).
 const bag = vi.hoisted(() => ({
   activeHost: (() => ({ kind: "local" })) as () => HostKey,
 }));
@@ -42,10 +15,8 @@ vi.mock("./wire", async () => {
   return {
     padiMap: mockPadiMap,
     activeHost: () => bag.activeHost(),
-    // `createViewState` reports the active tile through the per-host Effect face.
     padiRpcOf: () => ({ chrome: { setActive: () => Effect.void } }),
     activePadiRpc: { chrome: { setSubPanel: () => Effect.void } },
-    // The GROUNDED accessor the per-host scope reads — the shared testlib composition.
     groundedActiveHost: mockGroundedActiveHost(() => bag.activeHost()),
   };
 });
@@ -61,20 +32,14 @@ import { setShowSleeping, showSleeping } from "./terminal/showSleeping";
 import { useSubPanel } from "./terminal/useSubPanel";
 import { useViewState } from "./useViewState";
 
-/** Solid flushes membership/keying effects on a microtask; a macrotask drains it. */
 const flush = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
 
-/** The two hosts a switch moves between — `encodeHostKey` maps them to distinct
- *  record + storage keys ("local" vs "remote:B"). */
 const HOST_A: HostKey = { kind: "local" };
 const HOST_B: HostKey = { kind: "remote", target: "B" };
 
-// Module-level STABLE active-host signal (the app-lifetime owner tracks it ONCE).
 const [driveHost, setDriveHost] = createSignal<HostKey>(HOST_A);
 bag.activeHost = driveHost;
 
-/** A real host switch: ADD the target as a member (add-as-member) and make it
- *  active, in one batch — the owner re-keys `activeScope()` to the target's owner. */
 function switchTo(host: HostKey): void {
   batch(() => {
     addHost(host);
@@ -83,8 +48,6 @@ function switchTo(host: HostKey): void {
 }
 
 beforeEach(() => {
-  // Empty membership FIRST — disposes the prior test's per-host owners — then reset
-  // the active host and the persisted filter storage for clean isolation.
   resetHosts();
   setDriveHost(HOST_A);
   localStorage.clear();
@@ -102,18 +65,14 @@ describe("per-host view posture + dock filters (W7 TIER A)", () => {
         view.toggleCanvasMaximized();
         expect(view.canvasMaximized()).toBe(true);
         await flush();
-        // The trade: persisted PER HOST (like the dock filters) so a host's
-        // fullscreen posture survives reload — the pre-W7 behavior, restored.
         expect(localStorage.getItem("kolu-canvasMaximized:local")).toBe("true");
 
         switchTo(HOST_B);
         await flush();
-        // B's fresh owner defaults to tiled — A's posture does not bleed across.
         expect(view.canvasMaximized()).toBe(false);
 
         switchTo(HOST_A);
         await flush();
-        // A's owner was retained across the switch-away — its posture is restored.
         expect(view.canvasMaximized()).toBe(true);
       } finally {
         dispose();
@@ -122,11 +81,6 @@ describe("per-host view posture + dock filters (W7 TIER A)", () => {
   });
 
   it("canvasMaximized: survives a reload — a FRESH owner reads back the persisted posture (the W7-regression repro)", async () => {
-    // Simulate a reload: the persisted key already sits in localStorage BEFORE
-    // the host's owner is created (a page reload kills the process without
-    // running the Solid dispose that evicts the key). A fresh owner must read it
-    // back as maximized. Under the in-memory-only W7 posture this failed — the
-    // signal defaulted to `false` and the fullscreen posture was silently lost.
     localStorage.setItem("kolu-canvasMaximized:local", "true");
     await createRoot(async (dispose) => {
       try {
@@ -149,7 +103,6 @@ describe("per-host view posture + dock filters (W7 TIER A)", () => {
         setActivityWindow("4h");
         expect(activityWindow()).toBe("4h");
         await flush();
-        // The trade: persisted PER HOST so a host's filter survives reload.
         expect(localStorage.getItem("kolu-activityWindow:local")).toBe("4h");
 
         switchTo(HOST_B);
@@ -196,19 +149,14 @@ describe("per-host view posture + dock filters (W7 TIER A)", () => {
         await flush();
         const vs = activeScope()?.view;
         if (!vs) throw new Error("no active view for HOST_A");
-        // Mutate EVERY reset-on-close-all fact this factory owns.
         useSubPanel().focusMainPane("term-1" as TerminalId);
         vs.reconcileLiveIds(["term-1", "term-2"] as TerminalId[]);
         attentionRecordOf("local").markUnread("term-1" as TerminalId);
         vs.setCanvasMaximized(true);
-        // Sanity: all four facts are non-default.
         expect(vs.activeId()).not.toBeNull();
         expect(vs.mruOrder().length).toBeGreaterThan(0);
         expect(vs.isUnread("term-1" as TerminalId)).toBe(true);
         expect(vs.canvasMaximized()).toBe(true);
-        // reset() must return EVERY fact to its default. A future reset-on-close-all
-        // fact added to this factory but FORGOTTEN in reset() fails this assertion —
-        // the completeness guard for the hand-enumerated reset (perfection review).
         vs.reset();
         expect(vs.activeId()).toBeNull();
         expect(vs.mruOrder()).toEqual([]);
@@ -221,9 +169,6 @@ describe("per-host view posture + dock filters (W7 TIER A)", () => {
   });
 
   it("the engine's episode end clears the mark without focusing — on a host you are NOT viewing", async () => {
-    // The attention engine's episode-end edge: an agent that goes back to work
-    // clears the dock unread mark it raised, addressed to the host that holds it
-    // (through the host's record, which the view state reads).
     await createRoot(async (dispose) => {
       try {
         switchTo(HOST_A);
@@ -233,7 +178,6 @@ describe("per-host view posture + dock filters (W7 TIER A)", () => {
         attentionRecordOf("local").markUnread("term-1" as TerminalId);
         expect(a.isUnread("term-1" as TerminalId)).toBe(true);
 
-        // Switch away — A's owner is retained, so its mark is still up.
         switchTo(HOST_B);
         await flush();
         const retained = hostScopeOf(HOST_A)?.view;
@@ -242,7 +186,6 @@ describe("per-host view posture + dock filters (W7 TIER A)", () => {
 
         attentionRecordOf("local").clearUnread("term-1" as TerminalId);
         expect(retained.isUnread("term-1" as TerminalId)).toBe(false);
-        // Clearing a mark is not an activation — focus is untouched.
         expect(retained.focusedTerminalId()).toBeNull();
       } finally {
         dispose();

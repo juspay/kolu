@@ -1,26 +1,3 @@
-/** The session's settings, in the ADAPTER'S own words.
- *
- *  Every row here is an option the agent advertised — its id, its name, its
- *  choices, its hints. kolu composes none of them: an agent that calls its
- *  reasoning levels `low · medium · high · max` gets those four words, and a
- *  build that grows a fifth gets five without anything here being edited. A
- *  refused change leaves the CONFIRMED value where it was, which is why the
- *  selected row is read off the cell rather than from a local optimistic copy —
- *  there is no moment where the panel claims a setting the agent declined.
- *
- *  Which sections exist and in what order is the one composition, and it is
- *  {@link settingsSections}: the model first, booleans as switches, and no
- *  heading over an empty section. What is left here is the drawing, where the
- *  rule is that the LABEL is the choice — it gets the width it needs and the
- *  agent's description underneath takes the truncation, because a mode called
- *  `Ac…` beside a full sentence is a panel that spent its room on the gloss.
- *
- *  NOTHING ABOUT THE SESSION ITSELF lives here any more. A new session, a
- *  stop, a sign-in and a copy are things kolu does to the conversation, not
- *  options the agent advertised, and two homes for "New session" is two
- *  gestures to keep in step — they are the header's `⋯` menu
- *  ({@link ConductorMenu}). */
-
 import type { ConductorState } from "kolu-common/conductor";
 import { type Component, For, Show } from "solid-js";
 import { Portal } from "solid-js/web";
@@ -34,16 +11,11 @@ import {
 } from "./settingsSections";
 import { useConductor } from "./useConductor";
 
-/** The switch arm, narrowed for the `Show` that draws it — Solid's `when`
- *  carries the narrowed value into the child, which a bare boolean test
- *  cannot do. */
 const asSwitch = (
   section: SettingsSection,
 ): Extract<SettingsSection, { control: "switch" }> | null =>
   section.control === "switch" ? section : null;
 
-/** The panel's width in px — `w-[17rem]` — and what the viewport clamp keeps
- *  on screen. */
 const PANEL_WIDTH = 272;
 
 const ConductorSettings: Component<{
@@ -59,8 +31,6 @@ const ConductorSettings: Component<{
     open: () => props.open,
     onDismiss: () => props.onOpenChange(false),
     anchor: "bottom-start",
-    // The panel's OWN width (`w-[17rem]`), so the viewport clamp keeps its
-    // right edge on screen — a smaller number here let it run off a phone.
     panelMinWidth: PANEL_WIDTH,
   });
   const sections = () => settingsSections(props.options);
@@ -74,8 +44,6 @@ const ConductorSettings: Component<{
           class={`fixed z-50 ${chrome.class} p-2 w-[17rem] max-w-[calc(100vw-1rem)] max-h-[70dvh] overflow-y-auto`}
           style={{ ...panelStyle(), ...chrome.style }}
         >
-          {/* An agent that advertised no settings gets a sentence saying so,
-              never an empty box that reads as a broken panel. */}
           <Show when={sections().length === 0}>
             <p
               data-testid="conductor-settings-empty"
@@ -91,9 +59,6 @@ const ConductorSettings: Component<{
                 data-testid="conductor-settings-section"
                 data-option={section.option.id}
                 data-control={section.control}
-                /* The agent's confirmed value, on the section itself: what the
-                   panel highlights is answerable from the wire without
-                   reading colours off a row. */
                 data-value={section.option.value ?? undefined}
               >
                 <Show

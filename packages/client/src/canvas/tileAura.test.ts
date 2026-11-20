@@ -4,21 +4,17 @@ import { type TileAura, tileAura } from "./tileAura";
 type Bucket = Parameters<typeof tileAura>[0];
 
 const cases: Array<[Bucket, boolean, boolean, TileAura]> = [
-  // unread dominates the bucket — even a working tile reads "alert" when it
-  // fired a missed alert the user hasn't focused yet, and unread beats stale.
   ["awaiting", true, false, "alert"],
   ["working", true, false, "alert"],
   ["linger", true, false, "alert"],
   ["none", true, false, "alert"],
   ["awaiting", true, true, "alert"],
-  // !unread: bucket + age carry the state.
   ["awaiting", false, false, "waiting-fresh"],
-  ["awaiting", false, true, "waiting-stale"], // a waiter cools as it ages
-  // linger is the finish-exhale — not a needs-you comet (order≠colour).
+  ["awaiting", false, true, "waiting-stale"],
   ["linger", false, false, "finished"],
-  ["linger", false, true, "none"], // aged finish parks — no leftover glow
+  ["linger", false, true, "none"],
   ["working", false, false, "working"],
-  ["working", false, true, "none"], // a stale worker parks — agrees with the dock
+  ["working", false, true, "none"],
   ["none", false, false, "none"],
   ["none", false, true, "none"],
 ];

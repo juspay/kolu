@@ -1,24 +1,4 @@
 // @vitest-environment happy-dom
-/**
- * A QUESTION THAT HAS BEEN ANSWERED IS STILL A QUESTION.
- *
- * What a settled card owes a reader is the exchange — every question, and what
- * was said to it — rather than the one word for how it ended. These hold the
- * four endings a card can be found in a day later: answered with picks and
- * typed words, declined, withdrawn, and a card settled by a kolu that kept no
- * answers at all. The last one is the compatibility case: a conversation on
- * disk from before, which must still read as the questions it asked.
- *
- * The adapter's wrapper sentence is held here too, because it is what the
- * human saw INSTEAD of their answer: a form whose fields carry their own
- * labels does not print it, and an ask whose message IS the question (a
- * permission request, a single unlabelled field) still does.
- *
- * And the form itself holds ONE ANSWER PER QUESTION: the second half of these
- * watches what the adapter is handed after a pick, after typed words, and
- * after both — a single-choice question sends one of them, a multi-choice
- * question sends the list it is.
- */
 
 import {
   type AskAnswer,
@@ -29,9 +9,6 @@ import {
 import { render } from "solid-js/web";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-/** What the agent is told. A settled card answers nothing — its buttons are
- *  gone — but a waiting one hands this exactly what it is sending, which is
- *  the fact the exclusivity tests are about. */
 const answer = vi.hoisted(() => vi.fn());
 
 vi.mock("./useConductor", () => ({
@@ -55,8 +32,6 @@ const choice = (
   attachedTo: null,
 });
 
-/** The same question asked as a LIST: `choices`, which keeps every option
- *  pressed and keeps the typed words beside them. */
 const multiChoice = (
   key: string,
   label: string | null,
@@ -81,8 +56,6 @@ const text = (
   attachedTo,
 });
 
-/** The shape the Claude Code adapter sends for an `AskUserQuestion`: a wrapper
- *  sentence, labelled questions, and an "Other" box attached to one of them. */
 const FIELDS: ReadonlyArray<AskField> = [
   choice("mode", "Mode", ["trivial", "thorough"]),
   choice("implementor", "Implementor", ["omp", "claude"]),
@@ -116,13 +89,10 @@ afterEach(() => {
   root?.remove();
   dispose = undefined;
   root = undefined;
-  // The drafts store outlives a mount: a half-filled form left behind would be
-  // the next test's starting state.
   forgetAskDraft("ask:1");
   answer.mockClear();
 });
 
-/** Every question line as a person reads it, in order. */
 const lines = (el: HTMLElement): string[] =>
   [...el.querySelectorAll('[data-testid="conductor-ask-answer"]')].map((line) =>
     (line.textContent ?? "").trim(),
@@ -153,14 +123,11 @@ describe("a settled ask card", () => {
         },
       }),
     );
-    // The typed "Other" joins the question it extends rather than standing as
-    // a question of its own — that is how it was asked.
     expect(lines(el)).toEqual([
       "Mode — trivial",
       "Implementor — omp · anthropic/claude-opus-5-5",
     ]);
     expect(outcome(el)).toBe("answered");
-    // The form is GONE: a settled question is not answerable twice.
     expect(el.querySelector('[data-testid="conductor-ask-submit"]')).toBeNull();
   });
 
@@ -171,8 +138,6 @@ describe("a settled ask card", () => {
   });
 
   it("keeps the message when it IS the question", () => {
-    // One unlabelled field: the question travels as the ask's own message, so
-    // dropping it would leave a card asking nothing.
     const el = mount(
       askRow(
         {
@@ -202,15 +167,12 @@ describe("a settled ask card", () => {
   });
 
   it("shows the questions of a card answered before answers were kept", () => {
-    // A conversation restored from disk: `answered`, and nothing recorded per
-    // field. The questions are still the record.
     const el = mount(askRow({ outcome: { how: "answered", answers: [] } }));
     expect(lines(el)).toEqual(["Mode", "Implementor"]);
     expect(outcome(el)).toBe("answered");
   });
 
   it("still draws the message and the form for a question still waiting", () => {
-    // A permission request: no fields, so the message is the whole ask.
     const el = mount(askRow({ fields: [] }, "Allow `rm -rf /tmp/x`?"));
     expect(lead(el)).toBe("Allow `rm -rf /tmp/x`?");
     expect(lines(el)).toEqual([]);
@@ -220,7 +182,6 @@ describe("a settled ask card", () => {
   });
 });
 
-/** The chip for one option of one question. */
 const option = (el: HTMLElement, field: string, value: string): HTMLElement => {
   const chip = el.querySelector<HTMLElement>(
     `[data-testid="conductor-ask-option"][data-field="${field}"][data-value="${value}"]`,
@@ -229,11 +190,9 @@ const option = (el: HTMLElement, field: string, value: string): HTMLElement => {
   return chip;
 };
 
-/** Is that chip showing as pressed? The card's own mark, not its colours. */
 const selected = (el: HTMLElement, field: string, value: string): boolean =>
   option(el, field, value).hasAttribute("data-active");
 
-/** The "Other" box of the question it is attached to. */
 const otherBox = (el: HTMLElement, field: string): HTMLInputElement => {
   const box = el.querySelector<HTMLInputElement>(
     `[data-testid="conductor-ask-other"][data-field="${field}"]`,
@@ -242,14 +201,11 @@ const otherBox = (el: HTMLElement, field: string): HTMLInputElement => {
   return box;
 };
 
-/** Words typed, as the browser delivers them: the value lands on the element
- *  and one `input` event follows. */
 const type = (box: HTMLInputElement, words: string): void => {
   box.value = words;
   box.dispatchEvent(new Event("input", { bubbles: true }));
 };
 
-/** What the adapter was handed by the last Answer press. */
 const sent = (): ReadonlyArray<AskAnswer> => {
   const call = answer.mock.calls.at(-1);
   if (call === undefined) throw new Error("the agent was told nothing");
@@ -264,12 +220,9 @@ const submit = (el: HTMLElement): void => {
 
 describe("a question still waiting", () => {
   it("sends the typed words alone when they replace a pick", () => {
-    // The session that made this a bug: `OpenCode` pressed, `omp` typed, and
-    // the agent told both.
     const el = mount(askRow());
     option(el, "implementor", "omp").click();
     type(otherBox(el, "implementor_other"), "anthropic/claude-opus-5-5");
-    // The pick let go the moment the words arrived — on screen, before Answer.
     expect(selected(el, "implementor", "omp")).toBe(false);
     submit(el);
     expect(sent()).toEqual([
@@ -288,9 +241,6 @@ describe("a question still waiting", () => {
   });
 
   it("sends one answer even if the draft somehow holds both", () => {
-    // Not reachable by clicking — the writers see to that. What is pinned here
-    // is that the ANSWER is derived, so a draft written by anything else still
-    // leaves the agent with one answer, the words the options could not say.
     const el = mount(askRow());
     setAskDraft("ask:1", "implementor", ["omp"]);
     setAskDraft("ask:1", "implementor_other", ["opencode"]);
@@ -333,8 +283,6 @@ describe("a question still waiting", () => {
         ],
       }),
     );
-    // `YES_NO` rather than a spelling of our own: it is what a boolean's chips
-    // carry and what the agent is sent.
     option(el, "green", YES_NO.yes).click();
     expect(selected(el, "green", YES_NO.yes)).toBe(true);
     type(otherBox(el, "green_other"), "only if the PR is mine");

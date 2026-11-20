@@ -1,17 +1,3 @@
-/**
- * The "Update &amp; restart kaval" button — the CONTRACT-SKEW recovery verb
- * (SK5). Renders wherever the daemon state is `incompatible` (the skew canvas
- * card and the kaval dialog's incompatible banner), on BOTH local and remote
- * hosts (D1: no host split — by `incompatible`'s construction a respawn from
- * the host's current closure has already been tried and skewed, so the only
- * action offered is the one that changes the closure).
- *
- * Destructive (drains the host's padi; its terminals restart on the fresh
- * stack), so it rides the same inline-confirm shell as Restart kaval. The
- * confirmed action is `renewDaemon(activeHost())` — the binder-owned drain →
- * re-realise → fresh correct-version kaval pipeline.
- */
-
 import { runAction } from "../runAction";
 import type { Component } from "solid-js";
 import { RestartIcon } from "../ui/Icons";
@@ -21,7 +7,6 @@ import { renewDaemon, renewInFlight } from "./useDaemonRestart";
 
 const UpdateKavalButton: Component<{
   tone: "neutral" | "danger";
-  /** Runs before the confirmed renew (the dialog closes itself here). */
   onConfirm?: () => void;
 }> = (props) => (
   <InlineConfirmButton
@@ -34,11 +19,6 @@ const UpdateKavalButton: Component<{
     testid="update-kaval"
     onConfirm={() => {
       props.onConfirm?.();
-      // `activeHost()` is correct by the dialog/canvas MOUNT CONVENTION:
-      // opening a daemon icon switches the canvas to that host first (see
-      // KavalInfoDialog's host-scoping header), and the skew canvas card only
-      // ever renders for the active host — so the presented facts and the
-      // renewed host agree by construction.
       runAction("update kaval", renewDaemon(activeHost()));
     }}
   />

@@ -1,36 +1,21 @@
-/** The `≠ srv` chip + kolu's accessor for "this browser's bundle is behind the
- *  server's build", reused by the desktop `IdentityRail` and the mobile chrome
- *  (`MobileTileView` handle + `MobileChromeSheet`) so the signal looks and means
- *  the same everywhere.
- *
- *  The staleness DERIVATION is no longer kolu's — it's `@kolu/surface-app`'s
- *  headless model (`useSurfaceApp().stale()`), driven by `koluBuildInfo`'s
- *  clean-ref-guarded commit comparison (a dev / dirty build never
- *  false-positives). kolu owns only the tailwind CHROME below — surface-app
- *  ships no styled components. */
-
 import { useSurfaceApp } from "@kolu/surface-app/solid";
 import type { KoluBuildInfo } from "kolu-common/surface";
 import type { Component } from "solid-js";
 import { daemonTransportLive } from "../kaval/useDaemonStatus";
 
-/** True when this browser's build provably differs from the server's. Reads the
- *  surface-app model — must be called under `<SurfaceAppProvider>`. Gate the chip
- *  on this: `<Show when={clientStale()}><StaleBadge /></Show>`.
- *
- *  FLOORED on `daemonTransportLive()` (#1793): the "differs from server" verdict compares
- *  the client build to the SERVER's build, which rides the ws that a dead/half-open
- *  transport freezes stale. Over a dead transport we can't confirm the comparison, so this
- *  reads `false` — no "≠ srv" badge and no reload affordance asserted off a retained server
- *  build. Every consumer (both mobile chromes, the Kolu dialog badge, the rail) inherits the
- *  floor by construction. */
+/** True when this browser's build provably differs from the server's. Must be
+ *  called under `<SurfaceAppProvider>`. Reads `false` over a dead transport. */
 export const clientStale = (): boolean => {
-  // Read the surface-app model FIRST (unconditionally), so its "must be used within
-  // <SurfaceAppProvider>" fail-fast throw always fires — do NOT let `daemonTransportLive()`
-  // short-circuit past it (the `&&` order would skip the provider check exactly in the
-  // disconnected state, flipping fail-fast to fail-silent). THEN floor the verdict.
   const stale = useSurfaceApp<KoluBuildInfo>().stale();
   return daemonTransportLive() && stale;
+};
+
+/** The server's build (version, commit) while the transport is live, and
+ *  `undefined` over a dead one — a retained build never outlives the
+ *  connection it was read over. Must be called under `<SurfaceAppProvider>`. */
+export const liveServerBuild = () => {
+  const server = useSurfaceApp<KoluBuildInfo>().server();
+  return daemonTransportLive() ? server : undefined;
 };
 
 /** The compact `≠ srv` warning chip — kolu's own chrome. */

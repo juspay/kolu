@@ -1,9 +1,4 @@
 // @vitest-environment happy-dom
-/**
- * Shell split sub-entries consume the same StatePip fold as a top-level
- * DockRow — identity glyph (`#` / data-glyph="shell") and unread passthrough.
- * Kind never re-gates either axis.
- */
 
 import {
   LOCAL_LOCATION,
@@ -48,13 +43,8 @@ vi.mock("../../tile/useTileStore", () => ({
 
 vi.mock("../../terminal/useTerminalStore", () => ({
   useTerminalStore: () => ({
-    // `pairDisplayRow` needs BOTH halves, so the tile gets a record too — the
-    // same stub: nothing here reads a field off the tile's own metadata.
     getMetadata: (id: TerminalId) =>
       id === SPLIT || id === PARENT ? (bag.meta ?? undefined) : undefined,
-    // FAITHFUL to the real store: `displayInfos` is keyed on `terminalIds()`,
-    // which is TOP-LEVEL tiles — so the split has no display info of its own and
-    // its label ink comes from the tile it hangs under.
     getDisplayInfo: (id: TerminalId) => (id === PARENT ? bag.info : undefined),
     isUnread: (id: TerminalId) => id === SPLIT && bag.unread,
   }),
@@ -62,9 +52,6 @@ vi.mock("../../terminal/useTerminalStore", () => ({
 
 const { SubTerminalRow } = await import("./SubTerminalRow");
 
-/** The split's record. `agent: null` is a plain shell — the default, because
- *  that is what most of this file's cases are about; a case that needs an agent
- *  passes one and gets the SAME record, so the two cannot drift apart. */
 function splitMeta(agent: AgentInfo | null = null): TerminalMetadata {
   return {
     state: "active",
@@ -81,7 +68,6 @@ function splitMeta(agent: AgentInfo | null = null): TerminalMetadata {
   };
 }
 
-/** Ranked shell sub-row — pip fact from the ranking fold (same as top-level). */
 function shellRankedRow() {
   return {
     id: SPLIT,
@@ -146,7 +132,6 @@ describe("SubTerminalRow — shell split consumes the shared StatePip fold", () 
       ).not.toBeNull();
       expect(pip?.getAttribute("data-glyph")).toBe("shell");
       expect(pip?.getAttribute("data-pip")).toBe("idle");
-      // Shell cannot ask — no attention wash attribute.
       expect(row?.hasAttribute("data-asking")).toBe(false);
     } finally {
       dispose();
@@ -163,7 +148,6 @@ describe("SubTerminalRow — shell split consumes the shared StatePip fold", () 
         row?.hasAttribute("data-unread"),
         "shell sub-entry must not force unread false",
       ).toBe(true);
-      // Alert badge rides the shared StatePip fold when unread is true.
       const pip = row?.querySelector('[data-testid="state-pip"]');
       expect(pip?.hasAttribute("data-alert")).toBe(true);
     } finally {
@@ -172,9 +156,6 @@ describe("SubTerminalRow — shell split consumes the shared StatePip fold", () 
   });
 
   it("renders the split agent's session model from its own record", () => {
-    // A split is where a different model most often hides: the row shows the
-    // fact off THIS terminal's metadata, so a parent on one model and a split
-    // on another read apart. The wiring under test is `agentModel(meta)`.
     bag.meta = splitMeta({
       kind: "claude-code",
       state: "tool_use",
@@ -209,10 +190,6 @@ describe("SubTerminalRow — shell split consumes the shared StatePip fold", () 
   });
 
   it("paints the split's label with the tile's branch ink", () => {
-    // A split has no display identity of its own (`getDisplayInfo` is keyed on
-    // top-level tiles), so its ink comes from the tile — the label column then
-    // reads as one family down the dock rather than the nested row shouting in
-    // the app's default text colour.
     const { host, dispose } = renderSubRow();
     try {
       const label = host.querySelector(".dock-cards-row-label") as HTMLElement;

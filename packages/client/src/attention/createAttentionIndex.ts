@@ -13,7 +13,6 @@ import {
 import { createStore, reconcile } from "solid-js/store";
 import type { HostAttentionIndex } from "./attentionMarks";
 
-/** Index the host's two independent facts by terminal, notifying only changed ids. */
 export function createAttentionIndex(
   byClass: Accessor<HostAttentionFrame["byClass"]>,
   liveIds: Accessor<readonly TerminalId[]>,

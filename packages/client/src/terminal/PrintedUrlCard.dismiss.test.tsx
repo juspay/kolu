@@ -1,12 +1,4 @@
 // @vitest-environment happy-dom
-/**
- * The second click on a printed URL crashed production: with a card already
- * open, the document-level mousedown dismiss flips the mount's <Show> in the
- * same synchronous cascade that still-mounted children are reading through —
- * Solid's "Stale read from <Show>". The class, not the instance, is what this
- * pins: every accessor-children (<Show>/<Match> non-keyed function form) along
- * the card's path must be keyed, so a stale read is unspellable.
- */
 
 import { render } from "solid-js/web";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -80,7 +72,6 @@ describe("printed-URL card dismissal", () => {
     host = document.createElement("div");
     document.body.appendChild(host);
 
-    // The REAL mount — the same component Terminal renders.
     dispose = render(
       () => <PrintedUrlCardMount terminalId={target.terminalId} />,
       host,
@@ -91,9 +82,6 @@ describe("printed-URL card dismissal", () => {
       null,
     );
 
-    // Second click on the link: the document mousedown fires first (outside
-    // the card panel) and dismisses — this is the cascade that threw in
-    // production.
     const boom = () => {
       document.dispatchEvent(
         new MouseEvent("mousedown", { bubbles: true, cancelable: true }),

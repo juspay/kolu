@@ -16,8 +16,6 @@ describe("mergeGitStatusEntries", () => {
   });
 
   it("keeps a fallback-only (branch) path with its own word", () => {
-    // Committed earlier in the branch, clean locally: present only in the
-    // branch layer, so it surfaces with the branch word.
     expect(mergeGitStatusEntries([], [{ path: "b", status: "M" }])).toEqual([
       { path: "b", status: "modified" },
     ]);
@@ -30,7 +28,6 @@ describe("mergeGitStatusEntries", () => {
   });
 
   it("lets primary (local) win over fallback (branch) on a shared path", () => {
-    // Same file in both layers with different statuses — local wins.
     const merged = mergeGitStatusEntries(
       [{ path: "x", status: "?" }],
       [{ path: "x", status: "M" }],

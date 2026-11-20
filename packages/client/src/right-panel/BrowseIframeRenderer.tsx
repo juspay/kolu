@@ -1,13 +1,3 @@
-/** Kolu's iframe rendered-appliance: the generic sandboxed `IframeRenderer`
- *  from `@kolu/solid-fileview` wired to the artifact-sdk comment bridge
- *  (`CommentIframeSurface`). Comments are a kolu feature, so the bridge lives
- *  here in the consumer's renderer construction, not in the library — the
- *  library frame just exposes its element via `ref` for a host to bind.
- *
- *  HTML only carries the spliced `<script src="/api/artifact-sdk.js">`; SVG is
- *  served verbatim, so the bridge simply finds no SDK and stays inert there.
- *  PDF uses the native viewer renderer instead of this sandboxed path. */
-
 import {
   observeIframeDeepLink,
   observeIframeHistory,
@@ -27,42 +17,16 @@ import {
 import { CommentIframeSurface } from "../comments/CommentIframeSurface";
 
 export type BrowseIframeRendererProps = {
-  /** The terminal a comment on this preview is anchored to, or `null` for a
-   *  copy kolu holds itself (a finished work's kept file) — bytes with no
-   *  repo behind them and so nothing a comment could address. */
   terminalId: string | null;
   path: string;
   url: string;
-  /** Follow a same-frame link click to another repo file: the in-iframe SDK
-   *  reports the loaded document's pathname, which we map back to a repo path
-   *  and hand to the host so the file tree selection follows the navigation. */
   onNavigate?: (path: string) => void;
-  /** Follow a mouse back/forward (X1/X2) button pressed inside the preview:
-   *  the opaque-origin sandbox traps the event in the frame, so the in-iframe
-   *  SDK forwards the intent and the host drives the Code-tab browser's
-   *  history — the buttons then work over the preview as well as the tree. */
   onHistory?: (direction: "back" | "forward") => void;
-  /** Open an external link clicked inside the preview. The sandbox can't open a
-   *  new tab on its own (no `allow-popups`/`allow-top-navigation`), so the
-   *  in-iframe SDK forwards the (re-validated http(s)) URL and the host opens it
-   *  in a real browser tab — leaving the preview on the current document. */
   onOpenExternal?: (url: string) => void;
-  /** Route a kolu deep link (`#/…`) clicked inside the preview. The sandbox
-   *  can't navigate the parent, so the in-iframe SDK traps the click and
-   *  forwards the raw hash; the host parses it with the real deep-link grammar
-   *  and routes — safe by construction because the router is view-only by law
-   *  (an invalid hash toasts exactly as a typed URL would). */
   onDeepLink?: (hash: string) => void;
 };
 
-/** Bind an iframe observer once the element is available and clean up on
- *  unmount. Every observer here shares this shape: wait for the iframe signal,
- *  call the observer (which installs a `window.addEventListener("message", …)`
- *  and returns a disposer), then clean up when the element changes or the
- *  component unmounts. Props are read live inside the callback (which fires on
- *  a postMessage, outside SolidJS's tracking scope) so a changed prop is
- *  reflected without re-binding the listener. */
-function useIframeObserver(
+function bindSandboxMessageBridge(
   iframeEl: () => HTMLIFrameElement | undefined,
   observe: (el: HTMLIFrameElement) => () => void,
 ): void {
@@ -76,14 +40,7 @@ function useIframeObserver(
 const BrowseIframeRenderer: Component<BrowseIframeRendererProps> = (props) => {
   const [iframeEl, setIframeEl] = createSignal<HTMLIFrameElement | undefined>();
 
-  // The in-iframe SDK posts its `location.pathname` on every document boot,
-  // including the boot after an in-iframe `<a>` click — the opaque-origin
-  // sandbox blocks the parent from reading `contentWindow.location` directly.
-  // When the reported path differs from the one we're showing, the user
-  // followed a link to another file: tell the host so the tree selection (and
-  // this preview, on remount) follow. The initial boot reports the path we
-  // already show, so it's a no-op.
-  useIframeObserver(iframeEl, (el) =>
+  bindSandboxMessageBridge(iframeEl, (el) =>
     observeIframeNavigation(el, (pathname) => {
       const next = pathFromPreviewPathname(
         pathname,
@@ -95,25 +52,15 @@ const BrowseIframeRenderer: Component<BrowseIframeRendererProps> = (props) => {
     }),
   );
 
-  // The mouse's back/forward (X1/X2) buttons pressed *inside* the preview never
-  // reach the parent's Code-tab listener (the opaque-origin sandbox traps
-  // them), so the in-iframe SDK forwards them here and the host drives history.
-  useIframeObserver(iframeEl, (el) =>
+  bindSandboxMessageBridge(iframeEl, (el) =>
     observeIframeHistory(el, (direction) => props.onHistory?.(direction)),
   );
 
-  // External-link clicks can't escape the opaque-origin sandbox, so the
-  // in-iframe SDK forwards the URL (already filtered to external http(s), and
-  // re-validated by the observer) and the host opens it in a real browser tab.
-  useIframeObserver(iframeEl, (el) =>
+  bindSandboxMessageBridge(iframeEl, (el) =>
     observeIframeOpenExternal(el, (url) => props.onOpenExternal?.(url)),
   );
 
-  // A kolu deep link (`#/…`) clicked in the preview routes the PARENT app —
-  // the in-iframe SDK posts the hash (shape-tested only there; bounded to the
-  // `#/` namespace again by the observer) and the host feeds it to the same
-  // deep-link router a typed URL reaches.
-  useIframeObserver(iframeEl, (el) =>
+  bindSandboxMessageBridge(iframeEl, (el) =>
     observeIframeDeepLink(el, (hash) => props.onDeepLink?.(hash)),
   );
 

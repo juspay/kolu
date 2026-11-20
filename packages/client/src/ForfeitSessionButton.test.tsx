@@ -1,19 +1,4 @@
 // @vitest-environment happy-dom
-/**
- * The two guards written by the incident: a real 16-terminal session was
- * destroyed when a stray click landed on the blank card padding BESIDE the words
- * "Start fresh" — padding that was, invisibly, part of a full-width button that
- * forfeited immediately.
- *
- *  1. The first click ARMS a confirmation and forfeits nothing. Only the second,
- *     deliberate click on the confirm reaches `onConfirm`; Cancel walks back.
- *  2. The hit area is the label, not the card. happy-dom does no layout, so the
- *     honest guard is structural rather than geometric: the shell's `w-full`
- *     trigger must sit under a fit-content parent, which is what collapses it to
- *     its text. Assert the two halves of that pairing — a future edit that drops
- *     the wrapper (or hoists the button out of it) re-opens exactly the click
- *     that cost the session.
- */
 
 import { render } from "solid-js/web";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -49,7 +34,6 @@ describe("ForfeitSessionButton — one click can never discard the session", () 
     at("forfeit-session")?.click();
 
     expect(onConfirm).not.toHaveBeenCalled();
-    // The trigger has been replaced by the confirm step — copy plus a pair.
     expect(at("forfeit-session")).toBeUndefined();
     expect(at("forfeit-session-confirm")).toBeDefined();
     expect(at("forfeit-session-cancel")).toBeDefined();
@@ -88,8 +72,6 @@ describe("ForfeitSessionButton — one click can never discard the session", () 
 
     const trigger = at("forfeit-session");
     if (!trigger) throw new Error("no forfeit trigger rendered");
-    // The shell's trigger is `w-full` (it fills the rails it usually lives in);
-    // under `w-fit` that resolves to the text's own width. Both halves matter.
     expect(trigger.className).toContain("w-full");
     expect(trigger.parentElement?.className).toContain("w-fit");
   });

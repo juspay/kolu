@@ -1,17 +1,3 @@
-/** Client-side visit MRU — "which terminal did the USER just activate?"
- *
- *  A visit is only recorded when a terminal becomes the **active tile**.
- *  Server activity clocks (agent output, etc.) do not count. The store holds
- *  host+terminal keys and timestamps only; labels are joined live from the
- *  fleet index so nothing denormalizes.
- *
- *  Consumers:
- *  - ⌘K Recent ranks by max(visitedAt, serverActivityAt)
- *  - Ctrl+Tab cycles the active host's slice of this same list
- *
- *  Persistence is device-local (`localStorage` via {@link persistedPref});
- *  visits never leave the browser. */
-
 import {
   isEncodedHostKey,
   encodeHostKey,
@@ -29,11 +15,8 @@ import {
   persistedPref,
 } from "../persistedPref";
 
-/** Hard cap on the MRU — enough trail for Recent + Ctrl+Tab, bounded storage. */
 export const VISIT_MRU_CAP = 50;
 
-/** zod's `safeParse` in Effect terms — a `Result`, so a corrupt persisted row is
- *  a BRANCH (drop the row) rather than a throw at read time. */
 const decodeTerminalId = Schema.decodeUnknownResult(TerminalIdSchema);
 
 export type VisitEntry = {
@@ -54,13 +37,6 @@ function isVisitEntry(v: unknown, now: number): v is VisitEntry {
   return true;
 }
 
-/**
- * Validate persisted JSON. Well-formed entries are kept; corrupt rows and
- * duplicates are dropped — the shared {@link parseTolerantList} cassette, so the
- * "how a persisted list degrades" policy is spelled once for both trails. Throws
- * only when the top-level value is not an array, so {@link persistedPref} can
- * fall back to [].
- */
 export function parseVisitList(
   raw: string,
   now: number = Date.now(),
@@ -81,9 +57,6 @@ export function parseVisitList(
   );
 }
 
-/** Upsert one visit to the front of the MRU, dedupe by (hostKey, terminalId),
- *  cap length. Timestamps are forced strictly monotonic so same-ms activations
- *  still rank later-before-earlier. Pure — unit-tested without Solid. */
 export function upsertVisit(
   prev: readonly VisitEntry[],
   hostKey: string,
@@ -99,8 +72,6 @@ export function upsertVisit(
   return [next, ...rest].slice(0, cap);
 }
 
-/** Remove every entry for a terminal id on a host (tile kill). Does not
- *  restamp survivors. */
 export function removeVisit(
   prev: readonly VisitEntry[],
   hostKey: string,
@@ -111,7 +82,6 @@ export function removeVisit(
   );
 }
 
-/** Drop all visits for one host (close-all / host reset). */
 export function clearHostVisits(
   prev: readonly VisitEntry[],
   hostKey: string,
@@ -119,11 +89,6 @@ export function clearHostVisits(
   return prev.filter((e) => e.hostKey !== hostKey);
 }
 
-/**
- * Seed membership for a host that has no trail yet — Ctrl+Tab order only.
- * Stamps are tiny positive ranks (n … 1), never wall-clock times, so they
- * cannot drown real `noteVisit` stamps or server activity in max() ranking.
- */
 export function seedHostVisits(
   hostKey: string,
   liveIds: readonly TerminalId[],
@@ -133,15 +98,10 @@ export function seedHostVisits(
   return liveIds.map((terminalId, i) => ({
     hostKey,
     terminalId,
-    // First live id is most-recent for cycle order; values stay << Date.now().
     visitedAt: n - i,
   }));
 }
 
-/**
- * Membership reconcile for a host that already has visits:
- * drop dead, keep survivor timestamps, append missing below oldest survivor.
- */
 export function reconcileHostLiveIds(
   hostPrev: readonly VisitEntry[],
   hostKey: string,
@@ -159,7 +119,6 @@ export function reconcileHostLiveIds(
           (m, e) => Math.min(m, e.visitedAt),
           survivors[0]!.visitedAt,
         );
-  // Append below oldest survivor; never go negative (parse rejects < 0).
   const appended: VisitEntry[] = missing.map((terminalId, i) => ({
     hostKey,
     terminalId,
@@ -168,10 +127,6 @@ export function reconcileHostLiveIds(
   return [...survivors, ...appended];
 }
 
-/**
- * Apply live top-level ids for one host: seed if empty, else membership
- * reconcile. Merges with other-host visits, sorts by true recency, caps.
- */
 export function applyHostLiveIds(
   prev: readonly VisitEntry[],
   hostKey: string,
@@ -190,7 +145,6 @@ export function applyHostLiveIds(
     .slice(0, cap);
 }
 
-/** Active-host visit ids (most-recent first) for Ctrl+Tab / WebGL budget. */
 export function mruIdsForHost(
   visits: readonly VisitEntry[],
   hostKey: string,
@@ -198,8 +152,6 @@ export function mruIdsForHost(
   return visits.filter((e) => e.hostKey === hostKey).map((e) => e.terminalId);
 }
 
-/** Look up a stored visit timestamp (0 if never visited). Trail-only — ranking
- *  policy lives next to the palette. */
 export function visitedAtOf(
   visits: readonly VisitEntry[],
   hostKey: string,
@@ -222,12 +174,10 @@ type VisitRecencyApi = {
   noteVisit: (host: HostKey, terminalId: TerminalId, at?: number) => void;
   forgetVisit: (host: HostKey, terminalId: TerminalId) => void;
   clearHost: (host: HostKey) => void;
-  /** Seed empty host trail, or reconcile live membership without restamping. */
   applyLiveIds: (host: HostKey, liveIds: readonly TerminalId[]) => void;
   mruForHost: (host: HostKey) => TerminalId[];
 };
 
-/** App-lifetime visit store. */
 export const useVisitRecency = createSharedRoot((): VisitRecencyApi => {
   const [visits, setVisits] = persistedPref<VisitEntry[]>({
     name: STORAGE_KEY,

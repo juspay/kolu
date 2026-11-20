@@ -1,18 +1,3 @@
-/** Settings' ONE line about the fleet: which machines have the agents, which
- *  are still fetching them, which failed — and, apart from those, which are
- *  ready but whose last update failed ("devbox ready, last update failed", in
- *  the warning colour) — `agentFleetSummary`'s groups, each
- *  a coloured dot, its words and the machines it names. A machine's NAME is a
- *  button that opens that machine's host details, where its profile, its last
- *  run, its events and its own actions live; Settings keeps no per-machine
- *  facts of its own.
- *
- *  Everything here is KEYED (`<Key>`, never `<For>`): the fold mints fresh
- *  group AND host objects on every read, so a plain `<For>` rebuilt every row
- *  and every machine button whenever ANY machine's state moved, dropping
- *  hover and focus. Keyed on the group's `key` and on each machine's host
- *  key, only the words move. */
-
 import { Key } from "@solid-primitives/keyed";
 import { type Component, onCleanup, Show } from "solid-js";
 import type { AgentFleetGroup } from "@kolu/agent-distro/status";
@@ -22,7 +7,6 @@ import {
   releaseHostDiagnosticsAnchor,
 } from "../host/useHostDiagnosticsOpen";
 
-/** One group's dot colour, by its tone. */
 const DOT: Record<AgentFleetGroup<never>["tone"], string> = {
   ok: "bg-ok",
   busy: "bg-accent",
@@ -30,7 +14,6 @@ const DOT: Record<AgentFleetGroup<never>["tone"], string> = {
   muted: "bg-edge-bright",
 };
 
-/** The groups as this line renders them — the host each name opens. */
 export interface FleetLineHost {
   readonly label: string;
   readonly host: HostKey;

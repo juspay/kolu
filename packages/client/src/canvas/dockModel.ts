@@ -1,8 +1,3 @@
-/** Dock / switcher shared presentation leaves — paint buckets and the
- *  multi-field search corpus. The old WorkspaceGrid mega-model
- *  (`buildDockModel`, `DockSourceEntry`, repo facets, columns) was retired
- *  with the grid; only the live leaves remain. */
-
 import { activeArm, type TerminalMetadata } from "@kolu/padi-client/surface";
 import {
   type AgentInfo,
@@ -12,14 +7,8 @@ import {
   resumableCommand,
 } from "kolu-common/surface";
 
-/** The switcher-column bucket vocabulary — the shared `AgentPaintClass`
- *  (awaiting | linger | working | none) plus the dock's own `idle` triage column.
- *  Declared as an EXTENSION of `AgentPaintClass` (not a re-spelled literal set)
- *  so `Exclude<AgentBucketKind, "idle">` resolves to exactly `AgentPaintClass`. */
 export type AgentBucketKind = AgentPaintClass | "idle";
 
-/** Stable agent-state bucket descriptors (paint classes + idle). Used by
- *  minimap / aura presentation, not a column grid. */
 export const AGENT_BUCKETS = [
   {
     key: "idle",
@@ -38,9 +27,6 @@ export const AGENT_BUCKETS = [
     borderClass: "pill-border pill-border-awaiting",
   },
   {
-    // Post-turn lull — same violet family as awaiting, dimmed: the minimap /
-    // aura presentation for a just-finished agent. Split from `awaiting` so
-    // needs-you renders full-strength (the fucknotif fix).
     key: "linger",
     label: "Turn finished",
     empty: "No terminals just finished",
@@ -73,8 +59,6 @@ export const AGENT_BUCKETS = [
   borderClass: string;
 }[];
 
-/** Classify live agent metadata into paint buckets. Defers the per-state
- *  paint decision to `agentPaintClass` in `@kolu/terminal-vocab`. */
 export function paintBucket(
   agent: AgentInfo | null | undefined,
 ): Exclude<AgentBucketKind, "idle"> {
@@ -82,7 +66,6 @@ export function paintBucket(
   return agentPaintClass(agent.state);
 }
 
-/** Bucket a terminal by its live agent — `paintBucket` over the active arm. */
 export function metaBucket(
   meta: TerminalMetadata,
 ): Exclude<AgentBucketKind, "idle"> {
@@ -98,7 +81,6 @@ const BUCKET_BY_KEY: Record<AgentBucketKind, (typeof AGENT_BUCKETS)[number]> =
     {} as Record<AgentBucketKind, (typeof AGENT_BUCKETS)[number]>,
   );
 
-/** Look up a bucket descriptor by its key. */
 export function bucketDescriptor(
   bucket: AgentBucketKind,
 ): (typeof AGENT_BUCKETS)[number] {
@@ -135,9 +117,6 @@ function prSearchFields(pr: PrResult | undefined): string[] {
   }
 }
 
-/** Multi-field search corpus for a live terminal — repo, branch, intent-related
- *  metadata, agent, foreground, cwd, PR. Shared by the dock filter and the
- *  command-palette terminal index so both surfaces match the same tokens. */
 export function workspaceSearchText(entry: {
   repoName: string;
   label: string;
@@ -145,7 +124,6 @@ export function workspaceSearchText(entry: {
   meta: TerminalMetadata;
 }): string {
   const { meta } = entry;
-  // Only a resolved repo contributes git fields to the search text.
   const git = meta.git.kind === "repo" ? meta.git.info : undefined;
   const arm = activeArm(meta);
   const fg = arm?.foreground;
@@ -158,9 +136,6 @@ export function workspaceSearchText(entry: {
 
   add(values, entry.suffix);
   add(values, meta.cwd);
-  // The resume line, RENDERED from the structured restore target (registry
-  // basename + the live process's allowlisted flags) — never a captured command
-  // string, which no longer exists anywhere in the record.
   add(values, resumableCommand(meta.restoreTarget));
   add(values, git?.repoRoot);
   add(values, git?.repoName);

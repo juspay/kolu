@@ -1,18 +1,5 @@
-/** THE FRAME INVARIANT, for the conversation's uploads.
- *
- *  An attachment's bytes may never ride one frame. Effect RPC's ndjson decoder
- *  answers an oversized frame by CLOSING THE SOCKET with 1009, which takes
- *  every subscription in the tab with it — so a 12 MiB paste must arrive as a
- *  sequence of bounded appends or the transcript, the fleet and the terminals
- *  all go dark together. These assertions are the ones that would have caught
- *  the version of this feature that sent the whole base64 on
- *  `conductor.prompt`: there, `attach` is called exactly once with the
- *  entire file in `data`.
- *
- *  The mirror of `terminal/pasteDelivery.test.ts`, which pins the same
- *  invariant for the terminal's drop. */
-
 import {
+  chunkBase64,
   FRAME_CHUNK_BASE64_CHARS,
   frameBytesFor,
 } from "@kolu/surface/frame-chunking";
@@ -29,7 +16,6 @@ interface AttachArgs {
   appendTo?: string;
 }
 
-/** `megabytes` of base64 — the encoded size, which is what a frame carries. */
 const base64OfSize = (megabytes: number): string =>
   "a".repeat(megabytes * 1024 * 1024);
 
@@ -56,7 +42,6 @@ describe("uploadAttachment — bounded frames, in order", () => {
     await Effect.runPromise(upload(base64OfSize(12), attach));
 
     expect(attach.mock.calls.length).toBeGreaterThan(1);
-    // THE invariant: every frame this upload put on the wire fits the cap.
     for (const [args] of attach.mock.calls) {
       expect(args.data.length).toBeLessThanOrEqual(FRAME_CHUNK_BASE64_CHARS);
       expect(frameBytesFor(args.data.length)).toBeLessThan(RPC_MAX_FRAME_BYTES);
@@ -74,8 +59,6 @@ describe("uploadAttachment — bounded frames, in order", () => {
     await Effect.runPromise(upload(base64OfSize(8), attach));
 
     const calls = attach.mock.calls.map(([args]) => args);
-    // The first chunk CREATES: anything else would append to a file that does
-    // not exist yet.
     expect(calls[0]?.appendTo).toBeUndefined();
     for (const args of calls.slice(1)) {
       expect(args.appendTo).toBe("/state/conductor/attachments/att-1");
@@ -114,7 +97,6 @@ describe("uploadAttachment — bounded frames, in order", () => {
       path: "/state/conductor/attachments/att-1",
       bytes: 4242,
     });
-    // A small paste must not grow a round trip.
     expect(attach).toHaveBeenCalledOnce();
     expect(attach.mock.calls[0]?.[0].appendTo).toBeUndefined();
   });
@@ -134,15 +116,11 @@ describe("uploadAttachment — bounded frames, in order", () => {
         mimeType: "image/png",
         base64: base64OfSize(40),
         attach,
-        // The failure the guard exists for: a chunk size nobody re-derived
-        // correctly. Driving it is the only way to know the guard works.
-        chunkChars: 32 * 1024 * 1024,
+        chunker: (base64) => chunkBase64(base64, 32 * 1024 * 1024),
       }),
     );
 
     expect(exit._tag).toBe("Failure");
-    // Nothing was written: a refusal halfway up would leave a partial file a
-    // prompt could still name.
     expect(attach).not.toHaveBeenCalled();
   });
 });

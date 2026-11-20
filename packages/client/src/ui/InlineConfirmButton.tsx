@@ -1,24 +1,9 @@
-/**
- * InlineConfirmButton — the shared inline-confirmation shell for a destructive
- * daemon action: a primary trigger that opens an inline confirm step (copy +
- * Cancel/confirm pair) instead of firing on the first click. Inline, *not* a
- * modal, so it never stacks over the dialog it sometimes lives inside (the
- * overlay bug a second `Dialog` caused).
- *
- * Extracted from `RestartKavalButton` so the second destructive kaval action —
- * "Update &amp; restart kaval" (`hosts.renewDaemon`, the contract-skew recovery,
- * SK5) — reuses the exact affordance rather than re-implementing the confirm
- * scaffolding; only the copy, tone, and the confirmed action differ per caller.
- */
-
 import { type Component, createSignal, type JSX, Show } from "solid-js";
 
 /** Per-tone accent for the trigger + the confirm's action button. */
 const CONFIRM_ACCENT: Record<"neutral" | "danger" | "warning", string> = {
   neutral: "border-edge bg-surface-2 text-fg hover:bg-surface-3/60",
   danger: "border-danger/40 bg-danger/10 text-fg hover:bg-danger/20",
-  /** A destructive-but-recoverable act — the state-backup restore, which
-   *  snapshots the current state first. */
   warning: "border-warning/50 bg-warning/20 text-fg hover:bg-warning/30",
 };
 
@@ -44,7 +29,6 @@ const InlineConfirmButton: Component<{
     <Show
       when={confirming() && !props.inFlight}
       fallback={
-        // Primary affordance — opens the confirm step (doesn't act yet).
         <button
           type="button"
           data-testid={props.testid}

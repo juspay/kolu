@@ -1,5 +1,3 @@
-/** Empty state — shown when no terminals exist. Offers session restore + key shortcuts. */
-
 import type { SavedSession, SavedTerminal } from "@kolu/padi-client/surface";
 import type { PwaInstall } from "@kolu/solid-pwa-install";
 import { terminalKey } from "@kolu/terminal-vocab/terminalKey";
@@ -34,19 +32,10 @@ const features = [
 ];
 
 interface RepoGroup {
-  /** `terminalKey().group` — both the identity (collision detection) and
-   *  the rendered heading (basename for non-git, repoName for git). One
-   *  projection, one field. */
   key: string;
   terminals: SavedTerminal[];
 }
 
-/** Group EVERY saved terminal by `terminalKey().group` — flat walk, no
- *  parented filter. Splits / tree children are first-class rows (the tree is
- *  the tiling; layout-shaped split chrome is not invested here). Groups are
- *  sorted by the minimum `canvasLayout.x` of their members so the restore
- *  card's left-to-right order matches the canvas the user saw. Within-group
- *  order preserves the array order of the saved session. */
 function groupSavedTerminals(terminals: readonly SavedTerminal[]): RepoGroup[] {
   const minX = (ts: readonly SavedTerminal[]) =>
     ts.reduce(
@@ -66,41 +55,21 @@ function groupSavedTerminals(terminals: readonly SavedTerminal[]): RepoGroup[] {
 }
 
 interface EmptyStateProps {
-  /** The shared PWA-install controller — drives the "Pin it" moment. */
   install: PwaInstall;
   savedSession?: SavedSession;
-  /** True while `handleRestoreSession` is running. The restore card
-   *  stays mounted (button disabled, label changes to "Restoring…")
-   *  so the click target doesn't detach between click and canvas
-   *  reveal. */
   isRestoring?: boolean;
-  /** True while `handleForfeitSession` is running — its write is in flight and
-   *  the host has not cleared the session yet. */
   isForfeiting?: boolean;
   onRestore?: (options: {
     resumeAgents: boolean;
     optOutIds: readonly string[];
   }) => void;
-  /** Explicit "start fresh" — discard the saved session (server-side forfeit).
-   *  Rendered as a secondary action below Restore, only while there IS a
-   *  `savedSession` to forfeit. Creating a terminal no longer forfeits
-   *  implicitly, so this is the user's one deliberate discard path. */
   onForfeit?: () => void;
-  /** Open the "New terminal" flow. On desktop the always-mounted empty Dock
-   *  carries the clickable `+` (#1202), so the button below renders only on the
-   *  touch layouts (phone + compact), where there is no Dock and the shortcut
-   *  list is unreachable with a finger. */
   onCreate?: () => void;
 }
 
 const EmptyState: Component<EmptyStateProps> = (props) => {
-  // Single global toggle: should the restore re-run the agents it detected at
-  // save time? Default on — users almost always want their agents back.
   const [resumeAgents, setResumeAgents] = createSignal(true);
 
-  // Host-served resumable set — the client never constructs membership; it only
-  // renders this list and may subtract (opt-out). A live host always stamps;
-  // absence is a hard error (never soft-empty to "no agents").
   const resumableIds = createMemo(() => {
     const session = props.savedSession;
     if (!session) return [] as string[];
@@ -114,31 +83,19 @@ const EmptyState: Component<EmptyStateProps> = (props) => {
 
   const resumeCount = () => (resumeAgents() ? resumableIds().length : 0);
 
-  // Lifted to component scope: the restore list (scroll region) and the pinned
-  // action bar are now separate flex children of the card, so these derivations
-  // are read outside a single render-prop — the list reads groups, the
-  // footer reads hasAnyAgent. Memo the group sort; hasAnyAgent is a trivial
-  // single-consumer length check over the resumableIds memo.
   const groups = createMemo(() => {
     const session = props.savedSession;
     return session ? groupSavedTerminals(session.terminals) : [];
   });
-  // Stable per-key hues (same `assignColors` as the live dock). Pure
-  // function of each group name — co-set membership does not shift hue.
   const groupColors = createMemo(() =>
     assignColors(groups().map((g) => g.key)),
   );
   const hasAnyAgent = () => resumableIds().length > 0;
   const resumableSet = createMemo(() => new Set(resumableIds()));
 
-  /** Either card action is in flight — the one fact BOTH action buttons gate on,
-   *  so the two can never race. Named once here rather than spelled as a
-   *  disjunction at each button. */
   const busy = () => Boolean(props.isRestoring || props.isForfeiting);
 
   const handleRestore = () => {
-    // Intent only: host owns the resumable set; client may only opt out.
-    // Global toggle off → resumeAgents false (no opt-outs needed).
     props.onRestore?.({
       resumeAgents: resumeAgents(),
       optOutIds: [],
@@ -146,45 +103,18 @@ const EmptyState: Component<EmptyStateProps> = (props) => {
   };
 
   return (
-    // The wrapper fills the empty canvas to center the card, but its bare
-    // area is `pointer-events-none` so a double-click on empty space falls
-    // through to the canvas-container's double-click-to-create gesture (the
-    // container guards on `target === currentTarget`). The card itself is
-    // `pointer-events-auto`, so its buttons/toggles stay clickable and a
-    // double-click on the card never reaches the create handler. No overflow
-    // here — the `max-h-full` card can never exceed the wrapper, so the card
-    // owns the scroll (and a scroll on this `pointer-events-none` layer would
-    // be wheel-dead anyway).
     <div
       data-testid="empty-state"
-      class="flex h-full items-start justify-center px-5 pb-6 pointer-events-none"
+      class="flex h-full items-start justify-center px-5 pb-6"
       classList={{
         "pt-20": isDesktop(),
         "pt-5": !isDesktop(),
       }}
     >
-      {/* App-shell card: a flex column capped to the wrapper's height. The
-          wrapper owns the overflow but is `pointer-events-none` (double-click on
-          bare canvas falls through to create-on-double-click), so its scroll is
-          wheel-dead. The card is `pointer-events-auto`, so the scroll lives here.
-          Only the middle region scrolls; the Restore action bar is a pinned
-          FOOTER so the primary action never drops below the fold on a short
-          viewport. The card keeps `overflow-y-auto` as a fallback: if the
-          viewport is shorter than the pinned footer's own height, the `flex-1`
-          list shrinks to zero and the footer would otherwise be clipped — the
-          card scroll still lets the user reach it. */}
       <div
         class={`${chrome.class} scrollbar-subtle p-5 max-w-md w-full pointer-events-auto flex flex-col max-h-full overflow-y-auto`}
       >
-        {/* The scroll region — the welcome header, the session list, and (on
-            touch) the create button + shortcut list. `flex-1 min-h-0
-            overflow-y-auto` absorbs all the overflow so the footer below stays
-            pinned. `min-h-0` is load-bearing: without it a flex child won't
-            shrink below its content and the scroll never engages. `scrollbar-subtle`
-            is the app's thin themed scrollbar; `-mr-2 pr-2` insets it off the
-            card's rounded edge. */}
         <div class="scrollbar-subtle flex-1 min-h-0 overflow-y-auto -mr-2 pr-2">
-          {/* The bird's-eye welcome — desktop only (no mobile welcome, by design). */}
           <Show when={showsWelcome()}>
             <div class="mb-5 pb-5 border-b border-edge">
               <WelcomeMoments install={props.install} />
@@ -194,10 +124,6 @@ const EmptyState: Component<EmptyStateProps> = (props) => {
             <div
               data-testid="session-restore"
               classList={{
-                // On touch layouts the create button / Get started list follow
-                // this block in the SAME scroll region — restore the gap +
-                // divider that separated them. On desktop the pinned footer's
-                // own `border-t` is the separator, so no divider here.
                 "mb-5 pb-5 border-b border-edge": !isDesktop(),
               }}
             >
@@ -230,11 +156,6 @@ const EmptyState: Component<EmptyStateProps> = (props) => {
                         class="repo-group-band"
                         style={{ "--repo-color": color() }}
                       >
-                        {/* NOT sticky. A pinned, opaque heading masks its own
-                            two-line rows as they scroll under it — the name line
-                            hides behind the heading while the subtitle peeks out,
-                            leaving an orphaned "Asleep · restores dormant" with no
-                            session above it. Let the heading scroll with its rows. */}
                         <div class="pb-1.5">
                           <span class="repo-group-band-title truncate">
                             <RepoMonogram
@@ -243,8 +164,6 @@ const EmptyState: Component<EmptyStateProps> = (props) => {
                               size="sm"
                               data-testid="restore-repo-monogram"
                             />
-                            {/* testid on the name alone — monogram is decorative
-                             *  (aria-hidden) and must not pollute e2e textContent. */}
                             <span data-testid="repo-heading">{group.key}</span>
                           </span>
                         </div>
@@ -299,10 +218,6 @@ const EmptyState: Component<EmptyStateProps> = (props) => {
                                     </Show>
                                   }
                                 >
-                                  {/* A sleeping record restores DORMANT — no agent
-                                      relaunches on restore; it comes back asleep
-                                      and the user wakes it later. Say so plainly
-                                      instead of a resume-command line. */}
                                   <div class="mt-1 text-[11px] text-fg-3/60 truncate leading-relaxed italic">
                                     Asleep · restores dormant
                                   </div>
@@ -318,10 +233,6 @@ const EmptyState: Component<EmptyStateProps> = (props) => {
               </div>
             </div>
           </Show>
-          {/* Touch create button — the tappable path to the first terminal on the
-              phone + compact layouts, which mount no Dock (its clickable `+` is
-              desktop-only) and can't action the shortcut list with a finger. On
-              desktop the empty Dock owns the `+`, so this is suppressed there. */}
           <Show when={!isDesktop() && props.onCreate}>
             <button
               type="button"
@@ -332,9 +243,6 @@ const EmptyState: Component<EmptyStateProps> = (props) => {
               {ACTIONS.createTerminal.label}
             </button>
           </Show>
-          {/* Shortcut list — only where the welcome moments aren't shown (mobile).
-              On desktop the moments above already advertise these, so the list is
-              redundant there. */}
           <Show when={!showsWelcome()}>
             <p class="text-sm font-medium text-fg mb-3">Get started</p>
             <div class="space-y-2">
@@ -349,10 +257,6 @@ const EmptyState: Component<EmptyStateProps> = (props) => {
             </div>
           </Show>
         </div>
-        {/* Pinned action bar — the Restore controls live OUTSIDE the scroll
-            region so the primary action never scrolls off on a short viewport.
-            Present only with a saved session; `border-t` divides it from the
-            scrolling list above. */}
         <Show when={props.savedSession}>
           {(session) => (
             <div class="shrink-0 mt-4 pt-4 border-t border-edge">
@@ -384,12 +288,6 @@ const EmptyState: Component<EmptyStateProps> = (props) => {
                   </Show>
                 </Show>
               </button>
-              {/* Explicit forfeit — the deliberate "discard my previous
-                  session" path, and the only irreversible act on this card, so
-                  it carries its own inline confirmation and a hit area no wider
-                  than its label (see `ForfeitSessionButton`). Kept visually
-                  secondary to Restore so it never competes with the primary
-                  action. Only rendered when the parent wires `onForfeit`. */}
               <Show when={props.onForfeit}>
                 <div class="mt-2">
                   <ForfeitSessionButton

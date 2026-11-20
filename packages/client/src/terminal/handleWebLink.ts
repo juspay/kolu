@@ -1,13 +1,3 @@
-/**
- * Web-link activation policy for a kolu terminal — lives beside
- * `fileRefLinkProvider` for the same reason: xterm-kit owns the generic seam,
- * kolu owns what a click *means*.
- *
- *   - loopback URL → the join card at the cursor
- *   - ⌘/ctrl-click → raw open, no card
- *   - non-loopback → default open, untouched
- */
-
 import { parseLoopbackUrl } from "@kolu/url-shape";
 import type { TerminalId } from "kolu-common/surface";
 import { toast } from "solid-sonner";
@@ -22,11 +12,7 @@ export function openRawUrl(uri: string): void {
     });
     return;
   }
-  try {
-    tab.opener = null;
-  } catch {
-    // Electron can throw; ignore.
-  }
+  tab.opener = null;
 }
 
 /** Handle a web-link click for `terminalId`. */
@@ -35,8 +21,6 @@ export function handleWebLink(
   uri: string,
   terminalId: TerminalId,
 ): void {
-  // ⌘/ctrl-click: raw open, no card — the escape hatch for "I really mean my
-  // own machine's localhost".
   if (event.metaKey || event.ctrlKey) {
     closePrintedUrlCard();
     openRawUrl(uri);

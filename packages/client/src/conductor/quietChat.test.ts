@@ -1,12 +1,3 @@
-/** The fold over the chat: what a one-line turn SAYS, and which turns are
- *  one line at all.
- *
- *  The headlines below are the openings of real replies from the night of
- *  16–17 November — the awkward ones first, because that is where a
- *  first-sentence rule goes wrong: a commit hash, a path and a version
- *  number are full stops that end nothing, and a URL is a sentence's worth of
- *  them. */
-
 import type { ConductorRow } from "kolu-common/conductor";
 import { describe, expect, it } from "vitest";
 import { firstSentence, quietChat, type WorkNote } from "./quietChat";
@@ -255,8 +246,6 @@ describe("quietChat", () => {
   });
 
   it("reads the line off the turn's LAST reply (03:38)", () => {
-    // The real turn: the Conductor wrote a line about the CI table, made
-    // more calls, and then said the PR had merged. The merge is the news.
     const chat = quietChat(
       [
         wake("w1", 38),

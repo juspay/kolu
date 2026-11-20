@@ -1,16 +1,3 @@
-/**
- * WHAT A PERSON IS TOLD when they press a sign-in method.
- *
- * A sign-in is two things happening: a credential store being written, and
- * the agent being restarted so it reads it (a running adapter keeps the
- * account it read at `initialize`). The second can be refused — a turn is
- * running — or fail, and the call used to reject when it did, so a login that
- * WORKED reached the screen as "Sign-in failed" and the obvious next move was
- * to sign in again.
- *
- * Two facts, two sentences: signed in, and whether the agent came back.
- */
-
 import { Effect } from "effect";
 import type { ConductorSignInResult } from "kolu-common/conductor";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -20,8 +7,6 @@ const seam = vi.hoisted(() => ({
     | ConductorSignInResult
     | { readonly failed: string },
   toasts: [] as { level: string; text: string }[],
-  /** The verb in flight — awaited rather than slept on, so this file has no
-   *  wall-clock in it. */
   ran: [] as Promise<unknown>[],
 }));
 
@@ -45,8 +30,6 @@ vi.mock("../wire", () => ({
     },
   },
 }));
-// The verb is run straight through: what this file is about is what the
-// `onDone` says, not how an action is scheduled.
 vi.mock("../runAction", () => ({
   runAction: (_label: string, effect: Effect.Effect<unknown, unknown>) => {
     seam.ran.push(Effect.runPromise(effect as Effect.Effect<unknown, never>));
@@ -63,7 +46,6 @@ vi.mock("../createSharedRoot", () => ({
 
 import { useConductor } from "./useConductor";
 
-/** Press the method and wait for the one promise behind it. */
 const press = async (answer: typeof seam.answer): Promise<void> => {
   seam.answer = answer;
   useConductor().signIn("console-login");

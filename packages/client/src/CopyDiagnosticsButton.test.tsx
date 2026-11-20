@@ -1,15 +1,4 @@
 // @vitest-environment happy-dom
-/**
- * The copy affordance, through the repo's one clipboard write path — and inside
- * the user-activation window (kolu#2101 J2).
- *
- * `document.execCommand("copy")` is the only write that survives plain `http://`
- * (a LAN address, a machine hostname, a Tailscale IP — how kolu is actually
- * reached), and it needs an active user gesture. So the snapshot must be BUILT
- * inside the `Effect.suspend` that precedes the write: building it first and
- * awaiting anything would push the write out of the window and break copying
- * with no unit test to catch it. That laziness is what the second case pins.
- */
 
 import { Effect } from "effect";
 import type { HostKey } from "kolu-common/hostKey";
@@ -79,9 +68,6 @@ it("writes the snapshot through the repo's clipboard helper, not navigator direc
 
 it("builds LAZILY — nothing is read until the effect runs, so the write stays in the gesture window", () => {
   const action = copyDiagnosticSnapshot();
-  // Merely describing the copy must touch no state: an eager build here would
-  // mean the real call site had already done its work (and possibly awaited)
-  // before reaching the clipboard.
   expect(dialHistory).not.toHaveBeenCalled();
   expect(writeTextToClipboard).not.toHaveBeenCalled();
 

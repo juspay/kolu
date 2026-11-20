@@ -1,10 +1,3 @@
-/** Click-to-open recovery-instructions popover + button trigger for
- *  `PrResult.kind === "unavailable"`. Dispatch happens in two layers:
- *  `ProviderUnavailableContent` matches on `source.provider` (today only
- *  `"gh"`), delegating to a per-provider content component so bkt's future
- *  recovery UX doesn't need to fit a shared mold. Anchored positioning
- *  comes from `useAnchoredPopover`. */
-
 import type { PrUnavailableSource } from "kolu-common/surface";
 import { reasonForSource } from "kolu-common/surface";
 import type { GhUnavailableCode } from "kolu-github/schemas";
@@ -131,10 +124,6 @@ const PrUnavailablePopover: Component<{
   );
 };
 
-/** ⚠ button + its popover, one component per render site. Owns its own
- *  open-state signal and trigger ref — canvas tile chrome and mobile
- *  pull-handle show the icon for the same terminal simultaneously and each
- *  must anchor their popover to their own trigger rather than share one. */
 export const PrUnavailableButton: Component<{
   source: PrUnavailableSource;
   testId: string;

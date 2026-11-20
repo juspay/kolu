@@ -1,14 +1,3 @@
-/** The canonical "copy-this-command" affordance: a full-width button showing a
- *  monospace command that copies it on click, flips the trailing label to
- *  "copied" for 1500ms, and toasts on failure. One place to change the copy
- *  interaction — `KavalAttachSection` and `PrUnavailablePopover`'s recovery
- *  hint both compose this rather than re-hand-rolling the signal + timeout +
- *  `writeTextToClipboard` + `toast.error` sequence.
- *
- *  `writeTextToClipboard` fires synchronously at the top of the click handler,
- *  before `setCopied(true)`, so the clipboard write stays inside the
- *  user-activation gesture window (see `@kolu/solid-logtail`'s `clipboard.ts`). */
-
 import { toError } from "@kolu/surface/run-stream";
 import { Effect } from "effect";
 import {
@@ -39,10 +28,6 @@ const CopyCommandButton: Component<{
 }> = (props) => {
   const [copied, setCopied] = createSignal(false);
 
-  // Flash "copied" for 1500ms. The timer is tracked so a rapid re-click resets
-  // it instead of stacking timers, and a mid-flash unmount cancels it rather
-  // than firing setCopied on a disposed owner (clearTimeout(undefined) is a
-  // safe no-op).
   let resetTimer: ReturnType<typeof setTimeout> | undefined;
   const flashCopied = () => {
     setCopied(true);
@@ -51,7 +36,6 @@ const CopyCommandButton: Component<{
   };
   onCleanup(() => clearTimeout(resetTimer));
 
-  // Fire the clipboard write first, inside the gesture, then flash "copied".
   const copy = () => {
     runAction(
       "copy command",

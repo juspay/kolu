@@ -1,21 +1,3 @@
-/**
- * kolu's LOOK for an uncaught client throw — the markup half of the fault
- * surface whose catch/record/print half is `SurfaceFaultBoundary`
- * (`@kolu/surface-app/solid`, composed by `<SurfaceAppProvider fault={…}>` in
- * `../index.tsx`). Without it a client that threw mid-render was a white tab:
- * Solid unmounts the subtree that faulted, and every in-app error surface kolu
- * has (toasts, the transport overlay, per-member `onError` policies) rides the
- * tree that just came down.
- *
- * The text is VERBATIM and scrollable rather than wrapped away: it is what a
- * bug report is made of, and a fault surface that summarised the fault would
- * be the white tab with extra steps. The one way out is the model's
- * `reload()` — the boundary renders INSIDE `<SurfaceAppProvider>` exactly so a
- * LOOK can still read `useSurfaceApp()`, and the model's reload is the
- * framework's: it lands on the `no-store` shell and the bundle that shell
- * names (kolu#1319), which matters more here than anywhere, since a stale
- * bundle may be the very thing that threw.
- */
 import { useSurfaceApp } from "@kolu/surface-app/solid";
 import type { Component } from "solid-js";
 

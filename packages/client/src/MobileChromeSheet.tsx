@@ -1,21 +1,3 @@
-/** MobileChromeSheet — content of the pull-down chrome drawer for mobile.
- *
- *  On mobile, the viewport is too tight for a persistent chrome bar, so
- *  global controls live behind a pull-handle at the top of the
- *  terminal. Tap or pull the handle to reveal this sheet. Contents:
- *  identity (logo + connection dot) and the control cluster (command
- *  palette, settings, inspector toggle).
- *
- *  Terminal navigation moved out of this sheet to its own left-edge
- *  swipe drawer (the `DockList`, mounted by `MobileTileView`). The split
- *  mirrors the desktop: the dock owns the live-terminal navigator, the
- *  chrome bar owns global controls.
- *
- *  Sheet machinery (open state, drag-to-dismiss, overlay, portal) is
- *  owned by `MobileTileView` via `@corvu/drawer`. This component only
- *  renders the sheet's contents; `onClose` is called after a user
- *  action so the parent can close the drawer. */
-
 import { useSurfaceApp } from "@kolu/surface-app/solid";
 import { type Component, Show } from "solid-js";
 import MobileHostRow from "./host/MobileHostRow";
@@ -39,48 +21,30 @@ const MobileChromeSheet: Component<{
   status: WsStatus;
   appTitle: string;
   onOpenPalette: () => void;
-  /** Close the drawer after the user takes an action (palette open,
-   *  inspector toggle). The drawer is otherwise dismissed by drag-down
-   *  or overlay tap, both handled by Corvu. */
   onClose: () => void;
 }> = (props) => {
   const rightPanel = useRightPanel();
   const pwa = useSurfaceApp();
-  // The conversation's one badge — the same derivation the desktop tab wears.
   const badge = useConductorBadge();
   let settingsTriggerRef!: HTMLButtonElement;
 
   return (
     <div data-testid="mobile-chrome-sheet" class="flex flex-col">
-      {/* Drag-grip — visual cue that the whole sheet is draggable.
-       *  Corvu wires the drag gesture on Drawer.Content itself, so this
-       *  is purely cosmetic. */}
       <div class="flex justify-center pt-2 pb-1" aria-hidden="true">
         <span class="w-10 h-1 rounded-full bg-fg-3/40" />
       </div>
 
-      {/* Header row: identity + connection */}
       <div class="flex items-center gap-2 px-3 py-2 border-b border-edge/50">
         <img src="/favicon.svg" alt="kolu" class="w-5 h-5" />
         <span class="font-semibold text-sm flex-1">{props.appTitle}</span>
         <span
           data-ws-status={props.status}
-          // Floored on the watchdog-backed `health().live` (same as the desktop srv
-          // dot), so a silent half-open can't paint green over a dead link.
           class={`inline-block w-2 h-2 rounded-full ${serverDot(props.status, daemonTransportLive())}`}
           role="status"
           aria-label="Connection status"
         />
       </div>
 
-      {/* The conductor FIRST, as on the desktop tab row: this sheet is the
-       *  phone's tab row, and the conversation is the one place that reaches
-       *  every host. It is not a host — no status dot, no hue, nothing in the
-       *  host row below. Selecting it shows the chat over the whole screen
-       *  under the pull handle, and the handle opens this same sheet from
-       *  there, so a host chip below is the way back. EXACTLY ONE place looks
-       *  current: while the conversation is on screen this entry is lit and no
-       *  host chip is (`useActiveHostSelector`). */}
       <div class="border-b border-edge/50 px-3 py-2">
         <button
           type="button"
@@ -100,8 +64,6 @@ const MobileChromeSheet: Component<{
           }}
           aria-label={ACTIONS.toggleConductor.label}
         >
-          {/* The mark carries the accent at rest here too — one destination,
-              one hue, whichever layout you reach it from. */}
           <span
             aria-hidden="true"
             classList={{ "text-accent": !conductorMode() }}
@@ -109,18 +71,12 @@ const MobileChromeSheet: Component<{
             ◆
           </span>
           <span>Conductor</span>
-          {/* Inline, beside the name, for the same reason as the desktop
-              tab's: the end of the row holds the count, and the tag is a
-              constant rather than something that arrives. */}
           <span
             data-testid="conductor-alpha"
             class="rounded-sm bg-fg-3/15 px-1 py-px font-mono text-[0.6rem] font-semibold uppercase tracking-[0.08em] text-fg-3"
           >
             alpha
           </span>
-          {/* THE SAME ONE BADGE the desktop tab wears, from the same memo:
-              how many things are waiting on YOU. Violet, always; absent at
-              zero. */}
           <Show when={badge.waiting() > 0}>
             <span
               data-testid="conductor-badge"
@@ -134,19 +90,8 @@ const MobileChromeSheet: Component<{
         </button>
       </div>
 
-      {/* Host row — the mobile face of the keyed padi host map: per-host chips
-       *  (tap to switch — from the Conductor too, which a tap leaves), attention
-       *  pills, and the in-sheet add-host section. Closes the sheet on a switch
-       *  so the canvas is visible immediately. The desktop `HostSelectorStrip`
-       *  is `isDesktop()`-gated, so this is the ONLY host chrome the touch
-       *  layout has. */}
       <MobileHostRow onSwitch={props.onClose} />
 
-      {/* Client out of sync with the server — the actionable mobile form of the
-       *  desktop rail's `≠ srv` signal: a one-tap reload onto the deployed build
-       *  (surface-app's `reload()` is a plain location.reload() — kolu has no
-       *  caching service worker — landing fresh because the shell is no-store
-       *  and carries the build identity; kolu#1319). */}
       <Show when={clientStale()}>
         <button
           type="button"
@@ -199,8 +144,6 @@ const MobileChromeSheet: Component<{
             triggerRef={settingsTriggerRef}
           />
         </div>
-        {/* The inspector is about a host's terminal, so — as on the desktop
-         *  bar — it is not offered while the Conductor is the current place. */}
         <Show when={!conductorMode()}>
           <button
             type="button"
@@ -211,9 +154,6 @@ const MobileChromeSheet: Component<{
             }}
             onPointerDown={(e) => e.stopPropagation()}
             onClick={() => {
-              // Mobile drawer is session-local — do NOT call togglePanel,
-              // which writes the desktop chrome preference. This is the
-              // whole reason `drawerOpen` exists as a separate signal.
               rightPanel.setDrawerOpen(!rightPanel.drawerOpen());
               props.onClose();
             }}

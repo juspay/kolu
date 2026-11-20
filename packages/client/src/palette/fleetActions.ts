@@ -1,7 +1,3 @@
-/** Fleet → palette projection — rows, host groups, and host actions for the
- *  unified switcher. Lives next to the fleet index so `createCommands` only
- *  registers the results (not presentation/keying). */
-
 import {
   computeTerminalKeys,
   type TerminalKey,
@@ -30,8 +26,6 @@ import {
   orderHostsActiveFirst,
 } from "./fleetTerminals";
 
-/** Switch host when the row is foreign, then activate. Pure sequencing
- *  extracted so unit tests can spy without mounting the palette. */
 export function selectFleetTerminal(
   rowHost: HostKey,
   rowId: TerminalId,
@@ -43,13 +37,11 @@ export function selectFleetTerminal(
   activate(rowId);
 }
 
-/** Project one host's fleet rows with collision keys scoped to that host. */
 function terminalSwitchActionsForHost(
   rows: readonly FleetTerminalRow[],
   active: HostKey,
   switchHost: (host: HostKey) => void,
   activate: (id: TerminalId) => void,
-  /** Shared fleet-wide hue map so multi-host root lists keep stable colors. */
   colors: Map<string, string>,
 ): PaletteAction[] {
   const keys: Map<TerminalId, TerminalKey> = computeTerminalKeys(
@@ -59,10 +51,6 @@ function terminalSwitchActionsForHost(
       cwd: r.meta.cwd,
     })),
   );
-  // Read the visit trail ONCE, not per row — same reason `hostRootActions`
-  // hoists its own: Solid does not dedupe repeated reads, so a read inside the
-  // map registers one subscription per terminal on a trail that moves on every
-  // tile activation.
   const visits = useVisitRecency().visits();
   return rows.map((row): PaletteAction => {
     const k = keys.get(row.id);
@@ -79,7 +67,6 @@ function terminalSwitchActionsForHost(
         `assignColors missing repo key "${repoName}" — map must cover every fleet group`,
       );
     }
-    // Same socket as dock/title `annotationColor` — hue of the branch label.
     const annotationColor = colors.get(k.label);
     if (annotationColor === undefined) {
       throw new Error(
@@ -88,12 +75,6 @@ function terminalSwitchActionsForHost(
     }
     const hostName = hostLabel(row.host);
     const hostKey = encodeHostKey(row.host);
-    // TWO grounded clocks, and only grounded ones: the terminal's own activity
-    // and your own visit. The palette's two questions — how warm is this row
-    // (ORDER) and when were you last here (HIGHLIGHT) — are both DERIVED from
-    // this pair at the sites that ask them (`rootIndex.rankOf` /
-    // `rootIndex.rowVisitedAt`). Storing the warmth derivation as a third field
-    // let a row carry a rank its own inputs contradicted.
     const activityAt = row.recencyAt;
     return {
       kind: "action",
@@ -125,15 +106,12 @@ function terminalSwitchActionsForHost(
   });
 }
 
-/** Terminal rows for the unified switcher — fleet-wide. Collision suffixes
- *  are computed **per host** (host chip separates cross-host same-name rows). */
 export function terminalSwitchActions(
   fleet: readonly FleetTerminalRow[],
   active: HostKey,
   switchHost: (host: HostKey) => void,
   activate: (id: TerminalId) => void,
 ): PaletteAction[] {
-  // Hue uses bare group/label — collision suffixes do not affect color.
   const colors = assignColors(
     fleet.flatMap((r) => {
       const k = terminalKey(r.meta);
@@ -145,7 +123,6 @@ export function terminalSwitchActions(
   );
 }
 
-/** Terminals tree: one drillable host group per **connected** pool member. */
 export function terminalHostGroups(
   fleet: readonly FleetTerminalRow[],
   hosts: readonly HostKey[],
@@ -195,29 +172,11 @@ export function terminalHostGroups(
   });
 }
 
-/** Host rows for root index and the Hosts scoped group — one source of truth.
- *
- *  Order stays membership order (a host list that reshuffles under the cursor
- *  is not a list you can learn); it is `visitedAt` that carries the switch
- *  trail, so ⌘⇧H's default highlight lands on the host you came from — the same
- *  `defaultSelectionIndex` rule the terminal rows above feed with their own
- *  visit trail, through the same field. The stamp itself comes from the trail's
- *  own lookup (`hostRecency.switchedAtOf`), the mirror of `visitedAtOf`.
- *
- *  A host row carries no activity clock to pair the visit stamp with, and that
- *  asymmetry is the design: the Hosts list keeps POOL order, because a machine
- *  list that reshuffles under the cursor is unlearnable — the same reason the
- *  dock stopped sorting on a clock. So a host's warmth (`rootIndex.rankOf`)
- *  degenerates to its visit stamp, which is harmless because no path ever
- *  rank-sorts hosts. */
 export function hostRootActions(
   hosts: HostKey[],
   active: HostKey,
   switchHost: (host: HostKey) => void,
 ): PaletteAction[] {
-  // Read the trail ONCE, not per row: Solid does not dedupe repeated reads, so
-  // a read inside the map would register one subscription per host on a memo
-  // that recomputes on fleet, pool, and posture churn alike.
   const trail = hostRecency();
   return hosts.map((h): PaletteAction => {
     const label = hostLabel(h);

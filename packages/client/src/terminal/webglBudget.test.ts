@@ -1,18 +1,3 @@
-/** Regression guard for the #1399 WebGL-context budget.
- *
- *  The leak: the budget used to be a fixed `slice(0, 2)` — only the 2
- *  most-recently-active tiles held a WebGL context. With more terminals in play,
- *  every focus switch evicted+recreated a context, and on Chrome+AMD that churn
- *  leaked GPU VRAM (reclaimed only at GC) until the GPU faulted. The fix admits
- *  the whole working set, capped by counting *actual* contexts (main pane + an
- *  expanded active split) against a margin below Chrome's measured 16/tab limit
- *  (#575). `admitWebglTiles` is the pure core of that policy.
- *
- *  These assert the two properties the fix hinges on: (1) a realistic
- *  multi-terminal working set is admitted *in full* (no churn — the regression),
- *  and (2) past the cap, admission is bounded by recency so live contexts never
- *  exceed Chrome's limit. */
-
 import type { TerminalId } from "kolu-common/surface";
 import { describe, expect, it } from "vitest";
 import {
@@ -24,11 +9,11 @@ import {
 
 const ids = (n: number): TerminalId[] =>
   Array.from({ length: n }, (_, i) => `t${i}` as TerminalId);
-const one = () => 1; // every tile costs one context (no split)
+const one = () => 1;
 
 describe("admitWebglTiles (#1399 WebGL context budget)", () => {
   it("admits the FULL working set when it fits under the cap — the regression (old slice(0,2) truncated to 2)", () => {
-    const tiles = ids(6); // a realistic multi-terminal session
+    const tiles = ids(6);
     expect(admitWebglTiles(tiles, one, 12)).toEqual(tiles);
   });
 
@@ -38,7 +23,7 @@ describe("admitWebglTiles (#1399 WebGL context budget)", () => {
   });
 
   it("caps by recency when the working set exceeds the limit (never overflows Chrome's per-tab cap, #575)", () => {
-    const tiles = ids(20); // mruOrder is most-recent-first
+    const tiles = ids(20);
     const held = admitWebglTiles(tiles, one, 12);
     expect(held).toHaveLength(12);
     expect(held).toEqual(tiles.slice(0, 12));
@@ -46,7 +31,6 @@ describe("admitWebglTiles (#1399 WebGL context budget)", () => {
 
   it("counts an expanded active split as a second context", () => {
     const tiles = ids(8);
-    // Every tile carries an active split → costs 2 contexts each → cap 12 fits 6.
     const held = admitWebglTiles(tiles, () => 2, 12);
     expect(held).toEqual(tiles.slice(0, 6));
   });
@@ -60,16 +44,9 @@ describe("admitWebglTiles (#1399 WebGL context budget)", () => {
     expect(admitWebglTiles(ids(6), one, WEBGL_CONTEXT_CAP)).toEqual(ids(6));
   });
 
-  // The cap sits in a band between two opposite failures (see webglBudget.ts):
-  // too LOW re-introduces the #1399 churn-leak (budget < working set), too HIGH
-  // approaches Chrome's ~16-context-per-tab ceiling and lets a long session
-  // drift into eviction — Chrome drops the oldest live context and xterm parks
-  // that tile on a blank frame for ~3s (its webglcontextlost → 3000ms
-  // restoration wait → DOM fallback). #1399 shipped 12 (only 4 of headroom),
-  // which proved too thin once transient pre-GC contexts are counted.
   it("the shipped cap leaves real headroom below Chrome's per-tab ceiling (the eviction regression)", () => {
-    const CHROME_CONTEXT_LIMIT = 16; // measured on Chrome 148 (#575)
-    const MIN_HEADROOM = 8; // room for transient pre-GC contexts on a long session
+    const CHROME_CONTEXT_LIMIT = 16;
+    const MIN_HEADROOM = 8;
     expect(CHROME_CONTEXT_LIMIT - WEBGL_CONTEXT_CAP).toBeGreaterThanOrEqual(
       MIN_HEADROOM,
     );
@@ -134,18 +111,11 @@ describe("isActiveSplit (which child inherits the tile's WebGL slot)", () => {
 });
 
 describe("cost ↔ grant agreement (the unenforced invariant, mechanized)", () => {
-  // The store's holdsWebgl grants a budgeted tile's main pane plus, per child,
-  // `isActiveSplit`. `tileWebglCost` MUST equal the number of terminals under
-  // the tile for which that grant holds, or admitWebglTiles miscounts real
-  // Chrome contexts (#575). These mirror the store's logic over the SAME
-  // predicates, so a future split-rule change keeps both sides in step.
   const children = [SUB, "sibling" as TerminalId];
   const grantedCount = (panel: {
     collapsed: boolean;
     activeSubTab: TerminalId | null;
-  }) =>
-    1 /* main pane, always granted to a budgeted tile */ +
-    children.filter((id) => isActiveSplit(panel, id)).length;
+  }) => 1 + children.filter((id) => isActiveSplit(panel, id)).length;
 
   it.each([
     ["no split", { collapsed: false, activeSubTab: null }],

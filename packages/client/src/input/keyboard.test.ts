@@ -1,6 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
 
-// Mock the platform module before importing keyboard
 vi.mock("./platform", () => ({ isMac: false }));
 
 import { ACTIONS, isOutsideFocusScope, matchesAnyShortcut } from "./actions";
@@ -93,7 +92,6 @@ describe("matchesKeybind (non-mac)", () => {
 
   it("prefers code over key for matching", () => {
     const kb: Keybind = { key: "`", code: "Backquote", modifier: "ctrl" };
-    // key doesn't match but code does
     expect(
       matchesKeybind(
         makeEvent({ key: "~", code: "Backquote", ctrlKey: true }),
@@ -111,11 +109,6 @@ describe("matchesKeybind (non-mac)", () => {
 });
 
 describe("modifier exactness (one rule, every role)", () => {
-  // A chord requires the flag its role names and NOT the other one. Stated once
-  // in `matchesKeybind` rather than per role, which is what the three separate
-  // booleans could not do: each role used to be loose in its own way, and an
-  // extra modifier riding along still matched — swallowing a byte the PTY was
-  // owed under a chord the user never meant to press.
   const cases: {
     role: Keybind["modifier"];
     pressed: Partial<KeyboardEvent>;
@@ -164,7 +157,6 @@ describe("modifier exactness (one rule, every role)", () => {
         matchesKeybind(makeEvent({ code: "Tab", ctrlKey: true, shiftKey }), kb),
       ).toBe(true);
     }
-    // Exactness still governs the modifier itself, shiftOptional or not.
     expect(
       matchesKeybind(
         makeEvent({ code: "Tab", ctrlKey: true, metaKey: true }),
@@ -175,9 +167,6 @@ describe("modifier exactness (one rule, every role)", () => {
 });
 
 describe(`the "app" modifier (Super off macOS — the PTY-safe role)`, () => {
-  // `"app"` reads metaKey on EVERY platform: Cmd on macOS, Super/Win elsewhere.
-  // Its whole purpose is that a PTY receives Ctrl as a byte and never sees this
-  // key at all, so these are the chords kolu may claim over a live terminal.
   const kb: Keybind = { key: "k", code: "KeyK", modifier: "app" };
 
   it("matches Super+K off macOS", () => {
@@ -199,8 +188,6 @@ describe(`the "app" modifier (Super off macOS — the PTY-safe role)`, () => {
   });
 
   it("does NOT match Ctrl+Super+K — a different chord, still carrying Ctrl+K", () => {
-    // Claiming it would swallow the same kill-line byte, so an `"app"` chord is strict
-    // about Ctrl — as every role now is.
     expect(
       matchesKeybind(
         makeEvent({ code: "KeyK", ctrlKey: true, metaKey: true }),
@@ -237,7 +224,6 @@ describe("formatKeybind (non-mac)", () => {
     },
     { kb: { key: "t" }, expected: "T" },
     { kb: { key: "k", modifier: "cmdOrCtrl" }, expected: "Ctrl+K" },
-    // `meta` renders as the key Linux/Windows actually call Super.
     { kb: { key: "k", modifier: "app" }, expected: "Super+K" },
     { kb: { key: "Enter", modifier: "app" }, expected: "Super+Enter" },
   ] as const)("formatKeybind → $expected", ({ kb, expected }) => {
@@ -246,12 +232,8 @@ describe("formatKeybind (non-mac)", () => {
 });
 
 describe("platform injection (isMac param overrides the detected platform)", () => {
-  // The module mock pins the *detected* platform to non-mac; these pass
-  // `isMac` explicitly to prove the keybind-core is a pure function of
-  // platform, not a reader of the `userAgent` singleton.
   it("formatKeybind renders macOS glyphs when isMac=true", () => {
     expect(formatKeybind({ key: "k", modifier: "cmdOrCtrl" }, true)).toBe("⌘K");
-    // A `meta` chord is ⌘ on macOS: the palette reads ⌘K there and Super+K off it.
     expect(formatKeybind({ key: "k", modifier: "app" }, true)).toBe("⌘K");
     expect(
       formatKeybind({ key: "]", modifier: "cmdOrCtrl", shift: true }, true),
@@ -270,7 +252,6 @@ describe("platform injection (isMac param overrides the detected platform)", () 
     expect(
       matchesKeybind(makeEvent({ key: "t", metaKey: true }), kb, true),
     ).toBe(true);
-    // Physical Ctrl no longer satisfies a `"cmdOrCtrl"` chord on mac.
     expect(
       matchesKeybind(makeEvent({ key: "t", ctrlKey: true }), kb, true),
     ).toBe(false);
@@ -305,19 +286,12 @@ describe("matchesAnyShortcut", () => {
     code,
     key,
   }) => {
-    // These four are what `modifier: "app"` bought: createTerminal (+ its alt
-    // chord), commandPalette, and findInTerminal used to claim them off macOS.
-    // `matchesAnyShortcut` is xterm's gate — a true here means the byte never
-    // reaches the shell (readline kill-line / forward-char / transpose-chars,
-    // omp's thinking toggle and follow-up send).
     expect(matchesAnyShortcut(makeEvent({ key, code, ctrlKey: true }))).toBe(
       false,
     );
   });
 
   it("matches Ctrl+Shift+B (toggle dock)", () => {
-    // Mod+Shift+B drives toggleDock; bare Ctrl+B is reserved for the
-    // PTY (see prohibitedKeybinds.ts).
     expect(
       matchesAnyShortcut(
         makeEvent({ code: "KeyB", ctrlKey: true, shiftKey: true }),
@@ -369,18 +343,7 @@ describe("matchesAnyShortcut", () => {
 });
 
 describe("findInTerminal scoping (xterm search confined to the terminal)", () => {
-  // The action carries a `focusScopeMarker` selector the dispatcher checks
-  // against `e.target` after the chord matches: a matching ancestor (focus is
-  // in a terminal) → the handler runs (xterm search); no match (focus anywhere
-  // else) → the dispatcher declines without preventDefault, so the browser's
-  // native find-in-page fires. Tests run under the `node` environment (no DOM),
-  // so fake the event target with a `closest` stub rather than real elements.
   const marker = ACTIONS.findInTerminal.focusScopeMarker;
-  // Drive the dispatcher's real decline rule (`isOutsideFocusScope` in
-  // actions.ts, also used by `dispatch` in useShortcuts.ts): true → the
-  // dispatcher declines (no preventDefault → browser find); false → the handler
-  // claims the chord. The node test env has no DOM, so fake the event target
-  // with a `closest` stub.
   const evt = (target: unknown): KeyboardEvent =>
     ({
       key: "f",
@@ -394,8 +357,6 @@ describe("findInTerminal scoping (xterm search confined to the terminal)", () =>
   });
 
   it("claims the chord (xterm search) when focus is inside a terminal", () => {
-    // A `data-kolu-terminal-search` ancestor is found → dispatcher runs the
-    // handler, opening kolu's terminal search.
     const found = {};
     expect(
       isOutsideFocusScope(
@@ -406,24 +367,17 @@ describe("findInTerminal scoping (xterm search confined to the terminal)", () =>
   });
 
   it("defers to native find when focus is outside any terminal", () => {
-    // `closest` finds no terminal ancestor → dispatcher declines without
-    // preventDefault, leaving ⌘F to the browser's find-in-page on macOS. Off
-    // macOS the hand-off is structural — kolu claims Super+F, never Ctrl+F.
     expect(
       isOutsideFocusScope(ACTIONS.findInTerminal, evt({ closest: () => null })),
     ).toBe(true);
   });
 
   it("defers to native find when the event has no element target", () => {
-    // Optional chaining short-circuits to undefined == null → decline → browser.
     expect(isOutsideFocusScope(ACTIONS.findInTerminal, evt(null))).toBe(true);
   });
 });
 
 describe("PROHIBITED_KEYBINDS", () => {
-  // Synthesize the prohibited chord as a KeyboardEvent and ask
-  // every registered action whether it would intercept it. A match
-  // means the action would steal a keystroke meant for the PTY.
   it.each(PROHIBITED_KEYBINDS)("no action collides with $tool: $reason", ({
     keybind,
   }) => {

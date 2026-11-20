@@ -1,17 +1,3 @@
-/** Terminal metadata for the canvas tile title bar — two rows:
- *
- *    Row 1: name [suffix] [worktree] [foreground] [agent progress]
- *    Row 2: annotation [PR icon checks #N title]
- *
- *  Row 2 is the *annotation slot* (supplant rule): intent line-1 if
- *  the user set one, else the git branch name, else empty. Clicking
- *  the slot always opens the intent editor — there's no separate
- *  glyph chip, so the slot is the canvas tile's sole intent
- *  affordance.
- *
- *  The mobile pull-handle has its own one-row layout — see
- *  `TerminalMetaCompact`. */
-
 import { activeArm, type TerminalMetadata } from "@kolu/padi-client/surface";
 import { StatePip } from "@kolu/solid-statepip";
 import {
@@ -38,61 +24,35 @@ import { prTooltip } from "@kolu/solid-dockrow/rowValues";
 import { useStatePip } from "./statePipBind";
 import { pairDisplayRow, type TerminalDisplayInfo } from "./terminalDisplay";
 
-/** The terminal's repo when git resolved to one. The header shows no branch
- *  and no worktree badge for `none` (not a repo) or `unresolved` (not yet
- *  known) alike — both have nothing to name. */
 function repoOf(meta: TerminalMetadata) {
   return meta.git.kind === "repo" ? meta.git.info : undefined;
 }
 
 const TerminalMeta: Component<{
   info: TerminalDisplayInfo | undefined;
-  /** The LIVE per-terminal record — read straight from `getMetadata(id)`, the
-   *  fine-grained store proxy. Every live fact on the title bar (pr, agent,
-   *  foreground, intent, git) reads off this — crucially the fast-churning ones
-   *  (pr / agent / foreground) that the `displayInfos` snapshot could not keep
-   *  fresh (git / cwd DO invalidate that memo, so they were never stale there;
-   *  reading them live too just keeps one source of truth). So the header tracks
-   *  the same leaf the dock does and can never lag it. `info` carries only the
-   *  display decorations (colors + identity key). */
   meta: TerminalMetadata | undefined;
   /** Terminal id — required for activity / EF2 finished motion folds. */
   terminalId: TerminalId;
-  /** True when this terminal has unseen agent activity. Drives the
-   *  leading state pip's attention escalation exactly as the dock row
-   *  does, so the title and the dock can't disagree on what's loud.
-   *  Sourced from view-state at the call site (`store.isUnread(id)`). */
   unread: boolean;
-  /** Open the intent editor for this terminal. Wired in `App.tsx` to
-   *  `intentEditor.openTerminal(id)`. */
   onOpenIntent: () => void;
 }> = (props) => {
   const view = createMemo(() => pairDisplayRow(props.info, props.meta));
   return (
     <Show when={view()} fallback={<TerminalMetaSkeleton />}>
       {(v) => {
-        // T1: brand mark lives once on StatePip; AgentIndicator is words only.
         const pip = useStatePip(
           encActiveHost,
           () => props.terminalId,
           () => v().meta,
           () => props.unread,
         );
-        // Sleeping recedes on the title the same way dock rows do
-        // (`SLEEPING_RECEDE_CLASS`). Applied per row (not a contents-wrapper):
-        // opacity does not inherit through `display: contents` into the
-        // canvas title grid.
         return (
           <>
-            {/* Name row — T1: identity StatePip leads (app-icon position),
-             *  then repo name / suffix / worktree / fg / progress. */}
             <div
               class="col-start-1 row-start-1 flex items-center gap-1.5 min-h-7 text-sm font-medium min-w-0"
               classList={{ [SLEEPING_RECEDE_CLASS]: pip().sleeping }}
               data-sleeping={pip().sleeping ? "" : undefined}
             >
-              {/* Always mount the shared pip — binder handles sleeping
-               *  moonlit + identity even without a live activeArm. */}
               <StatePip {...pip()} class={TITLE_PIP_BOX} />
               <NameSpan info={v().info} meta={v().meta} />
               <Show when={v().info.key.suffix}>
@@ -109,10 +69,6 @@ const TerminalMeta: Component<{
               <Show when={repoOf(v().meta)?.isWorktree}>
                 <WorktreeBadge />
               </Show>
-              {/* Foreground process title — OSC 2 string when present.
-               *  Replaces what used to be the cwd slot; cwd is now a
-               *  tooltip on the repo name. `flex-1` so it fills until
-               *  the progress bar (when shown) eats its right edge. */}
               <Show when={activeArm(v().meta)?.foreground}>
                 {(fg) => (
                   <span
@@ -139,9 +95,6 @@ const TerminalMeta: Component<{
               </Show>
             </div>
 
-            {/* Annotation row (supplant rule) + PR — no identity pip here
-             *  (T1: brand mark appears once, on line 1). Sleeps with the name
-             *  row so a dormant tile recedes on both chrome lines. */}
             <div
               class="col-start-1 col-span-2 row-start-2 flex items-center gap-1.5 min-w-0 text-xs"
               classList={{ [SLEEPING_RECEDE_CLASS]: pip().sleeping }}
@@ -218,15 +171,8 @@ const TerminalMeta: Component<{
   );
 };
 
-/** Mobile pull-handle one-row variant — repo + branch + #PR inline.
- *  Mirrors what the workspace switcher shows for a focused terminal; the full
- *  branch/PR/foreground details live in the chrome sheet that the
- *  pull-handle opens. */
 export const TerminalMetaCompact: Component<{
   info: TerminalDisplayInfo | undefined;
-  /** The LIVE per-terminal record — see `TerminalMeta`. Every fast fact
-   *  (pr, agent, intent, git) reads off this, never off a display-info
-   *  snapshot. */
   meta: TerminalMetadata | undefined;
 }> = (props) => {
   const view = createMemo(() => pairDisplayRow(props.info, props.meta));
@@ -252,8 +198,6 @@ export const TerminalMetaCompact: Component<{
               />
             </span>
           </Show>
-          {/* Anchor stops propagation so a tap on the PR doesn't toggle
-           *  the enclosing Drawer.Trigger. */}
           <Show when={activeArm(v().meta)}>
             {(active) => (
               <>
@@ -307,10 +251,6 @@ const NameSpan: Component<{
     class="inline-flex items-center gap-1.5 truncate shrink-0 max-w-[22ch]"
     title={props.meta.cwd}
   >
-    {/* Monogram uses --repo-color fill; name uses the raw fleet pastel.
-     *  Do NOT use `.repo-name-ink` here: that token mixes toward black in
-     *  light app chrome, which paints near-black on the dark terminal title
-     *  bar (#2037 regression). Title chrome is theme-dark; keep the pastel. */}
     <RepoMonogram
       group={props.info.key.group}
       color={props.info.repoColor}
@@ -333,9 +273,6 @@ const WorktreeBadge: Component = () => (
   </span>
 );
 
-/** Dynamic-workflow fan-out indicator: the background workflow's name and
- *  the count of sub-agents it has spawned so far. Shown while the agent is
- *  busy-waiting on the workflow (state `running_background`). */
 const AgentWorkflowBadge: Component<{ name: string; agents: number }> = (
   props,
 ) => (

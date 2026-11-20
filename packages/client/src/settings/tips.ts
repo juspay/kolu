@@ -1,9 +1,3 @@
-/**
- * Tip registry — pure data, no SolidJS imports.
- * All tip IDs and text builders live here for easy maintenance.
- * Optional `doc` links a tip to a product-docs page via DocLink.
- */
-
 import { posturedActionLabel } from "../canvas/useViewPosture";
 import { ACTIONS } from "../input/actions";
 import { formatKeybind } from "../input/keyboard";
@@ -14,35 +8,25 @@ export type TipId = string;
 export interface Tip {
   id: TipId;
   text: string;
-  /** Optional product-docs slug — TipBanner renders a trailing "Docs →" link. */
   doc?: DocSlug;
 }
 
 export const CONTEXTUAL_TIPS = {
-  /** The moment the dock has two sections — the first case where dragging makes a
-   *  difference. Shown as a banner when the tree gains a second section. */
   dockRearrange: {
     id: "dock-rearrange",
     text: "Drag a repo's header to move the whole section; drag a branch cluster by any of its rows inside the repo. Your arrangement is sticky, per host, and never moves what you didn't drag",
     doc: "dock",
   },
-  /** The moment the host strip holds two REMOTE tabs — the first case where
-   *  dragging one changes anything (one remote beside the pinned local tab has
-   *  nowhere to go). */
   hostRearrange: {
     id: "host-rearrange",
     text: "Drag a host tab to re-order the strip. Your arrangement is saved on the server, so every browser and device shows it; the local tab stays pinned first",
     doc: "remote-hosts",
   },
-  /** The moment a repo card holds two live rows — the first case where nesting
-   *  one under the other is a thing you could want. */
   dockRehome: {
     id: "dock-rehome",
     text: "Drag a row's grip onto another row to nest it there as a split, or onto the repo header to give it its own tile back",
     doc: "dock",
   },
-  /** The first time a tile shows its agents chip — the moment to say where the
-   *  setting that put the agents there lives. */
   agents: {
     id: "agents",
     text: "Terminals can start with AI coding agents ready to use — choose them in Settings → Agents",
@@ -72,16 +56,11 @@ export const CONTEXTUAL_TIPS = {
     text: "Restart (↻) gives a terminal and its splits a fresh shell in place — same tile, folder and theme, current agents; with an agent live, the first click asks",
     doc: "tiles",
   },
-  /** The first time the conversation draws a line about an agent it started —
-   *  the moment to say that line can be opened without leaving the chat. */
   conductorLook: {
     id: "conductor-look",
     text: "An agent the Conductor started gets a status line in the chat — press Look on it to read the last lines of its screen right there, refreshed while it stays open",
     doc: "conductor",
   },
-  /** The first time a conversation OFFERS steering — the only moment the
-   *  chord is true, and the moment a person is about to type into a turn that
-   *  is already running. */
   conductorSteer: {
     id: "conductor-steer",
     text: "While the Conductor is working, Alt+Enter (⌥⏎) puts your words INTO the running turn instead of queueing them behind it — it hears you now. Enter still queues, and Alt+Enter where steering is not offered simply sends, so a message is never lost",
@@ -143,9 +122,6 @@ export const AMBIENT_TIPS: readonly Tip[] = [
     text: `${formatKeybind(ACTIONS.cycleTerminalMru.keybind)} cycles terminals in most-recently-used order (same trail as Recent, this host only; survives reload)`,
   },
   {
-    // Replaces the old "searches terminal output" tip (id `amb-search`), which
-    // is misleading now that the chord is terminal-scoped. New id so users who
-    // already saw the old one still get the corrected copy.
     id: "amb-codetab-find",
     text: `${formatKeybind(ACTIONS.findInTerminal.keybind)} searches the terminal; outside one — the Code tab, a preview, a panel — it hands off to your browser's own find-in-page`,
     doc: "code-tab",
@@ -181,8 +157,6 @@ export const AMBIENT_TIPS: readonly Tip[] = [
     doc: "right-panel",
   },
   {
-    // Replaces the per-card copy (same id kept the old text; new id so users
-    // who saw the six-box description get the picker-widget one).
     id: "amb-inspector-attach-picker",
     text: "The Inspector's Attach section is a picker: choose a pane and a verb (attach / snapshot / send) to copy the one `kaval-tui` command — drive (and even prompt) any pane from any shell",
     doc: "right-panel",

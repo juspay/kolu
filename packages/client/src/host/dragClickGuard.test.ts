@@ -1,17 +1,8 @@
 // @vitest-environment happy-dom
-/** Re-ordering a host tab must not also switch to it.
- *
- *  solid-dnd releases a drag on `pointerup` and the browser then fires `click`
- *  on the element the gesture started on — the host tab's own label or status
- *  button. Nothing in solid-dnd suppresses it, so the drag that moved a tab also
- *  ran `setActiveHost`, or opened the diagnostics popover when the drag started
- *  on the dot. This pins the latch that swallows that one click. */
-
 import { createRoot, createSignal } from "solid-js";
 import { describe, expect, it } from "vitest";
 import { createDragClickGuard } from "./dragClickGuard";
 
-/** Let one animation frame pass — the latch's own clearing beat. */
 function nextFrame(): Promise<void> {
   const { promise, resolve } = Promise.withResolvers<void>();
   requestAnimationFrame(() => resolve());
@@ -44,7 +35,6 @@ describe("createDragClickGuard", () => {
     const h = harness();
     h.drag();
     expect(h.swallow()).toBe(true);
-    // The NEXT click is the user clicking the tab, and must still switch host.
     expect(h.swallow()).toBe(false);
     h.dispose();
   });
@@ -61,8 +51,6 @@ describe("createDragClickGuard", () => {
   });
 
   it("clears the latch on the next frame when the drag produced no click", async () => {
-    // Released off the element, or cancelled: no click follows. A latch left
-    // armed would eat the user's NEXT real click on the tab.
     const h = harness();
     h.drag();
     await nextFrame();

@@ -2,13 +2,6 @@ import { pathFromPreviewPathname } from "@kolu/solid-browser";
 import { encodePreviewPath, previewPathCodec } from "kolu-common/preview";
 import { describe, expect, it } from "vitest";
 
-// The inversion algorithm is unit-tested in @kolu/solid-browser with a
-// synthetic codec. This guards the kolu binding: kolu's REAL preview-URL codec
-// (`encodePreviewPath`, the same encoder the server's `buildIframePreviewUrl`
-// uses) must round-trip through `pathFromPreviewPathname`. If the encoding
-// scheme ever changes, the inversion must still invert it — this fails at the
-// unit layer instead of only at e2e. Building inputs via `encodePreviewPath`
-// (not hand-written encoded strings) pins the test to the real encoder.
 const PREFIX = "/api/terminals/t-1/file";
 const navigate = (from: string, to: string): string | null =>
   pathFromPreviewPathname(

@@ -1,13 +1,3 @@
-/**
- * DocLink registry guards.
- *
- * 1. Set equality — `DOC_SLUGS` must match the basenames of
- *    `website/src/content/docs/*.mdx` exactly. Adding, renaming, or deleting a
- *    doc page without updating the registry (or vice versa) is a red build.
- * 2. Grep law — no `kolu.dev` literal anywhere in `packages/client/src`
- *    outside `DocLink.tsx`. Keeps the consolidation permanent.
- */
-
 import { readdirSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";

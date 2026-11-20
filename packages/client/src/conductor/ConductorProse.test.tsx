@@ -1,30 +1,4 @@
 // @vitest-environment happy-dom
-/**
- * THE CONDUCTOR'S PROSE — long lists folded, and the files it names opening.
- *
- * The assertions are about the reading: how many items are on screen, what the
- * one extra line says, whether an opened list is still open after the thing
- * that drew it was rebuilt, and where a named file's press lands. No class
- * names and no pixel sizes — those are the look, and the look is allowed to
- * change.
- *
- * `@kolu/solid-markdown` is scripted here rather than run for real, for a
- * platform reason, not a convenience one: its sanitize stage is a DOMPurify
- * boundary, and DOMPurify needs more of the platform than happy-dom
- * implements — under it a `<ul>` is dropped and its items are kept, so no
- * list would reach the DOM at all. (The package pins that stage in its own
- * suite, which runs under jsdom for exactly this reason, and the client runs
- * on happy-dom for the rest of its browser tests.) What the mock keeps is the
- * part of the package's contract this component depends on: the prose arrives
- * as HTML written through a RENDER effect, and `onRendered` is called from a
- * USER effect after every such write — which is what puts the DOM in place
- * before the fold runs. It can also rewrite its DOM with the text unchanged,
- * as the real one does when a diagram lands. The package's OWN inline-code
- * step and click seam (`decorateInlineCode`, `bindMarkdownLinks`) run for
- * real. So the tests feed HTML where the app feeds Markdown, and everything
- * else here — the fold, the control, the remembered open state, the links —
- * is the real thing.
- */
 
 import type * as SolidMarkdown from "@kolu/solid-markdown";
 import { ABOUT_WORK, type Work, type WorkId } from "kolu-work";
@@ -32,8 +6,6 @@ import { createSignal } from "solid-js";
 import { render } from "solid-js/web";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-/** Rewrite every mounted prose's DOM without changing its text — what a
- *  diagram landing does to the real component. */
 const markdownMock = vi.hoisted(() => ({ redraw: () => {} }));
 
 vi.mock("@kolu/solid-markdown", async () => {
@@ -46,9 +18,6 @@ vi.mock("@kolu/solid-markdown", async () => {
   );
   const [redraws, setRedraws] = solid.createSignal(0);
   markdownMock.redraw = () => setRedraws((n) => n + 1);
-  // What the real component does: the compiled `innerHTML={html()}` binding
-  // is a render effect, so the prose lands in the update's pure phase; then a
-  // user effect tells `onRendered`, untracked.
   return {
     ...actual,
     Markdown: (props: {
@@ -61,8 +30,6 @@ vi.mock("@kolu/solid-markdown", async () => {
     }) => {
       const el = document.createElement("div");
       el.className = "kolu-md";
-      // Like the real `html` memo: the decorated prose, re-derived when the
-      // text, what the links answer, or a scripted redraw changes.
       const html = solid.createMemo(
         () => {
           redraws();
@@ -89,7 +56,6 @@ vi.mock("@kolu/solid-markdown", async () => {
   };
 });
 
-/** The works the prose names files of — the live collection, scripted. */
 const [works, setWorks] = createSignal<ReadonlyMap<WorkId, Work>>(new Map());
 vi.mock("./useWorks", () => ({ useWorkMap: () => works }));
 
@@ -107,8 +73,6 @@ afterEach(() => {
   closeReader();
 });
 
-/** Mount the prose and hand back its host element. `turn` is the works the
- *  chat turn it sits in is about — none, unless a case says. */
 function mount(
   rowId: string,
   text: () => string,
@@ -134,22 +98,18 @@ function mount(
   return host;
 }
 
-/** A list of `n` items as the renderer delivers it, each one recognisable. */
 const bullets = (n: number, tag: "ul" | "ol" = "ul"): string =>
   `<${tag}>${Array.from(
     { length: n },
     (_, i) => `<li>check ${i + 1}</li>`,
   ).join("")}</${tag}>`;
 
-/** The first list in the prose. */
 function firstList(host: HTMLElement): HTMLElement {
   const list = host.querySelector<HTMLElement>("ul,ol");
   if (list === null) throw new Error("the prose rendered no list");
   return list;
 }
 
-/** The item texts a reader can actually see in `list` — items that are not
- *  hidden, and not the fold's own control line. */
 function visibleItems(list: HTMLElement): string[] {
   return Array.from(list.children)
     .filter(
@@ -175,9 +135,6 @@ describe("the Conductor's prose folds a long list", () => {
     ]);
     expect(control(host)?.textContent).toBe("and 3 more");
     expect(control(host)?.getAttribute("aria-expanded")).toBe("false");
-    // The items are not gone — they are hidden, which is what the line offers
-    // to undo, and `hidden` takes them out of the reading order for a screen
-    // reader too.
     expect(firstList(host).querySelectorAll("li[hidden]")).toHaveLength(3);
   });
 
@@ -195,7 +152,6 @@ describe("the Conductor's prose folds a long list", () => {
       "check 6",
     ]);
     expect(control(host)?.getAttribute("aria-expanded")).toBe("true");
-    // Still ONE line, and it now says the way back.
     expect(
       host.querySelectorAll('[data-testid="conductor-prose-more"]'),
     ).toHaveLength(1);
@@ -224,15 +180,12 @@ describe("the Conductor's prose folds a long list", () => {
     control(first)?.click();
     expect(visibleItems(firstList(first))).toHaveLength(6);
 
-    // The transcript swaps a row object and the component is built again — a
-    // fold closing over the row, a chunk landing, a host tab coming back.
     for (const dispose of disposers.splice(0)) dispose();
     const rebuilt = mount("row-stable", () => bullets(6));
 
     expect(visibleItems(firstList(rebuilt))).toHaveLength(6);
     expect(control(rebuilt)?.getAttribute("aria-expanded")).toBe("true");
 
-    // A different row starts closed: the memory is per list, not global.
     const other = mount("row-other", () => bullets(6));
     expect(visibleItems(firstList(other))).toHaveLength(PROSE_LIST_FOLD_SHOWS);
   });
@@ -242,7 +195,6 @@ describe("the Conductor's prose folds a long list", () => {
     const host = mount("row-streaming", text);
     expect(control(host)).toBeNull();
 
-    // The turn goes on and the list grows past the measure.
     setText(`${bullets(8)}<p>that is the lot.</p>`);
 
     expect(visibleItems(firstList(host))).toHaveLength(PROSE_LIST_FOLD_SHOWS);
@@ -250,8 +202,6 @@ describe("the Conductor's prose folds a long list", () => {
   });
 
   it("counts only a top-level list's own items, and never folds a nested one", () => {
-    // Three points, one of which has six sub-points: the answer is short, and
-    // folding either level would cut a sentence in half.
     const host = mount(
       "row-nested",
       () => `<ul><li>one</li><li>two${bullets(6)}</li><li>three</li></ul>`,
@@ -288,7 +238,6 @@ describe("the Conductor's prose folds a long list", () => {
     markdownMock.redraw();
     expect(visibleItems(firstList(host))).toHaveLength(8);
 
-    // The control the redraw minted afresh still works.
     control(host)?.click();
     expect(visibleItems(firstList(host))).toHaveLength(PROSE_LIST_FOLD_SHOWS);
   });
@@ -312,12 +261,9 @@ describe("the Conductor's prose folds a long list", () => {
     );
     const afterMount = redrawn;
 
-    // A press writes no HTML: reporting it would re-pin a reader who just
-    // opened a list.
     control(host)?.click();
     expect(redrawn).toBe(afterMount);
 
-    // A diagram landing rewrites the DOM with the text unchanged.
     markdownMock.redraw();
     expect(redrawn).toBe(afterMount + 1);
   });
@@ -326,7 +272,6 @@ describe("the Conductor's prose folds a long list", () => {
 describe("a file the Conductor names", () => {
   const AT = "2026-11-16T00:00:00.000Z";
 
-  /** A work in progress that has seen `paths` appear in its `.waterfall/`. */
   const workWith = (title: string, paths: readonly string[]): Work => ({
     key: {
       kind: "branch",
@@ -350,7 +295,6 @@ describe("a file the Conductor names", () => {
   const PLAN = ".waterfall/plan.md";
   const SAID = `<p>Its plan is at <code>${PLAN}</code>.</p>`;
 
-  /** The link a named path became — whatever a press on it does. */
   const link = (host: HTMLElement): HTMLButtonElement | null =>
     host.querySelector<HTMLButtonElement>("button[data-md-code-action]");
 
@@ -374,7 +318,6 @@ describe("a file the Conductor names", () => {
     const host = mount("row-two", () => SAID);
 
     link(host)?.click();
-    // NOTHING OPENED YET — no guess at which one the sentence meant.
     expect(readerTarget()).toBeNull();
     const offered = Array.from(
       document.querySelectorAll(
@@ -426,8 +369,6 @@ describe("a file the Conductor names", () => {
 
     link(host)?.click();
 
-    // The reader stays shut, the note names the turn's own work — and no
-    // other work's file is offered in its place.
     expect(readerTarget()).toBeNull();
     const note = document.querySelector('[data-testid="named-file-missing"]');
     expect(note?.getAttribute("role")).toBe("status");
@@ -436,9 +377,7 @@ describe("a file the Conductor names", () => {
     expect(
       document.querySelector('[data-testid="named-file-menu"]'),
     ).toBeNull();
-    // The link's name says what a press does there: it does not open.
     expect(link(host)?.getAttribute("aria-label")).not.toMatch(/^Open /);
-    // THE WORK WRITES IT: the note goes, and the link opens that file.
     setWorks(
       new Map([
         ["w-parser" as WorkId, workWith("rewrite the parser", [PLAN])],

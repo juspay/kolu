@@ -1,28 +1,11 @@
-/** Labeled section with title and bottom border — shared across right panel tabs.
- *
- *  Two shapes behind one header style:
- *  - default: static block, children always rendered (existing callers).
- *  - `collapsible`: the header becomes a native `<details>`/`<summary>` toggle
- *    with a rotating chevron, closed until the user opens it. Reserved for
- *    reference-tier sections (Attach) — a section whose content answers "what is
- *    happening" stays static. Deliberately NO `defaultOpen`: a section that
- *    wants to open itself from a FACT is `Disclosure`'s job (it re-asserts a
- *    reactive default through a `ref` + effect); a plain `open={…}` JSX binding
- *    here would look like a one-shot initializer while behaving reactively.
- *
- *  `status` renders right-aligned in the header either way — a rollup chip the
- *  header can carry while the body is folded.
- *
- *  The `<details>` chevron duplicates `Disclosure`'s markup and cannot share it:
- *  the rotate variant is `group-open/<name>`, whose name must differ between the
- *  two (a `Disclosure` nests INSIDE a collapsible `Section` — the CLI reference
- *  inside Attach — and one shared group name would rotate the inner chevron
- *  whenever the outer section is open), and Tailwind only extracts such variants
- *  from literal class strings, so it cannot be parameterized. */
+/** Labeled section with title and bottom border — shared across right panel
+ *  tabs. `collapsible` turns the header into a native `<details>`/`<summary>`
+ *  toggle, closed until the user opens it; `status` renders right-aligned in
+ *  the header either way. */
 
 import type { Component, JSX } from "solid-js";
 import { Show } from "solid-js";
-import { SUMMARY_RESET } from "./disclosureChrome";
+import { DISCLOSURE_GROUPS, SUMMARY_RESET } from "./disclosureChrome";
 import { ChevronRightIcon } from "./Icons";
 
 const HEADER_CLASS =
@@ -54,7 +37,7 @@ const Section: Component<{
       }
     >
       <details
-        class={`group/sec ${frame()}`}
+        class={`${DISCLOSURE_GROUPS.sec.root} ${frame()}`}
         data-testid={props["data-testid"]}
       >
         <summary
@@ -63,7 +46,7 @@ const Section: Component<{
             props["data-testid"] ? `${props["data-testid"]}-toggle` : undefined
           }
         >
-          <ChevronRightIcon class="h-3 w-3 shrink-0 text-fg-3/60 transition-transform group-open/sec:rotate-90 motion-reduce:transition-none" />
+          <ChevronRightIcon class={DISCLOSURE_GROUPS.sec.chevron} />
           <div class={HEADER_CLASS}>{props.title}</div>
           <span class="ml-auto">{props.status}</span>
         </summary>

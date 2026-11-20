@@ -1,8 +1,3 @@
-/**
- * Host chip status via {@link hostGlance} / {@link chipStatusDot}:
- * every host always paints connection status (local and remote).
- */
-
 import type { EntryState } from "@kolu/surface-map";
 import { testMembershipId } from "@kolu/surface-map/testing";
 import {
@@ -20,16 +15,7 @@ import {
 
 const GREEN = "bg-emerald-400";
 
-// These pins are about the ENTRY-state fold. The daemon-chain composition
-// (#2101 N4) has its own file (`hostChainGlance.test.ts`), so every call here
-// passes a whole chain — the composition is then provably a no-op over this
-// table rather than silently absent from it.
 const SERVING: KavalChain = { kind: "serving" };
-
-// The multi-host feature is no longer gated on `KOLU_PADI_HOST` — the "+ add a
-// host" affordance and every pool member's chip render unconditionally, so the
-// old `hostGateOpen` / `shouldRenderHostChip` gate helpers and their tests are
-// gone.
 
 describe("hostGlance — exception strip + detail co-defined", () => {
   it("connected: strip silent, detail green, not down", () => {
@@ -201,14 +187,9 @@ describe("hostRowContext — palette host status vocabulary", () => {
 
 describe("sameHost — the active-chip click guard's comparison (no churn on a no-op click)", () => {
   it("treats two INDEPENDENTLY-DECODED HostKeys with the same encoded string as the SAME host", () => {
-    // Two fresh `decodeHostKeyValue` calls never return the same object reference —
-    // this is exactly `props.host` (decoded anew from `entries.use().keys()` on every
-    // membership read) vs. `activeHost()` (the persisted-pref signal's own decode) on
-    // a real chip click: a no-op click on the already-active chip must read as "same
-    // host" here, or the click guard in HostSelectorStrip.tsx can't do its job.
     const a = decodeHostKeyValue({ kind: "local" });
     const b = decodeHostKeyValue({ kind: "local" });
-    expect(a).not.toBe(b); // genuinely different references
+    expect(a).not.toBe(b);
     expect(sameHost(a, b)).toBe(true);
 
     const remoteA = decodeHostKeyValue({

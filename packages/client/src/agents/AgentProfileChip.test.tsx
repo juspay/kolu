@@ -1,16 +1,4 @@
 // @vitest-environment happy-dom
-/**
- * The tile header's agent-distro pill: ONE button in the theme pill's
- * treatment, wearing agent-distro's mark — the profile in effect (none with
- * no profile) and the package's dimmer short hash.
- *
- *  - current: a click is the caller's (the tile chrome opens Settings);
- *  - stale with nothing to restart into yet: dimmed, still opens Settings;
- *  - stale and restartable: the same pill grows "↻ Restart" and the WHOLE pill
- *    is the restart — a plain shell restarts on the first press; a live agent
- *    arms first (the armed text for 5 s), lapses, disarms when the agent goes
- *    quiet; a restart in flight disables the pill, so a double click is one.
- */
 
 import { createSignal } from "solid-js";
 import { render } from "solid-js/web";
@@ -40,7 +28,6 @@ const JUSPAY = {
   name: "juspay",
   path: "/nix/store/p-juspay",
 };
-/** A terminal with Juspay's profile over the package. */
 const WITH_JUSPAY: TerminalAgents = { bundle: BUNDLE, profiles: [JUSPAY] };
 const STALE: AgentStaleness = {
   kind: "stale",
@@ -48,7 +35,6 @@ const STALE: AgentStaleness = {
   now: { kind: "set", stack: "juspay", hash: "ivzki9f3" },
 };
 
-/** The action for a stale terminal whose agents stay on. */
 const RESTART_AGENT = agentRestartAction(STALE);
 
 let dispose: (() => void) | undefined;

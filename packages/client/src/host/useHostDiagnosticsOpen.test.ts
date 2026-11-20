@@ -1,17 +1,4 @@
 // @vitest-environment happy-dom
-/**
- * Which host's details are open, and what the panel hangs off — two separate
- * facts.
- *
- * The shell keys the panel on the HOST, so re-opening the same machine from a
- * different opener (its tab mark, then its name in Settings) must only MOVE
- * the panel: a new identity would tear it down and build it again, losing its
- * subscriptions and any pending "remove host" confirmation. And the element
- * belongs to its opener: when that unmounts — an overflowed chip, Settings
- * closing, a regrouped fleet line — the panel closes rather than floating
- * against a node that is no longer on screen.
- */
-
 import { beforeEach, describe, expect, it } from "vitest";
 import {
   closeHostDiagnostics,
@@ -41,7 +28,6 @@ describe("the open host-details panel", () => {
 
   it("closes when the element it hangs off goes away", () => {
     openHostDiagnostics("local", fleetName);
-    // Another opener's element leaving is not this panel's business.
     releaseHostDiagnosticsAnchor(mark);
     expect(openHostDiagnosticsKey()).toBe("local");
 

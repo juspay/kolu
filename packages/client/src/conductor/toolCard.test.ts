@@ -1,16 +1,3 @@
-/** The derivations a tool card cannot read straight off the row — what went
- *  in, how long the wait was, the clock under a running call, and how the
- *  folded body is PRINTED. The rest of a card is `row.kolu` read as it stands,
- *  so there is nothing between the wire and the markup left to pin here.
- *
- *  The card's LAYOUT is not pinned here and cannot be: this lane runs under
- *  happy-dom, which has no layout engine, so every width it reports is zero
- *  and `scrollWidth <= clientWidth` would pass against any markup at all. The
- *  assertion that the payload stays inside the card is in the e2e lane, in a
- *  real browser (`features/conductor.feature`, "A minified 5 KB payload stays
- *  inside its card"). What IS a value rather than a layout — the folded text
- *  being lines rather than one — is pinned below. */
-
 import type { TerminalId } from "kolu-common/surface";
 import { describe, expect, it } from "vitest";
 import { foldJson, runningFor, sentInput, waitedFor } from "./toolCard";
@@ -76,9 +63,6 @@ describe("runningFor", () => {
 });
 
 describe("foldJson", () => {
-  // THE REAL SHAPE: an MCP answer arrives as a JSON STRING, and the harness
-  // prints it with `JSON.stringify`, so the card is handed a quoted string
-  // whose content is a whole document — one line, however long the listing.
   const listing = JSON.stringify([
     { name: "terminals", uri: "surface://collections/terminals" },
     { name: "hosts", uri: "surface://cells/hosts" },
@@ -91,8 +75,6 @@ describe("foldJson", () => {
     const folded = foldJson(minified);
     expect(folded.split("\n").length).toBeGreaterThan(6);
     expect(folded).toContain('"uri": "surface://collections/terminals"');
-    // The SAME formatter the harness folds with — two-space indent, no second
-    // house style for what folded JSON looks like.
     expect(folded).toBe(JSON.stringify(JSON.parse(listing), null, 2));
   });
 

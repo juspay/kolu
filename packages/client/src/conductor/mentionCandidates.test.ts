@@ -1,8 +1,3 @@
-/** What the `@` menu offers: the works, in the one order, and each terminal
- *  with the row detail that tells it from the others under the same name.
- *  Same-named terminals are ordinary — one repo, several branches — and a
- *  menu of five identical rows is a choice a person cannot make. */
-
 import type { TerminalMetadata } from "@kolu/padi-client/surface";
 import type { HostKey } from "kolu-common/hostKey";
 import type { TerminalId } from "kolu-common/surface";
@@ -113,8 +108,6 @@ describe("fleetMentionCandidates", () => {
   ];
 
   it("says which work a MEMBER is in, not the intent it was created with", () => {
-    // The intent names the work it was cut for, which can be hours dead; the
-    // membership is where the terminal stands now.
     const at: Membership = {
       work: PANE,
       title: "Page chats open in a pane",
@@ -170,7 +163,6 @@ describe("workMentionCandidates", () => {
       name: "page-chats-open-in-a-pane",
       title: "Page chats open in a pane",
     });
-    // The card's own lead, not a second vocabulary for the same fact.
     expect(first?.standing).toBe("Agents at work");
   });
 
@@ -185,8 +177,6 @@ describe("workMentionCandidates", () => {
   });
 
   it("gives two works of one title each its own word, and each word picks its own work", () => {
-    // The real store: "Published agents fetchable by any host" twice — one
-    // stopped, one merged as #2400 — on two branches of one repo.
     const title = "Published agents fetchable by any host";
     const stopped = "branch:local/%2Fr/agents-closure" as WorkId;
     const merged = "branch:local/%2Fr/agents-closure-in-cache" as WorkId;

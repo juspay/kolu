@@ -1,18 +1,4 @@
 // @vitest-environment happy-dom
-/** #1763 + #1908 D2 — the boot-stalled escape surface renders NON-BLANK for both recovery
- *  shapes. Renders `BootStalledCanvas` through `solid-js/web`'s `render` (the
- *  `dialogLiveness.test.tsx` idiom) and asserts, per shape, the copy, the recovery verb, and —
- *  for a remote host — the Switch-to-local escape hatch, all appear. `../wire` is mocked so the
- *  surface stack / socket never boots in the test.
- *
- * SCOPE (codex-debate F2): this is a COMPONENT render pin, not an App-`<Switch>` integration
- * test — it would stay green if App.tsx's `boot-stalled` `<Match>` were deleted. That the
- * `boot-stalled` MODE (with its honest recovery verdict) is produced is pinned in
- * `useCanvasMode.test.ts` / `canvasModeResolver.test.ts`; this proves the component renders
- * non-blank from it. The one-line `<Match>` wiring between them is deliberately NOT
- * integration-tested here (rendering App.tsx drags the whole live `wire` socket stack).
- */
-
 import type { HostKey } from "kolu-common/hostKey";
 import { createSignal } from "solid-js";
 import { render } from "solid-js/web";
@@ -30,7 +16,6 @@ vi.mock("../wire", () => ({
   client: { hosts: { reconnect: () => Promise.resolve() } },
 }));
 
-// Imported AFTER the mock so it binds the mocked `../wire`.
 const { default: BootStalledCanvas } = await import("./BootStalledCanvas");
 
 let dispose: (() => void) | undefined;
@@ -59,7 +44,6 @@ describe("BootStalledCanvas renders non-blank (component render pin)", () => {
     expect(
       document.querySelector('[data-testid="boot-stalled-reload"]'),
     ).not.toBeNull();
-    // Local: no escape-hatch button (switching to where you already are is a no-op).
     expect(
       document.querySelector('[data-testid="switch-to-local"]'),
     ).toBeNull();
@@ -88,7 +72,6 @@ describe("BootStalledCanvas renders non-blank (component render pin)", () => {
       document.querySelector('[data-recovery="connector"]'),
     ).not.toBeNull();
     expect(document.body.textContent).toContain(CONNECTOR_STALLED_COPY.title);
-    // Phase detail — the wedged-but-retrying build names WHERE it is.
     expect(document.body.textContent).toContain("provisioning");
     expect(
       document.querySelector('[data-testid="boot-stalled-reconnect"]'),
@@ -121,9 +104,6 @@ describe("BootStalledCanvas renders non-blank (component render pin)", () => {
   });
 
   it("the CONNECTOR arm shows the campaign's tail; the CLIENT arm cannot carry one", () => {
-    // The tail rides the connector arm of `BootStalledRecovery`, so the client arm has no
-    // `log` to pass — "a settled connect log over a client-side stall" is a TYPE error, not
-    // a ternary the card has to remember. Asserted here as the two renders it produces.
     h.host = { kind: "remote", target: "zest" };
     dispose = render(
       () => (
@@ -162,8 +142,6 @@ describe("BootStalledCanvas renders non-blank (component render pin)", () => {
   });
 
   it("keeps each button's DOM identity + focus across a fresh-but-equal recovery object and a phase change (codex F2 — no per-tick focus loss)", () => {
-    // `canvasMode` hands this component a FRESH `recovery` object every ~1s monotonic re-resolve.
-    // If the card rebuilt its buttons each time, a keyboard user would lose focus every second.
     h.host = { kind: "remote", target: "zest" };
     const [rec, setRec] = createSignal<BootStalledRecovery>({
       via: "connector",
@@ -183,7 +161,6 @@ describe("BootStalledCanvas renders non-blank (component render pin)", () => {
     btn.focus();
     expect(document.activeElement).toBe(btn);
 
-    // A fresh-but-EQUAL recovery object (the every-tick case): same DOM node, focus intact.
     setRec({
       via: "connector",
       phase: "provisioning",
@@ -196,7 +173,6 @@ describe("BootStalledCanvas renders non-blank (component render pin)", () => {
     ).toBe(btn);
     expect(document.activeElement).toBe(btn);
 
-    // A phase change narrates a new detail but must NOT rebuild the button.
     setRec({
       via: "connector",
       phase: "connecting",
@@ -214,10 +190,6 @@ describe("BootStalledCanvas renders non-blank (component render pin)", () => {
 
 describe("the card renders the absence it was TOLD, never one it inferred", () => {
   it("a connector leg whose live tail was floored says the output is unavailable", () => {
-    // `logAbsence: "link-down"` = the map's liveness floor dropped the live `connection`
-    // word this tail was read off. Output exists; we cannot see it. The card must SAY
-    // that — a distinction no reader can observe is dead weight, which is the whole
-    // argument for keeping the two absences apart.
     dispose = render(
       () => (
         <BootStalledCanvas
@@ -241,11 +213,6 @@ describe("the card renders the absence it was TOLD, never one it inferred", () =
   });
 
   it("a connector leg with an EMPTY-but-honest tail claims NO link problem", () => {
-    // THE pin the card's old shape could not express. Before, the card read the reason
-    // OUT of the absence — a bare `log === undefined` became "kolu's link to this browser
-    // went quiet", a claim the type carried no evidence for. Now the empty tail arrives
-    // with nothing to explain (`logAbsence: undefined`), and the card says nothing about
-    // the link. A caller that has no reason cannot accidentally manufacture one.
     dispose = render(
       () => (
         <BootStalledCanvas
@@ -269,9 +236,6 @@ describe("the card renders the absence it was TOLD, never one it inferred", () =
   });
 
   it("a client leg renders neither a tail nor the unavailable note", () => {
-    // A client-side stall has no connector campaign, so there is no output and we KNOW
-    // it — an empty tail with no reason. Claiming a link problem here would be a lie, and
-    // the arm carries no field with which to tell one.
     dispose = render(
       () => <BootStalledCanvas recovery={{ via: "client", leg: "session" }} />,
       document.body,

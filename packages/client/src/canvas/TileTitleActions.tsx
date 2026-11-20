@@ -1,18 +1,3 @@
-/** Per-tile chrome rendered into the CanvasTile title bar.
- *
- *  Order (left → right between title and close): agent indicator, agents
- *  chip (the agent-distro profile + bundle the terminal was spawned with),
- *  Restart when those agents went stale, theme pill, split toggle, search,
- *  screenshot, sleep, restart. The two lifecycle buttons are live-arm only: ☾
- *  freezes the tile and its splits, ↻ gives each a fresh PTY in place (asking
- *  twice when an agent is live, the same guard the palette command uses).
- *
- *  Reads singleton state and verbs directly — store, sub-panel, theme manager,
- *  right panel, tips, plus the command palette, terminal CRUD, and per-terminal
- *  search singletons — per `no-preference-prop-drilling`. The props are the
- *  tile `id` and its `host` (the agents-staleness check reads that host's
- *  status). Extracted from App.tsx per kolu#626. */
-
 import {
   agentRestartAction,
   agentRestartReady,
@@ -53,15 +38,16 @@ import Tip from "../ui/Tip";
 import { useCommandPalette } from "../useCommandPalette";
 import { useThemeManager } from "../useThemeManager";
 
-/** Tile chrome buttons share this affordance. Theme pill is wider — it shows
- *  the theme name. Other buttons are square. */
 const TILE_BUTTON_CLASS =
   "flex items-center justify-center h-7 rounded-lg transition-colors cursor-pointer shrink-0 pointer-events-auto hover:bg-black/20 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50";
 
+type SyncChrome<T> = (() => T) &
+  (T extends void
+    ? unknown
+    : "this callback returns a value — an Effect goes to onTileAction, a Promise to onTilePromise");
+
 const TileTitleActions: Component<{
   id: TerminalId;
-  /** The host this tile's terminal lives on — the agents status a stale check
-   *  compares against. */
   host: HostKey;
 }> = (props) => {
   const store = useTerminalStore();
@@ -74,14 +60,8 @@ const TileTitleActions: Component<{
   const { showTipOnce } = useTips();
 
   const meta = () => store.getMetadata(props.id);
-  // The live-only chrome (split / find / screenshot / agent) needs a live PTY,
-  // so it shows only on the active arm; the theme pill stays on both arms (a
-  // sleeping tile re-themes through the normal write sink).
   const live = () => activeArm(meta());
   const sleeping = () => sleepingArm(meta()) !== undefined;
-  // Are this LIVE terminal's agents still what a new terminal on its host gets?
-  // (The canvas shows the active host's tiles, so that is the host.) A sleeping
-  // terminal picks up the current agents when it wakes — nothing to offer.
   const staleness = createMemo(() => {
     const m = live();
     return m === undefined
@@ -92,15 +72,10 @@ const TileTitleActions: Component<{
           setting: agentDistroSetting(),
         });
   });
-  // Restart only when there is something to restart INTO: agents now off (a
-  // plain shell), or the new bundle is on the host. While the new profile
-  // downloads the pill stays stale and says so, with no restart on it.
   const restartOffer = (): ChipRestart | undefined => {
     const s = staleness();
     if (s.kind !== "stale" || !agentRestartReady(s)) return undefined;
     return {
-      // The shared root's own predicate — the pill and the ↻/palette guard must
-      // agree on what "a live agent" means, or one asks and the other does not.
       guarded: crud.liveAgentOf(props.id),
       action: agentRestartAction(s),
       run: (e) =>
@@ -111,8 +86,6 @@ const TileTitleActions: Component<{
   const subCount = () => store.getDisplayInfo(props.id)?.subCount ?? 0;
   const splitExpanded = () =>
     subCount() > 0 && !subPanel.savedSplit(props.id).collapsed;
-  // The ↻ Restart's arm, owned by the shared root so the palette's "Restart
-  // terminal" arms and confirms the very same guard (`crud.requestRestart`).
   const restartArmed = () => crud.restartArmed(props.id);
   const restartBusy = () => crud.restartBusy(props.id);
   const restartLabel = () =>
@@ -120,33 +93,12 @@ const TileTitleActions: Component<{
       ? "Press again to restart — this ends the live agent"
       : "Restart terminal";
 
-  /** Chrome-action handler for SYNCHRONOUS chrome: interacting with a tile's
-   *  chrome selects that tile, then runs the callback. The "select first" policy
-   *  lives here once instead of being re-prefixed at every button — a new chrome
-   *  button can't forget it.
-   *
-   *  Reach for {@link onTileAction} instead whenever the button drives an
-   *  `Effect`. `fn: () => void` cannot protect you: TypeScript's void-return rule
-   *  accepts a callback returning ANYTHING, so `() => crud.requestSleep(id)`
-   *  type-checked while it built an `Effect` and dropped it on the floor — the ☾
-   *  Sleep button, the Wake button and the split toggle each did nothing at all,
-   *  silently, until `sleeping-terminals.feature` caught all three at once. There
-   *  is no type that closes that hole (a `T extends void` parameter just
-   *  instantiates to its constraint), so the remedy is structural: hand the
-   *  Effect to a helper that runs it, and never have a slot for an un-run one. */
-  const onTile = (e: MouseEvent, fn: () => void) => {
+  const onTile = <T,>(e: MouseEvent, fn: SyncChrome<T>) => {
     e.stopPropagation();
     store.setActiveSilently(props.id);
-    fn();
+    (fn as () => T)();
   };
 
-  /** {@link onTile} for a button whose work is an `Effect`: the same select-first
-   *  policy, and the action REACHES `runAction` because handing it over is the
-   *  only way to call this. A caller cannot express "built it and forgot to run
-   *  it". The action arrives as a THUNK, not a value, so it is still built AFTER
-   *  the select — `toggleSubPanel` reads `store.activeMeta()` while describing
-   *  itself, and building it first would seed the new split from whichever tile
-   *  was active before the click. */
   const onTileAction = (
     e: MouseEvent,
     label: string,
@@ -157,8 +109,6 @@ const TileTitleActions: Component<{
     });
   };
 
-  /** {@link onTile} for an action whose settle the caller waits on — the agents
-   *  pill's restart, which stays busy until the restart has happened. */
   const onTilePromise = <A,>(
     e: MouseEvent,
     run: () => Promise<A>,
@@ -178,10 +128,6 @@ const TileTitleActions: Component<{
             onPointerDown={(e) => e.stopPropagation()}
             onClick={(e) =>
               onTile(e, () => {
-                // The agent indicator is an Inspector entry point — the agent's
-                // metadata lives on the Inspector tab. Select it explicitly
-                // before revealing, otherwise a fresh terminal (whose Code tab
-                // is the default surface) would open on Code instead.
                 rightPanel.showInspector();
                 rightPanel.reveal();
               })
@@ -199,8 +145,6 @@ const TileTitleActions: Component<{
             buttonClass={TILE_BUTTON_CLASS}
             staleness={staleness()}
             where={agentsWhere(props.host)}
-            // Same select-first wiring as the theme pill; the profile for
-            // NEW terminals is changed in Settings → Agents.
             onClick={(e) => onTile(e, openSettings)}
             restart={restartOffer()}
           />
@@ -279,10 +223,6 @@ const TileTitleActions: Component<{
             onPointerDown={(e) => e.stopPropagation()}
             onClick={(e) =>
               onTile(e, () => {
-                // ARM, then open: the composer's text is a singleton that
-                // outlives the pane, so the mention is in the box by the time
-                // the conversation is on screen — and whatever was already
-                // half-typed there is kept, because arming is an addition.
                 const name = store.getDisplayInfo(props.id)?.key.label;
                 if (name !== undefined) armComposerMention(name);
                 enterConductorMode();
@@ -341,8 +281,6 @@ const TileTitleActions: Component<{
             onClick={(e) =>
               onTile(e, () => {
                 showTipOnce(CONTEXTUAL_TIPS.restartTerminal);
-                // Arms first when an agent is live; the second press (here or
-                // in the palette) restarts the terminal and its splits.
                 crud.requestRestart(props.id);
               })
             }

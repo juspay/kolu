@@ -1,12 +1,7 @@
-/** The connect overlay's DATA-presence visibility rules (W6 — kill the silent probing
- *  window): the tail + elapsed render off the frame's own data, never a per-phase flag. */
-
 import type { ConnectionInfo } from "kolu-common/surfacesWithPadi";
 import { describe, expect, it } from "vitest";
 import { showsElapsed, tailOf } from "./connectCanvasView.ts";
 
-/** A `probing` frame that already carries the warm-probe narration nixCopy logs at probe
- *  start — the exact line the silent window used to hide. */
 const probingFrame: ConnectionInfo = {
   phase: "probing",
   log: [{ source: "local", line: "zest: checking for a cached agent…" }],
@@ -16,8 +11,6 @@ const probingFrame: ConnectionInfo = {
 
 describe("tailOf — the live log tail renders off frame data, not a flag", () => {
   it("a probing frame whose log carries the checking line renders the tail", () => {
-    // The bug: `probing` was `showProgress:false`, so this line was hidden — a silent wait.
-    // Now the tail renders whenever the log is non-empty, so the probe narrates immediately.
     const tail = tailOf(probingFrame.log);
     expect(tail).toHaveLength(1);
     expect(tail[0]?.line).toContain("checking for a cached agent");

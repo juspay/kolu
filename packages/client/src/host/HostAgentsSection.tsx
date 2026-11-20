@@ -1,17 +1,3 @@
-/** The agents section of a machine's host details — everything about
- *  agent-distro that is TRUE OF THAT MACHINE: the profiles new terminals there
- *  get and the build serving it, its state with its last delivery, a failure's
- *  own words — a failed delivery's, a failed last update's (with who said it),
- *  or why its update history would not read — and what it means there, that
- *  machine's last update events,
- *  and the one action it offers: check for newer agents — which is also how a
- *  machine whose delivery failed is tried again. The facts and their words are
- *  `agentHostDetail`'s; Settings keeps only the fleet line.
- *
- *  Absent entirely when there are no agents to describe there — a padi built
- *  without them, or a machine we cannot hear from (whose `state` row above
- *  already says so). */
-
 import AgentDistroLogo from "@kolu/agent-distro/solid";
 import {
   AGENTS_HOST_CHECK,
@@ -27,9 +13,6 @@ import {
 import FailureWords from "../agents/FailureWords";
 import { padiMap } from "../wire";
 
-/** The one action a machine's section offers: check for newer agents. Shown
- *  when the machine's agents allow one (`canCheck`); a disconnected machine's
- *  last-known status cannot answer it. */
 const CheckRow: Component<{ host: HostKey }> = (props) => {
   const enabled = () => padiMap.entry(props.host).state().kind === "connected";
   return (
@@ -52,8 +35,6 @@ const Section: Component<{ host: HostKey; detail: AgentHostDetail }> = (
 ) => (
   <>
     <div class="my-2 border-t border-edge/60" />
-    {/* The section says WHICH machine it is about — the same name every
-        other agents surface uses for it (`agentsWhere`). */}
     <div
       data-testid="host-agents"
       data-host={agentsWhere(props.host)}
@@ -102,8 +83,6 @@ const Section: Component<{ host: HostKey; detail: AgentHostDetail }> = (
         {props.detail.state.text}
       </span>
     </div>
-    {/* A failure's cause wraps in FULL — it may carry nix's own long line, and
-        a cut-off cause is no cause; Nix's output sits under it, scrolling. */}
     <Show when={props.detail.cause}>
       {(cause) => (
         <FailureWords
@@ -141,8 +120,6 @@ const Section: Component<{ host: HostKey; detail: AgentHostDetail }> = (
               >
                 <span class="font-medium">{event.kind}</span>
                 <Show when={event.text !== ""}>
-                  {/* A history line may hold a long token (a store path):
-                      it wraps rather than widening the panel. */}
                   <span class="ml-1 font-mono wrap-anywhere">{event.text}</span>
                 </Show>
               </span>

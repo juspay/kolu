@@ -1,6 +1,3 @@
-/** Global keyboard shortcuts — single capture-phase listener that dispatches
- *  through the unified action registry in `./actions.ts`. */
-
 import { makeEventListener } from "@solid-primitives/event-listener";
 import type { TerminalId } from "kolu-common/surface";
 import {
@@ -12,17 +9,13 @@ import {
   isDispatchable,
   isOutsideFocusScope,
 } from "./actions";
+import { MODAL_SCOPE_SELECTOR } from "./keyboard";
 
-/** MRU cycling state — a frozen snapshot is taken on the first Tab press while
- *  the modifier (Alt or Ctrl) is held, and the cursor advances through that
- *  snapshot on each subsequent Tab. Using the live MRU would re-order under
- *  our feet as activate fires. Snapshot resets on modifier keyup. */
 interface MruCycleState {
   snapshot: TerminalId[];
   cursor: number;
 }
 
-/** Wire up all global keyboard shortcuts. Call once from the app root. */
 export function useShortcuts(ctx: ActionContext) {
   let cycle: MruCycleState | null = null;
 
@@ -32,12 +25,11 @@ export function useShortcuts(ctx: ActionContext) {
 
   function advanceCycle(direction: 1 | -1) {
     if (cycle === null) {
-      // First press: snapshot current MRU, include active id at head if missing.
       const live = ctx.mruOrder();
       const active = ctx.activeId();
       const snap =
         active && !live.includes(active) ? [active, ...live] : live.slice();
-      if (snap.length < 2) return; // nothing to cycle between
+      if (snap.length < 2) return;
       cycle = { snapshot: snap, cursor: 0 };
     }
     const n = cycle.snapshot.length;
@@ -50,16 +42,8 @@ export function useShortcuts(ctx: ActionContext) {
     window,
     "keydown",
     (e: KeyboardEvent) => {
-      // Bail when focus is inside an opt-in modal — comment composer,
-      // command palette body, anything else that marks itself with
-      // `data-kolu-modal="true"`. Without this, capture-phase global
-      // shortcuts (this listener) fire BEFORE any bubble-phase handler
-      // the modal installs, so Cmd+Enter in a textarea would dispatch
-      // both "New terminal" (here) AND the modal's Save (later). Modals
-      // self-opt by setting the attribute; they keep full control of
-      // every keystroke while focused.
       const target = e.target as Element | null;
-      if (target?.closest?.('[data-kolu-modal="true"]')) return;
+      if (target?.closest?.(MODAL_SCOPE_SELECTOR)) return;
       const handled = dispatch(e, ctx, advanceCycle);
       if (handled) {
         e.preventDefault();
@@ -69,16 +53,11 @@ export function useShortcuts(ctx: ActionContext) {
     { capture: true },
   );
 
-  // Commit the MRU cycle when the user releases the modifier key.
   makeEventListener(window, "keyup", (e: KeyboardEvent) => {
     if (e.key === "Alt" || e.key === "Control") resetCycle();
   });
 }
 
-/** Try to handle the event. Returns true if the event was claimed and the
- *  caller should `preventDefault` it. A matched-but-focus-scoped chord whose
- *  target is outside its marker returns false — declined, so the browser's
- *  native default fires. */
 function dispatch(
   e: KeyboardEvent,
   ctx: ActionContext,
@@ -90,18 +69,8 @@ function dispatch(
   ][]) {
     if (!actionMatchesKeybind(action, e)) continue;
 
-    // A focus-scoped action (e.g. findInTerminal) claims the chord ONLY when
-    // focus is inside its scope. Outside it, hand the event straight to the
-    // browser: return false so the listener skips `preventDefault`, letting the
-    // chord's native default fire (e.g. ⌘F → find-in-page on macOS when focus is
-    // not in a terminal). Returning (rather than `continue`) keeps the hand-off
-    // local to this matched action — it doesn't depend on no later action
-    // happening to share the chord.
     if (isOutsideFocusScope(action, e)) return false;
 
-    // cycleTerminalMru is stateful — the closure-bound snapshot/cursor pattern
-    // can't fit the registry's plain `(ctx) => void` handler shape, so it's
-    // the one display-only action the dispatcher consults by id.
     if (id === "cycleTerminalMru") {
       advanceCycle(e.shiftKey ? -1 : 1);
       return true;
@@ -111,9 +80,6 @@ function dispatch(
       action.handler(ctx);
       return true;
     }
-
-    // Display-only (zoom*) — don't claim the event; the per-terminal
-    // `createZoom` listener owns the dispatch.
   }
   return false;
 }

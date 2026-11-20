@@ -1,22 +1,3 @@
-/** The ONE Agents choice — two things that never fold into one: the SWITCH
- *  (the harnesses on a new terminal's PATH) and the PROFILE LIST stacked over
- *  them (`AgentsProfileList`), plus the agents the switch brings as chips, the
- *  fleet line, and the one writer behind all of them with its toasts.
- *  Settings → Agents and the welcome card's first-run step both render it, so
- *  neither keeps a copy of the control, the writer or a sentence; each lays
- *  the parts out in its own row (`children` receives them).
- *
- *  Settings' list writes each edit at once — the whole list, never touching
- *  the switch. The welcome step's list is DEFERRED: it starts EMPTY, whatever
- *  is stored (a list kept from before agents were switched off included —
- *  Juspay is never there unless picked in this step, from its one-click row
- *  above the list), is held here, and is
- *  written only by "Turn on" (`turnOn`, agents on with the list), so "Not now"
- *  leaves nothing chosen.
- *
- *  It writes only the preference; kolu-server pushes it to every host, and each
- *  host applies it to its NEXT new terminal. */
-
 import type { Hint } from "../settings/SettingRow";
 import { createSignal, type JSX, Show } from "solid-js";
 import { agentDistroSettingEqual } from "@kolu/agent-distro/schema";
@@ -50,11 +31,6 @@ import {
   localAgentReceipt,
 } from "./useAgentDistro";
 
-/** Write the change — whole, through the one builder — and say what it did
- *  (colocated per the toast rule). A choice that changes nothing writes
- *  nothing. A reference the change adds is remembered for the add field's
- *  suggestions. A list edit while agents are off says nothing: it changes
- *  nothing new terminals get until they are on. */
 function choose(change: AgentsChange): void {
   const stored = agentDistroStored();
   const next = agentDistroChoice(change, stored);
@@ -85,9 +61,7 @@ function choose(change: AgentsChange): void {
   });
 }
 
-/** The parts a host row lays out. */
 export interface AgentsChooserParts {
-  /** The switch. */
   readonly control: JSX.Element;
   /** What off means (`undefined` until the listing arrives, and while agents
    *  are on) — the Settings form. */
@@ -117,13 +91,9 @@ export default function AgentsChooser(props: {
   children: (parts: AgentsChooserParts) => JSX.Element;
 }): JSX.Element {
   const available = () => agentDistroListing()?.kind === "available";
-  /** The deferred list: empty to start with, edited here, written by
-   *  "Turn on". */
   const [held, setHeld] = createSignal<readonly string[]>([]);
   const list = () =>
     props.deferred === true ? (
-      // Its profiles are not the setting's yet, so kolu-server has built none
-      // of them: the rows keep to their names.
       <AgentsProfileList
         rows={held().map((reference) => ({
           reference,
@@ -185,8 +155,6 @@ export default function AgentsChooser(props: {
         <AgentsFleetLine groups={agentFleetNow()} />
       </Show>
     ),
-    // Read at PRESS time, never at mount: the list is edited after this
-    // object is built, and a value captured here would freeze the first one.
     turnOn: () => {
       if (!available()) return;
       choose({ on: true, profiles: held() });

@@ -1,8 +1,3 @@
-/** THE ONE STATUS LINE's words: the phase a person already knows, what the
- *  TURN IN FLIGHT is doing (read off that turn's rows, newest first, and
- *  never off a turn that is over), and a duration that counts from the
- *  instant the turn began. */
-
 import type { ConductorRow, ConductorToolRow } from "kolu-common/conductor";
 import { DASH } from "kolu-common/surface";
 import { describe, expect, it } from "vitest";
@@ -59,12 +54,6 @@ describe("what it is doing", () => {
   });
 
   it("does not name the QUESTION call while its form is on screen", () => {
-    // The call behind an elicitation form stays `pending` for as long as the
-    // form waits on a person, so the line used to read `asking · <the agent's
-    // question tool>` — the machinery's name, over the question the reader is
-    // already looking at. The form is the question; what the turn SAID before
-    // it is the line. The harness marked the row with its agent's own answer,
-    // so nothing here knows which tool it was.
     const asked = {
       ...toolRow("t-ask", 3, "pending", "the question tool"),
       asksThroughForm: true,
@@ -76,8 +65,6 @@ describe("what it is doing", () => {
         asked,
       ]),
     ).toBe("two of these would work");
-    // ... and with nothing said before it, the line says nothing rather than
-    // falling back to the call.
     expect(conductorDoing([userRow("u", 1, "go"), asked])).toBeNull();
   });
 
@@ -87,7 +74,6 @@ describe("what it is doing", () => {
       toolRow("t1", 2, "completed", "screen_text"),
       agentRow("b", 3, "briefing the planner\nand then some"),
     ]);
-    // The first line only: the status row is one line beside two buttons.
     expect(doing).toBe("briefing the planner");
   });
 
@@ -106,10 +92,6 @@ describe("what it is doing", () => {
 
 describe("the turn in flight is the only turn that counts", () => {
   it("says nothing when the last prose belongs to an earlier turn", () => {
-    // The human asked something, got an answer, then asked again — and the
-    // turn now running has only a settled call to show for itself. The old
-    // walk crossed the second question and reported the FIRST answer as the
-    // thing happening now.
     const doing = conductorDoing([
       userRow("u1", 1, "which hosts are up?"),
       agentRow("a1", 2, "Only pureintent is connected right now"),
@@ -169,12 +151,8 @@ describe("the turn in flight is the only turn that counts", () => {
 
 describe("the status line's two halves", () => {
   it("names what it is doing only while it is WORKING", () => {
-    // The word itself is the cell's, drawn straight: what this pins is that
-    // the detail is offered for a WORKING turn only.
     const rows = [agentRow("a", 1, "thinking about it")];
     expect(statusDetail("working", rows)).toBe("thinking about it");
-    // Idle: the sentence is still on screen above the composer, and repeating
-    // it here would read as work still going on.
     expect(statusDetail("idle", rows)).toBeNull();
     expect(statusDetail("asking", rows)).toBeNull();
   });
@@ -189,8 +167,6 @@ describe("the status line's two halves", () => {
 
   it("shows no clock while nothing is running, and the dash for a bad stamp", () => {
     expect(statusSince("idle", null, NOW)).toBeNull();
-    // An unreadable stamp is a clock this app cannot trust, and every kolu
-    // readout says that with the same dash rather than dropping the figure.
     expect(statusSince("working", "not a date", NOW)).toBe(DASH);
   });
 });

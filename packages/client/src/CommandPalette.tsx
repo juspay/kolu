@@ -1,15 +1,3 @@
-/**
- * Command palette — searchable overlay for terminal and theme actions.
- *
- * Supports nested commands (groups with children) à la Raycast:
- * - Empty query: browse the current level, drill into groups with Enter
- * - Non-empty query: flatten all leaves and search globally
- * - Backspace on empty query: navigate back up
- *
- * Always mounted via ModalDialog (forceMount). Keyboard navigation handled
- * internally with capture-phase listener to intercept before terminal.
- */
-
 import Dialog from "@corvu/dialog";
 import { makeEventListener } from "@solid-primitives/event-listener";
 import { Key } from "@solid-primitives/keyed";
@@ -48,14 +36,6 @@ import RepoMonogram from "./ui/RepoMonogram";
 import { useViewState } from "./useViewState";
 import { encActiveHost } from "./wire";
 
-/** Top-level sections, in render order. Items tagged with a section are
- *  grouped under a sticky header at the root level; untagged items
- *  render without a header. Drill-in levels ignore sections entirely
- *  (children of a group all belong to that group).
- *
- *  `recent` / `hosts` / `terminals` / `commands` support the unified root
- *  index — Recent terminals on empty root, host rows, the Terminals section
- *  for fleet navigation, and the Commands umbrella while searching. */
 export type SectionId =
   | "recent"
   | "hosts"
@@ -94,32 +74,19 @@ const SECTION_LABELS: Record<SectionId, string> = {
   help: "Help",
 };
 
-/** The sections that keep their own header while a query is typed — the
- *  Conductor's works are places to go, not commands to run, so searching
- *  for one must not file it under "Commands". */
 const OWN_HEADER_WHILE_SEARCHING: ReadonlySet<SectionId> = new Set([
   "needs-you",
   "works",
 ]);
 
-/** O(1) lookup derived from `SECTION_ORDER` — single source of truth.
- *  Built at module load via `Object.fromEntries(...)` so reordering
- *  `SECTION_ORDER` automatically rebuilds the map; there is no parallel
- *  literal to keep in sync. */
 const SECTION_INDEX: Record<SectionId, number> = Object.fromEntries(
   SECTION_ORDER.map((s, i) => [s, i]),
 ) as Record<SectionId, number>;
 
-/** Stable sort key: tagged items cluster in canonical order; untagged
- *  items sort to the end and preserve their registration order via the
- *  stability of `Array.prototype.sort`. */
 function sectionIndex(s: SectionId | undefined): number {
   return s === undefined ? SECTION_ORDER.length : SECTION_INDEX[s];
 }
 
-/** Annotated render list — root section headers, Terminals host headers
- *  (auto-expanded), or a plain row list. Headers are not selectable;
- *  `index` on rows indexes into `filtered()`. */
 export type DisplayEntry =
   | { kind: "header"; section: SectionId; index?: never }
   | {
@@ -131,18 +98,11 @@ export type DisplayEntry =
     }
   | { kind: "row"; cmd: PaletteCommand | PaletteLabel; index: number };
 
-/** A render entry paired with the identity the list retains its node by. */
 export interface KeyedDisplayEntry {
   key: string;
   entry: DisplayEntry;
 }
 
-/** The identity an entry WANTS — its logical name in the tree.
- *
- *  Deliberately not unique on its own: a terminal has an id and a host has an
- *  encoded key, but a plain command row has only what it is displayed as, and
- *  two rows can honestly carry the same name. {@link keyDisplayEntries} is what
- *  turns this into a usable key. */
 function entryKey(entry: DisplayEntry): string {
   return JSON.stringify(
     match(entry)
@@ -293,14 +253,10 @@ function isDrillable(item: PaletteItem): item is DrillableKind {
   return item.kind === "group" || item.kind === "value";
 }
 
-/** Resolve children, handling both static arrays and accessors. Body
- *  groups have no children, so they are excluded from the input type —
- *  callers narrow first. */
 function resolveChildren(cmd: PaletteGroup | PaletteValueInput): PaletteItem[] {
   return typeof cmd.children === "function" ? cmd.children() : cmd.children;
 }
 
-/** Ctrl+key → normalized key for readline-style navigation. */
 const CTRL_KEY_MAP: Record<string, string> = { n: "ArrowDown", p: "ArrowUp" };
 
 const CommandPalette: Component<{
@@ -321,15 +277,10 @@ const CommandPalette: Component<{
   const [query, setQuery] = createSignal("");
   const [ambientTip, setAmbientTip] = createSignal("");
   const [selectedIndex, setSelectedIndex] = createSignal(0);
-  // Hover selection only after a real pointer delta — see pointerHoverGate.
-  // Synthetic mousemove/enter under a stationary cursor must not steal the
-  // keyboard highlight (open-under-cursor shimmer).
   const [mouseActive, setMouseActive] = createSignal(false);
   let lastPointerPos: PointerPos | null = null;
   const [path, setPath] = createSignal<DrillableKind[]>([]);
 
-  /** Walk `path` against the live command tree; return the live
-   *  drillable segments that still resolve, in order. */
   function resolveLivePath(p: DrillableKind[]): {
     valid: DrillableKind[];
     level: PaletteItem[];
@@ -349,9 +300,6 @@ const CommandPalette: Component<{
     return { valid, level };
   }
 
-  /** If a path segment disappears (host disconnect, group hidden), pop
-   *  to the deepest still-valid segment — never keep showing children
-   *  from a stale path object. */
   createEffect(() => {
     if (!props.open) return;
     const p = path();
@@ -363,30 +311,18 @@ const CommandPalette: Component<{
     setQuery("");
   });
 
-  /** Items at the current navigation level (may include hints).
-   *
-   *  Resolves the drilled-in path by **name** against the fresh
-   *  `props.commands()` tree, not by object reference against the
-   *  snapshot captured in `path()`. */
   const currentItems = createMemo((): PaletteItem[] => {
     const p = path();
     if (p.length === 0) return props.commands();
     const { valid, level } = resolveLivePath(p);
-    // While the reconcile effect hasn't trimmed yet, render the deepest
-    // still-valid level — never the stale missing segment's children.
     if (valid.length === 0) return props.commands();
     if (valid.length < p.length)
       return resolveChildren(valid[valid.length - 1]!);
     return level;
   });
 
-  /** Single-pass partition of `currentItems()` into interactive rows
-   *  (commands or labels) and hints — one traversal feeds both consumers
-   *  (the list and the hint footer). */
   const partitioned = createMemo(() => {
     const items = currentItems();
-    // Hide rootHidden containers only on empty-root browse (children already
-    // promoted). Typed root search still indexes them for name match / drill.
     const hideRootHidden = path().length === 0 && query().trim().length === 0;
     const interactive: (PaletteCommand | PaletteLabel)[] = [];
     const hints: PaletteHint[] = [];
@@ -405,25 +341,16 @@ const CommandPalette: Component<{
     return { kind: "filter" };
   });
 
-  /** The query AS A FILTER — `""` throughout value mode, where the input holds
-   *  a value the user is composing rather than a narrowing term. Named once so
-   *  the default-highlight effect can key on "did the filter move?" directly,
-   *  instead of re-deriving that distinction from a positional comparison of
-   *  its own dependency tuple. */
   const filterQuery = createMemo(() =>
     mode().kind === "filter" ? query() : "",
   );
 
-  /** Validation error for the current value-input query. `null` outside
-   *  value mode or when the value passes. */
   const valueError = createMemo<string | null>(() => {
     const m = mode();
     if (m.kind !== "value") return null;
     return m.leaf.validate?.(query()) ?? null;
   });
 
-  /** Input placeholder, derived from mode. Plain function — single
-   *  consumer (the input element). */
   function placeholder(): string {
     const m = mode();
     if (m.kind === "value") return m.leaf.placeholder ?? "Type a command...";
@@ -440,12 +367,10 @@ const CommandPalette: Component<{
   const atTerminalsBrowse = createMemo(
     () => path().length === 1 && path()[0]?.name === TERMINALS_GROUP_NAME,
   );
-  /** Empty Terminals browse — auto-expand host groups into headers + rows. */
   const atTerminalsBrowseEmpty = createMemo(
     () => atTerminalsBrowse() && query().trim().length === 0,
   );
 
-  /** Host groups at the Terminals level (tree children), in paint order. */
   function terminalsHostGroups(): PaletteGroup[] {
     return partitioned().interactive.filter(
       (item): item is PaletteGroup =>
@@ -453,8 +378,6 @@ const CommandPalette: Component<{
     );
   }
 
-  /** Flatten host groups → terminal leaves (host order preserved). Used for
-   *  selection at Terminals browse — grouping is visual only, not a gate. */
   function flattenHostGroupTerminals(
     items: readonly (PaletteCommand | PaletteLabel)[],
   ): (PaletteCommand | PaletteLabel)[] {
@@ -469,11 +392,6 @@ const CommandPalette: Component<{
     return out;
   }
 
-  /** Root type-search index: top-level items (including terminal/host
-   *  leaves already registered at root) plus nested **command** actions
-   *  under Debug / New terminal / etc. Do **not** collect leaves from
-   *  Terminals / Hosts groups — those leaves are already top-level and
-   *  re-collecting them doubles every fleet hit. */
   function flattenForRootSearch(
     items: readonly (PaletteCommand | PaletteLabel)[],
   ): (PaletteCommand | PaletteLabel)[] {
@@ -490,10 +408,8 @@ const CommandPalette: Component<{
         out.push(item);
         continue;
       }
-      // Top-level group or value — keep for name match / drillInto.
       out.push(item);
       if (item.kind !== "group") continue;
-      // Skip groups whose children are already promoted to root leaves.
       if (
         item.name === TERMINALS_GROUP_NAME ||
         item.name === HOSTS_GROUP_NAME
@@ -505,31 +421,14 @@ const CommandPalette: Component<{
     return out;
   }
 
-  /** Where the user already is. Read by the empty-root Recent exclusion below
-   *  and by the default-highlight rule under it, which are the same idea
-   *  (never offer "go where you already are") applied at two levels — so both
-   *  take this one value rather than two shapes of it. The host key comes off
-   *  `encActiveHost`, the ONE memo every surface that keys on the active host
-   *  reads, not a re-derived `encodeHostKey(activeHost())` thunk. */
   const currentSelection = (): CurrentSelection => ({
     hostKey: encActiveHost(),
     terminalId: view.activeId(),
   });
 
-  /** Interactive rows at the current level (filter is bypassed in
-   *  value mode). Filter mode produces `PaletteCommand[]`;
-   *  value mode produces `PaletteLabel[]`.
-   *
-   *  AND-token multi-field match — the same matcher the dock uses
-   *  (`matchesAllTokens` / `tokenize`). At Terminals browse the tree is
-   *  host groups, but selection always sees a **flat terminal list**
-   *  (auto-expanded). At root with a non-empty query, nested command
-   *  leaves are included so "Search everything" finds Debug leaves. */
   const filtered = createMemo((): (PaletteCommand | PaletteLabel)[] => {
     let items = partitioned().interactive;
     if (mode().kind !== "filter") {
-      // Value mode doesn't search — preserve registration order with a
-      // stable section sort for any tagged labels.
       return [...items].sort(
         (a, b) => sectionIndex(a.section) - sectionIndex(b.section),
       );
@@ -538,20 +437,14 @@ const CommandPalette: Component<{
     const q = query();
     const atRoot = p.length === 0;
     if (atTerminalsBrowse()) {
-      // Always flatten — empty browse and typed filter share one list.
       items = flattenHostGroupTerminals(items);
     } else if (atRoot && q.trim().length > 0) {
       items = flattenForRootSearch(items);
     }
-    // Stamp sectionOrder so the pure ranker can re-sort commands without
-    // knowing SectionId.
     const stamped = items.map((cmd, i) => ({
       ...cmd,
       sectionOrder: sectionIndex(cmd.section) * 1000 + i,
     }));
-    // No `atRoot ?` gate on `current`: the ranker already returns early for a
-    // drilled-in level, so re-stating that condition here would only teach the
-    // call site the callee's own gating.
     return filterAndRankPaletteItems(stamped, {
       query: q,
       atRoot,
@@ -559,9 +452,6 @@ const CommandPalette: Component<{
     });
   });
 
-  /** Breadcrumb labels — path names, plus a virtual host segment when a
-   *  Terminals search highlight lands on a terminal (so the path reads
-   *  Commands › Terminals › zest without a real host drill). */
   const breadcrumbSegments = createMemo(
     (): { name: string; depth: number }[] => {
       const segments = path().map((s, i) => ({ name: s.name, depth: i + 1 }));
@@ -587,16 +477,10 @@ const CommandPalette: Component<{
 
   const showSectionHeaders = createMemo(() => atRootFilter());
 
-  /** Kind tags only during typed cross-kind root search — empty-root
-   *  section headers (Recent / Hosts / …) already announce kind. */
   const showKindTag = createMemo(
     () => atRootFilter() && query().trim().length > 0,
   );
 
-  /** Map a row to its display section at root. Empty root: terminals →
-   *  Recent, hosts → Hosts, commands keep their registered section.
-   *  Queried root: kind umbrellas (Terminals / Hosts / Commands), except the
-   *  Conductor's works, which keep their own. */
   function displaySection(
     cmd: PaletteCommand | PaletteLabel,
   ): SectionId | undefined {
@@ -616,9 +500,6 @@ const CommandPalette: Component<{
   }
 
   const displayed = createMemo((): DisplayEntry[] => {
-    // Terminals empty browse: host header (name · count) + that host's
-    // terminals — visual grouping, no drill required. Clicking a header
-    // optionally scopes to that host (breadcrumb Terminals › $host).
     if (atTerminalsBrowseEmpty()) {
       const out: DisplayEntry[] = [];
       let index = 0;
@@ -656,34 +537,14 @@ const CommandPalette: Component<{
     return out;
   });
 
-  /** List has content to paint (rows and/or host headers with zero terms). */
   const hasListContent = createMemo(() => displayed().length > 0);
 
-  /** The render list paired with the identity `<Key>` retains nodes by.
-   *
-   *  `keyedDisplay` is what the list actually iterates, never `displayed()`:
-   *  `keyArray` stores one mapped node per key, so two entries sharing a key
-   *  are handed the SAME node on the next refresh — the list silently loses a
-   *  row and Solid's node bookkeeping stops matching the DOM. `entryKey` can
-   *  only fall back to a display name, and names are not unique (two agents
-   *  with one command, two rows a repo root does not separate), so uniqueness
-   *  has to be established over the whole list rather than hoped for per item.
-   */
   const keyedDisplay = createMemo(() => keyDisplayEntries(displayed()));
 
   function drillInto(cmd: DrillableKind) {
     setPath((p) => [...p, cmd]);
     if (cmd.kind === "value") setQuery(cmd.prefill());
     else setQuery("");
-    // Drill-ins always re-focus the input — Enter / click on a drillable
-    // row may have left focus on the row's div (click steals focus from
-    // the input, Enter on a div option doesn't restore it), so the user
-    // can immediately type to filter the sub-mode. Deferred to rAF so the
-    // input has rendered any new query value first (select() before the
-    // render highlights nothing). One rAF suffices here because the dialog
-    // is already open and Corvu's initialFocusEl is idle — no focus
-    // competition. The open-effect uses a double-rAF to outlast Corvu's
-    // own focus management on (re)open.
     requestAnimationFrame(() =>
       cmd.kind === "value" ? inputRef.select() : inputRef.focus(),
     );
@@ -691,8 +552,6 @@ const CommandPalette: Component<{
 
   function navigateTo(depth: number) {
     const p = path();
-    // Virtual host breadcrumb (pierce search): depth beyond real path drills
-    // into that host group under Terminals when possible.
     if (
       depth === p.length + 1 &&
       p.length === 1 &&
@@ -707,8 +566,6 @@ const CommandPalette: Component<{
     setQuery("");
   }
 
-  /** From Terminals browse, drill into a named host group (breadcrumb or
-   *  deep-link). Resolves against the live tree so object identity stays fresh. */
   function drillIntoHostUnderTerminals(hostName: string) {
     const terminals = props
       .commands()
@@ -726,9 +583,6 @@ const CommandPalette: Component<{
     requestAnimationFrame(() => inputRef.focus());
   }
 
-  /** Walk `names` against the live command tree and set path. **Every**
-   *  segment must resolve — a partial match (e.g. Terminals without a
-   *  missing host) is rejected so deep-links never silently widen. */
   function applyInitialPath(names: readonly string[]) {
     if (names.length === 0) return false;
     let level: PaletteItem[] = props.commands();
@@ -751,11 +605,6 @@ const CommandPalette: Component<{
     return true;
   }
 
-  // Selection-initiated close: signals the close-effect to skip
-  // path.onCancel propagation. External closes (Escape, backdrop click,
-  // parent toggle via setPaletteOpen) leave this false so onCancel fires.
-  // Three close paths converge on the close-effect; this signal is the
-  // single discriminator that distinguishes "completed" from "cancelled".
   const [closingForSelection, setClosingForSelection] = createSignal(false);
 
   function closeForSelection() {
@@ -766,25 +615,15 @@ const CommandPalette: Component<{
   function execute(cmd: PaletteCommand | PaletteLabel) {
     const m = mode();
     if (m.kind === "value") {
-      // Structural invariant: value-input children are PaletteLabel —
-      // anything else here is a caller bug.
       if (cmd.kind !== "label") return;
-      // Block submit while the typed value is invalid; the inline error
-      // row already tells the user what to fix.
       if (valueError()) return;
       closeForSelection();
       m.leaf.onSubmit(query(), cmd);
       return;
     }
-    // Filter mode — labels never appear at the top level (enforced by
-    // PaletteValueChild only being reachable inside a value group).
-    // .exhaustive() forces a compile error if a future kind is added
-    // without an arm here.
     match(cmd)
       .with({ kind: "group" }, { kind: "value" }, (group) => drillInto(group))
       .with({ kind: "action" }, (action) => {
-        // Close first so the highlight effect stops tracking filtered(),
-        // preventing onSelect's state changes from re-triggering a preview.
         closeForSelection();
         action.onSelect();
       })
@@ -800,7 +639,6 @@ const CommandPalette: Component<{
     switch (key) {
       case "ArrowDown":
         if (items.length === 0) return;
-        // Keyboard wins until the pointer actually moves again.
         setMouseActive(false);
         setSelectedIndex(Math.min(effectiveIndex() + 1, items.length - 1));
         break;
@@ -825,9 +663,6 @@ const CommandPalette: Component<{
         }
         return;
       case "Enter": {
-        // Ignore Enter while modifier keys are held — the chord that opened
-        // the palette (e.g. Cmd+Shift+Enter) would otherwise auto-repeat
-        // and immediately confirm the first item.
         if (e.metaKey || e.ctrlKey || e.altKey) return;
         const selected = items[effectiveIndex()];
         if (selected) execute(selected);
@@ -840,15 +675,8 @@ const CommandPalette: Component<{
     e.stopPropagation();
   }
 
-  // Capture phase: intercept before terminal's keydown handler
   makeEventListener(window, "keydown", handleKeyDown, { capture: true });
 
-  // Open/close lifecycle — one effect so the read of `path()` for
-  // `onCancel` propagation is ordered explicitly before the path
-  // reset. Splitting open-vs-initialPath into two `on()` effects
-  // raced when both depended on `props.open` (the path-reset effect
-  // could fire first, clearing the segments the close branch was
-  // about to walk for cancellation).
   createEffect(
     on(
       [() => props.open, () => props.initialPath?.join("\0") ?? ""],
@@ -862,10 +690,6 @@ const CommandPalette: Component<{
           setPath([]);
           const names = props.initialPath ?? [];
           if (names.length > 0) {
-            // Exact path only — no prefix fallback (a missing host must not
-            // open the broader Terminals list as if the deep-link succeeded).
-            // A rejected path leaves the root list showing; the highlight
-            // effect below lands on whichever path this run settles at.
             if (!applyInitialPath(names)) {
               requestAnimationFrame(() =>
                 requestAnimationFrame(() => inputRef.focus()),
@@ -881,14 +705,11 @@ const CommandPalette: Component<{
               requestAnimationFrame(() => inputRef.focus()),
             );
           }
-          // pathKey keeps the effect subscribed to initialPath identity.
           void pathKey;
         } else {
           if (!closingForSelection()) {
             for (const g of path()) g.onCancel?.();
           }
-          // Always clear leaf highlight lifecycle (theme preview, etc.) —
-          // path onCancel only covers drill segments.
           lastHighlight?.onCancel?.();
           lastHighlight = undefined;
           setClosingForSelection(false);
@@ -898,37 +719,11 @@ const CommandPalette: Component<{
     ),
   );
 
-  // THE default-highlight rule, applied reactively: whenever the SCOPE changes
-  // (open, drill-in, drill-out, path repair, deep-link, typed query) the list is
-  // freshly painted and the highlight re-lands. One rule, zero call sites — a
-  // future `setPath` cannot forget to follow it up, and reading `filtered()`
-  // here is guaranteed post-write rather than relying on read-after-write
-  // ordering at eight hand-held sites.
-  //
-  // Registered AFTER the open/close lifecycle effect above so it observes the
-  // FINAL `path` of an `applyInitialPath` run, not the intermediate one.
-  //
-  // `currentSelection` is a dep, not just a read: `on()` runs its callback
-  // untracked, and the "current" row CAN move while the palette stays open —
-  // Ctrl+Tab reaches the global dispatcher as well as this component, and the
-  // host-membership reconcile can bounce the canvas to local on its own. Both
-  // re-derive `filtered()` (the Recent band drops a different row), so a
-  // highlight left behind would point at a row that shifted under it, and Enter
-  // would run the wrong one. Tracking the fact re-lands the highlight instead.
-  //
-  // Still NOT keyed on `filtered` itself — that returns a new array reference on
-  // every recomputation, so tracking it would reset the index whenever upstream
-  // data (the commands memo) recomputes in the background.
   createEffect(
     on(
       [path, filterQuery, () => props.open, currentSelection],
       ([, , open]) => {
         if (!open) return;
-        // A value leaf's children are passive labels, not a switcher: nothing
-        // there has a recency or a "current" row, so the highlight starts at the
-        // top. Keying on `filterQuery` (which is "" throughout value mode) is
-        // what keeps a keystroke from re-landing it off the label you picked,
-        // while a SCOPE change still does.
         if (mode().kind === "value") {
           setSelectedIndex(0);
           return;
@@ -945,9 +740,6 @@ const CommandPalette: Component<{
   );
   const isSelected = createSelector(effectiveIndex);
 
-  // Notify highlighted item when selection changes. Cancels the previous
-  // leaf's onCancel first so root-flattened previews (theme) don't stick.
-  // Tracks props.open so the effect re-fires on reopen with the same selection.
   let lastHighlight: (PaletteCommand | PaletteLabel) | undefined;
   createEffect(
     on([filtered, effectiveIndex, () => props.open], ([items, idx, open]) => {
@@ -963,12 +755,6 @@ const CommandPalette: Component<{
     }),
   );
 
-  // Auto-scroll the highlighted row into view. One effect outside <For>:
-  // the per-row JSX sets data-selected on the matching row; this effect
-  // queries it. Tracks `selectedIndex` and `props.open`, which together cover
-  // every way a fresh list lands its highlight (the effect above) — including
-  // an open whose default row is not the first one — so there is no need to
-  // re-scroll on `filtered()` reference churn.
   createEffect(() => {
     effectiveIndex();
     if (!props.open) return;
@@ -983,13 +769,6 @@ const CommandPalette: Component<{
       onOpenChange={props.onOpenChange}
       transparentOverlay={props.transparentOverlay}
       initialFocusEl={inputRef}
-      // No `refocusOnClose`: the palette also closes itself programmatically
-      // (selection → onOpenChange(false), Cmd+K → toggle()), paths that never
-      // re-enter ModalDialog.handleOpenChange. So the refocus lives once in
-      // `useCommandPalette`'s close path, which EVERY close (incl. the
-      // Corvu-driven onOpenChange this dialog forwards) funnels through —
-      // adding `refocusOnClose` here would double-fire it on the Corvu path.
-      // Compact switcher width — not the old workspace-grid lg stretch.
       size="palette"
     >
       <Dialog.Content
@@ -997,9 +776,6 @@ const CommandPalette: Component<{
         data-testid="command-palette"
         class="w-full border border-edge rounded-2xl shadow-2xl shadow-black/60 ring-1 ring-white/[0.03] overflow-hidden flex flex-col"
         style={{
-          // Cap at 80vh so the dialog adapts to the workspace grid's
-          // four-column body without forcing scroll for small dialogs;
-          // 40rem keeps the chrome compact on tall monitors.
           height: "min(80vh, 40rem)",
           // Subtle vertical gradient from surface-1 → surface-0 gives the
           // chrome a soft depth without theming it. The inline style also
@@ -1009,11 +785,6 @@ const CommandPalette: Component<{
             "linear-gradient(180deg, var(--color-surface-1) 0%, var(--color-surface-0) 100%)",
         }}
       >
-        {/* Breadcrumb — visible when drilled into a group. Renders as
-            Raycast-style chips: "Commands › Terminals › zest" feels like a
-            path you can click any segment of to pop back. A pierced
-            Terminals search may append a virtual host segment from the
-            highlighted row. */}
         <Show when={breadcrumbSegments().length > 0}>
           <nav class="flex items-center gap-1.5 px-5 pt-3.5 text-xs text-fg-3">
             <button
@@ -1078,12 +849,6 @@ const CommandPalette: Component<{
         <div
           ref={(el) => {
             listEl = el;
-            // mousemove is incidental UI state, not a real interactive event
-            // on this scroll container — attach via addEventListener so the
-            // div stays a plain layout element (Biome's
-            // noStaticElementInteractions would flag a JSX onMouseMove).
-            // Only arm hover after a real coordinate delta (not synthetic
-            // zero-delta moves when the list mounts under a stationary cursor).
             el.addEventListener(
               "mousemove",
               (e: MouseEvent) => {
@@ -1115,9 +880,6 @@ const CommandPalette: Component<{
             }
           >
             <div class="py-1 px-1.5" role="listbox">
-              {/* A refresh between mouse-down and mouse-up must not remove
-                  the node that owns the pending click. Key by logical identity;
-                  read the current entry for updated content and callbacks. */}
               <Key each={keyedDisplay()} by={(keyed) => keyed.key}>
                 {(keyed) => {
                   const entry = () => keyed().entry;
@@ -1247,10 +1009,6 @@ const CommandPalette: Component<{
   );
 };
 
-/** Bottom action bar — Raycast-style hint strip showing what `⏎` will
- *  do for the currently highlighted row, plus an `esc Back` affordance
- *  when the path is drilled. Border-top separates it from the scrollable
- *  list above; the ambient tip (when present) renders below this bar. */
 const ActionBar: Component<{
   mode: PaletteMode;
   drilled: boolean;
@@ -1263,7 +1021,6 @@ const ActionBar: Component<{
         const h = props.highlighted;
         if (!h) return "";
         if (isDrillable(h)) return "Open";
-        // Terminal / host root rows switch context; plain commands run.
         if (h.row?.kind === "terminal" || h.row?.kind === "host")
           return "Switch";
         return "Run";

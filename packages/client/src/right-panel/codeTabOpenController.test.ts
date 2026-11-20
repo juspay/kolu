@@ -8,6 +8,7 @@ import {
   createCodeTabOpenController,
   type OpenInCodeTabRequest,
 } from "./codeTabOpenController";
+import { asEffect } from "./effect.testlib";
 
 const scope = (terminalId: string): CodeTabScope => ({
   host: { kind: "local" },
@@ -22,27 +23,6 @@ const request = (terminalId: string): OpenInCodeTabRequest => ({
 });
 
 const tick = () => Promise.resolve();
-
-/** The `readFresh` seam takes a DESCRIPTION now, so a fixture that must be
- *  settled BY HAND parks on a `Deferred` instead of holding a `resolve`. The
- *  plain-value fixtures stay written as async bodies — a throw is the readable
- *  way to state "this read fails" — with `Effect.tryPromise` turning it into the
- *  error channel the controller reads. */
-function asEffect<R>(
-  fn: (request: OpenInCodeTabRequest, includeIgnored: boolean) => Promise<R>,
-): (
-  request: OpenInCodeTabRequest,
-  includeIgnored: boolean,
-) => Effect.Effect<R, unknown> {
-  return (request, includeIgnored) =>
-    Effect.tryPromise({
-      try: () => fn(request, includeIgnored),
-      // Pass the thrown value THROUGH: these fixtures state a failure by
-      // throwing the exact error the assertion reads, and `tryPromise`'s default
-      // wrap would hide it behind an `UnknownError`.
-      catch: (e) => e,
-    });
-}
 
 type Paths = readonly string[];
 type Snapshot = CodeTabOpenSnapshot<Paths>;
@@ -233,9 +213,6 @@ describe("createCodeTabOpenController", () => {
     setCurrentScope(scope("t2"));
     await tick();
 
-    // The retirement is asserted on the OUTCOME, not on an abort flag: the read
-    // carries no cancellation token any more (a padi call takes none under
-    // Effect, D10/#18), so what must hold is that a late answer owns nothing.
     Deferred.doneUnsafe(gate, Effect.succeed(["new.ts"]));
     await tick();
     expect(onResolved).not.toHaveBeenCalled();

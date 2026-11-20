@@ -1,4 +1,3 @@
-/** Owned terminal bodies supply focus targets in every workspace layout. */
 import { terminalElements } from "../terminal/terminalElements";
 
 export function getActiveTerminalNode(): HTMLElement | null {

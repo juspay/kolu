@@ -1,17 +1,3 @@
-/**
- * The host dot stops aggregating away the truth (juspay/kolu#2101 N4).
- *
- * The field contradiction, verbatim: the incident's host dot stayed GREEN while
- * the workspace behind it was dead. Nothing lied — the dot reported padi's own
- * link, which was up — but a host entry is the head of a chain (padi → kaval →
- * your terminals), and reporting one link as if it were the chain is a lie of
- * aggregation.
- *
- * These drive the client-state seam directly (`hostGlance`), not the timing: with
- * N1 the degraded window is transient, and a test that raced it would be pinning
- * the repair rather than the honesty of the window while it exists.
- */
-
 import type { EntryState } from "@kolu/surface-map";
 import { testMembershipId } from "@kolu/surface-map/testing";
 import { describe, expect, it } from "vitest";
@@ -36,8 +22,6 @@ const warming: EntryState = {
   kind: "warming",
   membershipId: testMembershipId(),
 };
-/** What the map's liveness floor hands a consumer when THIS browser cannot reach the
- *  publisher — here over a host it last saw fully `connected`. */
 const unobservable: EntryState = {
   kind: "unobservable",
   membershipId: testMembershipId(),
@@ -134,22 +118,14 @@ describe("hostGlance — the chain composes ONLY onto a connected entry", () => 
   });
 
   it("a blind entry makes no claim at all — and is NOT painted as a campaign", () => {
-    // The chip's half of the #2129 split, and the pin that would fail under the old
-    // collapsed shape: a dropped socket used to reach here as `warming`, so the chip
-    // pulsed AMBER and its tooltip said "connecting…" — a confident narration of a
-    // campaign nobody was watching, over a host that was very likely fine.
     const g = hostGlance(unobservable, KAVAL_CHAIN_UNKNOWN);
     expect(g.detailDot).not.toBe(AMBER);
     expect(g.detailDot).not.toBe(GREEN);
-    // …and not `down` either: red + strike is this vocabulary's word for "unreachable",
-    // which is a claim about the HOST. What died is our socket.
     expect(g.down).toBe(false);
     expect(g.labelDecoration).toBe("");
     expect(g.short).toBe("unknown");
     expect(g.short).not.toBe(hostGlance(warming, KAVAL_CHAIN_UNKNOWN).short);
-    // The last thing we heard is the most useful fact a stale tab can be given.
     expect(g.title).toContain("connected");
-    // A kaval verdict reaching us through a channel that is down composes onto nothing.
     expect(hostGlance(unobservable, DOWN)).toEqual(g);
   });
 });

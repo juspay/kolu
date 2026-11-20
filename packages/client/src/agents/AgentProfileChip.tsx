@@ -1,25 +1,3 @@
-/** The tile header's agent-distro pill: the agent-distro mark, the profile in
- *  effect in the terminal (`agentChipProfile`) — as agent-distro answered for
- *  it after the spawn (`agents.effective`: a repository's own `plugin.json`
- *  composes over the stack), else the stack it was spawned
- *  with; nothing when it has neither — and the short hash of the exact package
- *  it pinned (dimmer). ONE button in the theme pill's treatment — the caller
- *  passes the tile chrome's shared class — and no pill at all when agents were
- *  off at spawn (the caller renders this only for a record that carries them).
- *
- *  Current, a click opens Settings at the Agents row, where the profiles for
- *  NEW terminals are changed. STALE (`agentStalenessOf`: a new terminal on this host
- *  would get different agents) the profile and hash dim, and — once there is
- *  something to restart into — the same pill grows a thin divider and an accent
- *  "↻ Restart", and the WHOLE pill becomes the restart: one element, one target.
- *  A live agent arms it first ("↻ Restart agent", or "Kill agent and restart"
- *  when agents are now off, for 5 s); a restart in flight dims the pill
- *  (`restartGuard.ts`). The tooltip says what this terminal has, what new ones
- *  get, and what a restart does.
- *
- *  The first pill a user ever sees is the moment to say where the setting lives,
- *  so it raises the one-shot `agents` tip. */
-
 import { type Component, onMount, Show } from "solid-js";
 import type { TerminalAgents } from "@kolu/agent-distro/schema";
 import { CONTEXTUAL_TIPS } from "../settings/tips";
@@ -48,7 +26,6 @@ export interface ChipRestart {
 }
 
 const AgentProfileChip: Component<{
-  /** The terminal record's `agents`. */
   agents: TerminalAgents;
   /** The tile chrome's shared button class (`TILE_BUTTON_CLASS`). */
   buttonClass: string;
@@ -99,8 +76,6 @@ const AgentProfileChip: Component<{
         class={`${props.buttonClass} gap-1.5 px-2 text-xs`}
         classList={{
           "opacity-50 cursor-wait": guard.busy(),
-          // Armed: the pill itself says "the next press acts" — a faint accent
-          // wash, no heavier text.
           "bg-accent/10": guard.armed(),
         }}
         style={{ color: "var(--color-fg-3, currentColor)" }}

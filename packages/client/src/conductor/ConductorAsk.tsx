@@ -1,32 +1,3 @@
-/** The agent asking a PERSON something, as a form in the transcript.
- *
- *  Inline rather than a modal: a question is part of the conversation, and
- *  whatever the agent said before it is the context for answering. A question
- *  NEVER times out, so the form has no deadline and no implied default — the
- *  two buttons are *answer with what I picked* and *I would not say*, and the
- *  second one tells the agent exactly that rather than fabricating a choice.
- *
- *  ANSWERING DOES NOT ERASE IT. A settled card keeps reading as what it was —
- *  every question, with what was said to it on its line ({@link ./askRecord})
- *  — and adds how it ended. The card that collapsed to the bare word
- *  `answered` threw away both halves of the exchange a day later.
- *
- *  Drafts are kept per question (`./drafts`), so half-filling one form, scrolling
- *  away, and coming back does not lose the pick. They are dropped the moment the
- *  question stops waiting.
- *
- *  The field kinds come from `@kolu/acp`'s projection of the agent's JSON
- *  Schema — a browser never reads a `oneOf`. An `attachedTo` field is the
- *  free-text "other" for the field it names, drawn inside that field's block
- *  rather than as a question of its own.
- *
- *  ONE QUESTION, ONE ANSWER. For a single-choice question, the chips and the
- *  "Other" box beside them are two halves of the SAME question: typing your
- *  own words replaces the pick, and picking replaces the words. The card that
- *  read `IMPL HARNESS — OpenCode · omp` — an option pressed AND a name typed —
- *  told the agent two things and made it ask again. A `choices` question is a
- *  list by definition and keeps both. */
-
 import {
   type AskAnswer,
   type AskField,
@@ -46,46 +17,23 @@ import { askLead, askQuestions, askRecord } from "./askRecord";
 import { askDraft, forgetAskDraft, setAskDraft } from "./drafts";
 import { useConductor } from "./useConductor";
 
-/** One option chip. The SELECTED state is layered on through `classList`, so
- *  the shape of a chip is written once and only the two colours branch. */
 const OPTION_CLASS = "rounded-md border px-2.5 py-1 text-fg cursor-pointer";
 
-/** Does this question hold exactly ONE answer? A `choice` offers one of its
- *  options and a `boolean` is yes or no; only `choices` is a list. The "Other"
- *  box attached to such a question is an alternative to its chips, never an
- *  addition to them. */
 const singleAnswer = (field: AskField): boolean =>
   field.kind === "choice" || field.kind === "boolean";
 
 const ConductorAsk: Component<{
-  /** THE AGENT'S OWN QUESTION, and only ever that: it is holding a call open
-   *  for this one. kolu's questions about a piece of work are decisions on
-   *  that work, drawn by `WorkQuestion` wherever the person happens to be. */
   row: ConductorAskRow;
 }> = (props) => {
   const orch = useConductor();
   const ask = () => props.row.ask;
   const settled = () => ask().outcome !== null;
-  /** The fields that are questions in their own right — an `attachedTo` field
-   *  belongs inside the block of the field it extends. */
   const questions = createMemo(() => askQuestions(props.row));
   const otherFor = (key: string) =>
     ask().fields.find((field) => field.attachedTo === key);
-  /** Is this value in the draft for this field — the one predicate every
-   *  option chip asks, of itself, to colour and mark itself. */
   const picked = (key: string, value: string): boolean =>
     askDraft(props.row.id, key).includes(value);
 
-  /**
-   * WHAT IS SENT, derived from the draft in one place.
-   *
-   * The writers below already clear the other half as you act, so the form in
-   * front of you can only hold one of the two. This derivation is what makes
-   * that a property of the ANSWER rather than of the clicking: a draft that
-   * somehow held both — restored from an older store, written by a future
-   * caller — still sends one, and it sends the typed words, because they are
-   * the answer the options could not express.
-   */
   const answers = (): AskAnswer[] => {
     const replaced = new Set<string>();
     for (const field of ask().fields) {
@@ -109,8 +57,6 @@ const ConductorAsk: Component<{
     forgetAskDraft(props.row.id);
   };
 
-  /** An option pressed. A single-answer question keeps the one pressed last
-   *  and empties its "Other" box; a `choices` question toggles. */
   const pick = (field: AskField, value: string): void => {
     const current = askDraft(props.row.id, field.key);
     if (!singleAnswer(field)) {
@@ -130,9 +76,6 @@ const ConductorAsk: Component<{
     });
   };
 
-  /** Words typed into a question's "Other" box. The first character of an own
-   *  answer to a single-answer question drops the pick — one question, one
-   *  answer, and the chips go back to unselected as you watch. */
   const typeOther = (asked: AskField, other: AskField, text: string): void =>
     batch(() => {
       setAskDraft(props.row.id, other.key, text === "" ? [] : [text]);
@@ -151,8 +94,6 @@ const ConductorAsk: Component<{
         <span class="text-alert text-base leading-none">✱</span>
         <b class="text-[0.78rem]">Conductor asks you</b>
       </header>
-      {/* The ask's own sentence, only where it says something the fields do
-          not — see {@link askLead}. */}
       <Show when={askLead(props.row)}>
         {(lead) => (
           <p
@@ -180,10 +121,6 @@ const ConductorAsk: Component<{
         when={!settled()}
         fallback={
           <>
-            {/* THE RECORD: what was asked and what was said, one line each.
-                Drawn for every ending — a declined or withdrawn form lists its
-                questions with nothing beside them, which is exactly what
-                happened to them. */}
             <ul class="mt-2 list-none m-0 p-0 flex flex-col gap-0.5">
               <For each={askRecord(props.row)}>
                 {(line) => (
@@ -304,8 +241,6 @@ const ConductorAsk: Component<{
                   </div>
                 </Match>
               </Switch>
-              {/* The CLI's per-question "Other" box, drawn inside the block it
-                  extends because that is the question it answers. */}
               <Show when={otherFor(field.key)}>
                 {(other) => (
                   <input
@@ -337,8 +272,6 @@ const ConductorAsk: Component<{
             type="button"
             data-testid="conductor-ask-dismiss"
             class="rounded-md border border-edge-bright px-3 py-1 text-fg-2 hover:text-fg cursor-pointer"
-            // DECLINE, not a silent close: the agent is told you would not say,
-            // never handed a choice you did not make.
             onClick={() => {
               orch.answer(props.row.id, null);
               forgetAskDraft(props.row.id);

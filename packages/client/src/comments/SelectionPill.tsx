@@ -1,13 +1,3 @@
-/** Floating "+ Comment" pill anchored to a viewport rect. Rendered via
- *  SolidJS Portal so the pill sits above scrollers, panels, and the
- *  Pierre file viewer regardless of where the host is mounted.
- *
- *  Host-agnostic — text browse and branch diff both render this same
- *  component when their `useTextSelection` adapter surfaces a non-empty
- *  selection. (The iframe SDK uses its own vanilla-DOM equivalent
- *  inside the opaque-origin iframe; see
- *  `packages/artifact-sdk/src/iframe/index.ts`.) */
-
 import type { SelectionRect } from "@kolu/artifact-sdk/client";
 import { type Component, Show } from "solid-js";
 import { Portal } from "solid-js/web";
@@ -22,9 +12,6 @@ export type SelectionPillProps = {
 };
 
 export const SelectionPill: Component<SelectionPillProps> = (props) => {
-  // 4px below and to the right of the selection's end. Position fixed —
-  // doesn't move with page scroll, but the pill is dismissed and
-  // re-rendered on every selectionchange anyway, so scroll re-anchors it.
   const position = () => ({
     position: "fixed" as const,
     top: `${props.rect.y + props.rect.height + 4}px`,

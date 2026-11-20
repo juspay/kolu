@@ -1,4 +1,3 @@
-/** Mounted terminal bodies. Each ref owns its registration until unmount. */
 const elements = new Map<string, HTMLElement>();
 export function registerTerminalElement(
   id: string,

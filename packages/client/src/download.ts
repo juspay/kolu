@@ -1,8 +1,6 @@
 /** Trigger a browser download of an existing object URL via a synthetic
  *  anchor click. The caller owns the URL's lifecycle (creation and
- *  `URL.revokeObjectURL`) — revoke timing depends on the caller's delivery
- *  path, so it stays out of here. Shared by `sessionTransfer` (JSON export)
- *  and `exportSessionAsHtml` (popup-blocked fallback). */
+ *  `URL.revokeObjectURL`). */
 export function triggerDownload(url: string, filename: string): void {
   const a = document.createElement("a");
   a.href = url;

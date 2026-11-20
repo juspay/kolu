@@ -1,12 +1,4 @@
 // @vitest-environment happy-dom
-/**
- * The Diagnostic Info block, rendered (kolu#2101 J2).
- *
- * The copy path is tested against the BUILDER (`diagnosticSnapshot.test.ts`);
- * this is the other half — that the on-screen block a user reads before copying
- * carries the same three sections, off the same live registry, with the parked
- * subscription called out rather than buried in a list.
- */
 
 import type { HostKey } from "kolu-common/hostKey";
 import {
@@ -89,8 +81,6 @@ it("renders the dial history, the subscription table and the host entries, in th
   const parked = registerSubscription("entries[local]");
   vi.setSystemTime(T_FIRST_FRAME);
   parked.frame();
-  // A second subscription that DID re-drive, so the block is proven to
-  // distinguish them rather than painting everything red.
   vi.setSystemTime(T_REOPEN + 100);
   registerSubscription("terminalAttach[pane-1]").frame();
   vi.setSystemTime(T_REOPEN + 4_000);
@@ -102,7 +92,6 @@ it("renders the dial history, the subscription table and the host entries, in th
   const dials = root.querySelector('[data-testid="wire-dials"]');
   const subs = root.querySelector('[data-testid="wire-subscriptions"]');
   const hosts = root.querySelector('[data-testid="wire-hosts"]');
-  // Stable order on screen, the same order the copied text uses.
   const html = block?.innerHTML ?? "";
   expect(html.indexOf('data-testid="wire-dials"')).toBeLessThan(
     html.indexOf('data-testid="wire-subscriptions"'),
@@ -111,16 +100,12 @@ it("renders the dial history, the subscription table and the host entries, in th
     html.indexOf('data-testid="wire-hosts"'),
   );
 
-  // The swallowed dial — the one that leaves no trace anywhere else.
   expect(dials?.textContent).toContain("ended-without-open");
-  // The park, named, beside the subscription that is genuinely live.
   expect(subs?.textContent).toContain("parked");
   expect(subs?.textContent).toContain("entries[local]");
   expect(subs?.textContent).toContain("live");
   expect(subs?.textContent).toContain("terminalAttach[pane-1]");
-  // The count that makes it readable at a glance.
   expect(block?.textContent).toContain("1 PARKED");
-  // The host entry as the client believes it, with its client-side stamp.
   expect(hosts?.textContent).toContain("local");
   expect(hosts?.textContent).toContain("connected");
 });

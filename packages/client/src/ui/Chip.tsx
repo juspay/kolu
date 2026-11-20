@@ -1,11 +1,3 @@
-/** Small mono identity/status chip — the Inspector's compact vocabulary for
- *  "a fact you scan, not a sentence you read": branch, repo, PR number, CI
- *  rollup. `tone` maps to the shared semantic palette; identity chips stay
- *  neutral/accent, status chips wear ok/warning/danger. Text inside keeps the
- *  foreground tokens — the tone paints the frame, per the dataviz rule that
- *  color carries state while text stays text-colored (status tones are the
- *  exception: the value IS the state). */
-
 import type { Component, JSX } from "solid-js";
 
 const TONES = {

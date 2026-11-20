@@ -1,35 +1,3 @@
-/** StateBackupsDialog — browse and restore the state-backup rings (#1658).
- *
- *  Opened from the command palette's Debug group. One row per STORE — the
- *  kolu-server config store (preferences · hosts) plus each pool host's padi
- *  store (the session) — because each store keeps its own ring on its own
- *  disk: a remote host's backups live on that box, reached through the same
- *  per-host map client every other padi call rides. Drilling into a store
- *  lists its snapshots newest-first with the summary a user actually ranks by
- *  (after a corruption incident the newest snapshots are often the corrupt
- *  ones — "14 terminals" vs "no session" is how the good one is spotted), and
- *  restoring asks an explicit inline confirm first.
- *
- *  The two stores differ in five ways — title, reachability, how a wire row
- *  becomes a `BackupRow`, which call restores, and what the confirm says — and
- *  those five differences are spelled ONCE, in a {@link StoreAdapter} per store.
- *  Everything else (the picker, the list, the confirm, the toast round-trip) is
- *  written once against the adapter, so a third ring is one more adapter rather
- *  than five more branches:
- *   - padi: the snapshot's session is re-spawned host-side through the same
- *     import machinery as "Import session" — live terminals stay, the backup's
- *     terminals come back beside them. No daemon restart.
- *   - kolu-server: preferences/viewerMode apply live through their cells and
- *     the host pool converges onto the snapshot's fleet. No server restart.
- *  Both push the current state into the ring first, so a restore is itself
- *  undoable (pick the pre-restore snapshot to go back) — and the server refuses
- *  the restore outright if that snapshot could not be taken, so the promise
- *  cannot lie.
- *
- *  A padi row is disabled while its host is not `connected` — the dialog must
- *  not offer an action the channel cannot carry out (the #1793 affordance
- *  axis, same rule as the palette's "Restart kaval"). */
-
 import Dialog from "@corvu/dialog";
 import { toError } from "@kolu/surface/run-stream";
 import { Effect } from "effect";
@@ -53,44 +21,26 @@ import ModalDialog from "./ui/ModalDialog";
 import { surface } from "./ui/Surface";
 import { client, hostKeys, padiMap } from "./wire";
 
-/** State-backups open-state — the component owns it. Opened from the command
- *  palette's Debug group. */
 export const stateBackupsDialog = createDisclosure();
 
 const chrome = surface({ portalled: true });
 
-/** A snapshot row, normalized across the two stores' wire shapes. */
 interface BackupRow {
   file: string;
-  /** Reprojected onto the BROWSER clock already (a remote padi's stamp rides
-   *  its own clock — `padiMap.entry(host).clock.toLocal` is the foreign-clock
-   *  fence, applied at fetch). `null` while that entry's clock offset is not
-   *  yet measured — rendered as "—", never a fabricated time. */
-  savedAtMs: number | null;
+  savedAtLocalMs: number | null;
   sizeBytes: number;
   summary: string;
-  /** Only a snapshot with something to restore offers the verb — a `no
-   *  session` / `unreadable` snapshot renders but cannot be picked. */
   restorable: boolean;
 }
 
-/** How a restore ENDED. Not every non-throw is a clean success: kolu-server's
- *  restore applies the cells and then converges the host pool, so a host that
- *  would not dial leaves the state restored and the fleet short — a degraded
- *  outcome (`toast.warning` per `dev/skills/kolu-client/SKILL.md`), not the
- *  self-contradicting "Restore failed: state restored, but…" the error channel
- *  used to force. */
 type RestoreOutcome =
   | { kind: "restored" }
   | { kind: "degraded"; detail: string };
 
-/** The five things that differ between the two rings, spelled once per store. */
 interface StoreAdapter {
-  /** `For`-key and resource identity. */
   key: string;
   title: string;
   subtitle: string;
-  /** Is the store reachable right now? A padi ring lives on ITS host. */
   available: boolean;
   list: () => Promise<BackupRow[]>;
   restore: (file: string) => Effect.Effect<RestoreOutcome, unknown>;
@@ -110,7 +60,7 @@ const koluStore: StoreAdapter = {
         Effect.map((r) =>
           r.backups.map((b) => ({
             file: b.file,
-            savedAtMs: b.savedAtMs,
+            savedAtLocalMs: b.savedAtMs,
             sizeBytes: b.sizeBytes,
             summary:
               b.summary.kind === "state"
@@ -133,12 +83,6 @@ const koluStore: StoreAdapter = {
               },
       ),
     ),
-  // WHAT A RESTORE COVERS, and what is not in a backup at all. The two
-  // exclusions are not oversights and the copy says so plainly rather than
-  // letting a person discover them after restoring: the conversation's other
-  // half lives in the agent's own session store, which kolu does not back up,
-  // and kept files are copies on disk while the ring snapshots `config.json`'s
-  // bytes.
   confirmCopy: () =>
     `Restore preferences, the host pool and the Conductor's works from this snapshot? Applies live — no restart. Not in backups: the conversation, kept files. ${UNDOABLE}`,
 };
@@ -148,7 +92,6 @@ const padiStore = (host: HostKey): StoreAdapter => {
   return {
     key: `padi:${host}`,
     title: `padi — ${hostLabel(host)}`,
-    // Offer only what the channel can carry out (#1793).
     subtitle:
       entry().state().kind === "connected"
         ? "session · terminals"
@@ -162,8 +105,7 @@ const padiStore = (host: HostKey): StoreAdapter => {
             Effect.map((r) =>
               r.backups.map((b) => ({
                 file: b.file,
-                // The foreign-clock fence: a remote padi's stamp is ITS clock.
-                savedAtMs: entry().clock.toLocal(b.savedAtMs),
+                savedAtLocalMs: entry().clock.toLocal(b.savedAtMs),
                 sizeBytes: b.sizeBytes,
                 summary: match(b.summary)
                   .with(
@@ -188,11 +130,6 @@ const padiStore = (host: HostKey): StoreAdapter => {
   };
 };
 
-/** The dialog's ONE state. Three states, one signal — `pending`/`inFlight`/
- *  `selected` as three independent cells admitted combinations that mean
- *  nothing (a pending row with no store, an in-flight restore with the row
- *  already cleared), and made `close` remember to clear two of three. The
- *  confirm step itself is `InlineConfirmButton`'s, per row. */
 type View =
   | { kind: "stores" }
   | { kind: "list"; store: StoreAdapter }
@@ -218,16 +155,12 @@ const StateBackupsDialog: Component = () => {
     if (!open) setView({ kind: "stores" });
   };
 
-  /** The restore act — loading/success/error toast round-trip per
-   *  `dev/skills/kolu-client/SKILL.md`, re-entry-guarded like the import
-   *  action (a double click must not restore twice). Written once: the two
-   *  stores differ only in the adapter's `restore`. */
   const restore = (store: StoreAdapter, row: BackupRow): UiAction =>
     Effect.suspend(() => {
       if (view().kind === "restoring") return Effect.void;
       setView({ kind: "restoring", store, row });
       const id = toast.loading(
-        `Restoring ${store.title} from ${formatTimeAgo(row.savedAtMs) || row.file}…`,
+        `Restoring ${store.title} from ${formatTimeAgo(row.savedAtLocalMs) || row.file}…`,
       );
       return store.restore(row.file).pipe(
         Effect.tap((outcome) =>
@@ -275,7 +208,6 @@ const StateBackupsDialog: Component = () => {
           </Show>
         </div>
 
-        {/* Store picker — one row per ring, from the one adapter list. */}
         <Show when={browsing() === null}>
           <div class="space-y-1.5">
             <For each={stores()}>
@@ -294,7 +226,6 @@ const StateBackupsDialog: Component = () => {
           </div>
         </Show>
 
-        {/* Snapshot list for the selected store. */}
         <Show when={browsing()}>
           {(store) => (
             <div class="space-y-1.5">
@@ -324,7 +255,7 @@ const StateBackupsDialog: Component = () => {
                   <div class="rounded-lg border border-edge bg-surface-1 px-3 py-2">
                     <div class="min-w-0">
                       <div class="font-medium text-fg">
-                        {formatTimeAgo(row.savedAtMs) || "—"}
+                        {formatTimeAgo(row.savedAtLocalMs) || "—"}
                         <span class="ml-2 text-[11px] font-normal text-fg-3">
                           {row.summary} · {formatSize(row.sizeBytes)}
                         </span>
@@ -333,9 +264,6 @@ const StateBackupsDialog: Component = () => {
                         {row.file}
                       </div>
                     </div>
-                    {/* The repo's canonical destructive-action affordance: it
-                        owns the confirm step, the Cancel/confirm pair and the
-                        `data-testid` triplet every other confirm exposes. */}
                     <Show when={row.restorable}>
                       <div class="mt-2">
                         <InlineConfirmButton

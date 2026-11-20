@@ -1,22 +1,4 @@
 // @vitest-environment happy-dom
-/**
- * A host tab is LIT on first paint — the regression #2263 shipped and a reload
- * made visible.
- *
- * An element whose JSX spread carries `classList` beside a static `class` has
- * TWO class authorities, and Solid applies spread props in key order: the
- * `classList` state class lands first, `class` then runs as
- * `node.className = "…"` and erases it — and Solid remembers the class as
- * applied, so nothing re-adds it until the value flips false → true (the active
- * tab stayed unlit until you clicked a different host). So the shell takes
- * `active` / `down` as DATA and derives every element's classes in ONE `class`
- * expression, and its bag types forbid `class` / `classList` so a caller cannot
- * bring a second authority back through the spread.
- *
- * `../useServerIdentity` is mocked (the `HostIdentityLabel` inside the shell
- * reads the machine hostname off it) so the live socket stack never boots —
- * the `HostDownCanvas.test.tsx` idiom.
- */
 import type { HostKey } from "kolu-common/hostKey";
 import { createSignal } from "solid-js";
 import { render } from "solid-js/web";
@@ -43,8 +25,6 @@ afterEach(() => {
   root = undefined;
 });
 
-/** Mount the shell the way `HostChip` does — state as data, every other prop
- *  through the attribute bags. */
 function mount(state: () => { active: boolean; down: boolean }) {
   root = document.createElement("div");
   document.body.append(root);
@@ -81,9 +61,7 @@ describe("HostChipShell — one class authority per element", () => {
     const el = mount(() => ({ active: true, down: false }));
     const tab = tabOf(el);
     expect(tab.classList.contains("host-tab-active")).toBe(true);
-    // Active is not idle — the resting paint must not ride along.
     expect(tab.classList.contains("host-tab-idle")).toBe(false);
-    // The geometry the static class carried survives the state class.
     expect(tab.classList.contains("host-tab")).toBe(true);
     expect(tab.classList.contains("relative")).toBe(true);
   });
@@ -93,7 +71,6 @@ describe("HostChipShell — one class authority per element", () => {
     const select = selectOf(el);
     expect(select.classList.contains("text-fg")).toBe(true);
     expect(select.classList.contains("text-fg-2")).toBe(false);
-    // Static geometry kept.
     expect(select.classList.contains("cursor-pointer")).toBe(true);
   });
 
@@ -115,8 +92,6 @@ describe("HostChipShell — one class authority per element", () => {
   });
 
   it("keeps the active belly on a DOWN host that owns the canvas", () => {
-    // `.host-tab-active.host-tab-down` is its own rule in index.css — a down
-    // ACTIVE host keeps a (desaturated) belly, so both classes must land.
     const tab = tabOf(mount(() => ({ active: true, down: true })));
     expect(tab.classList.contains("host-tab-active")).toBe(true);
     expect(tab.classList.contains("host-tab-down")).toBe(true);

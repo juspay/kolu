@@ -1,21 +1,3 @@
-/** Workspace record button.
- *
- *  Two visual states:
- *
- *    idle / setup  — a single 28×28 square holding the camcorder icon.
- *    recording /   — a segmented capsule: [pause · dot+time · webcam].
- *    paused         When live, a soft outer halo breathes outward
- *                   (see `.record-capsule-live` in index.css). When
- *                   paused, the capsule shifts red→amber and the halo
- *                   is suppressed; the middle section reads "PAUSED"
- *                   in place of the level strip.
- *
- *  Click targets: the pause/webcam ends toggle their respective state;
- *  the middle section is the stop button. Keyboard: `⌘⇧.` toggles
- *  pause↔resume (registered as `toggleRecordingPause`).
- *
- *  Hidden when the File System Access API isn't available. */
-
 import { runAction } from "../runAction";
 import { type Component, createSignal, Match, Show, Switch } from "solid-js";
 import { match } from "ts-pattern";
@@ -33,10 +15,6 @@ import {
 const RecordButton: Component = () => {
   if (!isRecordingSupported()) return null;
   const recorder = useRecorder();
-  // Signal-based ref so the popover can re-read the current DOM node
-  // reactively. A plain `let` ref wouldn't track re-mounts of the
-  // idle button after recording↔idle cycles — the popover ended up
-  // positioned against a detached node, rendering off-screen.
   const [triggerEl, setTriggerEl] = createSignal<HTMLButtonElement>();
 
   const isActive = () =>
@@ -60,8 +38,6 @@ const RecordButton: Component = () => {
   const webcamLabel = () =>
     recorder.webcamEnabled() ? "Hide webcam" : "Show webcam";
 
-  // Exhaustive over live/paused × webcamEnabled. ts-pattern's
-  // `.exhaustive()` fires a compile error if Phase ever grows.
   const webcamBtnAccent = () =>
     match({
       phase: recorder.phase() as "recording" | "paused",
@@ -115,7 +91,6 @@ const RecordButton: Component = () => {
             "bg-warning/10 divide-x divide-warning/25": isPaused(),
           }}
         >
-          {/* Pause / resume */}
           <Tip label={pauseLabel()} class="flex">
             <button
               type="button"
@@ -169,7 +144,6 @@ const RecordButton: Component = () => {
             </button>
           </Tip>
 
-          {/* Webcam toggle — end cap. */}
           <Tip label={webcamLabel()} class="flex">
             <button
               type="button"

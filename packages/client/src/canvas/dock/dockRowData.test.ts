@@ -1,11 +1,3 @@
-/** `dockRowLabel` — the ONE author for a dock row's annotation words.
- *
- *  The fold's whole content is the TILE/SPLIT asymmetry: a tile states its
- *  display identity (branch / intent), a split has none of its own and states its
- *  working directory. That asymmetry is exactly what a consumer can get wrong in
- *  silence — the drag ghost read the display projection directly, so every
- *  SPLIT's ghost carried an empty box while the row under it showed words. */
-
 import {
   LOCAL_LOCATION,
   type TerminalMetadata,
@@ -14,8 +6,6 @@ import { describe, expect, it } from "vitest";
 import type { TerminalDisplayInfo } from "../../terminal/terminalDisplay";
 import { dockRowLabel } from "./dockRowData";
 
-/** Only the fields the fold reads; the rest of the record is not reachable from
- *  it (see `shellMeta` in the neighbouring dock tests for the same fixture). */
 function meta(over: { intent?: string; cwd?: string } = {}): TerminalMetadata {
   return {
     state: "active",
@@ -45,8 +35,6 @@ describe("dockRowLabel", () => {
   });
 
   it("states a SPLIT's working directory when there is no display row", () => {
-    // Display info is keyed on TOP-LEVEL tiles, so a split arrives with
-    // `undefined` — and the fold must still produce words.
     expect(dockRowLabel(meta({ cwd: "/tmp/kolu-rehome" }), undefined)).toBe(
       "kolu-rehome",
     );

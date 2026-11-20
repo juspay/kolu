@@ -1,27 +1,3 @@
-/** THE RIGHT COLUMN — what the Conductor has in flight, and what it finished.
- *
- *  Three groups, in the order a person needs them: "Needs you · N" (the
- *  works the one needs-you reading lists — a question for you, or a merge
- *  that is yours), then "In progress" (everything else that is running),
- *  then "Finished", collapsed, the most recently ended first. The group is
- *  cut by the SAME reading the bell, the tab's count and the palette read,
- *  so a work in this group is a work that rang. Within a group the order is
- *  the `works` cell's, which kolu-server publishes oldest first — a card
- *  keeps its place while a new one appears under it; the column does not
- *  re-sort what the record already says.
- *
- *  ONE COMPONENT, TWO PLACEMENTS. On a window wide enough it is the column
- *  beside the conversation; below that width it is the band the status line's
- *  count opens above itself. The rows, the clocks, the open cards and the
- *  Looks are identical, because they are the same component and the same
- *  module state (`./workListing.ts`) — a resize moves the column between the
- *  two with everything a person had open still open.
- *
- *  WITH NOTHING IN IT, it says so in a sentence. The column is on screen
- *  whether or not anything is running — that is what keeps the conversation
- *  from sliding sideways when the first work appears — so what it says when
- *  empty has to be words and not a hole. It never reads `0`. */
-
 import { Key } from "@solid-primitives/keyed";
 import { finished, inProgress, type WorkRow } from "kolu-work";
 import { type Component, createEffect, createMemo, Show } from "solid-js";
@@ -41,8 +17,6 @@ const Heading: Component<{ words: string }> = (props) => (
   </h3>
 );
 
-/** WHAT THE STRIP'S COLOURS MEAN — said once, under the works in progress,
- *  rather than on every card. */
 const Legend: Component = () => (
   <p
     data-testid="work-legend"
@@ -68,10 +42,6 @@ const Legend: Component = () => (
   </p>
 );
 
-/** A LIST OF CARDS, KEYED BY THE WORK'S ID. The `works` cell mints a fresh
- *  `[id, work]` row for every change of any work, so a list keyed by the row
- *  would tear every card down — its open rows, and a scroll a chip had just
- *  asked for — whenever anything happened anywhere. */
 const Cards: Component<{ rows: ReadonlyArray<WorkRow> }> = (props) => (
   <div class="flex flex-col gap-2">
     <Key each={props.rows} by={([id]) => id}>
@@ -80,17 +50,17 @@ const Cards: Component<{ rows: ReadonlyArray<WorkRow> }> = (props) => (
   </div>
 );
 
+type Placement = "inline" | "side";
+
+const columnClass = (placement: Placement): string =>
+  `min-w-0 px-3 py-2 ${placement === "inline" ? "border-t border-edge bg-surface-1" : "bg-surface-0"}`;
+
 const WorkColumn: Component<{
-  /** WHERE THIS COPY IS DRAWN, and nothing more. `inline` is the band the
-   *  status line's control opens below the two-column breakpoint, separated
-   *  from the line by its own top edge; `side` is the always-on column beside
-   *  the conversation, which already has the frame's own left edge. */
-  placement: "inline" | "side";
+  placement: Placement;
 }> = (props) => {
   const works = useWorks();
   const needs = useNeedsYou();
   const live = createMemo(() => inProgress(works()));
-  /** The two groups of what is running, cut by the one needs-you reading. */
   const groups = createMemo(() => {
     const waiting = new Set(needs().map((one) => one.work));
     const onYou: WorkRow[] = [];
@@ -99,9 +69,6 @@ const WorkColumn: Component<{
     return { onYou, moving };
   });
   const done = createMemo(() => finished(works()));
-  // A ROUTE TO A FINISHED WORK opens the Finished list, so its card is drawn
-  // and can answer the route — `showWork` is the one route and does not ask
-  // which list a work sits in.
   createEffect(() => {
     const want = wantedCard();
     if (want !== null && done().some(([id]) => id === want.id)) openFinished();
@@ -111,17 +78,8 @@ const WorkColumn: Component<{
     <div
       data-testid="work-column"
       data-placement={props.placement}
-      // ONE `class` binding, derived from the placement: a `classList` beside
-      // a static `class` loses here (Solid applies the static one last and
-      // erases the state class), which is the defect `HostChipShell` is the
-      // worked example of.
-      class={`min-w-0 px-3 py-2 ${props.placement === "inline" ? "border-t border-edge bg-surface-1" : "bg-surface-0"}`}
+      class={columnClass(props.placement)}
     >
-      {/* THE QUIET LINE IS ABOUT WHAT IS IN FLIGHT, which is what the column
-          is for: a conversation whose waterfalls have all landed is a
-          conversation with nothing in progress, and saying so is more use
-          than a column that is merely a list of history. The finished work
-          keeps its place BELOW that line rather than standing in for it. */}
       <Show
         when={live().length > 0}
         fallback={
@@ -148,9 +106,6 @@ const WorkColumn: Component<{
         <Legend />
       </Show>
       <Show when={done().length > 0}>
-        {/* FINISHED IS SHUT BY DEFAULT. It is history: worth having, never
-            worth the top of the column. One press opens the list; each card
-            in it opens on its own, as a live one does. */}
         <section data-testid="work-finished" class="mt-4">
           <button
             type="button"

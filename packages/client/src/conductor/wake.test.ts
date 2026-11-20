@@ -1,6 +1,3 @@
-/** The machine's line, in one line: the news comes from the EVENTS, never from
- *  the first line of the account (which is a briefing written for the agent). */
-
 import type { ConductorWakeEvent } from "kolu-common/conductor";
 import { describe, expect, it } from "vitest";
 import { wakeHeadline, wakeWhen } from "./wake";
@@ -31,9 +28,6 @@ describe("the wake headline", () => {
   });
 
   it("says an agent that has come up and not been spoken to is up", () => {
-    // `ready` is the level that exists so the Conductor is not told its fresh
-    // planner *stopped*: the line has to read as news about an agent that is
-    // waiting to be briefed.
     expect(wakeHeadline([event("planner", "ready")])).toBe("planner is up");
   });
 
@@ -42,16 +36,12 @@ describe("the wake headline", () => {
   });
 
   it("says what is MISSING when a created terminal's command ended", () => {
-    // "setup ended" alone reads like a success. The whole news is that the
-    // command came back to a prompt and no agent ever appeared.
     expect(wakeHeadline([event("setup", "ended")])).toBe(
       "setup ended without an agent",
     );
   });
 
   it("says plainly that an agent exited back to its shell", () => {
-    // The other ending: there WAS an agent, its program left the foreground,
-    // and the terminal is at its prompt. The plain word carries both halves.
     expect(wakeHeadline([event("planner", "exited")])).toBe("planner exited");
   });
 
@@ -74,8 +64,6 @@ describe("the wake headline", () => {
   });
 
   it("still says something for a wake with no events", () => {
-    // A producer bug, not a state to draw — but a renderer says what it has
-    // rather than leaving a row blank.
     expect(wakeHeadline([])).toBe("a watched terminal rang");
   });
 });

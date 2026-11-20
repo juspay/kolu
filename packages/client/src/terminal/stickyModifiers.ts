@@ -1,26 +1,10 @@
-/** Sticky terminal modifiers for the mobile key bar.
- *
- *  Soft keyboards can't produce Ctrl/Alt chords (Ctrl+R, Alt+f, …) and the
- *  global app shortcuts never reach the PTY, so on a phone those chords are
- *  otherwise unreachable. The key bar *arms* a modifier here; the next single
- *  character of terminal input — whether typed on the soft keyboard (xterm
- *  `onData`) or sent by a key-bar key — is folded into the chord and the
- *  modifier disarms. One-shot, like a sticky-keys press.
- *
- *  Only the two terminal-meaningful modifiers are offered: Ctrl encodes a
- *  control byte, Alt prefixes ESC (a.k.a. Meta). Shift is left to the keyboard
- *  (it already produces uppercase / shifted symbols), and Cmd/Meta has no PTY
- *  encoding.
- *
- *  State is a module-level singleton: arming happens in the key bar but the
- *  fold is applied at two input sites (the key bar's own `sendInput` and the
- *  terminal's `onData`), so the armed flag can't live inside either. */
+/** Sticky terminal modifiers for the mobile key bar: the bar arms Ctrl or Alt,
+ *  and the next single character of terminal input is folded into the chord.
+ *  Module-level state because the fold runs at two input sites. */
 
 import { controlByte, metaByte } from "@kolu/terminal-protocol";
 import { createSignal } from "solid-js";
 
-// HOST-SCOPING: host-INDEPENDENT by design — a keystroke-composition arm flag with
-// no terminal id or host dimension; it folds into whichever host's terminal has focus.
 const [ctrlArmed, setCtrlArmed] = createSignal(false);
 const [altArmed, setAltArmed] = createSignal(false);
 
@@ -43,24 +27,15 @@ export function clearStickyModifiers(): void {
 }
 
 /** Fold any armed modifiers into a single character of input, then disarm.
- *
- *  Returns `data` unchanged (and skips the disarm) when nothing is armed, so
- *  the desktop/no-modifier path is a cheap no-op. When a modifier *is* armed
- *  the press is consumed regardless of whether it composes: escape sequences
- *  and multi-character pastes pass through untouched but still disarm, so a
- *  stray arm never lingers onto a later keystroke. */
+ *  `data` is returned unchanged when nothing is armed; an armed press is
+ *  consumed whether or not it composes. */
 export function applyStickyModifiers(data: string): string {
   const ctrl = ctrlArmed();
   const alt = altArmed();
   if (!ctrl && !alt) return data;
   clearStickyModifiers();
-  // Only lone characters compose; CSI sequences (arrows, etc.) and pastes are
-  // left alone. Spread-count so a surrogate-pair emoji counts as one.
   if ([...data].length !== 1) return data;
   let out = data;
-  // Ctrl folds the lone char to its control byte via the shared
-  // terminal-protocol table (Ctrl+r === Ctrl+R === 0x12); a char with no control
-  // byte (a digit, say) is left as-is. Alt/Meta prefixes ESC.
   if (ctrl) out = controlByte(data) ?? out;
   if (alt) out = metaByte(out);
   return out;

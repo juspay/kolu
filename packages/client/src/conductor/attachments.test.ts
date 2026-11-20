@@ -1,6 +1,3 @@
-/** The two decisions a person can trip over on the way to sending a file: what
- *  a paste actually contained, and whether one more attachment fits. */
-
 import { MIB } from "@kolu/byte-units";
 import {
   ATTACHMENT_BYTE_CAP,
@@ -70,16 +67,11 @@ describe("attachmentRefusal — the caps, in the wire contract's own words", () 
       { name: "third.png", bytes: 8 * MIB },
       15 * MIB,
     );
-    // The sentence is the one kolu-server refuses with, so it reports the TOTAL
-    // rather than the file — the move it asks for is to drop an attachment,
-    // not to shrink this one.
     expect(why).toMatch(/23 MiB/);
     expect(why).toMatch(/20 MiB/);
   });
 
   it("judges each file against what is ALREADY attached, not against itself", () => {
-    // Three 7 MiB files: each passes the per-attachment cap on its own, and
-    // the third is the one the per-message cap stops.
     const seven = { name: "a.png", bytes: 7 * MIB };
     expect(attachmentRefusal(seven, 0)).toBeNull();
     expect(attachmentRefusal(seven, 7 * MIB)).toBeNull();

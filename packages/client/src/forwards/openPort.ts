@@ -1,16 +1,3 @@
-/**
- * How a port becomes an open tab — three layers, never braided.
- *
- *   - {@link urlForPort}  — decision: what URL, once the door port is known
- *   - {@link ensureDoor}  — act: open the door (idempotent) and return its port
- *   - `window.open`       — effect: only at the component edge
- *
- * The chip, the printed-URL card, and "copy door URL" all compose these. Copy
- * is the first two without the third. Braiding decide/act/effect into one
- * `openPort` was rejected in design review: the copy action would have
- * re-implemented half of it.
- */
-
 import { toError } from "@kolu/surface/run-stream";
 import type { SurfaceCallFailure } from "@kolu/surface/client";
 import { Effect } from "effect";
@@ -31,11 +18,6 @@ export type UrlRemainder = {
   protocol?: "http:" | "https:";
 };
 
-/** Append a printed URL's path+query+hash onto a door base URL.
- *
- *  A bare `/` pathname is treated as no remainder so a printout of
- *  `http://localhost:5173/` does not force a trailing slash the door would not
- *  otherwise have — but a real path always rides through. */
 export function withRemainder(base: string, remainder?: UrlRemainder): string {
   if (remainder === undefined) return base;
   const path =
@@ -107,17 +89,6 @@ export function ensureDoor(input: {
   return createForward(input).pipe(Effect.map((forward) => forward.localPort));
 }
 
-/** The ports-section row and the printed-URL card both need "open a door, then
- *  point a tab at it" for their `forward & open` affordance — a fourth,
- *  fully-composed layer on top of the three above, kept here rather than
- *  duplicated in each component so the popup-blocker workaround and the
- *  failure toast cannot drift between the two call sites.
- *
- *  The tab is claimed by the CALLER, synchronously inside the click (a
- *  popup blocker judges `window.open` by descent from a user gesture, and one
- *  issued after an await does not) — this function only takes it from there:
- *  open the door, navigate the tab once the URL is ready, and close it again
- *  on any failure rather than leaving a blank tab behind. */
 export function openThroughDoor(opts: {
   host: HostKey;
   port: number;
@@ -171,12 +142,6 @@ export function openThroughDoor(opts: {
  *  `null` by spec, leaving no handle to navigate once the door is up. */
 export function claimBlankTab(): Window | null {
   const tab = window.open("", "_blank");
-  if (tab !== null) {
-    try {
-      tab.opener = null;
-    } catch {
-      // Electron can throw; ignore.
-    }
-  }
+  if (tab !== null) tab.opener = null;
   return tab;
 }

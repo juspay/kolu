@@ -102,8 +102,6 @@ describe("parseLineRefs", () => {
   });
 
   it("rejects ~/ home-relative refs", () => {
-    // No worktree-aware resolver contract for these — better to skip
-    // than guess and silently open the wrong file.
     expect(parseLineRefs("see ~/src/app.ts:12 for notes")).toEqual([]);
   });
 
@@ -127,8 +125,6 @@ describe("parseLineRefs", () => {
   });
 
   it("matches a single-segment trailing-slash folder ref and keeps the slash", () => {
-    // `ls -F` prints top-level directories as `src/`. The trailing slash must
-    // stay inside the link range so the whole visible token is clickable.
     const refs = parseLineRefs("see src/ for sources");
     expect(refs).toHaveLength(1);
     expect(refs[0]).toMatchObject({
@@ -140,9 +136,6 @@ describe("parseLineRefs", () => {
   });
 
   it("matches a multi-segment trailing-slash folder ref and keeps the slash", () => {
-    // The docs/tip examples use `packages/client/`; the slash must be part of
-    // the match, not left outside the link (the old `+`-final-segment regex
-    // stopped at `packages/client`).
     const refs = parseLineRefs("open packages/client/ in the tree");
     expect(refs).toHaveLength(1);
     expect(refs[0]).toMatchObject({
@@ -169,18 +162,12 @@ describe("parseLineRefs", () => {
   });
 
   it("does not linkify plain words without a `/` or `.ext`", () => {
-    // `react`, `init`, `Makefile` etc. — common terminal output that
-    // would be noisy if every word became hover-decorated.
     expect(parseLineRefs("npm i react")).toEqual([]);
     expect(parseLineRefs("git init")).toEqual([]);
     expect(parseLineRefs("run Makefile")).toEqual([]);
   });
 
   it("does not absorb a trailing sentence period into a slash-path", () => {
-    // The reported bug: `…a single docs/plans/electricity.html.` — the
-    // sentence period sat in the path char class, so the greedy match
-    // swallowed it and the link pointed at `…electricity.html.`, which
-    // never resolved. The reference must stop at the real filename.
     const refs = parseLineRefs(
       "There is now a single docs/plans/electricity.html.",
     );
@@ -201,15 +188,10 @@ describe("parseLineRefs", () => {
   });
 
   it("keeps a trailing `+` so C++-style extensions still link", () => {
-    // Only `.` is stripped from the end — `+`/`@`/`-` are legitimate path
-    // tails (`foo.c++`, `bin/g++`), so the dot-only rule must leave them.
     expect(parseLineRefs("see src/foo.c++ now")[0]?.path).toBe("src/foo.c++");
   });
 
   it("keeps a unicode filename in one piece (does not split at the accent)", () => {
-    // The reported bug: `\w` is ASCII-only, so the path char class stopped
-    // at `é` and the terminal linkified `People/Am` and `lie.md` as two
-    // separate stubs. Unicode letters must stay inside the ref.
     const refs = parseLineRefs("see People/Amélie.md:3 for the bio");
     expect(refs).toHaveLength(1);
     expect(refs[0]).toMatchObject({
@@ -221,12 +203,8 @@ describe("parseLineRefs", () => {
   });
 
   it("keeps a decomposed (NFD) unicode filename in one piece", () => {
-    // A git/macOS path can arrive decomposed: `Ame` + U+0301 (combining
-    // acute) + `lie.md`. The combining mark is `\p{M}`, not `\p{L}`/`\p{N}`,
-    // so without `\p{M}` in the char class the ref splits at the accent
-    // exactly like the original ASCII bug.
     const line = "see People/Amélie.md:3 here".normalize("NFD");
-    expect(line).not.toBe(line.normalize("NFC")); // guard: truly NFD
+    expect(line).not.toBe(line.normalize("NFC"));
     const refs = parseLineRefs(line);
     expect(refs).toHaveLength(1);
     expect(refs[0]?.path.normalize("NFC")).toBe("People/Amélie.md");
@@ -242,9 +220,6 @@ describe("parseLineRefs", () => {
   });
 
   it("reports a byte-accurate index/text for a unicode ref mid-line", () => {
-    // The xterm link provider builds its cell range from `index` +
-    // `text.length`, so a non-ASCII char before/within the match must not
-    // desync those. `é` is one UTF-16 code unit, so the offsets stay exact.
     const line = "café at docs/Amélie.md:9";
     const refs = parseLineRefs(line);
     expect(refs).toHaveLength(1);
@@ -253,11 +228,6 @@ describe("parseLineRefs", () => {
   });
 
   it("keeps a :line suffix intact when a sentence period follows", () => {
-    // The end-anchored `(?<!\.)` lookbehind is placed after the whole
-    // regex rather than inside the slash-path branch — safe only because
-    // a `:line` suffix ends in a digit, so the lookbehind never trims it.
-    // This pins that invariant: moving the lookbehind into the path branch
-    // would change `:line` immunity, and this test would catch it.
     const refs = parseLineRefs("see a/b.c:42.");
     expect(refs).toHaveLength(1);
     expect(refs[0]).toMatchObject({
@@ -399,10 +369,6 @@ describe("resolveRef", () => {
   });
 
   it("returns null on an exact miss when basename fallback is disabled", () => {
-    // GitHub-exact semantics (Markdown relative links, #1161): the linked
-    // path is absent, but a unique same-basename file exists elsewhere. The
-    // fuzzy fallback would silently open the wrong file — disabling it must
-    // fail closed instead.
     expect(
       resolveRef({
         rawPath: "docs/Main.hs",
@@ -427,12 +393,8 @@ describe("resolveRef", () => {
   });
 
   it("resolves an NFC terminal ref against an NFD repo path (and returns the verbatim repo entry)", () => {
-    // The repo path is decomposed (git/macOS NFD: `Ame` + combining acute),
-    // the terminal text is composed (NFC). An exact `Set.has` would miss; we
-    // compare under NFC. The resolved value must be the *verbatim* NFD repo
-    // entry — that's the byte sequence the OS/git addresses the file by.
     const nfdRepoPath = "People/Amélie.md".normalize("NFD");
-    expect(nfdRepoPath).not.toBe(nfdRepoPath.normalize("NFC")); // guard
+    expect(nfdRepoPath).not.toBe(nfdRepoPath.normalize("NFC"));
     const resolved = resolveRef({
       rawPath: "People/Amélie.md".normalize("NFC"),
       repoRoot,
@@ -444,8 +406,6 @@ describe("resolveRef", () => {
 
   it("resolves an NFD terminal ref against an NFC repo path via basename too", () => {
     const nfcRepoPath = "People/Amélie.md".normalize("NFC");
-    // Slash path differs only by normalization; also exercise the bare
-    // basename fallback with mismatched forms.
     expect(
       resolveRef({
         rawPath: "Amélie.md".normalize("NFD"),
@@ -457,9 +417,6 @@ describe("resolveRef", () => {
   });
 
   it("returns null when two distinct repo paths collide under NFC", () => {
-    // A repo can contain both the NFC and NFD encodings of the same name as
-    // genuinely distinct files. An NFC ref is ambiguous between them, so we
-    // fail closed rather than open whichever happened to be indexed first.
     const nfc = "People/Amélie.md".normalize("NFC");
     const nfd = "People/Amélie.md".normalize("NFD");
     expect(
@@ -473,10 +430,6 @@ describe("resolveRef", () => {
     ).toBeNull();
   });
 
-  // ── Directory resolution (terminal folder-link front door) ──
-  // A slash path that names no file but *is* a real directory resolves to a
-  // `directory` reveal, keyed by its trailing-slash folder key (Pierre's
-  // directory-row id). Directories are inferred from the file list's prefixes.
   const dirRepoPaths = [
     "src/app.ts",
     "src/lib/util.ts",
@@ -540,10 +493,6 @@ describe("resolveRef", () => {
   });
 
   it("prefers a real directory over a same-basename file elsewhere", () => {
-    // `app/core` is a real directory; `lib/core` is a file whose basename
-    // (`core`) the fuzzy fallback would otherwise match. The directory must
-    // win — clicking a folder path should reveal that folder, never guess at a
-    // stray same-named file (the whole point of checking dirs before basename).
     expect(
       resolveRef({
         rawPath: "app/core",
@@ -555,9 +504,6 @@ describe("resolveRef", () => {
   });
 
   it("resolves a directory even when basename fallback is disabled", () => {
-    // The exact-file and exact-directory steps aren't gated by
-    // allowBasenameFallback — a Markdown relative link to a folder still
-    // reveals it; only the fuzzy basename guess is disabled.
     expect(
       resolveRef({
         rawPath: "src/lib",
@@ -570,9 +516,6 @@ describe("resolveRef", () => {
   });
 
   it("does not reveal a directory for a line-bearing ref", () => {
-    // `app/core:12` carries a `:line` suffix, which only makes sense for a
-    // file. A directory match would silently reveal `app/core/` and drop the
-    // `:12`, so a line-bearing folder ref must fail closed to not-found.
     expect(
       resolveRef({
         rawPath: "src/lib",
@@ -585,11 +528,6 @@ describe("resolveRef", () => {
   });
 
   it("fails closed (no basename fuzzy) for a line-bearing directory ref", () => {
-    // `app/core:12` names a real directory (`app/core/`), and `core` is also a
-    // unique file basename elsewhere (`lib/core`). The line suffix means a
-    // file, so we don't reveal the folder — but because the path already names
-    // a real directory we must NOT fall through to the basename fallback and
-    // open the unrelated `lib/core`. It fails closed to not-found.
     expect(
       resolveRef({
         rawPath: "app/core",
@@ -602,8 +540,6 @@ describe("resolveRef", () => {
   });
 
   it("still resolves an exact file for a line-bearing ref", () => {
-    // The line gate only suppresses the *directory* step — a real file with a
-    // `:line` still resolves (and the caller paints the highlight).
     expect(
       resolveRef({
         rawPath: "src/app.ts",
@@ -627,8 +563,6 @@ describe("resolveRef", () => {
   });
 
   it("does not treat the repo root itself as a directory", () => {
-    // An absolute ref equal to repoRoot strips to the empty candidate, which
-    // names no folder row — resolve to nothing rather than a phantom root.
     expect(
       resolveRef({
         rawPath: "/tmp/work",
@@ -640,8 +574,6 @@ describe("resolveRef", () => {
   });
 
   it("resolves an NFC directory ref against an NFD repo path (verbatim folder key)", () => {
-    // Same NFC/NFD concern as files: the folder key returned must be the
-    // verbatim (NFD) prefix Pierre's tree is built from, not the NFC ref.
     const nfdFile = "People/Amélie/note.md".normalize("NFD");
     const nfdDirKey = "People/Amélie/".normalize("NFD");
     expect(

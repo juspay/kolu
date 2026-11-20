@@ -4,15 +4,11 @@ import { describe, expect, it } from "vitest";
 import { useTerminalExits } from "./useTerminalExits";
 
 const ids = (...xs: string[]) => xs as TerminalId[];
-/** Solid flushes `createEffect` on a microtask; a macrotask tick drains it. */
 const flush = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
 
 describe("useTerminalExits", () => {
   it("releases a terminal's exit subscription the moment it leaves the list", async () => {
     await createRoot(async (dispose) => {
-      // A killed terminal publishes no `terminalExit` event, so its departure
-      // from the list is the ONLY thing that can release the subscription —
-      // the exact path that leaked before this was list-keyed.
       const live = new Set<string>();
       const [list, setList] = createSignal(ids("a", "b"));
       useTerminalExits({
@@ -25,11 +21,11 @@ describe("useTerminalExits", () => {
       await flush();
       expect([...live].sort()).toEqual(["a", "b"]);
 
-      setList(ids("a")); // "b" killed
+      setList(ids("a"));
       await flush();
       expect([...live]).toEqual(["a"]);
 
-      setList(ids()); // killAll
+      setList(ids());
       await flush();
       expect(live.size).toBe(0);
 
@@ -49,7 +45,7 @@ describe("useTerminalExits", () => {
 
       setList(ids("a"));
       await flush();
-      setList(ids("a", "b")); // adding "b" must not re-run "a"
+      setList(ids("a", "b"));
       await flush();
 
       expect(counts.get("a")).toBe(1);

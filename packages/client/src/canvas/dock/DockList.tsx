@@ -1,24 +1,3 @@
-/** DockList — the live-terminal list shared by the two touch layouts: the
- *  phone's left-edge swipe drawer (inlined in `MobileTileView`) and the compact
- *  layout's persistent left rail (`CompactTileView`).
- *
- *  Rows match the desktop bare-dock layout — `[indicator] branch [pips] time`
- *  over a CSS subgrid — but with uniform `py-3` so every tap target clears the iOS /
- *  Android 44-48 px minimum. No reply input and no xterm buffer tail; the user's
- *  intent here is "switch to that other terminal", not "respond inline".
- *
- *  Row order mirrors the desktop dock: same `useDockOrder` singleton, so every
- *  surface (desktop dock, phone drawer, compact rail) agrees on group order, row
- *  order, and which rows the activity window hides — creation order within a
- *  dragged arrangement, never a clock. The pinned needs-you strip rides that
- *  same singleton, so a blocked agent is as findable on a phone as it is on the
- *  desktop. The drag GESTURE itself is desktop-only for now (#2247) — the
- *  arrangement it persists shows through everywhere.
- *
- *  Renders as a fragment (header · scroll list · hidden footer); the host
- *  supplies a `flex flex-col h-full` container and decides selection semantics —
- *  the drawer dismisses on select, the rail does not. */
-
 import { DockRow as DockRowView, DockSection } from "@kolu/solid-dockrow";
 import type { DockRowBucket } from "@kolu/solid-dockrow/rowValues";
 import { AttentionTriplet } from "@kolu/solid-statepip";
@@ -61,38 +40,17 @@ export function DockList(props: { onSelect: (id: TerminalId) => void }) {
       <HiddenFooter
         hiddenCount={tree().hiddenCount}
         sleepingCount={tree().sleepingCount}
-        compact
-        testId="mobile-dock-hidden-footer"
-        chipTestIdPrefix="mobile-dock-window"
+        surface="touch"
       />
     </>
   );
 }
 
-/** Repo section — monogram + spine + sticky header over the group's
- *  rows, sharing the desktop dock's `.dock-cards-section*` classes so
- *  both surfaces carry one repo-identity vocabulary. Always rendered,
- *  matching the desktop dock's "section headers always on" policy. */
 function DockListSection(props: {
   group: DockGroup;
   onSelect: (id: TerminalId) => void;
 }) {
-  // Same shared fold as the desktop header — the two headers cannot count
-  // differently. Capsules stay plain spans here (no jump handlers): the rows
-  // they summarize are directly below on a touch surface.
   const attn = useSectionAttention(() => props.group);
-  // Subgrid container — same shape as the desktop dock (the shared
-  // `DOCK_ROW_GRID`). Three cols: indicator · branch · time.
-  // The leading 20px indicator track is fixed (not `auto`) holding
-  // `StatePip`, so the indicator never shifts as its axes flip. PR
-  // pip lives on line 2 (left) alongside the subline, anchored to the
-  // branch column's left edge so PR icons align across every section.
-  //
-  // Right gutter (`pr-3` / `-mr-3`) happens to match the desktop
-  // `DOCK_CARDS_GUTTER_*` value today, but the two are kept separate
-  // because they encode different volatility — this tight gutter is a
-  // touch-density choice, desktop's is the chrome-density vocabulary.
-  // Promote to a shared constant the moment a third file consumes it.
   return (
     <DockSection
       surface="touch"
@@ -157,22 +115,10 @@ function DockListSection(props: {
   );
 }
 
-/** kolu's TOUCH wiring for `@kolu/solid-dockrow`'s two-line row — the same
- *  component `Dock.tsx` renders, at `touch` density.
- *
- *  The two used to be hand-kept copies of one row's markup, linked by a comment
- *  reading "Update both files when row geometry changes". The divergences that
- *  comment defended — tap-target sizing, the Corvu drag-to-dismiss pointer trap,
- *  and the absence of a `Cmd+N` shortcut hint — are the density token and two
- *  props below, not a second component. */
 function DockListRow(props: {
   id: TerminalId;
-  /** ORDER bucket — drives `data-bucket`. */
   bucket: DockRowBucket;
-  /** PIP bucket — drives the `StatePip` colour, identical to the tile title's
-   *  pip (both `agentPaintClass`), decoupled from order. */
   pip: DockRowBucket;
-  /** Newest activity in the whole tile, including its splits. */
   recencyAt: number | null;
   onSelect: (id: TerminalId) => void;
 }) {
@@ -181,9 +127,6 @@ function DockListRow(props: {
   return (
     <Show when={combined()}>
       {(c) => {
-        // ONCE per row, not in the spread — the bag mints this row's StatePip
-        // memo, and a memo re-created on every prop read either accumulates on
-        // this owner or freezes the row at first paint. See `useDockRowBag`.
         const bag = rowBag({
           id: props.id,
           combined: c,
@@ -196,9 +139,6 @@ function DockListRow(props: {
             {...bag}
             surface="touch"
             onSelect={() => props.onSelect(props.id)}
-            // stopPropagation on pointerdown keeps Corvu Drawer's
-            // drag-to-dismiss from claiming the tap (no-op in the rail,
-            // load-bearing in the phone drawer).
             onPointerDown={(event) => event.stopPropagation()}
             testIds={{
               row: "mobile-dock-row",

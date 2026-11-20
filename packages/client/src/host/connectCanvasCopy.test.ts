@@ -1,15 +1,7 @@
-/** Pins the connect overlay's pure phase → narration mapping (W6): the provisioning
- *  headlines, WHICH phases time themselves (the coming-up ones, never the reconnect
- *  backoff), and which phases are narratable here (the coming-up ones plus the backoff; a
- *  standing refusal or terminal give-up is the host-down card's). */
-
 import { describe, expect, it } from "vitest";
 import { connectCanvasCopy, isConnectPhase } from "./connectCanvasCopy";
 
 describe("connectCanvasCopy", () => {
-  // The table is titles plus ONE per-phase knob, `showsElapsed`; the tail renders off the
-  // frame's own data (pinned in `connectCanvasView.test.ts`), so a `probing` frame's log is
-  // never hidden by a flag.
   it("probing is the calm OPENING title — 'Connecting to <host>…'", () => {
     expect(connectCanvasCopy("probing", "zest").title).toContain(
       "Connecting to zest",
@@ -29,11 +21,6 @@ describe("connectCanvasCopy", () => {
   });
 
   it("the GAP (undefined phase) is byte-identical to probing — kills the connect-copy flicker", () => {
-    // The pre-frame/gap case: no connect phase known yet (subscription pending, C' floored a
-    // stale cell, or a connected/down phase narrowed out). It returns the SAME copy as
-    // probing, so a routing flap between the boot-gate `connecting` mode and the `warming`
-    // overlay renders identical pixels — the flicker srid saw is gone, without hiding the
-    // state machine (real provisioning still narrates its distinct copy).
     const gap = connectCanvasCopy(undefined, "zest");
     expect(gap.title).toBe(connectCanvasCopy("probing", "zest").title);
     expect(gap.title).toContain("Connecting to zest");

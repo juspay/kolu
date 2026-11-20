@@ -1,24 +1,12 @@
-/** The B3.3 reattach-toast dedupe truth table — when the "N terminals
- *  reattached" confirmation fires.
- *
- *  Mirrors `kavalCurrency.test.ts`: the falsifiable proof the toast fires ONCE
- *  per real adoption and — the regression this locks — NOT again when the SAME
- *  adoption snapshot is replayed to a fresh client context (a page reload /
- *  mobile-Safari tab eviction). Imports the pure module only — no daemonStatus
- *  subscription, no DOM. See juspay/kolu#1365. */
-
 import type { DaemonState, DaemonStatus } from "@kolu/padi-client/surface";
 import { describe, expect, it, vi } from "vitest";
 import { persistedPref } from "../persistedPref";
 import {
-  announceAutoRecovery,
-  announceLinkRestored,
   announceReattach,
+  announceRepair,
   reattachToAnnounce,
 } from "./reattachAnnounce";
 
-/** A synchronous in-memory `Storage`, so the persistence-wiring tests below run
- *  the SAME `persistedPref` path the app uses (parse + write) without a DOM. */
 function fakeStorage(): Storage {
   const m = new Map<string, string>();
   return {
@@ -33,9 +21,6 @@ function fakeStorage(): Storage {
   };
 }
 
-/** The persisted high-water-mark signal exactly as `useDaemonStatus` builds it —
- *  same key, fallback, and `parse` — over an injected `storage`, so a future
- *  mis-key or dropped persist of `setReattachAnnouncedAt` fails a test here. */
 function persistedMark(storage: Storage) {
   return persistedPref<Record<string, number>>({
     name: "kolu.kaval.reattachAnnouncedAt",
@@ -53,9 +38,6 @@ function persistedMark(storage: Storage) {
   });
 }
 
-/** The per-ACTIVE-host projection `useDaemonStatus`'s effect applies over the record:
- *  read `record[host] ?? 0`, commit `{ ...prev, [host]: mark }`. Recompute per call (each
- *  effect run reads the mark fresh), so it mirrors the app exactly. */
 function markFor(
   mark: () => Record<string, number>,
   setMark: (
@@ -88,9 +70,6 @@ describe("reattachToAnnounce — the B3.3 one-shot dedupe", () => {
       why: "first adoption (nothing announced yet) → announce",
     },
     {
-      // THE BUG (juspay/kolu#1365): the same adoption snapshot is replayed to a
-      // fresh JS context on reconnect/reload; `lastAnnouncedAt` persisted across
-      // the reload equals this `adoptedAt`, so it must STAY SILENT.
       state: "connected" as DaemonState,
       adopted: 3,
       adoptedAt: 1000,
@@ -153,32 +132,21 @@ describe("reattachToAnnounce — the B3.3 one-shot dedupe", () => {
   });
 });
 
-/** The persistence WIRING — the half the truth table can't see: that
- *  `announceReattach` commits the proven `adoptedAt` to the localStorage-backed
- *  high-water mark BEFORE it toasts, that a re-run on the same snapshot is
- *  therefore silent, and — the reload regression itself — that a FRESH signal
- *  built over the same storage (a new JS context) replays the same snapshot in
- *  silence. Runs the real `persistedPref` over a fake `Storage`, so a dropped or
- *  mis-keyed persist breaks a test rather than passing unnoticed. */
 describe("announceReattach — the persisted high-water mark", () => {
   it("commits the adoptedAt before it notifies, then stays silent on a re-emit", () => {
     const storage = fakeStorage();
     const [mark, setMark] = persistedMark(storage);
     const notify = vi.fn();
 
-    // First adoption on the active host (local): announces once and persists the mark.
     const [m0, set0] = markFor(mark, setMark, "local");
     announceReattach(adoptedStatus(1000), m0, set0, notify);
     expect(notify).toHaveBeenCalledTimes(1);
     expect(notify).toHaveBeenCalledWith(3);
     expect(mark().local).toBe(1000);
-    // Written THROUGH to storage under the app's key, HOST-KEYED — a mis-key fails here.
     expect(storage.getItem("kolu.kaval.reattachAnnouncedAt")).toBe(
       '{"local":1000}',
     );
 
-    // `localDaemonStatus()` re-emits on every transition; the same snapshot must not
-    // re-toast — the (recomputed) mark now equals adoptedAt, so the decision is null.
     const [m1, set1] = markFor(mark, setMark, "local");
     announceReattach(adoptedStatus(1000), m1, set1, notify);
     expect(notify).toHaveBeenCalledTimes(1);
@@ -186,16 +154,12 @@ describe("announceReattach — the persisted high-water mark", () => {
 
   it("stays silent when a fresh context replays the same adoption (the reload bug)", () => {
     const storage = fakeStorage();
-    // The pre-reload context announced adoptedAt=1000 on local and persisted it.
     {
       const [mark, setMark] = persistedMark(storage);
       const [m, s] = markFor(mark, setMark, "local");
       announceReattach(adoptedStatus(1000), m, s, vi.fn());
     }
 
-    // The reload: a BRAND-NEW signal reads the surviving mark from storage, and the
-    // server replays the SAME sticky snapshot. The old module boolean reset here and
-    // re-fired (juspay/kolu#1365); the persisted per-host mark keeps it silent.
     const [mark, setMark] = persistedMark(storage);
     expect(mark().local).toBe(1000);
     const notify = vi.fn();
@@ -203,7 +167,6 @@ describe("announceReattach — the persisted high-water mark", () => {
     announceReattach(adoptedStatus(1000), m, s, notify);
     expect(notify).not.toHaveBeenCalled();
 
-    // …but a genuinely newer adoption after the reload still announces.
     const [m2, s2] = markFor(mark, setMark, "local");
     announceReattach(adoptedStatus(2000), m2, s2, notify);
     expect(notify).toHaveBeenCalledTimes(1);
@@ -211,41 +174,34 @@ describe("announceReattach — the persisted high-water mark", () => {
   });
 
   it("is PER-HOST: a remote ahead-clock toast does NOT suppress a later local re-adoption on switch-back (re-run #6)", () => {
-    // adoptedAt is a RAW foreign epoch on each host's OWN clock (deliberately unreprojected — a
-    // monotonic dedup key, never compared to the browser). Per-host clocks are not mutually
-    // monotonic, so the mark is a per-HOST record: one shared scalar would let a remote
-    // ahead-clock adoption raise the bar above a genuine later LOCAL re-adoption and swallow it.
     const storage = fakeStorage();
     const [mark, setMark] = persistedMark(storage);
     const notify = vi.fn();
 
-    // Remote "srid@zest" (clock way AHEAD) adopts at 10_000 → toast; only zest's mark advances.
     const [mz, sz] = markFor(mark, setMark, "srid@zest");
     announceReattach(adoptedStatus(10_000), mz, sz, notify);
     expect(notify).toHaveBeenCalledTimes(1);
     expect(mark()).toEqual({ "srid@zest": 10_000 });
 
-    // Switch back to local; local re-adopts at 5_000 (< zest's 10_000, but its OWN clock) →
-    // STILL toasts, because local's own mark is 0. A shared scalar (10_000) would suppress it.
     const [ml, sl] = markFor(mark, setMark, "local");
     announceReattach(adoptedStatus(5_000), ml, sl, notify);
     expect(notify).toHaveBeenCalledTimes(2);
     expect(mark()).toEqual({ "srid@zest": 10_000, local: 5_000 });
 
-    // Re-run local on the same snapshot → silent (5_000 not > local's OWN 5_000).
     const [ml2, sl2] = markFor(mark, setMark, "local");
     announceReattach(adoptedStatus(5_000), ml2, sl2, notify);
     expect(notify).toHaveBeenCalledTimes(2);
   });
 });
 
-describe("announceAutoRecovery — one toast per PROVEN automatic repair (#2101 N1)", () => {
+describe("announceRepair('autoRecoveredAt') — one toast per PROVEN automatic repair (#2101 N1)", () => {
   const connected = (autoRecoveredAt?: number) =>
     ({ state: "connected", autoRecoveredAt }) as const;
 
   it("announces a stamp newer than the mark, committing BEFORE notifying", () => {
     const order: string[] = [];
-    announceAutoRecovery(
+    announceRepair(
+      "autoRecoveredAt",
       connected(1_700),
       0,
       (at) => order.push(`commit:${at}`),
@@ -256,20 +212,21 @@ describe("announceAutoRecovery — one toast per PROVEN automatic repair (#2101 
 
   it("stays silent on a REPLAY of the same stamp — the #1365 rule, inherited", () => {
     const notify = vi.fn();
-    announceAutoRecovery(connected(1_700), 1_700, vi.fn(), notify);
+    announceRepair("autoRecoveredAt", connected(1_700), 1_700, vi.fn(), notify);
     expect(notify).not.toHaveBeenCalled();
   });
 
   it("stays silent when nothing was auto-repaired", () => {
     const notify = vi.fn();
-    announceAutoRecovery(connected(undefined), 0, vi.fn(), notify);
+    announceRepair("autoRecoveredAt", connected(undefined), 0, vi.fn(), notify);
     expect(notify).not.toHaveBeenCalled();
   });
 
   it("stays silent on a non-connected snapshot, however it is stamped", () => {
     const notify = vi.fn();
-    announceAutoRecovery(
-      { state: "degraded" } as Parameters<typeof announceAutoRecovery>[0],
+    announceRepair(
+      "autoRecoveredAt",
+      { state: "degraded" } as Parameters<typeof announceRepair>[1],
       0,
       vi.fn(),
       notify,
@@ -278,13 +235,14 @@ describe("announceAutoRecovery — one toast per PROVEN automatic repair (#2101 
   });
 });
 
-describe("announceLinkRestored — one toast per re-made link (#2184)", () => {
+describe("announceRepair('linkRestoredAt') — one toast per re-made link (#2184)", () => {
   const connected = (linkRestoredAt?: number) =>
     ({ state: "connected", linkRestoredAt }) as const;
 
   it("announces a stamp newer than the mark, committing BEFORE notifying", () => {
     const order: string[] = [];
-    announceLinkRestored(
+    announceRepair(
+      "linkRestoredAt",
       connected(2_400),
       0,
       (at) => order.push(`commit:${at}`),
@@ -295,26 +253,27 @@ describe("announceLinkRestored — one toast per re-made link (#2184)", () => {
 
   it("stays silent on a REPLAY of the same stamp — the #1365 rule, inherited", () => {
     const notify = vi.fn();
-    announceLinkRestored(connected(2_400), 2_400, vi.fn(), notify);
+    announceRepair("linkRestoredAt", connected(2_400), 2_400, vi.fn(), notify);
     expect(notify).not.toHaveBeenCalled();
   });
 
   it("stays silent on a stamp OLDER than the mark", () => {
     const notify = vi.fn();
-    announceLinkRestored(connected(1_000), 2_400, vi.fn(), notify);
+    announceRepair("linkRestoredAt", connected(1_000), 2_400, vi.fn(), notify);
     expect(notify).not.toHaveBeenCalled();
   });
 
   it("stays silent when no link was lost and re-made", () => {
     const notify = vi.fn();
-    announceLinkRestored(connected(undefined), 0, vi.fn(), notify);
+    announceRepair("linkRestoredAt", connected(undefined), 0, vi.fn(), notify);
     expect(notify).not.toHaveBeenCalled();
   });
 
   it("stays silent on a non-connected snapshot, however it is stamped", () => {
     const notify = vi.fn();
-    announceLinkRestored(
-      { state: "degraded" } as Parameters<typeof announceLinkRestored>[0],
+    announceRepair(
+      "linkRestoredAt",
+      { state: "degraded" } as Parameters<typeof announceRepair>[1],
       0,
       vi.fn(),
       notify,
@@ -323,11 +282,6 @@ describe("announceLinkRestored — one toast per re-made link (#2184)", () => {
   });
 });
 
-/** The law that makes three stamps worth having: an adoption, an auto-recovery
- *  and a re-made link are independent facts about one host, so each announces off
- *  its OWN mark and none of them can silence another — whatever order they arrive
- *  in, and however the epochs happen to compare. One shared mark would make the
- *  greatest stamp win and swallow the rest. */
 describe("the three announcements are independent (#2184)", () => {
   it("a link restore does not suppress an auto-recovery or a reattach on the same snapshot", () => {
     const status = {
@@ -339,21 +293,20 @@ describe("the three announcements are independent (#2184)", () => {
       autoRecoveredAt: 5_000,
       linkRestoredAt: 5_000,
     } as DaemonStatus;
-    // One mark per fact, all still at their `0` fallback.
     const marks = { reattach: 0, recovery: 0, link: 0 };
     const reattachNotify = vi.fn();
     const recoveryNotify = vi.fn();
     const linkNotify = vi.fn();
 
-    // The link restore announces FIRST and commits its mark — the arrival order
-    // that would hide the other two behind a shared mark.
-    announceLinkRestored(
+    announceRepair(
+      "linkRestoredAt",
       status,
       marks.link,
       (at) => (marks.link = at),
       linkNotify,
     );
-    announceAutoRecovery(
+    announceRepair(
+      "autoRecoveredAt",
       status,
       marks.recovery,
       (at) => (marks.recovery = at),
@@ -374,10 +327,10 @@ describe("the three announcements are independent (#2184)", () => {
   it("an auto-recovery already announced does not suppress a LATER link restore, and each still dedupes itself", () => {
     const recoveryNotify = vi.fn();
     const linkNotify = vi.fn();
-    // padi recycled a wedged kaval at 1_000; the client announced it.
     let recoveryMark = 0;
     let linkMark = 0;
-    announceAutoRecovery(
+    announceRepair(
+      "autoRecoveredAt",
       { state: "connected", autoRecoveredAt: 1_000 } as DaemonStatus,
       recoveryMark,
       (at) => (recoveryMark = at),
@@ -385,27 +338,37 @@ describe("the three announcements are independent (#2184)", () => {
     );
     expect(recoveryMark).toBe(1_000);
 
-    // Later the link to the (healthy) daemon drops and is re-adopted. The
-    // recovery's committed mark is not this fact's mark, so it announces.
     const after = {
       state: "connected",
       autoRecoveredAt: 1_000,
       linkRestoredAt: 2_000,
     } as DaemonStatus;
-    announceLinkRestored(after, linkMark, (at) => (linkMark = at), linkNotify);
-    announceAutoRecovery(
+    announceRepair(
+      "linkRestoredAt",
+      after,
+      linkMark,
+      (at) => (linkMark = at),
+      linkNotify,
+    );
+    announceRepair(
+      "autoRecoveredAt",
       after,
       recoveryMark,
       (at) => (recoveryMark = at),
       recoveryNotify,
     );
     expect(linkNotify).toHaveBeenCalledTimes(1);
-    // …and the recovery stayed silent on its own replay.
     expect(recoveryNotify).toHaveBeenCalledTimes(1);
 
-    // A re-emit of the same snapshot announces nothing at all.
-    announceLinkRestored(after, linkMark, (at) => (linkMark = at), linkNotify);
-    announceAutoRecovery(
+    announceRepair(
+      "linkRestoredAt",
+      after,
+      linkMark,
+      (at) => (linkMark = at),
+      linkNotify,
+    );
+    announceRepair(
+      "autoRecoveredAt",
       after,
       recoveryMark,
       (at) => (recoveryMark = at),

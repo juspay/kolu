@@ -43,7 +43,6 @@ describe("paneDirectory", () => {
   });
 
   it("a cwd that left the repo gets the plain path, not a false prefix", () => {
-    // `startsWith` on the bare string would read /repo-2 as inside /repo.
     expect(paneDirectory(meta("/repo-2/x", "/repo"))).toEqual({
       root: "/repo-2/x",
       rest: "",

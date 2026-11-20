@@ -1,15 +1,9 @@
 // @vitest-environment happy-dom
-/** WHAT THE ONE VIEWER DRAWS for a file read as text: code, a rendered
- *  document — or, for content that is not text at all (a NUL in it, git's
- *  own test), the no-preview line rather than a screen of garbage. */
 
 import { render } from "solid-js/web";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import BrowseFileDispatcher from "./BrowseFileDispatcher";
 
-// The source view is pierre's highlighter, which is not this test's subject:
-// what is pinned is WHICH view the dispatcher picks. Pierre itself loads a
-// grammar only the app's Vite build can resolve, so it is stubbed too.
 vi.mock("./BrowseFileView", () => ({
   default: (props: { content: string }) => (
     <pre data-testid="source-view">{props.content}</pre>

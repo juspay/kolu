@@ -59,9 +59,6 @@ describe("openInCodeTab", () => {
   });
 
   it("scopes a split's request to the SPLIT's own repo, not its tile's", () => {
-    // The panel follows the focused pane, so a path clicked in a split resolves
-    // against that split's repo — the prefix the old panel-owner indirection got
-    // wrong.
     h.getMetadata.mockImplementation((id: string) =>
       id === "split-b"
         ? {

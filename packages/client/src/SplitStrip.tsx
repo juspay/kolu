@@ -1,6 +1,3 @@
-/** SplitStrip — affordance strip for split terminal discoverability.
- *  "prompt" when no splits exist yet, "collapsed" when splits are hidden. */
-
 import type { Component } from "solid-js";
 import { ACTIONS } from "./input/actions";
 import { formatKeybind } from "./input/keyboard";

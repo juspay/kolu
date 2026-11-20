@@ -9,8 +9,6 @@ import { expect, it, vi } from "vitest";
 const MAIN = "teardown-main" as TerminalId;
 const SUB = "teardown-sub" as TerminalId;
 
-// Counts every read of the host's split state. The real Corvu Resizable stays
-// in: its Panel cleanup is the teardown path under test.
 const reads = vi.hoisted(() => ({ splitState: 0 }));
 
 vi.mock(import("@kolu/padi-client/surface"), async (importOriginal) => ({
@@ -89,22 +87,6 @@ it("tears down without reading the host's split state", () => {
     host,
   );
   reads.splitState = 0;
-  // The failure this stands in for: clicking a host tab threw
-  // `TypeError: Cannot read properties of null` inside Solid's `cleanNode` and
-  // aborted the update, so the incoming host's tiles never rendered. Corvu's
-  // Resizable.Panel unregisters in onCleanup and re-reads the controlled
-  // `sizes` there; on a host switch the split state behind it is a memo still
-  // pending in the flush doing the teardown, and resolving that pending read
-  // re-runs owners that are mid-disposal, so one is cleaned twice.
-  //
-  // The contract is deliberately STRONGER than "nothing throws": teardown
-  // reads the split state ZERO times. Zero reads ⇒ no pending memo is touched
-  // ⇒ no upstream flush ⇒ no re-entrant dispose, whatever the flush happens to
-  // hold. A mock store can't reproduce which memos are pending on a real host
-  // switch, so "reads are fine as long as nothing throws" would pass here and
-  // still crash in the app. Do not weaken this to a no-throw check.
-  //
-  // Unmount inside a reactive update, as every app teardown is.
   setMounted(false);
   expect(reads.splitState).toBe(0);
   dispose();

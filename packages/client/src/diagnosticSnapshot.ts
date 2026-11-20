@@ -1,37 +1,3 @@
-/**
- * The copy-pasteable client diagnostic snapshot (kolu#2101 J2) — everything this
- * tab believes about its own wire, in one block a user can paste into an issue.
- *
- * **The incident it exists for.** A woken tab sat on a stale card while its
- * socket, its watchdog and its header dot were all healthy: a re-dial the
- * protocol swallowed had orphaned every fenced subscription in the page, and
- * nothing on the client could say so. Diagnosing it took server-log archaeology
- * plus screenshot forensics, and the three facts that would have settled it in a
- * second — the swallowed dial, each subscription's last frame, and the wire's
- * open-since — were held by the client and exposed by nothing.
- *
- * **Two rules the whole module is built to keep.**
- *
- *  1. **No network.** The builder reads already-held client state and nothing
- *     else: the link's own dial history, the subscription liveness registry, the
- *     host map's folded entry state, the watchdog's last verdict. A diagnostic
- *     that had to ASK the server would be useless in exactly the case it exists
- *     for — a wire that is lying. It is synchronous for the same reason, plus
- *     one more: {@link writeTextToClipboard} must be reached inside the user's
- *     gesture window (`@kolu/solid-logtail`'s `clipboard.ts`), so the build has to happen inside the
- *     `Effect.suspend` that precedes the write, with no `await` before it.
- *  2. **Never fabricate.** An absent value is `"unknown"`, never a zero, never a
- *     plausible default. Half this block's job is to be read BESIDE a server log,
- *     and a fabricated field would send a reader down a false trail.
- *
- * **Format.** Plain text, fixed sections, stable field order — the mandate's
- * shape, and the one that survives being pasted into an issue, a chat, or a
- * terminal. {@link collectDiagnosticSnapshot} builds the ordered DATA and
- * {@link formatDiagnosticSnapshot} renders it, so the on-screen block and the
- * copied text derive from one structure rather than two renderings that can
- * drift.
- */
-
 import { PADI_SURFACE_VERSION } from "@kolu/padi-client/surface";
 import type { DialAttempt } from "@kolu/surface/links/websocket";
 import {
@@ -47,24 +13,11 @@ import { serverProcessId } from "./rpc/rpc";
 import { hostKeys, padiMap, wire, wireDiagnostics } from "./wire";
 import { probeLog } from "./wireProbes";
 
-/** The value every absent field carries. One spelling, so a reader learns it
- *  once and a grep finds every gap. */
 export const UNKNOWN = "unknown";
 
 /** What the client believes about ONE fenced subscription, plus the verdict the
  *  snapshot computes for it. */
 export interface SubscriptionRow extends SubscriptionLiveness {
-  /** The whole point of the block:
-   *   - `parked` — this subscription was opened BEFORE the wire's current socket
-   *     and has heard nothing since that socket opened. That is the production
-   *     incident's exact signature, and it is invisible to `client.health()`: a
-   *     parked stream is not pending (its first frame landed, long ago) and not
-   *     erroring (nothing failed — that is the disease).
-   *   - `live` — it has received a frame on the CURRENT socket.
-   *   - `warming` — opened on the current socket, first frame not in yet.
-   *   - `ended` / `failed` — the registry's own terminal states.
-   *   - `unknown` — the wire is not open, so nothing can be said about staleness
-   *     relative to a socket that does not exist. */
   readonly verdict: SubscriptionVerdict;
 }
 
@@ -87,11 +40,8 @@ export interface HostEntryRow {
    *  `phase`, a failed arm's `reason`, or the last word an `unobservable` arm
    *  heard before this browser went blind. */
   readonly detail: string;
-  /** When this entry's own status subscription last delivered a frame — stamped
-   *  client-side by the liveness registry (the map's per-key `entries[<key>]`
-   *  sub), NOT by the wire: `surface-map`'s `EntryStatus` carries no timestamp,
-   *  and widening it for a client-side need would cost every consumer of the
-   *  shared package. `undefined` ⇒ no frame has ever landed for this entry. */
+  /** When this entry's own status subscription last delivered a frame.
+   *  `undefined` ⇒ no frame has ever landed for this entry. */
   readonly lastUpdateAt: number | undefined;
 }
 
@@ -99,34 +49,26 @@ export interface HostEntryRow {
 export interface DiagnosticSnapshot {
   readonly capturedAt: number;
   readonly build: {
-    /** `"dev"` when the shell carries no stamp — the shell's own honest value,
-     *  passed through rather than re-spelled as unknown. */
+    /** `"dev"` when the shell carries no stamp. */
     readonly clientCommit: string;
     readonly serverCommit: string | undefined;
     readonly serverVersion: string | undefined;
     /** The padi surface contract this BROWSER bundle was built against. */
     readonly padiSurfaceVersion: string;
-    /** The contract version the active host's padi daemon reports — read off
-     *  `daemonStatus`, the value the client already holds. (Deliberately not
-     *  imported from kaval: the client has no business depending on the daemon's
-     *  package to state a version the daemon already told it.) */
     readonly daemonContractVersion: string | undefined;
   };
   readonly wire: {
     readonly status: string;
     readonly serverProcessId: string | undefined;
-    /** How many times this wire has reached `open` — a call bound to an earlier
-     *  epoch was orphaned by a re-dial. */
     readonly epoch: number;
-    /** When the CURRENT socket opened; `undefined` while the wire is not open.
-     *  Every parked verdict below is measured against this one instant. */
+    /** When the CURRENT socket opened; `undefined` while the wire is not
+     *  open. Every parked verdict is measured against this one instant. */
     readonly openSince: number | undefined;
     readonly lastProbeAt: number | undefined;
     readonly lastProbeOk: boolean | undefined;
     readonly lastStaleAt: number | undefined;
-    /** When the SERVER retired this tab — the terminal fact of the wire's life:
-     *  it presented a `?pid=` from a process that is gone, and will never dial
-     *  again. `undefined` ⇒ still bound to the process that served this page. */
+    /** When the SERVER retired this tab. `undefined` ⇒ still bound to the
+     *  process that served this page. */
     readonly retiredAt: number | undefined;
     readonly dials: readonly DialAttempt[];
   };
@@ -134,10 +76,6 @@ export interface DiagnosticSnapshot {
   readonly hosts: readonly HostEntryRow[];
 }
 
-/** When did the CURRENT socket open? The last dial that opened and has not
- *  ended. A dial that ended (however it ended) is not the current one, and a
- *  wire that is not `open` has no current socket at all — in which case every
- *  staleness comparison below is unanswerable rather than false. */
 function openSinceOf(
   dials: readonly DialAttempt[],
   status: string,
@@ -152,9 +90,6 @@ function openSinceOf(
   return undefined;
 }
 
-/** The parked verdict, computed at SNAPSHOT time from the registry record and
- *  the wire's current open-since — never stored, because it is a comparison
- *  between two facts that each move on their own. */
 export function subscriptionVerdict(
   record: SubscriptionLiveness,
   openSince: number | undefined,
@@ -162,26 +97,16 @@ export function subscriptionVerdict(
   if (record.state === "failed") return "failed";
   if (record.state === "ended") return "ended";
   if (openSince === undefined) return "unknown";
-  // Opened ON the current socket: it cannot have been orphaned by a re-dial that
-  // happened before it existed. No frame yet is honest warming, not a park.
   if (record.subscribedAt >= openSince)
     return record.lastFrameAt === undefined ? "warming" : "live";
-  // Opened BEFORE the current socket. A frame since that socket opened proves
-  // the re-drive happened; its absence is exactly the incident.
   return record.lastFrameAt !== undefined && record.lastFrameAt >= openSince
     ? "live"
     : "parked";
 }
 
-/** Read every fact this tab holds about its own wire. Synchronous, network-free
- *  (see the module docstring), and safe outside a reactive owner — every source
- *  is either a module-level accessor or a plain registry read. */
 export function collectDiagnosticSnapshot(
   inputs: DiagnosticSnapshotInputs = {},
 ): DiagnosticSnapshot {
-  // The LINK's own status, not the lifecycle's projection of it: `openSince`
-  // (and so every parked verdict) is measured against the socket the link holds,
-  // and the link is the thing that knows whether it is retired.
   const status = wire.status();
   const dials = wireDiagnostics.dialHistory();
   const openSince = openSinceOf(dials, status);
@@ -221,18 +146,12 @@ export function collectDiagnosticSnapshot(
         key: enc,
         kind: state.kind,
         detail: detailOf(state),
-        // The map's own per-key status subscription, under the name the
-        // framework registers it with (`<collection>[<key>]`).
         lastUpdateAt: lastFrameByLabel.get(`entries[${enc}]`),
       };
     }),
   };
 }
 
-/** The facts the builder cannot reach on its own. `buildInfo` is a cell held by
- *  `<SurfaceAppProvider>`'s context, so a component reads it and hands it in —
- *  rather than this module opening a second subscription to the same cell, which
- *  would be a network call inside a diagnostic that promises none. */
 export interface DiagnosticSnapshotInputs {
   readonly serverBuild?: {
     readonly commit?: string;
@@ -240,44 +159,24 @@ export interface DiagnosticSnapshotInputs {
   };
 }
 
-/** The narration the client is currently showing for an entry — its live phase, its
- *  failure reason, or (blind) the last thing the publisher said. Spelled per arm rather
- *  than stringified whole: the whole state object would drown the table it belongs to.
- *
- *  Typed as the real {@link PadiEntry} and matched `.exhaustive()`, NOT the structural
- *  `{ kind: string; connection?; reason? }` it used to take. That shape compiled against
- *  every arm and described none: a `failed` entry's reason lives at `failure.reason`, so
- *  `state.reason` was ALWAYS `undefined` and every failed host in the snapshot read
- *  `unknown` — a diagnostic whose one rule is "never fabricate" quietly withholding the
- *  single most useful field. A structural parameter is how a stringly seam hides from the
- *  union it is reading; naming the union is what makes the next arm a compile error here. */
 function detailOf(state: PadiEntry): string {
-  return (
-    match(state)
-      .with({ kind: "connected" }, { kind: "warming" }, (s) =>
-        s.connection === undefined ? UNKNOWN : s.connection.phase,
-      )
-      .with({ kind: "failed" }, (s) => s.failure.reason)
-      // The one row where this snapshot earns its keep: "the publisher said X, and we can
-      // no longer hear it" is precisely the state the pasted block is read to diagnose, so
-      // it is spelled out rather than folded into a live-looking phase.
-      .with(
-        { kind: "unobservable" },
-        (s) => `unobservable (last published: ${s.published})`,
-      )
-      .with({ kind: "not-a-member" }, () => UNKNOWN)
-      .exhaustive()
-  );
+  return match(state)
+    .with({ kind: "connected" }, { kind: "warming" }, (s) =>
+      s.connection === undefined ? UNKNOWN : s.connection.phase,
+    )
+    .with({ kind: "failed" }, (s) => s.failure.reason)
+    .with(
+      { kind: "unobservable" },
+      (s) => `unobservable (last published: ${s.published})`,
+    )
+    .with({ kind: "not-a-member" }, () => UNKNOWN)
+    .exhaustive();
 }
 
-/** Wall clock as an ISO instant — the spelling a server log uses, so the two can
- *  be read side by side. */
 function at(ms: number | undefined): string {
   return ms === undefined ? UNKNOWN : new Date(ms).toISOString();
 }
 
-/** An instant plus how long ago it was, which is what makes a frozen
- *  `last frame` legible on its face rather than by arithmetic. */
 function ago(ms: number | undefined, now: number): string {
   if (ms === undefined) return UNKNOWN;
   return `${at(ms)} (${((now - ms) / 1000).toFixed(1)}s ago)`;
@@ -353,9 +252,6 @@ export function formatDiagnosticSnapshot(snap: DiagnosticSnapshot): string {
   return `${lines.join("\n")}\n`;
 }
 
-/** Build the copy-pasteable text in one call — what both copy affordances run
- *  INSIDE their `Effect.suspend`, so the whole build happens in the gesture
- *  window with no `await` before the clipboard write. */
 export function buildDiagnosticSnapshotText(
   inputs?: DiagnosticSnapshotInputs,
 ): string {

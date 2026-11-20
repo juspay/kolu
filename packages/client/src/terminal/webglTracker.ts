@@ -1,29 +1,5 @@
-/** Debug-only lifecycle ledger for WebGL canvases created by xterm's
- *  WebglAddon. **Temporary: remove when #591 (zombie-context leak) is
- *  root-caused and fixed.**
- *
- *  Purpose: prior fix attempts reasoned from xterm source + spec docs and
- *  made the leak worse. This module observes instead of guesses. It keeps
- *  a `WeakRef` to every canvas created and, on snapshot, counts how many
- *  are still reachable in JS while detached from the DOM — the literal
- *  zombie-context count. Paired with a per-canvas event tape of
- *  `webglcontextlost` / `webglcontextrestored` firings, it answers the
- *  questions that spec reading alone cannot:
- *
- *  - After `loseContext()`, does `gl.isContextLost()` flip to true?
- *  - Does the browser fire `webglcontextrestored` after we asked to lose?
- *  - Does xterm's inline listener call `e.preventDefault()` before ours?
- *
- *  Strictly observational — never calls `preventDefault`,
- *  `stopPropagation`, or mutates the canvas / context / addon. Safe to
- *  ship to prod. */
-
 import type { TerminalId } from "kolu-common/surface";
 
-/** Discriminated union: `defaultPrevented` is only meaningful for the
- *  `contextlost` event (it reads `e.defaultPrevented` at bubble phase,
- *  telling us whether an earlier listener — xterm's inline one — called
- *  `preventDefault()` asking the browser to attempt restoration). */
 export type WebglEvent =
   | {
       ts: number;
@@ -38,19 +14,11 @@ interface Entry {
   createdAt: number;
   disposedAt: number | null;
   loseContextCalledAt: number | null;
-  /** Capped at MAX_EVENTS_PER_ENTRY (FIFO via shift-before-push). */
   events: WebglEvent[];
 }
 
-/** Cap to prevent long-running sessions from accumulating state forever.
- *  One entry per WebglAddon construction — Terminal.tsx focus switches are
- *  the dominant source, so 100 entries buys a long session history. */
 const MAX_ENTRIES = 100;
-/** Per-canvas event count is naturally bounded (~5 events per canvas in
- *  the happy path: create, loseContext-called, contextlost, [restored],
- *  dispose). Cap is a safety net for repeated lost/restored cycles. */
 const MAX_EVENTS_PER_ENTRY = 20;
-/** How many events the snapshot returns as a flattened, time-sorted tail. */
 const RECENT_EVENTS_VIEW = 30;
 
 const entries: Entry[] = [];
@@ -61,13 +29,6 @@ function pushEvent(entry: Entry, ev: WebglEvent): void {
   if (entry.events.length > MAX_EVENTS_PER_ENTRY) entry.events.shift();
 }
 
-/** Register a canvas for lifecycle observation. Returns an id that
- *  subsequent `trackLoseContextCalled` / `trackDispose` calls use to
- *  correlate. Also attaches bubble-phase DOM listeners for
- *  `webglcontextlost` / `webglcontextrestored`. The listener closures
- *  capture only the module-scoped `entry` object (no strong canvas
- *  reference), so the WeakRef remains the canvas's only incoming
- *  reference and GC can still collect it. */
 export function trackCreate(
   terminalId: TerminalId,
   canvas: HTMLCanvasElement,
@@ -100,11 +61,6 @@ export function trackCreate(
   return id;
 }
 
-// When the FIFO cap evicts an entry, later `trackLoseContextCalled` /
-// `trackDispose` calls for that id find nothing and silently return —
-// that's intended: we've deliberately chosen to lose history older than
-// MAX_ENTRIES rather than grow without bound.
-
 export function trackLoseContextCalled(id: number): void {
   const e = entries.find((x) => x.id === id);
   if (!e) return;
@@ -121,12 +77,6 @@ export function trackDispose(id: number): void {
   pushEvent(e, { ts: now, kind: "dispose" });
 }
 
-/** One alive canvas (in DOM or detached) with its backing-store dimensions.
- *  `bytesEst = width × height × 4` — the RGBA8 pixel buffer the browser
- *  holds for the 2D/WebGL canvas bitmap. `loseContext()` frees the GPU-side
- *  resources but leaves the HTMLCanvasElement's JS-visible bitmap intact
- *  until the element is GC'd, so this tells us how much memory each
- *  still-retained canvas is pinning independent of GPU state. */
 export interface CanvasSizeEntry {
   canvasId: number;
   terminalId: TerminalId;
@@ -140,30 +90,15 @@ export interface CanvasSizeEntry {
 export interface WebglLifecycleSnapshot {
   totalCreated: number;
   disposed: number;
-  /** Deref returned a canvas AND canvas.isConnected — normal live state. */
   aliveInDom: number;
-  /** Deref returned a canvas AND !canvas.isConnected — **zombie count**.
-   *  Non-zero = confirmed leak. */
   aliveDetached: number;
-  /** Deref returned undefined — canvas was GC'd. */
   gced: number;
-  /** Canvas exists AND `gl.isContextLost()` returns true. */
   contextsLost: number;
-  /** Total `<canvas>` elements currently in the DOM — xterm-minted and
-   *  otherwise. Usually ≈ `aliveInDom`, but drifts above it when other UI
-   *  surfaces mount their own canvases. Kept here (not probed at the
-   *  consumer) so every canvas-related question has one source. */
   totalDomCanvases: number;
-  /** Every still-alive canvas with its pixel-buffer footprint. Attached
-   *  canvases come first so the zombie ones stand out at the bottom. */
   aliveCanvases: CanvasSizeEntry[];
-  /** Flattened, time-sorted tail across all entries. */
   recentEvents: (WebglEvent & { canvasId: number; terminalId: TerminalId })[];
 }
 
-/** Walk entries, deref each WeakRef, count the states, and return a
- *  snapshot. Cheap — O(entries) with no DOM mutations. Safe to call from
- *  the DiagnosticInfo snapshot memo. */
 export function webglLifecycleSnapshot(): WebglLifecycleSnapshot {
   let aliveInDom = 0;
   let aliveDetached = 0;

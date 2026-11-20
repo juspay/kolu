@@ -1,10 +1,3 @@
-/** padi's own account of why it is slow, as a section of the Diagnostic Info
- *  dialog — the answer of `diagnostics.read` on the active host's padi.
- *
- *  Fetched when the dialog opens and on **Refresh**, never polled. The fetch
- *  state lives in {@link createPadiDiagnosticsFetch}, owned by the dialog, so
- *  the **Copy JSON** dump carries the same answer this section shows. */
-
 import type { PadiDiagnostics, TimingSummary } from "@kolu/padi-client/surface";
 import { toError } from "@kolu/surface/run-stream";
 import { Effect } from "effect";
@@ -44,8 +37,6 @@ export interface PadiDiagnosticsFetcher {
   readonly refresh: () => void;
 }
 
-/** The dialog's one fetch of the active host's diagnostics: asked once now,
- *  and again on `refresh()`. A superseded answer is dropped. */
 export function createPadiDiagnosticsFetch(): PadiDiagnosticsFetcher {
   const [state, setState] = createSignal<PadiDiagnosticsFetch>({
     kind: "loading",
@@ -82,16 +73,12 @@ export function createPadiDiagnosticsFetch(): PadiDiagnosticsFetcher {
   return { state, refresh };
 }
 
-/** Milliseconds, compact: one decimal under 10, whole above. */
 const num = (v: number): string =>
   v < 10 ? v.toFixed(1) : String(Math.round(v));
 
-/** A timing summary as `median · p99 · worst`, in ms — the order each caption
- *  below names once, so a row stays one line. */
 const timing = (s: TimingSummary): string =>
   `${num(s.medianMs)} · ${num(s.p99Ms)} · ${num(s.maxMs)}`;
 
-/** A measured value, or its reason — never a dash or a zero. */
 function measuredText<T>(
   m: { kind: "measured"; value: T } | { kind: "unmeasured"; reason: string },
   show: (v: T) => string,

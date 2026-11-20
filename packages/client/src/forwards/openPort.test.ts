@@ -1,7 +1,3 @@
-/**
- * The three-layer open flow — decision pure, act separate, effect at the edge.
- */
-
 import { describe, expect, it } from "vitest";
 import { urlForPort, withRemainder } from "./openPort";
 

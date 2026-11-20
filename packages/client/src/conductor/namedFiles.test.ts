@@ -1,8 +1,3 @@
-/**
- * WHICH FILES A WORK CAN OPEN — the one rule behind a file the Conductor names
- * in the chat and a `Wrote …` row on the card's timeline.
- */
-
 import { ABOUT_WORK, type Work, type WorkId } from "kolu-work";
 import { describe, expect, it } from "vitest";
 import { fileHolders, fileTarget, holdsPath } from "./namedFiles";
@@ -11,7 +6,6 @@ const AT = "2026-11-16T00:00:00.000Z";
 const PLAN = ".waterfall/plan.md";
 const BRIEF = ".waterfall/brief.md";
 
-/** A work that saw `seen` appear — in progress, or ended keeping `kept`. */
 const work = (
   title: string,
   seen: readonly string[],
@@ -53,7 +47,6 @@ describe("a file a work can open", () => {
   });
 
   it("is, once the work has ended, only what kolu kept", () => {
-    // The worktree may be gone: a file it saw but did not keep cannot open.
     const done = work("parser", [PLAN, BRIEF], [PLAN]);
     expect(holdsPath(done, PLAN)).toBe(true);
     expect(holdsPath(done, BRIEF)).toBe(false);
@@ -64,7 +57,6 @@ describe("which work's file a named path opens", () => {
   const PARSER = "w-parser" as WorkId;
   const LOGIN = "w-login" as WorkId;
   const SPLIT = "w-split" as WorkId;
-  /** The index the chat builds once per change of the works. */
   const works = fileHolders(
     new Map<WorkId, Work>([
       [PARSER, work("rewrite the parser", [PLAN])],

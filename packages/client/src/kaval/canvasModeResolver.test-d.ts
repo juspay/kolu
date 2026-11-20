@@ -1,28 +1,6 @@
-/**
- * TYPE-LEVEL pin — the Skew-UX CanvasFacts decision, plus A' (the live-bug fix):
- *  1. the kaval-derived facts are structurally reachable ONLY on the `connected` arm; and
- *  2. `connectPhase` (the connect-overlay's routing input) exists ONLY on the not-yet-
- *     connected arms (`warming` / `not-a-member`), NEVER on `connected`.
- *
- * `tsc` GREEN over this file ⇒:
- *  - the `connected` arm carries the kaval facts (`daemonState`/`down`/`terminalCount`/…)
- *    — constructing and reading them there compiles — but carries NO `connectPhase`
- *    (constructing one with it, or reading `.connectPhase` off it, is a compile error).
- *    So the "green chip + Building-forever" contradiction — a `connected` entry routed to
- *    the connect overlay — is UNCONSTRUCTIBLE at resolve, not a runtime tie broken by arm
- *    order.
- *  - the `warming` / `not-a-member` arms DO carry `connectPhase`; the `warming` and
- *    `failed` arms carry NONE of the kaval facts (the `@ts-expect-error`s below).
- *
- * House style mirrors `packages/common/src/entryFailedCause.test-d.ts`: bare
- * `const x: T = {...}; void x;` declarations plus inline `// @ts-expect-error`.
- */
-
 import type { DaemonState } from "@kolu/padi-client/surface";
 import type { CanvasFacts } from "./canvasModeResolver";
 
-// Shared liveness facts every arm carries — spread into each literal below. `connectPhase`
-// is NOT here anymore (A'): it belongs only to the not-yet-connected arms.
 const liveness = {
   isLoading: false,
   daemonPending: false,
@@ -31,7 +9,6 @@ const liveness = {
 
 const daemonState: DaemonState = "connected";
 
-// The `connected` arm DOES carry the kaval facts — this compiles.
 const connected: CanvasFacts = {
   ...liveness,
   entry: "connected",
@@ -43,11 +20,8 @@ const connected: CanvasFacts = {
   channelLive: true,
 };
 void connected;
-// …and reading a kaval fact off the connected arm is fine.
 void (connected.entry === "connected" ? connected.daemonState : undefined);
 
-// A' — the `connected` arm carries NO `connectPhase`: a "connected entry + connect overlay"
-// (the green-chip / Building-forever trap) is a TYPE error, not a runtime tie.
 const connectedWithPhase: CanvasFacts = {
   ...liveness,
   entry: "connected",
@@ -57,14 +31,11 @@ const connectedWithPhase: CanvasFacts = {
   terminalCount: 1,
   recordsAwaited: 0,
   channelLive: true,
-  // @ts-expect-error — `connectPhase` does not exist on the connected arm (A'): the overlay
-  // cannot be routed while the map reports the host connected.
+  // @ts-expect-error
   connectPhase: "provisioning",
 };
 void connectedWithPhase;
 
-// Reading `connectPhase` off a value typed as the CONNECTED arm is a type error too — so no
-// resolver arm can consult a connect phase on a connected host.
 const connectedArm: Extract<CanvasFacts, { entry: "connected" }> = {
   ...liveness,
   entry: "connected",
@@ -75,66 +46,50 @@ const connectedArm: Extract<CanvasFacts, { entry: "connected" }> = {
   recordsAwaited: 0,
   channelLive: true,
 };
-// @ts-expect-error — `connectPhase` does not exist on the connected arm.
+// @ts-expect-error
 void connectedArm.connectPhase;
 
-// The `warming` arm carries `connectPhase` + liveness facts, NO kaval facts (and no
-// presentation string — the warming mode's copy is derived at render).
 const warming: CanvasFacts = {
   ...liveness,
   entry: "warming",
   connectPhase: "provisioning",
-  // @ts-expect-error — `daemonState` is a CONNECTED-arm-only kaval fact; a warming
-  // host's re-served daemonStatus is stale, so the type makes it unspellable here.
+  // @ts-expect-error
   daemonState,
 };
 void warming;
-// The warming arm DOES carry `connectPhase` — reading it here compiles.
 void (warming.entry === "warming" ? warming.connectPhase : undefined);
 
-// `connectPhase` is the framework's `ConnectPhase` (the narrated subset), NOT bare `string`
-// and NOT even the full phase union: an off-vocabulary phase is UNCONSTRUCTIBLE, so the
-// resolver's "is a connect phase" is compiler-guaranteed, not a runtime-only guard.
 const warmingBadPhase: CanvasFacts = {
   ...liveness,
   entry: "warming",
-  // @ts-expect-error — `"banana"` is not a `ConnectPhase`, so it can't be a connectPhase.
+  // @ts-expect-error
   connectPhase: "banana",
 };
 void warmingBadPhase;
 
-// TIGHTER than the full phase union: a terminal/connected phase is unconstructible here too —
-// `connected`/`disconnected`/`failed` are NOT connect phases (`useCanvasMode` narrows them to
-// `undefined`), so they can never be carried on a not-yet-connected arm.
 const warmingConnectedPhase: CanvasFacts = {
   ...liveness,
   entry: "warming",
-  // @ts-expect-error — `"connected"` is excluded from `ConnectPhase` (the narrated subset).
+  // @ts-expect-error
   connectPhase: "connected",
 };
 void warmingConnectedPhase;
 
-// The `failed` arm is the DISCRIMINANT only — no kaval facts, no connectPhase, and no
-// failure payload (that is `failedEpisode`'s one value, not a routing payload).
 const failed: CanvasFacts = {
   ...liveness,
   entry: "failed",
-  // @ts-expect-error — `down` is a CONNECTED-arm-only kaval fact; a failed host
-  // never connected, so there is no daemon to describe.
+  // @ts-expect-error
   down: "dead",
 };
 void failed;
 
-// Reading a kaval fact off a value typed as the FAILED arm is a type error — the
-// property does not exist on that arm, so this cannot silently read a stale fact.
 const failedArm: Extract<CanvasFacts, { entry: "failed" }> = {
   ...liveness,
   entry: "failed",
 };
-// @ts-expect-error — `daemonState` does not exist on the `failed` arm.
+// @ts-expect-error
 void failedArm.daemonState;
 
-// Same for the WARMING arm — reading `terminalCount` off it is a type error.
 const warmingArm: Extract<CanvasFacts, { entry: "warming" }> = {
   ...liveness,
   entry: "warming",
@@ -143,5 +98,5 @@ const warmingArm: Extract<CanvasFacts, { entry: "warming" }> = {
   connectLogAbsence: undefined,
   connectQuiet: undefined,
 };
-// @ts-expect-error — `terminalCount` does not exist on the `warming` arm.
+// @ts-expect-error
 void warmingArm.terminalCount;

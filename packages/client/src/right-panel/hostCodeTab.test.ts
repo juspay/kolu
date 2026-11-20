@@ -1,29 +1,3 @@
-/** Per-host Code-tab query OWNERSHIP + MOUNTING REALITY (padi W9's Code-tab half,
- *  completing W7's K1). The acceptance suite for `hostCodeTab`: each Code-tab query is
- *  ONE `createPolledQuery` per host, born inside a `scopedByEntry(padiMap, activeHost)`
- *  owner rooted at APP LIFETIME (`createSharedRoot`), with `active = ctx.isActive`.
- *
- *  Two properties are pinned here, the second of which the two confirmed defects
- *  violated:
- *   1. OWNERSHIP — a host's query state is retained across switch-away, PAUSED while
- *      backgrounded, RESUMED from its held value on switch-BACK (no blank), and disposed
- *      on membership exit.
- *   2. MOUNTING REALITY — the retained value survives a CONSUMER unmount/remount. This
- *      is the defect the review caught: the old `perHostPolledQuery` built its owner in
- *      the CONSUMER's reactive scope (BrowseFileDispatcher's keyed `<Show>`, CodeTab
- *      under the `canvasMode` `<Switch>`), so any tab unmount disposed the whole
- *      retention world. `hostCodeTab`'s owner is app-lifetime, so it does NOT.
- *      This test FAILS on that pre-fix shape (dispose the consumer → value gone → the
- *      remount asserts `pending` again); see the repo PR notes for the failing-first run.
- *
- *  Fixture: a REAL `scopedByEntry` over the shared mock `padiMap`
- *  (`hostScope/mockHostMap.testlib`), membership driven by `addHost`/`removeHost`, the
- *  active host by one module-stable signal. The Code-tab query inputs read the mocked
- *  `useTerminalStore().focused()` + `useRightPanel()` (the active projection — the
- *  FOCUSED PANE, split or main), and a
- *  hand-driven, procedure-and-input-keyed pulse (`unenrolledStreamCall` mocked)
- *  requeries the matching ACTIVE instance. */
-
 import {
   GitFailed,
   WorktreeBaseBranchMissing,
@@ -40,20 +14,16 @@ type PulseSubscription = {
   emit: () => void;
 };
 
-// A multi-subscriber hand-driven pulse over the SHARED controllable stream mock.
-// Subscriptions retain both the procedure identity and serialized input, so focused
-// tests can emit one exact server event instead of broadcasting an indistinguishable
-// generic pulse. A paused/re-keyed instance is INTERRUPTED, and the mock's finalizer
-// (`onTeardown`) removes its subscription — the successor of the old abort listener.
 const pulseCtl = vi.hoisted(() => ({
   repoProc: () => ({}),
   fileProc: () => ({}),
   subs: new Set<PulseSubscription>(),
 }));
 vi.mock("@kolu/surface/client", async () => {
-  const { makeControllableStream } = await import("./streamMock.testlib");
+  const { makeReplayingControllableStream } = await import(
+    "./streamMock.testlib"
+  );
   return {
-    // `isDeclared` asks it; no failure in this suite is a transport loss.
     isTransportError: () => false,
     unenrolledStreamCall: (proc: unknown, input: unknown) => {
       const sub: {
@@ -61,7 +31,7 @@ vi.mock("@kolu/surface/client", async () => {
         input: string;
         emit: () => void;
       } = { proc, input: JSON.stringify(input), emit: () => {} };
-      const { stream, push } = makeControllableStream({
+      const { stream, push } = makeReplayingControllableStream({
         onTeardown: () => pulseCtl.subs.delete(sub),
       });
       sub.emit = () => push({ frame: true });
@@ -71,29 +41,22 @@ vi.mock("@kolu/surface/client", async () => {
   };
 });
 
-// The active projection the query inputs read — all controllable per test.
 const bag = vi.hoisted(() => ({
   activeHost: (() => ({ kind: "local" })) as () => HostKey,
   repoRoot: (() => "/repo") as () => string | null,
   termId: (() => "t1") as () => string | null,
   mode: (() => "browse") as () => string,
   selected: (() => null) as () => string | null,
-  // getStatus poll count, keyed by mode, so a "refresh" is observable per query.
   counts: {} as Record<string, number>,
   previewTagInputs: [] as Array<{ repoPath: string; filePath: string }>,
-  // Whether the focused pane's repo has no working tree (a bare repo's folder).
   bare: (() => false) as () => boolean,
   listDirectoryInputs: [] as Array<{ repoPath: string; dirPath: string }>,
-  // When set, a BRANCH status read fails with this instead of answering.
   branchFailure: null as Error | null,
   toastError: vi.fn(),
 }));
 
 vi.mock("../wire", async () => {
   const { mockPadiMap } = await import("../hostScope/mockHostMap.testlib");
-  // The EFFECT-native procedures face. Each verb answers with a DESCRIPTION, so
-  // the recorded side effects below run when the query is RUN — which is what
-  // the call-count assertions are really about.
   const activePadiRpc = {
     git: {
       getStatus: (i: { repoPath: string; mode: string }) =>
@@ -133,8 +96,6 @@ vi.mock("../wire", async () => {
         }),
     },
   };
-  // The un-enrolled change pulses ride the entry's STREAM face now
-  // (`activePadiStreams.<pulse>.unenrolled`) — a no-op stream stub.
   const activePadiStreams = {
     subscribeRepoChange: { unenrolled: pulseCtl.repoProc },
     subscribeFileChange: { unenrolled: pulseCtl.fileProc },
@@ -208,9 +169,6 @@ const HOST_B: HostKey = { kind: "remote", target: "B" };
 const [driveHost, setDriveHost] = createSignal<HostKey>(HOST_A);
 bag.activeHost = driveHost;
 
-// The focused pane's id and its repo, driven REACTIVELY: a pane switch inside one
-// repo must be observable as an invalidation of the query inputs that changes
-// nothing downstream — that is the whole point of keying the listings on the repo.
 const [driveTermId, setDriveTermId] = createSignal<string | null>("t1");
 const [driveRepo, setDriveRepo] = createSignal<string | null>("/repo");
 bag.termId = driveTermId;
@@ -223,8 +181,6 @@ function switchTo(host: HostKey): void {
   });
 }
 
-// The mock `getStatus` returns a deliberately minimal shape carrying an identity
-// `label` + poll count `n` (not the full `GitStatus`), so read it through this cast.
 const read = () =>
   codeLocalStatus() as { label: string; n: number } | undefined;
 const label = () => read()?.label;
@@ -255,8 +211,6 @@ beforeEach(async () => {
     releaseLease = dispose;
     leaseCodeQueries(codeShown);
   });
-  // Build the lazy app-lifetime owner (a real consumer reads the facade at mount) so the
-  // `scopedByEntry` reactive graph is live and reacts to `switchTo` before the first pulse.
   void codeLocalStatus.pending();
 });
 
@@ -266,26 +220,23 @@ describe("hostCodeTab — per-host query ownership (padi W9)", () => {
     await flush();
     pulse();
     await flush();
-    expect(label()).toBe("local:local"); // A's local-status instance loaded
+    expect(label()).toBe("local:local");
     const aLoads = read()?.n ?? 0;
 
-    // Switch AWAY to B: A pauses (value held), B builds + blanks until its pulse.
     switchTo(HOST_B);
     await flush();
-    expect(codeLocalStatus.pending()).toBe(true); // B is fresh — blank
+    expect(codeLocalStatus.pending()).toBe(true);
     pulse();
     await flush();
-    expect(label()).toBe("remote:B:local"); // B loaded
+    expect(label()).toBe("remote:B:local");
 
-    // Switch BACK to A: its instance was RETAINED, so A's held value shows with NO blank
-    // (not pending) — the instant switch-back — then the pulse refreshes it.
     switchTo(HOST_A);
     await flush();
-    expect(codeLocalStatus.pending()).toBe(false); // resumed from held value, no blank
-    expect(label()).toBe("local:local"); // A's retained value, instantly
+    expect(codeLocalStatus.pending()).toBe(false);
+    expect(label()).toBe("local:local");
     pulse();
     await flush();
-    expect(read()?.n ?? 0).toBeGreaterThan(aLoads); // refreshed on activation
+    expect(read()?.n ?? 0).toBeGreaterThan(aLoads);
   });
 
   it("disposes a host's Code-tab query when it leaves the pool (a re-add rebuilds fresh)", async () => {
@@ -295,7 +246,6 @@ describe("hostCodeTab — per-host query ownership (padi W9)", () => {
     await flush();
     expect(label()).toBe("local:local");
 
-    // Move to B, then A leaves the pool: A's owner (and its query instances) disposes.
     switchTo(HOST_B);
     await flush();
     pulse();
@@ -303,20 +253,15 @@ describe("hostCodeTab — per-host query ownership (padi W9)", () => {
     removeHost(HOST_A);
     await flush();
 
-    // Re-add + re-visit A: scopedByEntry treats it as a FRESH member (its prior instance
-    // was disposed on exit), so it rebuilds and blanks — the held value did NOT survive
-    // membership exit (ownership: dropped when gone).
     switchTo(HOST_A);
     await flush();
-    expect(codeLocalStatus.pending()).toBe(true); // rebuilt fresh, not resurrected
+    expect(codeLocalStatus.pending()).toBe(true);
   });
 
   it("retains the value across a CONSUMER unmount/remount — the app-lifetime owner (defect 1 + 2)", async () => {
     switchTo(HOST_A);
     await flush();
 
-    // Consumer #1 mounts (a CodeTab/BrowseFileDispatcher stand-in): its OWN reactive
-    // root subscribes the facade. It gets A's loaded value.
     let seen1: string | undefined;
     const dispose1 = createRoot((d) => {
       createEffect(() => {
@@ -330,14 +275,9 @@ describe("hostCodeTab — per-host query ownership (padi W9)", () => {
     expect(label()).toBe("local:local");
     expect(seen1).toBe("local:local");
 
-    // Consumer #1 UNMOUNTS — exactly what a `canvasMode` exit (CodeTab) or a keyed
-    // `<Show>` re-key (BrowseFileDispatcher) does. On the pre-W9 component-scoped owner
-    // this disposed the retention world; here the owner is app-lifetime, so it must not.
     dispose1();
     await flush();
 
-    // Consumer #2 REMOUNTS and reads: the value SURVIVED the unmount — no blank, no
-    // re-query needed. (Pre-fix, this reads `pending() === true` and the assertions fail.)
     let seen2: string | undefined;
     const dispose2 = createRoot((d) => {
       createEffect(() => {
@@ -346,14 +286,13 @@ describe("hostCodeTab — per-host query ownership (padi W9)", () => {
       return d;
     });
     await flush();
-    expect(codeLocalStatus.pending()).toBe(false); // retained through the unmount — no blank
+    expect(codeLocalStatus.pending()).toBe(false);
     expect(label()).toBe("local:local");
     expect(seen2).toBe("local:local");
     dispose2();
   });
 
   it("a BACKGROUND host's Code-tab value survives while the active host's tab is unmounted (mode-transit wipe)", async () => {
-    // Load A, then switch to B and load it.
     switchTo(HOST_A);
     await flush();
     pulse();
@@ -364,14 +303,8 @@ describe("hostCodeTab — per-host query ownership (padi W9)", () => {
     await flush();
     expect(label()).toBe("remote:B:local");
 
-    // While B is active, its Code tab unmounts (B is a zero-terminal / warming host, so
-    // `canvasMode` left `workspace` and the whole RightPanel came down). Simulate the
-    // tab being absent: no consumer root is mounted at all. The OWNER is untouched.
     await flush();
 
-    // Switch BACK to A: A was backgrounded (paused, frozen), so despite the active tab
-    // having been unmounted, A's retained Code-tab value is intact — the pre-W9 bug
-    // wiped EVERY host's state on that unmount.
     switchTo(HOST_A);
     await flush();
     expect(codeLocalStatus.pending()).toBe(false);
@@ -395,8 +328,6 @@ describe("hostCodeTab — per-host query ownership (padi W9)", () => {
 
     expect(bag.previewTagInputs).toEqual([input, input]);
     expect(before).toEqual(after);
-    // The value carries the CONTENT tag, not a URL: the URL is built by the
-    // consumer, where the shown terminal is read (see BrowseFileDispatcher).
     expect(after).toMatchObject({
       kind: "binary",
       previewTag: "same-content-tag",
@@ -421,21 +352,12 @@ describe("hostCodeTab — per-host query ownership (padi W9)", () => {
     await flush();
     expect(liveFileInputs()).toEqual([secondInput]);
 
-    // An event for the old path is no longer connected; only the navigated-to
-    // file can refresh the preview.
     filePulse(indexInput);
     filePulse(secondInput);
     await flush();
     expect(bag.previewTagInputs).toEqual([indexInput, secondInput]);
   });
 
-  // The show-ignored toggle is a DISPLAY preference, so it must not disturb the
-  // main file list. An earlier shape put it in `fs.listAll`'s input as an
-  // `includeIgnored` flag, which joined that query's value key: every flip
-  // blanked the whole list, which unmounts `<FileTree>` and remounts it with
-  // `initialExpansion: "closed"` — losing every hand-expanded folder and the
-  // scroll position. Splitting the ignored listing into its own idle-unless-on
-  // query is what fixes it, and this pins that separation.
   it("flipping the show-ignored toggle leaves the main file list untouched — no blank, no re-query", async () => {
     switchTo(HOST_A);
     void codeAllPaths.pending();
@@ -446,15 +368,11 @@ describe("hostCodeTab — per-host query ownership (padi W9)", () => {
     const settled = codeAllPaths();
     expect(settled?.paths).toEqual(["src/app.ts"]);
     const queriesBefore = bag.counts.listAll;
-    // Guard against a vacuous pass: if the mock were never reached, the
-    // equality assertions below would compare `undefined` to `undefined`.
     expect(queriesBefore).toBeGreaterThan(0);
 
     setShowIgnoredFiles(true);
     await flush();
 
-    // Same value object identity is not required, but the value must never go
-    // absent (a blank) and the tracked listing must not be re-fetched.
     expect(codeAllPaths()?.paths).toEqual(["src/app.ts"]);
     expect(codeAllPaths.pending()).toBe(false);
     expect(bag.counts.listAll).toBe(queriesBefore);
@@ -466,11 +384,6 @@ describe("hostCodeTab — per-host query ownership (padi W9)", () => {
     expect(bag.counts.listAll).toBe(queriesBefore);
   });
 
-  // A focus move between two panes of ONE tile is the frequent state change this
-  // feature introduces — and a new split starts in its parent's directory, so
-  // "same repo on both sides" is the common case. The listings are facts about
-  // the REPO, so the query key must not carry the pane: a switch that changes
-  // nothing about the repo must not blank the tree or re-dispatch `fs.listAll`.
   it("a pane switch inside one repo re-dispatches NOTHING and never blanks", async () => {
     switchTo(HOST_A);
     void codeAllPaths.pending();
@@ -479,16 +392,14 @@ describe("hostCodeTab — per-host query ownership (padi W9)", () => {
     await flush();
     expect(codeAllPaths()?.paths).toEqual(["src/app.ts"]);
     const reads = bag.counts.listAll;
-    // Guard against a vacuous pass: if the mock were never reached, the
-    // equality assertions below would compare `undefined` to `undefined`.
     expect(reads).toBeGreaterThan(0);
 
-    setDriveTermId("t2"); // focus moves to a split in the SAME repo
+    setDriveTermId("t2");
     await flush();
 
-    expect(bag.counts.listAll).toBe(reads); // ZERO new dispatches
-    expect(codeAllPaths.pending()).toBe(false); // never blanked
-    expect(codeAllPaths()?.paths).toEqual(["src/app.ts"]); // the value is held
+    expect(bag.counts.listAll).toBe(reads);
+    expect(codeAllPaths.pending()).toBe(false);
+    expect(codeAllPaths()?.paths).toEqual(["src/app.ts"]);
   });
 
   it("a REPO change still blanks the listing and re-queries it", async () => {
@@ -502,7 +413,7 @@ describe("hostCodeTab — per-host query ownership (padi W9)", () => {
 
     setDriveRepo("/other-repo");
     await flush();
-    expect(codeAllPaths.pending()).toBe(true); // blanked — a genuinely new query
+    expect(codeAllPaths.pending()).toBe(true);
 
     pulse();
     await flush();
@@ -591,14 +502,12 @@ describe("a folder git cannot list (a bare repository's)", () => {
     expect(bag.listDirectoryInputs).toEqual([
       { repoPath: "/repo", dirPath: "" },
     ]);
-    // The three git calls that fail on a root with no working tree.
     expect(bag.counts.listAll).toBeUndefined();
     expect(bag.counts.listIgnored).toBeUndefined();
     expect(bag.counts.local).toBeUndefined();
     expect(bag.counts.branch).toBeUndefined();
     expect(bag.toastError).not.toHaveBeenCalled();
 
-    // A pane switch inside that root re-dispatches nothing and never blanks.
     const reads = bag.listDirectoryInputs.length;
     setDriveTermId("t2");
     await flush();

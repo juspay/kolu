@@ -1,5 +1,3 @@
-/** Command palette registry — declarative list of all app-level actions. */
-
 import AgentDistroLogo from "@kolu/agent-distro/solid";
 import { AGENTS_CHECK_NOW } from "@kolu/agent-distro/status";
 import {
@@ -9,7 +7,9 @@ import {
 } from "@kolu/padi-client/surface";
 import { agentLaunchLine } from "kolu-agents/vocab";
 import type { HostKey } from "kolu-common/hostKey";
+import type { TerminalId } from "kolu-common/surface";
 import { isValidWorktreeName, WORKTREE_NAME_MESSAGE } from "kolu-git/schemas";
+import type { NeedsYou, WorkRow } from "kolu-work";
 import { randomName } from "memorable-names";
 import type { Accessor, Component } from "solid-js";
 import { createMemo } from "solid-js";
@@ -24,7 +24,11 @@ import type {
   PaletteLabel,
   PaletteValueInput,
 } from "./CommandPalette";
-import { posturedActionLabel, useViewPosture } from "./canvas/useViewPosture";
+import {
+  posturedActionLabel,
+  useViewPosture,
+  type ViewPostureMode,
+} from "./canvas/useViewPosture";
 import {
   showsAmbientTips,
   showsWelcome,
@@ -53,48 +57,33 @@ import {
   terminalHostGroups,
   terminalSwitchActions,
 } from "./palette/fleetActions";
-import { useFleetTerminalIndex } from "./palette/fleetTerminals";
+import {
+  type FleetTerminalRow,
+  useFleetTerminalIndex,
+} from "./palette/fleetTerminals";
 import { HOSTS_GROUP_NAME } from "./palette/hostsGroup";
 import { NEW_TERMINAL_GROUP } from "./palette/newTerminalGroup";
 import { TERMINALS_GROUP_NAME } from "./palette/terminalsGroup";
-import { runAction } from "./runAction";
+import { runAction, type UiAction } from "./runAction";
 import { stateBackupsDialog } from "./StateBackupsDialog";
 import { useTerminalCrud } from "./terminal/useTerminalCrud";
 import { themePaletteGroup } from "./themePalette";
-import { useTileStore } from "./tile/useTileStore";
+import { type TileStore, useTileStore } from "./tile/useTileStore";
 import { iconForKind } from "./ui/agentDisplay";
 import { TerminalIcon } from "./ui/Icons";
 import { welcomeDialog } from "./WelcomeDialog";
 import { padiMap, preferences, updatePreferences } from "./wire";
 
-/** agent-distro's mark as a palette-row icon — the row's icon slot hands a
- *  `class`, the logo takes a pixel `size`, so the fleet-check row wears the
- *  same mark as every other agents surface at the slot's 12px. */
 const AgentsIcon: Component<{ class?: string }> = () => (
   <AgentDistroLogo size={12} />
 );
 
-/** Live worktree-name validator — returns the message to show under the input,
- *  or null when the trimmed name passes.
- *
- *  It runs `kolu-git`'s exported PREDICATE and its user-visible MESSAGE, which
- *  are the very things `WorktreeNameSchema`'s check is built from — exported
- *  "so the client can run the same predicate live in the worktree-naming palette
- *  leaf". Decoding the schema and formatting its failure would read the same rule
- *  through a `SchemaError` renderer whose prose the user never asked for; this
- *  keeps ONE source of truth for the rule and lets the palette own its own
- *  sentence for the empty case (which the schema states as a bare min-length). */
 function validateWorktreeName(name: string): string | null {
   const trimmed = name.trim();
   if (trimmed.length === 0) return "branch name cannot be empty";
   return isValidWorktreeName(trimmed) ? null : WORKTREE_NAME_MESSAGE;
 }
 
-/** One recent agent as the palette presents it: the launch line RENDERED from
- *  its structured fact (`kind` + the live process's allowlisted argv) by the
- *  agent registry. A row whose kind this build no longer knows renders nothing —
- *  no guess, and no stored string to fall back to. The same string is what the
- *  palette types into a terminal, so display and execution cannot diverge. */
 interface RecentAgentRow {
   readonly kind: string;
   readonly command: string;
@@ -109,10 +98,6 @@ function recentAgentRows(agents: readonly RecentAgent[]): RecentAgentRow[] {
   return rows;
 }
 
-/** PaletteItems listing each recent agent — used by the
- *  "Recent agents" drill-in group under Active Terminal. Icons mirror the
- *  worktree-naming leaf so agents render with the same visual treatment
- *  in both palettes. */
 function agentItems(
   agents: readonly RecentAgent[],
   onPick: (command: string) => void,
@@ -127,10 +112,6 @@ function agentItems(
   );
 }
 
-/** Children of the worktree-naming leaf. Each row's `data` is the agent
- *  launch line to type (or `undefined` for plain shell), rendered from the
- *  row's structured fact. They render as passive labels — Enter/click routes
- *  through the value group's `onSubmit`, not these rows' own (absent) handler. */
 function worktreeAgentOptions(
   agents: readonly RecentAgent[],
 ): (PaletteLabel | PaletteHint)[] {
@@ -160,31 +141,21 @@ export interface CommandDeps extends ActionContext {
   handleRunInActiveTerminal: (command: string) => void;
   handleExportScrollbackAsPdf: () => void;
   handleExportSessionAsHtml: () => void;
-  // Theme
   committedThemeName: Accessor<string>;
   setPreviewThemeName: (name: string | undefined) => void;
   handleSetTheme: (name: string) => void;
-  // Intent — opens the editor for the active terminal.
   handleEditActiveIntent: () => void;
-  // Canvas — desktop only. The canvas isn't mounted on mobile, so these
-  // commands are hidden there via `supportsSpatialCanvas`.
   canvasCenterActive: () => void;
   canvasAutoArrange: () => void;
-  // Worktree
   handleCreateWorktree: (
     repoPath: string,
     name: string,
     initialCommand?: string,
   ) => void;
   handleClose: () => void;
-  // Terminal switcher — activate is enough; row list is useDockOrder (shared
-  // with the dock). Host pool still comes from deps.
-  // Host pool — root host rows and the Hosts scoped group (⌘⇧H) share
-  // hostRootActions so they cannot drift.
   hostKeys: Accessor<HostKey[]>;
   activeHost: Accessor<HostKey>;
   switchHost: (host: HostKey) => void;
-  // Debug
   simulateAlert: () => void;
   handleClearLocalStorage: () => void;
   /** Reset the active terminal to its default size, centered in the viewport. */
@@ -195,61 +166,34 @@ export interface CommandDeps extends ActionContext {
   handleImportSession: () => void;
 }
 
-export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
-  // Canvas posture — same reactive reader pattern as ChromeBar/Dock. The
-  // memo reads `mode()`/`canMaximize()` so the command's label and
-  // visibility track posture reactively. The *write* path stays on
-  // `deps.toggleCanvasPosture` (the shared `ActionContext` seam the keyboard
-  // shortcut also uses), so the two surfaces never drift if App later wraps
-  // the toggle with a guard or telemetry.
-  const posture = useViewPosture();
-  const tileStore = useTileStore();
-  const crud = useTerminalCrud();
-  // Fleet-wide terminal index — every connected host's terminals, ranked by
-  // recency. Active-host-only dock order is not enough for multi-host jump.
-  // Split children are excluded at the source (same rule as Dock terminalIds).
-  const fleet = useFleetTerminalIndex();
-  const terminalRows = () =>
-    terminalSwitchActions(
-      fleet(),
-      deps.activeHost(),
-      deps.switchHost,
-      deps.activate,
-    );
-  const hostScopedTerminalGroups = () =>
-    terminalHostGroups(
-      fleet(),
-      deps.hostKeys(),
-      deps.activeHost(),
-      deps.switchHost,
-      deps.activate,
-    );
-  /** Terminals scope is available once any pool host is connected (even if
-   *  the fleet index is still empty — headers paint with 0 counts). */
-  const terminalsScopeOpen = () =>
-    deps
-      .hostKeys()
-      .some((h) => padiMap.entry(h).state().kind === "connected") ||
-    fleet().length > 0;
-  /** The one needs-you reading and the works, for the palette's two work
-   *  sections — each row takes the one route to a work. */
-  const needs = useNeedsYou();
-  const works = useWorks();
+interface TerminalLifecycle {
+  handleWake: (id: TerminalId) => UiAction;
+  requestSleep: (id: TerminalId) => UiAction;
+  requestRestart: (id: TerminalId) => void;
+}
 
-  return createMemo((): PaletteCommand[] => [
-    // --- Root index: terminals (all hosts) + hosts ---
-    // Empty root caps terminals to Recent (~3); a query surfaces all matches
-    // flat across hosts (host chip on each row). ⌘⇧K opens Terminals as a
-    // flat multi-host list under host headers; dock search deep-links
-    // Terminals › $activeHost.
-    ...terminalRows(),
+interface CanvasPosture {
+  layout: () => ViewPostureMode;
+  canMaximize: () => boolean;
+}
+
+function rootIndexCommands(
+  deps: CommandDeps,
+  fleet: Accessor<FleetTerminalRow[]>,
+  needs: Accessor<readonly NeedsYou[]>,
+  works: Accessor<readonly WorkRow[]>,
+): PaletteCommand[] {
+  return [
+    ...terminalSwitchActions(
+      fleet(),
+      deps.activeHost(),
+      deps.switchHost,
+      deps.activate,
+    ),
     ...(deps.hostKeys().length > 1
       ? hostRootActions(deps.hostKeys(), deps.activeHost(), deps.switchHost)
       : []),
 
-    // --- What needs you, then every work — while there are any. A row is
-    // what is wanted, then the work's title; a work row is its title and
-    // where it is. Both land on the card through the one route to a work.
     ...needs().map(
       (item): PaletteAction => ({
         kind: "action",
@@ -272,9 +216,20 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
         onSelect: () => showWork(id),
       }),
     ),
+  ];
+}
 
-    // --- Terminals section: fleet list + new terminal ---
-    ...(terminalsScopeOpen()
+function terminalsCommands(
+  deps: CommandDeps,
+  fleet: Accessor<FleetTerminalRow[]>,
+): PaletteCommand[] {
+  const scopeOpen =
+    deps
+      .hostKeys()
+      .some((h) => padiMap.entry(h).state().kind === "connected") ||
+    fleet().length > 0;
+  return [
+    ...(scopeOpen
       ? [
           {
             kind: "group" as const,
@@ -283,7 +238,14 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
             section: "terminals" as const,
             keybind: ACTIONS.openWorkspaceSwitcher.keybind,
             row: { kind: "command" as const },
-            children: (): PaletteItem[] => hostScopedTerminalGroups(),
+            children: (): PaletteItem[] =>
+              terminalHostGroups(
+                fleet(),
+                deps.hostKeys(),
+                deps.activeHost(),
+                deps.switchHost,
+                deps.activate,
+              ),
           },
         ]
       : []),
@@ -329,11 +291,11 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
         ];
       },
     },
+  ];
+}
 
-    // --- Hosts scoped group (⌘⇧H) — same rows as root host index ---
-    // rootHidden: children are already promoted as root host rows, so the
-    // container stays addressable for openGroup/initialPath without a
-    // second Hosts band in the empty-root list.
+function hostsCommands(deps: CommandDeps): PaletteCommand[] {
+  return [
     ...(deps.hostKeys().length > 1
       ? [
           {
@@ -354,14 +316,6 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
         ]
       : []),
 
-    // --- Forward a port (any host) ---
-    // For a port the scanner never saw: one outside every terminal's subtree, a
-    // service started before kolu, a daemonized server. Those are exactly the
-    // ports no chip can offer, so the palette is the only way to reach them —
-    // which is why this is a root command rather than an active-terminal one.
-    // `manual`, so nothing but an explicit cancel closes it: kolu has no listener
-    // to watch on the user's behalf here, and reaping on "the scanner does not see
-    // it" would close every one of these the moment it was opened.
     {
       kind: "value" as const,
       name: "Forward a port…",
@@ -384,215 +338,170 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
         },
       ],
     },
+  ];
+}
 
-    // --- Active Terminal (conditional on focus) ---
-    ...(deps.activeId() !== null
+function activeTerminalCommands(
+  deps: CommandDeps,
+  crud: TerminalLifecycle,
+): PaletteCommand[] {
+  if (deps.activeId() === null) return [];
+  return [
+    {
+      kind: "action" as const,
+      name: "Close terminal",
+      section: "active-terminal" as const,
+      onSelect: () => deps.handleClose(),
+    },
+    sleepingArm(deps.activeMeta())
+      ? {
+          kind: "action" as const,
+          name: "Wake terminal",
+          section: "active-terminal" as const,
+          onSelect: () => {
+            const id = deps.activeId();
+            if (id) runAction("wake terminal", crud.handleWake(id));
+          },
+        }
+      : {
+          kind: "action" as const,
+          name: "Sleep terminal",
+          section: "active-terminal" as const,
+          onSelect: () => {
+            const id = deps.activeId();
+            if (id) runAction("sleep terminal", crud.requestSleep(id));
+          },
+        },
+    ...(activeArm(deps.activeMeta())
       ? [
           {
             kind: "action" as const,
-            name: "Close terminal",
+            name: "Restart terminal",
             section: "active-terminal" as const,
-            onSelect: () => deps.handleClose(),
+            description:
+              "A fresh shell in the same tile and folder, splits included — a live agent asks first (press again to confirm)",
+            onSelect: () => {
+              const id = deps.activeId();
+              if (id) crud.requestRestart(id);
+            },
           },
-          // Sleep / Wake — one or the other by the active tile's lifecycle state.
-          sleepingArm(deps.activeMeta())
-            ? {
-                kind: "action" as const,
-                name: "Wake terminal",
-                section: "active-terminal" as const,
-                onSelect: () => {
-                  const id = deps.activeId();
-                  if (id) runAction("wake terminal", crud.handleWake(id));
-                },
-              }
-            : {
-                kind: "action" as const,
-                name: "Sleep terminal",
-                section: "active-terminal" as const,
-                onSelect: () => {
-                  const id = deps.activeId();
-                  if (id) runAction("sleep terminal", crud.requestSleep(id));
-                },
-              },
-          // Live-only actions (split / restart / copy / screenshot / export /
-          // recent-agent prefill) need a running PTY, so they're gated on the
-          // ACTIVE arm — not merely `activeId() !== null`, which is also true for
-          // a SLEEPING tile (F3). Sleep now freezes a terminal's whole family, so
-          // a dormant parent's splits are dormant with it; creating under one is
-          // still refused by the server (`child-of` requires a live parent).
-          // Copy/screenshot would hit a PTY-less tile. Sleep/Wake/Close/theme/
-          // intent above stay on both arms (they touch persisted fields, not a
-          // live PTY).
-          ...(activeArm(deps.activeMeta())
+          actionPaletteCommand("toggleSubPanel", deps, {
+            section: "active-terminal",
+          }),
+          actionPaletteCommand("createSubTerminal", deps, {
+            section: "active-terminal",
+          }),
+          {
+            kind: "action" as const,
+            name: "Copy terminal text",
+            section: "active-terminal" as const,
+            onSelect: () => deps.handleCopyTerminalText(),
+          },
+          {
+            kind: "action" as const,
+            name: "Copy terminal ID",
+            section: "active-terminal" as const,
+            onSelect: () => deps.handleCopyTerminalId(),
+          },
+          {
+            kind: "action" as const,
+            name: "Export scrollback as PDF",
+            section: "active-terminal" as const,
+            onSelect: () => deps.handleExportScrollbackAsPdf(),
+          },
+          ...(activeArm(deps.activeMeta())?.agent
             ? [
                 {
                   kind: "action" as const,
-                  name: "Restart terminal",
+                  name: "Export agent session as HTML",
                   section: "active-terminal" as const,
                   description:
-                    "A fresh shell in the same tile and folder, splits included — a live agent asks first (press again to confirm)",
-                  onSelect: () => {
-                    const id = deps.activeId();
-                    // The tile's ↻ and this command share one arm-and-confirm
-                    // guard, so either can confirm the other's first press.
-                    if (id) crud.requestRestart(id);
-                  },
+                    "Choose a chat log or full transcript for the current Claude Code, OpenCode, or Codex session",
+                  onSelect: () => deps.handleExportSessionAsHtml(),
                 },
-                actionPaletteCommand("toggleSubPanel", deps, {
-                  section: "active-terminal",
-                }),
-                actionPaletteCommand("createSubTerminal", deps, {
-                  section: "active-terminal",
-                }),
-                {
-                  kind: "action" as const,
-                  name: "Copy terminal text",
-                  section: "active-terminal" as const,
-                  onSelect: () => deps.handleCopyTerminalText(),
-                },
-                {
-                  kind: "action" as const,
-                  name: "Copy terminal ID",
-                  section: "active-terminal" as const,
-                  onSelect: () => deps.handleCopyTerminalId(),
-                },
-                {
-                  kind: "action" as const,
-                  name: "Export scrollback as PDF",
-                  section: "active-terminal" as const,
-                  onSelect: () => deps.handleExportScrollbackAsPdf(),
-                },
-                ...(activeArm(deps.activeMeta())?.agent
-                  ? [
-                      {
-                        kind: "action" as const,
-                        name: "Export agent session as HTML",
-                        section: "active-terminal" as const,
-                        description:
-                          "Choose a chat log or full transcript for the current Claude Code, OpenCode, or Codex session",
-                        onSelect: () => deps.handleExportSessionAsHtml(),
-                      },
-                    ]
-                  : []),
-                actionPaletteCommand("screenshotTerminal", deps, {
-                  section: "active-terminal",
-                }),
-                // "Recent agents" — agents kolu has detected LIVE in any
-                // terminal, as `{ kind, argv }` facts. The launch line is rendered
-                // through the registry and prefilled into the active PTY, so it
-                // needs a live terminal as well as a seen agent.
-                ...(recentAgents().length > 0
-                  ? [
-                      {
-                        kind: "group" as const,
-                        name: "Recent agents",
-                        section: "active-terminal" as const,
-                        description:
-                          "Prefill an agent CLI into the active terminal",
-                        children: (): PaletteItem[] =>
-                          agentItems(
-                            recentAgents(),
-                            deps.handleRunInActiveTerminal,
-                          ),
-                      },
-                    ]
-                  : []),
               ]
             : []),
-          // Theme is a per-active-terminal property (padi's `chrome.setTheme`
-          // takes a terminal id), so both the drill-in chooser and the
-          // shuffle action live alongside the other active-terminal
-          // commands rather than in a global "Appearance" bucket.
-          themePaletteGroup(
-            availableThemes.map((theme) => theme.name),
-            deps,
-          ),
-          actionPaletteCommand("shuffleTheme", deps, {
+          actionPaletteCommand("screenshotTerminal", deps, {
             section: "active-terminal",
-            description:
-              "Pick a theme whose background is perceptually distinct from every live terminal",
           }),
-          // Intent — the single picker (kolu#178). One palette entry,
-          // one editor; click → curated-emoji quick-row + markdown
-          // textarea + live preview. The chip in the title bar, the
-          // top-border pill, the dock-awaiting card, and the workspace
-          // switcher card all surface what's edited here.
-          {
-            kind: "action" as const,
-            name: "Edit intent",
-            section: "active-terminal" as const,
-            description: "Attach a freeform markdown note to this terminal",
-            onSelect: () => deps.handleEditActiveIntent(),
-          },
-        ]
-      : []),
-
-    // --- Canvas (desktop only — spatial tile actions) ---
-    ...(supportsSpatialCanvas()
-      ? [
-          // Maximize / restore — gated on a tile existing (posture's own
-          // `canMaximize`, matching the ChromeBar button being disabled at
-          // zero terminals). The label describes the action a select
-          // performs, so when already maximized it reads "Restore canvas",
-          // never "Maximize terminal" — same wording as the ChromeBar
-          // affordance. Carries the keybind chip so the palette advertises
-          // the Mod+Shift+M shortcut from one source of truth.
-          ...(posture.canMaximize()
-            ? [
-                actionPaletteCommand("toggleCanvasPosture", deps, {
-                  section: "canvas",
-                  name: posturedActionLabel(posture.layout()),
-                }),
-              ]
-            : []),
-          {
-            kind: "action" as const,
-            name: "Center on active tile",
-            section: "canvas" as const,
-            onSelect: () => deps.canvasCenterActive(),
-          },
-          // Hide arrange when only one tile exists — a single-tile arrange
-          // is a visual no-op, and offering a command that does nothing
-          // surfaces as broken.
-          ...(tileStore.tileCount() > 1
+          ...(recentAgents().length > 0
             ? [
                 {
-                  kind: "action" as const,
-                  name: "Arrange canvas by repo",
-                  section: "canvas" as const,
-                  onSelect: () => deps.canvasAutoArrange(),
+                  kind: "group" as const,
+                  name: "Recent agents",
+                  section: "active-terminal" as const,
+                  description: "Prefill an agent CLI into the active terminal",
+                  children: (): PaletteItem[] =>
+                    agentItems(recentAgents(), deps.handleRunInActiveTerminal),
                 },
               ]
             : []),
         ]
       : []),
+    themePaletteGroup(
+      availableThemes.map((theme) => theme.name),
+      deps,
+    ),
+    actionPaletteCommand("shuffleTheme", deps, {
+      section: "active-terminal",
+      description:
+        "Pick a theme whose background is perceptually distinct from every live terminal",
+    }),
+    {
+      kind: "action" as const,
+      name: "Edit intent",
+      section: "active-terminal" as const,
+      description: "Attach a freeform markdown note to this terminal",
+      onSelect: () => deps.handleEditActiveIntent(),
+    },
+  ];
+}
 
-    // --- UI (panel/dock visibility) ---
-    // Dock visibility is global UI chrome; the right-panel toggle flips the
-    // ACTIVE TILE's `collapsed` bit (panel posture follows the tile) — the
-    // command is still gated on there being a terminal.
-    // Hide "Toggle right panel" on an empty workspace: with no terminals the
-    // panel host is unmounted (App's `showEmpty`) and `togglePanel()`
-    // early-returns, so the command would close the palette and do nothing —
-    // exactly the "offering a command that does nothing surfaces as broken"
-    // case the canvas-arrange gate above avoids. The header button is disabled
-    // for the same reason.
+function canvasCommands(
+  deps: CommandDeps,
+  posture: CanvasPosture,
+  tileStore: TileStore,
+): PaletteCommand[] {
+  if (!supportsSpatialCanvas()) return [];
+  return [
+    ...(posture.canMaximize()
+      ? [
+          actionPaletteCommand("toggleCanvasPosture", deps, {
+            section: "canvas",
+            name: posturedActionLabel(posture.layout()),
+          }),
+        ]
+      : []),
+    {
+      kind: "action" as const,
+      name: "Center on active tile",
+      section: "canvas" as const,
+      onSelect: () => deps.canvasCenterActive(),
+    },
+    ...(tileStore.tileCount() > 1
+      ? [
+          {
+            kind: "action" as const,
+            name: "Arrange canvas by repo",
+            section: "canvas" as const,
+            onSelect: () => deps.canvasAutoArrange(),
+          },
+        ]
+      : []),
+  ];
+}
+
+function uiCommands(deps: CommandDeps, tileStore: TileStore): PaletteCommand[] {
+  return [
     ...(tileStore.tileCount() > 0
       ? [actionPaletteCommand("toggleRightPanel", deps, { section: "ui" })]
       : []),
     actionPaletteCommand("toggleDock", deps, { section: "ui" }),
-    // The conductor, through the SAME registry entry the chord and the
-    // chrome-bar entry read, so the palette's shortcut chip has one source.
-    // Ungated: the conversation is reachable on an empty workspace and before
-    // it has started — the panel says which of those it is, and a command
-    // that hides itself is a feature nobody discovers.
     actionPaletteCommand("toggleConductor", deps, {
       section: "ui",
       name: conductorMode() ? "Leave the conductor" : "Conductor",
       description: "One conversation that drives the terminals on every host",
     }),
-    // The tile tip shows only where ambient tips do (desktop), so the size
-    // switch is offered only there.
     ...(showsAmbientTips()
       ? [
           {
@@ -607,32 +516,96 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
           },
         ]
       : []),
+  ];
+}
 
-    // The fleet-wide update check — a palette command, not a Settings button:
-    // it asks EVERY machine, which is what palette actions do, and Settings
-    // keeps only the preference. No chord: it is a rare, deliberate act.
-    // Hidden where there is nothing to check (a kolu built without agents).
-    ...(agentDistroListing()?.kind === "available"
-      ? [
-          {
-            kind: "action" as const,
-            name: AGENTS_CHECK_NOW.label,
-            description: AGENTS_CHECK_NOW.note,
-            section: "commands" as const,
-            icon: AgentsIcon,
-            onSelect: checkAgentsNow,
-          },
-        ]
-      : []),
-    // --- Help (reference + advanced) ---
+function agentsCommands(): PaletteCommand[] {
+  if (agentDistroListing()?.kind !== "available") return [];
+  return [
+    {
+      kind: "action",
+      name: AGENTS_CHECK_NOW.label,
+      description: AGENTS_CHECK_NOW.note,
+      section: "commands",
+      icon: AgentsIcon,
+      onSelect: checkAgentsNow,
+    },
+  ];
+}
+
+function debugGroup(deps: CommandDeps): PaletteCommand {
+  return {
+    kind: "group",
+    name: "Debug",
+    section: "help",
+    description: "Internal diagnostics and scaffolding",
+    children: (): PaletteItem[] => [
+      {
+        kind: "action",
+        name: "Diagnostic info",
+        description: "Runtime state — renderer, WS, terminals, padi",
+        onSelect: () => diagnosticDialog.openDialog(),
+      },
+      {
+        kind: "action",
+        name: "Restore state from backup",
+        description: "Browse the state-backup rings and restore a snapshot",
+        onSelect: () => stateBackupsDialog.openDialog(),
+      },
+      ...(offerRestartVerb(activeKavalPresence())
+        ? [
+            {
+              kind: "action" as const,
+              name: "Restart kaval",
+              description:
+                "Recycle the terminal daemon and restore your session",
+              onSelect: () => runAction("restart kaval", restartDaemon()),
+            },
+          ]
+        : []),
+      {
+        kind: "action",
+        name: "Simulate attention alert",
+        onSelect: () => deps.simulateAlert(),
+      },
+      ...(supportsSpatialCanvas()
+        ? [
+            {
+              kind: "action" as const,
+              name: "Reset terminal size",
+              description:
+                "Restore the active terminal to its default size, centered",
+              onSelect: () => deps.handleResetActiveTileSize(),
+            },
+          ]
+        : []),
+      {
+        kind: "action",
+        name: "Clear localStorage",
+        onSelect: () => deps.handleClearLocalStorage(),
+      },
+      {
+        kind: "action",
+        name: "Export session",
+        description: "Download terminal session state as JSON",
+        onSelect: () => deps.handleExportSession(),
+      },
+      {
+        kind: "action",
+        name: "Import session",
+        description: "Restore terminals from a session JSON file",
+        onSelect: () => deps.handleImportSession(),
+      },
+    ],
+  };
+}
+
+function helpCommands(deps: CommandDeps): PaletteCommand[] {
+  return [
     actionPaletteCommand("shortcutsHelp", deps, {
       name: "Keyboard shortcuts",
       section: "help",
     }),
-    // Tutorial re-summons the welcome — gated to surfaces that have one. Mobile
-    // has no welcome by design (`showsWelcome()` false), so the command is
-    // omitted there rather than opening a desktop-oriented dialog in the
-    // compact layout.
     ...(showsWelcome()
       ? [
           {
@@ -650,93 +623,26 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
       section: "help",
       onSelect: () => aboutDialog.openDialog(),
     },
-    // "Debug" — drill-in group under Help. The handful of internal
-    // hatches don't warrant their own top-level section; nesting under
-    // Help signals "advanced reference / introspection."
-    {
-      kind: "group",
-      name: "Debug",
-      section: "help",
-      description: "Internal diagnostics and scaffolding",
-      children: (): PaletteItem[] => [
-        {
-          kind: "action",
-          name: "Diagnostic info",
-          description: "Runtime state — renderer, WS, terminals, padi",
-          onSelect: () => diagnosticDialog.openDialog(),
-        },
-        // The state-backup rings (#1658) — the palette flattens leaves, so
-        // typing "restore"/"backup" finds it without walking the group.
-        {
-          kind: "action",
-          name: "Restore state from backup",
-          description: "Browse the state-backup rings and restore a snapshot",
-          onSelect: () => stateBackupsDialog.openDialog(),
-        },
-        // Restart kaval — recycle the terminal daemon, capturing the session
-        // first and offering it for restore on the fresh daemon (B3.2). The
-        // kaval rail dialog and the degraded canvas are the primary,
-        // state-contextual surfaces; this is the keyboard/search path (the
-        // palette flattens leaves, so typing "restart"/"kaval" finds it).
-        // Offered as a TOTAL FUNCTION of the active kaval's presence sum
-        // ({@link offerRestartVerb}, the same fold the dialog action slot reads):
-        // hidden while `warming` (a restart in flight / booting — a no-op), on a
-        // PROVEN contract skew (`incompatible` — a restart respawns the same binary;
-        // the skew card's "Update & restart kaval" is the recovery), AND over an
-        // `unknown`/dead channel (#1793 affordance axis — the palette must not offer
-        // an action the channel can't carry out). Reads `activeKavalPresence()` — the
-        // ONE named fold the dialog's action slot also reads — so the two surfaces
-        // can't disagree by construction. (The button's `restartInFlight()` additionally
-        // folds a local-click signal the palette has no access to; the server's
-        // restart coalescer backstops the click-but-not-yet-warming race.)
-        ...(offerRestartVerb(activeKavalPresence())
-          ? [
-              {
-                kind: "action" as const,
-                name: "Restart kaval",
-                description:
-                  "Recycle the terminal daemon and restore your session",
-                onSelect: () => runAction("restart kaval", restartDaemon()),
-              },
-            ]
-          : []),
-        {
-          kind: "action",
-          name: "Simulate attention alert",
-          onSelect: () => deps.simulateAlert(),
-        },
-        // Spatial-canvas action — hidden off the canvas (mobile / narrow),
-        // where the handler would no-op and the command would surface as
-        // broken (same gate as the Canvas section's spatial actions above).
-        ...(supportsSpatialCanvas()
-          ? [
-              {
-                kind: "action" as const,
-                name: "Reset terminal size",
-                description:
-                  "Restore the active terminal to its default size, centered",
-                onSelect: () => deps.handleResetActiveTileSize(),
-              },
-            ]
-          : []),
-        {
-          kind: "action",
-          name: "Clear localStorage",
-          onSelect: () => deps.handleClearLocalStorage(),
-        },
-        {
-          kind: "action",
-          name: "Export session",
-          description: "Download terminal session state as JSON",
-          onSelect: () => deps.handleExportSession(),
-        },
-        {
-          kind: "action",
-          name: "Import session",
-          description: "Restore terminals from a session JSON file",
-          onSelect: () => deps.handleImportSession(),
-        },
-      ],
-    },
+    debugGroup(deps),
+  ];
+}
+
+export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
+  const posture = useViewPosture();
+  const tileStore = useTileStore();
+  const crud = useTerminalCrud();
+  const fleet = useFleetTerminalIndex();
+  const needs = useNeedsYou();
+  const works = useWorks();
+
+  return createMemo((): PaletteCommand[] => [
+    ...rootIndexCommands(deps, fleet, needs, works),
+    ...terminalsCommands(deps, fleet),
+    ...hostsCommands(deps),
+    ...activeTerminalCommands(deps, crud),
+    ...canvasCommands(deps, posture, tileStore),
+    ...uiCommands(deps, tileStore),
+    ...agentsCommands(),
+    ...helpCommands(deps),
   ]);
 }

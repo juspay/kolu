@@ -1,16 +1,4 @@
 // @vitest-environment happy-dom
-/**
- * THE ONE STATUS LINE, as a person meets it: the state word the header chip
- * used to carry, what the conversation is doing and for how long, the count
- * of work that opens the column, and the waiting count that is ABSENT at
- * zero rather than rendering its own silence.
- *
- * The work column is stubbed here on purpose: it reads the live fleet (and
- * through `ConductorLook`, the padi wire), which is a different test's
- * subject. What this file pins is that pressing the button is what puts it on
- * screen, and pressing it again takes it away.
- */
-
 import {
   DEFAULT_CONDUCTOR_STATE,
   type ConductorRow,
@@ -24,13 +12,9 @@ vi.mock("./WorkColumn", () => ({
   default: () => <div data-testid="work-column" />,
 }));
 
-/** The works the line counts, swapped per test — the mirror itself is a wire
- *  collection, and what this file is about is the sentence over it. */
 let works: WorkRow[] = [];
 vi.mock("./useWorks", () => ({
   useWorks: () => () => works,
-  // The one needs-you reading, over the same works — as the real mirror
-  // derives it.
   useNeedsYou: () => () => needsYou(works),
 }));
 
@@ -39,10 +23,6 @@ import { Shown } from "../ui/shown";
 
 const SINCE = "2026-01-01T00:00:00.000Z";
 
-/** A piece of work with nothing observed about it yet: in progress, waiting
- *  on its agents. Enough to be counted, which is all this line does — and it
- *  arrives as the PAIR every reader holds, because the record carries no id
- *  of its own: the key it is filed under is the id. */
 const work = (branch: string, title: string): WorkRow => [
   `branch:local/%2Fcode%2Fkolu/${branch}`,
   {
@@ -83,9 +63,6 @@ function mount(
   const state: ConductorState = { ...DEFAULT_CONDUCTOR_STATE, ...over };
   dispose = render(
     () => (
-      // The pane is a retained view; every part of it reads its visibility
-      // from this context, so a status line mounted for a test says it is
-      // being looked at.
       <Shown.Provider value={() => true}>
         <ConductorStatus state={state} rows={rows} />
       </Shown.Provider>
@@ -115,7 +92,6 @@ describe("the status line", () => {
     expect(at("conductor-status-detail")?.textContent).toBe(
       "briefing the planner",
     );
-    // Seconds, ticking from the instant the turn began.
     expect(at("conductor-status-since")?.textContent).toMatch(/^\d+s$/);
   });
 
@@ -129,9 +105,6 @@ describe("the status line", () => {
     works = [work("w1", "fix-parser"), work("w2", "docs-pass")];
     const at = mount();
     const button = at("conductor-work-count");
-    // The words a person reads, and the same number as data for anything that
-    // should not have to parse English. Nothing waits on the human here, so
-    // that half of the sentence — and its datum — is simply absent.
     expect(button?.textContent?.replace(/\s+/g, " ")).toBe("2 pieces of work");
     expect(button?.dataset.work).toBe("2");
     expect(button?.dataset.waiting).toBeUndefined();
@@ -154,8 +127,6 @@ describe("the status line", () => {
   });
 
   it("counts a question about no work as something waiting on you", () => {
-    // The work is waiting on its agents; the open ask belongs to no work, so
-    // it is the conversation's own and counts on its own.
     works = [work("w1", "fix-parser")];
     const at = mount({ openAsks: ["ask-1"] });
     const button = at("conductor-work-count");
@@ -166,8 +137,6 @@ describe("the status line", () => {
   });
 
   it("says NOTHING with no work and nothing waiting — no count, no control", () => {
-    // `0 pieces of work` and a press that opened an empty column were both
-    // readouts of nothing. The line simply does not carry them.
     const at = mount();
     expect(at("conductor-work-count")).toBeUndefined();
     expect(at("work-column")).toBeUndefined();
@@ -184,9 +153,6 @@ describe("the status line", () => {
   });
 
   it("carries the steer hint only while steering is on offer", () => {
-    // The hint had a row of its own under the composer. It lives on the line
-    // that reports the running turn now, and it is still true exactly when
-    // the chord works: a conversation that steers, with a turn in flight.
     expect(
       mount({ steers: true, phase: "idle" })("conductor-steer-hint"),
     ).toBeUndefined();

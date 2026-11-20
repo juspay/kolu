@@ -1,27 +1,3 @@
-/** RightPanelDrawer — the touch-layout host for the right panel, shared by
- *  BOTH handheld layouts (phone and compact). App.tsx mounts it for the
- *  `P.union("phone", "compact")` arm; only the desktop layout hosts the panel
- *  differently (see below).
- *
- *  On the touch layouts, the right panel hosts as a `@corvu/drawer
- *  side="bottom"`. Visibility is the session-local `useRightPanel.drawerOpen()`
- *  signal — dismissing the drawer on a handheld is not the same volatility as
- *  toggling the desktop panel's per-terminal `collapsed` state (see
- *  `useRightPanel.ts`).
- *
- *  On desktop the right panel is hosted by a `@corvu/resizable`
- *  `Resizable` wired up in `App.tsx` — the outer horizontal split between
- *  the canvas and the panel. Both visibility seams — desktop uncollapse
- *  and touch-layout drawer-open — are dispatched imperatively from
- *  `openInCodeTab` itself; there is no `on(pendingOpen, ...)` subscriber
- *  here for the same reason.
- *
- *  Selection, mode, and tab kind share `useRightPanel` across hosts — and now
- *  across panes within a host: they belong to the FOCUSED PANE, so a phone
- *  session that ends on `foo.html` in a split reopens with that split's
- *  selection; switch to the tile's main terminal and main's own selection
- *  returns. */
-
 import Drawer from "@corvu/drawer";
 import type { TerminalMetadata } from "@kolu/padi-client/surface";
 import type { TerminalId } from "kolu-common/surface";
@@ -32,27 +8,17 @@ import { useRightPanel } from "./useRightPanel";
 
 type HostProps = {
   children: JSX.Element;
-  /** The pane the panel shows — a tile's main terminal, or a split. */
   terminalId: TerminalId | null;
   meta: TerminalMetadata | null;
-  /** The containing top-level tile (panel posture + tile-wide sections). */
   tileId: TerminalId | null;
   themeName?: string;
   onThemeClick?: () => void;
-  /** Extra class on the content wrapper (e.g. "flex-col" for the
-   *  mobile column stack). */
   contentClass?: string;
 };
 
 const RightPanelDrawer: Component<HostProps> = (props) => {
   const rightPanel = useRightPanel();
 
-  // Same policy the dock/chrome drawers carry: on close, blur the focused
-  // field so dismissing this bottom sheet (which holds its own focused inputs,
-  // e.g. the comment composer) leaves the keyboard down. restoreFocus={false}
-  // stops Corvu re-summoning it. Both close paths — backdrop tap / drag
-  // (Corvu's onOpenChange) and the in-panel close button (onToggle, routed
-  // through `handler(false)`) — funnel through here.
   const onDrawerOpenChange = withKeyboardDismiss(rightPanel.setDrawerOpen);
 
   return (

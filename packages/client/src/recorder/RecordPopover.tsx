@@ -1,7 +1,3 @@
-/** Pre-record setup popover — mic + webcam device selectors, live level
- *  meter, webcam preview, "Start recording" commit button. Appears when
- *  the chrome-bar record button is clicked from idle. */
-
 import { runAction } from "../runAction";
 import { type Component, createEffect, For, Show } from "solid-js";
 import { Portal } from "solid-js/web";
@@ -52,7 +48,6 @@ const RecordPopover: Component<{
     anchor: "bottom-end",
   });
 
-  // Keep the preview `<video>` in sync with the webcam stream signal.
   createEffect(() => {
     const s = recorder.webcamStream();
     if (webcamVideoRef) webcamVideoRef.srcObject = s;
@@ -80,7 +75,6 @@ const RecordPopover: Component<{
         >
           <div class="text-sm font-medium text-fg">Record workspace</div>
 
-          {/* Mic */}
           <div class="space-y-1.5">
             <div class="flex items-center justify-between text-xs text-fg-2">
               <span>Microphone</span>
@@ -114,7 +108,6 @@ const RecordPopover: Component<{
             <LevelMeter level={recorder.micLevel()} class="h-2" />
           </div>
 
-          {/* Webcam */}
           <div class="space-y-1.5 pt-1 border-t border-edge">
             <div class="flex items-center justify-between gap-3 text-xs text-fg-2 pt-2">
               <span>Webcam overlay</span>
@@ -174,7 +167,10 @@ const RecordPopover: Component<{
               data-testid="record-start"
               class="h-7 px-3 text-sm text-white bg-danger hover:bg-danger/90 rounded-lg transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
               onClick={() => {
-                runAction("start recording", recorder.startRecording());
+                runAction(
+                  "start recording",
+                  recorder.startRecordingFromGesture(),
+                );
               }}
             >
               Start recording

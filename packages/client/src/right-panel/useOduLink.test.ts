@@ -1,32 +1,9 @@
 // @vitest-environment happy-dom
-/**
- * A lane's way out to odu web — the address, and the fact that it is not always
- * an address yet.
- *
- * Two decisions are executed here, because both are pure and both are easy to
- * get plausible-but-wrong:
- *
- *   - WHICH page a lane points at: its own log, or — for a lane that never
- *     started — the run. odu marks "no attempt yet" with an EMPTY log key rather
- *     than a fabricated attempt 1, and a link built from a guessed attempt would
- *     open a `log.read` that refuses.
- *   - WHETHER the browser can reach the daemon at all. odu binds loopback, so a
- *     browser that is not ON that machine needs a door — and the door's address,
- *     once one is open, is what a row offers so that ⌘-click and the click name
- *     the same URL.
- *
- * The wire-bound outlet (`useOduLink`) is stubbed out of the module graph: these
- * decisions need no socket, and a test that opened one would be testing the wire
- * — the hook's own job is now to read WHERE odu is listening off odu's `service`
- * cell and hand that port to the decision below — rather than the decision.
- */
 
 import { formatLogKey } from "@odu/service-client/logKey";
 import { logHash } from "@odu/service-client/routes";
 import { describe, expect, it, vi } from "vitest";
 
-// `padiMap` is named only so the module's import binding resolves: these cases
-// call the pure decision, never the hook that reads odu's `service` cell.
 vi.mock("../wire", () => ({
   activeHost: () => ({ kind: "local" }),
   padiMap: { entry: () => undefined },
@@ -43,13 +20,9 @@ vi.mock("../forwards/useForwards", () => ({
 
 const { oduLinkAct } = await import("./useOduLink");
 
-/** The port odu's own `service` cell named (`serviceBind(identity.origin)`) — an
- *  arbitrary one on purpose: the link has to dial THIS, not a default. */
 const DAEMON_PORT = 18777;
 
 describe("how an odu link is reached", () => {
-  /** A real address, minted by odu's own token rule rather than hand-spelled:
-   *  the point of these cases is the ORIGIN it hangs off, not the fragment. */
   const HASH = logHash(
     formatLogKey({
       runId: "run-1",
@@ -65,8 +38,6 @@ describe("how an odu link is reached", () => {
   };
 
   it("links the daemon's own port when the browser IS on its host", () => {
-    // No door: the browser's own loopback is the machine the daemon is on, so
-    // the address is odu's directly.
     expect(
       oduLinkAct({ ...base, viewerOnHost: true, doorPort: undefined }),
     ).toEqual({
@@ -76,8 +47,6 @@ describe("how an odu link is reached", () => {
   });
 
   it("links through the door that is already open", () => {
-    // The door's port, on the host this page came from — the same address
-    // `forwardUrl` builds, so a copied link and a click agree.
     expect(
       oduLinkAct({ ...base, viewerOnHost: false, doorPort: 61003 }),
     ).toEqual({
@@ -93,9 +62,6 @@ describe("how an odu link is reached", () => {
   });
 
   it("offers a door for a daemon on a REMOTE host as well", () => {
-    // `onKoluHost` cannot change this: a loopback bind is invisible to every
-    // other machine whatever host it is on, so both halves of that flag end in
-    // the same door.
     expect(
       oduLinkAct({
         ...base,

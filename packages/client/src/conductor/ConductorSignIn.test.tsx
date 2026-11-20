@@ -1,18 +1,4 @@
 // @vitest-environment happy-dom
-/**
- * THE SIGN-IN ROW, and which doors it draws for whom.
- *
- * The restart is the whole remedy for a signature that changed under a running
- * agent: the adapter read its credential at `initialize` and nothing else
- * reaches it. It used to be drawn only on a row a PERSON asked for — so when
- * the AGENT asked (ACP's `-32000`) and the person went and signed in from
- * their own shell, the only button on screen started a second login and the
- * one that would have fixed it did not exist.
- *
- * `Not now` stays the person's alone: the agent's offer stands on a refusal
- * that still stands, and the host leaves that row exactly where it is.
- */
-
 import {
   type ConductorState,
   DEFAULT_CONDUCTOR_STATE,
@@ -118,7 +104,6 @@ describe("a method already running", () => {
     );
     expect(at("conductor-signin-reload")).toBeUndefined();
     expect(at("conductor-signin-close")).toBeUndefined();
-    // ... and the attempt's own cancel is the one that is there.
     at("conductor-signin-cancel")?.click();
     expect(verbs.signInCancel).toHaveBeenCalledTimes(1);
   });
@@ -146,8 +131,6 @@ describe("a method only a person can run", () => {
   });
 });
 
-/** The default state carries no sign-in at all — the pane draws this row only
- *  when there is one, which is the fact this file depends on. */
 it("is drawn only when the conversation has a sign-in", () => {
   expect(DEFAULT_CONDUCTOR_STATE.signIn).toBeNull();
 });

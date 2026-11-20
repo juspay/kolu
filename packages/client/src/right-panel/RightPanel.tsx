@@ -1,24 +1,3 @@
-/** RightPanel — right panel shell with tabbed navigation.
- *  Routes between Inspector and Code tabs via the DU view exposed by
- *  `useRightPanel().activeTab()`.
- *
- *  The panel's SUBJECT is the focused pane (`props.terminalId`/`props.meta` — a
- *  top-level tile's main pane, or any split at any nesting depth), while its
- *  OPEN/CLOSED posture belongs to the containing tile (`props.tileId`). A pane
- *  HEADER line under the tab bar — shared by both tabs, so it never shifts
- *  between them — names the directory this pane (and so the Code tree) is rooted
- *  at, and prefixes the split's own name when the shown pane is a split.
- *
- *  Pure presenter — no shell positioning, no resize handle. The desktop
- *  host wraps this in a `@corvu/resizable` `Resizable` (in `App.tsx`)
- *  for the horizontal split + drag-to-resize; the mobile host wraps
- *  this in a `@corvu/drawer` (`RightPanelDrawer.tsx`). Both hosts thread
- *  the same `visible` accessor — desktop reads `collapsed()`, mobile
- *  reads `drawerOpen()` — so `inert` (and the `data-collapsed` marker)
- *  reflect actual visibility on both surfaces. `data-collapsed` is emitted
- *  when `!visible` so e2e selectors can assert collapse state without
- *  inspecting widths. */
-
 import { Shown } from "../ui/shown";
 
 import type {
@@ -37,13 +16,6 @@ import MetadataInspector from "./MetadataInspector";
 import { paneDirectory } from "./paneDirectory";
 import { useRightPanel } from "./useRightPanel";
 
-/** Ordered tab kinds shown in the tab bar. Adding a new kind to the
- *  discriminated union requires a corresponding entry here AND in
- *  `TAB_LABEL` below — both are typed `Record<RightPanelTabKind, …>` and
- *  fail-compile on missing keys. The body renderer further down dispatches
- *  via `match(kind).exhaustive()`, which also fails-compile on a missing
- *  variant — so adding a new kind is a three-place change that the
- *  compiler enforces end-to-end. */
 const TAB_KINDS: readonly RightPanelTabKind[] = ["code", "inspector"] as const;
 
 const TAB_LABEL: Record<RightPanelTabKind, string> = {
@@ -52,19 +24,12 @@ const TAB_LABEL: Record<RightPanelTabKind, string> = {
 };
 
 const RightPanel: Component<{
-  /** The pane the panel SHOWS — a tile's main terminal, or a split at any depth. */
   terminalId: TerminalId | null;
-  /** `terminalId`'s own metadata (glitch-free pairing — see `store.focused()`). */
   meta: TerminalMetadata | null;
-  /** The containing top-level tile, which owns the panel's open/closed posture
-   *  and the tile-wide sections (Ports, Attach). Equals `terminalId` when the
-   *  shown pane is the tile's main terminal. */
   tileId: TerminalId | null;
   onToggle: () => void;
   themeName?: string;
   onThemeClick?: () => void;
-  /** Whether this `RightPanel` instance is visible to the user. The host
-   *  decides — desktop reads `collapsed()`, mobile reads `drawerOpen()`. */
   visible: boolean;
 }> = (props) => {
   const rightPanel = useRightPanel();
@@ -72,10 +37,6 @@ const RightPanel: Component<{
   const showKind = (kind: RightPanelTabKind) =>
     kind === "inspector" ? rightPanel.showInspector() : rightPanel.showCode();
 
-  /** The split's own name, shown only when the panel is NOT on the tile's main
-   *  pane. Reuses `dockRowLabel` — the ONE author of a dock row's annotation
-   *  words, and already what a split's dock sub-row shows — so the panel and the
-   *  dock can never name the same split two different ways. */
   const paneLabel = (): string | null => {
     const meta = props.meta;
     if (!meta) return null;
@@ -84,10 +45,6 @@ const RightPanel: Component<{
     return dockRowLabel(meta, undefined);
   };
 
-  /** The pane's directory, split at the repo root the Code tree is browsed from
-   *  — `~`-shortened by the ONE shortener, so the root keeps the emphasis and
-   *  everything below it dims. The split itself lives in `paneDirectory`, with
-   *  its own test. */
   const directory = () => paneDirectory(props.meta);
 
   return (
@@ -95,19 +52,8 @@ const RightPanel: Component<{
       data-testid="right-panel"
       data-collapsed={props.visible ? undefined : ""}
       class="flex flex-col h-full min-w-0 overflow-hidden bg-surface-0"
-      // Panel stays mounted across collapse on desktop so CodeTab's local
-      // state survives (#818); the desktop Resizable shrinks it to ~0 width
-      // via `sizes=[1, 0]`. `inert` alone makes "not visible" mean "not
-      // interactive": it both drops the subtree from the accessibility tree
-      // and removes the Collapse button, tab buttons, and CodeTab inputs
-      // from the Tab focus order (an invisible focus trap otherwise). We
-      // deliberately omit a paired `aria-hidden`: the browser blocks
-      // `aria-hidden` on an ancestor of a focused element (a focused
-      // Collapse/tab button or CodeTab input when the panel collapses) and
-      // logs a WAI-ARIA console warning — `inert` covers both concerns.
       inert={!props.visible}
     >
-      {/* Tab bar */}
       <div class="flex items-center h-8 shrink-0 bg-surface-1 border-b border-edge">
         <For each={TAB_KINDS}>
           {(kind) => {
@@ -146,10 +92,6 @@ const RightPanel: Component<{
           </button>
         </div>
       </div>
-      {/* Pane header — which pane this is and where it lives. ONE line above the
-       *  tab bodies, so both tabs share it and switching tabs never shifts it.
-       *  The split's name (when the shown pane is a split) prefixes the
-       *  directory the pane — and so the Code tree — is rooted at. */}
       <Show when={directory()}>
         {(dir) => (
           <div class="flex items-center gap-1.5 h-6 shrink-0 px-3 bg-surface-1/40 border-b border-edge font-mono text-[10px]">
@@ -164,10 +106,6 @@ const RightPanel: Component<{
                 </span>
               )}
             </Show>
-            {/* Truncate from the LEFT: `direction: rtl` clips the line's start,
-             *  and the `bdi` keeps the path itself LTR so its `~` and `/` are
-             *  not re-ordered by the bidi algorithm. The full path is in the
-             *  title. */}
             <span
               data-testid="right-panel-directory"
               title={dir().full}
@@ -182,15 +120,6 @@ const RightPanel: Component<{
           </div>
         )}
       </Show>
-      {/* Both tabs are always rendered; the inactive one is display:none.
-       *  Mounting both keeps each tab's local state (CodeTab's selected file,
-       *  Pierre's tree expansion, scroll position) alive across tab switches
-       *  — wrapping a single `match(...).exhaustive()` over `activeTab()`
-       *  would unmount the inactive sibling and discard that state. The
-       *  shape below iterates `TAB_KINDS` (already compile-exhaustive over
-       *  RightPanelTabKind via the `Record<RightPanelTabKind, …>` typings
-       *  on TAB_LABEL) so both bodies mount once, then `match(kind)` picks
-       *  which component to render per slot — exhaustive *and* both-mounted. */}
       <div class="relative flex-1 min-h-0 overflow-hidden">
         <For each={TAB_KINDS}>
           {(kind) => {

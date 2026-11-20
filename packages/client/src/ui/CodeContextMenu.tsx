@@ -1,10 +1,6 @@
-/** Lightweight floating context menu used by the Code tab's diff/file
- *  viewers. Pierre's `@pierre/diffs` doesn't expose a built-in context-menu
- *  hook (only `@pierre/trees` does), so we build a minimal Solid menu over
- *  the host container's `contextmenu` event.
- *
- *  Items are computed from a `getItems` accessor that reads the current
- *  line selection — items can return null to omit themselves. */
+/** Floating context menu for the Code tab's diff/file viewers: `@pierre/diffs`
+ *  exposes no context-menu hook (only `@pierre/trees` does), so this is a
+ *  minimal Solid menu over the host container's `contextmenu` event. */
 
 import { writeTextToClipboard } from "@kolu/solid-logtail";
 import { toError } from "@kolu/surface/run-stream";
@@ -23,13 +19,6 @@ import { match } from "ts-pattern";
 import { runAction } from "../runAction";
 import { surface } from "./Surface";
 
-/** Two verbs over the same selection noun: copy a string to the clipboard,
- *  or invoke an action callback. The discriminator keeps the dispatch
- *  explicit so adding a third verb (e.g. "share") doesn't tempt the
- *  handler into reading every field on every item. Every item carries
- *  a leading icon — verbs like "Copy" and "Open" share the same label
- *  shape (`<verb> path:N`) and disambiguate poorly when only the first
- *  word differs; the glyph makes the verb readable at a glance. */
 export type CodeContextMenuItem =
   | {
       kind: "copy";
@@ -68,7 +57,7 @@ export const CodeContextMenu: Component<{
   props.ref({
     open: (event: MouseEvent) => {
       const next = props.getItems();
-      if (next.length === 0) return; // nothing to offer; let browser default through
+      if (next.length === 0) return;
       event.preventDefault();
       setItems(next);
       setPos({ x: event.clientX, y: event.clientY });
@@ -87,9 +76,6 @@ export const CodeContextMenu: Component<{
   };
   const onKeydown = (e: KeyboardEvent) => {
     if (e.key !== "Escape") return;
-    // CONSUME it — an open menu is the frontmost thing, and the key that
-    // closes it is spent (the shape `SearchBar` and `PrintedUrlCard` use).
-    // Otherwise a window-level `Escape` reader acts on the same press.
     e.preventDefault();
     e.stopPropagation();
     close();

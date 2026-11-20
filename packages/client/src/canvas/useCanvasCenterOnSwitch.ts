@@ -1,22 +1,3 @@
-/** `useCanvasCenterOnSwitch` — the switch-in center-on-active DECISION, the
- *  surviving (B) half of the deleted `useCanvasCameraSwap` hook, mounted from
- *  `TerminalCanvas` alongside its sibling hooks (`useCanvasFocus`,
- *  `usePendingLayouts`, `useTileAura`).
- *
- *  The camera pose is now per-host and RETAINED in `hostScopes.active().camera`,
- *  so a switch shows that host's saved pose BY CONSTRUCTION — there is no
- *  snapshot/restore step to race the incoming tile's mount (the class the deleted
- *  swap bridge could never close). What remains is the switch-in center decision,
- *  deferred past the mount race: once the incoming host's active tile has a
- *  measured layout, seed a never-positioned host on it (firstVisit) or re-center a
- *  host whose active tile drifted out of its retained view (stale) — the pure
- *  `switchInNeedsCenter` core and the layout-gated `focus.request` pan unchanged.
- *
- *  The one input is `activeTileLayout` — the active tile's resolved layout over
- *  the canvas's pending-layout overrides, which only the canvas can derive. The
- *  viewport / terminal store / active-host signal are read from their singletons /
- *  modules exactly as the inlined block did. */
-
 import { createEffect, createSignal, on } from "solid-js";
 import { activeScope } from "../hostScope/hostScopes";
 import { useTerminalStore } from "../terminal/useTerminalStore";
@@ -34,21 +15,15 @@ export function useCanvasCenterOnSwitch(
   const [pendingCenter, setPendingCenter] = createSignal(false);
   createEffect(
     on(activeHost, (_curr, prev) => {
-      // A switch invalidates any input still aimed at the host we are leaving: an
-      // in-flight center/pan animation or a queued gesture flush writes pan/zoom
-      // through `activeScope()`, which has just re-keyed to the NEW host — so a
-      // frame-late callback would land the outgoing host's motion in the incoming
-      // host's camera. Drop both up front so the switch cannot corrupt the retained
-      // pose of the host switched to.
       viewport.abortTransientInput();
-      if (prev === undefined) return; // initial mount — no switch to service yet
+      if (prev === undefined) return;
       setPendingCenter(true);
     }),
   );
   createEffect(() => {
     if (!pendingCenter() || !viewport.mounted()) return;
     const activeTile = activeTileLayout();
-    if (!activeTile) return; // mount race — wait for the tile to be measured
+    if (!activeTile) return;
     const camera = activeScope()?.camera;
     if (!camera) {
       setPendingCenter(false);
@@ -64,6 +39,6 @@ export function useCanvasCenterOnSwitch(
       )
     )
       store.requestCenterActive();
-    setPendingCenter(false); // consume once resolved
+    setPendingCenter(false);
   });
 }

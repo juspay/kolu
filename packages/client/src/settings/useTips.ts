@@ -1,10 +1,3 @@
-/**
- * Tip state — singleton module. Persists seen tips in server state.
- * Tips render via `<TipBanner />` (top-center floating pill), kept
- * separate from the bottom-right toast stream so they don't get lost
- * among success / error notifications.
- */
-
 import type { TerminalId } from "kolu-common/surface";
 import { type Accessor, createEffect, createSignal, untrack } from "solid-js";
 import { showsAmbientTips } from "../capabilities";
@@ -19,18 +12,10 @@ const ambientPool = AMBIENT_TIPS.filter(
   (t) => !(isPWA && t.id === "amb-pwa-install"),
 );
 
-// HOST-SCOPING: host-INDEPENDENT by design — tips derive from the host-independent
-// `preferences().seenTips`/`.startupTips` and browser `matchMedia`; onboarding has no
-// per-host fact (no terminal ids/layout/focus/MRU).
 const [activeTipSignal, setActiveTip] = createSignal<Tip | null>(null);
 
-/** Reactive accessor for the tip currently displayed by `<TipBanner />`. */
 export const activeTip: Accessor<Tip | null> = activeTipSignal;
 
-/** How long a tip stays on screen before the banner auto-dismisses it.
- *  Owned here (not in the banner) so the state module fully controls
- *  "how a tip is displayed and for how long" — the banner is just the
- *  rendering surface. */
 const TIP_DURATION_MS = 8000;
 let autoDismissTimer: number | null = null;
 
@@ -50,83 +35,62 @@ function present(tip: Tip) {
   }, TIP_DURATION_MS);
 }
 
-/** Hide the active tip (banner slides away). */
 export const dismissTip = () => {
   cancelAutoDismiss();
   setActiveTip(null);
 };
 
-function seen(): Set<TipId> {
-  return new Set(preferences().seenTips);
+function arrivedSeen(): Set<TipId> | null {
+  return preferencesArrived() ? new Set(preferences().seenTips) : null;
 }
 
-/** Mark tip `id` seen. Before the saved preferences arrive `seenTips` reads
- *  the empty default, and a write built from it would overwrite the user's
- *  whole list — so marking then is a caller bug, and it throws. */
-function markSeen(id: TipId) {
-  if (!preferencesArrived())
-    throw new Error(
-      `markSeen(${id}) before the saved preferences arrived — it would overwrite seenTips`,
-    );
-  const s = seen();
-  s.add(id);
-  updatePreferences({ seenTips: [...s] });
+function markSeen(seen: Set<TipId>, id: TipId) {
+  seen.add(id);
+  updatePreferences({ seenTips: [...seen] });
 }
 
-/** Work waiting for the saved preferences: until they arrive, "seen" cannot be
- *  answered, so a tip cannot be shown "once". Drained by `initTipTriggers`. */
 const awaitingPreferences: (() => void)[] = [];
 
-/** Run `fn` now if the saved preferences are here, else once they arrive. */
 function whenPreferencesArrive(fn: () => void) {
   if (preferencesArrived()) fn();
   else awaitingPreferences.push(fn);
 }
 
-/** Show a contextual tip once. Marks it seen so it never reappears. Raised
- *  before the saved preferences arrive, it waits for them; if another tip is
- *  showing by then, it is dropped unmarked, so its next trigger shows it. */
 function showTipOnce(tip: Tip) {
   if (!showsAmbientTips()) return;
-  if (!preferencesArrived()) {
+  const seen = arrivedSeen();
+  if (seen === null) {
     whenPreferencesArrive(() => {
       if (activeTip() === null) showTipOnce(tip);
     });
     return;
   }
-  if (seen().has(tip.id)) return;
-  markSeen(tip.id);
+  if (seen.has(tip.id)) return;
+  markSeen(seen, tip.id);
   present(tip);
 }
 
-/** Internal pure peek — picks a tip without marking it seen. Before the saved
- *  preferences arrive it has nothing to pick from (callers wait or peek again). */
-function pickAmbientTip(): Tip | null {
+function pickAmbientTip(seen: Set<TipId>): Tip | null {
   if (!showsAmbientTips()) return null;
-  if (!preferencesArrived()) return null;
-  const unseen = ambientPool.filter((t) => !seen().has(t.id));
+  const unseen = ambientPool.filter((t) => !seen.has(t.id));
   const pool = unseen.length > 0 ? unseen : ambientPool;
   return pool[Math.floor(Math.random() * pool.length)] ?? null;
 }
 
-/** Text-only peek for surfaces that render tip text without "consuming"
- *  the tip (palette footer). Does not mark the tip seen so the banner's
- *  unseen pool is not drained by incidental glances. */
 function peekAmbientTipText(): string {
-  return pickAmbientTip()?.text ?? "";
+  const seen = arrivedSeen();
+  return (seen === null ? null : pickAmbientTip(seen))?.text ?? "";
 }
 
-/** Atomic: pick an ambient tip, mark it seen, show it in the banner. */
 function showAmbientTip() {
-  const tip = pickAmbientTip();
+  const seen = arrivedSeen();
+  if (seen === null) return;
+  const tip = pickAmbientTip(seen);
   if (!tip) return;
-  markSeen(tip.id);
+  markSeen(seen, tip.id);
   present(tip);
 }
 
-/** Show a random tip in the banner on startup, if the setting is on — unless a
- *  tip is already showing: a contextual tip (shown once, already marked seen)
- *  must not be replaced a second after it appeared, before anyone read it. */
 function showStartupTip() {
   if (!preferencesArrived()) {
     whenPreferencesArrive(showStartupTip);
@@ -136,27 +100,17 @@ function showStartupTip() {
   if (preferences().startupTips) showAmbientTip();
 }
 
-/**
- * Wire up state-driven tip triggers. Call once from the app root.
- * Event-driven tips (pill click, theme button) stay at their call sites.
- */
 function initTipTriggers(deps: { terminalIds: Accessor<TerminalId[]> }) {
-  // Tips raised before the saved preferences arrived run once they have.
   createEffect(() => {
     if (!preferencesArrived()) return;
-    // Untracked: the tips read preferences, which must not re-run this.
     untrack(() => {
       for (const fn of awaitingPreferences.splice(0)) fn();
     });
   });
-  // Startup tip — once, 1s after first terminal appears
   let startupFired = false;
   createEffect(() => {
     if (!startupFired && deps.terminalIds().length > 0) {
       startupFired = true;
-      // Fire-and-forget: the createEffect re-runs when terminalIds changes,
-      // and onCleanup would cancel the pending timeout before it fires.
-      // startupFired already guards against re-entry, so no cleanup needed.
       window.setTimeout(showStartupTip, 1000);
     }
   });

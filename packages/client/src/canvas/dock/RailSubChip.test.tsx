@@ -1,9 +1,4 @@
 // @vitest-environment happy-dom
-/**
- * Rail sub-chips share SubTerminalRow's unconditional StatePip contract —
- * paint bucket, motion, and unread must not re-gate on kind.
- */
-
 import {
   LOCAL_LOCATION,
   type TerminalMetadata,
@@ -51,10 +46,6 @@ vi.mock("./useDockFocus", () => ({
   useDockFocus: () => () => {},
 }));
 
-// The dock's re-home write is not part of what this file tests, and it is the
-// one import that reaches the terminal CRUD graph (and with it the daemon
-// status module, which reads `activeHost` off the wire). Cut it here rather
-// than widen the wire mock for a surface this test never drives.
 vi.mock("./useDockReparent", () => ({
   useDockReparent: () => () => {},
 }));
@@ -124,7 +115,6 @@ describe("RailSubChip — shell split shares the StatePip fold", () => {
       expect(chip).not.toBeNull();
       expect(chip?.getAttribute("data-bucket")).toBe("idle");
       expect(chip?.getAttribute("data-motion")).toBe("none");
-      // Shell dim class was deleted — chip must not re-hide shell identity.
       expect(chip?.className).not.toMatch(/opacity-70/);
     } finally {
       dispose();

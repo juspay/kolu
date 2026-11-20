@@ -1,15 +1,3 @@
-/** Prioritized, state-aware welcome moments for new users — Choose your coding
- *  agents · Pin it · From another device · Run agents · Search everything · Add
- *  another machine · Shortcuts.
- *  Rendered inline by `EmptyState` (zero terminals) and inside
- *  `WelcomeDialog` (the palette "Tutorial" command).
- *
- *  Done moments collapse into a muted header; the card paints the first three
- *  still-undone rows (selection is pure — see `welcomeMomentsSelect.ts`).
- *  Rows act through existing seams (create-terminal action, command palette,
- *  shortcuts help disclosure, PWA install prompt); every moment carries a
- *  `DocLink`. */
-
 import AgentDistroLogo from "@kolu/agent-distro/solid";
 import {
   AGENTS_FIRST_RUN_TITLE,
@@ -52,17 +40,8 @@ import {
   type WelcomeMomentId,
 } from "./welcomeMomentsSelect";
 
-/** "Not now" on the agents step, for THIS session: the row goes and the
- *  preference stays unchosen, so the next load asks again. A module signal, so
- *  the dismissal holds across the two places the card renders (the empty
- *  canvas and the Tutorial dialog) and dies with the page — "ask again later"
- *  is exactly its lifetime. */
 const [agentsStepDismissed, setAgentsStepDismissed] = createSignal(false);
 
-/** The done header's words per moment — `undefined` for a moment with no
- *  entry. THE decision of which done moments the header shows; `chooseAgents`
- *  names the choice in `@kolu/agent-distro/status`'s words, and has none in a
- *  kolu built without agents (nobody chose anything there). */
 const doneText = (id: WelcomeMomentId): string | undefined => {
   switch (id) {
     case "chooseAgents":
@@ -86,9 +65,6 @@ const doneText = (id: WelcomeMomentId): string | undefined => {
   }
 };
 
-/** A done entry as drawn: the agents choice behind agent-distro's logo (kolu
- *  shows the logo wherever it names agent-distro); the others keep their
- *  emoji, which their words carry. */
 const DoneEntry: Component<{ id: WelcomeMomentId; text: string }> = (props) =>
   props.id === "chooseAgents" ? (
     <span class="inline-flex items-center gap-1 align-bottom">
@@ -99,27 +75,20 @@ const DoneEntry: Component<{ id: WelcomeMomentId; text: string }> = (props) =>
     props.text
   );
 
-/** A welcome row's body voice — its line height and grey. */
 const MOMENT_VOICE = {
   leading: "leading-snug",
   muted: "text-fg-3",
 } as const;
 
 const MomentShell: Component<{
-  /** The row's mark: an emoji, or a logo (the agents step's). */
   icon: JSX.Element;
   title: string;
   body: JSX.Element;
-  /** Optional block under the body — the agents step's control, choice line
-   *  and status lines; the Pin row's manual-install steps. */
   details?: JSX.Element;
   docSlug: DocSlug;
   trailing?: JSX.Element;
   testId?: string;
 }> = (props) => (
-  // Title row owns the trailing CTA so multi-line body/learn-more never
-  // vertically centers the action mid-block (the shimmer of misaligned ⌘K /
-  // Open → next to a two-line description).
   <div class="flex items-start gap-3" data-testid={props.testId}>
     <span
       class="shrink-0 w-5 h-5 flex items-center justify-center text-base leading-5 pt-px text-fg"
@@ -149,45 +118,14 @@ const MomentShell: Component<{
   </div>
 );
 
-/** The agents choice: the same `AgentsChooser` as Settings → Agents, laid out
- *  as a welcome row with agent-distro's logo — the profile list (always empty
- *  to start with, the agents as they ship) opening with a one-click
- *  "+ Juspay" row, "Turn on" to take it, and "Not now" to go on with plain
- *  terminals.
- *
- *  Nothing is written until "Turn on": the list is held by the step, and "Not
- *  now" must leave the preference UNchosen — it hides the row for this session
- *  and the card asks again next time. The row stays at the top while agents
- *  are off (nothing chosen, or switched off). Only while NOTHING is chosen does
- *  "Turn on" take focus on mount, so **Enter** turns agents on. Someone who
- *  switched agents off sees the row at every empty canvas, but an Enter out of
- *  habit must not switch them back on, so nothing is focused then. ⌘⏎ still
- *  creates a terminal from anywhere.
- *
- *  **Enter belongs to the STEP**, not to "Turn on": whatever in the step has
- *  the focus, Enter turns agents on — except on a control of its own (a
- *  button, the add field, the list's arrows), which keeps its Enter. Editing
- *  the list can take the focused control away ("+ Juspay" goes once it is
- *  added, a removed row's ✕ with its row), and
- *  focus then falls to the page, so while nothing is chosen an Enter there is
- *  the step's too — the same rule as the mount focus above — claimed by the
- *  one copy of the step that had the focus last, never by every copy
- *  mounted. The ⏎ on "Turn on" is painted only while that holds. */
 const ChooseAgentsMoment: Component<{ onNotNow: () => void }> = (props) => (
   <AgentsChooser deferred>
     {(parts) => {
       let step: HTMLDivElement | undefined;
-      // Which copy of the step the page's Enter belongs to: the one whose
-      // subtree had the focus last. The welcome card can be mounted twice (the
-      // empty canvas's, and the Tutorial's over it), and focus that falls to
-      // the page — the "+ Juspay" row going away under it — names neither.
       const [owned, setOwned] = createSignal(false);
       makeEventListener(document, "focusin", (e: FocusEvent) => {
         setOwned(e.target instanceof Node && step?.contains(e.target) === true);
       });
-      // A copy hidden while it held the focus (the Tutorial's, force-mounted
-      // and hidden on Escape) moves no focus anywhere: it gives the latch up
-      // as its subtree loses the focus.
       makeEventListener(document, "focusout", (e: FocusEvent) => {
         if (
           e.target instanceof Node &&
@@ -196,10 +134,6 @@ const ChooseAgentsMoment: Component<{ onNotNow: () => void }> = (props) => (
         )
           setOwned(false);
       });
-      /** An Enter on the page itself turns agents on: only while nothing is
-       *  chosen (an Enter out of habit never re-enables agents someone
-       *  switched off), only for the copy that had the focus, and only while
-       *  that copy can be seen. The ⏎ on "Turn on" is painted exactly then. */
       const pageEnterArmed = () =>
         owned() &&
         step?.checkVisibility() === true &&
@@ -248,7 +182,6 @@ const ChooseAgentsMoment: Component<{ onNotNow: () => void }> = (props) => (
                     onClick={() => parts.turnOn()}
                   >
                     Turn on
-                    {/* Painted only while the page's Enter does it. */}
                     <Show when={pageEnterArmed()}>
                       <Kbd>⏎</Kbd>
                     </Show>
@@ -272,8 +205,6 @@ const ChooseAgentsMoment: Component<{ onNotNow: () => void }> = (props) => (
   </AgentsChooser>
 );
 
-/** The pin-it states that actually paint a row — the four-state machine below
- *  minus `installed`, which the selection filters out. */
 type PinRowState = "one-click" | "manual-secure" | "manual-insecure";
 
 const PinMoment: Component<{
@@ -286,8 +217,6 @@ const PinMoment: Component<{
     icon="📌"
     title="Pin it"
     trailing={
-      // Only the one-click state has an action: the others pass none, so the
-      // shell draws no empty trailing box beside the title.
       props.pinState === "one-click" ? (
         <button
           type="button"
@@ -330,8 +259,6 @@ const PinMoment: Component<{
 
 const WelcomeMoments: Component<{
   install: PwaInstall;
-  /** When moments render inside WelcomeDialog, close that overlay before
-   *  opening the palette so the two force-mounted dialogs don't stack. */
   onBeforeOpenPalette?: () => void;
 }> = (props) => {
   const app = useSurfaceApp();
@@ -342,13 +269,6 @@ const WelcomeMoments: Component<{
   // works over http; only the one-click prompt + app badge need a secure context.
   const instr = () => installInstructions(props.install.platform());
 
-  // The Pin-it card is a four-state machine, not four overlapping booleans.
-  // One discriminant names the reachable states (mutually exclusive, evaluated
-  // top-down) so each renders in exactly one branch:
-  //   installed       — already a PWA (collapses into the done header)
-  //   one-click       — a real install prompt exists (Chromium, secure origin)
-  //   manual-secure   — no prompt, but secure context (Safari/Firefox/iOS)
-  //   manual-insecure — plain-http origin: manual install works, badge needs HTTPS
   const pinState = createMemo(() =>
     app.isInstalled()
       ? "installed"
@@ -365,12 +285,9 @@ const WelcomeMoments: Component<{
   // later — Chrome fires `beforeinstallprompt` well after this card mounts.
   const pinRowState = (): PinRowState | null => {
     const state = pinState();
-    // `installed` is filtered out by selection; pin only paints while undone.
     return state === "installed" ? null : state;
   };
 
-  // The step's last KNOWN reading: a choice leaves this machine's status behind
-  // the choice for a moment, and the row stays through it (`latchKnown`).
   const chooseAgentsDone = latchKnown(() =>
     preferencesArrived()
       ? firstRunAgentsDone({
@@ -391,7 +308,6 @@ const WelcomeMoments: Component<{
   );
 
   const runCreateTerminal = () => {
-    // Same path the advertised ⌘Enter chord fires (`ACTIONS.createTerminal`).
     actions.handleCreate(actions.activeMeta()?.cwd ?? undefined);
   };
 
@@ -517,7 +433,6 @@ const WelcomeMoments: Component<{
     }
   };
 
-  // The done moments that have a header entry (the never-done ones have none).
   const doneEntries = createMemo(() =>
     selection().done.flatMap((id) => {
       const text = doneText(id);

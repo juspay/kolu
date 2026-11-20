@@ -1,20 +1,3 @@
-/** AN OPEN CARD'S TIMELINE — one stage of it, until the whole is asked for.
- *
- *  A card stays short however long its work runs: the timeline shows the
- *  events of ONE stage (the stage the work is in, or the one pressed on the
- *  strip, which is the timeline's index), and "whole timeline · N events"
- *  unfolds all of it in place and folds it back. Which part is shown is the
- *  card's one reading (`./timelineView.ts`), handed in, so the strip and this
- *  never disagree. A watch has no stages, so its card shows its latest few
- *  events instead.
- *
- *  EACH ROW IS ONE LINE: its time, who it was by, its words, and how long that
- *  step took. Words longer than the line are cut, with a "more" beside them
- *  rather than the row becoming a button — so the PR number a row names is a
- *  link whether the row was cut or not. A `Wrote …` row opens its file. A run
- *  of files one terminal wrote into one folder is ONE row (`Wrote mockup/ ·
- *  49 files`), whose "more" unfolds the per-file rows. */
-
 import { Key } from "@solid-primitives/keyed";
 import { dualPhrase } from "@kolu/terminal-vocab/duration";
 import { took, type Work, type WorkEvent, type WorkId } from "kolu-work";
@@ -47,7 +30,6 @@ import {
   STAGE_LABEL,
 } from "./workReadings";
 
-/** A view's name, as the heading and the fold-back control say it. */
 const viewWord = (view: TimelineView): string => {
   switch (view.kind) {
     case "stage":
@@ -61,8 +43,6 @@ const viewWord = (view: TimelineView): string => {
   }
 };
 
-/** A ROW'S TIME AND WHO IT WAS BY — the clock cell and the coloured dot,
- *  drawn the same at the head of an event row and of a folder row. */
 const RowStamp: Component<{ at: string; by: WorkEvent["by"] }> = (props) => (
   <>
     <span class="w-9 shrink-0 whitespace-nowrap font-mono text-[0.6rem] tabular-nums text-fg-3">
@@ -78,15 +58,10 @@ const RowStamp: Component<{ at: string; by: WorkEvent["by"] }> = (props) => (
 const WorkTimeline: Component<{
   id: WorkId;
   work: Work;
-  /** What the card shows of the timeline, read once by the card. */
   shown: TimelineShown;
-  /** Unfold the whole timeline, or fold it back. */
   onWhole: () => void;
-  /** The clock a running step is measured to. */
   now: number;
 }> = (props) => {
-  /** Which rows are open — a cut row's whole words, or a folder row's file
-   *  rows — by {@link rowKey}, which no two rows share. Dies with the card. */
   const [opened, setOpened] = createSignal<ReadonlySet<string>>(new Set());
   const toggle = (key: string): void => {
     setOpened((was) => {
@@ -97,16 +72,10 @@ const WorkTimeline: Component<{
   };
 
   const shown = () => props.shown;
-  /** THE TIMELINE'S WORDS, built once per move of the record rather than per
-   *  row: the two facts a row needs about the WHOLE timeline (which commits
-   *  its check events name, which decision an ask points at) are computed
-   *  once by the reader this returns. */
   const words = createMemo(() => eventReader(props.work));
   const steps = createMemo(() =>
     took(props.work, new Date(props.now).toISOString()),
   );
-  /** The control's words: what a press does from here — unfold the whole,
-   *  or fold back to the part the card shows when folded. */
   const unfold = (): string => {
     if (shown().view.kind !== "whole")
       return `whole timeline · ${shown().total} events`;
@@ -116,8 +85,6 @@ const WorkTimeline: Component<{
       : viewWord(folded);
   };
 
-  /** ONE EVENT'S ROW — drawn the same at the top level and inside an
-   *  unfolded folder row. */
   const EventRow: Component<{ index: number }> = (row) => {
     const event = () => props.work.events[row.index];
     return (
@@ -170,10 +137,6 @@ const WorkTimeline: Component<{
                   </>
                 }
               >
-                {/* A FILE THE WORK WROTE OPENS FROM ITS ROW — the event names
-                    the work and the path, so there is nothing to match; a link
-                    only where the reader can open it (for a work that ended, a
-                    kept copy). */}
                 <Match
                   when={(() => {
                     const it = one();
@@ -211,8 +174,6 @@ const WorkTimeline: Component<{
                   }}
                 </Match>
               </Switch>
-              {/* HOW LONG THAT STEP TOOK — the step still running keeps
-                  counting, with the ellipsis that says so. */}
               <span class="shrink-0 font-mono text-[0.6rem] tabular-nums text-fg-3">
                 <Show when={steps()[row.index]}>
                   {(step) =>
@@ -229,8 +190,6 @@ const WorkTimeline: Component<{
     );
   };
 
-  /** ONE FOLDER'S ROW — the run of files one terminal wrote into one folder,
-   *  said once, with its own more/less to unfold the per-file rows. */
   const FolderRow: Component<{
     row: Extract<TimelineRow, { kind: "folder" }>;
   }> = (folder) => {
@@ -282,9 +241,6 @@ const WorkTimeline: Component<{
         Timeline · {viewWord(shown().view)}
       </h4>
       <ul class="m-0 mt-1 flex list-none flex-col gap-0.5 p-0">
-        {/* KEYED, not `<For>`: the view is read again on every tick of the
-            clock and mints fresh row objects, so a `<For>` over them would
-            rebuild every row each time. */}
         <Key each={shown().rows} by={rowKey}>
           {(row) => (
             <Switch>

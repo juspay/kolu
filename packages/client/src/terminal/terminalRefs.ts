@@ -1,12 +1,5 @@
-/** Per-terminal runtime refs (xterm instance + addons).
- *
- *  Handlers outside the Terminal component sometimes need the live xterm
- *  instance or one of its addons — e.g. "Export scrollback as PDF" needs the
- *  SerializeAddon to produce themed HTML. Rather than drill callbacks through
- *  CanvasTile or reach into the DOM, Terminal.tsx registers its refs here on
- *  mount and unregisters on cleanup. The `__xterm` DOM attachment on the
- *  container stays as an e2e-only affordance; production code looks up refs
- *  by id through this module. */
+/** Per-terminal runtime refs (xterm instance + addons), registered by
+ *  Terminal.tsx on mount and unregistered on cleanup. */
 
 import type { SerializeAddon } from "@xterm/addon-serialize";
 import type { Terminal as XTerm } from "@xterm/xterm";
@@ -16,28 +9,18 @@ import type {
   ScrollLockEvent,
 } from "@kolu/xterm-kit/solid";
 
-/** Volatile per-terminal probes. Unlike the stable `xterm`/`serialize`
- *  handles above, these accessors may return null even during the terminal's
- *  lifetime (e.g. `webglAtlas` when the tile is unfocused and no WebGL addon
- *  is live). Namespaced under `probes` so the volatility contrast stays
- *  visible in the type. */
+/** Volatile per-terminal probes: unlike the stable `xterm`/`serialize` handles,
+ *  these accessors may return null during the terminal's lifetime. */
 export interface TerminalProbes extends RenderRecoveryProbes {
   /** Dimensions of the live WebGL texture atlas canvas, or null if the
    *  terminal currently has no WebGL addon. */
   webglAtlas: () => { w: number; h: number } | null;
-  /** Summed `Uint32Array.byteLength` of every BufferLine in xterm's primary
-   *  and alternate buffers — the literal bytes held by xterm's cell grid.
-   *  Reads through a private `_core._bufferService` path; returns null if
-   *  that shape has changed under us so callers fall back to "unknown"
-   *  instead of crashing. */
+  /** Summed `Uint32Array.byteLength` of every BufferLine in xterm's primary and
+   *  alternate buffers. Reads a private `_core._bufferService` path, so it
+   *  returns null when that shape has changed under us. */
   bufferBytes: () => { primary: number; alternate: number } | null;
-  /** Scroll-lock transition ring (newest last) — the #1272 forensic trail,
-   *  dumped wholesale into Diagnostic Info's Copy JSON. */
+  /** Scroll-lock transition ring, newest last. */
   scrollLockEvents: () => ScrollLockEvent[];
-  // Render-pipeline probes (msSinceLastPaint, renderDebouncerPending, isPaused,
-  // synchronizedOutput) come from RenderRecoveryProbes — the parked-rAF freeze
-  // signals the Diagnostic dialog needs to tell a render stall from a write
-  // stall. See renderRecovery.ts.
 }
 
 export interface TerminalRefs {

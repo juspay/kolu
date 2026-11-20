@@ -1,15 +1,4 @@
 // @vitest-environment happy-dom
-/**
- * The Agents profile list: one row per profile in stack order — its title,
- * the reference beside it when they differ, and the resolved line's three
- * states — removed by its ✕ and, with two rows or more, moved by its arrows,
- * the WHOLE next list handed to the caller; an empty list draws no rows; and
- * the one read-only row a repository's plugin.json makes, always last.
- * Below: the add field, whose menu of suggestions — Juspay's first — opens
- * on focus or from the chevron, filters as you type, and adds on Enter or a
- * click. With `prominentJuspay` (the welcome step) Juspay is instead a
- * visible one-click row above the list, gone once it is listed.
- */
 
 import {
   AGENTS_UNRESOLVED_MEANS,
@@ -50,7 +39,6 @@ function mount(
         prominentJuspay={opts.prominentJuspay}
         onChange={(next) => {
           changes.push(next);
-          // As the caller's write comes back: the rows follow the list.
           setRows(
             next.map(
               (reference) =>
@@ -88,7 +76,6 @@ const row = (reference: string, line?: AgentsResolvedLine): ProfileListRow => ({
   line,
 });
 
-/** The open menu's rows (portalled to the body). */
 function options(): HTMLElement[] {
   return [
     ...document.querySelectorAll<HTMLElement>(
@@ -101,7 +88,6 @@ function key(input: HTMLInputElement, k: string): void {
   input.dispatchEvent(new KeyboardEvent("keydown", { key: k, bubbles: true }));
 }
 
-/** Typing, as the browser reports it: an `insertText` input event. */
 function type(input: HTMLInputElement, text: string): void {
   input.value = text;
   input.dispatchEvent(
@@ -118,7 +104,6 @@ describe("the rows", () => {
       "agents-profile-repo",
     ]);
     expect(f.input()).not.toBeNull();
-    // The stacking rule is said once, in the repository's row.
     expect(f.host.querySelectorAll("p")).toHaveLength(0);
   });
 
@@ -223,7 +208,6 @@ describe("adding", () => {
       f.host.querySelector<HTMLButtonElement>(
         "[data-testid=agents-add-juspay]",
       );
-    // Above the list.
     expect(
       f.host.querySelector("[data-testid=agents-profiles]")?.firstElementChild,
     ).toBe(juspay());

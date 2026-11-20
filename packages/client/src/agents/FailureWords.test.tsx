@@ -1,10 +1,4 @@
 // @vitest-environment happy-dom
-/**
- * A failure's words as agents surfaces draw them: the cause alone when that is
- * all there is, and — when there is evidence — one row per line under it,
- * whose Copy hands over the WHOLE failure (the cause line, then every line).
- */
-
 import { render } from "solid-js/web";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import FailureWords from "./FailureWords";

@@ -1,17 +1,3 @@
-/**
- * The PRT4 join card — a small Solid popover at the click coordinates.
- *
- * Same species as the host diagnostics popover (Portal + surface chrome +
- * outside-click / Escape dismiss). LIVE: the join is a reactive derivation over
- * the tile's ports, the host's listeners and the forwards, evaluated only while
- * the card is open, so it upgrades when a listener appears and degrades when
- * auto-cancel closes a door.
- *
- * It answers for the whole HOST, not only the tile: a server that detached from
- * the terminal that printed its URL is found where it actually listens, and
- * "nothing is listening" is said only when the host positively holds nothing.
- */
-
 import { createSelector } from "solid-js";
 import { createSharedRoot } from "../createSharedRoot";
 
@@ -63,9 +49,6 @@ import {
   printedUrlCardTarget,
 } from "./printedUrlCardState";
 
-/** Put a URL on the clipboard and say so — the card's two copy affordances (the
- *  post-open toast action and the raw `⧉ copy` button) share one program so the
- *  success and failure wording cannot drift between them. */
 function copyUrl(url: string): UiAction {
   return writeTextToClipboard(url).pipe(
     Effect.tap(() => Effect.sync(() => toast.success("URL copied"))),
@@ -101,7 +84,6 @@ function clampPos(
   return { top, left };
 }
 
-/** The join card for one printed URL — mounted by the owning Terminal. */
 export const PrintedUrlCard: Component<{ target: PrintedUrlCardTarget }> = (
   props,
 ) => {
@@ -112,8 +94,6 @@ export const PrintedUrlCard: Component<{ target: PrintedUrlCardTarget }> = (
   const host = () => activeHost();
   const hostName = () => hostDisplayName(host(), hostname());
 
-  /** The host's terminals — the tile's ports for the join, and the serving /
-   *  detached facts for a listener this tile does not hold. */
   const terminals = useHostTerminals();
 
   const hostListeners = useHostListeners();
@@ -122,14 +102,11 @@ export const PrintedUrlCard: Component<{ target: PrintedUrlCardTarget }> = (
     () =>
       joinPrintedUrl({
         uri: props.target.uri,
-        // LIVE — re-reads the store every tick the card is open.
         tilePorts: terminals.tilePorts(props.target.terminalId),
         host: hostListeners(),
         forwards: forwardsForHost(host()),
       }),
     undefined,
-    // Structural equality: the keyed <Match> below re-creates its children on
-    // every identity change, so a no-op scan tick must not re-key the card.
     { equals: (a, b) => JSON.stringify(a) === JSON.stringify(b) },
   );
 
@@ -145,8 +122,6 @@ export const PrintedUrlCard: Component<{ target: PrintedUrlCardTarget }> = (
     protocol: props.target.protocol,
   });
 
-  /** The join, narrowed to the arms where something IS listening — the three
-   *  that share the open/forward/copy affordances. */
   const listening = () => {
     const j = join();
     return j.kind === "joined" ||
@@ -168,16 +143,12 @@ export const PrintedUrlCard: Component<{ target: PrintedUrlCardTarget }> = (
 
   const pos = () => clampPos(props.target.x, props.target.y, CARD_WIDTH, 160);
 
-  // Terminal unmount (host switch, tile kill) drops listeners but the singleton
-  // target would survive — remount would reopen a zombie card. Clear if we own it.
   onCleanup(() => {
     if (printedUrlCardTarget()?.terminalId === props.target.terminalId) {
       closePrintedUrlCard();
     }
   });
 
-  // Outside click + Escape — same discipline as useAnchoredPopover, but the
-  // "trigger" is a coordinate rather than an element.
   createEffect(() => {
     const onDown = (e: MouseEvent) => {
       const node = e.target as Node;
@@ -199,7 +170,6 @@ export const PrintedUrlCard: Component<{ target: PrintedUrlCardTarget }> = (
     });
   });
 
-  /** Compose decide · act · effect for a joined open. */
   const forwardAndOpen = (): UiAction =>
     Effect.suspend(() => {
       const action = actionForListening();
@@ -234,9 +204,6 @@ export const PrintedUrlCard: Component<{ target: PrintedUrlCardTarget }> = (
       }).pipe(Effect.ensuring(Effect.sync(() => setBusy(false))));
     });
 
-  /** Copy = decision (+ act when a door is already ready). Never clipboard-write
-   *  after an await — user activation is gone (see clipboard.ts). needs-door
-   *  opens the door, then asks for a second click to copy. */
   const copyDoorUrl = (): UiAction =>
     Effect.suspend(() => {
       const action = actionForListening();
@@ -293,7 +260,6 @@ export const PrintedUrlCard: Component<{ target: PrintedUrlCardTarget }> = (
       );
     });
 
-  // External should never open the card — but if the target drifts, dismiss.
   createEffect(() => {
     if (parseLoopbackUrl(props.target.uri) === null) closePrintedUrlCard();
   });
@@ -321,15 +287,10 @@ export const PrintedUrlCard: Component<{ target: PrintedUrlCardTarget }> = (
         <Switch>
           <Match keyed when={listening()}>
             {(j) => {
-              // `keyed`: `j` is the VALUE at branch entry — a stale accessor
-              // read is unspellable. The join memo's structural equality keeps
-              // re-keying to real content changes only.
-              /** The terminal holding a server this tile does not. */
               const serving = () =>
                 j.kind === "elsewhere"
                   ? terminals.servingFor(j.port)
                   : undefined;
-              /** No terminal's subtree holds it — the scanner's own fact. */
               const detached = () =>
                 j.kind === "elsewhere" && !j.info.heldByTerminal;
               const action = () => actionForListening();
@@ -416,10 +377,6 @@ export const PrintedUrlCard: Component<{ target: PrintedUrlCardTarget }> = (
                         .exhaustive()}
                     </span>
                   </div>
-                  {/* WHO is listening: the command line for a readable owner
-                   *  (the program name alone cannot tell two `bun` servers
-                   *  apart), and — when that owner is not this terminal — where
-                   *  it lives instead. */}
                   <div
                     class="mb-1 flex min-w-0 items-baseline gap-1.5 text-[11px]"
                     data-testid="printed-url-owner"
@@ -559,10 +516,6 @@ export const PrintedUrlCard: Component<{ target: PrintedUrlCardTarget }> = (
   );
 };
 
-/** The card's mount — KEYED, so children receive the target as a VALUE and a
- *  dismiss mid-cascade cannot produce a stale accessor read (the production
- *  second-click crash). Terminal renders this; tests render this; there is no
- *  second copy of the mount pattern to drift. */
 const useCardTargetSelector = createSharedRoot(() =>
   createSelector(() => printedUrlCardTarget()?.terminalId),
 );

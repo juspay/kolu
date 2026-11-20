@@ -1,7 +1,3 @@
-/** Confirmation dialog shown whenever a terminal is closed.
- *  Adapts its content for plain terminals, terminals with splits,
- *  and terminals that live in a git worktree. */
-
 import Dialog from "@corvu/dialog";
 import {
   activePr,
@@ -16,14 +12,8 @@ import { WorktreeIcon } from "./ui/Icons";
 import ModalDialog from "./ui/ModalDialog";
 import { surface } from "./ui/Surface";
 
-/** Reasons why the "Remove worktree" action is suppressed.
- *
- *  One blocker today (`"sharedWithOtherTerminals"`); the union shape
- *  is ready for future reasons (unpushed commits, per-user preference,
- *  running agent) without a breaking change to `CloseConfirmTarget`. */
 export type WorktreeRemovalBlocker = "sharedWithOtherTerminals";
 
-/** Whether the close dialog may offer worktree removal. */
 export type WorktreeRemovalEligibility =
   | { eligible: true }
   | { eligible: false; reason: WorktreeRemovalBlocker };
@@ -33,28 +23,20 @@ const BLOCKER_MESSAGES: Record<WorktreeRemovalBlocker, string> = {
     "Another terminal is using this worktree — it will remain on disk.",
 };
 
-export interface CloseConfirmTarget {
-  id: TerminalId;
-  meta: TerminalMetadata;
-  splitCount: number;
-  /** Eligibility for the "remove worktree" action. Only set when the
-   *  terminal is on a worktree; `undefined` otherwise.
-   *
-   *  Snapshot at dialog-open time — intentionally not reactive. The dialog
-   *  is an imperative confirmation; its title, body note, and buttons must
-   *  not shift under the user's eyes while they decide. */
-  worktreeRemoval?: WorktreeRemovalEligibility;
+export interface CloseConfirmSnapshot {
+  readonly id: TerminalId;
+  readonly meta: TerminalMetadata;
+  readonly splitCount: number;
+  readonly worktreeRemoval?: WorktreeRemovalEligibility;
 }
 
 const CloseConfirm: Component<{
-  target: CloseConfirmTarget | null;
+  target: CloseConfirmSnapshot | null;
   onCancel: () => void;
   onClose: () => void;
   onCloseAndRemove: () => void;
 }> = (props) => {
   let cancelRef!: HTMLButtonElement;
-  /** The target's repo, when git resolved to one — the dialog names no repo
-   *  (and offers no worktree removal) for `none` or `unresolved`. */
   const repo = () => {
     const git = props.target?.meta.git;
     return git?.kind === "repo" ? git.info : undefined;
@@ -68,9 +50,6 @@ const CloseConfirm: Component<{
     return e && !e.eligible ? e.reason : undefined;
   };
   const splitCount = () => props.target?.splitCount ?? 0;
-  // A sleeping terminal has no live PTY — closing it DISCARDS the record and,
-  // now that sleep freezes the whole family, its dormant splits with it (the
-  // same dialog reworded, still driven off the persisted git/worktree info).
   const isDiscard = () =>
     props.target ? sleepingArm(props.target.meta) !== undefined : false;
   const closeLabel = () =>
@@ -81,8 +60,6 @@ const CloseConfirm: Component<{
       : splitCount() > 0
         ? "Close all"
         : "Close terminal";
-  /** What the dialog leaves behind when this target closes: `discarded` for a
-   *  dormant family (nothing is running), `closed` otherwise. */
   const verb = () => (isDiscard() ? "discarded" : "closed");
   const title = () => {
     if (canRemoveWorktree()) return "Remove worktree too?";

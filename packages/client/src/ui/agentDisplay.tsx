@@ -1,10 +1,3 @@
-/** Shared display strings for agent kinds and states.
- *  Used by both AgentIndicator (compact header) and MetadataInspector (detail panel).
- *
- *  Per-agent facts (display name, brand mark) are read from the agent registry
- *  (`kolu-agents/vocab`) rather than hand-maintained `Record<AgentKind, …>`
- *  tables — adding an agent touches only its own package plus the registry. */
-
 import {
   type AgentMark,
   agentVocab,
@@ -20,16 +13,13 @@ export function agentName(kind: AgentInfo["kind"]): string {
   return agentVocab(kind).displayName;
 }
 
-/** The agent's brand mark (viewBox + paths), for a caller that renders
- *  `<MarkIcon mark={…}/>` directly. The ONE mark per agent serves both the tile
- *  chrome and the dock pip. */
+/** The agent's brand mark (viewBox + paths). */
 export function agentMark(kind: AgentInfo["kind"]): AgentMark {
   return agentVocab(kind).mark;
 }
 
-/** Stable per-kind icon components for the command palette, which carries an
- *  `icon: Component`. Built ONCE — a fresh component per call would make
- *  `<Dynamic>` tear down and recreate the SVG on every re-render. */
+/** Stable per-kind icon components for the command palette: a fresh component
+ *  per call would make `<Dynamic>` recreate the SVG on every re-render. */
 const AGENT_ICONS: Record<
   AgentInfo["kind"],
   Component<{ class?: string }>
@@ -38,25 +28,9 @@ const AGENT_ICONS: Record<
     (props) => <MarkIcon mark={vocab.mark} class={props.class} />,
 );
 
-// The per-state display WORDS live with the dock row (`@kolu/solid-dockrow`),
-// not here. They were duplicated for a moment when the row was extracted, which
-// is exactly the fork this table exists to prevent: two `Record<AgentState,
-// string>` with byte-identical values and no compiler edge between them, so a
-// reworded state would have moved in one and stayed in the other. The row owns
-// them because the row also owns the closed-set NARROWING built on the same
-// record (`isRowAgentState` is `Object.hasOwn(stateLabels, …)`, and
-// `narrowAgentState` reads the label straight off it) — splitting the table
-// from its own fence is what would make a sixth state legible in one place and
-// not the other. Re-exported here so this module stays the one door the
-// AgentIndicator and the Inspector already knock on.
 export { stateLabels } from "@kolu/solid-dockrow/rowValues";
 
-/** Context-token count in compact notation: "47392" → "47K", "1183456" → "1.2M".
- *  `maximumFractionDigits: 1` keeps "1.2M" but avoids "47.0K". Lives here — with
- *  the other agent-display tables — because BOTH readouts of the same number
- *  need it (the header `AgentIndicator` badge and the Inspector's status card),
- *  and the locale/precision choice has to stay one decision rather than two
- *  literals to keep in sync. */
+/** Context-token count in compact notation: "47392" → "47K", "1183456" → "1.2M". */
 const tokenFormat = new Intl.NumberFormat("en", {
   notation: "compact",
   maximumFractionDigits: 1,
@@ -64,32 +38,18 @@ const tokenFormat = new Intl.NumberFormat("en", {
 export const formatContextTokens = (tokens: number): string =>
   tokenFormat.format(tokens);
 
-/** AN AGENT'S TASK PROGRESS as the fraction every surface prints — `"7/12"`.
- *
- *  ONE spelling, because there are four places that print it (the tile's meta
- *  line, its compact twin, the Inspector's status card and the Conductor's
- *  status line) and `${completed}/${total}` is small enough that each of them
- *  would have written its own. A separator or a zero-total rule reconsidered
- *  in one of them is then a readout that disagrees with itself across one
- *  window, which is the whole reason the display strings live in this module
- *  rather than at their render sites. */
+/** An agent's task progress as the fraction every surface prints — `"7/12"`. */
 export const formatTaskProgress = (progress: TaskProgress): string =>
   `${progress.completed}/${progress.total}`;
 
-/** The same fraction as the SENTENCE a tooltip says, for the sites that draw
- *  the number bare — a bar, or a word-less chip, means nothing until something
- *  says what it counts. */
+/** The same fraction as the sentence a tooltip says. */
 export const taskProgressTitle = (progress: TaskProgress): string =>
   `${formatTaskProgress(progress)} tasks completed`;
 
-/** Semantic bucket per state — THE shared "which color family" fact, so the
- *  compact header cluster (AgentIndicator) and the Inspector's status card
- *  paint the same state the same way. `alert-linger` is post-turn `waiting`:
- *  needs-you violet at reduced strength (same distinction the dock StatePip
- *  draws), vs full-strength `alert` for a genuine `awaiting_user` block —
- *  and `quiet` is the muted family for an agent that is merely PRESENT
- *  (`starting` / `fresh`), which no surface may paint as activity. A
- *  `prompted` agent is not merely present: it was given work, so it is busy. */
+/** Semantic bucket per state — the shared "which color family" fact.
+ *  `alert-linger` is post-turn `waiting` (needs-you violet at reduced
+ *  strength); `quiet` is the muted family for an agent that is merely
+ *  present. */
 export type AgentStateTone = "busy" | "alert" | "alert-linger" | "quiet";
 export const stateTones: Record<AgentInfo["state"], AgentStateTone> = {
   thinking: "busy",
@@ -97,38 +57,22 @@ export const stateTones: Record<AgentInfo["state"], AgentStateTone> = {
   waiting: "alert-linger",
   awaiting_user: "alert",
   running_background: "busy",
-  // THE TWO PRE-SESSION STATES ARE QUIET. An agent that is still coming up,
-  // or is up and has never been prompted, is news to nobody: it has made no
-  // claim on a person's attention, so it must not borrow the working rust or
-  // the needs-you violet. `quiet` is the same muted family the "no agent" dot
-  // uses — the agent's own mark and its word ("Starting" / "Ready") are what
-  // say it is there.
   starting: "quiet",
   fresh: "quiet",
-  // Submitted to and not yet heard from: at work, as far as anybody can tell.
   prompted: "busy",
 };
 
 /** Claude-Code's dynamic-workflow fan-out info, or null. Narrows the
- *  `AgentInfo` union: only the `claude-code` member carries `workflow`.
- *  Centralized here so the inspector and the canvas meta row read it the
- *  same way without re-deriving the kind check.
- *
- *  Also gates on `running_background`, the only state the field is meaningful
- *  in. This is the single read choke-point for the "`workflow` is non-null
- *  only while `running_background`" invariant — enforcing it here keeps a
- *  stale or mis-set field from ever rendering a badge in the wrong state,
- *  without nesting a second discriminant into the shared `AgentInfo` union. */
+ *  `AgentInfo` union and gates on `running_background`, the only state the
+ *  field is meaningful in. */
 export function agentWorkflow(agent: AgentInfo | null | undefined) {
   return agent?.kind === "claude-code" && agent.state === "running_background"
     ? agent.workflow
     : null;
 }
 
-/** Resolve the icon for an agent KIND (e.g. `"claude-code"`). Returns `undefined`
- *  for a kind this build no longer knows — a stale recent-agents row renders no
- *  icon rather than a guess. The component is a STABLE per-kind reference (see
- *  `AGENT_ICONS`). */
+/** Resolve the icon for an agent KIND. `undefined` for a kind this build no
+ *  longer knows. */
 export function iconForKind(
   kind: string,
 ): Component<{ class?: string }> | undefined {

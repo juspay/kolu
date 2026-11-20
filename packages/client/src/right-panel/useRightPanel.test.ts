@@ -1,11 +1,6 @@
 import { Effect } from "effect";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-// useRightPanel reads `preferences()` and writes via `updatePreferences` from
-// the wire singleton, resolves the active terminal from useTerminalStore, and
-// gates `hasTerminals` on the tile registry's count. Stub all three so the size
-// mutators can be exercised without a live socket (mocking useTileStore also
-// keeps its persistCanvasLayout → solid-sonner chain out of the test env).
 const h = vi.hoisted(() => ({
   host: "host-A",
   saveOnOtherHost: vi.fn((): Effect.Effect<void, Error> => Effect.void),
@@ -16,25 +11,14 @@ const h = vi.hoisted(() => ({
     newTerminalCollapsed: false,
     rightPanel: { size: 0.25, codeTabTreeSize: 0.35 },
   },
-  // Mutable so a test can flip the "active terminal" the way the workspace
-  // switcher does at runtime — `recordNavigation`/`canNavigateBack` resolve
-  // their terminal through this.
   activeId: null as string | null,
-  // The FOCUSED PANE, when it is not the active tile (i.e. a split has focus).
-  // `undefined` means "no split focused" — the focused-pane reads then fall back
-  // to `activeId`, which is the main pane of the active tile. A split test sets
-  // this to a distinct id.
   focusedId: undefined as string | null | undefined,
-  // What `getMetadata` answers with — `undefined` for every terminal by default,
-  // so only a test that pins a creator-passed `rightPanel` sees one.
   metadata: undefined as
     | { rightPanel?: RightPanelPerTerminalState; git?: GitFact }
     | undefined,
 }));
 
 vi.mock("../wire", () => ({
-  // `reportToServer` writes via `activePadiRpc.chrome.setRightPanel`
-  // (the active host's padi client) — the per-terminal collapsed/tab report path.
   activePadiRpc: {
     chrome: {
       get setRightPanel() {
@@ -52,15 +36,11 @@ vi.mock("../wire", () => ({
   preferences: () => h.prefs,
 }));
 
-// A rejected `setRightPanel` (an application-level RPC failure on an otherwise
-// live padi) must surface, not silently revert on reload — see `reportToServer`.
 vi.mock("solid-sonner", () => ({ toast: { error: h.toastError } }));
 
 vi.mock("../terminal/useTerminalStore", () => ({
   useTerminalStore: () => ({
     activeId: () => h.activeId,
-    // Falls back to the active tile (= its main pane) unless a test focuses a
-    // split — so every pre-split test keeps reading tile === pane.
     focusedTerminalId: () => h.focusedId ?? h.activeId,
     getMetadata: () => h.metadata,
   }),
@@ -128,18 +108,12 @@ describe("useRightPanel — size writes drop Corvu's idempotent re-emits (#1041)
   });
 });
 
-// `collapsed` lives on the per-terminal `TerminalMetadata.rightPanel` record
-// (#959), but it is the TILE's bit: each tile remembers whether its panel was
-// showing, restored on session restore like the active tab. A toggle reports via
-// `chrome.setRightPanel` (server-persisted), NEVER `updatePreferences`. The
-// module-level `perTerminal` store persists across `useRightPanel()` calls, so
-// each test uses distinct terminal ids.
 describe("useRightPanel — collapsed is per-TILE (posture follows the tile)", () => {
   it("a toggle reports the active terminal's collapsed via setRightPanel, not preferences", () => {
     const a = "collapse-A" as TerminalId;
     h.activeId = a;
     const rp = useRightPanel();
-    expect(rp.collapsed()).toBe(false); // a fresh terminal defaults open
+    expect(rp.collapsed()).toBe(false);
     rp.togglePanel();
     expect(rp.collapsed()).toBe(true);
     expect(h.updatePreferences).not.toHaveBeenCalled();
@@ -152,14 +126,11 @@ describe("useRightPanel — collapsed is per-TILE (posture follows the tile)", (
     const a = "collapse-switch-A" as TerminalId;
     const b = "collapse-switch-B" as TerminalId;
     const rp = useRightPanel();
-    // Collapse A, leave B at its default (open).
     h.activeId = a;
     rp.collapsePanel();
     expect(rp.collapsed()).toBe(true);
-    // Switch to B — it reads its OWN default (open), not A's collapse.
     h.activeId = b;
     expect(rp.collapsed()).toBe(false);
-    // Back to A — A's collapse is restored.
     h.activeId = a;
     expect(rp.collapsed()).toBe(true);
   });
@@ -169,7 +140,7 @@ describe("useRightPanel — collapsed is per-TILE (posture follows the tile)", (
     const rp = useRightPanel();
     rp.collapsePanel();
     expect(h.setRightPanel).not.toHaveBeenCalled();
-    expect(rp.collapsed()).toBe(false); // floors to the open default
+    expect(rp.collapsed()).toBe(false);
   });
 
   it("surfaces a failed setRightPanel via toast (dedup id), not a silent DevTools log", async () => {
@@ -178,8 +149,7 @@ describe("useRightPanel — collapsed is per-TILE (posture follows the tile)", (
       Effect.fail(new Error("padi rejected")),
     );
     const rp = useRightPanel();
-    rp.togglePanel(); // optimistic state flips, the report fails
-    // The recovery runs on the report's own fiber; let it settle.
+    rp.togglePanel();
     await Promise.resolve();
     expect(h.toastError).toHaveBeenCalledExactlyOnceWith(
       expect.stringContaining("padi rejected"),
@@ -188,7 +158,6 @@ describe("useRightPanel — collapsed is per-TILE (posture follows the tile)", (
   });
 
   it("a fresh terminal inherits the new-terminal default, then owns its own state", () => {
-    // Pin the new-terminal default to collapsed.
     h.prefs = {
       newTerminalCollapsed: true,
       rightPanel: { size: 0.25, codeTabTreeSize: 0.35 },
@@ -196,10 +165,7 @@ describe("useRightPanel — collapsed is per-TILE (posture follows the tile)", (
     const a = "collapse-seed-A" as TerminalId;
     h.activeId = a;
     const rp = useRightPanel();
-    // No per-terminal record yet → reads the new-terminal default (collapsed).
     expect(rp.collapsed()).toBe(true);
-    // Expanding writes the terminal's OWN record; the global preference is
-    // never touched (a toggle is per-terminal, not a preference change).
     rp.expandPanel();
     expect(rp.collapsed()).toBe(false);
     expect(h.updatePreferences).not.toHaveBeenCalled();
@@ -209,26 +175,18 @@ describe("useRightPanel — collapsed is per-TILE (posture follows the tile)", (
   });
 });
 
-// The panel's SUBJECT is the focused pane, not the active tile: `collapsed`
-// stays on the TILE while activeTab / codeMode / selectedFile / history follow
-// the PANE (main or any split). Same module-level `perTerminal`, so distinct
-// ids per test.
 describe("useRightPanel — the panel follows the focused pane", () => {
   it("collapsed stays on the tile while the active tab follows the pane", () => {
     const tile = "fp-tile" as TerminalId;
     const split = "fp-split" as TerminalId;
     h.activeId = tile;
     const rp = useRightPanel();
-    // Move focus to the split and put IT on the Inspector tab.
     h.focusedId = split;
     rp.showInspector();
     expect(rp.activeTab()).toEqual({ kind: "inspector" });
-    // Focus back to main — main's own default (Code) tab returns, and the
-    // panel's posture (the TILE's) never moved.
     h.focusedId = undefined;
     expect(rp.activeTab().kind).toBe("code");
     expect(rp.collapsed()).toBe(false);
-    // Focus the split again: ITS Inspector tab is restored, same posture.
     h.focusedId = split;
     expect(rp.activeTab().kind).toBe("inspector");
     expect(rp.collapsed()).toBe(false);
@@ -248,11 +206,9 @@ describe("useRightPanel — the panel follows the focused pane", () => {
       mainRepoRoot: "/proj",
       remoteUrl: null,
     };
-    // No working tree: nothing to diff, so the Code tab browses.
     h.metadata = { git: { kind: "repo", info: { ...info, isBare: true } } };
     expect(rp.codeMode()).toBe("browse");
     expect(rp.activeTab()).toEqual({ kind: "code", mode: "browse" });
-    // Into a checkout: the mode the user picked is still theirs.
     h.metadata = { git: { kind: "repo", info: { ...info, isBare: false } } };
     expect(rp.codeMode()).toBe("local");
     expect(rp.activeTab()).toEqual({ kind: "code", mode: "local" });
@@ -269,7 +225,6 @@ describe("useRightPanel — the panel follows the focused pane", () => {
     expect(h.setRightPanel).toHaveBeenLastCalledWith(
       expect.objectContaining({ id: tile, collapsed: true }),
     );
-    // No write ever lands on the split for a visibility gesture.
     expect(h.setRightPanel).not.toHaveBeenCalledWith(
       expect.objectContaining({ id: split }),
     );
@@ -300,12 +255,10 @@ describe("useRightPanel — the panel follows the focused pane", () => {
     rp.recordNavigation({ mode: "browse", path: "main.txt" });
     rp.recordNavigation({ mode: "browse", path: "main2.txt" });
     expect(rp.canNavigateBack()).toBe(true);
-    // The split has its OWN stack — empty.
     h.focusedId = split;
     expect(rp.canNavigateBack()).toBe(false);
     rp.recordNavigation({ mode: "browse", path: "split.txt" });
-    expect(rp.navigateBack()).toBeNull(); // a single-entry stack
-    // Back to main: main's own earlier entry.
+    expect(rp.navigateBack()).toBeNull();
     h.focusedId = undefined;
     expect(rp.navigateBack()).toEqual({ mode: "browse", path: "main.txt" });
   });
@@ -314,9 +267,7 @@ describe("useRightPanel — the panel follows the focused pane", () => {
     const tile = "fp-seed-tile" as TerminalId;
     h.activeId = tile;
     const rp = useRightPanel();
-    rp.showInspector(); // the tile's main pane is on Inspector
-    // The source is pinned at capture; a focus change before the create lands
-    // must not change the seed.
+    rp.showInspector();
     const initializePaneTab = rp.seedSplitTab(tile);
     h.focusedId = "fp-seed-other" as TerminalId;
     const split = "fp-seed-split" as TerminalId;
@@ -333,7 +284,7 @@ describe("useRightPanel — the panel follows the focused pane", () => {
     const split = "fp-arrive-split" as TerminalId;
     h.activeId = tile;
     const rp = useRightPanel();
-    rp.showInspector(); // the tile (the split's parent) is on Inspector
+    rp.showInspector();
     rp.seedSplitTab(tile)(split);
     expect(h.setRightPanel).toHaveBeenLastCalledWith(
       expect.objectContaining({ id: split, activeTab: "inspector" }),
@@ -347,8 +298,6 @@ describe("useRightPanel — the panel follows the focused pane", () => {
     const split = "fp-arrive2-split" as TerminalId;
     h.activeId = tile;
     const rp = useRightPanel();
-    // The split already carries its own state — its creator seeded it, or the
-    // browser create path did before moving focus.
     h.focusedId = split;
     rp.showCode("branch");
     h.setRightPanel.mockClear();
@@ -362,9 +311,6 @@ describe("useRightPanel — the panel follows the focused pane", () => {
     const split = "fp-arrive3-split" as TerminalId;
     h.activeId = tile;
     const rp = useRightPanel();
-    // The creator passed its own `rightPanel` on `lifecycle.create`; it is on the
-    // terminal's metadata, and the client store must adopt it — not replace it
-    // with the parent tile's tab.
     h.metadata = {
       rightPanel: {
         collapsed: false,
@@ -376,7 +322,6 @@ describe("useRightPanel — the panel follows the focused pane", () => {
     h.focusedId = split;
     expect(rp.activeTab().kind).toBe("inspector");
     expect(rp.codeMode()).toBe("branch");
-    // Adopted, not reported back: the server already holds this record.
     expect(h.setRightPanel).not.toHaveBeenCalled();
   });
 
@@ -385,12 +330,11 @@ describe("useRightPanel — the panel follows the focused pane", () => {
     const split = "fp-promote-split" as TerminalId;
     h.activeId = tile;
     const rp = useRightPanel();
-    rp.collapsePanel(); // the tile's panel is closed
+    rp.collapsePanel();
     rp.adoptTileCollapsed(tile)(split);
     expect(h.setRightPanel).toHaveBeenLastCalledWith(
       expect.objectContaining({ id: split, collapsed: true }),
     );
-    // Once the split IS its own tile, its now-live collapsed reads closed.
     h.activeId = split;
     h.focusedId = undefined;
     expect(rp.collapsed()).toBe(true);
@@ -407,16 +351,7 @@ describe("useRightPanel — the panel follows the focused pane", () => {
   });
 });
 
-// `syncRepo` owns the per-terminal history-reset decision: a back/forward stack
-// records repo-relative `{ mode, path }` locations with no repo identity, so it
-// must be dropped when the terminal it belongs to moves to a different repo —
-// but NOT when the user merely switches the active terminal between two repos.
-// The decision is keyed per terminal (`history.get(id).lastRepo`), which is what lets
-// it catch a repo change that happened while the terminal was INACTIVE (F6): a
-// previous-active-tuple compare would see the switch-back as a plain terminal
-// change and skip the reset, replaying repo-A history against repo A's new repo.
 describe("useRightPanel — syncRepo scopes history per repo, per terminal", () => {
-  // Drive history for whichever terminal is active, the way CodeTab does.
   function recordAt(id: TerminalId, ...paths: string[]): void {
     h.activeId = id;
     const rp = useRightPanel();
@@ -429,7 +364,6 @@ describe("useRightPanel — syncRepo scopes history per repo, per terminal", () 
     const rp = useRightPanel();
     h.activeId = a;
     expect(rp.canNavigateBack()).toBe(true);
-    // First syncRepo for this terminal just adopts its repo — history survives.
     rp.syncRepo(a, "/repo/A");
     expect(rp.canNavigateBack()).toBe(true);
   });
@@ -439,9 +373,9 @@ describe("useRightPanel — syncRepo scopes history per repo, per terminal", () 
     recordAt(a, "one.txt", "two.txt");
     const rp = useRightPanel();
     h.activeId = a;
-    rp.syncRepo(a, "/repo/A"); // baseline
+    rp.syncRepo(a, "/repo/A");
     expect(rp.canNavigateBack()).toBe(true);
-    rp.syncRepo(a, "/repo/A2"); // cd into another repo
+    rp.syncRepo(a, "/repo/A2");
     expect(rp.canNavigateBack()).toBe(false);
   });
 
@@ -455,11 +389,9 @@ describe("useRightPanel — syncRepo scopes history per repo, per terminal", () 
     recordAt(b, "b1.txt", "b2.txt");
     h.activeId = b;
     rp.syncRepo(b, "/repo/B");
-    // Switch back to A — same repo as before, so its history must be intact.
     h.activeId = a;
     rp.syncRepo(a, "/repo/A");
     expect(rp.canNavigateBack()).toBe(true);
-    // And B's is untouched too.
     h.activeId = b;
     rp.syncRepo(b, "/repo/B");
     expect(rp.canNavigateBack()).toBe(true);
@@ -469,20 +401,13 @@ describe("useRightPanel — syncRepo scopes history per repo, per terminal", () 
     const a = "f6-inactive-A" as TerminalId;
     const b = "f6-inactive-B" as TerminalId;
     const rp = useRightPanel();
-    // A builds history in repo A and becomes the baseline.
     recordAt(a, "a1.txt", "a2.txt");
     h.activeId = a;
     rp.syncRepo(a, "/repo/A");
     expect(rp.canNavigateBack()).toBe(true);
-    // Switch to B; A is now inactive. (CodeTab only ever syncs the active id.)
     recordAt(b, "b1.txt");
     h.activeId = b;
     rp.syncRepo(b, "/repo/B");
-    // While A was inactive its PTY cd'd into a different repo — the metadata
-    // change reaches CodeTab only when A becomes active again. The previous
-    // active tuple was (B, /repo/B), so a previous-tuple compare would treat
-    // this as a plain terminal switch and SKIP the reset; per-terminal tracking
-    // sees A's own repo moved (/repo/A → /repo/A2) and drops the stale stack.
     h.activeId = a;
     rp.syncRepo(a, "/repo/A2");
     expect(rp.canNavigateBack()).toBe(false);
@@ -500,7 +425,6 @@ describe("new terminal panel visibility", () => {
     h.activeId = previous;
     collapsed ? rp.collapsePanel() : rp.expandPanel();
     const initializePanel = rp.adoptTileCollapsed(previous);
-    // A focus change while the create RPC is pending must not change the seed.
     h.activeId = `other-${collapsed}`;
     h.host = "host-B";
     initializePanel(next);
@@ -523,7 +447,6 @@ describe("new panel initialization", () => {
   ])("uses the initial preference with no active terminal: %s", (collapsed) => {
     h.prefs.newTerminalCollapsed = collapsed;
     const rp = useRightPanel();
-    // No active tile to inherit from — the seed falls back to the preference.
     const initializePanel = rp.adoptTileCollapsed(null);
     const id = `empty-${collapsed}` as TerminalId;
     initializePanel(id);

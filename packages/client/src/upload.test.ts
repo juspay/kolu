@@ -58,8 +58,6 @@ describe("rejectionFor", () => {
   });
 
   it("reports the extension rejection before the size rejection", () => {
-    // A malicious file that is also oversized — surfacing the type
-    // mismatch first is the more actionable error for the user.
     expect(rejectionFor("malware.exe", MAX_UPLOAD_BYTES + 1)).toMatch(
       /not allowed/,
     );
@@ -78,17 +76,12 @@ describe("rejectionFor", () => {
   });
 
   it("still enforces the size cap for video — it is not lifted for video", () => {
-    // The cap is a deliberate, video-inclusive policy: a video can be
-    // dropped, but the 50 MB ceiling is shared with every other file type.
     expect(rejectionFor("recording.mov", MAX_UPLOAD_BYTES + 1)).toMatch(
       /too large/,
     );
   });
 
   it("allowlist covers every previewable video container", () => {
-    // Drift guard: the upload allowlist reuses preview.ts's canonical video
-    // set, so a container Kolu can preview is also one you can drop. Strip the
-    // leading dot the same way the source spread does.
     for (const ext of VIDEO_EXTENSIONS) {
       expect(ALLOWED_UPLOAD_EXTENSIONS).toContain(ext.slice(1));
     }

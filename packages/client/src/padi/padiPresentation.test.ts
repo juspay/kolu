@@ -11,14 +11,10 @@ import {
 
 describe("padiBoundHostSegment — the Padi chip names WHERE padi is, and reads as remote", () => {
   it("renders the ssh host segment when bound to a REMOTE host", () => {
-    // daemonScanBoundHost() non-null → the chip gains `ssh · <host>`, so the rail
-    // reads e.g. `Padi · ssh · sincereintent · contract v1.1`.
     expect(padiBoundHostSegment("sincereintent")).toBe("ssh · sincereintent");
   });
 
   it("renders NO host segment when LOCAL — the local chip stays byte-identical", () => {
-    // daemonScanBoundHost() null (local binding / pre-first-enumeration) → no host
-    // noise, exactly today's `Padi · contract v<x.y>`.
     expect(padiBoundHostSegment(null)).toBeNull();
   });
 });
@@ -42,22 +38,12 @@ describe("toPadiPresence — P4: connected ⇒ identity present, by construction
   });
 
   it("RED→GREEN repro (the reported bug): `padiLink === 'connected'` with the identity cell PENDING (not yet arrived) NEVER reads `connected` — it folds to `warming`, never a synthesized dash beside a claimed-live padi", () => {
-    // The reproduced bug's shape exactly: the socket + running-daemons list (host-scoped,
-    // already alive) correctly showed padi as live, while the status/build-commit read
-    // straight off `padiLink`/the old raw `boundPadi.*` with `??`/ternary fallbacks —
-    // "connected" beside a synthesized "—". `toPadiPresence` makes that combination
-    // unrepresentable: there is no `{ kind: "connected", identity: undefined }`. `undefined`
-    // here is the identity CELL not having yielded its first frame yet — a distinct state
-    // from "padi declared no commit" (see the next test).
     const presence = toPadiPresence("connected", true, undefined);
     expect(presence.kind).toBe("warming");
     expect(presence).not.toMatchObject({ kind: "connected" });
   });
 
   it("a DECLARED no-commit (dev/off-nix build) reads `connected` with a null build commit — sourced from the wire's declared null, NEVER conflated with the cell-pending case above", () => {
-    // The identity cell HAS arrived (padi is the writer, and it declared `commit: null`
-    // for its own dev/off-nix build) — this is legitimately `connected`, distinct in TYPE
-    // (a present object with a null field) from the pending case (`identity === undefined`).
     const presence = toPadiPresence("connected", true, {
       commit: null,
       surfaceVersion: "1.1",
@@ -74,8 +60,6 @@ describe("toPadiPresence — P4: connected ⇒ identity present, by construction
   });
 
   it("RED→GREEN repro: the drain/reconnect class — a dead transport never reads `connected`, even with identity already known", () => {
-    // The reproduced live bug: an AbortError drain burst kills the ws; the retained
-    // (stale) `connected` link + last-known build commit must not be shown as confirmed.
     expect(
       toPadiPresence("connected", false, {
         commit: "deadbeef",
@@ -83,7 +67,6 @@ describe("toPadiPresence — P4: connected ⇒ identity present, by construction
         lifetime: { kind: "forever" },
       }),
     ).toEqual({ kind: "unknown" });
-    // Reconnect (transport live again, facts unchanged) — identity is confirmed again.
     expect(
       toPadiPresence("connected", true, {
         commit: "deadbeef",
@@ -94,7 +77,6 @@ describe("toPadiPresence — P4: connected ⇒ identity present, by construction
   });
 
   it("pre-first-value (link undefined) ⇒ unknown; `connecting` ⇒ warming; `degraded` ⇒ down — each its own honest kind, never `connected`", () => {
-    // No link value yet ⇒ `unknown` (grey), same as a dead channel — not `warming`.
     expect(toPadiPresence(undefined, true, undefined)).toEqual({
       kind: "unknown",
     });
@@ -165,8 +147,6 @@ describe("padiPresencePresentation — the dialog's dot + word + text tone, ONE 
     expect(presenceLink(connected)).toBe("connected");
     expect(presenceLink({ kind: "unknown" })).toBe("unknown");
     expect(presenceLink({ kind: "down" })).toBe("degraded");
-    // A live-but-pre-identity `connected` link folds to `warming` → reads "connecting"
-    // (aligned with the dialog), never a premature "connected".
     expect(presenceLink(toPadiPresence("connected", true, undefined))).toBe(
       "connecting",
     );

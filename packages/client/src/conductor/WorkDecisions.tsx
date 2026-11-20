@@ -1,14 +1,3 @@
-/** AN OPEN CARD'S DECISIONS — the setup as one line, then the latest three of
- *  everything else asked, with "all N" to unfold the rest in place.
- *
- *  The setup is what the human answered once, at the start: the mode, each
- *  role's harness and model, and what happens on green. It is ONE line
- *  (`setupLine`), each part carrying what was recorded and where it came
- *  from as data. Every other decision is one line too — `label — answer`, cut
- *  with an ellipsis — and a press on it shows the question in full, when it
- *  was answered and where from. They outlive the end: a work stopped and
- *  opened again still says what was decided about it. */
-
 import { Option } from "effect";
 import type { Work } from "kolu-work";
 import { type Component, createMemo, createSignal, For, Show } from "solid-js";
@@ -21,19 +10,15 @@ import {
   setupLine,
 } from "./workReadings";
 
-/** How many of the other decisions a card shows before "all N". */
 const DECISIONS_SHOWN = 3;
 
 const WorkDecisions: Component<{ work: Work }> = (props) => {
   const setup = createMemo(() => setupLine(props.work));
   const others = createMemo(() => otherDecisions(props.work));
-  /** Every decision out, rather than the latest three. Dies with the open
-   *  card, as the card's own view does. */
   const [all, setAll] = createSignal(false);
   const shown = createMemo(() =>
     all() ? others() : others().slice(-DECISIONS_SHOWN),
   );
-  /** Which rows have their question out. Dies with the card. */
   const [opened, setOpened] = createSignal<ReadonlySet<string>>(new Set());
   const toggle = (id: string): void => {
     setOpened((was) => {
@@ -89,7 +74,6 @@ const WorkDecisions: Component<{ work: Work }> = (props) => {
                 <li
                   data-testid="work-decision"
                   data-from={Option.getOrUndefined(row.from)}
-                  // The answer AS RECORDED, beside the one a person reads.
                   data-answer={row.decisions
                     .map((one) => answerWords(one))
                     .join(" · ")}

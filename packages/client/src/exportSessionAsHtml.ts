@@ -1,15 +1,3 @@
-/** Trigger an HTML export of the active terminal's agent session.
- *
- *  Server reads the on-disk transcript (Claude JSONL / OpenCode SQLite /
- *  Codex JSONL), normalizes to the unified IR, renders either a lightweight
- *  chat log or a full collapsed transcript, and returns the string. We wrap it
- *  in a Blob and open/download it client-side — no server-side file write.
- *
- *  Distinct from `exportScrollbackAsPdf.ts` (which serializes xterm's
- *  ring buffer) by data source AND delivery: that one runs entirely on
- *  the client because the scrollback only exists there; this one runs
- *  on the server because the transcript only exists there. */
-
 import { MODE_LABEL, type TranscriptHtmlMode } from "@kolu/padi-client/surface";
 import { toError } from "@kolu/surface/run-stream";
 import { Effect } from "effect";
@@ -19,9 +7,6 @@ import { triggerDownload } from "./download";
 import type { UiAction } from "./runAction";
 import { activePadiRpc } from "./wire";
 
-/** Own the object-URL lifecycle once: mint a blob URL for the document, hand
- *  it to a delivery strategy, and revoke after a generous delay so the new tab
- *  (or download) has time to fetch and parse it while this document is alive. */
 function withBlobUrl(html: string, deliver: (url: string) => void): void {
   const blob = new Blob([html], { type: "text/html;charset=utf-8" });
   const url = URL.createObjectURL(blob);
@@ -31,7 +16,6 @@ function withBlobUrl(html: string, deliver: (url: string) => void): void {
 
 function openExport(html: string, filename: string): void {
   withBlobUrl(html, (url) => {
-    // Open in a new tab; fall back to a download when the popup is blocked.
     const win = window.open(url, "_blank", "noopener");
     if (!win) triggerDownload(url, filename);
   });
@@ -53,10 +37,6 @@ export function exportSessionAsHtml(
     );
     yield* Effect.gen(function* () {
       if (multiple) {
-        // `Effect.all` over the modes, unbounded like the `Promise.all` it
-        // replaces — the difference is that a failure now INTERRUPTS the
-        // siblings instead of leaving them running into a rejected promise
-        // nobody reads.
         const exports = yield* Effect.all(
           modes.map((mode) =>
             activePadiRpc.transcript.exportHtml({ id, mode }),

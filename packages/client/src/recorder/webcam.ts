@@ -1,9 +1,3 @@
-/** Webcam domain: device inventory, selected camera, and the live stream.
- *
- *  State lives in one discriminated union — the invariant "enabled ⇒
- *  stream is non-null" is type-enforced rather than maintained by
- *  imperative discipline across three parallel signals. */
-
 import { Effect } from "effect";
 import { createMemo, createSignal } from "solid-js";
 import { toast } from "solid-sonner";
@@ -15,8 +9,6 @@ export type WebcamState =
   | { kind: "error"; message: string }
   | { kind: "active"; stream: MediaStream };
 
-// HOST-SCOPING: host-INDEPENDENT by design — a browser-local device pref (the
-// client machine's camera inventory/selection), not tied to any remote host.
 const [devices, setDevices] = createSignal<MediaDeviceInfo[]>([]);
 const [selectedId, setSelectedId] = createSignal<string>("default");
 const [state, setState] = createSignal<WebcamState>({ kind: "off" });
@@ -51,8 +43,6 @@ function isAbort(err: unknown): boolean {
   return err instanceof DOMException && err.name === "AbortError";
 }
 
-/** Open the webcam. FAILS with whatever `getUserMedia` rejected, so the caller
- *  can tell a dismissed permission prompt (`AbortError`) from a real fault. */
 export function openWebcam(deviceId: string): Effect.Effect<void, unknown> {
   return Effect.suspend(() => {
     closeWebcam();
@@ -77,8 +67,6 @@ export function openWebcam(deviceId: string): Effect.Effect<void, unknown> {
   );
 }
 
-/** Report a webcam failure unless it is a dismissed permission prompt — the
- *  shared recovery both verbs below end in. */
 const toastUnlessDismissed = <A>(
   self: Effect.Effect<A, unknown>,
 ): Effect.Effect<A | undefined, never> =>

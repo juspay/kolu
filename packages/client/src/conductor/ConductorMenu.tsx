@@ -1,29 +1,3 @@
-/** THE HEADER'S `⋯` — a menu, and only a menu.
- *
- *  The defect this component exists to close: the `⋯` used to START A NEW
- *  SESSION on the press. A `⋯` is the one affordance in every piece of chrome
- *  that promises *there is more here* and promises nothing about what — so a
- *  person presses it to LOOK, and the conversation they were reading was gone
- *  before they had decided anything. The button now performs nothing at all;
- *  everything it can do is a row in here, and the one destructive row is
- *  behind the repo's own confirm shell.
- *
- *  Built on `useAnchoredPopover`, the same primitive the settings popover next
- *  to it uses, so the keyboard, `Escape` and click-outside are the chrome's
- *  one implementation rather than a third hand-rolled dropdown.
- *
- *  WHAT IS OFFERED IS WHAT IS TRUE. `Stop` exists only while a turn is
- *  running (there is nothing to stop otherwise). Signing in is always here —
- *  `Sign in again…` while signed in, `Sign in…` while not — because the
- *  agent offers a sign-in only when IT refuses something, and an account at
- *  its limit is still signed in. No row is drawn disabled: a greyed row is a
- *  row a person reads, reaches for and then has to work out.
- *
- *  IT ALSO HOLDS THE ROSTER. `kolu ✓ · plus the agent's own` was a strip
- *  above every conversation — a permanent row answering a question a person
- *  asks about twice a week. The fact did not move: it is read here now, as a
- *  section this menu's one press opens. */
-
 import type { ConductorRow, ConductorState } from "kolu-common/conductor";
 import { writeTextToClipboard } from "@kolu/solid-logtail";
 import { toError } from "@kolu/surface/run-stream";
@@ -40,20 +14,9 @@ import { helpSheet } from "./helpContent";
 import { conductorHelpColumn } from "./conductorLayout";
 import { useConductor } from "./useConductor";
 
-/** The sentence the confirm asks under. It names every thing that goes,
- *  because the one fact a person needs before pressing again is that this is
- *  not the divider-and-carry-on they may remember. */
 const WIPE_COPY =
   "Start a new session? This conversation's messages, the files attached to them and the terminals it remembers are deleted — on this host too. There is no undo.";
 
-/** The four standings a roster row can hold, keyed by the union so a fifth
- *  one added to the schema fails the typecheck here rather than painting
- *  unstyled. kolu's own Conductor never mints `missing`: a server kolu could
- *  not reach does not get a red row, it refuses the whole conversation
- *  (kolu-server's `ConductorUnavailable`), because a conductor that cannot
- *  reach the fleet is not a degraded conductor. The shape is shared with a
- *  product whose optional servers can be missing, so the class is here for the
- *  row the union allows. */
 type Standing = ConductorState["servers"][number]["standing"];
 const STANDING_CLASS: Record<Standing, string> = {
   connected: "text-ok",
@@ -63,24 +26,15 @@ const STANDING_CLASS: Record<Standing, string> = {
 };
 
 const ConductorMenu: Component<{
-  /** What `Copy transcript` copies — the rows the panel is drawing, passed in
-   *  rather than re-subscribed, because a second subscription to the one
-   *  transcript is a second list to disagree with. */
   rows: readonly ConductorRow[];
   triggerRef: HTMLElement;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   /** A turn is running. */
   working: boolean;
-  /** The agent said who it is signed in AS. Silence is not signed in — the
-   *  cell's own rule — so an agent that said nothing still gets the row. */
   signedIn: boolean;
   /** Opens the sign-in row under the transcript. */
   onSignIn: () => void;
-  /** The tool servers this conversation was handed, and how each one stands
-   *  by the AGENT'S own word. They used to be a strip above the transcript on
-   *  every conversation all day; they are a thing a person looks up — "does it
-   *  really have kolu's hands?" — which is what this menu is. */
   servers: ConductorState["servers"];
 }> = (props) => {
   const orch = useConductor();
@@ -122,9 +76,6 @@ const ConductorMenu: Component<{
           class={`fixed z-50 ${chrome.class} p-2 w-[17rem]`}
           style={{ ...panelStyle(), ...chrome.style }}
         >
-          {/* The destructive row, in the repo's one confirm shell — it owns
-              the confirm step, the Cancel/confirm pair and the testid
-              triplet every other destructive act in this app exposes. */}
           <InlineConfirmButton
             label="New session"
             inFlightLabel="New session"
@@ -145,9 +96,6 @@ const ConductorMenu: Component<{
               Stop
             </button>
           </Show>
-          {/* ALWAYS A DOOR. Signed in or not: an account at its limit, the
-              wrong account and a login that went stale are all signed in,
-              and the agent offers nothing for them. */}
           <button
             type="button"
             role="menuitem"
@@ -167,11 +115,6 @@ const ConductorMenu: Component<{
           >
             Copy transcript
           </button>
-          {/* HOW TO USE, exactly where the help is not already a column: on a
-              phone, and on any window too narrow for the column
-              (`conductorLayout.ts`). The same words either way
-              (`helpContent.ts`) — a menu that opened a second, shorter
-              explanation is how two manuals come to disagree. */}
           <Show when={!conductorHelpColumn()}>
             <button
               type="button"
@@ -183,13 +126,6 @@ const ConductorMenu: Component<{
               How to use
             </button>
           </Show>
-          {/* THE ROSTER — read, never pressed, so it is a section under the
-              rows and not a row among them. The tick is the AGENT'S word and
-              only its word: `connected` is the agent reporting the server
-              attached, and the other standings each say their own thing
-              instead of borrowing it. An `unattached` server carries the
-              agent's own sentence about why, because that sentence is the
-              whole answer to the question this section is opened with. */}
           <Show when={props.servers.length > 0}>
             <div class="mt-2 border-t border-edge pt-2">
               <p class="m-0 mb-1 font-mono text-[0.6rem] uppercase tracking-[0.1em] text-fg-3">
@@ -216,8 +152,6 @@ const ConductorMenu: Component<{
                   </p>
                 )}
               </For>
-              {/* The agent brings its own servers and we never handed them, so
-                  the roster says so rather than inventing rows for them. */}
               <p class="m-0 px-2 font-mono text-[0.68rem] text-fg-3">
                 · plus the agent's own
               </p>

@@ -1,10 +1,3 @@
-/** Shared chrome for the identity info panels (Kolu · Padi · Kaval).
- *
- *  Each panel is an **anchored dropdown** that opens below its trigger icon —
- *  never a center-screen modal — so the association "this panel is about the
- *  mark I just clicked (on this host chip)" is structural. Positioning,
- *  outside-click, and Escape dismiss ride {@link useAnchoredPopover}. */
-
 import type { Component, JSX } from "solid-js";
 import { Show } from "solid-js";
 import { Portal } from "solid-js/web";
@@ -69,11 +62,7 @@ const InfoDialogShell: Component<{
           role="dialog"
           aria-label={props.name}
           data-testid="info-popover"
-          // `fixed` is load-bearing: useAnchoredPopover positions via top/left
-          // viewport coords (same as RecordPopover). `relative` left the panel
-          // in document flow so top/left did nothing — the dropdown "opened"
-          // but was invisible / off-canvas.
-          class={`${chrome.class} fixed z-50 max-h-[min(32rem,calc(100vh-2rem))] overflow-y-auto p-0 ${SIZE_CLASS[props.size]}`}
+          class={`${chrome.class} z-50 max-h-[min(32rem,calc(100vh-2rem))] overflow-y-auto p-0 ${SIZE_CLASS[props.size]}`}
           style={{ ...panelStyle(), ...chrome.style }}
         >
           <button

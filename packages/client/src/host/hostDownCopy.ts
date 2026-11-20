@@ -1,28 +1,10 @@
-/** The plain-language copy for the Skew-UX host-down card — one first-class
- *  {title, body} per typed {@link EntryFailedCause}. PURE (no JSX, no `wire`), so
- *  `HostDownCanvas.tsx` renders it and `hostDownCopy.test.ts` asserts every cause
- *  has non-empty copy without mounting a component.
- *
- *  Keyed by the cause the map's `entries` collection reports on a `failed` entry —
- *  a STRUCTURAL classification, never parsed from the `reason` string (that stays
- *  a raw human detail the card shows verbatim under this copy). `satisfies
- *  Record<EntryFailedCause, HostDownCopy>` makes the map EXHAUSTIVE by
- *  construction: adding a future cause to `EntryFailedCause` fails THIS build
- *  until its copy is written, so the card can never fall back to a generic
- *  "something went wrong" for a cause the domain has named. */
-
 import type { EntryFailedCause } from "kolu-common/surfacesWithPadi";
 
-/** A cause's card copy — a short title and a plain-language body. Both non-empty
- *  (pinned in `hostDownCopy.test.ts`). */
 export interface HostDownCopy {
   readonly title: string;
   readonly body: string;
 }
 
-/** cause → {title, body}. Exhaustive over {@link EntryFailedCause} (see the module
- *  doc). Plain words first — a symbol/knob name (`KOLU_REMOTE_PADI_STATE_DIR`)
- *  appears only where it is the actual lever to pull. */
 export const HOST_DOWN_COPY = {
   "contract-skew-refused": {
     title: "This host runs an older kolu",
@@ -70,10 +52,6 @@ export const HOST_DOWN_COPY = {
       "completed, so its state is unsettled and can't be trusted. Retry from the " +
       "host, or switch back to your local host while it recovers.",
   },
-  // Deliberately NOT the `unconverged` copy: nothing drained and nothing timed
-  // out here — the two ends cannot speak at all, and the remedy is a build, not
-  // a retry. Sending an operator to "retry from the host" is what the generic
-  // card would have done, and this host will never recover by retrying.
   "previous-protocol-epoch": {
     title: "This host runs a kolu from before the protocol change",
     body:
@@ -83,10 +61,6 @@ export const HOST_DOWN_COPY = {
       "host's kolu (or stop the padi running there so a fresh one can start), " +
       "then reconnect. Retrying on its own won't help.",
   },
-  // The two ssh refusals: kolu is strictly non-interactive over ssh, so a
-  // gate only a typed answer could pass (a password, a trust prompt) is a
-  // terminal, operator-actionable fault — named here with its actual remedy,
-  // never left masquerading as a generic reachability problem.
   "auth-required": {
     title: "This host needs passwordless ssh",
     body:
@@ -103,10 +77,6 @@ export const HOST_DOWN_COPY = {
       "terminal to review and accept its key — or resolve a changed-key " +
       "warning — then reconnect.",
   },
-  // ssh worked; the host just has no Nix to provision padi with. A distinct
-  // prerequisite from the two above, with a distinct fix — and the "installed
-  // but not on the non-interactive PATH" case is named, because it is the more
-  // common one and looks identical to "not installed" from here.
   "nix-unavailable": {
     title: "This host has no Nix that kolu can run",
     body:
@@ -117,12 +87,6 @@ export const HOST_DOWN_COPY = {
       "single-user install. Check with ssh <host> nix-instantiate --version, " +
       "and install it from https://nixos.asia/en/install if it's missing.",
   },
-  // The two REMOTE give-ups, split on the session's transport class — so neither
-  // card claims what it cannot know. A `"network"` session only stops retrying when
-  // a step went silent too many times; it never learned the host is "unreachable".
-  // A `"remote"` one gave up because the host ANSWERED and setup kept failing — the
-  // case that shipped "Can't reach this host" over a crate fetch's HTTP 403. Neither
-  // names a remedy: the detail line is the actual error, and it is the remedy.
   "connect-stalled": {
     title: "Connecting to this host kept stalling",
     body:
@@ -139,11 +103,6 @@ export const HOST_DOWN_COPY = {
       "output under it is what led up to it. Fix that, then reconnect, or switch " +
       "back to your local host.",
   },
-  // The LOCAL padi couldn't start on this machine — a distinct producer from the
-  // two remote give-ups (a local spawn/connect give-up, not a remote host). Its
-  // copy is master's pre-PR4 catch-all card verbatim: that card only ever rendered
-  // for a local terminal give-up (a remote give-up always classified remote),
-  // so reusing it keeps this reachable case byte-identical on screen (PR4 neutrality).
   "local-start-failed": {
     title: "This host's padi couldn't start",
     body:
@@ -151,13 +110,8 @@ export const HOST_DOWN_COPY = {
       "further. The detail below has what the host reported; switch back to your " +
       "local host to keep working.",
   },
-  // PR4: there is deliberately no `other` catch-all copy — `EntryFailedCause` dropped
-  // its catch-all, so an unclassifiable failure fails loud (a defect to classify) and
-  // this `satisfies` stays exhaustive over only the named structural causes.
 } satisfies Record<EntryFailedCause, HostDownCopy>;
 
-/** Look up a cause's card copy. Total over {@link EntryFailedCause} — every cause
- *  is a key of {@link HOST_DOWN_COPY} by construction. */
 export function hostDownCopy(cause: EntryFailedCause): HostDownCopy {
   return HOST_DOWN_COPY[cause];
 }

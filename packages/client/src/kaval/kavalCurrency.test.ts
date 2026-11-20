@@ -1,23 +1,7 @@
-/** The kaval-attention truth table (B3.4 currency + SK5 contract skew) — when
- *  the ONE joined derivation nudges, and on which axis.
- *
- *  Mirrors surface-app's `clientIsStale` test: the falsifiable proof the
- *  currency nudge fires for a connected daemon whose reported staleKey differs
- *  from the server's expected build OR is absent (the #1671 older-daemon arm),
- *  and stays silent on every
- *  #1034 over-prompting trap (a matching build, an off-nix "" id on either
- *  side, a transient/down state). Plus the SK5 axis rules: the `incompatible`
- *  verdict reads the TYPED status arm (both versions), floors on the same
- *  channel liveness, and is mutually exclusive with `stale` by construction
- *  (a skewed kaval is never connected). Imports the pure module only — no
- *  daemonStatus subscription, no DOM. */
-
 import type { DaemonStatus } from "@kolu/padi-client/surface";
 import { describe, expect, it } from "vitest";
 import { kavalAttention } from "./kavalCurrency";
 
-/** A connected wire status carrying `reported` as its identity staleKey —
- *  `undefined` reported models an identity-less (pre-identity) survivor. */
 const connected = (reported: string | undefined): DaemonStatus => ({
   state: "connected",
   identity:
@@ -28,7 +12,6 @@ const connected = (reported: string | undefined): DaemonStatus => ({
   startedAt: 1,
 });
 
-/** The proven-skew arm (SK4) — versions are REQUIRED typed fields. */
 const incompatible = (): DaemonStatus => ({
   state: "incompatible",
   daemonVersion: "5.0",
@@ -137,8 +120,6 @@ describe("kavalAttention — the contract axis (SK5)", () => {
   });
 
   it("wins regardless of the currency inputs — the axes are mutually exclusive by construction (a skewed kaval is never connected, so no status can satisfy both)", () => {
-    // Even with a currency-looking `expected`, an incompatible status is the
-    // contract verdict — there is no identity on the arm to compare builds with.
     expect(kavalAttention("newhash", incompatible(), true).kind).toBe(
       "incompatible",
     );

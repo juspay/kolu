@@ -1,23 +1,3 @@
-/** One row of the Inspector's ports section — a listener (this terminal's, or
- *  elsewhere on its host), or a door on this host with no listener behind it.
- *
- *  Hierarchy is deliberate and is the whole of the "look nicer" ask: the NUMBER
- *  and the program name are the subject and carry the weight; everything else —
- *  the door it answers on, copy, cancel — is quiet until the row is hovered or
- *  focused, and reachable by keyboard regardless. An orphan row is dimmer still,
- *  because it is a footnote about the host rather than an answer about this
- *  terminal.
- *
- *  It holds the one piece of state in this feature — "a forward is being opened
- *  right now" — and a component per row is how that stays per row rather than
- *  becoming a map keyed by port number.
- *
- *  Open flow is {@link claimBlankTab} · {@link openThroughDoor} — the shared
- *  fourth layer over {@link urlForPort} and `ensureDoor` — composed with this
- *  row's own busy signal; the printed-URL card composes the same two
- *  functions for its "forward & open".
- */
-
 import { Effect } from "effect";
 import type { HostKey } from "kolu-common/hostKey";
 import { type Component, createSignal, Show } from "solid-js";
@@ -41,20 +21,13 @@ import { OpenIcon } from "../ui/Icons";
 export const PortRow: Component<{
   row: PortRowData;
   action: PortAction;
-  /** Why this port is not open-as-is, when it is not. */
   forwardReason: string | undefined;
-  /** Host this row's door would open on — the active host of the section. */
   host: HostKey;
-  /** WHICH terminal serves this port, and how to get to it. Absent for this
-   *  tile's own subtree ports (you are already there) and for a listener no
-   *  terminal's subtree holds — a detached server, another user's socket. */
   serving?: { name: string; jump: () => void };
 }> = (props) => {
   const [opening, setOpening] = createSignal(false);
   const forward = () => props.row.forward;
 
-  /** What is behind the number, in words: who holds a listener
-   *  ({@link listenerLabel}), and the door sentence for an orphan. */
   const label = (): string => {
     const row = props.row;
     return row.kind === "orphan"
@@ -62,12 +35,9 @@ export const PortRow: Component<{
       : listenerLabel(row);
   };
 
-  /** A server this tile printed that NO terminal's subtree holds — the join only
-   *  files a claimed listener as `printed` on that positive fact. */
   const detached = () =>
     props.row.kind === "port" && props.row.origin === "printed";
 
-  /** Ready URL when no door is needed, or when one is already open. */
   const readyHref = (): string | undefined => {
     const decided = urlForPort({
       action: props.action,
@@ -78,26 +48,16 @@ export const PortRow: Component<{
     return decided.kind === "ready" ? decided.url : undefined;
   };
 
-  /** Open the door, then the page — {@link claimBlankTab} · {@link openThroughDoor}
-   *  composed at this edge with the row's own busy signal; the printed-URL
-   *  card composes the same two functions for its own "forward & open". */
   const openThroughForward = (): UiAction =>
     Effect.suspend(() => {
       if (opening()) return Effect.void;
       setOpening(true);
-      // `runAction` forks synchronously up to the first suspension, and
-      // `Effect.suspend`'s body runs there, so the popup blocker still sees
-      // this claim as descending from the click.
       const tab = claimBlankTab();
       return openThroughDoor({
         host: props.host,
         port: props.row.port,
         tab,
-      }).pipe(
-        // The `finally` of the old shape, and now total: a finalizer runs on
-        // interruption too, so a row unmounted mid-open does not stay "opening".
-        Effect.ensuring(Effect.sync(() => setOpening(false))),
-      );
+      }).pipe(Effect.ensuring(Effect.sync(() => setOpening(false))));
     });
 
   return (
@@ -112,8 +72,6 @@ export const PortRow: Component<{
       data-origin={forward()?.origin}
       data-orphan={props.row.kind === "orphan" ? "" : undefined}
     >
-      {/* The subject wears a chip: the number carries the weight, and an open
-       *  door tints it accent so "already reachable" reads before the text. */}
       <span
         class="shrink-0 rounded px-1.5 font-mono text-[11px] font-semibold tabular-nums"
         classList={{
@@ -123,13 +81,6 @@ export const PortRow: Component<{
       >
         {props.row.port}
       </span>
-      {/* What is behind the number — and, in the trailing group, the way to it.
-       *  That group is where the question is sharpest: a port in it is by
-       *  definition served by some terminal OTHER than the one on screen, so the
-       *  row NAMES that terminal instead of saying "this host" and leaving the
-       *  user to guess which of its terminals. When the join finds nothing the
-       *  old sentence stands, unlinked: honest copy about a door whose server
-       *  kolu cannot point at. */}
       <span class="flex min-w-0 flex-1 items-baseline gap-1.5">
         <Show when={detached()}>
           <DetachedBadge testid="inspector-port-detached" />
@@ -155,8 +106,6 @@ export const PortRow: Component<{
         </Show>
       </span>
 
-      {/* The door — the same pill the host dropdown shows, not a link here
-       *  because this row already carries its own open affordance below. */}
       <Show when={forward()}>
         {(f) => (
           <ForwardPill forward={f()} testid="inspector-port-forward-badge" />

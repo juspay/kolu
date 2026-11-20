@@ -1,16 +1,3 @@
-/**
- * An update landing on a host — `ready` → `ready` with ANOTHER set (package
- * or profile builds) for the SAME stack (`updateLanded`) — as the one Solid
- * effect that watches its status cell.
- *
- * Compares each status's PLAIN facts (`landedFacts`: the stack and the set,
- * copied out as strings), never the status value: a cell's value is reconciled
- * in place into one store object (`@kolu/surface`'s `writeWrappedValue`), so
- * the value read before and after a landing is the same proxy, and a watcher
- * keyed on it never sees the edge. `watchLanding.test.ts` drives it through a
- * real reconciled store.
- */
-
 import type { AgentDistroStatus } from "@kolu/agent-distro/schema";
 import {
   type LandedFacts,
@@ -19,8 +6,6 @@ import {
 } from "@kolu/agent-distro/status";
 import { createEffect } from "solid-js";
 
-/** Run `onLanded` with the newly landed set (`LandedFacts.set`) each time an
- *  update lands. */
 export function watchLanding(
   read: () => AgentDistroStatus | undefined,
   onLanded: (set: string) => void,

@@ -1,15 +1,3 @@
-/** Terminal CRUD — create, kill, close-all, theme, copy text.
- *
- *  Every handler is an `Effect`, not a running call: the module DESCRIBES what a
- *  create or a kill is, and the UI edge (`runAction`) is what makes it happen.
- *  That is what lets `handleKillWithSubs` sequence N kills, `useWorktreeOps`
- *  branch on a discard's typed failure, and `useSessionRestore` abort its loop on
- *  a warming daemon — all as composition, with no `await` for an interruption to
- *  fail to reach through.
- *
- *  Server signals propagate list/metadata changes via the live subscriptions —
- *  no optimistic cache needed. */
-
 import {
   TOPLEVEL_PLACEMENT,
   activeArm,
@@ -47,37 +35,14 @@ import { useSubPanel } from "./useSubPanel";
 import { useTerminalSearch } from "./useTerminalSearch";
 import { useTerminalStore } from "./useTerminalStore";
 
-/** The create was REFUSED before it reached the wire, or the wire refused it.
- *
- *  A typed failure rather than the old bare `throw new Error("daemon warming…")`:
- *  session restore's per-terminal loop depends on a refusal ABORTING the whole
- *  restore rather than half-creating, and `useWorktreeOps` depends on not
- *  proceeding to seed a worktree terminal that does not exist. Both now branch on
- *  the CHANNEL instead of on a message string.
- *
- *  `reason: "warming"` carries no toast (the daemon-warming banner already says
- *  it, and a restore loop would stack one per terminal); `reason: "failed"` is
- *  toasted at the call that produced it, before this value is raised. */
 export class TerminalCreateRefused extends Data.TaggedError(
   "TerminalCreateRefused",
 )<{ readonly reason: "warming" | "failed" }> {}
 
-/** The sleeping record was NOT discarded — the server refused, and the failure is
- *  already toasted. Raised so the worktree-removal close path (F10) can refuse to
- *  delete a worktree whose terminal still points at it; the standalone
- *  close-confirm caller ignores it (`Effect.ignore`) because the toast is all it
- *  needed. Replaces the old `Promise<boolean>` — a boolean the compiler could not
- *  make anyone check. */
 export class TerminalDiscardFailed extends Data.TaggedError(
   "TerminalDiscardFailed",
 )<Record<string, never>> {}
 
-/** Terminal CRUD — singleton via `createSharedRoot`. Reads `useTerminalStore`
- *  internally (no `deps` argument), so consumers that already touch the store
- *  — `TileTitleActions`, `TerminalContent` — can call `useTerminalCrud()`
- *  directly instead of receiving crud-derived closures drilled from App.tsx.
- *  Mirrors the `useIntentEditor` de-deps: the old `{ store }` argument was an
- *  unenforceable "deps never change identity" convention held by a comment. */
 export const useTerminalCrud = createSharedRoot(() => {
   const store = useTerminalStore();
   const subPanel = useSubPanel();
@@ -86,12 +51,6 @@ export const useTerminalCrud = createSharedRoot(() => {
   const pendingLayouts = usePendingLayouts();
   const { showTipOnce } = useTips();
 
-  // --- Handlers ---
-
-  /** Toast `${prefix}: ${message}` for whatever failed, and RECOVER — the shape
-   *  every "fire it, tell the user if it broke" handler below ends in. Named once
-   *  so the wording rule (`dev/skills/kolu-client/SKILL.md`: always surface
-   *  `err.message`) is one function rather than fifteen copies. */
   const toastFailure =
     (prefix: string) =>
     <A, E>(self: Effect.Effect<A, E>): Effect.Effect<A | undefined, never> =>
@@ -102,31 +61,12 @@ export const useTerminalCrud = createSharedRoot(() => {
         }),
       );
 
-  /** Set a terminal's theme name on the server. */
   function setThemeName(id: TerminalId, name: string): UiAction {
     return activePadiRpc.chrome
       .setTheme({ id, themeName: name })
       .pipe(toastFailure("Failed to set theme"));
   }
 
-  // The ONE cleanup body's side-effecting seams (see useActiveReconcile).
-  // Wired once here; the imperative close path and the list-driven reconcile
-  // both drive `evictTerminal` through these ports, so they can't diverge.
-  //
-  // The eviction ports are SYNCHRONOUS by contract (`evictTerminal` is a pure
-  // reordering of local state that happens to re-home sub-terminals server-side),
-  // so this one runs its effect at the seam rather than pushing the Effect shape
-  // through a port type whose every other member is `void`.
-  //
-  // It is also the Dock's drag-to-re-home write, exposed whole as `reparent`:
-  // the ports call it for their own reasons (promote a departing tile's children,
-  // re-home survivors), the dock calls it because YOU said so. One write path, so
-  // a drag cannot grow a second spelling of `chrome.setParent`.
-  //
-  // `settled` is for that second caller alone: the ports fire and walk away,
-  // while the drag has an INTENT armed on this write landing (see
-  // `useDockReparent`) and must disarm it when the server refuses instead of
-  // waiting forever for an edge that will never arrive.
   const setParent = (
     subId: TerminalId,
     parentId: TerminalId | null,
@@ -142,14 +82,6 @@ export const useTerminalCrud = createSharedRoot(() => {
     );
   };
 
-  /** Hand a split its own tile — the ONE home for "a promoted split inherits the
-   *  open/closed posture of the tile it left", and the ONE timing (before the
-   *  write, so the promoted tile never paints with the new-terminal default).
-   *  Both promotion paths call it: the eviction reconcile (through the
-   *  `promoteToTopLevel` port) and the dock's drag-to-unsplit. The caller names
-   *  `fromTile` because only it knows — the list-driven reconcile has its
-   *  pre-removal graph, the dock captured the tile at drop time — and it must
-   *  still hold that tile's panel record, since the read happens here. */
   function promoteToTopLevel(
     subId: TerminalId,
     fromTile: TerminalId,
@@ -171,8 +103,6 @@ export const useTerminalCrud = createSharedRoot(() => {
     removeSearch: terminalSearch.removeTerminal,
   };
 
-  /** Intact parent graph at the moment of eviction — live for the imperative
-   *  path (metadata still present), snapshot for the list-driven path. */
   function liveRemovalGraph() {
     const ids = store.listSub()?.map((t) => t.id) ?? [];
     return {
@@ -197,13 +127,6 @@ export const useTerminalCrud = createSharedRoot(() => {
       ),
   );
 
-  /** Remove a terminal and auto-switch if it was active — the IMPERATIVE close
-   *  path (kill, discard). Runs synchronously with metadata still present, so it
-   *  reads the live parentId + top-level order. Claims the id (when a list-drop
-   *  will follow) so the later list-driven reconcile skips it — see
-   *  `createEvictionDedup`. The restart guard is dropped by the eviction ports,
-   *  so every removal cause (this path, the list reconcile, shell exit) reaches
-   *  the same cleanup. */
   function removeAndAutoSwitch(id: TerminalId) {
     eviction.evictImperatively(
       id,
@@ -214,62 +137,17 @@ export const useTerminalCrud = createSharedRoot(() => {
     );
   }
 
-  /** Create a new terminal on the server and make it active.
-   *  Returns the new terminal ID.
-   *
-   *  This handler inherits panel visibility from the active terminal.
-   *  The new-terminal THEME policy (inherit/shuffle) resolves in padi's
-   *  `lifecycle.create`, from the policy cell kolu-server pushes, so every face
-   *  — browser, MCP, CLI — obeys the same preference (#2045); and session
-   *  restore seeds its saved metadata HOST-side through `restoreSpawn`, never
-   *  through this handler. The old `initial` parameter is gone with its last
-   *  live leg: every caller passed a bare `cwd`, so the type can no longer
-   *  advertise options that have no effect (F6). */
   function handleCreate(
     cwd?: string,
   ): Effect.Effect<TerminalId, TerminalCreateRefused> {
     return Effect.gen(function* () {
-      // The one create chokepoint — keyboard (`Cmd+T`/`Cmd+Enter`), palette
-      // "New terminal", the Dock `+`, worktree ops, and session restore's
-      // per-terminal creates all funnel here. Block while the daemon is warming
-      // (boot `connecting` or a supervised `restarting`): the App.tsx canvas
-      // gate only hides the EmptyState/Dock affordances, but the shortcut and
-      // palette stay live over the neutral warming surface, so without this
-      // guard a `Cmd+T` or palette create races the recycle — spawning a
-      // terminal into the daemon the restart is about to kill (or against a
-      // momentarily-stale `current` connection). Creation must wait for
-      // `connected` (F3). A typed FAILURE (not a silent return) so the restore
-      // loop aborts cleanly rather than half-creating.
       if (refuseIfWarming())
         return yield* new TerminalCreateRefused({ reason: "warming" });
       if (store.activeMeta()?.git.kind === "repo")
         showTipOnce(CONTEXTUAL_TIPS.worktree);
 
-      // Inherit the active tile's size for the new terminal. Set BEFORE
-      // the create RPC — the server push during the call triggers the
-      // canvas placement effect, which consumes the signal. If we set
-      // after, the effect has already run with no size to inherit.
-      //
-      // Every create through here is the cascade-placed fresh-create path (a
-      // server-seeded restore create runs host-side, not here), so the slot is
-      // always the placement effect's to consume — and it is set
-      // UNCONDITIONALLY (size, or `null` when there's no active tile to inherit
-      // from), so a fresh create always OWNS the slot value rather than leaving
-      // a stale size armed by an earlier create that no new tile consumed.
-      //
-      // Prefer the active tile's *pending* layout over its echoed metadata:
-      // a just-resized tile's visible size lives in `pendingLayouts.pending`
-      // until the server metadata echo catches up (`getLayout` reads only
-      // the echo). Reading the echo alone would inherit the pre-resize size
-      // when a create races the echo. `active()` bundles (id, meta) from one
-      // glitch-free read.
       const { id: activeId, meta } = store.active();
-      // The new tile inherits the active tile's panel posture, exactly as it
-      // inherits that tile's size below — read now (so a switch during the
-      // create cannot change it) and applied when the create yields its id.
       const initializePanel = rightPanel.adoptTileCollapsed(activeId);
-      // `active()` bundles (id, meta): meta is null whenever id is null, so the
-      // no-active-tile branch is just `undefined` — there's no metadata to read.
       const activeLayout = activeId
         ? pendingLayouts.resolveLayout(activeId, meta?.canvasLayout)
         : undefined;
@@ -277,25 +155,11 @@ export const useTerminalCrud = createSharedRoot(() => {
         activeLayout ? { w: activeLayout.w, h: activeLayout.h } : null,
       );
       const info = yield* activePadiRpc.lifecycle
-        // SPREAD, never `{ cwd }` (#17): `cwd` is `Schema.optionalKey` on the wire,
-        // so an ABSENT key is accepted and a present-but-`undefined` one is
-        // REJECTED — and "no cwd" is the ordinary case (a bare Cmd+T).
-        //
-        // `placement` is REQUIRED and stated, never spread: this handler IS the
-        // top-level path — Cmd+T, the palette's "New terminal", the Dock `+`, the
-        // EmptyState. The split path is `handleCreateSubTerminal` below, and it is a
-        // different function precisely because the two make different canvas claims.
         .create({
           placement: TOPLEVEL_PLACEMENT,
           ...(cwd !== undefined && { cwd }),
         })
         .pipe(
-          // `tapError`, deliberately NOT a finalizer: a finalizer runs on the
-          // success path too, where it would race the deferred Solid effect that
-          // consumes the pending size. A failed create produces no server push,
-          // so the canvas effect will never consume the size — clear it here so a
-          // stale one can't leak into a later create with no active tile to
-          // overwrite it.
           Effect.tapError((err) =>
             Effect.sync(() => {
               pendingLayouts.setNextDefaultSize(null);
@@ -306,9 +170,6 @@ export const useTerminalCrud = createSharedRoot(() => {
             () => new TerminalCreateRefused({ reason: "failed" }),
           ),
         );
-      // `setActiveSilently`: the canvas's cascade-placement effect bumps
-      // the centering signal once the new tile's pending layout is set —
-      // calling `activate` here would race the layout and read undefined.
       initializePanel(info.id);
       store.setActiveSilently(info.id);
       showTipOnce(CONTEXTUAL_TIPS.themeSwitch);
@@ -321,20 +182,11 @@ export const useTerminalCrud = createSharedRoot(() => {
     cwd?: string,
   ): Effect.Effect<void, TerminalCreateRefused> {
     return Effect.gen(function* () {
-      // Split creation reaches `lifecycle.create` directly (not via
-      // `handleCreate`), so it needs the same warming guard — the split
-      // shortcut (Ctrl+`+Shift) and TileTitleActions stay live while warming.
       if (refuseIfWarming()) return;
-      // Copy-on-create: the new split starts on the tab of the pane it was split
-      // FROM, so splitting never flips the panel. Read before the async create,
-      // applied to the new split's own record below.
       const initializePaneTab = rightPanel.seedSplitTab(
         store.focusedTerminalId(),
       );
       const info = yield* activePadiRpc.lifecycle
-        // The placement is `child-of` by construction here — this function exists
-        // only to open a split, and it is handed the parent. `cwd` is spread for the
-        // #17 reason above (a split with no inherited cwd is the ordinary case).
         .create({
           placement: { kind: "child-of", parentId },
           ...(cwd !== undefined && { cwd }),
@@ -354,18 +206,11 @@ export const useTerminalCrud = createSharedRoot(() => {
     });
   }
 
-  /** Toggle a terminal's split: create the first sub-terminal if none exist
-   *  (seeded with the parent's cwd), otherwise flip the sub-panel's
-   *  visibility. Moved out of App.tsx — it complected store + crud + sub-panel,
-   *  all of which crud already orchestrates. */
   function toggleSubPanel(parentId: TerminalId): UiAction {
-    // Flat pane set — a nested descendant already counts as "has splits".
     if (store.getSplitPaneIds(parentId).length === 0) {
       return handleCreateSubTerminal(
         parentId,
         store.activeMeta()?.cwd ?? undefined,
-        // The refusal is already surfaced (a warming banner, or the create's own
-        // toast); nothing here is waiting on the split.
       ).pipe(Effect.ignore);
     }
     return Effect.sync(() => subPanel.togglePanel(parentId));
@@ -373,19 +218,11 @@ export const useTerminalCrud = createSharedRoot(() => {
 
   function handleKill(id: TerminalId): UiAction {
     return activePadiRpc.lifecycle.kill({ id }).pipe(
-      // The terminal may already be gone — an ordinary outcome for a close, not
-      // a failure to report.
       Effect.ignore,
       Effect.andThen(() => Effect.sync(() => removeAndAutoSwitch(id))),
     );
   }
 
-  /** The splits under `id`, DEEPEST FIRST. A split's eviction re-homes the
-   *  children that survive it, so evicting a middle split before its own child
-   *  would re-home that child against a record this close already removed (a
-   *  `setParent` into the void, once for a discarded subtree and once for a
-   *  3-deep kill). Deepest-first means every child is gone before its parent's
-   *  eviction looks for survivors. */
   function splitsDeepestFirst(id: TerminalId): TerminalId[] {
     const depthOf = (x: TerminalId): number => {
       let depth = 0;
@@ -401,37 +238,19 @@ export const useTerminalCrud = createSharedRoot(() => {
     );
   }
 
-  /** Kill a terminal and all its flat descendants — the close path, instead of
-   *  promoting the splits. Each member is closed by its OWN arm
-   *  ({@link closeOne}): a live parent can hold a split that was slept on its
-   *  own, and sending that record a kill answers `TerminalNotFound` — swallowed
-   *  by the close path while it evicts locally, leaving the dormant record (and
-   *  its `parentId`) behind for the next autosave to persist as an orphan. */
   function handleKillWithSubs(id: TerminalId): UiAction {
     return Effect.gen(function* () {
-      // Deepest-first, sequential: the descendants' evictions re-home the
-      // survivors, and doing that out of order reorders the canvas (or aims a
-      // re-home at a parent this same close is removing).
       for (const subId of splitsDeepestFirst(id)) yield* closeOne(subId);
       yield* closeOne(id);
     });
   }
 
-  /** Close ONE terminal by its arm: a LIVE one is killed, a DORMANT one is
-   *  discarded (its PTY is already released, and the server refuses a kill for a
-   *  sleeping record). The ONE routing rule every close path shares. */
   function closeOne(id: TerminalId): UiAction {
     return sleepingArm(store.getMetadata(id))
-      ? // `Effect.ignore`: a discard failure is already toasted by
-        // `handleDiscard`; a close has nothing that must not happen afterwards.
-        handleDiscard(id).pipe(Effect.ignore)
+      ? handleDiscard(id).pipe(Effect.ignore)
       : handleKill(id);
   }
 
-  /** Request sleep — the shared entry the ☾ tile button and the palette both
-   *  call. Surfaces the one-time discoverability tip, then sleeps straight away:
-   *  the SERVER freezes the terminal and its splits as one family, so there is
-   *  nothing to confirm and nothing to close here. */
   function requestSleep(id: TerminalId): UiAction {
     return Effect.suspend(() => {
       showTipOnce(CONTEXTUAL_TIPS.sleepTerminal);
@@ -439,36 +258,18 @@ export const useTerminalCrud = createSharedRoot(() => {
     });
   }
 
-  /** Sleep a terminal AND its splits: the server flips every member of the
-   *  family to the dormant arm in place (leaves first), persists once, then
-   *  releases each PTY. The tile STAYS (now dormant) — no `removeAndAutoSwitch`;
-   *  the metadata subscription re-renders the tile and each split frozen, with a
-   *  Wake call-to-action. */
   function handleSleep(id: TerminalId): UiAction {
     return activePadiRpc.lifecycle
       .sleep({ id })
       .pipe(toastFailure("Failed to sleep terminal"));
   }
 
-  /** Wake a sleeping terminal AND its dormant family: the server climbs to the
-   *  topmost dormant ancestor, re-spawns every PTY on the same ids (roots first)
-   *  and resumes each agent — session-restore-of-one per member. Asking for a
-   *  split therefore brings its parent back too. The metadata subscription flips
-   *  each one back to active, so the client just asks. */
   function handleWake(id: TerminalId): UiAction {
     return activePadiRpc.lifecycle
       .wake({ id })
       .pipe(toastFailure("Failed to wake terminal"));
   }
 
-  /** Restart a terminal AND ITS SPLITS IN PLACE (`lifecycle.restart`): a fresh
-   *  PTY on each member's own id, in its own folder and canvas spot, so the
-   *  family picks up what a new terminal gets now — the stale-agents pill's
-   *  Restart, the tile's ↻, and the palette command all land here. The tiles flip
-   *  dormant and back through the ordinary metadata subscription. padi answers
-   *  once the new PTYs are up, with the agents the asked terminal got, and the
-   *  toast says exactly that. {@link requestRestart} is the guarded entry the UI
-   *  uses. */
   function handleRestart(id: TerminalId): UiAction {
     return activePadiRpc.lifecycle.restart({ id }).pipe(
       Effect.tap((restarted) =>
@@ -489,34 +290,16 @@ export const useTerminalCrud = createSharedRoot(() => {
     );
   }
 
-  /** Restart guards, one per terminal. The arm-then-confirm is the agents pill's
-   *  own primitive (`createRestartGuard`, same {@link RESTART_ARM_MS}) rather
-   *  than a second confirm invented here, and it is kept at the shared root so
-   *  the tile's ↻ button and the palette command share one arm: whichever surface
-   *  presses first warns, and either can confirm it. */
   const restartGuards = new Map<
     TerminalId,
     RestartGuard & { readonly dispose: () => void }
   >();
 
-  /** A live agent — working, or blocked on you. Restart ends its process, so the
-   *  press asks first. `agentLive` is the shared fold's answer. */
   function liveAgentOf(id: TerminalId): boolean {
     const agent = activeArm(store.getMetadata(id))?.agent;
     return agent != null && agentLive(agent.state);
   }
 
-  /** The guard for `id`, created on first use inside its own reactive root: the
-   *  primitive owns a signal, a tracking effect (an agent going quiet while armed
-   *  disarms it) and a cleanup, so it needs an owner even when the first press
-   *  arrives long after mount.
-   *
-   *  The root's LIFETIME is the record's, so it rides the store's own fact and
-   *  not the four UI events that used to drop it (imperative eviction, the list
-   *  reconcile, a host switch, Close All): `getMetadata(id)` is a keyed-store read
-   *  that answers `undefined` the moment the id leaves this host's list. The only
-   *  consequence is that an armed guard disarms when its record goes away — and a
-   *  disarm can withhold a restart, never trigger one. */
   function restartGuard(id: TerminalId) {
     const existing = restartGuards.get(id);
     if (existing !== undefined) return existing;
@@ -548,42 +331,14 @@ export const useTerminalCrud = createSharedRoot(() => {
     restartGuards.delete(id);
   }
 
-  /** Restart a terminal, asking first when an agent is live. The two surfaces
-   *  that offer it (the tile's ↻ and the palette) call this instead of
-   *  `handleRestart` directly, so both share the one armed state — either can
-   *  confirm the other's first press. (The agents pill keeps its own guard for
-   *  its stale-restart action, since that one arms the pill itself.) */
   function requestRestart(id: TerminalId): void {
     restartGuard(id).press();
   }
 
-  /** Is the restart for `id` armed (a live agent, first press)? Reads through
-   *  {@link restartGuard}, so the FIRST read subscribes the calling component —
-   *  the armed styling appears on the press that arms it. */
   const restartArmed = (id: TerminalId): boolean => restartGuard(id).armed();
 
-  /** Is the restart for `id` in flight? Also subscribes on first read. */
   const restartBusy = (id: TerminalId): boolean => restartGuard(id).busy();
 
-  /** Discard a sleeping terminal AND its dormant splits — remove their records
-   *  (no PTY to kill, sleep released every one) and auto-switch away. The close
-   *  path's twin of `handleKill` for the dormant arm; reached from the reworded
-   *  close-confirm dialog and from a dormant split's × in the tab strip.
-   *
-   *  Surfaces a genuine discard failure (network / server error) in a toast and
-   *  does NOT evict the tile locally (F4): swallowing every error and removing
-   *  anyway would make a failed discard look successful and desync the UI from
-   *  the still-present server record. The server's `discardSleeping` is a no-op
-   *  on an already-gone id (it returns without throwing), so the common
-   *  already-removed case resolves cleanly and the tile evicts as before.
-   *
-   *  FAILS with {@link TerminalDiscardFailed} on a surfaced failure — the
-   *  worktree-removal close path (F10) must NOT delete the worktree when the
-   *  sleeping record wasn't actually discarded, or the still-present terminal
-   *  would point at a removed cwd, and an error channel is a fact the compiler
-   *  tracks where the old `Promise<boolean>` was one a caller could forget to
-   *  read. The standalone close-confirm caller `Effect.ignore`s it (the toast is
-   *  all it needed). */
   function handleDiscard(
     id: TerminalId,
   ): Effect.Effect<void, TerminalDiscardFailed> {
@@ -596,13 +351,6 @@ export const useTerminalCrud = createSharedRoot(() => {
       Effect.mapError(() => new TerminalDiscardFailed({})),
       Effect.tap(() =>
         Effect.sync(() => {
-          // The SERVER discarded the whole dormant subtree; evict its splits
-          // locally BEFORE the parent, deepest-first, symmetric with
-          // `handleKillWithSubs`. The parent's eviction otherwise promotes
-          // children whose records are already gone, firing `setParent(sub,
-          // null)` into the void (and toasting "Failed to set parent" as the
-          // list push races it). A split the list push already dropped is
-          // skipped.
           for (const subId of splitsDeepestFirst(id))
             if (store.getMetadata(subId) !== undefined)
               removeAndAutoSwitch(subId);
@@ -627,7 +375,6 @@ export const useTerminalCrud = createSharedRoot(() => {
           }),
         ),
       );
-      // The read failed and said so — there is nothing to put on the clipboard.
       if (text === undefined) return;
       yield* writeTextToClipboard(text).pipe(
         Effect.tap(() =>
@@ -645,10 +392,6 @@ export const useTerminalCrud = createSharedRoot(() => {
     });
   }
 
-  /** Copy the focused terminal's id to the clipboard — the value
-   *  `kaval-tui attach <id>` takes to grab this exact PTY from a shell. Each
-   *  split is its own PTY with its own id, so this copies the focused pane's,
-   *  matching `handleCopyTerminalText`'s `focusedId()`. */
   function handleCopyTerminalId(): UiAction {
     return Effect.suspend(() => {
       const id = store.focusedId();
@@ -667,15 +410,6 @@ export const useTerminalCrud = createSharedRoot(() => {
     });
   }
 
-  /** Write a command line into the active terminal WITHOUT pressing Enter.
-   *  Used by the "Recent agents" palette entry to prefill a previously
-   *  seen agent CLI — the user reviews/edits and hits Enter themselves.
-   *  No-op if no terminal is active.
-   *
-   *  Gated by THE LOCK like every other site a person writes into an existing
-   *  terminal from: a palette entry is a person's press, and a prefill into a
-   *  terminal the Conductor drives would land in the middle of an agent's
-   *  input line. */
   function handleRunInActiveTerminal(command: string): UiAction {
     return Effect.suspend(() => {
       const id = store.focusedId();
@@ -687,9 +421,6 @@ export const useTerminalCrud = createSharedRoot(() => {
     });
   }
 
-  /** Type `text` into terminal `id`, then Enter when `enter` — the tile tip's
-   *  chip. The same `sendInput` the Inspector's Compose box writes through,
-   *  and the same lock: the chip is a person's press. */
   function handleTypeInto(
     id: TerminalId,
     text: string,
@@ -708,9 +439,6 @@ export const useTerminalCrud = createSharedRoot(() => {
       Effect.tap(() =>
         Effect.sync(() => {
           store.reset();
-          // killAll bypasses removeAndAutoSwitch's per-terminal eviction, so
-          // clear the find-bar map wholesale here too — the restart guards drop
-          // themselves as their records leave (see `restartGuard`).
           terminalSearch.reset();
         }),
       ),
@@ -718,16 +446,12 @@ export const useTerminalCrud = createSharedRoot(() => {
     );
   }
 
-  /** Export the active terminal's scrollback as a PDF. Resolves the active id
-   *  and null-guards here so the shell doesn't thread `store.*` into the export
-   *  feature — an active-terminal-keyed op like the rest of crud. */
   function exportScrollbackPdf() {
     const id = store.activeId();
     if (id === null) return;
     exportScrollbackAsPdf(id, store.getMetadata(id));
   }
 
-  /** Export the active terminal's session as a standalone HTML page. */
   function exportSessionHtml(
     modes: [TranscriptHtmlMode, ...TranscriptHtmlMode[]],
   ): UiAction {
@@ -741,30 +465,15 @@ export const useTerminalCrud = createSharedRoot(() => {
   return {
     setThemeName,
     removeAndAutoSwitch,
-    /** List-driven cleanup for a naturally-departed terminal (dedup-guarded).
-     *  Wired into the reconcile in useTerminals. */
     evictDeparted: eviction.evictDeparted,
     handleCreate,
     handleCreateSubTerminal,
-    /** Nest a terminal under a new parent, or hand it back its own tile
-     *  (`null`) — the Dock's drag-to-split / drag-to-unsplit write. Resolves
-     *  `true` when the server applied it and `false` when it refused (already
-     *  toasted): the drop's reconcile (the old tile's tab strip, the landing
-     *  focus) is armed on the parent EDGE arriving on the metadata stream — not
-     *  on this promise — and a refused write must DISARM it rather than leave it
-     *  waiting for an edge that will never arrive. */
     reparent: (id: TerminalId, parentId: TerminalId | null) =>
       new Promise<boolean>((resolve) => setParent(id, parentId, resolve)),
     toggleSubPanel,
-    /** Hand a split its own tile, inheriting the posture of the tile it left —
-     *  the dock's drag-to-unsplit write, and (via the eviction port) the
-     *  reconcile's promote-on-departure. Resolves `true`/`false` through
-     *  `settled` like `reparent`. */
     promoteToTopLevel,
     handleKill,
     handleKillWithSubs,
-    /** Close a terminal by its arm — kill a live one, discard a dormant one. The
-     *  one routing rule the close paths share (shell and splits alike). */
     closeOne,
     requestSleep,
     handleSleep,
@@ -773,8 +482,6 @@ export const useTerminalCrud = createSharedRoot(() => {
     requestRestart,
     restartArmed,
     restartBusy,
-    /** Does this terminal hold a live agent (working, or blocked on you)? The one
-     *  predicate the pill's stale-restart and the ↻/palette guard both ask. */
     liveAgentOf,
     handleDiscard,
     handleCopyTerminalText,

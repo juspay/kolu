@@ -1,7 +1,5 @@
 /** Pure mapping from kolu-git's porcelain status to Pierre's `GitStatusEntry`
- *  word form — no DOM, no toast, so it's unit-testable in a plain node env.
- *  The imperative tree-context-menu renderer lives next door in
- *  `pierreAdapters.ts` (which pulls `solid-sonner` and the clipboard). */
+ *  word form. */
 
 import type { GitStatusEntry } from "@kolu/solid-pierre";
 import type { GitChangeStatus } from "kolu-git/schemas";
@@ -17,21 +15,15 @@ const GIT_STATUS_WORD: Record<GitChangeStatus, GitStatusEntry["status"]> = {
   "?": "untracked",
 };
 
-/** The one field pair this mapping reads off a wire status row. Structural and
- *  `readonly`, so a decoded (readonly) `GitStatusOutput.files` row satisfies it
- *  directly — the decoded shape is consumed as-is, never copied to strip a
- *  `readonly`. */
+/** The one field pair this mapping reads off a wire status row. */
 type GitStatusFile = {
   readonly path: string;
   readonly status: GitChangeStatus;
 };
 
-/** Overlay two git-status layers into one decoration set, keyed by path.
- *  `fallback` is laid down first, then `primary` overwrites on conflict — so a
- *  path present in both takes its `primary` word. The Code-tab "All files" view
- *  uses this to overlay local status (primary) on branch status (fallback):
- *  "prefer Local". Order of the returned array is unspecified — Pierre matches
- *  entries to rows by `path`. */
+/** Overlay two git-status layers into one decoration set, keyed by path:
+ *  `fallback` first, then `primary` overwrites on conflict. Order of the
+ *  returned array is unspecified — Pierre matches entries to rows by `path`. */
 export function mergeGitStatusEntries(
   primary: readonly GitStatusFile[],
   fallback: readonly GitStatusFile[],

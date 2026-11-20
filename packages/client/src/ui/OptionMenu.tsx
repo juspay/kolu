@@ -1,17 +1,6 @@
-/** Anchored option-menu — the popover panel + option-list scaffolding
- *  shared by the Dock and the canvas minimap's activity-window pickers.
- *
- *  Scope is deliberately the panel only — each surface keeps its own
- *  trigger button so the chip styling (rail-tight 6px height in the
- *  dock, 8px-wide zoom-bar chip in the minimap) can diverge without
- *  forcing a shared trigger contract. The shared part is the part that
- *  *was* duplicated: `useAnchoredPopover` + `Portal` + the option list
- *  with selected-state highlighting + close-on-select.
- *
- *  Unrelated to the CodeTab's scope switcher (the shared
- *  `ui/SegmentedControl`): that's an always-visible segmented control,
- *  not a popover, so it shares no chrome with this panel. The panel-chrome
- *  itself is shared via `surface()`. */
+/** Anchored option-menu — the popover panel + option-list scaffolding shared
+ *  by the Dock and the canvas minimap's activity-window pickers. Each surface
+ *  keeps its own trigger button. */
 
 import { createEffect, createUniqueId, For, type JSX, Show } from "solid-js";
 import { Portal } from "solid-js/web";
@@ -37,25 +26,17 @@ export const OptionMenu = <T extends string>(props: {
   /** Used to derive `data-testid` on the panel and each option button —
    *  `<prefix>-menu` and `<prefix>-option-<value>`. */
   testIdPrefix: string;
-  /** Cap the panel's height (px) and scroll the option list past it. Off by
-   *  default (the dock/minimap option sets are small + fixed). On for a menu
-   *  whose options are data-driven and unbounded — an ambiguous wikilink can
-   *  match dozens of files, which would otherwise render a full-viewport list. */
+  /** Cap the panel's height (px) and scroll the option list past it. */
   maxHeight?: number;
-  /** Truncate each option label to a single line with an ellipsis, keeping the
-   *  full text in a `title` tooltip. Off by default (short fixed labels fit).
-   *  On for long arbitrary values like repo paths, so the panel can't grow
-   *  unboundedly wide. */
+  /** Truncate each option label to one line, full text in a `title`. */
   truncate?: boolean;
-  /** Flip a `bottom-*` anchored panel to open upward when it wouldn't fit
-   *  below the trigger. Threaded to `useAnchoredPopover` (see its `flip`). */
+  /** Flip a `bottom-*` anchored panel upward when it wouldn't fit below. */
   flip?: boolean;
   /** A line above the options saying what is being chosen — read out as the
    *  menu's name. */
   heading?: JSX.Element;
-  /** Draw an option as something richer than its label (the label stays
-   *  its accessible name and its tooltip). The drawing must not be
-   *  interactive: the option is already the button. */
+  /** Draw an option as something richer than its label; must not be
+   *  interactive (the option is already the button). */
   renderOption?: (option: OptionMenuItem<T>) => JSX.Element;
 }) => {
   const { panelRef, panelStyle } = useAnchoredPopover({
@@ -64,17 +45,11 @@ export const OptionMenu = <T extends string>(props: {
     onDismiss: props.onDismiss,
     anchor: props.anchor,
     flip: props.flip,
-    // Engage the bottom-start viewport clamp so a left-edge trigger
-    // (the dock chip) cannot push the panel off the right edge of the
-    // viewport. Matches the panel's own `min-w-[180px]` Tailwind class.
     panelMinWidth: 180,
   });
   const headingId = createUniqueId();
-  /** FOCUS GOES IN, AND COMES BACK. Every menu takes focus when it opens —
-   *  the checked item of a setting, else the first — so the keys below reach
-   *  it whoever opened it; and when it closes with focus left nowhere (the
-   *  panel it was in is gone), focus returns to the trigger, so a keyboard
-   *  reader keeps their place. */
+  /** Focus enters the menu when it opens (the checked item, else the first)
+   *  and returns to the trigger when it closes with focus left nowhere. */
   let wasOpen = false;
   createEffect(() => {
     const open = props.open();
@@ -87,9 +62,7 @@ export const OptionMenu = <T extends string>(props: {
     }
     wasOpen = open;
   });
-  /** THE KEYS A MENU PROMISES: ↑/↓ move between its items (wrapping),
-   *  Home/End go to the ends. Escape and an outside press are the popover's
-   *  own dismissal. */
+  /** ↑/↓ move between items (wrapping), Home/End go to the ends. */
   const onKeyDown = (event: KeyboardEvent & { currentTarget: HTMLElement }) => {
     const items = Array.from(
       event.currentTarget.querySelectorAll<HTMLButtonElement>(
@@ -120,9 +93,6 @@ export const OptionMenu = <T extends string>(props: {
   };
 
   const chrome = surface({ radius: "lg", shadow: "light", portalled: true });
-  // When truncation is on, cap the panel width too — an ellipsised label needs
-  // a bound to ellipsise against, or the row would still stretch to its full
-  // single-line width. The dock/minimap leave this off and stay auto-width.
   const widthClass = props.truncate
     ? "min-w-[180px] max-w-[min(420px,90vw)]"
     : "min-w-[180px]";
@@ -140,7 +110,7 @@ export const OptionMenu = <T extends string>(props: {
             );
           }}
           data-testid={`${props.testIdPrefix}-menu`}
-          class={`fixed z-50 flex flex-col ${chrome.class} p-1 ${widthClass} ${props.maxHeight !== undefined ? "overflow-y-auto" : ""}`}
+          class={`z-50 flex flex-col ${chrome.class} p-1 ${widthClass} ${props.maxHeight !== undefined ? "overflow-y-auto" : ""}`}
           style={{
             ...panelStyle(),
             ...chrome.style,
@@ -149,8 +119,6 @@ export const OptionMenu = <T extends string>(props: {
               : {}),
           }}
         >
-          {/* The heading names the menu, beside it rather than inside it:
-              a menu holds only its items. */}
           <Show when={props.heading}>
             {(heading) => (
               <p
@@ -171,8 +139,6 @@ export const OptionMenu = <T extends string>(props: {
           >
             <For each={props.options}>
               {(opt) => {
-                /** What both kinds of item share: their name, their look and
-                 *  their press. */
                 const item = () => ({
                   type: "button" as const,
                   "aria-label": props.renderOption ? opt.label : undefined,
@@ -193,8 +159,6 @@ export const OptionMenu = <T extends string>(props: {
                 });
                 const face = () =>
                   props.renderOption ? props.renderOption(opt) : opt.label;
-                // A SETTING (a value is passed) is a set of radio items, the
-                // current one checked; a CHOICE among things is plain items.
                 return (
                   <Show
                     when={props.value !== undefined}

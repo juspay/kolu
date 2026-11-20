@@ -1,17 +1,3 @@
-/** Parent-side adapter that turns native text selections inside a host
- *  element into a debounced `{ locator, rect }` signal — drives the
- *  `SelectionPill` placement and feeds the composer on activation.
- *
- *  Mounted via `CommentTextSurface` at the comment seam:
- *    - `withComments("text", …)` in `BrowseFileDispatcher.tsx`
- *      (the source view via `BrowseFileView`) and `withComments("prose", …)`
- *      (the rendered Markdown preview — light DOM, anchored to the host
- *      element, no source `lineRange`)
- *    - The diff branch in `CodeTab.tsx` (Pierre's `CodeView` diff item)
- *
- *  The HTML-iframe surface uses the in-iframe SDK instead (this hook
- *  doesn't fire inside the iframe — opaque origin + sandbox isolation). */
-
 import {
   extractOffsets,
   extractQuote,
@@ -23,28 +9,16 @@ import { type Accessor, createEffect, createSignal, onCleanup } from "solid-js";
 import { codeViewItemIdAt } from "@kolu/solid-pierre";
 import { walkShadowRoots } from "../dom/shadowWalk";
 import { useShown } from "../ui/shown";
-import { useComposer } from "./composerState";
+import { type ComposerTarget, useComposer } from "./composerState";
+import type { BrowseSurface } from "./types";
 
-/** Debounced live-selection snapshot. The pill placement only needs the
- *  rect — the real W3C Locator is built lazily in `activate()` from the
- *  cached `lastRange`, since extracting context windows for every
- *  selection tick during a drag is wasteful. */
 export type SelectionCaptured = {
   rect: SelectionRect;
-  /** Why no comment can be taken here, when the selection sits in ANOTHER
-   *  file of the view than `path` — a type-changed path's diff also shows
-   *  the files under it. A comment is stored and re-highlighted against
-   *  `path`, so one taken here would carry the wrong file and line; the
-   *  pill says so and offers nothing to click instead. */
   unavailable?: string;
 };
 
 export interface UseTextSelectionOptions {
-  /** The reactive host element whose subtree's selections we care about. */
   host: Accessor<HTMLElement | undefined>;
-  /** Selections crossing outside the host are ignored. */
-  /** Path the captured comment will be anchored to. Reactive — the
-   *  composer captures the value at activation time, not at mount. */
   path: Accessor<string | null>;
   /** When false, the captured comment carries no `lineRange` — for
    *  rendered (non-source) surfaces like the Markdown preview, where a
@@ -54,7 +28,7 @@ export interface UseTextSelectionOptions {
   /** Which browse surface this capture lives on, when the file offers a
    *  Source ⇄ Rendered toggle (Markdown). Recorded on the comment so the
    *  tray jump can restore that surface. Absent for single-surface views. */
-  surface?: Accessor<"source" | "prose" | undefined>;
+  surface?: Accessor<BrowseSurface | undefined>;
 }
 
 const DEBOUNCE_MS = 80;
@@ -71,7 +45,6 @@ function nodeInside(host: HTMLElement, node: Node | null): boolean {
       cur = cur.parentNode;
       continue;
     }
-    // No parent — might be inside a shadow root. Hop to its host.
     const root = (cur as Node & { getRootNode: () => Node }).getRootNode();
     if (root instanceof ShadowRoot) {
       cur = root.host;
@@ -82,13 +55,6 @@ function nodeInside(host: HTMLElement, node: Node | null): boolean {
   return false;
 }
 
-/** Compute the 1-based line range a `Range` covers within the given root.
- *  Counts newlines in the concatenated text content up to the range's
- *  start (for `start`) and end (for `end`) offsets. Used to populate
- *  `Comment.lineRange` so the tray-click jump can drive Pierre's line
- *  selection via `openInCodeTab`. Returns `undefined` when offsets can't
- *  be resolved (e.g. cross-root range) — the offset walk is shared with
- *  `extractQuote` via `extractOffsets`. */
 function lineRangeForSelection(
   root: QuoteRoot,
   range: Range,
@@ -96,7 +62,6 @@ function lineRangeForSelection(
   const offsets = extractOffsets(root, range);
   if (!offsets) return undefined;
   const text = rootTextContent(root);
-  // 1-based lines — newline count up to the offset + 1.
   const lineAt = (off: number): number => {
     let n = 1;
     for (let i = 0; i < off && i < text.length; i++) {
@@ -144,7 +109,7 @@ export function useTextSelection(opts: UseTextSelectionOptions) {
       setCaptured(null);
       return;
     }
-    if (composer.isComposing()) return; // draft wins; ignore new selections
+    if (composer.isComposing()) return;
     const sel = getShadowAwareSelection(host);
     if (!sel || sel.rangeCount === 0 || sel.isCollapsed) {
       lastRange = null;
@@ -164,8 +129,6 @@ export function useTextSelection(opts: UseTextSelectionOptions) {
       return;
     }
     lastRange = range;
-    // Pick the last visual rect — for multi-line selections, the bbox
-    // would place the pill far off to the right of the last line's end.
     const rects = range.getClientRects();
     const last =
       rects.length > 0
@@ -177,9 +140,6 @@ export function useTextSelection(opts: UseTextSelectionOptions) {
     }
     const path = opts.path();
     const itemPath = codeViewItemIdAt(range.commonAncestorContainer);
-    // Lazy-build the locator — extractQuote walks the DOM, so don't pay
-    // for it on every selection tick if the user is just dragging. We
-    // rebuild the real Locator at activation time in `activate()`.
     setCaptured({
       rect: {
         x: last.left,
@@ -203,27 +163,25 @@ export function useTextSelection(opts: UseTextSelectionOptions) {
     ) as unknown as number;
   };
 
-  /** Called by the pill's onActivate. Re-reads the live range, builds
-   *  the real W3C-style locator, and hands it to the composer. */
+  const handOffToComposer = (
+    host: HTMLElement,
+    target: ComposerTarget,
+  ): void => {
+    setCaptured(null);
+    getShadowAwareSelection(host)?.removeAllRanges();
+    composer.open(target);
+  };
+
   const activate = (): void => {
     const host = opts.host();
     if (!host || !lastRange || composer.isComposing()) return;
     if (captured()?.unavailable !== undefined) return;
     const path = opts.path();
     if (path === null) return;
-    // Anchor against the NARROWEST root that contains the selection:
-    // Pierre's content lives in a shadow root; a light-DOM surface (the
-    // rendered Markdown preview) anchors against the host element itself.
-    // Falling back to the whole document — as this once did — makes the
-    // quote's prefix/suffix haystack (and the highlight re-find) the
-    // entire app page, which is garbage for an inline-rendered surface.
     const rootNode = lastRange.commonAncestorContainer.getRootNode();
     const resolvedRoot: QuoteRoot =
       rootNode instanceof ShadowRoot ? rootNode : host;
     const locator = extractQuote(lastRange, resolvedRoot);
-    // Rendered surfaces (Markdown preview) opt out of line anchoring — a
-    // rendered-DOM line isn't a source line, so persisting one would jump
-    // the tray click to the wrong place.
     const lineRange = opts.lineAnchored()
       ? lineRangeForSelection(resolvedRoot, lastRange)
       : undefined;
@@ -232,19 +190,7 @@ export function useTextSelection(opts: UseTextSelectionOptions) {
       rects.length > 0
         ? rects[rects.length - 1]
         : lastRange.getBoundingClientRect();
-    // Clear BEFORE opening the composer. Order matters: if we open first,
-    // there's a tick where `captured` is still non-null AND
-    // `isComposing()` is true — a `selectionchange` arriving in that
-    // window short-circuits via the composing guard and never clears the
-    // captured signal, leaving the pill stuck on screen behind the
-    // composer.
-    setCaptured(null);
-    // Clear whichever selection actually holds the range — shadow-root
-    // selections are invisible to `window.getSelection()`, so calling
-    // removeAllRanges on the document selection silently no-ops.
-    const sel = getShadowAwareSelection(host);
-    sel?.removeAllRanges();
-    composer.open({
+    handOffToComposer(host, {
       path,
       locator,
       lineRange,
@@ -265,8 +211,6 @@ export function useTextSelection(opts: UseTextSelectionOptions) {
     });
   });
 
-  // Re-evaluate when composing closes — user may have selected text and
-  // immediately opened another composer; we should be ready.
   createEffect(() => {
     if (!composer.isComposing()) evaluate();
   });

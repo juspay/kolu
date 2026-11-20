@@ -1,53 +1,3 @@
-/** HostSelectorStrip — the multi-host selector, the visible face of the keyed padi
- *  host map (W4 "the switch").
- *
- *  Multi-host is NO LONGER gated on `KOLU_PADI_HOST` — the old server-authored
- *  `hostMapGate` cell is gone entirely: every pool member gets a chip and the
- *  trailing "+ add a host" affordance is ALWAYS present. With no seed the pool
- *  is just the local host, so the resting strip is one chip + "+".
- *  (`KOLU_PADI_HOST` still works as an optional launch-time SEED — see
- *  `parseKoluPadiHostSeed`.)
- *
- *  Host tab bar:
- *    · each pool member is a tab (active host keeps its `--host-hue` belly);
- *    · identity is Home + machine hostname (local) or ssh target (remote);
- *    · always-on connection status pip (green/amber/red) — click opens the
- *      per-host diagnostics popover; label only switches (never hover-open);
- *    · awaiting-count pill + finished-unseen amber count stay on the strip
- *      (an unseen tab also washes amber — `.host-tab[data-unseen]`);
- *    · padi/kaval detail lives in the diagnostics popover, not on the strip;
- *    · remove is in the popover with a confirm step;
- *    · DRAG a remote tab to re-order the strip. The arrangement is a server
- *      preference (`hostOrder`), so every browser and device shows it; the
- *      ordering fold itself is `hostOrder.ts`, applied once at the membership
- *      source (wire's `hostKeys` — the ONE ordered list every host LIST reads).
- *      The local tab is pinned first and takes no part in the gesture.
- *  A click on the label switches the canvas (a synchronous signal write —
- *  `useEntry(activeHost)` re-keys, no reload). A finished DRAG's trailing click
- *  is swallowed (`dragClickGuard`), so re-ordering a tab never also activates
- *  it and grabbing the status dot never opens diagnostics.
- *
- *  NARROW-WINDOW STAGES (window resize only, never a host switch). Note this
- *  component only ever LIVES at `>= sm` (640px) — `useMobile.ts`'s
- *  `layoutMode` swaps `ChromeBar` out for an entirely different phone chrome
- *  below that, so `sm` is this file's point of extinction, not a stage
- *  inside it:
- *   1. (Quiet Kolu mark — IdentityRail.)
- *   2. Host names ellipsize tighter below `lg`.
- *   3. `md..lg` and up: once the chip row's measured content would overflow
- *      its available width, `computeVisibleHosts` (hostOverflow.ts) keeps
- *      the active chip + as many others as fit, in the arranged order, and folds
- *      the rest into a trailing "⋯ +N" host switcher (`HostOverflowMenu`) —
- *      click an entry to switch. Strictly one row, fixed height: no wrap, no
- *      clip, no scroll (the old `overflow-x-auto` scroll fallback is
- *      retired).
- *   4. `sm..md` — this component's actual narrowest LIVE range: the whole
- *      row collapses to `HostDropdownSwitcher` — one chip showing the
- *      active host, opening an anchored host switcher panel.
- *
- *  A trailing "+ add" opens the `AddHostAffordance` popover (ssh-target input)
- *  → `client.hosts.add`. */
-
 import { useActiveHostSelector } from "./isActiveHost";
 import { conductorMode } from "../conductor/useConductorMode";
 
@@ -117,110 +67,51 @@ import { removeHost } from "./removeHost";
 import { createDragClickGuard } from "./dragClickGuard";
 import { isPinnedHostKey, moveHostKey, reorderableHostKeys } from "./hostOrder";
 
-/** First-frame guess for a chip's width before the measuring row's
- *  ResizeObserver lands real DOM widths (jsdom/async). Measurement is truth;
- *  this only avoids dumping every chip into overflow on the very first paint.
- *  Tab: status pip + identity + attention pills. */
 const FIRST_FRAME_CHIP_WIDTH_GUESS: number = 96;
 
-/** Tailwind `md` (768px) — chip row vs dropdown. Real Solid media signal so
- *  only ONE dual-daemon fill mounts (CSS `hidden` does not unmount). */
 const atMd = createMediaQuery("(min-width: 48rem)");
-/** The "⋯ +N" overflow trigger's own rendered width + gap — reserved from
- *  the fit budget only once chips don't all fit (see `hostOverflow.ts`). */
 const OVERFLOW_TRIGGER_RESERVE: number = 44;
-/** The "+ add a host" affordance's own rendered width (`w-8` = 32px) plus the
- *  strip's `gap-1.5` (6px) that separates it from the chip row — always reserved
- *  from the fit budget now that the "+" is always present. */
 const ADD_BUTTON_RESERVE: number = 38;
 
-/** Decode-then-label in one step — used wherever a component only has the
- *  CANONICAL encoded string (an overflowed/menu
- *  key), never a `HostKey` object. */
 const labelForKey: (key: string) => string = (key) =>
   hostLabel(decodeHostKey(key));
 
 const HostChip: Component<{
   host: HostKey;
-  /** solid-dnd's `createSortable` as a DIRECTIVE, filled by
-   *  {@link SortableHostChip} for a RE-ORDERABLE (i.e. non-pinned) chip and left
-   *  empty for the pinned one — which is therefore neither draggable nor a drop
-   *  target. The directive registers the node, the activators AND the per-frame
-   *  transform in solid-dnd's own effects, writing `element.style.transform`
-   *  directly, which is what lets this chip root carry no spread and no `style`
-   *  binding: Solid groups every dynamic attribute on one element into ONE
-   *  effect, so a per-frame `style` here would re-read `isActive()` / `down()` →
-   *  `glance()` → `hostGlance(state(), kaval())` on every pointer move (and a
-   *  spread would re-add the activator listeners each frame, `dragActivators`
-   *  minting a fresh record per read). */
   drag?: (el: HTMLElement) => void;
-  /** Consume the click a finished drag leaves behind — see `dragClickGuard`. */
-  swallowClick?: () => boolean;
+  consumeDragClick?: () => boolean;
 }> = (props) => {
-  // The PURE lens per chip (the host is fixed for this chip's lifetime — the `<For>`
-  // gives each chip its own reactive owner, disposed when the host leaves the pool).
   const state = () => padiMap.entry(props.host).state();
-  // Both host-tab attention marks — the violet "asking" pill and the amber
-  // "finished, unseen" count — read from the ONE cross-host store `useAttention`
-  // publishes (neither is the raw urgency count: a finished agent idles in
-  // `waiting` forever). Bundled once; the host is fixed for this chip's lifetime,
-  // so its key is encoded a single time.
   const encKey = encodeHostKey(props.host);
   const marks = hostMarks(encKey);
-  // How many doors kolu holds open to this host — the ring on the dot below.
   const forwardCount = () => forwardsForHost(props.host).length;
-  // The activity fact rides the tab's bottom edge as a running stripe and the
-  // buttons' labels as words — never a segment beside the name, whose coming
-  // and going changed the tab's width and shifted the whole strip.
   const activeSuffix = () =>
     marks.active() > 0 ? `, ${hostActiveLabel(marks.active())}` : "";
-  // The active-host signal + this chip's own host are compared by their CANONICAL
-  // string (`sameHost`) — a `HostKey` is an object with no reference identity across
-  // independent decodes, so `===` would silently never match a logically-equal remote.
   const selectedHost = useActiveHostSelector();
   const isActive = () => selectedHost(encodeHostKey(props.host));
-  // #2101 N4: the presented state composes the daemon chain — a padi-up host
-  // whose kaval is down must not paint the connected green.
   const kaval = useHostKavalChain(props.host);
   const glance = () => hostGlance(state(), kaval());
   const down = () => glance().down;
-  // Always-on connection status — also the diagnostics open control.
   const statusDot = () => chipStatusDot(props.host, state(), kaval());
   const { hostname } = useServerIdentity();
   const name = () => hostDisplayName(props.host, hostname());
-  // Shared open key — only ONE diagnostics panel is open at a time, and the
-  // agents mark and Settings' Agents line open it too.
   const isOpen = useHostDiagnosticsSelector();
   const diagOpen = () => isOpen(encKey);
 
   let chipEl: HTMLDivElement | undefined;
 
-  // UNIFORM SHAPE: measurable SIZE never depends on `isActive()` — only
-  // border/bg/text COLOR, and the drag transform is a translate, so a chip keeps
-  // its width while it is being carried. Identity switches; status pip opens
-  // diagnostics.
   return (
     <div
       ref={(el) => {
         chipEl = el;
-        // The sortable's node, activators and transform in one call, when this
-        // chip is re-orderable (see the `drag` prop's doc).
         props.drag?.(el);
-        // This chip owns the element it hands the panel: when it unmounts
-        // (overflow fit, the `md` row going away) the panel must not stay
-        // floating against a detached node.
         onCleanup(() => releaseHostDiagnosticsAnchor(el));
       }}
       class="group -mb-px flex items-center shrink-0 text-xs"
-      // A finished drag's trailing `click` lands on whichever of the chip's two
-      // buttons the gesture started on — switching host, or toggling
-      // diagnostics. Swallow it in the CAPTURE phase, before either button's
-      // (delegated) handler runs. The pinned chip passes no guard, so nothing
-      // is ever swallowed there.
       on:click={{
         capture: true,
         handleEvent: (e) => {
-          if (props.swallowClick?.() !== true) return;
+          if (props.consumeDragClick?.() !== true) return;
           e.stopPropagation();
           e.preventDefault();
         },
@@ -251,9 +142,6 @@ const HostChip: Component<{
           title: `${glance().title}${activeSuffix()} — click for details`,
           onClick: (e) => {
             e.stopPropagation();
-            // The pip is INSIDE the chip, so the ref is set by the time it
-            // can be clicked — fail loudly if that ever stops holding rather
-            // than eating the click.
             if (chipEl === undefined)
               throw new Error("host chip has no element to hang details off");
             toggleHostDiagnostics(encKey, chipEl);
@@ -263,11 +151,6 @@ const HostChip: Component<{
           role: "tab",
           "aria-selected": isActive(),
           "data-testid": "host-select",
-          // Picking a host tab is also how you LEAVE the conductor, which
-          // is why the already-active tab is not a no-op — see `selectHostTab`.
-          // No `classList` here: the shell owns every element's one class
-          // expression now (`HostChipShell`), and a bag that carried one would
-          // be the second authority #2351 removed.
           onClick: () => selectHostTab(props.host),
           title: `${name()} — ${glance().title}${activeSuffix()}`,
         }}
@@ -278,8 +161,6 @@ const HostChip: Component<{
           />
         }
         attention={
-          // No `active`: the tab carries that fact as its running stripe, so
-          // its width is the same whether zero or ten terminals are working.
           <AttentionTriplet
             asking={marks.asking()}
             unseen={marks.unseenFinished()}
@@ -293,31 +174,21 @@ const HostChip: Component<{
         agents={<AgentDistroHostMark host={props.host} />}
         stripe={<HostTabWorkingStripe active={marks.active()} />}
       />
-      {/* The panel itself mounts once at the shell
-          (`host/HostDiagnosticsHost`): Settings opens it too, at widths
-          where this chip row is not mounted at all. */}
     </div>
   );
 };
 
-/** A RE-ORDERABLE chip — the whole tab is one sortable (`createSortable` needs
- *  its own reactive owner, hence a component rather than a call inside the
- *  `<For>` body). Only non-pinned hosts get one: the local host is the pool's
- *  unremovable default and the always-available escape hatch, so it is pinned
- *  first, is not draggable, and — not being a droppable — nothing can land
- *  before it. */
 const SortableHostChip: Component<{ hostKey: string }> = (props) => {
   const sortable = createSortable(props.hostKey);
-  // `props.hostKey` is this chip's identity for its whole lifetime (the row's
-  // `<For>` is keyed by the encoded string), so the host decodes exactly once —
-  // the referential stability `HostChip`'s per-host lenses rest on.
   const host = decodeHostKey(props.hostKey);
-  const swallowClick = createDragClickGuard(() => sortable.isActiveDraggable);
-  return <HostChip host={host} drag={sortable} swallowClick={swallowClick} />;
+  const consumeDragClick = createDragClickGuard(
+    () => sortable.isActiveDraggable,
+  );
+  return (
+    <HostChip host={host} drag={sortable} consumeDragClick={consumeDragClick} />
+  );
 };
 
-/** One row inside the overflow/narrow host switcher — same vocabulary as the
- *  strip (status pip + Home/hostname; no dual-daemon marks). */
 const HostSwitcherRow: Component<{
   hostKey: string;
   onPicked: () => void;
@@ -399,8 +270,6 @@ const HostSwitcherRow: Component<{
           </span>
         </span>
       </button>
-      {/* Attention summary — a sibling grid cell (not inside the switch
-       *  button), so the violet jump capsule stays a real `<button>`. */}
       <AttentionTriplet
         active={marks.active()}
         asking={marks.asking()}
@@ -435,9 +304,6 @@ const hostSwitcherChrome = surface({
   portalled: true,
 });
 
-/** Anchored host switcher panel shared by the overflow trigger and the narrow
- *  active-host trigger. Rows keep switch actions in one place; daemon detail
- *  lives on the chip diagnostics popover, not here. */
 const HostSwitcherPopover: Component<{
   triggerRef: () => HTMLElement | undefined;
   open: () => boolean;
@@ -480,15 +346,6 @@ const HostSwitcherPopover: Component<{
   );
 };
 
-/** The trailing "⋯ +N" trigger for chips the fit computation couldn't seat —
- *  an anchored host switcher for the overflowed hosts; picking one switches.
- *
- *  Takes CANONICAL encoded keys (not `HostKey` objects) — `props.hosts` is
- *  `hostFit().overflowed` straight from `computeVisibleHosts`, and staying with
- *  its string identity all the way to `HostSwitcherPopover`'s own `<For>` matters:
- *  `<For>` keys by `===`, and every `HostKey` decode mints a fresh object,
- *  so decoding a level higher would make the menu's own option list
- *  needlessly re-key whenever anything upstream re-renders. */
 const HostOverflowMenu: Component<{ hosts: string[] }> = (props) => {
   const [open, setOpen] = createSignal(false);
   let triggerEl: HTMLButtonElement | undefined;
@@ -517,21 +374,12 @@ const HostOverflowMenu: Component<{ hosts: string[] }> = (props) => {
   );
 };
 
-/** Narrow multi-host range (`sm..md`): one tab-shaped unit — the active host
- *  status pip + identity, opening an anchored host switcher. It names the host
- *  the canvas belongs to, and it is LIT only while that canvas is on screen:
- *  in the Conductor the conductor's tab is the current one, so this unit rests
- *  like any other tab that is not where you are. */
 const HostDropdownSwitcher: Component<{ hosts: HostKey[] }> = (props) => {
   const [open, setOpen] = createSignal(false);
   let triggerEl: HTMLButtonElement | undefined;
   const active = () => activeHost();
   const current = () => !conductorMode();
   const state = () => padiMap.entry(active()).state();
-  // The ACTIVE host's chain, read through the active-host memo rather than a
-  // per-host subscription: this switcher re-points at whatever host is active, and
-  // a `useHostKavalChain(active())` would have pinned the subscription to whichever
-  // host happened to be active when the component mounted.
   const kaval = () => kavalChainOf(activeKavalPresence());
   const glance = () => hostGlance(state(), kaval());
   const down = () => glance().down;
@@ -595,10 +443,6 @@ const addHostChrome = surface({
   portalled: true,
 });
 
-/** The "+ add a host" affordance — always present now that multi-host is
- *  ungated. Clicking "+" opens an anchored popover with an ssh-target input.
- *  Enter commits via `client.hosts.add`; the canvas jumps to the new host once
- *  it joins membership. */
 const AddHostAffordance: Component = () => {
   const [open, setOpen] = createSignal(false);
   const [draft, setDraft] = createSignal("");
@@ -608,22 +452,13 @@ const AddHostAffordance: Component = () => {
     triggerRef: () => triggerEl,
     open,
     onDismiss: () => setOpen(false),
-    // Left-anchored (opens rightward from the "+"): the "+" sits just after the
-    // chips on the LEFT of the strip, so `bottom-end` (right-align) would push
-    // the panel off-screen left. `bottom-start` + panelMinWidth is the
-    // viewport-clamped variant.
     anchor: "bottom-start",
     panelMinWidth: 288,
   });
-  // Focus the input the frame the popover mounts it (the ref isn't attached on
-  // the tick `open()` flips, so defer past mount; `isConnected` guards a
-  // dismiss that beats the microtask).
   createEffect(() => {
     if (!open()) return;
     focusOnMount(inputEl);
   });
-  // The add MECHANISM (parse · hosts.add · activate-on-join · error toast) is
-  // the shared `addHost`; this popover supplies only its own cleanup on success.
   const submit = (): void => {
     runAction(
       "add host",
@@ -673,10 +508,6 @@ const AddHostAffordance: Component = () => {
               onKeyDown={(e) => {
                 if (e.key === "Enter") submit();
                 if (e.key === "Escape") {
-                  // CONSUME the key. A window-level `Escape` reader (the
-                  // conductor pane leaving its mode) acts on an unhandled
-                  // press, so without this one press would close this panel
-                  // AND drop the conversation behind it.
                   e.preventDefault();
                   setOpen(false);
                 }
@@ -690,28 +521,8 @@ const AddHostAffordance: Component = () => {
 };
 
 const HostSelectorStrip: Component = () => {
-  // Multi-host chrome is NO LONGER gated on `KOLU_PADI_HOST`: every pool member
-  // gets a chip and the "+ add a host" affordance is always present. With no
-  // seed the pool is just the local host, so this renders exactly the local
-  // chip + "+". `hostKeys` (wire.ts) is the ONE ordered host list — the
-  // app-lifetime `padiMap.entries` membership folded through the `hostOrder`
-  // preference, memoised there, so every surface that lists hosts agrees.
   const { showTipOnce } = useTips();
 
-  // WHICH host's details are open is a module singleton
-  // (`useHostDiagnosticsOpen`), and the panel mounts once at the shell
-  // (`HostDiagnosticsHost`), which also closes a key whose host left the
-  // pool — this strip is not mounted at every width, so neither the panel
-  // nor that invariant can live here.
-
-  // ── Overflow fit (narrow-window stage 3) ──────────────────────────────
-  // Real DOM measurement: a HIDDEN row (absolutely positioned, `invisible`,
-  // `pointer-events-none`, so it never paints or intercepts a click) mounts
-  // the data-free `HostChipShell` for each host purely to read its
-  // natural rendered width via a `ResizeObserver`. `hostOverflow.ts`'s
-  // `computeVisibleHosts` is the pure decision function; this component only
-  // supplies its two reactive inputs (per-chip widths, the row's own
-  // available width).
   let containerRef: HTMLDivElement | undefined;
   const [containerWidth, setContainerWidth] = createSignal(0);
   createResizeObserver(
@@ -740,22 +551,7 @@ const HostSelectorStrip: Component = () => {
       return { key, width: chipWidths[key] ?? FIRST_FRAME_CHIP_WIDTH_GUESS };
     }),
   );
-  // The "+ add a host" affordance is always present now, so its width is always
-  // reserved from the chips' fit budget. Nothing else in the row needs room
-  // taken from it: the Conductor's tab sits BEFORE this strip as a `shrink-0`
-  // sibling, so this strip's own width is already what is left after it.
   const chipsBudget = createMemo(() => containerWidth() - ADD_BUTTON_RESERVE);
-  // `hostFit()` returns fresh `{visible, overflowed}` arrays of CANONICAL string
-  // keys on every recompute (it re-runs whenever `activeHost()` changes, even
-  // when the outcome is identical). Rendering directly off those STRINGS
-  // (never decoding to `HostKey` objects before a `<For>`) is deliberate:
-  // `<For>` keys items by `===`, and a `HostKey` decode mints a fresh object
-  // every call — decoding upstream of `<For>` would make every host switch
-  // tear down and rebuild every `HostChip` (and its live subscriptions) even
-  // when the visible SET didn't change, defeating the whole point of this
-  // file. Each `HostChip` decodes its OWN key exactly once, inside its own
-  // `<For>` item callback, so the resulting `HostKey` stays referentially
-  // stable for that chip's lifetime.
   const hostFit = createMemo(() =>
     computeVisibleHosts(
       chipFits(),
@@ -765,31 +561,13 @@ const HostSelectorStrip: Component = () => {
     ),
   );
 
-  // ── Drag to re-order (desktop strip only) ─────────────────────────────
-  // The sortable ids: the SEATED chips minus the pinned one, in rendered order —
-  // `SortableProvider` reads index positions off this list.
   const draggableVisible = createMemo(() =>
     hostFit().visible.filter((key) => !isPinnedHostKey(key)),
   );
-  // The first strip holding two SEATED remote tabs — the first moment a drag
-  // changes anything (one remote beside the pinned local tab has nowhere to
-  // go). The tip announces the gesture there, then never again.
   createEffect(() => {
     if (draggableVisible().length > 1)
       showTipOnce(CONTEXTUAL_TIPS.hostRearrange);
   });
-  /** A drop writes the WHOLE next arrangement — every re-orderable member,
-   *  seated or overflowed — so the stored order stays a total list and the next
-   *  merge rule stays one. `updatePreferences` owns the failure report (a toast
-   *  carrying the server's own message); there is no local fallback order to
-   *  fall back to, and a write that failed must not look like it landed.
-   *
-   *  The drop target is a HOST, not a seat. When the active host was pulled out
-   *  of the overflow it sits LAST on the strip while keeping its own slot in the
-   *  arrangement (`computeVisibleHosts` borrows it a seat, never a position), so
-   *  dropping onto it moves the dragged host to that real slot — which may be
-   *  inside the overflow. Deliberate: the arrangement is the thing being edited,
-   *  and a borrowed seat is a width accident, not an order the user set. */
   const dropHost = ({ draggable, droppable }: DragEvent): void => {
     if (!droppable || draggable.id === droppable.id) return;
     updatePreferences({
@@ -804,46 +582,18 @@ const HostSelectorStrip: Component = () => {
   return (
     <div
       ref={containerRef}
-      // `flex-1` is LOAD-BEARING, not decorative: ChromeBar's wrapper around
-      // this component is itself `flex-1 min-w-0` so it fills the header's
-      // leftover space regardless of content — but a flex item WITHOUT its
-      // own `flex-grow` sizes to its CONTENT, not to that leftover space
-      // (flex-shrink only caps it downward when content overflows; it never
-      // grows to fill when content is narrower). Without `flex-1` here, this
-      // root's own `getBoundingClientRect().width` — what `containerWidth`
-      // above measures — would just echo back whatever `hostFit()` already chose
-      // to render, a circular "available width" that can never grow back
-      // once narrowed. `flex-1` makes this box == the header's true leftover
-      // space, independent of content, so the overflow computation has a
-      // real budget to fit chips against.
       class="host-strip pointer-events-auto relative flex h-8 flex-1 items-end gap-1.5 min-w-0"
       data-testid="host-selector-strip"
     >
-      {/* `md` and up vs `sm..md`: mount ONLY one layout (media signal, not
-       *  CSS-only hide). Both used to stay mounted with `hidden md:flex` /
-       *  `md:hidden`, which double-filled dual-daemon slots on the active
-       *  host. Split is keyed on `md` (768px), not `sm` — ChromeBar never
-       *  mounts below `sm` (phone chrome). */}
       <div classList={{ hidden: atMd() }} inert={atMd()}>
         <HostDropdownSwitcher hosts={hostKeys()} />
       </div>
       <div classList={{ hidden: !atMd() }} inert={!atMd()}>
-        {/* The strip's OWN drag context, so a chip drag can never surface to
-         *  the canvas's provider — sortables bind to the NEAREST
-         *  `DragDropProvider`, and the nest is the isolation (the dock makes
-         *  the same nest for the same reason). Desktop only: the narrow
-         *  dropdown switcher and the phone host row are lists, not a strip,
-         *  and have no re-order gesture. */}
         <DragDropProvider
           collisionDetector={closestCenter}
           onDragEnd={dropHost}
         >
           <DragDropSensors />
-          {/* Only the chips the fit computation SEATED are sortables, so only
-           *  they are drop targets; a host folded into "⋯ +N" keeps its
-           *  relative slot through a drag it took no part in (`moveHostKey`
-           *  splices over the WHOLE re-orderable list). The local chip is
-           *  absent from these ids on purpose — see `SortableHostChip`. */}
           <SortableProvider ids={draggableVisible()}>
             <div
               role="tablist"
@@ -851,9 +601,6 @@ const HostSelectorStrip: Component = () => {
               class="host-tablist flex items-end gap-0.5 min-w-0 flex-nowrap"
               data-testid="host-chip-row"
             >
-              {/* A row's key never changes for that row (the `<For>` is keyed by
-               *  it), so "is this the pinned tab?" is decided ONCE at mount —
-               *  a plain conditional, not a reactive `<Show>` boundary. */}
               <For each={hostFit().visible}>
                 {(key) =>
                   isPinnedHostKey(key) ? (
@@ -871,17 +618,6 @@ const HostSelectorStrip: Component = () => {
         </DragDropProvider>
       </div>
 
-      {/* Hidden measuring row — off-screen (position absolute, so it never
-       *  affects this container's own layout), invisible + inert, mounts
-       *  every renderable host's chip a second time purely so its natural
-       *  width can be read via the `ResizeObserver` above. NOTE for a future
-       *  e2e author: this row is always mounted, so `[data-testid="host-chip"]`
-       *  matches TWICE per host — the real (visible) one and this hidden twin. `aria-hidden` + `pointer-events-none` keep it out of
-       *  the accessibility tree and unclickable, and Playwright's
-       *  visibility-aware actions (`.click()`) skip it, but a bare
-       *  `.count()`/`.all()` would not — scope any such query under
-       *  `[data-testid="host-chip-row"]` (or the dropdown switcher) to reach
-       *  only the real one. */}
       <div
         aria-hidden="true"
         class="invisible pointer-events-none absolute left-0 top-0 flex items-center gap-1.5"
@@ -900,9 +636,6 @@ const HostSelectorStrip: Component = () => {
                   <HostChipShell
                     host={host}
                     attention={
-                      // In step with the live tab: no `active` segment
-                      // there, so none here — the running stripe costs no
-                      // width, and the estimate must not count one.
                       <AttentionTriplet
                         asking={hostMarks(key).asking()}
                         unseen={hostMarks(key).unseenFinished()}
@@ -921,8 +654,6 @@ const HostSelectorStrip: Component = () => {
         </For>
       </div>
 
-      {/* Add a host at runtime — always present now (no `KOLU_PADI_HOST` gate).
-       *  Host switching stays on ⌘⇧H / the command palette. */}
       <AddHostAffordance />
     </div>
   );

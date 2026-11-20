@@ -1,20 +1,14 @@
-/** Shared composer popover. Reads `composerState` (singleton), renders
- *  when a target is set, writes the comment to `useComments` on Save.
- *  Mounted ONCE per CodeTab — any capture surface (text browse, branch
- *  diff, HTML iframe) routes through the same composer. */
-
 import type { SelectionRect } from "@kolu/artifact-sdk/client";
 import { type Component, createSignal, Show } from "solid-js";
 import { Portal } from "solid-js/web";
+import { modalScopeAttrs } from "../input/keyboard";
 import { useComposer } from "./composerState";
 import { useComments } from "./useComments";
 
 const COMPOSER_WIDTH = 320;
+const COMPOSER_EST_HEIGHT = 180;
 const COMPOSER_GAP = 8;
 
-/** Clamp the popover so it stays inside the viewport. The selection rect
- *  might be near the right or bottom edge — we place the popover just
- *  below and right of the rect, then pull it back if needed. */
 function clampPosition(
   rect: SelectionRect,
   popW: number,
@@ -63,17 +57,18 @@ export const CommentComposer: Component<{
   return (
     <Show when={composer.target()}>
       {(target) => {
-        // Estimated popover height (auto-sized; this is a reasonable
-        // starting estimate for clamp math — the popover may render
-        // slightly taller, but clamp keeps it on screen).
-        const pos = clampPosition(target().rect, COMPOSER_WIDTH, 180);
+        const pos = clampPosition(
+          target().rect,
+          COMPOSER_WIDTH,
+          COMPOSER_EST_HEIGHT,
+        );
         return (
           <Portal>
             <div
               role="dialog"
               aria-label="Add comment"
               data-testid="kolu-comment-composer"
-              data-kolu-modal="true"
+              {...modalScopeAttrs()}
               style={{
                 position: "fixed",
                 top: `${pos.top}px`,
@@ -82,18 +77,13 @@ export const CommentComposer: Component<{
               }}
               class="z-50 rounded-md border border-edge bg-surface-1 shadow-xl p-3 font-sans text-[12px]"
               onKeyDown={(e) => {
-                // stopPropagation: kolu has document-level shortcuts
-                // (terminal hotkeys, command palette) that would otherwise
-                // swallow ⌘↵ / Escape before the composer ever sees them.
                 if (e.key === "Escape") {
                   e.preventDefault();
-                  e.stopPropagation();
                   cancel();
                   return;
                 }
                 if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
                   e.preventDefault();
-                  e.stopPropagation();
                   submit();
                 }
               }}

@@ -1,15 +1,7 @@
 /** Kolu-specific adapter around `@kolu/solid-pierre`'s context-menu hook.
- *
- *  `makeTreeContextMenu` builds the file-tree right-click menu using kolu's
- *  CSS variables and `solid-sonner` toast for clipboard feedback. It's a
- *  factory closing over the Code tab's current view + a navigate callback so
- *  the menu can offer "jump to another view" entries (All files ⇄ git diff)
- *  alongside "Copy path" and "Download". Pierre snapshots the `contextMenu`
- *  config once at mount, but invokes `render` fresh on every right-click — so
- *  reading `nav.view()` / `nav.gitStatus()` inside `render` reflects the live
- *  mode at click time. (The pure porcelain→word git-status mapping lives in
- *  `gitStatusEntries.ts`, kept toast-free so it stays unit-testable in a plain
- *  node env.) */
+ *  Pierre snapshots the `contextMenu` config once at mount but invokes
+ *  `render` fresh on every right-click, so reading `nav.view()` /
+ *  `nav.gitStatus()` inside `render` reflects the live mode at click time. */
 
 import {
   CODE_TAB_VIEW_ORDER,
@@ -33,17 +25,12 @@ export type TreeContextMenuHooks = {
   /** Current Code-tab view — read at right-click time, not factory time. */
   view: () => CodeTabView;
   /** Switch the Code tab to `target`. A non-null `path` becomes that view's
-   *  selection (the clicked file rides along). `null` (directory right-click —
-   *  directories aren't selectable) leaves the target's selection slot
-   *  untouched, so it restores its own last pick per the per-slot design. */
+   *  selection; `null` leaves the target's selection slot untouched. */
   navigate: (target: CodeTabView, path: string | null) => void;
-  /** Whether the other views exist for this root, read at right-click time.
-   *  `false` on a folder git cannot list (a bare repository's), which is
-   *  browse-only: the menu then offers no "Open … diff" entries. */
+  /** Whether the other views exist for this root, read at right-click time. */
   viewsAvailable: () => boolean;
-  /** The active view's git decoration, read at right-click time. A row's
-   *  `deleted` entry withholds the Download entry — the file is gone from
-   *  disk, so there are no bytes to save. */
+  /** The active view's git decoration, read at right-click time. A `deleted`
+   *  row withholds the Download entry. */
   gitStatus: () => readonly GitStatusEntry[] | undefined;
   /** Save a file row's bytes through the browser's download flow. */
   download: (path: string) => void;
@@ -58,19 +45,7 @@ function navEntryLabel(target: CodeTabView): string {
 }
 
 /** View-switch entries offered for the current `view`: every other view in
- *  canonical order. Browse (All files) jumps into either git-diff view; either
- *  git-diff view can return to All files or flip to its sibling diff. The
- *  entry text is composed from `viewLabel` (via `navEntryLabel`), the single
- *  source the mode picker also renders, so the destination is named
- *  identically in both surfaces.
- *
- *  Browse lists the *whole repo*, so a clicked file may be unmodified, an
- *  untracked add, or a tracked edit. Local (working tree vs HEAD) is the
- *  always-available diff — no remote needed, and it's the only one that
- *  shows untracked files — so it leads. Branch (vs `origin/<default>`) can
- *  be base-less or exclude the file; offering it explicitly lets the user
- *  pick, rather than hard-coding a single git target that may not hold the
- *  file (which would just clear the selection or surface the Branch error). */
+ *  canonical order, labelled through `viewLabel`. */
 function navEntriesFor(
   view: CodeTabView,
 ): readonly { label: string; target: CodeTabView }[] {
@@ -83,10 +58,8 @@ function navEntriesFor(
 }
 
 /** Pierre wraps the rendered element in a `display:flex; align-items:center`
- *  anchor positioned at the cursor — letting the menu lay out normally
- *  inside that wrapper shifts it off the click point. We pin
- *  `position: fixed` with `context.anchorRect` coords so the menu lands at
- *  the cursor regardless of the wrapper's layout. */
+ *  anchor positioned at the cursor, so the menu is pinned `position: fixed`
+ *  at `context.anchorRect` instead of laying out inside that wrapper. */
 export function makeTreeContextMenu(nav: TreeContextMenuHooks) {
   return function renderTreeContextMenu(
     item: ContextMenuItem,
@@ -145,10 +118,6 @@ export function makeTreeContextMenu(nav: TreeContextMenuHooks) {
       menu.appendChild(hr);
     };
 
-    // View-switch entries first — the primary intent behind a right-click on a
-    // file row is "take me to this file in another view". Carry the path as
-    // the destination's selection only for files; directories aren't selectable
-    // (they never appear in the tree's `paths`), so they just switch the view.
     const selection = item.kind === "file" ? item.path : null;
     if (nav.viewsAvailable()) {
       for (const entry of navEntriesFor(nav.view())) {
@@ -174,9 +143,6 @@ export function makeTreeContextMenu(nav: TreeContextMenuHooks) {
       );
     });
 
-    // Files only (a directory has no bytes to save), and only when the active
-    // view's git status still has the file on disk — a `deleted` row in a diff
-    // view is a path with nothing behind it.
     if (
       item.kind === "file" &&
       !(nav.gitStatus() ?? []).some(

@@ -1,19 +1,3 @@
-/** A WORK'S FILES AS CHIPS — the one list the card and the reader's tabs
- *  both draw.
- *
- *  A waterfall writes folders as well as files: a planner's `mockup/` holds
- *  forty-odd pages and a `fonts/` folder of its own. Forty chips would push
- *  everything else off the card, so a FOLDER IS ONE CHIP — its name and how
- *  many files are beneath it, at any depth (`mockup/ · 49`), and, for files
- *  kolu kept, their size together. Pressing it unfolds that one level in
- *  place: its files as chips, its folders as chips with their own counts.
- *  Pressing again folds it. Every folder starts folded, except the ones
- *  holding `openTo` — the file the reader has open — so the reader's tabs
- *  start at the folder being read.
- *
- *  The list is flat wherever it comes from (a live listing, the kept copy);
- *  `kolu-work`'s `waterfallLevel` is the one reading of it as a tree. */
-
 import { formatBytes } from "@kolu/byte-units";
 import { Option } from "effect";
 import {
@@ -36,13 +20,8 @@ import type { WorkFileRow } from "./workFile";
 
 interface WorkFileListProps {
   readonly rows: ReadonlyArray<WorkFileRow>;
-  /** Whether the listing stopped at its limit with more left. */
   readonly more: boolean;
-  /** The path the reader has open, if any — its chip is lit, and the
-   *  folders holding it start unfolded. */
   readonly openTo: string | undefined;
-  /** `wrap` on the card; `line` in the reader's header, one row that scrolls
-   *  sideways so a big folder never pushes the document down. */
   readonly layout: "wrap" | "line";
   readonly onOpen: (path: string) => void;
 }
@@ -51,8 +30,6 @@ const CHIP =
   "max-w-full shrink-0 cursor-pointer truncate rounded-md border px-2 py-0.5 font-mono text-[0.62rem]";
 
 const WorkFileList: Component<WorkFileListProps> = (props) => {
-  /** The folders a person pressed, and which way. A folder nobody pressed is
-   *  folded, unless it holds the open file. Dies with the list. */
   const [pressed, setPressed] = createSignal<ReadonlyMap<string, boolean>>(
     new Map(),
   );
@@ -77,14 +54,8 @@ const WorkFileList: Component<WorkFileListProps> = (props) => {
               data-testid="work-file"
               data-path={file.path}
               data-open={props.openTo === file.path ? "" : undefined}
-              // A KEPT file is kolu's own copy of one the work wrote — the
-              // worktree it came from may be gone. Only a kept row carries
-              // its size.
               data-kept={Option.isSome(file.bytes) ? "" : undefined}
               title={waterfallFileName(file.path)}
-              // One press, one destination: the reader, on this file. The
-              // chip is not a toggle — a file you are reading is closed by
-              // going back to the work, which is a button that says so.
               onClick={() => props.onOpen(file.path)}
               class={`${CHIP} ${
                 props.openTo === file.path
@@ -146,12 +117,6 @@ const WorkFileList: Component<WorkFileListProps> = (props) => {
     );
   };
 
-  /** THE OPEN FILE'S CHIP, IN VIEW. On one line a folder of forty chips runs
-   *  far past the strip's edge, and the reader opens on whichever file was
-   *  pressed — so the strip scrolls SIDEWAYS ONLY to bring that chip to its
-   *  nearest edge, when it first draws and whenever the open file or the
-   *  list moves. `scrollIntoView` would scroll the page's other scrollers
-   *  too, so the strip's own `scrollLeft` is moved instead. */
   let strip: HTMLDivElement | undefined;
   createEffect(
     on([() => props.openTo, () => props.rows], () => {

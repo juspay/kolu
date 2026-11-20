@@ -1,26 +1,10 @@
-/** Panel surface chrome — `bg-surface-1` + edge border + rounded + drop shadow.
+/** Panel surface chrome — `bg-surface-1` + edge border + rounded + drop
+ *  shadow, behind every floating panel in the app.
  *
- *  The canonical incantation behind every floating panel in the app:
- *  dialog content, popovers, the empty-state card, the disconnect overlay.
- *  Each call site previously inlined the same six-utility string and drifted
- *  on per-site variations (radius tier, shadow weight) that this helper
- *  now names.
- *
- *  Variants:
- *    - `radius`: `"2xl"` (default) for modal dialogs and primary popovers,
- *      `"xl"` for compact dialogs (intent editor, find bar), `"lg"`/`"md"`
- *      for menu surfaces (anchored option lists, context menus).
- *    - `shadow`: `"default"` (`shadow-black/50`, modal weight),
- *      `"soft"` (`shadow-black/40`, popover/floating weight),
- *      `"light"` (`shadow-lg shadow-black/40`, menu weight), or
- *      `"bare"` (`shadow-lg`, no color tint — for context menus).
- *
- *  Pass `portalled: true` whenever the panel renders inside a Corvu portal
- *  (`Dialog.Content`) or a SolidJS `Portal`. The returned `style` then
- *  carries an inline `background-color` fallback — Firefox intermittently
- *  drops the `bg-surface-1` utility on portalled content, and the inline
- *  duplication is the workaround. Non-portal callers receive an empty
- *  `style` object; spreading it is a no-op. */
+ *  Pass `portalled: true` whenever the panel renders inside a Corvu portal or
+ *  a SolidJS `Portal`: Firefox intermittently drops the `bg-surface-1` utility
+ *  on portalled content, so the returned `style` then carries an inline
+ *  `background-color`. Non-portal callers receive an empty `style`. */
 
 import type { JSX } from "solid-js";
 

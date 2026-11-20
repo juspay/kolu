@@ -1,13 +1,3 @@
-/** Resize geometry for canvas tiles — pure, data-driven.
- *
- *  `RESIZE_HANDLES` is the single source of truth: each of the 8 directions
- *  maps to a cursor class and absolute-position class string. Drives both the
- *  `<For>` over handles in `CanvasTile` and the delta-to-rect transform in
- *  `applyResize`. Adding or changing a direction is a one-entry edit.
- *
- *  `applyResize` is a pure function — no viewport/zoom knowledge, no pending
- *  state. Caller normalizes the pointer delta to canvas-space first. */
-
 import type { TileLayout } from "./TileLayout";
 
 export type ResizeDirection = "n" | "s" | "e" | "w" | "nw" | "ne" | "sw" | "se";
@@ -19,8 +9,6 @@ export interface ResizeHandle {
   position: string;
 }
 
-/** Edges are inset from the corners so the corner squares own those hotspots.
- *  Corners are rendered later in DOM order than edges so overlap favors them. */
 export const RESIZE_HANDLES: Record<ResizeDirection, ResizeHandle> = {
   n: { cursor: "cursor-ns-resize", position: "top-0 left-3 right-3 h-1.5" },
   s: { cursor: "cursor-ns-resize", position: "bottom-0 left-3 right-3 h-1.5" },
@@ -37,9 +25,6 @@ export interface ResizeLimits {
   minH: number;
 }
 
-/** Which edges each direction moves. Lifted out of `applyResize` so the fresh
- *  `Record<ResizeDirection, …>` literal fails to compile if the union ever
- *  gains or loses a variant without matching axis entries. */
 interface DirectionAxes {
   horiz: "w" | "e" | null;
   vert: "n" | "s" | null;
@@ -56,17 +41,11 @@ const DIRECTION_AXES: Record<ResizeDirection, DirectionAxes> = {
   se: { horiz: "e", vert: "s" },
 };
 
-/** Compute a new tile rect from a pointer delta applied to a snapshot origin.
- *  `dx`/`dy` are already in canvas-space (caller normalizes by viewport zoom).
- *  West/north edges shift `x`/`y` so the opposite edge stays pinned.
- *
- *  `snap` (optional) is applied to the *moving edge*, not to width/height, so
- *  grid-snap on release keeps the pinned edge where the user left it. */
 export function applyResize(
   origin: TileLayout,
   direction: ResizeDirection,
-  dx: number,
-  dy: number,
+  dxCanvas: number,
+  dyCanvas: number,
   { minW, minH }: ResizeLimits,
   snap: (n: number) => number = (n) => n,
 ): TileLayout {
@@ -78,19 +57,19 @@ export function applyResize(
   let h = origin.h;
 
   if (horiz === "e") {
-    const rightEdge = snap(origin.x + origin.w + dx);
+    const rightEdge = snap(origin.x + origin.w + dxCanvas);
     w = Math.max(minW, rightEdge - origin.x);
   } else if (horiz === "w") {
-    const leftEdge = snap(origin.x + dx);
+    const leftEdge = snap(origin.x + dxCanvas);
     w = Math.max(minW, origin.x + origin.w - leftEdge);
     x = origin.x + origin.w - w;
   }
 
   if (vert === "s") {
-    const bottomEdge = snap(origin.y + origin.h + dy);
+    const bottomEdge = snap(origin.y + origin.h + dyCanvas);
     h = Math.max(minH, bottomEdge - origin.y);
   } else if (vert === "n") {
-    const topEdge = snap(origin.y + dy);
+    const topEdge = snap(origin.y + dyCanvas);
     h = Math.max(minH, origin.y + origin.h - topEdge);
     y = origin.y + origin.h - h;
   }

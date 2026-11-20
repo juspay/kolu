@@ -1,15 +1,3 @@
-/** Every harness agent-distro's package ships has a decided skill invocation,
- *  so a pin bump that brings a new harness fails here, in CI, and not inside
- *  a tile's memo at runtime.
- *
- *  The walk reads agent-distro's own source at kolu's npins pin, which the dev
- *  shell exposes as `KOLU_AGENT_DISTRO_SRC` (`shell.nix`). The built package
- *  would need the whole floor built, which the unit lane never does, and the
- *  e2e fixture carries only `claude`. The source says the same thing the build
- *  does: the one package brings every harness under `harnesses/`, and a
- *  harness's directory name is its command name — the name the listing
- *  carries. */
-
 import { readdirSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";

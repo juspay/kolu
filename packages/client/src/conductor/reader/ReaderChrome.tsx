@@ -1,13 +1,3 @@
-/** THE PANE'S OWN CONTROLS ON THE READER — the way back to the cards, and
- *  the two ways to give the document more room.
- *
- *  They are the PANE'S, not the reader's: a window that is nothing but the
- *  reader has no conversation to go back to, no third to take and no second
- *  window to open, and a reader that decided for itself which of them exist
- *  would be reading a placement word to answer four different questions
- *  (#2376 review). So the owner that has them hands them in, and the reader
- *  draws whatever it is given. */
-
 import { type Component, Show } from "solid-js";
 import { conductorWide } from "../conductorLayout";
 import {

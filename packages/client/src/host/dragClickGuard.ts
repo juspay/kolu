@@ -21,9 +21,6 @@
 
 import { type Accessor, createEffect, onCleanup } from "solid-js";
 
-/** Arm the guard off `dragging` (a sortable's `isActiveDraggable`). The returned
- *  predicate answers "swallow this click?", CONSUMING the latch — so exactly one
- *  click per drag is swallowed and the next one gets through. */
 export function createDragClickGuard(
   dragging: Accessor<boolean>,
 ): () => boolean {

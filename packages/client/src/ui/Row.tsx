@@ -1,10 +1,3 @@
-/** Label–value pair with dim label and bright value.
- *  Labels sit LEFT-aligned in a fixed gutter (a right-ragged label column made
- *  every value start at a different optical x; see the inspector revamp).
- *  `variant` codifies styling rules for special rows:
- *  - "badge": pill background for status indicators
- *  - "tag": mono accent background for identity values */
-
 import type { Component, JSX } from "solid-js";
 
 const Row: Component<{

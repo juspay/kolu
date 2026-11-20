@@ -1,7 +1,3 @@
-/** The reducer's three obligations: a snapshot ASSIGNS (the fence's replay must
- *  not double rows), a delta refines in place, and a streamed append splices at
- *  the offset the writer stamped. */
-
 import type {
   ConductorAskRow,
   ConductorFrame,
@@ -50,7 +46,6 @@ describe("applyFrame", () => {
       EMPTY_TRANSCRIPT,
       snapshot([agentRow("a", 1, "x")]),
     );
-    // What a reconnect delivers: the SAME row again, in a fresh snapshot.
     const second = applyFrame(first, snapshot([agentRow("a", 1, "x")], 7));
     expect(second.rows).toHaveLength(1);
     expect(second.seq).toBe(7);
@@ -133,10 +128,6 @@ describe("applyFrame", () => {
   });
 
   it("applies removes before the upserts that re-mint the same id", () => {
-    // The canonical order is removes → upserts → appends (stated on
-    // `ConductorFrameSchema`, obeyed by the host's fold too). A frame that
-    // retires a row and re-states it — an ask settled and asked again — must
-    // end with the row, not without it.
     const base = applyFrame(
       EMPTY_TRANSCRIPT,
       snapshot([agentRow("a", 1, "old")]),
@@ -159,8 +150,6 @@ describe("foldNoticeRuns", () => {
   });
 
   it("draws a run of identical notices ONCE, with its count", () => {
-    // The field case: a fixed loop left eight copies of one exit notice in a
-    // transcript that is already on disk. A reader rule, so they fold on read.
     const entries = foldNoticeRuns(
       Array.from({ length: 8 }, (_, i) =>
         notice(`n${i}`, i, "the agent exited"),
@@ -227,7 +216,6 @@ describe("foldToolRuns", () => {
     kind: "notice",
     text: "something happened",
   });
-  /** What the panel draws, as `id` for a row and `[ids]` for a fold. */
   const drawn = (rows: ConductorRow[]): (string | string[])[] =>
     foldToolRuns(foldNoticeRuns(rows)).map((item: TranscriptItem) =>
       item.kind === "entry"
@@ -248,8 +236,6 @@ describe("foldToolRuns", () => {
   });
 
   it("folds a run's settled calls while the turn is still going, and leaves the running one out", () => {
-    // The Conductor has not said a word yet: what a person sees is ONE
-    // "Details" and the call in flight, not a wall of finished cards.
     expect(
       drawn([
         user("u", 0),
@@ -373,9 +359,6 @@ describe("foldToolRuns", () => {
   });
 
   it("never folds across a wake — the machine's line STARTS a turn", () => {
-    // The calls before the wake belong to the work that was running when the
-    // terminal rang; folding across it would put the answer to the wake in the
-    // same closed Details as whatever came before it.
     const wake = (id: string, seq: number): ConductorRow => ({
       id,
       seq,
@@ -408,12 +391,6 @@ describe("foldToolRuns", () => {
   });
 
   it("draws NO card for the call that asked a question — the ask row is the question", () => {
-    // The call that put a question to a person and the form it produced reach
-    // the panel as two independent rows, so the question was drawn twice: once
-    // as grey machinery carrying the same words, immediately above the thing
-    // asking it. The ask row stays, and the fold's count does not hold the call
-    // either — it is not drawn anywhere. The row says WHETHER it asked through
-    // a form; which tool that was is the leg's, upstream.
     const ask = (id: string, seq: number): ConductorRow =>
       ({
         id,
@@ -439,8 +416,6 @@ describe("foldToolRuns", () => {
 
 describe("foldFailureRuns", () => {
   const SINCE = "2026-01-01T00:00:00.000Z";
-  /** A failed `screen_text` on one terminal, answered the way the MCP edge
-   *  answers a terminal padi does not hold. */
   const unread = (id: string, seq: number, terminal: string): ConductorRow =>
     ({
       id,
@@ -511,18 +486,10 @@ describe("foldFailureRuns", () => {
           unread(`s${i}`, i + 1, `${t}${t}${t}-terminal`),
         ),
       ]),
-    ).toEqual([
-      "u",
-      // The FIRST reason whole, and a count for the rest — never the stripped
-      // string the six were matched by.
-      "screen_text ×6: Terminal aaa-terminal not found +5 more",
-    ]);
+    ).toEqual(["u", "screen_text ×6: Terminal aaa-terminal not found +5 more"]);
   });
 
   it("never draws a reason the id was cut out of — the line would start mid-sentence", () => {
-    // The human's screenshot: `watch_terminal failed 2 times: is not a
-    // terminal on that host`. The id is the first word of this reason, so
-    // stripping it for the comparison left the drawn line headless.
     const notHere = (id: string, seq: number, terminal: string): ConductorRow =>
       ({
         id,
@@ -547,7 +514,6 @@ describe("foldFailureRuns", () => {
       notHere("f1", 1, "wise-otter"),
       notHere("f2", 2, "brave-moth"),
     ]);
-    // Still ONE line for the two: the id is out of the comparison.
     expect(lines).toHaveLength(2);
     expect(lines[1]).toBe(
       "watch_terminal ×2: wise-otter is not a terminal on that host +1 more",
@@ -600,10 +566,6 @@ describe("foldFailureRuns", () => {
   });
 
   it("folds a generic tool's failures that differ only by a terminal inside a URI", () => {
-    // The human's session: three `ReadMcpResourceTool` cards one under
-    // another, each refusing a different terminal's record address. kolu has
-    // no reading of that tool — there is no subject to cut out — so the only
-    // thing that can match them is the reference inside the URI.
     const unresolved = (id: string, seq: number, ref: string): ConductorRow =>
       ({
         id,
@@ -632,15 +594,12 @@ describe("foldFailureRuns", () => {
     ]);
     expect(lines).toEqual([
       "u",
-      // One line, the first reason whole — the address an agent can read.
       'ReadMcpResourceTool ×3: unknown resource "surface://collections/terminals/remote:gossamer/9ab1c0de-1111-4111-8111-111111111111" +2 more',
     ]);
   });
 });
 
 describe("transcriptText", () => {
-  /** The adapter's wrapper sentence, labelled questions, and an "Other" box
-   *  attached to one of them — the shape an `AskUserQuestion` arrives in. */
   const askRow = (
     outcome: ConductorAskRow["ask"]["outcome"],
   ): ConductorAskRow => ({
@@ -685,7 +644,6 @@ describe("transcriptText", () => {
   });
 
   it("carries the questions and the answers, not the word `answered`", () => {
-    // What somebody pasting the conversation into an issue needs: the exchange.
     expect(
       transcriptText([
         askRow({

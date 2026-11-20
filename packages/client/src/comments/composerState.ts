@@ -1,43 +1,18 @@
-/** Explicit state machine for the comment composer UI. The states are
- *  module-level so every surface (text browse, branch diff, HTML iframe)
- *  shares one composer — exactly one selection can be turned into a
- *  comment at a time.
- *
- *  RULE: `selectionchange` events while in `"composing"` are IGNORED.
- *  An in-flight draft wins over new selections — the user must Cancel
- *  or Save before a new anchor can be captured. This makes the
- *  "I started typing and a stray click wiped my anchor" failure mode
- *  impossible by construction.
- *
- *  RULE: clearing the selection while in `"pill"` returns to `"idle"`
- *  and dismisses the pill — click-away never leaves a stale pill behind. */
-
 import type { Locator, SelectionRect } from "@kolu/artifact-sdk/client";
 import { createSignal } from "solid-js";
+import type { BrowseSurface } from "./types";
 
 export type ComposerTarget = {
   /** Repo-relative path the new comment will be anchored to. */
   path: string;
   locator: Locator;
-  /** Optional line range captured at selection time — passed through
-   *  to `Comment.lineRange` on save so the tray-click jump can use
-   *  `openInCodeTab` to land Pierre's line-selection highlight on
-   *  the right row. */
   lineRange?: { start: number; end: number };
-  /** Which browse surface the selection was made on, when the file offers
-   *  more than one (Markdown's Source ⇄ Rendered). Passed through to
-   *  `Comment.surface` so the tray jump can flip the toggle back to it.
-   *  Absent for single-surface captures (plain source, diff, HTML iframe). */
-  surface?: "source" | "prose";
+  surface?: BrowseSurface;
   /** Viewport rect (parent-local coordinates) of the selection — the
    *  composer is positioned next to it. */
   rect: SelectionRect;
 };
 
-// HOST-SCOPING: host-INDEPENDENT by design — an ephemeral in-flight draft that
-// self-clears on navigation (`CodeTab`'s close effect fires when the active file
-// changes), so a host switch drops the stale draft rather than floating it over
-// the new host.
 const [target, setTarget] = createSignal<ComposerTarget | null>(null);
 
 export function useComposer() {
@@ -53,8 +28,6 @@ export function useComposer() {
     close: (): void => {
       setTarget(null);
     },
-    /** True when a draft is open. Capture surfaces use this to suppress
-     *  their own pill rendering during a draft. */
     isComposing: () => target() !== null,
   };
 }

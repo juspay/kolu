@@ -1,13 +1,8 @@
-/** Bold every AND-token hit inside a string. Tokens that don't appear are
- *  skipped; overlapping hits merge so the string never double-wraps. */
-
 import { type Component, For } from "solid-js";
 import { tokenize } from "../search";
 
 type Segment = { text: string; hit: boolean };
 
-/** Split `text` into hit / non-hit segments for the given query. Pure so
- *  tests and non-JSX call sites can reuse it. */
 export function highlightSegments(text: string, query: string): Segment[] {
   const tokens = tokenize(query);
   if (tokens.length === 0 || text.length === 0) {
@@ -15,7 +10,6 @@ export function highlightSegments(text: string, query: string): Segment[] {
   }
 
   const lower = text.toLowerCase();
-  // Mark every character that participates in any token match.
   const hit = new Array<boolean>(text.length).fill(false);
   for (const token of tokens) {
     let from = 0;

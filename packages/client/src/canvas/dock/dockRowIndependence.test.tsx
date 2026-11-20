@@ -1,26 +1,4 @@
 // @vitest-environment happy-dom
-/**
- * juspay/kolu#2057 — ONE DOCK ROW PER TERMINAL, EVEN IN ONE REPOSITORY.
- *
- * The issue reports two terminals in the same project converging: same title,
- * same subtitle, same status pip, and an alert on one lighting both. Its
- * investigation notes suspect a Dock-side keying leak — a projection keyed by
- * project where it should be keyed by terminal id.
- *
- * This file pins that it isn't. It drives the exact composition `DockRow`
- * performs — `buildTerminalDisplayInfos` → `pairDisplayRow` → `annotationLine` /
- * `rowSubline` / `bindStatePip` / `dockRowAttrs` — over TWO terminals that share
- * a repository, a branch and a worktree (so every project-level key they have is
- * identical), then moves ONE terminal's agent metadata and unread flag and reads
- * both rendered rows back.
- *
- * It is GREEN on master: the Dock's per-row derivation is already
- * terminal-keyed. That is the point — it is the sabotage anchor that keeps the
- * derivation terminal-keyed, while the actual convergence (two terminals handed
- * the SAME agent session by a directory-keyed match) is reproduced and fixed
- * upstream in `padi/src/terminalWorkspace/agentSessionOwnership.test.ts`.
- */
-
 import {
   activeArm,
   LOCAL_LOCATION,
@@ -45,9 +23,6 @@ import { isActiveRow } from "./activeRow";
 const ALICE = "terminal-alice" as TerminalId;
 const BOB = "terminal-bob" as TerminalId;
 
-/** ONE repository, ONE branch, ONE worktree — every project-level fact these
- *  two terminals have is identical, which is the condition the issue says hides
- *  the bug when you use different projects. */
 const GIT: GitInfo = {
   repoRoot: "/home/dev/proj",
   repoName: "proj",
@@ -87,7 +62,6 @@ function agentInfo(
   } as AgentInfo;
 }
 
-/** What a rendered row says about itself — the four things the issue names. */
 interface RowReading {
   title: string;
   subline: string;
@@ -113,18 +87,6 @@ afterEach(() => {
   document.body.innerHTML = "";
 });
 
-/** Render both rows the way `DockRow` builds them — same leaf functions, same
- *  order — over a reactive metadata store and a reactive unread set.
- *
- *  This covers BOTH dock surfaces the issue's acceptance criteria name. The
- *  expanded cards row (`Dock.tsx`'s `DockRow`) and the collapsed rail / mobile
- *  row (`DockList.tsx`'s `DockListRow`) are separate components by design, but
- *  they share the three things under test here by construction — the row data
- *  (`createDockRowData(props.id)`), the unread read (`store.isUnread(props.id)`,
- *  spelled identically in `DockRow`, `DockListRow` and the rail chip), and the
- *  attribute contract (`dockRowAttrs`). All three are keyed on the row's own
- *  terminal id, so a project-keyed leak could not reach one surface without the
- *  other. */
 function renderDock() {
   const [meta, setMeta] = createStore<Record<TerminalId, TerminalMetadata>>({
     [ALICE]: metaWith(agentInfo("thinking", "Refactor the parser")),
@@ -134,9 +96,6 @@ function renderDock() {
     [ALICE]: false,
     [BOB]: false,
   });
-  // The attention class is a per-terminal fact in production too (the pip's
-  // colour comes off `attentionOf(host, id)`, never re-derived from metadata),
-  // so the fixture keys it by terminal exactly as the mirror does.
   const [attention, setAttention] = createStore<
     Record<TerminalId, TerminalAttention>
   >({
@@ -215,8 +174,6 @@ describe("dock rows in one repository stay independent", () => {
     const { host, setMeta, setAttention } = renderDock();
     const bobBefore = readRow(host, BOB);
 
-    // Alice's harness finishes its turn, renames its task and gains an intent —
-    // every field the Dock's primary line and sub-line read.
     setMeta(ALICE, metaWith(agentInfo("awaiting_user", "Ship it?"), "Rewrite"));
     setAttention(ALICE, { klass: "asking", live: false });
 

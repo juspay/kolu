@@ -1,8 +1,3 @@
-/** The settings popover's two composed decisions: the model is offered, and
- *  it is offered FIRST; a boolean is a switch rather than a heading. Both are
- *  defects a person met on a live Claude session — a panel with no model
- *  control at all, and a `FAST MODE` heading with nothing under it. */
-
 import { describe, expect, it } from "vitest";
 import {
   type SettingsOption,
@@ -20,8 +15,6 @@ const option = (
   ...over,
 });
 
-/** What the owner's own session advertised, in the order the adapter sent it:
- *  mode, effort, a boolean, and the model LAST. */
 const live: ReadonlyArray<SettingsOption> = [
   option({
     id: "mode",
@@ -81,8 +74,6 @@ describe("settingsSections", () => {
   });
 
   it("drops a boolean the agent never stated a value for", () => {
-    // A switch has to be drawn somewhere, and `off` would be this panel
-    // asserting a setting nobody confirmed.
     expect(settingsSections([option({ id: "fast", kind: "boolean" })])).toEqual(
       [],
     );

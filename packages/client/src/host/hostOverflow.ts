@@ -1,45 +1,10 @@
-/**
- * hostOverflow — the pure "active chip + as-many-as-fit" decision for the
- * host chip row (W4 header redesign, iteration 2, narrow-window stage 3).
- * Given each chip's MEASURED width (real DOM measurement lives in
- * `HostSelectorStrip.tsx`'s hidden measuring row; this module stays
- * measurement-free ON PURPOSE — jsdom reports 0 for every element's layout
- * box, so a component-rendering test couldn't pin anything here, and the
- * codebase's existing convention for this directory is pure-function-only
- * tests, e.g. `hostChipTone.ts` / `HostSelectorStrip.test.ts`) and the row's
- * available width, decides which chips render inline and which fall into
- * the trailing "⋯ +N" overflow menu.
- *
- * THE INVARIANT THIS FILE PINS: a chip's measured width never depends on
- * whether it happens to be ACTIVE — the active/inactive distinction is a
- * border/ring color swap, while every real chip fills the same FIXED-width
- * dual-daemon slot with that host's Padi/Kaval status marks (measure-row
- * twins alone leave it empty), which costs zero layout. So when
- * every chip already fits, swapping `activeKey` between two hosts changes
- * NOTHING about which chips are visible or their order (see
- * `hostOverflow.test.ts`'s host-switch pin). It changes the OUTCOME only
- * once the newly-active host was itself overflowed — the overflow menu
- * revealing the host you just switched to is the feature working as
- * designed, not a layout regression.
- */
-
 export type HostFit = {
-  /** The GIVEN order — the caller's arranged host list (`orderHostKeys` over
-   *  pool membership and the user's `hostOrder` preference). This module never
-   *  reorders: `order`'s own sequence is the only sequence it returns, and in
-   *  particular which host is ACTIVE never moves a chip. */
   key: string;
-  /** The chip's measured rendered width in px (its wrapper's `offsetWidth`,
-   *  including padding/border). */
   width: number;
 };
 
 export type OverflowResult = {
-  /** Visible chip keys, in the SAME relative order as `order` — a chip
-   *  already visible never moves when another chip enters/leaves overflow. */
   visible: string[];
-  /** Overflowed chip keys, also order-preserved (the "⋯ +N" menu's own
-   *  list order). */
   overflowed: string[];
 };
 
@@ -48,41 +13,24 @@ const allVisible = (order: readonly HostFit[]): OverflowResult => ({
   overflowed: [],
 });
 
-/**
- * `containerWidth` is the row's available px width for HOST CHIPS
- * specifically — the caller has already subtracted any other fixed trailing
- * chrome that always renders regardless of overflow (the "+ add a host"
- * button). `trailingReserve` is the width of the "⋯ +N" trigger itself,
- * which is only ever rendered — and thus only ever needs reserving — once
- * the chips don't all fit; reserving it unconditionally would waste room in
- * the common all-fit case, so this function tries the FULL budget first and
- * only falls back to `containerWidth - trailingReserve` once that fails.
- *
- * Nothing else is reserved: the chrome bar's other tab, the Conductor's, sits
- * BEFORE the strip as its own `shrink-0` sibling, so the strip's measured
- * width is already what is left once that tab has taken its room.
- */
 export function computeVisibleHosts(
   order: readonly HostFit[],
   activeKey: string,
   containerWidth: number,
   trailingReserve: number,
 ): OverflowResult {
+  const budgetWithoutTrigger = containerWidth;
+  const budgetWithTrigger = containerWidth - trailingReserve;
+
   const total = order.reduce((sum, h) => sum + h.width, 0);
-  if (total <= containerWidth) return allVisible(order);
+  if (total <= budgetWithoutTrigger) return allVisible(order);
 
-  const budget = containerWidth - trailingReserve;
-
-  // Greedy PREFIX fit, in the GIVEN (arranged) order — chips fill front-to-back,
-  // stopping at the first one that would exceed the budget. A prefix (not a
-  // scattered greedy pack) keeps the visible set contiguous, so the strip never
-  // shows a "hole" where an overflowed chip sat between two visible ones.
   let used = 0;
   let cut = order.length;
   for (let i = 0; i < order.length; i++) {
     const next = order[i];
     if (next === undefined) break;
-    if (used + next.width > budget) {
+    if (used + next.width > budgetWithTrigger) {
       cut = i;
       break;
     }
@@ -90,17 +38,11 @@ export function computeVisibleHosts(
   }
   const visible = order.slice(0, cut).map((h) => h.key);
 
-  // The active host is the header's one MANDATORY chip (see the file header
-  // "always visible at every width" invariant) — if the prefix fit dropped
-  // it, make room by dropping trailing prefix members (nearest the cut
-  // first) until it fits, then append it. Its OWN slot in the arrangement is
-  // NEVER used to reorder `visible` — only membership changes, so a later
-  // re-widen restores every dropped chip to its original slot.
   if (!visible.includes(activeKey)) {
     const active = order.find((h) => h.key === activeKey);
     if (active) {
       const need = active.width;
-      while (used + need > budget && visible.length > 0) {
+      while (used + need > budgetWithTrigger && visible.length > 0) {
         const dropped = visible.pop();
         const droppedFit = order.find((h) => h.key === dropped);
         used -= droppedFit?.width ?? 0;

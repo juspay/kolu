@@ -1,14 +1,4 @@
 // @vitest-environment happy-dom
-/**
- * LOOK — what an agent line reads, and when.
- *
- * The status line comes off the fleet roster and costs nothing; the tail is a
- * poll against a real machine, so WHEN it reads is the contract: only while
- * open, on screen and in a visible tab, from the terminal's own host, every
- * couple of seconds — and never for a terminal the roster no longer has. The
- * roster and the procedure face are stubbed at their module seams; the poll
- * loop, the visibility gates and the remembered open state are the real ones.
- */
 
 import { Effect } from "effect";
 import type { HostKey } from "kolu-common/hostKey";
@@ -50,10 +40,6 @@ vi.mock("../settings/useTips", () => ({
 import ConductorLook, { LOOK_EVERY_MS, LOOK_LINES } from "./ConductorLook";
 import { Shown } from "../ui/shown";
 
-/** An active terminal whose agent is working and says what on. The agent
- *  record is the WIRE's shape — `taskProgress` is a field every agent
- *  publishes, `null` for one that keeps no task list — so a case can turn it
- *  on without the fixture growing a second shape. */
 const working = (
   agent: Record<string, unknown> = {},
 ): FleetTerminalStanding => ({
@@ -71,7 +57,6 @@ const working = (
   } as never,
 });
 
-/** Whether the tail's box is in view — what the stub observer reports. */
 let inView = true;
 class StubObserver {
   constructor(
@@ -86,9 +71,6 @@ class StubObserver {
 let dispose: (() => void) | undefined;
 let root: HTMLElement | undefined;
 
-/** Is the conductor pane the shown view? The pane is retained across a tab
- *  switch, so this is the fact — not the element's geometry — that decides
- *  whether Look is allowed to read a machine's screen. */
 const [shown, setShown] = createSignal(true);
 
 function mount(rowId = "row-1"): HTMLElement {
@@ -146,8 +128,6 @@ describe("an agent line", () => {
     setStanding(working({ taskProgress: { completed: 7, total: 12 } }));
     const el = mount("progress");
     await vi.advanceTimersByTimeAsync(0);
-    // Beside the state, ahead of what it is doing — the same fraction the
-    // tile's meta line and the Inspector's card print.
     expect(
       el.querySelector('[data-testid="conductor-look-progress"]')?.textContent,
     ).toBe("7/12");
@@ -183,8 +163,6 @@ describe("an agent line", () => {
     const el = mount("polls");
     toggle(el)?.click();
     await vi.advanceTimersByTimeAsync(0);
-    // A couple of periods, not exactly one: the loop's own scheduling adds a
-    // tick, and "about every 2 s" is the claim, not the millisecond.
     await vi.advanceTimersByTimeAsync(LOOK_EVERY_MS * 2);
     const whileOpen = seam.reads.length;
     expect(whileOpen).toBeGreaterThanOrEqual(2);
@@ -214,12 +192,6 @@ describe("an agent line", () => {
   });
 
   it("reads an agent that is only PRESENT off the record, quietly", async () => {
-    // The line used to GUESS this: no agent detected, one of our binaries in
-    // front, therefore "starting omp". padi says it now — a registered CLI in
-    // the foreground IS an agent on the record, `starting` while its screen is
-    // still being drawn and `fresh` once it has settled — so this reads like
-    // every other state, and the dot stays the muted one: an agent nobody has
-    // prompted is not something happening.
     setStanding(working({ state: "starting", summary: null }));
     const el = mount("coming-up");
     await vi.advanceTimersByTimeAsync(0);
@@ -307,16 +279,11 @@ describe("an agent line", () => {
   });
 
   it("reads nothing while the pane is hidden, and picks up when it is shown again", async () => {
-    // THE RETAINED PANE'S CONTRACT. Leaving for a host tab does not unmount
-    // this Look — it stays open, which is the whole point — so the only thing
-    // standing between a conversation somebody left an hour ago and a poll
-    // against a real machine every two seconds is `shown()`.
     setShown(false);
     const el = mount("hidden");
     toggle(el)?.click();
     await vi.advanceTimersByTimeAsync(LOOK_EVERY_MS * 3);
     expect(seam.reads).toEqual([]);
-    // Still OPEN while hidden: the toggle was not undone, only the work was.
     expect(toggle(el)?.textContent).toBe("Hide");
 
     setShown(true);
@@ -325,7 +292,6 @@ describe("an agent line", () => {
     await vi.advanceTimersByTimeAsync(LOOK_EVERY_MS * 2);
     expect(seam.reads.length).toBeGreaterThanOrEqual(2);
 
-    // And it stops again on the way out, rather than only starting.
     setShown(false);
     const whileShown = seam.reads.length;
     await vi.advanceTimersByTimeAsync(LOOK_EVERY_MS * 3);
@@ -333,10 +299,6 @@ describe("an agent line", () => {
   });
 
   it("keeps the SAME element across the trip, open tail and all", async () => {
-    // Element identity, the way `/solidjs` asks for it: a marker put on the
-    // node by hand cannot survive a rebuild, so finding it afterwards is proof
-    // that nothing was re-created — and the open tail's own lines are proof
-    // that the view came back as it was left rather than re-fetched.
     const el = mount("identity");
     toggle(el)?.click();
     await vi.advanceTimersByTimeAsync(0);

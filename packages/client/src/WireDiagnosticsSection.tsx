@@ -1,12 +1,3 @@
-/** The wire's own account of itself, as a section of the Diagnostic Info
- *  dialog (kolu#2101 J2).
- *
- *  Its own file, per the repo's one-component-per-file rule — and it earns the
- *  split twice over: it reads MODULE-level state (the link's diagnostics, the
- *  liveness registry, the host map) rather than the dialog's props, so mounting
- *  the whole dialog to exercise it would drag in xterm, the terminal store and
- *  the attention mirror for a block that touches none of them. */
-
 import { type Component, createMemo, For, Show } from "solid-js";
 import {
   collectDiagnosticSnapshot,
@@ -15,16 +6,6 @@ import {
 import Row from "./ui/Row";
 import Section from "./ui/Section";
 
-/** Every dial this tab has made (including the swallowed ones, which appear
- *  nowhere else on either side of the wire), every fenced subscription with its
- *  last frame and its PARKED/live verdict, and each host entry as the client
- *  currently believes it — the three facts the field incident needed and nothing
- *  exposed.
- *
- *  A `createMemo` over the builder: three `<For>`s and a count read it, and
- *  re-collecting per read would hand each one a different instant — a snapshot
- *  whose sections disagree about when they were taken is exactly what this
- *  section exists to stop. */
 const WireDiagnosticsSection: Component<{
   serverBuild?: DiagnosticSnapshotInputs["serverBuild"];
 }> = (props) => {

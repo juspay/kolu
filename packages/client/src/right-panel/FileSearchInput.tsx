@@ -1,18 +1,9 @@
-/** Free-text search input that filters the file tree by path. Hosts
- *  read the value back through `onChange` and forward it into the tree
- *  (e.g. via `PierreFileTree`'s `searchQuery` prop). The input is
- *  controlled so callers can clear or programmatically reset it
- *  (e.g. on view change). */
-
 import { type Component, Show } from "solid-js";
 import { CloseIcon, SearchIcon } from "../ui/Icons";
 
 const FileSearchInput: Component<{
   value: string;
   onChange: (q: string) => void;
-  /** Coarse-pointer host (the Code-tab toolbar passes `isTouch()`): grows the
-   *  clear-filter button to a 24px tap target so it clears the WCAG 2.2 floor,
-   *  matching the rest of the touch-sized toolbar. */
   touch?: boolean;
 }> = (props) => (
   <label class="flex items-center gap-1.5 flex-1 min-w-0 text-[10px] font-mono text-fg-3 focus-within:text-fg-2">

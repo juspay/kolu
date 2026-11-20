@@ -1,9 +1,3 @@
-/** Pins the boot-stalled copy authority — a sibling of `hostDownCopy.test.ts`. The
- *  `satisfies Record<ClientStalledLeg, …>` in `bootStalledCopy.ts` already fails the build if
- *  a client leg is missing; this asserts every client leg's copy is non-empty and distinct, the
- *  connector card's copy is non-empty and NON-terminal, and the phase detail narrates every
- *  connect phase — so the card never renders a blank, a duplicate, or a terminal lie. */
-
 import { describe, expect, it } from "vitest";
 import type { ClientStalledLeg } from "./canvasModeResolver";
 import {

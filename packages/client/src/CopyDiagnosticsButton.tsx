@@ -25,7 +25,6 @@ import {
 import { runAction, type UiAction } from "./runAction";
 import { writeTextToClipboard } from "@kolu/solid-logtail";
 
-/** Build-and-write, as one program run at the click edge. */
 export function copyDiagnosticSnapshot(
   inputs?: DiagnosticSnapshotInputs,
 ): UiAction {
@@ -50,8 +49,6 @@ export function copyDiagnosticSnapshot(
 }
 
 const CopyDiagnosticsButton: Component<{
-  /** The server's build identity as the caller already holds it (the parent
-   *  reads `useSurfaceApp().server()`; this component opens no subscription). */
   serverBuild?: DiagnosticSnapshotInputs["serverBuild"];
   class?: string;
   children?: string;

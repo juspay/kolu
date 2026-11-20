@@ -1,6 +1,5 @@
 import { type Accessor, type Component, Show } from "solid-js";
 
-/** One-based shortcut discovery shared by cards and rail rows. */
 export const DockShortcutHint: Component<{
   flatIndex: number;
   modHeld: Accessor<boolean>;

@@ -1,7 +1,3 @@
-/** The composer's grammar: where a completion opens, what it offers, what it
- *  writes back, and which `@name`s become structured mentions — a terminal's
- *  or a piece of work's — when the message finally goes. */
-
 import type { TerminalId } from "kolu-common/surface";
 import { openWork, type Work, type WorkId } from "kolu-work";
 import { describe, expect, it } from "vitest";
@@ -59,8 +55,6 @@ const fleet = [
   terminal("fix-docs", "22222222-2222-4222-8222-222222222222"),
   terminal("odu-cache", "33333333-3333-4333-8333-333333333333"),
 ];
-/** The menu's own order: what needs the human, then what is in progress,
- *  then the terminals. */
 const menu = [
   work("Published agents fetchable by any host", "branch:local/%2Fr/agents"),
   work("Page chats open in a pane", PANE),
@@ -132,9 +126,6 @@ describe("filterMentions", () => {
   });
 
   it("puts a work the query is only CONTAINED in above a terminal it starts", () => {
-    // `fix` prefixes two terminals and sits in the middle of the work's
-    // title. The group outranks the match, so the menu's two headings never
-    // interleave.
     const named = [
       work("Nothing left to fix in the parser", "branch:local/%2Fr/fixes"),
       ...fleet,
@@ -170,7 +161,6 @@ describe("completeToken", () => {
   });
 });
 
-/** The mentions alone, as the wire carries them. */
 const mentionsOf = (text: string, candidates: readonly MentionCandidate[]) =>
   armedMentions(text, candidates).map((one) => one.mention);
 
@@ -192,9 +182,6 @@ describe("the mentions a message carries", () => {
   });
 
   it("carries the HOST each terminal is on — the other half of `host/id`", () => {
-    // A fleet where the warmer `main` is the remote one: the reference that
-    // goes out must name THAT machine, or kolu-server joins the id to the
-    // wrong half and the agent types into a terminal nobody meant.
     const crossHost = [
       terminal("main", "44444444-4444-4444-8444-444444444444", "remote:zest"),
       terminal("fix-docs", "22222222-2222-4222-8222-222222222222"),
@@ -219,7 +206,6 @@ describe("the mentions a message carries", () => {
   });
 
   it("gives a token both a work and a terminal answer to to the WORK", () => {
-    // The branch a work was cut from often names the terminal working on it.
     const both = [work("fix parser", "branch:local/%2Fr/fix-parser"), ...fleet];
     expect(mentionsOf("@fix-parser go", both)).toEqual([
       {

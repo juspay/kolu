@@ -1,19 +1,4 @@
 // @vitest-environment happy-dom
-/**
- * THE `@` MENU AND ITS CHIPS SURVIVE A FLEET TICK.
- *
- * The candidate list is minted fresh on every notification — `fleetMentionCandidates`
- * maps the whole fleet into new objects — and the fleet index notifies on ANY
- * metadata change on ANY host. So a terminal retitling itself on a machine
- * nobody is looking at wakes this composer, and a reference-keyed list would
- * tear down and rebuild every row of the open menu and every armed chip: the
- * hovered row's highlight and the chip under the finger both vanish mid-press,
- * for a change about a different machine entirely.
- *
- * These tests hold the DOM nodes across exactly that tick. Identity (`toBe` on
- * the element) is the assertion, because "re-created" is not visible in the
- * rendered text — a rebuilt row looks right and behaves wrong.
- */
 
 import type { TerminalMetadata } from "@kolu/padi-client/surface";
 import type { HostKey } from "kolu-common/hostKey";
@@ -41,9 +26,6 @@ import ConductorComposer from "./ConductorComposer";
 import { standingLine } from "./workReadings";
 import { Shown } from "../ui/shown";
 
-/** The index is the ONE thing this test controls: everything downstream of it
- *  — the per-host key computation, the filter, the resolve — stays real, or
- *  the test would prove only that a mock can hold a node. */
 const fleet = vi.hoisted(() => ({
   read: (() => []) as Accessor<FleetTerminalRow[]>,
 }));
@@ -51,9 +33,6 @@ vi.mock(import("../palette/fleetTerminals"), async (importOriginal) => ({
   ...(await importOriginal()),
   useFleetTerminalIndex: () => fleet.read,
 }));
-/** The works mirror, the same way: the records and the waits are the test's,
- *  everything the menu makes of them — the order, the slug, the standing
- *  line — is the real reading. */
 const mirror = vi.hoisted(() => ({
   works: (() => []) as Accessor<ReadonlyArray<WorkRow>>,
   needs: (() => []) as Accessor<ReadonlyArray<NeedsYou>>,
@@ -65,9 +44,6 @@ vi.mock("./useWorks", () => ({
   useWorkMap: () => () => new Map(mirror.works()),
   useMembership: () => mirror.membership,
 }));
-// The wire-facing neighbours, inert: a real upload would only add a second
-// thing to fail. The prompt verb is a spy the tests read — what a message
-// CARRIES is half of what a mention is for.
 const sent = vi.hoisted(() => ({ prompt: vi.fn() }));
 vi.mock("./useConductor", () => ({
   useConductor: () => ({ prompt: sent.prompt, cancel: vi.fn() }),
@@ -101,7 +77,6 @@ const row = (
   recencyAt: 1_000,
 });
 
-/** Both hosts carry a terminal; the REMOTE one is the one that moves. */
 const here = () =>
   row(LOCAL, "aaaaaaaa-0000-4000-8000-000000000001", "alpha", "here");
 const there = (intent: string) =>
@@ -112,13 +87,9 @@ const STATE = {
   commands: [],
 } as unknown as ConductorState;
 
-/** The works the menu offers, as kolu would have them: one waiting on the
- *  human, one the agents are on, one merged. */
 const AGENTS = "branch:local/%2Fr/agents" as WorkId;
 const PANE = "branch:local/%2Fr/pane" as WorkId;
 const FOLDERS = "branch:local/%2Fr/folders" as WorkId;
-/** The fleet ref of the local terminal above — `host/id`, the key membership
- *  is kept under. */
 const ALPHA_REF = "local/aaaaaaaa-0000-4000-8000-000000000001";
 
 const opened = (title: string, branch: string): Work =>
@@ -129,12 +100,6 @@ const opened = (title: string, branch: string): Work =>
     request: { kind: "none" },
   });
 
-/** In the works collection's own order: in progress oldest first, then the
- *  finished ones. The one with a question open — the one that needs the
- *  human — is the SECOND of them, so a menu that offers it first is offering
- *  it by the needs-you reading and not by the collection's order.
- *
- *  Immutable records, so one list serves every test. */
 const WORKS: WorkRow[] = [
   [PANE, opened("Page chats open in a pane", "pane")],
   [
@@ -163,7 +128,6 @@ const WORKS: WorkRow[] = [
     }),
   ],
 ];
-/** The one reading of what needs the human, over those records. */
 const NEEDS: ReadonlyArray<NeedsYou> = needsYou(WORKS);
 
 let dispose: (() => void) | undefined;
@@ -182,11 +146,6 @@ afterEach(() => {
   mirror.membership = () => new Map();
 });
 
-/** Mount the composer over a fleet whose rows the caller can move — and over
- *  the works it names — and put `text` in the box with the caret at its end:
- *  the input event is how the component learns where the caret is, so the
- *  menu opens the way a typed `@` opens it rather than by poking at
- *  internals. */
 function mount(
   text: string,
   works: ReadonlyArray<WorkRow> = [],
@@ -225,7 +184,6 @@ function mount(
   return { el: root, box, tick: setRows };
 }
 
-/** What the one Send on screen was handed. */
 const sentMentions = (): ReadonlyArray<ConductorMention> =>
   sent.prompt.mock.calls[0]?.[1] as ReadonlyArray<ConductorMention>;
 
@@ -246,16 +204,12 @@ describe("the `@` menu across a fleet tick", () => {
       "bbbbbbbb-0000-4000-8000-000000000002",
     ]);
 
-    // The remote host retitles a terminal: a new row array, new row objects,
-    // new candidate objects — the whole fleet notification, as it arrives.
     tick([here(), there("second")]);
 
     const after = rowsIn(el, "conductor-mention-row");
     expect(after).toHaveLength(2);
     expect(after[0]).toBe(before[0]);
     expect(after[1]).toBe(before[1]);
-    // …and the retained node is LIVE, not frozen: the host that moved shows
-    // its new intent inside the very node that was kept.
     expect(after[1]?.textContent).toContain("second");
   });
 
@@ -298,8 +252,6 @@ describe("the `@` menu offers the works first", () => {
     const details = rowsIn(el, "conductor-mention-detail")
       .filter((node) => node.dataset.kind === "work")
       .map((node) => node.textContent);
-    // THE CARD'S LEAD, not a second vocabulary for the same fact — the menu
-    // row says what the work column says about that work.
     expect(details).toEqual(
       [AGENTS, PANE, FOLDERS].map((id) => {
         const record = new Map(WORKS).get(id);
@@ -307,8 +259,6 @@ describe("the `@` menu offers the works first", () => {
         return standingLine(record, Option.none()).lead;
       }),
     );
-    // …which for the one waiting on a person names them, and for the one
-    // that ended names how.
     expect(details[0]).toMatch(/you/i);
     expect(details[2]).toBe("Merged #2401");
   });

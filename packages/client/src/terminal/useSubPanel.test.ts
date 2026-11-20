@@ -14,8 +14,6 @@ vi.mock("../hostScope/hostScopes", () => ({
       focusedTerminalId: () => h.focused,
       writeFocus: h.writeFocus,
     },
-    // No terminals collection in these tests: every tile's record is absent,
-    // so the split state reads its one default (`splitPanelState.ts`).
     wire: { terminals: undefined },
   }),
 }));
@@ -30,8 +28,6 @@ vi.mock("solid-sonner", () => ({
 
 import { repairTileTabs, useSubPanel } from "./useSubPanel";
 
-/** A `TerminalId` is a UUID-checked string, not a brand: the cast only names
- *  the type, and the repair never checks the shape — it only compares ids. */
 const T = (s: string) => s as TerminalId;
 
 const PARENT = "focus-test-parent" as TerminalId;
@@ -119,9 +115,6 @@ describe("useSubPanel focus verbs", () => {
       id: SUB,
       tileHint: PARENT,
     });
-    // The split was already open, so the landing SAVES NOTHING. A write of the
-    // state already shown is the loop that broke drag-to-resize
-    // (`splitPanelState.write`).
     expect(h.setSubPanel).not.toHaveBeenCalled();
   });
 
@@ -296,8 +289,6 @@ describe("useSubPanel focus verbs", () => {
   });
 
   it("answers the default saved split for a terminal with no record", () => {
-    // ONE answer for an unsaid split, and it is the record's absence that
-    // produces it — never a copy sitting in front of the record.
     expect(useSubPanel().savedSplit(PARENT)).toEqual({
       collapsed: false,
       panelSize: 0.3,
@@ -306,9 +297,6 @@ describe("useSubPanel focus verbs", () => {
   });
 });
 
-/** The panel's seams `repairTileTabs` drives, as spies — the rule's own
- *  vocabulary (`paneChrome` resolves the active tab), so nothing here can
- *  hand the repair a verb it is not allowed to call. */
 function repairSpies(active: TerminalId | null) {
   return {
     collapsePanel: vi.fn<(id: TerminalId) => void>(),
@@ -321,8 +309,6 @@ function repairSpies(active: TerminalId | null) {
 
 describe("repairTileTabs", () => {
   it("leaves an active tab that is still a pane of the tile alone", () => {
-    // The same-tile move (a split dropped on its own sibling) arrives here: the
-    // moved terminal is STILL under the tile, so the strip needs nothing.
     const p = repairSpies(T("S1"));
     repairTileTabs(p, T("P"), [T("S1"), T("S2")], false);
     expect(p.setActiveSubTab).not.toHaveBeenCalled();
@@ -338,10 +324,6 @@ describe("repairTileTabs", () => {
   });
 
   it("replaces a tab left dangling at a pane that departed WITH its parent", () => {
-    // R ← M ← G, and R ← S. R's active tab is G. Dragging M away takes G with
-    // it, so the "is the active tab the pane that left?" test (M) would miss G
-    // and leave the strip pointing at a terminal that is no longer under R —
-    // the dangling state this repair exists to forbid.
     const p = repairSpies(T("G"));
     repairTileTabs(p, T("R"), [T("S")], false);
     expect(p.setActiveSubTab).toHaveBeenCalledExactlyOnceWith(T("R"), T("S"));

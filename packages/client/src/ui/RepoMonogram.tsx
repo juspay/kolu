@@ -1,13 +1,3 @@
-/** Solid monogram tile — the shared paint atom for repo (and host) identity.
- *
- *  Glyph from `repoMonogram()`; colour via `--repo-color` (set from
- *  `repoColor` / `hostHue`). Size modifiers only — the fill formula lives
- *  once in `.repo-monogram` CSS so dock / palette / restore / inspector /
- *  title never drift.
- *
- *  Not a layout wrapper: each surface composes this next to its own
- *  spine / wash / row chrome (Hickey: paint atom ≠ dock card). */
-
 import type { Component } from "solid-js";
 import { repoMonogram } from "./monogramGlyph";
 

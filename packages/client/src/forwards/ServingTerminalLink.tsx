@@ -1,23 +1,3 @@
-/** The way back to the terminal serving a forwarded port — carried by the
- *  terminal's NAME.
- *
- *  This is the third cut, and the first two failed the same way. A bare `↗` at
- *  ten pixels beside three other glyphs was indistinguishable from decoration.
- *  Then the port number itself carried the link, under a dotted rule at 40%
- *  opacity — which the field verdict was blunt about: *the link is invisible, I
- *  could not find it at all.*
- *
- *  Both spent the affordance on chrome. The fix is to spend it on the ANSWER:
- *  every one of these rows raises "what IS this?", the scanner already knows
- *  which terminal serves the port, so the row SAYS which terminal — and that
- *  name, being the answer, is also the way to it. A visible thing the user
- *  wanted to read anyway beats an invisible thing they had to guess at.
- *
- *  Accent-coloured and underlined AT REST, deliberately: a hover-only reveal
- *  fails identically to an invisible one, because you have to already suspect
- *  the link to go looking for it.
- */
-
 import type { Component } from "solid-js";
 
 export const ServingTerminalLink: Component<{

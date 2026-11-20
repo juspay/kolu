@@ -1,21 +1,9 @@
-/** A PIECE OF WORK, NAMED — the one drawing of a work's name outside its own
- *  card: a dot for who the work is waiting on (the standing line's colour;
- *  violet, and pulsing, when it is you), or the finished colour once it is
- *  over, and the work's title.
- *
- *  Not interactive by itself. `WorkChip` wraps it in the button that brings
- *  the work into view; a "which work?" menu draws it inside its own option
- *  button; a window with nowhere to bring a work into (the reader popped out
- *  on its own) draws it as it is. */
-
 import { Option } from "effect";
 import type { Work } from "kolu-work";
 import { type Component, createMemo } from "solid-js";
 import { standingLine, WORK_DOT } from "./workReadings";
 
 const WorkChipFace: Component<{ work: Work }> = (props) => {
-  /** Who the dot is for — the reading the card's standing line makes,
-   *  without the live check tally the dot has no use for. */
   const who = createMemo(() => standingLine(props.work, Option.none()).who);
   return (
     <span

@@ -1,26 +1,8 @@
-/** The dependency separation the dock's cost rests on.
- *
- *  Two facts arrive per host on very different clocks: the attention CLASS
- *  moves when an agent transitions, and the LIVE set churns on kaval's ~1 s
- *  byte-motion window — every time any terminal prints a line. The dock's
- *  rank-and-paint memo is an O(n log n) sort plus a regroup, and it reads the
- *  class.
- *
- *  So a class read must never subscribe to `liveIds`. If it does, a terminal
- *  printing output re-sorts the whole dock once a second, and nothing on screen
- *  changes to show for it. This is a re-run-count test rather than a value test
- *  for that reason — the answers stay correct either way; it is the WAKING that
- *  regresses, silently, and only under load.
- *
- *  It is easy to lose by tidying: the obvious simplification is one memo
- *  covering the whole frame. These tests are what should stop that. */
-
 import type { TerminalId } from "kolu-common/surface";
 import { createComputed, createRoot, createSignal } from "solid-js";
 import { beforeEach, describe, expect, it } from "vitest";
 import {
-  forgetHostIndex,
-  registerHostFacts,
+  registerHostAttention,
   liveAskingTotal,
   type HostMarks,
   hostFrame,
@@ -31,13 +13,14 @@ import {
 const HOST = "local";
 const A = "t-a" as TerminalId;
 
+let dropHost: (() => void) | undefined;
+
 beforeEach(() => {
+  dropHost?.();
+  dropHost = undefined;
   writeHostMarks(HOST, undefined);
-  forgetHostIndex(HOST);
 });
 
-/** Count how many times a reactive read of `fn` re-runs, driving `steps`
- *  between counts. Returns the count after each step. */
 function countReruns(fn: () => unknown, steps: readonly (() => void)[]) {
   return createRoot((dispose) => {
     let runs = 0;
@@ -63,24 +46,24 @@ function fixture(initial: Partial<Omit<HostMarks, "unseenFinished">> = {}) {
     reported: true,
     ...initial,
   });
-  // Separate source signals, like the urgency and activity subscriptions.
   const [byClass, setByClass] = createSignal(frame().byClass);
   const [liveIds, setLiveIds] = createSignal(frame().liveIds);
-  registerHostFacts(HOST, () => ({
-    get byClass() {
-      return byClass();
-    },
-    get liveIds() {
-      return liveIds();
-    },
-    get live() {
-      return frame().live;
-    },
-    get reported() {
-      return frame().reported;
-    },
-  }));
-  writeHostMarks(HOST, {});
+  dropHost = registerHostAttention(HOST, {
+    facts: () => ({
+      get byClass() {
+        return byClass();
+      },
+      get liveIds() {
+        return liveIds();
+      },
+      get live() {
+        return frame().live;
+      },
+      get reported() {
+        return frame().reported;
+      },
+    }),
+  });
   return (next: Partial<Omit<HostMarks, "unseenFinished">>) => {
     if (next.byClass) setByClass(next.byClass);
     if (next.liveIds) setLiveIds(next.liveIds);
@@ -99,11 +82,9 @@ describe("a class read does not wake on the live set", () => {
     const after = countReruns(
       () => terminalClass(HOST, A),
       [
-        // Three consecutive live-set writes — a terminal printing output.
         () => update({ liveIds: [A] }),
         () => update({ liveIds: [] }),
         () => update({ liveIds: [A] }),
-        // Now the agent actually transitions.
         () =>
           update({
             byClass: { asking: [A], working: [], linger: [], finished: [] },
@@ -111,15 +92,11 @@ describe("a class read does not wake on the live set", () => {
       ],
     );
 
-    // One initial run, unmoved by all three byte ticks…
     expect(after.slice(0, 3)).toEqual([1, 1, 1]);
-    // …and exactly one more when the class genuinely changed.
     expect(after[3]).toBe(2);
   });
 
   it("still reports the right class either way", () => {
-    // The separation is about WAKING, not about answers — pin the answers too,
-    // so a future fix for one can't quietly break the other.
     const update = fixture({
       reported: true,
       byClass: { asking: [], working: [A], linger: [], finished: [] },
@@ -137,11 +114,6 @@ describe("a class read does not wake on the live set", () => {
   });
 
   it("leaves the untouched legs referentially identical, which is what carries it", () => {
-    // The mechanism underneath: Solid's store writes per-property, so a
-    // `liveIds`-only merge never replaces the `byClass` node. If a future
-    // `writeHostMarks` rebuilt the record wholesale, every test above would
-    // still pass on values and the waking would regress — this is the guard
-    // for that.
     const update = fixture({
       reported: true,
       byClass: { asking: [], working: [A], linger: [], finished: [] },

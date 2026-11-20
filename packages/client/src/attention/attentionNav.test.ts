@@ -1,9 +1,3 @@
-/** The jump seam's two laws: one owner, and clicks that WALK the set.
- *
- *  Both are things you would otherwise only discover from behaviour — a second
- *  owner silently winning, or a capsule that bounces on the first blocked agent
- *  and never reaches the rest. */
-
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { jumpToAsking, registerAttentionJump } from "./attentionNav";
 
