@@ -2,11 +2,11 @@ import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it, vi } from "vitest";
 import {
   type ContentPart,
-  deriveSessionState,
   findSessionsByDirectory,
   getLatestAssistantFacts,
   parseMessageState,
   runningToolsBucket,
+  stateFromLatestConversationalMessage,
 } from "./core.ts";
 
 function spyLog() {
@@ -138,10 +138,12 @@ describe("parseMessageState", () => {
   });
 });
 
-describe("deriveSessionState", () => {
+describe("stateFromLatestConversationalMessage", () => {
   it("logs 'no messages yet' at debug for a genuinely empty session", () => {
     const log = spyLog();
-    expect(deriveSessionState("s1", log, withSession([]))).toBeNull();
+    expect(
+      stateFromLatestConversationalMessage("s1", log, withSession([])),
+    ).toBeNull();
     expect(log.debug).toHaveBeenCalledWith(expect.anything(), NO_MESSAGES_MSG);
     expect(log.error).not.toHaveBeenCalled();
   });
@@ -149,7 +151,7 @@ describe("deriveSessionState", () => {
   it("logs a parse error — never 'no messages yet' — for a malformed latest row", () => {
     const log = spyLog();
     const db = withSession([{ type: "assistant", data: "not json" }]);
-    expect(deriveSessionState("s1", log, db)).toBeNull();
+    expect(stateFromLatestConversationalMessage("s1", log, db)).toBeNull();
     expect(log.error).toHaveBeenCalledWith(
       expect.objectContaining({ sessionId: "s1" }),
       PARSE_FAILED_MSG,
@@ -169,7 +171,7 @@ describe("deriveSessionState", () => {
         time_created: 2,
       },
     ]);
-    expect(deriveSessionState("s1", undefined, db)).toEqual({
+    expect(stateFromLatestConversationalMessage("s1", undefined, db)).toEqual({
       state: "waiting",
     });
   });
@@ -184,7 +186,7 @@ describe("deriveSessionState", () => {
       { type: "idle", data: { outcome: "succeeded" } },
       { type: "system", data: { text: "The available tools have changed." } },
     ]);
-    expect(deriveSessionState("s1", undefined, db)).toEqual({
+    expect(stateFromLatestConversationalMessage("s1", undefined, db)).toEqual({
       state: "waiting",
     });
   });
@@ -207,7 +209,7 @@ describe("deriveSessionState", () => {
         },
       },
     ]);
-    expect(deriveSessionState("s1", undefined, db)).toEqual({
+    expect(stateFromLatestConversationalMessage("s1", undefined, db)).toEqual({
       state: "awaiting_user",
     });
   });
@@ -270,6 +272,7 @@ describe("getLatestAssistantFacts", () => {
     ]);
 
     expect(getLatestAssistantFacts("s1", undefined, db)).toEqual({
+      kind: "facts",
       model: "anthropic/claude-opus-4-6",
       contextTokens: 3_000 + 10 + 5 + 20_000 + 1,
     });
@@ -284,6 +287,7 @@ describe("getLatestAssistantFacts", () => {
       { type: "assistant", data: { model: { id: "m2", providerID: "p" } } },
     ]);
     expect(getLatestAssistantFacts("s1", undefined, db)).toEqual({
+      kind: "facts",
       model: "p/m2",
       contextTokens: 116,
     });
@@ -295,9 +299,11 @@ describe("getLatestAssistantFacts", () => {
       { type: "compaction", data: { status: "completed", summary: "…" } },
       { type: "user", data: { text: "continue" } },
     ]);
-    expect(getLatestAssistantFacts("s1", undefined, db)?.contextTokens).toBe(
-      null,
-    );
+    expect(getLatestAssistantFacts("s1", undefined, db)).toEqual({
+      kind: "facts",
+      model: null,
+      contextTokens: null,
+    });
   });
 
   it("counts nothing at or after the session's revert boundary", () => {
@@ -309,9 +315,11 @@ describe("getLatestAssistantFacts", () => {
       ],
       { revert: { messageID: "m1" } },
     );
-    expect(getLatestAssistantFacts("s1", undefined, db)?.contextTokens).toBe(
-      116,
-    );
+    expect(getLatestAssistantFacts("s1", undefined, db)).toEqual({
+      kind: "facts",
+      model: null,
+      contextTokens: 116,
+    });
   });
 
   it("counts nothing when the revert boundary names no message", () => {
@@ -321,9 +329,11 @@ describe("getLatestAssistantFacts", () => {
         revert: { messageID: "gone" },
       },
     );
-    expect(getLatestAssistantFacts("s1", undefined, db)?.contextTokens).toBe(
-      null,
-    );
+    expect(getLatestAssistantFacts("s1", undefined, db)).toEqual({
+      kind: "facts",
+      model: null,
+      contextTokens: null,
+    });
   });
 
   it("falls back to the model id alone if providerID is missing", () => {
@@ -331,14 +341,17 @@ describe("getLatestAssistantFacts", () => {
       { type: "assistant", data: { model: { id: "glm-latest" } } },
     ]);
     expect(getLatestAssistantFacts("s1", undefined, db)).toEqual({
+      kind: "facts",
       model: "glm-latest",
       contextTokens: null,
     });
   });
 
-  it("returns null before the first assistant message", () => {
+  it("reports absent before the first assistant message", () => {
     const db = withSession([{ type: "user", data: { text: "hi" } }]);
-    expect(getLatestAssistantFacts("s1", undefined, db)).toBeNull();
+    expect(getLatestAssistantFacts("s1", undefined, db)).toEqual({
+      kind: "absent",
+    });
   });
 });
 

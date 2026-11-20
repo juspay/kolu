@@ -1,24 +1,19 @@
-/**
- * Peers import from their leaves; `index.ts` is a pure barrel so nothing
- * has to reach back through it. Breaks the index ↔ session-watcher ↔
- * agent-adapter cycle (#710).
- */
-
 export type { Logger } from "kolu-shared";
 export { opencodeAdapter } from "./agent-adapter.ts";
 export { OPENCODE_DB_PATH, OPENCODE_DB_WAL_PATH } from "./config.ts";
 
 export {
+  type AssistantFacts,
   type ContentPart,
-  deriveSessionState,
   findSessionsByDirectory,
   getLatestAssistantFacts,
   getSessionTitle,
+  type MessageState,
   type OpenCodeSession,
   openDb,
-  type ParsedMessageState,
   parseMessageState,
   runningToolsBucket,
+  stateFromLatestConversationalMessage,
 } from "./core.ts";
 export {
   type OpenCodeInfo,

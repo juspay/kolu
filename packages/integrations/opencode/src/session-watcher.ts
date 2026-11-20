@@ -3,12 +3,12 @@ import { agentInfoEqual } from "anyagent";
 import type { Logger } from "kolu-shared";
 import { createDebounceWatcher } from "kolu-shared/sqlite";
 import {
-  deriveSessionState,
   getLatestAssistantFacts,
   getSessionStartedAt,
   getSessionTitle,
   type OpenCodeSession,
   openDb,
+  stateFromLatestConversationalMessage,
 } from "./core.ts";
 import type { OpenCodeInfo } from "./schemas.ts";
 import { subscribeOpenCodeDb } from "./wal-watcher.ts";
@@ -39,13 +39,14 @@ export function createOpenCodeWatcher(
   let startedAt: number | null = null;
 
   function refresh(db: DatabaseSync): OpenCodeInfo | null {
-    const derived = deriveSessionState(session.id, log, db);
+    const derived = stateFromLatestConversationalMessage(session.id, log, db);
     if (!derived) {
       return null;
     }
 
     const summary = getSessionTitle(session.id, log, db) ?? session.title;
-    const assistant = getLatestAssistantFacts(session.id, log, db);
+    const facts = getLatestAssistantFacts(session.id, log, db);
+    const assistant = facts.kind === "facts" ? facts : null;
     startedAt ??= getSessionStartedAt(session.id, log, db);
 
     return {

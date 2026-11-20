@@ -34,8 +34,6 @@ export function openDb(log?: Logger): DatabaseSync | null {
   try {
     return new DatabaseSync(OPENCODE_DB_PATH, { readOnly: true });
   } catch (err) {
-    // ENOENT is the answer "OpenCode has never run here". Anything else is a
-    // failure to LOOK — see the twin in kolu-codex core.ts.
     if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
     log?.debug({ err, path: OPENCODE_DB_PATH }, "opencode db unavailable");
     return null;
@@ -140,36 +138,40 @@ export function getSessionStartedAt(
  * (`packages/tui/src/util/session.ts`) sums `input + output + reasoning +
  * cache.read + cache.write` (`TokenUsage.total`) and shows nothing when that
  * is ≤ 0.
- *
- * `null` carries THREE causes: the session has no assistant message yet, the
- * query threw, or the newest assistant blob would not parse (logged at
- * `error`).
  */
+export type AssistantFacts =
+  | { kind: "facts"; model: string | null; contextTokens: number | null }
+  | { kind: "absent" }
+  | { kind: "unreadable" };
+
 export function getLatestAssistantFacts(
   sessionId: string,
   log?: Logger,
   db?: DatabaseSync,
-): { model: string | null; contextTokens: number | null } | null {
-  return withDb(
+): AssistantFacts {
+  const facts = withDb<AssistantFacts>(
     (conn) => {
       const latest = conn
         .prepare(
           "SELECT data FROM session_message WHERE session_id = ? AND type = 'assistant' ORDER BY seq DESC LIMIT 1",
         )
         .get(sessionId) as { data: string } | undefined;
-      if (!latest) return null;
+      if (!latest) return { kind: "absent" };
       const usage = latestUsageRow(conn, sessionId);
       try {
         return {
-          model: assistantModelLabel(parseData(latest.data)),
-          contextTokens: usage ? contextTokensOf(parseData(usage.data)) : null,
+          kind: "facts",
+          model: assistantModelLabel(JSON.parse(latest.data) as MessageData),
+          contextTokens: usage
+            ? contextTokensOf(JSON.parse(usage.data) as MessageData)
+            : null,
         };
       } catch (err) {
         log?.error(
           { err, sessionId },
           "opencode assistant message.data parse failed",
         );
-        return null;
+        return { kind: "unreadable" };
       }
     },
     "opencode assistant-facts query failed",
@@ -177,6 +179,7 @@ export function getLatestAssistantFacts(
     log,
     db,
   );
+  return facts ?? { kind: "unreadable" };
 }
 
 /** The assistant row whose `tokens` fill the context window now — upstream's
@@ -269,9 +272,7 @@ export function runningToolsBucket(
 export interface ContentPart {
   type?: string;
   text?: string;
-  /** Tool-call id. */
   id?: string;
-  /** Tool name. */
   name?: string;
   state?: {
     status?: string;
@@ -307,11 +308,6 @@ export interface MessageData {
   content?: ContentPart[];
 }
 
-/** Parse a `session_message.data` blob. Throws on malformed JSON. */
-export function parseData(data: string): MessageData {
-  return JSON.parse(data) as MessageData;
-}
-
 /** How one message blob names the model it ran on: the `provider/model`
  *  OpenCode records as `model.providerID` + `model.id` (`anthropic` +
  *  `claude-opus-4-6`), falling back to the id alone, `null` when it names
@@ -325,8 +321,7 @@ export function assistantModelLabel(
   return provider ? `${provider}/${id}` : id;
 }
 
-/** State derived from message JSON content only. */
-export type ParsedMessageState = {
+export type MessageState = {
   state: OpenCodeInfo["state"];
 };
 
@@ -335,15 +330,14 @@ export type ParsedMessageState = {
  * from it. Returns null if the session has no user/assistant messages or the
  * DB is absent.
  *
- * Pass an existing `db` to share a connection with the caller — used by
- * `createOpenCodeWatcher` to avoid opening/closing on every WAL event.
- * If `db` is omitted, opens and closes its own connection.
+ * Pass an existing `db` to share a connection with the caller; if `db` is
+ * omitted, this opens and closes its own connection.
  */
-export function deriveSessionState(
+export function stateFromLatestConversationalMessage(
   sessionId: string,
   log?: Logger,
   db?: DatabaseSync,
-): ParsedMessageState | null {
+): MessageState | null {
   return withDb(
     (conn) => {
       // Only the conversational rows say whose turn it is. 2.x also writes
@@ -377,10 +371,10 @@ export function parseMessageState(
   data: string,
   log?: Logger,
   sessionId?: string,
-): ParsedMessageState | null {
+): MessageState | null {
   let parsed: MessageData;
   try {
-    parsed = parseData(data);
+    parsed = JSON.parse(data) as MessageData;
   } catch (err) {
     log?.error({ err, sessionId }, "opencode message.data parse failed");
     return null;
@@ -388,13 +382,16 @@ export function parseMessageState(
 
   return match(type)
     .with("user", () => ({ state: "thinking" as const }))
-    .with("assistant", () => {
-      if (parsed.time?.completed && parsed.finish === "stop") {
-        return { state: "waiting" as const };
-      }
-      return {
-        state: runningToolsBucket(parsed.content) ?? ("thinking" as const),
-      };
-    })
+    .with("assistant", () =>
+      isFinishedTurn(parsed)
+        ? { state: "waiting" as const }
+        : {
+            state: runningToolsBucket(parsed.content) ?? ("thinking" as const),
+          },
+    )
     .otherwise(() => null);
+}
+
+function isFinishedTurn(m: MessageData): boolean {
+  return Boolean(m.time?.completed) && m.finish === "stop";
 }

@@ -12,17 +12,13 @@ import {
   type ContentPart,
   type MessageData,
   openDb,
-  parseData,
 } from "./core.ts";
 import { opencodeVocab } from "./schemas.ts";
-
-const MAX_PARENT_HOPS = 64;
 
 function walkToRoot(db: DatabaseSync, sessionId: string): string {
   const seen = new Set<string>();
   let current = sessionId;
-  for (let hop = 0; hop < MAX_PARENT_HOPS; hop++) {
-    if (seen.has(current)) return current;
+  while (!seen.has(current)) {
     seen.add(current);
     const row = db
       .prepare("SELECT parent_id FROM session_v2 WHERE id = ?")
@@ -184,15 +180,14 @@ export function stripDispatchPrompt(
   return childEvents[0]?.kind === "user" ? childEvents.slice(1) : childEvents;
 }
 
-/** Build transcript events from a single message's parts. The
- *  `inlineSubtask` callback resolves subagent-tool calls into nested
- *  events; `undefined` keeps the fold non-recursive. */
+/** Build transcript events from a single message's parts. `inlineSubtask`
+ *  resolves subagent-tool calls into the child session's nested events. */
 export function eventsFromMessageParts(
   messageRole: "user" | "assistant",
   modelLabel: string | null,
   messageTs: number | null,
   parts: ContentPart[],
-  inlineSubtask?: (
+  inlineSubtask: (
     childSessionId: string,
     description: string,
     ts: number | null,
@@ -238,7 +233,7 @@ export function eventsFromMessageParts(
           ts: messageTs,
         });
       }
-      if (SUBAGENT_TOOLS.has(p.name) && inlineSubtask) {
+      if (SUBAGENT_TOOLS.has(p.name)) {
         const childId = extractTaskChildSessionId(p);
         if (childId) {
           const rawInput = p.state?.input;
@@ -308,7 +303,7 @@ function loadSessionEvents(
   for (const row of rows) {
     let data: MessageData;
     try {
-      data = parseData(row.data);
+      data = JSON.parse(row.data) as MessageData;
     } catch {
       continue;
     }

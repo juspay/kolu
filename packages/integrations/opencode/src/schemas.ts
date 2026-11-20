@@ -1,9 +1,3 @@
-/** Effect Schema definitions for OpenCode session info — browser-safe.
- *
- *  Anything exported here MUST stay free of `node:*` imports and filesystem
- *  access — `effect`'s Schema and `anyagent`'s schema re-exports only
- *  (juspay/kolu#682). */
-
 import {
   type AgentVocab,
   type FlagArity,

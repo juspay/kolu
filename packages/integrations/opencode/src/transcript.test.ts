@@ -5,16 +5,24 @@ import {
   stripDispatchPrompt,
 } from "./transcript.ts";
 
+const noSubtasks = () => [];
+
 describe("eventsFromMessageParts", () => {
   it("returns [] for empty parts", () => {
-    expect(eventsFromMessageParts("user", null, null, [])).toEqual([]);
+    expect(eventsFromMessageParts("user", null, null, [], noSubtasks)).toEqual(
+      [],
+    );
   });
 
   it("emits user text from a user message's text part", () => {
     expect(
-      eventsFromMessageParts("user", null, 1000, [
-        { type: "text", text: "Hi" },
-      ]),
+      eventsFromMessageParts(
+        "user",
+        null,
+        1000,
+        [{ type: "text", text: "Hi" }],
+        noSubtasks,
+      ),
     ).toEqual([{ kind: "user", text: "Hi", ts: 1000 }]);
   });
 
@@ -27,6 +35,7 @@ describe("eventsFromMessageParts", () => {
         { type: "reasoning", text: "thinking..." },
         { type: "text", text: "Reply." },
       ],
+      noSubtasks,
     );
     expect(events).toEqual([
       { kind: "reasoning", text: "thinking...", ts: 2000 },
@@ -40,18 +49,24 @@ describe("eventsFromMessageParts", () => {
   });
 
   it("pairs a completed tool part into call + result events", () => {
-    const events = eventsFromMessageParts("assistant", null, 3000, [
-      {
-        type: "tool",
-        id: "call_1",
-        name: "glob",
-        state: {
-          status: "completed",
-          input: { pattern: "**/*.ts" },
-          content: [{ type: "text", text: "file.ts" }],
+    const events = eventsFromMessageParts(
+      "assistant",
+      null,
+      3000,
+      [
+        {
+          type: "tool",
+          id: "call_1",
+          name: "glob",
+          state: {
+            status: "completed",
+            input: { pattern: "**/*.ts" },
+            content: [{ type: "text", text: "file.ts" }],
+          },
         },
-      },
-    ]);
+      ],
+      noSubtasks,
+    );
     expect(events).toEqual([
       {
         kind: "tool_call",
@@ -71,30 +86,42 @@ describe("eventsFromMessageParts", () => {
   });
 
   it("emits a call without a result for an in-flight tool part", () => {
-    const events = eventsFromMessageParts("assistant", null, 3000, [
-      {
-        type: "tool",
-        id: "call_2",
-        name: "edit",
-        state: { status: "running", input: { filePath: "/x" } },
-      },
-    ]);
+    const events = eventsFromMessageParts(
+      "assistant",
+      null,
+      3000,
+      [
+        {
+          type: "tool",
+          id: "call_2",
+          name: "edit",
+          state: { status: "running", input: { filePath: "/x" } },
+        },
+      ],
+      noSubtasks,
+    );
     expect(events).toHaveLength(1);
     expect(events[0]).toMatchObject({ kind: "tool_call", toolName: "edit" });
   });
 
   it("flags isError on tool parts with status=error", () => {
-    const events = eventsFromMessageParts("assistant", null, 3000, [
-      {
-        type: "tool",
-        id: "call_3",
-        name: "shell",
-        state: {
-          status: "error",
-          error: { message: "non-zero exit" },
+    const events = eventsFromMessageParts(
+      "assistant",
+      null,
+      3000,
+      [
+        {
+          type: "tool",
+          id: "call_3",
+          name: "shell",
+          state: {
+            status: "error",
+            error: { message: "non-zero exit" },
+          },
         },
-      },
-    ]);
+      ],
+      noSubtasks,
+    );
     expect(events[1]).toMatchObject({
       kind: "tool_result",
       output: "non-zero exit",
@@ -230,12 +257,18 @@ describe("eventsFromMessageParts", () => {
   });
 
   it("skips empty text and reasoning parts (streaming artifacts)", () => {
-    const events = eventsFromMessageParts("assistant", null, 1000, [
-      { type: "text", text: "" },
-      { type: "text", text: "   " },
-      { type: "reasoning", text: "" },
-      { type: "text", text: "real reply" },
-    ]);
+    const events = eventsFromMessageParts(
+      "assistant",
+      null,
+      1000,
+      [
+        { type: "text", text: "" },
+        { type: "text", text: "   " },
+        { type: "reasoning", text: "" },
+        { type: "text", text: "real reply" },
+      ],
+      noSubtasks,
+    );
     expect(events).toEqual([
       { kind: "assistant", text: "real reply", model: null, ts: 1000 },
     ]);
