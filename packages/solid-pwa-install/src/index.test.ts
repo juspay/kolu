@@ -5,8 +5,6 @@ import {
   installInstructions,
 } from "./index";
 
-// Real-world user-agent strings, kept verbatim so a regex tweak that breaks a
-// shipping browser fails loudly here.
 const UA = {
   chromeDesktop:
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
@@ -105,7 +103,6 @@ describe("detectInstallPlatform", () => {
   });
 
   it("the same Mac UA is iOS with a touch screen but Safari without one", () => {
-    // The whole point of the maxTouchPoints tell: identical UA, opposite verdict.
     expect(detectInstallPlatform({ ua: UA.macSafari, maxTouchPoints: 5 })).toBe(
       "ios",
     );
