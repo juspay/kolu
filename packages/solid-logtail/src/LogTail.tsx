@@ -12,10 +12,9 @@ import { writeTextToClipboard } from "./clipboard";
  *  it kept. */
 export type LogLine = { readonly line: string };
 
-/** The ONE empty tail a consumer reaches for — a shared reference so a site with
- *  no output to narrate hands this component the SAME array across every
- *  re-resolve/repaint instead of a fresh `[]` literal (which would churn
- *  identity-keyed DOM on every tick even though nothing changed). */
+/** The ONE empty tail a consumer reaches for — a shared reference, so a site
+ *  with no output hands this component the SAME array on every re-resolve
+ *  instead of a fresh `[]` literal. */
 export const NO_LOG_LINES: readonly LogLine[] = [];
 
 const LOG_TAIL_SURFACE =
@@ -23,70 +22,56 @@ const LOG_TAIL_SURFACE =
 const LOG_TAIL_LINE = "whitespace-pre-wrap break-words";
 
 const COPIED_FLASH_MS = 1500;
+const SCROLL_BOTTOM_SLACK_PX = 2;
 
-/** The sentence a failed write reports. `writeTextToClipboard` fails with
- *  `Cause.UnknownError`, whose own `message` is Effect's generic wrapper text and
- *  whose `cause` (inherited from `Error`) is the real failure — so the cause is
- *  what a person needs to read: "clipboard access blocked", not "An error
- *  occurred in Effect.try". */
-const failureMessage = (error: Cause.UnknownError): string => {
-  const cause: unknown = error.cause;
-  return cause instanceof Error ? cause.message : String(cause);
+const createFlash = (ms: number): [() => boolean, () => void] => {
+  const [lit, setLit] = createSignal(false);
+  let cancel: (() => void) | undefined;
+  onCleanup(() => cancel?.());
+  return [
+    lit,
+    () => {
+      cancel?.();
+      setLit(true);
+      const timer = setTimeout(() => setLit(false), ms);
+      cancel = () => clearTimeout(timer);
+    },
+  ];
 };
 
 export interface LogTailProps {
   /** The rows to render — as many as the consumer chose to show (a tail). */
   lines: readonly LogLine[];
   /** The log to copy: everything the CALLER retained for this attempt — the
-   *  tail is a WINDOW onto it, so copying the window would hide exactly the
-   *  output the reader wanted the button for. Handed here rather than derived
-   *  because how much is kept is the caller's decision (kolu's session retains a
-   *  bounded tail of the host's output, not a whole transcript). */
+   *  tail is a WINDOW onto it. */
   log: readonly LogLine[];
   /** The block's test handle (each surface names its own). */
   testid: string;
-  /** Sizing, overflow and text scale — the one thing the call sites legitimately
-   *  differ on. Chrome (surface, wrap, corner button) is not negotiable and is
+  /** Sizing, overflow and text scale. Chrome (surface, wrap, corner button) is
    *  not a prop. */
   class?: string;
-  /** What to say when the clipboard write fails — the one part of this affordance
-   *  this package cannot decide. REQUIRED, and handed the failure's own sentence:
-   *  a caller with nothing to say passes a no-op explicitly rather than letting a
-   *  copy that did not happen look like one that did. */
+  /** What to say when the clipboard write fails. REQUIRED, handed the failure's
+   *  own sentence, and called only for a write that did not happen. */
   onCopyError: (message: string) => void;
 }
 
 export const LogTail: Component<LogTailProps> = (props) => {
   let box: HTMLDivElement | undefined;
-  const [copied, setCopied] = createSignal(false);
-  const [pinned, setPinned] = createSignal(true);
-
-  let cancelFlash: (() => void) | undefined;
-  onCleanup(() => cancelFlash?.());
-  const flashCopied = () => {
-    setCopied(true);
-    cancelFlash?.();
-    const timer = setTimeout(() => setCopied(false), COPIED_FLASH_MS);
-    cancelFlash = () => clearTimeout(timer);
-  };
+  const [copied, flashCopied] = createFlash(COPIED_FLASH_MS);
+  const [follow, setFollow] = createSignal<"newest" | "reader">("newest");
 
   createEffect(() => {
     const lines = props.lines;
-    if (lines.length > 0 && pinned() && box !== undefined) {
+    if (lines.length > 0 && follow() === "newest" && box !== undefined) {
       box.scrollTop = box.scrollHeight;
     }
   });
 
   const copy = () => {
-    // Built BEFORE the write, synchronously in the click handler: the
-    // `execCommand` fallback `writeTextToClipboard` may take is only legal
-    // inside the user-activation window (see `./clipboard`). It takes the FULL
-    // `log`, never the visible tail — the lines the block had to hide are the
-    // ones a person reaches for Copy for.
     const text = props.log.map((line) => line.line).join("\n");
     void Effect.runPromise(writeTextToClipboard(text)).then(
       flashCopied,
-      (error) => props.onCopyError(failureMessage(error)),
+      (error: Cause.UnknownError) => props.onCopyError(error.message),
     );
   };
 
@@ -98,7 +83,12 @@ export const LogTail: Component<LogTailProps> = (props) => {
         onScroll={() => {
           const el = box;
           if (el !== undefined) {
-            setPinned(el.scrollHeight - el.scrollTop - el.clientHeight <= 2);
+            setFollow(
+              el.scrollHeight - el.scrollTop - el.clientHeight <=
+                SCROLL_BOTTOM_SLACK_PX
+                ? "newest"
+                : "reader",
+            );
           }
         }}
         class={`${LOG_TAIL_SURFACE} w-full pr-12 ${props.class ?? ""}`}

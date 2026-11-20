@@ -19,7 +19,9 @@ vi.mock("./clipboard", async () => {
       h.written.push(text);
       return h.failWith === undefined
         ? Effect.succeed(undefined)
-        : Effect.fail(new Cause.UnknownError(new Error(h.failWith)));
+        : Effect.fail(
+            new Cause.UnknownError(new Error(h.failWith), h.failWith),
+          );
     },
   };
 });
