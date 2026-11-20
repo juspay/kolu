@@ -7,17 +7,11 @@
  * has asked for them:
  *
  *  - FOCUS reports (`?1004`): `CSI I` when the tile gains focus, `CSI O` when
- *    it loses it. Clicking into a tile to select text, or away from it, sends
- *    one.
- *  - Mouse WHEEL reports in SGR encoding (`?1006` with mouse tracking on): a
- *    TUI that tracks the mouse scrolls its own view on them, so the wheel is
- *    how a person scrolls that program.
+ *    it loses it.
+ *  - Mouse WHEEL reports in SGR encoding (`?1006` with mouse tracking on).
  *
- * Anything that gates a person's INPUT to a terminal while leaving reading
- * untouched (the Conductor's lock) must let exactly these through: blocking a
- * focus report nudges a person for clicking, and blocking a wheel report
- * stops them scrolling. Mouse CLICKS and drags are not here — in a program
- * that tracks the mouse a click is input to it.
+ * Mouse CLICKS and drags are not here — in a program that tracks the mouse a
+ * click is input to it.
  *
  * Whole-payload, like `isTerminalQueryResponse`: xterm's `onData` fires once
  * per generated event, so a report is never glued to a keystroke.

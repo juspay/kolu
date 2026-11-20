@@ -10,7 +10,6 @@ describe("isReadingReport", () => {
   it("passes SGR wheel up and down, with modifiers", () => {
     expect(isReadingReport("\x1b[<64;10;5M")).toBe(true);
     expect(isReadingReport("\x1b[<65;10;5M")).toBe(true);
-    // ctrl (16) + wheel down
     expect(isReadingReport("\x1b[<81;3;9M")).toBe(true);
   });
 

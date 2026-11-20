@@ -8,9 +8,8 @@
  *
  *   1. **Text XOR keys.** An Enter written in the same breath as the text races
  *      the driven TUI's paste debounce and is swallowed, leaving the prompt
- *      sitting unsent. There is no delay that fixes this — the caller cannot
- *      observe when the TUI settled — so the pair is a hard refusal rather than
- *      a warning, and submitting is its own separate send.
+ *      sitting unsent — a hard refusal rather than a warning, and submitting is
+ *      its own separate send.
  *   2. **An unknown key name is a refusal, never a no-op.** Encoding happens up
  *      front so nothing reaches the terminal on a half-legal request.
  *   3. **Auto bracketed paste.** Multiline text, or a payload that arrived as a
@@ -18,27 +17,9 @@
  *      takes it as ONE block instead of firing a half-written prompt at every
  *      `\n`. A single-line argument types literally. An explicit override wins.
  *   4. **An empty payload is a refusal, never a 0-byte "sent" — in EITHER
- *      content shape.** A write of nothing that answers "ok" is
- *      indistinguishable, to the loop above it, from a send that worked — so an
- *      empty `--file`, an empty pipe, a `kolu send <id> ""`, a
- *      `lifecycle_sendInput { text: "" }`, and an empty KEY LIST all fail loud
- *      instead of hiding whatever produced the empty payload. Emptiness is a
- *      property of the CONTENT, decidable wherever the content is, which is why
- *      it belongs beside the other three and not on one face: it used to live on
- *      argv only, and the MCP face answered the identical intent with success.
- *      The keys half is the same lesson one shape over — it was the text branch
- *      alone that checked, while `{ kind: "keys", names: [] }` planned a
- *      "successful" write of nothing; that both of today's faces happen to gate
- *      it upstream is a property of today's callers, not of this policy.
- *
- * It lives here, in the package that already owns the named-key grammar and the
- * paste delimiters these rules are ABOUT, because it was implemented twice —
- * once for `kolu send`, once for the MCP face's `lifecycle_sendInput` — with
- * near-identical prose in both. Those are not two vocabularies; they are one
- * policy about writing to a driven TUI, and two copies means the next refinement
- * lands on one face while a driver that switches from argv to MCP gets a
- * different answer to the same intent — which is not hypothetical: rule 4 was on
- * argv alone, and the MCP face wrote 0 bytes and said "ok".
+ *      content shape.** An empty `--file`, an empty pipe, a `kolu send <id> ""`,
+ *      a `lifecycle_sendInput { text: "" }`, and an empty KEY LIST all fail loud
+ *      instead of hiding whatever produced the empty payload.
  *
  * What is NOT here: where the text came from (`--file` / stdin / an argv
  * positional / an MCP field) and what a face calls its own flags. The first is
@@ -131,14 +112,6 @@ export function encodeSend(
   vocab: SendVocabulary,
 ): SendEncoding {
   if (content.kind === "keys") {
-    // Rule 4, the KEYS shape of it. An empty name list runs the loop zero times
-    // and would plan a write of "" — the same 0-byte "sent" the text branch
-    // refuses, and just as indistinguishable from a send that landed. Today's
-    // two faces each gate it before they get here (`kolu send` on
-    // `args.key.length > 0`, the MCP face by passing exactly one name), but this
-    // module is exported so a THIRD consumer need not re-derive the policy —
-    // and a caller that never sees the refusal is exactly the caller that would
-    // otherwise get the silent no-op.
     if (content.names.length === 0) {
       return {
         kind: "refused",
@@ -164,8 +137,7 @@ export function encodeSend(
 
   // Rule 4, before the paste fold: an empty payload wrapped in paste markers is
   // still nothing to submit, and the markers would make the byte count lie about
-  // it. The sentence names the caller's OWN source and key flag, so it reads the
-  // same whether the empty text arrived as `--file ""` or as `{ text: "" }`.
+  // it.
   if (content.text.length === 0) {
     return {
       kind: "refused",

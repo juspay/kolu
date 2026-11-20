@@ -5,8 +5,6 @@ import {
 } from "./bracketedPaste.ts";
 import { createSubmitScanner } from "./submitInput.ts";
 
-/** Feed `writes` in order to one fresh scanner reading `Enter` as the submit
- *  (every agent kolu drives today); which of them submitted. */
 const scan = (...writes: string[]): boolean[] => {
   const submits = createSubmitScanner(["Enter"]);
   return writes.map(submits);
@@ -21,7 +19,6 @@ describe("createSubmitScanner — what hands a prompt to the program", () => {
 
   it("a newline INSIDE a paste is a line of the paste, not a submit", () => {
     expect(scan(`${START}line one\rline two\n${END}`)).toEqual([false]);
-    // …and the Enter after the paste is the submit.
     expect(scan(`${START}a\rb${END}`, "\r")).toEqual([false, true]);
     expect(scan(`${START}a\rb${END}\r`)).toEqual([true]);
   });

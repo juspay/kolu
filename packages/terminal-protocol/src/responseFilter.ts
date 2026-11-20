@@ -4,46 +4,30 @@
  *
  * The server runs a headless xterm that already answers device queries
  * (DA1/DA2, DSR/CPR, DECRQM, XTVERSION, window/colour reports, …). A mirroring
- * client's terminal answers them too — the browser xterm (`Terminal.tsx`
- * `onData`), or the user's real terminal when `kolu-tui attach` passes the PTY
- * bytes through raw — and those duplicate answers, arriving late over the
- * wire, get echoed back into the PTY and printed as visible garbage (the
- * yazi/TUI escape-soup bug). Both clients suppress the SAME response classes —
- * the three grammars below — so the suppressed set can never drift between
- * them; they differ only in how they slice the input.
+ * client's terminal answers them too, and those duplicate answers, arriving
+ * late over the wire, get echoed back into the PTY and printed as visible
+ * garbage. Both clients suppress the SAME response classes — the three
+ * grammars below — so the suppressed set can never drift between them; they
+ * differ only in how they slice the input.
  *
  * Two entry points, for two stream shapes:
  *
  *   - `isTerminalQueryResponse` — a whole-payload predicate, for callers that
- *     already get one discrete source event per call. xterm's `onData` is
- *     exactly that: it fires once per terminal-generated event (a keystroke, a
- *     paste, a single reply packet), so a real keystroke and a reply are never
- *     coalesced and dropping a chunk that *is* a reply cannot eat real input.
- *     The grammars are still anchored to the full payload (`^…$`), so a chunk
- *     that merely *contains* a response shape is forwarded untouched.
- *
+ *     already get one discrete source event per call (xterm's `onData`). The
+ *     grammars are anchored to the full payload (`^…$`), so a chunk that merely
+ *     *contains* a response shape is forwarded untouched.
  *   - `createTerminalResponseStripper` — a streaming, boundary-aware filter,
- *     for the raw-tty path (`kolu-tui attach`). A raw tty read gives NO
- *     one-event-per-read guarantee: the kernel/libuv and the line discipline
- *     can split one reply across reads, coalesce several, or glue a reply to a
- *     keystroke. The whole-payload predicate would forward duplicates (or eat
- *     input) on those chunks, so the stripper isolates each VT sequence at its
- *     boundary, tests JUST that sequence, and drops only the matches — see its
- *     own doc comment below.
+ *     for the raw-tty path, where a read can split one reply across reads,
+ *     coalesce several, or glue a reply to a keystroke.
  *
  * INVARIANT (one answerer, or none): every sequence class this module
  * suppresses is in exactly one of two deliberate states —
  *
  *   1. ANSWERED by the headless server (DA1/DA2 · DSR/CPR · DECRPM · DECRQSS
  *      natively; XTVERSION via the hand-rolled handler in
- *      `pty-host/src/ptyHost.ts`) and forwarded to the PTY child. Dropping the
- *      mirroring client's duplicate is then safe: exactly one answerer.
+ *      `pty-host/src/ptyHost.ts`) and forwarded to the PTY child.
  *   2. UNIFORMLY SILENT — the headless does NOT answer it (colour reports,
- *      window-size reports: it has no theme and no window) and the forwarder
- *      drops `ESC ]` regardless, so suppressing the browser's theme-derived
- *      reply keeps kolu's clients consistent with that silence. Programs
- *      querying these carry their own timeout fallbacks; consistent silence
- *      beats answers that differ per attached client.
+ *      window-size reports) and the forwarder drops `ESC ]` regardless.
  *
  * What must NEVER happen is a suppressed class the inner program needs that
  * lands in neither state. The table is pinned mechanically by the
@@ -68,15 +52,10 @@ const CSI_RESPONSE = /^\x1b\[[?>=]?[\d;]*(?:\$y|[cnRt])$/;
 // OSC *colour* responses — NOT every OSC packet:
 //   OSC 4 ; index ; rgb:… (BEL|ST)   palette colour report
 //   OSC 10–19 ; rgb:… (BEL|ST)       dynamic colours (fg/bg/cursor/…)
-// The "uniformly silent" arm of the invariant: the headless never answers
-// colour queries (no theme — pinned in ptyHost.test.ts), so the browser's
-// theme-derived reply isn't a duplicate, it's a per-client divergence —
-// suppressed to keep kolu consistently silent here. Critically this does
-// NOT match OSC 52 (clipboard): with `ClipboardAddon`/`SafeClipboardProvider`
-// loaded, the OSC 52 *read* reply (`OSC 52 ; c ; <base64> …`) is generated
-// only in the browser from the real system clipboard — the headless terminal
-// has no clipboard provider and never answers it — so that reply must reach the
-// PTY and is deliberately left forwarded.
+// Critically this does NOT match OSC 52 (clipboard): the OSC 52 *read* reply
+// (`OSC 52 ; c ; <base64> …`) is generated only in the browser from the real
+// system clipboard — the headless terminal has no clipboard provider and never
+// answers it — so that reply must reach the PTY and is deliberately forwarded.
 const OSC_COLOUR_RESPONSE = /^\x1b\](?:4|1[0-9]);[\s\S]*?(?:\x07|\x1b\\)$/;
 
 // DCS responses, anchored to the whole payload and to the response introducers
@@ -85,12 +64,10 @@ const OSC_COLOUR_RESPONSE = /^\x1b\](?:4|1[0-9]);[\s\S]*?(?:\x07|\x1b\\)$/;
 //   DECRQSS     ESC P [01] $ r … ST   (valid/invalid setting reports)
 // Sixel/DECUDK/etc. are program *output*, never keyboard input, and don't carry
 // these introducers, so they stay forwarded.
-//
 // Both DCS classes sit on the ANSWERED arm of the invariant: DECRQSS the
 // headless answers natively, XTVERSION via ptyHost.ts's explicit CSI `> q`
-// handler (the load-bearing case — a TUI like Yazi blocks on it, and without
-// the handler we'd drop the browser's reply while nothing else answered).
-// Before adding a new suppressed class anywhere in this module, extend the
+// handler (the load-bearing case — a TUI like Yazi blocks on it). Before
+// adding a new suppressed class anywhere in this module, extend the
 // device-query contract tests in `pty-host/src/ptyHost.test.ts` so the class
 // is pinned to one arm — answered-and-forwarded, or uniformly silent.
 const DCS_RESPONSE = /^\x1bP(?:>\||[01]\$r)[\s\S]*?\x1b\\$/;
@@ -104,44 +81,6 @@ export function isTerminalQueryResponse(data: string): boolean {
   );
 }
 
-/**
- * The STREAMING form of the predicate, for the raw-tty path.
- *
- * `isTerminalQueryResponse` is a whole-payload predicate: it is correct only
- * when the caller already has one discrete source event per call (xterm's
- * `onData`). A raw tty read gives no such guarantee — Node/libuv and the line
- * discipline can split one reply across two reads, coalesce several replies
- * into one read, or sit a reply right up against a real keystroke. Feeding such
- * a chunk to the whole-payload predicate either forwards a duplicate reply (the
- * yazi escape-soup bug this whole module exists to kill) or, worse, drops real
- * input that happened to be glued to a reply.
- *
- * The stripper instead works at the escape-sequence boundary. It walks the byte
- * stream, isolating each complete VT control sequence (CSI / OSC / DCS — the
- * only shapes a query reply can take), tests JUST that sequence against the same
- * three response grammars above, drops it when it matches, and forwards
- * everything else (plain bytes, keystrokes, arrow-key CSIs, program-output
- * escapes) untouched and IN ORDER. Once a sequence's INTRODUCER is known (we've
- * seen `ESC [`, `ESC ]`, or `ESC P`) a partial tail is held and completed
- * against the next chunk, so a reply split across reads is reassembled before
- * it is judged.
- *
- * The one byte it will NOT hold across a chunk boundary is a *bare trailing
- * ESC* — an ESC whose introducer hasn't arrived yet. A lone ESC is far more
- * often the Escape key (or the start of an Alt-chord) than the first byte of a
- * reply that happened to split at exactly its second byte, and the inner
- * program does its own ESC-vs-Alt timeout on the byte's ARRIVAL at the PTY.
- * Buffering it until the next keystroke would merge `Esc` then `i` into `Alt-i`
- * and wreck interactive editors over the wire. So a trailing bare ESC is
- * forwarded at end-of-push; the cost is the (vanishingly rare) reply that
- * splits precisely between its ESC and its introducer, whose bytes then leak —
- * the pre-existing whole-chunk behaviour, no worse than before.
- *
- * Forwarding-on-no-match is the safe default throughout: only the three
- * response classes are ever suppressed, so the worst case for an unrecognised
- * escape is that it reaches the PTY (exactly what it would have done without
- * this filter).
- */
 const ESC = 0x1b;
 const BEL = 0x07;
 const LBRACKET = 0x5b; // [
@@ -164,7 +103,6 @@ const BACKSLASH = 0x5c; // \  (the ST in ESC \)
 // reaches the PTY — the safe default everywhere else in this filter.
 const MAX_STRING_SEQ = 8192;
 
-/** What kind of escape sequence the pending buffer is accumulating. */
 type Pending =
   | { kind: "none" }
   /** Saw a bare ESC; the next byte decides CSI / OSC / DCS / short. Never held
@@ -186,19 +124,32 @@ export interface TerminalResponseStripper {
   push(chunk: Buffer): Buffer;
 }
 
+/**
+ * The STREAMING form of the predicate, for the raw-tty path.
+ *
+ * A raw tty read gives no one-event-per-read guarantee — Node/libuv and the
+ * line discipline can split one reply across two reads, coalesce several, or
+ * sit a reply right up against a real keystroke. The stripper works at the
+ * escape-sequence boundary: it isolates each complete VT control sequence (CSI
+ * / OSC / DCS), tests JUST that sequence against the same three response
+ * grammars above, drops it when it matches, and forwards everything else
+ * untouched and IN ORDER. Once a sequence's INTRODUCER is known a partial tail
+ * is held and completed against the next chunk.
+ *
+ * The one byte it will NOT hold across a chunk boundary is a *bare trailing
+ * ESC*. Buffering it until the next keystroke would merge `Esc` then `i` into
+ * `Alt-i` and wreck interactive editors over the wire, so a trailing bare ESC
+ * is forwarded at end-of-push.
+ *
+ * Forwarding-on-no-match is the safe default throughout: only the three
+ * response classes are ever suppressed.
+ */
 export function createTerminalResponseStripper(): TerminalResponseStripper {
-  // Bytes confirmed-forwardable, accumulated for this push() call.
   let out: number[] = [];
-  // The escape sequence currently being isolated (may span chunks).
   let seq: number[] = [];
   let pending: Pending = { kind: "none" };
 
-  // The isolated sequence is complete — decide its fate, then reset.
   const finishSequence = (): void => {
-    // latin1 is byte-exact for the all-ASCII response grammars; build the
-    // string straight from the byte values (no intermediate Buffer, and no
-    // fromCharCode spread — CSI sequences have no length cap, and a spread
-    // that large would blow the stack).
     let text = "";
     for (const b of seq) text += String.fromCharCode(b);
     if (!isTerminalQueryResponse(text)) {
@@ -211,8 +162,7 @@ export function createTerminalResponseStripper(): TerminalResponseStripper {
   // A string sequence (OSC / DCS) that has outrun any legitimate reply without
   // terminating — fail open: forward what we buffered and reset, so a
   // user-typed `ESC ]` / `ESC P` (Alt+], Alt+Shift+P) can never swallow the
-  // session (see MAX_STRING_SEQ). The bytes were never a suppressible reply, so
-  // forwarding them is the same safe default as any unrecognised escape.
+  // session (see MAX_STRING_SEQ).
   const failOpenSequence = (): void => {
     for (const b of seq) out.push(b);
     seq = [];
@@ -232,7 +182,6 @@ export function createTerminalResponseStripper(): TerminalResponseStripper {
           }
           continue;
         }
-        // We are inside a candidate escape sequence.
         seq.push(b);
         if (pending.kind === "esc") {
           if (b === LBRACKET) pending = { kind: "csi" };
@@ -261,20 +210,17 @@ export function createTerminalResponseStripper(): TerminalResponseStripper {
           pending = { kind: "string", escSeen: true };
         }
         // Cap enforced after terminator handling, on EVERY byte still in string
-        // mode — not branch-local. An ESC-heavy tail (`ESC ]` then a run of ESC
-        // bytes, or repeated `ESC x` pairs) keeps flipping `escSeen` and would
-        // otherwise sail past a length check buried in the dispatch above,
-        // growing `seq` forever. Check the live state once the byte is placed.
+        // mode — not branch-local. An ESC-heavy tail keeps flipping `escSeen`
+        // and would otherwise sail past a length check buried in the dispatch
+        // above, growing `seq` forever.
         if (pending.kind === "string" && seq.length >= MAX_STRING_SEQ) {
-          // No terminator in sight after a generous run — fail open rather than
-          // buffer the rest of the session behind a stray `ESC ]` / `ESC P`.
           failOpenSequence();
         }
       }
       // End of chunk. A bare trailing ESC (introducer still unknown) is NOT
       // held — forward it now so the inner program's Escape-vs-Alt timeout sees
-      // it on time (see the doc comment). A partial sequence whose introducer
-      // IS known stays buffered for the next chunk.
+      // it on time. A partial sequence whose introducer IS known stays buffered
+      // for the next chunk.
       if (pending.kind === "esc") failOpenSequence();
       return Buffer.from(out);
     },

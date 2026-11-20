@@ -1,13 +1,9 @@
 /**
- * Does this input SUBMIT? — read off the bytes a terminal is sent, the one
- * place a daemon that carries every keystroke can tell "something was handed
- * to the program in front" without asking that program.
+ * Does this input SUBMIT? — read off the bytes a terminal is sent.
  *
- * WHICH keys submit is not this module's to know: it revs with the agents (each
- * agent's own say recipe names the key that submits to it, re-verified per
- * release), so the caller passes the key NAMES and this module only owns how
- * they are read out of a stream. A submit is one of those keys typed, not
- * pasted and not modified:
+ * WHICH keys submit is not this module's to know: the caller passes the key
+ * NAMES and this module only owns how they are read out of a stream. A submit
+ * is one of those keys typed, not pasted and not modified:
  *
  *  - inside a bracketed paste it is a line of the pasted text, which every TUI
  *    that asked for `?2004` keeps in its input rather than submitting
@@ -16,9 +12,7 @@
  *    kolu drives read as "a newline in the input", never "send".
  *
  * What it cannot see is whether the program ACCEPTED the submit — an Enter
- * into an empty input, a slash-command picker. That is the reader's business:
- * padi treats it as "something was submitted" and lets the screen settling
- * again with no transcript say it was nothing.
+ * into an empty input, a slash-command picker.
  *
  * The paste state is carried across writes — a paste split over two writes is
  * still one paste. The Alt prefix is NOT: a terminal sends Alt+Enter as one
@@ -55,7 +49,6 @@ export function createSubmitScanner(
   }
   const paste = createPasteTracker();
   return (input) => {
-    // Was the unit before this one an ESC outside a paste — the Alt prefix?
     let afterEsc = false;
     let submitted = false;
     for (let i = 0; i < input.length; i++) {
