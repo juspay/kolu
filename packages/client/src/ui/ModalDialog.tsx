@@ -112,6 +112,7 @@ const ModalDialog: Component<{
     // `refocusIfNoDialogOpen`, shared with the command palette.
     if (props.refocusOnClose && !open) refocusIfNoDialogOpen();
   };
+  const change = withKeyboardDismiss(handleOpenChange);
 
   return (
     <Dialog
@@ -121,7 +122,7 @@ const ModalDialog: Component<{
       // keyboard down — the same overlay-close policy the mobile drawers carry.
       // restoreFocus={false} + refocusTerminal's touch no-op keep it from coming
       // back. No-op on desktop.
-      onOpenChange={withKeyboardDismiss(handleOpenChange)}
+      onOpenChange={change}
       restoreFocus={false}
       onFinalFocus={(e) => e.preventDefault()}
       onInitialFocus={(e) => {
@@ -133,6 +134,10 @@ const ModalDialog: Component<{
       initialFocusEl={props.initialFocusEl}
       trapFocus={props.trapFocus}
       closeOnEscapeKeyDown={props.escapeCloses ?? true}
+      onEscapeKeyDown={(event) => {
+        event.preventDefault();
+        change(false);
+      }}
     >
       <Dialog.Portal forceMount>
         <Dialog.Overlay

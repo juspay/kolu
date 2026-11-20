@@ -79,25 +79,6 @@ const ConductorPane: Component<{
 
   const dialogStack = useDialogStack();
 
-  // `Esc` goes back to the host tab you came from — the same trip the chrome
-  // bar's entry makes on a second press. The listener lives here because the
-  // behaviour belongs to the pane: it exists exactly while the pane does, on
-  // desktop and in the touch sheet alike.
-  //
-  // It listens on the way UP, and never in the capture phase. Every popover,
-  // Corvu dialog, `SearchBar` and context menu in the pane dismisses on
-  // `Escape`, and a capture listener would steal the key from all of them —
-  // leaving the overlay on screen while the view quietly changed underneath
-  // it. On the way up, an overlay that stops propagation or marks the key
-  // handled simply wins.
-  //
-  // When a modal is up the press is ITS dismiss, and the view must not take
-  // the same one. Corvu's `createEscapeKeyDown` closes a dialog WITHOUT
-  // marking the event handled, so the listener cannot learn it from the event
-  // — the depth `ModalDialog` already publishes is the fact, and it counts
-  // every dialog (palette, Settings, About, the intent editor, a confirm) for
-  // free. Same rule for an open completion menu, which `drafts.ts` publishes
-  // for the same reason.
   const shown = useShown();
   const standDown = (): boolean =>
     completionOpen() || dialogStack.openCount() > 0;

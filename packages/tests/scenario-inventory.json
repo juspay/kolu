@@ -12154,6 +12154,18 @@
       "exampleRows": [],
       "executions": 1,
       "firstSeenSha": "747c5539d2e5be9493531f68f004cddfa1c23675"
+    },
+    {
+      "revisionId": "revision-14f05a55443452a6331a",
+      "scenarioKey": "scenario-a4b27e2d64c45587c039",
+      "feature": "features/conductor-layout.feature",
+      "scenario": "Esc closes the command palette and stays in the Conductor",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "5a1be37e23cfa870ae025bca81c4d59cad9b17afaceb7be1ace428d9d7602ac8",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "ce2b1723fa19782e4fb54c98e54fc62d6d5791a8"
     }
   ]
 }

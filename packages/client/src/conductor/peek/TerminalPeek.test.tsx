@@ -458,13 +458,6 @@ describe("TerminalPeek", () => {
     expect(seam.opened).toHaveLength(0);
   });
 
-  it("closes on Esc when the terminal does not hold the keyboard", () => {
-    openPeek({ host: "remote:nix@example", id: ID });
-    mount();
-    keyDown("Escape");
-    expect(peekTarget()).toBeNull();
-  });
-
   it("raises no card for a key typed at a terminal nobody locks", () => {
     seam.allowed = true;
     setMembership(
@@ -481,13 +474,15 @@ describe("TerminalPeek", () => {
     expect(seam.gateRefs).toHaveLength(0);
   });
 
-  it("leaves Esc to the terminal while it holds the keyboard", () => {
+  it("tells the dialog to leave Esc alone only while the terminal holds the keyboard", () => {
     seam.allowed = true;
     openPeek({ host: "remote:nix@example", id: ID });
     mount();
+    const dialog = () =>
+      document.querySelector("[data-escape-closes]") as HTMLElement;
+    expect(dialog().getAttribute("data-escape-closes")).toBe("true");
     const onFocus = seam.props?.onFocus as (focused: boolean) => void;
     onFocus(true);
-    keyDown("Escape");
-    expect(peekTarget()).not.toBeNull();
+    expect(dialog().getAttribute("data-escape-closes")).toBe("false");
   });
 });

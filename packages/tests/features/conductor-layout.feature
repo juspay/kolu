@@ -138,3 +138,11 @@ Feature: The Conductor reads as a conversation
     Then the help sheet should not be open
     And the conductor pane should be visible
     And there should be no page errors
+
+  Scenario: Esc closes the command palette and stays in the Conductor
+    When I open the command palette
+    Then the command palette should be visible
+    When I press Escape
+    Then the command palette should not be visible
+    And the conductor pane should be visible
+    And there should be no page errors
