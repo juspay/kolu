@@ -22,15 +22,12 @@ describe("connectPadiTuiViaHost", () => {
     const client = fakePadiFace();
     h.dialPadiViaHost.mockResolvedValue({ client, dispose: () => {} });
 
-    const connection = await Effect.runPromise(
-      Effect.scoped(
-        Effect.map(connectPadiTuiViaHost("nix@prod"), (conn) => ({ ...conn })),
-      ),
+    const dialed = await Effect.runPromise(
+      Effect.scoped(connectPadiTuiViaHost("nix@prod")),
     );
 
     expect(h.dialPadiViaHost).toHaveBeenCalledWith("nix@prod");
-    expect(connection.client).toBe(client);
-    expect(connection.localCwd).toBeUndefined();
+    expect(dialed).toBe(client);
   });
 
   it("disposes the shared dial when the caller's SCOPE closes", async () => {

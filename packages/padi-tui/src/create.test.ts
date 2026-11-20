@@ -3,23 +3,29 @@ import { shellSplit } from "@kolu/shell-quote";
 import type { TerminalId } from "@kolu/terminal-vocab/schema";
 import { Cause, Effect, Exit } from "effect";
 import { describe, expect, it, vi } from "vitest";
-import type { PadiTuiClient } from "./connect.ts";
-import { placementGate, runCreate } from "./create.ts";
+import { CliFailure } from "./exit.ts";
+import {
+  type CreateClient,
+  type CreateSite,
+  directoryOf,
+  placementGate,
+  runCreate,
+} from "./create.ts";
 
 function stubClient(): {
-  client: PadiTuiClient;
+  client: CreateClient;
   sent: string[];
   created: Array<Record<string, unknown>>;
 } {
   const sent: string[] = [];
   const created: Array<Record<string, unknown>> = [];
-  const client = {
+  const client: CreateClient = {
     surface: {
       lifecycle: {
         create: vi.fn((input: Record<string, unknown>) =>
           Effect.sync(() => {
             created.push(input);
-            return { id: "t-new" };
+            return { id: "t-new", pid: 4242 };
           }),
         ),
         sendInput: vi.fn(({ data }: { id: string; data: string }) =>
@@ -34,7 +40,7 @@ function stubClient(): {
         ),
       },
     },
-  } as unknown as PadiTuiClient;
+  };
   return { client, sent, created };
 }
 
@@ -51,7 +57,11 @@ describe("runCreate — the launched command round-trips the argv", () => {
     const { client, sent } = stubClient();
     const argv = ["claude", "review this PR"];
     const result = await Effect.runPromise(
-      runCreate(client, { placement: TOPLEVEL_PLACEMENT, argv }),
+      runCreate(client, {
+        placement: TOPLEVEL_PLACEMENT,
+        directory: { kind: "default" },
+        argv,
+      }),
     );
 
     expect(relaunchedArgv(sent)).toEqual(argv);
@@ -62,7 +72,11 @@ describe("runCreate — the launched command round-trips the argv", () => {
     const { client, sent } = stubClient();
     const argv = ["sh", "-c", `echo "$HOME"/* ; rm -rf 'a b'`];
     await Effect.runPromise(
-      runCreate(client, { placement: TOPLEVEL_PLACEMENT, argv }),
+      runCreate(client, {
+        placement: TOPLEVEL_PLACEMENT,
+        directory: { kind: "default" },
+        argv,
+      }),
     );
     expect(relaunchedArgv(sent)).toEqual(argv);
   });
@@ -71,7 +85,11 @@ describe("runCreate — the launched command round-trips the argv", () => {
     const { client, sent } = stubClient();
     const argv = ["cmd", "", "tail"];
     await Effect.runPromise(
-      runCreate(client, { placement: TOPLEVEL_PLACEMENT, argv }),
+      runCreate(client, {
+        placement: TOPLEVEL_PLACEMENT,
+        directory: { kind: "default" },
+        argv,
+      }),
     );
     expect(relaunchedArgv(sent)).toEqual(argv);
   });
@@ -79,7 +97,11 @@ describe("runCreate — the launched command round-trips the argv", () => {
   it("sends nothing when no argv was given (a bare terminal)", async () => {
     const { client, sent } = stubClient();
     const result = await Effect.runPromise(
-      runCreate(client, { placement: TOPLEVEL_PLACEMENT, argv: [] }),
+      runCreate(client, {
+        placement: TOPLEVEL_PLACEMENT,
+        directory: { kind: "default" },
+        argv: [],
+      }),
     );
     expect(sent).toHaveLength(0);
     expect(result.ran).toBeUndefined();
@@ -87,16 +109,14 @@ describe("runCreate — the launched command round-trips the argv", () => {
 });
 
 describe("runCreate — the create payload states placement and OMITS absent optional keys", () => {
-  // `PadiCreateInputSchema` spells `cwd` with `Schema.optionalKey`, which —
-  // unlike zod — REFUSES an explicit `undefined` rather than round-tripping it
-  // through `null`. So a `{ cwd }` shorthand here would encode-fail on
-  // the wire for the commonest create of all. `Object.keys`, not
-  // `toEqual`/`toHaveBeenCalledWith`: those treat an `undefined`-valued key as
-  // absent, which is exactly the distinction under test.
   it("omits cwd when it was not chosen, and still states placement", async () => {
     const { client, created } = stubClient();
     await Effect.runPromise(
-      runCreate(client, { placement: TOPLEVEL_PLACEMENT, argv: [] }),
+      runCreate(client, {
+        placement: TOPLEVEL_PLACEMENT,
+        directory: { kind: "default" },
+        argv: [],
+      }),
     );
     expect(created).toHaveLength(1);
     expect(Object.keys(created[0] ?? {})).toEqual(["placement"]);
@@ -108,6 +128,7 @@ describe("runCreate — the create payload states placement and OMITS absent opt
     await Effect.runPromise(
       runCreate(client, {
         placement: { kind: "child-of", parentId: "t-parent" as TerminalId },
+        directory: { kind: "default" },
         argv: [],
       }),
     );
@@ -116,14 +137,13 @@ describe("runCreate — the create payload states placement and OMITS absent opt
     });
   });
 
-  it("takes cwd from the materialized worktree, not the caller's", async () => {
+  it("takes cwd from the materialized worktree", async () => {
     const { client, created } = stubClient();
     await Effect.runPromise(
       runCreate(client, {
         placement: TOPLEVEL_PLACEMENT,
+        directory: { kind: "worktree", repoPath: "/repo", name: "feat" },
         argv: [],
-        cwd: "/local",
-        worktree: { repoPath: "/repo", name: "feat" },
       }),
     );
     expect(created[0]).toEqual({
@@ -172,5 +192,45 @@ describe("placementGate — padi-tui's PRE-DIAL wiring of the shared rule", () =
     expect(
       Effect.runSync(placementGate({ toplevel: false, parent: "3f9c" })),
     ).toEqual({ kind: "child-of", parentQuery: "3f9c" });
+  });
+});
+
+describe("directoryOf — WHERE the new terminal opens", () => {
+  const local: CreateSite = { kind: "local", cwd: "/here" };
+  const remote: CreateSite = { kind: "remote" };
+
+  const refusalOf = (
+    site: CreateSite,
+    flags: { worktree: string | undefined; repo: string | undefined },
+  ): string => {
+    const exit = Effect.runSyncExit(directoryOf(site, flags));
+    if (!Exit.isFailure(exit)) return "";
+    const error = Cause.squash(exit.cause);
+    return error instanceof CliFailure ? error.stderr : "";
+  };
+
+  it("opens a plain create in the local cwd, and leaves a remote padi its own default", () => {
+    expect(
+      Effect.runSync(
+        directoryOf(local, { worktree: undefined, repo: undefined }),
+      ),
+    ).toEqual({ kind: "cwd", cwd: "/here" });
+    expect(
+      Effect.runSync(
+        directoryOf(remote, { worktree: undefined, repo: undefined }),
+      ),
+    ).toEqual({ kind: "default" });
+  });
+
+  it("cuts a worktree off the local cwd when --repo is absent", () => {
+    expect(
+      Effect.runSync(directoryOf(local, { worktree: "feat", repo: undefined })),
+    ).toEqual({ kind: "worktree", repoPath: "/here", name: "feat" });
+  });
+
+  it("refuses a REMOTE --worktree with no --repo, touching no client", () => {
+    expect(refusalOf(remote, { worktree: "feat", repo: undefined })).toContain(
+      "--worktree over --host needs --repo",
+    );
   });
 });

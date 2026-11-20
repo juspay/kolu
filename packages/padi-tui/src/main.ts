@@ -38,12 +38,8 @@ import {
   type Sink,
   Stream,
 } from "effect";
-import {
-  type Connection,
-  connectPadiTui,
-  type PadiTuiClient,
-} from "./connect.ts";
-import { placementGate, runCreate } from "./create.ts";
+import { connectPadiTui, type PadiTuiClient } from "./connect.ts";
+import { directoryOf, placementGate, runCreate } from "./create.ts";
 import {
   CliFailure,
   exitCodeOf,
@@ -76,122 +72,139 @@ function parseUntilStates(
   return { kind: "ok", targets: new Set(tokens as WaitState[]) };
 }
 
-// Declared on each subcommand — cleye binds flags only AFTER the subcommand (it
-// does not inherit a parent flag), so `--socket` goes after the command:
-// `padi-tui status --socket <path>`, never `padi-tui --socket <path> status`.
-const localEndpointFlags = {
-  socket: {
-    type: String,
-    description:
-      "the padi socket to dial — goes AFTER the subcommand. Usually unneeded: inside a kolu terminal $PADI_SOCKET already names the padi that owns it, and otherwise padi-tui autodiscovers the running daemon. Pass --socket only to pick one explicitly (padi keys its socket by a DIGEST of its state-root, so there is no single fixed path).",
-  },
-  stateRoot: {
-    type: String,
-    description:
-      "the padi STATE-ROOT to target (dev/e2e) — padi-tui derives the same digest→socket path padi computes for itself. Mutually exclusive with --socket; goes AFTER the subcommand.",
-  },
-} as const;
+function waitFlags(flags: {
+  until: string | undefined;
+  timeout: number | undefined;
+}): Effect.Effect<
+  { targets: ReadonlySet<WaitState>; timeoutMs: number | undefined },
+  CliFailure
+> {
+  if (flags.until === undefined) {
+    return Effect.fail(
+      failure(
+        "--until is required — e.g. `padi-tui wait <id> --until awaiting,waiting`.",
+      ),
+    );
+  }
+  const parsed = parseUntilStates(flags.until);
+  if (parsed.kind === "error") return Effect.fail(failure(parsed.message));
+  if (
+    flags.timeout !== undefined &&
+    !(Number.isFinite(flags.timeout) && flags.timeout > 0)
+  ) {
+    return Effect.fail(
+      failure("--timeout must be a positive number of milliseconds."),
+    );
+  }
+  return Effect.succeed({ targets: parsed.targets, timeoutMs: flags.timeout });
+}
 
-const hostFlag = {
-  host: {
-    type: String,
-    description:
-      "reach a padi on a REMOTE machine over ssh, provisioning it via Nix — e.g. --host nix@prod. padi runs as the SSH user, so you reach the padi owned by that user (its socket dir is 0700, owner-only); SSH in as the user that runs padi. Read verbs (status/watch/wait) are safe; `create` lands a REAL terminal on the host (that's the point), and it survives the link. Mutually exclusive with --socket / --state-root. Goes AFTER the subcommand.",
-  },
-} as const;
+function subcommandFlags<Extra extends object>(extra: Extra) {
+  return {
+    socket: {
+      type: String,
+      description:
+        "the padi socket to dial — goes AFTER the subcommand. Usually unneeded: inside a kolu terminal $PADI_SOCKET already names the padi that owns it, and otherwise padi-tui autodiscovers the running daemon. Pass --socket only to pick one explicitly (padi keys its socket by a DIGEST of its state-root, so there is no single fixed path).",
+    },
+    stateRoot: {
+      type: String,
+      description:
+        "the padi STATE-ROOT to target (dev/e2e) — padi-tui derives the same digest→socket path padi computes for itself. Mutually exclusive with --socket; goes AFTER the subcommand.",
+    },
+    host: {
+      type: String,
+      description:
+        "reach a padi on a REMOTE machine over ssh, provisioning it via Nix — e.g. --host nix@prod. padi runs as the SSH user, so you reach the padi owned by that user (its socket dir is 0700, owner-only); SSH in as the user that runs padi. Read verbs (status/watch/wait) are safe; `create` lands a REAL terminal on the host (that's the point), and it survives the link. Mutually exclusive with --socket / --state-root. Goes AFTER the subcommand.",
+    },
+    json: {
+      type: Boolean,
+      description: "machine-readable JSON output",
+      default: false,
+    },
+    ...extra,
+  };
+}
 
-const endpointFlags = { ...localEndpointFlags, ...hostFlag } as const;
-
-const jsonFlag = {
-  json: {
-    type: Boolean,
-    description: "machine-readable JSON output",
-    default: false,
-  },
-} as const;
-
-const argv = cli({
-  name: "padi-tui",
-  version: PADI_SURFACE_VERSION,
-  help: {
-    description:
-      "A terminal-side client for the padi workspace daemon — what every terminal is in (record state · repo·branch · PR · agent · foreground), read from a running `padi`. `status` snapshots it; `watch` follows it live (● = live byte activity); `wait` blocks until a terminal's agent reaches a state (working/awaiting/waiting) — the done-signal for scripting an agent that drives another agent; `create` spawns a terminal, split tile, or worktree'd agent. Runs against the local padi by default, or a REMOTE one over ssh with `--host <ssh>` (provisioned with Nix). `--json` is scriptable.",
-  },
-  commands: [
-    command({
-      name: "status",
-      help: {
-        description:
-          "Snapshot every terminal — one row (state · repo·branch · PR · agent · foreground), then exit.",
-      },
-      flags: { ...endpointFlags, ...jsonFlag },
-    }),
-    command({
-      name: "watch",
-      parameters: ["[id]"],
-      help: {
-        description:
-          "Follow the terminals collection live, printing a line per change until Ctrl+C; a trailing ● marks a terminal moving bytes right now. Bare `watch` follows every terminal; pass an id (short id from `status` or a unique prefix) to narrow to one.",
-      },
-      flags: { ...endpointFlags, ...jsonFlag },
-    }),
-    command({
-      name: "wait",
-      parameters: ["<id>"],
-      help: {
-        description:
-          "Block until a terminal's agent reaches a state, then exit — the done-signal for scripting an agent that drives another agent. `--until` is a comma list of buckets: working, awaiting, waiting (`awaiting,waiting` = the agent's turn ended). Because the mirror replays the current state on connect, the two-phase `wait --until working` THEN `wait --until awaiting,waiting` loop is robust against the stale-state race. `--timeout <ms>` caps the wait and fails loud (exit 2); a terminal that exits first fails loud too (exit 3). `--json` prints `{ id, agent }`. <id> is the short id from `status` or any unique prefix.",
-      },
-      flags: {
-        ...endpointFlags,
-        until: {
-          type: String,
+function parseArgv() {
+  return cli({
+    name: "padi-tui",
+    version: PADI_SURFACE_VERSION,
+    help: {
+      description:
+        "A terminal-side client for the padi workspace daemon — what every terminal is in (record state · repo·branch · PR · agent · foreground), read from a running `padi`. `status` snapshots it; `watch` follows it live (● = live byte activity); `wait` blocks until a terminal's agent reaches a state (working/awaiting/waiting) — the done-signal for scripting an agent that drives another agent; `create` spawns a terminal, split tile, or worktree'd agent. Runs against the local padi by default, or a REMOTE one over ssh with `--host <ssh>` (provisioned with Nix). `--json` is scriptable.",
+    },
+    commands: [
+      command({
+        name: "status",
+        help: {
           description:
-            "comma list of agent buckets to wait for: working, awaiting, waiting (awaiting,waiting = the agent's turn ended)",
+            "Snapshot every terminal — one row (state · repo·branch · PR · agent · foreground), then exit.",
         },
-        timeout: {
-          type: Number,
+        flags: subcommandFlags({}),
+      }),
+      command({
+        name: "watch",
+        parameters: ["[id]"],
+        help: {
           description:
-            "milliseconds to wait before failing loud (exit 2); default: wait indefinitely until the state, the terminal exits, the link drops, or Ctrl+C",
+            "Follow the terminals collection live, printing a line per change until Ctrl+C; a trailing ● marks a terminal moving bytes right now. Bare `watch` follows every terminal; pass an id (short id from `status` or a unique prefix) to narrow to one.",
         },
-        ...jsonFlag,
-      },
-    }),
-    command({
-      name: "create",
-      parameters: ["[command...]"],
-      help: {
-        description:
-          "Spawn a terminal on the host and print its id; padi owns it and it appears on the canvas. Placement is REQUIRED — pass exactly one of `--toplevel` (a tile of its own) or `--parent <id>` (a split inside that terminal); there is no default. `--worktree <branch>` creates a fresh git worktree (off `--repo`, default the cwd) and opens the terminal there; anything after `--` is run in the new terminal — e.g. `padi-tui create --toplevel --worktree feat -- claude` spawns a worktree'd Claude Code in one command.",
-      },
-      flags: {
-        ...endpointFlags,
-        toplevel: {
-          type: Boolean,
+        flags: subcommandFlags({}),
+      }),
+      command({
+        name: "wait",
+        parameters: ["<id>"],
+        help: {
           description:
-            "open the new terminal as a TILE OF ITS OWN on the canvas (mutually exclusive with --parent)",
-          default: false,
+            "Block until a terminal's agent reaches a state, then exit — the done-signal for scripting an agent that drives another agent. `--until` is a comma list of buckets: working, awaiting, waiting (`awaiting,waiting` = the agent's turn ended). Because the mirror replays the current state on connect, the two-phase `wait --until working` THEN `wait --until awaiting,waiting` loop is robust against the stale-state race. `--timeout <ms>` caps the wait and fails loud (exit 2); a terminal that exits first fails loud too (exit 3). `--json` prints `{ id, agent }`. <id> is the short id from `status` or any unique prefix.",
         },
-        parent: {
-          type: String,
+        flags: subcommandFlags({
+          until: {
+            type: String,
+            description:
+              "comma list of agent buckets to wait for: working, awaiting, waiting (awaiting,waiting = the agent's turn ended)",
+          },
+          timeout: {
+            type: Number,
+            description:
+              "milliseconds to wait before failing loud (exit 2); default: wait indefinitely until the state, the terminal exits, the link drops, or Ctrl+C",
+          },
+        }),
+      }),
+      command({
+        name: "create",
+        parameters: ["[command...]"],
+        help: {
           description:
-            "make the new terminal a SPLIT TILE of this terminal (a short id from `status` or a unique prefix); mutually exclusive with --toplevel",
+            "Spawn a terminal on the host and print its id; padi owns it and it appears on the canvas. Placement is REQUIRED — pass exactly one of `--toplevel` (a tile of its own) or `--parent <id>` (a split inside that terminal); there is no default. `--worktree <branch>` creates a fresh git worktree (off `--repo`, default the cwd) and opens the terminal there; anything after `--` is run in the new terminal — e.g. `padi-tui create --toplevel --worktree feat -- claude` spawns a worktree'd Claude Code in one command.",
         },
-        worktree: {
-          type: String,
-          description:
-            "create a fresh git worktree on this branch name and open the terminal in it (a worktree'd agent in one command)",
-        },
-        repo: {
-          type: String,
-          description:
-            "with --worktree: the repo to branch from (an absolute path on the padi's machine). Default (local padi): the current directory. Over --host it must be given explicitly — the worktree is cut on the REMOTE host, so it can't default to your local directory.",
-        },
-        ...jsonFlag,
-      },
-    }),
-  ],
-});
+        flags: subcommandFlags({
+          toplevel: {
+            type: Boolean,
+            description:
+              "open the new terminal as a TILE OF ITS OWN on the canvas (mutually exclusive with --parent)",
+            default: false,
+          },
+          parent: {
+            type: String,
+            description:
+              "make the new terminal a SPLIT TILE of this terminal (a short id from `status` or a unique prefix); mutually exclusive with --toplevel",
+          },
+          worktree: {
+            type: String,
+            description:
+              "create a fresh git worktree on this branch name and open the terminal in it (a worktree'd agent in one command)",
+          },
+          repo: {
+            type: String,
+            description:
+              "with --worktree: the repo to branch from (an absolute path on the padi's machine). Default (local padi): the current directory. Over --host it must be given explicitly — the worktree is cut on the REMOTE host, so it can't default to your local directory.",
+          },
+        }),
+      }),
+    ],
+  });
+}
 
 class StdoutClosed extends Data.TaggedError("StdoutClosed")<{
   readonly cause: unknown;
@@ -247,14 +260,6 @@ const shutdownRequest: Effect.Effect<ShutdownRequest, never, Scope.Scope> =
     ({ off }) => Effect.sync(off),
   ).pipe(Effect.map(({ value }) => value));
 
-/** The one `--worktree over --host needs --repo` usage-error message. Named once
- *  because it is enforced at TWO sites — the pre-dial fast-path in `main` (fail
- *  before Nix-provisioning a cold host) and the transport-blind invariant in
- *  `cmdCreate` (`repoPath === undefined` iff host + no --repo) — so the two can't
- *  drift. Both guards stay; only the string is shared. */
-const WORKTREE_OVER_HOST_NEEDS_REPO =
-  "--worktree over --host needs --repo <path on the host>: the worktree is cut on the REMOTE machine, so it can't default to your local directory. Pass --repo with an absolute path on the host.";
-
 type Endpoint =
   | { kind: "host"; host: string }
   | { kind: "local"; socketPath: string };
@@ -282,7 +287,7 @@ function resolveEndpoint(flags: {
 
 function connectTo(
   endpoint: Endpoint,
-): Effect.Effect<Connection, CliFailure, Scope.Scope> {
+): Effect.Effect<PadiTuiClient, CliFailure, Scope.Scope> {
   const message = (err: unknown): string =>
     err instanceof Error ? err.message : String(err);
   return endpoint.kind === "host"
@@ -337,9 +342,7 @@ function cmdStatus(
 ): Effect.Effect<void, unknown> {
   return Effect.flatMap(
     Effect.scoped(
-      Effect.flatMap(connectTo(endpoint), (conn) =>
-        settledSnapshot(conn.client),
-      ),
+      Effect.flatMap(connectTo(endpoint), (client) => settledSnapshot(client)),
     ),
     (entries) =>
       writeOut(
@@ -356,9 +359,9 @@ function cmdWatch(
   return Effect.scoped(
     Effect.gen(function* () {
       const shutdown = yield* shutdownRequest;
-      const conn = yield* connectTo(endpoint);
+      const client = yield* connectTo(endpoint);
       const only =
-        query === undefined ? undefined : yield* resolveArg(conn.client, query);
+        query === undefined ? undefined : yield* resolveArg(client, query);
 
       const lines = yield* Queue.unbounded<string, Cause.Done>();
       const emit = (line: string): void => {
@@ -372,7 +375,7 @@ function cmdWatch(
 
       const watching = Effect.tryPromise({
         try: () =>
-          watchTerminals(conn.client, {
+          watchTerminals(client, {
             handlers: {
               onUpsert: (id, value, live) => {
                 if (only !== undefined && id !== only) return;
@@ -449,11 +452,11 @@ function cmdWait(
     const { resolvedId, outcome } = yield* Effect.scoped(
       Effect.gen(function* () {
         const shutdown = yield* shutdownRequest;
-        const conn = yield* connectTo(endpoint);
-        const resolvedId = yield* resolveArg(conn.client, query);
+        const client = yield* connectTo(endpoint);
+        const resolvedId = yield* resolveArg(client, query);
         const outcome = yield* Effect.tryPromise({
           try: () =>
-            awaitAgentState(conn.client, {
+            awaitAgentState(client, {
               id: resolvedId,
               targets,
               timeoutMs: opts.timeoutMs,
@@ -515,31 +518,27 @@ function cmdCreate(
 ): Effect.Effect<void, unknown> {
   return Effect.gen(function* () {
     const stated = yield* placementGate(flags);
+    const directory = yield* directoryOf(
+      endpoint.kind === "host"
+        ? { kind: "remote" }
+        : { kind: "local", cwd: process.cwd() },
+      flags,
+    );
 
     const created = yield* Effect.scoped(
       Effect.gen(function* () {
-        const conn = yield* connectTo(endpoint);
+        const client = yield* connectTo(endpoint);
         const placement: TerminalPlacement =
           stated.kind === "toplevel"
             ? TOPLEVEL_PLACEMENT
             : {
                 kind: "child-of",
-                parentId: yield* resolveArg(conn.client, stated.parentQuery),
+                parentId: yield* resolveArg(client, stated.parentQuery),
               };
 
-        let worktree: { repoPath: string; name: string } | undefined;
-        if (flags.worktree !== undefined) {
-          const repoPath = flags.repo ?? conn.localCwd;
-          if (repoPath === undefined) {
-            return yield* Effect.fail(failure(WORKTREE_OVER_HOST_NEEDS_REPO));
-          }
-          worktree = { repoPath, name: flags.worktree };
-        }
-
-        const result = yield* runCreate(conn.client, {
+        const result = yield* runCreate(client, {
           placement,
-          worktree,
-          cwd: conn.localCwd,
+          directory,
           argv: command,
         });
         return { result, placement };
@@ -567,7 +566,9 @@ function cmdCreate(
   });
 }
 
-function program(): Effect.Effect<void, unknown> {
+type Argv = ReturnType<typeof parseArgv>;
+
+function program(argv: Argv): Effect.Effect<void, unknown> {
   return Effect.gen(function* () {
     if (argv.command === undefined) {
       if (process.argv.length > 2) {
@@ -581,78 +582,44 @@ function program(): Effect.Effect<void, unknown> {
       return yield* Effect.fail(new CliFailure({ stderr: "" }));
     }
 
-    let waitTargets: ReadonlySet<string> | null = null;
-    if (argv.command === "wait") {
-      if (argv.flags.until === undefined) {
-        return yield* Effect.fail(
-          failure(
-            "--until is required — e.g. `padi-tui wait <id> --until awaiting,waiting`.",
-          ),
-        );
-      }
-      const parsed = parseUntilStates(argv.flags.until);
-      if (parsed.kind === "error") {
-        return yield* Effect.fail(failure(parsed.message));
-      }
-      if (
-        argv.flags.timeout !== undefined &&
-        !(Number.isFinite(argv.flags.timeout) && argv.flags.timeout > 0)
-      ) {
-        return yield* Effect.fail(
-          failure("--timeout must be a positive number of milliseconds."),
-        );
-      }
-      waitTargets = parsed.targets;
-    }
-
-    const endpoint = yield* resolveEndpoint(argv.flags);
-
-    if (
-      argv.command === "create" &&
-      endpoint.kind === "host" &&
-      argv.flags.worktree !== undefined &&
-      argv.flags.repo === undefined
-    ) {
-      return yield* Effect.fail(failure(WORKTREE_OVER_HOST_NEEDS_REPO));
-    }
-
     if (argv.command === "status") {
+      const endpoint = yield* resolveEndpoint(argv.flags);
       return yield* cmdStatus(endpoint, argv.flags.json);
     }
     if (argv.command === "watch") {
+      const endpoint = yield* resolveEndpoint(argv.flags);
       return yield* cmdWatch(endpoint, argv._.id, argv.flags.json);
     }
     if (argv.command === "wait") {
-      if (waitTargets === null) {
-        return yield* Effect.fail(failure("--until is required."));
-      }
-      return yield* cmdWait(endpoint, argv._.id, waitTargets, {
+      const { targets, timeoutMs } = yield* waitFlags(argv.flags);
+      const endpoint = yield* resolveEndpoint(argv.flags);
+      return yield* cmdWait(endpoint, argv._.id, targets, {
         json: argv.flags.json,
-        timeoutMs: argv.flags.timeout,
+        timeoutMs,
       });
     }
-    if (argv.command === "create") {
-      return yield* cmdCreate(
-        endpoint,
-        {
-          toplevel: argv.flags.toplevel,
-          parent: argv.flags.parent,
-          worktree: argv.flags.worktree,
-          repo: argv.flags.repo,
-          json: argv.flags.json,
-        },
-        argv._.command,
-      );
-    }
-    return yield* Effect.fail(
-      failure("unhandled command — add a dispatch branch for it"),
+    const endpoint = yield* resolveEndpoint(argv.flags);
+    return yield* cmdCreate(
+      endpoint,
+      {
+        toplevel: argv.flags.toplevel,
+        parent: argv.flags.parent,
+        worktree: argv.flags.worktree,
+        repo: argv.flags.repo,
+        json: argv.flags.json,
+      },
+      argv._.command,
     );
   });
 }
 
-Effect.runPromiseExit(program()).then((exit) => {
-  if (Exit.isSuccess(exit)) process.exit(0);
-  const error = Cause.squash(exit.cause);
-  process.stderr.write(reportOf(error));
-  process.exit(exitCodeOf(error));
-});
+function main(): void {
+  Effect.runPromiseExit(program(parseArgv())).then((exit) => {
+    if (Exit.isSuccess(exit)) process.exit(0);
+    const error = Cause.squash(exit.cause);
+    process.stderr.write(reportOf(error));
+    process.exit(exitCodeOf(error));
+  });
+}
+
+if (import.meta.main) main();

@@ -7,21 +7,13 @@ import { Effect, type Scope } from "effect";
 
 export type PadiTuiClient = PadiSurfaceClient;
 
-export interface Connection {
-  client: PadiTuiClient;
-  localCwd: string | undefined;
-}
-
 export function connectPadiTui(
   socketPath: string,
-): Effect.Effect<Connection, unknown, Scope.Scope> {
+): Effect.Effect<PadiTuiClient, unknown, Scope.Scope> {
   return Effect.map(
     Effect.acquireRelease(connectPadi(socketPath), (conn) =>
       Effect.sync(() => conn.dispose()),
     ),
-    (conn) => ({
-      client: scopePadiSurface(conn.client),
-      localCwd: process.cwd(),
-    }),
+    (conn) => scopePadiSurface(conn.client),
   );
 }

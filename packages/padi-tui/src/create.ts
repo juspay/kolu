@@ -8,9 +8,6 @@ import { Effect } from "effect";
 import type { PadiTuiClient } from "./connect.ts";
 import { type CliFailure, failure } from "./exit.ts";
 
-/** PURE, and it must stay pure: `cmdCreate` runs it BEFORE `connectTo`, so a bare
- *  `padi-tui create` fails instantly instead of after `--host` has Nix-provisioned
- *  a cold box for a command that was never going to run. */
 export function placementGate(flags: {
   readonly toplevel: boolean;
   readonly parent: string | undefined;
@@ -21,6 +18,54 @@ export function placementGate(flags: {
     : Effect.succeed(read);
 }
 
+export type CreateSite =
+  | { readonly kind: "local"; readonly cwd: string }
+  | { readonly kind: "remote" };
+
+export type CreateDirectory =
+  | {
+      readonly kind: "worktree";
+      readonly repoPath: string;
+      readonly name: string;
+    }
+  | { readonly kind: "cwd"; readonly cwd: string }
+  | { readonly kind: "default" };
+
+export function directoryOf(
+  site: CreateSite,
+  flags: {
+    readonly worktree: string | undefined;
+    readonly repo: string | undefined;
+  },
+): Effect.Effect<CreateDirectory, CliFailure> {
+  if (flags.worktree === undefined) {
+    return Effect.succeed(
+      site.kind === "local"
+        ? { kind: "cwd", cwd: site.cwd }
+        : { kind: "default" },
+    );
+  }
+  const repoPath = flags.repo ?? (site.kind === "local" ? site.cwd : undefined);
+  if (repoPath === undefined) {
+    return Effect.fail(
+      failure(
+        "--worktree over --host needs --repo <path on the host>: the worktree is cut on the REMOTE machine, so it can't default to your local directory. Pass --repo with an absolute path on the host.",
+      ),
+    );
+  }
+  return Effect.succeed({ kind: "worktree", repoPath, name: flags.worktree });
+}
+
+export type CreateClient = {
+  readonly surface: {
+    readonly lifecycle: Pick<
+      PadiTuiClient["surface"]["lifecycle"],
+      "create" | "sendInput"
+    >;
+    readonly git: Pick<PadiTuiClient["surface"]["git"], "worktreeCreate">;
+  };
+};
+
 export interface CreateResult {
   id: string;
   worktree?: { path: string; branch: string };
@@ -28,21 +73,21 @@ export interface CreateResult {
 }
 
 export function runCreate(
-  client: PadiTuiClient,
+  client: CreateClient,
   opts: {
     placement: TerminalPlacement;
-    worktree?: { repoPath: string; name: string };
-    cwd?: string;
+    directory: CreateDirectory;
     argv: readonly string[];
   },
 ): Effect.Effect<CreateResult, unknown> {
   return Effect.gen(function* () {
-    let cwd = opts.cwd;
+    const { directory } = opts;
+    let cwd = directory.kind === "cwd" ? directory.cwd : undefined;
     let worktree: CreateResult["worktree"];
-    if (opts.worktree !== undefined) {
+    if (directory.kind === "worktree") {
       const wt = yield* client.surface.git.worktreeCreate({
-        repoPath: (opts.worktree as { repoPath: string }).repoPath,
-        name: (opts.worktree as { name: string }).name,
+        repoPath: directory.repoPath,
+        name: directory.name,
       });
       cwd = wt.path;
       worktree = { path: wt.path, branch: wt.branch };
@@ -56,10 +101,7 @@ export function runCreate(
     let ran: string | undefined;
     if (opts.argv.length > 0) {
       ran = shellJoin(opts.argv);
-      yield* client.surface.lifecycle.sendInput({
-        id,
-        data: `${ran as string}\r`,
-      });
+      yield* client.surface.lifecycle.sendInput({ id, data: `${ran}\r` });
     }
 
     return { id, worktree, ran };
