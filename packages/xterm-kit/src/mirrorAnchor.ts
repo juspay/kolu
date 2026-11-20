@@ -43,7 +43,6 @@ export function snapToWrapHead(
   return start;
 }
 
-/** Absolute-line coordinates over one long-lived mirror. See the file header. */
 export interface MirrorAnchor {
   /** Absolute-line origin: the running count of lines the mirror has retired off
    *  the top — the `onTrim` eviction total PLUS the length of any buffer a full
@@ -70,9 +69,6 @@ export interface MirrorAnchor {
    *  rewraps and renumbers absolute rows). A height-only or same-dims resize
    *  renumbers nothing and must NOT bump. */
   bumpReflow(): void;
-  /** Dispose the live `onTrim` subscription. One stable teardown that disposes
-   *  WHICHEVER handle is current — a RIS swap replaces the handle in place, so
-   *  this stays a single indirection and never accumulates dead disposables. */
   dispose(): void;
 }
 

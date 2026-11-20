@@ -31,8 +31,6 @@ interface CoreInternal {
   _bufferService: { _onScroll: { fire(ydisp: number): void } };
 }
 
-/** Any terminal we can write into and steal lines from — the live `@xterm/xterm`
- *  and the scratch (`@xterm/xterm` or `@xterm/headless`) share this surface. */
 export interface ScratchTerminal {
   readonly cols: number;
   readonly rows: number;
@@ -75,13 +73,7 @@ function stealContentLines(
  *  steal needs. `scrollback` is generous so a large chunk never self-trims in
  *  the scratch before we steal it. If a browser is found to reject an unopened
  *  `write()`, swap this one factory for an `@xterm/headless` instance (its
- *  `BufferLine` shape is verified identical by the contract-pin tests).
- *
- *  EXPORTED for the CONTRACT PIN test: the pin writes a known chunk through THIS
- *  exact factory (never a reconstructed equivalent) and asserts an unopened
- *  terminal parses it into rows and fires the callback — turning the one
- *  load-bearing assumption into red CI on any `@xterm/xterm` bump that changes
- *  pre-open write semantics, so pin and factory cannot drift apart. */
+ *  `BufferLine` shape is verified identical by the contract-pin tests). */
 export function defaultScratch(cols: number, rows: number): ScratchTerminal {
   return new XTerm({
     cols,
@@ -107,9 +99,6 @@ async function replayToLines(
   }
 }
 
-/** True when the terminal is showing its ALTERNATE buffer (a full-screen TUI).
- *  There is no scrollback to extend there, so backfill is skipped — a deliberate
- *  no-op, not a failure. Public API, no internals reach. */
 export function isAltBufferActive(term: {
   buffer: { active: { type: string } };
 }): boolean {
@@ -189,7 +178,6 @@ export async function prependScrollback(
     );
   }
 
-  // Clear the selection before mutating rows it indexes (see the doc above).
   term.clearSelection();
 
   buf.lines.splice(0, 0, ...lines);
@@ -204,9 +192,6 @@ export async function prependScrollback(
   return { kind: "inserted", rows: m };
 }
 
-/** Rows requested per backfill fetch. Bounds a chunk's serialized payload and
- *  the scratch-replay cost; prepending M rows moves the viewport M rows off the
- *  top, so the user scrolls again to trigger the next fetch. */
 export const HISTORY_CHUNK_ROWS = 500;
 
 /** Private OSC ident for the snapshot-seed seam. An OSC ident is NOT an
@@ -218,21 +203,6 @@ export const HISTORY_CHUNK_ROWS = 500;
  *  other output on this ident. Exported for the contract-pin test. */
 export const SNAPSHOT_SEED_SEAM_OSC = 60697;
 
-/** Build the snapshot-seed seam for ONE frame — a zero-width, no-op OSC control
- *  Terminal.tsx prepends to that frame's bytes, carrying an unguessable per-frame
- *  `token`. Under scroll lock the lock JOINS all buffered chunks into one write,
- *  so a foreign RIS buffered AHEAD of an overflow snapshot parses (and pauses
- *  backfill) before the snapshot's own leading RIS — a receipt-time credit
- *  counter can't tell which RIS is the snapshot's own and an older reset steals
- *  the credit, leaving backfill wrongly halted after a valid re-attach (F11). The
- *  seam fixes that by carrying a BYTE-POSITION marker: it parses in the live
- *  xterm immediately before the frame's own content (and its leading RIS, for an
- *  overflow re-attach), so the controller's OSC handler can capture the matching
- *  committer's baseline generation THERE — after every byte-earlier foreign RIS
- *  has already paused, hence excluded. The `token` (a client-side per-frame value
- *  never sent to the PTY) makes the seam unforgeable by program output on the
- *  same ident (F12). No wire change: the seam is injected client-side, on the
- *  live write path only (never the scratch replay), and is a pure parser no-op. */
 function seamFor(token: string): string {
   return `\x1b]${SNAPSHOT_SEED_SEAM_OSC};${token}\x07`;
 }
@@ -283,9 +253,6 @@ function createSeedQueue(): SeedQueue {
   };
 }
 
-/** One older-history reply from the server, as the controller consumes it — a
- *  discriminated union mirroring the wire's `chunk | stale` shape, so a served
- *  chunk and a stale-reflow halt can't be conflated. */
 export type HistoryChunk =
   | { kind: "chunk"; chunk: string; topLine: number; exhausted: boolean }
   /** The reflow epoch the controller stamped on the fetch no longer matches the
@@ -357,24 +324,7 @@ export function createBackfillController(
      *  own surface DECLARES on that procedure — padi's `TerminalNotFound` over
      *  the browser wire, kaval's `PtyNotFound` over a direct link. `true`
      *  swallows it silently (a later scroll retries); everything else goes to
-     *  {@link onError}.
-     *
-     *  The CALLER owns this predicate because the caller owns the vocabulary.
-     *  This kit deliberately depends on no `@kolu/*` package, and since the
-     *  surface's D4 rewrite the discriminant is an app-declared error class's
-     *  `_tag`, not a framework-generic code (the `ORPCError("NOT_FOUND")` this
-     *  replaced). Re-spelling that tag as a string literal here would be a second
-     *  source of truth with nothing to pin it: a rename in padi would silently
-     *  stop matching and turn every ordinary teardown into a toast. Passing the
-     *  predicate keeps the check next to the class it narrows — `err instanceof
-     *  TerminalNotFound` in-process, or a `_tag` compare read OFF that class for
-     *  a value that crossed a wire.
-     *
-     *  REQUIRED, like {@link onError}: a default would either swallow faults or
-     *  toast every teardown, and both are the silent-degradation this pair of
-     *  options exists to prevent. It is asked ONLY about a `fetch` rejection —
-     *  the deliberate scoping — never about a `prepend` fault, which stays
-     *  fail-loud. */
+     *  {@link onError}. */
     isTerminalGone: (err: unknown) => boolean;
     /** Surface a fetch failure that is NOT the expected teardown
      *  {@link isTerminalGone} names. Called for transport / auth / schema /

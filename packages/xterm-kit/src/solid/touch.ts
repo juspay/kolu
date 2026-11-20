@@ -60,22 +60,13 @@ export function wireTouchTaps(
   });
 }
 
-/** The slice of the scroll-lock latch the touch bridge arms. Structural so the
- *  latch stays unaware of this module. */
 export interface TouchScrollTarget {
   armUserScrollIntent(source: "touch"): void;
 }
 
 /** Bridge single-finger vertical swipes on `container` into scrollback movement
  *  on `term`, arming the scroll-lock latch so live output freezes while the user
- *  reads (scrollLock picks up the resulting `term.onScroll` for free, #1272).
- *
- *  Single-variable state machine: `anchorY` is the Y baseline line conversion is
- *  measured from — `null` when idle, a number mid-swipe. On every emitted line
- *  the anchor advances by exactly the consumed pixels, so the sub-line residue
- *  lives implicitly in `(currentY − anchorY)` on the next move — no separate
- *  accumulator to keep in sync. Multi-touch (pinch-zoom) passes through to the
- *  browser and drops the anchor so the next single-finger move starts fresh. */
+ *  reads (scrollLock picks up the resulting `term.onScroll` for free, #1272). */
 export function wireTouchScroll(
   container: HTMLElement,
   term: XTerm,

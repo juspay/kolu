@@ -8,12 +8,6 @@ import { readDecPrivateMode, renderService } from "../internals";
  *  short enough that a focused-but-parked recovery is imperceptible. */
 export const WATCHDOG_DELAY_MS = 250;
 
-/** DISPLAY warn threshold: how long a paint may lag before the Diagnostic
- *  dialog reddens it for a human reading the dump. Deliberately distinct from
- *  and larger than WATCHDOG_DELAY_MS — they answer different questions. The
- *  watchdog's 250 ms ARMS auto-recovery (short enough to be imperceptible);
- *  this 1000 ms only WARNS a person, who needs a slower, surer signal so a
- *  single late frame doesn't flash red. */
 export const PAINT_STALL_WARN_MS = 1000;
 
 function defaultHasFocus(): boolean {

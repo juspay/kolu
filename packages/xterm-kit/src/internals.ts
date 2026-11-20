@@ -30,19 +30,11 @@ function core(term: XTerm): CoreInternals | undefined {
 
 export interface RenderInternals {
   refreshRows?: (start: number, end: number, sync?: boolean) => void;
-  /** Drop what the renderer believes is on screen. `@xterm/addon-fit` called
-   *  this before every `resize()` ("force a full render"), and the grid path
-   *  that replaced it keeps doing so: the WebGL renderer DIFFS each frame
-   *  against `_model`, and `RenderModel.resize` only reallocates when
-   *  `cols * rows` changes — so a reflow that keeps the cell COUNT (120×30 →
-   *  90×40) would otherwise be diffed against a model describing the old
-   *  layout and leave stale glyphs behind. */
   clear?: () => void;
   _renderDebouncer?: { _animationFrame?: number };
   _isPaused?: boolean;
 }
 
-/** xterm's `_core._renderService`, or null if its shape changed under us. */
 export function renderService(term: XTerm): RenderInternals | null {
   const rs = core(term)?._renderService;
   return rs ?? null;
@@ -101,10 +93,7 @@ export function measuredCharWidth(term: XTerm): number {
  *
  *  `term.write` is async (queued on WriteBuffer + setTimeout). A synchronous
  *  `term.reset()` only clears the screen buffer — queued chunks still parse
- *  afterward and contaminate a fresh-snapshot re-attach.
- *
- *  **Fail-loud** (unlike diagnostic probes): a private-shape mismatch would
- *  silently re-open the contamination bug, so this throws rather than no-op. */
+ *  afterward and contaminate a fresh-snapshot re-attach. */
 export function clearWriteQueue(term: XTerm): void {
   const wb = core(term)?._writeBuffer;
   if (
@@ -124,8 +113,6 @@ export function clearWriteQueue(term: XTerm): void {
   wb._bufferOffset = 0;
 }
 
-/** A DEC private mode (e.g. DEC 2026 synchronized-output): true/false if we
- *  can read it; null if xterm's shape changed under us. */
 export function readDecPrivateMode(
   term: XTerm,
   field: "synchronizedOutput",
@@ -185,26 +172,7 @@ function isNearIdentityScale(scaleX: number, scaleY: number): boolean {
  *  the element's effective scale makes xterm's own unchanged math land on the
  *  right cell. The border-box top-left is a fixed point of the map (offset 0 →
  *  0), so a pure pan (translate, scale 1) needs no correction and is returned
- *  unchanged.
- *
- *  The border-box top-left is the fixed point ONLY while the ancestor transform
- *  uses `transform-origin: 0 0` (CanvasTile.tsx sets this for `tileTransformCSS`,
- *  documented in canvas/viewport/coordinates.ts); a non-0/0 origin would move
- *  the fixed point and invalidate inverting about `rect.left`/`rect.top`. The
- *  round-trip test in `internals.test.ts` composes that documented
- *  scale-about-(0,0) forward map and asserts this inverse recovers the point, so
- *  the two can't silently drift from the `transform-origin: 0 0` contract.
- *
- *  Pure (no DOM) so the geometry is unit-testable; the DOM read lives in
- *  `patchTransformAwareMouseCoords`. Returns the input unchanged when there is
- *  no effective scale, so untransformed terminals (split / sub-panels,
- *  zoom = 1) get a strict identity.
- *
- *  This correction is the ONE pointer→cell divisor. Selection, link hover, TUI
- *  mouse reporting, AND the touch tap (`cellAtPoint`, via this same wrapped
- *  `getCoords`) all resolve through it — there is no second, separately-owned
- *  divisor to keep in step. (A touch tap once hand-rolled its own
- *  `rect.width / cols`; PR-2 deleted that parallel and routed it here.) */
+ *  unchanged. */
 export function unscaleEventPoint(
   clientX: number,
   clientY: number,
@@ -321,16 +289,6 @@ export function patchTransformAwareMouseCoords(term: XTerm): void {
  *  cell under it — `col` a buffer column, `row` a VIEWPORT row (add
  *  `buffer.active.viewportY` for an absolute buffer line) — through xterm's OWN
  *  `_core._mouseCoordsService`, the single authority that places the glyphs.
- *
- *  This is the one home for pointer→cell. xterm's selection, link hover, and TUI
- *  mouse reporting all resolve through this same service (transform-corrected by
- *  `patchTransformAwareMouseCoords`), so a touch tap routing here shares their
- *  divisor instead of hand-rolling a parallel `rect.width / cols`. That parallel
- *  agrees with the authority only when the screen's layout width happens to equal
- *  `cols × cssCellWidth` — which nothing guarantees: integer-rounded
- *  `offsetWidth`, sub-pixel font metrics, or screen padding make them diverge,
- *  and a zoomed tile magnifies the gap near a cell boundary and far from the tile
- *  origin (#1400). One authority, no metric to keep in sync.
  *
  *  Cosmetic read — degrades to null: a missing service / `.xterm-screen` /
  *  method, or a point xterm can't map, returns null and the caller (a tap)

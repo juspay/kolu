@@ -1,11 +1,9 @@
 import { createEffect, createSignal } from "solid-js";
 import { makeEventListener } from "@solid-primitives/event-listener";
 
-/** The slice of the scroll-lock API the DOM wiring drives. Structural so the
- *  state machine stays unaware of this module. */
 export interface ScrollIntentTarget {
   armUserScrollIntent(source: "wheel"): void;
-  holdUserScrollIntent(source: "pointer"): void;
+  holdScrollIntentUntilRelease(source: "pointer"): void;
   releaseUserScrollIntent(): void;
 }
 
@@ -35,7 +33,7 @@ export function wireScrollIntent(
     "pointerdown",
     (e: PointerEvent) => {
       if (e.button === 0) {
-        scrollLock.holdUserScrollIntent("pointer");
+        scrollLock.holdScrollIntentUntilRelease("pointer");
         setHeld(true);
       }
     },

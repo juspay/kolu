@@ -203,7 +203,7 @@ describe("createScrollLock — user-intent latch (#1272)", () => {
 describe("createScrollLock — held pointer intent (#1272)", () => {
   it("stays armed past the time window while a pointer is held", () => {
     const t = setup();
-    t.lock.holdUserScrollIntent("pointer");
+    t.lock.holdScrollIntentUntilRelease("pointer");
     vi.setSystemTime(10_000 + SCROLL_INTENT_WINDOW_MS + 1000);
     t.scrollUp(5);
     expect(t.lock.isLocked()).toBe(true);
@@ -213,7 +213,7 @@ describe("createScrollLock — held pointer intent (#1272)", () => {
 
   it("expires normally once the pointer is released", async () => {
     const t = setup();
-    t.lock.holdUserScrollIntent("pointer");
+    t.lock.holdScrollIntentUntilRelease("pointer");
     t.lock.releaseUserScrollIntent();
     vi.setSystemTime(10_000 + SCROLL_INTENT_WINDOW_MS + 1);
     t.scrollUp(10);
@@ -226,7 +226,7 @@ describe("createScrollLock — held pointer intent (#1272)", () => {
 
   it("leaves no intent tail once the pointer is released", async () => {
     const t = setup();
-    t.lock.holdUserScrollIntent("pointer");
+    t.lock.holdScrollIntentUntilRelease("pointer");
     t.lock.releaseUserScrollIntent();
     t.scrollUp(10);
     expect(t.lock.isLocked()).toBe(false);
@@ -292,7 +292,7 @@ describe("createScrollLock — instrumentation (#1272)", () => {
       bufferType: "normal",
     });
     expect(ev?.at).toBe(10_000);
-    expect(typeof ev?.stack).toBe("string");
+    expect(typeof ev?.emitterStack).toBe("string");
     t.dispose();
   });
 

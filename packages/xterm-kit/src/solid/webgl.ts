@@ -9,9 +9,6 @@ export interface WebglLifecycleHooks {
   onLoadFailed?: (error: unknown) => void;
 }
 
-/** What `attachWebGL` hands back: the reactive `hasWebgl` fact (single source of
- *  truth — no imperative updater to forget), the texture-atlas clear (a no-op
- *  under the DOM renderer), and the atlas-size probe for diagnostics. */
 export interface WebglHandle {
   hasWebgl: () => boolean;
   clearTextureAtlas: () => void;

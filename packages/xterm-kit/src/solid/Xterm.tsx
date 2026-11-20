@@ -30,7 +30,6 @@ import {
 } from "./webgl";
 import { createXtermLifecycle, type XtermCore } from "./xtermLifecycle";
 
-/** The scroll-lock latch instance shape (structural — no exported nominal). */
 export type ScrollLock = ReturnType<typeof createScrollLock>;
 
 export { sameGrid, type TerminalGrid } from "./grid";
@@ -53,10 +52,7 @@ export interface XtermHandle {
    *  byte written next, including bytes the coalescer or an engaged scroll lock
    *  is still holding. That ordering is the whole content of the fact — a
    *  resize applied early reflows a screen out of bytes that were laid out for
-   *  the size it just left.
-   *
-   *  Nothing measured drives this. The box decides what the pane ASKS for
-   *  ({@link wantedGrid}); the stream decides what the terminal IS. */
+   *  the size it just left. */
   resize: (grid: TerminalGrid) => void;
   /** Drop everything the door is holding — coalesced bytes and any queued
    *  resize — without applying it (fresh snapshot). */
@@ -75,11 +71,6 @@ export interface XtermHandle {
    *  hidden pane (`display:none`, a 0×0 box) can never be measured, so it keeps
    *  reporting that invented grid indefinitely. Gating on `wantedGrid()` makes
    *  that unrepresentable: no grid, no bytes.
-   *
-   *  It is NOT what the terminal is. The two differ for about a settle window
-   *  plus a round trip after the box moves — longer while another viewer holds
-   *  the terminal at its own size — and during that window the terminal is
-   *  drawn at ITS size, aligned to the bottom-left of the box and clipped by it.
    *
    *  Compared by value, so it notifies once per REAL measurement change and
    *  never for a re-fit that measured nothing new — which is what lets a

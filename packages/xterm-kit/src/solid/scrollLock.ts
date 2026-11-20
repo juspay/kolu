@@ -18,11 +18,6 @@ const EVENT_RING_CAP = 20;
 
 const WARN_THROTTLE_MS = 5_000;
 
-/** A scroll input the user actually made, as reported by the call site that
- *  observed it (Terminal.tsx wheel/key/touch/pointer wiring, SearchBar
- *  navigation). `pointer` covers scrollbar drag and selection auto-scroll —
- *  both run off a held pointer, so it stays armed until the pointer lifts
- *  rather than expiring on the time window (see `holdUserScrollIntent`). */
 export type ScrollIntentSource =
   | "wheel"
   | "touch"
@@ -43,19 +38,9 @@ export interface ScrollLockEvent {
   bufferType: "normal" | "alternate";
   visibility: string;
   hasFocus: boolean | null;
-  /** Synchronous capture — every known emitter (wheel handler, touch
-   *  bridge, buffer switch) is on the stack when `onScroll` fires, so this
-   *  names the trigger. */
-  stack: string | undefined;
+  emitterStack: string | undefined;
 }
 
-/** One thing the lock is holding back, in stream order.
- *
- *  `data` is bytes to write (with the callback that fires when they parse);
- *  `resize` is the grid the pty's mirror moved to at that point between two
- *  bytes. They share one queue because what the resize MEANS is its position
- *  relative to the bytes around it — applied early, it reflows a screen the
- *  held bytes were never written for. */
 export type PendingItem =
   | { kind: "data"; data: string; onParsed?: () => void }
   | { kind: "resize"; cols: number; rows: number };
@@ -105,16 +90,8 @@ export function createScrollLock(
   /** Keep intent armed for as long as a pointer is held, for gestures that
    *  scroll repeatedly while the button is down (scrollbar drag, selection
    *  auto-scroll). The time window doesn't fit those — the press is one event
-   *  but the scroll ticks keep coming.
-   *
-   *  Deliberately does NOT also arm the time window: those gestures emit their
-   *  `onScroll` ticks *during* the hold (xterm scrolls on `pointermove` /
-   *  the selection interval, both bounded by `pointerup`), never after release,
-   *  so `heldSource` alone covers them. Arming the window here too would leave
-   *  a 500 ms "pointer" tail after every press — including a plain click, which
-   *  scrolls nothing — and a spurious scroll landing in that tail would latch
-   *  the very freeze this gating exists to prevent (#1272). */
-  function holdUserScrollIntent(source: ScrollIntentSource): void {
+   *  but the scroll ticks keep coming. */
+  function holdScrollIntentUntilRelease(source: ScrollIntentSource): void {
     heldSource = source;
   }
 
@@ -144,7 +121,7 @@ export function createScrollLock(
       bufferType: buf.type,
       visibility: visibility(),
       hasFocus: typeof document === "undefined" ? null : document.hasFocus(),
-      stack: new Error("scroll-lock transition").stack,
+      emitterStack: new Error("scroll-lock transition").stack,
     };
     setEventRing((ring) => {
       const next = [...ring, event];
@@ -295,10 +272,6 @@ export function createScrollLock(
   }
 
   /**
-   * Scroll-aware write: when locked, buffer data instead of writing to xterm.
-   * This completely avoids viewport-jumping — xterm never processes the data
-   * until the user is at the bottom and ready to see it.
-   *
    * `onParsed` (optional) is xterm's own write callback: it fires only when the
    * chunk has actually reached xterm AND been parsed into the buffer (xterm
    * parses asynchronously off a `setTimeout` — `term.write` returns long before
@@ -343,10 +316,6 @@ export function createScrollLock(
     setPending((buffered) => [...buffered, { kind: "resize", cols, rows }]);
   }
 
-  /**
-   * Flush buffered data and scroll to bottom.
-   * Call this from the "scroll to bottom" button handler.
-   */
   function scrollToBottom(term: Terminal): void {
     flush();
     term.scrollToBottom();
@@ -369,8 +338,6 @@ export function createScrollLock(
     scrollToBottom(termRef);
   }
 
-  /** Most recent transition (the live diagnostics row), or null if none yet —
-   *  the tail of the one ring. */
   const lastEvent = (): ScrollLockEvent | null => eventRing().at(-1) ?? null;
 
   /** Forensic trail for the Diagnostic Info JSON dump (newest last). */
@@ -383,7 +350,7 @@ export function createScrollLock(
     lastEvent,
     events,
     armUserScrollIntent,
-    holdUserScrollIntent,
+    holdScrollIntentUntilRelease,
     releaseUserScrollIntent,
     handleTabVisible,
     reset,
