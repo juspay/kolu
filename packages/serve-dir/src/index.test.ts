@@ -10,11 +10,11 @@ import {
   rawPathname,
   type RealpathGuard,
   resolvePathUnder,
-  serveFile as serveFileEffect,
+  serveFile,
 } from "./index";
 
-function serveFile(...args: Parameters<typeof serveFileEffect>) {
-  return Effect.runPromise(serveFileEffect(...args));
+function runServe(...args: Parameters<typeof serveFile>) {
+  return Effect.runPromise(serveFile(...args));
 }
 
 async function readBody(body: string | ReadableStream) {
@@ -59,7 +59,7 @@ describe("contentTypeForPath", () => {
     expect(contentTypeForPath("old.ogv")).toBe("video/ogg");
   });
 
-  it("covers the OVERRIDES for generic types mrmime omits", () => {
+  it("covers the MRMIME_GAP_MIME rows for generic types mrmime omits", () => {
     expect(contentTypeForPath("clip.m4v")).toBe("video/mp4");
     expect(contentTypeForPath("favicon.ico")).toBe("image/x-icon");
   });
@@ -253,7 +253,7 @@ describe("serveFile", () => {
   });
 
   it("serves an existing HTML file with the right Content-Type", async () => {
-    const res = await serveFile(tmpRoot, "page.html");
+    const res = await runServe(tmpRoot, "page.html");
     expect(res.status).toBe(200);
     expect(res.headers["Content-Type"]).toBe("text/html; charset=utf-8");
     expect(res.headers["X-Content-Type-Options"]).toBe("nosniff");
@@ -262,18 +262,13 @@ describe("serveFile", () => {
   });
 
   it("sets NO Content-Length on a full 200 — the runtime derives it from the bytes sent", async () => {
-    // Load-bearing: a downstream HTML-transform middleware (e.g. kolu's
-    // artifact-sdk decorator) splices bytes into a text/html response *after*
-    // this returns, lengthening the body. A Content-Length pinned here to the
-    // pre-splice size truncates the injected body. The 206 path below still sets
-    // it (partial responses must, and they're never decorated).
-    const res = await serveFile(tmpRoot, "page.html");
+    const res = await runServe(tmpRoot, "page.html");
     expect(res.status).toBe(200);
     expect(res.headers["Content-Length"]).toBeUndefined();
   });
 
   it("answers a Range request with 206 Partial Content and the byte slice", async () => {
-    const res = await serveFile(tmpRoot, "clip.mp4", "bytes=2-5");
+    const res = await runServe(tmpRoot, "clip.mp4", "bytes=2-5");
     expect(res.status).toBe(206);
     expect(res.headers["Content-Type"]).toBe("video/mp4");
     expect(res.headers["Content-Range"]).toBe("bytes 2-5/10");
@@ -283,28 +278,28 @@ describe("serveFile", () => {
   });
 
   it("emits a strong ETag (size-mtimeNs-ino) on 200 and 206, stable across reads of the unchanged file", async () => {
-    const full = await serveFile(tmpRoot, "clip.mp4");
-    const ranged = await serveFile(tmpRoot, "clip.mp4", "bytes=2-5");
+    const full = await runServe(tmpRoot, "clip.mp4");
+    const ranged = await runServe(tmpRoot, "clip.mp4", "bytes=2-5");
     expect(full.headers.ETag).toMatch(/^"[0-9a-f]+-[0-9a-f]+-[0-9a-f]+"$/);
     expect(ranged.headers.ETag).toBe(full.headers.ETag);
-    const again = await serveFile(tmpRoot, "clip.mp4");
+    const again = await runServe(tmpRoot, "clip.mp4");
     expect(again.headers.ETag).toBe(full.headers.ETag);
   });
 
   it("bumps the ETag when the file content changes", async () => {
     const p = path.join(tmpRoot, "etag-change.bin");
     fs.writeFileSync(p, "aaaa");
-    const e1 = (await serveFile(tmpRoot, "etag-change.bin")).headers.ETag;
+    const e1 = (await runServe(tmpRoot, "etag-change.bin")).headers.ETag;
     fs.writeFileSync(p, "bbbbbb");
-    const e2 = (await serveFile(tmpRoot, "etag-change.bin")).headers.ETag;
+    const e2 = (await runServe(tmpRoot, "etag-change.bin")).headers.ETag;
     expect(e1).toBeDefined();
     expect(e2).not.toBe(e1);
     fs.rmSync(p, { force: true });
   });
 
   it("honors a Range when If-Range matches the current ETag (206)", async () => {
-    const etag = (await serveFile(tmpRoot, "clip.mp4")).headers.ETag;
-    const res = await serveFile(
+    const etag = (await runServe(tmpRoot, "clip.mp4")).headers.ETag;
+    const res = await runServe(
       tmpRoot,
       "clip.mp4",
       "bytes=2-5",
@@ -317,7 +312,7 @@ describe("serveFile", () => {
   });
 
   it("serves the full 200 when If-Range is STALE — never a 206 stitched onto changed bytes", async () => {
-    const res = await serveFile(
+    const res = await runServe(
       tmpRoot,
       "clip.mp4",
       "bytes=2-5",
@@ -331,7 +326,7 @@ describe("serveFile", () => {
   });
 
   it("ignores If-Range when there is no Range header (a plain 200 stays a 200)", async () => {
-    const res = await serveFile(
+    const res = await runServe(
       tmpRoot,
       "clip.mp4",
       undefined,
@@ -345,7 +340,7 @@ describe("serveFile", () => {
   it("streams a 206 body consistent with its headers when the path is atomically replaced mid-flight", async () => {
     const swapPath = path.join(tmpRoot, "swap.mp4");
     fs.writeFileSync(swapPath, "0123456789");
-    const res = await serveFile(tmpRoot, "swap.mp4", "bytes=2-5");
+    const res = await runServe(tmpRoot, "swap.mp4", "bytes=2-5");
     expect(res.status).toBe(206);
     expect(res.headers["Content-Range"]).toBe("bytes 2-5/10");
     expect(res.headers["Content-Length"]).toBe("4");
@@ -357,27 +352,27 @@ describe("serveFile", () => {
   });
 
   it("serves the whole file (200) when no Range header is present", async () => {
-    const res = await serveFile(tmpRoot, "clip.mp4");
+    const res = await runServe(tmpRoot, "clip.mp4");
     expect(res.status).toBe(200);
     expect(await readBody(res.body)).toBe("0123456789");
   });
 
   it("streams the full 200 body (no Range) so a large file never lands in the heap", async () => {
-    const res = await serveFile(tmpRoot, "clip.mp4");
+    const res = await runServe(tmpRoot, "clip.mp4");
     expect(res.status).toBe(200);
     expect(res.body).toBeInstanceOf(ReadableStream);
     expect(res.headers["Content-Length"]).toBeUndefined();
   });
 
   it("collapses a multi-range header to a streamed full 200", async () => {
-    const res = await serveFile(tmpRoot, "clip.mp4", "bytes=0-1,4-5");
+    const res = await runServe(tmpRoot, "clip.mp4", "bytes=0-1,4-5");
     expect(res.status).toBe(200);
     expect(res.body).toBeInstanceOf(ReadableStream);
     expect(await readBody(res.body)).toBe("0123456789");
   });
 
   it("returns 416 for an unsatisfiable Range", async () => {
-    const res = await serveFile(tmpRoot, "clip.mp4", "bytes=50-60");
+    const res = await runServe(tmpRoot, "clip.mp4", "bytes=50-60");
     expect(res.status).toBe(416);
     expect(res.headers["Content-Range"]).toBe("bytes */10");
     expect(res.headers["Accept-Ranges"]).toBe("bytes");
@@ -386,23 +381,23 @@ describe("serveFile", () => {
   });
 
   it("serves a nested asset", async () => {
-    const res = await serveFile(tmpRoot, "sub/child.svg");
+    const res = await runServe(tmpRoot, "sub/child.svg");
     expect(res.status).toBe(200);
     expect(res.headers["Content-Type"]).toBe("image/svg+xml");
   });
 
   it("404s for missing files (with valid path)", async () => {
-    const res = await serveFile(tmpRoot, "no.html");
+    const res = await runServe(tmpRoot, "no.html");
     expect(res.status).toBe(404);
   });
 
   it("404s for a directory (not a file)", async () => {
-    const res = await serveFile(tmpRoot, "sub");
+    const res = await runServe(tmpRoot, "sub");
     expect(res.status).toBe(404);
   });
 
   it("rejects a lexical traversal with 400 (the guard that's always on)", async () => {
-    const res = await serveFile(tmpRoot, "../escape");
+    const res = await runServe(tmpRoot, "../escape");
     expect(res.status).toBe(400);
   });
 
@@ -414,7 +409,7 @@ describe("serveFile", () => {
       const secret = path.join(outside, "secret.html");
       fs.writeFileSync(secret, "<!doctype html><h1>SECRET</h1>");
       fs.symlinkSync(secret, path.join(tmpRoot, "leak-guarded.html"));
-      const res = await serveFile(
+      const res = await runServe(
         tmpRoot,
         "leak-guarded.html",
         undefined,
@@ -436,7 +431,7 @@ describe("serveFile", () => {
       const secret = path.join(outside, "secret.html");
       fs.writeFileSync(secret, "<!doctype html><h1>SECRET</h1>");
       fs.symlinkSync(secret, path.join(tmpRoot, "leak-unguarded.html"));
-      const res = await serveFile(tmpRoot, "leak-unguarded.html");
+      const res = await runServe(tmpRoot, "leak-unguarded.html");
       expect(res.status).toBe(200);
       expect(await readBody(res.body)).toContain("SECRET");
     } finally {

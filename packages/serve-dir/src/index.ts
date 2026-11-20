@@ -8,22 +8,15 @@ import { lookup } from "mrmime";
 const TEXT_PLAIN = { "Content-Type": "text/plain; charset=utf-8" };
 const RE_BYTE_RANGE = /^bytes=(\d*)-(\d*)$/;
 
-/** The mrmime gap set (`.m4v`/`.ico`, and any future classifier entry mrmime
- *  doesn't know) is the one case the coupling is NOT dissolved but
- *  contained-by-test: the MIME lives here, the consumer's classifier asserts the
- *  appliance, and the two must co-vary. Drop an `OVERRIDES` row and the
- *  classifier still serves a `<video>`/`<img>`, but this returns
- *  `application/octet-stream` → silent download. The coverage invariant in the
- *  consumer's `iframePreviewRoute.test.ts` is load-bearing for exactly that
- *  axis, not a thin sanity check. */
-const OVERRIDES: Record<string, string> = {
+const MRMIME_GAP_MIME: Record<string, string> = {
   m4v: "video/mp4",
   ico: "image/x-icon",
 };
 
 export function contentTypeForPath(filePath: string): string {
   const ext = path.extname(filePath).slice(1).toLowerCase();
-  const mime = OVERRIDES[ext] ?? lookup(filePath) ?? "application/octet-stream";
+  const mime =
+    MRMIME_GAP_MIME[ext] ?? lookup(filePath) ?? "application/octet-stream";
   const textBearing =
     mime.startsWith("text/") ||
     mime.endsWith("/javascript") ||
@@ -215,9 +208,44 @@ function fileETag(s: { size: bigint; mtimeNs: bigint; ino: bigint }): string {
   return `"${s.size.toString(16)}-${s.mtimeNs.toString(16)}-${s.ino.toString(16)}"`;
 }
 
-interface Served {
-  readonly result: ServeResult;
-  readonly streams: boolean;
+type Served =
+  | { readonly handle: "owned-by-stream"; readonly result: ServeResult }
+  | { readonly handle: "retained"; readonly result: ServeResult };
+
+function openUnderGuard(
+  abs: string,
+  realpathGuard: RealpathGuard | undefined,
+): Effect.Effect<fsPromises.FileHandle | null, unknown> {
+  return Effect.gen(function* () {
+    if (realpathGuard && !(yield* realpathGuard(abs))) return null;
+    return yield* Effect.tryPromise({
+      try: () => open(abs, "r"),
+      catch: (e: unknown) => e,
+    });
+  });
+}
+
+function statForResponse(
+  handle: fsPromises.FileHandle,
+): Effect.Effect<{ size: number; etag: string } | null, unknown> {
+  return Effect.map(
+    Effect.tryPromise({
+      try: () => handle.stat({ bigint: true }),
+      catch: (e: unknown) => e,
+    }),
+    (s: BigIntStats) =>
+      s.isFile() ? { size: Number(s.size), etag: fileETag(s) } : null,
+  );
+}
+
+function bytesFrom(
+  handle: fsPromises.FileHandle,
+  range: { start: number; end: number } | null,
+): ReadableStream {
+  const stream = handle.createReadStream(
+    range === null ? {} : { start: range.start, end: range.end },
+  );
+  return Readable.toWeb(stream) as ReadableStream;
 }
 
 /** Read the resolved file and assemble the HTTP response (the I/O half).
@@ -241,38 +269,18 @@ export function serveFile(
       body: res.reason,
     });
   }
-  // Streaming the full 200 (not just the ranged 206) is the load-bearing reason
-  // a multi-GB video never lands in the server heap: a client that omits a Range
-  // header — or sends a multi-range one we collapse to 200 — would otherwise
-  // force the whole file through `readFile`. The downstream HTML decorator still
-  // works because it consumes only `text/html` (via `res.text()`), and a
-  // `ReadableStream` body answers `.text()` just as a buffer does.
   const served = Effect.acquireUseRelease(
-    // Stage 2 (injected): filesystem-authority check, INSIDE the acquire so it
-    // runs before a descriptor exists. `resolvePathUnder` is lexical only, so a
-    // repo-local `leak.html -> /etc/passwd` slips through it; the caller's guard
-    // resolves symlinks and rejects anything whose real path escapes the root,
-    // BEFORE any open/stat/read below. A rejection is a 403 ANSWER, not an
-    // error, so it rides the acquire's success channel as a handle-less
-    // `Served` the use step passes straight through.
-    Effect.gen(function* () {
-      if (realpathGuard && !(yield* realpathGuard(res.abs))) {
-        return null;
-      }
-      return yield* Effect.tryPromise({
-        try: () => open(res.abs, "r"),
-        catch: (e: unknown) => e,
-      });
-    }),
+    openUnderGuard(res.abs, realpathGuard),
     (handle) =>
       handle === null
         ? Effect.succeed<Served>({
+            handle: "retained",
             result: { status: 403, headers: TEXT_PLAIN, body: "escapes root" },
-            streams: false,
           })
         : serveOpenFile(handle, res.mime, rangeHeader, ifRangeHeader),
     (handle, exit) =>
-      handle === null || (Exit.isSuccess(exit) && exit.value.streams)
+      handle === null ||
+      (Exit.isSuccess(exit) && exit.value.handle === "owned-by-stream")
         ? Effect.void
         : Effect.tryPromise({
             try: () => handle.close(),
@@ -307,72 +315,51 @@ function serveOpenFile(
   ifRangeHeader: string | null | undefined,
 ): Effect.Effect<Served, unknown> {
   return Effect.gen(function* () {
+    const stat = yield* statForResponse(handle);
+    if (stat === null) {
+      return {
+        handle: "retained",
+        result: { status: 404, headers: TEXT_PLAIN, body: "not a file" },
+      } as const;
+    }
+
     const baseHeaders: Record<string, string> = {
       "Content-Type": mime,
       "X-Content-Type-Options": "nosniff",
       "Cache-Control": "private, max-age=60",
       "Accept-Ranges": "bytes",
+      ETag: stat.etag,
     };
 
-    const s: BigIntStats = yield* Effect.tryPromise({
-      try: () => handle.stat({ bigint: true }),
-      catch: (e: unknown) => e,
-    });
-    if (!s.isFile()) {
-      return {
-        result: { status: 404, headers: TEXT_PLAIN, body: "not a file" },
-        streams: false,
-      };
-    }
-    const size = Number(s.size);
-    baseHeaders.ETag = fileETag(s);
-
-    const streamBody = (start?: number, end?: number): ReadableStream => {
-      const stream = handle.createReadStream(
-        start === undefined ? {} : { start, end },
-      );
-      return Readable.toWeb(stream) as ReadableStream;
-    };
-
-    const honorRange =
-      !ifRangeHeader || ifRangeHeader.trim() === baseHeaders.ETag;
+    const honorRange = !ifRangeHeader || ifRangeHeader.trim() === stat.etag;
     const effectiveRange = honorRange ? rangeHeader : null;
-
-    const range = effectiveRange ? parseByteRange(effectiveRange, size) : null;
+    const range = effectiveRange
+      ? parseByteRange(effectiveRange, stat.size)
+      : null;
     if (range === "invalid") {
       return {
+        handle: "retained",
         result: {
           status: 416,
           headers: {
             ...TEXT_PLAIN,
             "X-Content-Type-Options": "nosniff",
             "Accept-Ranges": "bytes",
-            "Content-Range": `bytes */${size}`,
+            "Content-Range": `bytes */${stat.size}`,
           },
           body: "range not satisfiable",
         },
-        streams: false,
-      };
+      } as const;
     }
-    // Shape status + range headers in one place (`rangeResponseHead`, serve-dir's
-    // own response contract); this branch owns only the byte source. A 206 reads
-    // just `[start, end]` — `createReadStream({ start, end })` against a multi-GB
-    // video moves those bytes, not the whole file, through the heap. A full 200
-    // (no Range header, or one we collapse — open `bytes=-`, multi-range,
-    // malformed) streams the whole file and carries NO `Content-Length`
-    // (rangeResponseHead omits it): the runtime derives it from the bytes actually
-    // written to the socket. Load-bearing — (1) a downstream HTML-transform
-    // middleware (kolu's artifact-sdk decorator) may splice bytes into a text/html
-    // response *after* this returns; a Content-Length pinned to the pre-splice
-    // size truncates the injected body. (2) deriving from the sent bytes is
-    // race-free on a live-reloading root, where a stat and a later read could
-    // disagree. A 206 DOES carry Content-Length: a partial response must, and it's
-    // never decorated (an HTML transform only touches status 200).
-    const { status, headers } = rangeResponseHead(range, size, baseHeaders);
-    const body = range ? streamBody(range.start, range.end) : streamBody();
-    // The stream now owns the descriptor: `createReadStream`'s `autoClose`
-    // defaults on, closing it on end/error — including a consumer that abandons
-    // the body mid-video.
-    return { result: { status, headers, body }, streams: true };
+
+    const { status, headers } = rangeResponseHead(
+      range,
+      stat.size,
+      baseHeaders,
+    );
+    return {
+      handle: "owned-by-stream",
+      result: { status, headers, body: bytesFrom(handle, range) },
+    } as const;
   });
 }
