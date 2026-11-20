@@ -12,16 +12,14 @@ export function formatBytes(bytes: number): string {
   return `${(bytes / GIB).toFixed(1)} GiB`;
 }
 
-/** A byte count in MiB, rounded to whole MiB or to a tenth — the ONE rounding
- *  behind {@link formatMiB}, for a caller that needs the number itself (a dedup
- *  on the figure a readout shows, a machine-readable snapshot). */
+/** A byte count in MiB, rounded to whole MiB or to a tenth. */
 export function mibOf(bytes: number, decimals: 0 | 1): number {
   const scale = decimals === 0 ? 1 : 10;
   return Math.round((bytes / MIB) * scale) / scale;
 }
 
 /** A figure held in MiB at a fixed precision — "150.0 MiB" (1 decimal) or
- *  "142 MiB" (whole) — for readouts that should not change unit as they move. */
+ *  "142 MiB" (whole). */
 export function formatMiB(bytes: number, decimals: 0 | 1): string {
   return `${mibOf(bytes, decimals).toFixed(decimals)} MiB`;
 }
