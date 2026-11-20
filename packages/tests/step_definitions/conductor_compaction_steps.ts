@@ -120,22 +120,39 @@ Then(
   },
 );
 
+/** HOVERED THE WAY A PERSON HOVERS: the pointer keeps moving over the meter.
+ *  The tip opens only for a pointer still inside it when its delay ends, and
+ *  it learns that from `pointermove`s after the enter — one `hover()` is a
+ *  single move, so the tip would never open. */
+const METER = '[data-testid="conductor-usage"]';
+let nudge = 0;
+
 When("I hover the conductor's context meter", async function (this: KoluWorld) {
-  await this.page.locator('[data-testid="conductor-usage"]').hover();
+  await this.page.locator(METER).hover();
 });
 
 Then(
   "the context meter's tip should say {string}",
   async function (this: KoluWorld, sentence: string) {
-    await until(
-      "the context meter's tip",
-      async () => {
+    await pollFor({
+      onTick: async () => {
+        nudge = (nudge + 1) % 4;
+        await this.page
+          .locator(METER)
+          .hover({ position: { x: 4 + nudge, y: 2 } });
+      },
+      observe: async () => {
         const tip = this.page.locator(
           '[data-testid="conductor-usage-compacts"]',
         );
         return (await tip.isVisible()) ? await tip.textContent() : null;
       },
-      (seen) => seen?.replace(/\s+/g, " ").trim() === sentence,
-    );
+      isDone: (seen) => seen?.replace(/\s+/g, " ").trim() === sentence,
+      timeoutMs: POLL_TIMEOUT,
+      onTimeout: (last, elapsedMs) =>
+        new Error(
+          `the context meter's tip: last saw ${JSON.stringify(last)} after ${elapsedMs}ms`,
+        ),
+    });
   },
 );
