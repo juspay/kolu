@@ -1,6 +1,3 @@
-/** The floor manifest the Nix half writes: where it sits, how it parses, and
- *  that a broken one is refused rather than read around. */
-
 import { describe, expect, it } from "vitest";
 import { manifestFile, parseAgentDistroManifest } from "./manifest.ts";
 

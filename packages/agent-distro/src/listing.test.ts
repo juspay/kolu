@@ -1,5 +1,3 @@
-/** The harnesses kolu offers, read off its floor package's versions file. */
-
 import { describe, expect, it } from "vitest";
 import { versionsFile } from "./bundle.ts";
 import { floorListing } from "./listing.ts";

@@ -1,19 +1,3 @@
-/**
- * What kolu delivers to a host, and what it says when that lands. A host gets
- * ONE set: agent-distro's package (its harnesses, on PATH) and the profiles of
- * the Agents setting, each BUILT by kolu-server (agent-distro's
- * `lib.mkProfile`, locked to the revision it was fetched at) into a store path
- * a terminal names in `AI_PROFILE`. Harnesses and profiles are disjoint:
- * either can change without the other.
- *
- * padi keeps the set that landed in a file of kolu's own (the host state's
- * `landed`, `./bake.ts`) beside upstream's `current`, so a restarted padi
- * still knows which profiles serve; and it words what changed in the history
- * log in upstream's idiom (`@juspay/agent-distro/update/versions`' `changes`),
- * extended for profiles: `Claude Code 2.0.1 → 2.0.3, juspay a1b2c3d → d4e5f6a,
- * ekala added 9f8e7d6`.
- */
-
 import { changes, type Version } from "@juspay/agent-distro/update/versions";
 import { Schema } from "effect";
 import { agentBundleShortHash } from "./bundle.ts";
@@ -84,6 +68,25 @@ export function profileBuildLabel(profile: DeliveredProfile): string {
   return profile.rev?.slice(0, 7) ?? agentBundleShortHash(profile.path);
 }
 
+function rebuildLabels(
+  old: DeliveredProfile,
+  next: DeliveredProfile,
+): readonly [string, string] {
+  return profileBuildLabel(old) === profileBuildLabel(next)
+    ? [agentBundleShortHash(old.path), agentBundleShortHash(next.path)]
+    : [profileBuildLabel(old), profileBuildLabel(next)];
+}
+
+function reorderWords(
+  previous: DeliveredSet | undefined,
+  next: DeliveredSet,
+): string | undefined {
+  if (previous === undefined) return undefined;
+  return sameStack(referencesOf(previous.profiles), referencesOf(next.profiles))
+    ? undefined
+    : `profiles reordered: ${stackTitle(next.profiles)}`;
+}
+
 /** What changed between two delivered sets, in the history log's words —
  *  upstream's `changes` for the package's harnesses when the package moved,
  *  then each profile added, rebuilt or removed (or, when only their order
@@ -114,29 +117,15 @@ export function deliveryChanges(
           : `${p.name} added ${profileBuildLabel(p)}`,
       );
     else if (old.path !== p.path) {
-      // The same revision can build anew (a plugin it names by a flake
-      // reference is locked only when it builds): then the store hashes are
-      // what tell the two builds apart.
-      const [was, now] =
-        profileBuildLabel(old) === profileBuildLabel(p)
-          ? [agentBundleShortHash(old.path), agentBundleShortHash(p.path)]
-          : [profileBuildLabel(old), profileBuildLabel(p)];
+      const [was, now] = rebuildLabels(old, p);
       words.push(`${p.name} ${was} → ${now}`);
     }
   }
   const after = new Set(referencesOf(next.set.profiles));
   for (const p of previous?.set.profiles ?? [])
     if (!after.has(p.reference)) words.push(`${p.name} removed`);
-  // The same profiles in another order are another stack (a later one wins
-  // where they overlap), so the reorder is said when nothing else is.
-  if (
-    words.length === 0 &&
-    previous !== undefined &&
-    !sameStack(
-      referencesOf(previous.set.profiles),
-      referencesOf(next.set.profiles),
-    )
-  )
-    words.push(`profiles reordered: ${stackTitle(next.set.profiles)}`);
+  const reordered =
+    words.length === 0 ? reorderWords(previous?.set, next.set) : undefined;
+  if (reordered !== undefined) words.push(reordered);
   return words.join(", ");
 }

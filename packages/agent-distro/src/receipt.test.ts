@@ -1,17 +1,12 @@
-/** A host's history log and `last-success` stamp, read back into the events
- *  and the last run its receipt carries. */
-
 import { describe, expect, it } from "vitest";
 import {
-  historyAuthor,
+  HISTORY_AUTHOR,
   lastRunOf,
   RECEIPT_EVENTS,
   recentEvents,
   SAME_RUN_MS,
 } from "./receipt.ts";
 
-/** Real lines from a host's `agent-distro/history.log` — written before the
- *  one-package release, each naming its profile — then lines after it. */
 const REAL = [
   "2026-10-05T12:12:31Z juspay skipped: bundle not fully cached yet (would build agent-distro-versions)",
   "2026-10-06T10:13:01-04:00 juspay updated: Codex 0.160.0 → 0.160.1, Claude Code 2.1.289 → 2.1.291",
@@ -62,12 +57,12 @@ describe("recentEvents", () => {
   });
 });
 
-describe("historyAuthor", () => {
+describe("HISTORY_AUTHOR", () => {
   it("a skip or a failure is agent-distro's updater; an update or a stamp is the log's", () => {
-    expect(historyAuthor("skipped")).toBe("agent-distro");
-    expect(historyAuthor("failed")).toBe("agent-distro");
-    expect(historyAuthor("updated")).toBe("log");
-    expect(historyAuthor("unchanged")).toBe("log");
+    expect(HISTORY_AUTHOR.skipped).toBe("agent-distro");
+    expect(HISTORY_AUTHOR.failed).toBe("agent-distro");
+    expect(HISTORY_AUTHOR.updated).toBe("log");
+    expect(HISTORY_AUTHOR.unchanged).toBe("log");
   });
 });
 
@@ -82,7 +77,6 @@ describe("lastRunOf — the last run, off the files alone", () => {
       words: "nix build exit 1",
       by: "agent-distro",
     });
-    // Within SAME_RUN_MS the stamp is still that run.
     expect(lastRunOf(events, (failedAt + SAME_RUN_MS) / 1000)?.outcome).toBe(
       "failed",
     );

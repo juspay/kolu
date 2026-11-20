@@ -1,6 +1,3 @@
-/** The two files `default.nix` bakes for agent-distro, as padi and
- *  kolu-server parse them. */
-
 import { describe, expect, it } from "vitest";
 import { parseAgentDistroDelivery, parseAgentDistroHostState } from "./bake.ts";
 

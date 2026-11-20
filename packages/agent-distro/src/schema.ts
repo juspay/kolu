@@ -1,42 +1,9 @@
-/**
- * agent-distro on a host — the value shapes that cross the padi wire (and
- * kolu's own) for it, defined ONCE, here, beside the rest of kolu's contract
- * with upstream:
- *
- *   - `AgentDistroSetting` — what the binding kolu-server PUSHES into padi's
- *     memory-only `agentDistro` cell: whether new terminals get agent-distro's
- *     harnesses on their PATH, and the profiles stacked over them. It is the
- *     user's global Agents preference, verbatim (kolu-common builds its
- *     preference field from this schema); padi applies it at each NEW
- *     terminal's spawn.
- *   - `AgentDistroDeliveryReport` — what kolu-server tells a padi about the set
- *     (the package and the built profiles) it is delivering to that host
- *     (padi's `agentDistro.report`).
- *   - `AgentDistroStatus` — what padi REPORTS about its own host in the
- *     read-only `agentDistroStatus` cell: whether the setting's set is there
- *     yet, being delivered, or failed to arrive.
- *   - `AgentProfileResolution` — whether each profile of the setting builds,
- *     as kolu-server found when it locked and built it (kolu's own
- *     `agentProfiles` cell).
- *
- * Harnesses and profiles are disjoint: the switch is the harnesses, the list
- * is the profiles, and there is no bundle of the two. The cell DECLARATIONS
- * stay in `@kolu/padi-client` and kolu-common; only the value schemas live
- * here, so every reader shares one definition. This package depends on nothing
- * but `effect` and upstream's vocabulary for it (and `solid-js` only for the
- * logo component).
- */
-
 import { Schema } from "effect";
 import { ProfileInEffectSchema } from "./inEffect.ts";
 import { DeliveredSetSchema, referencesOf, sameStack } from "./landing.ts";
 import { AgentVersionSchema } from "./listing.ts";
 import { AgentUpdateEventSchema, AgentUpdateRunSchema } from "./receipt.ts";
 
-/** One profile reference, as the user wrote it: a flake reference
- *  (`github:juspay/skills`) or a path (absolute, or `~/`) to an
- *  `plugin.json` or the directory holding one. kolu-server locks and
- *  builds it; nothing on a host reads it as a reference. */
 const ProfileReference = Schema.String.check(Schema.isMinLength(1));
 
 /** The Agents setting: the harnesses on or off, and the profiles stacked over

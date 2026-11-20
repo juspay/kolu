@@ -1,17 +1,3 @@
-/**
- * The FLOOR manifest — how kolu's local copy of agent-distro's package
- * describes itself, written by this package's Nix half (`default.nix`) from
- * the very value that builds it, at `share/kolu/agent-distro.json`:
- *
- *     { dir, bin }
- *
- * `dir` is agent-distro's one package as upstream builds it (every harness
- * launcher and the picker, `bin/agent-distro`, in `bin/`, and
- * `share/agent-distro/versions`). It carries no profile: profiles are built
- * and delivered on their own (`./landing.ts`). Readers go through this file
- * and never through a directory layout of their own.
- */
-
 import { Schema } from "effect";
 
 export const AgentDistroManifestSchema = Schema.Struct({

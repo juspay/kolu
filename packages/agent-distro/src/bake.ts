@@ -1,24 +1,3 @@
-/**
- * The two files `default.nix` bakes for agent-distro besides the floor — their
- * schemas and parsers, so padi and kolu-server read one definition:
- *
- *   - the HOST STATE (both arms, `KOLU_AGENT_DISTRO_STATE`): where a host keeps
- *     what kolu delivered it — the package's state directory (agent-distro's
- *     own `stateDirectory` for its one package, whose `current` padi points at
- *     the package that landed), the history log upstream's updater writes too,
- *     and kolu's record of the profiles that landed with it — each written
- *     against a placeholder home padi makes concrete (`./bundle.ts`'
- *     `concreteStatePath`);
- *   - the DELIVERY (the binder's arm only, `KOLU_AGENT_DISTRO_DELIVERY`):
- *     upstream's content-addressed index kolu-server reads the package's path
- *     off (`@kolu/surface-remote`'s `readPublishedClosure`, its `latest/`
- *     entries), the one binary cache every host pulls that path from, whole
- *     (`lib.cache`: URL and the key the signed package is trusted by), and
- *     upstream's update schedule (`lib.schedule`).
- *
- * Pure: the readers of the environment and the files stay where they run.
- */
-
 import { Schema } from "effect";
 
 const NonEmpty = Schema.String.check(Schema.isMinLength(1));
@@ -64,9 +43,8 @@ const AgentDistroDeliverySchema = Schema.Struct({
    *  its signing key — what a host sent the signed package (a Mac, or Linux on
    *  Nix 2.35 or newer) trusts it by; a content-addressed one needs none. The
    *  cache holds the WHOLE closure of every path the index names, so a host
-   *  reads no other cache: `nix copy --from` stops at the first path it lacks.
-   *  The publisher (kolu's `publish-closure` action) pushes it whole and
-   *  imports every published path from it alone before the index moves. */
+   *  reads no other cache: `nix copy --from` stops at the first path it
+   *  lacks. */
   cache: Schema.Struct({ url: NonEmpty, publicKey: NonEmpty }),
   schedule: UpdaterScheduleSchema,
 });

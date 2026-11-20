@@ -1,14 +1,3 @@
-/**
- * Test support: the files agent-distro's package and a built profile describe
- * themselves with, written the way upstream writes them — the inverse of
- * `./listing` and `./profileFile`, at the paths those modules name — a failed
- * line of a host's update log, and a stand-in for the picker's
- * `--list --json`. Every test that fakes a package or a profile (this
- * package's, padi's, kolu-server's boot read, the e2e fixture) spells "its
- * files" through here, so the layout and the formats are written once on the
- * test side too.
- */
-
 import { historyLine } from "@juspay/agent-distro/update/history";
 import { versionsFile } from "./bundle.ts";
 import type { AgentModels } from "./models.ts";
@@ -143,6 +132,5 @@ export function standInModels(
  *  than `--models`, which kolu never asks. */
 export const STAND_IN_ANSWERS = "--list\n--models\n--launch\n";
 
-/** One POSIX single-quoted word. */
 const shellWord = (text: string): string =>
   `'${text.replaceAll("'", "'\\''")}'`;

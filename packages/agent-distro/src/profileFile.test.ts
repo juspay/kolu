@@ -1,12 +1,7 @@
-/** A built profile's `share/agent-distro/profile.json` (upstream's
- *  `mkProfile`). */
-
 import { describe, expect, it } from "vitest";
 import { parseProfileFile, profileFile } from "./profileFile.ts";
 import { builtProfileFiles, readFrom } from "./testing.ts";
 
-/** A built profile's `profile.json`, as `mkProfile` writes it: sorted keys,
- *  with the fields a launch reads beside the name and description. */
 const REAL = JSON.stringify({
   description: "Juspay skills + Kolu, via Juspay's LiteLLM gateway",
   env: { ANTHROPIC_BASE_URL: "https://example.invalid" },

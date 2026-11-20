@@ -1,19 +1,3 @@
-/**
- * How kolu shows agent-distro — pure functions of a host's status, the
- * setting, or a profile's resolution; no subscriptions. The one fold from a
- * host's status to how its tab mark and Settings line look (`agentMarkOf`), and
- * the words around it. Their volatility is the presentation (a reworded status,
- * a new treatment), apart from the live facts the client subscribes to.
- *
- * The Agents setting is two things that never fold into one: the HARNESSES
- * (the switch: agent-distro's package on a terminal's PATH) and the PROFILES
- * (an ordered list of references, stacked over them in `AI_PROFILE`). An empty
- * list is the harnesses as agent-distro ships them; nothing names that.
- *
- * The status and setting types are `./schema.ts`'s — the very schemas the
- * cells carry — so a field added to the wire is a field these folds handle.
- */
-
 import { agentBundleShortHash } from "./bundle.ts";
 import { type FailureWords, failureWords } from "./failure.ts";
 import {
@@ -28,7 +12,7 @@ import {
   type AgentUpdateAuthor,
   type AgentUpdateEvent,
   type AgentUpdateRun,
-  historyAuthor,
+  HISTORY_AUTHOR,
 } from "./receipt.ts";
 import {
   type AgentDistroReceipt,
@@ -54,9 +38,6 @@ export const JUSPAY_OFFER = {
   description: "Juspay skills + Kolu, via Juspay's LiteLLM gateway",
 } as const;
 
-/** What "never chosen" means for new terminals: off, with no profiles. ONE
- *  shared value, so a reader of the fold sees no change on an unrelated
- *  preference write while nothing is chosen. */
 const NEVER_CHOSEN_SETTING: AgentDistroSetting = Object.freeze({
   enabled: false,
   profiles: Object.freeze([]) as readonly string[],
@@ -89,8 +70,6 @@ export interface AgentsChange {
   readonly profiles?: readonly string[];
 }
 
-/** A profile list as it is written: each reference trimmed, empty ones
- *  dropped, and a repeat kept only where it first appears. */
 function normalizedProfiles(profiles: readonly string[]): string[] {
   const seen = new Set<string>();
   const out: string[] = [];
@@ -159,6 +138,15 @@ export function profilesWithMoved(
   return out;
 }
 
+function statusForStack(
+  status: AgentDistroStatus | undefined,
+  profiles: readonly string[],
+): AgentDistroStatus | undefined {
+  if (status === undefined) return undefined;
+  const stack = statusStack(status);
+  return stack === undefined || sameStack(stack, profiles) ? status : undefined;
+}
+
 /** Is the first-run "choose your agents" step done? `undefined` is "not known
  *  yet" — the step is then neither asked nor done: while the listing has not
  *  arrived, and while this machine's status has not caught up with a choice
@@ -200,8 +188,7 @@ export function firstRunAgentsDone(input: {
     case "undelivered":
     case "downloading":
     case "error":
-      // A status for another stack is one padi has not caught up from.
-      if (!sameStack(statusStack(local) ?? [], stored.profiles))
+      if (statusForStack(local, stored.profiles) === undefined)
         return undefined;
       return local.kind === "ready";
     default:
@@ -237,7 +224,6 @@ export type AgentsResolvedLine =
 export const AGENTS_UNRESOLVED_MEANS =
   "Until it builds, new terminals get no coding agents — fix it, or remove it from the list.";
 
-/** The resolution kolu-server holds for `reference`, if it has one. */
 function resolutionOf(
   reference: string,
   profiles: AgentProfiles | undefined,
@@ -480,8 +466,6 @@ export const AGENTS_READY_DELIVERING = "ready · delivering newer agents…";
 export const AGENTS_UPDATE_DOWNLOADING =
   "Delivering newer agents — new terminals keep these until they have fully arrived.";
 
-/** What a set is called in a sentence: its package's hash, with its profiles
- *  when it has any — `nd11nx5f with juspay + ekala`. */
 function setWords(set: { readonly stack: string; readonly hash: string }) {
   return set.stack === "" ? set.hash : `${set.hash} with ${set.stack}`;
 }
@@ -516,9 +500,8 @@ export function agentMarkLabel(
 }
 
 /** A version as agent-distro's picker shows it: without the package's `+`
- *  revision suffix (`1.18.35+53d1eab` → `1.18.35`) — upstream's
- *  `displayVersion` (`lib/picker.nix`), mirrored here once so every version
- *  kolu draws says what `agent-distro` in the same terminal says. Every chip's
+ *  revision suffix (`1.18.35+53d1eab` → `1.18.35`), as upstream's
+ *  `lib/picker.nix` renders every harness version it prints. Every chip's
  *  version goes through it ({@link agentChips}), whether it comes from the
  *  listing or from a host's receipt. */
 function displayVersion(version: string): string {
@@ -626,8 +609,6 @@ export interface HostAgentStatus {
  *  clock-free. */
 export type AgoPhrase = (atMs: number) => string;
 
-/** Who a reason's words are by, as a hover names them (`historyAuthor` says
- *  which writer a history-log line is by). */
 const AUTHOR: Record<AgentUpdateAuthor, string> = {
   delivery: "kolu's delivery",
   padi: "padi",
@@ -635,8 +616,6 @@ const AUTHOR: Record<AgentUpdateAuthor, string> = {
   log: "the host's update log",
 };
 
-/** A hover that quotes `words` as `by`'s, under the short `text` — their
- *  first line: a hover is one line, and the host details carry the rest. */
 function quoted(text: string, by: AgentUpdateAuthor, words: string): string {
   return `${text} — ${AUTHOR[by]}: ${failureWords(words).headline}`;
 }
@@ -667,10 +646,6 @@ export function agentsHistoryUnreadableMeans(where: string): string {
   return `The agents on ${where} keep working — only its update history could not be read.`;
 }
 
-/** What a ready host's line adds about its last update run. A skip or a
- *  failure never claims a cause here: the note says what happened, and its
- *  hover quotes the reason's first line, naming who wrote it (a failure's whole
- *  cause is the host details' `cause`). */
 function lastRunNote(run: AgentUpdateRun, ago: AgoPhrase): AgentStatusNote {
   const when = ago(run.at);
   const words = updateWords(run);
@@ -696,7 +671,6 @@ function lastRunNote(run: AgentUpdateRun, ago: AgoPhrase): AgentStatusNote {
 /** A host whose update history would not read says so on its line. */
 export const AGENTS_RECEIPT_UNREADABLE = "could not read its update history";
 
-/** The hover for a receipt that would not read: padi's words for why. */
 function unreadableTitle(error: string): string {
   return quoted(AGENTS_RECEIPT_UNREADABLE, "padi", error);
 }
@@ -709,7 +683,6 @@ export interface AgentStatusNote {
   readonly tone: "muted" | "warn";
 }
 
-/** The words for a host with no mark, by the fold's reason. */
 const NONE_LINE: Record<Extract<AgentMark, { kind: "none" }>["why"], string> = {
   off: "agents off",
   unavailable: "no coding agents in this build",
@@ -740,21 +713,15 @@ export interface AgentFleetGroup<H> {
   readonly trail: string;
 }
 
-/** How many machines a fleet group names before it starts counting them. */
 const FLEET_NAMED_CAP = 2;
 
-/** What one agent state reads as on the fleet line. */
 interface AgentFleetState {
-  /** Which group a host joins — one per state, so two failed hosts share a
-   *  group and two `none` hosts with different reasons do not. */
   readonly key: string;
   readonly tone: AgentFleetGroup<never>["tone"];
   readonly lead: string;
   readonly trail: string;
 }
 
-/** Which group a host's mark puts it in — the ONE fold from a mark to the
- *  fleet line's vocabulary. Fenced over the mark kind. */
 function fleetState(mark: AgentMark): AgentFleetState {
   switch (mark.kind) {
     case "ready":
@@ -823,8 +790,6 @@ export function agentFleetSummary<H extends HostAgentStatus>(
   });
 }
 
-/** A host's last update run as a note — `undefined` when it has run nothing
- *  yet. A receipt that would not read says so instead, in the warning tone. */
 function lastRunNoteOf(
   receipt: AgentDistroReceipt | undefined,
   ago: AgoPhrase,
@@ -849,7 +814,6 @@ export interface AgentEventRow {
   readonly tone: "muted" | "warn";
 }
 
-/** How a history event's kind reads in a row. */
 const EVENT_LABEL: Record<AgentUpdateEvent["kind"], string> = {
   updated: "updated",
   skipped: "skipped",
@@ -873,7 +837,7 @@ function eventRow(event: AgentUpdateEvent, ago: AgoPhrase): AgentEventRow {
     when: ago(Date.parse(event.at)),
     kind: event.kind,
     text,
-    title: quoted(EVENT_LABEL[event.kind], historyAuthor(event.kind), text),
+    title: quoted(EVENT_LABEL[event.kind], HISTORY_AUTHOR[event.kind], text),
     tone: event.kind === "failed" ? "warn" : "muted",
   };
 }
@@ -906,6 +870,23 @@ export interface AgentHostDetail {
    *  user asks kolu to try again once the machine is fixed. Not while a
    *  delivery already runs there, nor with nothing to deliver. */
   readonly canCheck: boolean;
+}
+
+function hostFailure(
+  receipt: AgentDistroReceipt | undefined,
+  updateFailed: AgentUpdateFailure | undefined,
+  label: string,
+): Pick<AgentHostDetail, "cause" | "means"> {
+  if (receipt?.error !== undefined)
+    return {
+      cause: { by: AUTHOR.padi, ...failureWords(receipt.error) },
+      means: agentsHistoryUnreadableMeans(label),
+    };
+  if (updateFailed === undefined) return {};
+  return {
+    cause: { ...updateFailed, by: AUTHOR[updateFailed.by] },
+    means: agentsUpdateFailedMeans(label, updateFailed.by),
+  };
 }
 
 /** THE fold from one machine's agent facts to its host-details section.
@@ -954,26 +935,7 @@ export function agentHostDetail(input: {
         : run === undefined
           ? plain("ready")
           : { ...run, text: `ready · ${run.text}` };
-      // The cause is a function of the receipt — shown while a newer delivery
-      // runs too (padi keeps the failure as the last run until that one ends).
-      const failure =
-        receipt?.error !== undefined
-          ? {
-              cause: { by: AUTHOR.padi, ...failureWords(receipt.error) },
-              means: agentsHistoryUnreadableMeans(host.label),
-            }
-          : mark.updateFailed !== undefined
-            ? {
-                cause: {
-                  ...mark.updateFailed,
-                  by: AUTHOR[mark.updateFailed.by],
-                },
-                means: agentsUpdateFailedMeans(
-                  host.label,
-                  mark.updateFailed.by,
-                ),
-              }
-            : {};
+      const failure = hostFailure(receipt, mark.updateFailed, host.label);
       return {
         ...base,
         stack: mark.stack,
@@ -1000,8 +962,6 @@ export function agentHostDetail(input: {
   }
 }
 
-/** The harnesses the package brings, named only — "Claude Code, Codex,
- *  OpenCode, Pi and Oh My Pi", in the listing's order. */
 function harnessNames(
   listing: Extract<AgentDistroListing, { kind: "available" }>,
 ): string {
@@ -1081,8 +1041,6 @@ export function agentChips(input: {
   }));
 }
 
-/** A set as a staleness names it: its profiles by name and its package's
- *  short hash. */
 interface SetName {
   readonly stack: string;
   readonly hash: string;
@@ -1148,16 +1106,10 @@ export function agentStalenessOf(input: {
     referencesOf(agents.profiles),
     setting.profiles,
   );
-  // A status for another stack is one the host has not caught up from.
-  const stack =
-    input.status === undefined ? undefined : statusStack(input.status);
-  const status =
-    input.status === undefined ||
-    (stack !== undefined && !sameStack(stack, setting.profiles))
-      ? undefined
-      : input.status;
-  if (status === undefined)
-    return sameReferences ? { kind: "current" } : waiting("downloading");
+  const status = statusForStack(input.status, setting.profiles);
+  const noAnswerYet = () =>
+    sameReferences ? ({ kind: "current" } as const) : waiting("downloading");
+  if (status === undefined) return noAnswerYet();
   switch (status.kind) {
     case "ready":
       return sameSet(status.set, agents)
@@ -1174,9 +1126,7 @@ export function agentStalenessOf(input: {
     case "off":
     case "unavailable":
     case "undelivered":
-      // The host gives nothing — a status the setting will move it off; there
-      // is nothing yet to restart into, and no set to name.
-      return sameReferences ? { kind: "current" } : waiting("downloading");
+      return noAnswerYet();
     default:
       return status satisfies never;
   }

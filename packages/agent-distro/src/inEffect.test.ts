@@ -1,11 +1,6 @@
-/** The profile in effect, read off `agent-distro --list --json` with
- *  upstream's own parser and words. */
-
 import { describe, expect, it } from "vitest";
 import { parseProfileInEffect } from "./inEffect.ts";
 
-/** Upstream's listing, as its `listing.ts` documents it, cut to one
- *  harness. */
 const MENU = {
   harnesses: [
     {
@@ -47,7 +42,6 @@ describe("parseProfileInEffect", () => {
     };
     expect(parseProfileInEffect(JSON.stringify({ ...MENU, profile }))).toEqual({
       name: "juspay + ekala",
-      // The TOP profile's description.
       description: "Ekala's agents",
       source:
         "from /home/me/ekala-ai-skills/plugin.json over AI_PROFILE=/nix/store/p-juspay",
@@ -60,11 +54,9 @@ describe("parseProfileInEffect", () => {
 
   it("refuses output out of upstream's format, loudly", () => {
     expect(() => parseProfileInEffect("agent-distro picker")).toThrow();
-    // The old per-profile menu.
     expect(() =>
       parseProfileInEffect(JSON.stringify({ profiles: [] })),
     ).toThrow();
-    // A profile with no name, or an unknown source.
     expect(() =>
       parseProfileInEffect(
         JSON.stringify({
@@ -86,7 +78,6 @@ describe("parseProfileInEffect", () => {
         }),
       ),
     ).toThrow();
-    // A malformed `over` is refused too, not cut off.
     expect(() =>
       parseProfileInEffect(
         JSON.stringify({

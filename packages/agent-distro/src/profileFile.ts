@@ -1,11 +1,3 @@
-/**
- * What a BUILT profile says of itself — upstream's
- * `share/agent-distro/profile.json` (agent-distro's `lib/mk-profile.nix`):
- * its name and description, beside the `env`, `settings` and `reader` a launch
- * reads, which kolu leaves to upstream. kolu-server reads it off each profile
- * it builds, to name the profile in Settings and in a host's history.
- */
-
 import { Schema } from "effect";
 
 export const ProfileFileSchema = Schema.Struct({

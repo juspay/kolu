@@ -1,6 +1,3 @@
-/** The set a host serves, padi's record of it, and how a landing is worded in
- *  the history log. */
-
 import { describe, expect, it } from "vitest";
 import {
   type DeliveredProfile,
@@ -29,7 +26,6 @@ const JUSPAY_NEXT: DeliveredProfile = {
   rev: "d4e5f6a7b8c90011223344556677889900aabbcc",
   path: "/nix/store/kkkkkkkk2222222222222222222222-profile-juspay",
 };
-/** A path reference: used as it is, so it has no revision. */
 const EKALA: DeliveredProfile = {
   reference: "~/ekala",
   name: "ekala",

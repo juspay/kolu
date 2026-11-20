@@ -1,15 +1,3 @@
-/**
- * The shape of agent-distro's package on disk, as kolu relies on it: where the
- * package keeps its commands and its versions, how a store path is shortened
- * for a tile, and how a state path baked against a placeholder home is made
- * concrete for a host. (The files a state directory holds — `current`,
- * `last-success` — are upstream's own, `@juspay/agent-distro/update/state`.) (Where kolu's floor keeps the package is the floor's own manifest —
- * `./manifest.ts` — never a layout known here.)
- *
- * Pure string algebra (POSIX store paths; no `node:path`), so the browser can
- * use the short hash and padi the rest.
- */
-
 import { VERSIONS_FILE } from "@juspay/agent-distro/update/versions";
 
 /** The directory a terminal gets on its PATH for the package — its `bin/`.

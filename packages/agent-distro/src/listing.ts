@@ -1,11 +1,3 @@
-/**
- * The harnesses kolu offers, as the package describes them: agent-distro's
- * `share/agent-distro/versions` (one `name\ttitle\tversion` line per harness),
- * read with upstream's own parser (`@juspay/agent-distro/update/versions`).
- * kolu never runs the picker for information, and never re-describes a
- * harness. A profile is not part of the package, so the listing names none.
- */
-
 import { parseVersions } from "@juspay/agent-distro/update/versions";
 import { Schema } from "effect";
 import { versionsFile } from "./bundle.ts";

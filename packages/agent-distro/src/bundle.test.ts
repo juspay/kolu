@@ -1,5 +1,3 @@
-/** The package layout kolu relies on. */
-
 import { describe, expect, it } from "vitest";
 import {
   agentBinDir,

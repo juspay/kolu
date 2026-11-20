@@ -1,5 +1,3 @@
-/** The GC-root names kolu-server writes and padi prunes. */
-
 import { describe, expect, it } from "vitest";
 import { PACKAGE_GC_ROOT, profileGcRoot, staleGcRoots } from "./gcRoots.ts";
 

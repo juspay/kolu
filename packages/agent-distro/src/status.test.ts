@@ -59,13 +59,11 @@ import {
   updateLanded,
 } from "./status.ts";
 
-/** The package, and a newer one. */
 const PKG = "/nix/store/nd11nx5f1dkf02cr9dhxqq4axg23vzgc-agent-distro";
 const PKG_NEXT = "/nix/store/8rcmf6rdyyyyyyyyyyyyyyyyyyyyyyyy-agent-distro";
 
 const EKALA_REF = "~/ekala";
 
-/** Juspay's profile as built and delivered, and a newer build of it. */
 const JUSPAY: DeliveredProfile = {
   reference: JUSPAY_PROFILE,
   name: "juspay",
@@ -101,7 +99,6 @@ const off = (...profiles: string[]): AgentDistroSetting => ({
   profiles,
 });
 
-/** A ready status for `profiles`' stack, serving `bundle` with them. */
 const ready = (
   delivered: DeliveredProfile[],
   bundle = PKG,
@@ -113,7 +110,6 @@ const ready = (
   answers: ["--list", "--models"],
 });
 
-/** The client's relative-time phrase, made visible. */
 const AGO = (at: number) => `@${at}`;
 
 describe("the stored Agents value — `null` is never chosen", () => {
@@ -122,7 +118,6 @@ describe("the stored Agents value — `null` is never chosen", () => {
       enabled: false,
       profiles: [],
     });
-    // ONE shared value, so an unrelated preference write changes nothing.
     expect(agentDistroSettingOf(null)).toBe(agentDistroSettingOf(null));
     const chosen = on(JUSPAY_PROFILE);
     expect(agentDistroSettingOf(chosen)).toBe(chosen);
@@ -345,7 +340,6 @@ describe("agentsResolvedLine — does the profile build", () => {
         }),
       ),
     ).toEqual({ kind: "resolved", text: "juspay (a1b2c3d) · Juspay skills" });
-    // A path has no revision; an empty description adds nothing.
     expect(
       agentsResolvedLine(
         EKALA_REF,
@@ -449,7 +443,6 @@ describe("agentsChosenLabel — the welcome card's done line", () => {
         },
       ]),
     ).toBe("Agents: juspay + ekala ✓");
-    // One still pending: no check yet.
     expect(
       agentsChosenLabel(on(JUSPAY_PROFILE, EKALA_REF), LISTING, [
         juspayResolved,
@@ -703,7 +696,6 @@ describe("agentFleetSummary — the ONE fleet line in Settings", () => {
     checking = false,
     receipt: AgentDistroReceipt | undefined = undefined,
   ) => ({ label, status, checking, receipt, ago: AGO });
-  /** The groups as the line reads, machines by name. */
   const said = (groups: ReturnType<typeof agentFleetSummary>) =>
     groups.map((g) => ({
       key: g.key,
@@ -1119,10 +1111,6 @@ describe("agentHostDetail — one machine's agents, in its host details", () => 
   });
 
   it("a mixed history log names each line's writer by what it says, never kolu's delivery", () => {
-    // One shared log: padi's `updated:` line for a delivery that landed, then
-    // agent-distro's own updater failing and skipping. Only the updater
-    // writes `failed:`/`skipped:`; an `updated:` line may be either's, so it
-    // is the log's.
     const events = recentEvents(
       [
         "2026-10-08T02:00:05+00:00 updated: Claude Code 2.1.286 → 2.1.291, juspay a1b2c3d → d4e5f6a",
@@ -1222,7 +1210,6 @@ describe("agentChips — the harnesses the Agents row names", () => {
       { title: "Claude Code", version: "2.1.291" },
       { title: "Codex", version: "0.160.1" },
     ]);
-    // A receipt with no package serving is not this machine's versions.
     expect(chips(on(), { events: [] })).toEqual([
       { title: "Claude Code", version: "2.1.291" },
       { title: "Codex", version: "0.160.1" },
@@ -1369,11 +1356,9 @@ describe("agentStalenessOf — are a terminal's agents what a new one gets", () 
       },
     };
     const setting = on(JUSPAY_PROFILE, EKALA_REF);
-    // Still ready with the OLD stack — a status padi has not caught up from.
     expect(stale(terminal(PKG, [JUSPAY]), ready([JUSPAY]), setting)).toEqual(
       waiting,
     );
-    // No word at all yet.
     expect(stale(terminal(PKG, [JUSPAY]), undefined, setting)).toEqual(waiting);
   });
 
@@ -1464,7 +1449,6 @@ describe("the stale pill: can it restart, what a restart does, and its words", (
     expect(agentStaleLabel(waiting("failed"), "box")).toBe(
       `${has} Juspay could not be delivered to box, so new terminals get no coding agents; Restart appears once it is ready.`,
     );
-    // Waiting on an empty stack: newer agents, never an empty name.
     expect(agentStaleLabel(waiting("downloading", ""), "box")).toContain(
       "New terminals get newer agents,",
     );

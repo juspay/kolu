@@ -1,21 +1,3 @@
-/**
- * How a failure's text is written and read — the one convention every
- * agent-distro failure crosses the wire in. A failure is ONE string on the
- * field that already carries it (a delivery report's `message`, a status's
- * `error.message`, a run's `words`, a receipt's `error`, a profile's
- * resolution): its first line is the cause, said whole; any lines after it are
- * the evidence (what Nix or the copy printed). No field of its own, so no
- * schema moves — and a message written by anyone who never heard of this
- * convention (upstream's updater, padi's own errors) reads as a cause with
- * whatever lines it happened to carry.
- *
- * The writer caps what it keeps: the text is held in padi's memory and
- * republished whole with the receipt cell on every change, and Nix's stderr
- * can be megabytes. The reader is total — any string reads. kolu-server
- * writes (`profiles.ts`, `delivery.ts` — which also reads, to tell a bare
- * cause from one that brings its own evidence); `./status` reads.
- */
-
 export interface FailureWords {
   /** What failed — one line, always shown whole. */
   readonly headline: string;
@@ -33,7 +15,6 @@ export const FAILURE_LINE_CHARS = 1000;
 
 const NEWLINE = /\r?\n/;
 
-/** The lines without blank ones at either end. */
 function withoutBlankEnds(lines: readonly string[]): readonly string[] {
   let start = 0;
   let end = lines.length;
@@ -42,7 +23,6 @@ function withoutBlankEnds(lines: readonly string[]): readonly string[] {
   return lines.slice(start, end);
 }
 
-/** `line`, cut to {@link FAILURE_LINE_CHARS} with a closing "…". */
 function capped(line: string): string {
   return line.length <= FAILURE_LINE_CHARS
     ? line
@@ -61,11 +41,7 @@ export function failureWords(message: string): FailureWords {
   };
 }
 
-/** Does `lines`, each trimmed and joined with single spaces, say nothing the
- *  headline does not? Stops as soon as the join would outgrow the headline —
- *  it cannot be inside it then — so megabytes of evidence are never copied
- *  to ask. */
-function saidBy(head: string, lines: readonly string[]): boolean {
+function alreadyInHeadline(head: string, lines: readonly string[]): boolean {
   const parts: string[] = [];
   let length = -1;
   for (const line of lines) {
@@ -99,7 +75,7 @@ export function failureMessage(
   const lines = withoutBlankEnds(
     evidence.split(NEWLINE).map((line) => line.trimEnd()),
   );
-  if (saidBy(head, lines)) return head;
+  if (alreadyInHeadline(head, lines)) return head;
   const cut = Math.max(0, lines.length - FAILURE_DETAIL_LINES);
   const unseen = cut + dropped;
   const kept = [

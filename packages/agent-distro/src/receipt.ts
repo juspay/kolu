@@ -1,15 +1,3 @@
-/**
- * What a host keeps of its agent deliveries, read back: upstream's history log
- * (read with its own parser, `@juspay/agent-distro/update/history`) and the
- * `last-success` stamp, folded into the events and the last run a host's
- * receipt carries. Pure: padi reads the files and hands their text in.
- *
- * The log is shared: agent-distro's own updater (its Home Manager module)
- * appends every kind, padi appends `updated:` when a delivery lands. So a
- * `skipped:` or `failed:` line is agent-distro's; an `updated:` line, like
- * the stamp, may be either, and is attributed to the log itself.
- */
-
 import {
   type HistoryEvent,
   parseHistory,
@@ -64,7 +52,7 @@ export type AgentUpdateOutcome = typeof AgentUpdateOutcomeSchema.Type;
 
 /** Who wrote a run's words: kolu's delivery (why kolu-server could not
  *  deliver, from its reports), padi (a delivery its host could not take), or
- *  the host's shared history log ({@link historyAuthor}). */
+ *  the host's shared history log ({@link HISTORY_AUTHOR}). */
 export const AgentUpdateAuthorSchema = Schema.Literals([
   "delivery",
   "padi",
@@ -93,12 +81,19 @@ export type AgentUpdateRun = typeof AgentUpdateRunSchema.Type;
  *  or padi's own record of it and the files'. */
 export const SAME_RUN_MS = 5_000;
 
-/** Who wrote a history-log line, by what the line says (see the header). */
-export function historyAuthor(
-  kind: AgentUpdateOutcome,
-): "agent-distro" | "log" {
-  return kind === "skipped" || kind === "failed" ? "agent-distro" : "log";
-}
+/** Who wrote a history-log line of each outcome: the log is shared, so a
+ *  `skipped` or `failed` line is agent-distro's own updater's, while an
+ *  `updated` line — like the `last-success` stamp an `unchanged` run is read
+ *  from — may be either, and is attributed to the log itself. */
+export const HISTORY_AUTHOR: Record<
+  AgentUpdateOutcome,
+  "agent-distro" | "log"
+> = {
+  updated: "log",
+  unchanged: "log",
+  skipped: "agent-distro",
+  failed: "agent-distro",
+};
 
 /** The last run, read off the host's files alone: the newest history event,
  *  unless the `last-success` stamp (epoch seconds) is later than it — then the
@@ -118,14 +113,14 @@ export function lastRunOf(
       at: stampAt,
       outcome: "unchanged",
       words: "",
-      by: historyAuthor("unchanged"),
+      by: HISTORY_AUTHOR.unchanged,
     };
   if (newest === undefined || eventAt === undefined) return undefined;
   return {
     at: eventAt,
     outcome: newest.kind,
     words: newest.words,
-    by: historyAuthor(newest.kind),
+    by: HISTORY_AUTHOR[newest.kind],
     ...(newest.profile === undefined ? {} : { profile: newest.profile }),
   };
 }

@@ -1,30 +1,3 @@
-/**
- * The models a harness offers on a host, and how a launch is given one —
- * upstream's `agent-distro --models <harness>` and `agent-distro --launch
- * <harness>` (`@juspay/agent-distro/models`), read with upstream's own
- * parsers. Each harness says both in its own adapter upstream; kolu never
- * re-describes a harness, so there is no table here of list commands, model
- * flags or model names.
- *
- * TWO QUESTIONS, because they fail differently. How a launch takes a model is
- * a fixed fact about the harness: `--launch` reads the adapter and runs
- * nothing, so it answers wherever the package is installed — it is what a
- * start reads. Which models the harness offers from here is asked of the
- * harness itself (`--models`), and fails whenever that does (a gateway down,
- * a key the environment lacks) — it is read only to offer or check a model.
- *
- * `--models` answers one of three, and kolu keeps them apart all the way to
- * the screen:
- *
- *  - `listed` — the ids the harness listed (possibly none). An id is exactly
- *    what the launch takes (`anthropic/claude-fable-5`), so the same model
- *    under two providers is two ids.
- *  - `unlisted` — the harness has no command that lists its models (Claude
- *    Code, Codex): a model is whatever the person names.
- *  - a failure — the harness's list command failed, in its own words. It is
- *    never an answer: whoever runs the command raises it.
- */
-
 import { parseLaunchAnswer, parseModels } from "@juspay/agent-distro/models";
 import { Schema } from "effect";
 
@@ -53,7 +26,6 @@ export const AgentModelLaunchSchema = Schema.Union([
 ]);
 export type AgentModelLaunch = typeof AgentModelLaunchSchema.Type;
 
-/** The models themselves, or that the harness cannot list them. */
 const AgentModelListSchema = Schema.Union([
   Schema.Struct({
     kind: Schema.Literal("listed"),
@@ -77,9 +49,7 @@ export const AgentLaunchSchema = Schema.Struct({
 });
 export type AgentLaunch = typeof AgentLaunchSchema.Type;
 
-/** The flag kolu asks a host's package for a harness's models. */
 const MODELS_FLAG = "--models";
-/** ... and the one it asks for how a launch takes a model. */
 const LAUNCH_FLAG = "--launch";
 
 /** EVERY FLAG KOLU ASKS A HOST'S PACKAGE — the package a host serves is the
