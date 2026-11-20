@@ -1,16 +1,3 @@
-/**
- * `ci/protect`'s APPLY path, driven against a stand-in `gh` that keeps the
- * classic required-checks list in a file. No network, no GitHub, no odu: a
- * fake `nix` stands in for `nix run ./ci#odu`, whose half (the ruleset) is
- * odu's own to test.
- *
- * The two properties under test are the two that failed on master: the classic
- * list must END UP exactly the cache-warm contexts — a stale one dropped, no
- * `ci::*` copy kept — and a second run must succeed and write nothing. The old
- * script appended with POST, so the second run 422'd on a context already there
- * and the stale `build-and-push (ubuntu-latest)` was never removed.
- */
-
 import { spawnSync } from "node:child_process";
 import { chmodSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -28,9 +15,6 @@ const PROTECT = join(REPO_ROOT, "ci", "protect");
 const CLASSIC =
   "repos/acme/widget/branches/main/protection/required_status_checks";
 
-// Every call the script may make is spelled out; anything else fails loudly,
-// so a script that starts calling somewhere new is red here rather than
-// silently answered.
 const FAKE_GH = `#!/bin/sh
 echo "$*" >> "$FAKE_DIR/gh.log"
 case "$*" in
@@ -89,7 +73,6 @@ const sandbox = (classic: readonly string[]) => {
   return { protect, classicNow, puts };
 };
 
-/** The derived set, from the script's own door — not a third copy of it. */
 const derived = () => {
   const r = spawnSync("bash", [PROTECT, "--contexts-only"], {
     cwd: REPO_ROOT,
@@ -101,9 +84,6 @@ const derived = () => {
 
 test("the classic list is replaced with exactly the derived set, and a second run writes nothing", () => {
   const want = derived();
-  // master's classic list on the day this broke, in miniature: a `ci::*` copy
-  // of the ruleset's list, the current cache-warm contexts, and one whose job
-  // no longer posts it.
   const { protect, classicNow, puts } = sandbox([
     "ci::nix@x86_64-linux",
     "ci::e2e@x86_64-linux",

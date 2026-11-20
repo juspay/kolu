@@ -1,8 +1,3 @@
-/**
- * CLI entry for `just _reap-ci-run` — this-run runtime roots + bind-pid-gone
- * ci daemons. Always prints what it did; a thrown error is a janitor bug.
- */
-
 import { reapCiRun } from "./ciReap.ts";
 
 const result = await reapCiRun();

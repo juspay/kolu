@@ -1,8 +1,3 @@
-/**
- * The shipped CI janitor — runtime-root removal and the bind-pid-gone sweep —
- * driven against real fixtures, not a copy of the unit under test.
- */
-
 import { execFileSync, spawn } from "node:child_process";
 import {
   existsSync,
@@ -129,7 +124,6 @@ it("isCiOwnedDaemonCommand requires a CI root AND a daemon bin", () => {
       "node /odu/kolu/2149dc9/packages/kaval/src/bin.ts --socket /tmp/padi-dial-rt-x/kaval/pty-host.sock",
     ),
   ).toBe(true);
-  // An odu checkout in cwd is not a kill warrant by itself.
   expect(
     isCiOwnedDaemonCommand(
       "node /odu/kolu/2149dc9/packages/kaval/src/bin.ts --socket /tmp/kaval/pty-host.sock",
@@ -140,13 +134,11 @@ it("isCiOwnedDaemonCommand requires a CI root AND a daemon bin", () => {
       "node packages/padi/src/daemonBoot/bin.ts --state-root /tmp/padi-dial-sr-nMu",
     ),
   ).toBe(true);
-  // Production kaval — no CI root.
   expect(
     isCiOwnedDaemonCommand(
       "node /nix/store/abc/bin/kaval --socket /run/kaval/pty-host.sock",
     ),
   ).toBe(false);
-  // A CI root without a daemon bin.
   expect(isCiOwnedDaemonCommand("cat /tmp/padi-dial-rt-x/trigger")).toBe(false);
 });
 
@@ -198,8 +190,8 @@ it("selectBindPidGoneDaemons skips production (no bind pid) and live-bind daemon
     number,
     { kind: "bound"; pid: number } | { kind: "absent" } | { kind: "unreadable" }
   > = {
-    10: { kind: "bound", pid: 99 }, // dead bind
-    11: { kind: "bound", pid: 100 }, // live bind
+    10: { kind: "bound", pid: 99 },
+    11: { kind: "bound", pid: 100 },
     12: { kind: "bound", pid: 99 },
     13: { kind: "bound", pid: 99 },
   };
@@ -302,12 +294,6 @@ it("reapUncooperative escalates to SIGKILL when the child ignores SIGTERM", asyn
 });
 
 it("listProcesses reads a process listing larger than Node's 1 MiB default buffer", async () => {
-  // Ten live children with one 120 KB argument each push the listing past
-  // 1 MiB whatever else the host runs — the many-processes shape that broke a
-  // busy CI box. One argument each, because procps caps a listed command line
-  // at 128 KiB; each child also stays under darwin's 1 MiB ARG_MAX, and stays
-  // bash (a builtin `read`, blocked on a stdin pipe held open) so ps keeps
-  // reporting this argv without the loop spinning.
   const pids: number[] = [];
   for (let i = 0; i < 10; i++) {
     const child = spawn(
@@ -334,8 +320,6 @@ it("listProcesses reads a process listing larger than Node's 1 MiB default buffe
 
 it("sweepBindPidGoneDaemons reaps a real SIGTERM-deaf child whose bind pid is already dead", async () => {
   const bind = await deadPid();
-  // bash -c execs a trailing `sleep`, so the CI-root markers have to live in
-  // argv ($0/$1) and the process has to stay bash (a builtin `read` loop).
   const child = spawn(
     "bash",
     [

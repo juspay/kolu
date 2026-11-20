@@ -1,23 +1,8 @@
-/**
- * A7 (juspay/kolu#1375) — the `daemon` CI node must stay wired.
- *
- * The daemon-forking unit suites are gated OFF by default (`describeDaemon` keys on
- * `KOLU_DAEMON_TESTS`), so the fork-free `unit` node alone would run them as EMPTY
- * with CI still green — the coverage this whole package exists to enforce would
- * silently evaporate in a recipe refactor. `ci/mod.just` therefore carries a distinct
- * `daemon` node that delegates to the canonical `test-daemon` recipe, wired into the
- * `default` DAG. That root recipe sets `KOLU_DAEMON_TESTS=1`. This always-on test (no
- * daemon fork, so it runs in the plain `unit` lane) is the backstop `ci/mod.just`
- * names: it fails loudly if the node is dropped from the DAG, stops delegating, or
- * the canonical recipe stops setting the gate.
- */
-
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { expect, test } from "vitest";
 
-// packages/daemon-test-gate/src → the repo root (…/kolu or a worktree).
 const REPO_ROOT = join(
   dirname(fileURLToPath(import.meta.url)),
   "..",
@@ -46,7 +31,6 @@ function recipeBody(source: string, recipe: string): string {
 }
 
 test("ci/mod.just wires `daemon` into the default DAG", () => {
-  // The `default` target lists every node the runner expands `depends_on` from.
   const defaultTarget = CI.split("\n").find((l) => l.startsWith("default:"));
   expect(
     defaultTarget,
@@ -68,10 +52,7 @@ test("the `daemon` recipe delegates to the canonical daemon-test recipe", () => 
 test("`daemon` is a sharded leaf", () => {
   // odu fans a `[metadata("odu:shard=N")]` leaf across the venue pool. The
   // attribute must sit IMMEDIATELY above the recipe (attributes attach to the
-  // next recipe), so read the contiguous block of attribute lines. This is the
-  // one assertion that protects the DAG SHAPE — that the daemon lane is sharded
-  // at all. How `test-daemon` translates the pair is behaviour, covered by the
-  // odu runs and the recipe's own tests, not by a regex over its body.
+  // next recipe), so read the contiguous block of attribute lines.
   const lines = CI.split("\n");
   const at = lines.findIndex((line) => line.startsWith("daemon:"));
   expect(at, "must declare a `daemon:` recipe").toBeGreaterThan(0);

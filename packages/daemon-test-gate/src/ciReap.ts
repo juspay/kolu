@@ -1,19 +1,3 @@
-/**
- * End-of-run janitor for `just test-daemon` / CI (juspay/kolu#2178).
- *
- * Two jobs, both fail-safe toward production:
- *
- *  1. Remove leftover `padi-dial-rt-*` / `padi-dial-sr-*` /
- *     `kolu-scroll-fifo-*` runtime roots under the reap root. FIFO dirs
- *     kill their `cat` readers first — `rm` alone leaves `cat` on the
- *     unlinked inode (#2178).
- *  2. Reap leftover **ci-owned** kaval/padi / node-pty helpers whose
- *     command names a runtime-root prefix. A live bind pid is left
- *     untouched (a peer run). Production `forever` daemons never match
- *     those prefixes. Odu checkout trees under `T/odu/kolu/` are another
- *     system's files; this janitor does not delete them.
- */
-
 import { execFileSync } from "node:child_process";
 import { type Dirent, readdirSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -33,7 +17,6 @@ function commandNamesRuntimeRoot(command: string): boolean {
   return CI_RUNTIME_DIR_PREFIXES.some((p) => command.includes(p));
 }
 
-/** The daemon binaries CI actually leaks — source `bin.ts` or the nix wrapper. */
 const DAEMON_BIN_RE =
   /kaval\/src\/bin\.ts|padi\/src\/daemonBoot\/bin\.ts|\/bin\/kaval(?:\s|$)|\/bin\/padi(?:\s|$)/;
 
@@ -172,8 +155,6 @@ export function readBindPidFromEnviron(pid: number): BindPidRead {
     // No /proc (darwin) or the pid is already gone — fall through to ps.
   }
   try {
-    // One process's argv + environment: unbounded for the same reason as
-    // `listProcesses` (darwin's ARG_MAX alone is the 1 MiB default).
     const out = execFileSync("ps", ["eww", "-p", String(pid)], {
       encoding: "utf8",
       maxBuffer: Number.POSITIVE_INFINITY,
@@ -313,7 +294,6 @@ export function selectBindPidGoneDaemons(
         break;
       }
       case "absent":
-        // A helper with no bind pid may belong to a live peer. Leave it.
         if (helper) continue;
         break;
       default:

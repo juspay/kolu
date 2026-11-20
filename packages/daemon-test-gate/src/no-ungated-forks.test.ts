@@ -1,79 +1,3 @@
-/**
- * The REAL deny-by-default fork inventory (juspay/kolu#1334/#1375, F4).
- *
- * Lock 3's whole safety property is that a bare `vitest` / `pnpm test:unit` forks NO
- * real, long-lived daemon or PTY (the #1375 fork bomb that OOM-reaped a production
- * kaval on a workstation). Two mechanisms enforce it — the ergonomic
- * {@link describeDaemon} gate and the runtime {@link assertDaemonSpawnAllowed} leash —
- * and THIS test is the check that no real-spawn site slips both.
- *
- * ── What changed at F4 (an AST inventory, not a regex net) ──
- * The prior version was an ENUMERATIVE textual scan that (a) walked only immediate
- * `packages/<name>/src` dirs — MISSING nested workspaces like `packages/integrations/
- * claude-code` and `packages/integrations/pty`; (b) recognized a handful of textual
- * spellings; (c) certified a whole FILE on any mention of a gate primitive, so a file
- * that fenced one fork and left another bare passed; and (d) swallowed directory-read
- * failures as "no coverage". This version:
- *   - derives EVERY workspace package root RECURSIVELY from `pnpm-workspace.yaml` (the
- *     one source of truth for what a package is), so nested workspaces are covered;
- *   - parses each `*.{test,testlib}.{ts,cts,mts,tsx}` with `@babel/parser` and finds
- *     the real child-process / node-pty CALL EXPRESSIONS structurally (never a comment
- *     or string false-match);
- *   - RESOLVES the fork funnels' BINDINGS (F4) — the local name each of
- *     `node:child_process` (`spawn`/`fork`/`execFile`/`execFileSync`) and `node-pty`
- *     (`spawn`) is bound to, from a static `import`, a CJS `require`, OR a dynamic
- *     `import()`, incl. `as`/destructure aliases and a namespace `cp.spawn` — and matches
- *     CALLS of the bound name, so `import { spawn as launch }`, `import * as cp`, and a
- *     `.cts` `const { spawn } = require("node:child_process")` no longer hide a fork;
- *   - associates each such call PER-CALL-SITE with its gate STATEMENT-ORDER-CAUSALLY: a
- *     fork is covered iff it is inside a `describeDaemon(...)` block OR an
- *     `assertDaemonSpawnAllowed(...)` leash runs BEFORE it in statement order in an
- *     enclosing scope — so a bare second fork in a partly-gated file, AND a fork followed
- *     by a LATER leash (`spawn(...); assertDaemonSpawnAllowed()`), now both fail;
- *   - throws on any traversal error that is NOT a genuine ENOENT/ENOTDIR.
- *
- * ── Documented residual (this is an ADVISORY HYGIENE lint, not the security barrier) ──
- * The real-fork call shapes recognized are the ones that fork a LONG-LIVED OS process:
- * a binding-resolved child_process fork fn whose arg0 is `process.execPath` (a
- * node/kaval/padi re-exec, incl. the tsx-loader form) or a real detached child
- * (`"sleep"|"systemd-run"|"ssh"`), a binding-resolved `node-pty` `spawn` (any call),
- * `createPtyHost(…)` (a real node-pty host — NOT the no-fork `createInProcessPtyHost`),
- * and `new ShellRunner(…)` (a persistent shell subprocess). DELIBERATELY excluded:
- * short-lived coreutils (`git`, `mkfifo`, …) even through a fork fn (the arg0 heuristic
- * gates them out), `servePtyHostOverUnixSocket` (a SOCKET server over an EXISTING host —
- * not a fork) and `terminal.spawn(` (an RPC verb, not an OS fork).
- *
- * Two things this lint deliberately does NOT do — because a full control-flow proof is
- * beyond an advisory hygiene check, and the SECURITY rests elsewhere:
- *   1. It does not prove a leash DOMINATES the fork. `isForkCovered` requires an
- *      `assertDaemonSpawnAllowed(...)` to precede the fork in STATEMENT ORDER in an
- *      enclosing scope — which closes the realistic "leash after the fork" bypass — but a
- *      leash sitting inside a PRECEDING conditional/loop sibling is still counted as
- *      covering it. A sound dominates-analysis is a CFG pass this lint intentionally omits.
- *   2. It resolves only DIRECT bindings, not fork reachability through arbitrary helper
- *      indirection.
- *   3. It classifies the child_process funnels by the SAME arg0 heuristic, so two shapes
- *      are advisory-UNCOVERED even though they can fork a long-lived process: a
- *      `child_process.fork(modulePath)` — whose arg0 is the module path, never
- *      `process.execPath` (Node supplies the executable implicitly), so it matches
- *      neither the execPath nor the detached-child check even though `fork` is in
- *      {@link CP_FORK_FNS} — and `exec`/`execSync`, which take a shell STRING (not an
- *      arg0 vector) and are not tracked at all. Neither appears in the tree today (every
- *      real spawn is a `spawn`/node-pty/ShellRunner shape); were one added, the structural
- *      barriers below — not this scan — are what keep a bare `vitest` safe, and closing
- *      the advisory gap would mean a fork-specific rule (a local-path arg0) + adding
- *      `exec`/`execSync` with a shell-string execPath match.
- * The real isolation barriers are STRUCTURAL, not this scan: (1) `describeDaemon`'s
- * default-OFF gating — a real fork site lives inside a block that is `describe.skip` when
- * `KOLU_DAEMON_TESTS` is unset, so a bare `vitest` never enters it; and (2) the runtime
- * `assertDaemonSpawnAllowed` leash at the production spawn FUNNELS (F5) plus the testlib
- * spawn helpers, which THROWS from a gate-off worker at the moment of the fork. This lint
- * is the belt-and-suspenders hygiene backstop that catches an ADDED ungated fork by
- * binding-resolved presence; it is not what makes a bare `vitest` safe. A new fork SHAPE
- * that isn't one of the above still needs adding to {@link isForkCall}; the AST makes
- * that a structural edit, not a regex.
- */
-
 import { readdirSync, readFileSync } from "node:fs";
 import { dirname, join, relative, sep } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -85,10 +9,8 @@ import {
 } from "./runtimeDepEdges.testlib.ts";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
-// packages/daemon-test-gate/src → the repo root (…/kolu or a worktree).
 const REPO_ROOT = join(HERE, "..", "..", "..");
 
-// ── AST plumbing ────────────────────────────────────────────────────────────
 type AstNode = { type: string; [key: string]: unknown };
 
 const isAstNode = (v: unknown): v is AstNode =>
@@ -96,8 +18,6 @@ const isAstNode = (v: unknown): v is AstNode =>
   typeof v === "object" &&
   typeof (v as { type?: unknown }).type === "string";
 
-/** Depth-first walk carrying the ancestor stack (root → parent) so a per-call-site
- *  gate check can inspect a node's enclosing blocks. */
 function walkWithAncestors(
   node: AstNode,
   ancestors: AstNode[],
@@ -115,7 +35,6 @@ function walkWithAncestors(
   }
 }
 
-/** True if `node`'s subtree contains any node matching `pred`. */
 function subtreeHas(node: AstNode, pred: (n: AstNode) => boolean): boolean {
   let found = false;
   walkWithAncestors(node, [], (n) => {
@@ -142,7 +61,6 @@ const calleeName = (node: AstNode): string | null => {
   return null;
 };
 
-/** The property name of a `<obj>.<prop>(…)` call, plus the object's identifier name. */
 function memberCallee(node: AstNode): { obj: string; prop: string } | null {
   const callee = node.callee;
   if (!isAstNode(callee) || callee.type !== "MemberExpression") return null;
@@ -191,32 +109,17 @@ const isProcessExecPathArg0 = (node: AstNode): boolean => {
 
 const REAL_DETACHED_CHILD = new Set(["sleep", "systemd-run", "ssh"]);
 
-// The fork FUNNELS whose IMPORTED BINDINGS we resolve (F4): matching CALLS of the
-// bound name — incl. an `as` alias and a namespace member — rather than a textual
-// spelling, so `import { spawn as launch }` / `import * as cp` cannot hide a fork.
 const CHILD_PROCESS_MODULES = new Set(["node:child_process", "child_process"]);
 const NODE_PTY_MODULE = "node-pty";
-// child_process fork/exec funnels that can launch a long-lived process.
 const CP_FORK_FNS = new Set(["spawn", "fork", "execFile", "execFileSync"]);
 
-/** The local names / namespace aliases the fork funnels are bound to IN THIS FILE. */
 type ForkBindings = {
-  /** Local names bound to a `node:child_process` fork fn (incl. `as` aliases). */
   cpFns: Set<string>;
-  /** Namespace aliases of `node:child_process` (`import * as cp` → `cp.spawn`). */
   cpNamespaces: Set<string>;
-  /** Local names bound to `node-pty`'s `spawn` (incl. `as` aliases). */
   ptySpawns: Set<string>;
-  /** Namespace aliases of `node-pty` (`import * as pty` → `pty.spawn`). */
   ptyNamespaces: Set<string>;
 };
 
-/** The module a `require(...)` / dynamic `import(...)` call (optionally `await`ed) loads,
- *  or `null`. Resolves the CJS + dynamic binding forms an `ImportDeclaration`-only scan
- *  missed (F4) — e.g. a `.test.cts` doing `const { spawn } = require("node:child_process")`.
- *  `import(...)` parses here as a `CallExpression` with an `Import` callee (this file's
- *  parser does not set `createImportExpressions`), but the `ImportExpression` form is
- *  accepted too for robustness. */
 function requiredOrImportedModule(init: unknown): string | null {
   let node = init;
   if (isAstNode(node) && node.type === "AwaitExpression") node = node.argument;
@@ -233,9 +136,6 @@ function requiredOrImportedModule(init: unknown): string | null {
   return null;
 }
 
-/** Bind the fork funnels selected by an id pattern against a `require`/`import` of a fork
- *  module: an Identifier id binds the whole module (namespace), an ObjectPattern binds each
- *  destructured fork fn under its (possibly aliased / computed-string) local name. */
 function bindDestructuredFork(
   id: unknown,
   isCp: boolean,
@@ -250,17 +150,13 @@ function bindDestructuredFork(
   for (const p of (id.properties as AstNode[]) ?? []) {
     if (p.type !== "ObjectProperty") continue;
     const key = identName(p.key) ?? stringValue(p.key);
-    const local = identName(p.value) ?? key; // `value` is the (aliased) local binding
+    const local = identName(p.value) ?? key;
     if (key === null || local === null) continue;
     if (isCp && CP_FORK_FNS.has(key)) b.cpFns.add(local);
     if (!isCp && key === "spawn") b.ptySpawns.add(local);
   }
 }
 
-/** Resolve every `node:child_process` / `node-pty` fork binding in `ast` (F4) — from a
- *  static `import`, a CJS `require`, OR a dynamic `import()` (incl. an awaited one). A
- *  namespace / default / whole-module binding resolves members by property; a named or
- *  destructured import binds each fork fn under its local (aliased) name. */
 function collectForkBindings(ast: AstNode): ForkBindings {
   const b: ForkBindings = {
     cpFns: new Set(),
@@ -292,9 +188,6 @@ function collectForkBindings(ast: AstNode): ForkBindings {
       }
       return;
     }
-    // CJS `require(...)` / dynamic `import(...)` bound through a variable declarator:
-    // `const { spawn } = require("node:child_process")`, `const cp = require(...)`,
-    // `const { spawn } = await import("node-pty")`, … (F4).
     if (n.type === "VariableDeclarator") {
       const src = requiredOrImportedModule(n.init);
       if (src === null) return;
@@ -307,15 +200,12 @@ function collectForkBindings(ast: AstNode): ForkBindings {
   return b;
 }
 
-/** Resolve a call's callee to a fork FAMILY via the file's bindings, or `null`. */
 function resolveForkCallee(
   node: AstNode,
   b: ForkBindings,
 ): "cp-fork" | "pty-spawn" | "createPtyHost" | null {
   const name = calleeName(node);
   if (name !== null) {
-    // `createPtyHost(…)` — a real node-pty host (NOT the no-fork `createInProcessPtyHost`).
-    // A kolu helper, matched by name (not a child_process/node-pty binding).
     if (name === "createPtyHost") return "createPtyHost";
     if (b.cpFns.has(name)) return "cp-fork";
     if (b.ptySpawns.has(name)) return "pty-spawn";
@@ -330,21 +220,13 @@ function resolveForkCallee(
   return null;
 }
 
-/** Does `node` fork a real, long-lived OS process? Resolved by IMPORTED BINDING (F4),
- *  not textual spelling. (See the header for the shapes and deliberate exclusions.) */
 function isForkCall(node: AstNode, b: ForkBindings): boolean {
   if (node.type === "NewExpression") {
     return calleeName(node) === "ShellRunner";
   }
   if (node.type !== "CallExpression") return false;
   const resolved = resolveForkCallee(node, b);
-  // A node-pty `spawn` is ALWAYS a real PTY fork (its arg is a shell path, not a
-  // leash-able marker), as is `createPtyHost`.
   if (resolved === "pty-spawn" || resolved === "createPtyHost") return true;
-  // A child_process fork fn (spawn/fork/execFile/execFileSync, by binding) forks a real,
-  // long-lived process only when its arg0 marks one: `process.execPath` (a node/kaval/
-  // padi re-exec) or a known real detached child. Other targets (git, mkfifo, …) are
-  // short-lived utilities the leash does not guard — see the header's residual.
   if (resolved === "cp-fork") {
     if (isProcessExecPathArg0(node)) return true;
     const s = stringArg0(node);
@@ -359,17 +241,8 @@ const isDescribeDaemonCall = (n: AstNode): boolean =>
 const isAssertSpawnAllowedCall = (n: AstNode): boolean =>
   n.type === "CallExpression" && calleeName(n) === "assertDaemonSpawnAllowed";
 
-/** Does an `assertDaemonSpawnAllowed(...)` leash appear BEFORE `fork` in STATEMENT ORDER
- *  within an enclosing scope (F4)? Walks `fork`'s ancestor chain; at each enclosing block /
- *  statement list, scans the siblings that PRECEDE the branch leading to the fork for a
- *  leash call. A leash in a PRECEDING sibling statement executes before control reaches the
- *  fork; a leash AFTER the fork (or below it in the same block) never does — closing the
- *  `spawn(...); assertDaemonSpawnAllowed()` bypass the old presence-anywhere check certified.
- *  This is statement-order-before, NOT a full dominance proof: a leash sitting inside a
- *  PRECEDING conditional/loop sibling is still counted (a CFG dominates-analysis is out of
- *  scope — see the header). */
 function precededByLeash(ancestors: AstNode[], fork: AstNode): boolean {
-  const chain = [...ancestors, fork]; // root → … → fork
+  const chain = [...ancestors, fork];
   for (let i = chain.length - 1; i >= 1; i--) {
     const parent = chain[i - 1];
     const child = chain[i];
@@ -388,12 +261,6 @@ function precededByLeash(ancestors: AstNode[], fork: AstNode): boolean {
   return false;
 }
 
-/** Is this fork call PER-CALL-SITE covered by the gate? Covered iff some ANCESTOR is a
- *  `describeDaemon(...)` block (the whole block is `describe.skip` when the gate is off),
- *  OR an `assertDaemonSpawnAllowed(...)` leash runs BEFORE it in statement order within an
- *  enclosing scope (the runtime leash — so a helper that leashes THEN forks is covered, but
- *  a fork followed by a later leash, or a bare fork in a different function, is not). The
- *  leash check is statement-order-causal, not a dominance proof — see the header. */
 function isForkCovered(ancestors: AstNode[], fork: AstNode): boolean {
   for (const a of ancestors) {
     if (isDescribeDaemonCall(a)) return true;
@@ -401,15 +268,9 @@ function isForkCovered(ancestors: AstNode[], fork: AstNode): boolean {
   return precededByLeash(ancestors, fork);
 }
 
-// ── Workspace + file discovery ────────────────────────────────────────────────
-// The pnpm-workspace.yaml discovery (patterns → recursive package roots) lives
-// in `runtimeDepEdges.testlib.ts`, shared with the daemons' dependency-edge
-// guards — one parse of the one source of truth for what a package is.
-
 const isTestFile = (name: string): boolean =>
   /\.(test|testlib)\.(ts|cts|mts|tsx)$/.test(name);
 
-/** Every test/testlib file under `dir` (recursively, excluding node_modules). */
 function testFilesUnder(dir: string): string[] {
   const out: string[] = [];
   let entries: import("node:fs").Dirent[];
@@ -433,8 +294,6 @@ function testFilesUnder(dir: string): string[] {
 
 function allTestFiles(): string[] {
   const files = new Set<string>();
-  // Grafted members are not kolu's to police: their tests are their own repo's
-  // CI's job, and every rule below would be reading another repo's style.
   const grafted = graftedRoots();
   for (const root of workspacePackageRoots(REPO_ROOT)) {
     if (grafted.has(root)) continue;
@@ -461,9 +320,6 @@ function parseFile(file: string): AstNode {
 }
 
 test("advisory hygiene: every real-spawn test site is describeDaemon-gated or statement-order-leashed, per call-site (a backstop, not a dominance proof — F4)", {
-  // A whole-repo AST walk — its cost tracks checkout count and parse-cache
-  // warmth, not this test's logic. ~4.7s warm; a fresh CI snapshot's cold
-  // transform cache blows the 5s default, as e0f1457's linux lane did.
   timeout: 60000,
 }, () => {
   const offenders: string[] = [];
@@ -472,11 +328,8 @@ test("advisory hygiene: every real-spawn test site is describeDaemon-gated or st
     try {
       ast = parseFile(file);
     } catch (err) {
-      // A test file that won't parse is a real defect — surface it, never skip silently.
       throw new Error(`failed to parse ${file}: ${(err as Error).message}`);
     }
-    // Resolve THIS file's fork-funnel import bindings first, so calls are matched by
-    // bound name (incl. `as` aliases and namespace members), never a textual spelling.
     const bindings = collectForkBindings(ast);
     walkWithAncestors(ast, [], (node, ancestors) => {
       if (isForkCall(node, bindings) && !isForkCovered(ancestors, node)) {
@@ -495,40 +348,14 @@ test("advisory hygiene: every real-spawn test site is describeDaemon-gated or st
   ).toEqual([]);
 });
 
-// ── Lane assignment: which CI node runs a package's suite ────────────────────
-//
-// CI has two workspace-wide suite nodes: `unit` (fork-free, gate OFF) and
-// `daemon` (gate ON). Which one runs a package is decided by the SCRIPT NAME its
-// manifest declares — `test:unit` or `test:daemon` — because `pnpm -r <script>`
-// already skips a package that doesn't have it. That is the whole selector: no
-// filter list to keep in sync, and each suite runs in exactly ONE lane instead
-// of twice (before this split both recipes traversed all 54 suites, so every
-// fork-free test in the tree ran a second time under the gate for nothing).
-//
-// The split is only safe while the manifest agrees with the code, which is what
-// the two tests below hold: a package holding a gate call site MUST be in the
-// daemon lane (else its gated blocks are `describe.skip` forever and the
-// coverage evaporates silently — #1375 A7's failure mode, one level down), and
-// a package with tests must be in exactly one lane (else its suite runs
-// nowhere, or twice again).
-
 const LANE_SCRIPTS = ["test:unit", "test:daemon"] as const;
 
-/** The GRAFTED members (`osfacts-client`, the `@odu/*` trio) — packages kolu
- *  copies out of an npins pin and never commits. Their suites are their own
- *  repo's CI's job, and kolu's `pnpm -r` filters skip them by name, so "runs in
- *  exactly one lane" is a rule they cannot satisfy and one that does not apply
- *  to them. `graftedMembers` reads the pin set from the emitted
- *  `nix/consumer-closure.json`, the same artifact `consumer.nix` checks. */
 function graftedRoots(): Set<string> {
   return new Set(
     [...graftedMembers(REPO_ROOT).values()].map((dir) => join(REPO_ROOT, dir)),
   );
 }
 
-/** The nearest workspace package root at or above `file` — nearest, so a nested
- *  member (`packages/surface/example/mini-ci`) owns its own files rather than
- *  its parent claiming them. */
 function owningPackage(file: string, roots: readonly string[]): string {
   let owner = "";
   for (const root of roots) {
@@ -540,14 +367,11 @@ function owningPackage(file: string, roots: readonly string[]): string {
     }
   }
   if (owner === "") {
-    // Every file here came from a walk rooted AT a package, so no owner means
-    // the walk and the roots disagree — a real defect, never a skipped file.
     throw new Error(`no workspace package owns ${file}`);
   }
   return owner;
 }
 
-/** The lane scripts a package declares (0, 1, or — a defect — 2). */
 function lanesOf(packageRoot: string): string[] {
   const manifest = JSON.parse(
     readFileSync(join(packageRoot, "package.json"), "utf8"),
@@ -559,7 +383,6 @@ function lanesOf(packageRoot: string): string[] {
 const show = (p: string): string => relative(REPO_ROOT, p);
 
 test("a package holding a daemon-gate call site declares `test:daemon`, so the daemon lane actually runs it", {
-  // Same whole-repo AST walk as the inventory above — see its timeout note.
   timeout: 60000,
 }, () => {
   const roots = workspacePackageRoots(REPO_ROOT);
@@ -575,12 +398,6 @@ test("a package holding a daemon-gate call site declares `test:daemon`, so the d
     if (hit) gated.add(owningPackage(file, roots));
   }
   for (const root of grafted) gated.delete(root);
-  // The gate's OWN package names these primitives to test them (here, and
-  // against synthetic sources); it forks nothing. It also holds
-  // `daemon-node.test.ts`, the backstop that fails when the `daemon` CI node is
-  // unwired — which only works from the always-on lane, since a test inside the
-  // node it guards disappears with it. So the gate stays fork-free by
-  // construction and in `test:unit` on purpose.
   gated.delete(join(HERE, ".."));
   const misfiled = [...gated]
     .filter((root) => !lanesOf(root).includes("test:daemon"))
@@ -601,8 +418,6 @@ test("every test-bearing package declares exactly one lane script, so its suite 
   const grafted = graftedRoots();
   const withTests = new Set<string>();
   for (const file of allTestFiles()) {
-    // `.testlib.ts` files are helpers vitest never collects on their own; a
-    // package needs a lane only if it owns a real `*.test.*` file.
     if (/\.test\.(ts|cts|mts|tsx)$/.test(file)) {
       const owner = owningPackage(file, roots);
       if (!grafted.has(owner)) withTests.add(owner);
@@ -622,10 +437,6 @@ test("every test-bearing package declares exactly one lane script, so its suite 
   ).toEqual([]);
 });
 
-// ── Binding-resolution fixtures (F4): each is a tiny SYNTHETIC source proving a call is
-// resolved (or NOT) by its IMPORTED BINDING, so an aliased/namespaced fork can't hide and
-// a short-lived utility isn't false-flagged. A regression fails HERE, not only in the
-// tree. ─────────────────────────────────────────────────────────────────────────────────
 const forkDetected = (code: string): boolean => {
   const ast = parseSource(code);
   const bindings = collectForkBindings(ast);
@@ -663,8 +474,6 @@ test("F4 fixture: an ALIASED node-pty spawn (`spawn as ptySpawn`) is detected (a
 });
 
 test("F4 fixture: an aliased execFileSync on a SHORT-LIVED utility (git/mkfifo) is NOT flagged", () => {
-  // Binding-resolved, but the arg0 heuristic keeps a short-lived coreutil off the
-  // inventory — otherwise every `git`/`mkfifo` test helper would trip the gate.
   expect(
     forkDetected(
       `import { execFileSync as run } from "node:child_process";\n` +
@@ -674,7 +483,6 @@ test("F4 fixture: an aliased execFileSync on a SHORT-LIVED utility (git/mkfifo) 
 });
 
 test("F4 fixture: a `spawn` NOT bound to child_process/node-pty is not resolved (no textual false-match)", () => {
-  // A local `spawn` from an unrelated module must not be matched by spelling alone.
   expect(
     forkDetected(
       `import { spawn } from "./my-actor-lib.ts";\nspawn(process.execPath);`,
@@ -683,15 +491,12 @@ test("F4 fixture: a `spawn` NOT bound to child_process/node-pty is not resolved 
 });
 
 test("F4 fixture: a `.cts`-style CJS `require` destructure binding of child_process.spawn is resolved", () => {
-  // The exact bypass an ImportDeclaration-only scan missed: a `.test.cts` forks through a
-  // `require(...)` destructure, no static import in sight.
   expect(
     forkDetected(
       `const { spawn } = require("node:child_process");\n` +
         `spawn(process.execPath, ["--serve"]);`,
     ),
   ).toBe(true);
-  // Aliased destructure + whole-module namespace require both resolve too.
   expect(
     forkDetected(
       `const { spawn: launch } = require("node:child_process");\n` +
@@ -714,8 +519,6 @@ test("F4 fixture: a dynamic `import()` destructure binding of node-pty spawn is 
   ).toBe(true);
 });
 
-// ── Statement-order-causal coverage fixtures (F4): a leash only covers a fork it PRECEDES.
-// `uncoveredForks` reports the lines of forks the gate does NOT cover. ───────────────────
 const uncoveredForks = (code: string): number[] => {
   const ast = parseSource(code);
   const bindings = collectForkBindings(ast);
@@ -730,8 +533,6 @@ const uncoveredForks = (code: string): number[] => {
 };
 
 test("F4 fixture: a leash AFTER the fork does NOT cover it (the `spawn(...); assert()` bypass)", () => {
-  // An assertion placed after the fork cannot gate a fork that already threw — it must be
-  // flagged, exactly as a fully-bare fork would be.
   expect(
     uncoveredForks(
       `import { spawn } from "node:child_process";\n` +
@@ -744,8 +545,6 @@ test("F4 fixture: a leash AFTER the fork does NOT cover it (the `spawn(...); ass
 });
 
 test("F4 fixture: a leash BEFORE the fork in the enclosing scope DOES cover it", () => {
-  // The funnel-helper pattern — leash, then fork — is covered; the fork may be nested in
-  // an inner callback, as long as the leash precedes the statement that reaches it.
   expect(
     uncoveredForks(
       `import { spawn } from "node:child_process";\n` +

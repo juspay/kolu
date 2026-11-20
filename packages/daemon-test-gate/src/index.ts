@@ -1,9 +1,4 @@
 /**
- * `@kolu/daemon-test-gate` — the test-infrastructure leaf that makes it
- * *structurally impossible* for a bare `vitest` run to fork real daemons and
- * OOM the workstation (juspay/kolu#1375), or for a test to reach the live
- * production daemons through inherited env (juspay/kolu#1334).
- *
  * A **zero-production-dependency leaf**, consumed as a **devDependency only** by
  * every package whose tests fork real OS processes. That placement is deliberate
  * and load-bearing: the real-spawner set spans ten packages both above and below
@@ -13,19 +8,6 @@
  * creates no production dependency, so every one of them can reach this leaf and
  * no layer-ladder question is even expressible. It is test infrastructure (a
  * bounded gate), never a volatility receptacle (electricity.mdx's leaf tier).
- *
- * Three spawn-gate primitives plus the CI janitor:
- *   - {@link describeDaemon} — a `describe` block that only runs under
- *     `KOLU_DAEMON_TESTS=1` (default OFF), applied at every real-spawn test site.
- *   - {@link assertDaemonSpawnAllowed} — the RUNTIME leash the test helpers call
- *     at the moment of a real fork; throws in a test context when the gate is
- *     OFF, so helper indirection / a dynamic import / a runner the meta-lint
- *     never sees cannot smuggle a fork past the gate (the enumerative pattern
- *     scan alone was proven defeatable via `*.testlib.ts` indirection).
- *   - the `./setup` module — the per-worker env scrub (see `setup.ts`).
- *   - {@link PADI_DIAL_RT_PREFIX} / {@link PADI_DIAL_SR_PREFIX} — the runtime
- *     root names the CI janitor (`ciReap`) reaps; create sites import these
- *     so leftovers stay matchable.
  */
 
 import { describe } from "vitest";
@@ -43,9 +25,6 @@ export function daemonTestsEnabled(): boolean {
   return process.env.KOLU_DAEMON_TESTS === "1";
 }
 
-/** True when running under vitest (or an explicit `NODE_ENV=test`). vitest sets
- *  `VITEST=true` in every worker; a production daemon never carries it, so the
- *  spawn leash below is a strict no-op in production. */
 function inTestContext(): boolean {
   return process.env.VITEST === "true" || process.env.NODE_ENV === "test";
 }

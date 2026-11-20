@@ -1,61 +1,9 @@
 /**
- * The shared dependency-edge walker behind each daemon's `buildId.closure.test.ts`
- * guard (juspay/kolu#2094).
- *
- * A daemon's `<PREFIX>_BUILD_ID` staleKey is DERIVED in nix: the identity
- * recipe hashes the transitive package.json `dependencies` closure of the
- * daemon's package (`mkWorkspaceClosure`'s `depClosure`, in
- * `packages/surface-daemon/nix/workspace-closure.nix`, minus the daemon's
- * documented `stableLeaves`). No hand-kept file list, no mirror — but the
- * derivation is sound only if the manifests are an honest map of what the
- * daemon process can load. pnpm's isolated node_modules already guarantees an
- * import resolves only through a DECLARED edge; what it does NOT distinguish is
- * `dependencies` from `devDependencies` — a runtime module riding a
- * devDependency link works in every dev install while being invisible to the
- * closure nix hashes, which is exactly the silent stale-daemon hole #2094
- * documents.
- *
- * So this walker enforces the sharper invariant the derivation keys on: from a
- * daemon's entry files, every reachable RUNTIME import (type-only edges are
- * erased and exempt) must be declared in the importing package's
- * `dependencies` — never a devDependency. `depClosure` follows ANY dependency
- * edge whose target is a member (that is what lets it cross a pin boundary);
- * the `workspace:` protocol is the LOUDNESS tripwire in a pnpm monorepo — it is
- * only spellable for a workspace member, so an edge using it whose target is
- * missing from `members` fails nix eval instead of quietly leaving the closure.
- * This walker holds the same rule from the TS side, for the members pnpm
- * discovers in the workspace: their edges must use `workspace:` (a pinned
- * member is spelled however the consuming manifest spells a pin, so it owes
- * only presence — see the pinned-member note below). Test files are never
- * walked (entries are runtime roots), so devDependencies remain exactly what
- * they should be: test-only.
- *
  * `@babel/parser` is a RUNTIME `dependency` of this package, not a
  * devDependency, even though the walker only ever runs from tests: an external
  * consumer resolving this walker out of a `@kolu/*` pin installs the pin's
  * `dependencies` and NOT its devDependencies, so a devDependency edge here
  * would leave their gate unable to import its own parser.
- *
- * ── Pinned members (juspay/kolu#2096) ──
- * The identity machinery graduated out of kolu, so this walker now serves
- * EXTERNAL surface consumers too — repos that vendor a `@kolu/*` package from a
- * content-addressed pin (a nix fetch, a git submodule) instead of the pnpm
- * workspace. `pinnedMembers` names those: `{ <package name>: <absolute dir> }`.
- * A pinned member is walked exactly like a workspace member — its internal
- * relative imports and its own bare edges are checked the same way (ownership
- * is by nearest package.json, so files under a pinned dir need no special
- * casing) — with ONE difference, the protocol rule. `workspace:*` is a pnpm
- * spelling; a pin is declared however the consuming manifest spells a pin (a
- * file: path, a version, a catalog entry), so a pinned edge is required only to
- * be PRESENT in the importer's `dependencies`, at any protocol. A name given in
- * `pinnedMembers` that pnpm ALSO discovers as a workspace member is ambiguous
- * identity — two directories claiming one name — and throws; the caller must
- * pick one.
- *
- * Also home to the pnpm-workspace.yaml discovery helpers (`workspacePatterns`,
- * `packageDirsUnder`, `workspacePackageRoots`) shared with
- * `no-ungated-forks.test.ts` — one parse of the one source of truth for what a
- * workspace package is.
  */
 
 import {
@@ -70,8 +18,6 @@ import {
 import { dirname, join, relative, resolve, sep } from "node:path";
 import { parse } from "@babel/parser";
 import { Yaml } from "effect/encoding";
-
-// ── Workspace discovery (pnpm-workspace.yaml is the one source of truth) ──────
 
 /** The `packages:` patterns from `pnpm-workspace.yaml`. A tiny hand parse (no
  *  `yaml` dep in this zero-dep leaf): the top-level `packages:` block's
@@ -91,7 +37,6 @@ export function workspacePatterns(repoRoot: string): string[] {
       out.push(item[1].replace(/\s+#.*$/, "").replace(/^["']|["']$/g, ""));
       continue;
     }
-    // A column-0 non-comment line ends the block (e.g. `packageExtensions:`).
     if (/^\S/.test(line) && !line.startsWith("#")) break;
   }
   return out;
@@ -107,7 +52,7 @@ export function packageDirsUnder(base: string): string[] {
   } catch (err) {
     const code = (err as NodeJS.ErrnoException).code;
     if (code === "ENOENT" || code === "ENOTDIR") return out;
-    throw err; // a real traversal error is surfaced, never swallowed as "no package"
+    throw err;
   }
   if (entries.some((e) => e.isFile() && e.name === "package.json"))
     out.push(base);
@@ -214,30 +159,6 @@ export function graftedMembers(repoRoot: string): Map<string, string> {
   return names;
 }
 
-/** Every workspace member's manifest, cached by package DIRECTORY. One parse per
- *  file no matter how many walks ask — the two walks below both read most of the
- *  tree's manifests. */
-/** Keyed by (dir, mtime), NOT by dir alone.
- *
- *  The cache is module-scope so both walks below share one read of each
- *  manifest, and module scope in a vitest worker outlives a single test run.
- *  A dir-only key would therefore serve the pre-edit manifest for the rest of
- *  the worker's life — under `vitest --watch`, which is precisely the loop
- *  someone is in when they are iterating on a manifest to see one of these
- *  gates flip. A drift detector that caches the thing it detects drift in,
- *  and reports green against a graph that no longer matches disk, is worse
- *  than no cache: the answer it gives is the answer you were trying to change.
- *
- *  The stamp and the bytes come from ONE open handle — `openSync` once, then
- *  `fstatSync` and `readFileSync` on that fd. Stat-by-path-then-read-by-path
- *  is a check-then-use race (CodeQL's `js/file-system-race`, which caught the
- *  first cut of this): the path can be replaced between the two calls, and the
- *  cache would then pair one file's mtime with another file's contents — a
- *  staleness bug of exactly the kind this key exists to prevent, but now
- *  undetectable. One handle cannot be re-resolved out from under itself.
- *
- *  Cost is one `open`/`close` per manifest against a read we were already
- *  paying for, so correctness here costs approximately nothing. */
 const manifests = new Map<string, { mtimeMs: number; manifest: Manifest }>();
 function manifestOf(dir: string): Manifest {
   const fd = openSync(join(dir, "package.json"), "r");
@@ -253,10 +174,6 @@ function manifestOf(dir: string): Manifest {
   }
 }
 
-/** name → package dir, from pnpm's own membership. Nameless members (the
- *  e2e-only `packages/tests`) cannot be depended on or imported BY NAME, so no
- *  edge can reach them and they are skipped — the one rule both walks below
- *  need, stated once. */
 function membersByName(repoRoot: string): Map<string, string> {
   const members = new Map<string, string>();
   for (const dir of workspacePackageRoots(repoRoot)) {
@@ -265,8 +182,6 @@ function membersByName(repoRoot: string): Map<string, string> {
   }
   return members;
 }
-
-// ── AST import extraction ─────────────────────────────────────────────────────
 
 type AstNode = {
   type: string;
@@ -297,29 +212,6 @@ const stringLiteralValue = (node: unknown): string | null =>
     ? node.value
     : null;
 
-/** The RUNTIME import specifiers of `file`. Type-only edges (`import type`,
- *  `export type`, `import("…")` in a type position) are erased by tsx/tsc and
- *  deliberately skipped: a type may legitimately ride a devDependency without
- *  the daemon loading a byte of it. */
-/** The specifiers a file imports.
- *
- *  `includeTypeOnly` decides whether `import type` / `export type` edges
- *  count. Both answers are right, for different questions:
- *
- *  - For a DAEMON's build identity, a type edge is erased before anything
- *    runs, so it contributes no bytes and must not move a staleKey. That is
- *    the default, and it is why this walker skipped them from the start.
- *  - For what a CONSUMER must install, a type edge is as load-bearing as a
- *    value one — this repo ships raw TypeScript, so the consumer's `tsc`
- *    resolves it and fails with TS2307 when it cannot. A package can leave a
- *    manifest while staying in the program, which is the one shape that hides
- *    from a runtime-only walk.
- *
- *  That second case is not hypothetical: it is how `osfacts-client` came to be
- *  moved to `devDependencies` on the strength of "every non-test use is
- *  `import type`" and broke the first out-of-repo consumer's build three type
- *  sites later (juspay/kolu#2216). The seam it types, `ReadSocketHolders`, is
- *  public API that every consumer implements. */
 function importsOf(file: string, includeTypeOnly: boolean): string[] {
   const ast = parse(readFileSync(file, "utf8"), {
     sourceFilename: file,
@@ -347,8 +239,6 @@ function importsOf(file: string, includeTypeOnly: boolean): string[] {
   return [...specs];
 }
 
-// ── Manifest + resolution machinery ───────────────────────────────────────────
-
 export type Manifest = {
   name?: string;
   main?: string;
@@ -358,9 +248,6 @@ export type Manifest = {
   peerDependencies?: Record<string, string>;
 };
 
-/** Resolve a base path to the `.ts`/`.tsx` file it names, or null for a
- *  non-source asset (`.json`/`.css`/`.js`) — inert to the staleKey (nix's
- *  fileFilter drops it too), so the walk skips it. */
 function resolveSourceFile(base: string): string | null {
   const cands = [
     base,
@@ -381,9 +268,6 @@ function resolveSourceFile(base: string): string | null {
   return null;
 }
 
-/** The package name a bare specifier addresses: two segments when scoped
- *  (`@kolu/surface-daemon-supervisor/states` → `@kolu/surface-daemon-supervisor`),
- *  one otherwise (`kaval/foo` → `kaval`). */
 const packageNameOf = (spec: string): string => {
   const segs = spec.split("/");
   return spec.startsWith("@")
@@ -391,9 +275,6 @@ const packageNameOf = (spec: string): string => {
     : (segs[0] as string);
 };
 
-/** Resolve a bare/subpath specifier into a member package's `src` file (a
- *  workspace member or a pinned one — same on-disk shape), via its `exports`
- *  map (falling back to `main`, then `./src/<subpath>`). */
 function resolveMemberFile(
   pkgDir: string,
   pkgName: string,
@@ -478,16 +359,10 @@ export function walkRuntimeDepEdges(opts: {
   } = opts;
 
   const members = membersByName(repoRoot);
-  // A member's declared runtime edges: its own manifest, PLUS what this workspace
-  // declares for it in `packageExtensions` (see that reader — a grafted member's
-  // manifest cannot name the `@kolu/*` packages it imports).
   const extensions = workspacePackageExtensions(repoRoot);
   const declaredEdge = (owner: Manifest, pkgName: string): string | undefined =>
     extensions.get(owner.name ?? "")?.[pkgName] ??
     owner.dependencies?.[pkgName];
-  // Only workspace-discovered names owe the `workspace:` protocol; a pin is
-  // spelled however the consumer's manifest spells pins, so the two membership
-  // kinds are indexed together for walking but kept apart for that one rule.
   const workspaceNames = new Set(members.keys());
   for (const [name, dir] of Object.entries(pinnedMembers)) {
     const workspaceDir = members.get(name);
@@ -499,7 +374,6 @@ export function walkRuntimeDepEdges(opts: {
     members.set(name, dir);
   }
 
-  /** The package dir owning `file`: its nearest package.json ancestor. */
   const ownerDirOf = (file: string): string => {
     let dir = dirname(file);
     while (!existsSync(join(dir, "package.json"))) {
@@ -513,8 +387,6 @@ export function walkRuntimeDepEdges(opts: {
 
   const violations: DepEdgeViolation[] = [];
   const reached = new Set<string>();
-  // Every cross-package specifier the walk crossed — the DOOR, not just the
-  // package. See the header on why the two are different questions.
   const crossed = new Set<string>();
   const visited = new Set<string>();
   const stack = [...entries];
@@ -529,7 +401,7 @@ export function walkRuntimeDepEdges(opts: {
     for (const spec of importsOf(file, includeTypeOnly)) {
       if (spec.startsWith(".")) {
         const r = resolveSourceFile(resolve(dirname(file), spec));
-        if (r) stack.push(r); // null = inert asset (.json/.css/.js), skip
+        if (r) stack.push(r);
         continue;
       }
       if (spec.startsWith("node:")) continue;
@@ -585,8 +457,6 @@ export function walkRuntimeDepEdges(opts: {
     reachedSpecifiers: [...crossed].sort(),
   };
 }
-
-// ── The DECLARED closure (the TS mirror of nix's `depClosure`) ────────────────
 
 /** A member's DECLARED runtime edges: `dependencies` + `peerDependencies`
  *  (never `devDependencies` — they never ship, and a hydrating consumer that
@@ -659,8 +529,6 @@ export function declaredDependencyClosure(opts: {
   const dirOf = membersByName(repoRoot);
   const extensions = workspacePackageExtensions(repoRoot);
 
-  // name → dir for every member REACHED, so the manifest paths below come out of
-  // the walk itself rather than a second lookup that has to assert its own hits.
   const reached = new Map<string, string>();
   const outside = new Set<string>();
   const stack = [...entries];

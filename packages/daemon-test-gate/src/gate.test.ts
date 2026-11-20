@@ -2,7 +2,6 @@ import { afterEach, describe, expect, test } from "vitest";
 import { assertDaemonSpawnAllowed, daemonTestsEnabled } from "./index.ts";
 import { DAEMON_LOCATOR_ENV, scrubDaemonLocatorEnv } from "./setup.ts";
 
-// Restore the gate env each case so cases don't leak into one another.
 const savedGate = process.env.KOLU_DAEMON_TESTS;
 afterEach(() => {
   if (savedGate === undefined) delete process.env.KOLU_DAEMON_TESTS;
