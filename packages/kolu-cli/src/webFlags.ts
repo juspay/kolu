@@ -1,42 +1,6 @@
-/**
- * `kolu web`'s flags — the argv half of the web face, and the projection onto
- * the boot contract the server is written against (`KoluBootFlags`, in
- * `kolu-server/src/bootFlags.ts`).
- *
- * ## Why the DECLARATIONS live here and the CONTRACT lives there
- *
- * How argv is parsed is this package's volatility, not the web server's: this
- * PR alone moved it from cleye to `effect/cli`, and the server did not
- * care either time. A `Flag.String(...)` is a function CALL, so declaring these
- * inside `packages/server` would put `effect/cli` into the web
- * server's RUNTIME graph — the server package would then know how argv is
- * parsed, which is exactly the coupling the composition root exists to absorb.
- * (The cleye coupling it replaced was type-only and erased, so a runtime one
- * would be a regression in containment, not a continuation.) The flags are part
- * of the COMMAND TREE; they belong beside it, next to `endpoint.ts`'s shared
- * flags, and `bootKoluWeb` keeps only the plain-typed shape it actually reads.
- *
- * ## What keeps the two from drifting
- *
- * {@link bootFlagsOf}'s `: KoluBootFlags` return annotation. A flag added to
- * the schema below and forgotten in the projection is still a COMPILE error —
- * the property the old co-location was protecting — and it costs the server
- * package nothing to hold, because a type import is erased.
- */
-
 import { Option } from "effect";
 import { type Command, Flag } from "effect/cli";
-// The port's ONE definition, read from the zero-import LEAF rather than through
-// `kolu-common/config`. Same constant, same source of truth — config.ts
-// re-exports this — but config.ts also re-exports `DEFAULT_SCROLLBACK` from
-// `@kolu/terminal-vocab/schema`, and this module is built on EVERY `kolu`
-// invocation, so the door route made `kolu ls` construct seventeen modules of
-// agent/forge schemas to learn one integer. Same reason `kolu-server`'s
-// `bootFlags.ts` holds zero imports; the cost had simply relocated here.
 import { DEFAULT_PORT } from "kolu-common/defaultPort";
-// The BOOT contract — plain types, so this import is erased. A deep LEAF import
-// (like `cli.ts`'s hostname one): it skips the server's runtime module graph
-// (`index.ts`), so building the command tree stays server-free.
 import type { KoluBootFlags } from "kolu-server/src/bootFlags.ts";
 
 /** The web face's flags — bound to the `web` subcommand in `./cli.ts`.
@@ -89,19 +53,8 @@ export const webFlags = {
   ),
 } as const;
 
-/** What the PARSER hands back for {@link webFlags} — Effect CLI's own inference
- *  over the schema, so key drift between the two is inexpressible. An
- *  `optional` flag lands here as `Option<T>`. */
 export type ParsedWebFlags = Command.Command.Config.Infer<typeof webFlags>;
 
-/** Project the parsed flags onto the boot contract — the single, total mapping
- *  between the parser's `Option` vocabulary and the server's `undefined` one.
- *
- *  Its own named function rather than an object literal at the call site for the
- *  reason `koluCliConnectionOf` is one: a field added to the schema and
- *  forgotten here is a COMPILE error (the returned object must satisfy
- *  `KoluBootFlags`), where an inline literal in the command handler would be one
- *  more place to keep in sync by inspection. */
 export function bootFlagsOf(parsed: ParsedWebFlags): KoluBootFlags {
   return {
     bind: parsed.bind,

@@ -1,50 +1,3 @@
-/**
- * The kolu binary's command tree — the kolu-cli plan
- * (docs/atlas/src/content/atlas/kolu-cli.mdx). This package is the composition
- * root: the one module set allowed to import everything, so the product's argv
- * face stays out of the web server's boot (`packages/server` exports
- * `bootKoluWeb`; the volatility is in the set of faces, and only a dedicated
- * package encapsulates it).
- *
- * ## `kolu` is the ONE terminal CLI now
- *
- * The scripting verbs (`ls` · `create` · `send` · `wait` · `debrief` ·
- * `snapshot` · `history` · `kill` · `watch`) subsume what `padi-tui` and `kaval-tui` served,
- * so a user — human or agent — drives kolu terminals with one command. Every
- * verb is a PURE padi client: `padiSurface` carries the union of both TUIs'
- * needs (`lifecycle.*`, `screen.*`, `terminalAttach`, `terminalExit`), so no
- * kaval dependency enters this package and padi stays the only daemon a face
- * speaks to. That is what dissolves the plan's original objection to verb
- * parity — it assumed parity meant depending on kaval, and it does not.
- *
- * ## Three deliberate breaks with PR1
- *
- * 1. **Bare `kolu` is no longer an alias of `kolu web`.** It prints the
- *    subcommand list and exits non-zero, so a user picks a face explicitly. With
- *    twelve subcommands, silently booting a web server for a bare invocation is a
- *    footgun rather than a convenience.
- * 2. **`effect/cli` replaces cleye.** cleye binds a flag to the
- *    subcommand that PRECEDES it, so `kolu --host foo create` was a usage error.
- *    Effect CLI's SHARED flags are accepted on either side of the verb name, so
- *    both spellings are one parse. It also ships inside the `effect` the
- *    workspace already pins, so the parser costs no new dependency, and its
- *    handlers are Effects — the exit-code discipline below is the library's
- *    native shape rather than something wrapped around it.
- * 3. **`kolu web --host` is now `kolu web --bind`.** `--host` is a shared flag
- *    meaning "which padi to reach"; Effect CLI refuses a parent/child flag
- *    collision outright (`DuplicateOption`), so one name had to give. Renaming
- *    the web-only one leaves `--host` a single idea across the whole binary.
- *
- * Each face's implementation is a DYNAMIC import inside its handler, so
- * `kolu mcp` never touches the web server's module graph, a terminal verb never
- * loads either, and a reserved face fails fast having loaded nothing.
- */
-
-// The bucket vocabulary and the supervision default, read from the LEAF that
-// owns them — the same reason `DEBRIEF_*` below is imported rather than
-// re-typed: a `--help` line that hand-copies a constant is a sentence nothing
-// stops from going quietly false. (`@kolu/terminal-vocab/agentProjection` is a
-// pure fold module, so this costs the dynamic-import fence nothing.)
 import {
   isScreenImageLines,
   SCREEN_IMAGE_MAX_ROWS,
@@ -56,13 +9,7 @@ import {
 } from "@kolu/terminal-vocab/agentProjection";
 import { Effect, Option } from "effect";
 import { Argument, Command, Flag } from "effect/cli";
-// The ONE version accessor (`hostname.ts` is a leaf: node built-ins + the
-// server's package.json, which `/release` bumps and nix reads too) — so
-// `kolu --version` can never diverge from the version the server reports.
 import { serverVersion } from "kolu-server/src/hostname.ts";
-// The `kolu debrief` contract — a zero-import leaf, read HERE for the flags'
-// defaults and the `--help` line, and by `verbs/debrief.ts` to perform the
-// expansion. See that module's header for why it is not spelled twice.
 import {
   DEBRIEF_EXPANSION,
   DEBRIEF_QUIET_MS,
@@ -74,24 +21,10 @@ import {
   endpointOf,
   refuseEndpointFlags,
 } from "./endpoint.ts";
-// Every exit-code-bearing error, and the sentence each one carries.
 import { reservedFace } from "./exit.ts";
-// The surface face — the ONE static import that names a face: Effect CLI's
-// tree must hold its subcommands on every invocation, and `surfaceFace.ts`'s
-// header is the record of what that costs (schema-level only) and what it
-// refuses to cost (no socket, no MCP SDK).
 import { koluSurfaceFace } from "./surfaceFace.ts";
-// The web face's flags and their projection onto the server's boot contract.
-// They live in THIS package because they are part of the command tree: how argv
-// is parsed is the CLI's volatility, and a flag declaration is a runtime call
-// the web server package has no business holding.
 import { bootFlagsOf, webFlags } from "./webFlags.ts";
 
-/** The root. It carries no handler of its own — a bare `kolu` has nothing to do
- *  but show what it can do, which is exactly what Effect CLI does for a
- *  subcommand-bearing command with no handler: print the subcommand list and
- *  fail. That is user correction (1) satisfied by the library's own shape rather
- *  than by a hand-written arm. */
 export const koluRoot = Command.make("kolu").pipe(
   Command.withSharedFlags(endpointFlags),
   Command.withDescription(
@@ -99,22 +32,8 @@ export const koluRoot = Command.make("kolu").pipe(
   ),
 );
 
-/** Read the shared endpoint flags off the root, from inside a subcommand. */
 const sharedEndpoint = Effect.flatMap(koluRoot, endpointOf);
 
-/** Every terminal verb has the same shape: resolve the endpoint, load the verb's
- *  module, run it. Spelled once so a new verb is one `Command.make` plus one
- *  entry here, and so the dynamic-import fence cannot be forgotten on one arm.
- *
- *  The import is inside the handler on purpose: a verb's module reaches padi's
- *  dial kit and its render helpers, none of which `kolu web` or `kolu mcp`
- *  should pay for.
- *
- *  The requirement channel is left to INFERENCE rather than annotated `never`:
- *  reading the root's shared flags is a context read (`CommandContext<"kolu">`),
- *  which a subcommand handler is exactly the place that can satisfy. Pinning it
- *  to `never` here would be claiming this composes anywhere, which it does not
- *  and need not. */
 const runVerb = <A>(
   load: () => Promise<{
     run: (endpoint: Endpoint, args: A) => Effect.Effect<void, unknown>;
@@ -125,14 +44,10 @@ const runVerb = <A>(
     Effect.flatMap(Effect.promise(load), ({ run }) => run(endpoint, args)),
   );
 
-// ── The faces ────────────────────────────────────────────────────────────────
-
 const web = Command.make(
   "web",
   webFlags,
   Effect.fn(function* (flags) {
-    // `web` inherits the shared endpoint flags (every subcommand does) but dials
-    // no padi with them — refuse rather than ignore.
     yield* Effect.flatMap(koluRoot, (r) => refuseEndpointFlags(r, "web"));
     const { bootKoluWeb } = yield* Effect.promise(() => import("kolu-server"));
     yield* Effect.promise(() => bootKoluWeb(bootFlagsOf(flags)));
@@ -147,10 +62,6 @@ const mcp = Command.make(
   "mcp",
   {},
   Effect.fn(function* () {
-    // No refusal: the MCP adapter's dial resolves through the SAME
-    // `localPadiSocket` policy the verbs do, so every endpoint spelling is
-    // honorable here. `endpointOf` still enforces the two rules that are about
-    // the flags themselves (one transport at a time, no empty value).
     const endpoint = yield* endpointOf(yield* koluRoot);
     const { runKoluMcp } = yield* Effect.promise(() => import("./mcp.ts"));
     yield* runKoluMcp({ endpoint });
@@ -173,27 +84,6 @@ const tui = Command.make(
   ),
 );
 
-// ── The terminal verbs ───────────────────────────────────────────────────────
-//
-// Each verb's flag record is EXPORTED and its module derives its args type from
-// it (`Command.Config.Infer`), the way `webFlags.ts` already does for the web
-// face. The hand-written `*Args` interfaces this replaced were a second
-// statement of one fact — and the join between them was unchecked in the
-// direction that matters: a flag added here and forgotten in the verb still
-// compiled, shipped, and was silently never read, which is the graceful
-// degradation this repo treats as a defect. The import is `import type`, so it
-// is fully erased and the per-face dynamic-import fence is untouched.
-
-/** A flag the user may omit, projected to `undefined` HERE rather than in each
- *  verb body.
- *
- *  `Option` is the PARSER's vocabulary, and `bootFlags.ts`'s header already
- *  states the rule for the web face: pushing it through a consumer whose job has
- *  nothing to do with argv is the coupling the projection exists to end. The
- *  verbs' domain types are `undefined`-flavored (`Placement`, `SendInput`,
- *  `WaitPlan`, the wire's own `Schema.optionalKey` fields), so every one of them
- *  re-narrowed out of `Option` at the top of its own body — twelve meeting
- *  points where the web face has one. This is that one, for the other eleven. */
 const opt = <A>(flag: Flag.Flag<A>): Flag.Flag<A | undefined> =>
   flag.pipe(Flag.optional, Flag.map(Option.getOrUndefined));
 
@@ -209,22 +99,11 @@ const opt = <A>(flag: Flag.Flag<A>): Flag.Flag<A | undefined> =>
 const sw = (flag: Flag.Flag<boolean>): Flag.Flag<boolean> =>
   flag.pipe(Flag.withDefault(false));
 
-/** The same projection for an optional POSITIONAL (`kolu watch [<id>]`). */
 const optArg = <A>(
   arg: Argument.Argument<A>,
 ): Argument.Argument<A | undefined> =>
   arg.pipe(Argument.optional, Argument.map(Option.getOrUndefined));
 
-/** "A line count is a positive whole number" — ONE rule, declared on the flag
- *  so it fires during the parse and no verb body can place it late.
- *
- *  It used to be three hand-written sentences at three different TIMES, and one
- *  of them was on the wrong side of the dial: `history --lines 0` resolved its
- *  id against a live roster — after `--host` had ssh-provisioned a cold box —
- *  before saying "that is not a positive number", while `snapshot --tail 0`
- *  refused instantly. Declaring it here also puts "0 is not a --tail" on the
- *  same channel as "abc is not a --tail" (`Flag.Int`'s own refusal), which
- *  were two spellings of one rejection. */
 const positiveLines = (name: string): Flag.Flag<number> =>
   Flag.Int(name).pipe(
     Flag.filter(
@@ -233,15 +112,6 @@ const positiveLines = (name: string): Flag.Flag<number> =>
     ),
   );
 
-/** "A millisecond window is inside the shared `setTimeout` range" — the sibling
- *  of {@link positiveLines}, and for the same reason.
- *
- *  `isValidTimerMs` is documented as the one home for the timer-range RULE, but
- *  its user-facing SENTENCE was spelled once per flag; three flags in, two of
- *  the copies had already drifted in wording. `effect` names what an
- *  out-of-range value would do to that particular flag ("fires a false timeout"
- *  vs "reports a false settle"), which is the only part that legitimately
- *  differs — the overflow is one fact. */
 const timerMsFlag = (name: string, effect: string): Flag.Flag<number> =>
   Flag.Int(name).pipe(
     Flag.filter(isValidTimerMs, (n) =>
@@ -249,11 +119,6 @@ const timerMsFlag = (name: string, effect: string): Flag.Flag<number> =>
     ),
   );
 
-/** `--timeout` — the shared bound every wait carries, declared ONCE.
- *
- *  `wait` and `debrief` had a byte-identical copy each, which is the drift
- *  {@link timerMsFlag} was introduced to close, one layer up: the range sentence
- *  was deduped and the flag around it was not. */
 const timeoutFlag = opt(
   timerMsFlag("timeout", "fires a false timeout").pipe(
     Flag.withDescription("give up after this many milliseconds (exit 2)"),
@@ -275,10 +140,6 @@ const ls = Command.make(
     yield* runVerb(() => import("./verbs/ls.ts"), args);
   }),
 ).pipe(
-  // The columns `formatStatus` actually prints, in its order: ID · STATE ·
-  // REPO·BRANCH · PR · AGENT · FOREGROUND. It used to end "and what each is
-  // for", which promises the `--intent` label — a thing this table does not
-  // show; what it shows is the foreground process, i.e. what each is RUNNING.
   Command.withDescription(
     "List this host's terminals — state, repo/branch, PR, agent, and what each is running.",
   ),
@@ -294,12 +155,6 @@ export const createFlags = {
       Flag.withDescription("working directory for the new terminal"),
     ),
   ),
-  // WHERE the terminal lands on the canvas. Exactly one of these two is
-  // required — `verbs/create.ts`'s `placementOf` is the gate, and its refusal
-  // names the rule. `--toplevel` is a plain boolean rather than the absence of
-  // `--parent` because "I didn't pass a flag" and "I decided this is top level"
-  // must be different states: reading the first as the second is the silent
-  // default this pair exists to delete.
   toplevel: sw(
     Flag.Boolean("toplevel").pipe(
       Flag.withDescription(
@@ -391,9 +246,6 @@ export const sendFlags = {
       Flag.withDescription("read the text to send from this file"),
     ),
   ),
-  // The tristate stays a tristate: `--paste` is `true`, `--no-paste` is `false`,
-  // absent is `undefined` — which is what makes "both at once" unspellable (see
-  // `verbs/send.ts`'s header).
   paste: opt(
     Flag.Boolean("paste").pipe(
       Flag.withDescription(
@@ -441,13 +293,7 @@ export const waitFlags = {
       `idle:<ms> · match:<regex> · agent buckets (${WAIT_STATES.join(", ")} — comma-separated means any-of)`,
     ),
   ),
-  // The shared timer-range rule, on the flag: `runWait` THROWS a RangeError on
-  // an out-of-range timeout, and `isValidTimerMs` is the one home for the
-  // ceiling (`--until idle:<ms>` calls it too, inside its compound grammar).
   timeout: timeoutFlag,
-  // The two orthogonal modifiers (kolu#2139). Neither is a fourth `--until`
-  // form: `--settled` narrows WHEN the condition counts as met, `--snapshot`
-  // widens WHAT the met carries, and each is useful without the other.
   settled: opt(
     timerMsFlag("settled", "reports a false settle").pipe(
       Flag.withDescription(
@@ -552,10 +398,6 @@ export const snapshotFlags = {
   ),
   tail: opt(
     positiveLines("tail").pipe(
-      // Not "the last N non-blank lines" — `tailLines` drops the buffer's
-      // TRAILING run of blank rows (the empty viewport below the cursor) and
-      // then takes the last N, interior blanks and all. The old wording promised
-      // a filter the verb does not run.
       Flag.withDescription(
         "print only the last N lines, ignoring the trailing blank rows a rendered buffer ends in",
       ),
@@ -570,12 +412,6 @@ const snapshot = Command.make(
     yield* runVerb(() => import("./verbs/snapshot.ts"), args);
   }),
 ).pipe(
-  // NOT "what a terminal shows now". `screen.text` returns the ENTIRE rendered
-  // buffer — scrollback and viewport together, thousands of lines on a
-  // long-running agent — and the README's `snapshot` section spells out why
-  // calling that "the screen" is a lie a driving loop pays for. `--help` is
-  // where a user meets the verb, so it must not tell the story the README just
-  // corrected.
   Command.withDescription(
     "Print a terminal's whole rendered buffer (scrollback + viewport) as plain text — --tail N is the on-screen read.",
   ),
@@ -585,22 +421,7 @@ export const screenshotFlags = {
   id: Argument.String("id").pipe(
     Argument.withDescription("terminal id (any unique prefix)"),
   ),
-  // Bounds ROWS OF THE PICTURE — a different question from `snapshot --tail`'s
-  // "how much text do I want back", which is why it is not called `--tail`.
-  // Capped at padi's own ceiling: the render cost and the pixel height both
-  // grow with rows, and kolu retains 50k lines of scrollback, so an unbounded
-  // request is a way to ask for a 900,000-pixel-tall PNG. The parse REFUSES an
-  // over-cap value rather than silently clamping it — a caller who asked for
-  // 5,000 rows and got 200 would be handed a picture that is not the answer to
-  // its question.
   lines: opt(
-    // Two halves, each taken from the one place that owns it. POSITIVITY is
-    // this CLI's own rule, and `positiveLines` is where it is declared — a
-    // second inline spelling here is exactly what made `history --lines 0` and
-    // `screenshot --lines 0` print two different sentences about one flag
-    // name. The CEILING is padi's, spelled once there: a flag parser cannot
-    // speak Effect Schema, but it must not hold a second opinion about how
-    // many rows are legal either.
     positiveLines("lines").pipe(
       Flag.filter(
         isScreenImageLines,
@@ -638,10 +459,6 @@ export const historyFlags = {
   id: Argument.String("id").pipe(
     Argument.withDescription("terminal id (any unique prefix)"),
   ),
-  // Omitting it prints the WHOLE retained scrollback (`readWholeHistory` pages
-  // back to the oldest line the host still keeps); passing it fetches ONE page
-  // of that size, the lines immediately above the screen. The help text used to
-  // say "default: one page", which is the opposite of what happens.
   lines: opt(
     positiveLines("lines").pipe(
       Flag.withDescription(
@@ -684,13 +501,6 @@ export const watchFlags = {
     ),
   ),
   json: sw(Flag.Boolean("json").pipe(Flag.withDescription("emit NDJSON"))),
-  // The three SUPERVISION knobs. Naming any one of them turns `watch` from a
-  // change tail into the supervision feed — agent-state transitions, held and
-  // repeated — which is why they are plain strings here and parsed in the verb:
-  // `--held-for 60s` is a compound grammar like `--until idle:2000`, and
-  // `verbs/watch.ts` refuses a bad one BEFORE it dials, exactly as `wait` does.
-  // They filter in padi, never here: the CLI and the MCP face pass the same three
-  // knobs to the same engine, so there is nothing to keep in sync.
   states: opt(
     Flag.String("states").pipe(
       Flag.withDescription(
@@ -712,9 +522,6 @@ export const watchFlags = {
       ),
     ),
   ),
-  // Mute, not roster: a stale id costs nothing and a new terminal is always
-  // watched. Repeatable like `--key`. `--ignore-self` is the zero-config form
-  // for an orchestrator running inside a kolu terminal (reads KAVAL_TERMINAL_ID).
   ignore: Flag.String("ignore").pipe(
     Flag.withDescription(
       "mute this terminal (repeatable). Fail-open: a stale or unknown id costs nothing, and every new terminal is still watched",
@@ -766,8 +573,6 @@ const watch = Command.make(
   ]),
 );
 
-/** The whole binary. Verbs first — they are what a user reaches for — then the
- *  two server-ish faces, the padi projection, and the reserved one. */
 export const koluCli = koluRoot.pipe(
   Command.withSubcommands([
     ls,
@@ -787,8 +592,6 @@ export const koluCli = koluRoot.pipe(
   ]),
 );
 
-/** Run the tree against an explicit argv — the seam the unit pins drive, so the
- *  dispatch is testable without touching `process.argv`. */
 export const runKoluCliWith = Command.runWith(koluCli, {
   version: serverVersion,
 });

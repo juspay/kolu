@@ -1,25 +1,3 @@
-/**
- * kolu-cli dispatch pins (docs/atlas/src/content/atlas/kolu-cli.mdx).
- *
- * What these pin, and why each is here rather than left to a reviewer's eye:
- *
- *  - **Flags are position-blind.** The whole reason cleye was replaced. A
- *    spelling that used to be a usage error (`kolu --host box ls`) and the one
- *    that worked (`kolu ls --host box`) must now be the SAME parse — asserted by
- *    driving both into the same refusal, which only fires if both reached the
- *    shared flags.
- *  - **Bare `kolu` does not boot a server.** PR1's alias is retired; the pin is
- *    that the bare invocation FAILS (so a stale `ExecStart=kolu` is loud rather
- *    than silently serving) and names its subcommands.
- *  - **A face that cannot honor a flag refuses it.** `web` dials no padi, so
- *    `kolu web --host` is an error, never a silently ignored flag.
- *
- * Unit-level: parses and refusals only. Every assertion below fails BEFORE any
- * verb's dynamic import, so no padi is dialed, no server boots, and no MCP
- * serve starts — which is what lets the whole tree be driven here with nothing
- * running.
- */
-
 import { NodeServices } from "@effect/platform-node";
 import { Cause, Effect, Exit, Option, Runtime } from "effect";
 import { DEFAULT_PORT } from "kolu-common/config";
@@ -33,15 +11,11 @@ import {
 import { reservedFace } from "./exit.ts";
 import { bootFlagsOf } from "./webFlags.ts";
 
-/** Run the real command tree against an argv, to an `Exit`. */
 const run = (argv: string[]) =>
   Effect.runPromiseExit(
     runKoluCliWith(argv).pipe(Effect.provide(NodeServices.layer)),
   );
 
-/** The squashed failure of an argv that must not succeed — a NAMED throw if it
- *  succeeded, never a silent `undefined` the assertions would vacuously pass
- *  against. */
 const failureOf = async (argv: string[]) => {
   const exit = await run(argv);
   if (!Exit.isFailure(exit)) {
@@ -57,7 +31,6 @@ const failureOf = async (argv: string[]) => {
   };
 };
 
-/** Everything a failure might carry its text in, as one string. */
 const textOf = (e: {
   readonly message?: string;
   readonly stderr?: string;
@@ -72,9 +45,6 @@ const NO_ENDPOINT: EndpointFlagValues = {
 describe("kolu command tree", () => {
   describe("flags are position-blind (the cleye replacement's whole point)", () => {
     it("a shared flag reaches the root from BEFORE or AFTER the verb", async () => {
-      // Both spellings carry --host AND --socket, which is a refusal only
-      // reachable once both flags landed on the root's shared set. Under cleye
-      // the first spelling was itself a usage error, so this pins the fix.
       for (const argv of [
         ["--host", "box", "--socket", "/tmp/p.sock", "ls"],
         ["ls", "--host", "box", "--socket", "/tmp/p.sock"],
@@ -86,9 +56,6 @@ describe("kolu command tree", () => {
     });
 
     it("a verb's OWN flag still belongs after the verb name — and says so", async () => {
-      // The boundary of the property above, pinned so nobody widens the claim:
-      // position-blindness is a property of the ROOT's SHARED flags, not of
-      // every flag. `--json` is `ls`'s own, so it parses after `ls` …
       const after = await failureOf([
         "ls",
         "--json",
@@ -99,12 +66,6 @@ describe("kolu command tree", () => {
       ]);
       expect(textOf(after)).toContain("mutually exclusive");
 
-      // … and before `ls` it is a flag the ROOT does not have, so it is
-      // REFUSED rather than silently ignored or swallowed as a positional.
-      // (The library renders the name — `Unrecognized flag: --json in command
-      // kolu` — to the console rather than onto the error value, so what is
-      // assertable here is the refusal itself, which is the part that matters:
-      // a misplaced flag must never look like it was applied.)
       const before = await run([
         "--json",
         "ls",
@@ -119,17 +80,6 @@ describe("kolu command tree", () => {
 
   describe("an omitted switch is its OFF position, not a missing flag", () => {
     it("`ls` without `--json` still reaches the endpoint check", async () => {
-      // A version pin with teeth. `Flag.Boolean` used to parse an absent flag
-      // as `false`; rc.110 made it FAIL as a missing required flag instead
-      // (Effect-TS/effect#7296) — still the behaviour at the current pin,
-      // `effect@4.1.4` — which turned every plain
-      // `kolu ls` / `kolu create` / `kolu web` into a usage error until each
-      // switch spelled its `false` out loud. The refusal below is reachable
-      // ONLY after the flags resolved, so seeing it means `--json` was absent
-      // and the parse carried on. Lose the default and this reads `Help
-      // requested` instead — the library renders "Missing required flag:
-      // --json" to the console, never onto the error value, so the endpoint
-      // refusal ARRIVING is the whole assertable signal.
       const err = await failureOf(["ls", "--host", "a", "--socket", "b"]);
       expect(textOf(err)).toContain("mutually exclusive");
     });
@@ -155,10 +105,6 @@ describe("kolu command tree", () => {
     });
 
     it("`kolu mcp --socket` is NOT refused — every face resolves one padi the same way", async () => {
-      // The refusal that used to live here was not a property of MCP: the face
-      // dialed through a second, hand-rolled copy of the socket resolution that
-      // had never learned `--socket` / `--state-root`. One resolution later, it
-      // has. What still refuses is the flag rule itself, which is the root's.
       const err = await failureOf([
         "mcp",
         "--socket",
@@ -172,11 +118,6 @@ describe("kolu command tree", () => {
 
   describe("a numeric flag's range is part of the PARSE, not of a verb body", () => {
     it("refuses a non-positive --tail / --lines before any verb module loads", async () => {
-      // The point is not only the refusal, it is WHEN: every assertion in this
-      // file runs with nothing dialed, so reaching a failure here proves the
-      // rule fired before the handler — and therefore before `--host` would
-      // have ssh-provisioned a cold box. `--lines` used to be checked AFTER the
-      // dial and after the roster read, which is the asymmetry this closes.
       for (const argv of [
         ["snapshot", "3f9c", "--tail", "0", "--host", "box"],
         ["history", "3f9c", "--lines", "0", "--host", "box"],
@@ -200,11 +141,6 @@ describe("kolu command tree", () => {
     });
 
     it("holds `wait`'s two modifiers and `debrief`'s sugar to the same rules", async () => {
-      // Every one of these is refused BEFORE the dial, the same as `--timeout`
-      // above — which matters most for `--settled`, whose whole job is to make a
-      // wait longer: an over-ceiling window would overflow `setTimeout` and fire
-      // a FALSE settle in ~1ms, i.e. exactly the premature done-signal the flag
-      // exists to prevent.
       for (const argv of [
         ["wait", "3f9c", "--until", "waiting", "--settled", "0"],
         ["wait", "3f9c", "--until", "waiting", "--settled", "2147483648"],
@@ -222,11 +158,6 @@ describe("kolu command tree", () => {
 
   describe("`kolu debrief` — the composed protocol as a verb", () => {
     it("is a real subcommand whose flags all parse", async () => {
-      // It fails only at the DIAL (there is no padi named `box` here), which is
-      // one step past the parse — so reaching that failure is the pin that
-      // `debrief`, `--quiet`, `--tail`, `--timeout` and `--json` are all
-      // spellable. A missing verb or an unknown flag fails earlier and would
-      // never mention the endpoint.
       const err = await failureOf([
         "debrief",
         "3f9c",
@@ -244,9 +175,6 @@ describe("kolu command tree", () => {
     });
 
     it("`--quiet` and `--tail` have defaults, so the bare verb IS the protocol", async () => {
-      // The point of the alias: `kolu debrief <id>` with nothing else must be
-      // the full three-flag `wait` invocation. If either flag were required,
-      // this would fail in the parse rather than at the dial.
       const err = await failureOf([
         "debrief",
         "3f9c",
@@ -262,8 +190,6 @@ describe("kolu command tree", () => {
     expect(err._tag).toBe("ReservedFaceError");
     expect(err.message).toBe(reservedFace("tui").message);
     expect(err.message).toContain("not shipped yet");
-    // The exit-code marker is what the run edge's teardown reads — so THIS is
-    // what pins `kolu tui` exiting non-zero.
     expect(err[Runtime.errorExitCode]).toBe(1);
   });
 });
@@ -283,7 +209,6 @@ describe("endpointOf", () => {
     expect(of({ host: Option.some("box") })).toEqual(
       Exit.succeed({ kind: "host", ssh: "box" }),
     );
-    // Two transports is a contradiction to refuse, not a precedence to apply.
     expect(
       Exit.isFailure(
         of({ host: Option.some("box"), socket: Option.some("/s") }),
@@ -351,8 +276,6 @@ describe("bootFlagsOf", () => {
     expect(flags.tlsCert).toBeUndefined();
     expect(flags.tlsKey).toBeUndefined();
     expect(flags.allowNixShellWithEnvWhitelist).toBeUndefined();
-    // The server's TLS resolution is a plain truthiness check, so a leaked
-    // `None` object would read as "a cert was given" and try to read it.
     expect(Boolean(flags.tlsCert)).toBe(false);
   });
 });

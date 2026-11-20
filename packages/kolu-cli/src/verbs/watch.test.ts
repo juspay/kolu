@@ -1,10 +1,3 @@
-/**
- * Pins `kolu watch`'s supervision GRAMMAR — the argv half, which is all this
- * face owns. What a bucket is (`isWaitState`) and what a knob means are padi's;
- * how a duration is spelled, and what a bad one reads like, is argv, and it is
- * decided here BEFORE anything dials a daemon.
- */
-
 import {
   formatStateEvent,
   formatStateEventJson,
@@ -17,11 +10,11 @@ import { Effect, Stream } from "effect";
 import { describe, expect, it } from "vitest";
 import type { CliFailure } from "../exit.ts";
 import {
-  emitFunnel,
+  admitAndEmit,
   planHeartbeat,
   planIgnoreSelf,
   planSupervision,
-  planWatch,
+  preDialPlan,
   planWatchScope,
   refuseSelfNotInFleet,
   resolveIgnoreQueries,
@@ -65,16 +58,10 @@ describe("planSupervision", () => {
     expect(held("60s").value.heldForMs).toBe(60_000);
     expect(held("5m").value.heldForMs).toBe(300_000);
     expect(held("2h").value.heldForMs).toBe(7_200_000);
-    // `d`, because the feed's own hold column is rendered with `relativeTime`,
-    // which prints `2d`. A grammar you can read out of the output and not type
-    // back in is half a grammar.
     expect(held("1d").value.heldForMs).toBe(86_400_000);
   });
 
   it("reads a bare number as MILLISECONDS — the spelling the rest of the binary uses", () => {
-    // `--timeout 10000`, `--settled 15000` and `--until idle:2000` are all bare
-    // millisecond integers. One binary must not hold two duration grammars that
-    // refuse each other's spelling.
     expect(planSupervision(args({ heldFor: "60000" }))).toEqual({
       kind: "ok",
       value: { heldForMs: 60_000 },
@@ -115,7 +102,6 @@ describe("planSupervision", () => {
       kind: "ok",
       value: { states: ["waiting", "awaiting"] },
     });
-    // Spacing and case are typing, not meaning.
     expect(planSupervision(args({ states: " Waiting , awaiting " }))).toEqual({
       kind: "ok",
       value: { states: ["waiting", "awaiting"] },
@@ -162,8 +148,6 @@ describe("planSupervision", () => {
   ])("refuses `--nag %s` — the slash carries an interval and a whole count, nothing else", (nag) => {
     const plan = planSupervision(args({ nag }));
     expect(plan.kind, nag).toBe("error");
-    // Refused for the SLASH's reason — not the generic "not a duration" a
-    // grammar that never knew the slash would give.
     expect(plan.kind === "error" && plan.message).toMatch(/after the slash/);
   });
 
@@ -214,8 +198,6 @@ describe("planIgnoreSelf", () => {
   it("refuses --ignore-self when this process is not inside a kolu terminal", () => {
     const plan = planIgnoreSelf(args({ ignoreSelf: true }), {});
     expect(plan.kind).toBe("error");
-    // The sentence is THIS face's: it names the env padi read and the way out
-    // in argv's own grammar, which padi has no business spelling.
     expect(plan.kind === "error" && plan.message).toMatch(/KAVAL_TERMINAL_ID/);
     expect(plan.kind === "error" && plan.message).toMatch(/--ignore <id>/);
   });
@@ -229,10 +211,6 @@ describe("planIgnoreSelf", () => {
     expect(plan.kind === "error" && plan.message).toMatch(/not-a-uuid/);
   });
 
-  // …and it does NOT ask which fleet: that is a roster question, and the roster
-  // is not argv. The endpoint used to be part of this parse (`--host` was
-  // refused here) — a transport-shaped proxy that missed a --socket aimed at a
-  // different padi, and missed a stamp gone stale across a restart.
   it("resolves --ignore-self to the containing terminal", () => {
     expect(
       planIgnoreSelf(args({ ignoreSelf: true }), {
@@ -252,14 +230,10 @@ describe("refuseSelfNotInFleet — the membership question, asked of the roster"
   });
 
   it("refuses when this padi has never heard of the containing terminal", () => {
-    // The one shape --ignore-self exists to refuse: a mute that mutes nobody
-    // and reports success. Subsumes --host, a --socket aimed at a different
-    // padi, and a stamp re-keyed by a daemon restart.
     const message = refuseSelfNotInFleet(SELF, [LANE]);
     expect(message).toBeDefined();
     expect(message).toContain(shortId(SELF));
     expect(message).toMatch(/--ignore <id>/);
-    // A restart re-keys terminals, which is the other way a stamp goes stale.
     expect(message).toMatch(/restart/);
   });
 });
@@ -268,8 +242,6 @@ describe("resolveIgnoreQueries — fail-open mute", () => {
   it("widens a unique prefix to the live id", () => {
     expect(resolveIgnoreQueries(["aaaa"], [SELF, LANE])).toEqual({
       kind: "ok",
-      // The drop list rides the SUCCESS arm — there is no shape of this result
-      // that is both a refusal and a diagnostic.
       value: { ids: [SELF], dropped: [] },
     });
   });
@@ -296,9 +268,6 @@ describe("resolveIgnoreQueries — fail-open mute", () => {
     expect(plan.kind).toBe("error");
     const message = plan.kind === "error" ? plan.message : "";
     expect(message).toMatch(/matches 2/);
-    // …and LISTS them, in the same words `--parent` and the subject id use.
-    // "type more characters" with nothing to compare against is the sentence
-    // minus the affordance it exists for.
     expect(message).toContain("--ignore: ");
     expect(message).toContain(shortId(a));
     expect(message).toContain(shortId(b));
@@ -310,7 +279,6 @@ describe("planWatchScope — id ∩ ignore is a silent never-match", () => {
     const plan = planWatchScope(SELF, [SELF]);
     expect(plan.kind).toBe("error");
     expect(plan.kind === "error" && plan.message).toMatch(/can never match/);
-    // padi states the invariant; the way OUT is this face's to spell.
     expect(plan.kind === "error" && plan.message).toMatch(/--ignore/);
   });
 
@@ -335,9 +303,9 @@ describe("planWatchScope — id ∩ ignore is a silent never-match", () => {
   });
 });
 
-describe("planWatch — everything argv decides, decided once", () => {
+describe("preDialPlan — everything argv decides, decided once", () => {
   it("carries the daemon-needing queries across UNRESOLVED — a roster is not argv", () => {
-    const plan = planWatch(
+    const plan = preDialPlan(
       args({ id: "aaaa", ignore: ["bbbb"], json: true }),
       {},
     );
@@ -348,7 +316,7 @@ describe("planWatch — everything argv decides, decided once", () => {
   });
 
   it("resolves --ignore-self and --heartbeat, which need no daemon", () => {
-    const plan = planWatch(
+    const plan = preDialPlan(
       args({ ignoreSelf: true, heartbeat: "10s", nag: "5m" }),
       {
         KAVAL_TERMINAL_ID: SELF,
@@ -367,16 +335,12 @@ describe("planWatch — everything argv decides, decided once", () => {
   });
 
   it("has ONE error arm — a fourth flag cannot land on the wrong side of the dial", () => {
-    // Each of the three pre-dial refusals reaches the caller through this one
-    // return, rather than through a block the author had to remember to add.
-    expect(planWatch(args({ heldFor: "banana" }), {}).kind).toBe("error");
-    expect(planWatch(args({ heartbeat: "0s" }), {}).kind).toBe("error");
-    expect(planWatch(args({ ignoreSelf: true }), {}).kind).toBe("error");
+    expect(preDialPlan(args({ heldFor: "banana" }), {}).kind).toBe("error");
+    expect(preDialPlan(args({ heartbeat: "0s" }), {}).kind).toBe("error");
+    expect(preDialPlan(args({ ignoreSelf: true }), {}).kind).toBe("error");
   });
 });
 
-/** A state event naming `id` — the supervision feed's payload, thin on purpose
- *  (what it renders to is `render.ts`'s pin, not this one's). */
 const stateEvent = (id: TerminalId): PadiStateEvent =>
   ({
     kind: "nag",
@@ -386,7 +350,7 @@ const stateEvent = (id: TerminalId): PadiStateEvent =>
     since: 1_700_000_000_000,
   }) as PadiStateEvent;
 
-describe("emitFunnel — the ONE guard both feeds print through", () => {
+describe("admitAndEmit — the ONE guard both feeds print through", () => {
   const muting = (self: TerminalId) => {
     const scope = planWatchScope(undefined, [self]);
     if (scope.kind === "error") throw new Error(scope.message);
@@ -394,13 +358,8 @@ describe("emitFunnel — the ONE guard both feeds print through", () => {
   };
 
   it("DROPS a supervision event for a muted terminal, locally", () => {
-    // The supervision feed used to queue its lines directly, filtered only by
-    // the `ignoreIds` it had put on the wire — so a padi that ignored the field,
-    // or a re-attached subscription opened with another scope, printed the one
-    // terminal this invocation muted. The mute is enforced HERE now, on both
-    // feeds, and this is the pin that says so.
     const lines: string[] = [];
-    const emit = emitFunnel(muting(SELF), true, (l) => lines.push(l));
+    const emit = admitAndEmit(muting(SELF), true, (l) => lines.push(l));
     const event = stateEvent(SELF);
     emit(
       event.id,
@@ -412,7 +371,7 @@ describe("emitFunnel — the ONE guard both feeds print through", () => {
 
   it("emits one NDJSON line for a terminal the scope admits", () => {
     const lines: string[] = [];
-    const emit = emitFunnel(muting(SELF), true, (l) => lines.push(l));
+    const emit = admitAndEmit(muting(SELF), true, (l) => lines.push(l));
     const event = stateEvent(LANE);
     emit(
       event.id,
@@ -428,7 +387,7 @@ describe("emitFunnel — the ONE guard both feeds print through", () => {
 
   it("formats ONLY the shape that was asked for", () => {
     const lines: string[] = [];
-    const emit = emitFunnel(muting(SELF), false, (l) => lines.push(l));
+    const emit = admitAndEmit(muting(SELF), false, (l) => lines.push(l));
     emit(
       LANE,
       () => {
@@ -440,8 +399,6 @@ describe("emitFunnel — the ONE guard both feeds print through", () => {
   });
 });
 
-/** A padi whose roster is exactly `live` — `terminals.keys` opens with a
- *  SNAPSHOT frame, as the real one does. */
 const fakePadi = (live: readonly TerminalId[]): PadiSurfaceClient =>
   ({
     surface: { terminals: { keys: () => Stream.make(live) } },
@@ -455,12 +412,6 @@ const targetPlan = (over: Partial<WatchPlan> = {}): WatchPlan => ({
 
 describe("resolveWatchTargets — the stamp is resolved before the scope", () => {
   it("refuses a STRAY --ignore-self before the id and the scope it would empty", async () => {
-    // The same request `watch_open` refuses with the same arm: ids covered by a
-    // mute whose self is a stamp this padi has never heard of. Resolved the
-    // other way round, this face said "no terminal matching" or "can never
-    // match" while the MCP face said "not in fleet".
-    // The refusal is a value on the ERROR channel, and a `CliFailure` carries
-    // its sentence as the stderr line it will print — not as `message`.
     const refused: CliFailure = await Effect.runPromise(
       Effect.catch(
         resolveWatchTargets(
