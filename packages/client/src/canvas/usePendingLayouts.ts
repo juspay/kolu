@@ -1,11 +1,16 @@
 import type { TerminalId } from "kolu-common/surface";
-import { createSignal } from "solid-js";
-import { createStore, produce, reconcile } from "solid-js/store";
+import { produce, reconcile } from "solid-js/store";
+import {
+  hostIndependentSignal,
+  hostIndependentStore,
+} from "../hostScope/hostIndependent";
 import { layoutsEqual, type TileLayout } from "./TileLayout";
 
-const [pending, setPending] = createStore<Record<string, TileLayout>>({});
+const [pending, setPending] = hostIndependentStore<Record<string, TileLayout>>(
+  {},
+);
 
-const [nextDefaultSize, setNextSizeSignal] = createSignal<{
+const [nextDefaultSize, setNextSizeSignal] = hostIndependentSignal<{
   w: number;
   h: number;
 } | null>(null);

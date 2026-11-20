@@ -1,6 +1,7 @@
-import { type Accessor, batch, onCleanup, createSignal } from "solid-js";
+import { type Accessor, batch, onCleanup } from "solid-js";
 import { createResizeObserver } from "@solid-primitives/resize-observer";
 import type { HostCamera } from "../../hostScope/createCamera";
+import { hostIndependentSignal } from "../../hostScope/hostIndependent";
 import { activeScope } from "../../hostScope/hostScopes";
 import type { TileLayout } from "../TileLayout";
 import { animatePan } from "./animatedPan";
@@ -46,13 +47,13 @@ const setPanY = (v: number): void => cameraOrNeutral().setPanY(v);
 const setZoom = (v: number): void => cameraOrNeutral().setZoom(v);
 
 let containerEl: HTMLDivElement | null = null;
-const [observedSize, setObservedSize] = createSignal<{
+const [observedSize, setObservedSize] = hostIndependentSignal<{
   width: number;
   height: number;
 }>();
 let cleanupGestures: (() => void) | null = null;
 let currentAnim: AbortController | null = null;
-const [panAnimating, setPanAnimating] = createSignal(false);
+const [panAnimating, setPanAnimating] = hostIndependentSignal(false);
 
 function cancelPanAnimation() {
   currentAnim?.abort();
