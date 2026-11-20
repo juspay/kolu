@@ -1,12 +1,4 @@
 #!/usr/bin/env bash
-# Before/after idle-window trace: repro.html (PR #1348 aura) vs repro-fixed.html
-# (the fix) at matched tile counts, all on-screen. Plus the realistic gated case.
-# Run from this directory after resolving Chrome + installing deps (see the
-# investigation note, ../../canvas-tile-aura-cpu.md). Self-contained: fresh
-# Chrome per scene, 6 s idle window each.
-#
-#   nix build --no-link --print-out-paths nixpkgs#playwright-driver.browsers > browsers_path
-#   nix shell nixpkgs#nodejs --command bash -c 'npm i chrome-remote-interface && bash run-compare.sh'
 set -euo pipefail
 cd "$(dirname "$0")"
 HERE="$PWD"

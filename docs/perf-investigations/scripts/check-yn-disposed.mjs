@@ -26,7 +26,6 @@ const off = new Uint32Array(N + 1);
   off[N] = o;
 }
 
-// For every yn (CoreBrowserTerminal), check _store._isDisposed
 function getPropTarget(i, prop) {
   const start = off[i],
     cnt = NODES[i * NF + ecI];
@@ -64,7 +63,6 @@ for (let i = 0; i < N; i++) {
 console.log(`yn (CoreBrowserTerminal) _store._isDisposed distribution:`);
 console.log(counts);
 
-// Also Dl (InputHandler)
 const dlCounts = { true: 0, false: 0, missing: 0 };
 for (let i = 0; i < N; i++) {
   if (
@@ -72,8 +70,6 @@ for (let i = 0; i < N; i++) {
     STR[NODES[i * NF + nameI]] !== "Dl"
   )
     continue;
-  // Dl might have _parsingStack or similar — let's find its disposable path
-  // In xterm Dl is InputHandler; it extends Disposable and has a _store
   const store = getPropTarget(i, "_store");
   if (store < 0) {
     dlCounts.missing++;

@@ -1,7 +1,4 @@
 #!/usr/bin/env bash
-# Real-GPU before/after on zest (M1 Max). Headless-new Chrome WITH GPU. Prints
-# chrome://gpu feature status + per-thread busy so GPU engagement is verifiable
-# (on a real GPU the FIXED VizCompositorThread collapses vs the software box).
 set -uo pipefail
 cd /tmp/aura-mac
 CHROME="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"

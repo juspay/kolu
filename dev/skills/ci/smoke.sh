@@ -1,19 +1,4 @@
 #!/usr/bin/env bash
-# Boot the packaged Kolu (production wrapper, .#default) and verify the three
-# runtime contracts a green `nix build` can still break:
-#
-#   1. It serves /api/health — catches packaging regressions where the build
-#      succeeds but the binary crashes at startup (the missing-workspace-dep
-#      crash that motivated #761).
-#   2. It HONORS an inherited KOLU_STATE_DIR — #531 made default.nix export it
-#      unconditionally, silently forcing state under $HOME/.config/kolu so a
-#      second production instance couldn't relocate its state (juspay/kolu#1414).
-#   3. A hosted terminal can run node, npm, npx, and corepack. The wrapper PATH
-#      is the terminal's base PATH, so using nodejs-slim there silently removes
-#      the package-management commands even though the daemons still boot.
-#
-# The first two contracts share the same boot-and-read-log mechanism; the third
-# drives the real padi socket to prove what a hosted shell actually inherits.
 
 set -euo pipefail
 
@@ -61,7 +46,6 @@ wait_for_daemons_down() {
             if [[ "$holder" =~ ^[1-9][0-9]*$ ]] && kill -0 "$holder" 2>/dev/null; then
                 found=true
             else
-                # The gate protocol treats a dead/malformed holder as stale.
                 rm -f -- "$gate"
             fi
         done < <(find "$runtime" -name '*.pid' -type f -print)
@@ -109,14 +93,6 @@ probe_terminal_node_tools() {
     local logfile=$1 proc=$2
     local socket spawned="$tmp/terminal-spawned" output="$tmp/terminal-node-tools"
     socket=$(find "$runtime" -name padi.sock -type s -print -quit)
-    # Two markers, not one. `spawned` is written before anything can fail, so it
-    # separates the two ways this probe can time out: padi accepting `create`
-    # but never spawning a PTY, versus a PTY that runs but has lost the Node
-    # toolset. Collapsing them into one "could not run the packaged Node
-    # toolset" message sent an investigation after a PATH bug when the real
-    # regression was #1988 pruning node-pty's darwin spawn-helper.
-    # `--toplevel` because placement is REQUIRED and has no default: this probe
-    # wants one terminal of its own, and saying so is the whole rule.
     "$PADI_TUI" create --toplevel --socket "$socket" -- /bin/sh -c \
         'printf spawned >"$1"; for tool in node npm npx corepack; do command -v "$tool" || exit 1; done; printf ok >"$2"' \
         _ "$spawned" "$output" >/dev/null
@@ -133,9 +109,6 @@ probe_terminal_node_tools() {
             else
                 echo "hosted terminal never spawned: padi accepted the create but no PTY ran /bin/sh — check node-pty's build/Release artifacts for this platform" >&2
             fi
-            # kaval owns the PTYs, and when it dies its reason lands ONLY in its
-            # own log — the server just reports a generic socket timeout. Print
-            # it here so the failing lane carries the cause, not just the symptom.
             while IFS= read -r kavalLog; do
                 echo "--- $kavalLog ---" >&2
                 cat "$kavalLog" >&2
@@ -151,9 +124,6 @@ probe_terminal_node_tools() {
 }
 
 cleanup() {
-    # Best-effort teardown on EXIT — `|| true` because the trap can race with
-    # the process's own exit, and we don't want a stale-PID kill to mask the
-    # real error that triggered the trap.
     for p in "$pid" "$state_pid"; do
         if [[ -n "$p" ]] && kill -0 "$p" 2>/dev/null; then
             kill -TERM "$p" 2>/dev/null || true
@@ -165,11 +135,6 @@ cleanup() {
 }
 trap cleanup EXIT
 
-# Block until $proc logs $marker or dies; death is a smoke failure (dump the
-# log, abort). The generous watchdog keeps a wedged process from consuming the
-# whole CI deadline while leaving normal loaded starts ample room. The marker is
-# the message TEXT — the
-# semantic anchor, stable across pino transports (pino-pretty and JSON alike).
 wait_for_marker() {
     local marker=$1 logfile=$2 proc=$3
     local deadline=$((SECONDS + STARTUP_TIMEOUT_SEC))
@@ -188,13 +153,6 @@ wait_for_marker() {
     return 1
 }
 
-# Value of the JSON string field "<name>":"<value>" on the line carrying $marker
-# ("" if none). Scoping to the marker line — the same anchor the probe already
-# waited on — keeps this honest: the field is read off the line whose presence we
-# proved, not the first match anywhere (which would silently capture an unrelated
-# earlier "<name>":"..." if a future log line emitted one).
-# NAME is a fixed prefix (grep -F + literal ${match#...} strip), not a regex, so
-# it carries no pattern sensitivity; both callers pass static literals regardless.
 # The values read here (a URL, a path) never contain a quote, so the next " ends
 # the field exactly.
 json_field() {
@@ -204,15 +162,6 @@ json_field() {
     printf '%s' "${match%\"}"
 }
 
-# --- Contract 1: the binary boots and serves /api/health. ---
-# Sanitize env so we mirror production: clear IN_NIX_SHELL and devshell
-# pollution. HOME→tmp so the wrapper's default KOLU_STATE_DIR lands there
-# instead of the runner's real ~/.config.
-# Bind padi + kaval to this server process. The subshell's BASHPID becomes the
-# exec'd server's pid, so both daemons self-reap after SIGTERM and release their
-# gates before cleanup removes the isolated runtime/state tree.
-# Use plain sh for the probe terminal: unlike bash/zsh, it has no Kolu rc replay
-# that can replace the inherited base PATH with the runner's /etc/profile PATH.
 (
     exec env -i HOME="$tmp" SHELL=/bin/sh XDG_RUNTIME_DIR="$runtime" \
         KOLU_DAEMON_BIND_PID="$BASHPID" \
@@ -220,7 +169,6 @@ json_field() {
 ) >"$log" 2>&1 &
 pid=$!
 
-# The address is logged from the listen callback (packages/server/src/index.ts).
 wait_for_marker "kolu listening" "$log" "$pid"
 addr=$(json_field address "$log" "kolu listening")
 if [[ -z "$addr" ]]; then
@@ -230,9 +178,6 @@ if [[ -z "$addr" ]]; then
 fi
 echo "kolu listening at $addr (pid=$pid)"
 
-# Health check via Node's built-in fetch (no curl in dev shell). Asserts only
-# HTTP 200 — the response body is an implementation detail of index.ts:143
-# that the smoke shouldn't couple to.
 if ! node -e '
   const [url, timeoutMs] = [process.argv[1] + "/api/health", Number(process.argv[2])];
   fetch(url, { signal: AbortSignal.timeout(timeoutMs) })
@@ -245,13 +190,12 @@ if ! node -e '
 fi
 echo "/api/health returned 200"
 
-# Graceful shutdown: SIGTERM, expect exit 0.
 wait_for_padi_ready "$log" "$pid"
 probe_terminal_node_tools "$log" "$pid"
 kill -TERM "$pid"
 ec=0
 wait "$pid" || ec=$?
-pid=""  # disarm cleanup trap — we've already waited
+pid=""
 wait_for_daemons_down "$log"
 if [[ $ec -ne 0 ]]; then
     echo "kolu exited with code $ec after SIGTERM" >&2
@@ -260,12 +204,6 @@ if [[ $ec -ne 0 ]]; then
 fi
 echo "shutdown clean"
 
-# --- Contract 2: the production wrapper HONORS an inherited KOLU_STATE_DIR. ---
-# Boot with KOLU_STATE_DIR pointed at a dir OUTSIDE $HOME and assert the server
-# resolves that exact directory (state.ts logs it at startup). This guard lives
-# on .#default deliberately: .#koluBin has no fallback and crashes if the var is
-# unset — that's what tests build, so they never traverse this wrapper, and #530
-# /#531's test-isolation guarantee is untouched.
 state_tmp=$(TMPDIR=/tmp mktemp -d)  # short base, same sun_path reason as above
 # Resolve symlinks up front: the server echoes back the KOLU_STATE_DIR we pass
 # verbatim, so we compare against the canonical form to stay robust on the darwin
@@ -283,11 +221,9 @@ state_pid=$!
 wait_for_marker "state directory" "$state_log" "$state_pid"
 logged=$(json_field path "$state_log" "state directory")
 wait_for_padi_ready "$state_log" "$state_pid"
-# Best-effort teardown (same rationale as cleanup()): a stale-PID kill can race
-# the process's own exit, and that error must not mask a real failure.
 kill -TERM "$state_pid" 2>/dev/null || true
 wait "$state_pid" 2>/dev/null || true
-state_pid=""  # disarm cleanup trap — we've already waited
+state_pid=""
 wait_for_daemons_down "$state_log"
 
 if [[ "$logged" != "$custom_state" ]]; then

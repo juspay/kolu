@@ -1,26 +1,3 @@
-// Diff two heap snapshots by class-name self-size aggregate.
-// Prints the top classes that GREW the most in bytes / in count between
-// `baseline` and `post`. Use it as the first step in any retention
-// investigation — one line of output usually names the culprit class.
-//
-// Usage:
-//   node --max-old-space-size=8192 diff-heap.mjs baseline.heapsnapshot post.heapsnapshot
-//
-// Chapter 3 (#614) was driven almost entirely by this diff + the retainer
-// walk in `find-retainers.mjs`. Classes to watch after a 30× canvas↔focus
-// toggle repro on a clean build:
-//
-//   system/Context      — SolidJS reactive-scope records (per-Computation)
-//   closure:*           — generic closures; native_bind is often a
-//                         Computation's .fn in disguise
-//   native:SVGAnimated* — sparkline / ActivityGraph bytes
-//   native:SVGRectElement / SVGPathElement — same
-//   object:Object       — component props objects, store records
-//
-// Count growth rarely points to the leak alone — pair it with
-// `find-retainers.mjs` to walk the retainer chain and identify the pin
-// site (e.g. a `$$click` on a `data-tile-id` div).
-
 import fs from "node:fs";
 
 function load(path) {
@@ -34,7 +11,7 @@ function load(path) {
   const typeI = m.node_fields.indexOf("type"),
     nameI = m.node_fields.indexOf("name"),
     sizeI = m.node_fields.indexOf("self_size");
-  const byKey = new Map(); // key = "type:name" -> { count, bytes }
+  const byKey = new Map();
   for (let i = 0; i < N; i++) {
     const type = nTypes[NODES[i * NF + typeI]];
     const name = STR[NODES[i * NF + nameI]] || "";

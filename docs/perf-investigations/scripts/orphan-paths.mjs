@@ -1,5 +1,3 @@
-// Only look at orphaned Rn (whose yn._store._isDisposed=true). Print the
-// full root-to-node path for each via BFS.
 import fs from "node:fs";
 const snap = JSON.parse(fs.readFileSync(process.argv[2], "utf8"));
 const m = snap.snapshot.meta;
@@ -56,7 +54,6 @@ function getPropTarget(i, prop) {
   return -1;
 }
 
-// BFS from root, non-weak edges
 const dist = new Int32Array(N).fill(-1);
 const predNode = new Int32Array(N).fill(-1);
 const predEdge = new Int32Array(N).fill(-1);
@@ -82,7 +79,6 @@ while (queue.length) {
   queue = nxt;
 }
 
-// Find ORPHANED Rn: Rn whose _core (yn) has _store._isDisposed=true
 const orphanedRns = [];
 const liveRns = [];
 for (let i = 0; i < N; i++) {
@@ -118,7 +114,6 @@ function pathOf(i) {
   return steps;
 }
 
-// For each orphan Rn, condense the path to interesting hops (skip synthetic/hidden/code)
 function isInteresting(d) {
   if (d.type === "synthetic" && !d.name) return false;
   if (d.type === "hidden") return false;
@@ -129,7 +124,6 @@ function isInteresting(d) {
   return true;
 }
 
-// Group orphan Rn by path signature and print one full path for each signature
 const byPath = new Map();
 for (const rn of orphanedRns) {
   const steps = pathOf(rn);
@@ -146,8 +140,6 @@ for (const [sig, members] of [...byPath.entries()].sort(
   (a, b) => b[1].length - a[1].length,
 )) {
   console.log(`\n===  ${members.length}× orphan Rn ===\n${sig}`);
-
-  // Print the full path for the first
   const steps = pathOf(members[0]);
   console.log(`\n Sample path (id=${desc(members[0]).id}):`);
   for (let j = 0; j < Math.min(steps.length, 30); j++) {

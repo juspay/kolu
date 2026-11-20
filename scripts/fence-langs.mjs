@@ -1,16 +1,3 @@
-// The exhaustive shiki `langs` list, DERIVED from the content itself — the fix
-// for the embedded-grammar load race (Atlas note bug-shiki-grammar-load-race;
-// the release-workflow.html byte-shrink flake).
-//
-// Why derived, not hand-enumerated: shiki's bundled `mdx`/`markdown` grammars
-// declare their embedded languages lazily (`embeddedLangsLazy`), and astro's
-// shared highlighter loads grammars per code block on demand — so any fence
-// language that is NOT preloaded at highlighter creation gets loaded
-// mid-build, re-resolving every lazy embedder and making the rendered bytes a
-// function of vite's transform order. Deriving the list from the content
-// makes "a fence language that isn't preloaded" unrepresentable: the content
-// is the source of truth, so the list can never drift from it.
-//
 // Shared by BOTH astro projects (docs/atlas and website — same class of
 // build): docs/atlas imports it relatively; the website imports it via a
 // candidates URL because its Nix sandbox build copies only website/ (the
@@ -23,16 +10,6 @@
 // (docs/atlas/build/fence-langs.test.mjs and
 // website/test/shiki-eager-langs.test.mjs) — one consumer's pin says nothing
 // about the versions the other installs.
-//
-// Over-approximation is deliberate and benign: a fence opener inside a
-// ````markdown example block still contributes its language. A fence in a
-// language shiki doesn't bundle (a typo, a decorative name) fails
-// createHighlighter LOUDLY at build start — the error names the language, and
-// the remedy is to rename the fence to a real language or `text`, never to
-// fall back silently. (A deliberate regex parser, not remark: a real markdown
-// pipeline would drag parser deps into this dependency-free shared module,
-// and shiki's own fence sniffer — `guessEmbeddedLanguages`'s
-// /(?:```|~~~)([\w-]+)/g — is strictly weaker than this anchored form.)
 import { globSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -99,22 +76,6 @@ export function fenceLangs(dir) {
  * language that wasn't preloaded (a fence shape the scan missed, a language
  * astro aliased unexpectedly), fail the build loudly instead of shipping
  * bytes whose rendering depended on file-transform order.
- *
- * Ordering honesty: astro lazy-loads the offending grammar BEFORE any
- * transformer runs (@astrojs/internal-helpers shiki.js awaits loadLanguage,
- * then codeToHast fires preprocess) — so this guard is a check-after-write,
- * not a gate: by the time it throws, the registry already took the mid-build
- * load. That is still exactly enough, because the throw fails the build
- * before the order-dependent bytes can ship; determinism of *emitted output*
- * is what the flake is made of, not registry purity.
- *
- * One cell stays out of this guard's reach by construction: astro rewrites a
- * language shiki can't LOAD to "plaintext" before any transformer runs, so an
- * unknown language in a fence shape the scan also missed renders as
- * deterministic plaintext with only a console warning. That cell is not racy
- * (no grammar ever loads), and a scanned unknown language crashes
- * createHighlighter at build start — so the guard's job is exactly the racy
- * remainder: scan-missed fences in REAL languages.
  *
  * @param {string[]} preloaded - the derived fence-language list
  * @returns {import("shiki").ShikiTransformer}

@@ -1,31 +1,3 @@
-// Walk GC-root-to-target retainer paths for a heap-snapshot target class
-// or node-name. Groups results by tail-of-path signature and prints one
-// sample chain per signature, sorted by count — so the dominant retention
-// shape is the first output.
-//
-// Usage:
-//   node --max-old-space-size=8192 find-retainers.mjs snap.heapsnapshot <type> <name>
-//
-// Common invocations:
-//   find-retainers.mjs snap.heapsnapshot native SVGRectElement
-//   find-retainers.mjs snap.heapsnapshot closure debouncedFit
-//   find-retainers.mjs snap.heapsnapshot object 'system / Context'
-//
-// Pair with `diff-heap.mjs` — that script points at the growing class,
-// this one tells you what's holding onto it.
-//
-// Chapter 3 (#614) pattern to recognize in output:
-//
-//   ... → Object.getMetadata → native_bind → Object { observers: Array }
-//   → Array[N] → Object { fn } → closure → Context chain
-//   → <div data-tile-id=...> → ... → SVG etc
-//
-// That "native_bind → observers Array" signature means a SolidJS
-// signal's subscriber list has accumulated unremoved observers — a
-// Computation that should have disposed didn't. Walk up from `<div
-// data-tile-id>` to find the inline handler (`$$click`, `$$pointerdown`,
-// etc.) whose closure Context is the actual pin.
-
 import fs from "node:fs";
 
 if (process.argv.length < 5) {
@@ -80,7 +52,6 @@ function edgeLabel(et, en) {
     : `${et}:[${en}]`;
 }
 
-// BFS from root (node 0), non-weak edges only.
 const dist = new Int32Array(N).fill(-1);
 const predNode = new Int32Array(N).fill(-1);
 const predEdge = new Int32Array(N).fill(-1);
@@ -106,7 +77,6 @@ while (queue.length) {
   queue = nxt;
 }
 
-// Find target instances.
 const targets = [];
 for (let i = 0; i < N; i++) {
   if (
@@ -147,7 +117,6 @@ function isInteresting(d) {
   return true;
 }
 
-// Group by tail-of-path signature (last 8 interesting hops).
 const byPath = new Map();
 for (const t of targets) {
   const steps = pathOf(t);

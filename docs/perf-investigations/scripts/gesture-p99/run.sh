@@ -1,18 +1,4 @@
 #!/usr/bin/env bash
-# Drive driver.cjs against a running dev kolu and print the per-event work table
-# (burst time / per-event µs / tile writes / frames-blocked) across CPU throttle.
-#
-# The driver uses a BURST microbenchmark (K WheelEvents dispatched from page JS
-# in a tight loop), which measures per-event main-thread cost independent of the
-# frame-scheduler — so plain `--headless=new` is fine and faithful here (no need
-# for a real display: the burst never relies on rAF cadence). See driver.cjs.
-#
-# Dependency-free driver (CDP over Node's built-in WebSocket). Externals:
-#   - dev server: `just dev-auto` (NEVER `just dev`); pass its client URL as $1,
-#     or it reads .dev-server/ports.json.
-#   - Chrome: nix-built playwright chromium, or ~/.cache/ms-playwright.
-#
-#   bash run.sh [clientUrl] [nTiles=16] [burst=60]
 set -euo pipefail
 cd "$(dirname "$0")"
 

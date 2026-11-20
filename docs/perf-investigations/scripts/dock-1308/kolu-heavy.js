@@ -1,6 +1,3 @@
-// Heavy canvas: create ~N terminals (Ctrl+T), run opencode in most, then measure
-// the wheel/zoom storm + idle resize behavior under real TUI load.
-//   node kolu-heavy.js <url> <port> <N> <opencodeBin>
 const fs = require("fs");
 const os = require("os");
 const path = require("path");
@@ -8,7 +5,7 @@ const CDP = require("chrome-remote-interface");
 const URL = process.argv[2], PORT = parseInt(process.argv[3] || "9500", 10);
 const N = parseInt(process.argv[4] || "20", 10);
 const OPENCODE = process.argv[5];
-const RUN_OC = parseInt(process.argv[6] || "15", 10); // how many run opencode
+const RUN_OC = parseInt(process.argv[6] || "15", 10);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 const INSTRUMENT = `
@@ -54,7 +51,6 @@ async function storm(Input,R,x,y,modifiers,deltaY,label){
   await Page.navigate({ url: URL }); await Page.loadEventFired(); await sleep(4000);
   await ev(Runtime, `(function(){var b=document.querySelector('[data-testid="restore-session"]'); if(b)b.click();})()`); await sleep(2500);
 
-  // Create until ~N tiles.
   let tiles = await ev(Runtime, `document.querySelectorAll('[data-canvas-tile]').length`);
   let attempts = 0;
   while (tiles < N && attempts < N * 2) {
@@ -65,23 +61,21 @@ async function storm(Input,R,x,y,modifiers,deltaY,label){
   await sleep(2000);
   console.error(`created: ${tiles} tiles in ${attempts} attempts`);
 
-  // Run opencode in the first RUN_OC tiles (type the full path + Enter).
   if (OPENCODE && tiles > 0) {
     const rects = JSON.parse(await ev(Runtime, `window.__tileRects()`));
     const n = Math.min(RUN_OC, rects.length);
     for (let i = 0; i < n; i++) {
       const r = rects[i];
-      await click(Input, r.x + Math.round(r.w/2), r.y + 70); // body, below titlebar
+      await click(Input, r.x + Math.round(r.w/2), r.y + 70);
       await sleep(120);
       await Input.insertText({ text: OPENCODE });
       await key(Input, "Enter", "Enter", 13);
       await sleep(180);
     }
     console.error(`typed opencode into ${n} tiles; booting...`);
-    await sleep(12000); // let opencode TUIs come up + redraw
+    await sleep(12000);
   }
 
-  // IDLE under load: do RO/fit oscillate now that terminals are busy?
   await ev(Runtime, `(window.__m.roFires_i=window.__m.roFires, window.__m.appH_i=window.__m.appH, window.__m.rec=true, window.__m.frames=[], true)`);
   await sleep(8000);
   const idle = JSON.parse(await ev(Runtime, `(function(){var f=window.__m.frames.slice();return JSON.stringify({
@@ -95,7 +89,6 @@ async function storm(Input,R,x,y,modifiers,deltaY,label){
   const screenshotPath = path.join(screenshotDir, "screenshot.png");
   fs.writeFileSync(screenshotPath, Buffer.from(data, "base64"), { mode: 0o600 });
 
-  // Storms at the real tile count.
   const pan = await storm(Input, Runtime, 850, 520, 8, 18, "pan");
   await sleep(800);
   const zoom = await storm(Input, Runtime, 850, 520, 2, 8, "zoom");

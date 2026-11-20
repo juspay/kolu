@@ -1,12 +1,4 @@
 #!/usr/bin/env node
-/* Headless-Chrome CDP tracer. Connects to a Chrome already listening on
- * --remote-debugging-port, navigates to a URL, records a fixed IDLE window
- * (no interaction), and aggregates main-thread / compositor / raster busy time
- * plus a breakdown by rendering event. The headline metric is CrRendererMain
- * busy time during idle — the GPU-independent "CPU spinning" number.
- *
- *   node trace.js <url> <idleMs> <port> <tag>
- */
 const CDP = require("chrome-remote-interface");
 
 async function main() {
@@ -20,7 +12,6 @@ async function main() {
   await Page.enable();
   await Page.navigate({ url });
   await Page.loadEventFired();
-  // Let layout/first paint settle before the measurement window opens.
   await sleep(1500);
 
   const events = [];
@@ -42,7 +33,6 @@ async function main() {
     },
   });
 
-  // Pure idle window: we do nothing — only the CSS animations run.
   await sleep(idleMs);
 
   const complete = Tracing.tracingComplete();
@@ -50,8 +40,6 @@ async function main() {
   await complete;
   await client.close();
 
-  // ── Aggregate ────────────────────────────────────────────────────────────
-  // Map tid -> thread name from metadata events.
   const threadName = {};
   for (const e of events) {
     if (e.name === "thread_name" && e.args && e.args.name) {
@@ -59,10 +47,7 @@ async function main() {
     }
   }
 
-  // Top-level RunTask.dur summed per thread = total busy time on that thread.
   const busyByThread = {};
-  // Self-ish breakdown by rendering event name (these nest, so treat as
-  // "inclusive time spent in" — indicative of where main-thread time goes).
   const byEvent = {};
   let paintCount = 0;
   let beginFrameCount = 0;
@@ -73,10 +58,9 @@ async function main() {
     if (e.name === "RunTask") {
       busyByThread[tname] = (busyByThread[tname] || 0) + e.dur;
     }
-    // Rendering-pipeline events (mostly on CrRendererMain).
     if (
       [
-        "UpdateLayoutTree", // style recalc
+        "UpdateLayoutTree",
         "Layout",
         "Paint",
         "PrePaint",
@@ -98,7 +82,6 @@ async function main() {
     if (e.name === "BeginFrame" || e.name === "BeginMainThreadFrame") beginFrameCount++;
   }
 
-  // Round to ms for readability.
   const ms = (us) => Math.round(us / 100) / 10;
   const busyMs = {};
   for (const [k, v] of Object.entries(busyByThread)) busyMs[k] = ms(v);
