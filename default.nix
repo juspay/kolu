@@ -1,43 +1,7 @@
-# Root composer for kolu Nix packages.
-#
-# nix/packages/* are pure callPackage-style leaf packages, auto-injected via
-# the overlay in nix/overlay.nix. The kolu build derivation and its runtime
-# wrapper live here in default.nix because they need per-invocation args
-# (commitHash, koluEnv, koluClientDist) that aren't on pkgs.
-#
-# Used by flake.nix (thin wrapper) and nix-build directly. A direct nix-build
-# must pass `--argstr commitHash "$(git rev-parse HEAD)"`: a Nix-built daemon
-# cannot honestly carry a build id without the source commit that produced it.
 { pkgs ? import ./nix/nixpkgs.nix { }
 , commitHash
-  # TEST-ONLY hook: when set (e.g. "4242.0"), rewrite the daemon's
-  # `PTY_HOST_CONTRACT_VERSION` so this build's server *and* the kaval it spawns
-  # speak an incompatible wire. Used by the adoption-skew VM test to build a
-  # "newer kolu" whose handshake rejects (and recycles) a surviving older daemon
-  # — there is no env seam for the contract version (it's a source constant), so
-  # the skew can only be produced at build time. `null` (the default) is a no-op,
-  # so the real build is untouched. A value the source ALREADY speaks is refused
-  # (see `postPatch`): it would build a skew that is not one.
 , contractVersionOverride ? null
-  # TEST-ONLY hook: when set, FORCE this build's KAVAL_BUILD_ID to the given
-  # value instead of the source-closure hash. Used by the adoption build-skew VM
-  # test (B3.4) to build a "newer kolu" whose `expectedKaval.staleKey` differs
-  # from a surviving DEFAULT-built daemon's reported staleKey — a genuine
-  # *build*-behind survivor with a COMPATIBLE wire contract, so it's adopted (not
-  # recycled) and the read-site currency nudge fires. The same value is `--set`
-  # onto BOTH this build's koluBin wrapper and its kaval bin, so the build stays
-  # internally consistent (its expected == what it would spawn). `null` (the
-  # default) computes the real source hash, so the real build is untouched. This
-  # is the nix-value analog of `contractVersionOverride` (which seds a source
-  # constant); KAVAL_BUILD_ID is nix-injected, so this overrides the value, not a
-  # source file.
 , kavalBuildIdOverride ? null
-  # TEST-ONLY hook (padi's twin of `kavalBuildIdOverride`, default null): when
-  # set, FORCE this build's PADI_BUILD_ID to the given value instead of padi's
-  # source-closure hash — baked onto BOTH the padi wrapper AND the koluBin wrapper
-  # (the binder's expected == what it would spawn), so a second build reads as a
-  # padi-build skew to the drain-on-build-mismatch convergence (#1670). Consumed by
-  # the `adoption-padi-upgrade` VM arm; the real build always takes the source hash.
 , padiBuildIdOverride ? null
 }:
 let
@@ -46,22 +10,12 @@ let
   inherit (workspace) version src fileset pnpmDeps;
   sources = import ./npins;
 
-  # Keep Node's full command set in the wrapper PATH: padi passes that PATH into
-  # hosted terminals, where node, npm, npx, and corepack are part of the existing
-  # environment.
   runtimeNode = pkgs.nodejs;
-  # Point tsx at the same Node 24 core as the full command set above.
   runtimeTsx = pkgs.tsx.override { nodejs-slim_22 = pkgs.nodejs-slim; };
   runtimeTsxLoader = "${runtimeTsx}/lib/tsx/dist/loader.mjs";
 
-  # Build uses a placeholder so docs-only commits don't bust the derivation
-  # cache; koluClientDist sed-replaces it with the real hash afterwards.
   koluCommitPlaceholder = "__KOLU_COMMIT_PLACEHOLDER__";
 
-  # Surface-owned Nix recipes (location is structure — they travel with the
-  # code that reads / depends on them). Both live inside @kolu/surface-daemon:
-  #   mkDaemonIdentity     — hashString-over-fileset + `<PREFIX>_*` bake
-  #   mkProvenAgentSource  — pure agent-tree assemble + evaluate-an-agent prove
   mkDaemonIdentity = import ./packages/surface-daemon/nix/daemon-identity.nix {
     inherit (pkgs) lib;
   };
@@ -69,20 +23,6 @@ let
     inherit (pkgs) lib;
   };
 
-  # Exact source flake with a minimal remote-agent output surface.
-  #
-  # Baking root `self` would keep the whole repository (website, Atlas, evidence)
-  # in every Kolu runtime closure. Instead, assemble the agent tree from the
-  # workspace package fileset plus the Nix/npins machinery that evaluates it,
-  # then PROVE an agent evaluates from that tree before handing the path to any
-  # wrapper (mkProvenAgentSource — shallow bake is unspellable). The flake
-  # exposes only Kolu's nix/agent-packages.json inventory via nix/agent-flake.nix.
-  #
-  # Fileset policy (kolu's): workspace packages + default.nix + nix/ + npins/.
-  # osfacts is not in the tree at all (OSF5) — koluEnv bakes KOLU_OSFACTS_BIN
-  # from the npins pin, and nix/workspace.nix grafts the same pin's client-ts
-  # in as the `osfacts-client` workspace member, so `./npins` covers both.
-  #
   # `expose` (what the agent flake offers a remote to resolve) and `prove` (what
   # must evaluate before any wrapper gets the bake path) are DELIBERATELY two
   # lists, not one. `mkProvenAgentSource` proves an attr by re-importing this
@@ -91,12 +31,8 @@ let
   # forever. `padi-agent` reaches it (it contains `kolu` and both TUIs, all of
   # which bake the flake ref), so it is exposed but NOT proven.
   #
-  # Be honest about what that costs. `padi-agent` IS what both dial paths now
-  # resolve (`@kolu/padi/remote-dial`'s `PADI_REMOTE_DIAL`), so the build-input gate no
-  # longer covers the dialed attr — it covers the daemon graph that closure is
-  # composed out of, which is where a thin fileset actually shows up. What covers
-  # the exposed attrs themselves is `ci::agent-flake-nix`, which evaluates every
-  # `expose` entry's `drvPath` from this same assembled tree
+  # What covers the exposed attrs themselves is `ci::agent-flake-nix`, which
+  # evaluates every `expose` entry's `drvPath` from this same assembled tree
   # (`.#agent-flake-source` = `agentFlakeSrc`). That recipe is load-bearing for
   # remote provisioning, not a nicety: delete it and a fileset gap reaching only
   # `default` / the TUIs surfaces on a user's box at dial time.
@@ -111,10 +47,6 @@ let
       (pkgs.lib.all (p: pkgs.lib.elem p m.expose) m.prove)
       "nix/agent-packages.json: every `prove` entry must also be in `expose` (a proven attr no remote can resolve)";
     m;
-  # kolu's own agent plugin is the repository root's four paths
-  # (`github:juspay/kolu` IS the plugin; no `?dir=` subpath). ONE list, because
-  # two builds read it: the plugin derivation copies exactly these, and the
-  # remote agent tree must carry the same set.
   agentPluginFileset = pkgs.lib.fileset.unions [
     ./plugin.json
     ./mcp.json
@@ -129,64 +61,31 @@ let
       ./default.nix
       ./nix
       ./npins
-      # padi-agent bakes kolu's agent plugin (packages/agent-distro), so the
-      # tree a remote resolves padi-agent from must carry it.
       agentPluginFileset
     ];
     inherit pkgs commitHash;
     agents = agentPackages.prove;
     flakeNix = ./nix/agent-flake.nix;
-    # Where nix-cache.yml's `publish-closure` step writes each exposed agent's
-    # content-addressed build, keyed by `commitHash` — a dial from a published
-    # revision has the host pull it with no trust (`provisionAgent`'s index
-    # step).
     closureIndex = { repo = "juspay/kolu"; branch = "ca-index"; };
-    # HOW that cache is pushed: nix-cache.yml's `publish-closure` step runs
-    # `odu cache push --cache https://cache.kolu.dev/kolu-r2` from this repo's
-    # npins pin (the action reads the declaration's own `pusher`, never an
-    # input). Reads come from R2 — static files nothing can push to — and the
-    # cache states the origin that DOES take a push in its own nix-cache-info,
-    # so nothing is named here but the client.
     pusher = { kind = "odu"; };
   };
   agentFlakeSrc = agentSource.flakeSrc;
   agentFlakeRefEnv =
     (pkgs.lib.importJSON ./packages/surface-remote/agent-env.json).flakeRef;
-  # Every (name, value) pair a run must carry to resolve remote agents — ONE
-  # definition, rendered two ways below. A working-tree run and the packaged
-  # wrapper cannot export a different set, because neither spells the pair: add
-  # an entry HERE and both the wrapper's `--set` args and the sourceable file
-  # pick it up with no second edit. (The set is a single pair today; it is an
-  # attrset rather than a scalar so that stays true when it isn't.)
   agentBakedEnv = { ${agentFlakeRefEnv} = "${agentFlakeSrc}"; };
   agentFlakeRefBakeArg = pkgs.lib.concatStringsSep " "
     (pkgs.lib.mapAttrsToList (name: value: ''--set ${name} "${value}"'') agentBakedEnv);
-  # The same set as shell-sourceable data, for working-tree runs (`just dev`,
-  # `just server`) that have no wrapper to bake into. `toShellVars` rather than a
-  # hand-rolled `name=value` join: it is nixpkgs' own renderer for this and
-  # quotes values that need it, so the set can grow past today's store paths
-  # without a value containing a space silently mis-sourcing.
   agentFlakeEnv = pkgs.writeText "agent-flake-env" (pkgs.lib.toShellVars agentBakedEnv);
 
-  # The plugin derivation must copy exactly the plugin — its manifest, MCP
-  # config, skills, and Claude plugin manifest — not the monorepo, so its source
-  # is the plugin fileset above rather than `./.`. The copy keeps the root
-  # manifest's `extensions` verbatim; only profile resolution reads it, and
-  # `AGENT_DISTRO_PLUGINS` loads this copy as a plugin dir — inert here.
   agentPluginSrc = pkgs.lib.fileset.toSource {
     root = ./.;
     fileset = agentPluginFileset;
   };
 
-  # agent-distro — the coding agents a kolu terminal can get on its PATH. All of
-  # kolu's agent-distro knowledge (build, bake, proof) is the package's own Nix.
   agentDistro = import ./packages/agent-distro {
     inherit pkgs;
     src = sources.agent-distro;
     pluginSrc = agentPluginSrc;
-    # kolu-server's own boot read of the floor's profiles (the one function
-    # `index.ts` calls, every boot check inside it), printing the listing it
-    # would serve. The floor proof runs it on the bake it resolved.
     readListing = pkgs.lib.escapeShellArgs [
       "${runtimeNode}/bin/node"
       "--import"
@@ -200,69 +99,10 @@ let
     ];
   };
 
-  # osfacts — the single OS process/socket sampler padi's port scan spawns
-  # (OSF2). Read from koluEnv rather than re-deriving the path, so the wrapper
-  # and the dev shell cannot drift.
   osfactsBakeArg = ''--set KOLU_OSFACTS_BIN "${koluEnv.KOLU_OSFACTS_BIN}"'';
 
-  # The terminal-snapshot PNG rasteriser's font directory (nix/packages/fonts/
-  # snapshot.nix). Read from koluEnv for the same reason as osfactsBakeArg: the
-  # wrapper and the dev shell must name ONE store path. pngFonts.ts throws when this
-  # is unset, so the bake is the runtime hop that makes the build-time value
-  # (koluEnv is spread into the build derivation's env below) reach a spawned
-  # daemon, which inherits nothing from the shell that built it.
   snapshotFontsBakeArg = ''--set KOLU_SNAPSHOT_FONTS_DIR "${koluEnv.KOLU_SNAPSHOT_FONTS_DIR}"'';
 
-  # ── Daemon identity: DERIVED from the workspace dependency graph (#2094) ──
-  #
-  # A daemon's staleKey used to be a hand-listed fileset here, mirrored by an
-  # AST-walking guard test in the daemon's package — two hand-kept lists for one
-  # question ("what would a restart load?"), which is exactly the drift class
-  # that produced a rebuilt daemon carrying an unchanged identity (#2094). Now
-  # the set is COMPUTED. The mechanism no longer lives in this file either: it
-  # graduated into `@kolu/surface-daemon`'s `nix/workspace-closure.nix` (#2096)
-  # so external spine consumers derive their daemon identities the same way, and
-  # `workspace.identityInputs` below is kolu applying it to its own members map.
-  # It walks the transitive package.json `dependencies` closure of the daemon's
-  # package — the same edges pnpm's isolated node_modules makes the only
-  # resolvable ones at runtime. A new dependency joins the staleKey
-  # automatically; forgetting nothing is possible, and the residual failure
-  # direction is OVER-inclusion (an unnecessary flip — a cheap drain or an early
-  # nudge), never a silent escape. The one assumption the derivation rests on —
-  # every import a daemon can reach is declared in the importing package's
-  # `dependencies`, never a devDependency — is enforced by the dependency-edge
-  # guards (`packages/{padi,kaval}/src/buildId.closure.test.ts`, on the shared
-  # walker in `@kolu/daemon-test-gate`).
-  #
-  # A member that is a PIN rather than a directory (juspay/kolu#2093 grafts
-  # osfacts-client that way) needs no change here: `identityInputs` hands its
-  # content-addressed store path out as `pinnedSources`, which `mkDaemonIdentity`
-  # folds into the same hash — so a pin bump lands in the id by construction
-  # instead of silently escaping it.
-  #
-  # What remains in THIS file is pure policy, one list per daemon: its
-  # `stableLeaves` — the closure packages it DELIBERATELY keys no currency on.
-  # A leaf truncates the walk (its whole subtree is excluded with it, unless
-  # reached another way), and a leaf that leaves the closure fails eval loudly
-  # (see depClosure), so the lists cannot go stale silently.
-  #
-  # The identity is PACKAGE-granular on purpose. The old filesets also carved
-  # out single FILES (padi's client-side `dial.ts`/`watch.ts`, kaval's daemon
-  # executable out of padi's key) — precision that needed the mirror test to
-  # stay honest, because nothing else could prove those files were really not
-  # loaded. At package granularity every carve-out disappears into the safe
-  # direction: a dial-kit-only edit now flips padi's staleKey and costs one
-  # no-op auto-drain, instead of a hand-kept exclusion that could silently
-  # rot into the dangerous direction.
-
-  # kaval's baked identity. Its currency slice — kaval's OWN decision of what a
-  # restart would load that MATTERS to the currency nudge — is derived from
-  # kaval's dependency closure minus the stable leaves below, which today
-  # resolves to the two BEHAVIORAL roots: kaval itself and
-  # `@kolu/terminal-protocol` (the wire/behaviour it serves — the device-query
-  # forward/drop policy, the suppression grammars; a protocol change must not
-  # escape the staleKey). `kavalBuildIdOverride` (TEST-ONLY) forces the id for
-  # the build-skew VM arms.
   kavalIdentity = mkDaemonIdentity {
     name = "kaval";
     prefix = "KAVAL";
@@ -272,165 +112,41 @@ let
     inherit (workspace.identityInputs {
       entries = [ "kaval" ];
       stableLeaves = [
-        # `@kolu/surface-daemon` (the transport SPINE) runs in the kaval binary
-        # but is DELIBERATELY NOT in kaval's currency slice (#L3). kaval's
-        # staleKey drives ONLY the human "update available" nudge, and acting on
-        # it RECYCLES kaval — killing live PTYs. The spine's behavioral surface
-        # to a consumer IS the wire contract (`PTY_HOST_CONTRACT_VERSION`, in
-        # kaval/src): a contract-COMPATIBLE spine change is behaviorally
-        # interchangeable BY THE CONTRACT'S DEFINITION, so keying currency on
-        # the spine double-counts what the contract already covers and
-        # over-fires the nudge on every compatible spine refactor. This was paid
-        # for in production (zest, 2026-07-03): a spine-only change with no
-        # kaval behavior delta flipped kaval's staleKey and fired a spurious
-        # nudge. A spine change that DOES matter to the wire bumps the contract
-        # (hashed via kaval/src) → recycle-on-skew converges it, a separate
-        # sanctioned signal. (padi's leaves are only the framework tier — its
-        # staleness response is a cheap auto-drain, so over-firing is harmless.)
         "@kolu/surface-daemon"
-        # `@kolu/surface-daemon-supervisor` — the SUPERVISOR half of that same
-        # spine, an edge kaval grew at juspay/kolu#2101 when `kaval --stdio`
-        # started converging its own daemon before relaying. Excluded for exactly
-        # the #L3 reason above, and one more: this package runs in the SUPERVISING
-        # process, never inside the kaval daemon, so by construction a change here
-        # cannot change what a kaval restart would load — which is the only
-        # question the staleKey exists to answer. Keying kaval's PTY-costing nudge
-        # on it would fire on every convergence-kit refactor for no kaval delta at
-        # all. (kaval's OWN convergence declaration — `convergencePolicy.ts` — is
-        # in kaval/src and IS hashed; that is the part a supervisor must not
-        # disagree with us about.)
         "@kolu/surface-daemon-supervisor"
-        # `@kolu/surface` — the framework "electricity", a stable drishti-gated
-        # volatility boundary, excluded for the same contract-shaped reason as
-        # the spine it underlies.
         "@kolu/surface"
-        # `@kolu/xterm-kit` — the graduated xterm machinery; kaval consumes only
-        # its runtime-neutral core (the mirror anchor + snapToWrapHead). The
-        # anchor's kaval-relevant behavioral surface (the absolute-line
-        # coordinates getHistory pages by) IS part of PTY_HOST_CONTRACT_VERSION,
-        # which lives in kaval and IS hashed — a wire-breaking anchor change
-        # rides the contract bump, while a browser-only /solid or /backfill
-        # change must not fire kaval's PTY-costing currency nudge.
         "@kolu/xterm-kit"
-        # `terminal-snapshot` — the grid→picture leaf. kaval consumes ONE
-        # function from it (`readGrid`, a pure buffer read); the scene builder,
-        # the SVG writer and the wasm rasteriser behind `terminal-snapshot/png`
-        # never run in this process (the kaval wrapper below bakes no
-        # KOLU_SNAPSHOT_FONTS_DIR, and says why). The kaval-relevant surface is
-        # the SHAPE `readGrid` emits, and that shape is `SnapshotGridSchema` in
-        # kaval/src — hashed via PTY_HOST_CONTRACT_VERSION, so a wire-relevant
-        # change rides the contract bump. A chrome-geometry or palette edit —
-        # or a `themes.json` regeneration, which reaches here through
-        # `terminal-themes` — must not fire kaval's PTY-costing currency nudge.
-        # Same argument as @kolu/xterm-kit above.
         "terminal-snapshot"
-        # `@kolu/shell-quote` — the POSIX-quote source of truth. kaval seeds a
-        # command-rooted PTY's `lastCommand` with `shellJoin` (#1872); the seed
-        # is sensor data on the `commandRun` frame (no dialect field any more),
-        # and anyagent renders resume/launch lines with it. A quoting change
-        # reaches kaval's hashed source closure through that import and rides
-        # PTY_HOST_CONTRACT_VERSION — a browser-irrelevant leaf change must not
-        # nudge.
         "@kolu/shell-quote"
-        # `@kolu/heap-diag` — opt-in heap instrumentation, no wire/behaviour.
         "@kolu/heap-diag"
-        # `osfacts-client` — the TypeScript face of the baked osfacts binary,
-        # used only for start-qualified process identity at the pid-gate (UW4).
-        # Its wire is the binary's TSV, not kaval's PTY contract; a client-only
-        # change must not fire the nudge.
         "osfacts-client"
       ];
     }) behavioralFileset pinnedSources;
   };
 
-  # padi's staleKey (W2.2) — the twin of kaval's, one layer up. padi is the
-  # per-host terminal-workspace daemon; `PADI_BUILD_ID` (baked below) hashes the
-  # source closure that runs IN padi's process, so it flips iff a restart would
-  # load different daemon code. Derived from `@kolu/padi`'s dependency closure —
-  # which reaches kaval's embedded library, the surface-daemon spine +
-  # supervisor, the terminal wire, the integrations, and osfacts-client (which
-  # lives under osfacts/ so it can leave with the tool at OSF5, yet still hashes
-  # into padi's staleKey; when #2093 turns it into a grafted npins member, a pin
-  # bump lands in this key by construction — the hole #2094 recorded). Unlike
-  # kaval, padi keys currency on essentially its WHOLE closure, spine and
-  # supervisor included: its staleness response is a CHEAP auto-drain, so
-  # over-firing is harmless — only kaval's human-nudge currency needs a
-  # behavioral slice (see mkDaemonIdentity's doorstep). The only leaves are the
-  # framework tier and instrumentation below. `padiBuildIdOverride` (TEST-ONLY)
-  # forces the id.
   padiIdentity = mkDaemonIdentity {
     name = "padi";
     prefix = "PADI";
-    # Repo root, same as kaval's. `root` only has to be a common ancestor of
-    # `behavioralFileset`, and every LOCAL member is under packages/ now that
-    # osfacts-client is a pin — but the root is part of the hashed source's
-    # shape, so narrowing it would move both live daemon ids for nothing.
     root = ./.;
     inherit commitHash;
     override = padiBuildIdOverride;
     inherit (workspace.identityInputs {
       entries = [ "@kolu/padi" ];
       stableLeaves = [
-        # The `@kolu/surface*` framework tier — the "electricity", a stable,
-        # drishti-gated volatility boundary. Its behavioral surface to a
-        # consumer is its API contract; a compatible framework refactor must
-        # not drain every padi on every host. (surface-remote + surface-map
-        # are in padi's closure only for the CLIENT dial kit that ships in the
-        # same package; same tier, same exclusion.)
         "@kolu/surface"
         "@kolu/surface-remote"
         "@kolu/surface-map"
-        # `@kolu/xterm-kit` — reached only through kaval's embedded library
-        # (the runtime-neutral mirror-anchor core). Its daemon-relevant
-        # behavioral surface rides PTY_HOST_CONTRACT_VERSION, which lives in
-        # kaval's src and IS hashed here — a browser-only change must not
-        # flip padi's key.
         "@kolu/xterm-kit"
-        # `@kolu/heap-diag` — opt-in heap instrumentation, no wire/behaviour.
         "@kolu/heap-diag"
       ];
     }) behavioralFileset pinnedSources;
   };
 
-  # The workspace type gate (juspay/kolu#1049): `tsc --noEmit` over every
-  # package. Reuses this build's `src` + `pnpmDeps` — every package with a
-  # typecheck script is in the `src` fileset above (see its INVARIANT
-  # comment), so this checks exactly what `pnpm typecheck` does.
-  #
-  # This is NOT a side check: `kolu` (and therefore every wrapper that
-  # embeds `${kolu}/…` — koluBin, padi, kaval, the TUIs) depends on it, so
-  # `nix build .#default` / `.#padi` fails on a type or module-graph error
-  # before a store path is handed to deploy. flake.nix still also exposes it
-  # as `checks.*.typecheck` for a standalone proof; CI inherits the gate via
-  # the ordinary package build.
   typecheck = import ./nix/pnpm-typecheck.nix {
     inherit pkgs src pnpmDeps version;
     pname = "kolu-typecheck";
   };
 
-  # ── node_modules, keyed on the LOCKFILE instead of the commit ──────────────
-  #
-  # `kolu` used to be the source tree with the installed dependency tree inside
-  # it: a 312 MB store path (565 MB closure) whose hash moves with every commit,
-  # so every CI push sent the whole of node_modules to the cache again. Measured
-  # on the production bucket (`kolu-r2`): 13.9 GB in the `kolu-2.2.0` group,
-  # nearly all of it the same dependencies re-stored under a new name because a
-  # `.ts` file one directory over had changed. The tree is 41 MB now.
-  #
-  # The install is a function of the MANIFESTS, not of the source, so it is its
-  # own derivation — the split odu took at juspay/odu#175 and olai at
-  # juspay/olai#693, in pnpm flavour. Its source (`workspace.depsSrc`) is
-  # exactly what `pnpm install --offline --frozen-lockfile` reads; its output is
-  # what pnpm wrote. ONE store path per lockfile, and `kolu` below is left
-  # holding only the source a commit actually changed.
-  #
-  # The node-gyp rebuild of node-pty and the trim of its build output live here
-  # for the same reason: both are decided by the lockfile, so the per-commit
-  # derivation should not pay for them.
-  #
-  # NOT pruned: `vite`, `typescript`, `tailwindcss` and the rest of the build
-  # toolchain stay, because the client bundle is built against this tree. What
-  # the app SHIPS is `koluRuntimeDeps` below.
   koluDeps = pkgs.stdenv.mkDerivation {
     pname = "kolu-deps";
     inherit version pnpmDeps;
@@ -457,10 +173,6 @@ let
       NIX_NO_SELF_RPATH = "1";
     };
 
-    # The fixupPhase (strip, patchShebangs, patchELF) would traverse the entire
-    # dependency tree. For a Node.js app that is pure overhead: pnpmConfigHook
-    # already patched the shebangs, and node-gyp links the one native addon
-    # (node-pty's pty.node) correctly.
     dontFixup = true;
 
     buildPhase = ''
@@ -471,30 +183,6 @@ let
       runHook postBuild
     '';
 
-    # TWO DIRECTORIES, and both are install output. `$out/node_modules` is what
-    # pnpm wrote at the root — none of the manifests this derivation was handed,
-    # because they are already in the lockfile's hash.
-    #
-    # `$out/workspaces/<member path>/node_modules` is the second thing pnpm
-    # wrote: pnpm's isolated layout gives every workspace member its own farm of
-    # symlinks beside its manifest. Kept beside node_modules rather than inside
-    # it, and under the member's FULL path (`packages/integrations/anyagent`,
-    # `odu/run-client`), because that path is where the `../../../` hops inside
-    # the farm are true.
-    #
-    # The links this leaves pointing at `../../packages/<member>` are workspace
-    # links, and they dangle here on purpose: they land on real source once
-    # `kolu` replays them into the build tree.
-    #
-    # ONE difference from the install this used to do inside the source tree,
-    # and it is the only one — the two trees were compared entry by entry (443
-    # `.pnpm` instances, every member farm, identical): a workspace package
-    # that declares a `bin` gets no `.bin/<name>` shim in its dependents'
-    # farms, because pnpm writes a shim only when the target FILE is there and
-    # this install has manifests, not sources. Today that is `@kolu/padi`'s
-    # `padi`, in four farms, and nothing reads them: the daemon is spawned as
-    # `${padi}/bin/padi` through the wrapper's KOLU_PADI_BIN, and a working
-    # tree gets its shims from `just install`.
     installPhase = ''
       runHook preInstall
 
@@ -517,8 +205,6 @@ let
         pkgs.lib.optionalString pkgs.stdenv.hostPlatform.isDarwin "spawn-helper"
       })
       mkdir -p "$NIX_BUILD_TOP/pty-runtime"
-      # cp fails the build if an expected artifact is missing, so a node-pty
-      # bump that renames one surfaces here rather than at a user's terminal.
       for artifact in "''${ptyRuntime[@]}"; do
         cp --preserve=mode "$pty/build/Release/$artifact" "$NIX_BUILD_TOP/pty-runtime/$artifact"
       done
@@ -533,9 +219,6 @@ let
 
       mkdir -p $out
       cp -a node_modules $out/node_modules
-      # Every member farm, by its path in the tree. `-prune` on the root
-      # node_modules keeps the package-instance farms inside `.pnpm` out of it;
-      # a farm's own entries are symlinks, which `-type d` does not match.
       while IFS= read -r -d "" farm; do
         local member="''${farm#./}"
         member="''${member%/node_modules}"
@@ -547,22 +230,8 @@ let
     '';
   };
 
-  # WHAT THE APP SHIPS: the same tree with the build-only packages taken out.
-  #
-  # A SECOND lockfile-keyed derivation rather than a filter applied while `kolu`
-  # mirrors, because a Nix reference is a WHOLE store path: a `kolu` that linked
-  # single entries out of `koluDeps` would still carry all of `koluDeps` in its
-  # closure, handing every user the 169 MB of `typescript`, `vite`, `vitest`,
-  # `@babel` and `@types` this list removes. Pruned into its own path, the
-  # runtime closure stays what it was before the split (the measurement that
-  # made the prune worth doing is `docs/nix-build-closure-size-ralph-report.md`,
-  # cycles 4-6) — and being decided by the lockfile too, it is stored once per
-  # lockfile rather than once per commit.
   koluRuntimeDeps = pkgs.runCommand "kolu-runtime-deps-${version}" { } ''
     mkdir -p $out
-    # node_modules ONLY: the member farms are copied into the build tree from
-    # `koluDeps` and ride the tree into `$out`, so a second copy of them here
-    # would be a directory with no reader.
     cp -a ${koluDeps}/node_modules $out/node_modules
     chmod -R u+w $out
 
@@ -582,21 +251,6 @@ let
            core-js-compat@* regexpu-core@* regjsparser@* terser@*
   '';
 
-  # Replay a `kolu-deps` output's node_modules into a tree as LINKS, so the
-  # dependency bytes stay in the one store path that holds them. Three kinds of
-  # entry, three answers — the shape odu's `mirror()` settled on:
-  #
-  #   a symlink      — replayed VERBATIM. Every one pnpm writes is relative, and
-  #                    the tree it means is THIS one: `.pnpm/<instance>/…` lands
-  #                    on the reference this same loop makes, and a
-  #                    `workspace:` link on real source in the tree.
-  #   a scope (`@…`) — recursed into, because `@kolu` holds workspace links and
-  #                    `@effect` holds dependency links and only the entries
-  #                    themselves know which.
-  #   anything else  — linked BY REFERENCE into the store: `.pnpm` (where the
-  #                    whole dependency tree lives), `.bin`, and pnpm's own
-  #                    `.modules.yaml` state files.
-  #
   # Node resolves a module from its REALPATH (no `--preserve-symlinks`), so a
   # dependency reached through one of these links resolves ITS dependencies
   # inside the deps derivation, where the rest of the instance tree is.
@@ -619,13 +273,6 @@ let
     mirrorNodeModulesDir ${depsOut}/node_modules ${dest}/node_modules
   '';
 
-  # And each member's own farm beside its manifest, where the `../../../` hops
-  # inside it are true again. A farm is symlinks only, so this copies no
-  # dependency bytes — and it has to be a COPY rather than a link: a member's
-  # `node_modules` is where vite writes its cache, and where `kolu` deletes the
-  # client's farm on the way out. The farms are the same in both deps
-  # derivations (pnpm wrote them once), so this runs ONCE, in the build tree,
-  # and rides the copy into `$out`.
   copyMemberFarms = depsOut: ''
     for member in $(cd ${depsOut}/workspaces && find . -type d -name node_modules -prune | sed 's|^\./||; s|/node_modules$||'); do
       mkdir -p "$member"
@@ -634,13 +281,6 @@ let
     done
   '';
 
-  # The source tree, runnable — the fileset plus a node_modules that POINTS AT
-  # the deps derivations rather than containing them. A commit's worth of
-  # difference is now a few megabytes of source and a tree of symlinks.
-  #
-  # It builds against `koluDeps` (the toolchain is there) and SHIPS
-  # `koluRuntimeDeps` (the build-only packages are not), which is why the mirror
-  # runs twice: once into the build tree, once into `$out`.
   kolu = pkgs.stdenv.mkDerivation {
     pname = "kolu";
     inherit version src;
@@ -650,16 +290,6 @@ let
       pkgs.pnpm-build
     ];
 
-    # TEST-ONLY contract-version skew (see the function arg). A no-op unless
-    # `contractVersionOverride` is set; then the daemon's single source-constant
-    # version is rewritten so both the server and the kaval it spawns speak it.
-    #
-    # The FIRST grep is the one that matters: an override equal to the version
-    # the source already carries patches nothing and builds a "skewed" kolu that
-    # is bit-identical to the real one, so `adoption-skew` would wait for a
-    # recycle that is correctly never going to happen and fail pointing at the
-    # daemon. That is not hypothetical — kolu#2378 bumped the real constant onto
-    # the literal the test had been passing since it was written.
     postPatch = pkgs.lib.optionalString (contractVersionOverride != null) ''
       if grep -q 'PTY_HOST_CONTRACT_VERSION = "${contractVersionOverride}"' \
         packages/kaval/src/ptyHostSurface.ts; then
@@ -673,13 +303,8 @@ let
         || { echo "contractVersionOverride: PTY_HOST_CONTRACT_VERSION constant not found — update default.nix" >&2; exit 1; }
     '';
 
-    # There is no `pnpm install` here any more — the node_modules this tree runs
-    # against is mirrored in from `koluDeps` — so nothing to configure.
     dontConfigure = true;
 
-    # The fixupPhase would traverse the whole output tree for a Node.js app that
-    # has no shebangs or native binaries of its own left to patch: the deps
-    # derivation owns both.
     dontFixup = true;
 
     # EVERY SHARED VAR EXCEPT THE ADAPTER. Nothing at build time spawns the
@@ -695,11 +320,6 @@ let
       ({ KOLU_COMMIT_HASH = koluCommitPlaceholder; } // koluEnv)
       [ "KOLU_ACP_AGENT" ];
 
-    # Workspace typecheck is a REQUIRED input, not a parallel lane. Kolu runs
-    # TypeScript at runtime (tsx); Vite only transpiles. Without this, a green
-    # store path can boot-loop on a missing export (juspay/kolu#1049 class).
-    # `${typecheck}` forces the gate before any vite work; the empty path is the
-    # success token from pnpm-typecheck.nix.
     buildPhase = ''
       runHook preBuild
       test -e ${typecheck}
@@ -713,15 +333,7 @@ let
     installPhase = ''
       runHook preInstall
 
-      # Strip build-only sources BEFORE copying to $out. The client's bundle is
-      # built; its sources and its own farm are not shipped.
       rm -rf packages/client/src packages/client/node_modules
-      # The build tree's root mirror points at the FULL deps and `$out`'s must
-      # not, so it is dropped here and replayed below against the pruned tree.
-      # Both are symlink farms — this moves no dependency bytes. The member
-      # farms ride the copy: they are identical in either deps derivation, and
-      # their links into a pruned `.pnpm` entry dangle exactly as they did when
-      # the prune ran inside this derivation.
       rm -rf node_modules
 
       cp -r . $out
@@ -731,24 +343,7 @@ let
     '';
   };
 
-  # Stamp the real commit hash into the no-store SHELL (index.html), NOT the
-  # hashed JS bundle. The `surfaceApp()` Vite plugin injects the placeholder
-  # onto the shell global (`window.__SURFACE_APP_COMMIT__`), so it lands in
-  # index.html only. Stamping the shell — not a `/assets/*.js` file — is the fix
-  # for kolu#1319: the JS is content-hashed and served `immutable`, so rewriting
-  # its bytes under an unchanged filename (what the old `find … -name '*.js'`
-  # did) stranded every returning browser on the year-cached old stamp whenever
-  # two deploys differed only outside the client build (a docs-only commit). The
-  # shell is re-fetched on every load (`no-store`), so a commit stamped here is
-  # always the deployed one. Only this step re-runs on docs-only commits; the
-  # expensive build above is cached. The placeholder appears exactly once, in
-  # index.html — assert that so a future build-graph change that moves it (back
-  # into the bundle, or drops it) fails LOUD here instead of silently shipping an
-  # unstamped or mis-stamped shell.
   koluClientDist = pkgs.runCommand "kolu-client-dist" { } ''
-    # Only index.html changes with the commit. Link the content-hashed assets
-    # and other static files back to the cache-stable build instead of copying
-    # the entire runtime workspace into a second store path.
     cp -rs ${kolu}/packages/client/dist/. "$out"
     chmod u+w "$out"
     rm "$out/index.html"
@@ -822,11 +417,6 @@ let
   # Tests use this directly so a missing KOLU_STATE_DIR crashes immediately
   # instead of silently falling back to the production ~/.config/kolu path.
   #
-  # Two identity pairs are baked here. The kaval pair drives the from-source
-  # currency nudge; the padi pair lets the binder compare the exact daemon it
-  # would spawn (#1670) while preserving readBakedIdentity's both-or-neither
-  # invariant. Both equal the identities baked into their corresponding bins.
-  #
   # KOLU_ACP_AGENT is NOT baked here, though this is the binary that spawns the
   # adapter — see `mkKoluWrapper`, which bakes it only on the LOCAL arm. This
   # derivation is shared: `koluRemote` wraps it too, and `koluRemote` is a
@@ -860,9 +450,6 @@ let
       --run ${pkgs.lib.escapeShellArg (diagRunHook "")}
   '';
 
-  # One shell snippet both production wrappers use for KOLU_PADI_STATE_DIR
-  # (juspay/kolu#1334): code never silently defaults the state-root; wrappers
-  # supply the well-known path when unset. Explicit override still wins.
   # Fail loud if HOME is empty when computing the default — an empty HOME would
   # resolve to `/.local/state/padi` here while TS productionPadiStateRoot() uses
   # passwd homedir() (codex F1). Keep the formula aligned with
@@ -874,46 +461,6 @@ let
     fi
   '';
 
-  # Production wrapper: koluBin + default KOLU_STATE_DIR + KOLU_PADI_STATE_DIR.
-  # Used by `nix run .` and the NixOS service. Defaults the state dir to
-  # ~/.config/kolu but honors an inherited KOLU_STATE_DIR (`:-` fallback) —
-  # so a second production instance can relocate state without hijacking
-  # $HOME (juspay/kolu#1414). Same shape for padi's state-root (juspay/kolu#1334).
-  # Restoring these fallbacks can NOT reintroduce the silent-production-
-  # corruption bug #530/#531 fixed: tests build `.#koluBin` (justfile:122),
-  # which has no KOLU_STATE_DIR / KOLU_PADI_STATE_DIR and crashes if unset, and
-  # so never go through this wrapper.
-  #
-  # `KOLU_AGENT_TOOLS_PATH` — the BAKE: what this build tells the padi it
-  # supervises about the client CLIs a terminal must be able to run. THIS wrapper
-  # is the SINGLE setter for the local arm, and it `--set`s the COMPLETE value:
-  # its own `bin/` (the `kolu` whose `mcp` face an agent's `.mcp.json` invokes,
-  # nameable only here — koluBin cannot carry it without a cycle, since that env
-  # would reference the wrapper that references it) plus `koluAgentTools` (the
-  # two TUIs).
-  #
-  # One `--set`, not two merging wrappers, because a merge has no fixed point:
-  # an inner `--set` clobbers an outer `--prefix` (that one-word bug shipped),
-  # and `--prefix`/`--suffix` fold in whatever the process already carried. A
-  # single assertion cannot be clobbered, cannot accumulate, and raises no
-  # ordering question. A bare `.#koluBin` — the binary the tests build — therefore
-  # carries NO toolchain at all, by design: it is not a wrapper a user runs.
-  # The remote arm asserts the same fact the same way — see `padi-agent` below.
-  #
-  # The value's first entry is `$out/bin` — THIS wrapper, which also bakes
-  # agent-distro (`bakeArgs`). So a change to that bake changes `$out`, hence the
-  # recorded toolchain path, and drains a resident padi through the #2146 bake
-  # record; kolu-server delivers upstream's newest to the respawned padi as it
-  # reconnects. On the machine running kolu a pin bump is such a change, since
-  # the floor rides this wrapper; `padi-agent` carries no pin (see there). The
-  # proof below pins both halves.
-  #
-  # `floor` — whether this wrapper also bakes the agents' local floor (every
-  # profile, ~2 GB), the delivery kolu-server runs, AND the Conductor's ACP
-  # adapter. The wrapper a user runs (`default`) does; the `kolu` CLI that
-  # rides `padi-agent` onto a REMOTE host must not — kolu-server delivers every
-  # host's agents, and hosts the one conversation itself.
-  #
   # KOLU_ACP_AGENT is `--set-default`, NOT `--set`, and the difference is a
   # test lane that silently tests nothing: the e2e harness points it at a
   # scripted fixture adapter (`packages/tests/support/hooks.ts`) and the e2e
@@ -935,22 +482,6 @@ let
           ${agentDistro.bakeArgs { inherit floor; }} \
           --run 'export KOLU_STATE_DIR="''${KOLU_STATE_DIR:-''${XDG_CONFIG_HOME:-$HOME/.config}/kolu}"; ${exportPadiStateDirRun}'
 
-        # ── The composed-wrapper proof, IN the derivation it proves ───────────────
-        # The toolchain a LOCAL terminal ends up with is a property of the two nested
-        # production wrappers COMPOSED — this one wraps `koluBin` — and nothing in
-        # the TypeScript suite exercises that composition: every unit test injects
-        # the variable directly. That gap shipped a real defect green (koluBin's
-        # `--set` silently discarding this wrapper's value, so every locally-spawned
-        # terminal lost `kolu`), invisible to `just check`, `nix build`, and every
-        # unit test.
-        #
-        # So assert it here rather than in a sibling derivation: `nix build .#default`,
-        # `nix run .`, the home-manager module and the NixOS service all realise this
-        # wrapper, and each of them now realises its proof. A separate check attr
-        # could only be a build input of something ELSE (it must read `${"$"}{default}`,
-        # so `default` depending on it is a cycle) — which is how the guarantee for a
-        # purely local property came to hang off the remote closure.
-        #
         # Neutralise each wrapper's final `exec …` so sourcing runs only the env
         # prelude, then chain them in the real order: outer (this) → inner (koluBin).
         # Assert the shape BEFORE relying on it: if nixpkgs' makeWrapper ever stops
@@ -972,9 +503,6 @@ let
 
         echo "resolved KOLU_AGENT_TOOLS_PATH=$KOLU_AGENT_TOOLS_PATH"
         IFS=: read -ra dirs <<< "$KOLU_AGENT_TOOLS_PATH"
-        # The coupling the agent-distro bake rides: the toolchain path padi records
-        # (#2146) starts with THIS wrapper's `$out/bin`, and this wrapper bakes
-        # agent-distro — so a change to that bake moves the record and restarts padi.
         if [ -z "''${KOLU_AGENT_DISTRO_STATE:-}" ] || [ "''${dirs[0]}" != "$out/bin" ]; then
           echo "FAIL: the composed KOLU_AGENT_TOOLS_PATH must start with this wrapper's" >&2
           echo "\$out/bin, and this wrapper must bake KOLU_AGENT_DISTRO_STATE — else a" >&2
@@ -983,14 +511,6 @@ let
           echo "not bring the newer agents." >&2
           exit 1
         fi
-        # One loop over a name→message table, so the check is written once but each
-        # binary keeps its OWN failure message — they name exactly what a local
-        # terminal loses, and each was falsified separately.
-        #
-        # Both TUIs, not just one: they arrive together from `agentToolPackages`
-        # today, so a proof that names only `kaval-tui` would stay green if
-        # `padi-tui` were dropped from that list — leaving local terminals able to
-        # run `kaval-tui` and `kolu mcp` but not the `padi-tui wait` loop.
         for b in kolu kaval-tui padi-tui; do
           case "$b" in
             kolu) why="a local terminal could not run 'kolu mcp' OR any terminal verb ('kolu ls' / 'send' / 'wait' / 'snapshot' / ...) — kolu is the ONE terminal CLI, so losing it here costs an agent every way it has of driving its siblings. An inner-wrapper --set that clobbers this one is the known cause." ;;
@@ -1008,23 +528,13 @@ let
           fi
         done
 
-        # ── The agent-distro bake, proven on the same composed env ────────────────
         ${agentDistro.proof { inherit floor; }}
       ''
     );
 
   default = mkKoluWrapper { floor = true; };
-  # The `kolu` CLI a remote host is provisioned with (inside `padi-agent`).
   koluRemote = mkKoluWrapper { floor = false; };
 
-  # kaval (R-4 Phase B): the standalone PTY daemon — owns the node-pty children,
-  # mirrors their screens, and serves `ptyHostSurface` over its own unix socket.
-  # Runs from the SAME built workspace closure as `kolu` (so kaval + @kolu/surface
-  # + @kolu/surface-daemon resolve identically). Carries its OWN identity env
-  # (KAVAL_BUILD_ID / KAVAL_COMMIT_HASH) so a standalone kaval reports a real
-  # `system.version`. In B1 kolu still embeds the host in-process; this bin is the
-  # runnable program the daemon flip (B2) will spawn.
-  #
   # Launched as `node --import <tsx loader> bin.ts`, NOT `tsx bin.ts`: tsx's CLI
   # forks a child, and that fork does NOT relay SIGTERM to the daemon's
   # `waitForShutdown` — the daemon gets killed (143) and LEAKS its socket + gate
@@ -1037,18 +547,6 @@ let
       meta.mainProgram = "kaval";
     } ''
     mkdir -p $out/bin
-    # kaval runs under V8's RAM-derived default heap ceiling — NO explicit
-    # `--max-old-space-size`. The heap-OOM fix (kaval-heap-oom.mdx) is the
-    # per-terminal mirror shrink (DEFAULT_MIRROR_SCROLLBACK), which raised the
-    # crash threshold ~4×; pinning a lower cap here would only give that headroom
-    # back, and the default ceiling already bounds a runaway. Observability, not a
-    # cap, is the safety net: `--run (diagRunHook "kaval-")` arms the same opt-in
-    # heap capture as koluBin (the hook is defined once, above) — when
-    # KOLU_DIAG_DIR is forwarded (localDriver's daemonEnv), kaval cds into its OWN
-    # `kaval-…` subdir and arms the V8 heap-snapshot flags (incl.
-    # --heapsnapshot-near-heap-limit), so the next near-OOM dumps a snapshot that
-    # names the leak in the real workload. Unset = passthrough, zero overhead.
-    #
     # NOT baked here: KOLU_SNAPSHOT_FONTS_DIR. kaval consumes terminal-snapshot's
     # BROWSER half only (readGrid — a pure buffer read); the wasm rasteriser and
     # its ~9MB of outline faces sit behind the `terminal-snapshot/png` export,
@@ -1064,12 +562,7 @@ let
       --run ${pkgs.lib.escapeShellArg (diagRunHook "kaval-")}
   '';
 
-  # padi (W2.2): the per-host terminal-workspace daemon — the layer above kaval.
-  # It supervises the host's kaval (owning its PTYs), composes the terminal
-  # registry, folds awareness on the host's clock, persists the session under its
-  # state-root, and serves `padiSurface` + the frozen control core over its own
-  # unix socket. Runs from the SAME built workspace closure as `kolu` (so padi +
-  # kaval + @kolu/surface resolve identically). Carries its OWN identity env
+  # padi carries its OWN identity env
   # (PADI_BUILD_ID / PADI_COMMIT_HASH), and — because padi SPAWNS + owns kaval now
   # — KOLU_KAVAL_BIN points at the kaval derivation above AND it bakes that kaval's
   # KAVAL_BUILD_ID / KAVAL_COMMIT_HASH. The build id is load-bearing: padi's
@@ -1081,25 +574,7 @@ let
   #
   # Launched as `node --import <tsx loader> bin.ts`, NOT `tsx bin.ts`: the
   # single-process loader form delivers SIGTERM to the daemon so its socket + gate
-  # teardown runs (the same reason kaval's bin uses it). padi's boot
-  # reconcile shells out to `git` (repo/worktree context) and the pinned `gh`
-  # (KOLU_GH_BIN — PR resolution), so both are on PATH / in the env, exactly as
-  # kolu's own wrapper carries them. `--run (diagRunHook "padi-")` arms the same
-  # opt-in heap capture as kaval/koluBin (the hook is defined once, above).
-  #
-  # KOLU_PADI_STATE_DIR: see exportPadiStateDirRun. This wrapper (the binary
-  # kolu ships and remotes provision) supplies the production path so remote
-  # `padi --stdio` needs no `--state-root` on the argv.
-  #
-  # NO CONDUCTOR BAKE HERE, and that absence is the change: padi no longer
-  # hosts a conversation. kolu-server does, once, for every host — so the ACP
-  # adapter (KOLU_ACP_AGENT) is baked onto `koluBin` instead, and the `kolu`
-  # whose `mcp` face a session was handed (KOLU_MCP_BIN, with its own
-  # cycle-avoiding `koluMcpBin` wrapper) is gone entirely: the fleet face is
-  # served in-process by kolu-server over loopback HTTP, so there is no second
-  # binary to name. The visible consequence is in the CLOSURE — the adapter
-  # left padi's, so a remote host `nix copy` no longer ships it. A remote padi
-  # serves its own terminals and nothing else.
+  # teardown runs (the same reason kaval's bin uses it).
   padi = pkgs.runCommand "padi"
     {
       nativeBuildInputs = [ pkgs.makeWrapper ];
@@ -1120,18 +595,12 @@ let
       --run ${pkgs.lib.escapeShellArg (diagRunHook "padi-")}
   '';
 
-  # A surface-agent TUI wrapper: a `tsx` entrypoint from the built workspace
-  # closure whose `--host <ssh>` path resolves and ships a TARGET-arch agent
-  # derivation to a remote. kaval-tui and padi-tui both consume it. The source
-  # flake ref is baked with `--set` (NOT `--set-default`): it is a build fact —
-  # the exact source whose derivation this wrapper ships and realises remotely —
-  # not a tunable. `--set-default` would let an ambient/stale
+  # The source flake ref is baked with `--set` (NOT `--set-default`): it is a build
+  # fact — the exact source whose derivation this wrapper ships and realises
+  # remotely — not a tunable. `--set-default` would let an ambient/stale
   # `SURFACE_AGENT_FLAKE_REF` inherited from the caller silently override the source
   # of truth and make the wrapper provision the WRONG agent,
-  # which is exactly the override-knob the repo's fail-fast rule forbids. openssh
-  # is on PATH, and a `nix` behind the host's own (`hostNixFirstArg`), for the
-  # provision (resolveHostNix's ssh probe + provisionAgent's Nix remote-store
-  # build / `nix-store` probe and pin).
+  # which is exactly the override-knob the repo's fail-fast rule forbids.
   mkAgentTuiWrapper = { name, entry }:
     pkgs.runCommand name
       {
@@ -1146,39 +615,16 @@ let
         ${hostNixFirstArg}
     '';
 
-  # kaval-tui (R-4 Phase 1): the terminal-side CLI that dials a running kaval's
-  # (or, with --socket, a kolu-server's) pty-host unix socket and lists/snapshots/
-  # attaches its live PTYs. Runs from the SAME built workspace closure as `kolu`
-  # (so kaval + @kolu/surface resolve identically) under tsx — no client bundle,
-  # no state dir, just nodejs.
-  #
-  # R-2's `--host <ssh>` rides this wrapper: the baked source ref lets the CLI
-  # evaluate and ship the target system's kaval derivation on demand.
   kaval-tui = mkAgentTuiWrapper {
     name = "kaval-tui";
     entry = "packages/kaval-tui/src/main.ts";
   };
 
-  # padi-tui (W2.3): the terminal-side CLI that dials a running padi's digest-keyed
-  # socket and reads its `padiSurface` — `status`/`watch` (record state · agent ·
-  # live byte activity) and the precise agent-state `wait` done-signal, plus
-  # `create` (a terminal / split tile / worktree'd agent). kaval-tui's sibling and
-  # `pulam-tui`'s replacement (see `packages/padi-tui/README.md`). Runs from the
-  # SAME built workspace closure as `kolu` under tsx, via `mkAgentTuiWrapper`.
-  # The same source ref baked onto koluBin lets padi-tui resolve the target
-  # system's padi derivation on demand.
   padi-tui = mkAgentTuiWrapper {
     name = "padi-tui";
     entry = "packages/padi-tui/src/main.ts";
   };
 
-  # kolu-rpc: the HARNESS caller on kolu-server's own wire — one call, by wire tag,
-  # over the `/rpc/ws` ndjson socket, printing the answer as JSON
-  # (`packages/server/src/wireCall.ts` owns the why). The NixOS adoption VM tests
-  # reach into a running kolu with it, in place of the `curl -X POST /rpc/...` HTTP
-  # arm the Effect port deleted; a shell cannot speak the socket, and hand-rolling
-  # its frames would be a second copy of the wire contract.
-  #
   # QUARANTINE — harness-only, and it must STAY that way. This attr may be named by
   # exactly two things: this binding, and the flake `packages` export at the bottom of
   # this file (which is how `nix/home/example/adoption/*.nix` reaches it). It must NOT
@@ -1190,48 +636,21 @@ let
   # "quarantine" block in `packages/server/src/wireCall.test.ts`, which reads this file
   # and rejects any occurrence outside those two sites; keep prose mentions of the name
   # on their OWN comment lines, which is what that scanner skips.
-  #
-  # It rides `mkAgentTuiWrapper` because that helper is exactly "run a workspace TS
-  # entry from the built closure under tsx" — the same thing this needs.
   kolu-rpc = mkAgentTuiWrapper {
     name = "kolu-rpc";
     entry = "packages/server/src/wireCallMain.ts";
   };
 
-  # The client CLIs a kolu TERMINAL must be able to run, named ONCE. Both arms
-  # derive from this list — `koluAgentTools` (local) and `padi-agent` (remote) —
-  # so adding a fourth tool cannot give local terminals something remote ones
-  # lack, which is the same "one host, two behaviours" class one level down.
-  #
   # `kolu` itself is deliberately NOT here and cannot be: it is what each arm
   # adds by SELF-reference (`$out/bin`), the only spelling that avoids a cycle
   # through the wrapper that would reference it.
   agentToolPackages = [ kaval-tui padi-tui ];
 
-  # The local arm's tools as ONE directory, so `default`'s single `--set` can
-  # name the whole toolchain in one string. kolu-server forwards that bake onto
-  # the padi it spawns, so a LOCAL terminal's PATH carries the tools from the
-  # same build as the daemon that owns it.
   koluAgentTools = pkgs.buildEnv {
     name = "kolu-agent-tools";
     paths = agentToolPackages;
   };
 
-  # padi-agent — what a REMOTE HOST is provisioned with: `padi` plus the client
-  # toolchain a terminal that daemon spawns must be able to run (`kaval-tui`,
-  # `padi-tui`, and the `kolu` whose `mcp` face an agent's `.mcp.json` invokes).
-  # Nothing is installed on the host; these ride the closure kolu already copies.
-  #
-  # It closes the remote gap with ONE property, and no new mechanism anywhere:
-  # the wrapper bakes `KOLU_AGENT_TOOLS_PATH` to its OWN `$out/bin` (a
-  # self-reference, resolved at build time). A padi reached as
-  # `ssh <host> <agentPath>/bin/padi --stdio` therefore reports the closure that
-  # was actually copied to that host — with no env channel (ssh has none) and
-  # nothing threaded through argv or `@kolu/surface-remote`. The tools a terminal
-  # gets and the daemon that spawned it are the same store path BY CONSTRUCTION,
-  # so the tool/daemon version skew `PADI_BUILD_ID` exists to catch cannot arise
-  # here at all.
-  #
   # **It is a separate attr from `padi`, and it must stay OUT of the `agents`
   # PROVE list in `nix/agent-packages.json`.** `mkProvenAgentSource` proves an
   # agent by re-importing this very `default.nix` from the assembled tree and
@@ -1245,45 +664,14 @@ let
   # `kaval` stay the proven pair — the daemon graph THIS closure is composed out
   # of — and `ci::agent-flake-nix` is what evaluates the exposed attrs
   # themselves; see the `expose`/`prove` note at the top of this file.
-  #
-  # Composed with `pkgs.buildEnv` — the same idiom `koluAgentTools` above uses,
-  # not a hand-rolled `mkdir` + `ln -s` set. One mechanism for "compose a `bin/`
-  # out of several packages", and buildEnv's collision detection comes free.
-  # The self-reference forces a wrapper step, which `postBuild` supplies.
   padi-agent = pkgs.buildEnv {
     name = "padi-agent";
     paths = [ padi koluRemote ] ++ agentToolPackages;
     nativeBuildInputs = [ pkgs.makeWrapper pkgs.jq ];
     postBuild = ''
-      # The agent-distro bake rides the same outer wrapper. No floor and no
-      # delivery: kolu-server delivers a remote host's agents to it. The
-      # toolchain path is this wrapper's own `$out/bin`, so any change to the
-      # bake a host is dialed with (the profiles listing, the plugin dir) or to
-      # `padi-agent` itself drains the host's padi through the #2146 bake record
-      # (the `--stdio` front). A pin-only bump changes none of it, by design: a
-      # host's agents come from upstream's flake through kolu-server's delivery,
-      # never from kolu's pin. The proof below pins both halves.
       wrapProgram $out/bin/padi --set KOLU_AGENT_TOOLS_PATH "$out/bin" \
         ${agentDistro.bakeArgs { floor = false; }}
 
-      # ── The composed-wrapper proof, IN the derivation that is DIALED ─────────
-      # `padi-agent` — not `padi`, not `default` — is what BOTH dial paths
-      # provision onto a host, so it is where the remote guarantee has to be
-      # proven. Without this, dropping `koluRemote` (the `kolu` binary) or a TUI
-      # from `paths=` above still BUILDS, still evaluates green in
-      # `ci::agent-flake-nix` (which only forces `drvPath`), and still passes
-      # every TypeScript test (they all inject the bake directly) — failing only
-      # much later, on a real remote host, when an agent's `.mcp.json` cannot
-      # run `kolu mcp`. That is the same class of hole the LOCAL `default` arm
-      # closed after a one-word wrapper bug shipped green; the remote arm is the
-      # primary product of this change and gets the same proof, at the same
-      # altitude, spelled the same way.
-      #
-      # Two facts, because the bake is a self-reference and either half can rot
-      # independently: (1) `$out/bin` really carries the three programs, and
-      # (2) the wrapped `padi` a remote actually execs resolves a bake that
-      # NAMES a directory carrying them — an inner `--set` that clobbers the
-      # outer one would leave (1) true and (2) false.
       for b in kolu kaval-tui padi-tui; do
         if [ ! -e "$out/bin/$b" ]; then
           echo "FAIL: padi-agent has no '$b' in its own bin/ — a REMOTE agent" >&2
@@ -1314,8 +702,6 @@ let
 
       echo "resolved KOLU_AGENT_TOOLS_PATH=$KOLU_AGENT_TOOLS_PATH"
       IFS=: read -ra agent_dirs <<< "$KOLU_AGENT_TOOLS_PATH"
-      # The coupling the host's bake rides: its toolchain path is THIS wrapper's
-      # `$out/bin`, and this wrapper bakes agent-distro (no pin: see above).
       if [ -z "''${KOLU_AGENT_DISTRO_STATE:-}" ] || [ "''${agent_dirs[0]}" != "$out/bin" ]; then
         echo "FAIL: the composed KOLU_AGENT_TOOLS_PATH of the padi a remote host is dialed" >&2
         echo "with must start with padi-agent's \$out/bin, and that wrapper must bake" >&2
@@ -1323,9 +709,6 @@ let
         echo "with, or to padi-agent, would no longer restart the host's padi." >&2
         exit 1
       fi
-      # Same shape as the local proof: one loop over a name→message table, so
-      # each binary keeps its OWN failure message naming exactly what a remote
-      # agent loses. Each was falsified separately.
       for b in kolu kaval-tui padi-tui; do
         case "$b" in
           kolu) why="an agent in a terminal on a remote host could not run 'kolu mcp' OR any terminal verb ('kolu ls' / 'send' / 'wait' / 'snapshot' / ...) — kolu is the ONE terminal CLI, so losing it here costs a remote agent every way it has of driving its siblings. An inner-wrapper --set that clobbers this one is the known cause." ;;
@@ -1351,10 +734,6 @@ let
       # wraps), it put the adapter and agent-distro's `claude` into every
       # closure a host is provisioned with: the adoption VMs then OOMed their
       # 1 GB guests and `offline-provision` timed out shipping it.
-      #
-      # Asserted on the COMPOSED env — the same sourcing the proofs above use —
-      # because a bake is exactly how it got here, and on the wrapper text too,
-      # so a reference that is not an env var is caught as well.
       if [ -n "''${KOLU_ACP_AGENT:-}" ]; then
         echo "FAIL: padi-agent's composed env bakes KOLU_ACP_AGENT=$KOLU_ACP_AGENT" >&2
         echo "— the Conductor's ACP adapter is being shipped to every remote host." >&2
@@ -1367,64 +746,27 @@ let
         exit 1
       fi
 
-      # The agent-distro bake a remote padi resolves — and, by design, NO floor.
       ${agentDistro.proof { floor = false; }}
     '';
     meta.mainProgram = "padi";
   };
 
-  # osfacts — scoped process/socket fact sampler (Atlas: os-facts-tool, OSF1).
-  # The tool graduated to its own repo (juspay/osfacts) at OSF5; npins pins it
-  # and its default.nix still takes `{ pkgs }`, so kolu builds the pinned source
-  # exactly as it built the in-tree one. Kept as a kolu package output because
-  # `nix run .#osfacts` is how a kolu checkout reaches the sampler it bakes.
   osfacts = import sources.osfacts { inherit pkgs; };
 in
 {
   inherit agentFlakeSrc agentFlakeEnv default koluBin kaval kaval-tui kolu-rpc padi padi-agent padi-tui koluEnv pnpmDeps typecheck osfacts;
-  # The built workspace tree and the two dependency derivations it is composed
-  # out of, exposed so CI builds them and the run's push lands them in the
-  # cache. That push is the point of the split: `kolu-deps` and
-  # `kolu-runtime-deps` are keyed on the lockfile, so they are sent once and
-  # every later commit substitutes them instead of re-sending node_modules.
   inherit kolu;
   kolu-deps = koluDeps;
   kolu-runtime-deps = koluRuntimeDeps;
-  # The local floor of coding agents, exposed so CI builds it and nix-cache.yml
-  # pushes it (a `nix run` user then substitutes it rather than compiling).
   agent-distro-bundle = agentDistro.bundle;
-  # THE SKEW FIXTURE, and what names the published package — both read by CI
-  # lanes only (`ci::agent-models`, `ci::agent-published`), which is why
-  # `flake.nix` keeps them out of `packages` rather than letting
-  # `ci/flake-build` build and push them with the rest.
-  #
-  # `agent-distro-pre-models` is upstream's package one commit BEFORE
-  # juspay/agent-distro#163 (its own npins pin), built by the same
-  # `packages/agent-distro/package.nix` the floor is — a REAL older package, so
-  # padi's "the agents here are older than this kolu needs" refusal is proven
-  # against the thing it is about rather than a script that imitates it.
-  #
-  # `agent-distro-delivery` is the index/cache/schedule kolu-server delivers
-  # from (`packages/agent-distro/default.nix`'s `delivery`, already baked onto
-  # the floor wrapper), exposed so the published-package check reads upstream's
-  # index through the same values the binder does.
   agent-distro-pre-models = import ./packages/agent-distro/package.nix {
     inherit pkgs;
     src = sources.agent-distro-pre-models;
   };
   agent-distro-delivery = agentDistro.delivery;
-  # THE TWO KINDS OF HOST the published-package check asks as, keyed by the
-  # form each is sent (`@kolu/surface-remote`'s `closureRoute`): a Nix on the
-  # publisher's line takes the content-addressed rewrite, and a Nix past it
-  # takes the signed package. From this pin's nixpkgs, so the lane tests both
-  # forms whatever Nix the CI machine itself runs.
   agent-published-nix = pkgs.linkFarm "agent-published-nix" [
     { name = "content-addressed"; path = pkgs.nixVersions.nix_2_34; }
     { name = "signed"; path = pkgs.nixVersions.nix_2_35; }
   ];
-  # Claude Code's ACP adapter (nix/packages/acp-adapter.nix), exposed so CI
-  # builds it and the cache carries it: it is a fixed-output npm fetch plus two
-  # patches, and a host that had to realise it from scratch would need the
-  # network padi's whole arrangement exists to avoid.
   acp-adapter = pkgs.kolu-acp-adapter;
 }

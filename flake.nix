@@ -19,8 +19,6 @@
     let
       platform = import ./nix/each-system.nix;
       commitHash = import ./nix/commit-hash.nix self;
-      # Import nixpkgs and Kolu once per system; `packages` and `checks` both
-      # consume these so each derivation set is evaluated once.
       pkgsBySystem = platform.withPkgs (pkgs: pkgs);
       koluBySystem = platform.mapSystems (system:
         import ./default.nix {
@@ -29,11 +27,6 @@
         });
     in
     {
-      # The module proper is platform-agnostic; the flake closes over it to
-      # default `tuiPackage` / `padiTuiPackage` to this flake's matching
-      # `kaval-tui` / `padi-tui` builds, so both CLIs ship automatically with
-      # the server (override or set null to opt out of either), and to default
-      # `agentPackages` to the agents a remote may actually be provisioned with.
       homeManagerModules.default = { pkgs, lib, ... }: {
         imports = [ ./nix/home/module.nix ];
         config.services.kolu.tuiPackage =
@@ -58,29 +51,16 @@
         let
           kolu = koluBySystem.${system};
         in
-        # `koluEnv` and `typecheck` are internal; pnpmDeps remains a Kolu
-          # dependency output used by the hash-fresh gate. The agent source tree
-          # and its sourceable env file are re-exposed under kebab CLI spellings
-          # for their two callers — `just dev`/`just server` and
-          # ci::agent-flake-nix.
-          #
-          # `agent-distro-pre-models` and `agent-distro-delivery` are the two
-          # CI-lane reads of `default.nix` (their comment there says what each
-          # is), kept out of `packages` because `ci/flake-build` builds — and
-          # odu PUSHES — every package this flake exposes: the first is an old
-          # upstream closure nobody ships, and neither is something a kolu user
-          # installs. `ci::agent-models` / `ci::agent-published` reach them with
+        # `agent-distro-pre-models` and `agent-distro-delivery` are kept out of
+          # `packages` because `ci/flake-build` builds — and odu PUSHES — every
+          # package this flake exposes: the first is an old upstream closure
+          # nobody ships, and neither is something a kolu user installs.
+          # `ci::agent-models` / `ci::agent-published` reach them with
           # `nix build -f default.nix`.
         (removeAttrs kolu [ "agentFlakeSrc" "agentFlakeEnv" "koluEnv" "typecheck" "agent-distro-pre-models" "agent-distro-delivery" ]) // {
           agent-flake-source = kolu.agentFlakeSrc;
           agent-flake-env = kolu.agentFlakeEnv;
         });
-      # Type gates on every system. The build environment (nodejs/pnpm and the
-      # platform-resolved deps `pnpmConfigHook` installs) differs per platform,
-      # so each platform's `tsc`/`astro check` is its own proof — a darwin-only
-      # type error wouldn't surface from a linux-only check. CI's
-      # `ci::nix` realizes each platform's checks on that platform. The website
-      # owns its independent check in website/flake.nix.
       checks = platform.mapSystems (system: {
         typecheck = koluBySystem.${system}.typecheck;
         # The agent-distro floor must EVALUATE for every system kolu supports,
@@ -98,8 +78,6 @@
         let default = import ./shell.nix { inherit pkgs; };
         in {
           inherit default;
-          # Extended shell with Playwright browsers for e2e testing.
-          # Usage: nix develop .#e2e
           e2e = default.overrideAttrs (prev: {
             name = "kolu-shell-e2e";
             nativeBuildInputs = (prev.nativeBuildInputs or [ ]) ++ [ pkgs.gitMinimal ];

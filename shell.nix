@@ -1,8 +1,3 @@
-# Dev shell — shared by `nix develop` (via flake.nix) and `nix-shell`.
-#
-# Imports env.nix directly instead of going through default.nix, which also
-# defines pnpmDeps/kolu build derivations that are unnecessary for the shell.
-#
 # Playwright is NOT included here — it adds ~600ms to nix develop cold start.
 # flake.nix exposes devShells.e2e for e2e tests: `nix develop .#e2e`.
 { pkgs ? import ./nix/nixpkgs.nix { } }:
@@ -16,10 +11,6 @@ pkgs.mkShell {
   env = koluEnv // {
     KOLU_COMMIT_HASH = "dev";
     PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD = "1";
-    # agent-distro's source at kolu's pin, for the unit lane only: the
-    # client's `agents/skillInvocation.test.ts` walks every built-in profile's
-    # harnesses off it, so a pin bump that brings a new harness fails CI
-    # rather than a tile.
     KOLU_AGENT_DISTRO_SRC = "${sources.agent-distro}";
   };
 
@@ -31,22 +22,13 @@ pkgs.mkShell {
 
   packages = with pkgs; [
     just
-    jq # used by ci/lib.just recipes
+    jq
     nodejs
     pnpm_10
     tsx
     nixpkgs-fmt
-    # Biome from nixpkgs — single toolchain source, avoids per-platform Rust
-    # binary fetches via pnpm postinstall. Version drift between this and
-    # biome.jsonc's $schema URL is tolerable for IDE auto-complete (#885).
     biome
-    # d2 renders architectural diagrams in Atlas notes (docs/atlas,
-    # frozen) to self-contained inline SVG at build time, via the local
-    # `D2.astro` component. Pinned through nixpkgs so output is
-    # byte-deterministic and the build stays host-independent.
     d2
-    # prettier is provided by pnpm (same version) — no need for a nix copy.
-    # Use `pnpm exec prettier` or ensure `just install` has been run.
     # node-gyp toolchain — required by `pnpm install` to recompile node-pty
     # after applying patches/node-pty@1.1.0.patch (the patched install
     # script forces node-gyp rebuild). The build derivation already lists
