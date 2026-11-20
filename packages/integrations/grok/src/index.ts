@@ -21,6 +21,7 @@ export {
   PHASE_TO_STATE,
   USER_BLOCKING_TOOLS,
   readActiveSessions,
+  type ReadOutcome,
   readContextTokens,
   readSummary,
   resolveGrokSession,

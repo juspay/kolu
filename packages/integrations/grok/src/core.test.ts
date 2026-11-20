@@ -4,7 +4,6 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
-// Point Grok home at a temp dir BEFORE importing modules that capture paths.
 const tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), "kolu-grok-test-"));
 process.env.KOLU_GROK_DIR = tmpHome;
 
@@ -290,9 +289,6 @@ describe("resolveGrokSession", () => {
     expect(resolveGrokSession(undefined, "/no/such/cwd")).toBeNull();
   });
 
-  // These use `process.pid` — the one pid a test can be sure is ALIVE, which is
-  // the whole precondition: the binding is held for a live process and released
-  // for a dead one (see the release test below).
   it("keeps a live pid's session after its active_sessions row is clobbered", () => {
     writeSession({ cwd, id, events: [{ type: "turn_started" }] });
     writeActiveSessions([{ session_id: id, pid: process.pid, cwd }]);
@@ -303,9 +299,6 @@ describe("resolveGrokSession", () => {
   });
 
   it("releases the binding once the process is gone", () => {
-    // A real reaped pid — spawnSync returns only after the child exits, so this
-    // pid is genuinely dead. Modelling the release with a live pid is
-    // impossible, and a made-up number could collide with a running process.
     const deadPid = spawnSync(process.execPath, ["-e", ""]).pid;
     expect(deadPid).toBeTypeOf("number");
     writeSession({ cwd, id, events: [{ type: "turn_started" }] });
@@ -381,8 +374,8 @@ describe("readContextTokens / deriveGrokInfo", () => {
 });
 
 describe("readActiveSessions / readSummary", () => {
-  it("returns [] when active_sessions is missing", () => {
-    expect(readActiveSessions()).toEqual([]);
+  it("reads ok with no rows when active_sessions is missing", () => {
+    expect(readActiveSessions()).toEqual({ kind: "ok", value: [] });
   });
 
   it("parses summary model and title", () => {

@@ -1,9 +1,4 @@
 /**
- * Pure observer: never creates paths under `~/.grok`. If a file is
- * missing, watches its parent directory (when that exists) and re-arms
- * when the basename appears — same observe-without-mutate idea as
- * Claude's session watchers.
- *
  * ## Debounce + maxWait (juspay/kolu#1952)
  *
  * Grok's `events.jsonl` is *not* a sparse transcript: a single turn can append
@@ -29,9 +24,6 @@ import {
 import type { Logger } from "kolu-shared";
 import { deriveGrokInfo, type GrokSession } from "./core.ts";
 import type { GrokInfo } from "./schemas.ts";
-
-export const DEBOUNCE_MS = COALESCE_DEBOUNCE_MS;
-export const DEBOUNCE_MAX_MS = COALESCE_MAX_WAIT_MS;
 
 export interface GrokWatcher {
   readonly session: GrokSession;
@@ -64,8 +56,8 @@ export function createGrokWatcher(
   }
 
   const coalesce = createCoalesceSchedule({
-    debounceMs: DEBOUNCE_MS,
-    maxWaitMs: DEBOUNCE_MAX_MS,
+    debounceMs: COALESCE_DEBOUNCE_MS,
+    maxWaitMs: COALESCE_MAX_WAIT_MS,
     onFire: emitIfChanged,
   });
   cleanups.push(() => coalesce.destroy());
@@ -75,15 +67,7 @@ export function createGrokWatcher(
     coalesce.schedule();
   }
 
-  function watchPath(p: string): void {
-    // Edge-only file watch for summary.json / signals.json (events.jsonl goes
-    // through subscribeFileAppends below, not here). Watch the inode directly;
-    // when the file isn't there yet, bootstrap on the parent dir and re-arm
-    // when the basename appears. A direct inode watch dies after Grok's
-    // temp+rename rewrite of summary.json — that's benign: deriveGrokInfo
-    // re-reads summary.json / signals.json fresh on every events.jsonl tick, so
-    // a dropped edge here only stales the model/title/token display until the
-    // next events tick, never lies about state. Never mkdir.
+  function watchEdgeOnly(p: string): void {
     try {
       const w = fs.watch(p, () => schedule());
       cleanups.push(() => w.close());
@@ -94,11 +78,10 @@ export function createGrokWatcher(
         return;
       }
     }
-    // File not present yet — watch the parent dir (if it exists) and re-arm
-    // when the basename appears (Grok made the session dir but hasn't flushed
-    // the file). Once the file lands, its first event reschedules and the tile
-    // lights up; this is only the appears-later bootstrap, not the steady
-    // state. Never mkdir.
+    rearmWhenFileAppears(p);
+  }
+
+  function rearmWhenFileAppears(p: string): void {
     const dir = path.dirname(p);
     const base = path.basename(p);
     try {
@@ -120,15 +103,10 @@ export function createGrokWatcher(
     }
   }
 
-  // events.jsonl is the primary state signal. Wrap it in the append-robust
-  // floor (juspay/kolu#1754): a dropped/coalesced terminal-append edge — macOS
-  // kqueue especially — would otherwise strand the tile on a transient state
-  // forever (grok has no other fallback timer). Subscribe UNCONDITIONALLY (the
-  // Q7 reversal): grok's old dir-watch bootstrap never re-armed a file watch
-  // after events.jsonl appeared and kqueue dir-watches never fire on child
-  // content appends, so a session matched before the file was flushed got no
-  // steady-state watch on macOS at all. The floor tolerates absence and fires
-  // on appearance, closing that hole with the same mechanism.
+  // macOS kqueue never fires a dir-watch for a child's content appends, so the
+  // append-poll floor is the only steady-state signal events.jsonl can have —
+  // subscribed unconditionally, it tolerates absence and fires on appearance
+  // (juspay/kolu#1754).
   cleanups.push(
     subscribeFileAppends(session.eventsPath, schedule, {
       intervalMs: DEFAULT_APPEND_POLL_MS,
@@ -136,8 +114,8 @@ export function createGrokWatcher(
       label: "grok: events",
     }),
   );
-  watchPath(session.summaryPath);
-  watchPath(session.signalsPath);
+  watchEdgeOnly(session.summaryPath);
+  watchEdgeOnly(session.signalsPath);
   log?.info(
     { session: session.id, dir: path.dirname(session.eventsPath) },
     "grok: session watcher installed",
@@ -151,8 +129,11 @@ export function createGrokWatcher(
       for (const c of cleanups) {
         try {
           c();
-        } catch {
-          /* ignore teardown races */
+        } catch (err) {
+          log?.error(
+            { err, session: session.id },
+            "grok: session watcher cleanup failed",
+          );
         }
       }
       cleanups.length = 0;

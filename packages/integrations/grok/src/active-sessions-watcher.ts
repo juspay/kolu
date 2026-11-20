@@ -33,15 +33,44 @@ function attach(
   );
 }
 
+const APPEARANCE_DEBOUNCE_MS = 50;
+
+function watchForDirAppearing(
+  dir: string,
+  onAppear: () => void,
+  log?: Logger,
+): void {
+  const parent = path.dirname(dir);
+  const base = path.basename(dir);
+  let watcher: fs.FSWatcher | null = null;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+
+  const promoteIfPresent = (): void => {
+    if (!fs.existsSync(dir) || !watcher) return;
+    watcher.close();
+    watcher = null;
+    clearTimeout(timer);
+    timer = undefined;
+    log?.info({ dir, parent }, "grok: home-dir watcher retired");
+    onAppear();
+  };
+
+  watcher = fs.watch(parent, (_evt, filename) => {
+    // `fs.watch` reports `filename === null` on some platforms.
+    if (filename !== base && filename !== null) return;
+    clearTimeout(timer);
+    timer = setTimeout(promoteIfPresent, APPEARANCE_DEBOUNCE_MS);
+  });
+  log?.info({ dir, parent }, "grok: home-dir watcher installed");
+  promoteIfPresent();
+}
+
 export function subscribeActiveSessions(
   onChange: () => void,
   onError: (err: unknown) => void,
   log?: Logger,
 ): void {
   if (installed) return;
-  // Latch immediately: install is total from here, so a second `install`
-  // call (a later terminal reporting `isPresent`) correctly no-ops even
-  // while the bootstrap below is still waiting for `~/.grok` to appear.
   installed = true;
 
   if (grokHomePresent()) {
@@ -49,45 +78,9 @@ export function subscribeActiveSessions(
     return;
   }
 
-  // Home dir absent (first-ever Grok launch on a fresh home). Never mkdir:
-  // watch the parent dir (which always exists) for `.grok` appearing, then
-  // attach the real watcher. Without this, install would soft-fail here and
-  // padi's once-install latch would prevent any retry, permanently killing
-  // the external-change signal for the process.
-  const parent = path.dirname(GROK_DIR);
-  const base = path.basename(GROK_DIR);
-  let bootstrap: fs.FSWatcher | null = null;
-  let bootstrapTimer: ReturnType<typeof setTimeout> | null = null;
-
-  const promoteIfPresent = (): void => {
-    if (!grokHomePresent() || !bootstrap) return;
-    bootstrap.close();
-    bootstrap = null;
-    if (bootstrapTimer) {
-      clearTimeout(bootstrapTimer);
-      bootstrapTimer = null;
-    }
-    log?.info({ dir: GROK_DIR, parent }, "grok: home-dir watcher retired");
-    attach(onChange, onError, log);
-  };
-
   try {
-    bootstrap = fs.watch(parent, (_evt, filename) => {
-      // `filename` is null on some platforms; re-check presence regardless.
-      if (filename !== base && filename !== null) return;
-      // Trailing-edge debounce: `parent` is $HOME (a busy dir) and a null
-      // `filename` (macOS) matches every event, so an unguarded
-      // grokHomePresent() stat would run on nearly every home-dir change.
-      if (bootstrapTimer) clearTimeout(bootstrapTimer);
-      bootstrapTimer = setTimeout(promoteIfPresent, 50);
-    });
+    watchForDirAppearing(GROK_DIR, () => attach(onChange, onError, log), log);
   } catch (err) {
     onError(err);
-    return;
   }
-  log?.info({ dir: GROK_DIR, parent }, "grok: home-dir watcher installed");
-  // Close the resolve→install TOCTOU window: `~/.grok` may have been created
-  // between the grokHomePresent() check above and the fs.watch install, and a
-  // quiet home dir might never fire another event. Re-check once, now.
-  promoteIfPresent();
 }

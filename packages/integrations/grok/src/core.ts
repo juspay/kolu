@@ -39,12 +39,14 @@ export interface ActiveSessionEntry {
   opened_at?: string;
 }
 
-/** Read and parse `active_sessions.json`. Returns [] when the file is
- *  missing or unreadable — the common case before the user has ever run
- *  Grok on this machine. */
+export type ReadOutcome<T> = { kind: "ok"; value: T } | { kind: "unreadable" };
+
+/** Read and parse `active_sessions.json`. An empty `ok` array means Grok has
+ *  no live session recorded (including the pre-first-run absence of the file);
+ *  `unreadable` means the answer could not be read at all. */
 export function readActiveSessions(
   log?: Logger,
-): ActiveSessionEntry[] | "unreadable" {
+): ReadOutcome<ActiveSessionEntry[]> {
   try {
     const raw = fs.readFileSync(ACTIVE_SESSIONS_PATH, "utf8");
     const parsed: unknown = JSON.parse(raw);
@@ -53,7 +55,7 @@ export function readActiveSessions(
         { path: ACTIVE_SESSIONS_PATH },
         "grok active_sessions.json is not an array",
       );
-      return [];
+      return { kind: "ok", value: [] };
     }
     const out: ActiveSessionEntry[] = [];
     for (const item of parsed) {
@@ -67,16 +69,16 @@ export function readActiveSessions(
         out.push(item as ActiveSessionEntry);
       }
     }
-    return out;
+    return { kind: "ok", value: out };
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
       log?.error(
         { err, path: ACTIVE_SESSIONS_PATH },
         "grok active_sessions unreadable",
       );
-      return "unreadable";
+      return { kind: "unreadable" };
     }
-    return [];
+    return { kind: "ok", value: [] };
   }
 }
 
@@ -130,6 +132,10 @@ function parseIsoMs(iso: string | null): number | null {
   return Number.isFinite(ms) ? ms : null;
 }
 
+function mtimeMs(p: string): number {
+  return fs.statSync(p, { throwIfNoEntry: false })?.mtimeMs ?? 0;
+}
+
 export interface GrokSession {
   id: string;
   cwd: string;
@@ -141,56 +147,66 @@ export interface GrokSession {
   startedAt: number | null;
 }
 
-/** Pid → the session that pid was last seen owning in `active_sessions.json`.
- *
- *  Grok rewrites that file WHOLESALE from a process-local snapshot, so a
- *  *concurrent* grok starting or exiting erases the rows of every other live
- *  grok — observed in the 2026-08-07 incident as `[]` on disk while a grok was
- *  mid-turn. The map is therefore how a pid ACQUIRES its session, never how it
- *  loses it; the release signal is the process itself dying (swept below) or the
- *  foreground moving off it (the caller stops asking). */
-const sessionByPid = new Map<number, GrokSession>();
+interface PidSessionBinding {
+  acquire(pid: number, session: GrokSession): GrokSession;
+  get(pid: number): GrokSession | null;
+  releaseExited(): void;
+}
 
-/** `EPERM` means the pid exists under another user — alive for our purposes. */
-function sweepDeadBindings(): void {
-  for (const pid of sessionByPid.keys()) {
-    try {
-      process.kill(pid, 0);
-    } catch (err) {
-      if ((err as NodeJS.ErrnoException).code !== "EPERM") {
-        sessionByPid.delete(pid);
-      }
-    }
+function isPidAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (err) {
+    return (err as NodeJS.ErrnoException).code === "EPERM";
   }
 }
 
-/** Resolve the Grok session for a terminal. Prefers an
- *  `active_sessions.json` entry whose `pid` matches `foregroundPid`, and
- *  remembers that binding: once a pid has been matched, a later rewrite of the
- *  map that drops its row does NOT unmatch it (see {@link sessionByPid}).
- *  A pid that was never in the map still resolves to null — wait for the
- *  external active_sessions rewake rather than attaching a previous cwd
- *  session. When pid is unknown (preexec-only match), falls back to the
- *  most-recently-updated session under the cwd-encoded path. */
+function createPidSessionBinding(): PidSessionBinding {
+  const byPid = new Map<number, GrokSession>();
+  return {
+    acquire(pid, session) {
+      byPid.set(pid, session);
+      return session;
+    },
+    get(pid) {
+      return byPid.get(pid) ?? null;
+    },
+    releaseExited() {
+      for (const pid of byPid.keys()) if (!isPidAlive(pid)) byPid.delete(pid);
+    },
+  };
+}
+
+/** Grok rewrites `active_sessions.json` WHOLESALE from a process-local
+ *  snapshot, so a concurrent grok starting or exiting erases the rows of every
+ *  other live grok — observed as `[]` on disk mid-turn (2026-08-07). The file
+ *  is therefore how a pid acquires a session, never how it loses one. */
+const pidSessions = createPidSessionBinding();
+
+/** Resolve the Grok session for a terminal: the `active_sessions.json` row
+ *  naming `foregroundPid`, else the binding that pid acquired earlier, else —
+ *  with no pid sample — the newest session under `cwd`. Null when there is
+ *  none, including a pid that has never appeared in the map. */
 export function resolveGrokSession(
   foregroundPid: number | undefined,
   cwd: string,
   log?: Logger,
 ): GrokSession | null {
-  if (foregroundPid !== undefined) {
-    sweepDeadBindings();
-    const rows = readActiveSessions(log);
-    if (rows === "unreadable") return sessionByPid.get(foregroundPid) ?? null;
-    const active = rows.find((e) => e.pid === foregroundPid);
-    if (active) {
-      const session = sessionFromIds(active.cwd, active.session_id, log);
-      sessionByPid.set(foregroundPid, session);
-      return session;
-    }
-    return sessionByPid.get(foregroundPid) ?? null;
+  if (foregroundPid === undefined) {
+    const newest = newestSessionUnderCwd(cwd, log);
+    return newest.kind === "ok" ? newest.value : null;
   }
-  const scan = scanSessionsByCwd(cwd, log);
-  return scan === "unreadable" ? null : scan;
+  return sessionForPid(foregroundPid, log);
+}
+
+function sessionForPid(pid: number, log?: Logger): GrokSession | null {
+  pidSessions.releaseExited();
+  const active = readActiveSessions(log);
+  if (active.kind === "unreadable") return pidSessions.get(pid);
+  const row = active.value.find((e) => e.pid === pid);
+  if (!row) return pidSessions.get(pid);
+  return pidSessions.acquire(pid, sessionFromIds(row.cwd, row.session_id, log));
 }
 
 function sessionFromIds(
@@ -231,15 +247,15 @@ export function resolveGrokSessions(
     const session = resolveGrokSession(foregroundPid, cwd, log);
     return session ? [session] : [];
   }
-  const scan = scanSessionsByCwd(cwd, log);
-  if (scan === "unreadable") return null;
-  return scan ? [scan] : [];
+  const newest = newestSessionUnderCwd(cwd, log);
+  if (newest.kind === "unreadable") return null;
+  return newest.value ? [newest.value] : [];
 }
 
-function scanSessionsByCwd(
+function newestSessionUnderCwd(
   cwd: string,
   log?: Logger,
-): GrokSession | null | "unreadable" {
+): ReadOutcome<GrokSession | null> {
   const dir = path.join(SESSIONS_DIR, encodeCwd(cwd));
   let entries: fs.Dirent[];
   try {
@@ -247,9 +263,9 @@ function scanSessionsByCwd(
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
       log?.error({ err, dir }, "grok sessions dir unreadable");
-      return "unreadable";
+      return { kind: "unreadable" };
     }
-    return null;
+    return { kind: "ok", value: null };
   }
   let best: GrokSession | null = null;
   let bestMs = -1;
@@ -262,14 +278,8 @@ function scanSessionsByCwd(
     const summaryPath = path.join(dir, name, "summary.json");
     const summary = readSummary(summaryPath, log);
     if (!summary) continue;
-    let score = summary.updatedAtMs ?? summary.startedAt ?? 0;
-    if (score === 0) {
-      try {
-        score = fs.statSync(summaryPath).mtimeMs;
-      } catch {
-        /* keep 0 */
-      }
-    }
+    const score =
+      summary.updatedAtMs || summary.startedAt || mtimeMs(summaryPath);
     // Deterministic pick: strictly-newer wins; on an exact tie break by
     // sessionId so the "latest" is a pure function of the on-disk set, not
     // of readdir iteration order.
@@ -289,7 +299,7 @@ function scanSessionsByCwd(
       };
     }
   }
-  return best;
+  return { kind: "ok", value: best };
 }
 
 /** One table for Grok phase → AgentInfo.state. Unknown phases fold to
@@ -460,13 +470,23 @@ export function deriveStateFromEvents(
   const events: GrokFoldEvent[] = [];
   for (const line of lines) {
     if (!line.trim()) continue;
-    try {
-      events.push(JSON.parse(line) as GrokFoldEvent);
-    } catch {
-      /* drop partial / corrupt line */
-    }
+    const event = parseFoldEvent(line, eventsPath, log);
+    if (event) events.push(event);
   }
   return foldEventsState(events);
+}
+
+function parseFoldEvent(
+  line: string,
+  eventsPath: string,
+  log?: Logger,
+): GrokFoldEvent | null {
+  try {
+    return JSON.parse(line) as GrokFoldEvent;
+  } catch (err) {
+    log?.debug({ err, path: eventsPath }, "grok events line unparsable");
+    return null;
+  }
 }
 
 /** Read live context-window usage from `signals.json`.

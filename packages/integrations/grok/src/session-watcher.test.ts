@@ -4,14 +4,13 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { GrokSession } from "./core.ts";
 import type { GrokInfo } from "./schemas.ts";
-import { DEFAULT_APPEND_POLL_MS } from "kolu-io";
-import { suppressFsWatchEdges } from "kolu-io/suppress-fs-watch.testlib";
 import {
-  createGrokWatcher,
-  DEBOUNCE_MAX_MS,
-  DEBOUNCE_MS,
-  type GrokWatcher,
-} from "./session-watcher.ts";
+  COALESCE_DEBOUNCE_MS,
+  COALESCE_MAX_WAIT_MS,
+  DEFAULT_APPEND_POLL_MS,
+} from "kolu-io";
+import { suppressFsWatchEdges } from "kolu-io/suppress-fs-watch.testlib";
+import { createGrokWatcher, type GrokWatcher } from "./session-watcher.ts";
 
 const appendCtl = vi.hoisted(() => ({
   capture: false,
@@ -87,9 +86,9 @@ function setupSession(): GrokSession {
 }
 
 describe("grok watcher — shared coalesce constants", () => {
-  it("DEBOUNCE_MAX_MS ≤ DEFAULT_APPEND_POLL_MS (documented invariant)", () => {
-    expect(DEBOUNCE_MAX_MS).toBeLessThanOrEqual(DEFAULT_APPEND_POLL_MS);
-    expect(DEBOUNCE_MS).toBeLessThanOrEqual(DEBOUNCE_MAX_MS);
+  it("COALESCE_MAX_WAIT_MS ≤ DEFAULT_APPEND_POLL_MS (documented invariant)", () => {
+    expect(COALESCE_MAX_WAIT_MS).toBeLessThanOrEqual(DEFAULT_APPEND_POLL_MS);
+    expect(COALESCE_DEBOUNCE_MS).toBeLessThanOrEqual(COALESCE_MAX_WAIT_MS);
   });
 });
 
@@ -137,11 +136,9 @@ describe("grok watcher — append-robust floor (#1754)", () => {
       signalsPath: path.join(dir, "signals.json"),
       startedAt: Date.parse("2026-07-20T00:00:00.000Z"),
     };
-    // events.jsonl is absent — asserted functionally below (the initial state is
-    // the missing-file `thinking` default; had the file existed with a turn
-    // already ended it would read `waiting`). An `fs.existsSync` pre-check here
-    // would be a redundant check-then-write on the same path — CodeQL flags that
-    // as a file-system race (js/file-system-race), so we lean on the state.
+    // An `fs.existsSync` pre-check on events.jsonl here would be a
+    // check-then-write on the same path — CodeQL `js/file-system-race` — so
+    // the file's absence is asserted functionally below instead.
     const states: GrokInfo["state"][] = [];
     watcher = createGrokWatcher(session, (i) => states.push(i.state));
 
@@ -155,7 +152,7 @@ describe("grok watcher — append-robust floor (#1754)", () => {
 });
 
 describe("grok watcher — debounce maxWait under phase spam (#1952)", () => {
-  it("publishes a mid-burst state change without a DEBOUNCE_MS quiet gap", async () => {
+  it("publishes a mid-burst state change without a quiet gap", async () => {
     restoreWatch = suppressFsWatchEdges();
     appendCtl.capture = true;
     vi.useFakeTimers();
@@ -173,13 +170,17 @@ describe("grok watcher — debounce maxWait under phase spam (#1952)", () => {
     const firstAppendAt = Date.now();
     fs.appendFileSync(session.eventsPath, line);
     appendCtl.callbacks[0]?.();
-    for (let elapsed = 50; elapsed <= DEBOUNCE_MAX_MS + 100; elapsed += 50) {
+    for (
+      let elapsed = 50;
+      elapsed <= COALESCE_MAX_WAIT_MS + 100;
+      elapsed += 50
+    ) {
       await vi.advanceTimersByTimeAsync(50);
       appendCtl.callbacks[0]?.();
     }
 
     expect(flipAt).not.toBeNull();
-    expect(flipAt! - firstAppendAt).toBe(DEBOUNCE_MAX_MS);
+    expect(flipAt! - firstAppendAt).toBe(COALESCE_MAX_WAIT_MS);
     expect(states).toContain("tool_use");
     expect(states.at(-1)).toBe("tool_use");
   });

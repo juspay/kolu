@@ -210,14 +210,16 @@ function parseTs(entry: GrokHistoryLine): number | null {
   return Number.isFinite(ms) ? ms : null;
 }
 
+function isVendorBoilerplateRow(entry: GrokHistoryLine): boolean {
+  return typeof entry.synthetic_reason === "string" || entry.type === "system";
+}
+
 /** Convert one chat_history line into zero or more transcript events. */
 export function eventsFromGrokLine(entry: GrokHistoryLine): TranscriptEvent[] {
   const ts = parseTs(entry);
   const type = entry.type;
 
-  if (entry.synthetic_reason) return [];
-
-  if (type === "system") return [];
+  if (isVendorBoilerplateRow(entry)) return [];
 
   if (type === "user") {
     const text = unwrapGrokUserText(contentToText(entry.content));
