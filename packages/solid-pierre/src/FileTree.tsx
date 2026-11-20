@@ -1,12 +1,3 @@
-/** SolidJS wrapper over `@pierre/trees`' vanilla `FileTree` class.
- *
- *  Pierre's `FileTree` owns its DOM (shadow-root rendered). Mount once,
- *  push updates via the class's setters (`resetPaths`, `setGitStatus`)
- *  inside reactive effects, and call `cleanUp()` on disposal.
- *  Construction throws are routed to the `onError` prop so consumers can
- *  show a fallback panel instead of letting the exception escape Solid's
- *  `<ErrorBoundary>` (which only catches errors during *Solid* render). */
-
 import {
   FileTree as FileTreeClass,
   type FileTreeIconConfig,
@@ -179,9 +170,6 @@ export type FileTreeProps = {
   style?: JSX.CSSProperties;
 };
 
-/** Pierre renders its rows under an open shadow root nested somewhere in the
- *  host container. Find the first shadow root in that subtree so the host can
- *  reach Pierre's internal styles. */
 function findShadowRoot(el: Element): ShadowRoot | null {
   if (el.shadowRoot) return el.shadowRoot;
   for (const child of el.children) {
@@ -191,13 +179,6 @@ function findShadowRoot(el: Element): ShadowRoot | null {
   return null;
 }
 
-/** Adopt ONE constructable stylesheet into Pierre's shadow root and hand it
- *  back so the host's CSS can be rewritten in place (`replaceSync`) as it
- *  changes. `adoptedStyleSheets` survives Pierre's row re-renders (a `<style>`
- *  child could be cleared by a virtualizer pass) and stacks after Pierre's own
- *  sheet, so the host rule wins on equal specificity. ONE sheet per mount —
- *  adopting a fresh one per change would stack sheets and leak. No-op if the
- *  shadow root isn't found (defensive — Pierre always mounts one). */
 function adoptShadowSheet(container: HTMLElement): CSSStyleSheet | null {
   const shadowRoot = findShadowRoot(container);
   if (!shadowRoot) return null;
@@ -206,14 +187,6 @@ function adoptShadowSheet(container: HTMLElement): CSSStyleSheet | null {
   return sheet;
 }
 
-/** Expand each resolvable directory row named by `keys`, leaving files and
- *  missing paths untouched. `getItem` returns a directory-or-file handle union:
- *  `"expand" in item` is the narrowing — Pierre's `isDirectory()` returns a
- *  `true`/`false` literal but isn't a `this is` predicate, so it can't narrow,
- *  whereas the `in` check both compiles and probes for the exact capability
- *  we're about to call. Re-expanding an open folder is a no-op; a file or a
- *  missing path narrows away and is skipped. The single place this file knows
- *  how to make a row's ancestors visible. */
 function expandDirs(tree: FileTreeClass, keys: Iterable<string>): void {
   for (const key of keys) {
     const item = tree.getItem(key);
@@ -221,11 +194,6 @@ function expandDirs(tree: FileTreeClass, keys: Iterable<string>): void {
   }
 }
 
-/** Reveal a directory row in a mounted tree: open its ancestors and itself so
- *  the row exists and its children show, then scroll it to centre. A flattened
- *  single-child chain may have no discrete node for `dirKey` (`getItem` returns
- *  null); we then open whatever ancestors do resolve and skip the scroll,
- *  degrading gracefully rather than scrolling to a phantom. */
 function revealDirectory(tree: FileTreeClass, dirKey: string): void {
   expandDirs(tree, ancestorDirectoryPaths(dirKey));
   const item = tree.getItem(dirKey);
@@ -237,112 +205,15 @@ function revealDirectory(tree: FileTreeClass, dirKey: string): void {
 export const FileTree: Component<FileTreeProps> = (props) => {
   let container!: HTMLDivElement;
   let tree: FileTreeClass | undefined;
-  // The one adopted sheet carrying the host's CSS, rewritten in place whenever
-  // `shadowCss` changes. Dies with the shadow root on cleanup.
   let hostSheet: CSSStyleSheet | undefined | null;
-  // The last normalized inventory Pierre was left matching (`dropRedundantDirKeys`
-  // of the host paths, after a successful apply or recover). Seeded at mount
-  // and updated only when Pierre is left matching this list — so the next path
-  // change can be applied as an in-place delta against a known-good prev.
-  // Tracked here rather than via `on`'s `prevInput` because that arg is
-  // `undefined` on the first post-`defer` run — which would drop the very
-  // first delta's removals.
   let appliedPaths: readonly string[] = [];
 
-  // Provenance gate for `onSelectionChange` (juspay/kolu#1841). Pierre is a
-  // CONTROLLED component: the host drives its selection via `props.selectedPath`
-  // (the effect below calls `getItem(path).select()`), and Pierre calls
-  // `onSelectionChange` back. The catch is Pierre fires that callback for BOTH a
-  // real user click AND its own programmatic re-selection — so during agent
-  // activity, when Pierre re-emits selection on its own (an autonomous echo, no
-  // user input), forwarding it to the host closes a feedback loop: host writes
-  // the echoed path → the selection effect re-applies it into Pierre → Pierre
-  // re-emits → host writes again. The selection ping-pongs between two adjacent
-  // files at ~60-120Hz until the terminal is switched (verified from a live
-  // `setSelectedFile` stack capture during the loop: every write was
-  // `onSelectionChange → onSelect`, never a click handler). Cutting the loop needs
-  // PROVENANCE — forward only a selection a genuine USER GESTURE caused. So
-  // `userGesture` is armed for exactly one emit by a real pointer/keyboard event
-  // on the tree (capture phase, so it is set before Pierre's row handler runs) and
-  // is consumed by the first emit that follows; a safety disarm on the next
-  // animation frame clears it if a click selects an already-selected row (no
-  // emit), so no stale token survives for a later echo to consume.
-  //
-  // Known limitation: the token authorizes by interaction-*adjacency*, not
-  // selection-*causation*. It records only THAT a user touched the tree, not
-  // WHICH selection they meant. An interaction that arms the token but emits no
-  // selection of its own to consume it — a dead-space/scrollbar click, a
-  // non-selecting keydown, or (only when `search` is true) a Pierre search-box
-  // keystroke — can, during agent churn, leave the token armed for the *next
-  // autonomous echo*, which is then forwarded to the host as ONE adjacent file
-  // the user never picked. A file OR folder click is NOT such a leak: it emits
-  // its own path and self-consumes the token at the `userGesture = false` line
-  // below before the fileSet filter runs, so it can't leak into a later echo.
-  // Single-use consumption bounds the leak to a single self-correcting jump —
-  // never a loop. Adjacency is chosen over the causal alternative (suppress
-  // echoes around the wrapper's OWN `batch()`/`select()`/`deselect()` writes)
-  // deliberately, NOT for lack of a second consumer: the causal flag would be an
-  // in-place change here, but it must survive Pierre's deferred-microtask emit
-  // the same way this gesture window does AND would misclassify the hard case a
-  // gesture token gets right — a genuine user click that interleaves with one of
-  // the wrapper's own deferred writes during churn. Separately, lifting this
-  // token into a shared provenance primitive is deferred to population-two
-  // (prove-then-extract, dovetailing with the dev/skills/kolu-client/SKILL.md graduation candidate) —
-  // that deferral is about extraction, not about the adjacency-vs-causal choice.
   let userGesture = false;
 
-  // Which watched directories are currently open, so only a genuine
-  // collapsed → expanded TRANSITION reaches the host. Pierre exposes no
-  // expansion callback and maps expand/collapse to no mutation event (they are
-  // `FileTreeStoreIgnoredSemanticEvent`s, which `toTreesMutationEvent` drops),
-  // so the transition is read off its store subscription — which fires for a
-  // programmatic `expand()` and for a real row click alike.
-  //
-  // Pierre's own path-store already implements this feature one layer down —
-  // `markDirectoryUnloaded` / `beginChildLoad` / `applyChildPatch` /
-  // `completeChildLoad`, and `dist/model/mutationEvents.d.ts` even PUBLISHES
-  // the matching `'begin-child-load' | 'apply-child-patch' | …` event names.
-  // Re-checked at `@pierre/trees@1.0.0` (the stable release): the methods that
-  // drive them still appear in no `.d.ts` and on no public class — the render
-  // `FileTree` gained `setLabels` and nothing else that touches child loading,
-  // and `beginChildLoad` and friends live only in `path-store/src/store.js`.
-  // So the vocabulary is public while the driver is not, and reaching into
-  // that file would bind us to unversioned internals. Re-check on the next
-  // Pierre bump: if those methods graduate to the public surface, this Set,
-  // `reportLazyExpansions`, and the two props below all delete in favour of
-  // the native API.
   const openLazyDirs = new Set<string>();
 
-  // The newest read in flight per lazy directory, as an identity token. A
-  // directory can be read twice — a rapid expand → collapse → expand, or a
-  // re-report — and the host (`CodeTab.loadLazyDirectory`) ABORTS the earlier
-  // read when the later one starts, which REJECTS its promise. That rejection
-  // is not a failed load: the directory has an answer coming. Only the newest
-  // token owns the outcome below, so a superseded read can neither retire the
-  // key nor shut the row under contents that are still on their way.
   const newestLoad = new Map<string, object>();
 
-  // ── A prop's VALUE, never a bare notification ───────────────────────────
-  //
-  // `on(() => props.X, …)` re-runs whenever a source NOTIFIES, and a prop read
-  // notifies whenever anything it reads changes — not when its own value does.
-  // A host that hands every prop through ONE object it rebuilds per tick (the
-  // Code tab's per-mode `frame` memo, read through `<Show>`) therefore notifies
-  // every read here on any tick — a selection, a git-status pulse, a loaded
-  // level — carrying the very same values. Effects that did work on that are
-  // how an open gitignored folder snapped shut when a file inside it was
-  // picked: `lazyEpoch` re-notified with an unchanged epoch, the record of
-  // which lazy directories are open was wiped, and the still-open folder read
-  // as a fresh expansion on the next store tick.
-  //
-  // ONE mechanism for all of them, rather than a hand-written "did this
-  // change?" guard per effect: a memo per prop. A memo re-notifies only when
-  // its value changes, by `===` — which is exactly these props' own identity
-  // contract (a changed inventory is a NEW `paths` array; a repeat reveal is a
-  // fresh `revealRequest` object), so nothing that means "again" is swallowed.
-  // Every effect below takes its dependencies from here; a new reactive prop
-  // gets an entry here, and the next reader cannot reintroduce the hazard by
-  // reading `props` directly inside an `on`.
   const propValue = {
     paths: createMemo(() => props.paths),
     expandPaths: createMemo(() => props.expandPaths),
@@ -354,61 +225,19 @@ export const FileTree: Component<FileTreeProps> = (props) => {
     lazyEpoch: createMemo(() => props.lazyEpoch),
   };
 
-  // Pierre fires `onSelectionChange` for directory clicks too, which would
-  // produce an EISDIR if the consumer reads the path as a file. Directories
-  // mostly don't appear in `paths` (Pierre infers them from path prefixes) —
-  // but a host MAY pass explicit trailing-slash directory entries (the Code
-  // tab's collapsed gitignored dirs, `node_modules/`), and Pierre reports a
-  // click on such a row with the slash intact. Exclude them so membership
-  // stays a reliable file-vs-folder discriminator.
-  // Built in one pass, no intermediate array: this recomputes on each genuine
-  // `paths` change (each search keystroke, each file add/remove) but is read
-  // only inside `onSelectionChange`, i.e. on a click.
   const fileSet = createMemo(() => {
     const files = new Set<string>();
     for (const p of propValue.paths()) if (!isDirectoryPath(p)) files.add(p);
     return files;
   });
 
-  /** True while the wrapper is itself rewriting Pierre's paths (the rebuild
-   *  below). Pierre ticks its store for OUR writes exactly as it does for the
-   *  user's, and a rebuild passes through intermediate states on the way to
-   *  the one it intends: a load REPLACES the collapsed directory key with its
-   *  children, which destroys the node carrying the expansion, so the folder
-   *  is briefly CLOSED before `expandDirs` re-opens it. Read as user
-   *  gestures, those two ticks are a close followed by an open — the record
-   *  retired, then the same folder reported as a fresh expansion, re-reading
-   *  the level the host just delivered. They are neither; they are the middle
-   *  of one write, so the probe stays out until it ends and then runs once
-   *  against the settled tree. */
   let rebuilding = false;
 
-  /** Probe the host's watched directories and report any that just opened.
-   *
-   *  Only the declared keys are probed — a handful of collapsed gitignored
-   *  directories — never the whole visible projection, which matters because
-   *  the store subscription this rides also fires for selection, focus and
-   *  every path mutation. Scanning `getVisibleRows` here would put a
-   *  whole-tree walk on that path for a fact about a few rows.
-   *
-   *  Reporting is edge-triggered against `openLazyDirs`, which alone is not
-   *  enough to keep the host's own answer from re-entering: folding the
-   *  fetched level into `paths` REPLACES the collapsed key, and the rebuild
-   *  passes through a closed folder (retiring the record) before re-opening
-   *  it. Those ticks are sat out — see `rebuilding` — and one probe runs
-   *  afterwards on the settled tree, where the directory is open and still
-   *  recorded, so it stays silent. */
   const reportLazyExpansions = (): void => {
     const t = tree;
     if (!t || rebuilding) return;
     for (const key of propValue.lazyDirectories() ?? []) {
       const item = t.getItem(key);
-      // No row for this key right now — a search projection hid it (the host
-      // filters `paths` but not `lazyDirectories`), or it has yet to render.
-      // A row that does not exist holds no expansion state to read, and that is
-      // NOT the user closing the folder: the recorded intent survives, and only
-      // an EXISTING, collapsed row retires it. Erasing it here made a single
-      // filter keystroke wipe the user's expansion for the rest of the mount.
       if (!item || !("isExpanded" in item)) continue;
       if (!item.isExpanded()) {
         openLazyDirs.delete(key);
@@ -416,20 +245,6 @@ export const FileTree: Component<FileTreeProps> = (props) => {
       }
       if (openLazyDirs.has(key)) continue;
       openLazyDirs.add(key);
-      // A rejected load must not leave an open, empty folder on screen: the
-      // ROW's own expansion state (`item.isExpanded()`) is untouched by a load
-      // failure, so merely forgetting the key here — without also collapsing
-      // the row — left the two out of sync. The very next probe, fired by ANY
-      // unrelated store tick (a click elsewhere, an unconnected path
-      // mutation), then read "expanded, not recorded" and mistook it for a
-      // fresh user expansion, re-firing the same failing load forever. Calling
-      // `collapse()` closes the row so its visible state agrees with the
-      // bookkeeping — the user sees the folder shut instead of a silent retry
-      // storm, and a deliberate re-open is what re-arms the probe.
-      //
-      // That outcome belongs to the NEWEST read alone (see `newestLoad`): a
-      // read the host has since replaced reports nothing, because the folder it
-      // would shut is already being filled by its successor.
       const token = {};
       newestLoad.set(key, token);
       void Promise.resolve(props.onExpandLazyDirectory?.(key)).then(
@@ -449,13 +264,6 @@ export const FileTree: Component<FileTreeProps> = (props) => {
     }
   };
 
-  /** Every key that should be open, from every source that has an opinion — the
-   *  search projection, the selected file's ancestors, a standing reveal, and
-   *  the lazy directories the user opened by hand. Spelled ONCE so the
-   *  constructor and the post-mount rebuild cannot disagree about the set;
-   *  whoever adds a fifth source adds it here and both sites get it. Read
-   *  untracked at both call sites (inside `onMount`, and inside an `on`
-   *  callback, which Solid untracks). */
   const desiredExpandedPaths = (): string[] => [
     ...(props.expandPaths ?? []),
     ...(props.selectedPath ? ancestorDirectoryPaths(props.selectedPath) : []),
@@ -465,41 +273,10 @@ export const FileTree: Component<FileTreeProps> = (props) => {
           props.revealRequest.path,
         ]
       : []),
-    // Re-open the lazy directories the user has open. Loading a level REPLACES
-    // the collapsed key with its children, and Pierre's remove destroys that
-    // directory node — the one carrying the expansion — so the node rebuilt
-    // from the children arrives closed. Without this the folder would snap shut
-    // at the exact moment its contents arrived, which reads as the click having
-    // done nothing. Re-expanding restores the folder, but it does NOT by itself
-    // keep the load from re-entering as a fresh expansion: the folder is closed
-    // for the span between the remove and this re-open, and a probe that read
-    // the tree there retired the record. `rebuilding` is what covers that span.
     ...openLazyDirs,
   ];
 
   onMount(() => {
-    // Arm the provenance gate on real user input. Capture phase so it is set
-    // before Pierre's own row `click`/`keydown` handler runs; the events are
-    // `composed`, so they cross Pierre's shadow root to this host container.
-    // `click` (not `pointerdown`) matches the event Pierre selects on and also
-    // covers touch taps.
-    //
-    // Disarm on the NEXT ANIMATION FRAME, not a microtask. Pierre's emit timing
-    // is ENVIRONMENT-DEPENDENT: driven directly (a synchronous `dispatchEvent`
-    // in a happy-dom unit test), `onSelectionChange` fires synchronously inside
-    // the click dispatch (its `#emit` is a plain synchronous `for` loop). But in
-    // the REAL app — Preact rendering Pierre into a shadow root, a real browser
-    // click — it lands DEFERRED, after this handler's own microtask (measured on
-    // the live running app: the emit fires before the next frame but after
-    // `queueMicrotask`). We know the deferred case is the one that ships because
-    // a `queueMicrotask` disarm shipped in #1846 and dropped EVERY genuine click
-    // in production (it ran before the deferred emit) — reverted before merge.
-    // `requestAnimationFrame` is the disarm that survives BOTH timings (it clears
-    // after either emit but before the next frame), whereas `queueMicrotask`
-    // survives only the synchronous case. Single-use consumption in
-    // `onSelectionChange` still kills the echo loop after one forward, so the
-    // wider window costs nothing beyond the documented one-adjacent-echo leak.
-    // `createEventListener` disposes both listeners on this owner's cleanup.
     const armGesture = () => {
       userGesture = true;
       requestAnimationFrame(() => {
@@ -510,23 +287,8 @@ export const FileTree: Component<FileTreeProps> = (props) => {
       capture: true,
     });
 
-    // A directory reveal can be standing when this tree mounts — both for a
-    // folder clicked from a diff view (mounts us with the request already set)
-    // and, crucially, for *every remount* the live fsListAll stream triggers
-    // under load (it briefly empties `paths`, unmounting then remounting us).
-    // Apply it through the constructor (expand it + its ancestors via
-    // `initialExpandedPaths`, the reliable path that mirrors selectedPath's
-    // ancestors) rather than a post-render `expand()`, which races Pierre's
-    // first paint and dropped the reveal intermittently. Because the host keeps
-    // the request standing (clearing it only on a real navigation), this
-    // re-application is what makes the reveal survive a remount.
     const reveal = props.revealRequest;
     safeApply(() => {
-      // Snapshot read for `initialExpandedPaths`. The deferred resetPaths
-      // effect below reads the same rule reactively for subsequent changes —
-      // Pierre doesn't expose a hook to re-feed `initialExpandedPaths` after
-      // the constructor, so initial and reactive paths are unavoidably two call
-      // sites; `desiredExpandedPaths` is why they can't be two RULES.
       tree = new FileTreeClass({
         paths: props.paths,
         initialExpansion: props.initialExpansion ?? "closed",
@@ -542,28 +304,15 @@ export const FileTree: Component<FileTreeProps> = (props) => {
           ? { contextMenu: props.contextMenu }
           : undefined,
         onSelectionChange: (paths) => {
-          // Only a user-gesture-originated selection reaches the host; an
-          // autonomous re-emit during churn is dropped, so it can't drive the
-          // store↔Pierre loop (#1841). The gesture arms this for one emit.
           if (!userGesture) return;
           userGesture = false;
-          // Pierre fires with all selected paths; we model single-select.
           const p = paths[0] ?? null;
           if (p !== null && !fileSet().has(p)) return;
           props.onSelect?.(p);
         },
       });
       tree.render({ containerWrapper: container });
-      // Mirror the reactive selection effect: pin the "selected row is
-      // visible" invariant to this wrapper at both write sites instead
-      // of relying on Pierre's mount-time auto-scroll
-      // (`initialFocusedScrollAppliedRef`) to cover the constructor
-      // path. Idempotent — Pierre's view processes the explicit scroll
-      // request in the same render tick as its own first-mount scroll.
       if (props.selectedPath) tree.scrollToPath(props.selectedPath);
-      // Scroll the revealed folder into view after the selected file (a folder
-      // reveal usually carries no selection, so this is normally the only
-      // scroll). The folder is already expanded via `initialExpandedPaths`.
       if (reveal) tree.scrollToPath(reveal.path, { offset: "center" });
       appliedPaths = dropRedundantDirKeys(props.paths);
       // Adopted empty; the (non-deferred) shadow-CSS effect below runs right
@@ -571,17 +320,6 @@ export const FileTree: Component<FileTreeProps> = (props) => {
       // call site for the rule, so the mount case can't drift from the change
       // case.
       hostSheet = adoptShadowSheet(container);
-      // Watch for lazy-directory expansions, then probe once by hand.
-      // Pierre's `subscribe` does NOT replay at registration (measured), so a
-      // row that mounts ALREADY open — `initialExpansion: "open"`, or an
-      // `initialExpandedPaths` reveal replayed across one of the remounts the
-      // live path stream causes — would sit there open and childless with no
-      // tick ever coming. The explicit call covers it, and reports the same
-      // fact an expansion does: an open, empty folder in front of the user.
-      // Guarded like every other entry into wrapper code: a throw here — from
-      // `getItem`, or from the host's `onExpandLazyDirectory` — would otherwise
-      // escape into Pierre's own emit loop, taking every other subscriber of
-      // that store tick with it and never reaching `props.onError`.
       onCleanup(
         tree.subscribe(() => safeApply(reportLazyExpansions, props.onError)),
       );
@@ -593,64 +331,18 @@ export const FileTree: Component<FileTreeProps> = (props) => {
     // fsListAll-driven unmount/remount under load.
   });
 
-  // Push path-inventory changes into Pierre as in-place mutations, not a
-  // `resetPaths` rebuild. `resetPaths` throws the tree's store away and
-  // reopens only the directories it's handed, so it can't preserve the
-  // folders the user expanded by hand; `batch(add/remove)` touches only the
-  // changed nodes and leaves every other node's expansion/selection/scroll
-  // intact. We diff the new inventory against `appliedPaths` (what the tree
-  // currently holds), apply the delta, then record the new inventory. After
-  // the delta we additively open the directories the projection wants
-  // visible: the search-projected ancestors (`expandPaths`) and the selected
-  // file's ancestors, so a freshly-added nested file or a filter match is
-  // revealed. Expanding an already-open folder is a no-op, so this never
-  // collapses anything — and it runs only for a NEW `paths` or `expandPaths`,
-  // so a folder the user collapsed stays collapsed until the projection
-  // itself changes.
-  //
-  // On a throw: Pierre's `batch` has no rollback, so partial ops can leave
-  // the store half-applied while `appliedPaths` still names the old inventory
-  // — every later change re-diffs against that stale bookkeeping and freezes
-  // the tree forever (the Code-tab host-switch toast). Recover by rebuilding
-  // via `resetPaths` to the normalized desired inventory and recording it.
-  // onError fires only when recovery itself fails (successful recover must
-  // not toast "render failed"); the original throw is logged for visibility.
-  //
-  // `selectedPath` is deliberately *not* a dependency — routing selection
-  // through here would re-run on every file click. The selection effect
-  // below reveals the picked row imperatively instead; we read `selectedPath`
-  // untracked only so a genuine paths/expandPaths change reveals the current
-  // selection.
   createEffect(
     on(
       [propValue.paths, propValue.expandPaths],
-      // `expandPaths` is a DEPENDENCY, not an argument: a change to it re-runs
-      // this rebuild, which reads it (with the other expansion sources)
-      // through `desiredExpandedPaths`.
       ([paths]) => {
-        // Capture once so closures (pathOps filter) keep a narrowed FileTree
-        // handle — mutable `let tree` does not flow into arrow callbacks.
         const t = tree;
         if (!t) return;
         const toOpen = desiredExpandedPaths();
-        // Normalize both sides so a collapsed dir key never coexists with
-        // inventory children — pathDiff can then always recursive-remove
-        // orphaned directory keys without a skip branch. Shared by the happy
-        // path and the recovery rebuild so mixed keys never re-enter Pierre.
         const prev = dropRedundantDirKeys(appliedPaths);
         const next = dropRedundantDirKeys(paths);
-        // Everything below writes to Pierre, so the store ticks it emits are
-        // the middle of this one rewrite: the probe sits them out
-        // (`rebuilding`, documented above) and the `finally` runs it once on
-        // the settled tree — which still reports a directory the projection
-        // genuinely opened here, such as a filter match inside a watched one.
         rebuilding = true;
         try {
           const pathOps = pathDiffOperations(prev, next).filter((op) => {
-            // Pierre promotes an emptied directory to an explicit empty-folder
-            // node on file remove — so files→collapsed-dir can try to `add` a
-            // dir key that already exists. Skip those adds (mirrors getItem
-            // guard on dirOps).
             if (
               op.type === "add" &&
               isDirectoryPath(op.path) &&
@@ -661,15 +353,6 @@ export const FileTree: Component<FileTreeProps> = (props) => {
             return true;
           });
           if (pathOps.length > 0) t.batch(pathOps);
-          // Pierre's `remove` promotes an emptied directory to an explicit
-          // empty folder instead of deleting it (see `directoryRemovalOps`),
-          // so the file removals above would otherwise strand a filter's
-          // emptied directories as hollow rows. Prune them in one batch,
-          // mirroring the file pass: the ops are disjoint maximal subtrees,
-          // each removed recursively. The `getItem` guard is defensive — every
-          // root still resolves after the file batch — and pruning never
-          // touches a surviving directory's expansion, so a hand-collapsed
-          // match folder stays collapsed.
           const dirOps: FileTreeRemoveOperation[] = [];
           for (const op of directoryRemovalOps(prev, next)) {
             if (t.getItem(op.path)) dirOps.push(op);
@@ -682,18 +365,12 @@ export const FileTree: Component<FileTreeProps> = (props) => {
             t.resetPaths(next, { initialExpandedPaths: toOpen });
             appliedPaths = next;
             expandDirs(t, toOpen);
-            // Recovered — tree matches desired inventory. Log the original
-            // throw so recurrence is visible; do not toast as render failure.
             console.error(
               "FileTree paths batch failed; recovered via resetPaths:",
               err,
             );
             return;
           } catch (recoverErr) {
-            // Recovery failed — bookkeeping may still be desynced; surface
-            // loudly and leave appliedPaths so a later inventory can retry.
-            // Only a LATER (new) inventory: the dependency memos hold these
-            // arrays, so the same arrays handed again do not retry.
             const recovered = toError(recoverErr);
             props.onError(
               recovered.cause == null
@@ -711,22 +388,10 @@ export const FileTree: Component<FileTreeProps> = (props) => {
     ),
   );
 
-  // A directory can become watchable AFTER the row is already on screen and
-  // open — the overlay listing that names it lands a tick later than the tree,
-  // and a load reveals nested directories that are lazy in their own turn.
-  // Pierre's store does not tick for a change to a host prop, so the
-  // subscription alone would never probe those keys; re-probe when the watched
-  // set itself changes.
   createEffect(
     on(
       propValue.lazyDirectories,
       (lazy) => {
-        // A key the host no longer calls lazy — the overlay toggled off, the
-        // directory left the listing — is no longer ours to hold open or to
-        // dedupe against. Retiring it is what makes its next appearance report
-        // AFRESH: without this an eye-toggle round trip showed an arbitrarily
-        // old cached level with the documented collapse-and-reopen refresh
-        // unavailable, because the probe saw the key already recorded.
         const declared = new Set(lazy ?? []);
         for (const key of openLazyDirs) {
           if (!declared.has(key)) openLazyDirs.delete(key);
@@ -737,12 +402,6 @@ export const FileTree: Component<FileTreeProps> = (props) => {
     ),
   );
 
-  // The host's loaded levels no longer describe this tree (a repo / host
-  // switch). Repo-relative keys collide across repos, so a key open in BOTH
-  // would otherwise stay recorded, be force-opened by the paths effect, and
-  // report nothing — an open, empty folder with no fetch behind it, which is
-  // the #2091 symptom returning. This is the wrapper's half of the same
-  // invalidation the host performs on its children cache.
   createEffect(
     on(
       propValue.lazyEpoch,
@@ -775,20 +434,6 @@ export const FileTree: Component<FileTreeProps> = (props) => {
     }),
   );
 
-  // Push post-mount `props.selectedPath` changes into Pierre's
-  // selection state. Pierre's `initialSelectedPaths` is snapshot-only
-  // at construction; reactive prop changes after mount must be applied
-  // via `getItem(path)?.select()` / `deselect()` to mark
-  // `aria-selected="true"`. Without this, a host that drives selection
-  // through a reactive accessor (e.g. CodeTab's per-(repoRoot,view)
-  // slot map) leaves the tree out of sync whenever selection arrives
-  // after FileTree mount — the `Open path:N` flow from a diff is the
-  // canonical case. Paths are also a dependency: the selected file can arrive
-  // after its selection, or disappear and return during a mode transition.
-  // `onSelectionChange` re-fires when we call `select()`,
-  // but the provenance gate drops that emit (no user gesture is armed), so
-  // it never reaches the host — the programmatic echo stops here rather than
-  // round-tripping through `onSelect`.
   createEffect(
     on(
       [propValue.selectedPath, propValue.paths],
@@ -796,13 +441,6 @@ export const FileTree: Component<FileTreeProps> = (props) => {
         safeApply(() => {
           const current = tree?.getSelectedPaths()[0] ?? null;
           if (current === path) return;
-          // Drop every selected row except `keep` (pass null to clear
-          // all). Pierre's `select()` is additive — it never clears the
-          // prior pick — so a switch must deselect the old row first or
-          // the tree holds both, fires `onSelectionChange` with the stale
-          // path at `paths[0]`, and the host reads that back as a
-          // selection revert (the "first click after a file is already
-          // open does nothing, second click works" bug).
           const deselectOthers = (keep: string | null) => {
             for (const p of tree?.getSelectedPaths() ?? []) {
               if (p !== keep) tree?.getItem(p)?.deselect();
@@ -810,19 +448,8 @@ export const FileTree: Component<FileTreeProps> = (props) => {
           };
           deselectOthers(path);
           if (path !== null) {
-            // Open the picked file's ancestors so the row is visible —
-            // an external caller can drive selection into a collapsed
-            // subtree (e.g. a terminal `path:line` click resolving into a
-            // nested file). Expanding each directory handle in place
-            // preserves every other open folder; routing this through
-            // `resetPaths` would rebuild the tree and collapse the user's
-            // hand-expanded siblings.
             if (tree) expandDirs(tree, ancestorDirectoryPaths(path));
             tree?.getItem(path)?.select();
-            // `select()` marks aria-selected but doesn't move the
-            // virtualizer; deep paths in large worktrees would stay
-            // off-screen until the user scrolled. `scrollToPath`
-            // reveals the row.
             tree?.scrollToPath(path);
           }
         }, props.onError);
@@ -831,13 +458,6 @@ export const FileTree: Component<FileTreeProps> = (props) => {
     ),
   );
 
-  // Apply a directory reveal that *changes* after mount (the folder-link front
-  // door clicked while already in this view, or a fresh request for the same
-  // folder). Deferred — the at-mount and remount cases are handled by `onMount`
-  // re-applying the standing request; here the tree is live, so
-  // `getItem().expand()` + `scrollToPath` is safe, the same mechanism the
-  // post-mount selection effect uses. The request is left standing (not
-  // consumed) so `onMount` can replay it across an fsListAll-driven remount.
   createEffect(
     on(
       propValue.revealRequest,

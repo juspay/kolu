@@ -9,26 +9,7 @@ import {
 
 const remove = (path: string) => ({ type: "remove", path, recursive: true });
 
-// Repro for the Code-tab freeze toast:
-//   File tree render failed: Cannot remove a non-empty directory without
-//   recursive: ".claude/"
-//
-// Causal chain (host switch leaves the tree frozen on the OLD host's files):
-// 1. The browse merge can transiently hold BOTH a collapsed overlay dir
-//    (".claude/") AND tracked files under it (".claude/a.md") — a state a
-//    single consistent git listing never produces.
-// 2. pathDiffOperations used to treat every inventory entry as a file, so when
-//    the stale ".claude/" dropped it emitted `{type:"remove", path:".claude/"}`
-//    WITHOUT recursive:true. Directory keys now carry recursive:true via
-//    isDirectoryPath.
-// 3. @pierre/trees throws on non-recursive remove of a non-empty directory —
-//    the recursive op (and the merge drop) close that path.
-// 4. FileTree.tsx used to catch via safeApply without advancing appliedPaths,
-//    freezing every later paths change; recovery rebuilds via resetPaths.
-//
-// Desired behaviour: the transition applies; the tree advances.
 describe("mixed inventory: collapsed dir + tracked child (Code-tab freeze repro)", () => {
-  // Inventory shape the host-switch race can hand FileTree for one tick.
   const mixed = [".claude/a.md", ".claude/"];
   const settled = [".claude/a.md"];
   const later = [".claude/a.md", "src/app.ts"];
@@ -42,15 +23,11 @@ describe("mixed inventory: collapsed dir + tracked child (Code-tab freeze repro)
     });
 
   it("dropRedundantDirKeys strips a collapsed dir that still has inventory children", () => {
-    // FileTree normalizes both sides before pathDiff so a dir key never
-    // coexists with children on either side of the diff.
     expect(dropRedundantDirKeys(mixed)).toEqual([".claude/a.md"]);
     expect(dropRedundantDirKeys(settled)).toEqual(settled);
   });
 
   it("pathDiffOperations emits a recursive remove for an orphaned collapsed dir", () => {
-    // When no next path lives under the directory key, recursive remove is
-    // the correct op — Pierre rejects non-recursive remove of a directory.
     expect(pathDiffOperations([".claude/", "other.ts"], ["other.ts"])).toEqual([
       { type: "remove", path: ".claude/", recursive: true },
     ]);
@@ -61,8 +38,6 @@ describe("mixed inventory: collapsed dir + tracked child (Code-tab freeze repro)
     expect(tree.getItem(".claude/a.md")).not.toBeNull();
     expect(tree.getItem(".claude/")).not.toBeNull();
 
-    // After normalize, dropping the stale collapsed-dir entry is a no-op
-    // for pathDiff (dir key already stripped) — tracked child remains.
     expect(() => {
       tree.batch(
         pathDiffOperations(
@@ -76,8 +51,6 @@ describe("mixed inventory: collapsed dir + tracked child (Code-tab freeze repro)
   });
 
   it("does not freeze subsequent inventory changes after the collapsed-dir drop", () => {
-    // Models FileTree.tsx's paths-reconcile effect: normalize both sides,
-    // apply, advance appliedPaths so later inventory changes still land.
     let appliedPaths = [...mixed];
     const tree = makeTree(appliedPaths);
 
@@ -117,11 +90,6 @@ describe("mixed inventory: collapsed dir + tracked child (Code-tab freeze repro)
   });
 
   it("applies the reverse files→collapsed-dir transition without throwing", () => {
-    // Host switch / fully-ignored dir: prev has tracked children, next is the
-    // bare overlay dir key. Pierre promotes the emptied dir to an explicit
-    // empty folder, so a naive add of ".claude/" throws Path already exists —
-    // the FileTree getItem guard on dir-key adds (and directoryRemovalOps
-    // treating next dir keys as survivors) close that path.
     const withFiles = [".claude/a.md"];
     const collapsed = [".claude/"];
     const tree = makeTree(withFiles);
@@ -145,7 +113,6 @@ describe("mixed inventory: collapsed dir + tracked child (Code-tab freeze repro)
 
 describe("directoryRemovalOps with bare directory keys in next", () => {
   it("does not prune a directory that next still lists as a collapsed key", () => {
-    // files → collapsed-dir: the bare key is a survivor, not a stranded empty.
     expect(directoryRemovalOps([".claude/a.md"], [".claude/"])).toEqual([]);
   });
 });
@@ -157,9 +124,6 @@ describe("directoryRemovalOps", () => {
   });
 
   it("removes nothing when the filter clears (next is the full superset)", () => {
-    // An empty query projects the full inventory back as `next`; its ancestor
-    // set then covers every directory, so nothing is pruned and the file batch
-    // re-adds the rest.
     const matches = ["docs/plans/x.html"];
     const full = ["docs/plans/x.html", "src/a.ts", "src/b.ts"];
     expect(directoryRemovalOps(matches, full)).toEqual([]);
@@ -181,33 +145,24 @@ describe("directoryRemovalOps", () => {
   it("collapses a nested dead subtree into one recursive op on the shallowest root", () => {
     const prev = ["a/b/c/d.ts", "keep/x.ts"];
     const next = ["keep/x.ts"];
-    // a/, a/b/, a/b/c/ are all orphaned — only the shallowest (a/) is emitted;
-    // its recursive remove takes the rest.
     expect(directoryRemovalOps(prev, next)).toEqual([remove("a/")]);
   });
 
   it("keeps a directory that still holds a match alongside a dropped sibling file", () => {
     const prev = ["pkg/match.ts", "pkg/other.ts"];
     const next = ["pkg/match.ts"];
-    // pkg/ still has a live file ⇒ not pruned; the dropped file orphans no dir.
     expect(directoryRemovalOps(prev, next)).toEqual([]);
   });
 
   it("prunes directories that lost their last match as a filter narrows", () => {
     const prev = ["docs/plans/a.html", "docs/proposals/b.html"];
     const next = ["docs/plans/a.html"];
-    // docs/ survives (plans/ still matches); only docs/proposals/ is pruned.
     expect(directoryRemovalOps(prev, next)).toEqual([
       remove("docs/proposals/"),
     ]);
   });
 });
 
-// Integration: drive a real Pierre `FileTree` headlessly (no `render()`, so no
-// DOM needed) and assert via `getItem`, which resolves against the store. This
-// is the layer the pure unit tests above cannot reach — it proves the ops,
-// fed through Pierre's `batch`, actually prune the rows that Pierre's own
-// `remove` would otherwise strand.
 describe("directoryRemovalOps applied to a Pierre tree", () => {
   const full = [
     ".claude/skills/parcel/SKILL.md",
@@ -232,9 +187,6 @@ describe("directoryRemovalOps applied to a Pierre tree", () => {
       .map((path) => ({ type: "remove" as const, path }));
   };
 
-  // `getItem` returns a file-or-directory handle union; narrow to the directory
-  // handle (which exposes `isExpanded`/`collapse`) so the expansion assertions
-  // type-check.
   const dirHandle = (tree: PierreFileTree, path: string) => {
     const item = tree.getItem(path);
     return item != null && "isExpanded" in item ? item : null;
@@ -243,8 +195,6 @@ describe("directoryRemovalOps applied to a Pierre tree", () => {
   it("Pierre strands emptied directories on a plain file batch (regression baseline)", () => {
     const tree = makeTree(full);
     tree.batch(fileRemovals(full, matches));
-    // The bug this PR fixes: the emptied directories survive as explicit empty
-    // folders even though every file under them is gone.
     expect(tree.getItem(".claude/skills/")).not.toBeNull();
     expect(tree.getItem(".codex/")).not.toBeNull();
     tree.cleanUp();
@@ -257,11 +207,9 @@ describe("directoryRemovalOps applied to a Pierre tree", () => {
       tree.getItem(op.path),
     );
     if (dirOps.length > 0) tree.batch(dirOps);
-    // Dead subtrees gone:
     expect(tree.getItem(".claude/")).toBeNull();
     expect(tree.getItem(".codex/")).toBeNull();
     expect(tree.getItem("docs/proposals/")).toBeNull();
-    // Match ancestors and the match itself preserved:
     expect(tree.getItem("docs/")).not.toBeNull();
     expect(tree.getItem("docs/plans/")).not.toBeNull();
     expect(tree.getItem("docs/plans/keep.html")).not.toBeNull();
@@ -277,8 +225,6 @@ describe("directoryRemovalOps applied to a Pierre tree", () => {
       tree.getItem(op.path),
     );
     if (dirOps.length > 0) tree.batch(dirOps);
-    // Pruning files + dead dirs neither re-expands nor collapses the surviving
-    // directory — its hand-collapsed state is preserved.
     expect(dirHandle(tree, "docs/plans/")?.isExpanded()).toBe(false);
     tree.cleanUp();
   });
@@ -286,12 +232,6 @@ describe("directoryRemovalOps applied to a Pierre tree", () => {
 
 describe("ancestorDirectoryPaths — the directory-marker scan", () => {
   it("tolerates a repeated separator without quadratic backtracking", () => {
-    // The marker strip used `/\/+$/`, which CodeQL flagged as
-    // `js/polynomial-redos`: the engine retries `\/+$` from each slash in the
-    // run and rescans it before failing the anchor. Paths arrive from
-    // `git ls-files` — from disk, not from us — so their shape is not ours to
-    // bound. A 100k-slash tail finishes instantly under the linear scan and
-    // would take quadratic time under the old pattern.
     const pathological = `a/b${"/".repeat(100_000)}`;
     const started = performance.now();
     expect(ancestorDirectoryPaths(pathological)).toEqual(["a/"]);

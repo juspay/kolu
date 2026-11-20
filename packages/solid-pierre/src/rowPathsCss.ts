@@ -1,12 +1,3 @@
-/** Style a named SET OF ROWS in Pierre's shadow root — a pure leaf beside the
- *  imperative `FileTree` wrapper (the `pathReconcile.ts` pattern), so the
- *  selector construction is directly testable with no DOM.
- *
- *  What lives here is Pierre's ANATOMY — that a row is addressed by
- *  `data-item-path` — and nothing else. The APPEARANCE is the caller's: it
- *  passes the declaration body, so this module knows nothing about WHY a caller
- *  wants a set of rows to look different. */
-
 /** One attribute selector per entry, matched against the `data-item-path`
  *  Pierre stamps on every row, sharing `decl` as a single rule body.
  *

@@ -1,19 +1,4 @@
 // @vitest-environment happy-dom
-/**
- * A folder the user collapsed under an active filter stays collapsed.
- *
- * The Code tab hands `FileTree` its props through ONE changing object per tick
- * (`frame` in `CodeTab.tsx`: paths, the filter's open folders, git status,
- * selection, …), read through a non-keyed `<Show>`. Every new frame notifies
- * every prop read off it, even when `paths` and `expandPaths` are the very same
- * arrays — and the paths effect used to answer each notification by re-opening
- * `expandPaths`. So a git-status frame landing after the user collapsed a
- * matching folder re-opened it: the e2e "Folder collapse during active filter
- * persists the filter" flake.
- *
- * Driven against the REAL library, the way `FileTree.lazyDir.test.tsx` is,
- * because the subject is Pierre's own expansion state as painted.
- */
 import type { GitStatusEntry } from "@pierre/trees";
 import { createSignal, Show } from "solid-js";
 import { render } from "solid-js/web";
@@ -34,7 +19,6 @@ interface Frame {
   readonly gitStatus: GitStatusEntry[];
 }
 
-/** Mount the tree the way `CodeTab.tsx` does: one frame object, non-keyed. */
 function mountFramed(initial: Frame) {
   const [frame, setFrame] = createSignal<Frame>(initial);
   const root = mountInto((host) =>
@@ -87,7 +71,6 @@ describe("a folder collapsed under a filter", () => {
     await flush();
     expect(paintedRows(root)).not.toContain("src/alpha-one.txt");
 
-    // Same paths, same open folders — only the decoration moved.
     setFrame({
       ...frame(),
       gitStatus: MATCHES.map((path) => ({ path, status: "untracked" })),
@@ -101,8 +84,6 @@ describe("a folder collapsed under a filter", () => {
   });
 
   it("re-opens it when the filter's answer itself changes", async () => {
-    // The other half of the contract: a genuinely new projection (the user
-    // typed more) reveals its matches again.
     const { setFrame, root } = mountFramed({
       paths: MATCHES,
       expanded: ["src/"],

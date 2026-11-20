@@ -1,19 +1,3 @@
-/** SolidJS wrapper over `@pierre/diffs`' `CodeView` class — the advanced-mode
- *  viewport that holds one or more file/diff items in a single virtualized
- *  scroll. Replaces the earlier `Virtualizer` + `FileView` + `FileDiff` trio:
- *  advanced mode is unconditional, so the dual-path (vanilla vs virtualized)
- *  forks, the `??=` recreate dance, the rAF scroll-to-line fallback, and the
- *  `setVisibility` upstream-bug patch all disappear.
- *
- *  The wrapper takes typed `items` (Pierre's `CodeViewItem[]`) and forwards
- *  selection through Pierre's item-scoped `CodeViewLineSelection`. One quirk
- *  is internalised: Pierre's `reconcileItems` keeps the previous record when
- *  the item's `version` field is unchanged, so passing a fresh `fileDiff` /
- *  `file` for the same `id` *without* a version bump leaves stale content on
- *  screen. The wrapper diffs incoming items against the previous snapshot by
- *  reference and bumps `version` for the items whose content changed; callers
- *  pass items reactively and never see the field. */
-
 import {
   CodeView as CodeViewClass,
   type CodeViewLineSelection,
@@ -81,25 +65,11 @@ export type CodeViewProps = {
 
 type VersionEntry = { ref: unknown; version: number };
 
-/** Pull the content identity out of an item so a live hunk/body swap
- *  bumps `version`. Prefer Pierre's `cacheKey` (what 1.3 uses as the
- *  highlight-target id) over object identity — Pierre fills a missing
- *  key with the filename, so two parses of the same path would otherwise
- *  look unchanged. */
 const contentRefOf = (item: CodeViewItem): unknown =>
   item.type === "diff"
     ? (item.fileDiff.cacheKey ?? item.fileDiff)
     : (item.file.cacheKey ?? item.file);
 
-/** Pure transform: stamp each item with a `version` derived from `current`.
- *  An item with no prior entry starts at `1`; an item whose content
- *  reference is unchanged keeps its version; an item whose content has
- *  changed bumps. The returned `next` Map contains only ids in `raw`, so a
- *  caller that swaps it in wholesale also handles eviction.
- *
- *  Decoupling this from the mutation step keeps the version logic testable
- *  and removes the "transform side-effects the closure" interleaving the
- *  earlier inline implementation carried. */
 const applyVersions = (
   raw: readonly CodeViewItem[],
   current: ReadonlyMap<string, VersionEntry>,
@@ -119,17 +89,12 @@ const applyVersions = (
   return { items, next };
 };
 
-/** The id of the rendered item whose root element lies on `ancestors` (a
- *  node and its ancestors, through shadow roots), or `undefined` when none
- *  does. */
 export const itemIdOnPath = (
   rendered: readonly { id: string; element: EventTarget }[],
   ancestors: readonly EventTarget[],
 ): string | undefined =>
   rendered.find((r) => ancestors.includes(r.element))?.id;
 
-/** Every mounted viewport, by its host `<div>`, so `codeViewItemIdAt` can
- *  answer from a bare DOM node. Weak, so an unmounted viewport is never held. */
 const mountedViews = new WeakMap<Element, CodeViewClass>();
 
 /** The id of the item a DOM node sits in — the target of a right-click, the
@@ -155,13 +120,6 @@ export const codeViewItemIdAt = (node: Node): string | undefined => {
 export const CodeView: Component<CodeViewProps> = (props) => {
   let root!: HTMLDivElement;
   let instance: CodeViewClass | undefined;
-  // Per-item version state — keyed by `id`. When the same id appears in a
-  // new items array with a different content reference, bump its version
-  // so Pierre publishes the new content. Without this, the `version`-gated
-  // `syncItemRecord` path in CodeView keeps the old record in place even
-  // though the item's `fileDiff`/`file` field has changed. Swap-by-replace
-  // (rather than per-id mutation) also evicts ids that left the list so
-  // the map can't grow unboundedly across long-lived sessions.
   let versions: ReadonlyMap<string, VersionEntry> = new Map();
 
   const versionedItems = (raw: readonly CodeViewItem[]): CodeViewItem[] => {
@@ -170,14 +128,6 @@ export const CodeView: Component<CodeViewProps> = (props) => {
     return result.items;
   };
 
-  // Bring a programmatically-set selection into view. Pierre's
-  // `setSelectedLines` paints the highlight but never scrolls — and with
-  // virtualization an off-screen range isn't even in the DOM. A terminal
-  // `path:line` click on a line deep in the file would otherwise open the
-  // file scrolled to the top with the highlight invisible below the fold.
-  // `align: "nearest"` is the no-yank choice for prop-driven updates: it
-  // moves the minimum to reveal the range, so the echo of a user's own
-  // gutter click (which selects an already-visible line) is a no-op.
   const scrollToSelection = (
     selection: CodeViewLineSelection | null | undefined,
     align: "center" | "nearest",
@@ -191,18 +141,7 @@ export const CodeView: Component<CodeViewProps> = (props) => {
     });
   };
 
-  // Read every reactive prop at call time so a later prop change lands on
-  // the existing CodeView instance via `setOptions` (theme toggle, etc.)
-  // instead of forcing a reconstruct. `lineHeight` (when supplied) feeds
-  // Pierre's `itemMetrics.lineHeight` so its virtualizer windows the right
-  // number of rows; see the prop doc.
-  // Two generics since `@pierre/diffs@1.6`: the line-annotation payload and
-  // the editor caret, both `undefined` here (see `codeViewItem`).
   const buildOptions = (): CodeViewOptions<undefined, undefined> => ({
-    // Fixed engine + theme policy shared with the worker pool that tokenizes
-    // for this view. Not per-view choices — spread from the one named binding
-    // (rather than inline literals among the reactive props below) so they
-    // cannot drift from the pool's `highlighterOptions`.
     ...HIGHLIGHTER_CONTRACT,
     themeType: props.theme,
     diffStyle: props.diffStyle ?? "unified",
@@ -217,18 +156,7 @@ export const CodeView: Component<CodeViewProps> = (props) => {
 
   onMount(() => {
     safeApply(() => {
-      // The shared worker pool moves syntax tokenization off the UI thread;
-      // it is a session-lived singleton, so `cleanUp()` below tears down this
-      // CodeView's instances but never the pool.
       instance = new CodeViewClass(buildOptions(), getCodeViewWorkerPool());
-      // `setup(root)` ends with an internal `render(true)` against zero
-      // items, then `setItems(...)` queues a *separate* render for the
-      // next frame. On a slow host that one-frame gap stretches and the
-      // e2e text-poll on `pierre-file-view` / `pierre-diff-view` can
-      // time out before the content paints. Forcing an immediate render
-      // after `setItems` collapses the two-step into one synchronous
-      // paint at mount time. Subsequent updates go through the queued
-      // path normally.
       instance.setup(root);
       mountedViews.set(root, instance);
       instance.setItems(versionedItems(props.items));
@@ -236,9 +164,6 @@ export const CodeView: Component<CodeViewProps> = (props) => {
         instance.setSelectedLines(props.selectedLines);
       }
       instance.render(true);
-      // An initial selection (e.g. file opened at a terminal `path:line`)
-      // centers — there is no prior scroll position to disturb at mount,
-      // so the navigation intent reads best with the range centered.
       scrollToSelection(props.selectedLines, "center");
     }, props.onError);
   });
@@ -250,13 +175,6 @@ export const CodeView: Component<CodeViewProps> = (props) => {
         safeApply(() => {
           if (!instance) return;
           instance.setItems(versionedItems(items));
-          // Pierre 1.3's FileDiff.render early-returns when layout has
-          // already stored the new fileDiff (`fileDiff === this.fileDiff`)
-          // and the viewport range is unchanged — so a same-path hunk
-          // swap (Code tab live git) never paints. setOptions with a
-          // fresh callback identity fails areOptionsEqual and bumps
-          // renderOptionsRevision, which is the forceRender the reused
-          // element path needs.
           instance.setOptions(buildOptions());
         }, props.onError),
       { defer: true },
@@ -275,13 +193,6 @@ export const CodeView: Component<CodeViewProps> = (props) => {
     ),
   );
 
-  // A theme toggle (or any other option flip) lands on the existing
-  // instance — no reconstruct needed. `setOptions` rebuilds the per-item
-  // option wrappers internally. Tracking `buildOptions` itself (rather
-  // than an explicit deps array) means whatever it reads becomes the
-  // tracked set automatically — the two cannot drift if a new option
-  // is added to `buildOptions` later. Pierre's `setOptions` is
-  // idempotent on identical input, so any incidental re-fire is harmless.
   createEffect(
     on(
       buildOptions,

@@ -41,16 +41,11 @@ describe("diffItems", () => {
     expect(before?.fileDiff.cacheKey).toBeDefined();
     expect(after?.fileDiff.cacheKey).toBeDefined();
     expect(before?.fileDiff.cacheKey).not.toBe(after?.fileDiff.cacheKey);
-    // Pierre 1.3 would otherwise fill cacheKey with the filename, making
-    // these two look like the same highlight target.
     expect(before?.fileDiff.cacheKey).not.toBe("note.txt");
     expect(after?.fileDiff.cacheKey).not.toBe("note.txt");
   });
 
   it("yields every file of a type-changed path's pathspec patch", () => {
-    // `git diff <base> -- skills/odu` after the directory `skills/odu/` was
-    // replaced by a symlink: the new link plus the files that used to live
-    // under it. Keeping only the first file would hide the old children.
     const raw = `diff --git a/skills/odu b/skills/odu
 new file mode 120000
 index 0000000..1111111
@@ -77,7 +72,6 @@ index 2222222..0000000
   });
 
   it("keys the selected path by name, not position", () => {
-    // A user `diff.orderFile` can put a former child ahead of the path itself.
     const raw = `diff --git a/a/b/c b/a/b/c
 new file mode 100644
 index 0000000..1111111

@@ -1,32 +1,3 @@
-/** Factories for `CodeViewItem` so callers don't reach across the
- *  `solid-pierre` seam to construct item shapes by hand. A Pierre parse-API
- *  or item-shape churn lands in this file alone instead of every consumer
- *  that builds items.
- *
- *  - `diffItems` consumes a raw unified-diff string (kolu's server hands one
- *    per selected path via `getDiff`) and runs Pierre's `parsePatchFiles`,
- *    yielding one item per file in the patch. Usually that is one file, but a
- *    path whose type changed (a directory replaced by a file) is a git
- *    pathspec matching the new file AND everything that used to live under
- *    it — every one of those files is part of that path's change. Returns
- *    `[]` for empty / malformed diffs so the caller can render a placeholder
- *    instead of a broken item.
- *    Parse throws (Pierre's parser is defensive but the contract is not
- *    formally `never-throws`) are routed through the required `onError`
- *    callback so a malformed header surfaces in the same toast lane as
- *    Pierre's render-time throws — silent swallowing would leave a blank
- *    pane indistinguishable from "no diff for this file".
- *  - `textDiffItem` is the other direction: an upstream that states a file's
- *    change as its BEFORE and AFTER text rather than as a patch (the Agent
- *    Client Protocol's `diff` content block does exactly this) has no unified
- *    diff to hand `diffItems`. Pierre computes one itself, so the alternative
- *    would be every such consumer serialising a patch by hand just to have it
- *    parsed back — and `--- /dev/null` versus an empty old file is exactly
- *    the kind of detail a hand-rolled serialiser gets wrong for one case in
- *    ten. A `null` `oldText` is a file that did not exist before.
- *  - `fileItem` packages a filename + body string into Pierre's `FileContents`
- *    shape. */
-
 import {
   type CodeViewDiffItem as PierreDiffItem,
   type CodeViewFileItem as PierreFileItem,
@@ -52,8 +23,6 @@ export type CodeViewDiffItem = PierreDiffItem<undefined>;
  *  target and a live-updating Code tab keeps painting the first snapshot.
  *  Hash the raw input: a hunk/body change is a new cache identity. */
 export const contentCacheKey = (id: string, content: string): string => {
-  // FNV-1a 32-bit. Length rides along so a collision also needs a matching
-  // size, which is enough for this cache-identity use (not a security hash).
   let h = 0x811c9dc5;
   for (let i = 0; i < content.length; i++) {
     h ^= content.charCodeAt(i);
@@ -75,20 +44,10 @@ export const diffItems = (
     onError(toError(e));
     return [];
   }
-  // Non-empty input that parsed to no file entry is a malformed-diff
-  // signal, not "no changes to show" — surface it so the user sees a
-  // toast rather than a blank pane indistinguishable from "loading".
   if (files.length === 0) {
     onError(new Error(`No file entry parsed from diff for ${id}`));
     return [];
   }
-  // The selected path's own file keeps the caller's `id`; every other file is
-  // a former child of a type-changed path, keyed by its own name (unique
-  // within one patch). A one-file patch IS the selected path, whatever git
-  // spelled its header (a name with a quote or backslash stays C-quoted even
-  // under `core.quotePath=false`). In a multi-file patch the selected path is
-  // found by name, not position — `diff.orderFile` can reorder git's output —
-  // and a patch with no file of that name is reported, not guessed at.
   const own = files.length === 1 ? 0 : files.findIndex((f) => f.name === id);
   if (own === -1) {
     onError(

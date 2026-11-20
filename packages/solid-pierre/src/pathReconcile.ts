@@ -1,9 +1,3 @@
-/** Pure path-set reconciliation for the `<FileTree>` wrapper — the logic that
- *  turns a new file inventory into the `@pierre/trees` `batch` ops that bring
- *  Pierre's tree to match it. Kept free of Solid and JSX so it stays a plain,
- *  directly-testable leaf; `FileTree.tsx` owns the imperative lifecycle that
- *  applies these ops. */
-
 import type { FileTree as FileTreeClass } from "@pierre/trees";
 
 type FileTreeBatchOperation = Parameters<FileTreeClass["batch"]>[0][number];
@@ -48,22 +42,8 @@ export function dropRedundantDirKeys(paths: readonly string[]): string[] {
   return paths.filter((p) => !isDirectoryPath(p) || !coveredByChildren.has(p));
 }
 
-/** `"/"`, as a char code — compared numerically in the scan below so the loop
- *  does no per-character string allocation. */
 const SLASH = 47;
 
-/** Strip Pierre's directory marker. Idempotent, and tolerates a repeated
- *  separator so a caller never has to know how many slashes arrived. Module
- *  private: `isDirectoryPath` is the marker's public face (every consumer asks
- *  whether a path IS a directory, never to un-mark one), so exporting this too
- *  would publish surface with no caller.
- *
- *  A scan rather than the obvious `/\/+$/` replace: that pattern backtracks
- *  quadratically on a path ending in many slashes (`js/polynomial-redos` — the
- *  engine retries `\/+$` from each slash in turn, and each retry rescans the
- *  run before failing the anchor). Paths reach this from `git ls-files`, i.e.
- *  from disk rather than from us, so their shape is not ours to bound. Walking
- *  back from the end touches each trailing slash once. */
 function stripDirectoryMarker(path: string): string {
   let end = path.length;
   while (end > 0 && path.charCodeAt(end - 1) === SLASH) end--;
@@ -110,10 +90,6 @@ export function pathDiffOperations(
   const ops: FileTreeBatchOperation[] = [];
   for (const path of prev) {
     if (nextSet.has(path)) continue;
-    // Directory keys (trailing slash) must remove recursively — Pierre throws
-    // on non-recursive remove of a non-empty directory. Callers normalize with
-    // `dropRedundantDirKeys` so a dir key never coexists with inventory
-    // children on either side; recursive then cannot wipe a surviving child.
     ops.push(
       isDirectoryPath(path)
         ? { type: "remove", path, recursive: true }
@@ -147,10 +123,6 @@ export function directoryRemovalOps(
 ): FileTreeRemoveOperation[] {
   const nextDirs = new Set<string>();
   for (const file of next) {
-    // A bare directory key in `next` is itself a surviving directory (collapsed
-    // overlay row). ancestorDirectoryPaths of such a key is empty, so seed it
-    // explicitly — otherwise files→collapsed-dir transitions would prune the
-    // row the inventory still lists.
     if (isDirectoryPath(file)) nextDirs.add(file);
     for (const dir of ancestorDirectoryPaths(file)) nextDirs.add(dir);
   }
