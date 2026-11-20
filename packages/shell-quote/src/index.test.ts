@@ -12,19 +12,6 @@ import { shellJoin, shellQuoteArg, shellSplit } from "./index.ts";
  *  which can't import it. */
 const POSIX_SHELLS = ["sh", "bash", "zsh", "dash"] as const;
 
-/** The shared round-trip truth table: argv shapes a consumer joins and must get
- *  back unchanged. It is exercised two ways from one corpus — against shellSplit
- *  (the leaf's OWN inverse) and against a real POSIX shell (below) — so the same
- *  cases prove both the self-consistency and the actual no-word-split /
- *  no-injection claim that backs this package.
- *
- *  The entries carry every shape the bug (#1407) was about: the spaced JSON blob
- *  (`--settings '{…}'`), a spaced sentence, the apostrophe `'\''` idiom, an
- *  embedded-double-quote value, the empty token, and a value packed with shell
- *  metacharacters ($ ` ; & | * ( ) { }) whose quoting must neutralize them. The
- *  leading-`~` entry round-trips through shellSplit but is filtered out of the
- *  real-shell test, which deliberately re-expands `~` (see that test's tilde
- *  case) and so cannot byte-match it. */
 const ROUND_TRIP_CORPUS: readonly (readonly string[])[] = [
   ["claude", "--model", "sonnet"],
   ["claude", "--settings", `{"ultracode": true}`],
@@ -33,7 +20,7 @@ const ROUND_TRIP_CORPUS: readonly (readonly string[])[] = [
   ["claude", "--append-system-prompt", "don't do that"],
   ["claude", "--append-system-prompt", "a $b `c` ; d & e | f * (g) {h}"],
   ["claude", "--add-dir", "~/.claude"],
-  ["a", "", "b"], // empty token survives
+  ["a", "", "b"],
   ["weird", "a'b'c", "x  y"],
 ];
 
@@ -46,16 +33,12 @@ describe("shellQuoteArg", () => {
   });
 
   it("leaves a leading-tilde path BARE so the shell re-expands it", () => {
-    // The preexec mark captures `~/…` as the user typed it (pre-expansion);
-    // quoting it would suppress expansion and replay a literal `~` path.
     expect(shellQuoteArg("~/.claude/settings.json")).toBe(
       "~/.claude/settings.json",
     );
   });
 
   it("single-quotes a value with spaces so it stays ONE pasted argument", () => {
-    // The footgun F8 names: a socket path with a space would otherwise re-split
-    // into `--socket /tmp/my` + a stray `sock` and target the wrong daemon.
     expect(shellQuoteArg("/tmp/my sock/pty-host.sock")).toBe(
       "'/tmp/my sock/pty-host.sock'",
     );
@@ -70,7 +53,6 @@ describe("shellQuoteArg", () => {
   });
 
   it("escapes an embedded single quote the canonical '\\'' way", () => {
-    // `it's` → 'it'\''s' — close the quote, an escaped literal quote, reopen.
     expect(shellQuoteArg("a'b")).toBe("'a'\\''b'");
   });
 
@@ -81,16 +63,12 @@ describe("shellQuoteArg", () => {
 
 describe("shellSplit", () => {
   it("is the exact inverse of shellJoin (round-trips every token shape)", () => {
-    // The property that matters: a consumer reparsing its OWN joined output
-    // gets back exactly the argv it joined — including the embedded-single-
-    // quote idiom that a general tokenizer (string-argv) shatters.
     for (const argv of ROUND_TRIP_CORPUS) {
       expect(shellSplit(shellJoin(argv))).toEqual([...argv]);
     }
   });
 
   it("parses the canonical '\\'' idiom that string-argv cannot", () => {
-    // shellJoin(["don't"]) === "'don'\\''t'" — one token, an embedded quote.
     expect(shellSplit(`'don'\\''t'`)).toEqual(["don't"]);
   });
 
@@ -105,10 +83,6 @@ describe("shellSplit", () => {
   });
 });
 
-/** Resolve a POSIX shell from PATH without hardcoding `/bin/sh`, so the test runs
- *  against whatever shell the Nix devshell / CI actually provides. Returns null
- *  when none is found (e.g. a stripped sandbox), which SKIPS the real-shell suite
- *  rather than failing it — the suite stays green on any platform. */
 function findPosixShell(): string | null {
   const dirs = (process.env.PATH ?? "").split(delimiter).filter(Boolean);
   for (const name of POSIX_SHELLS) {
@@ -127,42 +101,11 @@ function findPosixShell(): string | null {
 
 const POSIX_SHELL = findPosixShell();
 
-// The substantive guarantee: shellJoin's output, parsed by an ACTUAL shell,
-// word-splits back into exactly the argv it was built from. The shellSplit
-// tests above only check the leaf against its own tokenizer; this checks it
-// against the real grammar that backs the no-word-split / no-injection claim.
-//
-// Scope: this pins the ARGUMENT-TAIL guarantee — the values after an ordinary
-// command word. `replay` deliberately runs a known-safe `printf` head so every
-// corpus token lands in ARGUMENT position, which is exactly how the real
-// consumer joins (argv[0] is always an agent basename like `claude`). The
-// command-POSITION carve-out (a leading `FOO=bar` read as an assignment, a
-// leading `if` as a reserved word — both left bare by shellQuoteArg, since the
-// shell resolves the head by grammar before quote-removal) is out of scope by
-// the same construction; see the README "Command-head precondition".
 describe.skipIf(POSIX_SHELL === null)(
   "shellJoin output parsed by a real POSIX shell",
   () => {
-    // Non-null here by the skipIf guard above.
     const shell = POSIX_SHELL as string;
 
-    /** Run `<shell> -c "printf '%s\0' <args…>"` and return the argv the shell
-     *  actually built — the proof that shellJoin's output word-splits back into
-     *  exactly its inputs.
-     *
-     *  `printf` is the stub: a safe bare word, so shellJoin leaves it unquoted,
-     *  and a shell BUILTIN, so no executable temp file is needed (a stub script
-     *  would fail under a noexec $TMPDIR). Its recycled `%s\0` format echoes each
-     *  remaining argv element NUL-separated — the one separator that cannot
-     *  collide with any byte inside a token, so the split is unambiguous. If the
-     *  quoting let a value word-split or a metacharacter fire, printf would see a
-     *  different field list and the deep-equality below would fail.
-     *
-     *  The `printf` head is also the known-safe COMMAND word that scopes this to
-     *  the argument tail: it forces every `args` token into argument position,
-     *  where shellQuoteArg's quoting fully governs the result — matching how the
-     *  real consumer joins (argv[0] is always an agent basename). See the
-     *  suite-level comment for the command-position carve-out. */
     function replay(
       args: readonly string[],
       env: NodeJS.ProcessEnv = {},
@@ -172,13 +115,10 @@ describe.skipIf(POSIX_SHELL === null)(
         encoding: "buffer",
         env: { ...process.env, ...env },
       });
-      // printf writes a trailing \0 after the final field; drop the empty tail.
       return out.toString("utf8").split("\0").slice(0, -1);
     }
 
     it("word-splits each joined argv back into exactly its inputs", () => {
-      // Strict byte-for-byte corpus: excludes leading-`~` tokens, which a real
-      // shell re-expands (asserted separately below) so they cannot byte-match.
       const strict = ROUND_TRIP_CORPUS.filter(
         (argv) => !argv.some((token) => token.startsWith("~")),
       );
@@ -188,9 +128,6 @@ describe.skipIf(POSIX_SHELL === null)(
     });
 
     it("re-expands a space-separated leading ~ value to $HOME (documented carve-out)", () => {
-      // shellQuoteArg leaves a leading `~` BARE on purpose so the shell re-expands
-      // it to the same home the source used — intended behavior, not a bug. Pin
-      // it: `~/x` resolves to "$HOME/x" under a real shell.
       const home = "/home/kolu-tilde-test";
       expect(replay(["--settings", "~/x"], { HOME: home })).toEqual([
         "--settings",
