@@ -1,6 +1,3 @@
-# CI-only Nix outputs kept outside the runnable Kolu flake: the npins-pinned
-# Odu coordinator.
-#
 # odu's Bun build (juspay/odu#72) requires `b2n` from juspay/bun2nix — there is
 # no fetchBunDeps in nixpkgs. That is the one flake input here (same exception
 # odu itself documents); the odu *source* stays on npins so the pin is one line

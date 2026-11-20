@@ -33,20 +33,6 @@
 # belongs in the classic list either: a second copy of the ruleset's list goes
 # stale, the same way, the day a recipe is renamed.
 #
-# Putting this INSIDE the protect path, rather than in a one-off `gh` call, is
-# what makes the gate one command: re-running protect is the routine way this
-# repo edits it, and it always leaves both halves exactly right.
-#
-# WHY THESE CONTEXTS ARE WORTH GATING ON
-# --------------------------------------
-# `.github/workflows/nix-cache.yml` is what pushes this repo's closures to
-# https://cache.kolu.dev/kolu-r2. When it is green-but-not-required, a red or
-# never-run cache push blocks nothing — and a deploy off that commit finds no
-# agent closure in the cache and COMPILES the daemon on the remote host over
-# ssh. That is not hypothetical: it happened (juspay/kolu#2101, G7) while the
-# workflow sat there, unrequired, doing its job badly and nobody's merge caring.
-# The cache warm is deploy-critical, so it belongs in the required set.
-#
 # THE CONTEXT NAMES ARE DERIVED FROM THE WORKFLOW, NEVER SPELLED HERE
 # -------------------------------------------------------------------
 # A check-run's name — which IS the branch-protection context string — is
@@ -71,18 +57,6 @@
 # for it anyway. `linux-pin` is that job: it starts the pod's run of master,
 # which is meaningless on a PR. Any OTHER `if:` is a hard failure — this parse
 # will not guess when a job does and does not really run.
-#
-# `yq` is not in this repo's dev shell (`nix develop`), so the parse is awk —
-# deliberately, rather than as a fallback. A yq branch that never executes here
-# is an untested parser, and an untested parser guarding a merge gate is worse
-# than no parser at all.
-#
-# NOT RUN BY THE DAG. This is coordinator-side, like the `ci::protect` recipe
-# that calls it: it edits GitHub's branch protection, which no CI node may do.
-#
-# No `mapfile`, no namerefs — same discipline as `ci/agent-preflight`, so the
-# scripts in this directory read alike (that one runs on whatever bash a deploy
-# host has; this one only ever runs on the machine driving CI).
 
 set -euo pipefail
 
@@ -102,14 +76,10 @@ case "${1:-}" in
     ;;
 esac
 
-# ── the derivation ───────────────────────────────────────────────────────────
-# Emits one `<job> (<value>)` per line, or exits non-zero having said exactly
-# which structural expectation the workflow no longer meets.
 gha_contexts() {
   awk '
     function bail(msg) { print msg > "/dev/stderr"; exit 3 }
 
-    # Full-line comments and blanks carry no structure.
     /^[[:space:]]*#/ { next }
     /^[[:space:]]*$/ { next }
 
@@ -122,7 +92,6 @@ gha_contexts() {
       sub(/^ +/, "", key)
     }
 
-    # Top level: we care about the `jobs:` mapping and nothing else.
     indent == 0 {
       in_jobs = (key == "jobs:")
       in_strategy = 0
@@ -131,7 +100,6 @@ gha_contexts() {
     }
     !in_jobs { next }
 
-    # A job id. Every job is a gate; each is checked on its own below.
     indent == 2 {
       njobs++
       job = key
@@ -142,10 +110,6 @@ gha_contexts() {
       next
     }
 
-    # Job-level keys. A `name:` here renames every check-run, so the derivation
-    # would be wrong in a way GitHub reports as "expected, never posted". An
-    # `if:` decides whether the job runs on a pull request at all, which is the
-    # event branch protection observes; it is read here and judged in END.
     indent == 4 {
       if (key ~ /^name:/) named[njobs] = 1
       if (key ~ /^if:/) {
@@ -163,9 +127,6 @@ gha_contexts() {
       next
     }
 
-    # A matrix dimension. Two of them and the check-run name becomes
-    # `<job> (<a>, <b>)`, which this parse does not (and should not guess how to)
-    # construct.
     indent == 8 && in_matrix {
       nmatrix[njobs]++
       mkey = key
@@ -209,37 +170,11 @@ gha_contexts() {
         }
         if (emitted == 0) bail("matrix `" dimension[j] ":` of job `" job "` yields no contexts")
       }
-      # The floor used to be TWO contexts per job, to catch a gate quietly
-      # narrowed to one platform. That floor is wrong now: `build-and-push`
-      # is deliberately `[macos-latest]` alone, because x86_64-linux is
-      # warmed on the odu lane (`ci::nix` pushes its `result*` closures) and
-      # that lane contributes the other half of this required set.
-      #
-      # What it was really guarding survives one level up: ACROSS the whole
-      # workflow, both platform families must stay gated. `publish-closures`
-      # is the job that now carries it — nothing in the DAG posts the
-      # closure index, so a narrowing there has no odu lane standing in for
-      # it. Derived from the matrix values, so no job and no runner label is
-      # hand-listed here.
       if (!seen_linux || !seen_darwin) bail("the workflow matrices cover only one platform family (linux: " (seen_linux + 0) ", darwin: " (seen_darwin + 0) ") — both must stay gated")
     }
   ' "$1"
 }
 
-# ── the parser's own door ────────────────────────────────────────────────────
-# `ci/protect --contexts-only [WORKFLOW]` prints the derived contexts and
-# stops, touching neither odu nor GitHub. It exists so the parse is EXECUTED
-# by an automated check rather than only by an operator editing branch
-# protection — the state this file's own header calls worse than no parser at
-# all. `packages/daemon-test-gate/src/ci-parsers.test.ts` runs it against the
-# real workflow and compares the output to the three names GitHub posts, and
-# against a one-platform-family fixture it must refuse. A quoting regression
-# in the awk program (one apostrophe closes it) is then red in CI, not at the
-# gate.
-#
-# The optional WORKFLOW is why the refusal is testable at all: the question is
-# parameterised by the thing being asked about, and defaults to this repo's
-# own.
 contexts_only=""
 if [ "${1:-}" = "--contexts-only" ]; then
   contexts_only=1
@@ -263,11 +198,6 @@ Fix the workflow or teach this parse the new shape — do NOT let protect run
 without these contexts: an unrequired cache push is how a deploy ends up
 compiling the daemon over ssh (juspay/kolu#2101, G7)."
 
-# Derived BEFORE anything is written: a workflow this parse cannot read stops
-# the script before odu or GitHub is touched, so a refusal never leaves one half
-# of the gate rewritten and the other half not.
-
-# ── argument reading (pass-through, never consumed) ───────────────────────────
 dry_run=""
 branch=""
 prev=""
@@ -280,22 +210,13 @@ for arg in "$@"; do
   prev="$arg"
 done
 
-# ── odu's half: the canonical DAG contexts ───────────────────────────────────
-# x86_64-linux is pinned here, not left to the caller, so the required list can
-# never drift with a machine-local `hosts.json`. Darwin is NOT pinned: this repo
-# gates on linux (see the ci skill). A caller who deliberately wants a darwin
-# lane in the gate passes `--platform aarch64-darwin`, which forwards through
-# "$@" and adds to — rather than replaces — the pin below.
 nix run "${root}/ci#odu" -- ci protect --platform x86_64-linux "$@"
 
 if [ -n "$dry_run" ]; then
-  # odu printed the DAG contexts one per line; ours complete the set. Together
-  # this is the authoritative "what must be green" list.
   printf '%s\n' "$contexts"
   exit 0
 fi
 
-# ── our half: REPLACE the classic list with exactly the derived set ──────────
 command -v gh > /dev/null || die "gh is required to set the cache-warm contexts"
 
 repo="$(gh repo view --json nameWithOwner -q .nameWithOwner)"
@@ -308,10 +229,6 @@ fi
 
 classic="repos/${repo}/branches/${branch}/protection/required_status_checks"
 
-# One collation for every list below, so the equality checks and `comm` agree
-# whatever the caller's locale. `want` is deduplicated (GitHub stores a set);
-# `classic_contexts` is not, so a duplicate GitHub somehow returned would show
-# up as a mismatch rather than being folded away.
 lines() { if [ -n "$1" ]; then printf '%s\n' "$1"; fi; }
 want="$(lines "$contexts" | LC_ALL=C sort -u)"
 classic_contexts() { gh api "$classic" -q '.contexts[]' | LC_ALL=C sort; }
@@ -336,12 +253,6 @@ else
   gh api -X PUT "${classic}/contexts" "${gh_args[@]}" > /dev/null \
     || die "could not set the cache-warm contexts on ${repo}@${branch}"
 
-  # The write is an instruction; this is the verdict. Same discipline as
-  # nix-cache.yml's own verify step — read the state back rather than trusting
-  # a 200 — and the verdict is EQUALITY, not containment: an extra context
-  # nothing posts blocks every merge just as surely as a missing one lets a
-  # cold cache merge green. (The no-write path above already holds that
-  # verdict: `have` was compared with the same operator.)
   got="$(classic_contexts)" \
     || die "could not read back ${repo}@${branch}'s classic required status checks"
   [ "$got" = "$want" ] || die "${repo}@${branch}'s classic required checks are not exactly the ${workflow##*/} contexts.

@@ -22,8 +22,6 @@ DECLARATION = {
     "index": {"repo": "juspay/kolu", "branch": "ca-index",
               "rawBase": "https://raw.githubusercontent.com/juspay/kolu/ca-index"},
 }
-# The same declaration pointing at an odu cache bucket: the substituter is the
-# whole address, and the `pusher` says only that odu is the client.
 ODU_DECLARATION = dict(DECLARATION, substituters=["https://odu.example.invalid"],
                        pusher={"kind": "odu"})
 
@@ -171,8 +169,6 @@ class Resolve(unittest.TestCase):
     def test_source_mode_reads_the_declaration_and_key_from_the_baked_source(self):
         with tempfile.TemporaryDirectory() as d:
             root = Path(d)
-            # The built source is a store path that is not on this disk, so the
-            # read fails — which proves WHICH file the key is read from.
             env = stub(root, {"build --no-link --print-out-paths .#agent-flake-source": SOURCE + "\n"})
             r = run(root, env, "resolve", "--rev", REV, "--repository", "juspay/kolu", "--source", ".#agent-flake-source", "padi", "kaval")
             self.assertNotEqual(r.returncode, 0)
@@ -188,11 +184,8 @@ class Resolve(unittest.TestCase):
             self.assertEqual(out["installables"], ".#padi .#kaval")
             self.assertEqual(out["rev-key"], KEY)
             self.assertEqual(out["cache"], "https://cache.example.invalid/oss")
-            # No `pusher` field: the default, and the only shape every
-            # declaration written before the field existed has.
             self.assertEqual(out["pusher"], "attic")
             self.assertEqual(out["index-branch"], "ca-index")
-            # The declaration, on one line: `verify` reads the keys out of it.
             self.assertEqual(json.loads(out["declaration"]), DECLARATION)
 
     def test_a_declaration_with_no_keys_is_refused_before_anything_is_built(self):
@@ -333,8 +326,6 @@ class Push(unittest.TestCase):
             r = self.push(root, "--cache", "https://odu.example.invalid", "--pusher", "odu")
             self.assertEqual(r.returncode, 0, r.stderr)
             ref = f"{self.PIN['url']}?narHash={quote(self.PIN['hash'])}"
-            # `--whole`: the consumer reads this cache alone, so the nixpkgs
-            # paths a bucket skips by default must be stored too.
             self.assertEqual(self.calls(root), [
                 f"nix run --accept-flake-config {ref}#odu -- "
                 f"cache push --whole --cache https://odu.example.invalid {IA} {CA}",
@@ -457,7 +448,6 @@ class Smoke(unittest.TestCase):
             root = Path(d)
             ca = self.program(root, "#!/bin/sh\nexit 0\n")
             self.write_entry(root, {"rev": REV, "ia": IA, "ca": str(ca)})
-            # An entry from another run in the same tree: not ours to smoke.
             self.write_entry(root, {"rev": REV, "ia": IA, "ca": "/nonexistent"}, attr="other")
             r = self.smoke(root, "padi=bin/padi", f"{SOURCE}#padi")
             self.assertEqual(r.returncode, 0, r.stderr)
@@ -493,8 +483,6 @@ class Verify(unittest.TestCase):
             env = stub(root, {**self.answers(root, "padi", "ia", IA), **self.answers(root, "padi", "ca", CA)})
             r = self.verify(root, env)
             self.assertEqual(r.returncode, 0, r.stderr)
-            # Three calls per path, the signed one trusting the declaration's
-            # keys, the content-addressed one trusting nothing.
             self.assertEqual(len((root / "calls").read_text().splitlines()), 6)
             self.assertIn("padi: ia imported and verified, 2 paths", r.stdout)
             self.assertIn("padi: ca imported and verified, 2 paths", r.stdout)

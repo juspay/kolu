@@ -1,7 +1,3 @@
-# Build and deploy the Kolu website to GitHub Pages.
-#
-# The site lives in its own flake under website/ — `nix build ./website`
-# produces the static artefact without evaluating Kolu's runnable flake.
 name: pages
 
 on:
@@ -49,8 +45,6 @@ jobs:
 
       - name: Stage artefact
         run: |
-          # result/ is a symlink into /nix/store (read-only). Pages needs
-          # a writable directory with a .nojekyll file and correct perms.
           mkdir -p _site
           cp -rL result/* _site/
           chmod -R u+w _site

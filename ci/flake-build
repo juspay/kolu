@@ -114,7 +114,6 @@ fi
 
 system="$(nix eval --impure --raw --expr builtins.currentSystem)"
 
-# Installable prefix: ".#foo" for the current flake, else "path#foo".
 installable() {
   local attr=$1
   if [[ $flake == . ]]; then

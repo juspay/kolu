@@ -1,19 +1,3 @@
-# Kolu CI pipeline — consumed by odu (github.com/juspay/odu — npins-pinned
-# by the independent `ci/flake.nix`).
-#
-# The runner discovers the recipe tagged [metadata("ci")] (exactly one across
-# this justfile and its submodules), expands its reachable dependency subgraph,
-# and fans every (recipe × platform) pair out as a pipeline node. Lane hosts
-# come from hosts.json ($ODU_HOSTS → ~/.config/odu/hosts.json →
-# ~/.config/justci/hosts.json); a `localhost` lane runs against the HEAD
-# snapshot, remote lanes `git fetch` the pushed SHA into a writable per-SHA
-# workspace on the host.
-#
-# odu respects just's OS attributes. A `[linux]` recipe is retained on the
-# Linux lane and pruned from Darwin (and `odu protect` derives the same filtered
-# status list). Keep platform-specific work tagged so unsupported nodes never
-# appear on the other lane.
-
 # A leaf may also be SHARDED across the platform's venue pool with
 # `[metadata("odu:shard=N")]`. N is a CEILING, not a reservation: odu takes
 # whatever slots are free (one of them is the run's own primary box), tells
@@ -32,15 +16,8 @@
 # expensive files — not one long suite — divide at all). Each owns its own
 # translation of the zero-based `ODU_SHARD_*` pair; see the recipes below.
 
-# Submodule recipes default to running from the submodule's directory (`ci/`),
-# but commands like `nix build … --override-input flake .` and `nix develop -c`
-# expect the repo root. Pin the working directory once instead of cd'ing in
-# every body.
 set working-directory := '..'
 
-# Re-enter nix devShell when the runner ssh's into a remote that doesn't have
-# the project's dev tools (jq/gh/pnpm/biome/…) on PATH. Skipped when already
-# inside the shell so local invocations stay cheap.
 nix_shell := if env('IN_NIX_SHELL', '') != '' { '' } else { 'nix develop --accept-flake-config -c' }
 
 # Pipeline root: every recipe listed here becomes a (recipe × platform) node.
@@ -81,9 +58,6 @@ default: nix agent-flake-nix agent-bake agent-models agent-published website-nix
 # this node and call pnpm/biome directly downstream — do not invoke top-level
 # `just <recipe>` recipes that carry their own `install` dep.
 install:
-    # The pinned members have no copy in this repo — graft them from their
-    # npins pins first, exactly as `just install` does, or `--frozen-lockfile`
-    # meets a lockfile naming a member that isn't there.
     {{ nix_shell }} just _materialize-pinned-members
     {{ nix_shell }} pnpm install --frozen-lockfile
 
@@ -144,8 +118,6 @@ nix:
 agent-flake-nix: nix
     #!/usr/bin/env bash
     set -euo pipefail
-    # The root flake owns the agent source tree; `just dev` bakes the same
-    # derivation the production wrapper does. One attr, one derivation.
     agent_flake_ref="$(nix build .#agent-flake-source --no-link --print-out-paths --accept-flake-config)"
     system="$(nix eval --impure --raw --expr builtins.currentSystem)"
     agent_packages="$({{ nix_shell }} jq -r '.expose[]' nix/agent-packages.json)"
@@ -285,9 +257,6 @@ agent-published: install nix
 e2e: install nix
     #!/usr/bin/env bash
     set -euo pipefail
-    # Fail loud on a half-set or out-of-range pair rather than silently running
-    # the whole suite N times (or no scenarios at all): a shard variable that
-    # does not parse is a runner bug, and a green lane would hide it.
     if [[ -n "${ODU_SHARD_INDEX:-}" || -n "${ODU_SHARD_TOTAL:-}" ]]; then
       if [[ ! "${ODU_SHARD_INDEX:-}" =~ ^(0|[1-9][0-9]*)$ ]] \
         || [[ ! "${ODU_SHARD_TOTAL:-}" =~ ^[1-9][0-9]*$ ]] \
@@ -298,18 +267,6 @@ e2e: install nix
       export CUCUMBER_SHARD="$((ODU_SHARD_INDEX + 1))/$ODU_SHARD_TOTAL"
       echo "e2e: shard=$CUCUMBER_SHARD (odu index=$ODU_SHARD_INDEX of $ODU_SHARD_TOTAL)"
     fi
-    # CUCUMBER_RETRY is the residual safety net for darwin-runner-load flakes
-    # that survive the structural fixes in #955. Darwin runs at 2, linux at 1:
-    # the darwin residual is an fs-event-drop class (e.g. the live-reload
-    # edit→preview refresh whose single FSEvents notification the kernel
-    # occasionally drops under the post-koluBin-build storm) that can lose two
-    # attempts; the third absorbs that tail. Linux's filesystem watch is
-    # reliable, so it stays at 1. Local `just test-quick` leaves it unset
-    # (0 = off) so real failures surface on the first attempt.
-    # `--no-deps`: ci::install already installed the workspace; without it the
-    # `test: install` dep re-runs `pnpm install` concurrently with the unit lane
-    # and the two races corrupt the shared node_modules/.bin (vitest exit 126).
-    # See the funnel rule at the top of this file and the `test` recipe comment.
     CUCUMBER_RETRY=$([ "$(uname)" = Darwin ] && echo 2 || echo 1) {{ nix_shell }} just --no-deps test
 
 # Wave 0's non-browser guard: parse the real Gherkin suite, compare its
@@ -392,12 +349,6 @@ daemon: install
 upgrade-window: install nix
     #!/usr/bin/env bash
     set -euo pipefail
-    # CI checkouts are SHA-only and often have NO local tags AND no usable
-    # `origin` remote (odu fetches a single SHA into a worktree). A bare
-    # `git tag` list is empty → the old "last kaval-touching rev" fallback
-    # built a kaval IDENTICAL to current and the e2e green-washed a
-    # same-version recycle. Discover the latest vX.Y.Z from every candidate
-    # remote URL, fetch THAT tag into the local object store, then nix-build.
     latest_version_tag() {
       local url="$1"
       git ls-remote --tags --refs "$url" 2>/dev/null \
@@ -408,8 +359,6 @@ upgrade-window: install nix
         | tail -1 \
       || true
     }
-    # Candidate remotes: configured remotes first, then the known GitHub URL
-    # odu itself fetches from (see _ci-setup: "fetching … from https://github.com/juspay/kolu").
     candidates=()
     while IFS= read -r r; do
       [ -n "$r" ] || continue
@@ -429,7 +378,6 @@ upgrade-window: install nix
       fi
     done
     if ! [[ "${ref}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-      # Last resort: local tags after an opportunistic fetch.
       git fetch --tags --force 2>/dev/null || true
       ref="$(git tag --sort=-v:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -1 || true)"
     fi
@@ -437,7 +385,6 @@ upgrade-window: install nix
       echo "upgrade-window: REFUSING — no version tag (vX.Y.Z) via ls-remote/fetch; refusing the last-kaval-commit fallback that collapses the window" >&2
       exit 1
     fi
-    # Materialise the tag object locally so git+file?ref= can resolve it.
     fetch_url="${source_url:-https://github.com/juspay/kolu}"
     git fetch --force "$fetch_url" "refs/tags/${ref}:refs/tags/${ref}" \
       || { echo "upgrade-window: REFUSING — could not fetch tag ${ref} from ${fetch_url}" >&2; exit 1; }
@@ -500,10 +447,6 @@ fmt: install
 biome: install
     {{ nix_shell }} biome lint --error-on-warnings .
 
-# ── odu convenience (coordinator-side; NOT part of the [metadata("ci")] DAG) ──
-# Thin wrappers over `nix run ./ci#odu` so the live dashboard is one just away.
-# Unreachable from `default`, so the runner never schedules them.
-
 # Attach a live dashboard to a run in progress (paints over `.ci/odu.sock`).
 attach:
     nix run ./ci#odu -- ci attach
@@ -529,14 +472,6 @@ attach:
 # (juspay/kolu#2101, G7).
 protect *args:
     bash ci/protect {{ args }}
-
-# ── linux CI host pool (coordinator-side; NOT part of the [metadata("ci")] DAG) ──
-# These run on the machine driving CI (not on a pool box), so they're
-# unreachable from `default` and the runner never schedules them. They manage
-# the fixed pool of warm boxes (kolu-ci-1 .. kolu-ci-N) that odu leases from
-# natively per run (odu picks a free box from the `hosts.json` pool, holds it
-# for the run, and releases on finish), replacing the old fork-a-golden-per-run
-# model. See dev/skills/ci/SKILL.md and docs/pu-box-ci-ralph-report.md.
 
 # Bring the pool up to strength: (re)create any missing/unhealthy slot, leave
 # healthy (warm) slots untouched. Size with KOLU_CI_POOL (default 8).

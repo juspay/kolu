@@ -42,15 +42,8 @@ import subprocess
 import sys
 from urllib.parse import quote, urlsplit
 
-# An attribute names the index file, so nothing that could climb out of the
-# directory is allowed through.
 ATTR = re.compile(r"[A-Za-z_][A-Za-z0-9_'-]*")
-# This repository — the action ships beside it, so the pinned tools it runs are
-# found from here rather than from the caller's working directory.
 REPO = pathlib.Path(__file__).resolve().parents[3]
-# The baked source's file names, from the registry Nix writes them by and
-# TypeScript reads them by (`packages/surface-remote/agent-env.json`) — the
-# action's checkout is the whole kolu repository, so it is beside this script.
 AGENT_ENV = json.loads((REPO / "packages/surface-remote/agent-env.json").read_text())
 STORE_PATH = re.compile(r"/nix/store/[0-9a-z]{32}-[^/]+")
 FULL_REV = re.compile(r"[0-9a-f]{40}")
@@ -234,18 +227,13 @@ def resolve(args) -> int:
     if not FULL_REV.fullmatch(args.rev):
         die(f"the full revision {args.rev!r} is not a 40-hex commit")
     if not args.rev.startswith(rev_key):
-        # A dirty or foreign source would key entries no consumer built.
         die(f"the index key {rev_key!r} is not a prefix of the commit {args.rev} — refusing to publish it")
     declaration = read_declaration(sidecar)
     if declaration["index"]["repo"] != args.repository:
-        # The declaration is the source of truth for where entries go; this
-        # run can only push the branch of the repository it runs in.
         die(f"the declaration publishes to {declaration['index']['repo']}, "
             f"but this run is in {args.repository} — run it in the declared repository")
     cache = declaration["substituters"][0]
     kind = pusher_kind(declaration)
-    # Early refusal, before a closure is built: the pusher's own target must be
-    # derivable. `push` derives it again from the values printed below.
     push_plan(cache, kind)
     outputs = {
         "installables": " ".join(installables),
@@ -253,8 +241,6 @@ def resolve(args) -> int:
         "cache": cache,
         "pusher": kind,
         "index-branch": declaration["index"]["branch"],
-        # The declaration itself, on one line: `verify` reads the keys a
-        # consumer trusts the signed path by out of it, as a consumer does.
         "declaration": json.dumps(declaration, separators=(",", ":")),
     }
     for key, value in outputs.items():
