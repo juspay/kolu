@@ -1,5 +1,3 @@
-# Regenerate words.json from WordNet.
-# Usage: just regenerate  (from this directory)
 { pkgs ? import ../../nix/nixpkgs.nix { } }:
 
 let
