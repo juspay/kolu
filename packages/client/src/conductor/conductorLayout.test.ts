@@ -47,7 +47,6 @@ describe("the Conductor's two-column breakpoint", () => {
     );
   });
 
-
   it("flips at the same pixel before the stylesheet has applied", () => {
     // The accessor carries the token's value as a fallback for the first
     // frame (and for a unit environment with no layout). A fallback nothing
