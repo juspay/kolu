@@ -11,44 +11,18 @@
   --color-fg-2: #a0a0a8;
   --color-fg-3: #838390;
 
-  /* Chrome selection / links — not agent work. Agent "working" is `--color-busy`. */
   --color-accent: #5a9ea0;
-  /* "Your turn" — agent needs you. Cool violet, deliberately outside the
-   * warm/pending family (busy rust, CI yellow) so it never reads as
-   * "machine in flight". See AgentIndicator + StatePip + AttentionTriplet. */
   --color-alert: #a78bfa;
-  /* Unread obligation — amber. StatePip corner badge, host-tab
-   * finished-unseen. Deliberately its OWN token, warm and distinct from
-   * cool `--color-alert` needs-you violet, so obligation (badge) and
-   * state (core / host pill) stay two axes. */
   --color-attention: #e6a23c;
 
   --color-ok: #4ade80;
   --color-warning: #facc15;
   --color-danger: #f87171;
-  /* A MERGED pull request — the third PR state, beside open (`ok`) and closed
-   * (`danger`). A token rather than a raw Tailwind palette class so the three
-   * states resolve the same way on every surface that paints them, and so a
-   * theme can move it. */
   --color-merged: #c084fc;
-  /* Machine in flight — thinking / tools / live shell output. Not teal accent. */
   --color-busy: #d97757;
 
-  /* THE CONDUCTOR — the one conversation that reaches every host, and the one
-   * tab in the chrome bar that is not a machine. Its own token because it is
-   * an IDENTITY, not a state: the tab wears it at rest and when current, so
-   * the special tab reads as the special one without borrowing `--color-accent`
-   * (chrome selection / links), `--color-busy` (a machine in flight) or
-   * `--color-alert` (an agent blocked on you) — each of which already means
-   * something else on the same row. Azure: the one hue family the palette had
-   * not spent, so it cannot be mistaken for any of the three. */
   --color-conductor: #6fb4ff;
 
-  /* The sleeping/dormant accent — the `StatePip` ☾, shared with the client's
-   * dormant tile + minimap (`MOONLIT.accent`, same literal `#8895ad`, pinned
-   * equal by `packages/client/src/terminal/moonlit.test.ts`). Deliberately
-   * FIXED: it has no `:root:not(.dark)` override, so a sleeping surface reads
-   * "asleep" identically in light and dark. */
   --color-moonlit: #8895ad;
 
   --motion-spin-duration: 2.8s;
