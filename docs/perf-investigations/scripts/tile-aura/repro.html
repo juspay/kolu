@@ -5,7 +5,6 @@
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>tile-aura perf repro (PR #1348)</title>
 <style>
-  /* ── Reproduces the runtime context: a dark canvas of tiles ─────────────── */
   :root { --color-accent: #7c9cff; }
   * { box-sizing: border-box; }
   html, body { margin: 0; height: 100%; background: #0b0d12; color: #c7ccd6;
@@ -14,22 +13,16 @@
     border: 1px solid #2a3140; border-radius: 8px; padding: 8px 10px; }
   #hud b { color: #fff; }
   #canvas { position: absolute; inset: 0; overflow: hidden; }
-  /* Each tile mirrors a real kolu canvas tile: ~480x320, rounded, dark body. */
   [data-canvas-tile] {
     position: absolute; width: 460px; height: 300px; border-radius: 12px;
     background-color: #11151c; border: 1px solid var(--aura-c, #444);
     color: #6b7280; padding: 10px; overflow: hidden;
     box-shadow: 0 2px 8px rgba(0,0,0,0.2);
   }
-
-  /* ═══════════════════════════════════════════════════════════════════════
-     BELOW: copied VERBATIM from PR #1348 (packages/client/src/index.css)
-     ═══════════════════════════════════════════════════════════════════════ */
   .tile-aura {
     position: absolute; inset: 0; border-radius: inherit;
     pointer-events: none; overflow: hidden; z-index: 5;
   }
-  /* working — marching ants: four edge dashes whose background-position streams */
   [data-canvas-tile][data-aura="working"] .tile-aura {
     background-image:
       linear-gradient(90deg, var(--aura-c) 50%, transparent 0),
@@ -45,7 +38,6 @@
   @keyframes tile-aura-ants {
     to { background-position: 14px 0, -14px 100%, 0 -14px, 100% 14px; }
   }
-  /* needs-you — a comet sweeping a masked ring; speed (--aura-spin) is urgency */
   [data-canvas-tile][data-aura="alert"] .tile-aura,
   [data-canvas-tile][data-aura="waiting-fresh"] .tile-aura,
   [data-canvas-tile][data-aura="waiting-stale"] .tile-aura {
@@ -88,17 +80,11 @@
 </div>
 <div id="canvas"></div>
 <script>
-  // ── Scene builder. URL params: ?n=24&aura=1 ──────────────────────────────
   const q = new URLSearchParams(location.search);
   const N = parseInt(q.get("n") || "24", 10);
-  const AURA = q.get("aura") !== "0"; // default ON (the PR)
-  // off=1 shoves every tile 3200px below the fold — fully off-screen — to test
-  // whether animations on panned-away tiles still burn CPU (they do: CSS
-  // animations don't pause off-screen without content-visibility/display:none).
+  const AURA = q.get("aura") !== "0";
   const OFFSCREEN = q.get("off") === "1" ? 3200 : 0;
-  // Repo-colour palette mimicking distinct repos on the canvas.
   const COLORS = ["#e06c75","#61afef","#98c379","#c678dd","#e5c07b","#56b6c2","#d19a66","#abb2bf"];
-  // State mix representative of a busy canvas: mostly working, some waiting, a few alert.
   const STATES = ["working","working","working","waiting-fresh","working","alert","working","waiting-stale","working","waiting-fresh"];
 
   const canvas = document.getElementById("canvas");
@@ -129,8 +115,6 @@
   document.getElementById("auraOn").textContent = AURA ? ("ON ("+working+" ants / "+needsYou+" comets)") : "OFF (baseline)";
   document.getElementById("dist").textContent = AURA ? "mixed" : "none";
 
-  // Lightweight on-page rAF FPS read (the authoritative number comes from the
-  // DevTools performance trace; this is just a sanity gauge).
   let frames = 0, last = performance.now();
   function loop(t) {
     frames++;
@@ -141,7 +125,6 @@
     requestAnimationFrame(loop);
   }
   requestAnimationFrame(loop);
-  // Signal readiness for the harness.
   window.__reproReady = true;
 </script>
 </body>

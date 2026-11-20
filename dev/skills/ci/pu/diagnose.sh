@@ -1,6 +1,4 @@
 #!/usr/bin/env bash
-# A diagnostic comment must never block the run: this is best-effort
-# and degrades (a missing box, no ssh) rather than erroring out.
 set -uo pipefail
 
 stage="${1:?usage: dev/skills/ci/pu/diagnose.sh <stage> <host> [--pr N] [--dry-run]}"; shift || true

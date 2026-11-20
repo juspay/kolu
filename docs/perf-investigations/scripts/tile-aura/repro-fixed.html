@@ -19,23 +19,11 @@
     color: #6b7280; padding: 10px; overflow: hidden;
     box-shadow: 0 2px 8px rgba(0,0,0,0.2);
   }
-
-  /* ═══════════════════════════════════════════════════════════════════════
-     FIXED aura CSS — compositor-only ants + will-change/contain.
-     ═══════════════════════════════════════════════════════════════════════ */
   .tile-aura {
     position: absolute; inset: 0; border-radius: inherit;
     pointer-events: none; overflow: hidden; z-index: 5;
-    /* Isolate paint so animating the aura never invalidates the tile/terminal. */
     contain: layout paint;
   }
-
-  /* working — marching ants via COMPOSITOR-ONLY transform (was animated
-     background-position = main-thread repaint every frame). background-position
-     is now STATIC placement; only transform animates. Two promoted strips:
-     ::before streams top+bottom on translateX, ::after left+right on translateY.
-     Each strip extends one 14px dash-period beyond its edges (clipped by
-     .tile-aura overflow) so a one-period translate loops with no gap. */
   [data-canvas-tile][data-aura="working"] .tile-aura::before,
   [data-canvas-tile][data-aura="working"] .tile-aura::after {
     content: ""; position: absolute; inset: 0; opacity: 0.9;
@@ -64,9 +52,6 @@
   @keyframes tile-aura-ants-x { to { transform: translateX(14px); } }
   @keyframes tile-aura-ants-y { to { transform: translateY(14px); } }
 
-  /* needs-you — comet sweeping a masked ring. transform:rotate is already
-     compositor-friendly; will-change promotes the layer ONCE (instead of the
-     browser re-deciding promotion every frame with no hint). */
   [data-canvas-tile][data-aura="alert"] .tile-aura,
   [data-canvas-tile][data-aura="waiting-fresh"] .tile-aura,
   [data-canvas-tile][data-aura="waiting-stale"] .tile-aura {
@@ -116,8 +101,6 @@
   const N = parseInt(q.get("n") || "24", 10);
   const AURA = q.get("aura") !== "0";
   const OFFSCREEN = q.get("off") === "1" ? 3200 : 0;
-  // gate=1 simulates the CanvasTile off-screen gating: only tiles whose
-  // screen rect intersects the 1920x1080 viewport mount an aura at all.
   const GATE = q.get("gate") === "1";
   const VW = 1920, VH = 1080, MARGIN = 200;
   const COLORS = ["#e06c75","#61afef","#98c379","#c678dd","#e5c07b","#56b6c2","#d19a66","#abb2bf"];

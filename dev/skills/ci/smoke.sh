@@ -68,9 +68,6 @@ wait_for_daemons_down() {
     done
 }
 
-# The server starts padi asynchronously. Wait until padi is actually serving
-# before terminating its parent; otherwise teardown can observe an empty runtime
-# and remove it while the still-booting grandchild is about to claim its gate.
 wait_for_padi_ready() {
     local logfile=$1 proc=$2 deadline=$((SECONDS + STARTUP_TIMEOUT_SEC))
     while kill -0 "$proc" 2>/dev/null; do
@@ -91,20 +88,20 @@ wait_for_padi_ready() {
 
 probe_terminal_node_tools() {
     local logfile=$1 proc=$2
-    local socket spawned="$tmp/terminal-spawned" output="$tmp/terminal-node-tools"
+    local socket pty_spawned_marker="$tmp/terminal-spawned" node_tools_ok_marker="$tmp/terminal-node-tools"
     socket=$(find "$runtime" -name padi.sock -type s -print -quit)
     "$PADI_TUI" create --toplevel --socket "$socket" -- /bin/sh -c \
         'printf spawned >"$1"; for tool in node npm npx corepack; do command -v "$tool" || exit 1; done; printf ok >"$2"' \
-        _ "$spawned" "$output" >/dev/null
+        _ "$pty_spawned_marker" "$node_tools_ok_marker" >/dev/null
 
     local deadline=$((SECONDS + STARTUP_TIMEOUT_SEC))
     while kill -0 "$proc" 2>/dev/null; do
-        if [[ -s "$output" ]]; then
+        if [[ -s "$node_tools_ok_marker" ]]; then
             echo "hosted terminal retains node, npm, npx, and corepack"
             return 0
         fi
         if (( SECONDS >= deadline )); then
-            if [[ -s "$spawned" ]]; then
+            if [[ -s "$pty_spawned_marker" ]]; then
                 echo "hosted terminal ran, but node, npm, npx, or corepack is missing from its PATH" >&2
             else
                 echo "hosted terminal never spawned: padi accepted the create but no PTY ran /bin/sh — check node-pty's build/Release artifacts for this platform" >&2
@@ -135,31 +132,32 @@ cleanup() {
 }
 trap cleanup EXIT
 
-wait_for_marker() {
-    local marker=$1 logfile=$2 proc=$3
+wait_for_log_message() {
+    local log_message=$1 logfile=$2 proc=$3
     local deadline=$((SECONDS + STARTUP_TIMEOUT_SEC))
     while kill -0 "$proc" 2>/dev/null; do
-        grep -q "$marker" "$logfile" 2>/dev/null && return 0
+        grep -qF "$log_message" "$logfile" 2>/dev/null && return 0
         if (( SECONDS >= deadline )); then
-            echo "kolu did not log within ${STARTUP_TIMEOUT_SEC}s: $marker" >&2
+            echo "kolu did not log within ${STARTUP_TIMEOUT_SEC}s: $log_message" >&2
             cat "$logfile" >&2
             kill -TERM "$proc" 2>/dev/null || true
             return 1
         fi
         sleep "$POLL_INTERVAL_SEC"
     done
-    echo "kolu exited before logging: $marker" >&2
+    echo "kolu exited before logging: $log_message" >&2
     cat "$logfile" >&2
     return 1
 }
 
-# The values read here (a URL, a path) never contain a quote, so the next " ends
-# the field exactly.
-json_field() {
-    local name=$1 file=$2 marker=$3 match
-    match=$(grep -F "$marker" "$file" | grep -oE "\"$name\":\"[^\"]*\"" | head -1 || true)
-    match=${match#\"$name\":\"}
-    printf '%s' "${match%\"}"
+log_json_field() {
+    local name=$1 logfile=$2 log_message=$3 line
+    line=$(grep -F "$log_message" "$logfile" | head -1) || line=""
+    node -e '
+      const [name, line] = process.argv.slice(1);
+      const match = new RegExp(`"${name}":("(?:[^"\\\\]|\\\\.)*")`).exec(line);
+      process.stdout.write(match ? JSON.parse(match[1]) : "");
+    ' "$name" "$line"
 }
 
 (
@@ -169,8 +167,8 @@ json_field() {
 ) >"$log" 2>&1 &
 pid=$!
 
-wait_for_marker "kolu listening" "$log" "$pid"
-addr=$(json_field address "$log" "kolu listening")
+wait_for_log_message "kolu listening" "$log" "$pid"
+addr=$(log_json_field address "$log" "kolu listening")
 if [[ -z "$addr" ]]; then
     echo "kolu logged 'listening' but no address could be parsed from the line" >&2
     cat "$log" >&2
@@ -204,11 +202,7 @@ if [[ $ec -ne 0 ]]; then
 fi
 echo "shutdown clean"
 
-state_tmp=$(TMPDIR=/tmp mktemp -d)  # short base, same sun_path reason as above
-# Resolve symlinks up front: the server echoes back the KOLU_STATE_DIR we pass
-# verbatim, so we compare against the canonical form to stay robust on the darwin
-# lane (macOS $TMPDIR / `/tmp` resolve under /private) — and against a future
-# change that logs the resolved path rather than the raw env value.
+state_tmp=$(TMPDIR=/tmp mktemp -d)
 custom_state="$(realpath "$state_tmp")/relocated"
 state_log="$state_tmp/kolu.log"
 (
@@ -218,8 +212,8 @@ state_log="$state_tmp/kolu.log"
 ) >"$state_log" 2>&1 &
 state_pid=$!
 
-wait_for_marker "state directory" "$state_log" "$state_pid"
-logged=$(json_field path "$state_log" "state directory")
+wait_for_log_message "state directory" "$state_log" "$state_pid"
+logged=$(log_json_field path "$state_log" "state directory")
 wait_for_padi_ready "$state_log" "$state_pid"
 kill -TERM "$state_pid" 2>/dev/null || true
 wait "$state_pid" 2>/dev/null || true

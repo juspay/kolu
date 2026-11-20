@@ -1,9 +1,4 @@
 #!/usr/bin/env sh
-# THIS IS THE CANONICAL COPY. It lives in kolu, and consumers reach it through
-# the same content-addressed pin they get the package sources from:
-#
-#   sh ${(import ./npins).kolu}/scripts/hydrate-kolu-packages.sh $ARGV
-#
 # cp -rL (not symlink) because TypeScript and Bun both resolve transitive
 # imports from the *real* file location: a symlink whose target sits in
 # /nix/store has no adjacent node_modules, so `effect` and @effect/platform-node
@@ -11,6 +6,10 @@
 # consumer's own root node_modules where those packages live. (The drishti
 # pattern — see github.com/srid/drishti.)
 set -eu
+
+make_writable_best_effort() {
+  chmod -R u+w "$1" 2>/dev/null || true
+}
 
 if [ $(( $# % 2 )) -ne 0 ] || [ $# -eq 0 ]; then
   echo "usage: hydrate-kolu-packages.sh <src> <dest> [<src> <dest> ...]" >&2
@@ -27,7 +26,7 @@ while [ $# -gt 0 ]; do
   fi
   mkdir -p "node_modules/$(dirname "$dest")"
   if [ -d "node_modules/$dest" ]; then
-    chmod -R u+w "node_modules/$dest" 2>/dev/null || true
+    make_writable_best_effort "node_modules/$dest"
   fi
   rm -rf "node_modules/$dest"
   cp -rL "$src" "node_modules/$dest"

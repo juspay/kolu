@@ -11,18 +11,18 @@ function load(path) {
   const typeI = m.node_fields.indexOf("type"),
     nameI = m.node_fields.indexOf("name"),
     sizeI = m.node_fields.indexOf("self_size");
-  const byKey = new Map();
+  const statsByTypeAndName = new Map();
   for (let i = 0; i < N; i++) {
     const type = nTypes[NODES[i * NF + typeI]];
     const name = STR[NODES[i * NF + nameI]] || "";
     const size = NODES[i * NF + sizeI];
     const key = `${type}:${name}`;
-    const e = byKey.get(key) || { count: 0, bytes: 0 };
+    const e = statsByTypeAndName.get(key) || { count: 0, bytes: 0 };
     e.count++;
     e.bytes += size;
-    byKey.set(key, e);
+    statsByTypeAndName.set(key, e);
   }
-  return byKey;
+  return statsByTypeAndName;
 }
 
 const A = load(process.argv[2]);

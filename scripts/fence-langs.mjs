@@ -1,15 +1,3 @@
-// Shared by BOTH astro projects (docs/atlas and website — same class of
-// build): docs/atlas imports it relatively; the website imports it via a
-// candidates URL because its Nix sandbox build copies only website/ (the
-// derivation cp's this file in beside astro.config.mjs — see
-// website/default.nix, same pattern as kolu-server-package.json). Because the
-// two projects pin different shiki/astro versions in separate lockfiles, this
-// module stays dependency-free: the two small sets below are hand-held copies
-// of upstream facts, drift-pinned PER CONSUMER by a unit test that reaches
-// the real export through that consumer's own node_modules
-// (docs/atlas/build/fence-langs.test.mjs and
-// website/test/shiki-eager-langs.test.mjs) — one consumer's pin says nothing
-// about the versions the other installs.
 import { globSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";

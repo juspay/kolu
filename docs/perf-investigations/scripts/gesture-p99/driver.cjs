@@ -1,36 +1,3 @@
-// Per-event work microbenchmark for the canvas pan/zoom write-storm (R3 → R4).
-//
-// #1308 measured the per-wheel transform write-storm at NATIVE speed and found
-// it real-but-benign: ~60 fps even at 9,600 tile writes/fling, so it shipped no
-// fix (`docs/perf-investigations/dock-and-eventloop-1308.md`, "P3 — real, but
-// benign"). The open question it flagged was the *weak client*: "a heavier
-// canvas, a 120 Hz panel, or a much weaker client might surface one." R4
-// (rAF-coalescing the storm) only helps when several wheel events land in one
-// animation frame — so the right thing to measure is the per-event main-thread
-// WORK, and whether coalescing collapses it.
-//
-// Why a burst, not an rAF-paced fling: a headless/CDP Chrome produces ~one
-// frame per dispatched input event (its rAF clock isn't vsync-capped without a
-// real display, and Chrome 143 dropped HeadlessExperimental.beginFrame), so an
-// rAF-paced fling can't show coalescing — every event gets its own frame. This
-// harness instead dispatches a BURST of K WheelEvents from page JS in a tight
-// loop (no `await`, so no rAF/microtask runs mid-loop). That is exactly the
-// regime R4 targets — many events between two paints:
-//
-//   * Before R4 (per-event): each event writes panX/panY/zoom synchronously, so
-//     the burst does K full tile-recomputes. `burstMs` scales with K, and the
-//     tile-write storm is K × tiles.
-//   * After R4 (coalesced): the K events only accumulate; one rAF flush after
-//     the burst applies them once. `burstMs` is ~flat, and writes are 1 × tiles.
-//
-// Under CPU throttle (the "weak client"), the per-event recompute cost is what
-// blows the 16.67 ms frame budget; `perEventUs` × (events/frame) is the
-// realistic per-frame gesture cost. We sweep 1× / 4× / 6× throttle and report
-// the median of several bursts.
-//
-// Dependency-free: speaks CDP over Node's built-in `WebSocket` + `fetch`.
-//   node driver.cjs <url> [cdpPort=9531] [nTiles=16] [burst=60]
-
 const URL = process.argv[2];
 const PORT = parseInt(process.argv[3] || "9531", 10);
 const N_TILES = parseInt(process.argv[4] || "16", 10);
@@ -74,11 +41,6 @@ async function connectCDP(port) {
   return { send, once, close: () => ws.close() };
 }
 
-// Injected before navigation: a MutationObserver that counts `style` writes on
-// every mounted tile (the write-storm magnitude), plus the burst runner. The
-// burst dispatches K real WheelEvents through the live capture-phase gesture
-// listener — same path as a trackpad fling — in a synchronous loop, then awaits
-// two frames so any coalesced rAF flush has applied.
 const INSTRUMENT = `
 window.__m = { tileTx: 0, _obs: null };
 window.__obsTiles = function(){
@@ -92,11 +54,6 @@ window.__obsTiles = function(){
   });
   return document.querySelectorAll('[data-canvas-tile]').length;
 };
-// A burst is MONOTONIC (all events drift one way) like a real fling — so the
-// coalesced net delta is non-zero and R4 does one real apply, a fair contrast
-// to the per-event path's K applies. \`dir\` (±1, alternated across repeats by the
-// driver) flips the drift each burst so pan/zoom stay bounded over the run
-// instead of flying to the clamp.
 window.__burst = async function(gesture, K, cx, cy, mag, dir){
   var el = document.querySelector('[data-testid="canvas-container"]');
   window.__obsTiles();
@@ -109,9 +66,7 @@ window.__burst = async function(gesture, K, cx, cy, mag, dir){
       clientX: cx, clientY: cy, bubbles: true, cancelable: true,
     }));
   }
-  var t1 = performance.now();                       // synchronous burst cost
-  // Two frames so the coalesced rAF flush lands (and its tile writes register)
-  // before the next burst — the wait is needed even though we don't time it.
+  var t1 = performance.now();
   await new Promise(function(r){ requestAnimationFrame(function(){ requestAnimationFrame(r); }); });
   return JSON.stringify({ burstMs: +(t1-t0).toFixed(2), writes: window.__m.tileTx });
 };
@@ -163,9 +118,6 @@ const median = (xs) => {
   }
   await sleep(2500);
   console.error(`tiles: ${tiles} (after ${attempts} Ctrl+T)`);
-  // The published table is a per-tile-count comparison: a quiet under-count
-  // understates the write-storm this harness exists to prove, and an over-count
-  // inflates it. Fail loud on under-count; warn (don't silently pass) on over.
   if (tiles < N_TILES) {
     throw new Error(
       `only ${tiles}/${N_TILES} tiles after ${attempts} Ctrl+T — scene too small ` +
@@ -194,8 +146,6 @@ const median = (xs) => {
       const mag = gesture === "zoom" ? 8 : 18;
       const burstMs = [];
       const writes = [];
-      // one warmup burst (discarded), then REPEATS measured; alternate drift
-      // direction each burst so pan/zoom stay bounded over the run.
       await evAsync(`window.__burst('${gesture}', ${BURST}, ${ctr.x}, ${ctr.y}, ${mag}, 1)`);
       for (let r = 0; r < REPEATS; r++) {
         const dir = r % 2 === 0 ? 1 : -1;

@@ -17,10 +17,6 @@
   .rail { position: absolute; top: 12px; left: 12px; display: flex; flex-direction: column; gap: 10px; }
   .cards { position: absolute; top: 12px; left: 120px; display: flex; flex-wrap: wrap; gap: 12px; width: 1100px; }
 
-  /* ═══ FIXED: paint→composite. box-shadow/background animated ONCE→static;
-     only opacity/transform animate (compositor). will-change promotes once. ═══ */
-
-  /* pills — base background set once (full strength); animate opacity */
   .pill-border { position: relative; }
   .pill-border::before {
     content: ""; position: absolute; inset: -2px;
@@ -40,7 +36,6 @@
   }
   @keyframes pill-working-pulse { 0%, 100% { opacity: 0.44; } 50% { opacity: 1; } }
 
-  /* record capsule — pre-rendered ring, animate transform:scale + opacity */
   .record-capsule-live { position: relative; }
   .record-capsule-live::after {
     content: ""; position: absolute; inset: 0; border-radius: inherit;
@@ -49,8 +44,6 @@
   }
   @keyframes record-capsule-breathe { 0% { transform: scale(0.92); opacity: 1; } 100% { transform: scale(1); opacity: 0; } }
 
-  /* dock rail chips — glow moves to a .chip-glow child; box-shadow painted once,
-     only opacity/scale (breathe) or transform:rotate (spin) animate */
   .dock-rail-chip {
     position: relative; width: 32px; height: 32px; border-radius: 8px;
     background: color-mix(in oklch, var(--chip-tint) 18%, var(--color-surface-2));

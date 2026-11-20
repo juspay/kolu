@@ -5,7 +5,7 @@ const CDP = require("chrome-remote-interface");
 const URL = process.argv[2], PORT = parseInt(process.argv[3] || "9500", 10);
 const N = parseInt(process.argv[4] || "20", 10);
 const OPENCODE = process.argv[5];
-const RUN_OC = parseInt(process.argv[6] || "15", 10);
+const tilesRunningOpencode = parseInt(process.argv[6] || "15", 10);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 const INSTRUMENT = `
@@ -63,7 +63,7 @@ async function storm(Input,R,x,y,modifiers,deltaY,label){
 
   if (OPENCODE && tiles > 0) {
     const rects = JSON.parse(await ev(Runtime, `window.__tileRects()`));
-    const n = Math.min(RUN_OC, rects.length);
+    const n = Math.min(tilesRunningOpencode, rects.length);
     for (let i = 0; i < n; i++) {
       const r = rects[i];
       await click(Input, r.x + Math.round(r.w/2), r.y + 70);
