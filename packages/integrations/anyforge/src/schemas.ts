@@ -1,28 +1,5 @@
-/** Effect Schemas + pure helpers for forge-neutral PR metadata — and the
- *  GENERIC result/provider shapes that name no forge.
- *
- *  The wire vocabulary every forge adapter speaks: `PrInfo` (the resolved PR)
- *  and `PrResult` (the resolution state machine), generic over the failure
- *  `source` so this leaf enumerates no forge. A concrete adapter (kolu-github)
- *  owns its own `*UnavailableSchema` in its own `./schemas` subpath; the app
- *  (kolu-common) composes the CLOSED, exhaustively-matchable
- *  `PrUnavailableSource` union and pins `PrResult` to it.
- *
- *  This is the same generic-shape-in-leaf / closed-union-in-app split anyagent
- *  makes: `AgentInfoShape { kind: string; … }` lives in the anyagent leaf
- *  (naming no agent), each agent owns its `*InfoSchema`, and `AgentInfoSchema`
- *  — the discriminated union — composes in kolu-common's surface. Here
- *  `PrUnavailableSourceBase { provider: string; code: string }` is the generic
- *  base, the gh arm lives in kolu-github, and the closed union composes in the
- *  app. A new forge's arm joins that app-side union; this leaf never changes.
- *
- *  Browser-safe: effect + ts-pattern only, no node APIs. Adapters implement
- *  `ForgeAdapter<S>` against these shapes and never import each other. */
-
 import { Effect, Schema } from "effect";
 import { match, P } from "ts-pattern";
-
-// --- PR info ---
 
 export const CheckStatusSchema = Schema.Literals(["pending", "pass", "fail"]);
 export type CheckStatus = typeof CheckStatusSchema.Type;
@@ -152,8 +129,6 @@ export function foldCheckOutcomes(
   return worst;
 }
 
-// --- Generic unavailable source + PrResult ---
-
 /** The generic failure source the kernel knows: a provider tag + its code.
  *  The CLOSED, exhaustively-matchable union over concrete adapters is composed
  *  in the app (kolu-common), exactly as AgentInfoSchema composes the per-agent
@@ -247,25 +222,14 @@ export function prResultEqual<S extends PrUnavailableSourceBase>(
           checkRunsEqual(a.value.checkRuns, bv.checkRuns) &&
           a.value.reviewDecision === bv.reviewDecision &&
           a.value.mergeStateStatus === bv.mergeStateStatus &&
-          // A PUSH IS A CHANGE even when every other field reads the same:
-          // the new commit's checks start out `pending` exactly as the old
-          // one's did, and a consumer keeping a history of check states has
-          // only this to tell the two apart.
           a.value.headSha === bv.headSha &&
-          // MARKING A PR READY often moves nothing else: without this, the
-          // dedup gate swallows the one change a consumer waits for.
           a.value.isDraft === bv.isDraft
         );
       })
       .with({ kind: "unavailable" }, (a) => {
-        // Compare the tagged source: provider + code. Both are the typed
-        // discriminators; the display reason derives from them via
-        // `reasonForSource` and doesn't need its own comparison.
         const bs = (b as Extract<PrResult<S>, { kind: "unavailable" }>).source;
         return a.source.provider === bs.provider && a.source.code === bs.code;
       })
-      // "pending", "absent", and "unsupported" have no payload — kind equality
-      // (already checked) is enough.
       .with({ kind: P.union("pending", "absent", "unsupported") }, () => true)
       .exhaustive()
   );

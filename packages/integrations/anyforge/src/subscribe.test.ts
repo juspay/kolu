@@ -14,14 +14,10 @@ import type { ForgeAdapter, PrGitContext, PrResolveCause } from "./adapter.ts";
 import type { PrResult } from "./schemas.ts";
 import { subscribePr } from "./subscribe.ts";
 
-/** A `Logger` whose `error` is a spy, so we can assert the watcher contained a
- *  throwing consumer instead of letting it escape as an unhandled rejection. */
 function spyLogger(): Logger {
   return { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() };
 }
 
-/** Stub adapter resolving to a fixed result — the fixture that replaces the
- *  real gh spawn now that the loop is decoupled from any one forge. */
 function stubAdapter(result: PrResult): ForgeAdapter {
   return { kind: "github", resolve: async () => result };
 }
@@ -35,15 +31,9 @@ function ctx(overrides: Partial<PrGitContext> = {}): PrGitContext {
   };
 }
 
-/** Wait for in-flight micro/macro tasks to settle (the stub resolves
- *  instantly, so 50 ms is generous headroom for the floated `fetchAndEmit`
- *  to land). */
 const settle = () => new Promise<void>((r) => setTimeout(r, 50));
 
 describe("subscribePr", () => {
-  // Precise mock type: a bare `ReturnType<typeof vi.fn>` widens to the
-  // `Procedure | Constructable` union (a construct signature), which doesn't
-  // match `process.on`'s listener overload.
   let unhandled: Mock<(reason: unknown, promise: Promise<unknown>) => void>;
 
   beforeEach(() => {
@@ -56,11 +46,6 @@ describe("subscribePr", () => {
   });
 
   it("contains a throwing onChange instead of escaping as an unhandled rejection", async () => {
-    // The resolve lands, then `emit` runs our `onChange` with it. We make
-    // that callback throw — the shape of a metadata write blowing up — and
-    // assert it is logged, not propagated. Without the try/catch inside
-    // `emit` this propagates back through the floated `fetchAndEmit` as an
-    // unhandled rejection that crashes the process.
     const log = spyLogger();
     let calls = 0;
     const watcher = subscribePr(
@@ -73,34 +58,22 @@ describe("subscribePr", () => {
     );
 
     try {
-      // Real change → pending dedup is a no-op on first call, then a floated
-      // `fetchAndEmit` resolves and calls our throwing `onChange`.
       watcher.setGit(ctx());
-      await settle(); // let the floated async settle
+      await settle();
 
-      expect(calls).toBeGreaterThan(0); // the throwing consumer ran
+      expect(calls).toBeGreaterThan(0);
       expect(log.error).toHaveBeenCalledWith(
         expect.objectContaining({ err: expect.anything() }),
         "pr watcher: emit failed",
       );
-      expect(unhandled).not.toHaveBeenCalled(); // nothing escaped
+      expect(unhandled).not.toHaveBeenCalled();
     } finally {
       watcher.stop();
     }
   });
 
   it("contains a throwing onChange on the synchronous pending emit after the watcher has left its initial pending state", async () => {
-    // Regression for the synchronous path: `setGit` emits `{ kind: "pending" }`
-    // directly (not via the floated `fetchAndEmit`). On the *first* context the
-    // initial `lastPr` is already pending, so dedup suppresses it. But once a
-    // resolve has driven `lastPr` to a non-pending value, a *later* branch
-    // change re-emits pending through the consumer — synchronously, inside
-    // `setGit`. If the boundary lived only in `fetchAndEmit`, this throw would
-    // escape straight out of `setGit` into the server's `channels.git.consume`
-    // and freeze the subscription. The boundary belongs on the shared `emit`.
     const log = spyLogger();
-    // First, let a real resolve land so `lastPr` becomes non-pending, *without*
-    // throwing yet.
     let shouldThrow = false;
     const watcher = subscribePr(
       stubAdapter({ kind: "absent" }),
@@ -112,10 +85,8 @@ describe("subscribePr", () => {
 
     try {
       watcher.setGit(ctx());
-      await settle(); // resolve settles → lastPr non-pending
+      await settle();
 
-      // Now arm the throw and change branch. This drives the synchronous
-      // pending emit through the throwing consumer.
       shouldThrow = true;
       expect(() =>
         watcher.setGit(ctx({ branch: "other-branch" })),
@@ -134,9 +105,6 @@ describe("subscribePr", () => {
   });
 
   it("contains a throwing adapter instead of escaping as an unhandled rejection", async () => {
-    // The adapter contract says resolve() never throws — guard regardless,
-    // since the floated `fetchAndEmit` would otherwise turn an adapter bug
-    // into a process crash.
     const log = spyLogger();
     const onChange = vi.fn();
     const watcher = subscribePr(
@@ -163,9 +131,6 @@ describe("subscribePr", () => {
   });
 
   it("drops a stale in-flight resolve when the branch switches mid-flight", async () => {
-    // A resolve from branch A is slow; while it's pending the terminal
-    // switches to branch B and B resolves first. A's late result must NOT
-    // overwrite B's — the watcher gates each emit on the current context.
     const deferred = new Map<string, (pr: PrResult) => void>();
     const adapter: ForgeAdapter = {
       kind: "github",
@@ -178,11 +143,10 @@ describe("subscribePr", () => {
     const watcher = subscribePr(adapter, (pr) => seen.push(pr));
 
     try {
-      watcher.setGit(ctx({ branch: "A" })); // floats resolve(A), still pending
-      watcher.setGit(ctx({ branch: "B" })); // floats resolve(B), still pending
+      watcher.setGit(ctx({ branch: "A" }));
+      watcher.setGit(ctx({ branch: "B" }));
       await settle();
 
-      // B resolves first with a real PR, then the stale A resolves.
       const prB: PrResult = {
         kind: "ok",
         value: {
@@ -217,7 +181,6 @@ describe("subscribePr", () => {
       });
       await settle();
 
-      // Last emitted value must be B's PR, never re-overwritten by A.
       const last = seen.at(-1);
       expect(last?.kind).toBe("ok");
       if (last?.kind === "ok") expect(last.value.number).toBe(2);
@@ -227,11 +190,6 @@ describe("subscribePr", () => {
   });
 
   it("drops a stale in-flight resolve when the terminal leaves the repo", async () => {
-    // `setGit(null)` (leaving the repo) stops polling. A resolve that was
-    // in flight when we left must NOT land afterward — there is no poll to
-    // correct it, so a late stale emit would persist forever.
-    // A boxed resolver — a plain `let` would be narrowed to `null` at the
-    // call site because TS can't see the executor closure assign it.
     const box: { resolve: ((pr: PrResult) => void) | null } = { resolve: null };
     const adapter: ForgeAdapter = {
       kind: "github",
@@ -244,12 +202,11 @@ describe("subscribePr", () => {
     const watcher = subscribePr(adapter, (pr) => seen.push(pr));
 
     try {
-      watcher.setGit(ctx()); // floats a resolve, still pending
+      watcher.setGit(ctx());
       await settle();
-      watcher.setGit(null); // leave the repo → emits pending, polling stops
+      watcher.setGit(null);
       await settle();
 
-      // The stale resolve lands after we've left.
       box.resolve?.({
         kind: "ok",
         value: {
@@ -267,10 +224,6 @@ describe("subscribePr", () => {
       });
       await settle();
 
-      // The terminal left the repo: the stale `ok` must never reach the
-      // consumer. (Both pending emits dedup against the watcher's initial
-      // pending state, so the consumer legitimately sees nothing at all — the
-      // load-bearing assertion is that no PR landed.)
       expect(seen.some((p) => p.kind === "ok")).toBe(false);
     } finally {
       watcher.stop();
@@ -278,10 +231,6 @@ describe("subscribePr", () => {
   });
 
   it("re-resolves and re-emits pending on a remoteUrl-only change", async () => {
-    // A `git remote set-url` changes only `remoteUrl` (same repoRoot/branch).
-    // An upstream dispatcher routes to a forge by the remote's host, so this
-    // must NOT dedup — it has to re-resolve, and emit pending in the meantime
-    // so a stale forge's PR doesn't linger while the new resolve is in flight.
     const seenCtx: PrGitContext[] = [];
     const seen: PrResult[] = [];
     const adapter: ForgeAdapter = {
@@ -300,12 +249,10 @@ describe("subscribePr", () => {
       watcher.setGit(ctx({ remoteUrl: "https://codeberg.org/owner/repo.git" }));
       await settle();
 
-      // A fresh resolve happened with the new remote.
       expect(seenCtx.length).toBe(before + 1);
       expect(seenCtx.at(-1)?.remoteUrl).toBe(
         "https://codeberg.org/owner/repo.git",
       );
-      // Pending was re-emitted on the change (before the resolve landed).
       expect(seen.some((p) => p.kind === "pending")).toBe(true);
     } finally {
       watcher.stop();
@@ -313,10 +260,6 @@ describe("subscribePr", () => {
   });
 
   it("drops a stale in-flight resolve when the remote changes mid-flight", async () => {
-    // A resolve against remote A is slow; while it's pending the remote is
-    // switched to B and B resolves first. A's late result must NOT overwrite
-    // B's — the stale-result guard gates on the full context, remoteUrl
-    // included.
     const deferred = new Map<string, (pr: PrResult) => void>();
     const adapter: ForgeAdapter = {
       kind: "github",
@@ -331,8 +274,8 @@ describe("subscribePr", () => {
     const remoteB = "https://codeberg.org/owner/repo.git";
 
     try {
-      watcher.setGit(ctx({ remoteUrl: remoteA })); // floats resolve(A)
-      watcher.setGit(ctx({ remoteUrl: remoteB })); // floats resolve(B)
+      watcher.setGit(ctx({ remoteUrl: remoteA }));
+      watcher.setGit(ctx({ remoteUrl: remoteB }));
       await settle();
 
       const prB: PrResult = {
@@ -387,7 +330,7 @@ describe("subscribePr", () => {
     try {
       watcher.setGit(ctx());
       await settle();
-      watcher.setGit(ctx()); // same repoRoot/branch — a no-op
+      watcher.setGit(ctx());
       await settle();
 
       expect(resolves).toHaveBeenCalledTimes(1);

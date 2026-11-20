@@ -1,20 +1,3 @@
-/** The generic PR watcher — forge-agnostic poll/dedup/pending/emit-guard
- *  machinery, one instance per terminal for its whole life.
- *
- *  Mirrors `kolu-git`'s `subscribeGitInfo` shape: the caller wires the
- *  watcher to its own git source (channel subscription, signal, whatever)
- *  via `setGit`, and receives resolved `PrResult` values through `onChange`.
- *
- *  Owns: git-context dedup, result dedup (via `prResultEqual`), pending
- *  emission on a context change (so stale PR info doesn't linger while a
- *  resolve is in flight), and a 30s polling loop that re-resolves on the
- *  last-seen context (PRs can be created/updated externally).
- *
- *  Does not own: the git source, metadata publishing, terminal lifecycle,
- *  or *which* forge answers — the single `adapter` is injected, so the
- *  watcher is forge-agnostic without ever naming a forge, mirroring how
- *  `startAgentSensor` takes one `AgentAdapter`. */
-
 import type { Logger } from "@kolu/log";
 import type { ForgeAdapter, PrGitContext, PrResolveCause } from "./adapter.ts";
 import {
@@ -48,10 +31,6 @@ function gitContextEqual(
 ): boolean {
   if (a === b) return true;
   if (!a || !b) return false;
-  // `remoteUrl` is part of the resolve context: an upstream dispatcher routes
-  // to a forge by the remote's host, so a remote-only change (`git remote
-  // set-url`) must re-resolve and re-dispatch. Omitting it here would leave a
-  // stale forge selection stuck until a branch/repo switch.
   return (
     a.repoRoot === b.repoRoot &&
     a.branch === b.branch &&
@@ -75,11 +54,6 @@ export function subscribePr<S extends PrUnavailableSourceBase>(
   function emit(pr: PrResult<S>): void {
     if (stopped || prResultEqual(pr, lastPr)) return;
     lastPr = pr;
-    // `onChange` is the caller's callback (a metadata write that can throw).
-    // Guard it here — the single funnel every emission path passes through —
-    // so a throwing consumer degrades this terminal's PR metadata instead of
-    // escaping: synchronously out of `setGit` into the git channel's consume
-    // loop, or as an unhandled rejection out of the floated `fetchAndEmit`.
     try {
       onChange(pr);
     } catch (err) {
@@ -103,10 +77,6 @@ export function subscribePr<S extends PrUnavailableSourceBase>(
       if (!gitContextEqual(git, lastGit)) return;
       emit(pr);
     } catch (err) {
-      // The adapter contract says resolve() classifies failures into
-      // PrResult and never throws. Guard anyway so a misbehaving adapter
-      // degrades this terminal's PR metadata instead of escaping the
-      // floated call as an unhandled rejection; the next poll retries.
       log?.error({ err }, "pr watcher: resolve threw");
     }
   }
@@ -118,9 +88,6 @@ export function subscribePr<S extends PrUnavailableSourceBase>(
       "git context changed, re-resolving",
     );
     lastGit = git;
-    // Emit pending so stale PR info doesn't linger while resolve is in
-    // flight. If we already last-emitted pending, dedup inside `emit`
-    // makes this a no-op.
     emit({ kind: "pending" });
     if (git) void fetchAndEmit(git, "context");
   }

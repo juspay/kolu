@@ -1,7 +1,3 @@
-/** Forge-neutral remote-URL grammar. The leaf parses the host out of a git
- *  remote so a dispatcher upstream can map it to a forge — the leaf itself
- *  names no forge. Browser-safe: no node APIs. */
-
 /** Extract the hostname from a git remote URL — both URL-shaped
  *  (`https://host/owner/repo.git`, `ssh://git@host:22/owner/repo`) and
  *  scp-shaped (`git@host:owner/repo.git`) remotes. Returns null for
@@ -18,9 +14,6 @@ export function parseRemoteHost(remoteUrl: string | null): string | null {
   } catch {
     // Not URL-shaped at all — fall through to the scp parser.
   }
-  // scp-style `[user@]host:path` — not a (useful) URL, so parse by hand.
-  // Lowercase so literal host matches (`codeberg.org`) aren't case-fragile,
-  // matching `URL.hostname`'s normalization on the URL-shaped path.
   const m = /^(?:[^@/]+@)?([^:/]+):/.exec(remoteUrl);
   return m?.[1]?.toLowerCase() ?? null;
 }

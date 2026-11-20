@@ -11,10 +11,6 @@ import {
 } from "./schemas.ts";
 import type { PrInfo, PrResult } from "./schemas.ts";
 
-/** Byte-level wire contract for `PrInfo` — the format kolu's server emits and
- *  every client decodes. These assert the exact JSON STRING (not just
- *  decode-equality) because a key-order or key-presence change here is a
- *  silent wire break across a rolling deploy. */
 describe("PrInfo wire format", () => {
   const decode = Schema.decodeUnknownSync(PrInfoSchema);
   const encode = Schema.encodeSync(PrInfoSchema);
@@ -47,9 +43,6 @@ describe("PrInfo wire format", () => {
   });
 
   it("encodes an empty checkRuns as a present [] (never omits the key)", () => {
-    // The decoding default must NOT bleed into encoding: a newer server still
-    // puts `checkRuns` on the wire, so an even-newer peer that grows a
-    // required reading of it sees the field.
     const pr: PrInfo = {
       number: 1,
       title: "t",
@@ -71,8 +64,6 @@ describe("PrInfo wire format", () => {
   });
 
   it("decodes an OLD server payload with no checkRuns / review / merge / head keys (rolling deploy)", () => {
-    // Rolling-deploy tolerance, not a fallback: an older server emitting
-    // payloads without these fields must still parse on a newer client.
     expect(
       decode({
         number: 7,
@@ -90,7 +81,6 @@ describe("PrInfo wire format", () => {
       checks: "pending",
       checkRuns: [],
       reviewDecision: null,
-      // No merge state said — not GitHub's own UNKNOWN.
       mergeStateStatus: null,
       headSha: null,
       isDraft: false,
@@ -116,9 +106,6 @@ describe("PrInfo wire format", () => {
   });
 
   it("refuses a payload that does not say whether the PR is a draft", () => {
-    // No decoding default, unlike the fields above: a reading that does not
-    // say is refused, never read as "ready" — a draft cannot merge whatever
-    // its merge state says, so guessing would ring for a PR nobody can merge.
     const attempt = Schema.decodeUnknownResult(PrInfoSchema);
     const wire = {
       number: 7,
@@ -329,10 +316,7 @@ describe("prResultEqual", () => {
     { field: "checks", value: "fail" },
     { field: "reviewDecision", value: "APPROVED" },
     { field: "mergeStateStatus", value: "CLEAN" },
-    // A PUSH: every other field can read the same and it is still new news.
     { field: "headSha", value: "9b7e3d1" },
-    // MARKED READY: often the only thing that moves, and the news a
-    // consumer waiting for review must not lose to the dedup.
     { field: "isDraft", value: false },
   ] as const)("detects different $field", ({ field, value }) => {
     expect(
