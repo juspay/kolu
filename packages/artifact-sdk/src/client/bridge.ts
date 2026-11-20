@@ -1,8 +1,3 @@
-/** Parent-side bridge to the in-iframe artifact-sdk. Validates incoming
- *  messages by `event.source === iframe.contentWindow` (origin is the
- *  literal string `"null"` under opaque-origin sandbox, so origin-based
- *  validation is meaningless — identity is the check). */
-
 import { match, P } from "ts-pattern";
 import {
   isCrossOriginHttpUrl,
@@ -15,6 +10,15 @@ import type {
   ParentToIframe,
   SelectMsg,
 } from "../types";
+
+/** `event.origin` is the literal string `"null"` for the opaque-origin sandbox
+ *  the preview iframe runs in, so sender identity is the only usable check. */
+function isFromIframe(
+  event: MessageEvent<unknown>,
+  iframe: HTMLIFrameElement,
+): boolean {
+  return event.source === iframe.contentWindow;
+}
 
 export interface BindOptions {
   currentPath: () => string | null;
@@ -40,7 +44,7 @@ export function bindArtifactSdk(
   };
 
   const onMessage = (event: MessageEvent<IframeToParent>): void => {
-    if (event.source !== iframe.contentWindow) return;
+    if (!isFromIframe(event, iframe)) return;
     const msg = event.data;
     if (!msg || typeof msg !== "object") return;
     match(msg)
@@ -73,7 +77,7 @@ function observeFromIframe<T>(
   handle: (t: T) => void,
 ): () => void {
   const onMessage = (event: MessageEvent<IframeToParent>): void => {
-    if (event.source !== iframe.contentWindow) return;
+    if (!isFromIframe(event, iframe)) return;
     const msg = event.data;
     if (!msg || typeof msg !== "object") return;
     const extracted = extract(msg);
@@ -158,13 +162,7 @@ export function observeIframeHistory(
  *  hostile in-frame script can post any shape. A non-http URL handed to
  *  `window.open` would run in the parent's origin; a kolu-origin URL (e.g. the
  *  frame's own preview URL) would load the file as an UNSANDBOXED top-level tab.
- *
- *  The origin half is defense in depth only: it is bypassable through any host
- *  alias of the same server (`localhost` vs `127.0.0.1`, a LAN IP, a
- *  `KOLU_ALLOWED_ORIGINS` entry). The real control is response-level: kolu-server
- *  serves every non-PDF preview with `Content-Security-Policy: sandbox`, so a
- *  top-level load stays opaque-origin however it was reached. Returns a
- *  disposer. */
+ *  Returns a disposer. */
 export function observeIframeOpenExternal(
   iframe: HTMLIFrameElement,
   onOpenExternal: (url: string) => void,

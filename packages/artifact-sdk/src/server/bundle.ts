@@ -23,6 +23,7 @@ async function build(): Promise<SdkBundle> {
     platform: "browser",
     minify: false,
     sourcemap: false,
+    logLevel: "warning",
   });
   const file = result.outputFiles[0];
   if (!file) throw new Error("artifact-sdk: esbuild produced no output");

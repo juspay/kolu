@@ -78,6 +78,9 @@ const bodyText = (
   }
 };
 
+const dropStaleValidators = (headers: Headers.Headers): Headers.Headers =>
+  Headers.removeMany(headers, ["etag", "content-length"]);
+
 /** Wrap a route handler so its `text/html` 200s carry the SDK `<script>`.
  *
  *  Everything else passes through untouched: a non-200 (an error page, a 416),
@@ -100,21 +103,11 @@ export const withArtifactSdk =
       return Effect.gen(function* () {
         const html = yield* bodyText(response.body);
         const { hash } = yield* sdkBundle;
-        // Splicing the SDK <script> changes the body, so the two headers that
-        // describe the ORIGINAL bytes must not ride along: serve-dir's strong
-        // `ETag` would name a representation we no longer send, and its
-        // `Content-Length` would be short. A strong validator must change when
-        // the bytes change and we have no honest new one, so we emit NONE;
-        // `Content-Length` is re-derived from the decorated body by the
-        // response constructor, so dropping the stale one is enough.
         return HttpServerResponse.text(
           decorateHtml(html, `${sdkScriptPath}?v=${hash}`),
           {
             status: 200,
-            headers: Headers.removeMany(response.headers, [
-              "etag",
-              "content-length",
-            ]),
+            headers: dropStaleValidators(response.headers),
             cookies: response.cookies,
           },
         );

@@ -3,6 +3,8 @@ import { extractOffsets } from "./extractOffsets";
 
 const CONTEXT_WINDOW = 32;
 
+const NO_CONTEXT = { prefix: "", suffix: "" } as const;
+
 /** Concatenated text content of a QuoteRoot (Document, ShadowRoot, or Element). Used as the
  *  haystack for prefix/suffix extraction. Pierre's open shadow DOM is
  *  walked transparently when the Range's commonAncestor lives inside it
@@ -20,9 +22,7 @@ export function rootTextContent(doc: QuoteRoot): string {
 export function extractQuote(range: Range, doc: QuoteRoot): Locator {
   const quote = range.toString();
   const offsets = extractOffsets(doc, range);
-  if (!offsets) {
-    return { quote, prefix: "", suffix: "" };
-  }
+  if (!offsets) return { quote, ...NO_CONTEXT };
   const text = rootTextContent(doc);
   const prefix = text.slice(
     Math.max(0, offsets.start - CONTEXT_WINDOW),

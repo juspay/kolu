@@ -4,7 +4,7 @@ import { match } from "ts-pattern";
 import { applyHighlights } from "../core/applyHighlights";
 import { extractQuote } from "../core/extractQuote";
 import { COMMENT_HIGHLIGHT_STYLE } from "../core/theme";
-import { classifyAnchor, isPlainPrimaryClick } from "./deepLink";
+import { classifyAnchor } from "./deepLink";
 import type {
   DeepLinkMsg,
   HistoryMsg,
@@ -29,19 +29,15 @@ function postToParent(
 }
 
 function onAnchorClick(event: MouseEvent): void {
-  if (event.defaultPrevented || (event.button !== 0 && event.button !== 1)) {
-    return;
-  }
+  if (event.defaultPrevented) return;
   const anchor = (event.target as Element | null)?.closest("a");
   if (!anchor) return;
-  match(classifyAnchor(anchor, window.location))
+  match(classifyAnchor(anchor, window.location, event))
     .with({ kind: "external" }, ({ url }) => {
       event.preventDefault();
       postToParent({ type: "kolu-artifact-sdk:open-external", url });
     })
     .with({ kind: "deep-link" }, ({ hash }) => {
-      if (!isPlainPrimaryClick(event)) return;
-      // Never let the frame navigate itself to the app shell — the parent routes.
       event.preventDefault();
       postToParent({ type: "kolu-artifact-sdk:deep-link", hash });
     })
@@ -143,10 +139,9 @@ function ensureHighlightStyle(): void {
 }
 
 function onMessage(event: MessageEvent<ParentToIframe>): void {
-  // The frame is served by the same Kolu origin as its parent. Its sandboxed
-  // document has an opaque security origin, but `location.origin` still names
-  // the URL origin that loaded it. Check both the sender window and that origin:
-  // another window must not be able to steer the preview's path/highlights.
+  // This document's security origin is opaque (sandboxed), but
+  // `location.origin` still names the URL origin that loaded it, so the
+  // origin half of this guard is meaningful.
   if (
     event.source !== window.parent ||
     event.origin !== window.location.origin
@@ -165,26 +160,30 @@ function onMessage(event: MessageEvent<ParentToIframe>): void {
     .otherwise(() => undefined);
 }
 
-function boot(): void {
-  ensureHighlightStyle();
-  document.addEventListener("selectionchange", onSelectionChange);
-  document.addEventListener("click", onAnchorClick);
-  document.addEventListener("auxclick", onAnchorClick);
-  window.addEventListener("message", onMessage);
-  attachBackForwardMouse(window, {
+function forwardTrappedIntents(win: Window): void {
+  win.document.addEventListener("click", onAnchorClick);
+  win.document.addEventListener("auxclick", onAnchorClick);
+  attachBackForwardMouse(win, {
     onBack: () =>
       postToParent({ type: "kolu-artifact-sdk:history", direction: "back" }),
     onForward: () =>
       postToParent({ type: "kolu-artifact-sdk:history", direction: "forward" }),
   });
+  postToParent({
+    type: "kolu-artifact-sdk:ready",
+    pathname: win.location.pathname,
+  });
+}
+
+function boot(): void {
+  ensureHighlightStyle();
+  document.addEventListener("selectionchange", onSelectionChange);
+  window.addEventListener("message", onMessage);
   // A pinch inside this frame is dispatched to THIS document and never reaches
   // the parent window, so the frame refuses page magnification itself — the
   // same shared guard, inside the sandbox (#2354).
   attachPageZoomGuard(window);
-  postToParent({
-    type: "kolu-artifact-sdk:ready",
-    pathname: window.location.pathname,
-  });
+  forwardTrappedIntents(window);
 }
 
 if (document.readyState === "loading") {
