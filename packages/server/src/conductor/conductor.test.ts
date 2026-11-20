@@ -5258,3 +5258,97 @@ describe("what the works' readers are told", () => {
     ).toEqual([workIdOf(workKey("one"))]);
   });
 });
+
+describe("the human's choices on the memory", () => {
+  const AT = "2026-12-02T09:15:00.000Z";
+  const waiting = (id: string, title: string): MemoryProposal => ({
+    id,
+    change: { kind: "add", title, about: null, body: `${title}, always.` },
+    why: "you said so",
+    at: AT,
+    batch: "turn-1",
+  });
+
+  it("work while there is no conversation, and reach the cell and the record", async () => {
+    const r = rig({
+      memory: {
+        entries: [],
+        proposals: [waiting("p1", "Squash-merge"), waiting("p2", "Rebase")],
+        declined: [],
+        next: 3,
+      },
+    });
+    expect(r.host.approveMemory("p1", null)).toBe("remembered");
+    r.host.declineMemory("p2");
+    const added = r.host.saveMemory(
+      { title: "Never merge on a Friday", about: null, body: "Not even one." },
+      null,
+    );
+    expect(added.by).toBe("you");
+    expect(
+      r.host.importMemory([
+        { title: "Imported", about: "demo-app", body: "From a file." },
+      ]),
+    ).toEqual({ added: 1, already: 0 });
+    r.host.deleteMemory(added.id);
+
+    expect(r.spawns).toHaveLength(0);
+    const last = r.memoryPublished().at(-1);
+    expect(last?.proposals).toEqual([]);
+    expect(last?.entries.map((entry) => entry.title)).toEqual([
+      "Squash-merge",
+      "Imported",
+    ]);
+    await r.host.dispose();
+    expect(r.memory.value().declined.map((one) => one.change)).toEqual([
+      waiting("p2", "Rebase").change,
+    ]);
+    expect(r.memory.value().entries).toEqual(last?.entries);
+  });
+
+  it("refuse with the store's sentence, and change nothing", () => {
+    const r = rig();
+    let refusal: unknown;
+    try {
+      r.host.approveMemory("p9", null);
+    } catch (err) {
+      refusal = err;
+    }
+    expect(refusal).toBeInstanceOf(MemoryRefused);
+    expect((refusal as MemoryRefused).kind).toBe("no-such-proposal");
+    expect(r.memory.writes()).toBe(0);
+  });
+
+  it("settle the proposal's row in the chat where it was proposed", async () => {
+    const row: ConductorRow = {
+      id: "kolu:memory:p1",
+      seq: 1,
+      since: AT,
+      kind: "memory-proposal",
+      proposal: "p1",
+      title: "Squash-merge",
+      change: waiting("p1", "Squash-merge").change,
+      why: "you said so",
+      ended: null,
+    };
+    const r = rig({
+      record: { ...EMPTY_PERSISTED_CONDUCTOR, sessionId: "sess-1", cwd: HOME },
+      rows: [row],
+      memory: {
+        entries: [],
+        proposals: [waiting("p1", "Squash-merge")],
+        declined: [],
+        next: 2,
+      },
+    });
+    r.host.approveMemory("p1", {
+      title: "Squash-merge on demo-app",
+      about: null,
+      body: "Squash-merge, always.",
+    });
+    await r.host.dispose();
+    expect(
+      r.transcript.value().rows.find((one) => one.id === row.id),
+    ).toMatchObject({ ended: "edited" });
+  });
+});
