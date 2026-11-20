@@ -96,3 +96,21 @@ Feature: Peek at a terminal from the Conductor
     When I type "sentinel-mine" on the keyboard
     Then the peek should have heard "sentinel-mine"
     And there should be no page errors
+
+  @mobile
+  Scenario: On a phone the peek carries its own key bar once the terminal is yours
+    Given a repo for the work
+    When I ask the conductor to open the work "peek on a phone"
+    And I answer the work's question with "hand-over" in the chat
+    And I ask the conductor to run the implementor in the work's repo
+    Then the work column should list the terminal as a member
+    When I look at the member terminal
+    Then the peek should be open
+    And the peek's terminal should have come up
+    And the peek should carry no key bar
+    When I take over from the peek
+    Then the peek should say you are driving
+    And the peek should carry the key bar
+    When I type "sentinel-phone" into the peek
+    Then the peek should have heard "sentinel-phone"
+    And there should be no page errors

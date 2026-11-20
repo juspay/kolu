@@ -257,3 +257,22 @@ When("I close the peek", async function (this: KoluWorld) {
 When("I open the peeked terminal's tile", async function (this: KoluWorld) {
   await this.page.locator('[data-testid="peek-open-tile"]').click();
 });
+
+When(
+  "I tap the peek's key {string}",
+  async function (this: KoluWorld, key: string) {
+    await this.page.locator(`${PEEK} [data-testid="mobile-key-${key}"]`).tap();
+    await this.waitForFrame();
+  },
+);
+
+Then("the peek should carry the key bar", async function (this: KoluWorld) {
+  await this.page.locator(`${PEEK} [data-testid="mobile-key-bar"]`).waitFor({
+    state: "visible",
+    timeout: POLL_TIMEOUT,
+  });
+});
+
+Then("the peek should carry no key bar", async function (this: KoluWorld) {
+  await waitForCount(this, `${PEEK} [data-testid="mobile-key-bar"]`, 0);
+});
