@@ -1,7 +1,3 @@
-/** Shared structured-logger sinks for tests. Kept on a test-only export so the
- * authoritative {@link Logger} shape and its no-output/collecting fixtures
- * evolve together without adding production runtime behavior. */
-
 import type { Logger } from "./index.ts";
 
 /** Swallow every log line. */
