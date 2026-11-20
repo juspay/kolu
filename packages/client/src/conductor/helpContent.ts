@@ -61,7 +61,8 @@ export type HelpSectionId =
   | "files"
   | "mid-work"
   | "wakes"
-  | "asks";
+  | "asks"
+  | "memory";
 
 /** One piece of a bullet, by what it IS rather than how it looks:
  *
@@ -218,6 +219,27 @@ export function helpSections(
           text(" tab’s badge is violet"),
         ],
         [text("A green PR handed to you needs you too, on its card")],
+      ],
+    },
+    {
+      id: "memory",
+      heading: "What it remembers",
+      items: [
+        [text("It proposes; nothing is kept until you say so")],
+        [
+          screen("Remember"),
+          text(", "),
+          screen("Edit…"),
+          text(" or "),
+          screen("Don't"),
+        ],
+        [
+          text("All of it in "),
+          screen("⋯"),
+          text(" → "),
+          screen("Memory"),
+          text(": edit, delete, export, import"),
+        ],
       ],
     },
   ];

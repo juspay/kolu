@@ -293,7 +293,8 @@ export function foldToolRuns(
       kind !== "user" &&
       kind !== "divider" &&
       kind !== "wake" &&
-      kind !== "compaction"
+      kind !== "compaction" &&
+      kind !== "memory-proposal"
     ) {
       run.push(entry);
       continue;

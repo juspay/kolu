@@ -14,7 +14,7 @@ Feature: The Conductor compacts its own conversation
     And the compaction line should read "compacted"
     And the compaction line should be folded
     When I open the compaction line
-    Then the compaction line should say "Claude Code replaced the conversation above with this summary. The rules were sent again."
+    Then the compaction line should say "Claude Code replaced the conversation above with this summary. The rules and your memory were sent again."
     And the compaction line should show the summary "Two works are open. Nothing waits on you."
     And there should be no page errors
 

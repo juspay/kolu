@@ -68,7 +68,7 @@ describe("the compaction line", () => {
     expect(seen.unfolds()).toBe(true);
     expect(seen.open()).toBe(false);
     expect(seen.sentence()).toBe(
-      "Claude Code replaced the conversation above with this summary. The rules were sent again.",
+      "Claude Code replaced the conversation above with this summary. The rules and your memory were sent again.",
     );
     expect(seen.summary()).toBe("Two works are open.");
   });
@@ -78,7 +78,7 @@ describe("the compaction line", () => {
     expect(seen.toggle()).toContain("compacted");
     expect(seen.toggle()).not.toContain(" at ");
     expect(seen.sentence()).toBe(
-      "Claude Code replaced the conversation above with this summary. The rules go out again with the next message.",
+      "Claude Code replaced the conversation above with this summary. The rules and your memory go out again with the next message.",
     );
   });
 

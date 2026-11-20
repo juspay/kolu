@@ -20,6 +20,7 @@ import Tip from "../ui/Tip";
 import { isDesktop } from "../useMobile";
 import ConductorMenu from "./ConductorMenu";
 import ConductorSettings from "./ConductorSettings";
+import MemoryChip from "./memory/MemoryChip";
 import { useShown } from "../ui/shown";
 import { tokens } from "./tokens";
 
@@ -150,6 +151,7 @@ const ConductorHeader: Component<{
         {props.state.model?.name ?? props.state.agentName}
       </button>
       <div class="flex-1" />
+      <MemoryChip />
       <Show when={usage()}>
         {(u) => (
           <Tip

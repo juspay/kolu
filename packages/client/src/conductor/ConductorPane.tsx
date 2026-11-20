@@ -52,6 +52,9 @@ import ConductorStrip from "./ConductorStrip";
 import ConductorTranscript from "./ConductorTranscript";
 import WorkColumn from "./WorkColumn";
 import { ConductorHelpColumn, ConductorHelpSheet } from "./ConductorHelp";
+import MemoryEditor from "./memory/MemoryEditor";
+import MemoryImport from "./memory/MemoryImport";
+import { MemorySheet } from "./memory/MemorySheet";
 import { conductorHelpColumn, conductorWide } from "./conductorLayout";
 import { useConductor } from "./useConductor";
 import { exitConductorMode } from "./useConductorMode";
@@ -401,6 +404,9 @@ const ConductorPane: Component<{
                 `⋯` menu wherever the help is not a column — a phone, and any
                 window below the width the column needs. */}
             <ConductorHelpSheet />
+            <MemorySheet />
+            <MemoryEditor />
+            <MemoryImport />
           </>
         }
       >

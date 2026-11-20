@@ -51,6 +51,7 @@ import {
 import ScrollToBottom from "../terminal/ScrollToBottom";
 import ConductorAsk from "./ConductorAsk";
 import CompactionLine from "./CompactionLine";
+import MemoryProposalCard from "./memory/MemoryProposalCard";
 import ConductorProse from "./ConductorProse";
 import ConductorToolCard from "./ConductorToolCard";
 import { useShown } from "../ui/shown";
@@ -491,10 +492,13 @@ const ConductorTranscript: Component<{
                 { equals: sameWorks },
               );
               /** A QUESTION IS NEVER FOLDED AWAY: it is the one thing in the
-               *  conversation that waits on a person. */
+               *  conversation that waits on a person. Nor is a proposal to
+               *  remember, nor a compaction. */
               const kept = createMemo(
                 () =>
-                  turn().asks.has(first().id) || first().kind === "compaction",
+                  turn().asks.has(first().id) ||
+                  first().kind === "compaction" ||
+                  first().kind === "memory-proposal",
               );
               const drawn = createMemo(
                 () =>
@@ -772,7 +776,7 @@ function TranscriptRow(props: {
             {(row) => <CompactionLine row={row()} />}
           </Match>
           <Match when={props.row.kind === "memory-proposal" && props.row}>
-            {(row) => <p class="text-fg-2">{row().title}</p>}
+            {(row) => <MemoryProposalCard shown={row()} />}
           </Match>
           <Match when={props.row.kind === "divider" && props.row}>
             {(row) => (

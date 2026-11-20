@@ -21,9 +21,9 @@ import {
 import { toast } from "solid-sonner";
 import { writeTextToClipboard } from "@kolu/solid-logtail";
 import { CloseIcon, CopyIcon } from "../ui/Icons";
+import MarkdownField from "../ui/MarkdownField";
 import ModalDialog from "../ui/ModalDialog";
 import { surface } from "../ui/Surface";
-import { IntentMarkdownBlock } from "./IntentMarkdown";
 
 /** Curated emoji quick-row. Pairs glyph with a short label that
  *  doubles as the title-tooltip and as the search target for fuzzy
@@ -162,34 +162,15 @@ const IntentEditorDialog: Component<{
             )}
           </For>
         </div>
-        <textarea
+        <MarkdownField
           ref={setTextareaRef}
-          data-testid="intent-editor-textarea"
           value={draft()}
-          onInput={(e) => setDraft(e.currentTarget.value)}
-          class="w-full min-h-32 resize-y rounded-md border border-edge bg-surface-0 px-3 py-2 font-mono text-[0.78rem] leading-relaxed text-fg outline-none placeholder:text-fg-3/60 focus:border-accent/70 focus:ring-2 focus:ring-accent/25"
+          onInput={setDraft}
+          onSubmit={save}
           placeholder={"🏠 main\n\nWhat are you doing in this terminal?"}
-          spellcheck={false}
-          onKeyDown={(e) => {
-            // Cmd/Ctrl+Enter saves. The `data-kolu-modal="true"` on
-            // Dialog.Content makes `useShortcuts.ts` bail before
-            // dispatching the global "New terminal" altKeybind for
-            // events that originate inside the editor; the inner
-            // stopPropagation is belt-and-braces for any other
-            // bubble-phase handler that might still react.
-            if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
-              e.preventDefault();
-              e.stopPropagation();
-              save();
-            }
-          }}
+          textareaTestId="intent-editor-textarea"
+          previewTestId="intent-editor-preview"
         />
-        <div
-          class="mt-2 min-h-14 max-h-32 overflow-y-auto rounded-md border border-edge/70 bg-surface-0/60 px-3 py-2 text-[0.72rem] leading-snug text-fg-2"
-          data-testid="intent-editor-preview"
-        >
-          <IntentMarkdownBlock markdown={draft()} />
-        </div>
         <div class="mt-3 flex items-center justify-between gap-2">
           <div class="flex items-center gap-2">
             <button
