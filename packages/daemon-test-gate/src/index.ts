@@ -1,15 +1,3 @@
-/**
- * A **zero-production-dependency leaf**, consumed as a **devDependency only** by
- * every package whose tests fork real OS processes. That placement is deliberate
- * and load-bearing: the real-spawner set spans ten packages both above and below
- * the daemon stack (kaval, kaval-tui, padi, server, surface, surface-daemon,
- * surface-daemon-supervisor, surface-remote, kolu-cli, xterm-kit), so no
- * domain-package home is legal without a workspace cycle — but a devDep arrow
- * creates no production dependency, so every one of them can reach this leaf and
- * no layer-ladder question is even expressible. It is test infrastructure (a
- * bounded gate), never a volatility receptacle (electricity.mdx's leaf tier).
- */
-
 import { describe } from "vitest";
 
 export {
@@ -33,13 +21,9 @@ function inTestContext(): boolean {
  * A `describe` block that forks real OS processes (daemons, PTYs, ssh). Runs
  * ONLY under `KOLU_DAEMON_TESTS=1`; otherwise it is `describe.skip`, so a bare
  * `vitest run` on the package forks nothing. Apply it at every real-spawn test
- * site — the deny-by-default inventory test (`no-ungated-forks.test.ts`, F4) FAILS
+ * site — the deny-by-default inventory test (`no-ungated-forks.test.ts`) FAILS
  * if any file carrying a real-spawn signature is left without this gate or the
  * {@link assertDaemonSpawnAllowed} leash.
- *
- * This is the *ergonomic* gate (a skipped block reads cleanly in the reporter);
- * {@link assertDaemonSpawnAllowed} is the *structural* backstop for a fork that
- * somehow runs outside such a block.
  */
 export function describeDaemon(name: string, fn: () => void): void {
   (daemonTestsEnabled() ? describe : describe.skip)(name, fn);
@@ -48,18 +32,8 @@ export function describeDaemon(name: string, fn: () => void): void {
 /**
  * The runtime leash: call this at the exact point a test path is about to fork a
  * real, long-lived OS process (a `kaval` daemon, a PTY, an `ssh`/`nix` child).
- * In a test context with the gate OFF it THROWS — so no helper, dynamic import,
- * or future test can smuggle a real fork past the gate, and a bare `vitest` can
- * never re-arm the #1375 fork bomb. Outside a test context (production) it is a
- * no-op: `VITEST` is unset, so the daemon spawn path is never touched.
- *
- * This is the TEST-INFRASTRUCTURE twin of kaval's PRODUCTION `assertDaemonSpawnAllowed`
- * (`kaval/src/daemonSpawnGate.ts`, F5): the same three-line env read, one in each
- * dependency tier — the leaf stays zero-dep so any test package can reach it; kaval's
- * is a production module the real daemon-spawn funnels (`localKavalDriver` /
- * `localPadiDriver`) wrap their spawn with. The split is intentional, not a duplication
- * to dedupe (deduping would drag a production dep into this devDep-only leaf, or a
- * test-only concept into kaval).
+ * In a test context with the gate OFF it THROWS; outside a test context
+ * (production) it is a no-op, since `VITEST` is unset.
  */
 export function assertDaemonSpawnAllowed(what = "a real OS process"): void {
   if (inTestContext() && !daemonTestsEnabled()) {

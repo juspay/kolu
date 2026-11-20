@@ -107,11 +107,24 @@ const isProcessExecPathArg0 = (node: AstNode): boolean => {
   );
 };
 
-const REAL_DETACHED_CHILD = new Set(["sleep", "systemd-run", "ssh"]);
+const LONG_LIVED_ARG0: Record<string, true> = {
+  sleep: true,
+  "systemd-run": true,
+  ssh: true,
+};
 
 const CHILD_PROCESS_MODULES = new Set(["node:child_process", "child_process"]);
 const NODE_PTY_MODULE = "node-pty";
 const CP_FORK_FNS = new Set(["spawn", "fork", "execFile", "execFileSync"]);
+
+type ForkFamily = "cp-fork" | "pty-spawn" | "createPtyHost" | "shell-runner";
+
+const FORK_SHAPES: Record<ForkFamily, "any-arg0" | "long-lived-arg0"> = {
+  "cp-fork": "long-lived-arg0",
+  "pty-spawn": "any-arg0",
+  createPtyHost: "any-arg0",
+  "shell-runner": "any-arg0",
+};
 
 type ForkBindings = {
   cpFns: Set<string>;
@@ -200,10 +213,11 @@ function collectForkBindings(ast: AstNode): ForkBindings {
   return b;
 }
 
-function resolveForkCallee(
-  node: AstNode,
-  b: ForkBindings,
-): "cp-fork" | "pty-spawn" | "createPtyHost" | null {
+function resolveForkFamily(node: AstNode, b: ForkBindings): ForkFamily | null {
+  if (node.type === "NewExpression") {
+    return calleeName(node) === "ShellRunner" ? "shell-runner" : null;
+  }
+  if (node.type !== "CallExpression") return null;
   const name = calleeName(node);
   if (name !== null) {
     if (name === "createPtyHost") return "createPtyHost";
@@ -220,19 +234,16 @@ function resolveForkCallee(
   return null;
 }
 
+const hasLongLivedArg0 = (node: AstNode): boolean => {
+  if (isProcessExecPathArg0(node)) return true;
+  const arg0 = stringArg0(node);
+  return arg0 !== null && LONG_LIVED_ARG0[arg0] === true;
+};
+
 function isForkCall(node: AstNode, b: ForkBindings): boolean {
-  if (node.type === "NewExpression") {
-    return calleeName(node) === "ShellRunner";
-  }
-  if (node.type !== "CallExpression") return false;
-  const resolved = resolveForkCallee(node, b);
-  if (resolved === "pty-spawn" || resolved === "createPtyHost") return true;
-  if (resolved === "cp-fork") {
-    if (isProcessExecPathArg0(node)) return true;
-    const s = stringArg0(node);
-    if (s !== null && REAL_DETACHED_CHILD.has(s)) return true;
-  }
-  return false;
+  const family = resolveForkFamily(node, b);
+  if (family === null) return false;
+  return FORK_SHAPES[family] === "any-arg0" || hasLongLivedArg0(node);
 }
 
 const isDescribeDaemonCall = (n: AstNode): boolean =>
@@ -241,7 +252,10 @@ const isDescribeDaemonCall = (n: AstNode): boolean =>
 const isAssertSpawnAllowedCall = (n: AstNode): boolean =>
   n.type === "CallExpression" && calleeName(n) === "assertDaemonSpawnAllowed";
 
-function precededByLeash(ancestors: AstNode[], fork: AstNode): boolean {
+function leashInPrecedingStatement(
+  ancestors: AstNode[],
+  fork: AstNode,
+): boolean {
   const chain = [...ancestors, fork];
   for (let i = chain.length - 1; i >= 1; i--) {
     const parent = chain[i - 1];
@@ -261,11 +275,14 @@ function precededByLeash(ancestors: AstNode[], fork: AstNode): boolean {
   return false;
 }
 
-function isForkCovered(ancestors: AstNode[], fork: AstNode): boolean {
+function forkHasPrecedingLeashOrGateAncestor(
+  ancestors: AstNode[],
+  fork: AstNode,
+): boolean {
   for (const a of ancestors) {
     if (isDescribeDaemonCall(a)) return true;
   }
-  return precededByLeash(ancestors, fork);
+  return leashInPrecedingStatement(ancestors, fork);
 }
 
 const isTestFile = (name: string): boolean =>
@@ -332,7 +349,10 @@ test("advisory hygiene: every real-spawn test site is describeDaemon-gated or st
     }
     const bindings = collectForkBindings(ast);
     walkWithAncestors(ast, [], (node, ancestors) => {
-      if (isForkCall(node, bindings) && !isForkCovered(ancestors, node)) {
+      if (
+        isForkCall(node, bindings) &&
+        !forkHasPrecedingLeashOrGateAncestor(ancestors, node)
+      ) {
         const loc = node.loc as { start?: { line?: number } } | undefined;
         offenders.push(`${file}:${loc?.start?.line ?? "?"}`);
       }
@@ -348,7 +368,12 @@ test("advisory hygiene: every real-spawn test site is describeDaemon-gated or st
   ).toEqual([]);
 });
 
-const LANE_SCRIPTS = ["test:unit", "test:daemon"] as const;
+const LANE_BY_SCRIPT = {
+  "test:unit": "unit",
+  "test:daemon": "daemon",
+} as const;
+
+type Lane = (typeof LANE_BY_SCRIPT)[keyof typeof LANE_BY_SCRIPT];
 
 function graftedRoots(): Set<string> {
   return new Set(
@@ -372,12 +397,14 @@ function owningPackage(file: string, roots: readonly string[]): string {
   return owner;
 }
 
-function lanesOf(packageRoot: string): string[] {
+function lanesDeclaredBy(packageRoot: string): Lane[] {
   const manifest = JSON.parse(
     readFileSync(join(packageRoot, "package.json"), "utf8"),
   ) as { scripts?: Record<string, unknown> };
   const scripts = manifest.scripts ?? {};
-  return LANE_SCRIPTS.filter((s) => scripts[s] !== undefined);
+  return Object.entries(LANE_BY_SCRIPT)
+    .filter(([script]) => scripts[script] !== undefined)
+    .map(([, lane]) => lane);
 }
 
 const show = (p: string): string => relative(REPO_ROOT, p);
@@ -400,7 +427,7 @@ test("a package holding a daemon-gate call site declares `test:daemon`, so the d
   for (const root of grafted) gated.delete(root);
   gated.delete(join(HERE, ".."));
   const misfiled = [...gated]
-    .filter((root) => !lanesOf(root).includes("test:daemon"))
+    .filter((root) => !lanesDeclaredBy(root).includes("daemon"))
     .map(show)
     .sort();
   expect(
@@ -424,7 +451,7 @@ test("every test-bearing package declares exactly one lane script, so its suite 
     }
   }
   const offenders = [...withTests]
-    .map((root) => ({ root, lanes: lanesOf(root) }))
+    .map((root) => ({ root, lanes: lanesDeclaredBy(root) }))
     .filter(({ lanes }) => lanes.length !== 1)
     .map(({ root, lanes }) => `${show(root)}: [${lanes.join(", ")}]`)
     .sort();
@@ -524,7 +551,10 @@ const uncoveredForks = (code: string): number[] => {
   const bindings = collectForkBindings(ast);
   const lines: number[] = [];
   walkWithAncestors(ast, [], (node, ancestors) => {
-    if (isForkCall(node, bindings) && !isForkCovered(ancestors, node)) {
+    if (
+      isForkCall(node, bindings) &&
+      !forkHasPrecedingLeashOrGateAncestor(ancestors, node)
+    ) {
       const loc = node.loc as { start?: { line?: number } } | undefined;
       lines.push(loc?.start?.line ?? -1);
     }

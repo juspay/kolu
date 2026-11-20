@@ -30,6 +30,15 @@ function recipeBody(source: string, recipe: string): string {
   return body.join("\n");
 }
 
+function recipeAttributes(source: string, recipe: string): string {
+  const lines = source.split("\n");
+  const at = lines.findIndex((line) => line.startsWith(`${recipe}:`));
+  expect(at, `must declare a \`${recipe}:\` recipe`).toBeGreaterThan(0);
+  let first = at;
+  while (first > 0 && /^\s*\[/.test(lines[first - 1] ?? "")) first -= 1;
+  return lines.slice(first, at).join("\n");
+}
+
 test("ci/mod.just wires `daemon` into the default DAG", () => {
   const defaultTarget = CI.split("\n").find((l) => l.startsWith("default:"));
   expect(
@@ -50,16 +59,7 @@ test("the `daemon` recipe delegates to the canonical daemon-test recipe", () => 
 });
 
 test("`daemon` is a sharded leaf", () => {
-  // odu fans a `[metadata("odu:shard=N")]` leaf across the venue pool. The
-  // attribute must sit IMMEDIATELY above the recipe (attributes attach to the
-  // next recipe), so read the contiguous block of attribute lines.
-  const lines = CI.split("\n");
-  const at = lines.findIndex((line) => line.startsWith("daemon:"));
-  expect(at, "must declare a `daemon:` recipe").toBeGreaterThan(0);
-  let first = at;
-  while (first > 0 && /^\s*\[/.test(lines[first - 1] ?? "")) first -= 1;
-  const attributes = lines.slice(first, at).join("\n");
-  const match = attributes.match(/odu:shard=(\d+)/);
+  const match = recipeAttributes(CI, "daemon").match(/odu:shard=(\d+)/);
   expect(
     match,
     '`ci::daemon` must carry `[metadata("odu:shard=N")]` — the daemon lane is the Linux lane\'s second-longest pole',
@@ -136,10 +136,6 @@ test("e2e `test` keeps the janitor on EXIT after the suite-lock acquire (#2178)"
 });
 
 test("e2e `test` assigns lock= only after mkdir owns the suite lock", () => {
-  // cleanup() rms `$lock` whenever it is non-empty. Assigning the suite
-  // path before mkdir succeeds means a waiter killed on `sleep 15` deletes
-  // a live peer's lock. The wait loop must use a different name; `lock=`
-  // of the path is allowed only after mkdir.
   const body = recipeBody(ROOT, "test");
   expect(
     body,

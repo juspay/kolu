@@ -1,11 +1,3 @@
-/**
- * `@babel/parser` is a RUNTIME `dependency` of this package, not a
- * devDependency, even though the walker only ever runs from tests: an external
- * consumer resolving this walker out of a `@kolu/*` pin installs the pin's
- * `dependencies` and NOT its devDependencies, so a devDependency edge here
- * would leave their gate unable to import its own parser.
- */
-
 import {
   closeSync,
   existsSync,
@@ -85,20 +77,7 @@ export function workspacePackageRoots(repoRoot: string): string[] {
 /**
  * The `packageExtensions` edges this pnpm workspace declares: `member → dep →
  * spec`.
- *
- * WHY A MANIFEST WALK NEEDS THEM. A GRAFTED member's manifest is authored in the
- * UPSTREAM workspace, where the `@kolu/*` sources it imports are hydrated from a
- * pin rather than declared — naming one there would send its package manager to
- * a registry for a package that is not published. In THIS workspace the edge is
- * real and IS declared, in `pnpm-workspace.yaml`'s `packageExtensions` (pnpm's own
- * way to say "this member also depends on that one"), and pnpm links kolu's
- * workspace copy in because of it. A walk that read manifests alone would
- * therefore miss an edge a hydrating consumer has to copy, and an import walk
- * would report it undeclared.
- *
- * Parsed with Effect's YAML — the same choice `packages/tests/governance/
- * effectPin.ts` makes for this same file, and for the same reason: the input is
- * machine-generated, and this repo already depends on Effect here. */
+ */
 export function workspacePackageExtensions(
   repoRoot: string,
 ): Map<string, Record<string, string>> {
@@ -131,15 +110,6 @@ export function workspacePackageExtensions(
  * and gitignores them. Package name → its REPO-RELATIVE directory, exactly as the
  * artifact spells it (`odu/service-client`), so a caller that wants an absolute
  * path joins `repoRoot` itself and a caller that wants a manifest path appends.
- *
- * READ FROM THE EMITTED ARTIFACT, not re-derived from how the workspace file
- * happens to spell a member. `nix/consumer-closure.json` is where `consumer.nix`
- * and the emitter already agree about which members are pins and which revision
- * each came from — a fact Nix derives from its own `pinnedPins` — and a walk that
- * inferred "grafted" from "the entry is a path rather than a glob" would be a
- * second reading of the same fact, one workspace-file edit away from disagreeing
- * with the pin it names. A repo with no artifact (an external consumer walking
- * its own tree) simply has no grafted members.
  */
 export function graftedMembers(repoRoot: string): Map<string, string> {
   const names = new Map<string, string>();
@@ -159,15 +129,23 @@ export function graftedMembers(repoRoot: string): Map<string, string> {
   return names;
 }
 
-const manifests = new Map<string, { mtimeMs: number; manifest: Manifest }>();
+const manifestsByDirAndMtime = new Map<
+  string,
+  { mtimeMs: number; manifest: Manifest }
+>();
+
+function readManifestFromFd(fd: number): Manifest {
+  return JSON.parse(readFileSync(fd, "utf8")) as Manifest;
+}
+
 function manifestOf(dir: string): Manifest {
   const fd = openSync(join(dir, "package.json"), "r");
   try {
     const { mtimeMs } = fstatSync(fd);
-    const hit = manifests.get(dir);
+    const hit = manifestsByDirAndMtime.get(dir);
     if (hit !== undefined && hit.mtimeMs === mtimeMs) return hit.manifest;
-    const manifest = JSON.parse(readFileSync(fd, "utf8")) as Manifest;
-    manifests.set(dir, { mtimeMs, manifest });
+    const manifest = readManifestFromFd(fd);
+    manifestsByDirAndMtime.set(dir, { mtimeMs, manifest });
     return manifest;
   } finally {
     closeSync(fd);
@@ -212,7 +190,7 @@ const stringLiteralValue = (node: unknown): string | null =>
     ? node.value
     : null;
 
-function importsOf(file: string, includeTypeOnly: boolean): string[] {
+function importSpecifiers(file: string, includeTypeOnly: boolean): string[] {
   const ast = parse(readFileSync(file, "utf8"), {
     sourceFilename: file,
     sourceType: "module",
@@ -238,6 +216,11 @@ function importsOf(file: string, includeTypeOnly: boolean): string[] {
   });
   return [...specs];
 }
+
+const runtimeImportsOf = (file: string): string[] =>
+  importSpecifiers(file, false);
+
+const allImportsOf = (file: string): string[] => importSpecifiers(file, true);
 
 export type Manifest = {
   name?: string;
@@ -321,30 +304,17 @@ export type DepEdgeViolation = {
  * manifests honestly describe the daemon's loadable closure, so nix's derived
  * staleKey is sound), the packages reached, and the cross-package SPECIFIERS
  * crossed to reach them.
- *
- * The specifiers are not a nicety. A package answers "may I depend on this at
- * all"; a specifier answers "through which DOOR" — and for a repo that ships raw
- * TypeScript, the door is what a consumer's `tsc` compiles. Reaching
- * `@kolu/surface-daemon/control-core` costs a consumer one schema module;
- * reaching bare `@kolu/surface-daemon` costs it the barrel, which re-exports the
- * daemon main loop. Both read as "`@kolu/surface-daemon`" to a package-level
- * check, which is exactly how a module documented BROWSER-SAFE came to pull a
- * daemon's signal handling into an out-of-repo consumer's program
- * (juspay/kolu#2216, found by that consumer rather than by this walk).
  */
 export function walkRuntimeDepEdges(opts: {
   repoRoot: string;
   entries: string[];
   /** Absolute directories of PINNED members — packages consumed from a
    *  content-addressed pin rather than the pnpm workspace — keyed by package
-   *  name. Walked like workspace members; see the pinned-member note above for
-   *  the one rule that differs (protocol) and the ambiguity that throws. */
+   *  name. */
   pinnedMembers?: Record<string, string>;
   /** Count `import type` / `export type` edges as real. Off by default (a type
    *  edge is erased and contributes nothing to a daemon's build identity); ON
-   *  for the question "what must a consumer of this package install", because
-   *  this repo ships raw TypeScript and the consumer's `tsc` resolves them.
-   *  See {@link importsOf}. */
+   *  for the question "what must a consumer of this package install". */
   includeTypeOnly?: boolean;
 }): {
   violations: DepEdgeViolation[];
@@ -357,6 +327,7 @@ export function walkRuntimeDepEdges(opts: {
     pinnedMembers = {},
     includeTypeOnly = false,
   } = opts;
+  const importsOfFile = includeTypeOnly ? allImportsOf : runtimeImportsOf;
 
   const members = membersByName(repoRoot);
   const extensions = workspacePackageExtensions(repoRoot);
@@ -398,7 +369,7 @@ export function walkRuntimeDepEdges(opts: {
     const owner = manifestOf(ownerDir);
     const ownerName = owner.name ?? relative(repoRoot, ownerDir);
     reached.add(ownerName);
-    for (const spec of importsOf(file, includeTypeOnly)) {
+    for (const spec of importsOfFile(file)) {
       if (spec.startsWith(".")) {
         const r = resolveSourceFile(resolve(dirname(file), spec));
         if (r) stack.push(r);
@@ -465,12 +436,7 @@ export function walkRuntimeDepEdges(opts: {
  *  member's manifest cannot spell, because the `@kolu/*` packages its source
  *  imports do not exist in the repo it is authored in (see
  *  {@link workspacePackageExtensions}). Spec string per package name, later
- *  spreads winning, which is what makes the extension an override.
- *
- *  One spelling: the closure walk below and the consumer-closure emitter
- *  (`packages/tests/governance/consumerClosure.ts`) both ask this question, and
- *  an adjacency that disagreed with the closure built on it is a gate grading
- *  itself against the wrong graph. */
+ *  spreads winning, which is what makes the extension an override. */
 export function declaredRuntimeEdges(
   manifest: Manifest,
   extension: Record<string, string> | undefined,
@@ -487,34 +453,6 @@ export function declaredRuntimeEdges(
  * what a consumer that VENDORS a package directory actually has to copy, whose
  * manifests it then installs from its own workspace, and (as `externals`) the
  * npm packages those manifests leave for it to install.
- *
- * Distinct from {@link walkRuntimeDepEdges}, and both are needed: that one walks
- * the IMPORT graph (what the code reaches), this one walks the MANIFEST graph
- * (what the packaging costs). A package can sit in the manifest closure while no
- * import path reaches it — and a hydrating consumer pays for it anyway, which is
- * exactly the failure the padi/padi-client split exists to fix. A guard that
- * asked only the import question would pass while the manifest still dragged a
- * PTY host in.
- *
- * ONE edge rule, used for both answers. A runtime edge is a `dependencies` OR a
- * `peerDependencies` entry: a peer is an import like any other, and the
- * arrangement it names — "the app supplies the runtime" — IS what a hydrating
- * consumer's own root manifest is. Deciding that twice is how the member walk and
- * the externals tally come to disagree, and the disagreement is invisible until a
- * workspace member is first reached through a peer edge: it would never enter the
- * closure (so its own subtree goes unwalked) and would be reported as a
- * third-party package. `devDependencies` are deliberately not followed — they
- * never ship, and a hydrating consumer never installs them.
- *
- * This mirrors `mkWorkspaceClosure`'s `depClosure` in nix
- * (`packages/surface-daemon/nix/workspace-closure.nix`), which follows the
- * `dependencies` projection of the same rule because it answers a narrower
- * question — which sources the daemon IDENTITY hashes. No workspace member is
- * peer-depended on today, so the two answers coincide, and
- * `packages/tests/governance/closureWalk.ts` holds them to that by machine: the
- * day a member arrives through a peer edge the conformance check fails, which is
- * the right moment to decide whether the daemon id should cover it — rather than
- * two walks drifting apart in silence.
  *
  * A name in `entries` that is not a workspace member throws: naming a package
  * that does not exist is a stale caller, and answering it with a quiet empty

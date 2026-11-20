@@ -1,10 +1,3 @@
-/**
- * `KOLU_STATE_DIR` is deliberately NOT scrubbed — the unit-test harness sets it
- * to an ephemeral path on purpose (server `test:unit`), and `state.ts` fail-fasts
- * without it. This scrub removes only the daemon *locators*, never the harness's
- * own explicit isolation.
- */
-
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -27,13 +20,9 @@ export function scrubDaemonLocatorEnv(): string {
   delete process.env.KOLU_ROLE;
   if (workerDrawer === undefined) {
     workerDrawer = mkdtempSync(join(tmpdir(), "kolu-vitest-xdg-"));
-    process.on("exit", () => {
-      try {
-        rmSync(workerDrawer as string, { recursive: true, force: true });
-      } catch {
-        // best-effort teardown — a leaked temp dir is harmless, a throw at exit is not.
-      }
-    });
+    process.on("exit", () =>
+      rmSync(workerDrawer as string, { recursive: true, force: true }),
+    );
   }
   process.env.XDG_RUNTIME_DIR = workerDrawer;
   return workerDrawer;

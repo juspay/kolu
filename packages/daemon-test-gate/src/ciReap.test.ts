@@ -32,8 +32,8 @@ afterEach(() => {
   for (const pid of children.splice(0)) {
     try {
       process.kill(pid, "SIGKILL");
-    } catch {
-      // already gone
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== "ESRCH") throw err;
     }
   }
   for (const dir of tmpDirs.splice(0)) {
@@ -293,26 +293,33 @@ it("reapUncooperative escalates to SIGKILL when the child ignores SIGTERM", asyn
   expect(isReachablePid(pid)).toBe(false);
 });
 
+const WIDE_ARGV_BYTES = 120_000;
+const WIDE_ARGV_CHILDREN = 10;
+
+async function spawnWideArgvChild(): Promise<number> {
+  const child = spawn(
+    "bash",
+    [
+      "-c",
+      "echo up; while :; do read -r -t 60 || true; done",
+      "x".repeat(WIDE_ARGV_BYTES),
+    ],
+    { stdio: ["pipe", "pipe", "ignore"] },
+  );
+  const pid = child.pid;
+  if (pid === undefined) throw new Error("wide-argv fixture did not start");
+  children.push(pid);
+  const started = Promise.withResolvers<void>();
+  child.stdout.once("data", () => started.resolve());
+  child.once("error", started.reject);
+  await started.promise;
+  return pid;
+}
+
 it("listProcesses reads a process listing larger than Node's 1 MiB default buffer", async () => {
   const pids: number[] = [];
-  for (let i = 0; i < 10; i++) {
-    const child = spawn(
-      "bash",
-      [
-        "-c",
-        "echo up; while :; do read -r -t 60 || true; done",
-        "x".repeat(120_000),
-      ],
-      { stdio: ["pipe", "pipe", "ignore"] },
-    );
-    const pid = child.pid;
-    if (pid === undefined) throw new Error("wide-argv fixture did not start");
-    children.push(pid);
-    pids.push(pid);
-    await new Promise<void>((resolve, reject) => {
-      child.stdout.once("data", () => resolve());
-      child.once("error", reject);
-    });
+  for (let i = 0; i < WIDE_ARGV_CHILDREN; i++) {
+    pids.push(await spawnWideArgvChild());
   }
   const listed = new Set(listProcesses().map((p) => p.pid));
   for (const pid of pids) expect(listed).toContain(pid);

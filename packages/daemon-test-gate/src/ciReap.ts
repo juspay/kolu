@@ -104,8 +104,8 @@ export function killScrollFifoReaders(
     try {
       process.kill(proc.pid, "SIGKILL");
       killed.push(proc.pid);
-    } catch {
-      // Already gone.
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== "ESRCH") throw err;
     }
   }
   return killed;
@@ -147,13 +147,28 @@ export type BindPidRead =
   | { kind: "absent" }
   | { kind: "unreadable" };
 
-export function readBindPidFromEnviron(pid: number): BindPidRead {
+const PROC_ENVIRON_UNREADABLE: Record<string, true> = {
+  ENOENT: true,
+  ENOTDIR: true,
+  EACCES: true,
+  EPERM: true,
+  ESRCH: true,
+};
+
+function readBindPidFromProcEnviron(pid: number): BindPidRead | null {
   try {
-    const env = readFileSync(`/proc/${pid}/environ`);
-    return parseBindPidFromEnvironBytes(env);
-  } catch {
-    // No /proc (darwin) or the pid is already gone — fall through to ps.
+    return parseBindPidFromEnvironBytes(readFileSync(`/proc/${pid}/environ`));
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException).code;
+    if (code !== undefined && PROC_ENVIRON_UNREADABLE[code] === true)
+      return null;
+    throw err;
   }
+}
+
+export function readBindPidFromEnviron(pid: number): BindPidRead {
+  const fromProcEnviron = readBindPidFromProcEnviron(pid);
+  if (fromProcEnviron !== null) return fromProcEnviron;
   try {
     const out = execFileSync("ps", ["eww", "-p", String(pid)], {
       encoding: "utf8",
@@ -269,6 +284,33 @@ export interface SweepDeps {
   thisRunBind?: number;
 }
 
+function isReapableCiLeftover(
+  proc: ListedProc,
+  opts: {
+    live: (pid: number) => boolean;
+    readBindPid: (pid: number) => BindPidRead;
+    onlyUid: number;
+    thisRunBind?: number;
+  },
+): boolean {
+  if (proc.uid !== opts.onlyUid) return false;
+  if (proc.pid === process.pid) return false;
+  const helper = isCiLeftoverHelperCommand(proc.command);
+  if (!helper && !isCiOwnedDaemonCommand(proc.command)) return false;
+  const bind = opts.readBindPid(proc.pid);
+  switch (bind.kind) {
+    case "unreadable":
+      return false;
+    case "bound":
+      return bind.pid === opts.thisRunBind || !opts.live(bind.pid);
+    case "absent":
+      return !helper;
+    default:
+      bind satisfies never;
+      return false;
+  }
+}
+
 export function selectBindPidGoneDaemons(
   procs: readonly ListedProc[],
   opts: {
@@ -278,30 +320,9 @@ export function selectBindPidGoneDaemons(
     thisRunBind?: number;
   },
 ): number[] {
-  const selected: number[] = [];
-  for (const proc of procs) {
-    if (proc.uid !== opts.onlyUid) continue;
-    if (proc.pid === process.pid) continue;
-    const helper = isCiLeftoverHelperCommand(proc.command);
-    if (!helper && !isCiOwnedDaemonCommand(proc.command)) continue;
-    const bind = opts.readBindPid(proc.pid);
-    switch (bind.kind) {
-      case "unreadable":
-        continue;
-      case "bound": {
-        const bindGone = bind.pid === opts.thisRunBind || !opts.live(bind.pid);
-        if (!bindGone) continue;
-        break;
-      }
-      case "absent":
-        if (helper) continue;
-        break;
-      default:
-        bind satisfies never;
-    }
-    selected.push(proc.pid);
-  }
-  return selected;
+  return procs
+    .filter((proc) => isReapableCiLeftover(proc, opts))
+    .map((proc) => proc.pid);
 }
 
 export async function sweepBindPidGoneDaemons(
@@ -316,21 +337,18 @@ export async function sweepBindPidGoneDaemons(
     deps.reap ??
     ((pid: number) =>
       reapUncooperative(pid, { termMs: 2_000, killMs: 5_000, intervalMs: 50 }));
-  const select = (): number[] =>
+  const reapableNow = (): number[] =>
     selectBindPidGoneDaemons(list(), {
       live,
       readBindPid,
       onlyUid,
       thisRunBind,
     });
-  const targets = select();
+  const targets = reapableNow();
   const reaped: number[] = [];
   const survived: number[] = [];
   for (const pid of targets) {
-    // Re-identify immediately before the signal — a pid is not an identity
-    // after exit (pidGate.ts). A reuse during the TERM/KILL window must
-    // not inherit the earlier verdict.
-    if (!select().includes(pid)) continue;
+    if (!reapableNow().includes(pid)) continue;
     const ended = await reap(pid);
     if (ended === "survived") {
       survived.push(pid);
@@ -344,8 +362,6 @@ export async function sweepBindPidGoneDaemons(
 export async function reapCiRun(
   opts: { runtimeRoot?: string; sweep?: SweepDeps } = {},
 ): Promise<{ removedDirs: string[]; reaped: number[]; survived: number[] }> {
-  // Sweep first so leftover daemons die before their dirs are judged.
-  // A dir still named by a live process after the sweep is a peer.
   const { reaped, survived } = await sweepBindPidGoneDaemons(opts.sweep);
   const removedDirs = removeThisRunRuntimeRoots(opts.runtimeRoot, {
     list: opts.sweep?.list,
