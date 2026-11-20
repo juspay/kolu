@@ -1,17 +1,3 @@
-/**
- * THE SIX STAGES, checked against numbers computed without the folds.
- *
- * Two kinds of generated record. The CHAOTIC ones throw every event the
- * timeline can hold at a work — questions, members joining and leaving, two
- * pull requests, checks, the forge's merge answers, merges, closes, stops,
- * reopens, events stamped out of order — and check what must hold whatever
- * happens: the stages add up to the work's life, measured here from the
- * events directly, and the strip names a current stage exactly while the work
- * is open. The SCRIPTED ones walk a waterfall through its stages with random
- * durations, and check each stage's time against the duration that was put
- * there. Seeded, so a failure names the seed that reproduces it.
- */
-
 import { Option } from "effect";
 import { describe, expect, it } from "vitest";
 import { seeded } from "../test/seeded.ts";
@@ -107,7 +93,6 @@ const prOpened = (
     draft,
   });
 
-/** The PR marked ready for review, or turned back into a draft. */
 const draftState = (work: Work, draft: PrDraft, minute: number, pr = 7): Work =>
   recordEvent(work, {
     at: at(minute),
@@ -164,8 +149,6 @@ const merged = (work: Work, minute: number, pr = 7): Work =>
     { outcome: { kind: "merged", pr }, at: at(minute) },
   );
 
-/** A policy for a mode, read off its own row of `MODE_RUNS`, as `policyOf`
- *  reads it. */
 const policyFor = (mode: "full" | "trivial", handOver = true): Policy => ({
   handOver,
   run: {
@@ -177,7 +160,6 @@ const policyFor = (mode: "full" | "trivial", handOver = true): Policy => ({
 const FULL = policyFor("full");
 const TRIVIAL = policyFor("trivial");
 
-/** The six stages of a waterfall, or a failure saying the policy gave none. */
 const strip = (work: Work, policy: Policy, now: string) =>
   waterfall(work, policy, now).stages;
 
@@ -187,9 +169,6 @@ const waterfall = (work: Work, policy: Policy, now: string) => {
   return read;
 };
 
-/** THE STRIP AS A PERSON READS IT: each cell's stage and what it shows —
- *  `now`, `done`, `–` for a stage that did not happen, `·` for one not
- *  reached. */
 const cells = (work: Work, policy: Policy, now: string): string =>
   strip(work, policy, now)
     .map((one) => {
@@ -203,9 +182,6 @@ const cells = (work: Work, policy: Policy, now: string): string =>
     })
     .join(", ");
 
-/** THE TIME AFTER EACH EVENT, put where that event was filed — measured from
- *  the events alone, as {@link lifeOf} measures the life, so it holds only if
- *  each event and the stretch it begins are filed in one place. */
 const timeByEventStage = (
   work: Work,
   filed: ReadonlyArray<Filed>,
@@ -252,9 +228,6 @@ const byName = (all: ReadonlyArray<Stage>) =>
 const total = (all: ReadonlyArray<Stage>): number =>
   all.reduce((sum, one) => sum + stageMs(one.state), 0);
 
-/** HOW LONG THE WORK RAN, from its events alone: start to end (or now), each
- *  event held to the clock as it goes, less every stretch it spent ended. No
- *  fold of the package is called. */
 const lifeOf = (work: Work, now: string): number => {
   const start = Date.parse(work.startedAt);
   const end = Math.max(
@@ -275,7 +248,6 @@ const lifeOf = (work: Work, now: string): number => {
   return life;
 };
 
-/** One chaotic record, built through the package's own transitions. */
 const chaotic = (seed: number, steps: number): Work => {
   const pick = seeded(seed);
   let work = opened();
@@ -310,8 +282,6 @@ const chaotic = (seed: number, steps: number): Work => {
         at: at(when),
       });
     } else if (roll < 0.36) {
-      // A second PR is a new number: the first one was closed, or this is a
-      // reading of a branch whose PR moved.
       if (pick() < 0.3) pr += 1;
       const words = ["draft", "ready", "unrecorded"] as const;
       work = prOpened(
@@ -348,7 +318,6 @@ const chaotic = (seed: number, steps: number): Work => {
         pick() < 0.6 ? "a1" : `h${step}`,
       );
     } else if (roll < 0.6) {
-      // Marked ready, or turned back into a draft.
       work = draftState(work, pick() < 0.5 ? "draft" : "ready", when, pr);
     } else if (roll < 0.64 && live) {
       work = merged(work, when, pr);
@@ -395,10 +364,6 @@ describe("on chaotic records", () => {
     const all = strip(work, policy, now);
     const spent = timeSpent(work, policy, now);
     const read = waterfall(work, policy, now);
-    // EVERY EVENT IS FILED where the time after it went: one place per
-    // event, and each stage holds exactly the time after its events (the
-    // record opens with an event at its start, so there is no time before
-    // the first). An open work's last event is where it is now.
     expect(read.events, `seed ${seed}: one per event`).toHaveLength(
       work.events.length,
     );
@@ -407,10 +372,7 @@ describe("on chaotic records", () => {
       expect(filed[one.name], `seed ${seed}: ${one.name}`).toBe(
         stageMs(one.state),
       );
-    // ... so the stages and the setup add up to the life, and the setup is
-    // only ever a mode's with no Plan to hold it.
     expect(lifetime(work, now), `seed ${seed}: lifetime`).toBe(life);
-    // A DRAFT IS NEVER THE HUMAN'S TO MERGE, whatever the forge answered.
     if (Option.exists(prOf(work), (one) => one.draft === "draft"))
       expect(standing(work, policy).why, `seed ${seed}: draft`).not.toBe(
         "merge",
@@ -424,13 +386,9 @@ describe("on chaotic records", () => {
     expect(all.filter((one) => one.state.kind === "now").length).toBe(
       work.state.kind === "open" && read.current !== "setup" ? 1 : 0,
     );
-    // ONE answer to "where is it now": the strip's outlined cell is where
-    // the fold says it is.
     const current = read.stages.find((one) => one.state.kind === "now");
     if (current !== undefined)
       expect(read.current, `seed ${seed}: current`).toBe(current.name);
-    // What did not happen, or has not started, had no time — and a stage
-    // the mode does not have never did.
     for (const one of all) {
       if (one.state.kind === "skipped" || one.state.kind === "not-started")
         expect(stageMs(one.state)).toBe(0);
@@ -474,7 +432,6 @@ describe("on scripted waterfalls", () => {
     work = prOpened(work, minute);
     want.review = span();
     minute += want.review;
-    // A question during the review keeps the work in the review.
     if (pick() < 0.5) {
       const asked = span();
       work = ask(work, "mid", minute);
@@ -491,8 +448,6 @@ describe("on scripted waterfalls", () => {
     minute += want.merge;
     work = merged(work, minute);
     const named = byName(strip(work, planner ? FULL : TRIVIAL, at(minute)));
-    // A TRIVIAL WORK HAS NOBODY TO REVIEW: its agents' time after the PR is
-    // still the build, and its Plan, Approve and Review did not happen.
     if (!planner) {
       want.build += want.review;
       want.review = 0;
@@ -507,7 +462,6 @@ describe("on scripted waterfalls", () => {
         });
         continue;
       }
-      // Every stage of this waterfall happened, however long it took.
       expect(named[name], `seed ${seed}: ${name}`).toMatchObject({
         kind: "done",
         ms: want[name] * MINUTE,
@@ -553,19 +507,14 @@ describe("where a work's stages stand", () => {
   });
 
   it("files the setup's questions under the plan, before there is one to approve", () => {
-    // The setup form is answered at 6; the planner joins then, and asks for
-    // approval at 20.
     let work = ask(opened(), "setup", 0);
     work = answer(work, "setup", 6);
     work = join(work, "planner", 6);
     work = ask(work, "approve", 20);
     const read = waterfall(work, FULL, at(30));
     const named = byName(read.stages);
-    // Mostly the planner's: 14 of its 20 minutes.
     expect(named.plan).toEqual({ kind: "done", ms: 20 * MINUTE, who: "agent" });
     expect(named.approve).toEqual({ kind: "now", ms: 10 * MINUTE, who: "you" });
-    // ... and the events say so: everything up to the approval's ask, the
-    // setup's ask and answer included, is the plan's.
     expect(read.events).toEqual([
       ...Array.from({ length: work.events.length - 1 }, () => "plan"),
       "approve",
@@ -606,8 +555,6 @@ describe("where a work's stages stand", () => {
   });
 
   it("counts a review that took no time as done, and a merge kolu made itself", () => {
-    // `pr-opened` and the first check event land at one instant, as the
-    // observer stamps them; the forge merged it with nobody handed anything.
     let work = join(opened(), "implementor", 0);
     work = prOpened(work, 40);
     work = check(work, "checks-running", 40);
@@ -635,7 +582,6 @@ describe("where a work's stages stand", () => {
     work = reopenWork(work, at(30));
     work = prOpened(work, 45, 8);
     const named = byName(strip(work, FULL, at(50)));
-    // 10 before the first PR, 15 after the reopen before the second.
     expect(named.build).toMatchObject({ kind: "done", ms: 25 * MINUTE });
     expect(named.review).toEqual({
       kind: "now",
@@ -645,9 +591,7 @@ describe("where a work's stages stand", () => {
   });
 });
 
-/** THE SHAPES OF REAL WORKS, each by name, as their cards must read. */
 describe("the shapes of real works", () => {
-  /** An instant `seconds` into the work. */
   const second = (seconds: number): string =>
     new Date(T0 + seconds * 1000).toISOString();
 
@@ -667,8 +611,6 @@ describe("the shapes of real works", () => {
   });
 
   it("a trivial work that takes up a PR that already existed (the dependabot card)", () => {
-    // The human's record, second by second: the PR was there before the
-    // implementor, so it ends no build, and nobody reviews a trivial work.
     let work = openWork({
       key: { kind: "branch", host: "local", repo: "/r", branch: "dependabot" },
       title: "land the dependabot PR",
@@ -727,8 +669,6 @@ describe("the shapes of real works", () => {
   });
 
   it("a trivial work's setup form, which no stage holds", () => {
-    // A trivial work has no Plan, and answering its setup is not building:
-    // the five minutes are yours (time spent) but in no cell.
     const asking = ask(opened(), "setup", 0);
     expect(cells(asking, TRIVIAL, at(5))).toBe(
       "plan –, approve –, build ·, review –, checks ·, merge ·",
@@ -764,7 +704,6 @@ describe("the shapes of real works", () => {
     work = check(work, "checks-passed", 85);
     work = mergeState(work, { kind: "can" }, 85);
     const named = byName(strip(work, FULL, at(90)));
-    // All the implementor's time is the build, before and after a push.
     expect(named.build).toMatchObject({ kind: "done", ms: 45 * MINUTE });
     expect(cells(work, FULL, at(90))).toBe(
       "plan done, approve done, build done, review –, checks done, merge now",
@@ -772,9 +711,6 @@ describe("the shapes of real works", () => {
   });
 
   it("Page chats open in a pane (olai#702): a draft opened early, never marked ready", () => {
-    // A full work. The implementor opened a draft after the first of six
-    // steps, about two hours in, and pushed after each step; CI ran on every
-    // push. Never marked ready: all of it is the build's.
     let work = join(opened(), "planner", 0);
     work = ask(work, "approve", 20);
     work = answer(work, "approve", 25);
@@ -796,14 +732,10 @@ describe("the shapes of real works", () => {
     });
     expect(named.review).toEqual({ kind: "not-started" });
     expect(named.checks).toEqual({ kind: "not-started" });
-    // Who the work waited on is unchanged: CI's time is still CI's.
     expect(timeSpent(work, FULL, now).ci).toBe(ci);
   });
 
   it("One ACP runner for kolu and olai (#2405): green as a draft for a day, merged at ready", () => {
-    // The issue's public times: the implementor starts, opens a draft eleven
-    // minutes later, four green readings follow while it is a draft, and it
-    // is marked ready a day later and merged four seconds after that.
     const minute = (iso: string): number => (Date.parse(iso) - T0) / MINUTE;
     const started = "2026-11-18T00:56:41.000Z";
     const ready = "2026-11-19T02:15:49.000Z";
@@ -830,7 +762,6 @@ describe("the shapes of real works", () => {
       );
       work = check(work, "checks-passed", minute(green), 2405, `h${index}`);
     }
-    // Mid-draft, with the hand-over: still the build, and not the human's.
     const midDraft = "2026-11-18T12:00:00.000Z";
     expect(waterfall(work, FULL, midDraft).current).toBe("build");
     expect(standing(work, FULL).why).toBe("working");
@@ -865,7 +796,6 @@ describe("the build ends when the PR is ready for review", () => {
     work = draftState(work, "ready", 30);
     const named = byName(strip(work, FULL, at(45)));
     expect(named.build).toMatchObject({ kind: "done", ms: 30 * MINUTE });
-    // The agents' time after it is the review.
     expect(named.review).toEqual({
       kind: "now",
       ms: 15 * MINUTE,
@@ -902,9 +832,6 @@ describe("the build ends when the PR is ready for review", () => {
     });
   });
 
-  // LEARNING A WORD IS NOT AN ACT. A PR recorded before kolu kept the draft
-  // word (`unrecorded`) learns it from its next reading after the upgrade;
-  // nobody marked anything ready, so the strip must read as it did.
   it("keeps an existing PR's work in the build when kolu learns the PR is ready", () => {
     let work = prOpened(opened(), 0, 7, "unrecorded");
     work = join(work, "implementor", 5);
@@ -962,7 +889,6 @@ describe("green is the forge saying it can merge", () => {
   const blocked = (): Work => {
     let work = join(opened(), "implementor", 0);
     work = prOpened(work, 10);
-    // Quick checks pass; the required ones have not started.
     work = check(work, "checks-passed", 12);
     return mergeState(work, { kind: "cannot", why: "blocked" }, 12);
   };
@@ -984,7 +910,6 @@ describe("green is the forge saying it can merge", () => {
       ms: 10 * MINUTE,
       who: "you",
     });
-    // The base moved on: the stale green is gone.
     work = mergeState(work, { kind: "cannot", why: "behind" }, 40);
     expect(byName(strip(work, FULL, at(45))).review.kind).toBe("now");
   });
@@ -1002,10 +927,8 @@ describe("green is the forge saying it can merge", () => {
     work = check(work, "checks-passed", 12);
     work = mergeState(work, { kind: "can" }, 12);
     expect(byName(strip(work, FULL, at(14))).merge.kind).toBe("now");
-    // A push GitHub has not worked out yet: not green, back to review.
     work = mergeState(work, { kind: "unsettled" }, 20, 7, "b2");
     expect(byName(strip(work, FULL, at(22))).review.kind).toBe("now");
-    // ... and checks about the new commit take the old answer away too.
     let checked = mergeState(blocked(), { kind: "can" }, 14);
     checked = check(checked, "checks-passed", 20, 7, "b2");
     expect(byName(strip(checked, FULL, at(22))).review.kind).toBe("now");
@@ -1018,8 +941,6 @@ describe("green is the forge saying it can merge", () => {
       at: at(16),
     });
     work = reopenWork(work, at(60));
-    // Four minutes of review before it went green, then ten since the reopen
-    // — not a merge waiting on you off an answer from before it stopped.
     const named = byName(strip(work, FULL, at(70)));
     expect(named.review).toEqual({
       kind: "now",
@@ -1032,7 +953,6 @@ describe("green is the forge saying it can merge", () => {
     let work = join(opened(), "implementor", 0);
     work = prOpened(work, 10);
     work = check(work, "checks-running", 11);
-    // GitHub flips while the required checks land: one row stands for them.
     for (let flip = 0; flip < 20; flip += 1)
       work = mergeState(
         work,
@@ -1042,7 +962,6 @@ describe("green is the forge saying it can merge", () => {
     const answers = () =>
       work.events.filter((one) => one.kind === "merge-state").length;
     expect(answers()).toBe(1);
-    // The run ends; what GitHub says after it is each its own row.
     work = check(work, "checks-passed", 40);
     work = mergeState(work, { kind: "can" }, 41);
     work = mergeState(work, { kind: "cannot", why: "behind" }, 50);
@@ -1052,7 +971,6 @@ describe("green is the forge saying it can merge", () => {
   it("keeps at most a bounded number of check results for one commit, never losing the newest", () => {
     let work = join(opened(), "implementor", 0);
     work = prOpened(work, 10);
-    // Two suites out of phase: the word flips on every poll.
     for (let poll = 0; poll < 40; poll += 1)
       work = check(
         work,
@@ -1063,7 +981,6 @@ describe("green is the forge saying it can merge", () => {
       (one) => one.kind === "checks-running" || one.kind === "checks-passed",
     );
     expect(kept).toHaveLength(PR_FACTS_PER_COMMIT);
-    // The first says when the checks began; the newest is the word it reads.
     expect(kept.at(0)?.at).toBe(at(11));
     expect(kept.at(-1)?.at).toBe(at(50));
     expect(kept.at(-1)?.kind).toBe("checks-passed");
@@ -1071,9 +988,6 @@ describe("green is the forge saying it can merge", () => {
   });
 
   it("keeps a hand-over's time when a ninth check result arrives", () => {
-    // Eight flips ending green, GitHub says it can merge, and the PR waits on
-    // you for half an hour — then a re-run reports. The green the wait was
-    // filed under must still be on the record.
     let work = join(opened(), "implementor", 0);
     work = prOpened(work, 10);
     for (let poll = 0; poll < PR_FACTS_PER_COMMIT; poll += 1)
@@ -1093,7 +1007,6 @@ describe("green is the forge saying it can merge", () => {
   });
 
   it("keeps at most a bounded number of merge answers for one commit, never losing the newest", () => {
-    // The base moves for days: GitHub works it out again, then can again.
     let work = join(opened(), "implementor", 0);
     work = prOpened(work, 10);
     work = check(work, "checks-passed", 11);
@@ -1111,7 +1024,6 @@ describe("green is the forge saying it can merge", () => {
 });
 
 describe("a draft cannot merge", () => {
-  /** The merge answer the timeline reads for the work's PR. */
   const readMerge = (work: Work) => Option.getOrThrow(prOf(work)).merge;
 
   it("reads cannot: draft even after a stray merge answer that says it can", () => {
@@ -1131,7 +1043,6 @@ describe("a draft cannot merge", () => {
     expect(readMerge(work)).toEqual({ kind: "can" });
     work = draftState(work, "draft", 14);
     expect(readMerge(work)).toEqual({ kind: "cannot", why: "draft" });
-    // Ready again: the `can` from before is not the answer for it now.
     work = draftState(work, "ready", 16);
     expect(readMerge(work)).toEqual({ kind: "unknown" });
   });
@@ -1157,9 +1068,6 @@ describe("a draft cannot merge", () => {
   });
 
   it("never lets a merge answer after a draft flip replace the one before it", () => {
-    // Checks running on one commit: GitHub's flips there keep only their
-    // latest — but a draft flip between two answers is somebody's act, so
-    // both answers stay on the timeline.
     let work = join(opened(), "implementor", 0);
     work = prOpened(work, 10);
     work = check(work, "checks-running", 11);
@@ -1182,7 +1090,6 @@ describe("the work's life", () => {
       at: at(5),
     });
     work = reopenWork(work, at(8));
-    // 5 minutes, then 3 closed, then 2 more.
     expect(lifetime(work, at(10))).toBe(7 * MINUTE);
     expect(took(work, at(10)).reduce((sum, one) => sum + one.ms, 0)).toBe(
       7 * MINUTE,

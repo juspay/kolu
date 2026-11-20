@@ -1,12 +1,3 @@
-/**
- * WHAT NEEDS THE HUMAN, read off records built the way kolu builds them:
- * a question put to them, a hand-over PR going green, a PR the Conductor
- * merges itself going green, and a work that ends. The item's KEY is what the
- * bell rings once for, so the flicker kolu PR #2400 really did — the forge
- * saying can, cannot, can about one commit inside two minutes — must leave
- * the key exactly where it was.
- */
-
 import { Option } from "effect";
 import { describe, expect, it } from "vitest";
 import {
@@ -35,7 +26,6 @@ const ID = workIdOf({
   branch: "agents-closure-in-cache",
 });
 
-/** A full waterfall set up with `on-green` answered as given. */
 const setUp = (onGreen: "merge" | "hand-over"): Work => {
   const questions = [
     {
@@ -186,15 +176,12 @@ describe("what needs the human", () => {
   });
 
   it("keeps one key through #2400's flicker, and a new key for a new commit", () => {
-    // PR #2400: the forge said can, cannot (blocked), can within two minutes,
-    // all about one head. One wait on the human, not two.
     let work = green(prOpened(setUp("hand-over"), 10), 20, "d3f4185");
     const first = item(work).key;
     work = mergeState(work, { kind: "cannot", why: "blocked" }, 21, "d3f4185");
     expect(Option.isNone(needsYouOf(ID, work))).toBe(true);
     work = mergeState(work, { kind: "can" }, 22, "d3f4185");
     expect(item(work).key).toBe(first);
-    // A push: the new commit going green is a new thing to merge.
     work = green(work, 30, "69b08e9");
     expect(item(work).key).not.toBe(first);
   });

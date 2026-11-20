@@ -1,18 +1,3 @@
-/**
- * EVERYTHING COMPUTED FROM A WORK'S TIMELINE — who it is waiting on, where it
- * stands and for how long, where the time went, how long each step took.
- *
- * Pure folds over the record, a clock reading and a {@link Policy} passed in.
- * None of it is stored: a stored "where it stands" would be one more thing a
- * restart could leave disagreeing with the timeline it is drawn from.
- *
- * NO WATERFALL WORDS AND NO ENGLISH. The two facts a fold needs about how the
- * work is RUN arrive as the policy (`./waterfall.ts` reads them off the
- * decisions once), and {@link standing} answers a TOKEN rather than a phrase —
- * the card and the Conductor's own resource want different words for the same
- * fact, and a model that hands out prose is a model whose readers rewrite it.
- */
-
 import { Option } from "effect";
 import { isOpenDraft, type PrReading, prStep } from "./readings.ts";
 import {
@@ -57,124 +42,95 @@ export interface Policy {
   readonly run: Run;
 }
 
-/** WHICH PART OF ITS LIFE A WORK IS IN — cut by two moments the record
- *  holds: the implementor joining, and its pull request being READY FOR
- *  REVIEW after it did — opened ready, or a draft marked ready. A PR that was
- *  already there when the implementor arrived (a work that takes up a
- *  dependabot PR) does not end the build by being open; if it is a draft,
- *  marking it ready does. Moves forward, except for two ways back to the
- *  build: a PR turned back into a draft (its author said it is not ready),
- *  and a work reopened with no PR of its own open (a second attempt on the
- *  same branch builds again). */
-type Part = "before" | "build" | "after";
+type Part = "before-planner" | "before-implementor" | "build" | "after";
 
-/** The fold's running state, advanced one event at a time — the SAME step
- *  {@link waitingOn}, {@link standing}, {@link timeSpent} and {@link stages}
- *  use, so the strip and the sentence over it cannot disagree about when a
- *  wait began. The pull request is what `./readings.ts`'s {@link prStep}
- *  says it is — the ONE statement of the PR-fact rule (which commit a check
- *  or a merge answer is about, and what opening, merging, closing and
- *  reopening forget), which the observer reads too. */
+const beforeBuild = (part: Part): boolean =>
+  part === "before-planner" || part === "before-implementor";
+
 interface Running {
   readonly openAsks: ReadonlySet<string>;
   readonly pr: Option.Option<PrReading>;
   readonly ended: boolean;
   readonly part: Part;
-  /** A planner has joined — before that there is no plan to approve, so a
-   *  wait on the human (the setup's questions) is still the planning. */
-  readonly planned: boolean;
-  /** An implementor has joined at some point — where a reopened work with
-   *  no PR goes back to, and what makes a PR opening the end of a build. */
-  readonly implemented: boolean;
 }
 
 const START: Running = {
   openAsks: new Set(),
   pr: Option.none(),
   ended: false,
-  part: "before",
-  planned: false,
-  implemented: false,
+  part: "before-planner",
 };
 
-/** Whether the PR is in this state. */
-const prIs = (at: Running, state: PrReading["state"]): boolean =>
-  Option.exists(at.pr, (pr) => pr.state === state);
-
-/** The moves that are not the PR's own: questions, members, the end. `pr` is
- *  the PR as this event leaves it ({@link prStep}), which is what says
- *  whether it is ready for review. */
-const partStep = (
-  at: Running,
-  event: WorkEvent,
+const prIs = (
   pr: Option.Option<PrReading>,
-): Running => {
+  state: PrReading["state"],
+): boolean => Option.exists(pr, (one) => one.state === state);
+
+const asksOf = (
+  open: ReadonlySet<string>,
+  event: WorkEvent,
+): ReadonlySet<string> => {
   switch (event.kind) {
     case "question":
-      return { ...at, openAsks: new Set([...at.openAsks, event.ask]) };
+      return new Set([...open, event.ask]);
     case "answered":
     case "question-dropped": {
-      const open = new Set(at.openAsks);
-      open.delete(event.ask);
-      return { ...at, openAsks: open };
+      const left = new Set(open);
+      left.delete(event.ask);
+      return left;
     }
-    case "joined":
-      if (event.role === "planner") return { ...at, planned: true };
-      return event.role === "implementor"
-        ? {
-            ...at,
-            implemented: true,
-            part: at.part === "before" ? "build" : at.part,
-          }
-        : at;
-    // A PR the implementor opened ends the build at once when it opened
-    // ready (or kolu never recorded its word: the open ends it, as it always
-    // did), and stays the build's while it is a draft. One that was there
-    // before any implementor joined says nothing by being open.
-    case "pr-opened":
-      return at.implemented
-        ? { ...at, part: Option.exists(pr, isOpenDraft) ? "build" : "after" }
-        : at;
-    // A DRAFT FLIP, once an implementor has joined: turned back into a draft
-    // is the build's again, and marked ready ends the build — but only a PR
-    // that WAS a draft. Learning `ready` for a PR whose word kolu never
-    // recorded is kolu learning a word, not anybody marking anything ready,
-    // so the part stays where it was (the stage half of the rule `prStep`
-    // follows for the merge answer).
-    case "draft-state":
-      if (!at.implemented) return at;
-      if (Option.exists(pr, isOpenDraft)) return { ...at, part: "build" };
-      return Option.exists(at.pr, isOpenDraft) ? { ...at, part: "after" } : at;
-    case "ended":
-      return { ...at, ended: true };
-    // THE OTHER WAY BACK. Reopened with its own PR still open, the work is
-    // where it was; with none, it is a new attempt on the branch.
-    case "reopened":
-      return {
-        ...at,
-        ended: false,
-        part:
-          at.part === "after" && prIs(at, "open")
-            ? "after"
-            : at.implemented
-              ? "build"
-              : "before",
-      };
     default:
-      return at;
+      return open;
+  }
+};
+
+const partOf = (
+  part: Part,
+  event: WorkEvent,
+  was: Option.Option<PrReading>,
+  now: Option.Option<PrReading>,
+): Part => {
+  switch (event.kind) {
+    case "joined":
+      if (!beforeBuild(part)) return part;
+      if (event.role === "planner") return "before-implementor";
+      return event.role === "implementor" ? "build" : part;
+    case "pr-opened":
+      return beforeBuild(part)
+        ? part
+        : Option.exists(now, isOpenDraft)
+          ? "build"
+          : "after";
+    case "draft-state":
+      if (beforeBuild(part)) return part;
+      if (Option.exists(now, isOpenDraft)) return "build";
+      return Option.exists(was, isOpenDraft) ? "after" : part;
+    case "reopened":
+      return part === "after" && prIs(was, "open")
+        ? "after"
+        : beforeBuild(part)
+          ? part
+          : "build";
+    default:
+      return part;
   }
 };
 
 const step = (at: Running, event: WorkEvent): Running => {
   const pr = prStep(at.pr, event);
-  return { ...partStep(at, event, pr), pr };
+  return {
+    openAsks: asksOf(at.openAsks, event),
+    pr,
+    ended:
+      event.kind === "ended"
+        ? true
+        : event.kind === "reopened"
+          ? false
+          : at.ended,
+    part: partOf(at.part, event, at.pr, pr),
+  };
 };
 
-/** THE GREEN PULL REQUEST, and therefore the human's when they asked for the
- *  hand-over: the forge would merge it, and no check that has reported is
- *  running or red, both about the same commit ({@link prStep} forgets the one
- *  that is not). A PR with no checks at all is green the moment the forge
- *  says so. None while it is not green. */
 const greenOf = (at: Running): Option.Option<PrReading> =>
   Option.filter(
     at.pr,
@@ -258,8 +214,6 @@ export const WAITER_OF: Record<StandingWhy, Waiter | "done"> = {
 /** Why a work stands where it does, as a token. */
 export type StandingWhy = Standing["why"];
 
-/** The open question a `you` wait is about — the newest ask with a decision
- *  nobody has answered. */
 const askedOf = (work: Work, open: ReadonlySet<string>): Option.Option<Asked> =>
   Option.flatMap(Option.fromUndefinedOr([...open].at(-1)), (asked) =>
     Option.fromUndefinedOr(
@@ -335,13 +289,9 @@ export const standing = (work: Work, policy: Policy): Standing => {
       since = event.at;
     }
   }
-  // An OPEN work is waiting on somebody whatever its timeline's last `ended`
-  // event said — a reopened work keeps that event, and the state is the
-  // record's one answer to "is it over".
   return standingOf(work, who === "done" ? "agent" : who, at, policy, since);
 };
 
-/** One stretch of time, and who it waited on. */
 interface Stretch {
   readonly who: Waiter;
   readonly ms: number;
@@ -350,13 +300,6 @@ interface Stretch {
 const ms = (from: string, to: string): number =>
   Math.max(0, Date.parse(to) - Date.parse(from));
 
-/** THE WALK every time fold takes: the work's life, from its start to its end
- *  (or `now`), visited one stretch at a time with the running state that
- *  stretch was spent in — a stretch between two events stamped at the same
- *  instant too, with no length, which is how a stage that took no time is
- *  still known to have happened. An event stamped before the one ahead of
- *  it, or after the end, is held to the walk's own clock, so the stretches
- *  always tile the life exactly. */
 const walk = (
   work: Work,
   now: string,
@@ -379,8 +322,6 @@ const walk = (
   return at;
 };
 
-/** The work's life cut into stretches by who it was waiting on — what
- *  {@link timeSpent} sums. Time a reopened work spent ended is nobody's. */
 const stretches = (
   work: Work,
   policy: Policy,
@@ -482,33 +423,21 @@ export type Stages =
 export const stageMs = (state: StageState): number =>
   state.kind === "done" || state.kind === "now" ? state.ms : 0;
 
-/** WHERE A STRETCH WOULD GO in a waterfall that has all six stages:
- *
- *  - a PR the forge merged is the merge, and CI running is the checks,
- *    wherever they fall — except on a draft still in the build, whose CI is
- *    the build's;
- *  - a green PR handed to the human is the merge;
- *  - a question to the human never moves the work: it stays in the stage it
- *    is in (`current`), which is then theirs — except before the implementor,
- *    where it is the approval once a planner has joined, and the planning
- *    (the setup's own questions) before that;
- *  - the agents' time is the plan before the implementor joins, the build
- *    until its PR is ready for review, and the review after. There are two
- *    ways back to the build: the PR turned back into a draft, and a reopen
- *    with no PR of its own open. */
 const placeOf = (at: Running, who: Waiter, current: Filed): Filed => {
-  if (prIs(at, "merged")) return "merge";
+  if (prIs(at.pr, "merged")) return "merge";
   if (who === "ci")
     return at.part === "build" && Option.exists(at.pr, isOpenDraft)
       ? "build"
       : "checks";
   if (who === "you") {
     if (at.openAsks.size === 0) return "merge";
-    if (at.part === "before") return at.planned ? "approve" : "plan";
+    if (at.part === "before-planner") return "plan";
+    if (at.part === "before-implementor") return "approve";
     return current;
   }
   switch (at.part) {
-    case "before":
+    case "before-planner":
+    case "before-implementor":
       return "plan";
     case "build":
       return "build";
@@ -536,15 +465,12 @@ export const stages = (work: Work, policy: Policy, now: string): Stages => {
   if (run.kind === "unset") return { kind: "unset" };
   if (run.stages.length === 0) return { kind: "none" };
   const declared = new Set<StageName>(run.stages);
-  /** Where a stretch is filed in THIS mode. */
   const file = (place: Filed): Filed =>
     place === "setup" || declared.has(place)
       ? place
       : (STAGES.slice(0, STAGES.indexOf(place))
           .filter((one) => declared.has(one))
           .at(-1) ?? "setup");
-  /** Each stage's time by whose it was, and who it began with — what a
-   *  stage entered for no time is coloured by. */
   const held = new Map<StageName, Record<Waiter, number>>();
   const began = new Map<StageName, Waiter>();
   const events: Filed[] = [];
@@ -561,14 +487,9 @@ export const stages = (work: Work, policy: Policy, now: string): Stages => {
         if (!began.has(current)) began.set(current, who);
       }
     }
-    // The first stretch is the one before any event; each after it is the
-    // one the event before it began.
     if (visits > 0) events.push(current);
     visits += 1;
   });
-  // WHERE IT IS NOW. An OPEN work is waiting on somebody whatever its
-  // timeline's last `ended` event said, as {@link standing} reads it; a
-  // finished one is where it ended. A work still in its setup is in no cell.
   const open = work.state.kind === "open";
   const waiter = waiterOf(policy.handOver, last);
   const nowWho: Waiter = waiter === "done" ? "agent" : waiter;
@@ -599,8 +520,6 @@ export const stages = (work: Work, policy: Policy, now: string): Stages => {
   };
 };
 
-/** Whose time a stage mostly was — who it began with, when nobody's was
- *  more. */
 const mostly = (
   time: Readonly<Record<Waiter, number>>,
   began: Waiter,

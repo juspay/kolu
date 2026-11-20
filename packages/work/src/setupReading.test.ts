@@ -1,20 +1,3 @@
-/**
- * ONE READING OF "IS THIS SETUP QUESTION SETTLED", checked over random walks.
- *
- * The defect this guards: a setup answer stored with no value read as "no
- * value" to the setup, as "answered" to `work_open` (so it was never asked
- * again) and as "wait for the human" to `startOf` — a work that could neither
- * start nor be asked. Here every step of a random sequence of opening,
- * answering (some questions left blank), declining, stopping, reopening and
- * calling `work_open` again is followed by the same three questions for every
- * setup key, and they must agree: the reading says it has a value, `work_open`
- * would not ask it, and starting a role would not refuse for it. A key with no
- * value always has a way to be answered: a question open in front of the
- * human, or `work_open` asking it.
- *
- * Seeded, so a failure names the seed that reproduces it.
- */
-
 import { Option } from "effect";
 import { describe, expect, it } from "vitest";
 import {
@@ -52,7 +35,6 @@ const at = (step: number): string =>
 const MODES: ReadonlyArray<WorkMode> = ["full", "trivial"];
 const ON_GREEN_WORDS: ReadonlyArray<OnGreen> = ["merge", "hand-over"];
 
-/** The question `work_open` puts for one key, asked of the human. */
 const questionFor = (key: SetupKey, id: string): Question => {
   switch (key) {
     case "mode":
@@ -84,7 +66,6 @@ const questionFor = (key: SetupKey, id: string): Question => {
   }
 };
 
-/** A value a person might give a key — always one kolu would take. */
 const valueFor = (key: SetupKey, pick: () => number): string => {
   switch (key) {
     case "mode":
@@ -96,9 +77,6 @@ const valueFor = (key: SetupKey, pick: () => number): string => {
   }
 };
 
-/** `work_open` for this work, as the Conductor runs it: reopen an ended one,
- *  ask every key the one reading says to ask, and drop the open questions the
- *  new form takes the place of. */
 const workOpen = (
   work: Option.Option<Work>,
   step: number,
@@ -124,11 +102,9 @@ const workOpen = (
   });
 };
 
-/** Every reader's answer for every key must agree, and nothing is stranded. */
 const agree = (work: Work, seed: number, step: number): void => {
   const where = `seed ${seed}, step ${step}`;
   for (const key of SETUP_KEYS) {
-    // THE ONE BOOLEAN: a key the work still needs and has no value for.
     const missing =
       needsSetupKey(work, key) && Option.isNone(setupValue(work, key));
     const asks = keysToAsk(Option.some(work), [key], new Set()).length > 0;
@@ -143,8 +119,6 @@ const agree = (work: Work, seed: number, step: number): void => {
     }
     const standing = setupStanding(work, key);
     if (standing.kind === "open") {
-      // An open question is one somebody can answer: it is on the card, and
-      // it is a question the work still needs.
       expect(openAsks(work), `${where}: ${key} is open on the card`).toContain(
         standing.ask,
       );
@@ -153,13 +127,10 @@ const agree = (work: Work, seed: number, step: number): void => {
       );
     }
   }
-  // The setup the card and the Conductor read is the same reading.
   const setup = setupOf(work);
   expect(Option.getOrUndefined(setup.mode)).toBe(
     Option.getOrUndefined(setupValue(work, "mode")),
   );
-  // ... and the timeline's fold agrees with the decisions about whether the
-  // human is being asked something.
   expect(
     waitingOn(work, policyOf(work)) === "you",
     `${where}: the fold waits on you exactly while a question is open`,
@@ -177,13 +148,10 @@ const walk = (seed: number, steps: number): void => {
     const open = openAsks(work);
     const ask = open[Math.floor(pick() * open.length)];
     if (roll < 0.45 && ask !== undefined) {
-      // ANSWER, some questions left blank.
       const values = new Map<string, ReadonlyArray<string>>();
       for (const one of work.decisions)
         if (one.ask === ask && one.kind === "asked" && one.topic === "setup")
           if (pick() < 0.6) values.set(one.id, [valueFor(one.key, pick)]);
-      // ... and, as the Conductor does, the questions the answered mode
-      // does not run go with it.
       const recorded = answerAsk(work, {
         ask,
         at: at(step),
@@ -203,7 +171,6 @@ const walk = (seed: number, steps: number): void => {
         reply: { kind: "declined" },
       });
     } else if (roll < 0.65 && work.state.kind === "open") {
-      // STOP: the work ends under its open questions.
       work = endWork(
         openAsks(work).reduce(
           (one, each) => dropAsk(one, each, at(step)),

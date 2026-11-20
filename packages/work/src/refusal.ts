@@ -1,22 +1,4 @@
 /**
- * WHY A CALL ABOUT A PIECE OF WORK WAS REFUSED — the whole vocabulary and the
- * thing that is thrown, in one place.
- *
- * Every kind is a READING OF THE RECORD: no work by that id, the work has
- * ended, the setup does not carry what the mode needs, this terminal is not
- * one kolu drives, it is already in the state the call would put it in. That
- * is why it lives here and not in a face: the fleet's MCP tools turn it into a
- * `ToolFailure`, kolu-server turns it into a `ConductorRefused`, and both
- * `instanceof` the same class the host threw rather than reading a thrown
- * value's fields and hoping.
- *
- * What is NOT here is the SENTENCES. `why` is composed by whoever raises the
- * refusal (`kolu-conductor`), because the sentence names that caller's
- * vocabulary — `work_open`, `given`, the tool call — and a model package has
- * no business spelling an agent's instructions.
- */
-
-/**
  * The refusals, as the tuple every end is built from.
  *
  * - `unknown-work` — no work by that id. The Conductor is naming something it

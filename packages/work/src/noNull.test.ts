@@ -1,18 +1,9 @@
-/**
- * NO HOLES IN THE WORK MODEL. Anything that may be absent is an arm of a
- * tagged sum that says what the absence means, or an `Option` for a lookup
- * that may find nothing — never a nullable field, an optional one, or a
- * `| undefined` result. This reads the package's own sources and fails naming
- * the line where one comes back.
- */
-
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 const SRC = join(import.meta.dirname);
 
-/** The holes, by the spelling that makes one. */
 const HOLES: ReadonlyArray<readonly [string, RegExp]> = [
   ["Schema.NullOr", /\bNullOr\s*\(/],
   ["Schema.UndefinedOr", /\bUndefinedOr\s*\(/],
@@ -23,7 +14,6 @@ const HOLES: ReadonlyArray<readonly [string, RegExp]> = [
   ["an optional field", /^\s*(readonly\s+)?[A-Za-z_$][\w$]*\?\s*:/],
 ];
 
-/** A line of code, with any comment on it taken off. */
 const codeOf = (line: string): string => {
   const trimmed = line.trimStart();
   if (trimmed.startsWith("*") || trimmed.startsWith("/*")) return "";

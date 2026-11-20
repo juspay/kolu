@@ -1,24 +1,3 @@
-/**
- * WHAT NEEDS THE HUMAN — {@link standing} and {@link WAITER_OF} seen as a
- * list: one item for every work in progress that is waiting on them, with
- * why, since when, and what is wanted.
- *
- * It is the ONE reading every face of "it is your turn" reads: the "Needs
- * you" group of the work column, the bell, the count on the tab, the phone's
- * handle and the OS badge, and the command palette's rows. None of them asks
- * `standing` for itself, so none of them can count a different thing.
- *
- * One item per WORK, never per question: a work with two questions open is
- * one place to go (its card), and its item is about the newest question —
- * the one `standing` names. When that question is answered the item moves on
- * to the next one still open, which is a new item.
- *
- * THE WORDS FOR WHAT IS WANTED live here, beside the reading, rather than in
- * each face: the card's line, the palette's row and the notification all say
- * the same short thing, and three copies of the sentence would be three
- * places for it to drift.
- */
-
 import { Option } from "effect";
 import { type Standing, standing, WAITER_OF, type WorkRow } from "./folds.ts";
 import type { Work, WorkId } from "./schema.ts";
@@ -57,8 +36,6 @@ export const wantedWords = (why: NeedsYouWhy): string =>
         onSome: (green) => `Merge PR #${green.number}`,
       });
 
-/** The item's identity ({@link NeedsYou.key}). JSON, so no part can be read
- *  as the boundary of another. */
 const keyOf = (work: WorkId, why: NeedsYouWhy): string =>
   JSON.stringify(
     why.why === "question"
@@ -76,8 +53,6 @@ const keyOf = (work: WorkId, why: NeedsYouWhy): string =>
         ],
   );
 
-/** Whether a standing waits on the human — {@link WAITER_OF}'s answer, as a
- *  guard, so the arm it narrows to is the table's and not a second list. */
 const onYou = (at: Standing): at is NeedsYouWhy => WAITER_OF[at.why] === "you";
 
 /** THE ONE WORK'S WAIT ON THE HUMAN, if it is waiting on them. */

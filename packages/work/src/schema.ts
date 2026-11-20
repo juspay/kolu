@@ -1,39 +1,3 @@
-/**
- * A PIECE OF WORK, as kolu stores it — in a shape where the states kolu must
- * never be in cannot be written down.
- *
- * The record is three kinds of fact, each with one author:
- *
- *  - **what the work IS** — its {@link WorkKey}: the host, the repository and
- *    the branch it is on (or the terminal a person asked kolu to watch). A
- *    work is its branch. There is no minted id: the key IS the identity, and
- *    {@link workIdOf} is the one string encoding of it, so a second card for
- *    one branch cannot be created by any caller;
- *  - **what the human decided** — every question put to them about this work
- *    and how it ended ({@link Decision}, a SUM: a question is `asked` or it
- *    is `settled` — answered WITH its value, declined, or dropped; there is
- *    no "answered with nothing"). The setup (mode, harness and model per
- *    role, what to do on green) is a set of decisions like any other, and
- *    `./waterfall.ts` reads it off them: there is no second copy.
- *    The host is NOT a setup decision any more — it is part of the key;
- *  - **what kolu observed** — the append-only timeline ({@link WorkEvent}),
- *    each kind with its own typed payload, and the work's {@link WorkState}:
- *    `open`, or `ended` with the one outcome and the files kept at that
- *    moment. A kept-file list on a work that has not ended has nowhere to go,
- *    and neither does an `endedAt` without an outcome.
- *
- * THERE IS NO `abandoned`. Nothing kolu merely fails to SEE ends a work: a
- * work ends when the forge says its PR merged or closed, or when somebody
- * stops it. Members are not part of the record at all — they live in one map
- * keyed by terminal (`./store.ts`), so a terminal is in at most one work by
- * construction and an ended work has no members by rule.
- *
- * Nothing here knows what a terminal, a conversation or a browser IS: a
- * terminal is a string (`host/id`), a question is its words and options. The
- * live state of anything (a terminal's screen, a PR's check counts, the files
- * in a worktree) is read where it lives and never copied in.
- */
-
 import { Option, Schema } from "effect";
 
 /** What a member is there to do. `other` is a terminal the human asked the
@@ -143,9 +107,6 @@ export type WorkKey = typeof WorkKeySchema.Type;
  *  key; never minted, never random. */
 export type WorkId = string;
 
-/** Percent-encode everything that could be confused with the separators, so
- *  the encoding is injective: a repo path with a `/` in it (every repo path)
- *  cannot be read as the end of a field. */
 const part = (text: string): string => encodeURIComponent(text);
 
 /** THE ONE STRING ENCODING OF A KEY. Injective and decodable
@@ -159,28 +120,31 @@ export const workIdOf = (key: WorkKey): WorkId =>
 
 const decodeWorkKey = Schema.decodeUnknownOption(WorkKeySchema);
 
+const decodeComponent = (text: string): Option.Option<string> => {
+  try {
+    return Option.some(decodeURIComponent(text));
+  } catch {
+    return Option.none();
+  }
+};
+
 /** ... and back. `none` for a string that is no work id — which is what an
  *  agent naming a work kolu never opened hands in, and what a pasted link
  *  with a broken `%`-escape is. The parts go through the key's own schema,
  *  so an empty one is refused by the rule that refuses it everywhere else. */
 export const workKeyOf = (id: WorkId): Option.Option<WorkKey> => {
   const branch = /^branch:([^/]*)\/([^/]*)\/([^/]*)$/.exec(id);
+  if (branch !== null)
+    return Option.flatMap(
+      Option.all(branch.slice(1).map(decodeComponent)),
+      ([host, repo, name]) =>
+        decodeWorkKey({ kind: "branch", host, repo, branch: name }),
+    );
   const watch = /^watch:(.*)$/.exec(id);
-  try {
-    if (branch !== null) {
-      const [host, repo, name] = branch.slice(1).map(decodeURIComponent);
-      return decodeWorkKey({ kind: "branch", host, repo, branch: name });
-    }
-    if (watch === null) return Option.none();
-    const [terminal] = watch.slice(1).map(decodeURIComponent);
-    return decodeWorkKey({ kind: "watch", terminal });
-  } catch (cause) {
-    // `decodeURIComponent` throws `URIError` on a malformed escape: that is
-    // a string no `workIdOf` produced, so it names no work. Anything else is
-    // a defect and goes on up.
-    if (cause instanceof URIError) return Option.none();
-    throw cause;
-  }
+  if (watch === null) return Option.none();
+  return Option.flatMap(decodeComponent(watch[1] ?? ""), (terminal) =>
+    decodeWorkKey({ kind: "watch", terminal }),
+  );
 };
 
 /** Who an event is BY: the human, an agent (the Conductor or one of the
@@ -309,7 +273,6 @@ export const isAbout = (
 ): boolean =>
   event.about.kind === "member" && event.about.terminal === terminal;
 
-/** Every event's three common fields: when, by whom, and what it is about. */
 const eventOf = <K extends EventKind, F extends Schema.Struct.Fields>(
   kind: K,
   fields: F,
@@ -336,7 +299,6 @@ export const AgentWhySchema = Schema.Union([
 ]);
 export type AgentWhy = typeof AgentWhySchema.Type;
 
-/** The reason an agent-state event carries. */
 const whyField = { why: AgentWhySchema };
 
 /** THE COMMIT A CHECK RAN ON — known, or a host whose record reports none. */
@@ -349,10 +311,6 @@ export const CheckHeadSchema = Schema.Union([
 ]);
 export type CheckHead = typeof CheckHeadSchema.Type;
 
-/** What a check event says: the PR it is about, the head commit it ran on
- *  and the gates that are red.
- *
- *  `pr` is REQUIRED, so a check event with no pull request is not a value. */
 const checkFields = {
   pr: Schema.Int,
   head: CheckHeadSchema,
@@ -525,23 +483,17 @@ export const SaidSchema = Schema.Union([
 ]);
 export type Said = typeof SaidSchema.Type;
 
-/** A question the human would not answer — from the face they said so on. */
 const DeclinedSchema = Schema.Struct({
   how: Schema.Literal("declined"),
   at: Schema.String,
   from: AnsweredFromFaceSchema,
 });
 
-/** A question that went away unanswered: the work ended under it, or the
- *  conversation that asked it is gone. Nobody answered, so it has no face. */
 const DroppedSchema = Schema.Struct({
   how: Schema.Literal("dropped"),
   at: Schema.String,
 });
 
-/** HOW A QUESTION WAS SETTLED, as a SUM: answered WITH its value, declined,
- *  or dropped. Each arm carries only its own fields, so an answer with no
- *  value cannot be written down. */
 const answerOf = <V extends Schema.Struct.Fields>(value: V) =>
   Schema.Union([
     Schema.Struct({
@@ -610,20 +562,13 @@ export const QuestionFileSchema = Schema.Union([
 ]);
 export type QuestionFile = typeof QuestionFileSchema.Type;
 
-/** What every decision carries, asked or settled. One ask (a form) can hold
- *  several questions — the setup is one form — so `ask` is the form's id and
- *  `id` is this question's own. */
 const questionFields = {
   id: Schema.String,
   ask: Schema.String,
-  /** When it was asked. */
   at: Schema.String,
   question: Schema.String,
 };
 
-/** WHAT A QUESTION IS ABOUT, by arm. A setup question is labelled by its
- *  key's own name and answered in kolu's words; a question about the work is
- *  the asker's, with its header, its options and the file it is about. */
 const modeFields = {
   ...questionFields,
   topic: Schema.Literal("setup"),
@@ -636,9 +581,6 @@ const onGreenFields = {
   key: Schema.Literal("on-green"),
   options: Schema.Array(OnGreenSchema),
 };
-/** A question whose options are KOLU'S ({@link KOLU_CHOICE_KEYS}): no options
- *  and no `multiple` — there is nowhere to write either, so a stored copy of
- *  a model list is not a value. */
 const koluChoiceFields = {
   ...questionFields,
   topic: Schema.Literal("setup"),
@@ -649,7 +591,6 @@ const aboutWorkFields = {
   topic: Schema.Literal("work"),
   header: HeaderSchema,
   options: Schema.Array(Schema.String),
-  /** Whether more than one option may be picked. */
   multiple: Schema.Boolean,
   file: QuestionFileSchema,
 };

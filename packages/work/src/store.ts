@@ -1,31 +1,3 @@
-/**
- * THE ONE SMART CONSTRUCTOR — the works and their members, together, or a
- * value naming which rule the two of them break and the rows that break it.
- *
- * Most of what "a legal store" means is already the TYPES' job and needs no
- * check at all: one work per branch (a map keyed by {@link workIdOf}), a
- * terminal in at most one work (one map keyed by terminal), no bookkeeping
- * without a member (one row holds both), no kept files on a work in progress
- * and no `endedAt` without an outcome (one sum), no check event without a PR
- * (a required field), no "answered with nothing" (a sum).
- *
- * What is left is what JSON cannot say, and it is exactly four sentences:
- *
- *  1. the record's key is the work's own id;
- *  2. every member's work exists;
- *  3. that work is OPEN — so an ended work has no members, which is the same
- *     rule read from the other end;
- *  4. a work holds at most one `planner` and at most one `implementor`.
- *
- * PARSE, DO NOT VALIDATE: the DECODER goes through here, so a store on disk
- * that breaks one of the four fails to decode with the fault that names it —
- * a VALUE, because the SENTENCE belongs to whichever face shows it — the same
- * rule a refusal follows (`./refusal.ts`) — and the recovery screen offers
- * the way back. The single writer goes through here too, so a
- * transition that would break one cannot be saved. There is no third path
- * that "already knows" its values are good.
- */
-
 import { Option } from "effect";
 import {
   isWaterfallRole,

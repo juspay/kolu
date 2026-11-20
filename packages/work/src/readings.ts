@@ -1,16 +1,3 @@
-/**
- * WHAT A WORK SAYS, read off its decisions and its events — never stored
- * beside them.
- *
- * The MECHANISM of a reading lives here: which decisions belong to one ask,
- * what the timeline last said about the PR, which files kolu has seen. The
- * rules that read the WATERFALL'S WORDS
- * off the same record — the mode, the roles, the setup, who drives — are
- * `./waterfall.ts`, and this module deliberately imports nothing from there: a
- * reading of a decision is the same reading whatever words the waterfall
- * grows.
- */
-
 import { Option } from "effect";
 import type {
   CheckHead,
@@ -133,10 +120,40 @@ export const prStep = (
 export const isOpenDraft = (pr: PrReading): boolean =>
   pr.state === "open" && pr.draft === "draft";
 
-/** An open draft reads `cannot: draft`, whatever the forge answered about
- *  merging it: GitHub works a draft's merge state out as if it were ready. */
 const draftCannotMerge = (pr: PrReading): PrReading =>
   isOpenDraft(pr) ? { ...pr, merge: { kind: "cannot", why: "draft" } } : pr;
+
+type PrFact = "checks" | "merge" | "lastCheck" | "lastMerge";
+
+const FORGOTTEN: Readonly<Record<PrFact, Partial<PrReading>>> = {
+  checks: { checks: "none" },
+  merge: { merge: { kind: "unknown" } },
+  lastCheck: { lastCheck: Option.none() },
+  lastMerge: { lastMerge: Option.none() },
+};
+
+const forgets = (was: PrReading, facts: ReadonlyArray<PrFact>): PrReading => {
+  const forgotten: Partial<PrReading> = {};
+  for (const fact of facts) Object.assign(forgotten, FORGOTTEN[fact]);
+  return { ...was, ...forgotten };
+};
+
+const STATE_STEP = {
+  merged: { state: "merged", forgets: ["checks", "merge"] },
+  "pr-closed": { state: "closed", forgets: ["checks", "merge"] },
+  reopened: {
+    state: "open",
+    forgets: ["checks", "merge", "lastCheck", "lastMerge"],
+  },
+} as const satisfies Readonly<
+  Record<
+    string,
+    {
+      readonly state: PrReading["state"];
+      readonly forgets: ReadonlyArray<PrFact>;
+    }
+  >
+>;
 
 const stepPr = (
   pr: Option.Option<PrReading>,
@@ -154,9 +171,6 @@ const stepPr = (
       draft: event.draft,
     });
   return Option.map(pr, (was): PrReading => {
-    // A FACT ABOUT ANOTHER COMMIT makes the other one's stale: checks about a
-    // new head say nothing of whether GitHub would merge it, and a merge
-    // answer about a new head says nothing of the old head's checks.
     if (isCheckEvent(event))
       return {
         ...was,
@@ -182,47 +196,16 @@ const stepPr = (
             ? was.checks
             : "none",
         };
-      // ENTERING OR LEAVING DRAFT forgets the merge answer: one given while it
-      // was a draft (or before it became one) says nothing of the PR as it is
-      // now, so GitHub's next answer is news. Learning `ready` for a PR whose
-      // word was never recorded changes nothing it said.
       case "draft-state":
         return was.draft === "draft" || event.draft === "draft"
-          ? {
-              ...was,
-              draft: event.draft,
-              merge: { kind: "unknown" },
-              lastMerge: Option.none(),
-            }
+          ? { ...forgets(was, ["merge", "lastMerge"]), draft: event.draft }
           : { ...was, draft: event.draft };
       case "merged":
-        return {
-          ...was,
-          state: "merged",
-          checks: "none",
-          merge: { kind: "unknown" },
-        };
       case "pr-closed":
-        return {
-          ...was,
-          state: "closed",
-          checks: "none",
-          merge: { kind: "unknown" },
-        };
-      // A person pressing Reopen, or `work_open` on the same key: the reading
-      // goes back to open and FORGETS what it said about the checks and the
-      // merge — they were true when the work stopped, maybe a week ago — so
-      // the next reading of the PR is news again and says how it stands now.
-      // Its draft word is kept: it is about the PR, not about a commit.
-      case "reopened":
-        return {
-          ...was,
-          state: "open",
-          checks: "none",
-          merge: { kind: "unknown" },
-          lastCheck: Option.none(),
-          lastMerge: Option.none(),
-        };
+      case "reopened": {
+        const moved = STATE_STEP[event.kind];
+        return { ...forgets(was, moved.forgets), state: moved.state };
+      }
       default:
         return was;
     }

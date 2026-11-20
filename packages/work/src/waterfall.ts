@@ -1,38 +1,3 @@
-/**
- * THE WATERFALL'S WORDS, and every rule that reads them.
- *
- * The words themselves are declared in `./schema.ts` — the record's schema
- * embeds them, so that is where they have to be — and re-exported here, which
- * is the one import a reader looking for "what is a mode" should need. What is
- * NEW here is the rules: what a mode RUNS ({@link MODE_RUNS}), which roles it
- * has, which setup keys it cannot live without, who types into its terminals,
- * and the readings of a record that answer those questions off the human's
- * decisions.
- *
- * ## Why one module, and what it is worth
- *
- * These rules used to sit in four places across three packages: `rolesOf`
- * beside the decision readings, `missingSetup` beside the Conductor's refusal
- * sentences, `driverOf` beside the folds, the mode→setup table keyed by plain
- * `string`. Adding a mode was three edits and two silent defaults — a mode
- * nobody listed "needed nothing", and its terminals were driven by nobody. Now
- * a mode is ONE row of {@link MODE_RUNS}, typed by {@link WorkMode}, so a new
- * one is a compile error until every rule says what it means.
- *
- * ## The direction of the arrow
- *
- * `./schema.ts`, `./record.ts`, `./folds.ts` and `./readings.ts` must NOT
- * import this module — that is the test that the mechanism is separable from
- * the vocabulary, and it is held by a `noRestrictedImports` override in
- * `biome.jsonc` rather than by a comment. This module reads all four.
- *
- * What is NOT here is anybody's ENGLISH. The refusal sentences are the
- * Conductor's (they name `work_open` and its arguments), the card's words are
- * the browser's, and the wake's are the wake's. What crosses this wall is the
- * derived FACT — which keys are missing, which words are foreign, who is
- * waiting — and the reader spells it.
- */
-
 import { type AgentModelList, isAgentModelId } from "@kolu/agent-distro/models";
 import { Array as Arr, Option } from "effect";
 import {
@@ -63,6 +28,7 @@ import {
   type WaterfallRole,
   WORK_ROLES,
   type Work,
+  type WorkEvent,
   type WorkMode,
   type WorkRole,
 } from "./schema.ts";
@@ -181,15 +147,6 @@ export const WATERFALL_DIR = ".waterfall/";
 export const waterfallFileName = (path: string): string =>
   path.startsWith(WATERFALL_DIR) ? path.slice(WATERFALL_DIR.length) : path;
 
-/* ── A FLAT LIST OF PATHS, READ AS A TREE ──────────────────────────────────
- *
- * A waterfall writes FOLDERS too (a planner's `mockup/` beside its plan), and
- * every list of a work's files is flat: the live listing, the `file` events,
- * the files kolu kept. These readings are how a face sees the folders in it,
- * the same way whichever of the three it holds. A folder is spelled the way
- * a listing spells one: its path with a trailing slash (`.waterfall/mockup/`),
- * and {@link WATERFALL_DIR} is the root of them all. */
-
 /** THE FOLDER DIRECTLY IN `folder` that holds `path` — none when the path is a
  *  file of `folder` itself, or is not under it at all. `.waterfall/mockup/`
  *  for `.waterfall/mockup/fonts/a.woff2` read from {@link WATERFALL_DIR}. */
@@ -289,16 +246,10 @@ export type SetupStanding<V extends string> =
   | { readonly kind: "open"; readonly ask: string }
   | { readonly kind: "unasked" };
 
-/** A setup decision that stands ANSWERED — the arm every reading below is
- *  after, with the value (and, for one of kolu's own, how it was chosen)
- *  right there on it. */
 type AnsweredSetup = Extract<SetupDecision, { readonly kind: "settled" }> & {
   readonly answer: { readonly how: "answered" };
 };
 
-/** THE NEWEST ANSWER TO A SETUP QUESTION — the one walk behind every reading
- *  of what a key stands answered with: the last answer wins, because a key
- *  asked again is answered again. */
 const newestSetupAnswer = (
   work: Work,
   key: SetupKey,
@@ -403,6 +354,15 @@ export const policyOf = (work: Work): Policy => ({
  *  a work whose mode nobody has answered yet runs nothing). */
 export type Driver = "conductor" | "you" | "nobody";
 
+const eventsSinceJoin = (
+  work: Work,
+  terminal: string,
+): ReadonlyArray<WorkEvent> => {
+  const about = work.events.filter((one) => isAbout(one, terminal));
+  const joined = about.findLastIndex((one) => one.kind === "joined");
+  return about.slice(joined + 1);
+};
+
 /** The driver, read off the events the way everything else about a work is:
  *  the latest `taken-over`/`handed-back` for that terminal SINCE it last
  *  joined. So the lock ends by itself when the member leaves or the work ends,
@@ -417,17 +377,10 @@ export const driverOf = (
   const mode = modeOf(work);
   if (Option.isNone(mode) || !MODE_RUNS[mode.value].driven) return "nobody";
   if (Option.isNone(member)) return "nobody";
-  for (let at = work.events.length - 1; at >= 0; at -= 1) {
-    const event = work.events[at];
-    if (event === undefined || !isAbout(event, terminal)) continue;
-    // Back to the join THIS membership started at and no further: a terminal
-    // that left and came back is driven by the Conductor again, whatever was
-    // said about the terminal it used to be.
-    if (event.kind === "joined") break;
-    if (event.kind === "taken-over") return "you";
-    if (event.kind === "handed-back") break;
-  }
-  return "conductor";
+  const said = eventsSinceJoin(work, terminal).findLast(
+    (one) => one.kind === "taken-over" || one.kind === "handed-back",
+  );
+  return said?.kind === "taken-over" ? "you" : "conductor";
 };
 
 /** ONE ROLE'S SETUP — nothing chosen, its harness, or its harness and the
@@ -452,8 +405,6 @@ export interface SetupReading {
   readonly onGreen: Option.Option<OnGreen>;
 }
 
-/** One role's answer for `harness` or `model` — none both for a role that
- *  has no such key and for one nobody has answered. */
 const roleAnswer = (
   work: Work,
   role: WorkRole,
@@ -665,44 +616,81 @@ export const modelNotOffered = (
   value: string,
   chosen: Chosen,
   offered: ModelChoices,
+): Option.Option<"not-listed" | "not-a-model-id"> =>
+  judgeModel(
+    value,
+    chosen === "typed" ? { kind: "typed" } : { kind: "picked", offered },
+  );
+
+type ModelAsk =
+  | { readonly kind: "typed" }
+  | { readonly kind: "picked"; readonly offered: ModelChoices };
+
+const judgeModel = (
+  value: string,
+  ask: ModelAsk,
 ): Option.Option<"not-listed" | "not-a-model-id"> => {
-  if (chosen === "picked" && offered.kind === "listed")
-    return offered.ids.includes(value)
+  if (ask.kind === "picked" && ask.offered.kind === "listed")
+    return ask.offered.ids.includes(value)
       ? Option.none()
       : Option.some("not-listed");
   return isAgentModelId(value) ? Option.none() : Option.some("not-a-model-id");
 };
 
-/** THE ONE RULE for an answer to one of kolu's questions — the same where an
- *  answer is recorded, where a saved one is started, and where `work_open`
- *  decides whether a saved one stands. */
+type Judged =
+  | { readonly kind: "harness" }
+  | { readonly kind: "no-harness" }
+  | {
+      readonly kind: "model";
+      readonly harness: string;
+      readonly ask: ModelAsk;
+    };
+
+const judgedOf = (answer: KoluAnswer, choices: KoluChoices): Judged => {
+  if (roleOfKey(answer.key).what === "harness") return { kind: "harness" };
+  const harness = Option.filter(answer.harness, (one) =>
+    choices.harnesses.includes(one),
+  );
+  if (Option.isNone(harness)) return { kind: "no-harness" };
+  if (answer.chosen === "typed")
+    return { kind: "model", harness: harness.value, ask: { kind: "typed" } };
+  const offered = choices.models.get(harness.value);
+  if (offered === undefined)
+    throw new Error(
+      `unofferedAnswers: no model list for ${harness.value} — the caller must ask the host for every installed harness a picked model is judged against`,
+    );
+  return {
+    kind: "model",
+    harness: harness.value,
+    ask: { kind: "picked", offered },
+  };
+};
+
 const judgeAnswer = (
   answer: KoluAnswer,
   value: string,
   choices: KoluChoices,
 ): Option.Option<UnofferedAnswer> => {
-  const { key, harness, chosen } = answer;
-  if (roleOfKey(key).what === "harness")
-    return choices.harnesses.includes(value)
-      ? Option.none()
-      : Option.some({ key, value, why: "not-installed" });
-  // A model of no harness — none answered, or one this kolu does not carry
-  // (which its own answer is refused for) — is not a model of anything.
-  if (Option.isNone(harness) || !choices.harnesses.includes(harness.value))
-    return Option.some({ key, value, why: "no-harness" });
-  // A typed model is never held against a list: no list is asked for it.
-  const offered: Option.Option<ModelChoices> =
-    chosen === "typed"
-      ? Option.some({ kind: "unlisted" })
-      : Option.fromUndefinedOr(choices.models.get(harness.value));
-  if (Option.isNone(offered))
-    throw new Error(
-      `judgeAnswer: no model list for ${harness.value} — the caller must ask the host for every installed harness a picked model is judged against`,
-    );
-  return Option.map(
-    modelNotOffered(value, chosen, offered.value),
-    (why): UnofferedAnswer => ({ key, value, why, harness: harness.value }),
-  );
+  const { key } = answer;
+  const judged = judgedOf(answer, choices);
+  switch (judged.kind) {
+    case "harness":
+      return choices.harnesses.includes(value)
+        ? Option.none()
+        : Option.some({ key, value, why: "not-installed" });
+    case "no-harness":
+      return Option.some({ key, value, why: "no-harness" });
+    default:
+      return Option.map(
+        judgeModel(value, judged.ask),
+        (why): UnofferedAnswer => ({
+          key,
+          value,
+          why,
+          harness: judged.harness,
+        }),
+      );
+  }
 };
 
 /** ONE ANSWER TO ONE OF KOLU'S QUESTIONS, wherever it comes from — the values
@@ -1005,11 +993,27 @@ export interface SetupMemory {
   readonly modelsUsed: (harness: string) => ReadonlyArray<Recalled>;
 }
 
+const offerableModels = <
+  A extends {
+    readonly value: string;
+    readonly model: boolean;
+    readonly harness: Option.Option<string>;
+  },
+>(
+  answers: ReadonlyArray<A>,
+  harness: string,
+): ReadonlyArray<A> =>
+  answers.filter(
+    (one) =>
+      one.model &&
+      Option.contains(one.harness, harness) &&
+      isAgentModelId(one.value),
+  );
+
 export const setupMemory = (
   works: ReadonlyArray<Work>,
   host: string,
 ): SetupMemory => {
-  /** Every setup answer, with the harness its role ran on in that work. */
   const answers = works
     .flatMap((work) =>
       work.decisions.flatMap((one) => {
@@ -1057,23 +1061,13 @@ export const setupMemory = (
         : here.find((one) => one.key === key);
       return Option.map(Option.fromUndefinedOr(found), recalled);
     },
-    // Only what a launch would take: words saved as a model before kolu drew
-    // these options are not offered back. The most recent way a model was
-    // chosen is the one it comes back as.
     modelsUsed: (harness) => {
       const seen = new Set<string>();
-      return answers
-        .filter(
-          (one) =>
-            one.model &&
-            Option.contains(one.harness, harness) &&
-            isAgentModelId(one.value),
-        )
-        .flatMap((one) => {
-          if (seen.has(one.value)) return [];
-          seen.add(one.value);
-          return [recalled(one)];
-        });
+      return offerableModels(answers, harness).flatMap((one) => {
+        if (seen.has(one.value)) return [];
+        seen.add(one.value);
+        return [recalled(one)];
+      });
     },
   };
 };

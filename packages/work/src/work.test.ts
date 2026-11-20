@@ -80,8 +80,6 @@ import {
 const T = (minute: number): string =>
   new Date(Date.UTC(2026, 10, 14, 10, minute)).toISOString();
 
-/** The value a reading found, or a failure naming the reading that found
- *  nothing — what a test asserts on now that a lookup answers an `Option`. */
 const got = <A>(found: Option.Option<A>): A => Option.getOrThrow(found);
 
 const KEY: WorkKey = {
@@ -112,7 +110,6 @@ const SETUP = [
     options: ["full", "trivial"],
     given: { kind: "ask" },
   },
-  // kolu's own four: no options to write down.
   koluQuestion("q-ph", "planner.harness", "Planner harness?"),
   koluQuestion("q-pm", "planner.model", "Planner model?"),
   koluQuestion("q-ih", "implementor.harness", "Implementor harness?"),
@@ -127,8 +124,6 @@ const SETUP = [
   },
 ] as const satisfies ReadonlyArray<Question>;
 
-/** A question about the WORK — the asker's own, with its header, options and
- *  the file it is about. */
 const aboutWork = (
   id: string,
   question: string,
@@ -198,7 +193,6 @@ describe("a work IS its key", () => {
   it("answers nothing for a string that is no work id", () => {
     expect(Option.isNone(workKeyOf("w1"))).toBe(true);
     expect(Option.isNone(workKeyOf("branch:host//branch"))).toBe(true);
-    // A pasted link with a broken escape is refused, never thrown.
     expect(Option.isNone(workKeyOf("branch:local/%E0%A4%A/b"))).toBe(true);
   });
 
@@ -232,9 +226,6 @@ describe("parseStore — what the types cannot say", () => {
     expect(store.members.size).toBe(4);
   });
 
-  /** The fault a parse refused with — the VALUE, because the SENTENCE is the
-   *  showing face's (`kolu-conductor`'s `faultClause`) and this package holds
-   *  no English a person reads. */
   const faultOf = (parse: () => unknown): StoreFault => {
     try {
       parse();
@@ -304,8 +295,6 @@ describe("parseStore — what the types cannot say", () => {
       expect.unreachable();
     } catch (err) {
       expect(err).toBeInstanceOf(InvalidWorkStore);
-      // NO SENTENCE on the class: the kind is what a face branches on, and
-      // the words it shows are its own.
       expect((err as InvalidWorkStore).fault.kind).toBe("key-mismatch");
     }
   });
@@ -335,8 +324,6 @@ describe("kolu's own setup questions — the harness and the model", () => {
       expect(one).not.toHaveProperty("options");
       expect(one).not.toHaveProperty("multiple");
     }
-    // ... the record decodes as the schema says, and a stored list a reader
-    // is handed anyway has nowhere to land: it is not part of the value.
     expect(Schema.decodeUnknownSync(WorkSchema)(work)).toEqual(work);
     const smuggled = Schema.decodeUnknownSync(WorkSchema)({
       ...work,
@@ -363,7 +350,6 @@ describe("kolu's own setup questions — the harness and the model", () => {
     expect(
       Option.isNone(harnessForModel(work, "ask-1", "planner.model", new Map())),
     ).toBe(true);
-    // A later ask about the model alone reads the harness already decided.
     const later = askQuestions(setUp(opened()), {
       ask: "ask-2",
       questions: [koluQuestion("q-pm2", "planner.model", "Model?")],
@@ -380,7 +366,6 @@ describe("kolu's own setup questions — the harness and the model", () => {
       ["q-ph", ["omp"]],
       ["q-pm", ["anthropic/claude-fable-5-2"]],
       ["q-ih", ["claude"]],
-      // A harness that cannot list takes whatever model the person names.
       ["q-im", ["claude-opus-4-6"]],
     ]);
     const answers = askedAnswersOf(work, "ask-1", values);
@@ -440,8 +425,6 @@ describe("kolu's own setup questions — the harness and the model", () => {
   });
 
   it("judges SAVED answers by the same rule — what a start and `work_open` read", () => {
-    // The human's store: a model typed as words before kolu drew these
-    // options, and one the harness no longer lists.
     const saved = answerAsk(asked(), {
       ask: "ask-1",
       at: T(2),
@@ -483,15 +466,12 @@ describe("kolu's own setup questions — the harness and the model", () => {
         harness: "omp",
       },
     ]);
-    // A harness this kolu stopped carrying takes its model down with it.
     expect(
       unofferedAnswers(savedAnswersOf(saved, koluKeysOf("planner")), {
         harnesses: ["omp"],
         models: CHOICES.models,
       }).map((one) => one.why),
     ).toEqual(["not-installed", "no-harness"]);
-    // ... and a model the REQUEST gives is of the harness given beside it,
-    // else of the one the work recorded.
     expect(
       givenAnswersOf(
         [{ key: "planner.model", value: "x" }],
@@ -584,19 +564,15 @@ describe("kolu's own setup questions — the harness and the model", () => {
       "omp",
     );
     expect(got(memory.last("on-green", Option.none())).value).toBe("hand-over");
-    // The newest on THIS host, not the newest anywhere.
     expect(got(memory.last("planner.model", Option.some("omp"))).value).toBe(
       "anthropic/claude-fable-5-2",
     );
-    // A model is a model of its harness, whichever role ran it.
     expect(got(memory.last("planner.model", Option.some("claude"))).value).toBe(
       "claude-opus-4-6",
     );
     expect(
       Option.isNone(memory.last("implementor.model", Option.some("codex"))),
     ).toBe(true);
-    // What a harness that cannot list offers: every model it ran, newest
-    // first, each as it was chosen.
     expect(memory.modelsUsed("claude")).toEqual([
       { value: "claude-sonnet-4-6", chosen: "picked" },
       { value: "claude-opus-4-6", chosen: "picked" },
@@ -624,7 +600,6 @@ describe("kolu's own setup questions — the harness and the model", () => {
     expect(memory.modelsUsed("omp")).toEqual([
       { value: "opus", chosen: "typed" },
     ]);
-    // ... and the rule holds it to no list: `opus` is not one omp lists.
     expect(
       unofferedAnswers(savedAnswersOf(work, ["planner.model"]), {
         harnesses: ["omp"],
@@ -634,8 +609,6 @@ describe("kolu's own setup questions — the harness and the model", () => {
   });
 
   it("gives each ROLE its own last model on a harness both run", () => {
-    // Plans on one model, implements on another, one harness: each role gets
-    // its own back, so pressing Answer unchanged repeats the setup.
     const work = answerAsk(asked(), {
       ask: "ask-1",
       at: T(2),
@@ -657,8 +630,6 @@ describe("kolu's own setup questions — the harness and the model", () => {
     expect(
       got(memory.last("implementor.model", Option.some("omp"))).value,
     ).toBe("litellm/claude-fable-5-2");
-    // A role that never ran that harness falls back to the model another
-    // role ran it on.
     const plannerOnly = answerAsk(asked(), {
       ask: "ask-1",
       at: T(2),
@@ -685,8 +656,6 @@ describe("kolu's own setup questions — the harness and the model", () => {
 describe("an answer HAS a value — the states that cannot be written down", () => {
   const decode = Schema.decodeUnknownSync(WorkSchema);
 
-  /** The human's stored bytes, as the new shape would try to hold them: one
-   *  decision on an otherwise ordinary work. */
   const stored = (decision: object): object => ({
     ...opened(),
     decisions: [decision],
@@ -720,7 +689,6 @@ describe("an answer HAS a value — the states that cannot be written down", () 
     });
 
   it("does not decode a kolu-choice decision answered with nothing", () => {
-    // THE BUG, as bytes: "answered", from a face, and no answer in it.
     expect(() =>
       decode(koluChoice({ how: "answered", at: T(2), from: "chat" })),
     ).toThrow();
@@ -729,7 +697,6 @@ describe("an answer HAS a value — the states that cannot be written down", () 
         koluChoice({ how: "answered", at: T(2), from: "chat", value: "" }),
       ),
     ).toThrow();
-    // ... while the same decision WITH a value is a value.
     expect(
       decode(
         koluChoice({
@@ -814,13 +781,13 @@ describe("an answer HAS a value — the states that cannot be written down", () 
   });
 
   it("cannot be constructed either — an answer with no value is not a type", () => {
-    // @ts-expect-error — `answered` carries its value; there is no arm without one.
-    const noAnswer: DecisionAnswer = {
-      how: "answered",
-      at: T(2),
-      from: "chat",
+    type NoValue = {
+      readonly how: "answered";
+      readonly at: string;
+      readonly from: "chat";
     };
-    expect(noAnswer.how).toBe("answered");
+    const isAnAnswer: NoValue extends DecisionAnswer ? true : false = false;
+    expect(isAnAnswer).toBe(false);
   });
 
   it("has no `abandoned` outcome to decode", () => {
@@ -980,7 +947,6 @@ describe("a question left blank stays asked", () => {
         reply: { kind: "answered", values: new Map() },
       }),
     ).toBe(work);
-    // ... including a reply to an ask whose every question is settled.
     const done = setUp(opened());
     expect(
       answerAsk(done, {
@@ -1004,7 +970,6 @@ describe("a question left blank stays asked", () => {
     expect(
       declined !== undefined && isSettled(declined) ? declined.answer : {},
     ).toEqual({ how: "declined", at: T(4), from: "chat" });
-    // The ones already answered keep their answers and their own face.
     const mode = work.decisions.find((one) => one.id === "q-mode");
     expect(
       mode !== undefined && isSettled(mode) ? mode.answer : {},
@@ -1029,7 +994,6 @@ describe("a question left blank stays asked", () => {
     expect(one.events.some((e) => e.kind === "question-dropped")).toBe(false);
     expect(openAsks(one)).toEqual(["ask-1"]);
     expect(setupStanding(one, "planner.model")).toEqual({ kind: "unasked" });
-    // ... and the last of them takes the ask with it.
     const rest = dropQuestions(
       one,
       openSetupQuestions(one, [...SETUP_KEYS]),
@@ -1057,7 +1021,6 @@ describe("what starting waits on, and what a new form asks", () => {
       { key: "planner.harness", standing: { kind: "open", ask: "ask-1" } },
       { key: "planner.model", standing: { kind: "open", ask: "ask-1" } },
     ]);
-    // A declined question waits on nobody — only `work_open` puts it again.
     const declined = answerAsk(asked, {
       ask: "ask-1",
       at: T(2),
@@ -1080,7 +1043,6 @@ describe("what starting waits on, and what a new form asks", () => {
     expect(
       keysToAsk(Option.some(done), keys, new Set(["planner.model"])),
     ).toEqual(["planner.model"]);
-    // The open questions the new form takes the place of.
     expect(openSetupQuestions(asked, ["mode", "planner.model"])).toEqual(
       new Set(["q-mode", "q-pm"]),
     );
@@ -1213,7 +1175,6 @@ describe("the readings", () => {
 
   it("says a role whose questions are still open has chosen nothing", () => {
     const asked = askSetup(opened());
-    // No mode, so no roles to read a setup for at all.
     expect(setupOf(asked).roles).toEqual([]);
     expect(Option.isNone(setupOf(asked).mode)).toBe(true);
     const modeOnly = answerAsk(asked, {
@@ -1341,9 +1302,7 @@ describe("membership", () => {
     expect(driverOf(work, "local/a", Option.some(member()))).toBe("you");
     work = handBack(work, "local/a", T(5));
     expect(driverOf(work, "local/a", Option.some(member()))).toBe("conductor");
-    // Nobody drives a terminal that is no member of it ...
     expect(driverOf(work, "local/a", Option.none())).toBe("nobody");
-    // ... nor any terminal of a work whose mode nobody has answered.
     const unset = joinWork(opened(), {
       terminal: "local/a",
       role: "planner",
@@ -1408,7 +1367,6 @@ describe("a work's files, read as a tree", () => {
     const [mockup] = waterfallLevel(files, WATERFALL_DIR).folders;
     expect(mockup?.files).toHaveLength(3);
     expect(waterfallBytes(mockup?.files ?? [])).toEqual(Option.some(520));
-    // A live listing has no sizes, so its folder has none either.
     expect(
       waterfallBytes([
         ...(mockup?.files ?? []),
@@ -1461,8 +1419,6 @@ describe("what a work's ending did not keep", () => {
       T(9),
     );
     expect(notKeptOf(once)).toEqual(Option.some("big.mov did not fit"));
-    // Opened again and ended again with everything kept: the old sentence is
-    // about files that ending had, not these.
     const again = keepFiles(
       endWork(reopenWork(once, T(10)), { ...stopped, at: T(11) }),
       { files: [{ path: ".waterfall/plan.md", bytes: 12 }], at: T(11) },
