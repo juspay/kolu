@@ -49,7 +49,6 @@ import { makeEventListener } from "@solid-primitives/event-listener";
 import { LogTail, type LogLine } from "@kolu/solid-logtail";
 import { toError } from "@kolu/surface/run-stream";
 import { Effect } from "effect";
-import { activeArm } from "@kolu/padi-client/surface";
 import { decodeHostKey } from "kolu-common/hostKey";
 import type { TerminalId } from "kolu-common/surface";
 import {
@@ -69,15 +68,9 @@ import { fleetTerminalStanding } from "../palette/fleetTerminals";
 import { runOwnedAction } from "../runAction";
 import { CONTEXTUAL_TIPS } from "../settings/tips";
 import { useTips } from "../settings/useTips";
-import {
-  type AgentStateTone,
-  formatTaskProgress,
-  stateLabels,
-  stateTones,
-  taskProgressTitle,
-} from "../ui/agentDisplay";
 import { padiRpcOf } from "../wire";
 import { useShown } from "../ui/shown";
+import { liveArm, STATUS_DOT, terminalStatus } from "./terminalStatus";
 
 /** How much of the screen Look shows. */
 export const LOOK_LINES = 40;
@@ -89,41 +82,6 @@ export const LOOK_EVERY_MS = 2_000;
  *  the card that drew it — a fold swallowing a settled call, a row object
  *  replaced by an update (see the header). */
 const [opened, setOpened] = createStore<Record<string, true | undefined>>({});
-
-/** The dot's paint, per agent tone — the same families the dock pip and the
- *  Inspector's status card use: rust working, violet needs-you, violet at half
- *  strength for an agent that has finished its turn, and the muted `fg-3` both
- *  for an agent that is only PRESENT (`starting` / `fresh`) and for a terminal
- *  with no agent at all. The two share a dot deliberately: neither is anything
- *  happening, and the WORDS beside it are what tell them apart. */
-const DOT: Record<AgentStateTone | "none", string> = {
-  busy: "bg-busy animate-pulse motion-reduce:animate-none",
-  alert: "bg-alert",
-  "alert-linger": "bg-alert/50",
-  quiet: "bg-fg-3",
-  none: "bg-fg-3",
-};
-
-/** The status line's words: what the terminal is, how far through its task
- *  list the agent in it says it is, and what it says it is doing (when it
- *  says anything). */
-interface Status {
-  readonly tone: keyof typeof DOT;
-  readonly state: string;
-  /** HOW MANY OF ITS OWN TASKS ARE DONE — `7/12` and the sentence that says
-   *  what the fraction counts — for an agent that reports a task list, and
-   *  `null` for one that does not (most states, and every agent that keeps no
-   *  list). The fraction is the formatter the tile's meta line and the
-   *  Inspector's card already print, so the Conductor does not spell progress
-   *  a second way.
-   *
-   *  It costs no reading of its own: it is on the record this line is already
-   *  holding, which is what makes it drawable on the transcript's agent lines
-   *  and on every watched row, in both placements, without a subscription per
-   *  row. */
-  readonly progress: { readonly text: string; readonly title: string } | null;
-  readonly doing: string | null;
-}
 
 const ConductorLook: Component<{
   /** The transcript row this line belongs to — the key Look's open state is
@@ -156,15 +114,7 @@ const ConductorLook: Component<{
   const standing = createMemo(() =>
     fleetTerminalStanding(props.host, props.id),
   );
-  /** The terminal's live arm, when it has one — the ONE read of the standing
-   *  both the words and the Look button derive from. Only an ACTIVE terminal
-   *  has a screen: a sleeping one is in the roster but `screen.text` cannot
-   *  read it, so "asleep" is a status with nothing behind it — like "terminal
-   *  gone". */
-  const live = createMemo(() => {
-    const now = standing();
-    return now.kind === "here" ? activeArm(now.meta) : undefined;
-  });
+  const live = createMemo(() => liveArm(standing()));
   const lookable = () => live() !== undefined;
   const { showTipOnce } = useTips();
   const shown = useShown();
@@ -177,78 +127,7 @@ const ConductorLook: Component<{
     if (shown() && lookable()) showTipOnce(CONTEXTUAL_TIPS.conductorLook);
   });
 
-  const status = createMemo((): Status => {
-    const now = standing();
-    switch (now.kind) {
-      case "gone":
-        return {
-          tone: "none",
-          state: "terminal gone",
-          progress: null,
-          doing: null,
-        };
-      case "loading":
-        return {
-          tone: "none",
-          state: "finding the terminal…",
-          progress: null,
-          doing: null,
-        };
-      case "unreachable":
-        return {
-          tone: "none",
-          state: "its host is not connected",
-          progress: null,
-          doing: null,
-        };
-      case "here": {
-        const arm = live();
-        if (arm === undefined)
-          return {
-            tone: "none",
-            state: "asleep",
-            progress: null,
-            doing: null,
-          };
-        const agent = arm.agent;
-        if (agent !== null) {
-          const tasks = agent.taskProgress;
-          return {
-            tone: stateTones[agent.state],
-            state: stateLabels[agent.state] ?? agent.state,
-            progress:
-              tasks === null
-                ? null
-                : {
-                    text: formatTaskProgress(tasks),
-                    title: taskProgressTitle(tasks),
-                  },
-            doing: agent.summary,
-          };
-        }
-        const front = arm.foreground;
-        if (front === null || front.shell)
-          return {
-            tone: "none",
-            state: "no agent",
-            progress: null,
-            doing: "at the shell",
-          };
-        // NO AGENT IS NOW A FACT, not an absence to read around. padi puts an
-        // `agent` on the record the moment one of its registered CLIs is the
-        // foreground program — `starting` while its screen is still being
-        // drawn, `fresh` once it has settled — so the branch above has
-        // already answered for every agent coming up. What reaches here is a
-        // terminal running something that is not an agent, and it says so.
-        return {
-          tone: "none",
-          state: "no agent",
-          progress: null,
-          doing: `running ${front.name}`,
-        };
-      }
-    }
-  });
+  const status = createMemo(() => terminalStatus(standing()));
 
   const open = () => opened[props.rowId] === true;
 
@@ -262,7 +141,7 @@ const ConductorLook: Component<{
           then a lead's own parts down to their floors. */}
       <div class="flex min-w-0 items-center gap-2">
         {props.lead}
-        <span class={`h-2 w-2 shrink-0 rounded-full ${DOT[status().tone]}`} />
+        <span class={`h-2 w-2 shrink-0 rounded-full ${STATUS_DOT[status().tone]}`} />
         <span
           data-testid="conductor-look-status"
           class="min-w-0 flex-1 truncate text-fg-2"
