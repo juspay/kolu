@@ -11,7 +11,7 @@ export const PairedDaemonSchema = Schema.Struct({
 export type PairedDaemon = typeof PairedDaemonSchema.Type;
 
 export function getLastPairedDaemon(): PairedDaemon | null {
-  return requirePadiLastPairedDaemonStore().get();
+  return requirePadiLastPairedDaemonStore().get() ?? null;
 }
 
 export function recordPairedDaemon(startedAt: number | undefined): void {
