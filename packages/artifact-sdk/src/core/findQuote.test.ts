@@ -51,7 +51,6 @@ describe("findQuote", () => {
     });
     expect(out).not.toBeNull();
     if (!out) return;
-    // Neither context matches; both occurrences score 0 — take the first.
     expect(out.start).toBe(text.indexOf("bar"));
   });
 });

@@ -1,13 +1,3 @@
-/** Shared "re-find + register CSS Custom Highlights" pipeline. Used by
- *  both runtimes — the in-iframe SDK applies highlights inside the
- *  iframe document, the parent-side overlay applies them on Pierre's
- *  rendered DOM (descending through shadow roots when present).
- *
- *  Browser support: Chrome 105+, Safari 17.2+, Firefox 140+. The guard
- *  on `Highlight` + `CSS.highlights` here means older browsers degrade
- *  silently — comments still appear in the tray, just without in-place
- *  highlights. */
-
 import type { Locator, QuoteRoot } from "../types";
 import { rootTextContent } from "./extractQuote";
 import { findQuote, rangeFromOffsets } from "./findQuote";
@@ -26,9 +16,7 @@ declare global {
 
 /** What `applyHighlights` reads off each comment. `Comment`s carry more
  *  fields (id, body, createdAt, …) but the highlight pipeline only
- *  needs the locator — keep the input shape minimal so callers from
- *  other surfaces (e.g. the iframe-side render-highlights message)
- *  don't have to invent IDs they'll never use. */
+ *  needs the locator. */
 export interface HighlightInputComment {
   locator: Locator;
 }

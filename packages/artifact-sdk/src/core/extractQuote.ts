@@ -1,11 +1,3 @@
-/** Given a DOM Range, build a W3C-style TextQuoteSelector locator —
- *  the selected text plus ±32-char context windows on either side so
- *  duplicate quotes can be disambiguated on re-find.
- *
- *  Pure with respect to the Range/Document API surface; no DOM mutation.
- *  Used by both the parent-side `useTextSelection` and the in-iframe SDK
- *  (bundled by esbuild at server startup, served from the same source). */
-
 import type { Locator, QuoteRoot } from "../types";
 import { extractOffsets } from "./extractOffsets";
 
@@ -29,12 +21,6 @@ export function extractQuote(range: Range, doc: QuoteRoot): Locator {
   const quote = range.toString();
   const offsets = extractOffsets(doc, range);
   if (!offsets) {
-    // Cross-root range — neither boundary is reachable from the walked
-    // root. The old code substituted the document's tail text as
-    // prefix/suffix, which is misleading garbage (it has nothing to do
-    // with the actual selection). Emit empty context — the quote is
-    // the durable anchor and `findQuote` falls back to "first match"
-    // gracefully when prefix/suffix don't help disambiguate.
     return { quote, prefix: "", suffix: "" };
   }
   const text = rootTextContent(doc);

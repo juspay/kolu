@@ -1,23 +1,3 @@
-/** Server-side artifact-sdk seam, as TWO independent pieces on
- *  `effect/http`:
- *
- *    1. {@link artifactSdkBundleLayer} — a route layer serving the in-iframe
- *       bundle bytes (esbuild'd at startup, cached, hash-keyed via `?v=<hash>`).
- *    2. {@link withArtifactSdk} — a HANDLER COMBINATOR that intercepts a
- *       `text/html` 200 and splices the SDK `<script>` tag before `</body>`.
- *
- *  Why a combinator rather than the old prefix-glob middleware: Effect's router
- *  middleware (`HttpRouter.middleware`) is scoped to a LAYER, not to a path
- *  pattern, so the `htmlRoutePrefix` argument the Hono mount took could only be
- *  re-spelled as a lie — there is no per-prefix seam to hang it on. The
- *  decoration applies to exactly one route (kolu's iframe-preview byte route),
- *  so the honest shape is a function that wraps THAT handler: the coupling is
- *  visible at the one call site, the combinator is unit-testable with no router
- *  at all, and artifact-sdk stops owning a routing concept it never needed.
- *  `htmlRoutePrefix` (and Hono's "must end with `*`" convention) is gone.
- *
- *  `bundle.ts` and `inject.ts` are framework-free and unchanged. */
-
 import { Data, Effect, Stream } from "effect";
 import {
   Headers,
@@ -43,8 +23,6 @@ export class ArtifactSdkError extends Data.TaggedError("ArtifactSdkError")<{
   readonly cause: unknown;
 }> {}
 
-/** The cached bundle as an Effect. `getSdkBundle` memoizes across calls (and
- *  clears its slot on rejection), so this stays a plain lift. */
 const sdkBundle = Effect.tryPromise({
   try: () => getSdkBundle(),
   catch: (cause) =>
@@ -71,11 +49,6 @@ export const artifactSdkBundleLayer = (opts: {
     ),
   );
 
-/** Read a response body as text. An `Empty` body is legitimately the empty
- *  string (a 200 `text/html` with no bytes still gets the SDK); a `Stream` is
- *  drained — a mid-stream fault surfaces as {@link ArtifactSdkError} rather
- *  than a truncated page. `Raw`/`FormData` cannot be `text/html` in this stack,
- *  so they FAIL LOUD instead of being waved through undecorated. */
 const bodyText = (
   body: HttpBody.HttpBody,
 ): Effect.Effect<string, ArtifactSdkError> => {
@@ -133,10 +106,7 @@ export const withArtifactSdk =
         // `Content-Length` would be short. A strong validator must change when
         // the bytes change and we have no honest new one, so we emit NONE;
         // `Content-Length` is re-derived from the decorated body by the
-        // response constructor, so dropping the stale one is enough. Every
-        // OTHER header (cache-control, content-type, …) carries over verbatim
-        // — and unlike Hono's `c.res` setter there is no aliasing footgun to
-        // document, because an `HttpServerResponse` is immutable.
+        // response constructor, so dropping the stale one is enough.
         return HttpServerResponse.text(
           decorateHtml(html, `${sdkScriptPath}?v=${hash}`),
           {

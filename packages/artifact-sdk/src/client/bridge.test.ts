@@ -6,11 +6,6 @@ import {
   observeIframeOpenExternal,
 } from "./bridge";
 
-/** The observers read only `window.addEventListener("message")`,
- *  `window.location.origin` (the parent's own origin), `event.source`, and
- *  `event.data`. The artifact-sdk package runs its unit suite in the node env
- *  (no jsdom), so we stub the minimum surface and drive the captured handler
- *  directly with synthetic message events. */
 const KOLU_ORIGIN = "http://localhost:7681";
 
 function withFakeWindow(): {
@@ -190,8 +185,6 @@ describe("observeIframeOpenExternal", () => {
     expect(onOpenExternal).not.toHaveBeenCalled();
   });
 
-  // The parent never hands `window.open` a scheme that would execute in its own
-  // trusted origin — `postMessage` is reachable by any in-frame script.
   it("drops a non-http(s) scheme (javascript:, data:, mailto:)", () => {
     const fake = withFakeWindow();
     restore = fake.restore;
@@ -210,9 +203,6 @@ describe("observeIframeOpenExternal", () => {
     expect(onOpenExternal).not.toHaveBeenCalled();
   });
 
-  // The frame's own preview URL is kolu-origin: opened by the unsandboxed parent
-  // it would run the file top-level at kolu's origin. Only a cross-origin URL
-  // is "external".
   it("drops a same-origin url (the frame's own preview URL) but still delivers a cross-origin one", () => {
     const fake = withFakeWindow();
     restore = fake.restore;
@@ -222,7 +212,6 @@ describe("observeIframeOpenExternal", () => {
       `${KOLU_ORIGIN}/api/terminals/local/t1/file/evil.html`,
       `${KOLU_ORIGIN}/`,
       "https://example.com/docs",
-      // Same host, different port — a different origin, so external.
       "http://localhost:9999/",
     ]) {
       fake.post(fake.iframe.contentWindow, {

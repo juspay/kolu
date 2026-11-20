@@ -1,23 +1,3 @@
-/** In-iframe artifact-sdk script. Bundled by esbuild at server startup
- *  (see `../server/bundle.ts`) and served as `/api/artifact-sdk.js?v=<hash>`
- *  to the iframe sandboxed at opaque origin (`allow-scripts` only — no
- *  `allow-same-origin`). The iframe and parent communicate by postMessage
- *  alone; the parent validates by `event.source === iframeRef.contentWindow`
- *  identity since `event.origin` is `"null"` under the opaque sandbox.
- *
- *  This is the single in-iframe agent in the opaque-origin sandbox. It
- *  forwards to the parent the in-frame intents the sandbox traps — events
- *  that never reach the parent because they fire inside the frame:
- *    - Text selection → on pill click, post `SelectMsg` (built from a
- *      Locator via the shared `extractQuote`, surfaced as a floating
- *      "+ Comment" pill at the selection's end).
- *    - Same-frame link navigation → `ReadyMsg.pathname` on every boot, so
- *      the parent learns where a link click went.
- *    - Mouse back/forward (X1/X2) → `HistoryMsg`, so the parent drives its
- *      own history.
- *  It also applies CSS Custom Highlights for the comment set the parent
- *  pushes via `RenderHighlightsMsg`. */
-
 import { attachBackForwardMouse } from "@kolu/solid-browser/backForward";
 import { attachPageZoomGuard } from "@kolu/solid-browser/pageZoom";
 import { match } from "ts-pattern";
@@ -48,29 +28,7 @@ function postToParent(
   window.parent.postMessage(msg, window.location.origin);
 }
 
-/** Trap an anchor click and forward the classified intent to the parent. The
- *  opaque-origin sandbox carries no `allow-popups`/`allow-top-navigation`, so
- *  the browser would otherwise swallow the click or replace the preview
- *  in-pane. Bubble phase + a `defaultPrevented` guard so a page that handles
- *  its own links wins. The two arms differ by GESTURE, because they resolve to
- *  different destinations:
- *
- *  - `external` opens a NEW TAB, so it traps every follow-the-link gesture
- *    alike — primary and middle (auxclick, the "open in a new tab" gesture)
- *    and modifier combos all land in the same place a browser would put them.
- *  - `deep-link` navigates the CURRENT kolu window (no new tab exists to
- *    open), so it must fire ONLY on a plain primary click. A middle-click or
- *    a ctrl/cmd/shift-click says "open ELSEWHERE, keep this page" — hijacking
- *    the current view for those would silently replace the dashboard the user
- *    meant to keep. They fall through untouched (the sandbox swallows them —
- *    the same inert result those gestures had before deep links existed).
- *
- *  The `click` event only covers the primary button; `auxclick` is wired
- *  separately in `boot` for the middle button, which never fires `click`. */
 function onAnchorClick(event: MouseEvent): void {
-  // `click` only fires for the primary button; `auxclick` carries button 1
-  // (middle) and 2 (right). Trap left and middle — both mean "follow the link";
-  // leave the right button to the context menu.
   if (event.defaultPrevented || (event.button !== 0 && event.button !== 1)) {
     return;
   }
@@ -82,13 +40,11 @@ function onAnchorClick(event: MouseEvent): void {
       postToParent({ type: "kolu-artifact-sdk:open-external", url });
     })
     .with({ kind: "deep-link" }, ({ hash }) => {
-      if (!isPlainPrimaryClick(event)) return; // open-elsewhere gestures stay inert
+      if (!isPlainPrimaryClick(event)) return;
       // Never let the frame navigate itself to the app shell — the parent routes.
       event.preventDefault();
       postToParent({ type: "kolu-artifact-sdk:deep-link", hash });
     })
-    // In-frame — internal file navigation, plain in-page `#section` anchors,
-    // non-web schemes — proceeds untouched.
     .with({ kind: "in-frame" }, () => undefined)
     .exhaustive();
 }
@@ -178,11 +134,6 @@ function onSelectionChange(): void {
   }, 80);
 }
 
-// Highlight rendering delegates to `core/applyHighlights` — same
-// algorithm the parent-side overlay uses, just rooted at this iframe's
-// document. The shared core function guards on browser support so
-// older browsers degrade silently.
-
 function ensureHighlightStyle(): void {
   if (document.getElementById("kolu-artifact-sdk-style")) return;
   const style = document.createElement("style");
@@ -204,11 +155,6 @@ function onMessage(event: MessageEvent<ParentToIframe>): void {
   }
   const msg = event.data;
   if (!msg || typeof msg !== "object") return;
-  // `postMessage` is a network-grade boundary — any embedder can send
-  // arbitrary payloads. `otherwise(() => undefined)` ignores unknown
-  // message shapes (forward-compat with a newer parent, defense
-  // against unrelated messages) instead of letting `NonExhaustiveError`
-  // crash the SDK.
   match(msg)
     .with({ type: "kolu-artifact-sdk:path" }, (m) => {
       currentPath = m.path;
@@ -222,22 +168,9 @@ function onMessage(event: MessageEvent<ParentToIframe>): void {
 function boot(): void {
   ensureHighlightStyle();
   document.addEventListener("selectionchange", onSelectionChange);
-  // External links can't escape the opaque-origin sandbox on their own
-  // (`allow-scripts` only — no `allow-popups`/`allow-top-navigation`), so trap
-  // their clicks and ask the parent to open them in a real browser tab.
   document.addEventListener("click", onAnchorClick);
-  // Middle-click (the "open in a new tab" gesture) fires `auxclick`, not
-  // `click`, so the external-link trap needs both to cover it. Same handler:
-  // it already guards on `event.button`.
   document.addEventListener("auxclick", onAnchorClick);
   window.addEventListener("message", onMessage);
-  // The mouse's dedicated back/forward (X1/X2) buttons. The opaque-origin
-  // sandbox traps them in this frame, so the parent can't see them; forward the
-  // intent so the Code-tab browser's history responds the same over a preview as
-  // over the file tree. The shared binder owns the swallow-on-down /
-  // act-on-up / preventDefault-on-both protocol so the frame's own native
-  // back/forward is suppressed and only the host navigates. (SVG/PDF previews
-  // carry no SDK, so this covers HTML previews.)
   attachBackForwardMouse(window, {
     onBack: () =>
       postToParent({ type: "kolu-artifact-sdk:history", direction: "back" }),
@@ -248,9 +181,6 @@ function boot(): void {
   // the parent window, so the frame refuses page magnification itself — the
   // same shared guard, inside the sandbox (#2354).
   attachPageZoomGuard(window);
-  // `location.pathname` lets the parent follow same-frame link navigation:
-  // it can't read this frame's URL across the opaque-origin sandbox, so the
-  // frame reports its own on every boot (initial load + each post-link load).
   postToParent({
     type: "kolu-artifact-sdk:ready",
     pathname: window.location.pathname,

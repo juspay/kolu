@@ -1,9 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { classifyAnchor, isPlainPrimaryClick } from "./deepLink";
 
-/** The previewed document's location: same shape the iframe passes
- *  (`window.location` at the call site). The preview serves under the
- *  terminal-file route, so its pathname is never `/`. */
 const LOC = {
   origin: "http://localhost:7690",
   pathname: "/terminal-file/abc/preview/index.html",

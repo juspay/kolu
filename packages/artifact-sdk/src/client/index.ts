@@ -1,13 +1,3 @@
-/** Parent-side entrypoint for the artifact-sdk.
- *  - `extractQuote` / `findQuote` / `rangeFromOffsets` are re-exports of
- *    the SAME pure functions the in-iframe bundle uses — surfaces that
- *    capture or render comments outside the iframe (text browse, branch
- *    diff) import these so the W3C TextQuoteSelector behavior is
- *    bit-identical across runtimes.
- *  - `bindArtifactSdk` wires the parent ↔ iframe message protocol;
- *    `observeIframeNavigation` is the focused sibling that follows
- *    same-frame link navigation. */
-
 export {
   applyHighlights,
   type HighlightInputComment,

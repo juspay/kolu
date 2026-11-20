@@ -1,14 +1,3 @@
-/** Re-find a Locator inside a body of text — return the [start, end]
- *  character offsets of the best match, or null when nothing plausible
- *  exists. Caller maps offsets back to a DOM Range via `rangeFromOffsets`.
- *
- *  Algorithm:
- *    1. Find all occurrences of `quote` in the haystack.
- *    2. If one match → return it.
- *    3. If multiple → score each by prefix+suffix similarity, take the best.
- *    4. If zero → null (anchor rot; caller surfaces the comment without
- *       a highlight). */
-
 import type { Locator, QuoteRoot } from "../types";
 
 export type QuoteMatch = { start: number; end: number };
@@ -25,10 +14,6 @@ function allOccurrences(haystack: string, needle: string): number[] {
   }
 }
 
-/** Match-prefix-then-suffix scoring: longest common prefix of `expected`
- *  ending at offset, plus longest common suffix of `expected` starting
- *  at offset+quote.length. Higher is better; ties broken by which
- *  occurrence appears first in the haystack. */
 function score(
   haystack: string,
   quoteEnd: number,
@@ -53,6 +38,9 @@ function score(
   return prefixMatch + suffixMatch;
 }
 
+/** Re-find a Locator inside a body of text — return the [start, end]
+ *  character offsets of the best match, or null when nothing plausible
+ *  exists. Caller maps offsets back to a DOM Range via `rangeFromOffsets`. */
 export function findQuote(
   haystack: string,
   locator: Locator,

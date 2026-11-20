@@ -1,23 +1,7 @@
 /** Parent-side bridge to the in-iframe artifact-sdk. Validates incoming
  *  messages by `event.source === iframe.contentWindow` (origin is the
  *  literal string `"null"` under opaque-origin sandbox, so origin-based
- *  validation is meaningless — identity is the check).
- *
- *  The bridge owns the parent↔iframe protocol surface: path delivery on
- *  ready/load, `SelectMsg` routing inward. It does NOT own reactive
- *  highlight state — the caller pushes via `pushHighlightsTo` (reactive
- *  data changes) and via `onDocumentReady` (in-iframe document boots),
- *  so "what comments exist" is never duplicated across modules.
- *
- *  Usage:
- *
- *    const dispose = bindArtifactSdk(iframeEl, {
- *      currentPath: () => "out/report.html",
- *      onSelect: (msg) => openComposer(msg),
- *      onDocumentReady: () => pushHighlightsTo(iframeEl, commentsForFile()),
- *    });
- *    onCleanup(dispose);
- */
+ *  validation is meaningless — identity is the check). */
 
 import { match, P } from "ts-pattern";
 import {
@@ -59,12 +43,6 @@ export function bindArtifactSdk(
     if (event.source !== iframe.contentWindow) return;
     const msg = event.data;
     if (!msg || typeof msg !== "object") return;
-    // The `event.source` identity check above already filters out
-    // messages from other iframes, but `otherwise(() => undefined)`
-    // is still the right shape: postMessage is a network-grade
-    // boundary, and a newer in-iframe SDK could ship message types
-    // this parent doesn't recognize. Silently dropping unknowns is
-    // better than `NonExhaustiveError` crashing the bridge.
     match(msg)
       .with({ type: "kolu-artifact-sdk:ready" }, () => {
         pushPath();
@@ -77,9 +55,6 @@ export function bindArtifactSdk(
   };
 
   window.addEventListener("message", onMessage);
-  // The iframe's `load` event fires every navigation inside it; re-handshake
-  // so in-iframe link clicks (which don't change `src`) still produce a
-  // working SDK on the new document.
   const onLoad = (): void => {
     pushPath();
     opts.onDocumentReady?.();
@@ -92,16 +67,6 @@ export function bindArtifactSdk(
   };
 }
 
-/** Shared transport skeleton for the parent-side typed-iframe-message
- *  observers below. Owns the network-grade boundary once: the `event.source`
- *  identity check (origin is meaningless under the opaque-origin sandbox), the
- *  `!msg || typeof msg !== "object"` shape guard, and the
- *  addEventListener/removeEventListener disposer. Each observer supplies only
- *  its `extract` (a ts-pattern match that returns its payload slice, or `null`
- *  to drop) and its `handle` callback, so tightening the identity/validation
- *  boundary touches one site regardless of how many `IframeToParent` variants
- *  exist. The public observers stay separate so each concern still binds its
- *  own slice of the protocol. */
 function observeFromIframe<T>(
   iframe: HTMLIFrameElement,
   extract: (msg: IframeToParent) => T | null,

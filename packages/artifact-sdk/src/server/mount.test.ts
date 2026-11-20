@@ -1,9 +1,3 @@
-/** The decoration combinator rewrites the HTML body (splices the SDK
- *  <script>), so it must not carry forward a strong validator of the
- *  ORIGINAL bytes. serve-dir stamps an `ETag` on every streamed 200/206; if
- *  the combinator preserved it, the decorated HTML would be served with a
- *  validator for a representation we no longer send. */
-
 import { Effect, Stream } from "effect";
 import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/http";
 import { describe, expect, it } from "vitest";
@@ -15,9 +9,6 @@ import {
 
 const decorate = withArtifactSdk("/sdk.js");
 
-/** Render a response body back to text — the assertion surface for every case
- *  below, covering both body shapes the preview route can hand us (a streamed
- *  serve-dir read and an in-memory buffer). */
 const bodyText = (
   response: HttpServerResponse.HttpServerResponse,
 ): Effect.Effect<string> => {
@@ -38,8 +29,6 @@ const bodyText = (
   }
 };
 
-/** A serve-dir-shaped HTML response: a STREAM body (bytes flow from a bounded
- *  file handle), a strong `ETag`, and a non-validator header. */
 const htmlStreamResponse = (html: string) =>
   HttpServerResponse.stream(Stream.make(new TextEncoder().encode(html)), {
     status: 200,
@@ -62,12 +51,9 @@ describe("withArtifactSdk HTML decoration", () => {
 
     expect(response.headers.etag).toBeUndefined();
     expect(body).toContain('<script src="/sdk.js?v=');
-    // The stale 28-byte `Content-Length` of the ORIGINAL bytes must not ride
-    // along either; the response carries the DECORATED length instead.
     expect(response.headers["content-length"]).toBe(
       String(new TextEncoder().encode(body).length),
     );
-    // Non-validator headers the combinator must still preserve.
     expect(response.headers["cache-control"]).toBe("private, max-age=60");
     expect(response.headers["content-type"]).toBe("text/html; charset=utf-8");
   });
@@ -104,11 +90,6 @@ describe("withArtifactSdk HTML decoration", () => {
     expect(response.headers.etag).toBe('"err"');
   });
 
-  // The blind spot the host's fault middleware exists for: a remote preview
-  // whose per-chunk
-  // dial faults mid-stream is drained HERE, after the handler returned. It must
-  // FAIL LOUD (so the fault middleware logs it and answers 500) — never a
-  // silently truncated page.
   it("fails loud when the HTML body faults mid-stream", async () => {
     const faulting = HttpServerResponse.stream(
       Stream.make(new TextEncoder().encode("<html>")).pipe(
