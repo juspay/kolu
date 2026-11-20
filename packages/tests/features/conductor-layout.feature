@@ -116,3 +116,25 @@ Feature: The Conductor reads as a conversation
     And the help sheet should teach the conversation, docs and all
     And nothing on screen should reach past the window's right edge
     And there should be no page errors
+
+  Scenario: A long column of works scrolls by itself, and the pane never does
+    When I resize the viewport to 1440x500
+    And I ask the conductor to open the work "one"
+    And I ask the conductor to open the work "two"
+    And I ask the conductor to open the work "three"
+    And I ask the conductor to open the work "four"
+    And I ask the conductor to open the work "five"
+    And I ask the conductor to open the work "six"
+    Then the work column should be taller than its window
+    And only the work column should scroll
+    And there should be no page errors
+
+  Scenario: Esc closes the help sheet and stays in the Conductor
+    When I resize the viewport to 1280x768
+    Then the conductor should have no help column
+    When I open How to use from the conductor menu
+    Then the help sheet should be open
+    When I press Escape
+    Then the help sheet should not be open
+    And the conductor pane should be visible
+    And there should be no page errors

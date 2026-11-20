@@ -12130,6 +12130,30 @@
       "exampleRows": [],
       "executions": 1,
       "firstSeenSha": "7500cf8bcc0997e753cd36d3705324fd36555b93"
+    },
+    {
+      "revisionId": "revision-a6e22479ff236938c597",
+      "scenarioKey": "scenario-bfe27a78f0604192a0d2",
+      "feature": "features/conductor-layout.feature",
+      "scenario": "A long column of works scrolls by itself, and the pane never does",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "73c4f9ffb7e434e67b45aaee4cf76578116ba2df5edf99fd9309fceb009ef409",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "747c5539d2e5be9493531f68f004cddfa1c23675"
+    },
+    {
+      "revisionId": "revision-934ffdec7574d094c2e3",
+      "scenarioKey": "scenario-c92c19b1b9c65a3b1747",
+      "feature": "features/conductor-layout.feature",
+      "scenario": "Esc closes the help sheet and stays in the Conductor",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "99bc59ed66ddc60e4a594e926d28538bf96de293ff4129fe7664d6191dd98e85",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "747c5539d2e5be9493531f68f004cddfa1c23675"
     }
   ]
 }

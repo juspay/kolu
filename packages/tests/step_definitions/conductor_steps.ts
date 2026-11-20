@@ -2273,6 +2273,56 @@ When("I press the member terminal's name", async function (this: KoluWorld) {
 });
 
 Then(
+  "the work column should be taller than its window",
+  async function (this: KoluWorld) {
+    await pollFor({
+      observe: () =>
+        this.page.evaluate(() => {
+          const side = document.querySelector('[data-testid="conductor-side"]');
+          if (side === null) return null;
+          return side.scrollHeight - side.clientHeight;
+        }),
+      isDone: (seen) => seen !== null && seen > 50,
+      timeoutMs: POLL_TIMEOUT,
+      onTimeout: (last, ms) =>
+        new Error(
+          `the work column overflowed by ${JSON.stringify(last)}px after ${ms}ms, so this scenario proves nothing`,
+        ),
+    });
+  },
+);
+
+Then("only the work column should scroll", async function (this: KoluWorld) {
+  const readings = await this.page.evaluate(() => {
+    const pane = document.querySelector('[data-testid="conductor-pane"]');
+    const composer = document.querySelector(
+      '[data-testid="conductor-composer"]',
+    );
+    return {
+      paneScroll: pane?.scrollHeight ?? null,
+      paneClient: pane?.clientHeight ?? null,
+      docScroll: document.documentElement.scrollHeight,
+      docClient: window.innerHeight,
+      composerBottom: composer?.getBoundingClientRect().bottom ?? null,
+    };
+  });
+  assert.strictEqual(
+    readings.paneScroll,
+    readings.paneClient,
+    `the pane scrolls: scrollHeight ${readings.paneScroll}, clientHeight ${readings.paneClient}`,
+  );
+  assert.ok(
+    readings.docScroll <= readings.docClient,
+    `the document scrolls: scrollHeight ${readings.docScroll}, innerHeight ${readings.docClient}`,
+  );
+  assert.ok(
+    readings.composerBottom !== null &&
+      Math.abs(readings.composerBottom - readings.docClient) <= 1,
+    `the composer's bottom is ${readings.composerBottom}, the window is ${readings.docClient} tall`,
+  );
+});
+
+Then(
   "the member terminal should be the focused tile",
   async function (this: KoluWorld) {
     const id = watchedId(this);
@@ -2618,6 +2668,12 @@ Then("the help sheet should be open", async function (this: KoluWorld) {
   await this.page
     .locator(HELP_SHEET)
     .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+});
+
+Then("the help sheet should not be open", async function (this: KoluWorld) {
+  await this.page
+    .locator(HELP_SHEET)
+    .waitFor({ state: "hidden", timeout: POLL_TIMEOUT });
 });
 
 // ── A piece of work: the repo it is done in, its members, its files, its PR ──
