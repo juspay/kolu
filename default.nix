@@ -23,23 +23,6 @@ let
     inherit (pkgs) lib;
   };
 
-  # `expose` (what the agent flake offers a remote to resolve) and `prove` (what
-  # must evaluate before any wrapper gets the bake path) are DELIBERATELY two
-  # lists, not one. `mkProvenAgentSource` proves an attr by re-importing this
-  # file from the assembled tree, so — per its own comment — a proven attr must
-  # never reach the `agentFlakeSrc` thunk below, or the prove re-enters itself
-  # forever. `padi-agent` reaches it (it contains `kolu` and both TUIs, all of
-  # which bake the flake ref), so it is exposed but NOT proven.
-  #
-  # What covers the exposed attrs themselves is `ci::agent-flake-nix`, which
-  # evaluates every `expose` entry's `drvPath` from this same assembled tree
-  # (`.#agent-flake-source` = `agentFlakeSrc`). That recipe is load-bearing for
-  # remote provisioning, not a nicety: delete it and a fileset gap reaching only
-  # `default` / the TUIs surfaces on a user's box at dial time.
-  #
-  # `prove` is a strict subset of `expose`, ASSERTED rather than remembered: a
-  # proven-but-unexposed attr passes this build and then 404s at dial time on a
-  # remote host — the exact failure `mkProvenAgentSource` exists to abolish.
   agentPackages =
     let m = pkgs.lib.importJSON ./nix/agent-packages.json;
     in
@@ -147,7 +130,7 @@ let
     pname = "kolu-typecheck";
   };
 
-  koluDeps = pkgs.stdenv.mkDerivation {
+  koluBuildDeps = pkgs.stdenv.mkDerivation {
     pname = "kolu-deps";
     inherit version pnpmDeps;
     src = workspace.depsSrc;
@@ -230,14 +213,12 @@ let
     '';
   };
 
-  koluRuntimeDeps = pkgs.runCommand "kolu-runtime-deps-${version}" { } ''
+  koluShippedDeps = pkgs.runCommand "kolu-runtime-deps-${version}" { } ''
     mkdir -p $out
-    cp -a ${koluDeps}/node_modules $out/node_modules
+    cp -a ${koluBuildDeps}/node_modules $out/node_modules
     chmod -R u+w $out
 
     cd $out/node_modules/.pnpm
-    # NOTE: esbuild is kept because @kolu/artifact-sdk bundles the in-iframe
-    # SDK script at runtime.
     rm -rf typescript@* \
            @typescript+typescript-* \
            lightningcss* rollup@* @rollup* rolldown@* @rolldown* \
@@ -256,17 +237,19 @@ let
   # inside the deps derivation, where the rest of the instance tree is.
   mirrorNodeModules = depsOut: dest: ''
     shopt -s dotglob nullglob
+    replaySymlink() { cp -P "$1" "$2"; }
+    linkByReference() { ln -s "$1" "$2"; }
     mirrorNodeModulesDir() {
       local from=$1 to=$2 path name
       mkdir -p "$to"
       for path in "$from"/*; do
         name=''${path##*/}
         if [ -L "$path" ]; then
-          cp -P "$path" "$to/$name"
+          replaySymlink "$path" "$to/$name"
         elif [ -d "$path" ] && [ "''${name#@}" != "$name" ]; then
           mirrorNodeModulesDir "$path" "$to/$name"
         else
-          ln -s "$path" "$to/$name"
+          linkByReference "$path" "$to/$name"
         fi
       done
     }
@@ -307,15 +290,6 @@ let
 
     dontFixup = true;
 
-    # EVERY SHARED VAR EXCEPT THE ADAPTER. Nothing at build time spawns the
-    # Conductor's ACP adapter — it is a runtime fact of the wrapper a person
-    # runs — and naming it here is not free: `KOLU_ACP_AGENT` resolves
-    # `pkgs.kolu-acp-adapter`, which drives agent-distro's floor `claude`,
-    # whose own `package.nix` `fetchTarball`s UPSTREAM'S locked nixpkgs at EVAL
-    # time. That turned a `nix eval` of `padi-agent` into a download, and the
-    # one machine that evaluates it with no network is the one that matters:
-    # `offline-provision`'s binder resolving a host's daemon spent its 900s
-    # retrying `github.com` and the dial never landed.
     env = builtins.removeAttrs
       ({ KOLU_COMMIT_HASH = koluCommitPlaceholder; } // koluEnv)
       [ "KOLU_ACP_AGENT" ];
@@ -323,8 +297,8 @@ let
     buildPhase = ''
       runHook preBuild
       test -e ${typecheck}
-      ${mirrorNodeModules koluDeps "."}
-      ${copyMemberFarms koluDeps}
+      ${mirrorNodeModules koluBuildDeps "."}
+      ${copyMemberFarms koluBuildDeps}
       ln -sfn $KOLU_FONTS_DIR packages/client/public/fonts
       pnpm --filter kolu-client build
       runHook postBuild
@@ -337,57 +311,44 @@ let
       rm -rf node_modules
 
       cp -r . $out
-      ${mirrorNodeModules koluRuntimeDeps "$out"}
+      ${mirrorNodeModules koluShippedDeps "$out"}
 
       runHook postInstall
     '';
   };
 
-  koluClientDist = pkgs.runCommand "kolu-client-dist" { } ''
+  koluClientShellStamp = pkgs.runCommand "kolu-client-dist" { } ''
     cp -rs ${kolu}/packages/client/dist/. "$out"
     chmod u+w "$out"
     rm "$out/index.html"
     cp ${kolu}/packages/client/dist/index.html "$out/index.html"
     chmod u+w "$out/index.html"
     shell="$out/index.html"
-    if ! grep -q '${koluCommitPlaceholder}' "$shell"; then
-      echo "koluClientDist: '${koluCommitPlaceholder}' not found in index.html — the surfaceApp() shell injection broke (kolu#1319)." >&2
-      exit 1
-    fi
-    if assetMatches=$(grep -rl '${koluCommitPlaceholder}' "$out/assets"); then
-      echo "koluClientDist: '${koluCommitPlaceholder}' leaked into a hashed /assets/* file — identity must ride the shell, not an immutable bundle (kolu#1319)." >&2
-      echo "$assetMatches" >&2
-      exit 1
-    else
-      grepStatus=$?
-      if [ "$grepStatus" -ne 1 ]; then
-        echo "koluClientDist: failed to inspect hashed assets for '${koluCommitPlaceholder}'." >&2
-        exit "$grepStatus"
+    assertStampOnlyInShell() {
+      local assetMatches grepStatus
+      if ! grep -q '${koluCommitPlaceholder}' "$shell"; then
+        echo "koluClientShellStamp: '${koluCommitPlaceholder}' not found in index.html — the surfaceApp() shell injection broke (kolu#1319)." >&2
+        exit 1
       fi
-    fi
+      if assetMatches=$(grep -rl '${koluCommitPlaceholder}' "$out/assets"); then
+        echo "koluClientShellStamp: '${koluCommitPlaceholder}' leaked into a hashed /assets/* file — identity must ride the shell, not an immutable bundle (kolu#1319)." >&2
+        echo "$assetMatches" >&2
+        exit 1
+      else
+        grepStatus=$?
+        if [ "$grepStatus" -ne 1 ]; then
+          echo "koluClientShellStamp: failed to inspect hashed assets for '${koluCommitPlaceholder}'." >&2
+          exit "$grepStatus"
+        fi
+      fi
+    }
+    assertStampOnlyInShell
     sed -i 's/${koluCommitPlaceholder}/${commitHash}/g' "$shell"
   '';
 
-  # The opt-in heap-capture --run hook, defined ONCE for every kolu-family
-  # wrapper (koluBin + kaval) — the Nix half of the same capability `@kolu/heap-
-  # diag` is the TS half of. When KOLU_DIAG_DIR is set, it computes a per-
-  # invocation subdir (named `<prefix><timestamp>-<pid>`), cds into it, and
-  # injects the V8 heap-snapshot flags into NODE_OPTIONS. The cd is load-bearing:
-  # both --heapsnapshot-signal and --heapsnapshot-near-heap-limit write to cwd
-  # (nodejs/node#47842), so landing in the per-invocation dir makes all capture
-  # paths (baseline, SIGUSR2, near-OOM) correlate to one directory. mkdir/cd
-  # failure is FATAL (exit 1), never a silent degrade. Unset = passthrough, zero
-  # overhead. `prefix` namespaces a daemon's captures under the server's diag
-  # tree (kaval forwards KOLU_DIAG_DIR and lands in `kaval-…`).
-  #
-  # `--heapsnapshot-near-heap-limit=3` makes V8 dump a heap snapshot when within
-  # 3 GCs of its heap ceiling (whatever that ceiling is — kaval and koluBin both
-  # run under V8's RAM-derived default), so the next approach to an OOM leaves a
-  # diagnosable snapshot behind instead of a bare abort. This is the diagnostics
-  # safety net, not a memory cap — kaval is NOT given an explicit
-  # `--max-old-space-size`; the per-terminal mirror shrink (DEFAULT_MIRROR_
-  # SCROLLBACK) is the actual heap-OOM fix, and an explicit cap would only lower
-  # the ceiling the fix raised (see kaval-heap-oom.mdx).
+  # Both `--heapsnapshot-signal` and `--heapsnapshot-near-heap-limit` write the
+  # snapshot to the process's cwd (nodejs/node#47842), which is why the hook cds
+  # into the per-invocation dir before injecting them.
   diagRunHook = prefix: ''
     if [ -n "''${KOLU_DIAG_DIR:-}" ]; then
       KOLU_DIAG_DIR="$KOLU_DIAG_DIR/${prefix}$(date +%Y%m%dT%H%M%S)-$$"
@@ -409,23 +370,9 @@ let
   # that remain either way.
   hostNixFirstArg = "--suffix PATH : ${pkgs.lib.makeBinPath [ pkgs.nix ]}";
 
-  # Base wrapper: single-process Node + tsx loader, env vars, and PATH. The
-  # loader form lets SIGTERM reach the server directly so its graceful shutdown
-  # exits zero; tsx's CLI parent otherwise exits 143 before the child completes.
-  # Does NOT set KOLU_STATE_DIR —
-  # callers must provide it (state.ts crashes with a clear error if missing).
-  # Tests use this directly so a missing KOLU_STATE_DIR crashes immediately
-  # instead of silently falling back to the production ~/.config/kolu path.
-  #
-  # KOLU_ACP_AGENT is NOT baked here, though this is the binary that spawns the
-  # adapter — see `mkKoluWrapper`, which bakes it only on the LOCAL arm. This
-  # derivation is shared: `koluRemote` wraps it too, and `koluRemote` is a
-  # member of `padi-agent`, the closure every remote host is provisioned with.
-  # A reference here therefore shipped the ACP adapter and agent-distro's
-  # `claude` to every remote — and to every adoption VM, whose 1 GB guests then
-  # OOMed and whose offline provisioning timed out shipping a closure that had
-  # no business being that large. The Conductor runs in kolu-server, on the
-  # machine a person is looking at; a remote host hosts no conversation.
+  # `node --import <tsx loader> main.ts`, NOT `tsx main.ts`: tsx's CLI parent
+  # forks a child and itself exits 143 before that child's graceful shutdown
+  # runs, so only the single-process loader form lets SIGTERM reach the server.
   koluBin = pkgs.runCommand "kolu-bin"
     {
       nativeBuildInputs = [ pkgs.makeWrapper ];
@@ -435,7 +382,7 @@ let
     makeWrapper ${runtimeNode}/bin/node $out/bin/kolu \
       --add-flags "--import ${runtimeTsxLoader}" \
       --add-flags "${kolu}/packages/kolu-cli/src/main.ts" \
-      --set KOLU_CLIENT_DIST "${koluClientDist}" \
+      --set KOLU_CLIENT_DIST "${koluClientShellStamp}" \
       --set-default KOLU_GH_BIN "${koluEnv.KOLU_GH_BIN}" \
       ${osfactsBakeArg} \
       ${snapshotFontsBakeArg} \
@@ -450,10 +397,6 @@ let
       --run ${pkgs.lib.escapeShellArg (diagRunHook "")}
   '';
 
-  # Fail loud if HOME is empty when computing the default — an empty HOME would
-  # resolve to `/.local/state/padi` here while TS productionPadiStateRoot() uses
-  # passwd homedir() (codex F1). Keep the formula aligned with
-  # packages/padi/src/stateRoot.ts productionPadiStateRoot() ($HOME/.local/state/padi).
   exportPadiStateDirRun = ''
     if [ -z "''${KOLU_PADI_STATE_DIR:-}" ]; then
       : "''${HOME:?HOME must be set to resolve production padi state-root}"
@@ -461,15 +404,7 @@ let
     fi
   '';
 
-  # KOLU_ACP_AGENT is `--set-default`, NOT `--set`, and the difference is a
-  # test lane that silently tests nothing: the e2e harness points it at a
-  # scripted fixture adapter (`packages/tests/support/hooks.ts`) and the e2e
-  # lane runs this very wrapper (`justfile`), so a `--set` overwrote the fixture
-  # and drove the real pinned adapter against a real `claude` — green or red
-  # for reasons the fixture never stated. `--set-default` keeps the bake as the
-  # value nothing else supplies, which is every production path: nobody exports
-  # this name.
-  mkKoluWrapper = { floor }: pkgs.runCommand "kolu"
+  mkKoluWrapper = { localArm }: pkgs.runCommand "kolu"
     {
       nativeBuildInputs = [ pkgs.makeWrapper pkgs.jq ];
       meta.mainProgram = "kolu";
@@ -478,8 +413,8 @@ let
       ''
         mkdir -p $out/bin
         makeWrapper ${koluBin}/bin/kolu $out/bin/kolu \
-          --set KOLU_AGENT_TOOLS_PATH "$out/bin:${koluAgentTools}/bin" ${pkgs.lib.optionalString floor ''--set-default KOLU_ACP_AGENT "${koluEnv.KOLU_ACP_AGENT}"''} \
-          ${agentDistro.bakeArgs { inherit floor; }} \
+          --set KOLU_AGENT_TOOLS_PATH "$out/bin:${koluAgentTools}/bin" ${pkgs.lib.optionalString localArm ''--set-default KOLU_ACP_AGENT "${koluEnv.KOLU_ACP_AGENT}"''} \
+          ${agentDistro.bakeArgs { floor = localArm; }} \
           --run 'export KOLU_STATE_DIR="''${KOLU_STATE_DIR:-''${XDG_CONFIG_HOME:-$HOME/.config}/kolu}"; ${exportPadiStateDirRun}'
 
         # Neutralise each wrapper's final `exec …` so sourcing runs only the env
@@ -528,12 +463,12 @@ let
           fi
         done
 
-        ${agentDistro.proof { inherit floor; }}
+        ${agentDistro.proof { floor = localArm; }}
       ''
     );
 
-  default = mkKoluWrapper { floor = true; };
-  koluRemote = mkKoluWrapper { floor = false; };
+  default = mkKoluWrapper { localArm = true; };
+  koluRemote = mkKoluWrapper { localArm = false; };
 
   # Launched as `node --import <tsx loader> bin.ts`, NOT `tsx bin.ts`: tsx's CLI
   # forks a child, and that fork does NOT relay SIGTERM to the daemon's
@@ -547,12 +482,6 @@ let
       meta.mainProgram = "kaval";
     } ''
     mkdir -p $out/bin
-    # NOT baked here: KOLU_SNAPSHOT_FONTS_DIR. kaval consumes terminal-snapshot's
-    # BROWSER half only (readGrid — a pure buffer read); the wasm rasteriser and
-    # its ~9MB of outline faces sit behind the `terminal-snapshot/png` export,
-    # which nothing in kaval imports. Baking it would hang the font closure on
-    # every PTY daemon for no reader, and pngFonts.ts throws by name the moment that
-    # stops being true — so the omission fails loudly rather than silently.
     makeWrapper ${runtimeNode}/bin/node $out/bin/kaval \
       --add-flags "--import ${runtimeTsxLoader}" \
       --add-flags "${kolu}/packages/kaval/src/bin.ts" \
@@ -562,19 +491,6 @@ let
       --run ${pkgs.lib.escapeShellArg (diagRunHook "kaval-")}
   '';
 
-  # padi carries its OWN identity env
-  # (PADI_BUILD_ID / PADI_COMMIT_HASH), and — because padi SPAWNS + owns kaval now
-  # — KOLU_KAVAL_BIN points at the kaval derivation above AND it bakes that kaval's
-  # KAVAL_BUILD_ID / KAVAL_COMMIT_HASH. The build id is load-bearing: padi's
-  # boot-currency check compares the RUNNING kaval's id against the one padi WOULD
-  # spawn (`process.env.KAVAL_BUILD_ID`, read in `terminalEndpoint/reattach.ts`) to
-  # fire the kaval "update available" nudge — pre-cutover the in-process server
-  # carried it; padi owns kaval now, so its closure knows it at build time (a baked
-  # required value per fail-fast; the binder's env-forward stays only for dev).
-  #
-  # Launched as `node --import <tsx loader> bin.ts`, NOT `tsx bin.ts`: the
-  # single-process loader form delivers SIGTERM to the daemon so its socket + gate
-  # teardown runs (the same reason kaval's bin uses it).
   padi = pkgs.runCommand "padi"
     {
       nativeBuildInputs = [ pkgs.makeWrapper ];
@@ -595,12 +511,6 @@ let
       --run ${pkgs.lib.escapeShellArg (diagRunHook "padi-")}
   '';
 
-  # The source flake ref is baked with `--set` (NOT `--set-default`): it is a build
-  # fact — the exact source whose derivation this wrapper ships and realises
-  # remotely — not a tunable. `--set-default` would let an ambient/stale
-  # `SURFACE_AGENT_FLAKE_REF` inherited from the caller silently override the source
-  # of truth and make the wrapper provision the WRONG agent,
-  # which is exactly the override-knob the repo's fail-fast rule forbids.
   mkAgentTuiWrapper = { name, entry }:
     pkgs.runCommand name
       {
@@ -625,25 +535,11 @@ let
     entry = "packages/padi-tui/src/main.ts";
   };
 
-  # QUARANTINE — harness-only, and it must STAY that way. This attr may be named by
-  # exactly two things: this binding, and the flake `packages` export at the bottom of
-  # this file (which is how `nix/home/example/adoption/*.nix` reaches it). It must NOT
-  # be added to `agentToolPackages` / `koluAgentTools` (a terminal's PATH), to
-  # `padi-agent`'s `paths` (a remote host's closure), to `default` / `koluBin`, or to
-  # `nix/home/module.nix`'s `home.packages` — a caller that can place ANY wire call is
-  # a debug tool, not something a user installs. It is also not a `kolu` subcommand,
-  # and nothing in kolu-server imports its entry. The rule is machine-checked by the
-  # "quarantine" block in `packages/server/src/wireCall.test.ts`, which reads this file
-  # and rejects any occurrence outside those two sites; keep prose mentions of the name
-  # on their OWN comment lines, which is what that scanner skips.
   kolu-rpc = mkAgentTuiWrapper {
     name = "kolu-rpc";
     entry = "packages/server/src/wireCallMain.ts";
   };
 
-  # `kolu` itself is deliberately NOT here and cannot be: it is what each arm
-  # adds by SELF-reference (`$out/bin`), the only spelling that avoids a cycle
-  # through the wrapper that would reference it.
   agentToolPackages = [ kaval-tui padi-tui ];
 
   koluAgentTools = pkgs.buildEnv {
@@ -651,19 +547,6 @@ let
     paths = agentToolPackages;
   };
 
-  # **It is a separate attr from `padi`, and it must stay OUT of the `agents`
-  # PROVE list in `nix/agent-packages.json`.** `mkProvenAgentSource` proves an
-  # agent by re-importing this very `default.nix` from the assembled tree and
-  # forcing that attr's `drvPath`; its own comment records the invariant that
-  # makes the recursion terminate — a proven attr must never reach the
-  # `agentFlakeSrc` thunk. This closure reaches it three ways (`koluRemote` →
-  # `koluBin`, and both TUI wrappers, all of which bake the flake ref), so
-  # proving it is an infinite regress — a real `error: stack overflow` this
-  # composition was first written into. The rule belongs to the mechanism, not to
-  # kolu: see `packages/surface-daemon/nix/agent-source.nix`'s header. `padi` and
-  # `kaval` stay the proven pair — the daemon graph THIS closure is composed out
-  # of — and `ci::agent-flake-nix` is what evaluates the exposed attrs
-  # themselves; see the `expose`/`prove` note at the top of this file.
   padi-agent = pkgs.buildEnv {
     name = "padi-agent";
     paths = [ padi koluRemote ] ++ agentToolPackages;
@@ -726,18 +609,10 @@ let
         fi
       done
 
-      # ── NO CONDUCTOR OUT HERE ─────────────────────────────────────────────
-      # The ACP adapter must not ride this closure. kolu-server hosts the one
-      # conversation, on the machine a person is looking at; a remote host
-      # hosts none, so an adapter reference here is pure freight — and it was
-      # not cheap freight. Baked on the SHARED `koluBin` (which `koluRemote`
-      # wraps), it put the adapter and agent-distro's `claude` into every
-      # closure a host is provisioned with: the adoption VMs then OOMed their
-      # 1 GB guests and `offline-provision` timed out shipping it.
       if [ -n "''${KOLU_ACP_AGENT:-}" ]; then
         echo "FAIL: padi-agent's composed env bakes KOLU_ACP_AGENT=$KOLU_ACP_AGENT" >&2
         echo "— the Conductor's ACP adapter is being shipped to every remote host." >&2
-        echo "Bake it on the LOCAL wrapper only (mkKoluWrapper's \`floor\` arm)." >&2
+        echo "Bake it on the LOCAL wrapper only (mkKoluWrapper's \`localArm\` arm)." >&2
         exit 1
       fi
       if grep -l KOLU_ACP_AGENT $out/bin/* 2>/dev/null | grep -q .; then
@@ -756,8 +631,8 @@ in
 {
   inherit agentFlakeSrc agentFlakeEnv default koluBin kaval kaval-tui kolu-rpc padi padi-agent padi-tui koluEnv pnpmDeps typecheck osfacts;
   inherit kolu;
-  kolu-deps = koluDeps;
-  kolu-runtime-deps = koluRuntimeDeps;
+  kolu-deps = koluBuildDeps;
+  kolu-runtime-deps = koluShippedDeps;
   agent-distro-bundle = agentDistro.bundle;
   agent-distro-pre-models = import ./packages/agent-distro/package.nix {
     inherit pkgs;

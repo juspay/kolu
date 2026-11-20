@@ -1,5 +1,3 @@
-# Playwright is NOT included here — it adds ~600ms to nix develop cold start.
-# flake.nix exposes devShells.e2e for e2e tests: `nix develop .#e2e`.
 { pkgs ? import ./nix/nixpkgs.nix { } }:
 let
   koluEnv = import ./nix/env.nix { inherit pkgs; };

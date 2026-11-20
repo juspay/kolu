@@ -3,23 +3,12 @@
 # Caveat: new .nix files must be `git add`ed before nix develop sees them.
 nix_shell := if env('IN_NIX_SHELL', '') != '' { '' } else { 'nix develop ' + justfile_directory() + ' --accept-flake-config -c' }
 nix_format_paths := '*.nix nix/**/*.nix packages/*/nix/*.nix packages/*/adapter/*.nix website/*.nix ci/flake.nix packages/surface/example/flake.nix packages/solid-browser/example/flake.nix'
-nix_shell_e2e := if env('PLAYWRIGHT_BROWSERS_PATH', '') != '' { '' } else { 'nix develop ' + justfile_directory() + '#e2e --accept-flake-config -c' }
+nix_shell_with_browsers := if env('PLAYWRIGHT_BROWSERS_PATH', '') != '' { '' } else { 'nix develop ' + justfile_directory() + '#e2e --accept-flake-config -c' }
 
 cucumber_parallel := env('CUCUMBER_PARALLEL', '4')
 
-# Every `pnpm -r` here must skip the pinned workspace members: their tests and
-# typecheck are their own repos' CI's job, and their fixtures resolve against
-# their own repo roots, not kolu's. The root package.json's `typecheck`
-# and `test:unit` scripts carry the same filters for callers that enter through
-# pnpm instead of just (the Nix typecheck derivation).
 pnpm_vendored_filter := '--filter=!osfacts-client --filter=!@odu/* --filter=!@juspay/*'
 
-# Kept as ONE snippet for the working-tree entrypoints (`dev`, standalone
-# `server`, and the dev smoke harness), and `ci::agent-bake` runs this exact
-# string to prove it still exports (#2039).
-#
-# Each entrypoint bakes before starting the server.
-# The parallel recipes stay nix-free, and no entrypoint bakes twice.
 agent_bake := 'set -a; . "$(nix build --no-link --print-out-paths --accept-flake-config .#agent-flake-env)"; set +a'
 
 mod ci 'ci/mod.just'
@@ -57,18 +46,12 @@ _materialize-pinned-members:
       echo "$member ← $src"
     done
 
-# The env vars must be exported before the parallel fork — Vite reads them once
-# at startup to compute its proxy target — so resolution happens here, in the
-# sequential recipe body, before `_dev` forks server + client.
+# Run server + client in parallel — bare `just dev` keeps 7681/5173; pass ports for a second instance
 dev SERVER_PORT="" CLIENT_PORT="":
     #!/usr/bin/env bash
     set -euo pipefail
     export KOLU_DEV_SERVER_PORT="{{ SERVER_PORT }}"
     export KOLU_DEV_CLIENT_PORT="{{ CLIENT_PORT }}"
-    # Baked here, before the fork, for the same reason the ports are — see
-    # `agent_bake` above. Resolved ONCE, and node --watch restarts inherit it,
-    # so restart to pick up an agent-tree edit; Nix reads the git-TRACKED tree,
-    # so a new file must be `git add`ed before a dialed remote sees it.
     {{ agent_bake }}
     echo "→ server http://localhost:${KOLU_DEV_SERVER_PORT:-7681}"
     echo "→ client http://localhost:${KOLU_DEV_CLIENT_PORT:-5173}"
@@ -92,8 +75,6 @@ dev-clean SERVER_PORT="":
     slot="${KOLU_DEV_SERVER_PORT:-{{ SERVER_PORT }}}"
     slot="${slot:-default}"
     dev_dir="$runtime/kolu-dev-$slot"
-    # Match padiDigest(): sha256 of path.resolve(stateRoot), first 16 hex chars.
-    # realpath -m keeps a stable absolute path even if the dir is already gone.
     state_root="$(realpath -m "$dev_dir/padi-state")"
     digest="$(printf '%s' "$state_root" | sha256sum | cut -c1-16)"
     padi_rt="$runtime/padi-$digest"
@@ -137,7 +118,6 @@ dev-clean SERVER_PORT="":
     }
 
     echo "dev-clean: slot=$slot state-root=$state_root digest=$digest"
-    # Order: padi first (it owns/supervises kaval), then kaval, then dirs.
     kill_pidfile "$padi_rt/supervisor.pid" "padi-supervisor" || true
     kill_pidfile "$padi_rt/padi.pid" "padi" || true
     kill_pidfile "$kaval_rt/kaval.pid" "kaval" || true
@@ -157,16 +137,16 @@ _dev: install _dev-parallel
 [parallel]
 _dev-parallel: _server-raw client
 
-# ran the same `pnpm install`, so this avoids a redundant second install.
+# Run TypeScript type checking + Biome lint across all packages
 check: install
     {{ nix_shell }} pnpm typecheck
     just --no-deps ci::biome
 
-# then skips ci::biome's duplicate install dep.
+# Biome lint only — delegates to ci::biome, the single source of truth for the gate
 lint: install
     just --no-deps ci::biome
 
-# source" wall `just dev` used to. `dev` forks `_server-raw`, not this.
+# Run the server alone, with the agent source baked — pair it with `just client`
 server:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -177,15 +157,13 @@ server:
 _server-raw:
     {{ nix_shell }} bash -c 'd="${XDG_RUNTIME_DIR:-/tmp}/kolu-dev-${KOLU_DEV_SERVER_PORT:-default}"; mkdir -p "$d/padi-state" && chmod 700 "$d"; cd packages/kolu-cli && KOLU_KAVAL_SOCKET="$d/pty-host.sock" KOLU_PADI_STATE_DIR="$d/padi-state" pnpm dev ${KOLU_DEV_SERVER_PORT:+--port $KOLU_DEV_SERVER_PORT}'
 
-# from what the bake actually did, which is the point of the whole change.
+# Assert the working-tree agent bake still reaches a child process
 test-agent-bake:
     #!/usr/bin/env bash
     set -euo pipefail
     # `env`, not bash's `compgen -e`: compgen is unavailable in the shell CI's
-    # darwin lane runs this under (`compgen: command not found`, run a793809#1),
-    # and `env` is the more honest instrument anyway — it prints the environment
-    # a child is handed, which is exactly the property under test. The filter
-    # drops continuation lines of any multi-line value.
+    # darwin lane runs this under (`compgen: command not found`, run a793809#1).
+    # The filter drops continuation lines of any multi-line value.
     snapshot() { env | grep -E '^[A-Za-z_][A-Za-z0-9_]*=' | sort; }
     before=$(snapshot)
     {{ agent_bake }}
@@ -222,43 +200,31 @@ test-agent-bake:
 client:
     cd packages/client && {{ nix_shell }} pnpm dev
 
-# neither. This is the safe reach a workstation can run beside a live kolu.
+# Run the fork-free half of the workspace (vitest), one package at a time
 test-unit: install
     {{ nix_shell }} pnpm -r {{ pnpm_vendored_filter }} --workspace-concurrency=1 test:unit
     {{ nix_shell }} python3 .github/actions/publish-closure/test-publish-closure.py
 
-# Run this after adding a package or changing any manifest's dependencies.
+# Regenerate `nix/consumer-closure.json` from every manifest in the tree
 emit-consumer-closure: install
     cd packages/tests && {{ nix_shell }} npx tsx ../../scripts/emit-consumer-closure.ts
 
-# reachable from HEAD to prove old records were not edited or removed later.
+# Enforce the append-only E2E scenario inventory and coverage ledger
 test-e2e-governance: install
     cd packages/tests && {{ nix_shell }} pnpm test:governance
 
+# End-of-run janitor — this run's CI-owned runtime roots and leftover ci daemons
 _reap-ci-run:
     {{ nix_shell }} env KOLU_CI_REAP_ROOT="${KOLU_CI_REAP_ROOT:-${TMPDIR:-/tmp}}" node --experimental-strip-types {{ justfile_directory() }}/packages/daemon-test-gate/src/ciReap.cli.ts
 
-# CI/pu-ONLY: the daemon-forking packages' suites (KOLU_DAEMON_TESTS=1). These fork
-# real kaval/padi daemons + PTYs; a bare run on a workstation OOM-reaped the
-# production kaval (juspay/kolu#1375). NEVER run this on a machine hosting a live
-# kolu — it belongs on CI or a `pu` box.
-#
-# Because the sharded branch appends `--passWithNoTests` to EVERY package's
-# line, no `test:daemon` script may declare it itself: vitest's arg parser
-# rejects a repeated boolean (`Expected a single value for option
-# "--passWithNoTests"`), so `kolu-io`'s copy was dropped when its suite gained
-# real test files. The EXIT janitor and `KOLU_DAEMON_BIND_PID` leash below stay
-# per-slice — each shard is its own box and its own run pid.
+# CI/pu-ONLY: the daemon-forking packages' suites (KOLU_DAEMON_TESTS=1) — forks real kaval/padi daemons
 test-daemon: install
     #!/usr/bin/env bash
     set -euo pipefail
-    # NOTE: `pnpm -r … test:daemon --shard=…` — NOT `… test:daemon -- --shard=…`.
+    # `pnpm -r … test:daemon --shard=…` — NOT `… test:daemon -- --shard=…`.
     # pnpm forwards a literal `--` into the script line, and vitest reads
     # everything after a bare `--` as a file filter, so the shard would be
-    # silently ignored and every package would run whole (measured). Appending
-    # the flags directly is the form that works for every script shape in the
-    # tree — a leading env assignment and `--fileParallelism=false`
-    # (`packages/server`), `--exclude …` (`packages/padi`).
+    # silently ignored and every package would run whole (measured).
     shard_args=()
     if [[ -n "${ODU_SHARD_INDEX:-}" || -n "${ODU_SHARD_TOTAL:-}" ]]; then
         if [[ ! "${ODU_SHARD_INDEX:-}" =~ ^(0|[1-9][0-9]*)$ ]] \
@@ -285,7 +251,7 @@ test-daemon: install
     trap cleanup EXIT
     KOLU_DAEMON_TESTS=1 KOLU_DAEMON_BIND_PID=$$ {{ nix_shell }} pnpm -r {{ pnpm_vendored_filter }} --workspace-concurrency=1 test:daemon "${shard_args[@]}"
 
-# failure rather than a skip nobody sees.
+# Ask the two real agent packages for their models — this tree's floor vs the pre-models upstream
 test-agent-models: install
     #!/usr/bin/env bash
     set -euo pipefail
@@ -296,7 +262,7 @@ test-agent-models: install
     KOLU_AGENT_FLOOR_BUNDLE="$floor" KOLU_AGENT_PRE_MODELS_PACKAGE="$old" \
       {{ nix_shell }} pnpm --filter @kolu/padi exec vitest run src/agentDistro/realPackages.e2e.test.ts
 
-# asking is exactly the silence this ends.
+# Ask upstream's published agent package what this kolu calls, once per kind of host
 test-agent-published: install
     #!/usr/bin/env bash
     set -euo pipefail
@@ -307,7 +273,7 @@ test-agent-published: install
     KOLU_AGENT_DISTRO_DELIVERY="$delivery" KOLU_AGENT_PUBLISHED_NIX="$nixes" \
       {{ nix_shell }} pnpm --filter kolu-server exec tsx src/agentDelivery/publishedAnswers.ts
 
-#   KOLU_E2E_SSH_DESTRUCTIVE_ACK=1 just e2e-ssh 10.47.48.150    # explicit ssh host/alias
+# W3.1 ssh-leg e2e over a REAL ssh hop — DESTRUCTIVE: drains the target's padi, needs KOLU_E2E_SSH_DESTRUCTIVE_ACK=1
 e2e-ssh host='': install
     #!/usr/bin/env bash
     set -euo pipefail
@@ -323,7 +289,7 @@ e2e-ssh host='': install
         KOLU_STATE_DIR="${TMPDIR:-/tmp}/kolu-e2e-ssh-$$/state" \
         {{ nix_shell }} pnpm exec vitest run --fileParallelism=false src/padi/remotePadiSsh.test.ts
 
-#   KOLU_E2E_SSH_DESTRUCTIVE_ACK=1 just e2e-ssh-2box nix@boxB   # <boxB> = a different ssh host
+# W3.1 ssh-leg e2e, TWO-BOX arm (<boxB> is a different host) — DESTRUCTIVE: needs KOLU_E2E_SSH_DESTRUCTIVE_ACK=1
 e2e-ssh-2box boxB port='7099': install
     #!/usr/bin/env bash
     set -euo pipefail
@@ -332,10 +298,6 @@ e2e-ssh-2box boxB port='7099': install
     KOLU_E2E_SSH_TWO_BOX=1 just e2e-ssh "$boxB"
     sr="${TMPDIR:-/tmp}/kolu-2box-$$/state"; log="${TMPDIR:-/tmp}/kolu-2box-$$.log"
     echo "e2e-ssh-2box: standing up kolu-server (KOLU_PADI_HOST=$boxB) on :$port"
-    # Isolate the LOCAL padi state root so this full-boot server's P0 supervisor gate
-    # never collides with any other kolu on the box. NOT KOLU_REMOTE_PADI_STATE_DIR:
-    # this recipe DELIBERATELY binds (and drains) <boxB>'s REAL padi — isolating the
-    # remote would spawn a fresh padi there instead of exercising the live one.
     KOLU_STATE_DIR="$sr" KOLU_PADI_STATE_DIR="$sr/padi" KOLU_PADI_HOST="$boxB" {{ nix_shell }} nix run .#koluBin -- web --port "$port" >"$log" 2>&1 &
     srv=$!; trap 'kill $srv 2>/dev/null || true' EXIT
     frame=""
@@ -348,7 +310,7 @@ e2e-ssh-2box boxB port='7099': install
     echo "daemonInventory (bound to $boxB): $frame"
     python3 -c 'import json,sys; d=json.loads(sys.argv[2] or "{}").get("json",{}); p=d.get("boundPadi") or {}; (print("e2e-ssh-2box: PASS — boundHost="+str(d.get("boundHost"))+", boundPadi.surfaceVersion="+str(p.get("surfaceVersion"))+" over the genuinely-remote binding") if d.get("boundHost")==sys.argv[1] and p.get("surfaceVersion") else sys.exit("FAIL: boundHost="+repr(d.get("boundHost"))+" (expected "+repr(sys.argv[1])+"), boundPadi.surfaceVersion="+repr(p.get("surfaceVersion"))))' "$boxB" "$frame"
 
-#   KOLU_E2E_SSH_DESTRUCTIVE_ACK=1 just e2e-ssh-upgrade root@kolu-f4-upgrade
+# Mixed-version upgrade window against the previous release tag — DESTRUCTIVE: needs KOLU_E2E_SSH_DESTRUCTIVE_ACK=1
 e2e-ssh-upgrade host: install
     #!/usr/bin/env bash
     set -euo pipefail
@@ -389,11 +351,9 @@ e2e-ssh-upgrade host: install
     nix copy --to "ssh://${host}" --no-check-sigs "${prev_store}"
     system=$(nix eval --impure --raw --expr builtins.currentSystem)
     drv=$(nix eval --raw --accept-flake-config ".#packages.$system.padi.drvPath")
-    # `--reporter=verbose --disableConsoleIntercept`: this suite's narration (the
-    # front's own convergence lines — classification, SIGTERM, fresh spawn, the
-    # phase walk) IS the evidence a human runs this for, and the default reporter
-    # swallows console output for a PASSING test. A green tick that prints nothing
-    # cannot be pasted into a disposition, so the run always speaks.
+    # `--reporter=verbose --disableConsoleIntercept`: vitest's default reporter
+    # swallows console output for a PASSING test, and this suite's own
+    # convergence narration is the evidence the run exists to produce.
     cd packages/server && KOLU_E2E_SSH_HOST="$host" KOLU_E2E_PADI_DRV="$drv" \
         KOLU_E2E_PREVIOUS_PADI_STORE="$prev_store" \
         KOLU_E2E_PREVIOUS_PADI_REF="$ref" \
@@ -414,8 +374,6 @@ test: install
         if ! just _reap-ci-run; then
             if [ "$st" -eq 0 ]; then st=1; fi
         fi
-        # Janitor first — then drop the suite lock so a waiter cannot mint
-        # roots under a still-running sweep.
         if [ -n "$lock" ]; then
             rm -rf "$lock" || true
         fi
@@ -432,9 +390,6 @@ test: install
     KOLU_SERVER="${KOLU_SERVER:-$(nix build .#koluBin --no-link --print-out-paths)/bin/kolu}"
     cd packages/tests
     if [ "${KOLU_E2E_LOCK:-1}" != 0 ]; then
-        # `lock` is what cleanup() rms — assign it ONLY after mkdir succeeds.
-        # A waiter that set lock=path then died on `sleep 15` used to delete
-        # a live peer's suite lock (cleanup saw a non-empty path).
         candidate=/tmp/kolu-e2e-suite.lock
         deadline=$(( $(date +%s) + 3600 ))
         while true; do
@@ -457,24 +412,13 @@ test: install
             sleep 15
         done
     fi
-    # In particular, never sample the one-minute load average here: it trails
-    # the Nix build that runs before Cucumber and made an idle 10-core venue
-    # start just one worker.
     par=$(( (cores + 2) / 3 ))
     if (( par < 1 )); then par=1; fi
     if (( par > cap )); then par=$cap; fi
     echo "e2e: workers=$par (cores=$cores cap=$cap)"
-    # No `pnpm install` here: the `install` dep (and, in CI, the ci::install
-    # node) already installed the whole workspace, packages/tests included. A
-    # second `pnpm install` re-links the shared workspace `node_modules/.bin`,
-    # and running concurrently with the `unit` lane's `vitest` it transiently
-    # makes `.bin/vitest` non-executable → "Permission denied" (exit 126) — the
-    # very "two recipes shelling out to pnpm install race and corrupt each
-    # other's node_modules" hazard ci/mod.just documents. CI invokes this recipe
-    # with `just --no-deps test` so even the `install` dep can't race the unit lane.
-    KOLU_SERVER="$KOLU_SERVER" CUCUMBER_PARALLEL="$par" {{ nix_shell_e2e }} pnpm test
+    KOLU_SERVER="$KOLU_SERVER" CUCUMBER_PARALLEL="$par" {{ nix_shell_with_browsers }} pnpm test
 
-#   just test-quick features/command-palette.feature             # single feature file
+# Run part of the Cucumber e2e suite against a source wrapper — args go to cucumber
 test-quick *args: install
     #!/usr/bin/env bash
     set -euo pipefail
@@ -486,47 +430,47 @@ test-quick *args: install
         exit "$st"
     }
     trap cleanup EXIT
-    {{ nix_shell_e2e }} pnpm --filter kolu-client build
+    {{ nix_shell_with_browsers }} pnpm --filter kolu-client build
     wrapper="$PWD/scripts/kolu-source-wrapper.sh"
     cd packages/tests
-    {{ nix_shell_e2e }} pnpm install
+    {{ nix_shell_with_browsers }} pnpm install
     KOLU_SERVER="$wrapper" CUCUMBER_PARALLEL={{ cucumber_parallel }} \
-        {{ nix_shell_e2e }} pnpm test {{ args }}
+        {{ nix_shell_with_browsers }} pnpm test {{ args }}
 
-# See packages/tests/devSmoke.ts.
+# Dev-mode smoke test of the running stack (see packages/tests/devSmoke.ts)
 test-dev: install
     #!/usr/bin/env bash
     set -euo pipefail
     {{ agent_bake }}
     cd packages/tests
-    {{ nix_shell_e2e }} pnpm test:dev-smoke
+    {{ nix_shell_with_browsers }} pnpm test:dev-smoke
 
-#   just record new-terminal-demo     # one recording, by name
+# Record the e2e demo screencasts — pass a name for a single recording
 record name="": install
     #!/usr/bin/env bash
     set -euo pipefail
-    {{ nix_shell_e2e }} pnpm --filter kolu-client build
+    {{ nix_shell_with_browsers }} pnpm --filter kolu-client build
     wrapper="$PWD/scripts/kolu-source-wrapper.sh"
     name_filter=""
     [ -n "{{ name }}" ] && name_filter="--name {{ name }}"
     {{ agent_bake }}
     cd packages/tests
-    {{ nix_shell_e2e }} pnpm install
+    {{ nix_shell_with_browsers }} pnpm install
     KOLU_SERVER="$wrapper" KOLU_X11CAP=1 CUCUMBER_PARALLEL=1 \
         KOLU_E2E_PADI_HOST_SEED="localhost,kolu-bot" \
         KOLU_REMOTE_PADI_STATE_DIR="/home/toor/.local/state/kolu-hero-demo-padi" \
-        {{ nix_shell_e2e }} nix-shell screencast/shell.nix --run \
+        {{ nix_shell_with_browsers }} nix-shell screencast/shell.nix --run \
         "node --import tsx ./node_modules/@cucumber/cucumber/bin/cucumber-js --profile ui features/recordings.feature $name_filter"
 
 # Boot the packaged Kolu and verify /api/health — production-like runtime smoke
 smoke:
     {{ nix_shell }} bash dev/skills/ci/smoke.sh
 
-# their relative speed — READ THE RATIO, not the absolute number.
+# Benchmark collection-delta application in @kolu/surface — read the RATIO, not the absolute number
 bench-collection-deltas: install
     cd packages/surface && {{ nix_shell }} pnpm exec vitest bench --run src/solid/collectionDeltas.bench.ts
 
-# `padi-latency-baseline`. Env: KOLU_BENCH_* (SAMPLES, TERMINALS, OUT, ...).
+# Benchmark typing-echo latency against the packaged server (env: KOLU_BENCH_*)
 bench-typing-echo: install
     {{ nix_shell }} bash packages/server/bench/run.sh
 
