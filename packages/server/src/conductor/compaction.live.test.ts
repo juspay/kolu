@@ -55,7 +55,6 @@ const SUMMARY_CANARY = "SUMMARY-CANARY";
 
 const silent = { info: () => {}, warn: () => {}, error: () => {} };
 
-/** One request the fake was sent, reduced to what a case reads. */
 interface Asked {
   readonly system: string;
   readonly messages: ReadonlyArray<string>;
@@ -92,9 +91,6 @@ const textOf = (content: unknown): string =>
           .join("\n")
       : "";
 
-/** THE FAKE MESSAGES API: every request recorded, every answer a short
- *  stream, every usage the number the case set — except the summary request,
- *  which answers a summary carrying {@link SUMMARY_CANARY}. */
 const fakeApi = () => {
   const asked: Asked[] = [];
   let used = 1_000;
@@ -194,9 +190,6 @@ const fakeApi = () => {
   };
 };
 
-/** The leg kolu shipped before this work: the same subscription at the open,
- *  and no settings — what a conversation started before the upgrade was
- *  opened with. */
 const withoutSettings = (leg: Leg): Leg => {
   const raw = leg.rawMessages;
   if (raw === null) throw new Error("the engine's leg forwards no messages");
@@ -236,8 +229,6 @@ describe.skipIf(!LIVE)(
       await closed.promise;
     });
 
-    /** A conversation seated as kolu-server seats the Conductor, with the
-     *  scratch home, the fake API, and a recorder for what it reports. */
     const started = async (
       over: { leg?: Leg; resume?: string | null; taught?: boolean } = {},
     ) => {
@@ -252,7 +243,6 @@ describe.skipIf(!LIVE)(
       const seated = seating as Exclude<typeof seating, NotHere>;
       const configDir = conductorConfigDir({}, home);
       const compactions: Compaction[] = [];
-      /** Every turn that has ended, and the one a `say` is waiting on. */
       const ended = new Map<string, TurnEnded>();
       const waiting = new Map<string, (turn: TurnEnded) => void>();
       const harness = await startHarness<ConductorRow>({
@@ -296,9 +286,6 @@ describe.skipIf(!LIVE)(
         },
       });
       live.push(harness);
-      /** Send one message as the context the case names and wait for its
-       *  turn to end. The size is what the fake reports for THIS turn, so it
-       *  is the count the CLI holds when the next message goes. */
       const say = async (text: string, used: number): Promise<void> => {
         api.setUsed(used);
         const { rowId } = await harness.prompt(
@@ -319,7 +306,6 @@ describe.skipIf(!LIVE)(
     const turnsFrom = (from: number): ReadonlyArray<Asked> =>
       api.asked.slice(from).filter((one) => one.messages.length > 1);
 
-    /** The first ordinary request after the summary one, from `from` on. */
     const afterSummary = (from: number): Asked | undefined => {
       const asked = turnsFrom(from);
       const at = asked.findIndex((one) => one.summary);

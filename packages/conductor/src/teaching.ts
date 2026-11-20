@@ -9,14 +9,6 @@
  * one adapter's door, and a change to it makes that adapter rebuild the
  * session.
  *
- * So it rides MESSAGES of the session, and the consequences are the argument
- * for it. It is IN THE TRANSCRIPT, where a person can read what their
- * conductor was told, rather than being a thing that happened to somebody
- * else's process. It costs a turn only where there is one: the lines go out
- * with the words rather than as a turn of their own. And it survives a
- * `/clear` by construction, because "has this session been taught" is written
- * down per SESSION.
- *
  * WHEN IT RIDES is the harness's: under the first message of a session, under
  * the message the agent will compact before it reads (measured, that message
  * is still there whole after the summary), under the first message after a

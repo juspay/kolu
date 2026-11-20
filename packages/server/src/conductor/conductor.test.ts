@@ -2258,7 +2258,6 @@ describe("a compaction, as one line in the chat", () => {
         summary: null,
       },
     ]);
-    // The count it began at stays, though the context has emptied since.
     agent.push({
       kind: "state",
       state: {

@@ -78,7 +78,6 @@ export function conductorDoing(rows: readonly ConductorRow[]): string | null {
     const row = rows[i];
     if (row === undefined) continue;
     if (TURN_OPENERS[row.kind] === true) break;
-    // A COMPACTION holds the whole turn: nothing after it runs until it ends.
     if (row.kind === "compaction" && row.state === "running") return COMPACTING;
     if (
       row.kind === "tool" &&

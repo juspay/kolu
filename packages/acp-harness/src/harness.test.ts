@@ -2234,7 +2234,6 @@ describe("the standing prompt around a compaction", () => {
     await settled(running, `the \`${text}\` turn never ended`);
   };
 
-  /** Which of the messages sent so far carried the standing prompt. */
   const taughtSoFar = async (
     running: Running,
   ): Promise<ReadonlyArray<boolean>> => {

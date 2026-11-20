@@ -1102,18 +1102,9 @@ export const startHarness = async <Row extends AnyRow>(
    *  this conversation is in — seeded with what the caller remembered for the
    *  session it asked to resume. */
   let taught = options.taught;
-  /** Whether the session this harness is in was LOADED rather than opened
-   *  new — its usage is not known until a turn reports one. */
   let loaded = false;
-  /** Whether a message has been taught for a compaction the agent was about
-   *  to run — the latch that keeps it to once ({@link HarnessOptions.compacts}). */
   let primed = false;
-  /** What {@link heard} was when the standing prompt last went out, for
-   *  whatever reason, or `null` while it has not in this session: a
-   *  compaction that begins with the number unmoved began under it. */
   let taughtAt: number | null = null;
-  /** The compaction last reported, and whether the standing prompt rode the
-   *  message it began under before the agent said anything of that turn. */
   let compacting: { readonly id: string; readonly rode: boolean } | null = null;
   /** The conversation this harness is in now, as the client last said. */
   let sessionId: string | null = null;
@@ -1446,16 +1437,12 @@ export const startHarness = async <Row extends AnyRow>(
         notice(event.message);
         return;
       case "compaction": {
-        // A REPLAYED compaction is history the caller's own rows already
-        // hold, and the context it replaced is not the one being taught.
         if (replaying) return;
         if (compacting?.id !== event.id)
           compacting = {
             id: event.id,
             rode: taughtAt !== null && heard === taughtAt,
           };
-        // ONLY A COMPLETED ONE REPLACED THE CONTEXT. A failed or cancelled
-        // compaction left the rules where they were, so it re-arms nothing.
         const completed = event.status === "completed";
         if (completed) {
           primed = false;

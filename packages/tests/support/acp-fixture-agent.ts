@@ -939,7 +939,6 @@ const turn = async (
     if (text === "compact until steered") {
       const steered = Promise.withResolvers<string>();
       awaitingSteer = steered.resolve;
-      // Bounded for the reason `work until steered` is.
       const gaveUp = setTimeout(() => steered.resolve("(nothing)"), 30_000);
       await steered.promise;
       clearTimeout(gaveUp);

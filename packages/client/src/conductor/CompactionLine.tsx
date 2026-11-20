@@ -1,12 +1,3 @@
-/** A COMPACTION, as one line in the chat — drawn like the `— new session —`
- *  divider: a rule, the words, a rule.
- *
- *  Running, it is in the working colour. Failed, it is in the danger colour
- *  with the agent's reason under it, and the conversation carries on as it
- *  was. Done, it is a plain `<details>` that opens to the agent's own summary
- *  under a sentence saying what happened to the rules — owned by the DOM like
- *  the wake row, so an open line stays open while the row refines. */
-
 import type { ConductorCompactionRow } from "kolu-common/conductor";
 import { type Component, Show } from "solid-js";
 import { compactionHeadline, compactionSentence } from "./compactionWords";

@@ -491,9 +491,7 @@ const ConductorTranscript: Component<{
                 { equals: sameWorks },
               );
               /** A QUESTION IS NEVER FOLDED AWAY: it is the one thing in the
-               *  conversation that waits on a person. Nor is a COMPACTION: it
-               *  is the line between what the agent still has and what it
-               *  holds only as a summary. */
+               *  conversation that waits on a person. */
               const kept = createMemo(
                 () =>
                   turn().asks.has(first().id) || first().kind === "compaction",

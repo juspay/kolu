@@ -2050,7 +2050,6 @@ export function prFactsOnTheTimeline_1_57_0(store: Conf<PersistedState>): void {
 const TRANSCRIPT_VERSION_1_58_0 = "1.58.0";
 /** ... and what {@link toolOutings_1_59_0} stamped. */
 const TRANSCRIPT_VERSION_1_59_0 = "1.59.0";
-/** ... and what {@link compactionRows_1_62_0} stamped. */
 const TRANSCRIPT_VERSION_1_62_0 = "1.62.0";
 
 /** The 1.58.0 rung — A MENTION SAYS WHAT IT IS. A user row's `mentions`
@@ -2082,10 +2081,6 @@ export function toolOutings_1_59_0(stateRoot: string): void {
   writeTranscriptFile(path, TRANSCRIPT_VERSION_1_59_0, record.rows);
 }
 
-/** A ROW MAY BE A COMPACTION — the agent replacing the older part of the
- *  conversation with a summary, drawn as one line. No saved row is one, so
- *  nothing is rewritten; only the file's stamp moves, which is what the
- *  row-shape rule asks for. Exported for `stateMigration.test.ts`. */
 export function compactionRows_1_62_0(stateRoot: string): void {
   const path = transcriptFilePath(stateRoot);
   if (!existsSync(path)) return;
@@ -2093,7 +2088,6 @@ export function compactionRows_1_62_0(stateRoot: string): void {
   try {
     held = JSON.parse(readFileSync(path, "utf8"));
   } catch {
-    // Left exactly as it is: the reader refuses it by name.
     return;
   }
   const record = recordOf(held);
@@ -2932,9 +2926,6 @@ export const CONF_MIGRATIONS = {
   // (`prOpenedSaysDraft_1_61_0` argues it). The transcript file is untouched,
   // so TRANSCRIPT_FILE_VERSION stays at 1.59.0.
   "1.61.0": prOpenedSaysDraft_1_61_0,
-  // A ROW MAY BE A COMPACTION (`compactionRows_1_62_0` argues why nothing is
-  // rewritten). Only the transcript file's stamp moves, which is why
-  // TRANSCRIPT_FILE_VERSION reads 1.62.0; `config.json` is untouched.
   "1.62.0": (store: Conf<PersistedState>) =>
     compactionRows_1_62_0(dirname(store.path)),
 };

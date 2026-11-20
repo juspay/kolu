@@ -955,8 +955,6 @@ export const CLAUDE: Leg = {
   models: MODELS,
 };
 
-// ── compacting at a number of kolu's choosing ──────────────────────────
-
 /**
  * How far below the window it is given Claude Code compacts. Measured on the
  * pinned pair (adapter 0.81.2, claude-code 2.1.325) against a fake Messages

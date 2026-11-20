@@ -1,8 +1,3 @@
-/** THE COMPACTION LINE — step definitions for the one line a compaction is in
- *  the Conductor's chat, the status line while one runs, and the header tip
- *  that names where it happens. The scripted agent's words that drive them
- *  are in `support/acp-fixture-agent.ts`. */
-
 import { Then, When } from "@cucumber/cucumber";
 import { pollFor } from "../support/poll.ts";
 import { type KoluWorld, POLL_TIMEOUT } from "../support/world.ts";
@@ -10,10 +5,8 @@ import { type KoluWorld, POLL_TIMEOUT } from "../support/world.ts";
 const LINE =
   '[data-testid="conductor-transcript"] [data-testid="conductor-compaction"]';
 
-/** The newest compaction line — a scenario is about the one it just made. */
 const newest = (world: KoluWorld) => world.page.locator(LINE).last();
 
-/** Wait until `observe` says what `holds` wants, naming `what` on a timeout. */
 const until = async (
   what: string,
   observe: () => Promise<string | null>,

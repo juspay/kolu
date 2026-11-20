@@ -2920,8 +2920,6 @@ describe("the 1.62.0 rung — a row may be a compaction", () => {
   ];
 
   it("leaves every row of a 1.59.0 file as it was, and the reader takes it and a compaction after it", () => {
-    // No saved row is a compaction, so the stamp is the rung's whole work —
-    // and the file it leaves takes the new kind beside the old ones.
     const dir = mkdtempSync(join(tmpdir(), "kolu-compaction-rows-"));
     dirs.push(dir);
     writeTranscriptFile(transcriptFilePath(dir), "1.59.0", ROWS as never);

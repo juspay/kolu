@@ -164,7 +164,6 @@ const blocks: Array<unknown> = [];
 /** ... and the words STEERED into a running turn, in order — the only record
  *  that a steer really landed, since nothing else about it reaches a reader. */
 const steered: Array<string> = [];
-/** ... and what the client said it supports, at the handshake. */
 let capabilities: unknown = null;
 /**
  * `--ask-about-the-left-session`: every `session/new` after the first sends a
@@ -894,7 +893,6 @@ function turn(message: Message): void {
     return;
   }
   if (text === "compactLate") {
-    // A COMPACTION IN THE MIDDLE OF A TURN, after the agent has said something.
     says("working");
     update(session, {
       sessionUpdate: "compaction_update",

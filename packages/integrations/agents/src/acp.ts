@@ -66,11 +66,6 @@ const INSTALL: NotHere = {
   why: "not found — this host's padi was started without the wrapper that carries the pinned adapter",
 };
 
-/**
- * WHERE THE CONDUCTOR'S CONVERSATION IS COMPACTED, in tokens of context. kolu's
- * number rather than the agent's default (about 967k on a 1M model): every
- * wake re-reads the whole conversation, and a short one is a cheap one.
- */
 const COMPACTS_AT = 200_000;
 
 /**

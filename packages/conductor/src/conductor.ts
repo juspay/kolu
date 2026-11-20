@@ -1004,11 +1004,6 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
   });
   const absent: NotHere | null = "why" in seating ? seating : null;
 
-  /** The fields THIS SERVER is the author of — whether the adapter is seated
-   *  on this machine, what the agent is called, the directory this
-   *  conversation is in, and where it compacts — known here at boot from the
-   *  engine and the home this process was started with. Folded back over
-   *  every state the harness reports, so each has exactly ONE author. */
   const serverAuthored = {
     install:
       absent === null
@@ -1604,14 +1599,8 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
     });
   };
 
-  /** What a compaction that never reached an end is said to have done: the
-   *  turn that held it ended, or the agent running it went away. */
   const UNFINISHED = "it stopped before it finished";
 
-  /** A COMPACTION, AS ONE ROW — minted at its first report and updated in
-   *  place by every report after it, under kolu's own id for it
-   *  (`kolu:compaction:<id>`), the way {@link sayNotice} mints its rows. `at`
-   *  is the usage this conversation last reported when it began. */
   const sayCompaction = (report: Compaction): void => {
     const id = `kolu:compaction:${report.id}`;
     const held = byId.get(id);
@@ -1648,9 +1637,6 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
     });
   };
 
-  /** A compaction still running when its agent went away never reports again:
-   *  the process that was doing it is gone. Settled as failed before the next
-   *  agent comes up, so the line does not say "compacting" for good. */
   const settleStrandedCompactions = (): void => {
     const stranded = rows().flatMap((row) =>
       row.kind === "compaction" && row.state === "running"
@@ -1837,9 +1823,6 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
         numbering: "continues",
         whenLoadRefused: "fresh",
         whenReplayed: "drop",
-        // WHEN THE AGENT COMPACTS, which is the engine's to say: the standing
-        // prompt rides the message it compacts before, and each report is one
-        // line in the chat ({@link sayCompaction}).
         ...(ENGINE.compacts === undefined
           ? {}
           : { compacts: ENGINE.compacts.due }),

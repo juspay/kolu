@@ -66,10 +66,6 @@ function appendSaying(
   }
   const row = rows[index];
   if (row === undefined) return rows;
-  // A plan row is replaced wholesale on every update and a compaction row is
-  // kolu's own, upserted in place — neither has `text` to grow, so an append
-  // addressed to one is a producer bug, and saying so beats silently growing
-  // a field the renderer never reads.
   if (!("text" in row)) {
     console.warn(
       `conductor transcript: append addressed to a ${row.kind} row`,
@@ -291,8 +287,7 @@ export function foldToolRuns(
     // it STARTS a turn. The calls before it belong to the work that was
     // running when the terminal rang, and a fold that reached across it would
     // put the Conductor's answer to the wake in the same closed "Details" as
-    // whatever it had been doing beforehand. A COMPACTION is one too: the
-    // calls before it are in a context the agent no longer has.
+    // whatever it had been doing beforehand.
     if (
       kind !== "agent" &&
       kind !== "user" &&

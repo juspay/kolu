@@ -468,7 +468,6 @@ export const ConductorDividerRowSchema = Schema.Struct({
   text: Schema.String,
 });
 
-/** How much of a compaction's summary a row carries. */
 export const COMPACTION_SUMMARY_CAP = 20_000;
 
 /** The agent replacing the older part of the conversation with a summary.

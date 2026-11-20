@@ -1,13 +1,6 @@
-/** The words of a compaction row — its one line, the sentence under it, and
- *  what the status line says while it runs. Pure, and read by the line
- *  itself, the status line and Copy transcript, so the three cannot say
- *  different things about one compaction. */
-
 import type { ConductorCompactionRow } from "kolu-common/conductor";
 import { tokens } from "./tokens";
 
-/** `compacted at 201k` — what happened, and at how much context. A row that
- *  began while kolu knew no usage (the first after a restart) has no number. */
 export function compactionHeadline(row: ConductorCompactionRow): string {
   const at = row.at === null ? "" : ` at ${tokens(row.at)}`;
   switch (row.state) {
@@ -20,11 +13,8 @@ export function compactionHeadline(row: ConductorCompactionRow): string {
   }
 }
 
-/** What the status line says while a compaction runs. */
 export const COMPACTING = "compacting the conversation";
 
-/** The sentence a SETTLED row says under its line, naming the agent; a
- *  running one has none. */
 export function compactionSentence(
   row: ConductorCompactionRow,
   agent: string,
