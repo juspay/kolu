@@ -1,12 +1,3 @@
-/** The forge-adapter contract — a pure resolver.
- *
- *  Deliberately *not* subscribe-shaped: an adapter is a stateless
- *  `resolve(git)`, and the generic watcher (`subscribePr`) calls it on
- *  each resolve. One watcher lives for a terminal's whole life — no
- *  teardown/rebuild machinery, no `lastKey`, and the git channel's
- *  synchronous `onEvent` contract is never crossed by an awaited
- *  detection (see the anyforge Atlas note, decision D3). */
-
 import type { Logger } from "@kolu/log";
 import type { PrResult, PrUnavailableSourceBase } from "./schemas.ts";
 

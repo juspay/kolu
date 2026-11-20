@@ -61,21 +61,17 @@ export function subscribePr<S extends PrUnavailableSourceBase>(
     }
   }
 
+  function emitIfStillCurrent(git: PrGitContext, pr: PrResult<S>): void {
+    if (!gitContextEqual(git, lastGit)) return;
+    emit(pr);
+  }
+
   async function fetchAndEmit(
     git: PrGitContext,
     cause: PrResolveCause,
   ): Promise<void> {
     try {
-      const pr = await adapter.resolve(git, cause, log);
-      // Drop a result whose git context is no longer current. A resolve is
-      // async, so a branch/repo switch (or leaving the repo via
-      // `setGit(null)`) can land `lastGit` on a different context — or null —
-      // while this one is in flight. Emitting here would overwrite the fresh
-      // context's PR with a stale one; worse, after `setGit(null)` the poll
-      // stops, so a late stale emit would never be corrected and would
-      // persist. Re-check against `lastGit` immediately before publishing.
-      if (!gitContextEqual(git, lastGit)) return;
-      emit(pr);
+      emitIfStillCurrent(git, await adapter.resolve(git, cause, log));
     } catch (err) {
       log?.error({ err }, "pr watcher: resolve threw");
     }

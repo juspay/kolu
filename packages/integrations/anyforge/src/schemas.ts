@@ -44,6 +44,13 @@ export const CheckRunSchema = Schema.Struct({
 });
 export type CheckRun = typeof CheckRunSchema.Type;
 
+function optionalOnWireAlwaysEncoded<S extends Schema.Constraint>(
+  schema: S,
+  whenMissing: S["Encoded"],
+): Schema.withDecodingDefaultKey<S> {
+  return Schema.withDecodingDefaultKey<S>(Effect.succeed(whenMissing))(schema);
+}
+
 export const PrInfoSchema = Schema.Struct({
   number: Schema.Number,
   title: Schema.String,
@@ -52,35 +59,22 @@ export const PrInfoSchema = Schema.Struct({
   state: PrStateSchema,
   /** Combined CI status: pending, pass, or fail. Null if no checks configured. */
   checks: Schema.NullOr(CheckStatusSchema),
-  /** Per-check breakdown — same data `checks` rolls up. Empty when no
-   *  checks are configured. The decoding default is rolling-deploy
-   *  tolerance: an older server emitting payloads without this field still
-   *  parses on a newer client. `withDecodingDefaultKey` (not
-   *  `optionalKey` + it) is deliberate — it makes the key optional on the
-   *  ENCODED side only, so decoded `PrInfo` still always carries
-   *  `checkRuns` — wrapping in `optionalKey` as well would wrongly make it
-   *  optional on the decoded side too. Encoding
-   *  passes the value through (never omits), so a fresh server's payload
-   *  is byte-identical to what it emitted before. */
-  checkRuns: Schema.Array(CheckRunSchema).pipe(
-    Schema.withDecodingDefaultKey(Effect.succeed([])),
-  ),
-  /** Review decision as gh reports it. Decoding default is rolling-deploy
-   *  tolerance — same spelling as `checkRuns`: an older server emitting
-   *  payloads without this field still parses on a newer client.
-   *  `withDecodingDefaultKey` (not `optionalKey` + it) keeps the key
-   *  required on the decoded side. Encoding never omits. */
-  reviewDecision: Schema.NullOr(ReviewDecisionSchema).pipe(
-    Schema.withDecodingDefaultKey(Effect.succeed(null)),
+  /** Per-check breakdown — the same data `checks` rolls up. Empty when no
+   *  checks are configured, and when the sender predates the field. */
+  checkRuns: optionalOnWireAlwaysEncoded(Schema.Array(CheckRunSchema), []),
+  /** Review decision as gh reports it — `null` is gh's own "no decision",
+   *  and also what a sender predating the field reads as. */
+  reviewDecision: optionalOnWireAlwaysEncoded(
+    Schema.NullOr(ReviewDecisionSchema),
+    null,
   ),
   /** Merge state as gh reports it — or `null`, "this reading carries no
-   *  merge state": a payload from a sender older than the field, the
-   *  rolling-deploy tolerance `headSha` spells below. Kept apart from gh's
-   *  own `UNKNOWN` ("not worked out yet"), which is an answer a consumer
-   *  waits out, while `null` is a sender that will never say. Encoding never
-   *  omits. */
-  mergeStateStatus: Schema.NullOr(MergeStateStatusSchema).pipe(
-    Schema.withDecodingDefaultKey(Effect.succeed(null)),
+   *  merge state": a payload from a sender older than the field. Kept apart
+   *  from gh's own `UNKNOWN` ("not worked out yet"), which is an answer a
+   *  consumer waits out, while `null` is a sender that will never say. */
+  mergeStateStatus: optionalOnWireAlwaysEncoded(
+    Schema.NullOr(MergeStateStatusSchema),
+    null,
   ),
   /** THE COMMIT THE REST OF THIS VALUE IS ABOUT — the PR's head oid, as the
    *  forge spells it. The one field that makes a check reading comparable
@@ -98,9 +92,7 @@ export const PrInfoSchema = Schema.Struct({
    *  `null` is "this reading carries no head" — a payload from a daemon
    *  older than this field, which is the same rolling-deploy tolerance
    *  `checkRuns` and `reviewDecision` spell above. Never a guess. */
-  headSha: Schema.NullOr(Schema.String).pipe(
-    Schema.withDecodingDefaultKey(Effect.succeed(null)),
-  ),
+  headSha: optionalOnWireAlwaysEncoded(Schema.NullOr(Schema.String), null),
   /** Whether the PR is a DRAFT, as the forge says it. Required, with no
    *  decoding default: a draft is a fact a consumer acts on (a draft cannot
    *  merge, whatever `mergeStateStatus` says — GitHub retired its `DRAFT`
@@ -203,12 +195,6 @@ export function prResultEqual<S extends PrUnavailableSourceBase>(
 ): boolean {
   if (a === b) return true;
   if (a.kind !== b.kind) return false;
-  // `a.kind === b.kind` from here on, so each arm safely narrows `b` to `a`'s
-  // variant. Matched exhaustively (not a `kind`-cascade with a bare
-  // `return true` tail) so a future payload-bearing PrResult variant is a
-  // compile error here — without it, a new variant would fall through to
-  // always-equal and the dedup gate would swallow every update to it
-  // invisibly.
   return match(a)
     .with({ kind: "ok" }, (a) => {
       const bv = (b as Extract<PrResult<S>, { kind: "ok" }>).value;
@@ -233,11 +219,6 @@ export function prResultEqual<S extends PrUnavailableSourceBase>(
     .exhaustive();
 }
 
-/** Shallow per-element equality for the per-check breakdown. Same length
- *  + same `(name, outcome)` in the same order. Same order is fine
- *  because adapters preserve the order the forge returns — re-fetches
- *  with no real change produce the same sequence, so a `===`-style
- *  identity check survives ordinary polling without false positives. */
 function checkRunsEqual(
   a: readonly CheckRun[],
   b: readonly CheckRun[],
