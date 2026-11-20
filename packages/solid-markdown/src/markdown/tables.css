@@ -1,0 +1,56 @@
+.kolu-md table {
+  display: block;
+  width: max-content;
+  max-width: 100%;
+  overflow-x: auto;
+  border-collapse: collapse;
+  font-size: 0.95em;
+}
+.kolu-md th,
+.kolu-md td {
+  padding: 0.4em 0.85em;
+  border: 1px solid var(--md-border);
+}
+.kolu-md th {
+  font-weight: 600;
+  background: var(--md-box);
+}
+.kolu-md tbody tr:nth-child(even) {
+  background: var(--md-box-faint);
+}
+
+.kolu-md table[data-md-frontmatter] {
+  display: table;
+  width: 100%;
+  margin-bottom: var(--md-gap);
+  border: 1px solid var(--md-border);
+  border-radius: 6px;
+  overflow: hidden;
+  font-size: 0.85em;
+  color: var(--md-muted);
+}
+.kolu-md table[data-md-frontmatter] th,
+.kolu-md table[data-md-frontmatter] td {
+  padding: 0.3em 0.75em;
+  border: 0;
+  border-top: 1px solid var(--md-border);
+  text-align: left;
+  vertical-align: top;
+}
+.kolu-md table[data-md-frontmatter] tr:first-child th,
+.kolu-md table[data-md-frontmatter] tr:first-child td {
+  border-top: 0;
+}
+.kolu-md table[data-md-frontmatter] th {
+  width: 1%;
+  white-space: nowrap;
+  font-weight: 600;
+  background: var(--md-box-faint);
+}
+.kolu-md table[data-md-frontmatter] td {
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.kolu-md table[data-md-frontmatter] tbody tr:nth-child(even) {
+  background: transparent;
+}

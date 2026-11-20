@@ -1,8 +1,3 @@
-/** What this renderer does NOT support — math/LaTeX, emoji shortcodes,
- *  @mentions, #issue/SHA autolinks, and the non-GitHub ecosystem syntaxes — is
- *  catalogued in ../LIMITATIONS.md. Keep it in sync when adding or dropping a
- *  feature here. */
-
 import { escapeHtml } from "@kolu/html-escape";
 import { Marked, type Tokens } from "marked";
 import markedAlert from "marked-alert";
@@ -107,22 +102,24 @@ function useCodeFenceRenderer(inst: Marked): void {
   });
 }
 
-function useRawHtmlPolicy(inst: Marked, rawHtml: boolean): void {
+type RawHtmlPolicy = "pass" | "escape";
+
+function escapeRawHtmlTokens(inst: Marked, rawHtml: RawHtmlPolicy): void {
   inst.use({
     renderer: {
       html({ text }) {
-        return rawHtml ? false : escapeHtml(text);
+        return rawHtml === "pass" ? false : escapeHtml(text);
       },
     },
   });
 }
 
-function buildMarked(breaks: boolean, rawHtml: boolean): Marked {
+function buildMarked(breaks: boolean, rawHtml: RawHtmlPolicy): Marked {
   const inst = new Marked({ gfm: true, breaks });
   useGfmExtensions(inst);
-  if (rawHtml) useWikilinkExtension(inst);
+  if (rawHtml === "pass") useWikilinkExtension(inst);
   useCodeFenceRenderer(inst);
-  useRawHtmlPolicy(inst, rawHtml);
+  escapeRawHtmlTokens(inst, rawHtml);
   return inst;
 }
 
@@ -214,25 +211,7 @@ function rewriteAlerts(html: string): string {
  *  `<sup><a … data-footnote-ref aria-describedby="footnote-label">n</a></sup>`
  *  and the *back*-ref (↩) as `<a … data-footnote-backref>`. The bare
  *  `data-footnote-ref` / `data-footnote-backref` attributes uniquely tell the
- *  two apart — so we stamp `data-md-footnote` on the forward ref (the host opens
- *  its definition in a popover) and a sibling `data-md-footnote-backref` on the
- *  back-ref (the popover strips these from its clone — a "jump to marker" link
- *  is meaningless inside the note). Tagging here, on the parser's own output, is
- *  unambiguous; detecting either structurally *after* sanitization would mistake
- *  a back-ref (whose href is also `#md-footnote-…`) — or a heading literally
- *  titled "Footnote 1" minting the same id — for a marker, and couples the host
- *  to marked-footnote's id scheme. The forward ref's definition is found
- *  post-sanitize from the anchor's own `href`.
- *
- *  Spoof guard (mirrors the wikilink policy): `data-md-footnote` is in the
- *  document allowlist, so a README's *raw* inline HTML could pre-seed
- *  `<a data-md-footnote href="#md-…">` to opt an arbitrary same-page anchor into
- *  the host's footnote-popover callback. App-read data hooks must be
- *  parser-minted, not document-authored — so strip any pre-existing
- *  `data-md-footnote*` token from every anchor *first*, then re-mint it only
- *  beside marked-footnote's own `data-footnote-ref` / `data-footnote-backref`.
- *  Net: the markers only ever ride the parser's own footnote refs, never a raw
- *  anchor that merely declared them. */
+ *  two apart. */
 const DOC_FOOTNOTE_ATTR =
   /\s+data-md-footnote(?:-backref)?(?:\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]*))?/g;
 
@@ -247,7 +226,7 @@ function rewriteFootnotes(html: string): string {
 }
 
 const INSTANCES = new Map<string, Marked>();
-function instance(breaks: boolean, rawHtml: boolean): Marked {
+function instance(breaks: boolean, rawHtml: RawHtmlPolicy): Marked {
   const key = `${breaks}:${rawHtml}`;
   let inst = INSTANCES.get(key);
   if (!inst) {
@@ -257,17 +236,27 @@ function instance(breaks: boolean, rawHtml: boolean): Marked {
   return inst;
 }
 
+function parseBody(inst: Marked, body: string): string {
+  return rewriteFootnotes(rewriteAlerts(inst.parse(body) as string));
+}
+
+function frontMatterHtml(yaml: string | null, opts: RenderOptions): string {
+  if (yaml === null || !(opts.frontMatter ?? true)) return "";
+  return renderFrontMatter(yaml);
+}
+
 /** Parse Markdown to raw (untrusted) HTML. Sanitize before inserting. */
 export function renderMarkdownToRawHtml(
   markdown: string,
   opts: RenderOptions,
 ): string {
-  const inst = instance(opts.breaks ?? true, opts.rawHtml ?? true);
+  const inst = instance(
+    opts.breaks ?? true,
+    (opts.rawHtml ?? true) ? "pass" : "escape",
+  );
   if (opts.inline) return inst.parseInline(markdown) as string;
   const { yaml, body } = splitFrontMatter(markdown);
-  const meta =
-    (opts.frontMatter ?? true) && yaml !== null ? renderFrontMatter(yaml) : "";
-  return meta + rewriteFootnotes(rewriteAlerts(inst.parse(body) as string));
+  return frontMatterHtml(yaml, opts) + parseBody(inst, body);
 }
 
 const FENCE_OPENER_RE = /^ {0,3}(`{3,}|~{3,})/;
@@ -300,7 +289,7 @@ function isFinishedFence(token: Tokens.Code): boolean {
  *  the `breaks` / `rawHtml` switches the instances differ by, so one instance
  *  serves every variant. */
 export function mermaidSources(markdown: string): string[] {
-  const inst = instance(false, true);
+  const inst = instance(false, "pass");
   // The extensions' own token walk runs too, exactly as `parse` runs it:
   // `marked-footnote` resets its per-document state there, and a lex without
   // that reset would break footnotes in the next render on this instance.

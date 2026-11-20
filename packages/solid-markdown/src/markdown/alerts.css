@@ -1,0 +1,37 @@
+.kolu-md [data-md-alert] {
+  margin: 0 0 var(--md-gap);
+  padding: 0.6em 1em;
+  border-left: 0.25em solid var(--md-alert-color, var(--md-border-strong));
+  border-radius: 4px;
+  background: color-mix(
+    in oklch,
+    var(--md-alert-color, currentColor) 8%,
+    transparent
+  );
+}
+.kolu-md [data-md-alert] > :first-child {
+  margin-top: 0;
+}
+.kolu-md [data-md-alert] > :last-child {
+  margin-bottom: 0;
+}
+.kolu-md [data-md-alert-title] {
+  font-weight: 600;
+  text-transform: capitalize;
+  color: var(--md-alert-color);
+}
+.kolu-md [data-md-alert="note"] {
+  --md-alert-color: #539bf5;
+}
+.kolu-md [data-md-alert="tip"] {
+  --md-alert-color: #57ab5a;
+}
+.kolu-md [data-md-alert="important"] {
+  --md-alert-color: #986ee2;
+}
+.kolu-md [data-md-alert="warning"] {
+  --md-alert-color: #c69026;
+}
+.kolu-md [data-md-alert="caution"] {
+  --md-alert-color: #e5534b;
+}

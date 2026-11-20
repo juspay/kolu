@@ -98,6 +98,16 @@ const INTENT_TAGS = [
   "h6",
 ];
 
+const PARSER_MINTED_ATTR = [
+  "data-lang",
+  "data-md-alert",
+  "data-md-alert-title",
+  "data-md-frontmatter",
+  "data-md-wikilink",
+  "data-md-footnote",
+  "data-md-footnote-backref",
+];
+
 const DOCUMENT_ATTR = [
   "href",
   "title",
@@ -115,13 +125,7 @@ const DOCUMENT_ATTR = [
   "loading",
   "disabled",
   "id",
-  "data-md-alert",
-  "data-md-alert-title",
-  "data-md-frontmatter",
-  "data-lang",
-  "data-md-wikilink",
-  "data-md-footnote",
-  "data-md-footnote-backref",
+  ...PARSER_MINTED_ATTR,
 ];
 const INTENT_ATTR = ["href", "title", "data-lang"];
 
@@ -151,8 +155,6 @@ function configFor(opts: SanitizeOptions) {
 const ID_NS = "md-";
 
 function basename(src: string): string {
-  // `split(…, 1)[0]` is always present at runtime, but `noUncheckedIndexedAccess`
-  // types it `string | undefined`, so keep the `?? src` to satisfy the checker.
   const path = src.split(/[?#]/, 1)[0] ?? src;
   const segments = path.split("/").filter(Boolean);
   return segments[segments.length - 1] ?? "image";
@@ -165,16 +167,6 @@ function applyLinkPolicy(anchor: Element, links: boolean): void {
     return;
   }
   const href = anchor.getAttribute("href");
-  // Wikilink marker (`[[Note]]`, stamped by the renderer): trust it ONLY on a
-  // parser-minted anchor. The renderer always emits `href="#"` and carries the
-  // resolver payload on `data-md-wikilink` itself, so a genuine wikilink reads
-  // exactly `href="#"`. A README's *raw* HTML can mint `<a data-md-wikilink …>`
-  // too (the marker is in the document allowlist) — but with any *other* href
-  // that's a spoof trying to opt a raw anchor into the host's pathless resolver,
-  // so strip the marker and let the href fall through to the normal policy below
-  // (external → `target=_blank`, relative → `data-md-rel`, unsafe → unwrapped).
-  // Net: the marker is only ever honoured on the renderer's own `href="#"`
-  // output, so raw HTML can't opt into wikilink behaviour.
   if (anchor.hasAttribute("data-md-wikilink")) {
     if (href === "#") return;
     anchor.removeAttribute("data-md-wikilink");
@@ -252,18 +244,20 @@ function diagramFigure(diagram: Extract<Diagram, { ok: true }>): Element {
   return figure;
 }
 
-export function sanitizeHtml(rawHtml: string, opts: SanitizeOptions): string {
-  if (typeof window === "undefined") return "";
+function diagramError(message: string): Element {
+  const error = document.createElement("p");
+  error.setAttribute("data-md-diagram-error", "");
+  error.textContent = message;
+  return error;
+}
 
-  const root = DOMPurify.sanitize(
-    rawHtml,
-    configFor(opts),
-  ) as unknown as HTMLElement;
-
+function applyLinkPolicies(root: HTMLElement, links: boolean): void {
   for (const anchor of root.querySelectorAll("a")) {
-    applyLinkPolicy(anchor, opts.links);
+    applyLinkPolicy(anchor, links);
   }
+}
 
+function freezeTaskCheckboxes(root: HTMLElement): void {
   for (const input of root.querySelectorAll("input")) {
     if (input.getAttribute("type") === "checkbox") {
       input.setAttribute("disabled", "");
@@ -271,7 +265,9 @@ export function sanitizeHtml(rawHtml: string, opts: SanitizeOptions): string {
       input.remove();
     }
   }
+}
 
+function renderCodeBlocks(root: HTMLElement, opts: SanitizeOptions): void {
   for (const pre of Array.from(root.querySelectorAll("pre"))) {
     const code = pre.querySelector(":scope > code");
     const diagram =
@@ -282,21 +278,19 @@ export function sanitizeHtml(rawHtml: string, opts: SanitizeOptions): string {
       pre.replaceWith(diagramFigure(diagram));
       continue;
     }
-    if (diagram) {
-      // Placed while the `<pre>` still stands where it was: the decoration
-      // below replaces it in place, so the note ends up after the wrapper.
-      const error = document.createElement("p");
-      error.setAttribute("data-md-diagram-error", "");
-      error.textContent = diagram.message;
-      pre.after(error);
-    }
+    if (diagram) pre.after(diagramError(diagram.message));
     if (opts.richHtml) enhanceCodeBlock(pre, opts.highlightCode);
   }
+}
 
+function resolveImages(
+  root: HTMLElement,
+  resolveImageSrc?: (src: string) => string | undefined,
+): void {
   for (const img of root.querySelectorAll("img")) {
     const src = img.getAttribute("src") ?? "";
     if (isLoadableImage(src)) continue;
-    const resolved = opts.resolveImageSrc?.(src);
+    const resolved = resolveImageSrc?.(src);
     if (resolved !== undefined) {
       img.setAttribute("src", resolved);
       img.setAttribute("loading", "lazy");
@@ -308,7 +302,9 @@ export function sanitizeHtml(rawHtml: string, opts: SanitizeOptions): string {
     chip.textContent = img.getAttribute("alt") || basename(src);
     img.replaceWith(chip);
   }
+}
 
+function namespaceIds(root: HTMLElement): void {
   for (const el of root.querySelectorAll("[id]")) {
     const id = el.getAttribute("id");
     if (id) el.setAttribute("id", `${ID_NS}${id}`);
@@ -319,6 +315,21 @@ export function sanitizeHtml(rawHtml: string, opts: SanitizeOptions): string {
       anchor.setAttribute("href", `#${ID_NS}${href.slice(1)}`);
     }
   }
+}
+
+export function sanitizeHtml(rawHtml: string, opts: SanitizeOptions): string {
+  if (typeof window === "undefined") return "";
+
+  const root = DOMPurify.sanitize(
+    rawHtml,
+    configFor(opts),
+  ) as unknown as HTMLElement;
+
+  applyLinkPolicies(root, opts.links);
+  freezeTaskCheckboxes(root);
+  renderCodeBlocks(root, opts);
+  resolveImages(root, opts.resolveImageSrc);
+  namespaceIds(root);
 
   return root.innerHTML;
 }

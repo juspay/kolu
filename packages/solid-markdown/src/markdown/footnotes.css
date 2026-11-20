@@ -1,0 +1,26 @@
+.kolu-md sup a {
+  text-decoration: none;
+  padding: 0 0.1em;
+}
+.kolu-md a[data-md-footnote] {
+  cursor: pointer;
+  padding: 0 0.15em;
+  border-radius: 3px;
+  transition: background-color 0.12s ease;
+}
+.kolu-md a[data-md-footnote]:hover {
+  text-decoration: none;
+  background: color-mix(in oklch, currentColor 14%, transparent);
+}
+.kolu-md section {
+  padding-top: 0.5em;
+  border-top: 1px solid var(--md-border);
+  font-size: 0.9em;
+  color: var(--md-muted);
+}
+.kolu-md section h2 {
+  margin: 0 0 0.4em;
+  font-size: 0.95em;
+  padding-bottom: 0;
+  border-bottom: 0;
+}

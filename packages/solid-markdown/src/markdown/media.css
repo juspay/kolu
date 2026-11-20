@@ -1,0 +1,100 @@
+.kolu-md hr {
+  height: 1px;
+  border: 0;
+  background: var(--md-border);
+}
+
+.kolu-md img {
+  max-width: 100%;
+  height: auto;
+  border-radius: 6px;
+  vertical-align: middle;
+}
+.kolu-md .kolu-md-img-fallback {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3em;
+  padding: 0.1em 0.5em;
+  font:
+    0.85em / 1.4 ui-monospace,
+    SFMono-Regular,
+    Menlo,
+    monospace;
+  color: var(--md-muted);
+  background: var(--md-box);
+  border: 1px dashed var(--md-border-strong);
+  border-radius: 4px;
+}
+.kolu-md .kolu-md-img-fallback::before {
+  content: "🖼";
+  font-size: 0.9em;
+}
+
+.kolu-md details {
+  padding: 0.5em 1em;
+  background: var(--md-box-faint);
+  border: 1px solid var(--md-border);
+  border-radius: 8px;
+}
+.kolu-md summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+.kolu-md details[open] summary {
+  margin-bottom: 0.5em;
+}
+
+.kolu-md [align="center"] {
+  text-align: center;
+}
+.kolu-md [align="right"] {
+  text-align: right;
+}
+.kolu-md [align="left"] {
+  text-align: left;
+}
+
+.kolu-md dt {
+  font-weight: 600;
+}
+.kolu-md dd {
+  margin: 0 0 0.25em 1.5em;
+}
+
+.kolu-md figure {
+  text-align: center;
+}
+.kolu-md figcaption,
+.kolu-md caption {
+  font-size: 0.85em;
+  color: var(--md-muted);
+  text-align: center;
+}
+.kolu-md figcaption {
+  margin-top: 0.3em;
+}
+.kolu-md caption {
+  caption-side: top;
+  margin-bottom: 0.3em;
+}
+
+.kolu-md figure[data-md-diagram] img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  margin-inline: auto;
+  border-radius: 0;
+}
+.kolu-md figure[data-md-diagram] img[data-md-scheme="dark"],
+.dark .kolu-md figure[data-md-diagram] img[data-md-scheme="light"] {
+  display: none;
+}
+.dark .kolu-md figure[data-md-diagram] img[data-md-scheme="dark"] {
+  display: block;
+}
+.kolu-md [data-md-diagram-error] {
+  margin-top: calc(var(--md-gap) * -0.5);
+  font-size: 0.85em;
+  color: color-mix(in oklch, var(--color-danger, #dc2626) 70%, currentColor);
+  white-space: pre-wrap;
+}

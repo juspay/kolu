@@ -1,32 +1,5 @@
 /// <reference path="./assets.d.ts" />
 
-/** The parent side of the diagram renderer: one hidden, sandboxed iframe PER
- *  DIAGRAM, built for one source and removed as soon as it answers, fails or
- *  times out — at most {@link MAX_FRAMES} at a time.
- *
- *  Mermaid turns author-controlled text into markup and has shipped
- *  script-injection bugs in exactly that step. Kolu's page can type into
- *  terminals, so mermaid never runs here: it runs only inside a frame
- *  (./diagram-frame-program.js), and what comes back is treated as untrusted
- *  text that the page only ever shows as an `<img>` source (see ./sanitize).
- *  Never import `mermaid` into the page; the only reference is the asset URL
- *  of its prebuilt single file below.
- *
- *  What a frame can and cannot do:
- *  - It cannot reach kolu. It is `sandbox="allow-scripts"` and nothing else:
- *    an opaque origin with no access to kolu's DOM, cookies, storage or socket.
- *  - Its CSP blocks fetches, images and sockets (which is also why icons and
- *    remote images inside labels do not load). It does NOT stop everything: a
- *    script in the frame can still navigate the frame to a URL of its choosing,
- *    and WebRTC is outside CSP. A frame is therefore never trusted with more
- *    than the one block it is drawing: it is single-use, so a hostile block
- *    can at most tell the world about itself, never about the blocks drawn
- *    after it.
- *
- *  A `srcdoc` frame also inherits its parent's CSP. The app shell sends none
- *  today; a future shell policy must still allow what the frame needs: inline
- *  script, `blob:` script, inline style. */
-
 import libraryUrl from "mermaid/dist/mermaid.min.js?url";
 import frameProgram from "./diagram-frame-program.js?raw";
 
@@ -37,8 +10,6 @@ export class DiagramSyntaxError extends Error {
   override name = "DiagramSyntaxError";
 }
 
-/** Marks a renderer frame in the DOM. The e2e suite selects on this literal
- *  to prove no frame outlives its diagram; rename both together. */
 const RENDERER_FRAME_ATTR = "data-md-diagram-renderer";
 
 const FRAME_WIDTH_PX = 720;
@@ -91,8 +62,7 @@ export function parseFrameImage(value: unknown): FrameImage | undefined {
 /** Mermaid's single file, fetched by the page (same origin, same cookies as
  *  every other asset) and posted into each frame as text: a request from the
  *  opaque-origin frame would be cross-origin and fail behind
- *  cookie-authenticated proxies. Fetched once per page; a failed fetch is
- *  forgotten, so the next diagram tries again. */
+ *  cookie-authenticated proxies. */
 let library: Promise<string> | undefined;
 
 function fetchLibrary(): Promise<string> {
@@ -120,7 +90,7 @@ function fetchLibrary(): Promise<string> {
   return library;
 }
 
-async function drawInNewFrame(source: string): Promise<FrameResult> {
+function createFrame(): HTMLIFrameElement {
   const el = document.createElement("iframe");
   el.setAttribute("sandbox", "allow-scripts");
   el.setAttribute(RENDERER_FRAME_ATTR, "");
@@ -131,7 +101,16 @@ async function drawInNewFrame(source: string): Promise<FrameResult> {
   // give it zero-sized labels.
   el.style.cssText = `position:fixed;left:-10000px;top:0;width:${FRAME_WIDTH_PX}px;height:800px;visibility:hidden;border:0`;
   el.srcdoc = `<!doctype html><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="${FRAME_CSP}"><body><script>${frameProgram}</script></body>`;
+  return el;
+}
 
+type FrameChannel = {
+  hello: Promise<void>;
+  answer: Promise<FrameResult>;
+  close: () => void;
+};
+
+function awaitAnswer(el: HTMLIFrameElement): FrameChannel {
   const hello = Promise.withResolvers<void>();
   const answer = Promise.withResolvers<FrameResult>();
   const onMessage = (event: MessageEvent) => {
@@ -154,17 +133,30 @@ async function drawInNewFrame(source: string): Promise<FrameResult> {
     }
   };
   window.addEventListener("message", onMessage);
+  return {
+    hello: hello.promise,
+    answer: answer.promise,
+    close: () => window.removeEventListener("message", onMessage),
+  };
+}
+
+async function drawInNewFrame(source: string): Promise<FrameResult> {
+  const el = createFrame();
+  const channel = awaitAnswer(el);
+  const destroy = () => {
+    channel.close();
+    el.remove();
+  };
   document.body.append(el);
   try {
     const [text] = await Promise.all([
       fetchLibrary(),
-      deadline(hello.promise, "start"),
+      deadline(channel.hello, "start"),
     ]);
     el.contentWindow?.postMessage({ kind: "draw", library: text, source }, "*");
-    return await deadline(answer.promise, "draw this diagram");
+    return await deadline(channel.answer, "draw this diagram");
   } finally {
-    window.removeEventListener("message", onMessage);
-    el.remove();
+    destroy();
   }
 }
 

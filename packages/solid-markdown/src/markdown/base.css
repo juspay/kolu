@@ -1,0 +1,144 @@
+.kolu-md {
+  --md-fs: 0.9375rem;
+  --md-lh: 1.65;
+  --md-gap: 1rem;
+  --md-heading-gap: 1.5rem;
+
+  --md-muted: color-mix(in oklch, currentColor 62%, transparent);
+  --md-border: color-mix(in oklch, currentColor 18%, transparent);
+  --md-border-strong: color-mix(in oklch, currentColor 28%, transparent);
+  --md-box: color-mix(in oklch, currentColor 7%, transparent);
+  --md-box-faint: color-mix(in oklch, currentColor 4%, transparent);
+  --md-link: var(--color-accent, #3b82f6);
+  --md-wikilink: #8b5cf6;
+
+  font-size: var(--md-fs);
+  line-height: var(--md-lh);
+  color: inherit;
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+  -webkit-text-size-adjust: 100%;
+}
+
+.kolu-md p,
+.kolu-md blockquote,
+.kolu-md ul,
+.kolu-md ol,
+.kolu-md dl,
+.kolu-md pre,
+.kolu-md table,
+.kolu-md hr,
+.kolu-md details,
+.kolu-md figure,
+.kolu-md section {
+  margin: 0 0 var(--md-gap);
+}
+.kolu-md > :first-child {
+  margin-top: 0;
+}
+.kolu-md > :last-child {
+  margin-bottom: 0;
+}
+
+.kolu-md h1,
+.kolu-md h2,
+.kolu-md h3,
+.kolu-md h4,
+.kolu-md h5,
+.kolu-md h6 {
+  margin: var(--md-heading-gap) 0 var(--md-gap);
+  font-weight: 600;
+  line-height: 1.3;
+}
+.kolu-md > :is(h1, h2, h3, h4, h5, h6):first-child {
+  margin-top: 0;
+}
+.kolu-md h1 {
+  font-size: 1.7em;
+  padding-bottom: 0.3em;
+  border-bottom: 1px solid var(--md-border);
+}
+.kolu-md h2 {
+  font-size: 1.4em;
+  padding-bottom: 0.3em;
+  border-bottom: 1px solid var(--md-border);
+}
+.kolu-md h3 {
+  font-size: 1.2em;
+}
+.kolu-md h4 {
+  font-size: 1em;
+}
+.kolu-md h5 {
+  font-size: 0.9em;
+}
+.kolu-md h6 {
+  font-size: 0.85em;
+  color: var(--md-muted);
+}
+
+.kolu-md a {
+  color: var(--md-link);
+  text-decoration: none;
+}
+.kolu-md a:hover {
+  text-decoration: underline;
+}
+.kolu-md a[data-md-wikilink] {
+  color: var(--md-wikilink);
+  text-decoration: none;
+  border-bottom: 1px solid
+    color-mix(in oklch, var(--md-wikilink) 40%, transparent);
+}
+.kolu-md a[data-md-wikilink]:hover {
+  text-decoration: none;
+  border-bottom-color: var(--md-wikilink);
+}
+.kolu-md a[data-md-wikilink]::before {
+  content: "⟦";
+  margin-right: 0.08em;
+  color: color-mix(in oklch, var(--md-wikilink) 55%, transparent);
+}
+.kolu-md a[data-md-wikilink]::after {
+  content: "⟧";
+  margin-left: 0.08em;
+  color: color-mix(in oklch, var(--md-wikilink) 55%, transparent);
+}
+.kolu-md strong {
+  font-weight: 600;
+}
+.kolu-md em {
+  font-style: italic;
+}
+.kolu-md del {
+  color: var(--md-muted);
+}
+.kolu-md mark {
+  background: color-mix(
+    in oklch,
+    var(--color-warning, #facc15) 35%,
+    transparent
+  );
+  color: inherit;
+  border-radius: 2px;
+  padding: 0 0.15em;
+}
+.kolu-md sub,
+.kolu-md sup {
+  font-size: 0.75em;
+  line-height: 0;
+}
+.kolu-md kbd {
+  display: inline-block;
+  padding: 0.15em 0.45em;
+  font:
+    0.85em / 1 ui-monospace,
+    SFMono-Regular,
+    Menlo,
+    monospace;
+  vertical-align: middle;
+  background: var(--md-box);
+  border: 1px solid var(--md-border-strong);
+  border-bottom-width: 2px;
+  border-radius: 4px;
+}

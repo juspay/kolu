@@ -1,0 +1,48 @@
+.kolu-md blockquote {
+  padding: 0 0 0 1em;
+  color: var(--md-muted);
+  border-left: 0.25em solid var(--md-border-strong);
+}
+.kolu-md blockquote > :first-child {
+  margin-top: 0;
+}
+.kolu-md blockquote > :last-child {
+  margin-bottom: 0;
+}
+
+/* Tailwind v4's preflight resets `ul, ol { list-style: none }` app-wide, so
+ * the markers must be re-declared here or every list renders as unmarked
+ * indented lines (the marker is otherwise gone). Nested unordered lists step
+ * disc → circle → square the way GitHub does. */
+.kolu-md ul {
+  padding-left: 1.6em;
+  list-style: disc outside;
+}
+.kolu-md ol {
+  padding-left: 1.6em;
+  list-style: decimal outside;
+}
+.kolu-md ul ul {
+  list-style-type: circle;
+}
+.kolu-md ul ul ul {
+  list-style-type: square;
+}
+.kolu-md li::marker {
+  color: var(--md-muted);
+}
+.kolu-md li + li {
+  margin-top: 0.25em;
+}
+.kolu-md li > ul,
+.kolu-md li > ol {
+  margin: 0.25em 0 0;
+}
+.kolu-md li:has(> input[type="checkbox"]) {
+  list-style: none;
+  margin-left: -1.4em;
+}
+.kolu-md input[type="checkbox"] {
+  margin: 0 0.5em 0 0;
+  vertical-align: middle;
+}

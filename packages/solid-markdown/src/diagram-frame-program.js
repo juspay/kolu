@@ -1,7 +1,3 @@
-// Plain JavaScript on purpose: it is shipped verbatim, never bundled.
-
-/* global mermaid */
-
 let asked = false;
 
 /** Post to the parent. The frame's own origin is opaque, and the parent's
@@ -11,10 +7,10 @@ function reply(message) {
 }
 
 /** Load mermaid from the posted text. It cannot be inlined into `srcdoc`
- *  (the file holds an HTML comment opener, which breaks an inline script —
- *  and is why this file must never contain one either), and the frame
- *  cannot fetch kolu's asset URL itself (a request from an opaque origin is
- *  cross-origin), so the parent fetches it and the frame runs it from a Blob. */
+ *  (the file holds an HTML comment opener, which breaks an inline script), and
+ *  the frame cannot fetch kolu's asset URL itself (a request from an opaque
+ *  origin is cross-origin), so the parent fetches it and the frame runs it
+ *  from a Blob. */
 function boot(library) {
   return new Promise((resolve, reject) => {
     const script = document.createElement("script");

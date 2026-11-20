@@ -53,15 +53,34 @@ type LinkHandlers = {
   onInlineCode?: (text: string, anchor: HTMLElement) => void;
 };
 
+const isPointerActivation = (e: MouseEvent): boolean => e.detail > 0;
+
+function suppressInPageNavigation(e: MouseEvent): void {
+  e.preventDefault();
+}
+
+function inPageFragment(href: string | null): string | null {
+  return href?.startsWith("#") && href.length > 1 ? href.slice(1) : null;
+}
+
+function landingFor(root: HTMLElement, fragment: string): HTMLElement | null {
+  return root.querySelector<HTMLElement>(`#${CSS.escape(fragment)}`);
+}
+
+function footnoteTarget(
+  anchor: Element,
+  root: HTMLElement,
+): HTMLElement | null {
+  if (!anchor.hasAttribute("data-md-footnote")) return null;
+  const fragment = inPageFragment(anchor.getAttribute("href"));
+  return fragment === null ? null : landingFor(root, fragment);
+}
+
 /** Own the click-dispatch over `.kolu-md` DOM: code-copy buttons, in-page
  *  anchors, and the intercepted link kinds (`LinkHandlers`). This is the single
  *  home for the `data-md-*` flag → host-handler mapping the renderer mints —
  *  every consumer that renders sanitized Markdown DOM (the document preview, the
  *  footnote popover) plugs into it instead of re-deriving the routing.
- *
- *  Bound imperatively (not via JSX `onClick`) because these are delegated
- *  handlers over sanitizer-minted DOM, not declarative element interactions the
- *  a11y lint would expect a role for.
  *
  *  Stops the anchor/copy bubble so a nested control in a clickable host slot
  *  (dock card, switcher card) doesn't double-fire that slot's handler. The
@@ -97,41 +116,22 @@ export function bindMarkdownLinks(
     if (anchor) {
       e.stopPropagation();
       const href = anchor.getAttribute("href");
-      // This must come *before* the generic in-page-anchor branch below —
-      // a footnote ref's href is also an in-page `#md-footnote-…`, so without
-      // this it would just scroll.
-      //
-      // Pointer-only by design (see LIMITATIONS.md): the popover has no keyboard
-      // focus/announcement relationship yet, so a *keyboard* activation of the
-      // focused marker (Enter/Space) must keep the accessible jump-to-definition
-      // instead of opening an unmanaged portal popover. A keyboard-synthesized
-      // `click` reports `detail === 0` (no pointer click-count); a real
-      // pointer/tap reports `detail >= 1`. So gate the popover on `detail > 0`
-      // and let a keyboard activation fall through to the in-page-anchor scroll
-      // branch below — which lands on the bottom-list definition, the accessible
-      // record. (Removing this gate is the keyboard-a11y follow-up.)
-      if (
-        handlers.onFootnote &&
-        e.detail > 0 &&
-        anchor.hasAttribute("data-md-footnote") &&
-        href?.startsWith("#") &&
-        href.length > 1
-      ) {
-        const definition = el.querySelector(`#${CSS.escape(href.slice(1))}`);
+      const onFootnote = handlers.onFootnote;
+      if (onFootnote && isPointerActivation(e)) {
+        const definition = footnoteTarget(anchor, el);
         if (definition) {
           e.preventDefault();
-          handlers.onFootnote(anchor as HTMLElement, definition as HTMLElement);
+          onFootnote(anchor as HTMLElement, definition);
           return;
         }
       }
-      // We `preventDefault` *unconditionally* — before checking whether the
-      // target exists — because an `href="#…"` is only ever a within-preview
-      // jump; letting the browser perform a real hash navigation against the
-      // app document is never the intent.
-      if (href?.startsWith("#") && href.length > 1) {
-        e.preventDefault();
-        const landing = el.querySelector(`#${CSS.escape(href.slice(1))}`);
-        landing?.scrollIntoView({ behavior: "smooth", block: "start" });
+      const fragment = inPageFragment(href);
+      if (fragment !== null) {
+        suppressInPageNavigation(e);
+        landingFor(el, fragment)?.scrollIntoView({
+          behavior: "smooth",
+          block: "start",
+        });
         return;
       }
       const wikilinkTarget = anchor.getAttribute("data-md-wikilink");
@@ -161,6 +161,16 @@ function bindInteractions(el: HTMLElement, handlers: LinkHandlers): void {
   };
   el.addEventListener("pointerdown", onPointerDown);
   onCleanup(() => el.removeEventListener("pointerdown", onPointerDown));
+}
+
+function loadHighlighterOrNull() {
+  return loadHighlighter().catch((err) => {
+    console.warn(
+      "markdown: shiki highlighter failed to load; code renders plain",
+      err,
+    );
+    return null;
+  });
 }
 
 export const Markdown: Component<{
@@ -211,14 +221,7 @@ export const Markdown: Component<{
   const hasCodeFence = () => /^[ \t]{0,3}(?:```|~~~)/m.test(props.markdown);
   const [highlighter] = createResource(
     () => (isDocument() && hasCodeFence()) || undefined,
-    () =>
-      loadHighlighter().catch((err) => {
-        console.warn(
-          "markdown: shiki highlighter failed to load; code renders plain",
-          err,
-        );
-        return null;
-      }),
+    loadHighlighterOrNull,
   );
 
   const sources = createMemo(
