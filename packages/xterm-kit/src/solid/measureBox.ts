@@ -1,13 +1,3 @@
-/** Read a live terminal and its mount element into the {@link GridBox} that
- *  `./grid`'s `gridForBox` turns into cols × rows — the direct replacement for
- *  `@xterm/addon-fit`'s `proposeDimensions()`, reading the same layout facts
- *  the addon read. Why the renderer's own cell size is NOT among them is
- *  stated once, in `./grid`.
- *
- *  Its own module because it is the only place that knows WHERE each number
- *  comes from (`getComputedStyle`, an xterm option, a private measurement) —
- *  which keeps `grid.ts` arithmetic testable without a DOM. */
-
 import type { Terminal as XTerm } from "@xterm/xterm";
 import type { GridBox } from "./grid";
 import { measuredCharWidth } from "../internals";
@@ -40,12 +30,7 @@ function scrollbarWidth(term: XTerm): number {
   return scrollbar?.width ?? DEFAULT_SCROLL_BAR_WIDTH;
 }
 
-/** `style`'s `prop` as a number — `NaN` when it is not a length, which
- *  `gridForBox` refuses as "cannot be measured" (a detached element's computed
- *  style is empty). `parseFloat`, not `parseInt`: a 1.5× OS zoom gives
- *  fractional computed lengths, and truncating each one throws away up to a
- *  pixel of box per side. */
-function px(style: CSSStyleDeclaration, prop: string): number {
+function cssLengthPx(style: CSSStyleDeclaration, prop: string): number {
   return Number.parseFloat(style.getPropertyValue(prop));
 }
 
@@ -67,12 +52,14 @@ export function measureGridBox(
   const parentStyle = view.getComputedStyle(container);
   const elementStyle = view.getComputedStyle(element);
   return {
-    parentWidth: px(parentStyle, "width"),
-    parentHeight: px(parentStyle, "height"),
+    parentWidth: cssLengthPx(parentStyle, "width"),
+    parentHeight: cssLengthPx(parentStyle, "height"),
     paddingHorizontal:
-      px(elementStyle, "padding-left") + px(elementStyle, "padding-right"),
+      cssLengthPx(elementStyle, "padding-left") +
+      cssLengthPx(elementStyle, "padding-right"),
     paddingVertical:
-      px(elementStyle, "padding-top") + px(elementStyle, "padding-bottom"),
+      cssLengthPx(elementStyle, "padding-top") +
+      cssLengthPx(elementStyle, "padding-bottom"),
     scrollbarWidth: scrollbarWidth(term),
     charWidth: measuredCharWidth(term),
     letterSpacing: term.options.letterSpacing ?? 0,

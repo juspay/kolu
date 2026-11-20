@@ -3,10 +3,6 @@ import { createRoot } from "solid-js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createRenderRecovery, WATCHDOG_DELAY_MS } from "./renderRecovery";
 
-/** Minimal xterm stand-in exposing the private `_core._renderService` shape
- *  renderRecovery reaches through, plus a controllable `onRender` and the
- *  internal flags the probes read. `refreshRows` records its calls so a test
- *  can assert a forced SYNCHRONOUS repaint happened (sync === true). */
 function makeFakeTerm() {
   const renderHandlers: (() => void)[] = [];
   const refreshCalls: { start: number; end: number; sync?: boolean }[] = [];
@@ -70,8 +66,6 @@ function makeFakeTerm() {
 
 describe("renderRecovery", () => {
   beforeEach(() => {
-    // Fake timers also fake Date.now, so the watchdog's setTimeout AND the
-    // module's `now()` advance together under advanceTimersByTime.
     vi.useFakeTimers();
     vi.setSystemTime(0);
   });
@@ -85,7 +79,6 @@ describe("renderRecovery", () => {
       const r = createRenderRecovery(f.term, () => true, {
         hasFocus: () => true,
       });
-      // Baseline paint at t=0, then data arrives later with no paint after it.
       f.fireRender();
       vi.advanceTimersByTime(1000);
       r.noteData();
@@ -119,8 +112,8 @@ describe("renderRecovery", () => {
       });
       f.fireRender();
       vi.advanceTimersByTime(1000);
-      r.noteData(); // arms (focused)
-      focused = false; // window goes away before the timer fires
+      r.noteData();
+      focused = false;
       vi.advanceTimersByTime(WATCHDOG_DELAY_MS);
       expect(f.refreshCalls).toHaveLength(0);
       dispose();
@@ -134,8 +127,8 @@ describe("renderRecovery", () => {
         hasFocus: () => true,
       });
       vi.advanceTimersByTime(1000);
-      r.noteData(); // lastDataAt = 1000
-      f.fireRender(); // paint catches up: lastPaintAt = 1000
+      r.noteData();
+      f.fireRender();
       vi.advanceTimersByTime(WATCHDOG_DELAY_MS);
       expect(f.refreshCalls).toHaveLength(0);
       dispose();
@@ -148,23 +141,15 @@ describe("renderRecovery", () => {
       const r = createRenderRecovery(f.term, () => true, {
         hasFocus: () => true,
       });
-      // Chunk A arrives, arming a watchdog at t=0 (fires at t=250).
       r.noteData();
-      // A normal rAF paint catches up at t=16 — this must disarm that watchdog.
       vi.advanceTimersByTime(16);
       f.fireRender();
-      // Chunk B arrives at t=240, before the ORIGINAL t=250 deadline. With the
-      // watchdog disarmed it arms a FRESH timer (fires at t=490).
       vi.advanceTimersByTime(224);
       r.noteData();
-      // Past the original t=250 deadline. A surviving stale timer would see
-      // paintIsBehind() (chunk B unpainted) and force a repaint here — the
-      // "fights normal rendering" bug. It must not.
-      vi.advanceTimersByTime(20); // t=260
+      vi.advanceTimersByTime(20);
       expect(f.refreshCalls).toHaveLength(0);
-      // Chunk B's own normal paint lands at t=270 — still healthy, still no force.
       f.fireRender();
-      vi.advanceTimersByTime(WATCHDOG_DELAY_MS); // well past t=490
+      vi.advanceTimersByTime(WATCHDOG_DELAY_MS);
       expect(f.refreshCalls).toHaveLength(0);
       dispose();
     });
@@ -184,7 +169,7 @@ describe("renderRecovery", () => {
 
       onScreen = false;
       r.recover();
-      expect(f.refreshCalls).toHaveLength(1); // unchanged
+      expect(f.refreshCalls).toHaveLength(1);
       dispose();
     });
   });
@@ -196,14 +181,11 @@ describe("renderRecovery", () => {
         hasFocus: () => true,
       });
 
-      // ms-since-paint reads null (never painted, genuinely unknown) until the
-      // first paint, then tracks the clock.
       expect(r.probes.msSinceLastPaint()).toBeNull();
       f.fireRender();
       vi.advanceTimersByTime(500);
       expect(r.probes.msSinceLastPaint()).toBe(500);
 
-      // Parked-rAF probe reflects the live debouncer handle.
       f.setAnimationFrame(undefined);
       expect(r.probes.renderDebouncerPending()).toBe(false);
       f.setAnimationFrame(7);
@@ -220,8 +202,6 @@ describe("renderRecovery", () => {
 
   it("reports renderDebouncerPending as null (unknown), not false, when _animationFrame was renamed away", () => {
     createRoot((dispose) => {
-      // A debouncer whose `_animationFrame` key is absent models a future beta
-      // renaming the field: the probe must say "unknown" (null), never "healthy".
       const renamed = {
         rows: 24,
         onRender: () => ({ dispose() {} }),
@@ -248,7 +228,7 @@ describe("renderRecovery", () => {
       expect(r.probes.renderDebouncerPending()).toBeNull();
       expect(r.probes.isPaused()).toBeNull();
       expect(r.probes.synchronizedOutput()).toBeNull();
-      expect(() => r.recover()).not.toThrow(); // no refreshRows to call
+      expect(() => r.recover()).not.toThrow();
       dispose();
     });
   });
@@ -262,13 +242,13 @@ describe("renderRecovery", () => {
     });
     f.fireRender();
     vi.advanceTimersByTime(1000);
-    r.noteData(); // arms a watchdog
+    r.noteData();
     expect(f.renderHandlerCount()).toBe(1);
 
-    dispose(); // onCleanup: dispose onRender + disarm watchdog
+    dispose();
 
     expect(f.renderHandlerCount()).toBe(0);
     vi.advanceTimersByTime(WATCHDOG_DELAY_MS * 2);
-    expect(f.refreshCalls).toHaveLength(0); // the armed watchdog was cleared
+    expect(f.refreshCalls).toHaveLength(0);
   });
 });

@@ -8,15 +8,7 @@
  *
  *  It is a subpath of its own because the door is the thing with the ORDERING
  *  CONTRACT — bytes and the resizes between them reach the terminal in the
- *  order the daemon produced them — and a consumer that wants to hold that
- *  contract to account should not have to load a JSX component and a DOM to do
- *  it. kaval's `lockstepMirror.test.ts` is that consumer: it replays one real
- *  PTY attachment through this door and compares the resulting screen with the
- *  daemon's own mirror.
- *
- *  Still Solid-dependent (the lock's state is signals) and therefore still
- *  under `/solid`, which is what keeps it out of the runtime-neutral core
- *  barrel the daemon imports — see `../noSolidInDaemon.test.ts`. */
+ *  order the daemon produced them. */
 
 export { createOutputCoalesce } from "./outputCoalesce";
 export type { OutputCoalesce, OutputSink } from "./outputCoalesce";

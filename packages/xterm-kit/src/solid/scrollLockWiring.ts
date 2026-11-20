@@ -1,20 +1,3 @@
-/**
- * DOM-adjacent wiring for the scroll-lock latch.
- *
- * The state machine in `scrollLock.ts` is deliberately DOM-free (it never
- * touches `addEventListener`). The flip side is that something has to translate
- * raw DOM scroll inputs into intent reports — and that wiring used to be spread
- * across several independent `makeEventListener` calls in Terminal.tsx, each
- * carrying an out-of-band rule in a comment ("capture phase is load-bearing",
- * "hold from press to release", "this source string"). This module collapses
- * the wheel/pointer cluster — the bulk of those sites — into one helper so the
- * source strings and the capture/hold/release rules live in a single place.
- *
- * Kept at their call sites (interleaved with non-scroll logic): the keyboard
- * arm inside `attachCustomKeyEventHandler`, the touch arm inside the touchmove
- * bridge, and SearchBar navigation.
- */
-
 import { createEffect, createSignal } from "solid-js";
 import { makeEventListener } from "@solid-primitives/event-listener";
 
@@ -40,8 +23,6 @@ export function wireScrollIntent(
   scrollLock: ScrollIntentTarget,
 ): void {
   const [held, setHeld] = createSignal(false);
-  // Wheel input arms the latch. Passive: we only observe; xterm owns the
-  // scrolling.
   makeEventListener(
     container,
     "wheel",
@@ -49,17 +30,10 @@ export function wireScrollIntent(
     { capture: true, passive: true },
   );
 
-  // Pointer-driven scrolls that never fire `wheel`: dragging xterm's visible
-  // scrollbar (a `pointerdown` on `.xterm-scrollbar`, then a global pointermove
-  // monitor) and selection auto-scroll (a primary `mousedown` on the screen,
-  // then an interval that scrolls the viewport while the button stays down).
-  // Both emit `onScroll` only while the pointer is held — well past the time
-  // window — so we HOLD intent from press to release rather than arm-and-expire.
   makeEventListener(
     container,
     "pointerdown",
     (e: PointerEvent) => {
-      // Primary button only — secondary/middle don't drag-scroll.
       if (e.button === 0) {
         scrollLock.holdUserScrollIntent("pointer");
         setHeld(true);
@@ -67,9 +41,6 @@ export function wireScrollIntent(
     },
     { capture: true, passive: true },
   );
-  // Release on the document: a scrollbar/selection drag routinely ends with the
-  // pointer outside the terminal, so a container-scoped pointerup would miss it
-  // and leave intent stuck open.
   createEffect(() => {
     if (!held()) return;
     const release = () => {

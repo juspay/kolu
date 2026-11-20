@@ -1,48 +1,33 @@
-/** The one null-guarded place for xterm's private `_core.*` shape.
- *
- *  Every reach into xterm's undocumented internals — render service,
- *  buffer service, DEC private modes — lives here, behind accessors that
- *  return null (or a null-shaped result) when the shape isn't what we
- *  expect. This is the volatility axis for that shape: when the pinned
- *  `@xterm/xterm` beta bumps and renames a `_core` field, editing stays
- *  confined to three modules — this one (whose consumers degrade to a no-op /
- *  "unknown" probe instead of crashing) and TWO fail-loud siblings that reach
- *  the same `_core.buffers.normal.lines` path with the OPPOSITE failure
- *  semantics (see below): `scrollbackBackfill.ts`'s `coreOf` and
- *  `mirrorAnchor.ts`'s `normalLinesOf` (the daemon-safe one). A
- *  `_core.buffers.normal` path rename touches all THREE in tandem — this
- *  module fail-soft, `scrollbackBackfill.ts` + `mirrorAnchor.ts` fail-loud.
- *
- *  Consumers:
- *   - `renderRecovery.ts` uses `renderService`/`readDecPrivateMode` for its
- *     forced sync repaint + render-pipeline probes.
- *   - `Terminal.tsx` uses `readBufferBytes` for the Diagnostic dialog's
- *     per-terminal byte counts.
- *   - `measureBox.ts` uses `measuredCharWidth` for the column arithmetic that
- *     replaced `@xterm/addon-fit` — the one metric both renderers start from.
- *   - `scrollbackBackfill.ts` is a SECOND, deliberately FAIL-LOUD `_core`
- *     reach (its `coreOf` THROWS rather than degrading to null, because a
- *     partial prepend corrupts the buffer). It pins its own
- *     `_core.buffers.normal.lines` / `_bufferService._onScroll.fire` shape
- *     with the inverted semantics of this module.
- *   - `mirrorAnchor.ts` is a THIRD, also FAIL-LOUD `_core` reach — the
- *     daemon-safe one (its `normalLinesOf` THROWS on a missing
- *     `_core.buffers.normal.lines` shape, because a poisoned eviction origin
- *     corrupts absolute scrollback coordinates).
- *   So a `_core.buffers.normal` path rename must update all THREE in tandem —
- *   `scrollbackBackfill.ts` and `mirrorAnchor.ts` alongside this one. */
-
 import type { Terminal as XTerm } from "@xterm/xterm";
 
-/** Unchecked cast onto xterm's private `_core`. The shape is described
- *  structurally at each call site below; the guards there are what keep us
- *  safe, since this cast asserts nothing. */
-function core<T>(term: XTerm): T | undefined {
-  return (term as unknown as { _core?: T })._core;
+type BufferLines = {
+  length: number;
+  get(i: number): { _data?: Uint32Array } | undefined;
+};
+
+interface CoreInternals {
+  _renderService?: RenderInternals;
+  _charSizeService?: { width?: unknown };
+  _writeBuffer?: {
+    _writeBuffer?: unknown[];
+    _callbacks?: unknown[];
+    _pendingData?: number;
+    _bufferOffset?: number;
+  };
+  _coreService?: { decPrivateModes?: Record<string, unknown> };
+  _bufferService?: {
+    buffers?: {
+      normal?: { lines?: BufferLines };
+      alt?: { lines?: BufferLines };
+    };
+  };
+  _mouseCoordsService?: MouseCoordsShape;
 }
 
-/** xterm's private render internals we reach through. Every field optional —
- *  the cast is unchecked, so the guards in the accessors are what keep us safe. */
+function core(term: XTerm): CoreInternals | undefined {
+  return (term as unknown as { _core?: CoreInternals })._core;
+}
+
 export interface RenderInternals {
   refreshRows?: (start: number, end: number, sync?: boolean) => void;
   /** Drop what the renderer believes is on screen. `@xterm/addon-fit` called
@@ -59,7 +44,7 @@ export interface RenderInternals {
 
 /** xterm's `_core._renderService`, or null if its shape changed under us. */
 export function renderService(term: XTerm): RenderInternals | null {
-  const rs = core<{ _renderService?: RenderInternals }>(term)?._renderService;
+  const rs = core(term)?._renderService;
   return rs ?? null;
 }
 
@@ -103,8 +88,7 @@ export function resizeTerminal(term: XTerm, cols: number, rows: number): void {
  *  before the first measure it legitimately reads 0 (the caller treats that as
  *  "not measurable yet"). */
 export function measuredCharWidth(term: XTerm): number {
-  const width = core<{ _charSizeService?: { width?: unknown } }>(term)
-    ?._charSizeService?.width;
+  const width = core(term)?._charSizeService?.width;
   if (typeof width !== "number") {
     throw new Error(
       "measuredCharWidth: xterm CharSizeService private shape missing or incomplete; cannot size the terminal grid",
@@ -122,14 +106,7 @@ export function measuredCharWidth(term: XTerm): number {
  *  **Fail-loud** (unlike diagnostic probes): a private-shape mismatch would
  *  silently re-open the contamination bug, so this throws rather than no-op. */
 export function clearWriteQueue(term: XTerm): void {
-  const wb = core<{
-    _writeBuffer?: {
-      _writeBuffer?: unknown[];
-      _callbacks?: unknown[];
-      _pendingData?: number;
-      _bufferOffset?: number;
-    };
-  }>(term)?._writeBuffer;
+  const wb = core(term)?._writeBuffer;
   if (
     !wb ||
     !Array.isArray(wb._writeBuffer) ||
@@ -153,9 +130,7 @@ export function readDecPrivateMode(
   term: XTerm,
   field: "synchronizedOutput",
 ): boolean | null {
-  const modes = core<{
-    _coreService?: { decPrivateModes?: Record<string, unknown> };
-  }>(term)?._coreService?.decPrivateModes;
+  const modes = core(term)?._coreService?.decPrivateModes;
   if (!modes || !(field in modes)) return null;
   return modes[field] === true;
 }
@@ -170,30 +145,10 @@ export function readDecPrivateMode(
 export function readBufferBytes(
   term: XTerm,
 ): { primary: number; alternate: number } | null {
-  const bufSvc = core<{
-    _bufferService?: {
-      buffers?: {
-        normal?: {
-          lines?: {
-            length: number;
-            get(i: number): { _data?: Uint32Array } | undefined;
-          };
-        };
-        alt?: {
-          lines?: {
-            length: number;
-            get(i: number): { _data?: Uint32Array } | undefined;
-          };
-        };
-      };
-    };
-  }>(term)?._bufferService;
+  const bufSvc = core(term)?._bufferService;
   if (!bufSvc?.buffers) return null;
 
-  function sum(lines: {
-    length: number;
-    get(i: number): { _data?: Uint32Array } | undefined;
-  }) {
+  function sum(lines: BufferLines) {
     let total = 0;
     for (let i = 0; i < lines.length; i++) {
       const data = lines.get(i)?._data;
@@ -208,18 +163,14 @@ export function readBufferBytes(
   return { primary: sum(primary), alternate: sum(alternate) };
 }
 
-/** An effective scale within this band of 1 takes the cheap no-op path in
- *  `unscaleEventPoint`, keeping the common untransformed case (non-canvas /
- *  zoom-1) a strict identity. Not correctness-critical: scale is measured as
- *  `rect.width / offsetWidth`, and because `offsetWidth` is integer-rounded
- *  while `.xterm-screen`'s width is fractional (`css.canvas.width`), the
- *  measured scale sits slightly off 1 even at true zoom 1 — by up to
- *  `0.5 / offsetWidth`, which exceeds this band only for sub-500px terminals.
- *  When it does, the applied correction is still bounded to ≈0.5px at the far
- *  edge (the scale deviation cancels against the offset) — sub-cell, well
- *  inside xterm's half-cell selection tolerance. So a missed band is harmless;
- *  the band just avoids pointless math when clearly untransformed. */
-const TRANSFORM_EPSILON = 1e-3;
+const NEAR_IDENTITY_BAND = 1e-3;
+
+function isNearIdentityScale(scaleX: number, scaleY: number): boolean {
+  return (
+    Math.abs(scaleX - 1) < NEAR_IDENTITY_BAND &&
+    Math.abs(scaleY - 1) < NEAR_IDENTITY_BAND
+  );
+}
 
 /** Map a viewport pixel `(clientX, clientY)` into `element`'s *pre-transform*
  *  coordinate space, given the element's transform-inclusive bounding `rect`
@@ -261,18 +212,11 @@ export function unscaleEventPoint(
   layoutWidth: number,
   layoutHeight: number,
 ): { clientX: number; clientY: number } {
-  // Guard both ends: layoutWidth/Height === 0 prevents division by layoutWidth;
-  // rect.width/Height === 0 (element detached or zero-sized) prevents later
-  // division by scaleX/scaleY at the return site below.
   const scaleX =
     layoutWidth > 0 && rect.width > 0 ? rect.width / layoutWidth : 1;
   const scaleY =
     layoutHeight > 0 && rect.height > 0 ? rect.height / layoutHeight : 1;
-  const nearIdentity =
-    Math.abs(scaleX - 1) < TRANSFORM_EPSILON &&
-    Math.abs(scaleY - 1) < TRANSFORM_EPSILON;
-  // Common untransformed case (split / sub-panel, zoom 1): skip the math.
-  if (nearIdentity) return { clientX, clientY };
+  if (isNearIdentityScale(scaleX, scaleY)) return { clientX, clientY };
   return {
     clientX: rect.left + (clientX - rect.left) / scaleX,
     clientY: rect.top + (clientY - rect.top) / scaleY,
@@ -295,7 +239,6 @@ interface MouseCoordsShape {
     event: { clientX: number; clientY: number },
     element: HTMLElement,
   ): { col: number; row: number; x: number; y: number } | undefined;
-  /** Set once we've wrapped this instance so a re-entrant call is a no-op. */
   __koluTransformPatched?: boolean;
 }
 
@@ -339,9 +282,7 @@ interface MouseCoordsShape {
  *  zoom-offset, behavior) instead of throwing. Call once after `term.open()` —
  *  that is when `_core._mouseCoordsService` is constructed. */
 export function patchTransformAwareMouseCoords(term: XTerm): void {
-  const svc = core<{ _mouseCoordsService?: MouseCoordsShape }>(
-    term,
-  )?._mouseCoordsService;
+  const svc = core(term)?._mouseCoordsService;
   if (!svc || svc.__koluTransformPatched) return;
   const getCoords = svc.getCoords;
   const getMouseReportCoords = svc.getMouseReportCoords;
@@ -406,9 +347,7 @@ export function cellAtPoint(
   clientX: number,
   clientY: number,
 ): { col: number; row: number } | null {
-  const svc = core<{ _mouseCoordsService?: MouseCoordsShape }>(
-    term,
-  )?._mouseCoordsService;
+  const svc = core(term)?._mouseCoordsService;
   const screen = term.element?.querySelector<HTMLElement>(".xterm-screen");
   if (!svc || typeof svc.getCoords !== "function" || !screen) return null;
   const coords = svc.getCoords(

@@ -1,38 +1,3 @@
-/**
- * Scroll-lock state machine — owns viewport freeze/restore logic.
- *
- * When the user scrolls up, incoming data is buffered (not written to xterm).
- * This eliminates viewport-jumping bugs entirely — no write-then-restore race,
- * no timing issues with isRestoring guards, no edge cases with escape sequences
- * that force xterm to auto-scroll. When the user scrolls back to the bottom,
- * buffered data is flushed in one shot.
- *
- * The latch is gated on USER INTENT (#1272): xterm fires `onScroll` for more
- * than wheel input — touch-bridge artifacts, alt-buffer exits re-emitting a
- * stale viewport position, smooth-scroll ticks delivered late after a tab was
- * backgrounded. Latching on those froze the terminal indefinitely, because a
- * latched lock stops feeding xterm, which starves xterm's own self-healing
- * (its next-write re-pin of a non-user-scrolled viewport) — and on the desktop
- * canvas nothing else ever resets the lock. So:
- *
- *   - An off-bottom scroll engages the lock only within a short window after
- *     a real scroll input (wheel / touch / scroll keys / search jump), which
- *     call sites report via `armUserScrollIntent`. Pointer-held gestures
- *     (scrollbar drag, selection auto-scroll) scroll for as long as the button
- *     is down, past that window, so they `holdUserScrollIntent` from press to
- *     release instead.
- *   - An off-bottom scroll with NO recent intent is suppressed: the viewport
- *     snaps back to the bottom and output keeps flowing.
- *   - Returning to the tab releases a lock that ENGAGED WHILE THE TAB WAS
- *     HIDDEN (`handleTabVisible`) — a background latch must not present as a
- *     frozen terminal. A lock the user made with the tab in front is preserved:
- *     scrolling up to read, glancing at another browser tab, and coming back
- *     keeps both the position and the buffered output.
- *
- * Every transition is recorded (with a stack) in a small ring so the
- * Diagnostic Info dialog can show what engaged a lock in the wild.
- */
-
 import type { Terminal } from "@xterm/xterm";
 import { resizeTerminal } from "../internals";
 import {
@@ -49,12 +14,8 @@ import {
  *  freeze class) can't pass as the user's. */
 export const SCROLL_INTENT_WINDOW_MS = 500;
 
-/** Bounded forensic trail — enough to see a pattern, small enough to dump
- *  into the Diagnostic Info JSON wholesale. */
 const EVENT_RING_CAP = 20;
 
-/** Don't let a misbehaving emitter turn the suppression warning into log
- *  spam — one warning per lock instance per interval. */
 const WARN_THROTTLE_MS = 5_000;
 
 /** A scroll input the user actually made, as reported by the call site that
@@ -99,8 +60,6 @@ export type PendingItem =
   | { kind: "data"; data: string; onParsed?: () => void }
   | { kind: "resize"; cols: number; rows: number };
 
-/** Current document visibility, as a small testable seam (the unit suite runs
- *  in a Node environment with no `document`). Production reads the real DOM. */
 function defaultVisibility(): string {
   return typeof document === "undefined" ? "unknown" : document.visibilityState;
 }
@@ -116,48 +75,22 @@ export function createScrollLock(
   enabled: Accessor<boolean | undefined>,
   visibility: () => string = defaultVisibility,
 ) {
-  /** Single source of truth for the lock and its origin. Non-null means
-   *  locked; `hiddenAtEngage` carries whether the lock was created while the
-   *  document was hidden (the signature `handleTabVisible` clears). Clearing
-   *  the lock is one assignment (`setLockState(null)`) that necessarily drops
-   *  the hidden-origin with it — no parallel flag to reset in lockstep. */
   const [lockState, setLockState] = createSignal<{
     source: ScrollIntentSource;
     hiddenAtEngage: boolean;
   } | null>(null);
   const isLocked = () => lockState() !== null;
 
-  /** What the lock is holding back, IN ORDER — flushed on unlock.
-   *
-   *  Two kinds of item, because two kinds of thing travel the write door and
-   *  the ORDER between them is load-bearing. A `data` entry keeps its own
-   *  `onParsed` write callback: a chunk's callback fires only when its bytes
-   *  reach xterm's buffer, and a snapshot frame's backfill re-seed rides one
-   *  (Terminal.tsx). A `resize` entry is the pty telling us its mirror changed
-   *  size at that exact point in the byte stream — held here so it cannot
-   *  overtake bytes the user's scroll-up is keeping unparsed, which would
-   *  reflow a screen those bytes were not written for.
-   *
-   *  The reactive source for the buffer; `pendingChunks` counts the DATA items
-   *  only — it means "output you have not seen", and a resize is not output. */
   const [pending, setPending] = createSignal<PendingItem[]>([]);
   const pendingChunks = () =>
     pending().reduce((n, item) => (item.kind === "data" ? n + 1 : n), 0);
   const hasNewOutput = () => pendingChunks() > 0;
 
-  /** Terminal reference, set on attach. */
   let termRef: Terminal | null = null;
 
   let intentAt = Number.NEGATIVE_INFINITY;
   let intentSource: ScrollIntentSource | null = null;
-  /** While a pointer (or other discrete gesture) is held, intent stays armed
-   *  regardless of the time window — selection auto-scroll and scrollbar
-   *  dragging emit `onScroll` ticks for as long as the button is down, well
-   *  past `SCROLL_INTENT_WINDOW_MS` after the initial press. */
   let heldSource: ScrollIntentSource | null = null;
-  /** Reactive source of truth for the transition history. `lastEvent` (live
-   *  row) and `events()` (JSON dump) are both derived from it — one ring, two
-   *  read patterns, no hand-synced head signal. */
   const [eventRing, setEventRing] = createSignal<ScrollLockEvent[]>([]);
   let lastWarnAt = Number.NEGATIVE_INFINITY;
 
@@ -226,23 +159,6 @@ export function createScrollLock(
     }
   }
 
-  /** Replay everything the lock is holding, IN ORDER.
-   *
-   *  Consecutive data items are joined and written in ONE shot — that is the
-   *  whole reason the buffer exists — but a held resize CUTS the run: the bytes
-   *  before it are written, then the terminal is resized, then the run after it
-   *  starts. `resizeTerminal` flush-parses the queued write at the OLD grid
-   *  before reflowing, so the cut needs no await and no scheduling: the bytes
-   *  land at the width they were written for and the next run lands at the new
-   *  one. Collapsing the resizes to "apply them all at the end" would be the
-   *  original defect in miniature — a screen reflowed under bytes laid out for
-   *  a size it no longer has.
-   *
-   *  Each run's `onParsed` callbacks fire once that run has PARSED — so a
-   *  backfill re-seed (or render-stall `noteData`) that rode a chunk's callback
-   *  still runs after the flush lands, instead of being dropped. A
-   *  callback-less flush is what silently lost a snapshot frame's seed under
-   *  scroll lock, leaving a stale backfill cursor against the reset buffer. */
   function flush(): void {
     const buffered = pending();
     const term = termRef;
@@ -256,8 +172,6 @@ export function createScrollLock(
       const cbs = callbacks;
       run = [];
       callbacks = [];
-      // A run of callback-only entries (an empty chunk carrying a seed) has
-      // nothing to parse, so its callbacks fire now rather than never.
       if (data.length === 0) {
         for (const cb of cbs) cb();
         return;
@@ -297,7 +211,6 @@ export function createScrollLock(
     setLockState(null);
   }
 
-  // Clear scroll lock when the setting is toggled off
   createEffect(
     on(
       enabled,
@@ -308,14 +221,6 @@ export function createScrollLock(
     ),
   );
 
-  /** Pure verdict for an off-/at-bottom scroll — the latch decision in
-   *  isolation, readable without the xterm re-entrancy workaround, the
-   *  instrumentation, or the visibility capture in scope:
-   *   - `flush-release` — back at the bottom; drop the lock and flush.
-   *   - `stay-locked`    — already locked, moving through scrollback.
-   *   - `suppress`       — off-bottom with no user input behind it (#1272).
-   *   - `engage`         — off-bottom on a real user scroll; latch.
-   */
   function classify(
     atBottom: boolean,
     locked: boolean,
@@ -326,15 +231,11 @@ export function createScrollLock(
     return source === null ? "suppress" : "engage";
   }
 
-  /** Back at the bottom (user scrolled down, or our own snap-back re-entered
-   *  here) — flush anything held and release. */
   function flushAndRelease(): void {
     if (isLocked()) flush();
     setLockState(null);
   }
 
-  /** Latch the lock on a real user scroll, capturing whether it engaged while
-   *  the tab was hidden (the signature `handleTabVisible` clears). */
   function engage(source: ScrollIntentSource, term: Terminal): void {
     recordEvent("locked", source, term);
     setLockState({ source, hiddenAtEngage: visibility() === "hidden" });
@@ -354,10 +255,6 @@ export function createScrollLock(
     });
   }
 
-  /** Off-bottom with no user input behind it — not the user's scroll. Snap
-   *  back and keep output flowing instead of freezing the terminal (#1272).
-   *  Owns the forensic record and the suppression warn-throttle (via
-   *  recordEvent); defers the snap itself to `scheduleSnapBack`. */
   function suppressAndSnap(term: Terminal): void {
     recordEvent("suppressed", null, term);
     scheduleSnapBack(term);
@@ -381,15 +278,11 @@ export function createScrollLock(
           flushAndRelease();
           return;
         case "stay-locked":
-          // The user is moving through scrollback — no new transition to
-          // record, the lock simply stays engaged.
           return;
         case "suppress":
           suppressAndSnap(term);
           return;
         case "engage":
-          // `source` is non-null on this branch by construction of `classify`;
-          // the guard narrows it for the type checker without a cast.
           if (source !== null) engage(source, term);
           return;
       }
@@ -414,10 +307,7 @@ export function createScrollLock(
    * to stream receipt; a snapshot frame passes its backfill re-seed committer.
    * When the lock BUFFERS a chunk it produces no paint yet, so `onParsed` is not
    * invoked now — it is stashed WITH the chunk and fired by `flush()` once the
-   * buffered write parses on unlock. (Firing it while buffered would arm the
-   * watchdog against unpainted data, forcing pointless sync repaints of the
-   * scrollback the user is reading; deferring it to flush both avoids that AND
-   * keeps a re-seed that rides the callback from being lost across the lock.)
+   * buffered write parses on unlock.
    */
   function writeData(
     term: Terminal,
@@ -428,9 +318,6 @@ export function createScrollLock(
       term.write(data, onParsed);
       return;
     }
-    // Stash the callback WITH the chunk (not invoked now — no paint yet); flush()
-    // fires it once the buffered write parses on unlock, so a re-seed that rides
-    // the callback survives the lock instead of being silently dropped.
     setPending((buffered) => [...buffered, { kind: "data", data, onParsed }]);
   }
 
@@ -441,16 +328,10 @@ export function createScrollLock(
    * Unlocked, that point is now. LOCKED, it is wherever the held bytes are:
    * the resize joins the queue instead of jumping it, because applying it now
    * would reflow a screen made of bytes that have not been parsed yet — and
-   * the user is reading that screen, which is why the lock is engaged. This is
-   * the hazard the old `applyFit` named and declined to fix ("a resize
-   * overtaking bytes held by scroll lock"); the resize travelling the same
-   * door as the bytes is the fix.
+   * the user is reading that screen, which is why the lock is engaged.
    *
    * It takes NO terminal, unlike `writeData` beside it: a queued resize is
-   * applied by `flush`, which resizes `termRef`, so a terminal passed in here
-   * would be the one resized while unlocked and ignored while locked — two
-   * sources for "which terminal" on the one path whose whole point is that
-   * nothing gets out of order.
+   * applied by `flush`, which resizes `termRef`.
    */
   function resizeInOrder(cols: number, rows: number): void {
     const term = termRef;
@@ -475,8 +356,7 @@ export function createScrollLock(
   /**
    * The tab just became visible again. A lock that *engaged while the tab was
    * hidden* must not greet the returning user as a frozen terminal — flush and
-   * rejoin the bottom, the same semantics the existing visible-transition
-   * effect applies when switching back to a terminal.
+   * rejoin the bottom.
    *
    * A lock the user made with the tab in front (`hiddenAtEngage === false`)
    * is left alone: scrolling up to read output, glancing at another browser

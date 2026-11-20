@@ -3,16 +3,10 @@ import { createRoot } from "solid-js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createScrollLock, SCROLL_INTENT_WINDOW_MS } from "./scrollLock";
 
-/** Minimal xterm stand-in with faithful scroll semantics: `onScroll` fires
- *  only when the viewport actually moves (xterm's BufferService early-returns
- *  otherwise), and `scrollToBottom()` is a no-op event-wise when already at
- *  the bottom (CoreBrowserTerminal gates on `ybase !== ydisp`). */
-function makeMockTerm() {
+function fakeXtermScrollSemantics() {
   const handlers: ((y: number) => void)[] = [];
   const buf = { baseY: 0, viewportY: 0, type: "normal" as const };
   const written: string[] = [];
-  /** Writes AND resizes, in the one order they reached the terminal — the only
-   *  way to tell a door that kept them in order from one that did not. */
   const trace: string[] = [];
   const grid = { cols: 80, rows: 24 };
 
@@ -40,8 +34,6 @@ function makeMockTerm() {
     write(d: string, cb?: () => void) {
       written.push(d);
       trace.push(`w:${d}`);
-      // Real xterm fires this once the chunk parses; synchronous here is enough
-      // to prove a buffered chunk's callback survives the flush.
       cb?.();
     },
     resize(cols: number, rows: number) {
@@ -62,15 +54,11 @@ function makeMockTerm() {
     written,
     trace,
     grid: () => ({ cols: grid.cols, rows: grid.rows }),
-    /** New PTY lines land while the viewport is pinned to the bottom —
-     *  baseY and viewportY advance together, firing onScroll. */
     emitOutputAtBottom(lines: number) {
       buf.baseY += lines;
       buf.viewportY = buf.baseY;
       fire();
     },
-    /** The viewport moves up `lines` rows (wheel, touch bridge, alt-buffer
-     *  exit, smooth-scroll tick — the emitter is whatever the test says). */
     scrollUp(lines: number) {
       buf.viewportY = Math.max(0, buf.viewportY - lines);
       fire();
@@ -78,11 +66,8 @@ function makeMockTerm() {
   };
 }
 
-/** Build a lock attached to a fresh mock terminal inside a Solid root. The
- *  Node test environment has no `document`, so visibility is injected and
- *  mutable via the returned `setVisibility`. */
 function setup(enabled: () => boolean | undefined = () => true) {
-  const mock = makeMockTerm();
+  const mock = fakeXtermScrollSemantics();
   let visibility = "visible";
   let lock!: ReturnType<typeof createScrollLock>;
   const dispose = createRoot((d) => {
@@ -90,7 +75,6 @@ function setup(enabled: () => boolean | undefined = () => true) {
     lock.attachToTerminal(mock.term);
     return d;
   });
-  // Give the buffer some scrollback to scroll into.
   mock.emitOutputAtBottom(100);
   return {
     ...mock,
@@ -116,8 +100,6 @@ describe("createScrollLock — user-intent latch (#1272)", () => {
     t.scrollUp(10);
     expect(t.lock.isLocked()).toBe(false);
     expect(t.lock.lastEvent()?.kind).toBe("suppressed");
-    // The snap-back is deferred out of xterm's scroll dispatch (the
-    // Viewport drops re-entrant scrolls) — one microtask later it lands.
     await Promise.resolve();
     expect(t.buf.viewportY).toBe(t.buf.baseY);
     t.dispose();
@@ -157,8 +139,8 @@ describe("createScrollLock — user-intent latch (#1272)", () => {
     t.lock.writeData(t.term, "a");
     t.lock.writeData(t.term, "b");
 
-    t.buf.viewportY = t.buf.baseY; // user scrolled back down
-    t.scrollUp(0); // fire at-bottom onScroll
+    t.buf.viewportY = t.buf.baseY;
+    t.scrollUp(0);
     expect(t.lock.isLocked()).toBe(false);
     expect(t.written).toEqual(["ab"]);
     expect(t.lock.pendingChunks()).toBe(0);
@@ -170,19 +152,16 @@ describe("createScrollLock — user-intent latch (#1272)", () => {
     t.lock.armUserScrollIntent("wheel");
     t.scrollUp(10);
     let seeded = false;
-    // A snapshot frame's backfill re-seed rides the write callback. Buffered
-    // while scroll-locked, it must still fire when the flush lands on unlock —
-    // the old callback-less flush dropped it, stranding a stale backfill cursor.
     t.lock.writeData(t.term, "SNAPSHOT", () => {
       seeded = true;
     });
-    expect(seeded).toBe(false); // buffered, not parsed yet
+    expect(seeded).toBe(false);
     expect(t.written).toEqual([]);
 
-    t.buf.viewportY = t.buf.baseY; // user returns to the bottom → flush
+    t.buf.viewportY = t.buf.baseY;
     t.scrollUp(0);
     expect(t.written).toEqual(["SNAPSHOT"]);
-    expect(seeded).toBe(true); // the seed committer fired on flush, not lost
+    expect(seeded).toBe(true);
     t.dispose();
   });
 
@@ -202,10 +181,10 @@ describe("createScrollLock — user-intent latch (#1272)", () => {
     const t = setup();
     t.lock.armUserScrollIntent("wheel");
     t.scrollUp(10);
-    vi.setSystemTime(60_000); // intent long expired
-    t.scrollUp(5); // user paging further up through scrollback
+    vi.setSystemTime(60_000);
+    t.scrollUp(5);
     expect(t.lock.isLocked()).toBe(true);
-    expect(t.lock.lastEvent()?.kind).toBe("locked"); // no new event recorded
+    expect(t.lock.lastEvent()?.kind).toBe("locked");
     t.dispose();
   });
 
@@ -223,11 +202,8 @@ describe("createScrollLock — user-intent latch (#1272)", () => {
 
 describe("createScrollLock — held pointer intent (#1272)", () => {
   it("stays armed past the time window while a pointer is held", () => {
-    // Scrollbar drag / selection auto-scroll emit onScroll ticks for as long
-    // as the button is down — long past SCROLL_INTENT_WINDOW_MS after press.
     const t = setup();
     t.lock.holdUserScrollIntent("pointer");
-    // First tick well after the window would have expired.
     vi.setSystemTime(10_000 + SCROLL_INTENT_WINDOW_MS + 1000);
     t.scrollUp(5);
     expect(t.lock.isLocked()).toBe(true);
@@ -249,15 +225,10 @@ describe("createScrollLock — held pointer intent (#1272)", () => {
   });
 
   it("leaves no intent tail once the pointer is released", async () => {
-    // A held gesture emits its onScroll ticks WHILE the button is down (xterm
-    // scrolls on pointermove / the selection interval), never after pointerup
-    // — so release must clear intent completely. A lingering tail would let a
-    // plain click (which scrolls nothing) latch a spurious scroll landing just
-    // after it — the #1272 freeze this gating prevents.
     const t = setup();
     t.lock.holdUserScrollIntent("pointer");
     t.lock.releaseUserScrollIntent();
-    t.scrollUp(10); // unarmed scroll right after release
+    t.scrollUp(10);
     expect(t.lock.isLocked()).toBe(false);
     expect(t.lock.lastEvent()?.kind).toBe("suppressed");
     await Promise.resolve();
@@ -269,8 +240,6 @@ describe("createScrollLock — held pointer intent (#1272)", () => {
 describe("createScrollLock — tab-return unlatch (#1272)", () => {
   it("flushes and rejoins the bottom when a lock engaged while hidden returns", () => {
     const t = setup();
-    // Latch while the tab is in the background — the accidental/background
-    // class that must not present as a frozen terminal on return.
     t.setVisibility("hidden");
     t.lock.armUserScrollIntent("wheel");
     t.scrollUp(10);
@@ -286,19 +255,17 @@ describe("createScrollLock — tab-return unlatch (#1272)", () => {
   });
 
   it("preserves a lock the user made with the tab in front", () => {
-    // Scroll up to read output (visible), glance at another browser tab, come
-    // back — the position and buffered output must survive (#1272).
     const t = setup();
     t.lock.armUserScrollIntent("wheel");
-    t.scrollUp(10); // visibility defaults to "visible"
+    t.scrollUp(10);
     t.lock.writeData(t.term, "held");
     expect(t.lock.isLocked()).toBe(true);
 
     t.lock.handleTabVisible();
     expect(t.lock.isLocked()).toBe(true);
-    expect(t.written).toEqual([]); // not flushed
+    expect(t.written).toEqual([]);
     expect(t.lock.pendingChunks()).toBe(1);
-    expect(t.buf.viewportY).toBe(t.buf.baseY - 10); // position kept
+    expect(t.buf.viewportY).toBe(t.buf.baseY - 10);
     t.dispose();
   });
 
@@ -332,7 +299,7 @@ describe("createScrollLock — instrumentation (#1272)", () => {
   it("keeps a bounded ring of events", () => {
     const t = setup();
     for (let i = 0; i < 30; i++) {
-      t.scrollUp(10); // suppressed (no intent) → snaps back, records one event
+      t.scrollUp(10);
     }
     expect(t.lock.events().length).toBeLessThanOrEqual(20);
     expect(t.lock.events().every((e) => e.kind === "suppressed")).toBe(true);
@@ -345,8 +312,6 @@ describe("createScrollLock — existing semantics preserved", () => {
     const t = setup(() => false);
     t.scrollUp(10);
     expect(t.lock.isLocked()).toBe(false);
-    // Disabled means hands-off: no snap-back either — xterm's native
-    // behavior owns the viewport.
     expect(t.buf.viewportY).toBe(t.buf.baseY - 10);
     t.lock.writeData(t.term, "x");
     expect(t.written).toContain("x");
@@ -377,11 +342,6 @@ describe("createScrollLock — existing semantics preserved", () => {
   });
 });
 
-// The pty tells a viewer its mirror resized at a point BETWEEN two bytes, and
-// the viewer's screen only matches the mirror's if it resizes at that same
-// point. An engaged scroll lock is where that is easiest to get wrong: the
-// bytes are being held, so a resize applied when it arrives reflows a screen
-// made of output that has not been parsed yet.
 describe("createScrollLock — a resize keeps its place in the stream", () => {
   it("applies a resize immediately when the lock is not engaged", () => {
     const t = setup();
@@ -402,15 +362,11 @@ describe("createScrollLock — a resize keeps its place in the stream", () => {
     t.lock.writeData(t.term, "before");
     t.lock.resizeInOrder(100, 40);
     t.lock.writeData(t.term, "after");
-    // Nothing has reached the terminal: the resize is held with the bytes, not
-    // around them. Applying it now would reflow the screen the user is reading
-    // under output it has not seen.
     expect(t.trace).toEqual([]);
     expect(t.grid()).toEqual({ cols: 80, rows: 24 });
-    // Only the BYTES count as output the user has not seen.
     expect(t.lock.pendingChunks()).toBe(2);
 
-    t.buf.viewportY = t.buf.baseY; // user returns to the bottom → flush
+    t.buf.viewportY = t.buf.baseY;
     t.lock.handleTabVisible();
     t.lock.reset();
     expect(t.trace).toEqual(["w:before", "r:100x40", "w:after"]);
@@ -429,8 +385,6 @@ describe("createScrollLock — a resize keeps its place in the stream", () => {
     t.lock.resizeInOrder(70, 20);
     t.lock.writeData(t.term, "c");
     t.lock.reset();
-    // Collapsing them — "apply the last one at the end" — would parse `b` at a
-    // width it was never written for.
     expect(t.trace).toEqual(["w:a", "r:90x30", "w:b", "r:70x20", "w:c"]);
     t.dispose();
   });
@@ -444,8 +398,6 @@ describe("createScrollLock — a resize keeps its place in the stream", () => {
     t.lock.writeData(t.term, "snapshot", () => order.push("parsed"));
     t.lock.resizeInOrder(100, 40);
     t.lock.reset();
-    // The seed a snapshot's callback commits describes the buffer those bytes
-    // landed in — which is the buffer BEFORE the resize that followed them.
     expect(order).toEqual(["parsed"]);
     expect(t.trace).toEqual(["w:snapshot", "r:100x40"]);
     t.dispose();
@@ -458,8 +410,6 @@ describe("createScrollLock — a resize keeps its place in the stream", () => {
 
     t.lock.writeData(t.term, "stale");
     t.lock.resizeInOrder(100, 40);
-    // A fresh snapshot replaces the screen AND states its own grid, so a resize
-    // held for the screen it replaces describes nothing.
     t.lock.dropPending();
     t.lock.reset();
     expect(t.trace).toEqual([]);

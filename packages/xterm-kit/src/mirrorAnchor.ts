@@ -1,21 +1,3 @@
-/** Mirror anchoring — absolute mirror-line coordinates over a long-lived xterm
- *  mirror, stable across scrollback eviction and a RIS (`ESC c`) buffer swap.
- *
- *  Lifted verbatim from kaval's `ptyHost` `Entry` bookkeeping (behavior-identical
- *  by construction): the `mirrorBaseLine` eviction origin + its `onTrim` pin, the
- *  RIS identity re-anchor, and the `reflowEpoch` bump. Runtime-neutral — it reads
- *  only xterm privates through the fail-loud {@link normalLinesOf} door and takes
- *  the mirror as a parameter, so a Node daemon (kaval) consumes it with no
- *  solid-js and no browser assumptions. The client's backfill controller relies
- *  on the same absolute-line discipline on the browser side.
- *
- *  FAIL LOUD, deliberately: the reach here mutates absolute coordinates, so a
- *  silently-missing `onTrim`/`length` (which would freeze the origin or poison it
- *  with `NaN` while the buffer renumbers underneath) THROWS, caught by the
- *  contract-pin tests (`xtermMirrorContract.test.ts` headless, and the client's
- *  `scrollbackBackfill.test.ts` browser twin) as red CI, never as user-visible
- *  scrollback corruption. */
-
 /** The one reach into an xterm mirror's privates the anchor needs: the normal
  *  buffer's line `CircularList` — the reach the eviction pin and the RIS-reset
  *  detector share. `length` is the current row count (read to advance the origin
@@ -29,12 +11,6 @@ interface NormalLinesRef {
   onTrim(l: (n: number) => void): { dispose(): void };
 }
 
-/** Reach the normal buffer's line list, or THROW — a missing shape is a broken
- *  internals contract, never a silent degrade (the pin/base arithmetic is unsafe
- *  without it). Both pinned members are validated: `onTrim` must be callable, and
- *  `length` a nonnegative integer — the RIS re-anchor does `baseLine +=
- *  lines.length`, so a missing/garbage `length` must fail loud here, not silently
- *  poison the absolute cursor with `NaN`. */
 function normalLinesOf(term: object): NormalLinesRef {
   const lines = (
     term as {
@@ -108,9 +84,6 @@ export function createMirrorAnchor(term: object): MirrorAnchor {
   let baseLine = 0;
   let reflowEpoch = 0;
   let normalLines = normalLinesOf(term);
-  // Track eviction: each time scrollback overflows and the oldest rows fall off,
-  // advance the origin by the count trimmed. Re-used verbatim when a RIS reset
-  // swaps the line list (below).
   const trimHandler = (evicted: number): void => {
     baseLine += evicted;
   };

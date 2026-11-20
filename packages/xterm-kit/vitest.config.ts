@@ -25,10 +25,6 @@ export default defineConfig({
   },
   test: {
     include: ["src/**/*.test.ts"],
-    // The kit drives real `@xterm/xterm` and `@xterm/headless` terminals plus
-    // SolidJS `/solid` primitives, so it needs a DOM (xterm reads `window`,
-    // `@solid-primitives/media` reads `matchMedia` at module load) and the
-    // browser `solid-js/web` build (`isServer === false`).
     environment: "happy-dom",
     server: { deps: { inline: [/solid-js/] } },
   },

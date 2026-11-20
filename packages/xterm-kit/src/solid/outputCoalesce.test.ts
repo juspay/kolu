@@ -5,10 +5,6 @@ import {
   UNFOCUSED_COALESCE_MS,
 } from "./outputCoalesce";
 
-/** A sink that records what reached it AND in what order. The order is the
- *  point for resizes — a resize means "the pty's mirror moved between these two
- *  bytes", so a trace that only said "one write, one resize" could not tell a
- *  correct door from a broken one. */
 function recordingSink(opts: { fireParsed?: boolean } = {}): {
   sink: OutputSink;
   trace: string[];
@@ -29,8 +25,6 @@ function recordingSink(opts: { fireParsed?: boolean } = {}): {
   return { sink, trace, parsedArgs };
 }
 
-/** The written payloads only, for the tests that predate resizes and care
- *  about nothing else. */
 function writesIn(trace: readonly string[]): string[] {
   return trace
     .filter((entry) => entry.startsWith("w:"))
@@ -78,7 +72,6 @@ describe("createOutputCoalesce", () => {
     expect(writesIn(trace)).toEqual([]);
     expect(c.pendingBytes()).toBe("hello world".length);
     expect(timers.size).toBe(1);
-    // Fire the one scheduled flush.
     const first = timers.values().next();
     expect(first.done).toBe(false);
     if (first.done || first.value === undefined) {
@@ -109,16 +102,11 @@ describe("createOutputCoalesce", () => {
     expect(writesIn(trace)).toEqual([]);
     fullRate = true;
     c.write("live");
-    // Pending flushed first, then the live chunk.
     expect(writesIn(trace)).toEqual(["pending", "live"]);
     expect(c.pendingBytes()).toBe(0);
     expect(timers.size).toBe(0);
   });
 
-  // The ordering property the resize door exists for. A resize that reached the
-  // sink before the bytes it followed would reflow the screen under output laid
-  // out for the size it just left — the whole defect, re-created inside one
-  // pane.
   it("walks buffered bytes out before a resize, and buffers again after it", () => {
     const { sink, trace } = recordingSink();
     const c = createOutputCoalesce(() => false, sink, {
@@ -130,7 +118,6 @@ describe("createOutputCoalesce", () => {
     c.resize(100, 40);
     expect(trace).toEqual(["w:before", "r:100x40"]);
     c.write("after");
-    // Back to buffering: the resize flushed, it did not switch the door open.
     expect(trace).toEqual(["w:before", "r:100x40"]);
     c.flush();
     expect(trace).toEqual(["w:before", "r:100x40", "w:after"]);
@@ -218,7 +205,7 @@ describe("createOutputCoalesce", () => {
       schedule: () => 1,
       cancel: vi.fn(),
     });
-    c.write("x"); // no onParsed
+    c.write("x");
     c.flush();
     expect(parsedArgs).toEqual([undefined]);
   });

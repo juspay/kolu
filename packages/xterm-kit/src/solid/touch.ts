@@ -1,27 +1,18 @@
-/** The mobile touch surface xterm 6.0 ships none of.
- *
- *  xterm 6.0.0 declares `IViewport.handleTouchStart/Move` types but wires
- *  nothing, and the WebGL canvas eats touch events before the `.xterm-viewport`
- *  sees them — so on a phone a tap does nothing and a swipe does nothing until
- *  the kit bridges them. Two independent gestures, two wirings:
- *
- *   - `wireTouchTaps` — tap-vs-scroll discrimination on the contenteditable
- *     `.xterm-screen`, with the iOS soft-keyboard focus rules. What a tap
- *     *means* (follow a `path:line`, else focus-to-type) is the consumer's
- *     `onTap`/`onFocus` policy.
- *   - `wireTouchScroll` — touch → scrollback bridge, arming the scroll lock.
- *
- *  Both register `makeEventListener` cleanups, so call them synchronously within
- *  a reactive owner (the `<Xterm>` component / a `createXtermLifecycle` scope). */
-
 import { makeEventListener } from "@solid-primitives/event-listener";
 import type { Terminal as XTerm } from "@xterm/xterm";
 
-/** A tap-sized pointer movement: taps summon the keyboard / follow a ref, longer
- *  drags are scrolls and do neither. Generous enough to tolerate finger jitter
- *  on a real tap but tighter than the ~1-cell-height step the scroll bridge
- *  reads as "scroll started". */
 const TAP_THRESHOLD_PX = 10;
+
+function onTouchPointer(
+  element: HTMLElement,
+  event: "pointerdown" | "pointerup" | "pointercancel",
+  handle: (e: PointerEvent) => void,
+): void {
+  makeEventListener(element, event, (e: PointerEvent) => {
+    if (e.pointerType !== "touch") return;
+    handle(e);
+  });
+}
 
 /** Route touch taps on the soft-keyboard input surface (`screen`, from
  *  `enableSoftKeyboardInput`). A tap-sized `pointerup` fires `onTap(clientX,
@@ -38,9 +29,7 @@ const TAP_THRESHOLD_PX = 10;
 export function wireTouchTaps(
   screen: HTMLElement,
   handlers: {
-    /** Resolve what the tap hit; return true if it was consumed (no focus). */
     onTap: (clientX: number, clientY: number) => boolean;
-    /** A plain-content tap — focus to type (summons the soft keyboard). */
     onFocus: () => void;
   },
 ): void {
@@ -49,13 +38,7 @@ export function wireTouchTaps(
     startX: number;
     startY: number;
   } | null = null;
-  makeEventListener(screen, "pointerdown", (e: PointerEvent) => {
-    // TOUCH pointers only. This surface is wired on any coarse pointer, which
-    // now includes the coarse+hover DESKTOP class (a touchscreen laptop) — where
-    // a real mouse/pen also fires pointer events. `preventDefault`ing those (and
-    // reading their pointerup as a tap) would break xterm's own mouse selection,
-    // focus, and link handling. Leave non-touch pointers to xterm untouched.
-    if (e.pointerType !== "touch") return;
+  onTouchPointer(screen, "pointerdown", (e) => {
     e.preventDefault();
     activeTap = {
       pointerId: e.pointerId,
@@ -63,21 +46,16 @@ export function wireTouchTaps(
       startY: e.clientY,
     };
   });
-  makeEventListener(screen, "pointerup", (e: PointerEvent) => {
-    if (e.pointerType !== "touch") return;
+  onTouchPointer(screen, "pointerup", (e) => {
     if (activeTap === null || e.pointerId !== activeTap.pointerId) return;
     const { startX, startY } = activeTap;
     activeTap = null;
     if (Math.hypot(e.clientX - startX, e.clientY - startY) > TAP_THRESHOLD_PX)
       return;
-    // A tap on a `path:line` reference follows the link (xterm's own link
-    // activation is mouse/hover-only and never fires for touch); a tap on plain
-    // content focuses to type. Only the latter summons the soft keyboard.
     if (handlers.onTap(e.clientX, e.clientY)) return;
     handlers.onFocus();
   });
-  makeEventListener(screen, "pointercancel", (e: PointerEvent) => {
-    if (e.pointerType !== "touch") return;
+  onTouchPointer(screen, "pointercancel", (e) => {
     if (activeTap?.pointerId === e.pointerId) activeTap = null;
   });
 }
@@ -120,16 +98,11 @@ export function wireTouchScroll(
     ) as HTMLElement | null;
     if (!screen) return;
     const cellHeight = screen.clientHeight / term.rows;
-    // Number.isFinite catches NaN (0/0 if rows is transiently 0) which a bare
-    // `<= 0` check would miss — NaN poisons the anchor.
     if (!Number.isFinite(cellHeight) || cellHeight <= 0) return;
     const first = e.touches[0];
     if (first === undefined) return;
     const lines = Math.trunc((first.clientY - anchorY) / cellHeight);
     if (lines === 0) return;
-    // Down-swipe (positive delta) shows earlier scrollback → scrollLines(-N).
-    // Arm intent FIRST: scrollLines fires onScroll synchronously, and the
-    // scroll-lock latch only engages for user-made scrolls (#1272).
     scrollLock.armUserScrollIntent("touch");
     term.scrollLines(-lines);
     anchorY += lines * cellHeight;

@@ -1,15 +1,3 @@
-/** Geometry tests for `unscaleEventPoint` — the inverse-transform that makes
- *  xterm's mouse hit-testing land on the right cell when a canvas tile is
- *  zoomed (#1400). The end-to-end behavior is pinned by
- *  `packages/tests/features/canvas-selection.feature`; these pin the math.
- *
- *  The correction must be a STRICT identity for untransformed terminals
- *  (split / sub-panels, zoom = 1) and for pure pans (translate, scale 1), since
- *  those paths render xterm with no scale and selection already works — a
- *  non-identity there would regress the common case. Under a `scale(zoom)`
- *  ancestor it must invert the scale about the element's border-box top-left
- *  (the fixed point xterm subtracts via `getBoundingClientRect().left`). */
-
 import type { ITerminalOptions, Terminal as XTerm } from "@xterm/xterm";
 import { describe, expect, it } from "vitest";
 import {
@@ -37,9 +25,6 @@ describe("unscaleEventPoint", () => {
   });
 
   it("is the identity for a pure translate (rect moved, size unchanged)", () => {
-    // Pan at zoom 1: getBoundingClientRect().left/top shift but width/height
-    // still equal the layout size, so scale is 1 and the point is untouched —
-    // xterm already absorbs the translate via rect.left/top.
     const r = rect(420, -30, 800, 600);
     expect(unscaleEventPoint(500, 100, r, 800, 600)).toEqual({
       clientX: 500,
@@ -48,12 +33,10 @@ describe("unscaleEventPoint", () => {
   });
 
   it("inverse-maps a uniform 2x zoom back to logical pixels", () => {
-    // Layout 400x300 rendered at scale 2 → rect 800x600. A point 200 screen-px
-    // right of the element's left edge is 100 logical-px in.
     const r = rect(100, 50, 800, 600);
     const out = unscaleEventPoint(100 + 200, 50 + 120, r, 400, 300);
-    expect(out.clientX).toBeCloseTo(200, 9); // 100 + 200/2
-    expect(out.clientY).toBeCloseTo(110, 9); // 50 + 120/2
+    expect(out.clientX).toBeCloseTo(200, 9);
+    expect(out.clientY).toBeCloseTo(110, 9);
   });
 
   it("keeps the element's top-left a fixed point under zoom", () => {
@@ -65,10 +48,10 @@ describe("unscaleEventPoint", () => {
   });
 
   it("handles non-uniform scale independently per axis", () => {
-    const r = rect(0, 0, 600, 300); // 3x wide, 1.5x tall vs layout 200x200
+    const r = rect(0, 0, 600, 300);
     const out = unscaleEventPoint(300, 150, r, 200, 200);
-    expect(out.clientX).toBeCloseTo(100, 9); // 300 / 3
-    expect(out.clientY).toBeCloseTo(100, 9); // 150 / 1.5
+    expect(out.clientX).toBeCloseTo(100, 9);
+    expect(out.clientY).toBeCloseTo(100, 9);
   });
 
   it("falls back to identity when layout size is 0 (unmeasurable / display:none)", () => {
@@ -80,14 +63,6 @@ describe("unscaleEventPoint", () => {
   });
 
   it("round-trips the documented scale-about-(0,0) forward map", () => {
-    // The inverse is only valid while the ancestor transform uses
-    // `transform-origin: 0 0` (CanvasTile's `tileTransformCSS` contract): the
-    // border-box top-left is the fixed point. Pin that by composing the forward
-    // map xterm's transformed rect implies — a point scales about the element's
-    // top-left, `screenX = rect.left + (logicalX - rect.left) * scaleX` — and
-    // asserting `unscaleEventPoint` recovers the original logical point. If
-    // CanvasTile ever moves to a non-0/0 origin, this fixed point shifts and
-    // this test breaks, so forward/inverse can't silently desync.
     const layoutWidth = 400;
     const layoutHeight = 300;
     const scaleX = 2;
@@ -98,9 +73,9 @@ describe("unscaleEventPoint", () => {
       clientY: r.top + (logicalY - r.top) * scaleY,
     });
     const cases: [number, number][] = [
-      [r.left, r.top], // the fixed point itself
+      [r.left, r.top],
       [250, 175],
-      [r.left + layoutWidth, r.top + layoutHeight], // far edge
+      [r.left + layoutWidth, r.top + layoutHeight],
     ];
     for (const [logicalX, logicalY] of cases) {
       const screen = forward(logicalX, logicalY);
@@ -117,14 +92,6 @@ describe("unscaleEventPoint", () => {
   });
 });
 
-/** Contract of `cellAtPoint` — the single-authority pointer→cell resolver a
- *  touch tap routes through. Its JOB is to delegate to xterm's own (already
- *  transform-corrected) `_core._mouseCoordsService.getCoords`, hand back a
- *  0-based cell, and degrade to null rather than throw. The transform-CORRECTNESS
- *  under zoom lives in `unscaleEventPoint` above (pinned there) and in the
- *  end-to-end `canvas-selection.feature` + the PR-2 tap-under-zoom scenario; here
- *  we pin the delegation, the 1-based→0-based conversion, and the null-degrade,
- *  so a future edit can't silently re-hand-roll the divisor or drop a guard. */
 describe("cellAtPoint", () => {
   type GetCoords = (
     event: { clientX: number; clientY: number },
@@ -134,9 +101,6 @@ describe("cellAtPoint", () => {
     isSelection?: boolean,
   ) => [number, number] | undefined;
 
-  /** Minimal xterm stand-in exposing only what `cellAtPoint` reaches: the
-   *  private `_core._mouseCoordsService.getCoords`, a `.xterm-screen` under
-   *  `element`, and `cols`/`rows`. */
   const makeTerm = (
     getCoords: GetCoords | null,
     opts: { noElement?: boolean } = {},
@@ -156,7 +120,7 @@ describe("cellAtPoint", () => {
   };
 
   it("returns the 0-based cell the authority reports (1-based → 0-based)", () => {
-    const term = makeTerm(() => [12, 5]); // xterm's 1-based col/row
+    const term = makeTerm(() => [12, 5]);
     expect(cellAtPoint(term, 100, 50)).toEqual({ col: 11, row: 4 });
   });
 
@@ -181,7 +145,6 @@ describe("cellAtPoint", () => {
     expect(s.element).toBe(screen);
     expect(s.cols).toBe(80);
     expect(s.rows).toBe(24);
-    // A tap is a point hit, not a selection endpoint — no half-cell precision.
     expect(s.isSelection).toBeUndefined();
   });
 
@@ -232,9 +195,6 @@ describe("clearWriteQueue", () => {
   });
 
   it("drops scheduled writes on the shipped @xterm/xterm so they never parse after reset", async () => {
-    // Pin the contamination race clearPendingOutput exists for: queue stale
-    // bytes, clear the write queue + reset, write fresh, await parse — only
-    // fresh content remains and the dropped stale callback never fires.
     const { Terminal: XTermCtor } = await import("@xterm/xterm");
     const term = new XTermCtor({
       cols: 40,
@@ -244,7 +204,6 @@ describe("clearWriteQueue", () => {
     });
     try {
       let staleCb = 0;
-      // Queue without awaiting — leave chunks on WriteBuffer's async path.
       term.write("STALE_SHOULD_NOT_LAND", () => {
         staleCb++;
       });
@@ -253,7 +212,6 @@ describe("clearWriteQueue", () => {
       await new Promise<void>((resolve) =>
         term.write("FRESH_ONLY", () => resolve()),
       );
-      // Allow any timer that might have been scheduled before clear to fire.
       await new Promise((r) => setTimeout(r, 30));
       expect(staleCb, "dropped stale write callback must not fire").toBe(0);
       const line0 = (
@@ -279,14 +237,6 @@ describe("clearWriteQueue", () => {
   });
 });
 
-/**
- * CONTRACT PIN — xterm resize flushSync-parses the write queue at the *old*
- * cols before reflowing. applyFit's coalesce.flush() before fit() is only
- * correct because of this ordering: flush only term.write()s (async); if a
- * future @xterm/xterm beta dropped flushSync from resize, old-grid bytes would
- * parse after reflow and the multi-tile coalesce resize fix would silently
- * become a no-op. Name of the failure is the contract.
- */
 describe("CONTRACT PIN — @xterm/xterm resize parses write queue at old cols before reflow", () => {
   function lineText(term: XTerm, row: number): string {
     return (
@@ -315,11 +265,8 @@ describe("CONTRACT PIN — @xterm/xterm resize parses write queue at old cols be
       allowProposedApi: true,
     });
     try {
-      // 80×'A' + 'B' wraps at 80 cols (B on next line) but fits on one line at 120.
       const payload = `${"A".repeat(80)}B`;
       let parsed = false;
-      // Queue without awaiting — leave the chunk on WriteBuffer's async path so
-      // only resize's flushSync can land it before cols change.
       term.write(payload, () => {
         parsed = true;
       });
@@ -339,7 +286,6 @@ describe("CONTRACT PIN — @xterm/xterm resize parses write queue at old cols be
 
       const line0 = lineText(term, 0);
       const line1 = lineText(term, 1);
-      // Parsed at cols=80 (pre-resize), not at 120: B is wrapped, not on line 0.
       expect(
         line0.length,
         "queued payload must wrap at OLD cols=80 (flushSync before reflow). " +
@@ -354,23 +300,10 @@ describe("CONTRACT PIN — @xterm/xterm resize parses write queue at old cols be
   });
 });
 
-// ── A real browser xterm, under happy-dom ──────────────────────────────────
-//
-// The pins below ask their questions of an actual `@xterm/xterm` rather than a
-// stand-in, because what they pin is what the shipped library DOES: the
-// measurement it keeps, the cell height it derives, the scrollbar it reserves.
-// happy-dom ships no canvas, so one 2D-context stub with a known `measureText`
-// is all the scaffolding needed to open one.
-/** The width `measureText('W')` answers — FiraCode Nerd Font at 14px, the
- *  measurement kolu's own terminals produce in Chromium. Deliberately not a
- *  whole number: the two renderers differ precisely in what they round it to. */
 const MEASURED_WIDTH = 8.6154;
 const MEASURED_ASCENT = 13;
 const MEASURED_DESCENT = 4.6;
 
-/** Enough 2D-context surface for xterm to open under happy-dom, which ships
- *  no canvas: the char measure (`measureText`) and the DOM renderer's width
- *  cache (everything else). */
 function stubContext(): CanvasRenderingContext2D {
   return {
     canvas: { width: 100, height: 100 },
@@ -400,8 +333,6 @@ function stubContext(): CanvasRenderingContext2D {
   } as unknown as CanvasRenderingContext2D;
 }
 
-/** A REAL `@xterm/xterm`, opened into a host element on that stub — the one
- *  harness every pin below asks its question of. */
 async function openTerminal(options: ITerminalOptions = {}) {
   (
     HTMLCanvasElement.prototype as unknown as { getContext: unknown }
@@ -432,29 +363,11 @@ async function openTerminal(options: ITerminalOptions = {}) {
   return { term, host };
 }
 
-/**
- * CONTRACT PIN — `_core._charSizeService.width` is xterm's own UNROUNDED
- * character measurement, and it is the number kolu sizes every terminal with
- * (`solid/measureBox.ts` → `solid/grid.ts`). A beta that renames the service or
- * stops publishing a numeric `width` must fail HERE, loudly, rather than at a
- * user's tile: `measuredCharWidth` throws, so an unpinned rename would stop
- * every pane measuring — no grid, no attach, no output.
- *
- * The terminal is opened on a canvas stub whose `measureText` answers a known
- * width, so the whole path is pinned: the service exists after `open()`, it
- * keeps what the font measurement said, and the accessor reads THAT rather
- * than something a renderer has already rounded.
- */
 describe("CONTRACT PIN — @xterm/xterm exposes its unrounded char measurement", () => {
   it("hands back the font measurement itself, not a renderer's rounding of it", async () => {
     const { term, host } = await openTerminal();
     try {
       expect(measuredCharWidth(term)).toBe(MEASURED_WIDTH);
-      // The attached DOM renderer re-derives its CSS cell width from a ROUNDED
-      // canvas width, so even the renderer kolu's columns agree with does not
-      // report this number. Sizing off `dimensions` would therefore drift with
-      // the column count — and off the WebGL renderer it drifts much further,
-      // which is the resize-on-renderer-swap bug this accessor removes.
       expect(term.dimensions?.css.cell.width).not.toBe(MEASURED_WIDTH);
     } finally {
       term.dispose();
@@ -465,11 +378,6 @@ describe("CONTRACT PIN — @xterm/xterm exposes its unrounded char measurement",
   it("pins the cell HEIGHT both renderers compute, as a whole device pixel", async () => {
     const { term, host } = await openTerminal();
     try {
-      // Both `_updateDimensions` implementations run the same chain:
-      // ceil(charHeight × dpr) × lineHeight, floored. Rows are computed from
-      // this integer, never from the DOM renderer's css.cell.height (which it
-      // re-derives from a rounded canvas height and which therefore depends on
-      // the row count).
       const deviceCellHeight = term.dimensions?.device.cell.height;
       expect(deviceCellHeight).toBe(
         Math.ceil(
@@ -489,23 +397,6 @@ describe("CONTRACT PIN — @xterm/xterm exposes its unrounded char measurement",
   });
 });
 
-/**
- * CONTRACT PIN — the scrollbar width kolu reserves is the one xterm RENDERS.
- *
- * `solid/measureBox.ts` subtracts a vertical scrollbar from the available
- * width, following `Viewport._getChangeOptions()`: hidden → 0, else
- * `scrollbar.width` or xterm's own default of 14. `@xterm/addon-fit` could
- * `import { ViewportConstants }` for that default; kolu cannot reach it from
- * outside the bundle, so the number is a COPY — and a copy that goes stale
- * costs a terminal one or two columns too wide, with its last cells sitting
- * under the scrollbar.
- *
- * So it is not asserted against itself: the test opens a real terminal and
- * compares what `measureGridBox` reserves against the width xterm actually
- * gives its vertical scrollbar element. All three branches of the rule are
- * exercised, so an upstream change to the default, to the option name, or to
- * the hidden case fails here.
- */
 describe("CONTRACT PIN — @xterm/xterm reserves the scrollbar width kolu subtracts", () => {
   /** The width xterm's rendered vertical scrollbar occupies, in CSS px.
    *  `AbstractScrollbar._renderDomNode` writes it as an inline style, which is

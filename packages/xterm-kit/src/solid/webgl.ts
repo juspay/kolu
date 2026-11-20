@@ -1,35 +1,12 @@
-/** Single-owner WebGL addon lifetime + context-loss recovery.
- *
- *  The `WebglAddon`'s lifetime has exactly one safe shape, and getting it wrong
- *  is the #575/#591/#1399 flicker class: a single owner, self-heal on
- *  `webglcontextlost`, and — the part xterm omits — an EXPLICIT
- *  `WEBGL_lose_context.loseContext()` on unload. xterm's `dispose()` removes the
- *  canvas from the DOM but never releases the GPU context, so Chrome keeps it
- *  alive on the detached canvas until GC; rapid focus changes then create
- *  contexts faster than GC frees them and overflow Chrome's ~16-per-tab budget,
- *  at which point it evicts LIVE contexts and every tile flickers. Releasing in
- *  the current microtask keeps the live set within budget.
- *
- *  The gate is an `Accessor<boolean>` by type — WHICH panes deserve a context is
- *  the consumer's budget POLICY (recency budget, a preference toggle, always-on);
- *  this owns only the mechanism. Reconciles reactively: load when the gate turns
- *  true, unload when false. Call synchronously within a reactive owner (the
- *  effect + cleanup register on it). */
-
 import { createEffect, createSignal, on, onCleanup } from "solid-js";
 import { WebglAddon } from "@xterm/addon-webgl";
 import type { Terminal as XTerm } from "@xterm/xterm";
 
-/** Optional lifecycle hooks so a consumer can observe the GPU context's
- *  lifetime (kolu wires its #591 `webglTracker` here) WITHOUT the kit knowing
- *  anything about that tracker. Fired in the same order the old inline code did:
- *  `onCanvas` right after the real WebGL canvas is captured, `onBeforeRelease`
- *  immediately before the explicit `loseContext()`, `onDispose` after the addon
- *  is disposed. */
 export interface WebglLifecycleHooks {
   onCanvas?: (canvas: HTMLCanvasElement) => void;
   onBeforeRelease?: () => void;
   onDispose?: () => void;
+  onLoadFailed?: (error: unknown) => void;
 }
 
 /** What `attachWebGL` hands back: the reactive `hasWebgl` fact (single source of
@@ -53,9 +30,6 @@ export function attachWebGL(
   function load() {
     if (webgl) return;
     try {
-      // Single owner of WebglAddon lifetime — any future construction-time flag
-      // (e.g. preserveDrawingBuffer for screenshots, #574) must route through
-      // here, not a parallel dispose/reconstruct path.
       const w = new WebglAddon();
       w.onContextLoss(() => unload());
       term.loadAddon(w);
@@ -72,8 +46,8 @@ export function attachWebGL(
         ) ?? null;
       if (webglCanvas) hooks.onCanvas?.(webglCanvas);
       setHasWebgl(true);
-    } catch {
-      // WebGL unavailable — xterm's DOM renderer is the fallback.
+    } catch (error) {
+      hooks.onLoadFailed?.(error);
     }
   }
 
@@ -85,8 +59,6 @@ export function attachWebGL(
     // the guard above short-circuits the reentry.
     webgl = null;
     setHasWebgl(false);
-    // Explicitly release the GPU context (see the module note). Fire the
-    // consumer's pre-release hook first, matching the old inline ordering.
     hooks.onBeforeRelease?.();
     webglCanvas
       ?.getContext("webgl2")
@@ -97,9 +69,6 @@ export function attachWebGL(
     hooks.onDispose?.();
   }
 
-  // Reconcile the context against the gate: load when it enters the budget,
-  // unload when it leaves. `defer: true` — the caller drives the initial load
-  // once (below), since the effect can't run before the terminal is open.
   createEffect(
     on(
       should,
@@ -110,7 +79,6 @@ export function attachWebGL(
       { defer: true },
     ),
   );
-  // Initial load, now that the terminal is open.
   if (should()) load();
   onCleanup(unload);
 

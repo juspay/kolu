@@ -1,24 +1,3 @@
-/** Owner-correct async construction + disposal of an xterm `Terminal`.
- *
- *  Construction must await the terminal font before measuring cell dimensions —
- *  otherwise xterm measures with the fallback monospace face and every metric is
- *  wrong. But SolidJS loses its reactive owner across any `await`, so a cleanup
- *  registered after it is a silent no-op — which is exactly how kolu leaked whole
- *  xterm graphs (InputHandler + BufferLines, ~900 KB) per mode toggle
- *  (#591/#606). This owns the one safe shape:
- *
- *   1. capture the owner BEFORE the await;
- *   2. register the disposal `onCleanup` SYNCHRONOUSLY (before the async body),
- *      so a dispose during the font await still tears the terminal down;
- *   3. bail on the `disposed` flag after the await rather than build state no
- *      cleanup can reach;
- *   4. re-enter the owner with `runWithOwner` for the synchronous setup, so every
- *      primitive there (and the consumer's `onReady` wiring) registers its
- *      cleanups on the right list.
- *
- *  The consumer's policy — which addons beyond these, the stream, keybindings,
- *  the `__xterm` e2e bridge — is wired in `onReady`, inside that owner. */
-
 import { WEB_URL_PATTERN } from "@kolu/url-shape";
 import { getOwner, onCleanup, runWithOwner } from "solid-js";
 import { ImageAddon } from "@xterm/addon-image";
@@ -61,15 +40,7 @@ export interface XtermLifecycleOptions {
  *  the consumer's teardown actually runs. Disposal (term + addon-slot nulling)
  *  is owned here; a `<Xterm>`-style composer layers WebGL/touch/scroll on top. */
 export function createXtermLifecycle(
-  /** Read lazily — the mount element is assigned by its `ref` AFTER this runs in
-   *  the component body, but is present by the time the post-await body reads it
-   *  (the div mounts synchronously before the font `await` resolves). */
   getContainer: () => HTMLElement,
-  /** Read lazily too, and specifically re-read AFTER the font await for
-   *  construction — so a reactive `theme`/`fontSize` that changed while the font
-   *  was loading constructs the terminal with the LATEST value, not a snapshot
-   *  taken at call time (which the deferred live-update effects would then miss,
-   *  having already fired-and-bailed while `core` was still null). */
   getOptions: () => XtermLifecycleOptions,
   onReady: (core: XtermCore) => void,
 ): void {
@@ -77,13 +48,6 @@ export function createXtermLifecycle(
   let terminal: XTerm | null = null;
   let disposed = false;
 
-  // SYNCHRONOUS — registered before the async body, so a dispose during the font
-  // await (an <Show> tile swap) still fires. `term.dispose()` disposes every
-  // addon loaded below; the addons are otherwise reachable only through the
-  // handle the consumer holds (and nulls in its own cleanup), so this owns no
-  // separate addon slots. WebGL unload (attachWebGL's own onCleanup, registered
-  // LATER in onReady) runs FIRST by SolidJS LIFO, matching the old inline
-  // "unloadWebgl() before terminal.dispose()".
   onCleanup(() => {
     disposed = true;
     terminal?.dispose();
@@ -92,27 +56,17 @@ export function createXtermLifecycle(
 
   void (async () => {
     try {
-      // Capture the face we AWAIT and pin it into construction below, so xterm is
-      // never built with a font we didn't wait for (kolu's fontFamily is static,
-      // but a mid-await change must not slip an un-awaited face past the measure).
       const awaitedFontFamily = getOptions().terminalOptions.fontFamily;
       await document.fonts.load(`1em ${awaitedFontFamily}`);
       if (disposed) return;
       const container = getContainer();
       runWithOwner(owner, () => {
-        // Re-read here (post-await) so reactive theme/fontSize are current, not
-        // the value they held when the component body called us — but force the
-        // awaited fontFamily, the one face document.fonts.load() actually waited
-        // on, so measurement never falls back to an un-loaded face.
         const term = new XTerm({
           ...getOptions().terminalOptions,
           fontFamily: awaitedFontFamily,
         });
         terminal = term;
 
-        // Re-read options here (post-await) so a late-bound handler is current.
-        // The constructor's first arg is the activate callback; omit it to keep
-        // the addon's default `window.open` path.
         term.loadAddon(
           new WebLinksAddon(getOptions().webLinkHandler, {
             urlRegex: WEB_URL_PATTERN,
