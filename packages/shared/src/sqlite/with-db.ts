@@ -16,6 +16,27 @@ export type DbRead<T> =
   /** The database was there and the query threw. IGNORANCE, not an answer. */
   | { kind: "failed" };
 
+type DbConnection<Db> =
+  | { kind: "borrowed"; conn: Db }
+  | { kind: "opened"; conn: Db }
+  | { kind: "absent" }
+  | { kind: "failed"; err: unknown };
+
+function openConnection<Db extends Closable>(
+  openDb: (log?: Logger) => Db | null,
+  db: Db | undefined,
+  log: Logger | undefined,
+): DbConnection<Db> {
+  if (db !== undefined) return { kind: "borrowed", conn: db };
+  let conn: Db | null;
+  try {
+    conn = openDb(log);
+  } catch (err) {
+    return { kind: "failed", err };
+  }
+  return conn === null ? { kind: "absent" } : { kind: "opened", conn };
+}
+
 /**
  * `withDb`'s three-outcome twin, for a caller that must not act on a failed read
  * as though it were an empty one.
@@ -38,27 +59,21 @@ export function readDb<Db extends Closable, T>(
   log?: Logger,
   db?: Db,
 ): DbRead<T> {
-  const ownsDb = db === undefined;
-  let conn: Db | null;
-  try {
-    // Inside the try on purpose: `openDb` returning null is "there is no
-    // database", but `openDb` THROWING is a failure to look — a locked file, a
-    // permission error, EMFILE. Opening outside would have made every one of
-    // those indistinguishable from absence, which is the split this exists for.
-    conn = db ?? openDb(log);
-  } catch (err) {
-    log?.error({ err, ...errorCtx }, errorMsg);
+  const opening = openConnection(openDb, db, log);
+  if (opening.kind === "failed") {
+    log?.error({ err: opening.err, ...errorCtx }, errorMsg);
     return { kind: "failed" };
   }
-  if (!conn) return { kind: "absent" };
-  const opened = conn;
+  if (opening.kind === "absent") return { kind: "absent" };
+  const conn = opening.conn;
+  const ownsDb = opening.kind === "opened";
   try {
-    return { kind: "ok", value: fn(opened) };
+    return { kind: "ok", value: fn(conn) };
   } catch (err) {
     log?.error({ err, ...errorCtx }, errorMsg);
     return { kind: "failed" };
   } finally {
-    if (ownsDb) opened.close();
+    if (ownsDb) conn.close();
   }
 }
 

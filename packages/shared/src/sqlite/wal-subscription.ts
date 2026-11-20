@@ -49,9 +49,6 @@ export interface WalSubscriptionConfig {
 export function createWalSubscription(
   config: WalSubscriptionConfig,
 ): WalSubscription {
-  // `sharedWalWatcher` is a single nullable structure (not a {watcher,
-  // listeners} pair) so the "active iff non-empty" invariant is
-  // mechanical — there's no way for the two halves to disagree.
   let sharedWalWatcher: {
     cleanup: () => void;
     listeners: Set<WalListener>;
@@ -120,6 +117,37 @@ function walIdentity(
   }
 }
 
+function watchDirForWalRecreate(
+  config: WalSubscriptionConfig,
+  onWalRecreated: () => void,
+  log?: Logger,
+): () => void {
+  const dir = path.dirname(config.dbPath);
+  const walBasename = path.basename(config.walPath);
+  let dirWatcher: fs.FSWatcher | null = null;
+  let rearmTimer: NodeJS.Timeout | undefined;
+  try {
+    dirWatcher = fs.watch(dir, (_event, filename) => {
+      // Some platforms / fs types report `null` filenames. Stat
+      // unconditionally on null; otherwise filter to WAL-related
+      // events to avoid restat'ing on every unrelated dir mutation.
+      if (filename !== null && filename.toString() !== walBasename) return;
+      clearTimeout(rearmTimer);
+      rearmTimer = setTimeout(() => {
+        rearmTimer = undefined;
+        onWalRecreated();
+      }, WAL_REARM_DEBOUNCE_MS);
+    });
+  } catch (err) {
+    log?.error({ err, dir, label: config.label }, "db dir fs.watch failed");
+  }
+  return () => {
+    clearTimeout(rearmTimer);
+    rearmTimer = undefined;
+    dirWatcher?.close();
+  };
+}
+
 function installWalWatcher(
   onChange: () => void,
   config: WalSubscriptionConfig,
@@ -132,7 +160,7 @@ function installWalWatcher(
     direct = null;
   }
 
-  function armDirect(): void {
+  function rebindEdgeIfInodeChanged(): void {
     const nextIdentity = walIdentity(config, log);
     if (direct && direct.identity === nextIdentity) return;
     closeDirect();
@@ -144,39 +172,16 @@ function installWalWatcher(
     direct = { cleanup, identity: nextIdentity };
   }
 
-  armDirect();
-
-  let rearmTimer: NodeJS.Timeout | null = null;
-  function runRearm(): void {
-    rearmTimer = null;
-    armDirect();
+  function refreshEdgeAndKick(): void {
+    rebindEdgeIfInodeChanged();
     onChange();
   }
-  function scheduleRearm(): void {
-    if (rearmTimer) clearTimeout(rearmTimer);
-    rearmTimer = setTimeout(runRearm, WAL_REARM_DEBOUNCE_MS);
-  }
 
-  let dirWatcher: fs.FSWatcher | null = null;
-  const dir = path.dirname(config.dbPath);
-  const walBasename = path.basename(config.walPath);
-  try {
-    dirWatcher = fs.watch(dir, (_event, filename) => {
-      // Some platforms / fs types report `null` filenames. Stat
-      // unconditionally on null; otherwise filter to WAL-related
-      // events to avoid restat'ing on every unrelated dir mutation.
-      if (filename !== null && filename.toString() !== walBasename) return;
-      scheduleRearm();
-    });
-  } catch (err) {
-    log?.error({ err, dir, label: config.label }, "db dir fs.watch failed");
-  }
+  rebindEdgeIfInodeChanged();
+  const stopDirWatch = watchDirForWalRecreate(config, refreshEdgeAndKick, log);
+
   return () => {
-    if (rearmTimer) {
-      clearTimeout(rearmTimer);
-      rearmTimer = null;
-    }
-    dirWatcher?.close();
+    stopDirWatch();
     closeDirect();
   };
 }

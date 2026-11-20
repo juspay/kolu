@@ -1,25 +1,3 @@
-/**
- * FAIL-SOFT — deliberately, and only on the SNAPSHOT path. The project doctrine
- * is fail-fast, but a boot snapshot is a safety net, not a gate: a failure must
- * log loudly and let the boot proceed (a padi that refuses to start because its
- * backup dir is unwritable would turn the safety net into an outage). The
- * RESTORE path ({@link StateBackupRing.restore}) is the opposite — it throws on
- * every anomaly, INCLUDING a failed pre-restore snapshot, because a restore
- * that silently proceeds from a corrupt backup, or that silently is not
- * undoable, is the very data-loss class the ring exists to prevent.
- *
- * SYNCHRONOUS fs — deliberately, matching the store it rings. Every verb here
- * runs on the serving loop of whichever process calls it, and that is the same
- * posture the underlying `conf` store takes for EVERY persisted write in this
- * repo (a cell write is a synchronous atomic `store.set`; padi's autosave gate
- * documents "persist is synchronous" as an invariant). The ring is bounded —
- * at most {@link STATE_BACKUP_RING_SIZE}+1 small JSON files — so each verb is
- * a handful of small-file reads/copies, and the synchronous shape is what
- * keeps the boot-before-Conf ordering and the restore's freeze windows free of
- * interleaving. An async rewrite would buy microseconds and cost the
- * no-interleaving property both restore paths lean on.
- */
-
 import {
   chmodSync,
   copyFileSync,
@@ -40,13 +18,6 @@ const STATE_BACKUP_TICK_MS = 24 * 60 * 60 * 1000;
 
 const BACKUP_SUBDIR = "backups";
 
-/** The stamp half of a ring member's name: the fs-safe UTC instant the writer
- *  mints (`:`/`.` are path-hostile on some filesystems), plus the `-N` bump a
- *  same-millisecond sibling carries. Deliberately EXACT — the old
- *  `[0-9TZ-]+` shape accepted names the writer can never produce (`config.--.json`),
- *  and this pattern is a security gate ({@link StateBackupRing.pathOf}), so
- *  reader and writer are one pair kept honest by the round-trip test rather than
- *  by memory. */
 const BACKUP_STAMP_RE =
   /^(\d{4}-\d{2}-\d{2})T(\d{2})-(\d{2})-(\d{2})-(\d{3})Z(?:-(\d+))?$/;
 
@@ -84,8 +55,7 @@ export interface StateBackupRing {
    *  byte-identical to the newest member (quick restarts must not churn
    *  copies), otherwise copy it to a timestamped name and prune to
    *  {@link STATE_BACKUP_RING_SIZE}. FAIL-SOFT: any error logs loudly and
-   *  answers `failed` — see the module doc for why this one path may not
-   *  throw. */
+   *  answers `failed` rather than throwing. */
   snapshot(): SnapshotOutcome;
   /** Enumerate the ring, newest first. A missing ring dir is an empty ring, not
    *  an error — every store predates its first snapshot once. */
@@ -162,6 +132,12 @@ function ringBase(configPath: string): string {
   return base;
 }
 
+type StampedMember = StateBackupEntry & { bump: number };
+
+function newestFirst(a: StampedMember, b: StampedMember): number {
+  return b.savedAtMs - a.savedAtMs || b.bump - a.bump;
+}
+
 /** Open `configPath`'s backup ring. Pure: nothing is read or created until a
  *  verb is called, so opening a ring in a module body arms nothing. */
 export function openStateBackupRing(
@@ -193,7 +169,7 @@ export function openStateBackupRing(
           },
         ];
       })
-      .sort((a, b) => b.savedAtMs - a.savedAtMs || b.bump - a.bump)
+      .sort(newestFirst)
       .map(({ file, savedAtMs, sizeBytes }) => ({
         file,
         savedAtMs,
@@ -211,7 +187,28 @@ export function openStateBackupRing(
   const read = (file: string): unknown =>
     JSON.parse(readFileSync(pathOf(file), "utf8")) as unknown;
 
-  const snapshot = (protect?: string): SnapshotOutcome => {
+  const prune = (
+    membersNewestFirst: string[],
+    { keep }: { keep: string | undefined },
+  ): void => {
+    for (const stale of membersNewestFirst.slice(STATE_BACKUP_RING_SIZE)) {
+      if (stale === keep) continue;
+      try {
+        unlinkSync(join(dir, stale));
+      } catch (err) {
+        log.error(
+          { err, stale },
+          "state backup prune: stale member could not be removed",
+        );
+      }
+    }
+  };
+
+  const snapshot = ({
+    keepThroughPrune,
+  }: {
+    keepThroughPrune?: string;
+  } = {}): SnapshotOutcome => {
     try {
       if (!existsSync(configPath)) return { kind: "no-state-file" };
       mkdirSync(dir, { recursive: true, mode: 0o700 });
@@ -229,27 +226,8 @@ export function openStateBackupRing(
         file = backupFileName(base, at, bump);
       }
       copyFileSync(configPath, join(dir, file));
-      // `copyFileSync` happens to carry the source mode today; the explicit
-      // chmod means the store's stated posture does not rest on that.
       chmodSync(join(dir, file), statSync(configPath).mode & 0o777);
-      // The copy has LANDED by the time the prune runs — a prune hiccup (a
-      // member vanished under a concurrent prune, the same race `list()`
-      // tolerates) must degrade to the documented one-over-size grace state,
-      // never report the taken backup as `failed` (which would wrongly REFUSE
-      // an undoable restore).
-      for (const stale of [file, ...before.map((e) => e.file)].slice(
-        STATE_BACKUP_RING_SIZE,
-      )) {
-        if (stale === protect) continue;
-        try {
-          unlinkSync(join(dir, stale));
-        } catch (err) {
-          log.error(
-            { err, stale },
-            "state backup prune: stale member could not be removed",
-          );
-        }
-      }
+      prune([file, ...before.map((e) => e.file)], { keep: keepThroughPrune });
       log.info({ file, dir }, "state backup snapshot taken");
       return { kind: "created", file };
     } catch (err) {
@@ -281,7 +259,7 @@ export function openStateBackupRing(
       }),
     restore: <T>(file: string, apply: (raw: unknown) => T) => {
       const raw = read(file);
-      const undo = snapshot(file);
+      const undo = snapshot({ keepThroughPrune: file });
       if (undo.kind === "failed") {
         throw new Error(
           "refusing to restore: the pre-restore snapshot failed, so this restore would not be undoable",
