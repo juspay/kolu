@@ -1,12 +1,3 @@
-/** Structural transforms over the typed `Transcript`.
- *
- *  No JSON round-trip, no stringified-haystack regex: every path field
- *  is reached by walking the typed IR. The only place we still use a
- *  regex is inside free-text fields (user / assistant / reasoning text,
- *  bash commands, patch text), where paths appear inline and there's no
- *  field to address them by — but the regex operates on a string we
- *  control, not on JSON syntax. */
-
 import path from "node:path";
 import type { ToolInput, Transcript, TranscriptEvent } from "./schemas.ts";
 
@@ -28,10 +19,6 @@ export function makeRelativizer(cwd: string | null): StringTransform | null {
   while (baseEnd > 0 && cwd[baseEnd - 1] === "/") baseEnd--;
   const base = cwd.slice(0, baseEnd);
   if (!base) return null;
-  // Match `${base}/<continuation>` where the continuation is captured
-  // up to the next whitespace, quote, or closing paren/bracket. The
-  // boundary chars match how absolute paths appear in human-readable
-  // text (in messages, in command stdout) and JSON-quoted strings.
   const escaped = base.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const re = new RegExp(`${escaped}(/[^\\s"'\`)\\]<>]*)`, "g");
   return (s) =>
@@ -44,14 +31,6 @@ export function makeRelativizer(cwd: string | null): StringTransform | null {
     });
 }
 
-/** Apply `fn` to the path-bearing fields of a typed tool input. Fields
- *  not naturally typed as paths (`bash.command`, `patch.text`) get the
- *  same transform — paths can appear inline in those — but they're free
- *  text, so the transform is doing string-content matching, not field
- *  identification.
- *
- *  Unknown inputs are unchanged: by construction, those are vendor
- *  shapes we haven't modelled, so the renderer dumps them as JSON. */
 function transformToolInput(input: ToolInput, fn: StringTransform): ToolInput {
   switch (input.kind) {
     case "edit":
@@ -88,7 +67,7 @@ function transformToolInput(input: ToolInput, fn: StringTransform): ToolInput {
         path: input.path ? fn(input.path) : null,
       };
     case "fetch":
-      return input; // url stays absolute
+      return input;
     case "web_search":
       return input;
     case "skill":
@@ -120,10 +99,6 @@ function transformToolInput(input: ToolInput, fn: StringTransform): ToolInput {
   }
 }
 
-/** Walk every string node in an unknown structure and apply `fn`.
- *  Used for `tool_result.output` only — we don't model output shapes
- *  (vendors emit file contents, stdout, stderr, structured payloads,
- *  error objects), so the targeted-field approach doesn't apply there. */
 function walkStrings(value: unknown, fn: StringTransform): unknown {
   if (typeof value === "string") return fn(value);
   if (Array.isArray(value)) return value.map((v) => walkStrings(v, fn));

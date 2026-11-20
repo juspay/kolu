@@ -37,24 +37,17 @@ describe("makeRelativizer", () => {
   });
 
   it("leaves out-of-cwd absolute paths absolute", () => {
-    // Sibling and ancestor paths stay verbatim — only paths strictly
-    // inside cwd get rewritten. Keeps the regex anchored to one prefix
-    // and avoids whole classes of prefix-collision bugs.
     const fn = makeRelativizer("/a/b/c");
     if (!fn) throw new Error("expected transform");
     expect(fn("/a/b/other/file.ts")).toBe("/a/b/other/file.ts");
     expect(fn("/a/x/file.ts")).toBe("/a/x/file.ts");
     expect(fn("/usr/bin/node")).toBe("/usr/bin/node");
-    // Bare cwd has no /<continuation> to capture, so the regex doesn't
-    // fire — the cwd stays absolute.
     expect(fn("/a/b/c")).toBe("/a/b/c");
   });
 
   it("does not eat prefix-similar sibling directories", () => {
     const fn = makeRelativizer("/a/b/c");
     if (!fn) throw new Error("expected transform");
-    // /a/b/c-other shares characters with cwd but is not under it. The
-    // regex requires a `/` after the cwd, so this stays absolute.
     expect(fn("/a/b/c-other/file.ts")).toBe("/a/b/c-other/file.ts");
   });
 
@@ -244,6 +237,6 @@ describe("relativizeTranscript", () => {
     if (out.events[0]?.kind !== "tool_call") throw new Error("kind");
     if (out.events[0].inputs.kind !== "read") throw new Error("input kind");
     expect(out.events[0].inputs.filePath).toBe("./src/foo.ts");
-    expect(out.cwd).toBe("/proj"); // bare cwd unchanged
+    expect(out.cwd).toBe("/proj");
   });
 });

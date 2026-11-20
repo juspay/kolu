@@ -1,10 +1,3 @@
-/** Explicit contract every integration's transcript loader implements.
- *
- *  Each vendor's `loadXxxTranscript` function is typed as `Fetcher` so the
- *  seam between core and integrations is mechanical, not implicit. The
- *  registry dispatches through each agent's plugin; each plugin owns a `Fetcher` and
- *  gets a `Transcript | null` back. */
-
 import type { Logger } from "@kolu/log";
 import type { Transcript, TranscriptPr } from "./schemas.ts";
 

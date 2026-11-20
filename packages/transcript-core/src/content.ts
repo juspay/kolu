@@ -1,7 +1,3 @@
-/** Agent-neutral JSONL content readers. A function lands here only when two
- *  or more agents share the exact same wire shape — forks of one storage
- *  lineage, not a guess at a universal envelope. */
-
 /** Pull plain text out of an agent JSONL `content` field shaped as a bare
  *  string or an array of blocks (`[{type:"text", text:"…"}, …]`). Grok's
  *  chat history, pi's session JSONL, and omp's fork of pi's layout all use

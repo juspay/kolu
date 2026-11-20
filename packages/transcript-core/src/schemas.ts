@@ -1,13 +1,3 @@
-/** Vendor-neutral transcript IR.
- *
- *  This is the contract between integration loaders (claude-code,
- *  opencode, codex) and presentation packages (transcript-html, future
- *  markdown/terminal renderers). Loaders parse their vendor's wire
- *  format INTO this shape; renderers consume it without ever looking at
- *  vendor specifics. The IR names no agent: `agentName` is the human display
- *  name the loader fills from its own vocab, so the IR neither enumerates the
- *  agent set nor exposes an internal kind. */
-
 import { Schema } from "effect";
 
 /** Tool-call inputs, decoded into a typed union at parse time.
@@ -16,17 +6,6 @@ import { Schema } from "effect";
  *  arguments shape into one of these kinds (Claude's Edit + OpenCode's
  *  edit + Codex's apply_patch all collapse into `edit` / `write` /
  *  `patch` here). Anything not recognised falls through to `unknown`.
- *
- *  Why a typed union instead of `unknown`: the renderer was doing shape
- *  probing (`pickStr(o, "file_path", "filePath")`) — interpreting
- *  structured data without owning the structure. The probing belongs at
- *  the loader-vendor boundary, not in the renderer. With this union the
- *  renderer pattern-matches on `kind` and never touches a field that
- *  isn't part of the schema.
- *
- *  Edit-class kinds (`edit | write | patch`) replace the previous
- *  `isEditTool: boolean` IR field — kind IS the edit signal.
- *
  *  The union discriminates on `kind` (not Effect's default `_tag`), so
  *  it is a plain `Schema.Union` over structs carrying a literal `kind`
  *  — the field name and every literal value are the on-disk/on-wire

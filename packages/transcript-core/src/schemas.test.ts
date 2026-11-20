@@ -1,15 +1,3 @@
-/** Byte-level contract tests for the transcript IR.
- *
- *  The IR is the contract between vendor loaders and renderers, and it
- *  is JSON-shaped (exports are serialised documents). These tests pin
- *  the ENCODED JSON string — not just decode-equality — so a schema
- *  edit that silently renames a field, reorders a struct, or changes a
- *  discriminant value fails here instead of in a renderer.
- *
- *  The exhaustive arm tables also serve as the "every kind is still
- *  spelled the same" gate: adding an arm without extending the table
- *  fails the count assertion. */
-
 import { Schema } from "effect";
 import { describe, expect, it } from "vitest";
 import {
@@ -30,7 +18,6 @@ const decodeEvent = Schema.decodeUnknownSync(TranscriptEventSchema);
 const encodeEvent = Schema.encodeSync(TranscriptEventSchema);
 const toolInputResult = Schema.decodeUnknownResult(ToolInputSchema);
 
-/** One value per `ToolInput` arm, in schema-declaration order. */
 const TOOL_INPUTS: ReadonlyArray<ToolInput> = [
   {
     kind: "edit",
@@ -60,7 +47,6 @@ const TOOL_INPUTS: ReadonlyArray<ToolInput> = [
   { kind: "unknown", toolName: "Weird", raw: { a: 1 } },
 ];
 
-/** One value per `TranscriptEvent` arm, in schema-declaration order. */
 const EVENTS: ReadonlyArray<TranscriptEvent> = [
   { kind: "user", text: "hello", ts: 1 },
   { kind: "assistant", text: "hi", model: "claude-opus-5", ts: 2 },
