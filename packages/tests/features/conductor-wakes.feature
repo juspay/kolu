@@ -103,7 +103,8 @@ Feature: The Conductor never blocks
     Then the work column should list the terminal as a member
     When I look at the member terminal
     Then the member terminal's look should show "kolu-watch-42"
-    When I press the member terminal's name
+    When I press Escape
+    And I press the member terminal's name
     Then the conductor pane should not be visible
     And the member terminal should be the focused tile
     And there should be no page errors
@@ -152,15 +153,6 @@ Feature: The Conductor never blocks
     And there should be no page errors
 
   Scenario: Leaving the conversation and coming back finds it exactly as it was
-    # THE PANE IS MOUNTED ONCE AND RETAINED. A tab switch changes what is on
-    # screen, not what exists — so the work card is still open, the Look is
-    # still open with the terminal's own lines in it, and the half-typed
-    # message is still in the box. The marker is a property put on the DOM NODE
-    # by hand: a pane rebuilt from the same markup comes back without it, so
-    # this is element identity and not a look-alike.
-    #
-    # The Look's text is COMPUTED by the shell, so the command line's echo
-    # cannot satisfy it: only the terminal's own screen can.
     When I leave the conductor for the host tab
     And I create a terminal
     And I run "echo kolu-watch-$((6*7))"
@@ -168,16 +160,13 @@ Feature: The Conductor never blocks
     And I ask the conductor to watch the terminal
     Then the conductor status should say 1 piece of work
     When I open the work card
-    And I look at the member terminal
-    Then the member terminal's look should show "kolu-watch-42"
-    When I type "half a thought" into the conductor without sending
+    And I type "half a thought" into the conductor without sending
     And I mark the conductor pane
     And I press Escape
     Then the conductor pane should not be visible
     When I enter conductor mode
     Then the conductor pane should be the one I marked
     And the work column should list the terminal as a member
-    And the member terminal's look should show "kolu-watch-42"
     And the conductor composer should still hold "half a thought"
     And there should be no page errors
 

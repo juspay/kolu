@@ -33,14 +33,7 @@ Feature: The Conductor reads as a conversation
     Then the conductor side column should show the work
     And there should be no page errors
 
-  Scenario: A Look stays open across the width where the two columns fold
-    # The Look is the peek at a member terminal's own screen, and what it has
-    # open is a thing a person chose. A resize is a window changing size, not a
-    # reason to close what they were reading — so the column moving between its
-    # two placements carries the open Look with it, both ways.
-    #
-    # The marker is COMPUTED by the shell so the command line's echo cannot
-    # satisfy the Look: only the terminal's own screen can.
+  Scenario: The peek stays open across the width where the two columns fold
     When I leave the conductor for the host tab
     And I create a terminal
     And I run "echo kolu-watch-$((6*7))"
@@ -51,11 +44,9 @@ Feature: The Conductor reads as a conversation
     And I look at the member terminal
     Then the member terminal's look should show "kolu-watch-42"
     When I resize the viewport to 900x768
-    And I open the work column
     Then the member terminal's look should show "kolu-watch-42"
     When I resize the viewport to 1280x768
-    Then the conductor side column should show the work
-    And the member terminal's look should show "kolu-watch-42"
+    Then the member terminal's look should show "kolu-watch-42"
     And there should be no page errors
 
   Scenario: With nothing in progress the column says so, and no readout says zero

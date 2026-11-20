@@ -193,6 +193,7 @@ export class KoluWorld extends World {
    *  between states to produce the level changes kolu records as events. */
   memberTerminalId?: string;
   memberTranscriptPath?: string;
+  peekNotedSize?: string;
   /** A terminal's shell pid, read while it still had the keyboard, so an
    *  agent can be staged in it after the scenario has moved elsewhere. */
   notedShellPid?: number;
