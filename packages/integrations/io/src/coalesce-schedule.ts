@@ -1,12 +1,7 @@
 /** Default quiet-window used by agent / git / WAL watchers (150 ms). */
 export const COALESCE_DEBOUNCE_MS = 150;
 
-/**
- * Hard cap on how long continuous edges may postpone a fire. Must stay
- * ≤ `DEFAULT_APPEND_POLL_MS` (1s) so a hot stream still publishes within
- * one append-poll floor tick of the first change in a burst. Module
- * constant — not a consumer-disableable knob.
- */
+/** Hard cap on how long continuous edges may postpone a fire. */
 export const COALESCE_MAX_WAIT_MS = 500;
 
 export interface CoalesceSchedule {
@@ -19,12 +14,11 @@ export interface CoalesceSchedule {
 }
 
 export interface CoalesceScheduleOpts {
-  /** Quiet-window in ms. Required (no default — same fail-fast shape as
-   *  `subscribeFileAppends.intervalMs`). Production passes
-   *  `COALESCE_DEBOUNCE_MS`; tests inject a short synthetic interval. */
+  /** Quiet-window in ms. Production passes `COALESCE_DEBOUNCE_MS`; tests
+   *  inject a short synthetic interval. */
   debounceMs: number;
-  /** Hard cap in ms from the first pending edge. Required. Production
-   *  watchers pass `COALESCE_MAX_WAIT_MS`; never omit to "disable". */
+  /** Hard cap in ms from the first pending edge. Production watchers pass
+   *  `COALESCE_MAX_WAIT_MS`. */
   maxWaitMs: number;
   /** Invoked once the quiet window or the maxWait cap elapses. */
   onFire: () => void;
@@ -32,9 +26,8 @@ export interface CoalesceScheduleOpts {
 
 /**
  * Create a coalescing schedule handle. `onFire` is not wrapped — a throwing
- * fire escapes to the host timer (callers that need isolation catch inside
- * `onFire`, matching the prior hand-rolled debounce sites). Wall clock is
- * `Date.now` by construction — no optional clock inject (dead-knob ban).
+ * fire escapes to the host timer; a caller that needs isolation catches
+ * inside `onFire`.
  */
 export function createCoalesceSchedule(
   opts: CoalesceScheduleOpts,

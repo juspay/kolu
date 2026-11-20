@@ -7,9 +7,6 @@ import {
   type CoalesceSchedule,
 } from "./coalesce-schedule.ts";
 
-/** Level-triggered recovery beneath the `fs.watch` fast path. A module
- *  constant, not a caller knob: every narrow-file watcher gets the same
- *  dropped-edge recovery bound. */
 export const DIR_FILENAME_POLL_MS = 1000;
 
 type FileObservation =
@@ -106,8 +103,7 @@ export interface DirFilenameWatcherConfig {
    *  events on the directory are ignored. */
   filename: string;
   /** Trailing-edge debounce quiet-window in milliseconds. A hard maxWait
-   *  (`COALESCE_MAX_WAIT_MS`) is always applied internally — not a
-   *  consumer-facing knob (juspay/kolu#1952). */
+   *  (`COALESCE_MAX_WAIT_MS`) is always applied internally. */
   debounceMs: number;
   /** Lifecycle log label, e.g. `"git: head"`. Combined with `installed` /
    *  `retired` / `listener threw` for log lines. */
@@ -133,16 +129,13 @@ export interface DirFilenameWatcher {
    *  with `_whenSettled()` before asserting a count after `watch()`. */
   _watcherCount(): number;
   /** Test-only barrier — resolves once every in-flight `watch()` resolution
-   *  has settled (installed or cancelled). The async-install counterpart to
-   *  the old synchronous install: tests `await` it before asserting
-   *  `_watcherCount()`. */
+   *  has settled (installed or cancelled); tests `await` it before
+   *  asserting `_watcherCount()`. */
   _whenSettled(): Promise<void>;
   /** Test-only teardown — close every active watcher and clear the
-   *  registry, regardless of subscriber count. Used in vitest `beforeEach`
-   *  to break the module-scope leak that turns one timed-out test into a
-   *  whole-file cascade (#955). Production code must never call this.
-   *  Bumps a generation token so any pending pre-reset resolution is
-   *  discarded instead of installing into the fresh registry. */
+   *  registry, regardless of subscriber count, and discard any pending
+   *  pre-reset resolution instead of installing it into the fresh
+   *  registry. */
   _reset(): void;
 }
 
@@ -157,7 +150,9 @@ export function createDirFilenameWatcher(
 ): DirFilenameWatcher {
   const watchers = new Map<string, SharedFilenameWatcher>();
   const pending = new Set<Promise<void>>();
-  let generation = 0;
+  let registryEpoch = 0;
+  const isStaleResolution = (startEpoch: number): boolean =>
+    startEpoch !== registryEpoch;
 
   function install(
     dir: string,
@@ -167,14 +162,12 @@ export function createDirFilenameWatcher(
   ): SharedFilenameWatcher | null {
     const filePath = path.join(dir, config.filename);
     const listeners = new Set<Subscriber>();
-    // maxWait is baked as COALESCE_MAX_WAIT_MS — no per-call disable (#1952).
     const coalesce: CoalesceSchedule = createCoalesceSchedule({
       debounceMs: config.debounceMs,
       maxWaitMs: COALESCE_MAX_WAIT_MS,
       onFire: () => {
-        // Snapshot before iteration so a listener that unsubscribes
-        // synchronously can't skip a peer for this event.
-        for (const listener of [...listeners]) {
+        const listenersAtFire = [...listeners];
+        for (const listener of listenersAtFire) {
           try {
             listener.onChange();
           } catch (e) {
@@ -252,10 +245,25 @@ export function createDirFilenameWatcher(
     };
   }
 
+  function reconcileAfterInstall(
+    onChange: () => void,
+    dir: string,
+    log?: Logger,
+  ): void {
+    try {
+      onChange();
+    } catch (e) {
+      log?.error(
+        { err: e instanceof Error ? e.message : String(e), dir },
+        `${config.logLabel} reconcile listener threw`,
+      );
+    }
+  }
+
   const factory: DirFilenameWatcher = {
     watch(cwd, asker, onChange, log) {
       const watchStartedAt = performance.now();
-      const startGeneration = generation;
+      const startEpoch = registryEpoch;
       let cancelled = false;
       let unsubscribe: (() => void) | null = null;
       const settle = (async () => {
@@ -269,7 +277,7 @@ export function createDirFilenameWatcher(
           );
           return;
         }
-        if (cancelled || startGeneration !== generation || dir === null) return;
+        if (cancelled || isStaleResolution(startEpoch) || dir === null) return;
         let entry = watchers.get(dir);
         if (!entry) {
           const fresh = install(
@@ -283,14 +291,7 @@ export function createDirFilenameWatcher(
           entry = fresh;
         }
         unsubscribe = entry.subscribe(onChange, asker);
-        try {
-          onChange();
-        } catch (e) {
-          log?.error(
-            { err: e instanceof Error ? e.message : String(e), dir },
-            `${config.logLabel} reconcile listener threw`,
-          );
-        }
+        reconcileAfterInstall(onChange, dir, log);
       })();
       const tracked = settle.finally(() => pending.delete(tracked));
       pending.add(tracked);
@@ -307,7 +308,7 @@ export function createDirFilenameWatcher(
       while (pending.size > 0) await Promise.allSettled([...pending]);
     },
     _reset() {
-      generation++;
+      registryEpoch++;
       for (const entry of watchers.values()) entry._forceClose();
       watchers.clear();
     },

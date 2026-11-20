@@ -14,7 +14,22 @@ export interface StampedCache<T> {
  *  keeps a long-uptime padi from holding an entry for every file every terminal
  *  it ever ran resolved. */
 export function stampedCache<T>(max: number): StampedCache<T> {
-  const held = new Map<string, { stamp: string; value: T }>();
+  type Entry = { stamp: string; value: T };
+  const held = new Map<string, Entry>();
+
+  const touch = (file: string, entry: Entry): void => {
+    held.delete(file);
+    held.set(file, entry);
+  };
+  const forgetAbsent = (file: string): void => {
+    held.delete(file);
+  };
+  const evictOverflow = (): void => {
+    if (held.size <= max) return;
+    const oldest = held.keys().next();
+    if (!oldest.done) held.delete(oldest.value);
+  };
+
   return {
     get size() {
       return held.size;
@@ -22,23 +37,18 @@ export function stampedCache<T>(max: number): StampedCache<T> {
     read(file, read) {
       const stat = fs.statSync(file, { throwIfNoEntry: false });
       if (stat === undefined) {
-        held.delete(file);
+        forgetAbsent(file);
         return read(undefined);
       }
       const stamp = `${stat.mtimeMs}:${stat.size}`;
       const hit = held.get(file);
       if (hit !== undefined && hit.stamp === stamp) {
-        held.delete(file);
-        held.set(file, hit);
+        touch(file, hit);
         return hit.value;
       }
       const value = read(stat);
-      held.delete(file);
-      held.set(file, { stamp, value });
-      if (held.size > max) {
-        const oldest = held.keys().next();
-        if (!oldest.done) held.delete(oldest.value);
-      }
+      touch(file, { stamp, value });
+      evictOverflow();
       return value;
     },
   };

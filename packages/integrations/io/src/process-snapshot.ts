@@ -6,9 +6,6 @@ import type { ProcessSnapshot } from "./types.ts";
 
 export type { ProcessSnapshot };
 
-/** The baked osfacts binary, resolved ONCE at import (darwin only; Linux reads
- *  `/proc`). A missing bake is a PACKAGING defect, so it must throw OUTSIDE
- *  every forgiving read loop. */
 const OSFACTS_BIN =
   process.platform === "darwin" ? bakedOsFactsBin("KOLU_OSFACTS_BIN") : null;
 
@@ -34,9 +31,8 @@ export function readProcessSnapshot(
       return { argv, env };
     }
     if (process.platform === "darwin" && OSFACTS_BIN !== null) {
-      // Exact argv tokens from the OS (KERN_PROCARGS2). `env` is null by OS
-      // policy, not empty: macOS redacts even a same-user process's environment,
-      // and osfacts has no env facet.
+      // macOS redacts even a same-user process's environment, so `env` is
+      // null by OS policy, not empty.
       const reading = meterSyncChild(["osfacts", "snapshot"], () =>
         snapshotPidsSync(OSFACTS_BIN, [pid], { argv: true }),
       );

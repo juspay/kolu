@@ -7,17 +7,17 @@ describe("readProcessSnapshot", () => {
   describeDaemon("reads a child's exec-time argv + env", () => {
     it("returns the launch env and argv", () => {
       if (process.platform !== "linux" && process.platform !== "darwin") return;
-      // The child parks on stdin rather than on a timer: it must stay alive
-      // for the parent's /proc read, and `process.stdin.resume()` holds the
-      // event loop open without binding the test to any duration.
-      // A whitespace-bearing argument is load-bearing: it is the shape the
-      // darwin `ps -o command=` branch used to whitespace-split (three tokens
-      // instead of one), so this test fails against that implementation instead
-      // of passing on `argv.length > 0`.
-      const settings = '{"a": 1}';
+      const parkOnStdinUntilKilled = "process.stdin.resume()";
+      const settingsArgWithWhitespace = '{"a": 1}';
       const child = spawn(
         process.execPath,
-        ["-e", "process.stdin.resume()", "--", "--settings", settings],
+        [
+          "-e",
+          parkOnStdinUntilKilled,
+          "--",
+          "--settings",
+          settingsArgWithWhitespace,
+        ],
         { env: { ...process.env, KOLU_SNAPSHOT_MARKER: "present" } },
       );
       try {
@@ -26,10 +26,10 @@ describe("readProcessSnapshot", () => {
         expect(snap).not.toBeNull();
         expect(snap?.argv.slice(1)).toEqual([
           "-e",
-          "process.stdin.resume()",
+          parkOnStdinUntilKilled,
           "--",
           "--settings",
-          settings,
+          settingsArgWithWhitespace,
         ]);
         if (process.platform === "linux") {
           expect(snap?.env?.KOLU_SNAPSHOT_MARKER).toBe("present");

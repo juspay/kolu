@@ -1,36 +1,28 @@
 import fs from "node:fs";
 import type { Logger } from "@kolu/log";
 
-/** Poll interval (ms) for the floor that every production call site passes. A
- *  module constant, never a per-call knob (`conventions.md`: "being able to
- *  override is never a feature") — the recovery latency this buys is uniform
- *  across providers. Tests inject a shorter real interval (never fake timers —
- *  a fake clock cannot drive the real `statSync`). */
+/** Poll interval (ms) for the floor that every production call site passes.
+ *  Tests inject a shorter real interval. */
 export const DEFAULT_APPEND_POLL_MS = 1000;
 
 export interface SubscribeFileAppendsOpts {
-  /** Poll interval in milliseconds for the level-triggered floor. **Required**
-   *  — not optional-with-default (that shape is the dead knob the fail-fast law
-   *  forbids). Production passes `DEFAULT_APPEND_POLL_MS`; tests inject a short
-   *  real interval, exactly as `createDirFilenameWatcher` takes `debounceMs`. */
+  /** Poll interval in milliseconds for the level-triggered floor. Production
+   *  passes `DEFAULT_APPEND_POLL_MS`. */
   intervalMs: number;
   log?: Logger;
-  /** Lifecycle log label for error lines, e.g. `"grok: events"`. **Required**
-   *  — not optional-with-default, mirroring `intervalMs`: an optional-with-default
-   *  is the dead knob the fail-fast law forbids. All call sites pass it. */
+  /** Lifecycle log label for error lines, e.g. `"grok: events"`. */
   label: string;
 }
 
-type Observation =
-  | { kind: "present"; key: string }
-  | { kind: "absent" }
-  | { kind: "error" };
+type AuthoritativeState = { kind: "present"; key: string } | { kind: "absent" };
+
+type UnreadableStat = null;
 
 function observe(
   filePath: string,
   log: Logger | undefined,
   tag: string,
-): Observation {
+): AuthoritativeState | UnreadableStat {
   try {
     const s = fs.statSync(filePath);
     return { kind: "present", key: `${s.size}:${s.mtimeMs}:${s.ino}` };
@@ -38,14 +30,52 @@ function observe(
     if ((err as NodeJS.ErrnoException).code === "ENOENT")
       return { kind: "absent" };
     log?.error({ err, path: filePath }, `${tag}: stat failed`);
-    return { kind: "error" };
+    return null;
   }
 }
 
-function sameState(a: Observation, b: Observation): boolean {
-  if (a.kind !== b.kind) return false;
-  if (a.kind === "present" && b.kind === "present") return a.key === b.key;
-  return true;
+function sameState(a: AuthoritativeState, b: AuthoritativeState): boolean {
+  if (a.kind === "present") return b.kind === "present" && a.key === b.key;
+  return b.kind === "absent";
+}
+
+function levelTriggeredFloor(
+  filePath: string,
+  emit: () => void,
+  intervalMs: number,
+  log: Logger | undefined,
+  label: string,
+): () => void {
+  let stopped = false;
+  let observed: AuthoritativeState | UnreadableStat = observe(
+    filePath,
+    log,
+    label,
+  );
+  let timer: NodeJS.Timeout | undefined;
+
+  const arm = (): void => {
+    if (stopped) return;
+    timer = setTimeout(tick, intervalMs);
+    timer.unref();
+  };
+
+  function tick(): void {
+    const current = observe(filePath, log, label);
+    if (current !== null) {
+      if (observed === null || !sameState(current, observed)) {
+        observed = current;
+        emit();
+      }
+    }
+    arm();
+  }
+
+  arm();
+  return () => {
+    stopped = true;
+    clearTimeout(timer);
+  };
 }
 
 /**
@@ -63,9 +93,8 @@ function sameState(a: Observation, b: Observation): boolean {
  * anything the edge drops thereafter.
  *
  * Returns an idempotent unsubscribe that cancels the poll and closes the edge
- * watcher behind a `closed` guard, so no late callback fires on a torn-down
- * watcher. A throwing `onChange` is caught and logged, never escaping the
- * watcher callback to crash the host.
+ * watcher; no callback fires after it. A throwing `onChange` is caught and
+ * logged, never escaping the watcher callback to crash the host.
  */
 export function subscribeFileAppends(
   filePath: string,
@@ -84,21 +113,7 @@ export function subscribeFileAppends(
     }
   };
 
-  let observed = observe(filePath, log, label);
-  let pollTimer: NodeJS.Timeout = setTimeout(function poll(): void {
-    if (closed) return;
-    const cur = observe(filePath, log, label);
-    if (cur.kind !== "error" && !sameState(cur, observed)) {
-      observed = cur;
-      emit();
-    }
-    // Recheck AFTER emit: a reentrant `unsubscribe()` from inside onChange sets
-    // `closed`, and this running tick must not re-arm the timer past it (F7).
-    if (closed) return;
-    pollTimer = setTimeout(poll, intervalMs);
-    pollTimer.unref();
-  }, intervalMs);
-  pollTimer.unref();
+  const stopFloor = levelTriggeredFloor(filePath, emit, intervalMs, log, label);
 
   let watcher: fs.FSWatcher | null = null;
   try {
@@ -112,7 +127,7 @@ export function subscribeFileAppends(
   return () => {
     if (closed) return;
     closed = true;
-    clearTimeout(pollTimer);
+    stopFloor();
     watcher?.close();
   };
 }

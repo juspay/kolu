@@ -139,14 +139,13 @@ type SpawnSeam = (
  *  already installed. */
 export function installChildMeter(): void {
   if (installed) throw new Error("child meter: already installed");
-  const proto = ChildProcess.prototype as unknown as { spawn: unknown };
-  const original = proto.spawn;
-  if (typeof original !== "function") {
+  const proto = ChildProcess.prototype as unknown as { spawn: SpawnSeam };
+  const spawnSeam = proto.spawn;
+  if (typeof spawnSeam !== "function") {
     throw new Error(
       "child meter: ChildProcess.prototype.spawn is not a function — this Node release moved the spawn seam",
     );
   }
-  const spawnSeam = original as SpawnSeam;
   const meteredSpawn: SpawnSeam = function meteredSpawn(options) {
     const argv = options.args ?? (options.file ? [options.file] : []);
     const kind = childKind(argv);
