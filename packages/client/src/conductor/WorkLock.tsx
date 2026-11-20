@@ -97,7 +97,7 @@ const WorkLock: Component<{
       const target = e.target;
       if (
         target instanceof Element &&
-        target.closest('[data-testid="work-lock-card"]') !== null
+        target.closest("[data-lock-card]") !== null
       )
         return;
       dismissLockCard();
@@ -164,6 +164,7 @@ const WorkLock: Component<{
             <div class="pointer-events-none absolute inset-0 z-30 flex items-center justify-center p-3">
               <div
                 data-testid="work-lock-card"
+                data-lock-card=""
                 data-lock-terminal={props.terminal}
                 data-work={at().work}
                 data-role={at().role}
