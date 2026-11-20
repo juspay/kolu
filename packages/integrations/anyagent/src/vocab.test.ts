@@ -1,11 +1,3 @@
-/** The steer-sight comparisons every agent's pane reader and `agent_say`
- *  share: what a steering pane's items say about a message, and whether a
- *  transcript's newest prompt IS that message.
- *
- *  Both are about the same mistake — reading "close enough" as "the same" —
- *  and `agent_say` tells a caller NOT to say it again off either, so a loose
- *  match is a message the agent never got and nobody is going to resend. */
-
 import { describe, expect, it } from "vitest";
 import {
   LAST_PROMPT_TEXT_CHARS,
@@ -22,14 +14,9 @@ describe("paneHolds — what a steering pane's items say about these words", () 
     ).toEqual({
       kind: "holds",
     });
-    // THE BUG: a held "fix" made a later, undelivered "fix the tests and
-    // push" read as held — a message the agent never got, which the caller
-    // was then told not to say again.
     expect(paneHolds(["fix"], "fix the tests and push")).toEqual({
       kind: "absent",
     });
-    // The other direction is equally not these words: the pane is holding
-    // something longer that merely starts the same way.
     expect(
       paneHolds(["fix the tests and push it to main"], "fix the tests"),
     ).toEqual({ kind: "absent" });

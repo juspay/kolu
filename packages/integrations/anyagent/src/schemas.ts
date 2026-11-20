@@ -1,8 +1,3 @@
-/** Browser-safe schemas and pure types from anyagent.
- *
- *  Split out from `index.ts` so kolu-common (and the client bundle) can
- *  import these schemas without dragging in node-only modules transitively. */
-
 import { Schema } from "effect";
 
 export type {

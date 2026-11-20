@@ -1,12 +1,3 @@
-/** The node-side plugin contract — an agent package's full contribution to the
- *  daemon. `AgentVocab` (browser-safe) is the half the client bundle can
- *  import; this adds the pieces only a host runs: the detection adapter, the
- *  transcript fetcher, and the env keys that point detection at fixtures.
- *
- *  `Fetch` is a TYPE PARAMETER so anyagent does NOT depend on
- *  `kolu-transcript-core`. Every agent package binds `Fetch = Fetcher`
- *  (`kolu-transcript-core`'s loader contract). */
-
 import type { AgentAdapter, AgentInfoShape } from "./agent-adapter.ts";
 import type { AgentVocab } from "./vocab.ts";
 

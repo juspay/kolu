@@ -35,7 +35,6 @@ const decodeIdentityResult = Schema.decodeUnknownResult(AgentIdentitySchema);
 const encodeProgress = Schema.encodeSync(TaskProgressSchema);
 const decodeProgressResult = Schema.decodeUnknownResult(TaskProgressSchema);
 
-/** A real claude-code session id shape (the UUID `resumeFormFor` gates on). */
 const SESSION_ID = "0192f3a1-4c5b-7d8e-9f01-23456789abcd";
 
 describe("AgentIdentitySchema — the persisted resume identity, byte for byte", () => {
@@ -68,9 +67,6 @@ describe("AgentIdentitySchema — the persisted resume identity, byte for byte",
   });
 
   it("accepts an OPEN kind — anyagent names no agent, so a record for an agent this build does not know still decodes", () => {
-    // The kind is a plain string here by design: the refusal for an unknown
-    // agent happens at the point of use (`resumeFormFor`'s registry gate),
-    // not at the decode boundary — a decode throw would drop the whole terminal.
     expect(
       decodeIdentity({
         kind: "a-new-agent",
@@ -90,8 +86,6 @@ describe("AgentIdentitySchema — the persisted resume identity, byte for byte",
 });
 
 describe("RestoreTargetSchema — every arm, byte for byte", () => {
-  /** `none` is the wake-lands-on-a-bare-shell arm (juspay/kolu#1492): one key,
-   *  no smuggled second meaning. */
   it("encodes `none` as a bare discriminant", () => {
     expect(JSON.stringify(encodeTarget({ kind: "none" }))).toBe(
       `{"kind":"none"}`,
@@ -112,7 +106,6 @@ describe("RestoreTargetSchema — every arm, byte for byte", () => {
     expect(bytes).toBe(
       `{"kind":"exact","agent":{"kind":"claude-code","sessionId":"${SESSION_ID}","resumeRef":"${SESSION_ID}"},"argv":["--model","sonnet","--dangerously-skip-permissions"]}`,
     );
-    // The forgery surface: a target can no longer carry a captured command line.
     expect(bytes).not.toContain("command");
   });
 
@@ -130,10 +123,6 @@ describe("RestoreTargetSchema — every arm, byte for byte", () => {
 });
 
 describe("RestoreTargetSchema — reader tolerance and refusal", () => {
-  /** Rolling deploy / downgrade: a record written by a NEWER kolu carries a
-   *  field this build has never heard of. Reading it drops the unknown field
-   *  rather than failing the whole record, so a user who rolls back does not
-   *  lose their resume target. */
   it("drops fields a newer writer added, at both nesting levels", () => {
     expect(
       decodeTarget({
@@ -158,10 +147,6 @@ describe("RestoreTargetSchema — reader tolerance and refusal", () => {
     });
   });
 
-  /** Refusal is what makes the target's two arms exhaustive: a
-   *  half-written `exact` (identity lost, or no argv list) must not decode into
-   *  something the wake path would act on. padi drops the whole malformed record
-   *  instead. */
   it("refuses an `exact` arm missing its identity or its argv", () => {
     expect(
       Result.isFailure(
@@ -185,9 +170,6 @@ describe("RestoreTargetSchema — reader tolerance and refusal", () => {
     ).toBe(true);
   });
 
-  /** The retired arms are not silently accepted under their old spelling: a
-   *  downgrade or a hand-edited file naming `command` must be MIGRATED, not
-   *  decoded into a shape the wake would replay. */
   it("refuses the old `command`-bearing exact arm and `legacyMostRecent`", () => {
     expect(
       Result.isFailure(

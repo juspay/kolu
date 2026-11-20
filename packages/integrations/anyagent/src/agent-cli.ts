@@ -52,7 +52,6 @@ export function buildCliRegistry(
   return { byKind: (kind) => byKind.get(kind) };
 }
 
-/** Basename of a path-like token (strips directory prefix). */
 function basename(s: string): string {
   const slash = s.lastIndexOf("/");
   return slash === -1 ? s : s.slice(slash + 1);
@@ -116,20 +115,14 @@ export function stableFlagTokens(
   for (let i = 0; i < argv.length; i++) {
     const t = argv[i];
     if (t === undefined) break;
-    if (t === "--") break; // explicit end of flags
-    if (!t.startsWith("-")) continue; // executable path, loader, positional
+    if (t === "--") break;
+    if (!t.startsWith("-")) continue;
     const next = argv[i + 1];
     const arity = grammar.stableFlags.get(t);
     if (arity === undefined) {
-      // Unknown flag — dropped. Its value needs no explicit skip: a token that
-      // does not start with `-` is a positional and falls out on the next
-      // iteration anyway. A resume marker (`--resume <id>`) and its id die here:
-      // the conversation is named by the OS-derived identity, never a token.
       continue;
     }
     kept.push(t);
-    // Attach the following token as this flag's value ONLY when the flag takes
-    // one — a boolean switch must not swallow a trailing positional.
     if (arity === "value" && next !== undefined && !next.startsWith("-")) {
       kept.push(next);
       i++;
@@ -165,9 +158,6 @@ function renderLine(
 ): string {
   const flags = stableFlagTokens(vocab.cli, argv);
   if (marker === null) return shellJoin([vocab.cli.basename, ...flags]);
-  // The marker sits DIRECTLY after the binary and the flags follow: codex spells
-  // resume as a `resume` SUBCOMMAND, so `codex resume <id> --model x` is the one
-  // order every agent accepts.
   const suffix = flags.length === 0 ? "" : ` ${shellJoin(flags)}`;
   return `${shellJoin([vocab.cli.basename])} ${marker}${suffix}`;
 }
@@ -220,8 +210,6 @@ export function resumeFormFor(
   if (!willResume(reg, target)) return null;
   const vocab = reg.byKind(target.agent.kind);
   if (vocab === undefined) return null;
-  // The ref is data, not shell text: `shellJoin([ref])` quotes it as ONE token
-  // (a no-op for a gate-passing ref) before the policy splices it.
   const marker = vocab.resume.byId(shellJoin([target.agent.resumeRef]));
   return renderLine(vocab, marker, target.argv);
 }

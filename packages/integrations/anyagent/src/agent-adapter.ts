@@ -1,27 +1,3 @@
-/**
- * AgentAdapter — the shared contract every agent-detection integration
- * implements. An adapter encapsulates four axes of volatility that vary
- * per agent CLI:
- *
- *  1. How a terminal maps to sessions           → `resolveSessions`
- *  2. Session-identity derivation               → `sessionKey`
- *  3. Per-session state watching + derivation   → `createWatcher`
- *  4. External signals that may change the match → `externalChanges`
- *     (optional — only agents whose session-match answer can change without
- *     a title event need this; see the field's JSDoc.)
- *
- * Which of the candidate sessions a terminal actually gets is NOT an adapter
- * concern — a session belongs to at most one terminal, and that is a property of
- * the whole terminal set, arbitrated once above every adapter (see
- * `resolveSessions`).
- *
- * Info equality is deliberately NOT part of this interface — it's a property
- * of the AgentInfo union shape, exposed as the free function `agentInfoEqual`
- * below. All concrete AgentInfo variants share the fields modeled by
- * `AgentInfoShape` (see its definition for the canonical field set), so one
- * equality function suffices for every adapter.
- */
-
 import type { Logger } from "@kolu/log";
 import type { ProcessSnapshot } from "kolu-io/types";
 import type { AgentCliGrammar } from "./vocab.ts";

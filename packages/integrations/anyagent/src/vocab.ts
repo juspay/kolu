@@ -1,16 +1,3 @@
-/** The agent VOCABULARY contracts — what every agent package must declare
- *  about itself, and what the registry (`kolu-agents`) folds.
- *
- *  This leaf names no agent (the anyforge note: the kernel is the receptacle,
- *  not a registry of plugs). It owns only the SHAPE of the facts an agent
- *  brings — its brand mark, its CLI grammar, its resume policy, its info
- *  schema — and the CLI algorithms that consume them. The DATA lives in each
- *  `kolu-<agent>` package; the LISTING lives in `kolu-agents`.
- *
- *  Browser-safe: types + `effect`'s Schema only. An agent's `infoSchema` is an
- *  Effect schema so the registry can compose the wire union without any agent
- *  package importing another. */
-
 import type { Schema } from "effect";
 import type { AgentInfoShape } from "./agent-adapter.ts";
 
