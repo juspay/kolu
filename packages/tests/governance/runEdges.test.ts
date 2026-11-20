@@ -1,15 +1,7 @@
-/**
- * The run-edge allowlist's own gate. The allowlist is only worth anything if the
- * SCANNER is honest, so each test here is a way the count could lie:
- * a run call named in prose, one quoted in a message, a second call added to an
- * already-listed file, a row left behind after its call site went away, and the
- * bare-import dodge the namespaced regex cannot see.
- */
-
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
-  blankNonCode,
+  blankCommentsAndStrings,
   countRunCalls,
   findRunAliases,
   hasBareRunImport,
@@ -56,8 +48,6 @@ test("ignores a call quoted in a string or template literal", () => {
 });
 
 test("a `//` inside a string does not swallow the rest of the line", () => {
-  // The regex version of this scanner blanked from the first `//` to the end of
-  // line, so a URL literal hid every call that followed it on that line.
   assert.equal(
     countRunCalls('const u = "https://example.test"; Effect.runFork(p);'),
     1,
@@ -77,7 +67,7 @@ test("a quote inside a comment does not open a string", () => {
 
 test("blanking preserves line structure, so positions still line up", () => {
   const source = "// gone\nkeep;\n/* also\ngone */ keep2;";
-  const blanked = blankNonCode(source);
+  const blanked = blankCommentsAndStrings(source);
   assert.equal(blanked.split("\n").length, source.split("\n").length);
   assert.ok(blanked.includes("keep;"));
   assert.ok(blanked.includes("keep2;"));
@@ -99,15 +89,12 @@ test("counts every namespace the runtime is reached through", () => {
 test("a bare named import of a run helper is caught, a namespaced one is not", () => {
   assert.ok(hasBareRunImport('import { runPromise } from "effect/Effect";'));
   assert.ok(!hasBareRunImport('import { Effect, Stream } from "effect";'));
-  // Named in prose, not imported.
   assert.ok(
     !hasBareRunImport('// import { runFork } from "effect" would dodge this'),
   );
 });
 
 test("an aliased run function is caught — the dodge a call count cannot see", () => {
-  // `const run = Effect.runPromise; run(program)` makes a run call with no
-  // `Effect.run*(` text anywhere near it.
   assert.deepEqual(findRunAliases("const run = Effect.runPromise;\nrun(p);"), [
     "Effect.runPromise",
   ]);
@@ -130,8 +117,6 @@ test("the destructured spelling of the same dodge is caught", () => {
 
 test("an ordinary call is NOT an alias, whatever follows the name", () => {
   assert.deepEqual(findRunAliases("Effect.runPromise(p);"), []);
-  // `runPromise` is a prefix of `runPromiseExit`; without a word boundary the
-  // scan would report this call as an alias of the shorter name.
   assert.deepEqual(findRunAliases("await Effect.runPromiseExit(p);"), []);
   assert.deepEqual(findRunAliases("Runtime.runSync(rt)(c);"), []);
   assert.deepEqual(findRunAliases("Effect.runPromise (p);"), []);
@@ -190,8 +175,6 @@ test("every committed row carries a path, a positive count and a justification",
       entry.path.startsWith("packages/") && /\.tsx?$/.test(entry.path),
       `${entry.path} is not a package source path`,
     );
-    // A `*.test.ts` is out of scope by design (the runner IS its edge), so a row
-    // for one would be a row that can never match.
     assert.ok(
       !/\.(test|test-d)\.tsx?$/.test(entry.path),
       `${entry.path} is a test file, which this scan does not cover`,

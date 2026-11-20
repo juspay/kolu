@@ -1,12 +1,3 @@
-/**
- * The conformance check's own gate. The real assertion runs against the live
- * tree in `check.ts` (it evaluates Nix), so what is pinned here is the part that
- * decides whether a disagreement is REPORTED: a walk that gained a member, a
- * walk that lost one, and the both-directions case — plus the refusal that keeps
- * a mistyped entry from reaching the Nix expression as an unreadable parse
- * error.
- */
-
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { nixClosureNames, validateClosureWalkAgreement } from "./closureWalk";

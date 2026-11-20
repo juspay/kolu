@@ -3,9 +3,6 @@ import { Then, When } from "@cucumber/cucumber";
 import { waitForBufferContains } from "../support/buffer.ts";
 import { type KoluWorld, POLL_TIMEOUT } from "../support/world.ts";
 
-/** Read xterm's current viewportY (top row of the visible window). When the
- *  user is scrolled to the bottom, viewportY === baseY. Scrolling up
- *  decreases it; we use that signed change as the "did scroll" assertion. */
 async function readViewportY(world: KoluWorld): Promise<number> {
   return world.page.evaluate(() => {
     const container = document.querySelector(
@@ -24,20 +21,7 @@ async function readViewportY(world: KoluWorld): Promise<number> {
 When(
   "I note the terminal viewport scroll position",
   async function (this: KoluWorld) {
-    // Wait for `seq` output to fill scrollback past the viewport so there's
-    // somewhere to scroll TO. Polling on a high line number guarantees the
-    // buffer is deeper than the visible window.
     await waitForBufferContains(this.page, "200");
-    // …then wait for the VIEWPORT to actually settle at the bottom of that
-    // scrollback before snapshotting the baseline. `waitForBufferContains`
-    // only proves line "200" is in the buffer (raising baseY); xterm pins
-    // the viewport to the new bottom one render tick later. On a slow runner
-    // (aarch64-darwin CI) viewportY can still read 0 (top) at that instant,
-    // so a baseline captured here would sit on the scroll floor and the
-    // down-swipe's scrollLines(-N) could never decrease it. Poll until
-    // baseY <= viewportY (pinned to bottom) with baseY > 0 (real scrollback
-    // above) — same settle check as scroll_lock_steps.ts's
-    // "scrolled to the bottom" step.
     await this.page.waitForFunction(
       () => {
         const term = (
@@ -67,18 +51,10 @@ When(
     // container. Playwright's touchscreen.tap() only does single taps, and
     // hasTouch context doesn't translate mouse drags to touch — synthetic
     // TouchEvent dispatch is the most reliable path for swipe gestures.
-    //
-    // Down-swipe (deltaY positive) is what users do to reveal earlier
-    // scrollback. Anchor near the bottom of the viewport, drag to near the
-    // top — a ~400px stroke covers many cells regardless of font size.
     const container = this.page.locator("[data-visible][data-terminal-id]");
     const box = await container.boundingBox();
     assert.ok(box, "Terminal container has no bounding box");
     const x = box.x + box.width / 2;
-    // Finger swipes DOWN — start near the top, end near the bottom.
-    // (Y increases downward in screen coordinates.) The handler converts
-    // a positive Y-delta into scrollLines(-N), which moves the viewport
-    // up the scrollback.
     const startY = box.y + 20;
     const endY = box.y + box.height - 20;
 

@@ -1,43 +1,27 @@
-// AGNOSTIC screencast capture engine — knows NOTHING about kolu.
-//
-// Records a headful browser running inside an Xvfb virtual display via
-// `ffmpeg -f x11grab` — capture happens OUTSIDE Chrome on a fixed clock in
-// physical pixels, so it is structurally smooth (≥30 fps, decoupled from the
-// compositor) AND crisp at true 2×. Then transcodes the raw clip into crisp,
-// web-embeddable assets (mp4 + webm + poster).
-//
-// This is a graduation candidate for `@kolu/web-screencast` (see
-// docs/atlas/src/content/atlas/welcome-live-screencast.mdx). It is kept as an
-// isolated module with the dependency arrow pointing OUT — nothing here may
-// import kolu domain — until a real second consumer earns the package.
-//
-// Requires `ffmpeg-full` (the x11grab input device; plain nixpkgs `ffmpeg` is
-// built --disable-xlib) and `Xvfb` on PATH — provided by `./shell.nix`, which
-// the `just record` recipe layers onto the e2e shell.
 import { type ChildProcess, spawn } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 
-export interface Viewport {
-  /** Logical (CSS) pixels. Physical capture size is width|height × scale. */
+export interface LogicalViewport {
   width: number;
   height: number;
 }
 
-/** The PHYSICAL capture resolution for a logical viewport at a given scale —
- *  the one place the `physical = width|height × scale` relationship lives, so
- *  the Xvfb screen and the x11grab `video_size` cannot drift apart. */
-export function physicalSize(opts: { viewport: Viewport; scale: number }): {
+export interface PhysicalSize {
   width: number;
   height: number;
-} {
+}
+
+export function physicalSize(opts: {
+  viewport: LogicalViewport;
+  scale: number;
+}): PhysicalSize {
   return {
     width: opts.viewport.width * opts.scale,
     height: opts.viewport.height * opts.scale,
   };
 }
 
-/** Start an Xvfb virtual display sized to the PHYSICAL capture resolution. */
 export function startXvfb(
   display: string,
   width: number,
@@ -50,12 +34,9 @@ export function startXvfb(
   );
 }
 
-/** The shared geometry/sandbox flags every capture-grade Chrome needs — a
- *  retina window pinned to the logical viewport, no sandbox, no scrollbars.
- *  Both app-mode and browser-mode capture build on this single base. */
 export function captureWindowArgs(opts: {
   scale: number;
-  viewport: Viewport;
+  viewport: LogicalViewport;
 }): string[] {
   return [
     "--no-sandbox",
@@ -68,19 +49,14 @@ export function captureWindowArgs(opts: {
   ];
 }
 
-/** Chrome flags for a chromeless, retina **app-mode** window at `url` — the
- *  same frameless surface an installed PWA uses (no tabs, no address bar).
- *  `--app` is the only delta over the shared capture-window base. */
 export function appModeArgs(opts: {
   url: string;
   scale: number;
-  viewport: Viewport;
+  viewport: LogicalViewport;
 }): string[] {
   return [...captureWindowArgs(opts), `--app=${opts.url}`];
 }
 
-/** Begin grabbing the framebuffer to a raw, high-quality H.264 file at a fixed
- *  frame rate. Returns the ffmpeg process — stop it with `stopX11Grab`. */
 export function startX11Grab(opts: {
   display: string;
   width: number;
@@ -116,11 +92,6 @@ export function startX11Grab(opts: {
       "libx264",
       "-crf",
       "16",
-      // ultrafast, not veryfast: the raw grab must keep 30fps at 3200×1800
-      // even while agents and builds load the box. veryfast starved once and
-      // silently dropped ~2/3 of frames — the published clip came out as an
-      // accidental ~3× timelapse. The transcode re-encodes anyway, so the
-      // raw preset only costs disk, never final quality.
       "-preset",
       "ultrafast",
       "-pix_fmt",
@@ -146,10 +117,6 @@ export function stopX11Grab(proc: ChildProcess): Promise<void> {
   });
 }
 
-/** Transcode a raw clip into crisp, web-embeddable assets, trimming
- *  `trimStart` seconds of leading blank (the pre-navigation window). Emits an
- *  H.264 mp4 (universal), a VP9 webm (smaller, served first) and a WebP poster.
- *  Returns the output paths. */
 export async function transcodeToWeb(opts: {
   raw: string;
   outDir: string;
@@ -162,10 +129,7 @@ export async function transcodeToWeb(opts: {
   const mp4 = path.join(opts.outDir, `${opts.name}.mp4`);
   const webm = path.join(opts.outDir, `${opts.name}.webm`);
   const poster = path.join(opts.outDir, `${opts.name}.webp`);
-  // mp4 (H.264) and webm (VP9) both read from the raw source independently —
-  // encode them in parallel to halve wall-clock transcode time.
   await Promise.all([
-    // mp4: H.264, yuv420p + faststart for universal, instant-start playback.
     runFfmpeg([
       "-y",
       "-loglevel",
@@ -208,7 +172,6 @@ export async function transcodeToWeb(opts: {
       webm,
     ]),
   ]);
-  // poster: a representative frame as WebP (LCP element = video frame 1-ish).
   await runFfmpeg([
     "-y",
     "-loglevel",

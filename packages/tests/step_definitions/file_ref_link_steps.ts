@@ -22,14 +22,6 @@ type DrawerWatchWindow = Window & {
 
 const RIGHT_PANEL_MARKER = '[data-testid="right-panel-tab-inspector"]';
 
-/** Locate a clickable file-ref in the active terminal and compute
- *  pixel coordinates from the **public** xterm API
- *  (`term.cols/rows` + the `.xterm-screen` bounding rect). The
- *  previous step reached into `term._core._linkProviderService` —
- *  fragile to xterm internals (which already broke once on this
- *  branch when the field was renamed). The real-mouse path also
- *  exercises xterm's hit-testing, which the click handler relies on
- *  in production. */
 async function findRefClickPoint(
   world: KoluWorld,
   refText: string,
@@ -73,19 +65,6 @@ async function findRefClickPoint(
   );
 }
 
-/** Pixel at the FONT-METRIC visual centre of a terminal file-ref's first cell —
- *  where xterm actually renders the glyph (`_core._renderService.dimensions.css.
- *  cell.*`, the UNtransformed cell), scaled by the tile's CSS `scale(zoom)`. This
- *  is the cell the user visually taps. Tapping HERE and asserting the ref
- *  resolves guards that the extracted touch tap still routes a visual tap to the
- *  right cell through xterm's font-metric authority (`cellAtPoint`, PR-2),
- *  including under zoom. The fixture places the ref far enough from both axes
- *  that the un-inverted coordinate lands on a non-link cell; this helper asserts
- *  that counterfactual, that the visual point is inside the terminal's clipped
- *  touch surface, and that xterm's transform-aware authority resolves the
- *  intended cell. It still does NOT discriminate against the deleted
- *  `rect.width / cols`: that parallel divisor self-corrected for zoom. Null when
- *  no marker row / cell metrics are measurable. */
 async function findRefFontMetricPoint(
   world: KoluWorld,
   refText: string,
@@ -136,7 +115,6 @@ async function findRefFontMetricPoint(
         if (col < 0) continue;
         const rect = screen.getBoundingClientRect();
         if (rect.width <= 0 || rect.height <= 0) return null;
-        // The tile's CSS scale(zoom) = transformed rect / untransformed layout.
         const scaleX =
           screen.offsetWidth > 0 ? rect.width / screen.offsetWidth : 1;
         const scaleY =
@@ -151,11 +129,6 @@ async function findRefFontMetricPoint(
           );
         }
 
-        // Counterfactual for the defect this journey guards: without the
-        // transform inverse, xterm divides the post-transform offset by the
-        // untransformed CSS cell size. The fixture must make that wrong answer
-        // miss the ref, or the browser journey could stay green after the
-        // correction disappeared.
         const naiveCol = Math.floor((x - rect.left) / cw);
         const naiveViewportRow = Math.floor((y - rect.top) / ch);
         const naiveBufferRow = top + naiveViewportRow;
@@ -190,10 +163,6 @@ async function findRefFontMetricPoint(
   );
 }
 
-/** Resolve the on-screen pixel point of a terminal file-ref, waiting for the
- *  preconditions both the mouse-click and touch-tap activation paths share.
- *  `findPoint` selects the geometry — the default `rect.width/cols` centre, or
- *  the font-metric visual centre for the divisor-authority tap. */
 async function resolveRefPoint(
   world: KoluWorld,
   refText: string,
@@ -202,15 +171,6 @@ async function resolveRefPoint(
     refText: string,
   ) => Promise<RefClickPoint> = findRefClickPoint,
 ): Promise<{ x: number; y: number }> {
-  // The file-ref → Code-tab open path needs the terminal's git context
-  // (repoRoot) resolved: Terminal.tsx's activateFileRef bails until meta.git
-  // is a resolved repo. On the slower aarch64-darwin runner the `cd` into the
-  // repo and the ensuing git resolution lag behind the echoed
-  // `path:line` text the click targets, so the click would silently
-  // no-op (the ref resolves, but there's no repoRoot to open with). Wait
-  // for the active tile's branch annotation to show a real branch first.
-  // The annotation lives on the active canvas tile (desktop) or the
-  // fullscreen tile's titlebar (mobile) — both carry `terminal-meta-branch`.
   await world.page.waitForFunction(
     (activeTileSel) => {
       const el =
@@ -226,8 +186,6 @@ async function resolveRefPoint(
     ACTIVE_CANVAS_TILE_SELECTOR,
     { timeout: POLL_TIMEOUT },
   );
-  // Buffer poll first so the regex match window has a chance to
-  // include the just-echoed text.
   await waitForBufferContains(world.page, refText);
   const point = await pollFor({
     observe: () => findPoint(world, refText),
@@ -272,14 +230,6 @@ When(
 When(
   "I tap the terminal file-ref link {string} at its font-metric visual centre",
   async function (this: KoluWorld, refText: string) {
-    // A real CDP touch tap (@mobile has `hasTouch`) at where xterm RENDERS the
-    // glyph — the font-metric cell centre (css.cell × the live CSS scale), NOT
-    // `rect.width / cols`. Under an ancestor CSS `scale()` this exercises the
-    // extracted touch tap path routing a visual tap through xterm's single
-    // divisor authority (`cellAtPoint`, transform-corrected by
-    // `patchTransformAwareMouseCoords`) to the right cell. It guards the path; it
-    // is not a discriminator against the deleted `rect.width / cols` (a centre
-    // tap resolves to the same cell under both — see findRefFontMetricPoint).
     const point = await resolveRefPoint(this, refText, findRefFontMetricPoint);
     await this.page.touchscreen.tap(point.x, point.y);
     await this.waitForFrame();
@@ -304,7 +254,6 @@ When(
         if (!el) return false;
         el.style.transformOrigin = "0 0";
         el.style.transform = `scale(${s})`;
-        // Force layout so the transformed rect is measurable before the tap.
         void el.getBoundingClientRect();
         return true;
       },

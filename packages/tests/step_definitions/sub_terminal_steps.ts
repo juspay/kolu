@@ -1,6 +1,9 @@
 import * as assert from "node:assert";
 import { Then, When } from "@cucumber/cucumber";
-import { waitForBufferContains } from "../support/buffer.ts";
+import {
+  waitForBufferContains,
+  waitForVisibleRows,
+} from "../support/buffer.ts";
 import { openActiveHostDiagnostics } from "../support/hostChip.ts";
 import { padiCall } from "../support/rpcWire.ts";
 import {
@@ -13,66 +16,42 @@ import {
 
 const PALETTE = '[data-testid="command-palette"]';
 
-/** The visible split — the pane a user is actually looking at. */
 const VISIBLE_SUB = "[data-sub-terminal][data-visible]";
 
-/** Payload for the hidden-split render scenario: 40 lines of ~95 columns.
- *  Wider than xterm's fabricated 80-column default on purpose — a snapshot the
- *  host serialized at the REAL grid, painted into that invented grid, wraps
- *  every line and leaves the viewport pointing at the wrong rows.
- *
- *  The trailing marker is shell-QUOTED here so the shell's own echo of this
- *  command line reads `SPLIT-"BOTTOM"-MARK` and can never satisfy an assertion
- *  looking for the unquoted `SPLIT-BOTTOM-MARK` that only `echo`'s OUTPUT
- *  produces (`dev/skills/e2e-testing/SKILL.md` — no vacuous assertions). */
 const WIDE_OUTPUT_COMMAND =
   `clear; for i in $(seq 1 40); do printf 'L%02d' $i; ` +
   `printf '%*s' 88 '' | tr ' ' '.'; printf 'END%02d\\n' $i; done; ` +
   `echo SPLIT-"BOTTOM"-MARK`;
 
-/** Printed last, so seeing it means seeing the LIVE BOTTOM of the split. */
 const BOTTOM_MARKER = "SPLIT-BOTTOM-MARK";
 
-/**
- * Open command palette, fill a query, click the first result, wait for close.
- * Uses evaluate to fill the input and click the result because Corvu's dialog
- * content visibility is state-based — Playwright's actionability checks see
- * elements as "hidden" during the open transition even with CSS animations
- * disabled. The evaluate approach bypasses these checks entirely.
- */
-async function paletteCommand(world: KoluWorld, query: string) {
-  // Ensure focus is in the app (previous palette close may leave focus nowhere)
-  const terminal = world.page.locator(
-    "[data-visible][data-focused] .xterm-helper-textarea",
-  );
-  if ((await terminal.count()) > 0) await terminal.first().focus();
-  await world.page.keyboard.press(`${APP_KEY}+k`);
-  await world.page.waitForFunction(
-    (sel) => document.querySelector(`${sel}[data-open]`) !== null,
-    PALETTE,
-    { timeout: POLL_TIMEOUT },
-  );
+async function forceFillViaNativeSetter(
+  world: KoluWorld,
+  inputSelector: string,
+  value: string,
+): Promise<void> {
   await world.page.evaluate(
-    ({ sel, q }) => {
-      const input = document.querySelector(`${sel} input`) as HTMLInputElement;
-      if (!input) throw new Error("Palette input not found");
-      // Bypass Solid's reactivity by calling the native HTMLInputElement.value
-      // setter directly. Both lookups should always succeed in a real browser
-      // — the explicit guards turn an environmental misconfiguration into a
-      // descriptive throw rather than `Cannot read properties of undefined`.
-      const descriptor = Object.getOwnPropertyDescriptor(
+    ({ sel, v }) => {
+      const input = document.querySelector(sel);
+      if (!(input instanceof HTMLInputElement)) {
+        throw new Error(`no input at ${sel}`);
+      }
+      const nativeSet = Object.getOwnPropertyDescriptor(
         HTMLInputElement.prototype,
         "value",
-      );
-      const nativeSet = descriptor?.set;
+      )?.set;
       if (!nativeSet) throw new Error("HTMLInputElement.value setter missing");
-      nativeSet.call(input, q);
+      nativeSet.call(input, v);
       input.dispatchEvent(new Event("input", { bubbles: true }));
     },
-    { sel: PALETTE, q: query },
+    { sel: inputSelector, v: value },
   );
-  // Prefer exact data-palette-name match — with fleet ranking, a looser
-  // filter can put "Toggle terminal split" ahead of "Split terminal".
+}
+
+async function forceClickPaletteOption(
+  world: KoluWorld,
+  name: string,
+): Promise<void> {
   await world.page.waitForFunction(
     ({ sel, q }) => {
       const opts = [
@@ -86,20 +65,29 @@ async function paletteCommand(world: KoluWorld, query: string) {
       item.click();
       return true;
     },
-    { sel: PALETTE, q: query },
+    { sel: PALETTE, q: name },
     { timeout: POLL_TIMEOUT },
   );
+}
+
+async function paletteCommand(world: KoluWorld, query: string) {
+  const terminal = world.page.locator(
+    "[data-visible][data-focused] .xterm-helper-textarea",
+  );
+  if ((await terminal.count()) > 0) await terminal.first().focus();
+  await world.page.keyboard.press(`${APP_KEY}+k`);
+  await world.page.waitForFunction(
+    (sel) => document.querySelector(`${sel}[data-open]`) !== null,
+    PALETTE,
+    { timeout: POLL_TIMEOUT },
+  );
+  await forceFillViaNativeSetter(world, `${PALETTE} input`, query);
+  await forceClickPaletteOption(world, query);
   await world.page.waitForFunction(
     (sel) => document.querySelector(`${sel}[data-open]`) === null,
     PALETTE,
     { timeout: POLL_TIMEOUT },
   );
-  // Wait for focus to land in a terminal — Corvu's focus trap release is async
-  // and waitForFrame (2x rAF) is insufficient on loaded CI. On touch the
-  // refocus-terminal-on-dialog-close is intentionally suppressed (it would
-  // summon the soft keyboard with no tap), so the terminal stays unfocused by
-  // design — short-circuit the wait there; the typing steps focus their target
-  // explicitly.
   await world.page.waitForFunction(
     (coarsePointer) =>
       matchMedia(coarsePointer).matches ||
@@ -113,9 +101,6 @@ When(
   "I create a sub-terminal via command palette",
   async function (this: KoluWorld) {
     await paletteCommand(this, "Toggle terminal split");
-    // handleCreateSubTerminal is async (RPC) but onSelect is fire-and-forget.
-    // Wait for the sub-terminal to actually exist before proceeding — otherwise
-    // the next "toggle" command may see no subs and create again instead.
     try {
       await this.page.waitForFunction(
         () => document.querySelector("[data-sub-terminal]") !== null,
@@ -132,11 +117,6 @@ When(
   },
 );
 
-/** Create a split of a split via the daemon RPC — the product UI only ever
- *  parents under a top-level tile, so nested depth arrives from MCP /
- *  `kolu create --parent` (the #2059 bug class). Uses the remembered
- *  sub-terminal id as the parent, STATED as the wire's required `placement`
- *  (there is no `parentId` field and no default — see `createPlacement.test.ts`). */
 When(
   "I create a terminal parented to the remembered sub-terminal",
   async function (this: KoluWorld) {
@@ -151,7 +131,6 @@ When(
     await padiCall("lifecycle/create", {
       placement: { kind: "child-of", parentId },
     });
-    // Nested create must appear as another flat tab on the root tile's strip.
     await this.page.waitForFunction(
       (before) =>
         document.querySelectorAll(
@@ -179,10 +158,6 @@ When(
 When(
   "I run {string} in the sub-terminal",
   async function (this: KoluWorld, command: string) {
-    // Focus the visible sub-terminal before typing — desktop auto-focuses it on
-    // expand, but on touch the sub no longer auto-focuses (the soft keyboard
-    // rises only on a tap), so this stands in for the tap. Either way, typing
-    // lands in the sub-terminal, not the main one.
     await this.focusForTyping("[data-visible][data-sub-terminal]");
     await this.page.keyboard.type(command);
     await this.page.keyboard.press("Enter");
@@ -193,19 +168,6 @@ When(
 When(
   "I fill the sub-terminal with output wider than the default grid",
   async function (this: KoluWorld) {
-    // Pin the precondition the whole scenario rests on: the split's REAL width
-    // must differ from the 80 columns xterm's constructor invents. If a viewport,
-    // font, dock or layout change ever made them equal, the pre-fix code would
-    // receive and paint an 80-column snapshot correctly and this scenario would
-    // pass while the bug was fully present — a vacuous guard. Assert it rather
-    // than assume it.
-    //
-    // The wait is for a DAEMON ROUND TRIP (see `terminal_resize_steps.ts`), and
-    // "cols is non-zero" cannot stand in for it: a pane's xterm starts life at
-    // the 80×24 its constructor invents, so a freshly mounted split reports a
-    // non-zero 80 instantly and the check passes before it has learned
-    // anything. Wait for the split to LEAVE that invented grid; the message
-    // that used to be the assertion is now what a timeout says.
     const measured = await this.page
       .waitForFunction(
         (sel) => {
@@ -227,14 +189,8 @@ When(
     await this.focusForTyping(VISIBLE_SUB);
     await this.page.keyboard.type(WIDE_OUTPUT_COMMAND);
     await this.page.keyboard.press("Enter");
-    // Prove the payload actually RAN before the scenario hides the panel. Without
-    // this the arrangement is unconditional, and a shell still initializing would
-    // surface three steps later as a confusing viewport failure that reads like
-    // the render defect itself. VIEWPORT, not buffer: the claim is that the user
-    // can SEE the bottom of the output, not merely that the bytes arrived.
-    await waitForBufferContains(this.page, BOTTOM_MARKER, {
+    await waitForVisibleRows(this.page, BOTTOM_MARKER, {
       selector: VISIBLE_SUB,
-      viewport: true,
     });
   },
 );
@@ -245,12 +201,8 @@ Then(
     await this.page
       .locator('[data-testid="sub-panel-tab-bar"]:visible')
       .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
-    // VIEWPORT, not buffer: the defect delivers every byte correctly and then
-    // shows the wrong window onto them, so a whole-buffer read passes on a
-    // screen the user sees as broken. Only the on-screen rows can fail here.
-    await waitForBufferContains(this.page, BOTTOM_MARKER, {
+    await waitForVisibleRows(this.page, BOTTOM_MARKER, {
       selector: VISIBLE_SUB,
-      viewport: true,
     });
   },
 );
@@ -272,8 +224,6 @@ Then("the sub-panel should not be visible", async function (this: KoluWorld) {
 Then(
   "the sub-terminal should have keyboard focus",
   async function (this: KoluWorld) {
-    // Wait for focus to land inside a [data-sub-terminal] container directly —
-    // no indirect ID comparison with the workspace switcher's active entry.
     await this.page.waitForFunction(
       () => !!document.activeElement?.closest("[data-sub-terminal]"),
       { timeout: POLL_TIMEOUT },
@@ -284,9 +234,6 @@ Then(
 Then(
   "the main terminal should have keyboard focus",
   async function (this: KoluWorld) {
-    // Wait for focus to land specifically in a main terminal (not sub-terminal).
-    // [data-visible] alone is too broad — matches any visible element.
-    // Corvu's focus trap release is async; fall back to clicking the canvas.
     try {
       await this.page.waitForFunction(
         () =>
@@ -307,11 +254,6 @@ Then(
   },
 );
 
-// Assert both the internal marker AND the rendered opacity it drives, so the
-// cue can't be silently broken (rule deleted / class typo'd) while the marker
-// still flips. Transitions are forced to 0s in tests (hooks.ts), so opacity is
-// settled, not mid-fade. The active pane is full strength (1); the receded one
-// is the 0.4 the Tailwind `data-[pane-focus=inactive]:opacity-40` paints.
 Then(
   "the {word} pane should be the active pane",
   async function (this: KoluWorld, pane: string) {
@@ -360,7 +302,6 @@ When(
   async function (this: KoluWorld) {
     const countBefore = await this.page.locator("[data-sub-terminal]").count();
     await paletteCommand(this, "Split terminal");
-    // Wait for the new sub-terminal to mount (async RPC creation)
     await this.page.waitForFunction(
       (expected) =>
         document.querySelectorAll("[data-sub-terminal]").length >= expected,
@@ -385,7 +326,6 @@ Then(
   "the sub-panel tab bar should have {int} tab(s)",
   async function (this: KoluWorld, expected: number) {
     const sel = '[data-testid="sub-panel-tab-bar"] button:not([title])';
-    // Poll — the second sub-terminal may still be initializing
     await this.page.waitForFunction(
       ({ sel, exp }) => document.querySelectorAll(sel).length === exp,
       { sel, exp: expected },
@@ -417,8 +357,6 @@ When(
         '[data-testid="sub-panel-tab-bar"] [data-testid="sub-tab-close"]',
       )
       .nth(index - 1);
-    // Hover the parent to reveal the close button, then click.
-    // Splits close directly — no confirmation dialog.
     await tab.locator("..").hover();
     await tab.click();
     await this.waitForFrame();
@@ -464,10 +402,6 @@ Then(
 Then(
   "every dock split sub-entry should be a direct child of its section",
   async function (this: KoluWorld) {
-    // The cascade laws (`dock-cards-section > [data-dock-row]` and its
-    // `.dock-cluster` twin) define "inside the section's grid": with branch
-    // clusters (#2247), a split row's legal home is EITHER the section root
-    // or a DIRECT `.dock-cluster` child of it — nothing deeper.
     const direct = await this.page
       .locator('[data-testid="dock-sub-row"]')
       .evaluateAll((rows) =>
@@ -488,13 +422,9 @@ Then(
 Then(
   "the dock split sub-entry should show the shell identity pip without asking",
   async function (this: KoluWorld) {
-    // Owner supersession of FX2 "label + landing only": sub-entries match
-    // top-level rows (identity pip + activity motion). A shell still cannot
-    // ask — assert identity pip present and no asking attribute.
     const row = this.page.locator('[data-testid="dock-sub-row"]').first();
     assert.strictEqual(await row.getAttribute("data-agent-state"), null);
     assert.strictEqual(await row.getAttribute("data-asking"), null);
-    // Fresh palette-spawned split: no agent has finished → not unread.
     assert.strictEqual(await row.getAttribute("data-unread"), null);
     const pip = row.locator('[data-testid="state-pip"]');
     assert.strictEqual(
@@ -509,11 +439,6 @@ Then(
 Then(
   "the split's dock row should name the model {string}",
   async function (this: KoluWorld, model: string) {
-    // The SUB-row's own handle, deliberately: both row types carry the shared
-    // `[data-dock-row]` hook (and therefore `[data-dock-model]`), so a selector
-    // built from the hook alone could be satisfied by the parent's tag while
-    // the split showed none. This step is about the split's line, so it names
-    // the split.
     await this.page.waitForFunction(
       ({ sel, want }: { sel: string; want: string }) =>
         Array.from(document.querySelectorAll(sel)).some(
@@ -528,22 +453,6 @@ Then(
 Then(
   "the split's dock row should sit inside its parent row's box",
   async function (this: KoluWorld) {
-    // Geometry, because no unit test can see it (happy-dom lays nothing out)
-    // and because two properties of the split row are invisible to every other
-    // kind of test:
-    //   · its INDICATOR (and label) sit further in than its parent's — the
-    //     indent that says "child";
-    //   · its box's RIGHT edge lands exactly where its parent's does, so the
-    //     dock keeps ONE set of right-hand columns (the recency and the model),
-    //     and the row's background reaches the card's edge.
-    // It has been wrong twice, both times by a layout mechanism rather than a
-    // typo: a subgrid row padded on the left moves only its first cell, and a
-    // self-templated row carrying `w-full` comes out a gutter short (264 vs
-    // 288) with its background stopping inside the card.
-    // NOTE: no named function expressions inside this predicate — the step
-    // bundle is built with `keepNames`, so esbuild wraps `const f = () => …`
-    // in its `__name(...)` helper, and the serialized predicate then throws
-    // `ReferenceError: __name is not defined` in the browser.
     const handle = await this.page.waitForFunction(
       () => {
         const parent = document.querySelector('[data-testid="dock-row"]');
@@ -646,11 +555,6 @@ Then(
 Then(
   "the dock section active count should agree with the active host tab",
   async function (this: KoluWorld) {
-    // The host tab carries no spinner + count of its own (its coming and going
-    // shifted the strip): it runs a STRIPE along its bottom edge and names the
-    // count in the dot button's label. Agreement = the section says 1, the tab
-    // runs its stripe, and the tab's words say 1. Scoped under `host-chip-row`
-    // — the hidden measuring twin also matches `host-chip`.
     await this.page.waitForFunction(
       () => {
         const splitAgent = document.querySelector(
@@ -686,8 +590,6 @@ Then(
 Then(
   "the active host's diagnostics should count {int} working terminal(s)",
   async function (this: KoluWorld, expected: number) {
-    // The count the host tab no longer draws lives in the host popover, read
-    // from the same `hostMarks` fold the tab's stripe reads.
     await openActiveHostDiagnostics(this.page);
     await this.page.waitForFunction(
       (want) => {
@@ -705,20 +607,17 @@ Then(
 Then(
   "the collapsed indicator should be visible",
   async function (this: KoluWorld) {
-    // First wait for the tab bar to disappear (confirms collapse state settled)
     await this.page
       .locator(
         ':is([data-canvas-tile], [data-mobile-tile])[data-active] [data-testid="sub-panel-tab-bar"]',
       )
       .waitFor({ state: "hidden", timeout: 10_000 });
-    // Then wait for the collapsed strip to mount and be visible
     const indicator = this.page.locator('[data-testid="collapsed-indicator"]');
     await indicator.waitFor({ state: "visible", timeout: 10_000 });
   },
 );
 
 Then("the resize handle should be visible", async function (this: KoluWorld) {
-  // Handle is an invisible hit zone (h-0 with ::before pseudo-element) — check attached, not visible
   const handle = this.page.locator('[data-testid="resize-handle"]');
   await handle.waitFor({ state: "attached", timeout: POLL_TIMEOUT });
 });
@@ -726,7 +625,6 @@ Then("the resize handle should be visible", async function (this: KoluWorld) {
 Then(
   "the sub-terminal screen should contain {string}",
   async function (this: KoluWorld, expected: string) {
-    // Wait for sub-panel to be fully expanded before reading buffer
     await this.page
       .locator('[data-testid="sub-panel-tab-bar"]:visible')
       .waitFor({ state: "visible", timeout: POLL_TIMEOUT });

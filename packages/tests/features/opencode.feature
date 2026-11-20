@@ -36,11 +36,6 @@ Feature: OpenCode status detection
     And there should be no page errors
 
   Scenario: npm-shimmed OpenCode is detected via the OSC 633;E preexec hint
-    # The fake-binary scenarios exercise `readForegroundBasename`, the
-    # kernel-level half of `matchesAgent`. This one exercises the other
-    # half — `lastAgentCommandName`, set from the shell's OSC 633;E preexec
-    # hint — which catches interpreter-shimmed agents (kernel basename = "node",
-    # not "opencode"). Regression guard for #677.
     When an OpenCode session is mocked with state "thinking" via an npm-shimmed CLI
     Then the tile chrome should show an OpenCode indicator with state "thinking"
     And there should be no page errors

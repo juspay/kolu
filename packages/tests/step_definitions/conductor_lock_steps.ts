@@ -1,31 +1,3 @@
-/** THE LOCK — step definitions for a terminal the Conductor drives.
- *
- *  A member of a waterfall is READ-ONLY to the person until they take it
- *  over, and these steps say that where it can be seen from outside: the
- *  frame around the terminal's body, the card typing raises over it, the
- *  pill that says the terminal is theirs — and the PTY itself.
- *
- *  NOTHING IS IN THE TILE'S HEADER any more, so nothing here reads it. The
- *  lock's whole resting state is a border on the body (`work-lock`, which
- *  carries the driver), and the control appears only when a person types
- *  (`work-lock-card`). Each of them names the terminal it is about in
- *  `data-lock-terminal` — a fleet ref, so the match is on its `/<id>` tail,
- *  the same way the work column's member rows are found.
- *
- *  THE PROBE IS THE PTY, not a signal in the browser. The member terminal the
- *  Conductor starts runs the omp stand-in, whose read loop ECHOES every line
- *  it is given behind a marker it assembles at runtime
- *  (`support/agent-mock-omp.ts`) — so a keystroke that arrived is a line on
- *  the terminal's own screen, and a keystroke the lock swallowed leaves that
- *  screen with no trace of the word at all (an unblocked key would show up
- *  twice: the PTY's echo of what was typed and the stand-in's answer). The
- *  marker is never typed, so nothing a step sends can spell the thing it
- *  waits for.
- *
- *  The arrangement — a repo, a work, its one question, the implementor — is
- *  `conductor_steps.ts`'s; every step here is about a terminal some earlier
- *  step put into a piece of work. */
-
 import assert from "node:assert";
 import { After, Then, When } from "@cucumber/cucumber";
 import type { BrowserContext, Locator, Page } from "playwright";
@@ -40,30 +12,18 @@ const PILL = '[data-testid="work-hand-back"]';
 const MARK = '[data-testid="work-mark"]';
 const ROW_NAME = '[data-testid="dock-row-name"]';
 
-/** How long a BLOCKED input is watched before the claim is made. The guard
- *  answers synchronously, but a keystroke that slipped past it would take a
- *  round trip to the PTY and back to show up — so the negative is only worth
- *  anything if it is held open longer than that trip. */
 const BLOCKED_WINDOW_MS = 3_000;
 
-/** The terminal this scenario put into a piece of work — set by the steps
- *  that make a member (`run the implementor …`) or adopt one (`watch …`). */
 function memberId(world: KoluWorld): string {
   const id = world.watchedTerminalId ?? world.memberTerminalId;
   assert.ok(id, "no terminal was put into a piece of work in this scenario");
   return id;
 }
 
-/** The INNER terminal container — the one that holds the `__xterm` ref and
- *  whose buffer is the PTY's own output (the outer tile wrapper carries the
- *  id but no font size and no terminal). */
-function memberTerminal(world: KoluWorld): string {
+function memberTerminalBody(world: KoluWorld): string {
   return `[data-terminal-id="${memberId(world)}"][data-font-size]`;
 }
 
-/** One of the lock's three pieces, for THIS member terminal and no other:
- *  the frame, the card or the pill. The ref's tail is what identifies it —
- *  the host half is the browser's business, not a test's. */
 function lockPart(world: KoluWorld, testid: string, page?: Page): Locator {
   return (page ?? world.page).locator(
     `${testid}[data-lock-terminal$="/${memberId(world)}"]`,
@@ -71,15 +31,11 @@ function lockPart(world: KoluWorld, testid: string, page?: Page): Locator {
 }
 
 async function memberScreen(world: KoluWorld): Promise<string> {
-  return readBufferText(world.page, memberTerminal(world));
+  return readBufferText(world.page, memberTerminalBody(world));
 }
 
-/** The screen a `… should be unchanged` claim is measured against. Module
- *  state, reset per scenario, for the same reason the work fixtures are. */
 let notedScreen: string | null = null;
 
-/** The other browser on the same server. Its own context, so it shares
- *  nothing with the first but the server — which is the whole claim. */
 let secondClient: { context: BrowserContext; page: Page } | null = null;
 
 After(async () => {
@@ -90,11 +46,6 @@ After(async () => {
   }
 });
 
-/** THE WAY TO THE TERMINAL a work made, as a person takes it: the member's
- *  name on the card, which leaves the conversation for the host the terminal
- *  lives on and focuses it. Waited for, because every step below types at
- *  that terminal — on a phone the tile is the one screen, on a desktop it is
- *  the active canvas tile. */
 When("I go to the member terminal", async function (this: KoluWorld) {
   const id = memberId(this);
   await this.page
@@ -105,9 +56,6 @@ When("I go to the member terminal", async function (this: KoluWorld) {
   await pollFor({
     observe: () =>
       this.page.evaluate(() => {
-        // A desktop names the active tile on the canvas wrapper; a phone
-        // shows one terminal and names it on its own tile. Either way the
-        // answer is which terminal the keyboard is about to reach.
         const at = document.querySelector(
           '[data-testid="canvas-tile"][data-active], [data-mobile-tile][data-active]',
         );
@@ -126,9 +74,6 @@ When("I go to the member terminal", async function (this: KoluWorld) {
   });
 });
 
-/** WHO DRIVES IT, read off the frame around the terminal's body — the one
- *  resting-state mark there is, and the same fact the keystroke gate reads.
- *  It is what a person sees without typing a thing. */
 async function expectFrame(
   world: KoluWorld,
   driver: "conductor" | "you",
@@ -161,8 +106,6 @@ Then(
   },
 );
 
-/** THE PILL, in a corner of the body — the only thing drawn while a person
- *  has the terminal, and the way they give it back. */
 Then(
   "the member terminal should offer to hand back",
   async function (this: KoluWorld) {
@@ -178,7 +121,6 @@ Then(
   },
 );
 
-/** THE CARD typing raises: the sentence, and the control it is there for. */
 Then(
   "the lock card should offer to take over the {string}",
   async function (this: KoluWorld, role: string) {
@@ -197,18 +139,12 @@ Then(
   },
 );
 
-/** CENTRED OVER THE TERMINAL — over the body the keystroke went to, not in a
- *  header, not in a band of its own. Containment is the claim a phone and a
- *  tiled desktop can both make. */
 Then(
   "the lock card should sit over the member terminal",
   async function (this: KoluWorld) {
     const card = await lockPart(this, CARD).first().boundingBox();
-    // The INNER container (the one with the font size) is the terminal's
-    // body — a bare `[data-terminal-id]` also names its dock row, which is a
-    // different box on the other side of the window.
     const body = await this.page
-      .locator(memberTerminal(this))
+      .locator(memberTerminalBody(this))
       .first()
       .boundingBox();
     assert.ok(card && body, "the card or the terminal has no box on screen");
@@ -235,8 +171,6 @@ Then(
   },
 );
 
-/** The card is a BRIEF thing — it goes by itself, which is also what lets a
- *  later blocked input raise one that means something. */
 When("the lock card goes by itself", async function (this: KoluWorld) {
   await pollFor({
     observe: () => lockPart(this, CARD).count(),
@@ -247,14 +181,6 @@ When("the lock card goes by itself", async function (this: KoluWorld) {
   });
 });
 
-/** Esc puts the card away — `I press Escape` is the shared step, pressed at
- *  the terminal where the card is. The key never reaches the PTY either way
- *  (a driven terminal takes no keys), so dismissal is all it says. */
-
-/** TAKE OVER IS ON THE CARD, so the card is what this presses — raising it
- *  first, by typing, when a step has not already. The key that raises it is
- *  swallowed by the very lock being taken over, which is why it can be any
- *  key at all. */
 When("I take over the member terminal", async function (this: KoluWorld) {
   const card = lockPart(this, CARD);
   if ((await card.count()) === 0) {
@@ -265,16 +191,10 @@ When("I take over the member terminal", async function (this: KoluWorld) {
   await card.first().locator('[data-testid="work-take-over"]').click();
 });
 
-/** HAND BACK IS ON THE PILL, the one thing drawn while the terminal is the
- *  person's. */
 When("I hand the member terminal back", async function (this: KoluWorld) {
   await lockPart(this, PILL).first().click();
 });
 
-/** THE KEYBOARD, at the terminal itself. `focusForTyping` is the harness's
- *  stand-in for a tap on touch and a no-op where the tile already holds
- *  focus; the keys then travel xterm's `onData` — the person-input site the
- *  lock gates — rather than any path a test invented. */
 When(
   "I type {string} into the member terminal",
   async function (this: KoluWorld, text: string) {
@@ -284,8 +204,6 @@ When(
   },
 );
 
-/** PASTE, the other half of `onData`: a real clipboard and a real paste
- *  shortcut, so the browser fires the paste event production reads. */
 When(
   "I paste {string} into the member terminal",
   async function (this: KoluWorld, text: string) {
@@ -298,11 +216,6 @@ When(
   },
 );
 
-/** THE STAND-IN IS UP, said where the scenario needs it to be: the marker is
- *  the last thing its boot prints before the read loop, and only the
- *  stand-in's own print can put it on the screen. Waiting for it says the
- *  tile is on screen AND the output it missed while nobody watched it has been
- *  replayed, which is what the screen comparisons below rest on. */
 Then(
   "the member terminal should have come up",
   async function (this: KoluWorld) {
@@ -333,11 +246,6 @@ Then(
   },
 );
 
-/** NOT A TRACE OF IT. Stronger than "the stand-in did not answer": the word
- *  must not be on the screen at all, so a keystroke that reached the PTY and
- *  was merely echoed back fails here too. Held open past a round trip, and
- *  the same probe answers positively one step later in the take-over
- *  scenario — which is what says this watch can see anything. */
 Then(
   "the member terminal should not have heard {string}",
   async function (this: KoluWorld, text: string) {
@@ -355,17 +263,6 @@ Then(
   },
 );
 
-/** READING IS UNTOUCHED. A drag across the terminal selects, exactly as it
- *  does on any other terminal — the lock is about input alone, and a tile a
- *  person cannot even copy out of would be a different (and worse) product.
- *  The card is up while this runs, so this is also the claim that a card
- *  centred over the terminal is not in the way of reading it.
- *
- *  THE ROW IS FOUND, NEVER GUESSED: a drag along a blank row selects nothing
- *  on any terminal, locked or not, and would fail here as if the lock had
- *  reached reading. So the first row with text on it is read off the buffer
- *  and the pointer is put on THAT row — a real drag, over something there is
- *  to select. */
 Then(
   "selecting text in the member terminal should still work",
   async function (this: KoluWorld) {
@@ -399,7 +296,7 @@ Then(
           return { row, rows: term.rows };
       }
       return null;
-    }, memberTerminal(this));
+    }, memberTerminalBody(this));
     assert.ok(
       written,
       "the member terminal's screen holds no text to select — nothing here could tell a blocked drag from an empty one",
@@ -415,7 +312,7 @@ Then(
         | (HTMLElement & { __xterm?: { getSelection(): string } })
         | null;
       return node?.__xterm?.getSelection() ?? "";
-    }, memberTerminal(this));
+    }, memberTerminalBody(this));
     assert.ok(
       selection.trim().length > 0,
       "dragging across a driven terminal selected nothing — the lock reached reading, which it must not",
@@ -423,28 +320,15 @@ Then(
   },
 );
 
-/** How long the screen must hold still before it counts as a baseline. */
 const QUIET_MS = 750;
 
-When("I note the member terminal's screen", async function (this: KoluWorld) {
-  // A SCREEN STILL FILLING IS NOT A BASELINE, and AN EMPTY ONE IS NOT A
-  // SCREEN. The terminal this claim is about was started moments ago by the
-  // conversation and was never on anybody's canvas until the step before
-  // this one — a tile nobody has seen takes no output, so the browser holds
-  // NOTHING for it until it is shown and the server replays what it missed.
-  // Two empty readings agree with each other, so quiet alone would note a
-  // blank screen and then read that replay as the keystroke the lock was
-  // supposed to swallow. Wait for output to be there AND to have stopped
-  // moving, and note THAT.
-  let last = await memberScreen(this);
+async function waitForNonEmptyQuietScreen(world: KoluWorld): Promise<string> {
+  let last = await memberScreen(world);
   const deadline = Date.now() + POLL_TIMEOUT;
   for (;;) {
     await new Promise((resolve) => setTimeout(resolve, QUIET_MS));
-    const now = await memberScreen(this);
-    if (now === last && now.trim() !== "") {
-      notedScreen = now;
-      return;
-    }
+    const now = await memberScreen(world);
+    if (now === last && now.trim() !== "") return now;
     if (Date.now() > deadline) {
       throw new Error(
         now.trim() === ""
@@ -454,6 +338,10 @@ When("I note the member terminal's screen", async function (this: KoluWorld) {
     }
     last = now;
   }
+}
+
+When("I note the member terminal's screen", async function (this: KoluWorld) {
+  notedScreen = await waitForNonEmptyQuietScreen(this);
 });
 
 function noted(): string {
@@ -499,9 +387,6 @@ function dockRow(world: KoluWorld): string {
   return `[data-testid="dock-row"][data-terminal-id="${memberId(world)}"]`;
 }
 
-/** THE MARK OUTSIDE THE PANE carries the driver too — the dock is where a
- *  person looks to see what is happening across the fleet, and a terminal
- *  they took over has to read as theirs there. */
 Then(
   "the dock row for the member terminal should be marked as yours",
   async function (this: KoluWorld) {
@@ -519,9 +404,6 @@ Then(
   },
 );
 
-/** THE NAME IS STILL THE ROW'S FIRST LINE. The mark sits BESIDE it, and the
- *  two have separate boxes that do not meet — the mark drawn over the name
- *  is the bug this is here for (#2376 review). */
 Then(
   "the dock row's mark should not cover its name",
   async function (this: KoluWorld) {
@@ -555,9 +437,6 @@ Then(
   },
 );
 
-/** NOTHING DRIVES IT. Said about a terminal whose mark is already on screen
- *  (the step above), so this cannot pass by looking at a terminal that is
- *  not there. */
 Then(
   "the member terminal should have no lock",
   async function (this: KoluWorld) {
@@ -570,10 +449,6 @@ Then(
   },
 );
 
-/** A SECOND BROWSER on the same server — its own context, so it shares
- *  nothing with the first but the server it dials. It is given no gesture
- *  after it loads: every claim about it below is about a frame the server
- *  pushed. */
 When(
   "I open a second client on the same server",
   async function (this: KoluWorld) {
@@ -586,9 +461,6 @@ When(
     const page = await context.newPage();
     secondClient = { context, page };
     await page.goto(origin);
-    // PROVE IT IS REALLY UP, and on the terminal in question: a client still
-    // hydrating has no tile at all, and every assertion below would read its
-    // absence as a lock that never moved.
     await lockPart(this, LOCK, page)
       .first()
       .waitFor({ state: "attached", timeout: POLL_TIMEOUT });
@@ -602,8 +474,6 @@ Then(
   },
 );
 
-/** WITHOUT A RELOAD: the page is never navigated again after it opened, so
- *  the only way this attribute can move is the delta the server sent. */
 Then(
   "the second client should show the member terminal as yours",
   async function (this: KoluWorld) {

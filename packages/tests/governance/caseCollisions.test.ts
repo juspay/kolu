@@ -1,14 +1,8 @@
-/**
- * The case-collision gate's own gate. Each test is a way the scan could miss a
- * pair a Mac folds into one file, or flag a pair it does not.
- */
-
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { findCaseCollisions, validateCaseCollisions } from "./caseCollisions";
 
 test("a component and a module that differ only by case collide", () => {
-  // The pair #2364 shipped: green on Linux, unbuildable on macOS.
   assert.deepEqual(
     findCaseCollisions([
       "src/conductor/ConductorStatus.tsx",

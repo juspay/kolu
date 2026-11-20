@@ -1,17 +1,3 @@
-/**
- * Harness ↔ registry coverage. The e2e harness (`support/hooks.ts`) keeps its
- * own explicit agent lists on purpose — a harness that DERIVED them from the
- * registry would stop catching a registry mistake. The cost is they can drift
- * behind the registry; this gate catches the safe direction of that drift: a
- * harness var or fake binary that names an agent the registry no longer knows
- * (or never knew) fails here.
- *
- * The lists deliberately DIFFER from `AGENT_DIR_ENV_KEYS` — the harness leaves
- * the `*_DB` keys (codex/opencode) unset, and stages a `node` binary that is
- * not an agent at all — so the assertions are subsets in the direction that
- * matters, not equality.
- */
-
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { AGENT_DIR_ENV_KEYS, AGENT_VOCABS } from "kolu-agents";
@@ -20,7 +6,6 @@ import {
   FAKE_BIN_NAMES,
 } from "../support/agentHarnessLists.ts";
 
-/** The staged binaries that are NOT agents (the command-rooted repro's root). */
 const NON_AGENT_FAKE_BINS = new Set(["node"]);
 
 test("the harness's agent-dir vars are a subset of the registry's env keys", () => {

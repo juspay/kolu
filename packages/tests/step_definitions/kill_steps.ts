@@ -7,12 +7,7 @@ import {
   DOCK_ROW_SELECTOR,
 } from "../support/world.ts";
 
-/** Synthesize a click directly on the close-button DOM node. Real-mouse
- *  clicks on a stacked canvas tile lose to the active tile (z-10) on top —
- *  even with `force: true`, the dispatched mousedown bubbles up the parent
- *  chain and re-selects the tile instead of firing the close button's
- *  onClick. Calling `.click()` on the node skips the hit-test entirely. */
-async function clickTileCloseButton(world: KoluWorld, id: string) {
+async function clickCloseButtonBypassingHitTest(world: KoluWorld, id: string) {
   await world.page.evaluate((targetId) => {
     const btn = document.querySelector(
       `[data-testid="canvas-tile"][data-terminal-id="${targetId}"] [data-testid="canvas-tile-close"]`,
@@ -30,7 +25,7 @@ When(
     const entry = this.page.locator(
       `[data-testid="canvas-tile"][data-terminal-id="${id}"]`,
     );
-    await clickTileCloseButton(this, id);
+    await clickCloseButtonBypassingHitTest(this, id);
     const confirm = this.page.locator('[data-testid="close-confirm"]');
     await confirm.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
     await confirm.locator('[data-testid="close-confirm-close-all"]').click();
@@ -43,7 +38,7 @@ When(
   async function (this: KoluWorld, index: number) {
     const id = this.createdTerminalIds[index - 1];
     assert.ok(id, `No terminal created at index ${index}`);
-    await clickTileCloseButton(this, id);
+    await clickCloseButtonBypassingHitTest(this, id);
   },
 );
 
@@ -62,7 +57,6 @@ When(
     await palette
       .locator('[role="option"]', { hasText: "Close terminal" })
       .click();
-    // Confirm in the dialog — every close goes through CloseConfirm.
     const confirm = this.page.locator('[data-testid="close-confirm"]');
     await confirm.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
     await confirm.locator('[data-testid="close-confirm-close-all"]').click();
@@ -90,7 +84,6 @@ Then("the empty state tip should be visible", async function (this: KoluWorld) {
 Then(
   "the workspace switcher should eventually have {int} terminal entry/entries",
   async function (this: KoluWorld, expected: number) {
-    // Natural exit can take a moment — use waitForFunction for reactive check
     const sel = DOCK_ROW_SELECTOR;
     await this.page.waitForFunction(
       ({ sel, exp }) => document.querySelectorAll(sel).length === exp,

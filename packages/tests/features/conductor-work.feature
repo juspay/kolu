@@ -19,34 +19,20 @@ Feature: A piece of work is a stored thing
     And the conductor is on a fresh conversation
 
   Scenario: A waterfall's card, from the request to the merge
-    # THE TIMELINE GROWS FROM OBSERVATION ALONE. Every event below is one kolu
-    # saw for itself: the only things the conversation wrote are the work's
-    # name and its members' roles. The guard that this is really so is the
-    # `pr-opened` assertion made BEFORE a pull request exists — a card that
-    # anticipated its events, or a fixture that wrote them, fails there.
     Given a repo for the work
     When I ask the conductor to open the work "rewrite the parser"
     Then the work column should show the work
     And the conductor status should say 1 piece of work
     And the work's timeline should show a "requested" event
     And the work's timeline should show no "pr-opened" event
-    # The setup travelled in the call that opened the work; only what the
-    # request did not already say is put to the human, as ONE question.
     When I answer the work's question with "hand-over" in the chat
     Then the work's decisions should include "hand-over" answered from the chat
-    # ONE LIST, EACH ROW A LINE: the setup's answers are the first rows of the
-    # decisions, labelled by their keys, and nothing is drawn twice.
     And the work's decisions should be one line each
-    # A member is made with its role in the same call — the terminal is an
-    # agent that comes up with no transcript at all, which kolu reads as ready.
     When I ask the conductor to run the implementor in the work's repo
     Then the work column should list the terminal as a member
     And the work's timeline should show a "joined" event
     And the work's timeline should show a "ready" event
     And the work's stage strip should be at "build"
-    # A file lands in the worktree's `.waterfall/`; kolu lists that directory
-    # when the member's state changes, so the plan becomes an event without
-    # anybody announcing it.
     When the implementor writes ".waterfall/plan.md" into the work's repo
     And the implementor's agent starts working
     And the implementor's agent stops
@@ -57,9 +43,6 @@ Feature: A piece of work is a stored thing
     When the work's pull request starts its checks
     Then the work's timeline should show a "checks-running" event
     And the work's stage strip should be at "checks"
-    # GREEN IS GITHUB'S ANSWER, not the checks alone: while the branch's
-    # rules still want a review the checks have passed but nothing is handed
-    # over, and the card says why. The answer is its own timeline row.
     When the work's pull request goes green but GitHub still wants a review
     Then the work's timeline should show a "checks-passed" event
     And the work's timeline should show GitHub's merge answer as "review"
@@ -67,22 +50,15 @@ Feature: A piece of work is a stored thing
     And the work's stage strip should be at "review"
     And the work's pull request section should give GitHub's merge answer as "review"
     And the work card should link the pull request "#7"
-    # The open PR's first answer was "can" (nothing in the way yet), then
-    # "cannot"; the review makes it the third.
     When GitHub lets the work's pull request merge
     Then the work's timeline should show 3 "merge-state" events
     And the work should be waiting on you
     And the work's stage strip should be at "merge"
     And the work's pull request section should give GitHub's merge answer as "can"
-    # THE STRIP IS THE INDEX INTO THE TIMELINE: an open card shows one
-    # stage's events, and a press on a cell shows another's.
     When I press the "checks" stage on the work's strip
     Then the work card should show only its "checks" events
     When I press the "build" stage on the work's strip
     Then the work card should show only its "build" events
-    # A PUSH IS NEWS; LOOKING AGAIN IS NOT. A check event says which commit
-    # it is about, so the new head's run is a second "checks-running" — and
-    # the first commit's, read again on every frame by every member, is not.
     When the work's pull request is pushed to a new commit
     Then the work's timeline should show 2 "checks-running" events
     When the work's pull request is merged
@@ -91,13 +67,6 @@ Feature: A piece of work is a stored thing
     And there should be no page errors
 
   Scenario: A draft pull request is still the build
-    # A DRAFT IS NOT UP FOR REVIEW, whatever its checks say. GitHub answers
-    # CLEAN for a draft with green checks — it works the merge out as if the
-    # PR were ready — so kolu reads the draft word itself: the work stays in
-    # the build, nothing is handed over, and the bell is silent. Marking it
-    # ready is what hands it over, and what rings; that last ring is the
-    # proof the silence before it was the draft's, not a bell that never
-    # could have rung.
     Given a repo for the work
     When I ask the conductor to open the work "draft the parser"
     And I answer the work's question with "hand-over" in the chat
@@ -126,9 +95,6 @@ Feature: A piece of work is a stored thing
     And there should be no page errors
 
   Scenario: A trivial work's strip with a draft pull request
-    # A trivial work has no review: its agents' time is the build, before the
-    # PR and after it. What a draft changes is CI — on a draft it is still
-    # the build's, and once the PR is ready it is the checks.
     Given a repo for the work
     When I ask the conductor to open the trivial work "tidy the lexer quickly"
     And I ask the conductor to run the implementor in the work's repo
@@ -142,16 +108,6 @@ Feature: A piece of work is a stored thing
     And there should be no page errors
 
   Scenario: The plan is approved from the card while the Conductor sits idle
-    # ONE QUESTION, SEVERAL FACES. The card and the chat draw the work's own
-    # DECISION, so answering it on the card settles the conversation's copy
-    # too — and the decision records where the answer came from, which is the
-    # only thing that tells the faces apart afterwards.
-    #
-    # AND NOTHING IS WAITING ON THE HUMAN. The Conductor was answered the
-    # moment the question was put and ended its turn, so it is IDLE while the
-    # card is violet — never `asking`, which is the state its tool call used
-    # to die in after five minutes. The answer reaches it as a wake, and the
-    # member it makes next is the proof it got on with the work.
     Given a repo for the work
     When I ask the conductor to open the work "tidy the lexer"
     Then the conductor should not be asking
@@ -165,11 +121,6 @@ Feature: A piece of work is a stored thing
     And there should be no page errors
 
   Scenario: A file on the card opens in the reader, rendered
-    # The files are the worktree's own `.waterfall/`, read live, and pressing
-    # one opens the READER — the Code tab's viewer on the large side of the
-    # Conductor's screen, so the plan is read where the work is rather than
-    # by leaving for the file browser. Rendered is the claim: a markdown
-    # heading arrives as a heading, not as `#`.
     Given a repo for the work
     When I ask the conductor to open the work "read the lexer"
     And I answer the work's question with "hand-over" in the chat
@@ -182,9 +133,6 @@ Feature: A piece of work is a stored thing
     And there should be no page errors
 
   Scenario: A member terminal carries the Conductor's mark on its dock row
-    # ONE DERIVATION, from membership: everywhere else in the app a terminal
-    # that belongs to a work says so — the mark, the role it plays and the
-    # work's title — and the dock row is where a person meets it first.
     Given a repo for the work
     When I ask the conductor to open the work "mark the terminal"
     And I answer the work's question with "hand-over" in the chat
@@ -195,11 +143,6 @@ Feature: A piece of work is a stored thing
     And there should be no page errors
 
   Scenario: Finished work, its decisions and its kept files outlive the server
-    # THE WHOLE POINT OF STORING IT. The server process is replaced — not the
-    # page reloaded — on a fresh port with the same state directory, so what
-    # comes back is what was WRITTEN. The worktree is not consulted: the plan
-    # is a copy kolu took when the work ended, which is why it can still be
-    # read after the terminals it was written in are gone.
     Given a repo for the work
     When I ask the conductor to open the work "survive the night"
     And I answer the work's question with "merge" in the chat
@@ -222,11 +165,6 @@ Feature: A piece of work is a stored thing
     And there should be no page errors
 
   Scenario: A folder the work wrote is one chip, one timeline row, and is kept
-    # A planner writes folders too — a mockup of forty pages and its fonts.
-    # The card shows the folder as ONE chip with how many files are beneath
-    # it, at any depth; pressing it unfolds one level. The timeline says the
-    # run of files once. And the whole folder is copied when the work ends,
-    # so a file two levels down still opens after its worktree could be gone.
     Given a repo for the work
     When I ask the conductor to open the work "draw the mockup"
     And I answer the work's question with "merge" in the chat
@@ -260,11 +198,6 @@ Feature: A piece of work is a stored thing
     And there should be no page errors
 
   Scenario: A new conversation keeps the work in flight
-    # "New session" clears the CONVERSATION. The work it opened — its member
-    # terminal and the decisions taken about it — are not the conversation's
-    # to throw away: a waterfall in flight is picked up by whoever the next
-    # conversation is, which is the whole reason a piece of work is stored
-    # somewhere other than the chat.
     Given a repo for the work
     When I ask the conductor to open the work "outlive the chat"
     And I answer the work's question with "hand-over" in the chat
@@ -279,15 +212,6 @@ Feature: A piece of work is a stored thing
     And there should be no page errors
 
   Scenario: A kolu-server restart leaves the work open, with its terminals
-    # THE DEFECT THIS GUARDS (#2376, the human's three cards): a redeploy made
-    # every host serve one information-free frame before it had adopted its
-    # terminals, kolu read "not in the list yet" as `gone`, and a work whose
-    # members had all left was ENDED as abandoned — with both terminals alive
-    # under it. Now: nothing kolu merely fails to SEE ends a piece of work,
-    # and a roster that has not been established is not an empty roster. The
-    # server process is replaced on a fresh port over the same state
-    # directory, which is the redeploy, and the work is still in progress with
-    # the same terminal in it.
     Given a repo for the work
     When I ask the conductor to open the work "survive the redeploy"
     And I answer the work's question with "hand-over" in the chat
@@ -302,12 +226,6 @@ Feature: A piece of work is a stored thing
     And there should be no page errors
 
   Scenario: Stopped from the card, and opened again, with everything it decided
-    # THE ONLY TWO WAYS A WORK ENDS ON PURPOSE are the forge saying merged or
-    # closed and somebody stopping it — and stopping is not deleting. A
-    # stopped card says who stopped it, has no terminals, no lock and no
-    # question on it (the ended half of the state has nowhere to put them),
-    # and offers Reopen; what comes back is the same work, with its decisions
-    # and its whole timeline.
     Given a repo for the work
     When I ask the conductor to open the work "stop and think again"
     And I answer the work's question with "merge" in the chat
@@ -325,10 +243,6 @@ Feature: A piece of work is a stored thing
     And there should be no page errors
 
   Scenario: Opening the same branch twice is one piece of work
-    # A WORK IS ITS BRANCH. `work_open` for a key that already exists returns
-    # that work as it stands — it asks only what has no answer — so a second
-    # call cannot make a second card however many times the Conductor is woken
-    # into trying. (The human got three cards for one waterfall that way.)
     Given a repo for the work
     When I ask the conductor to open the work "one card only"
     And I answer the work's question with "hand-over" in the chat
@@ -339,11 +253,6 @@ Feature: A piece of work is a stored thing
     And there should be no page errors
 
   Scenario: Declining the setup of a work nothing has happened in removes it
-    # "I'd rather not say" to the setup of a work with no member and no pull
-    # request is a decision not to start: the work goes, rather than becoming
-    # a finished card nobody asked for. (The human's second entry was exactly
-    # this — an "Abandoned · 1m" card made by declining a question about a
-    # work that had never run.)
     Given a repo for the work
     When I ask the conductor to open the work "never mind this one"
     Then the work column should show the work
@@ -352,25 +261,12 @@ Feature: A piece of work is a stored thing
     And there should be no page errors
 
   Scenario: A remembered work this build cannot read is recovered, never hand-edited
-    # THE ACCIDENT: a store written by a build whose shape this one does not
-    # read — an upgrade that skipped a rung, a roll-back, a half-written key.
-    # The Conductor refuses it rather than reading past it, and what it offers
-    # is what kolu can DO: the newest backup that reads, or starting with no
-    # works and the unreadable ones kept aside. What it must never offer again
-    # is the sentence it used to end on — "Fix the `works` key to recover" —
-    # which hands kolu's job to a person holding a JSON file.
     Given a repo for the work
     When I ask the conductor to open the work "survive a bad upgrade"
     Then the work column should show the work
-    # The first restart's boot snapshot catches the store as it is NOW, with
-    # the work in it and readable.
     When the kolu server is restarted
     And I enter conductor mode
     Then the work column should show the work
-    # ...and the second one comes up over a `works` key this build cannot
-    # read. Its own boot snapshot goes into the ring too, so the NEWEST
-    # snapshot carries the corruption: a recovery that took the top of the
-    # ring would hand the same unreadable value back.
     When the kolu server is restarted over works this build cannot read
     And I enter conductor mode
     Then the conductor should say it could not read the saved works
@@ -380,9 +276,6 @@ Feature: A piece of work is a stored thing
 
   @mobile
   Scenario: The work column and its card fit a phone
-    # A phone is below the two-column width by definition, so the column is
-    # the one the status line's count opens — and every part of it, opened
-    # card and all, stays inside the 390px window.
     When I ask the conductor to watch the first terminal
     Then the conductor status should say 1 piece of work
     And the conductor should have no side column

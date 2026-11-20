@@ -1,9 +1,3 @@
-/**
- * The README gate's own gate. Each test is a way the scan could miss a package
- * that has no README, or demand one from a directory the workspace never
- * declared.
- */
-
 import assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -15,8 +9,6 @@ import {
   workspaceGlobs,
 } from "./packageReadmes";
 
-/** A temp workspace: `pnpm-workspace.yaml` plus the files named, written for
- *  real, and returned as the tracked-file list the check reads. */
 function workspace(
   globs: readonly string[],
   files: readonly string[],
@@ -74,9 +66,6 @@ test("a nested package is a package — `**` spans directories", () => {
 });
 
 test("a manifest outside every glob is not the workspace's package", () => {
-  // `website/` and `docs/atlas/` carry a package.json and are not members:
-  // `packages/**` does not match them, and neither does a grafted path that
-  // was never checked out. The globs decide, not the presence of a manifest.
   const { root, files } = workspace(
     ["packages/**", "odu/run-client"],
     ["website/package.json", "docs/atlas/package.json"],
@@ -107,9 +96,6 @@ test("a README written in the working tree counts before it is committed", () =>
     ["packages/**"],
     ["packages/draft/package.json", "packages/draft/README.md"],
   );
-  // The package list is the committed one, so the README beside a manifest is
-  // read off disk: a package whose README is written and not yet `git add`ed
-  // is not reported as missing one.
   assert.deepEqual(
     collectPackageReadmes(root, ["packages/draft/package.json"]).missing,
     [],

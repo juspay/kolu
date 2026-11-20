@@ -1,7 +1,3 @@
-/** Steps for the dock-arrange (#2247) surface: reading the arrangement
- *  (the cheap settle-check read of DOM order) and driving real sortable
- *  drags ontop of solid-dnd's PointerSensor activation. */
-
 import * as assert from "node:assert";
 import { Then, When } from "@cucumber/cucumber";
 import { dragCenterTo } from "../support/pointerDrag.ts";
@@ -12,7 +8,6 @@ import {
   POLL_TIMEOUT,
 } from "../support/world.ts";
 
-/** One repo section, by its canonical git repo name / cwd basename. */
 const sectionSelector = (repo: string) => `[data-repo="${repo}"]`;
 
 Then(
@@ -35,9 +30,6 @@ Then(
   },
 );
 
-/** `before` in DOM order = strictly ABOVE visually (the section list is one
- *  column). Read through the singleton's own projection list, not the screen's
- *  Y — a sticky header in a scrolled position can't lie about it. */
 const sectionOrderCheck = async (world: KoluWorld, a: string, b: string) => {
   await world.page.waitForFunction(
     ([a, b]) => {
@@ -63,7 +55,6 @@ Then(
 Then(
   "the dock should still show {string} before {string}",
   async function (this: KoluWorld, a: string, b: string) {
-    // After a reload + session restore, the pinned overlay must show through.
     await sectionOrderCheck(this, a, b);
   },
 );
@@ -89,8 +80,6 @@ Then(
 When(
   "I drag the dock section {string} above the dock section {string}",
   async function (this: KoluWorld, a: string, b: string) {
-    // The OUTER sortable's grip is the monogram — the header's own root
-    // (its padding/capsule area) is not inside `dragActivators`.
     await dragCenterTo(
       this,
       `${sectionSelector(a)} [data-testid="dock-section-monogram"]`,
@@ -110,12 +99,6 @@ When(
   },
 );
 
-/** Record the present row order of a cluster to compare after a move. A fresh
- *  terminal's row appears as soon as its id exists, but its repo/label
- *  projection lands in waves (cwd first, git root later) — it can hop
- *  BETWEEN clusters for a beat. A once-read snapshot can latch that beat; so
- *  read the cluster twice, 500 ms apart, and only accept a list that did not
- *  change. */
 When(
   "I snapshot the {string} cluster's rows",
   async function (this: KoluWorld, label: string) {
@@ -170,8 +153,6 @@ Then(
         { timeout: POLL_TIMEOUT },
       )
       .catch(async () => {
-        // Read once on timeout so the diff (not just "false") surfaces in the
-        // assertion — helpful when a drag unexpectedly reorders rows.
         const live = await this.page.evaluate((label) => {
           const el = document.querySelector(
             `.dock-cluster[data-label="${label}"]`,
@@ -195,12 +176,6 @@ Then(
   async function (this: KoluWorld) {
     const last = this.createdTerminalIds.at(-1);
     assert.ok(last, "no created terminal #last to compare");
-    // The arrangement law: the new row lands INSIDE its own cluster
-    // (creation order appends to the cluster's BOTTOM), and its cluster is
-    // where the user put it — never resequenced by the creation. Assert the
-    // row's cluster + its position INSIDE that cluster, not a flat last-slot
-    // across the whole section: a moved cluster genuinely changes a flat
-    // order without touching the law.
     await this.page
       .waitForFunction(
         (id) => {
@@ -218,12 +193,6 @@ Then(
         { timeout: POLL_TIMEOUT },
       )
       .catch(async () => {
-        // The failure dump the neighbouring cluster-snapshot steps carry:
-        // name the shapes the DOM actually shows — per cluster, plus the
-        // ACTIVE surface: when the step reds, the reading splits into two
-        // truths: the row landed in the WRONG cluster (create inherited an
-        // unexpected cwd), or it landed last in the WRONG ORDER — and the
-        // dump must show which without a second round-trip.
         const live = await this.page.evaluate(() => ({
           clusters: Array.from(
             document.querySelectorAll("[data-repo] [data-label]"),
@@ -249,22 +218,12 @@ Then(
   },
 );
 
-/* ── Drag a row to RE-HOME it (nest it, or hand it back its own tile) ──────
- *  The gesture is the row's own GRIP, not its body: a pointerdown on the body
- *  still reaches the branch cluster's activator (#2249's reorder), which is
- *  exactly why the grip stops the event at the row's boundary. */
-
-/** The dock row of a terminal created in this scenario, by 1-based creation
- *  index — the addressing the workspace-switcher steps already use. */
 const createdRowSelector = (world: KoluWorld, index: number): string => {
   const id = world.createdTerminalIds[index - 1];
   assert.ok(id, `No terminal created at index ${index} in this scenario`);
   return `${DOCK_ROW_SELECTOR}[data-terminal-id="${id}"]`;
 };
 
-/** Drag a row by its grip. The grip is revealed on hover and takes no pointer
- *  events until it is, so the row is hovered FIRST — otherwise the press lands
- *  on the row body and reorders the cluster instead of re-homing the terminal. */
 const dragRowGrip = async (
   world: KoluWorld,
   fromRow: string,
@@ -304,11 +263,6 @@ When(
 When("I split terminal {int}", async function (this: KoluWorld, index: number) {
   const parentId = this.createdTerminalIds[index - 1];
   assert.ok(parentId, `No terminal created at index ${index} in this scenario`);
-  // Through the daemon, not the product's palette path: the palette's first
-  // click lands on the terminal screen, and a link under the cursor flips
-  // xterm's link layer over that screen — a non-deterministic target for a
-  // scenario that is about the DOCK's drag, not about how a split is born.
-  // (`sub-terminal.feature` owns the palette path.)
   await padiCall("lifecycle/create", {
     placement: { kind: "child-of", parentId },
   });
@@ -333,9 +287,6 @@ Then(
       )
       .waitFor({ state: "visible", timeout: POLL_TIMEOUT })
       .catch(async () => {
-        // Dump the whole dock's row shape: "not a split of X" cannot tell an
-        // unchanged dock from one that nested under the WRONG parent, and the
-        // two need different fixes.
         const shape = await this.page.evaluate(() => ({
           rows: Array.from(document.querySelectorAll("[data-dock-row]")).map(
             (el) => ({
@@ -360,7 +311,6 @@ Then(
   async function (this: KoluWorld) {
     const subId = this.rememberedSubTerminalId;
     assert.ok(subId, "no remembered sub-terminal id");
-    // A top-level row: it wears the top-level test id and carries NO parent edge.
     await this.page
       .locator(
         `${DOCK_ROW_SELECTOR}[data-terminal-id="${subId}"]:not([data-parent-id])`,
@@ -369,8 +319,6 @@ Then(
   },
 );
 
-/** The canvas's tile count, read off the DOM — the arrangement fact a re-home
- *  changes (a nested row's tile goes away; an un-split row's comes back). */
 const canvasTileCount = (world: KoluWorld): Promise<number> =>
   world.page.evaluate(
     () => document.querySelectorAll("[data-canvas-tile]").length,
@@ -380,8 +328,6 @@ When("I remember the canvas tile count", async function (this: KoluWorld) {
   this.canvasTileCount = await canvasTileCount(this);
 });
 
-/** Assert the canvas moved by `delta` from the remembered count. Relative on
- *  purpose: the scenario's own background terminal is a tile too. */
 const expectTileDelta = async (world: KoluWorld, delta: number) => {
   const before = world.canvasTileCount;
   assert.ok(before !== null, 'call "I remember the canvas tile count" first');

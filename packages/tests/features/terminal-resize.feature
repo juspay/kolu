@@ -11,19 +11,10 @@ Feature: Per-terminal viewport grid
 
   @mobile
   Scenario: Resizing the active mobile terminal does not resize hidden terminals
-    # Background creates t0 (active). Create t1 so we have a hidden
-    # terminal to watch.
     Given I create a terminal
-    # Make t0 active again so t1 is the one hidden. (The newly-created
-    # terminal is always active; swiping moves us back to t0.)
     When I swipe left on the mobile tile view
     And I wait for all terminals to settle
     And I snapshot each terminal's cols
-    # Widen the viewport while staying below the 640px mobile breakpoint,
-    # so MobileTileView is not torn down and remounted. Only the active
-    # terminal fits the new width — and "fits" is now a round trip: the pane
-    # states the grid its box can hold and adopts it when the daemon's mirror
-    # does, so the wait below is for the answer, not for a local reflow.
     When I resize the viewport to 620x844
     And I wait for the active terminal's grid to come back from the daemon
     Then the active terminal cols should differ from its snapshot

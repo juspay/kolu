@@ -1,10 +1,3 @@
-/**
- * Foreground process detection — step definitions.
- *
- * Verifies that the workspace switcher and header show the foreground process name,
- * driven by OSC 2 title changes from the shell preexec hook.
- */
-
 import { Then, When } from "@cucumber/cucumber";
 import { type KoluWorld, POLL_TIMEOUT } from "../support/world.ts";
 
@@ -43,8 +36,6 @@ Then(
 When(
   "I run a long-running {string} command",
   async function (this: KoluWorld, command: string) {
-    // Type the command and press Enter. The command stays running so the
-    // preexec-emitted OSC 2 title remains visible until the test asserts on it.
     await this.page.keyboard.type(command);
     await this.page.keyboard.press("Enter");
   },

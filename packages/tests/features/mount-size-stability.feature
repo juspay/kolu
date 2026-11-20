@@ -43,7 +43,6 @@ Feature: A program is told a new size only when its box moved
   Background:
     Given the terminal is ready
 
-  # A — one tile, one open split, the divider where it opens by default.
   @retina
   Scenario: A tile with an open split is remounted fifteen times
     When I create a sub-terminal via command palette
@@ -58,10 +57,6 @@ Feature: A program is told a new size only when its box moved
     And the size record should be reported as "A: split, 15 mounts"
     And there should be no page errors
 
-  # B — the same, with the divider moved off its default first. The drag is
-  # both the arrange and this scenario's control: the dragged size is saved on
-  # the record, and a mount that laid the tile out from anything else would
-  # state a height the program can see.
   @retina
   Scenario: A tile whose divider was dragged is remounted fifteen times
     When I create a sub-terminal via command palette
@@ -72,15 +67,10 @@ Feature: A program is told a new size only when its box moved
     When every recorded program has settled
     And I reload the page 15 times
     Then no recorded program was told a new size
-    # The programs were told nothing, so the divider is exactly where it was:
-    # the main pane's rows ARE the divider's position.
     And the split should still be open
     And the size record should be reported as "B: dragged divider, 15 mounts"
     And there should be no page errors
 
-  # C — the split collapsed. Two claims: the collapse survives (it used to be
-  # written away by the very first mount), and the main pane is never told the
-  # default 70/30 height a collapsed tile does not have.
   @retina
   Scenario: A tile whose split was collapsed is remounted fifteen times
     When I create a sub-terminal via command palette
@@ -95,9 +85,6 @@ Feature: A program is told a new size only when its box moved
     And the size record should be reported as "C: collapsed split, 15 mounts"
     And there should be no page errors
 
-  # D — two plain tiles, no split anywhere. The control: if A or B bounces and
-  # this does not, the split is the input; if this bounces too, the tile's own
-  # layout is.
   @retina
   Scenario: Two tiles are remounted fifteen times
     Given I create a terminal
@@ -111,12 +98,6 @@ Feature: A program is told a new size only when its box moved
     And the size record should be reported as "D: two tiles, 15 mounts"
     And there should be no page errors
 
-  # E — a new terminal must not resize the ones already there, and must itself
-  # be told its size once. The record for the NEW terminal starts where its
-  # recorder could first be started, so the claim about it is about the
-  # distinct sizes it ever had (its spawn grid, then its box) rather than
-  # about entries; the claim about the terminal that was already there is
-  # exact.
   @retina
   Scenario: A second terminal appears beside a settled one
     When a size recorder is running in every pane on screen
@@ -128,20 +109,11 @@ Feature: A program is told a new size only when its box moved
     And I create another terminal and start a size recorder in it
     And I wait out the settle window
     Then every program that was already running was told no new size
-    # A REMOUNT is invisible to every size assertion above: a rebuilt pane comes
-    # back at the size it already had and tells its program nothing, having
-    # thrown away the reader's scroll position, selection and focus on the way.
     And every marked pane should be the same element, with no second attach
     And the new terminal's program was told at most one new size, ending at its pane's grid
     And the size record should be reported as "E: a second terminal appears"
     And there should be no page errors
 
-  # E2 — the same question down the PRODUCT's own create path (⌘⏎), from a
-  # tile the user has resized: the new tile then inherits that size
-  # (`usePendingLayouts.takeNextDefaultSize`) instead of opening at the canvas
-  # default. Production saw a new terminal told two widths ~240 ms apart and
-  # CI did not; a remembered size is the first thing production had that the
-  # measurement lacked.
   @retina
   Scenario: A second terminal is created with the keyboard from a resized tile
     When a size recorder is running in every pane on screen
@@ -158,8 +130,6 @@ Feature: A program is told a new size only when its box moved
     And the size record should be reported as "E2: keyboard create, inherited size"
     And there should be no page errors
 
-  # E3 — created while the canvas is MAXIMIZED. The new tile opens covered or
-  # maximized rather than tiled, which is a different box decision again.
   @retina
   Scenario: A second terminal is created while the canvas is maximized
     When a size recorder is running in every pane on screen
@@ -175,9 +145,6 @@ Feature: A program is told a new size only when its box moved
     And the size record should be reported as "E3: created while maximized"
     And there should be no page errors
 
-  # E4 — created with the right panel open and the dock collapsed to its rail:
-  # the two other things that take width out of the window, and the two states
-  # production is usually in.
   @retina
   Scenario: A second terminal is created with the inspector open and the dock railed
     When I press the toggle inspector shortcut
@@ -193,10 +160,6 @@ Feature: A program is told a new size only when its box moved
     And the size record should be reported as "E4: inspector open, dock railed"
     And there should be no page errors
 
-  # F — maximize covers the other tiles. A covered tile is held attached for
-  # an hour (kolu#2374) so a trip away and back keeps the reader's place;
-  # that is a different fact from "may state a size", and this is where they
-  # used to be one.
   @retina
   Scenario: One tile is maximized over another and restored
     Given I create a terminal
@@ -213,16 +176,10 @@ Feature: A program is told a new size only when its box moved
     And I click the chrome-bar maximize toggle
     Then no canvas tile should be maximized
     And the tile that was covered was told no new size
-    # A covered tile is HELD, not rebuilt: the trip is a repaint, so the reader
-    # comes back to the place they were reading.
     And every marked pane should be the same element, with no second attach
     And the size record should be reported as "F: maximize over a sibling"
     And there should be no page errors
 
-  # G — the whole list for a posture trip, stated exactly. The tile you look
-  # at is told the size you are looking at it at, once, each time; the tile
-  # you are not looking at is told nothing until it is on screen at a size of
-  # its own again.
   @retina
   Scenario: Maximizing, switching which tile is maximized, and restoring
     Given I create a terminal
@@ -243,15 +200,10 @@ Feature: A program is told a new size only when its box moved
     When I click the chrome-bar maximize toggle
     Then no canvas tile should be maximized
     And every recorded program was told exactly 1 new size
-    # Every tile was resized, and NO tile was rebuilt: a posture is a change of
-    # box, never a change of element.
     And every marked pane should be the same element, with no second attach
     And the size record should be reported as "G: maximize, switch, restore"
     And there should be no page errors
 
-  # H — a split is the one thing that really does move the main pane's box.
-  # Opening one takes its share; collapsing it gives the share back. One size
-  # each way, and no second one correcting a first.
   @retina
   Scenario: Adding a split and collapsing it each tell the main program once
     When a size recorder is running in every pane on screen

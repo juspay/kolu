@@ -18,9 +18,6 @@ Feature: Mobile chrome drawer
 
   @mobile
   Scenario: Clicking the pull handle (mouse path) opens the drawer without errors
-    # Companion regression cover for #977 — the chrome drawer is structurally
-    # exposed to the same Corvu @0.2.4 mouse-click crash as the dock drawer,
-    # and now carries the same `snapPoints={[0, 1]}` workaround.
     When I click the mobile pull handle
     Then the mobile chrome sheet should be visible
     And there should be no page errors
@@ -43,17 +40,12 @@ Feature: Mobile chrome drawer
 
   @mobile
   Scenario: Dragging down on the pull handle opens the drawer
-    # The grip visually invites a drag; this proves the drag gesture on the
-    # handle opens the sheet even when the touch never resolves to a click.
     When I drag down on the mobile pull handle
     Then the mobile chrome sheet should be visible
     And there should be no page errors
 
   @mobile
   Scenario: Dragging the sheet up past the dismiss threshold closes it
-    # Corvu attaches the drag-to-dismiss handlers to Drawer.Content; for a
-    # `side="top"` drawer the dismiss direction is upward. Open, drag the
-    # sheet up most of its height, release — the sheet should snap closed.
     When I tap the mobile pull handle
     Then the mobile chrome sheet should be visible
     When I drag the mobile chrome sheet up to dismiss

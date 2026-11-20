@@ -13,16 +13,6 @@ Feature: Sleeping terminals
 
   @codex-mock
   Scenario: Waking a sleeping agent terminal resumes the SAME conversation
-    # Run a real (mock) Codex agent in the terminal so the dock lights up with a
-    # codex agent state and the server captures the live restore target (identity+flags) AND the live
-    # session id (the codex mock's fixed thread `00000000-0000-0000-0000-000000000001`).
-    # Sleep it via the tile ☾ button: the live xterm/PTY is released and the dormant
-    # body shows. Wake it: the PTY re-spawns on the SAME id and the server replays
-    # the agent's RESUME-BY-ID form (`codex resume <session-id>`, juspay/kolu#1495)
-    # into the fresh PTY — so the EXACT prior conversation comes back, not merely the
-    # most-recent in the cwd. A blank fresh agent would type NOTHING; asserting the
-    # by-id resume invocation lands in the new buffer AND the codex dock state returns
-    # in the SAME cwd is exactly the hole the agent-resume bug fell through.
     Given the terminal is ready
     When a Codex session is mocked with state "waiting"
     Then the tile chrome should show a Codex indicator with state "waiting"
@@ -37,11 +27,6 @@ Feature: Sleeping terminals
     And there should be no page errors
 
   Scenario: Sleeping a terminal freezes its splits too, and Wake brings the family back
-    # Sleep acts on the whole FAMILY: the tile and every split freeze together
-    # (one dormant record each, the parent edge kept), with no warning toast and
-    # nothing closed. The dock then holds one sleeping row per member. Waking from
-    # the tile's dormant body re-spawns the family roots-first, so the split comes
-    # back in the parent's sub panel instead of vanishing or being promoted.
     Given the terminal is ready
     When I start recording error toasts
     And I create a sub-terminal via command palette
@@ -56,11 +41,6 @@ Feature: Sleeping terminals
     And there should be no page errors
 
   Scenario: Restart from the tile title bar gives back a fresh shell on the same tile
-    # The ↻ Restart button is the user-facing arm of `lifecycle.restart` (before
-    # it, only the stale-agents pill offered it). A plain shell restarts on the
-    # first click — no confirm — and the tile comes back with a NEW PTY: the
-    # marker printed before the restart is gone from the buffer, and the same
-    # tile types again afterwards.
     Given the terminal is ready
     When I run "echo before-restart-marker"
     Then the terminal buffer should contain "before-restart-marker"
@@ -72,12 +52,6 @@ Feature: Sleeping terminals
     And there should be no page errors
 
   Scenario: A dragged sleeping tile keeps its moved position across a reload
-    # Sleep a terminal, drag its dormant tile to a new canvas position, then
-    # refresh. The moved layout must round-trip through persistence — the
-    # sleeping tile reappears at the position it was dragged to, proving a
-    # dormant tile is a full canvas citizen whose layout is persisted like any
-    # live tile's. The drag goes through the same setCanvasLayout the drag handle
-    # drives, then the reload proves it survived the persistence round-trip.
     Given the terminal is ready
     When I sleep the active terminal via the tile sleep button
     Then the slept terminal should be sleeping
@@ -89,12 +63,6 @@ Feature: Sleeping terminals
 
   @codex-mock @kaval-restart
   Scenario: A slept agent terminal survives a daemon restart and still wakes-to-resume
-    # The strongest journey: sleep an agent terminal, then restart the kaval
-    # daemon (session-preserving restart — capture before kill). The slept record
-    # must outlive the restart and come back via the restore card as a DORMANT
-    # tile (not a live one, not a vanished one). Waking it then resumes the agent
-    # exactly as before — the by-id resume invocation (the exact conversation,
-    # juspay/kolu#1495) replays into the re-spawned PTY.
     Given the terminal is ready
     When a Codex session is mocked with state "waiting"
     Then the tile chrome should show a Codex indicator with state "waiting"
@@ -114,10 +82,6 @@ Feature: Sleeping terminals
 
   @kaval-restart
   Scenario: A daemon restart mid-sleep converges with no orphan tile
-    # A restart while a terminal is sleeping must converge to EXACTLY one tile for
-    # that terminal — no duplicate, no orphan PTY adopted alongside the restored
-    # record. Sleep the only terminal, restart, restore, and assert the sleeping
-    # tile is present AND singular (exactly one canvas tile on the canvas).
     Given the terminal is ready
     When I sleep the active terminal via the tile sleep button
     Then the slept terminal should be sleeping
@@ -132,11 +96,6 @@ Feature: Sleeping terminals
     And there should be no page errors
 
   Scenario: The dock's ☾ toggle hides and re-shows sleeping terminals
-    # The dock footer's ☾ toggle is an independent filter from the activity
-    # window: it hides `sleeping`-bucket rows. Sleep the only terminal, hide it
-    # via the toggle (the sleeping row drops), then toggle again to bring it
-    # back — proving the filter is reversible AND that hiding the last visible
-    # row doesn't strand the footer (the toggle must stay reachable to un-hide).
     Given the terminal is ready
     When I sleep the active terminal via the tile sleep button
     Then the slept terminal should be sleeping
@@ -148,11 +107,6 @@ Feature: Sleeping terminals
     And there should be no page errors
 
   Scenario: The dock's 'show all' reset re-shows hidden sleeping terminals
-    # The combined `N hidden · show all` reset is a primary behavior of this
-    # change: it relaxes BOTH filters in one click. Hide the sleeping row via
-    # the ☾ toggle (which makes the reset appear, since a filter is now hiding
-    # a row), click `show all`, and assert the sleeping row returns — proving
-    # the combined reset actually un-hides sleeping, not just the window.
     Given the terminal is ready
     When I sleep the active terminal via the tile sleep button
     Then the slept terminal should be sleeping
@@ -164,10 +118,6 @@ Feature: Sleeping terminals
     And there should be no page errors
 
   Scenario: A sleeping terminal offers no kaval-tui attach command in the Inspector
-    # A slept terminal released its PTY, so it is no longer one of kaval's
-    # terminals — a kaval-tui attach/snapshot command would have nothing to reach.
-    # The Inspector's Attach section is live while the tile is active and must
-    # disappear once it is dormant, rather than handing over a dead command.
     Given the terminal is ready
     When I press the toggle inspector shortcut
     Then the right panel should be visible

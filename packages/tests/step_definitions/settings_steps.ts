@@ -33,9 +33,6 @@ When(
 Then(
   "the {string} new terminal theme button should be selected",
   async function (this: KoluWorld, mode: string) {
-    // aria-pressed flips asynchronously after the click (local preference
-    // patch → SolidJS reactivity flush → DOM update), so poll rather than
-    // read once — a synchronous assertion here races on slower machines.
     await this.page.waitForFunction(
       (m) =>
         document
@@ -81,8 +78,6 @@ Then(
   "the color scheme should be {string}",
   async function (this: KoluWorld, scheme: string) {
     const active = this.page.locator(`[data-testid="color-scheme-${scheme}"]`);
-    // The active button gets bg-accent — verify it's present via class check would be fragile;
-    // instead verify the html element's class reflects the resolved scheme.
     if (scheme === "dark") {
       await this.page.waitForFunction(() =>
         document.documentElement.classList.contains("dark"),
@@ -92,7 +87,6 @@ Then(
         () => !document.documentElement.classList.contains("dark"),
       );
     }
-    // Verify the button is rendered (scheme option exists)
     await active.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
   },
 );

@@ -12,17 +12,7 @@ import {
   POLL_TIMEOUT,
 } from "../support/world.ts";
 
-/** Ensure the right panel is expanded for the ACTIVE TILE before touching the
- *  Code tab. Panel COLLAPSE is per-TILE (#1753, #959): a freshly-created or
- *  switched-to tile starts collapsed under the e2e fixture (which seeds new
- *  terminals collapsed via `newTerminalCollapsed`), so its Code tab is hidden
- *  until opened. (The panel's TAB and selection are per focused pane, which is
- *  why moving focus between a tile's panes never re-collapses it.) Idempotent —
- *  a no-op when the panel is already open (so
- *  it never masks a scenario that deliberately left it collapsed); when
- *  collapsed it presses the toggle and waits for the Code-tab button to paint.
- *  `data-collapsed` is the RightPanel's canonical "not visible" marker. */
-async function ensurePanelOpen(world: KoluWorld): Promise<void> {
+async function openRightPanelIfCollapsed(world: KoluWorld): Promise<void> {
   const collapsed =
     (await world.page
       .locator('[data-testid="right-panel"][data-collapsed]')
@@ -35,33 +25,12 @@ async function ensurePanelOpen(world: KoluWorld): Promise<void> {
   await world.waitForFrame();
 }
 
-// ── Pierre tree selectors ──
-//
-// `@pierre/trees` renders rows inside a `<file-tree-container>` custom element
-// whose shadow root is open. Playwright's CSS engine pierces open shadow DOM,
-// so a single descendant selector reaches every visible row. Rows expose
-// `data-item-path`, `data-item-type` (`file` / `folder`), and `aria-expanded`
-// (folders only).
-//
-// Quirk: directory rows carry a TRAILING SLASH on `data-item-path`
-// (e.g. `src/`), files don't (`src/index.ts`). `dirRow` adds it for the
-// caller so feature files can stay friendly (`"src"`, not `"src/"`).
-//
-// `data-testid="pierre-file-tree"` is on our wrapper div; the same wrapper is
-// used in browse, local, and branch modes (the file browser is no longer a
-// separate widget after #708). Pierre also renders sticky-folder duplicates
-// for headers — `:not([data-file-tree-sticky-row])` keeps assertions on the
-// real (clickable) row, not the static header.
-
 const TREE =
   '[data-code-tree-mode]:not([inert]) [data-testid="pierre-file-tree"]';
 const DIFF_VIEW = '[data-testid="pierre-diff-view"]';
 const FILE_VIEW = '[data-testid="pierre-file-view"]';
 const DIFF_CONTENT = '[data-testid="diff-content"]';
 
-/** Bounded DOM facts for a Code-tab timeout. A bare Playwright timeout says
- *  only what never appeared; these facts distinguish an unopened panel, a
- *  missing selection, a loading/error state, and a mounted Pierre view. */
 async function codeTabTimeoutDiagnostic(world: KoluWorld): Promise<string> {
   // String evaluation is deliberate: tsx injects a `__name` helper into
   // serialized argument functions, but that helper does not exist in the
@@ -102,8 +71,6 @@ function fileRow(path: string): string {
   return `${TREE} [data-item-path="${path}"][data-item-type="file"]:not([data-file-tree-sticky-row])`;
 }
 
-/** A real folder row, wherever it sits — {@link dirRow} scopes it to the shown
- *  tree; the "not shown" wait needs it bare, relative to that tree. */
 function folderItem(path: string): string {
   return `[data-item-path="${path}/"][data-item-type="folder"]:not([data-file-tree-sticky-row])`;
 }
@@ -112,23 +79,7 @@ function dirRow(path: string): string {
   return `${TREE} ${folderItem(path)}`;
 }
 
-/** First-appearance wait for a Pierre tree row / Code-tab chrome element.
- *
- *  Populating the tree (browse mode: a full server-side repo walk; diff
- *  modes: a `git status` / `git diff` round-trip) then rendering it through
- *  fs.watch → SSE → SolidJS → Pierre's virtualized mount is a HYDRATION
- *  axis, distinct from the fast interaction that follows. The mode-helper
- *  path already encodes this (`waitForCodeTabReady` waits under
- *  HYDRATION_TIMEOUT), but the *inline* browse scenarios — `git init` +
- *  `I click the Code tab` + `I click the Code tab mode "browse"` + a direct
- *  row click — bypass that helper and charged the first row's appearance to
- *  POLL_TIMEOUT. Under darwin CI load — especially the cold-cache moment
- *  right after the per-commit koluBin rebuild — that population repeatedly
- *  exceeds 20 s, which was the single largest residual flake (the whole
- *  browse-mode file-tree scenario family). Give the *first* appearance the
- *  hydration budget; once the tree mounts every row is present, so one wait
- *  suffices and the in-tree interactions after it stay on POLL_TIMEOUT. */
-async function waitTreeReady(
+async function waitForFirstPaint(
   world: KoluWorld,
   selector: string,
 ): Promise<void> {
@@ -138,18 +89,12 @@ async function waitTreeReady(
     .waitFor({ state: "visible", timeout: HYDRATION_TIMEOUT });
 }
 
-/** Wait for a changed file to appear. The Code tab subscribes to a live
- *  filesystem watcher; saves and `git add` reflect within the upstream
- *  150ms debounce + the round-trip. Hydration budget — first population of
- *  the tree under darwin load is the slow axis (see `waitTreeReady`). */
 async function waitForChangedFile(world: KoluWorld, path: string) {
-  await waitTreeReady(world, fileRow(path));
+  await waitForFirstPaint(world, fileRow(path));
 }
 
-// ── Actions ──
-
 When("I click the Code tab", async function (this: KoluWorld) {
-  await ensurePanelOpen(this);
+  await openRightPanelIfCollapsed(this);
   const tab = this.page.locator('[data-testid="right-panel-tab-code"]');
   await tab.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
   await tab.click();
@@ -159,7 +104,7 @@ When("I click the Code tab", async function (this: KoluWorld) {
 When(
   "I click the changed file {string} in the Code tab",
   async function (this: KoluWorld, path: string) {
-    await waitTreeReady(this, fileRow(path));
+    await waitForFirstPaint(this, fileRow(path));
     await this.page.locator(fileRow(path)).click();
     await this.waitForFrame();
   },
@@ -168,13 +113,8 @@ When(
 When(
   "I click the Code tab mode {string}",
   async function (this: KoluWorld, mode: string) {
-    // The scope switcher is a segmented control: every view is a visible
-    // segment, so switching is a single click — no popover to open. The
-    // segments are Code-tab chrome that only paint once the repo view has
-    // hydrated, so the first appearance gets the hydration budget (see
-    // waitTreeReady).
     const seg = this.page.locator(`[data-testid="diff-mode-${mode}"]`);
-    await waitTreeReady(this, `[data-testid="diff-mode-${mode}"]`);
+    await waitForFirstPaint(this, `[data-testid="diff-mode-${mode}"]`);
     await seg.click();
     await this.waitForFrame();
   },
@@ -183,17 +123,12 @@ When(
 When(
   "I right-click the changed file {string} in the Code tab",
   async function (this: KoluWorld, path: string) {
-    await waitTreeReady(this, fileRow(path));
+    await waitForFirstPaint(this, fileRow(path));
     await this.page.locator(fileRow(path)).click({ button: "right" });
     await this.waitForFrame();
   },
 );
 
-/** The context-menu item labelled `label`, inside `scope`, once it is visible.
- *  The diff and file viewers render `<button role="menuitem">`
- *  (`CodeContextMenu`); the tree's Pierre-slot menu uses plain `<button>`.
- *  Match either via a CSS fallback so callers don't have to know which one
- *  fired. The menu opens asynchronously, so the wait is part of finding it. */
 async function menuItem(
   world: KoluWorld,
   scope: string,
@@ -208,7 +143,6 @@ async function menuItem(
   return item;
 }
 
-/** Click a top-level item in the tree/file/diff context menu. */
 When(
   "I click the context menu item {string}",
   async function (this: KoluWorld, label: string) {
@@ -266,10 +200,6 @@ When(
   },
 );
 
-// Right-click on a gutter line: `CodeMenuFrame`'s contextmenu handler
-// reads the line from `event.composedPath()` and opens a 3-item menu
-// scoped to that line. Selection + menu-open in one gesture.
-
 When(
   "I right-click line {int} in the diff view",
   async function (this: KoluWorld, line: number) {
@@ -323,11 +253,6 @@ Then(
   },
 );
 
-// Negative variant: file is rendered but no line is highlighted. Used
-// for bare-path refs (`src/Main.hs` with no `:N`) — the file should
-// open, but no selection appears. Callers should first assert the file
-// has loaded (e.g. `the selected file should show content "..."`) so
-// this check doesn't pass trivially against a blank view.
 Then(
   "no line should be selected in the file content",
   async function (this: KoluWorld) {
@@ -347,11 +272,6 @@ Then(
   },
 );
 
-// Asserts the exact set of items in the Pierre diff/file context menu,
-// in order, joined with " | ". Stronger than `I click the context menu
-// item {string}` because it catches "wrong items present" regressions
-// (e.g. a stale path:line entry persisting across file switches) that a
-// targeted click would only surface as an opaque locator timeout.
 Then(
   "the context menu items should be {string}",
   async function (this: KoluWorld, expected: string) {
@@ -370,15 +290,6 @@ Then(
   },
 );
 
-// Focus the Code tab content pane by *clicking* it — the real user gesture
-// the feature depends on. The pane is `tabindex=-1` (click-focusable but not
-// in the Tab order), so a click moves `document.activeElement` OUT of the
-// terminal and into the Code tab — the condition under which Cmd/Ctrl+F defers
-// to the browser's native find-in-page instead of opening kolu's terminal
-// search. We click (not programmatic `.focus()`) so a regression in click-
-// focusability — the whole point of the `tabindex=-1` — actually fails this
-// step, then assert focus left the terminal (no `data-kolu-terminal-search`
-// ancestor) and landed in the content pane before the caller presses the chord.
 When("I focus the Code tab content", async function (this: KoluWorld) {
   const content = this.page.locator(DIFF_CONTENT);
   await content.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
@@ -401,11 +312,7 @@ When("I focus the Code tab content", async function (this: KoluWorld) {
   await this.waitForFrame();
 });
 
-// ── Assertions ──
-
 Then("the Code tab should be active", async function (this: KoluWorld) {
-  // The Code tab button exposes data-active reflecting the active
-  // tab, which is independent of in-repo vs no-repo content.
   await this.page
     .locator('[data-testid="right-panel-tab-code"][data-active]')
     .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
@@ -442,21 +349,16 @@ Then("the Inspector tab should be active", async function (this: KoluWorld) {
 Then(
   "the Code tab should indicate no git repository",
   async function (this: KoluWorld) {
-    // The panel may be collapsed on a just-created/switched-to terminal
-    // (per-terminal collapse, #1753) — reveal it before reading its content.
-    await ensurePanelOpen(this);
+    await openRightPanelIfCollapsed(this);
     const msg = this.page.locator('[data-testid="diff-no-repo"]');
     await msg.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
   },
 );
 
-// A bare repository's folder: git has no file list there, so the Code tab
-// reads the folder from disk and says so. Browse-only — no scope switch and no
-// eye toggle, because there is nothing to diff and nothing git calls ignored.
 Then(
   "the Code tab should read the folder from disk",
   async function (this: KoluWorld) {
-    await ensurePanelOpen(this);
+    await openRightPanelIfCollapsed(this);
     await this.page
       .locator('[data-testid="code-tab-disk-notice"]', {
         hasText: "Bare repository.",
@@ -502,13 +404,6 @@ Then(
   "the Code tab should show the empty-changes message for repo {string}",
   async function (this: KoluWorld, repoPath: string) {
     const msg = this.page.locator('[data-testid="diff-empty"]');
-    // A commit clears the Local tree through the repo-change watcher. Under
-    // Darwin FSEvents load that one-shot index/reflog burst can be dropped,
-    // leaving the already-mounted tree stale forever. Re-fire a working-tree
-    // event on each poll so the production subscriber re-derives the same
-    // post-commit state; the sentinel is removed synchronously, so it never
-    // changes the status being asserted. The 500ms cadence stays beyond the
-    // two 150ms trailing-edge debounces (native watcher + composed pulse).
     await pollFor({
       observe: () => msg.isVisible().catch(() => false),
       isDone: (visible) => visible,
@@ -533,7 +428,7 @@ Then(
 Then(
   "the Code tab should show a directory node {string}",
   async function (this: KoluWorld, path: string) {
-    await waitTreeReady(this, dirRow(path));
+    await waitForFirstPaint(this, dirRow(path));
   },
 );
 
@@ -548,17 +443,12 @@ Then(
 When(
   "I click the directory node {string} in the Code tab",
   async function (this: KoluWorld, path: string) {
-    await waitTreeReady(this, dirRow(path));
+    await waitForFirstPaint(this, dirRow(path));
     await this.page.locator(dirRow(path)).click();
     await this.waitForFrame();
   },
 );
 
-/** Change the repo OUTSIDE the active filter: stage a file the filter does not
- *  match, then wait until the shown mode's git status has caught up (its change
- *  count moves). The filter's answer is the same, but the inputs the tree is
- *  handed tick — what a folder the user collapsed under the filter must
- *  survive. Browse decorates from the local status, so it counts that one. */
 When(
   "a file the filter does not match is added to the Code tab repo",
   async function (this: KoluWorld) {
@@ -594,7 +484,7 @@ When(
 When(
   "I right-click the directory node {string} in the Code tab",
   async function (this: KoluWorld, path: string) {
-    await waitTreeReady(this, dirRow(path));
+    await waitForFirstPaint(this, dirRow(path));
     await this.page.locator(dirRow(path)).click({ button: "right" });
     await this.waitForFrame();
   },
@@ -640,10 +530,6 @@ Then(
   },
 );
 
-/** The NEGATIVE counterpart: the tree menu is open, and the named item is not
- *  in it. The positive control ("Copy path", present on every row) is what
- *  keeps this from passing vacuously against a closed menu or a mis-scoped
- *  locator. */
 Then(
   "the tree context menu should not offer {string}",
   async function (this: KoluWorld, label: string) {
@@ -668,11 +554,7 @@ Then(
 Then(
   "the Code tab should render a diff view",
   async function (this: KoluWorld) {
-    // Pierre's `FileDiff` mounts the wrapper even with zero hunks; assert on
-    // an actual rendered diff line. `[data-line]` is set per-row by Pierre's
-    // `processLine` (see @pierre/diffs/utils/processLine). First diff render
-    // follows a `git diff` round-trip + virtualized mount — hydration budget.
-    await waitTreeReady(this, `${DIFF_VIEW} [data-line]`);
+    await waitForFirstPaint(this, `${DIFF_VIEW} [data-line]`);
   },
 );
 
@@ -695,8 +577,6 @@ Then(
 Then(
   "the Code tab mode should be {string}",
   async function (this: KoluWorld, mode: string) {
-    // The segmented control carries `data-mode` reflecting the active
-    // view, so the assertion is a single read with no interaction.
     const segments = this.page.locator(
       `[data-testid="diff-mode-toggle"][data-mode="${mode}"]`,
     );
@@ -707,11 +587,6 @@ Then(
 Then(
   "the Code tab {string} segment should show a change count of {string}",
   async function (this: KoluWorld, mode: string, count: string) {
-    // The segmented control paints as soon as the repo resolves; the
-    // count badge follows once the always-on gitStatus stream for that
-    // mode lands (working-tree watcher → server → SSE). Give the badge
-    // the hydration budget — under darwin CI load the status round-trip
-    // shares the slow first-population axis the tree does.
     const badge = this.page.locator(`[data-testid="diff-mode-${mode}-count"]`);
     await pollFor({
       observe: async () =>
@@ -737,12 +612,10 @@ Then(
   },
 );
 
-// ── File browser actions ──
-
 When(
   "I click the file {string} in the file browser",
   async function (this: KoluWorld, path: string) {
-    await waitTreeReady(this, fileRow(path));
+    await waitForFirstPaint(this, fileRow(path));
     await this.page.locator(fileRow(path)).click();
     await this.waitForFrame();
   },
@@ -751,38 +624,30 @@ When(
 When(
   "I click the directory {string} in the file browser",
   async function (this: KoluWorld, path: string) {
-    await waitTreeReady(this, dirRow(path));
+    await waitForFirstPaint(this, dirRow(path));
     await this.page.locator(dirRow(path)).click();
     await this.waitForFrame();
   },
 );
 
 When("I click the show-gitignored toggle", async function (this: KoluWorld) {
-  // The eye in the Code-tab toolbar. Browse-only, and it arms the separate
-  // `fs.listIgnored` query rather than re-reading the tracked listing.
   const eye = this.page.locator('[data-testid="code-tab-show-ignored-toggle"]');
   await eye.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
   await eye.click();
   await this.waitForFrame();
 });
 
-// ── File browser assertions ──
-
 Then(
   "the file browser should show a directory {string}",
   async function (this: KoluWorld, path: string) {
-    await waitTreeReady(this, dirRow(path));
+    await waitForFirstPaint(this, dirRow(path));
   },
 );
 
 Then(
   "the directory {string} should be expanded in the file browser",
   async function (this: KoluWorld, path: string) {
-    // A revealed folder is open (`aria-expanded="true"`, folders only) AND
-    // visible — its ancestors are expanded and the row scrolled into view, so
-    // `state: "visible"` also verifies the reveal walked the ancestry. First
-    // appearance gets the hydration budget, like the other tree-row waits.
-    await waitTreeReady(
+    await waitForFirstPaint(
       this,
       `${TREE} [data-item-path="${path}/"][data-item-type="folder"][aria-expanded="true"]:not([data-file-tree-sticky-row])`,
     );
@@ -792,16 +657,10 @@ Then(
 Then(
   "the directory {string} should stay expanded in the file browser",
   async function (this: KoluWorld, path: string) {
-    // The STAYS-open assertion, not the becomes-open one: the folder is
-    // already painted open when this runs, and the defect shut it a beat later
-    // (a superseded lazy read rejecting). Asserting straight away would pass
-    // against the bug, so settle first — one frame, then a beat long enough
-    // for the load round-trip the collapse rode on — and only then read the
-    // row. Mirrors the settle in "should not be selected" above.
     const row = this.page.locator(
       `${TREE} [data-item-path="${path}/"][data-item-type="folder"]:not([data-file-tree-sticky-row])`,
     );
-    await waitTreeReady(
+    await waitForFirstPaint(
       this,
       `${TREE} [data-item-path="${path}/"][data-item-type="folder"][aria-expanded="true"]:not([data-file-tree-sticky-row])`,
     );
@@ -821,7 +680,7 @@ Then(
 Then(
   "the file browser should show a file {string}",
   async function (this: KoluWorld, path: string) {
-    await waitTreeReady(this, fileRow(path));
+    await waitForFirstPaint(this, fileRow(path));
   },
 );
 
@@ -833,10 +692,6 @@ Then(
   },
 );
 
-// One query for "a shown tree that holds no such folder row" — not "the row
-// is gone". `TREE` skips a dimmed (inert) tree, so a bare `detached` wait on
-// `dirRow` also passes while the tree is dimmed or not mounted at all, which
-// proves nothing about what the tree lists.
 Then(
   "the file browser should not show a directory {string}",
   async function (this: KoluWorld, path: string) {
@@ -857,21 +712,13 @@ Then(
 Then(
   "the file {string} should be selected in the file browser",
   async function (this: KoluWorld, path: string) {
-    // Selection lands after the click's mode/diff round-trip resolves; under
-    // darwin load that first settle is on the hydration axis (waitTreeReady).
-    await waitTreeReady(
+    await waitForFirstPaint(
       this,
       `${TREE} [data-item-path="${path}"][data-item-type="file"][aria-selected="true"]:not([data-file-tree-sticky-row])`,
     );
   },
 );
 
-// Negative of the above: assert a file row is NOT the selected one. Used by
-// the GitHub-exact relative-link regression (#1161) — a link to a missing
-// `docs/guide.md` must not silently open a same-basename `src/guide.md` via
-// the terminal resolver's fuzzy basename fallback. Settles a beat first so a
-// late-arriving (wrong) selection still trips the assertion rather than racing
-// past it.
 Then(
   "the file {string} should not be selected in the file browser",
   async function (this: KoluWorld, path: string) {
@@ -945,11 +792,6 @@ async function waitForViewText(
     return text.includes(${JSON.stringify(expected)});
   })()`;
   if (nudgePath !== undefined) {
-    // A native watcher edge is advisory: Darwin can drop the one FSEvents
-    // notification produced by the fixture's save under parallel load. Re-touch
-    // the already-final file while polling so the assertion still verifies the
-    // live watcher → pulse → requery path, without making correctness depend on
-    // one kernel edge. The 500ms cadence clears both 150ms trailing debounces.
     await pollFor({
       observe: () => world.page.evaluate<boolean>(containsExpected),
       isDone: (found) => found,
@@ -978,10 +820,6 @@ Then(
 Then(
   "the file content should be syntax highlighted",
   async function (this: KoluWorld) {
-    // Pierre first paints plain spans, then replaces them with Shiki tokens.
-    // A native drag started on the plain text can lose its anchor mid-gesture.
-    // Await the renderer's token output explicitly for source-code scenarios;
-    // plain-text files have no highlighting to await.
     await this.page
       .locator(`${FILE_VIEW} [data-code] span[style*="--diffs-token-"]`)
       .first()
@@ -1034,11 +872,6 @@ Then(
   },
 );
 
-// Drive Pierre's virtualized scroll viewport to its bottom until the expected
-// last row materializes. The diff/file stream may not have mounted when the
-// step begins, and a fixed frame-count burst can finish before it exists under
-// Darwin load. Timer polling keeps pinning the live viewport to its evolving
-// maximum while Pierre measures and renders its final window.
 When(
   "I scroll the file preview to the bottom until {string} is rendered",
   async function (this: KoluWorld, expected: string) {
@@ -1086,8 +919,6 @@ When(
   },
 );
 
-// ── Binary previews (.html / .svg / .pdf / image / video in browse mode) ──
-
 Then(
   "the file preview iframe should be visible",
   async function (this: KoluWorld) {
@@ -1110,12 +941,6 @@ Then(
     const body = this.page
       .frameLocator('[data-testid="browse-preview-iframe"]')
       .locator("body");
-    // Hydration budget: the preview content arrives over a server
-    // subscription (selection → fsReadFile, or an *edit* re-firing the live
-    // watch which re-points the iframe `src` at a fresh `?v=<tag>`). That
-    // fs.watch → SSE → reload round-trip is the slow axis under darwin CI
-    // load — the edit-then-refresh regression guard (code-tab.feature:1364)
-    // froze on the pre-edit body for >20 s under the post-build storm.
     await pollFor({
       observe: () => body.textContent({ timeout: 1_000 }).catch(() => null),
       isDone: (text) => text?.includes(expected) ?? false,
@@ -1128,11 +953,6 @@ Then(
   },
 );
 
-// Click an `<a>` link *inside* the sandboxed preview iframe. Same origin
-// boundary as the read step above — Playwright's `frameLocator` resolves the
-// frame through the browser frame tree regardless of the opaque-origin
-// sandbox, so the click drives a real same-frame navigation, exactly the
-// gesture a user makes following a hyperlink between two HTML files.
 When(
   "I click the link {string} in the file preview iframe",
   async function (this: KoluWorld, linkText: string) {
@@ -1145,13 +965,6 @@ When(
   },
 );
 
-// Click an EXTERNAL `<a>` inside the sandboxed preview. The frame is
-// `allow-scripts` only (no `allow-popups`/`allow-top-navigation`), so a real
-// browser would either swallow the click or replace the preview in-pane — the
-// in-iframe artifact-sdk traps it and asks the parent to `window.open` the URL
-// in a fresh tab, which surfaces as a new page on the context. The route stub
-// fulfils the external host so the popup commits without network egress; the
-// captured page is stashed for the assertion step.
 When(
   "I click the external link {string} in the file preview iframe",
   async function (this: KoluWorld, linkText: string) {
@@ -1176,10 +989,6 @@ Then(
   async function (this: KoluWorld, expected: string) {
     const popup = this.externalPopup;
     if (!popup) throw new Error("no external popup was captured");
-    // Compare normalized hrefs exactly, not a substring: `includes` would pass
-    // for a wrong destination that merely contains the expected string (e.g.
-    // `…/docs-bad`, or `…?next=https://example.com/docs`). `new URL().href`
-    // normalizes both sides so a trailing-slash difference isn't a false miss.
     const want = new URL(expected).href;
     await pollFor({
       observe: () => Promise.resolve(popup.url()),
@@ -1187,8 +996,6 @@ Then(
         try {
           return new URL(url).href === want;
         } catch {
-          // popup URL may be "about:blank" or otherwise unparseable before
-          // navigation commits — not done yet.
           return false;
         }
       },
@@ -1212,9 +1019,6 @@ Then(
   async function (this: KoluWorld) {
     const video = this.page.locator('[data-testid="browse-preview-video"]');
     await video.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
-    // The container alone could be an empty box; assert a real <video controls>
-    // element mounted inside it so the test proves the renderer dispatched to
-    // the video appliance, not a stray div.
     await this.page
       .locator('[data-testid="browse-preview-video"] video[controls]')
       .waitFor({ state: "attached", timeout: POLL_TIMEOUT });
@@ -1265,12 +1069,6 @@ Then(
 Then(
   "the Code tab tree pane split handle should be visible",
   async function (this: KoluWorld) {
-    // The handle's own bounding box is intentionally zero-height (`h-0`);
-    // a `::before` pseudo-element draws the actual hit area. Playwright's
-    // `visible` check rejects zero-dimension elements, so assert
-    // `attached` (in DOM) + a non-empty `data-corvu-resizable-handle`
-    // attribute — proof the Corvu primitive is wired up, not just a stray
-    // div carrying the testid.
     const handle = this.page.locator(
       '[data-testid="diff-tree-content-handle"][data-corvu-resizable-handle]',
     );
@@ -1278,11 +1076,6 @@ Then(
   },
 );
 
-/** Drag the tree/content split handle upward, growing the preview
- *  (content) pane. The handle element is zero-height (`h-0`) with a
- *  `::before` pseudo drawing the real hit area, so Playwright's
- *  `boundingBox()`/`dragTo()` (which require visibility) can't drive it —
- *  read the rect directly and run a raw mouse drag through the hit zone. */
 When(
   "I drag the Code tab tree\\/content split handle up by {int} pixels",
   async function (this: KoluWorld, pixels: number) {
@@ -1312,9 +1105,6 @@ When(
   },
 );
 
-/** Sanity gate for the drag step above: proves the drag actually moved
- *  the split (within a small tolerance for Corvu's min-size clamping and
- *  fractional rounding) before the scenario goes on to test persistence. */
 Then(
   "the Code tab preview pane should be about {int} pixels taller than noted",
   async function (this: KoluWorld, pixels: number) {
@@ -1343,9 +1133,6 @@ Then(
     if (noted === undefined) {
       throw new Error("No noted preview pane height in this scenario");
     }
-    // Poll: after a terminal switch the Code tab remounts behind
-    // `<Show when={repoPath()}>` and Corvu re-lays-out async — give the
-    // split a moment to converge before judging it.
     await pollFor({
       observe: async () =>
         (await this.page.locator(DIFF_CONTENT).boundingBox())?.height,
@@ -1364,9 +1151,6 @@ Then(
 Then(
   "the file preview iframe should not be visible",
   async function (this: KoluWorld) {
-    // `display:none` parents (inactive tabs, collapsed panel) still leave
-    // the iframe in the DOM. The text path is "not rendered at all" — assert
-    // count, not visibility, so the absence is read literally.
     await this.page.waitForFunction(
       () =>
         document.querySelectorAll('[data-testid="browse-preview-iframe"]')
@@ -1377,8 +1161,6 @@ Then(
   },
 );
 
-// ── Markdown preview + Source ⇄ Rendered toggle (.md in browse mode) ──
-
 Then(
   "the markdown preview should be visible",
   async function (this: KoluWorld) {
@@ -1387,16 +1169,10 @@ Then(
   },
 );
 
-// The rendered preview is plain DOM (not a sandboxed iframe), so its text
-// reads directly. Poll because the content arrives over the `fsReadFile`
-// subscription a frame or two after the click.
 Then(
   "the markdown preview should contain {string}",
   async function (this: KoluWorld, expected: string) {
     const md = this.page.locator('[data-testid="browse-preview-markdown"]');
-    // Hydration budget: the rendered content arrives over the fsReadFile
-    // subscription after selection — the slow propagation axis under darwin
-    // CI load, like the iframe preview above.
     await pollFor({
       observe: () => md.textContent({ timeout: 1_000 }).catch(() => null),
       isDone: (text) => text?.includes(expected) ?? false,
@@ -1412,10 +1188,6 @@ Then(
 Then(
   "the markdown preview should be syntax highlighted",
   async function (this: KoluWorld) {
-    // A fenced document first paints plain, then Shiki replaces the Markdown
-    // subtree once its lazy grammar bundle is ready. Waiting on Shiki's own
-    // output class makes subsequent selection deterministic instead of racing
-    // a text-node replacement between range measurement and mouseup.
     await this.page
       .locator('[data-testid="browse-preview-markdown"] pre.shiki')
       .first()
@@ -1423,10 +1195,6 @@ Then(
   },
 );
 
-// A drawn ` ```mermaid ` block is an <img> whose source is the SVG the
-// sandboxed renderer produced. Its DOM says nothing about whether that SVG is
-// a valid picture — only the browser decoding it does, so this waits for the
-// shown image's natural width.
 Then(
   "the markdown preview should show a painted diagram",
   async function (this: KoluWorld) {
@@ -1437,9 +1205,6 @@ Then(
   },
 );
 
-// A renderer frame is single-use: it draws one block and is removed, so it
-// never holds the text of a later one. Once a diagram has painted, no frame
-// may remain. Selected by the frame's own `data-*` marker.
 Then(
   "the page should hold no diagram renderer frame",
   async function (this: KoluWorld) {
@@ -1456,10 +1221,6 @@ Then(
 When(
   "the markdown preview DOM is re-rendered",
   async function (this: KoluWorld) {
-    // Reproduce the exact invalidation shape behind #1162: Solid's innerHTML
-    // update replaces every text node even when the bytes are unchanged. This
-    // explicit replacement is deterministic; racing Shiki's lazy completion
-    // made the old scenario pass or fail depending on runner load.
     await this.page
       .locator('[data-testid="browse-preview-markdown"] .kolu-md')
       .evaluate((el) => {
@@ -1469,12 +1230,6 @@ When(
   },
 );
 
-// A >1 MB Markdown file is read back truncated; the preview must surface the
-// same "File truncated" banner the source view shows, otherwise a partial
-// document renders with no warning. The banner is a sibling ABOVE the
-// commentable preview (not inside it — see `truncationBanner` in
-// BrowseFileDispatcher: keeping it out of the comment surface stops it being
-// selected as an un-findable comment quote), so this targets its testid.
 Then(
   "the markdown preview should show the truncation warning",
   async function (this: KoluWorld) {
@@ -1506,18 +1261,11 @@ When(
 Then(
   "the markdown preview should not be visible",
   async function (this: KoluWorld) {
-    // The rendered appliance is now kept ALIVE across the toggle (mounted but
-    // `display:none`) so flipping back doesn't re-sanitize — assert it's hidden,
-    // not removed. Playwright's "hidden" state covers a display:none element
-    // (and a detached one, so this assertion holds either way).
     const md = this.page.locator('[data-testid="browse-preview-markdown"]');
     await md.waitFor({ state: "hidden", timeout: POLL_TIMEOUT });
   },
 );
 
-// Keep-alive proof: a marker stamped on the rendered preview before a Source ⇄
-// Rendered round-trip must survive on the SAME element — a remount would mint a
-// fresh, unmarked one.
 When("I mark the rendered markdown preview", async function (this: KoluWorld) {
   await this.page
     .locator('[data-testid="browse-preview-markdown"]')
@@ -1540,12 +1288,6 @@ Then(
   },
 );
 
-// Structural assertions for the rebuilt marked → DOMPurify pipeline
-// (@kolu/solid-markdown). The rendered preview must emit real GFM / inline-HTML
-// elements — tables, task checkboxes, <kbd>, alignment wrappers — and must NOT
-// emit script-capable markup. `selector` is a semantic element/attribute query
-// scoped under the preview testid (e.g. "table", "input[type=checkbox]"),
-// never a styling class.
 Then(
   "the markdown preview should render a {string} element",
   async function (this: KoluWorld, selector: string) {
@@ -1560,9 +1302,6 @@ Then(
   },
 );
 
-// Negative form, for sanitization. Scenarios assert a positive text match
-// first so the preview has demonstrably rendered before we check that a
-// dangerous element is absent (rather than merely not yet painted).
 Then(
   "the markdown preview should not render a {string} element",
   async function (this: KoluWorld, selector: string) {
@@ -1577,11 +1316,6 @@ Then(
   },
 );
 
-// Click a repo-relative anchor in the rendered preview and assert it opens the
-// file IN the app, not a new browser tab. The #1161 bug stamped `target=_blank`
-// on relative links, so a click spawned a popup at the app origin; the fix tags
-// them for in-app interception. Arm a popup watch *before* the click and fail if
-// it ever fires — a green run proves no tab was opened.
 When(
   "I click the repo-relative markdown link {string}",
   async function (this: KoluWorld, href: string) {
@@ -1604,11 +1338,6 @@ When(
   },
 );
 
-// Click an Obsidian-style `[[wikilink]]` in the rendered preview. The bare
-// target (`Architecture` / `Note`) is carried on the `data-md-wikilink`
-// attribute (the href is an inert `#`), so styling + click-routing differ from a
-// regular link. Like a relative link it must never open a browser tab — arm a
-// popup watch and fail if one fires.
 When(
   "I click the wikilink {string}",
   async function (this: KoluWorld, target: string) {
@@ -1631,8 +1360,6 @@ When(
   },
 );
 
-// The disambiguation menu shown when a wikilink's basename matches more than
-// one repo file — an anchored list of candidate paths portalled to the body.
 Then(
   "the wikilink disambiguation menu should be visible",
   async function (this: KoluWorld) {
@@ -1643,8 +1370,6 @@ Then(
   },
 );
 
-// Pick one candidate path from the open disambiguation menu. The option's
-// testid carries the path verbatim (`…-option-<path>`).
 When(
   "I click the wikilink candidate {string}",
   async function (this: KoluWorld, path: string) {
@@ -1657,11 +1382,6 @@ When(
   },
 );
 
-// ── Footnote popover ──
-// Click a footnote forward-ref marker (`[n]`) in the rendered preview. The
-// marker is the `sup a[data-md-footnote]` the renderer flags; clicking it opens
-// the definition popover anchored to the marker (or toggles it closed). Like the
-// other preview links it must never open a browser tab — arm a popup watch.
 When(
   "I click footnote marker {string}",
   async function (this: KoluWorld, label: string) {
@@ -1715,8 +1435,6 @@ Then(
   },
 );
 
-// The popover never carries the back-ref ↩ (stripped from its clone) and the
-// ↩ char must not leak; also scopes element assertions to the popover subtree.
 Then(
   "the footnote popover should render a {string} element",
   async function (this: KoluWorld, selector: string) {
@@ -1752,10 +1470,6 @@ When(
   },
 );
 
-// Click a repo-relative anchor INSIDE the footnote popover body. The popover is
-// portalled to document.body (outside the preview subtree), so this can't reuse
-// the preview-scoped relative-link step — it scopes to the popover instead. Like
-// the preview, the click must open the file in-app, never a new browser tab.
 When(
   "I click the repo-relative link {string} in the footnote popover",
   async function (this: KoluWorld, href: string) {
@@ -1806,8 +1520,6 @@ Then(
   "the markdown preview should not contain {string}",
   async function (this: KoluWorld, unexpected: string) {
     const md = this.page.locator('[data-testid="browse-preview-markdown"]');
-    // The preview is already visible at this point (asserted earlier in the
-    // scenario), so a single read is enough to confirm the text is absent.
     const text = (await md.textContent({ timeout: POLL_TIMEOUT })) ?? "";
     if (text.includes(unexpected)) {
       throw new Error(
@@ -1816,8 +1528,6 @@ Then(
     }
   },
 );
-
-// ── Right-panel tab switching + filter input ──
 
 When(
   "I click the right panel tab {string}",
@@ -1842,11 +1552,6 @@ When(
 Then(
   "the Code tab filter input should contain {string}",
   async function (this: KoluWorld, value: string) {
-    // The filter is controlled — its value reflects the host signal exactly.
-    // Polling rather than asserting once: the #817 fix re-applies search on
-    // the next microtask after a row click, but the input itself is bound to
-    // the host signal which doesn't move during that round-trip — still, a
-    // poll keeps the assertion robust to incidental re-render timing.
     await this.page.waitForFunction(
       ({ sel, expected }) => {
         const el = document.querySelector(sel) as HTMLInputElement | null;
@@ -1858,33 +1563,25 @@ Then(
   },
 );
 
-// ── Mode-parameterized helpers (Scenario Outline harness) ──
-// Used by the regression-suite outlines that run identical assertions
-// across {local, branch, browse}. Adding a new combinatorial regression
-// is one new outline + one Examples row per mode — no per-mode scenario
-// duplication. Keeps "any code-tab fix should be verified in all three
-// modes" cheap to enforce, instead of relying on the author to remember.
-
 type CodeTabMode = "local" | "branch" | "browse";
 
-const MODE_TMP_COUNTER: { n: number } = { n: 0 };
-function modeFixturePaths(mode: CodeTabMode): { work: string; origin: string } {
-  // Fresh per-scenario directories so Examples rows don't collide. Cucumber
-  // workers are separate processes, so the module counter alone repeats in
-  // every worker; include the PID to prevent parallel branch scenarios from
-  // cloning into the same millisecond-stamped path.
-  MODE_TMP_COUNTER.n += 1;
-  const stamp = `${mode}-${process.pid}-${Date.now()}-${MODE_TMP_COUNTER.n}`;
+let fixtureCount = 0;
+function uniqueFixtureStamp(mode: CodeTabMode): {
+  token: string;
+  work: string;
+  origin: string;
+} {
+  fixtureCount += 1;
+  const token = String(fixtureCount);
+  const stamp = `${mode}-${process.pid}-${Date.now()}-${token}`;
   return {
+    token,
     work: `/tmp/kolu-codetab-${stamp}`,
     origin: `/tmp/kolu-codetab-${stamp}-origin.git`,
   };
 }
 
 async function runShell(world: KoluWorld, cmd: string) {
-  // The polymorphic fixtures compose commands whose filesystem effects must
-  // be ordered. Use the same completion-aware path as `When I run "…"` so a
-  // loaded runner cannot type the next Git command into the previous process.
   await world.terminalRunAndWait(cmd);
   await world.waitForFrame();
 }
@@ -1899,127 +1596,118 @@ function writeFileCommand(path: string, content: string): string {
   return `${mkdir}printf '%s\\n' ${shellQuote(content)} > ${shellQuote(path)}`;
 }
 
-/** Per-mode shell sequence to land in a state where `<file>` is visible
- *  in the Code tab tree. Branch mode requires a real `origin` remote so
- *  Kolu's `gitStatus` stream can resolve `merge-base(origin/<default>)`
- *  for the branch-base diff — local and browse don't. */
+function seedBareOrigin(origin: string): string {
+  const seed = `${origin}-seed`;
+  return (
+    `git init --bare -b master ${origin} && ` +
+    `(git init -b master ${seed} && cd ${seed} && ` +
+    `git remote add origin ${origin} && ` +
+    `git commit --allow-empty -m init && git push -u origin master)`
+  );
+}
+
+function cloneAndStageBranch(
+  origin: string,
+  work: string,
+  writeFiles: string,
+): string {
+  return (
+    `git clone ${origin} ${work} && cd ${work} && ` +
+    `git checkout -b feature && ${writeFiles} && git add . && ` +
+    `git rev-parse --verify origin/master >/dev/null 2>&1`
+  );
+}
+
+async function setupLocalFixture(
+  world: KoluWorld,
+  work: string,
+  writeFiles: string,
+): Promise<void> {
+  await runShell(world, `git init ${work} && cd ${work}`);
+  await runShell(world, `git commit --allow-empty -m init`);
+  await runShell(world, writeFiles);
+}
+
+async function setupBrowseFixture(
+  world: KoluWorld,
+  work: string,
+  writeFiles: string,
+): Promise<void> {
+  await runShell(world, `git init ${work} && cd ${work}`);
+  await runShell(world, writeFiles);
+  await runShell(world, `git add . && git commit -m init`);
+}
+
+async function setupBranchFixture(
+  world: KoluWorld,
+  fixture: { token: string; work: string; origin: string },
+  writeFiles: string,
+): Promise<void> {
+  const { token, work, origin } = fixture;
+  const settledMarker = `KOLU_SETTLED_${token}`;
+  const failedMarker = `KOLU_FIXTURE_FAILED_${token}`;
+  await world.terminalRun(
+    `(${seedBareOrigin(origin)} && ` +
+      `${cloneAndStageBranch(origin, work, writeFiles)}) ` +
+      `&& cd ${work}; kolu_fixture_status=$?; ` +
+      `if [ "$kolu_fixture_status" -eq 0 ]; then ` +
+      `echo "KOLU_SET""TLED_${token}"; else ` +
+      `echo "KOLU_FIX""TURE_FAILED_${token}:$kolu_fixture_status"; false; fi`,
+  );
+  await world.waitForFrame();
+  const outcome = await Promise.race([
+    waitForBufferContains(world.page, settledMarker).then(() => ({
+      kind: "settled" as const,
+    })),
+    waitForBufferContains(world.page, failedMarker).then((buffer) => ({
+      kind: "failed" as const,
+      buffer,
+    })),
+  ]);
+  if (outcome.kind === "failed") {
+    const failure = outcome.buffer
+      .split("\n")
+      .find((line) => line.includes(failedMarker));
+    const tail = outcome.buffer.split("\n").slice(-20).join("\n");
+    throw new Error(
+      `branch fixture setup failed: ${failure?.trim() ?? failedMarker}\n${tail}`,
+    );
+  }
+}
+
 async function setupCodeTabFixture(
   world: KoluWorld,
   mode: CodeTabMode,
   writeFiles: string,
 ): Promise<string> {
-  const { work, origin } = modeFixturePaths(mode);
+  const fixture = uniqueFixtureStamp(mode);
   if (mode === "local") {
-    await runShell(world, `git init ${work} && cd ${work}`);
-    await runShell(world, `git commit --allow-empty -m init`);
-    await runShell(world, writeFiles);
+    await setupLocalFixture(world, fixture.work, writeFiles);
   } else if (mode === "branch") {
-    // Branch mode's listing is `git diff --name-status merge-base(HEAD,
-    // origin/<default>)`, which excludes untracked files — so files must be
-    // staged (`git add`) and `origin/<default>` must resolve. The server
-    // detects `<default>` via `git symbolic-ref refs/remotes/origin/HEAD`
-    // (then falls back to origin/main, origin/master). If none resolves it
-    // returns BASE_BRANCH_NOT_FOUND, which on the FIRST read of the passive
-    // branchStatus subscription throws and tears the stream down for good (only
-    // *later* reads are swallowed) — so a work-tree nudge can never revive it
-    // and the tree stays empty. The previous order (`git init work && cd work`
-    // -> remote add -> push) flipped repoRoot at the `cd`, opening that
-    // subscription whose first read could race the push and observe "origin
-    // exists but origin/master does not yet" — the residual branch-mode flake
-    // that lost both cucumber attempts on the slower darwin runner.
-    //
-    // Fix: establish the ENTIRE staged branch fixture before the terminal ever
-    // enters `work`. Populate the bare origin from a throwaway seed repo in a
-    // subshell, then clone + branch + write + stage in another subshell. Only
-    // after every fact the first status read needs is final do we `cd` the
-    // terminal into the repo. The former partial fix entered immediately after
-    // clone, then created the branch/files/index through live watcher events;
-    // one dropped Darwin event could leave the first clean snapshot permanent.
-    // The marker is split across a shell string-concat (`SET""TLED`) so the
-    // search text matches only the command's OUTPUT, never the typed echo.
-    const seed = `${origin}-seed`;
-    // Keep the marker shorter than the narrowest e2e terminal. The xterm
-    // buffer inserts a newline at a wrapped cell boundary, so embedding the
-    // full worktree path made a successful marker unreadable as one string
-    // whenever the terminal was narrow under parallel Darwin load.
-    const token = String(MODE_TMP_COUNTER.n);
-    const settledMarker = `KOLU_SETTLED_${token}`;
-    const failedMarker = `KOLU_FIXTURE_FAILED_${token}`;
-    await world.terminalRun(
-      `(git init --bare -b master ${origin} && ` +
-        `(git init -b master ${seed} && cd ${seed} && ` +
-        `git remote add origin ${origin} && ` +
-        `git commit --allow-empty -m init && git push -u origin master) && ` +
-        `git clone ${origin} ${work} && cd ${work} && ` +
-        `git checkout -b feature && ${writeFiles} && git add . && ` +
-        `git rev-parse --verify origin/master >/dev/null 2>&1) ` +
-        `&& cd ${work}; kolu_fixture_status=$?; ` +
-        `if [ "$kolu_fixture_status" -eq 0 ]; then ` +
-        `echo "KOLU_SET""TLED_${token}"; else ` +
-        `echo "KOLU_FIX""TURE_FAILED_${token}:$kolu_fixture_status"; false; fi`,
-    );
-    await world.waitForFrame();
-    const outcome = await Promise.race([
-      waitForBufferContains(world.page, settledMarker).then(() => ({
-        kind: "settled" as const,
-      })),
-      waitForBufferContains(world.page, failedMarker).then((buffer) => ({
-        kind: "failed" as const,
-        buffer,
-      })),
-    ]);
-    if (outcome.kind === "failed") {
-      const failure = outcome.buffer
-        .split("\n")
-        .find((line) => line.includes(failedMarker));
-      const tail = outcome.buffer.split("\n").slice(-20).join("\n");
-      throw new Error(
-        `branch fixture setup failed: ${failure?.trim() ?? failedMarker}\n${tail}`,
-      );
-    }
+    await setupBranchFixture(world, fixture, writeFiles);
   } else if (mode === "browse") {
-    await runShell(world, `git init ${work} && cd ${work}`);
-    await runShell(world, writeFiles);
-    await runShell(world, `git add . && git commit -m init`);
+    await setupBrowseFixture(world, fixture.work, writeFiles);
   } else {
     throw new Error(`unknown mode: ${mode}`);
   }
-  return work;
+  return fixture.work;
 }
 
 async function activateCodeTabMode(
   world: KoluWorld,
   mode: CodeTabMode,
 ): Promise<void> {
-  await ensurePanelOpen(world);
+  await openRightPanelIfCollapsed(world);
   const tab = world.page.locator('[data-testid="right-panel-tab-code"]');
   await tab.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
   await tab.click();
   await world.waitForFrame();
-  // The Code tab now defaults to "browse" (DEFAULT_RIGHT_PANEL_PER_TERMINAL),
-  // so every mode — including local — must be selected explicitly; there is
-  // no implicit default to short-circuit on.
-  // The scope segments are Code-tab chrome that only paint once the repo view
-  // has hydrated — hydration budget so a loaded runner doesn't lose the switch
-  // before the tree-readiness gate downstream even runs (see waitTreeReady).
   const seg = world.page.locator(`[data-testid="diff-mode-${mode}"]`);
-  await waitTreeReady(world, `[data-testid="diff-mode-${mode}"]`);
+  await waitForFirstPaint(world, `[data-testid="diff-mode-${mode}"]`);
   await seg.click();
   await world.waitForFrame();
 }
 
-/** Wait for the Pierre file tree to finish its first hydration — at least
- *  one real (non-sticky) row visible. Without this gate the subsequent
- *  per-path assertion has to absorb both "tree mounted" and "specific row
- *  rendered" against a single timeout; under darwin CI load the combined
- *  chain (fs.watcher → server → SSE → SolidJS → Pierre mount) repeatedly
- *  exceeded 20 s and was the single most-recurring flake site (#955).
- *
- *  `nudgeWork` (branch mode) re-fires the repo's working-tree watcher each
- *  tick. The fixture is fully staged before the terminal enters it, so this
- *  does not repair setup ordering; it only recovers a dropped first pulse by
- *  making the status query re-read the same already-final state. The sentinel
- *  is removed immediately and never changes the branch diff. */
 async function waitForCodeTabReady(
   world: KoluWorld,
   nudgeWork?: string,
@@ -2053,12 +1741,6 @@ async function waitForFixturePath(
   path: string,
   work?: string,
 ): Promise<void> {
-  // Two-step wait — first the tree's hydration, then the specific path.
-  // Each step carries its own timeout against its own volatility axis;
-  // the fused single-locator wait (the prior shape) made both axes share
-  // POLL_TIMEOUT and starved the slow hydration side on loaded runners.
-  // Branch mode passes `work` so the hydration wait can nudge a stuck
-  // gitStatus subscription back to life (see waitForCodeTabReady).
   await waitForCodeTabReady(world, mode === "branch" ? work : undefined);
   if (mode === "browse") return;
   await world.page
@@ -2067,9 +1749,6 @@ async function waitForFixturePath(
     .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
 }
 
-/** Set up the Code tab in `<mode>` showing one file. The shell sequence
- *  is mode-specific (see `setupCodeTabFixture`); post-conditions are
- *  uniform: file row visible, mode chip set. */
 Given(
   "a Code tab in {string} mode showing file {string} with content {string}",
   async function (
@@ -2089,7 +1768,6 @@ Given(
   },
 );
 
-/** Multi-file variant. DataTable rows: `| path | content |`. */
 Given(
   "a Code tab in {string} mode showing files:",
   async function (
@@ -2098,7 +1776,7 @@ Given(
     table: { rawTable: string[][] },
   ) {
     const m = mode as CodeTabMode;
-    const rows = table.rawTable.slice(1); // skip header
+    const rows = table.rawTable.slice(1);
     const writes = rows.map(([p, c]) => writeFileCommand(p, c)).join(" && ");
     const work = await setupCodeTabFixture(this, m, writes);
     await activateCodeTabMode(this, m);
@@ -2109,24 +1787,19 @@ Given(
   },
 );
 
-/** Mode-agnostic file click. The DOM selector
- *  `[data-item-path][data-item-type="file"]` is identical across modes
- *  (Pierre stamps both attributes regardless of which stream populated
- *  the tree), so a single click step covers local/branch/browse. */
 When(
   "I open file {string} in the Code tab",
   async function (this: KoluWorld, path: string) {
-    await waitTreeReady(this, fileRow(path));
+    await waitForFirstPaint(this, fileRow(path));
     await this.page.locator(fileRow(path)).click();
     await this.waitForFrame();
   },
 );
 
-/** Mode-agnostic file-listing assertion. Same selector across modes. */
 Then(
   "the Code tab should show file {string}",
   async function (this: KoluWorld, path: string) {
-    await waitTreeReady(this, fileRow(path));
+    await waitForFirstPaint(this, fileRow(path));
   },
 );
 
@@ -2146,9 +1819,7 @@ Then(
 Then(
   "the Code tab file {string} should have git status {string}",
   async function (this: KoluWorld, path: string, status: string) {
-    // The decorated row appears as the gitStatus stream lands — first
-    // settle is on the hydration axis under darwin load (waitTreeReady).
-    await waitTreeReady(
+    await waitForFirstPaint(
       this,
       `${fileRow(path)}[data-item-git-status="${status}"]`,
     );
@@ -2158,15 +1829,7 @@ Then(
 Then(
   "the Code tab file {string} should have no git status",
   async function (this: KoluWorld, path: string) {
-    // Browse lists every file, so a clean file's row is present but
-    // undecorated. A point-in-time check is sound here: the gitStatus stream
-    // delivers one atomic snapshot, and callers assert the *positive*
-    // decorations (`… should have git status …`) before this step — so by the
-    // time we read a clean row, that same snapshot has already settled every
-    // row. Read through the Playwright locator (which pierces Pierre's open
-    // shadow root); a raw `document.querySelector` inside `waitForFunction`
-    // would not cross the shadow boundary — see SHADOW_DFS_FN_SRC below.
-    await waitTreeReady(this, fileRow(path));
+    await waitForFirstPaint(this, fileRow(path));
     const row = this.page.locator(fileRow(path));
     const value = await row.getAttribute("data-item-git-status");
     if (value !== null) {
@@ -2177,17 +1840,10 @@ Then(
   },
 );
 
-// ── Folder roll-up: ancestor directories of a change ──
-// Pierre marks every ancestor of a changed file with
-// `data-item-contains-git-change="true"`. kolu injects a shadow-root rule
-// (FileTree.shadowCss) that tints those folders' names; these steps assert the
-// roll-up attribute and that the tint actually lands (computed color differs
-// from a clean sibling).
-
 Then(
   "the Code tab directory {string} should be marked as containing a change",
   async function (this: KoluWorld, path: string) {
-    await waitTreeReady(
+    await waitForFirstPaint(
       this,
       `${dirRow(path)}[data-item-contains-git-change="true"]`,
     );
@@ -2217,7 +1873,7 @@ Then(
 Then(
   "the Code tab directory {string} should not be marked as containing a change",
   async function (this: KoluWorld, path: string) {
-    await waitTreeReady(this, dirRow(path));
+    await waitForFirstPaint(this, dirRow(path));
     const row = this.page.locator(dirRow(path));
     const value = await row.getAttribute("data-item-contains-git-change");
     if (value !== null) {
@@ -2228,10 +1884,6 @@ Then(
   },
 );
 
-/** Proves the injected shadow-root tint actually lands: the changed folder's
- *  name (`[data-item-section='content']`) must compute a different color than a
- *  clean sibling folder's name. Reading the computed color (not a fixed value)
- *  keeps the assertion robust to palette changes. */
 Then(
   "the Code tab directory {string} name should be tinted differently from directory {string}",
   async function (this: KoluWorld, changed: string, clean: string) {
@@ -2242,10 +1894,7 @@ Then(
       await name.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
       return name.evaluate((el) => getComputedStyle(el).color);
     };
-    // Wait for the roll-up to land on the changed folder before sampling, so
-    // the tint has been applied by the time we read its color. First settle
-    // of the gitStatus decoration is on the hydration axis (waitTreeReady).
-    await waitTreeReady(
+    await waitForFirstPaint(
       this,
       `${dirRow(changed)}[data-item-contains-git-change="true"]`,
     );
@@ -2259,18 +1908,9 @@ Then(
   },
 );
 
-/** Mode-agnostic content assertion. Diff modes render
- *  `[data-testid="pierre-diff-view"]`; browse mode renders
- *  `[data-testid="pierre-file-view"]`. Either is fine — the assertion
- *  succeeds if the expected text appears in whichever view is mounted. */
 Then(
   "the selected file should show content {string}",
   async function (this: KoluWorld, expected: string) {
-    // Split: (1) wait for one of the view roots to mount under HYDRATION
-    // budget, (2) wait for the expected text under POLL budget. The fused
-    // pre-#955 shape carried both axes against POLL_TIMEOUT — text never
-    // got a fair chance once a slow runner spent most of the budget on
-    // the view mount.
     try {
       await this.page
         .locator(`${DIFF_VIEW}, ${FILE_VIEW}`)
@@ -2301,15 +1941,6 @@ Then(
     }
   },
 );
-
-// ── Comments tray + composer + pill (#881) ──
-//
-// Pure-logic coverage lives in `packages/artifact-sdk/src/core/findQuote.test.ts`,
-// `packages/artifact-sdk/src/server/inject.test.ts`, and
-// `packages/client/src/comments/formatMarkdown.test.ts`. The scenarios
-// below exercise the user-visible flow end-to-end: real text selection
-// inside Pierre's shadow DOM (via `shadowDfs` + `Selection.addRange`),
-// the floating pill, the composer popover, and the persisted tray.
 
 const COMMENTS_TRAY = '[data-testid="kolu-comments-tray"]';
 const COMMENT_PILL = '[data-testid="kolu-comment-pill"]';
@@ -2395,9 +2026,6 @@ Then(
 Then(
   "the comments tray should not contain {string}",
   async function (this: KoluWorld, text: string) {
-    // Poll until the text is absent from the tray. The tray may still
-    // be visible (other comments queued) but this specific text must
-    // be gone — string-template body (see selection step's rationale).
     await this.page.waitForFunction(
       `(() => {
         const tray = document.querySelector('${COMMENTS_TRAY}');
@@ -2426,15 +2054,11 @@ Then(
   },
 );
 
-// Drive a REAL mouse drag to select `target` inside the container matched by
-// `containerSelector`. Walks shadow trees (Pierre's `CodeView` nests one); the
-// Markdown preview is plain light DOM and the same DFS handles it unchanged.
 async function dragSelectText(
   world: KoluWorld,
   containerSelector: string,
   target: string,
 ): Promise<void> {
-  // (1) Wait for the target to be present in the rendered DOM.
   await world.page.waitForFunction(
     `(() => {
       ${SHADOW_DFS_FN_SRC}
@@ -2454,9 +2078,6 @@ async function dragSelectText(
     { timeout: POLL_TIMEOUT },
   );
 
-  // (2) Get the bounding rect of the target's range in viewport coords.
-  //     The Range itself is throwaway — used only to compute pixel
-  //     coordinates for the mouse drag.
   const rect = (await world.page.evaluate(
     `(() => {
       ${SHADOW_DFS_FN_SRC}
@@ -2494,9 +2115,6 @@ async function dragSelectText(
     );
   }
 
-  // (3) Drag from the start of the target to the end. Three move steps
-  //     keep the browser's selection model awake for short ranges;
-  //     a single `move + down + up` sometimes collapses on Chromium.
   await world.page.mouse.move(rect.startX, rect.startY);
   await world.page.mouse.down();
   await world.page.mouse.move(
@@ -2564,21 +2182,6 @@ Then(
   },
 );
 
-// The in-place comment highlight rides the CSS Custom Highlight API: each
-// overlay registers ranges under its OWN per-instance name (`kolu-comment-<N>`)
-// — one global name per surface would clobber when the Source ⇄ Rendered toggle
-// keeps both alive (see highlightOverlay.ts). A non-zero total range count
-// across the `kolu-comment*` names proves the overlay re-anchored against the
-// live DOM — the regression this guards is the rendered Markdown preview
-// swapping its subtree after mount (lazy Shiki re-render), which detaches any
-// earlier ranges; the overlay's MutationObserver must re-apply so the highlight
-// doesn't silently vanish. Polled because Shiki warms a frame or two after the
-// preview mounts. (String-eval'd so the loose HighlightRegistry type doesn't
-// need a DOM-lib import here.)
-// keep in sync with COMMENT_HIGHLIGHT_NAME_PREFIX in
-// packages/artifact-sdk/src/core/theme.ts — the overlay mints its per-instance
-// names with this prefix. (This step string-eval's its check in the page, so it
-// can't import the client constant directly; this is the one named site.)
 const HIGHLIGHT_PREFIX = "kolu-comment";
 Then(
   "the comment highlight should be present",
@@ -2611,11 +2214,6 @@ Then(
 Then(
   "the comment highlight should cover {string} in the markdown preview",
   async function (this: KoluWorld, expected: string) {
-    // A Highlight can retain a Range whose text nodes were detached by an
-    // innerHTML replacement. Counting registry entries therefore proves only
-    // that a stale range still exists. Require the range to cover the expected
-    // text through nodes owned by the CURRENT preview subtree; this is the
-    // re-anchoring contract exercised by the Markdown DOM-replacement test.
     await pollFor({
       observe: () =>
         this.page
@@ -2654,8 +2252,6 @@ Then(
 When("I click the comment pill", async function (this: KoluWorld) {
   const pill = this.page.locator(COMMENT_PILL);
   await pill.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
-  // The pill uses mousedown (not click) to keep the selection alive
-  // before the browser collapses it on focus. Drive the same event.
   await pill.dispatchEvent("mousedown");
   await this.waitForFrame();
 });
@@ -2703,8 +2299,6 @@ When(
 When("I press Escape in the composer", async function (this: KoluWorld) {
   const composer = this.page.locator(COMMENT_COMPOSER);
   await composer.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
-  // Escape is handled on the composer div's onKeyDown — focus must be
-  // inside the composer for the handler to fire.
   await this.page.locator(`${COMMENT_COMPOSER} textarea`).press("Escape");
   await this.waitForFrame();
 });
@@ -2721,10 +2315,6 @@ When(
   },
 );
 
-// Click a tray item's body button to jump to its anchor. The body button
-// carries the comment text; clicking it fires `onJumpTo`, which navigates the
-// browse view (and, for a multi-surface file, flips the Source ⇄ Rendered
-// toggle back to the surface the comment was made on).
 When(
   "I click the tray comment {string}",
   async function (this: KoluWorld, body: string) {
@@ -2737,8 +2327,6 @@ When(
   },
 );
 
-// Assert which Source ⇄ Rendered surface is active by reading the toggle's
-// `aria-pressed`. Used to verify a tray jump flipped back to the right surface.
 Then(
   "the file view should be showing {string}",
   async function (this: KoluWorld, mode: string) {
@@ -2758,9 +2346,6 @@ Then(
 When(
   "I remove the tray comment containing {string}",
   async function (this: KoluWorld, body: string) {
-    // Each tray item is `<li>` with a comment-body button and a
-    // per-item × remove button (aria-label "Remove comment on <path>").
-    // Match the item that contains the body text, then click its ×.
     await this.page
       .locator(COMMENTS_TRAY)
       .locator(`li:has-text("${body}")`)
@@ -2773,15 +2358,8 @@ When(
 
 When("I reload the page", async function (this: KoluWorld) {
   await this.page.reload();
-  // App boot + Code-tab mount + repoPath() resolution; the tests rely
-  // on the right panel staying open across reloads via persisted state.
   await this.waitForFrame();
 });
-
-// ── Back / forward navigation (phase 2: the Code tab is a browser) ──
-// Selecting files records history in @kolu/solid-browser's createBrowser; the
-// toolbar ◀ ▶ buttons (the primary affordance — Alt+←/→ is the scoped-keybind
-// alternate) retrace it. These drive the buttons by their testids.
 
 When("I go back in the Code tab", async function (this: KoluWorld) {
   const btn = this.page.locator('[data-testid="code-tab-back-button"]');
@@ -2802,9 +2380,6 @@ Then(
   async function (this: KoluWorld, dir: string) {
     const id =
       dir === "back" ? "code-tab-back-button" : "code-tab-forward-button";
-    // A disabled <button> keeps the `disabled` attribute, so `:disabled`
-    // attaches exactly when createBrowser reports an end of the stack
-    // (canBack/canForward false) and the button is greyed out.
     const btn = this.page.locator(`[data-testid="${id}"]:disabled`);
     await btn.waitFor({ state: "attached", timeout: POLL_TIMEOUT });
   },
@@ -2815,10 +2390,6 @@ Then(
   async function (this: KoluWorld, dir: string) {
     const id =
       dir === "back" ? "code-tab-back-button" : "code-tab-forward-button";
-    // The inverse of the disabled check — `:enabled` attaches exactly when
-    // createBrowser reports a live entry to traverse to (canBack/canForward
-    // true), proving the reactive enablement tracks the stack in both
-    // directions.
     const btn = this.page.locator(`[data-testid="${id}"]:enabled`);
     await btn.waitFor({ state: "attached", timeout: POLL_TIMEOUT });
   },
@@ -2860,15 +2431,6 @@ Then(
   },
 );
 
-// ── Tree identity across a pane switch ──
-//
-// Focus moves between two panes of one tile are far more frequent than tile
-// switches, and a new split starts in its parent's directory — so "same repo on
-// both sides" is the common case. Nothing about the repo changes, so the tree
-// must not be rebuilt. The probe is written by the TEST onto the mounted host
-// element (the `data-keepalive-probe` precedent above): a replacement node would
-// not carry it, so its presence is a real identity proof and needs no production
-// marker.
 When("I tag the file tree", async function (this: KoluWorld) {
   await this.page
     .locator('[data-testid="pierre-file-tree"]')

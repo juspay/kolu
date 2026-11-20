@@ -10,12 +10,6 @@ Feature: Grok status detection
   Background:
     Given the terminal is ready
 
-  # Production Grok often writes active_sessions.json AFTER the process is
-  # already foreground (map update is not instantaneous). Detection then
-  # depends entirely on the active_sessions externalChanges rewake — the
-  # command-run reconcile ladder (0/75/300/1000ms) has already stopped.
-  # The happy-path scenarios above write the map inside that window and
-  # so cannot catch a dead active_sessions watcher.
   Scenario: Tile chrome lights up when active_sessions is written late
     When a Grok process is running without an active_sessions entry
     And 1500 ms elapse past the command-run reconcile window
@@ -23,10 +17,6 @@ Feature: Grok status detection
     Then the tile chrome should show a Grok indicator with state "thinking"
     And there should be no page errors
 
-  # Initial match emits once from createGrokWatcher; live phase changes
-  # only reach the tile if the events.jsonl watcher fires. The happy-path
-  # scenarios never rewrite events after match, so a dead session watcher
-  # (e.g. parent-dir watch that misses appends) is invisible to e2e.
   Scenario: Tile chrome follows a live events.jsonl state transition
     When a Grok session is mocked with state "thinking"
     Then the tile chrome should show a Grok indicator with state "thinking"
@@ -34,13 +24,6 @@ Feature: Grok status detection
     Then the tile chrome should follow the Grok state change to "tool_use" without nudging
     And there should be no page errors
 
-  # The 2026-08-07 incident. Grok rewrites active_sessions.json wholesale from a
-  # process-local snapshot, so a CONCURRENT grok starting or exiting erases the
-  # rows of every other live grok — observed on disk as `[]` while a grok was
-  # mid-turn. padi read that as "the session ended", retired the session watcher,
-  # and — with the grok process still foreground — kept the last state forever:
-  # an agent that had finished its turn still read as working, and
-  # `padi-tui wait --until waiting` hung until its timeout.
   Scenario: Tile chrome keeps following Grok after a concurrent grok clobbers active_sessions
     When a Grok session is mocked with state "thinking"
     Then the tile chrome should show a Grok indicator with state "thinking"

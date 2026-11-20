@@ -31,11 +31,6 @@ Feature: Codex status detection
     And there should be no page errors
 
   Scenario: npm-shimmed Codex is detected via the OSC 633;E preexec hint
-    # The fake-binary path above exercises `readForegroundBasename`, the
-    # kernel-level half of `matchesAgent`. This scenario exercises the other
-    # half — `lastAgentCommandName`, set from the shell's OSC 633;E preexec
-    # hint — without which an npm-installed codex (kernel basename = "node",
-    # not "codex") would silently fail detection. Regression guard for #677.
     When a Codex session is mocked with state "thinking" via an npm-shimmed CLI
     Then the tile chrome should show a Codex indicator with state "thinking"
     And there should be no page errors

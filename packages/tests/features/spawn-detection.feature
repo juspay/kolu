@@ -13,12 +13,6 @@ Feature: Command-rooted agent detection (#1872)
   Background:
     Given the terminal is ready
 
-  # The pid path already works command-rooted (reproduce-first finding): claude
-  # resolves by foregroundPid + on-disk session file, independent of the command
-  # hint, so a command-rooted claude with a live session IS detected today. The
-  # field's invisible claudes were Bug B (env leak → no session file), fixed by
-  # PR1. This scenario is a GREEN regression guard that the pid path keeps working
-  # for a shell-less agent.
   Scenario: A command-rooted claude with a live session is detected (pid path)
     When a command-rooted claude agent is running with session state "thinking"
     Then the dock should be visible
@@ -26,11 +20,6 @@ Feature: Command-rooted agent detection (#1872)
     Then the dock should show 1 working pill
     And there should be no page errors
 
-  # The hint path is the actual #1872 bug. An agent whose kernel comm ≠ its name
-  # (an npm shim — an `opencode`-named binary execing a `node`-named one) can only
-  # be matched via the command it was launched with. With no shell there is no
-  # OSC 633;E mark, kaval discards the spawn argv (lock 1), and the shellIdle gate
-  # would null the hint anyway (lock 2). RED today; green once both locks open.
   Scenario: A command-rooted opencode npm shim is detected via its command (hint path)
     When a command-rooted opencode agent is running as an npm shim with session state "thinking"
     Then the dock should be visible

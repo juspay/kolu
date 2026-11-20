@@ -1,8 +1,3 @@
-/** Compact layout (roomy touch device — Z Fold 6 unfolded, tablets) — step
- *  definitions. The compact layout is a persistent dock rail beside the active
- *  terminal, in place of the phone's swipe drawer and the desktop's pan/zoom
- *  canvas. */
-
 import { Then, When } from "@cucumber/cucumber";
 import { type KoluWorld, POLL_TIMEOUT } from "../support/world.ts";
 
@@ -29,9 +24,6 @@ Then(
   },
 );
 
-// The persistent rail replaces the phone's left-edge swipe drawer, so its
-// handle must not be rendered — proving compact didn't just inherit the phone
-// layout wholesale.
 Then(
   "the mobile dock handle should not be present",
   async function (this: KoluWorld) {
@@ -41,9 +33,6 @@ Then(
   },
 );
 
-// The desktop ChromeBar is a mouse-pointer affordance; a coarse-pointer compact
-// device must not get it (regression cover for the original bug — the unfolded
-// Fold showing the full desktop chrome).
 Then(
   "the desktop chrome bar should not be present",
   async function (this: KoluWorld) {
@@ -53,11 +42,6 @@ Then(
   },
 );
 
-// Empty-workspace cover for the compact cohort: with zero terminals the desktop
-// Dock (whose `+` was the only clickable create on a >=sm touch viewport before
-// the layoutMode split) is gone, so EmptyState must carry its own tappable
-// create button — otherwise a finger-only foldable has no way to the first
-// terminal.
 Then(
   "the empty state create button should be visible",
   async function (this: KoluWorld) {
@@ -70,8 +54,6 @@ Then(
   },
 );
 
-// The empty Dock is desktop-only; the compact empty state proves it by absence
-// (the touch create path is EmptyState's own button, asserted above).
 Then(
   "the desktop dock should not be present",
   async function (this: KoluWorld) {

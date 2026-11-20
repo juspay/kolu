@@ -4,11 +4,6 @@ import { pollFor, pollUntil } from "../support/poll.ts";
 import { redeployUnderThisPage } from "../support/redeploy.ts";
 import { type KoluWorld, POLL_TIMEOUT } from "../support/world.ts";
 
-/** kolu is redeployed under the open page: the server and padi are replaced,
- *  the terminals keep running, and the page reloads with its storage — see
- *  `redeployUnderThisPage`. The harness cannot keep a tab open across it (the
- *  new server listens on a new port), so a scenario here is always the
- *  RELOAD half of a restart; the tab that stays open is the unit tests'. */
 When(
   "the kolu server is redeployed under this page",
   { timeout: 180_000 },
@@ -17,10 +12,6 @@ When(
   },
 );
 
-/** The agent's row shows padi's verdict that its turn is over — still, in
- *  the post-turn paint. padi publishes that verdict only once it has looked,
- *  so a check after this one is a check of what the page did with padi's
- *  first real word, not of a page that has not heard it yet. */
 Then(
   "the agent's dock row should show its finished turn",
   async function (this: KoluWorld) {
@@ -46,8 +37,6 @@ Then(
   },
 );
 
-/** The finished agent's own row carries the unread mark — not merely some
- *  row, so a mark that moved to the wrong terminal does not pass. */
 Then("the agent's dock row should be unread", async function (this: KoluWorld) {
   await this.page
     .locator(
@@ -57,8 +46,6 @@ Then("the agent's dock row should be unread", async function (this: KoluWorld) {
     .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
 });
 
-/** The asking agent's row says so — padi lists it as asking, which is what a
- *  check after this one is about. */
 Then(
   "the agent's dock row should show it asking",
   async function (this: KoluWorld) {
@@ -75,8 +62,6 @@ When("I click the attention alerts toggle", async function (this: KoluWorld) {
 });
 
 When("I simulate an attention alert", async function (this: KoluWorld) {
-  // Use page.evaluate to call the simulate function directly,
-  // avoiding command palette navigation complexity.
   await this.page.evaluate(() => {
     window.__koluSimulateAlert?.();
   });
@@ -126,11 +111,6 @@ When(
   },
 );
 
-/** "Is the person looking?" is half `document.hasFocus()`, and a headless page
- *  cannot be made to lose and regain focus on cue. So the answer is DECLARED
- *  rather than raced — the same override `render_recovery_steps.ts` uses to
- *  model an occluded window. `Boolean.bind(null, x)` is a hasFocus() → x with
- *  no function literal for esbuild's keep-names to decorate. */
 When(
   /^I simulate the Kolu window (losing|regaining) focus$/,
   async function (this: KoluWorld, how: string) {
@@ -154,7 +134,6 @@ Then(
 Then(
   "no workspace switcher branch should be notified",
   async function (this: KoluWorld) {
-    // Double frame wait to flush SolidJS reactivity + any pending DOM updates
     await this.waitForFrame();
     await this.waitForFrame();
     const count = await this.page
@@ -178,10 +157,6 @@ When(
   },
 );
 
-/** Records every badge write instead of making one. Installed on THIS page and
- *  on every page a navigation loads after it, like the sound stub, so a
- *  reload's badge is recorded too. Assigned as properties, so no name is
- *  inferred for esbuild's keep-names to wrap. */
 const stubBadge = (): void => {
   window.__badgeCalls = [];
   navigator.setAppBadge = (count?: number) => {
@@ -199,35 +174,22 @@ When("I stub the Badging API", async function (this: KoluWorld) {
   await this.page.evaluate(stubBadge);
 });
 
-/** The sound is the one channel a page cannot show, so the step records it
- *  instead: every `play()` on a media element pushes its source onto the
- *  stash and resolves, the way `I stub the Badging API` records the badge.
- *  The `Audio` the app builds is still the real one — only the noise is
- *  replaced. Assigned as a property, so no name is inferred for esbuild's
- *  keep-names to wrap in a `__name(...)` the page does not have. */
 const stubSound = (): void => {
   window.__soundPlays = [];
   HTMLMediaElement.prototype.play = function (this: HTMLMediaElement) {
-    // A media element playing a `srcObject` has no `src` to name.
     window.__soundPlays?.push(this.src ? new URL(this.src).pathname : "");
     return Promise.resolve();
   };
 };
 
-/** Installed on THIS page and on every page a navigation loads after it, so a
- *  reload is heard too — the new page starts with an empty stash, which is
- *  exactly what "did the reload ring?" needs. */
 When("I stub the notification sound", async function (this: KoluWorld) {
   await this.page.addInitScript(stubSound);
   await this.page.evaluate(stubSound);
 });
 
-/** EXACTLY this many, not at least: waits for the count to arrive, then gives
- *  the page two more frames to ring a second time it should not have. */
 Then(
   "the notification sound should have played {int} time(s)",
   async function (this: KoluWorld, expected: number) {
-    // `evaluate` already hands back a serialised copy.
     const read = () => this.page.evaluate(() => window.__soundPlays ?? []);
     await pollFor({
       observe: read,
@@ -252,10 +214,6 @@ Then(
 Then(
   "the app badge should show {int}",
   async function (this: KoluWorld, expected: number) {
-    // POLL: the badge is now the cross-host `urgency` (awaiting-agent) count — a
-    // WIRE fact that lands after the agent-state round-trips through padi's fold
-    // and the client's watcher, so a single-read assert races the propagation.
-    // Wait for the last `set` call to reach the expected count.
     const lastSet = await pollUntil(
       this.page,
       () =>
@@ -288,12 +246,6 @@ Then("the app badge should be cleared", async function (this: KoluWorld) {
   assert.strictEqual(lastCall.method, "clear");
 });
 
-/** THE QUIET CLAIM, and the reason it is spelled as "never": the badge is
- *  de-duplicated against the last count it confirmed, so an agent that raises
- *  nothing produces NO call at all — there is no `clear` to find and "the last
- *  call was a clear" would fail on a perfectly quiet app. What a presence
- *  promises is that no count was ever put on the icon for it, which is exactly
- *  the absence of a `set` with a number in it. */
 Then(
   "the app badge should never have counted an agent",
   async function (this: KoluWorld) {
@@ -314,10 +266,6 @@ Then(
   },
 );
 
-/** The host tab's two attention marks, both absent: the working STRIPE along
- *  its bottom edge and the count segment beside its name. Scoped under
- *  `host-chip-row` — the hidden measuring twin also matches `host-chip` — and
- *  read off the ACTIVE tab, the one whose terminals the scenario is about. */
 Then(
   "the active host tab should show no attention marks",
   async function (this: KoluWorld) {

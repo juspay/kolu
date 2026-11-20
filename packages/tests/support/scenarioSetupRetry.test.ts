@@ -6,9 +6,6 @@ import {
   retryTransient,
 } from "./scenarioSetupRetry.ts";
 
-/** The wire shape `reServeSurface` answers with while its upstream link is down —
- *  a DEFECT whose `name` survives Effect's defect codec. This is the successor of
- *  the old HTTP 503. */
 const upstreamDown = (): RpcCallFailed => {
   const defect = new Error("reServeSurface: … with no live upstream link");
   defect.name = "UpstreamUnavailableError";

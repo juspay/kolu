@@ -71,7 +71,6 @@ Then(
 When(
   "I type {string} into the intent editor",
   async function (this: KoluWorld, value: string) {
-    // Translate literal `\n` in the .feature string into real newlines.
     const text = value.replace(/\\n/g, "\n");
     const ta = this.page.locator(EDITOR);
     await ta.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
@@ -83,7 +82,6 @@ When("I save the intent", async function (this: KoluWorld) {
   const btn = this.page.locator(SAVE);
   await btn.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
   await btn.click({ force: true });
-  // Wait for the editor to close (RPC round-trip + dialog dismiss).
   await this.page.waitForFunction(
     () =>
       document.querySelector('[data-testid="intent-editor-textarea"]') === null,
@@ -144,10 +142,6 @@ Then(
   },
 );
 
-// The annotation slot is the package's links-OFF inline variant: its own click
-// handler (open the intent editor) must win, so a markdown link must degrade to
-// inert text — no `<a>` survives the sanitize pass. The slot's text still shows
-// the link label, asserted alongside this in the scenario.
 Then(
   "the active terminal annotation slot should render no anchor",
   async function (this: KoluWorld) {
@@ -165,9 +159,6 @@ Then(
 Then(
   "the active terminal annotation slot should show the placeholder",
   async function (this: KoluWorld) {
-    // Placeholder state: no intent, no git → slot shows an em-dash so
-    // it's still visible and clickable (the user can add an intent
-    // even when the terminal isn't in a git repo).
     await this.page.waitForFunction(
       (slotSelector) => {
         const slot = document.querySelector(slotSelector);

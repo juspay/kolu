@@ -19,12 +19,6 @@ Feature: Pi status detection
     Then the tile chrome should follow the Pi state change to "waiting" without nudging
     And there should be no page errors
 
-  # Real pi writes its session file at launch, but the preexec hint fires
-  # BEFORE the file exists, so the first reconcile ladder (0/75/300/1000ms)
-  # already ran empty. Detection then depends entirely on the sessions-tree
-  # externalChanges watcher firing when the file appears — a dead tree watcher
-  # leaves the tile dark until the user types again. The happy-path scenario
-  # writes the file inside the ladder window and so cannot catch that.
   Scenario: Tile chrome lights up when the session file lands after the reconcile ladder
     When a Pi process is running with no session file yet
     And 1500 ms elapse past the command-run reconcile window

@@ -30,7 +30,6 @@ Feature: An agent that is simply there
     When Oh My Pi's screen goes quiet
     Then the tile chrome should show an Oh My Pi indicator with state "fresh"
     And the dock agent row should say "Ready"
-    # The quiet half: an agent that is READY is an agent, not an alarm.
     And the dock should show 0 cards
     And the dock should show 0 working pills
     And the dock needs-you strip should show 0 entries
@@ -39,8 +38,6 @@ Feature: An agent that is simply there
     And there should be no page errors
 
   Scenario: The agent leaving the foreground ends its presence
-    # Presence is a PROCESS fact, so it ends the way the process does — with no
-    # session file ever written, there is nothing else that could end it.
     When an Oh My Pi process is running with no session file yet
     Then the tile chrome should show an Oh My Pi indicator with state "fresh"
     When Oh My Pi leaves the foreground
@@ -49,14 +46,6 @@ Feature: An agent that is simply there
 
   @presence-registry
   Scenario: Every registered agent reads as Ready from its foreground alone
-    # Presence is minted from the FOREGROUND, matched against the registry's CLI
-    # grammar — so it is owed to every agent kolu knows, not only to the one
-    # with a faithful fake. This scenario is run once per REGISTERED agent, and
-    # the list comes from the registry at runtime: registering an eighth agent
-    # extends it without touching this file. Each stand-in is a copy of bash
-    # renamed to that agent's own binary name (so `/proc/<pid>/comm` reads it),
-    # which paints a bring-up and then goes quiet — and writes no session, no
-    # breadcrumb, nothing at all.
     When I stub the Badging API
     And the dock is expanded
     And every registered agent is brought up in turn, writing no session

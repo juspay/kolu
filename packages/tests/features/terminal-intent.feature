@@ -47,12 +47,6 @@ Feature: Terminal intent
     And I click the quick-row emoji "🎯"
     Then the intent editor textarea should contain "🎯"
 
-  # The annotation slot is the renderer's links-OFF inline variant: its own
-  # click (open the intent editor) must win, so a markdown link can't survive as
-  # a nested anchor. The link label still shows; only the <a> is gone. This is
-  # the sole e2e coverage of the links:false path now that the renderer no
-  # longer drops anchors itself — the sanitize pass owns the whole link policy.
-
   Scenario: Markdown link in intent renders inert in the links-off annotation slot
     When I click the active terminal annotation slot
     And I type "[docs](https://example.com)" into the intent editor

@@ -136,11 +136,6 @@ Feature: Git worktree management
     Then the workspace switcher should have 1 fewer terminal entry
     And there should be no page errors
 
-  # Sub-terminal create-via-palette in a worktree-spawned terminal stalls
-  # waiting for [data-sub-terminal] to appear. Reproduces only when the
-  # right panel is open AND the parent was created through the worktree
-  # palette flow — non-worktree sub-terminal scenarios pass. Skip until
-  # the focus path is untangled (post-#622 follow-up).
   @skip
   Scenario: Closing a split terminal in a worktree does not prompt for removal
     When I set up a git repo at "/tmp/kolu-wt-split-close"

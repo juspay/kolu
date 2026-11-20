@@ -34,9 +34,6 @@ Feature: Right panel (Code + Inspector)
   Scenario: Agent click on tile chrome expands inspector
     Then the right panel should not be visible
     When I run "echo agent-expand-test"
-    # Agent indicator may not be present without a real agent, so we
-    # verify the expand-on-agent-click wiring via the toggle shortcut fallback.
-    # The wiring is: onAgentClick → rightPanel.expandPanel()
     When I press the toggle inspector shortcut
     Then the right panel should be visible
     And there should be no page errors
@@ -44,8 +41,6 @@ Feature: Right panel (Code + Inspector)
   Scenario: Inspector shows CWD
     When I press the toggle inspector shortcut
     Then the right panel should be visible
-    # The panel now opens on the Code tab by default, so select Inspector
-    # explicitly before asserting on its content.
     When I click the right panel tab "inspector"
     Then the inspector should show a CWD section
     And there should be no page errors
@@ -80,9 +75,6 @@ Feature: Right panel (Code + Inspector)
     And there should be no page errors
 
   Scenario: Compose box inserts a drafted prompt into the terminal
-    # The Inspector's Compose box is the in-app `kaval-tui send`: type a draft,
-    # hit Send, and it's written into the active terminal's input line WITHOUT
-    # pressing Enter (the honest-send contract — the user submits themselves).
     When I press the toggle inspector shortcut
     Then the right panel should be visible
     When I click the right panel tab "inspector"
@@ -92,11 +84,6 @@ Feature: Right panel (Code + Inspector)
     And there should be no page errors
 
   Scenario: Compose draft persists across a page refresh
-    # The draft is saved per-terminal in localStorage, so a half-written prompt
-    # survives a reload (the terminal is restored under the same id). Right-panel
-    # visibility is itself persisted (see "Right panel state persists across
-    # refresh"), so after the reload the panel is already open — do NOT re-toggle
-    # it (that would collapse it) — just re-select Inspector and assert the draft.
     When I press the toggle inspector shortcut
     Then the right panel should be visible
     When I click the right panel tab "inspector"
@@ -108,8 +95,6 @@ Feature: Right panel (Code + Inspector)
     And there should be no page errors
 
   Scenario: Inspector covers split terminals and the snapshot command
-    # The tile's main pane and every split each get their own attach + snapshot
-    # command pair, since each split is its own PTY in the daemon.
     When I create a sub-terminal via command palette
     When I press the toggle inspector shortcut
     Then the right panel should be visible
@@ -133,9 +118,6 @@ Feature: Right panel (Code + Inspector)
     And there should be no page errors
 
   Scenario: Resize handle stays hittable over a canvas tile in Code tab
-    # A tile placed against the canvas's right edge would shadow the
-    # outer handle's ::before hit zone (which extends 4px into the
-    # canvas area) unless the handle stacks above the tile's z-index:10.
     When I press the toggle inspector shortcut
     Then the right panel should be visible
     When I click the Code tab
@@ -176,11 +158,6 @@ Feature: Right panel (Code + Inspector)
     And there should be no page errors
 
   Scenario: No ghost right panel once the last terminal closes
-    # With the panel open (collapsed=false), closing the last terminal drops
-    # to the EmptyState — which doesn't mount the panel host. The desktop
-    # chrome must follow: the toggle goes dead and the ChromeBar reserves no
-    # panel-width, instead of floating its controls 25vw shy of the edge with
-    # an empty "ghost" gap behind them.
     When I press the toggle inspector shortcut
     Then the right panel should be visible
     When I close the active terminal via command palette
@@ -191,32 +168,19 @@ Feature: Right panel (Code + Inspector)
     And there should be no page errors
 
   Scenario: Active tab is per-terminal (each terminal remembers its own)
-    # Terminal 1 (from Background) — switch to Inspector, leaving terminal 2 untouched
     When I press the toggle inspector shortcut
     Then the right panel should be visible
     When I click the right panel tab "inspector"
     Then the Inspector tab should be active
-    # Create terminal 2 — it should have its own default activeTab (Code,
-    # per DEFAULT_RIGHT_PANEL_PER_TERMINAL)
     When I create a terminal
     Then the Code tab should be active
-    # Switch back to terminal 1 — Inspector tab should still be active for it
     When I press the switch to terminal 1 shortcut
     Then the Inspector tab should be active
-    # Switch forward to terminal 2 — Code again
     When I press the switch to terminal 2 shortcut
     Then the Code tab should be active
     And there should be no page errors
 
   Scenario: Inspector Work chips follow the active terminal across repos
-    # Regression cover for #2037: the branch/repo chips painted once for
-    # whichever terminal was active when the Inspector first mounted, then
-    # never repainted on a terminal switch — while the directory line right
-    # below them (read inline, not memoized) kept updating. Two terminals in
-    # two DIFFERENT repos/branches, switched back and forth, asserting all
-    # three read the ACTIVE terminal's own facts each time — not merely
-    # non-empty, which stale text from the other terminal satisfies just as
-    # well (see packages/client/src/right-panel/WorkSection.test.tsx).
     When I run "rm -rf /tmp/kolu-inspector-alpha && git init /tmp/kolu-inspector-alpha && cd /tmp/kolu-inspector-alpha && git checkout -b alpha-feature"
     When I press the toggle inspector shortcut
     Then the right panel should be visible
@@ -243,9 +207,6 @@ Feature: Right panel (Code + Inspector)
 
   @mobile
   Scenario: Inspector Work chips read correctly in the mobile drawer
-    # The Inspector also renders inside RightPanelDrawer at phone widths
-    # (coarse pointer + narrow viewport) — same WorkSection subtree, same
-    # testids. Confirms the chips aren't a desktop-only fix.
     When I run "rm -rf /tmp/kolu-inspector-mobile && git init /tmp/kolu-inspector-mobile && cd /tmp/kolu-inspector-mobile && git checkout -b mobile-feature"
     When I tap the mobile pull handle
     And I tap the mobile inspector toggle
@@ -257,23 +218,14 @@ Feature: Right panel (Code + Inspector)
     And there should be no page errors
 
   Scenario: Collapsed state is per-terminal (the panel follows the terminal)
-    # Terminal 1 (from Background) starts collapsed (the new-terminal default the
-    # fixture pins). Open its panel, then create terminal 2.
-    # The panel's POSTURE is per-TILE: two tiles each remember their own open/
-    # closed bit (top-level terminals ARE tiles, so this reads "per-terminal"
-    # from the outside). Focus moving between a tile's PANES never re-collapses
-    # it — see "Moving focus between panes never opens or closes the panel".
     When I press the toggle inspector shortcut
     Then the right panel should be visible
-    # Terminal 2 inherits the open panel. Close it independently.
     When I create a terminal
     Then the right panel should be visible
     When I press the toggle inspector shortcut
     Then the right panel should not be visible
-    # Switch back to terminal 1 — its panel is still open (it remembers its own).
     When I press the switch to terminal 1 shortcut
     Then the right panel should be visible
-    # Forward to terminal 2 — still collapsed.
     When I press the switch to terminal 2 shortcut
     Then the right panel should not be visible
     And there should be no page errors
@@ -294,13 +246,7 @@ Feature: Right panel (Code + Inspector)
     Then the right panel should be visible
     And there should be no page errors
 
-  # ── The panel follows the focused pane (main or any split) ──
-
   Scenario: Inspector follows focus into a split in another repo
-    # The panel's SUBJECT is the focused pane: a split cd'd into a different
-    # repo re-points the Inspector's chips to that repo, and the tab bar shows a
-    # quiet label naming the split. Focusing main puts main's facts back and
-    # drops the label.
     When I run "rm -rf /tmp/kolu-follow-main /tmp/kolu-follow-split && git init /tmp/kolu-follow-main && git init /tmp/kolu-follow-split && cd /tmp/kolu-follow-main && git checkout -b main-feature"
     When I press the toggle inspector shortcut
     Then the right panel should be visible
@@ -309,14 +255,12 @@ Feature: Right panel (Code + Inspector)
     And the inspector repo chip should contain "kolu-follow-main"
     And the inspector directory should contain "/tmp/kolu-follow-main"
     And the right panel should show no pane label
-    # Creating a split focuses it; cd it into the OTHER repo.
     When I create a sub-terminal via command palette
     And I run "cd /tmp/kolu-follow-split && git checkout -b split-feature" in the sub-terminal
     Then the inspector branch chip should contain "split-feature"
     And the inspector repo chip should contain "kolu-follow-split"
     And the inspector directory should contain "/tmp/kolu-follow-split"
     And the right panel pane label should be "kolu-follow-split"
-    # Back to main: the panel returns to main's own facts, and the label is gone.
     When I click the main terminal
     Then the inspector branch chip should contain "main-feature"
     And the inspector repo chip should contain "kolu-follow-main"
@@ -325,8 +269,6 @@ Feature: Right panel (Code + Inspector)
     And there should be no page errors
 
   Scenario: Code tree follows focus into a split in another repo
-    # The Code tab's file tree is scoped to the SHOWN pane's repo, so focusing a
-    # split in another repo re-lists THAT repo — and main's tree comes back.
     When I run "rm -rf /tmp/kolu-follow-code-main /tmp/kolu-follow-code-split && git init /tmp/kolu-follow-code-main && git init /tmp/kolu-follow-code-split && cd /tmp/kolu-follow-code-main"
     When I run "printf 'a\n' > only-in-main.txt && git add . && git commit -m init"
     When I create a sub-terminal via command palette
@@ -335,10 +277,7 @@ Feature: Right panel (Code + Inspector)
     Then the file browser should show a file "only-in-split.txt"
     And the file browser should not show a file "only-in-main.txt"
     And the right panel should show a pane label
-    # The header line names the directory the tree is rooted at — it follows
-    # focus with the tree.
     And the right panel directory should contain "/tmp/kolu-follow-code-split"
-    # Focus back to main: the tree re-lists main's repo and the label drops.
     When I click the main terminal
     Then the file browser should show a file "only-in-main.txt"
     And the file browser should not show a file "only-in-split.txt"
@@ -347,8 +286,6 @@ Feature: Right panel (Code + Inspector)
     And there should be no page errors
 
   Scenario: Each pane keeps its own selected file
-    # Two panes of the SAME tile in the SAME repo still remember their own
-    # Code-tab selection — focusing each returns to that pane's own pick.
     When I run "rm -rf /tmp/kolu-follow-pick && git init /tmp/kolu-follow-pick && cd /tmp/kolu-follow-pick"
     When I run "printf 'a\n' > main-pick.txt && printf 'b\n' > split-pick.txt && git add . && git commit -m init"
     When I click the Code tab
@@ -358,19 +295,14 @@ Feature: Right panel (Code + Inspector)
     And I click the file "split-pick.txt" in the file browser
     Then the file "split-pick.txt" should be selected in the file browser
     And the file "main-pick.txt" should not be selected in the file browser
-    # Back to main: main's own pick is intact.
     When I click the main terminal
     Then the file "main-pick.txt" should be selected in the file browser
     And the file "split-pick.txt" should not be selected in the file browser
-    # And back to the split: ITS pick is intact too.
     When I click dock split sub-entry 1
     Then the file "split-pick.txt" should be selected in the file browser
     And there should be no page errors
 
   Scenario: Moving focus between panes never opens or closes the panel
-    # Whether the panel is open belongs to the TILE, so focusing a split (or
-    # main) leaves it exactly as it was — collapsed stays collapsed, open stays
-    # open, and nothing shifts.
     When I create a sub-terminal via command palette
     Then the right panel should not be visible
     When I click the main terminal
@@ -384,10 +316,6 @@ Feature: Right panel (Code + Inspector)
     And there should be no page errors
 
   Scenario: A split created outside the browser inherits the panel's tab
-    # `useAdoptNewSplit` is the ONE place that sees every new split, so a split
-    # created by an agent, `kolu create --parent`, or the MCP server starts on the
-    # panel's current tab instead of flipping it to Code when you click into it.
-    # Created through the daemon here (not the palette) — the external path.
     When I create a terminal
     When I press the toggle inspector shortcut
     Then the right panel should be visible
@@ -399,10 +327,6 @@ Feature: Right panel (Code + Inspector)
     And there should be no page errors
 
   Scenario: A pane switch inside one repo leaves the Code tree alone
-    # Focus moves between panes far more often than tiles do, and a new split
-    # starts in its parent's directory — so "same repo on both sides" is the
-    # common case. Nothing about the repo changes, so the tree must not refetch,
-    # blank, dim, or drop what you had opened or typed.
     When I run "rm -rf /tmp/kolu-pane-switch && git init /tmp/kolu-pane-switch && cd /tmp/kolu-pane-switch"
     When I run "mkdir -p src && printf 'a\n' > src/app.ts && printf 'b\n' > src/other.ts && git add . && git commit -m init"
     When I click the Code tab
@@ -411,16 +335,10 @@ Feature: Right panel (Code + Inspector)
     And I type "app" into the Code tab filter
     Then the Code tab should show file "src/app.ts"
     And the Code tab filter input should contain "app"
-    # A split in the SAME repo (it inherits the tile's cwd). Visiting it once lets
-    # its own git sensing settle first — a fresh terminal's `git` is null until
-    # the sensor resolves, which is a separate, pre-existing transient, not the
-    # keying this scenario is about.
     When I create a sub-terminal via command palette
     And the file browser should show a file "src/app.ts"
     And I click the main terminal
     Then the file browser should show a file "src/app.ts"
-    # Tag the mounted tree so a replacement node is detectable, then move focus
-    # between the two panes of the one tile (same repo both ways).
     When I tag the file tree
     And I click dock split sub-entry 1
     Then the file tree should still be the one I tagged

@@ -3,14 +3,10 @@ import { Then, When } from "@cucumber/cucumber";
 import { readPerTerminal } from "../support/buffer.ts";
 import { type KoluWorld, POLL_TIMEOUT } from "../support/world.ts";
 
-/** Read cols from every terminal's live xterm, keyed by data-terminal-id so
- *  callers can match hidden vs. visible later. */
 async function readAllCols(world: KoluWorld): Promise<Record<string, number>> {
   return readPerTerminal(world.page, "cols");
 }
 
-/** Which terminal id is currently visible (the data-visible flag sits
- *  on the same container as __xterm). */
 async function visibleTerminalId(world: KoluWorld): Promise<string> {
   const id = await world.page.evaluate(() => {
     const el = document.querySelector(
@@ -23,9 +19,6 @@ async function visibleTerminalId(world: KoluWorld): Promise<string> {
 }
 
 When("I wait for all terminals to settle", async function (this: KoluWorld) {
-  // Poll until every mounted terminal reports a non-zero cols —
-  // filters out the race where a still-mounting xterm hasn't
-  // constructed its buffer yet.
   await this.page.waitForFunction(
     () => {
       const nodes = document.querySelectorAll(
@@ -45,17 +38,6 @@ When("I wait for all terminals to settle", async function (this: KoluWorld) {
 When(
   "I wait for the active terminal's grid to come back from the daemon",
   async function (this: KoluWorld) {
-    // This is a ROUND TRIP, not a local refit, and the name says so.
-    //
-    // A pane no longer resizes its own xterm when its box moves: it measures
-    // what the box can hold, states that as its wanted grid, and its xterm
-    // changes size only where the daemon's mirror did — at the `resized`
-    // frame on the attach stream. So after a viewport change the visible
-    // terminal's `cols` moves once the client's settle window (GRID_SETTLE_MS,
-    // 250ms) has elapsed AND the daemon has answered; an assertion that reads
-    // `cols` without waiting for that is reading the OLD grid and is right
-    // only by luck. POLL_TIMEOUT is many times the settle plus a round trip,
-    // so a loaded runner has room without the budget becoming a bare sleep.
     assert.ok(
       this.snapshotCols,
       "Snapshot required — call 'I snapshot each terminal's cols' first",

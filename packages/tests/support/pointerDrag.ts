@@ -1,19 +1,5 @@
-/** One real mouse drag, at the exact protocol level kolu's drag gestures
- *  share: press the SOURCE's center, step the pointer to a target point,
- *  release.
- *
- *  Stepped so the pointermove listeners see real frames — solid-dnd's
- *  PointerSensor (250 ms / 10 px activation) needs the drag to live in the DOM
- *  the way a user's does. Both in-canvas gestures (resize, selection,
- *  rearrange) and the dock's gestures feed the same engine. The dock
- *  features (dock_arrange_steps, dock_steps's resize) were migrated off
- *  hand-spelled frames onto this driver; the canvas/code-tab drivers spell
- *  them the old way until they adopt it. */
-
 import type { KoluWorld } from "./world.ts";
 
-/** Press the center of `fromSelector`, step the pointer by (dx, dy), release.
- *  The generic half: a target-point drag like the dock's resize. */
 export async function dragFromCenter(
   world: KoluWorld,
   fromSelector: string,
@@ -34,9 +20,6 @@ export async function dragFromCenter(
   await world.waitForFrame();
 }
 
-/** The center-to-center case: a drop onto `toSelector` — solid-dnd's
- *  closestCenter collision resolves the droppable from the point, so the
- *  pointer must settle inside the target's box. */
 export async function dragCenterTo(
   world: KoluWorld,
   fromSelector: string,

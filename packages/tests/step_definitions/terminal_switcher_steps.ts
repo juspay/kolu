@@ -1,17 +1,3 @@
-/** Terminal switcher — step definitions.
- *
- *  Phrasing keeps historical "workspace switcher" step names so feature
- *  files across the suite need not rename every line. Resolutions:
- *
- *  - "branch pill" / "branch" → dock row (`dock-row`)
- *  - "switcher toggle" → dock's search-icon (`dock-search`)
- *  - "hover the switcher" → click dock search (opens scoped palette)
- *  - "panel" → command palette open (often Terminals › local from dock search)
- *  - "card" → palette option with `data-palette-kind="terminal"`
- *  - "switcher search" → palette input
- *  - "highlighted" → `data-selected` on the palette option
- */
-
 import * as assert from "node:assert";
 import { Then, When } from "@cucumber/cucumber";
 import { type KoluWorld, MOD_KEY, POLL_TIMEOUT } from "../support/world.ts";
@@ -21,7 +7,6 @@ const DOCK_ROW_SELECTOR = '[data-testid="dock-row"]';
 const DOCK_SEARCH_SELECTOR = '[data-testid="dock-search"]';
 const PALETTE_SELECTOR = '[data-testid="command-palette"]';
 const PALETTE_INPUT_SELECTOR = `${PALETTE_SELECTOR} input`;
-/** Terminal rows in the unified switcher (root or scoped). */
 const CARD_SELECTOR = `${PALETTE_SELECTOR} [role="option"][data-palette-kind="terminal"]`;
 
 Then(
@@ -191,7 +176,6 @@ When(
   },
 );
 
-// Repo facet sidebar is gone — filter by typing the repo name instead.
 When(
   "I click workspace switcher repo {string}",
   async function (this: KoluWorld, repoName: string) {
@@ -293,19 +277,13 @@ Then(
     const nav = this.page.locator(`${PALETTE_SELECTOR} nav`);
     await nav.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
     const text = (await nav.textContent()) ?? "";
-    // Auto-expanded Terminals browse: breadcrumb is Commands › Terminals only
-    // (no › local / › zest). Collapse whitespace from button separators.
     const normalized = text.replace(/\s+/g, " ").trim();
     assert.ok(
       /Terminals\s*$/.test(normalized),
       `Expected breadcrumb to end at Terminals (no host segment), got "${text}"`,
     );
-    // Stronger: buttons after Commands should be only "Terminals".
     const labels = await nav.locator("button").allTextContents();
     const afterCommands = labels.map((l) => l.trim()).filter(Boolean);
-    // ["Commands", "Terminals"] or just path segments without Commands label
-    // depending on markup — accept any list whose last is Terminals and length ≤ 2
-    // for the path chips (Commands + Terminals).
     assert.ok(
       afterCommands.includes("Terminals"),
       `Expected Terminals in breadcrumb buttons, got ${JSON.stringify(afterCommands)}`,

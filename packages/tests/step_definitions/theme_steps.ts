@@ -7,7 +7,6 @@ import {
   POLL_TIMEOUT,
 } from "../support/world.ts";
 
-/** Convert "#rrggbb" to "rgb(r, g, b)" for comparison with getComputedStyle. */
 function hexToRgb(hex: string): string {
   const n = parseInt(hex.slice(1), 16);
   return `rgb(${(n >> 16) & 0xff}, ${(n >> 8) & 0xff}, ${n & 0xff})`;
@@ -16,10 +15,6 @@ function hexToRgb(hex: string): string {
 Then(
   "the terminal background should be {string}",
   async function (this: KoluWorld, expectedColor: string) {
-    // The active canvas tile carries the terminal theme's background as
-    // an inline style (replaces the focus-mode viewport wrapper that owned
-    // it before #622). waitForFunction tolerates the async theme reset +
-    // screen state restore.
     const expectedRgb = hexToRgb(expectedColor);
     await this.page.waitForFunction(
       ({ activeTileSel, expected }) => {
@@ -41,10 +36,6 @@ When("I press the shuffle theme shortcut", async function (this: KoluWorld) {
   await this.waitForFrame();
 });
 
-/** Press shuffle N times, recording the displayed theme name after each
- *  press into `world.shuffleHistory`. The initial (pre-shuffle) theme is
- *  also captured at index 0 so the next-step assertions can reason about
- *  the full sequence. */
 When(
   "I press the shuffle theme shortcut {int} times",
   async function (this: KoluWorld, count: number) {
@@ -55,9 +46,6 @@ When(
     for (let i = 0; i < count; i++) {
       const before = this.shuffleHistory.at(-1) ?? "";
       await this.page.keyboard.press(`${MOD_KEY}+Shift+J`);
-      // Wait until the theme name actually changes — shuffle is async (RPC
-      // round-trip + subscription tick), so reading immediately after the
-      // keypress would race and capture the prior theme.
       await this.page.waitForFunction(
         (prev) => {
           const el = document.querySelector('[data-testid="tile-theme-pill"]');
@@ -103,11 +91,6 @@ Then(
 Then(
   "every canvas tile should show its theme pill",
   async function (this: KoluWorld) {
-    // Regression guard for #1480: the pill must be present on EVERY tile,
-    // not just the focused one. The bug rendered no pill on a non-focused
-    // tile whose theme was the default (unset) — the `<Show>` element was
-    // absent from the DOM, not merely clipped — so assert each canvas tile
-    // contains a pill element. Requires ≥2 tiles so a non-focused one exists.
     await this.page.waitForFunction(
       () => {
         const tiles = [
@@ -138,8 +121,6 @@ When("I click the theme name in the header", async function (this: KoluWorld) {
 Then(
   "the header should show theme {string}",
   async function (this: KoluWorld, expectedTheme: string) {
-    // The theme pill lives on the active tile's chrome now (#622) — every
-    // tile has its own pill, so query the one inside the active tile.
     const themeName = this.page
       .locator(`${ACTIVE_CANVAS_TILE_SELECTOR} [data-testid="tile-theme-pill"]`)
       .first();

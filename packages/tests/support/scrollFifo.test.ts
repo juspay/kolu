@@ -1,9 +1,3 @@
-/**
- * The shipped scroll-FIFO teardown, driven the way the prepare step starts
- * the reader: a real `cat` on a `kolu-scroll-fifo-*` FIFO. The fire step is
- * deliberately skipped — that is the #2178 leak.
- */
-
 import assert from "node:assert/strict";
 import { execFileSync, spawn } from "node:child_process";
 import { existsSync, mkdtempSync } from "node:fs";
@@ -29,9 +23,6 @@ test("retireScrollFifo kills the cat and removes the dir when the fire step neve
   const pid = cat.pid;
   assert.ok(pid !== undefined, "cat did not start");
 
-  // A failed assertion must not leave the live `cat` behind: it holds this
-  // process open, so the failure would surface as a hung lane, not a red one
-  // (this file is also imported by every Cucumber process via `support/**`).
   try {
     const deadline = Date.now() + 5_000;
     while (Date.now() < deadline && !catStillListed(fifo)) {

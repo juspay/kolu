@@ -37,9 +37,6 @@ Feature: Canvas workspace
     And there should be no page errors
 
   Scenario: New terminal opens centered without moving the existing tile
-    # No auto-arrange on create: the new tile opens at the viewport-center
-    # cascade and the existing tile stays exactly where it was. Repo
-    # clustering happens ONLY via the explicit "Arrange canvas by repo".
     When I record all canvas tile positions
     And I scroll the wheel over the canvas background
     And I create a terminal with keyboard shortcut
@@ -48,12 +45,6 @@ Feature: Canvas workspace
     And the newest canvas tile should be centered in the viewport
 
   Scenario: Creating a terminal leaves hand-placed terminals exactly where they are (regression)
-    # The core of this change: opening a new terminal must NOT auto-arrange.
-    # We drag the existing terminals to arbitrary, off-grid spots first —
-    # precisely so any re-layout would be detectable — then create a new
-    # one. Every existing tile must stay byte-for-byte where it was put.
-    # (Tiles left in auto-grid positions could be "rearranged" right back
-    # onto themselves, which is why the old test proved nothing.)
     Given I create a terminal
     And I create a terminal
     And I create a terminal
@@ -66,10 +57,6 @@ Feature: Canvas workspace
     And there should be no page errors
 
   Scenario: Each successive terminal create centers the viewport on the new active tile
-    # Reported by user with a 5-tile screenshot: after creating multiple
-    # tiles in succession, the viewport stayed anchored on the original
-    # tile while the active jumped to the latest. The active (last-created)
-    # tile must end up centered, not just the first.
     Then there should be 1 canvas tile
     When I create a terminal
     Then there should be 2 canvas tiles
@@ -85,9 +72,6 @@ Feature: Canvas workspace
     And the active canvas tile should be centered in the viewport
 
   Scenario: Ctrl+Tab cycle pans the canvas to the newly-active tile
-    # Reported by user: cycling with Ctrl+Tab (or Alt+Tab on macOS Chrome)
-    # changed the active terminal but the viewport stayed put — the new
-    # active tile could land off-screen entirely.
     Given I create a terminal
     And I create a terminal
     And I create a terminal
@@ -104,10 +88,6 @@ Feature: Canvas workspace
     Then the active canvas tile should be centered in the viewport
 
   Scenario: Selecting a workspace from the command palette pans the canvas to the newly-active tile
-    # Caught by hickey: the prior "Switch terminal" group spread
-    # actionPaletteCommand then overrode onSelect with bare
-    # setActiveId(id), stripping the centering the action handler
-    # already does. Terminals › local → rows; activate still pans.
     Given I create a terminal
     And I create a terminal
     And I create a terminal
@@ -139,9 +119,6 @@ Feature: Canvas workspace
     And the active canvas tile should be centered in the viewport
 
   Scenario: Scroll on terminal does not pan the canvas
-    # Settle the freshly-created tile's centering animation before recording the
-    # baseline — otherwise the centering pan races the assert and the transform
-    # "changes" on its own (the darwin flake: a ~488px horizontal centering pan).
     Given the active canvas tile should be centered in the viewport
     When I record the canvas transform
     And I scroll the wheel over the terminal tile
@@ -149,8 +126,6 @@ Feature: Canvas workspace
     And there should be no page errors
 
   Scenario: Scroll on canvas background pans the canvas
-    # Same centering settle as above so the recorded baseline is stable and the
-    # asserted change comes from the wheel pan, not a mid-flight centering.
     Given the active canvas tile should be centered in the viewport
     When I record the canvas transform
     And I scroll the wheel over the canvas background
@@ -197,10 +172,6 @@ Feature: Canvas workspace
     And canvas tile 1 should be the active tile
     And there should be no page errors
 
-  # Viewport-pan assertion is flaky after the maximize signal landed
-  # (sibling order in canvas-container changed; see Show wrapping the
-  # Workspace switcher + minimap). The selection half of the behaviour is covered
-  # by the workspace-switcher.feature scenarios.
   @skip
   Scenario: Clicking a minimap tile rect activates that terminal and pans the canvas
     Given I create a terminal
@@ -238,10 +209,6 @@ Feature: Canvas workspace
     And there should be no page errors
 
   Scenario: Minimap window menu defaults to "All"
-    # Default activity window is `all` (no filter) — see
-    # DEFAULT_ACTIVITY_WINDOW in activityWindow.ts. The choice lives on a
-    # shared per-device signal that the dock header reads from the same
-    # source, so the default applies to both surfaces uniformly.
     Then the minimap window trigger should be visible
     And the minimap window should be "all"
     And there should be no page errors
@@ -258,9 +225,6 @@ Feature: Canvas workspace
     And there should be no page errors
 
   Scenario: Minimap tile carries its agent bucket as a data attribute
-    # The renderer tags each rectangle with its bucket so attention-drawing
-    # is testable without scraping CSS classes. A plain shell with no agent
-    # attached lands in the "none" bucket.
     Then minimap tile 1 should be in the "none" bucket
     And there should be no page errors
 
@@ -275,10 +239,6 @@ Feature: Canvas workspace
     And there should be no page errors
 
   Scenario: Minimap keeps its zoom controls visible when the canvas is tall and narrow
-    # A tall, narrow tile bounding box makes the minimap's shrink-to-fit
-    # width collapse (the height constraint wins the scale). The panel must
-    # still floor at the zoom bar's natural width, or overflow-hidden clips
-    # the zoom-in / arrange / window controls off the right edge.
     Given I create a terminal
     Then there should be 2 canvas tiles
     When I stack every canvas tile in a tall, narrow column
@@ -286,9 +246,6 @@ Feature: Canvas workspace
     And there should be no page errors
 
   Scenario: Creating a terminal after arrange leaves the arranged tiles in place
-    # Arrange clusters the tiles; creating a terminal afterwards must NOT
-    # re-arrange them — the new tile just opens at the cascade and the
-    # arranged tiles keep their positions.
     Given I create a terminal
     Then there should be 2 canvas tiles
     When I open the command palette
@@ -321,33 +278,21 @@ Feature: Canvas workspace
     And there should be no page errors
 
   Scenario: WebGL is admitted to the whole working set under the context cap
-    # The budget admits the most-recently-active tiles that fit under
-    # WEBGL_CONTEXT_CAP (12), counting each tile's real Chrome contexts — so a
-    # realistic multi-terminal session keeps WebGL on every tile and focus
-    # switches churn nothing: the ~7.7% font reflow on focus swap never happens,
-    # and the focus-churn VRAM leak (Chrome+AMD) is gone (#1399). Eviction past
-    # the cap is pinned in webglBudget.test.ts (CI-runnable without a GPU).
     Given I create a terminal
     And I create a terminal
     Then there should be 3 canvas tiles
-    # 3 tiles cost 3 contexts, well under the cap of 12 — all hold WebGL.
     And exactly 3 canvas tiles should use the webgl renderer
     And canvas tile 1 should use the webgl renderer
     When I click canvas tile 1
     Then exactly 3 canvas tiles should use the webgl renderer
     And canvas tile 1 should use the webgl renderer
     When I click canvas tile 2
-    # The key guarantee: ping-ponging focus never crosses the WebGL↔DOM boundary
-    # (under the old N=1 policy a non-focused tile would have swapped to DOM).
     Then canvas tile 1 should use the webgl renderer
     And canvas tile 2 should use the webgl renderer
     And exactly 3 canvas tiles should use the webgl renderer
     And there should be no page errors
 
   Scenario: A held tile's active split inherits its WebGL renderer
-    # A budgeted tile's renderer covers its main pane AND its active split, so
-    # focusing into the split never drops the main pane to DOM — the 7.7%
-    # divergence can't appear side-by-side inside one tile (#1403).
     When I create a sub-terminal via command palette
     Then the sub-terminal should have keyboard focus
     And the focused sub-terminal should use the webgl renderer
@@ -358,19 +303,14 @@ Feature: Canvas workspace
     Given I create a terminal
     And I create a terminal
     Then there should be 3 canvas tiles
-    # auto admits the whole working set under the context cap — here all 3 (#1399)…
     And exactly 3 canvas tiles should use the webgl renderer
     When I click the settings button
     Then the settings popover should be visible
     When I click the "webgl" renderer button
-    # …"webgl" overrides the budget and forces every tile onto WebGL.
     Then exactly 3 canvas tiles should use the webgl renderer
     And there should be no page errors
 
   Scenario: Double-clicking the bare background of a populated canvas opens the new-terminal palette
-    # The bare canvas surface is itself an affordance for creating a terminal:
-    # a double-click on it opens the command palette pre-drilled into the
-    # "New terminal" group — the same surface the dock's + button reaches.
     Then there should be 1 canvas tile
     When I double-click the empty canvas background
     Then the command palette should be visible
@@ -378,11 +318,6 @@ Feature: Canvas workspace
     And there should be no page errors
 
   Scenario: Double-clicking the zero-terminal welcome canvas opens the new-terminal palette
-    # The first-run / closed-everything welcome canvas is a SEPARATE render
-    # branch from the populated canvas (App.tsx's `empty` Match, not
-    # TerminalCanvas), so the create gesture must be wired there too — this is
-    # the path a brand-new user actually hits. Close the only terminal to reach
-    # the true zero-terminal state, then double-click the bare welcome surface.
     Then there should be 1 canvas tile
     When I close the active terminal via command palette
     Then the empty state tip should be visible
@@ -392,19 +327,11 @@ Feature: Canvas workspace
     And there should be no page errors
 
   Scenario: Double-clicking a terminal tile does not open the new-terminal palette
-    # The create affordance is the bare surface only — a double-click that lands
-    # inside a tile (selecting a word, or the title bar's maximize) must never
-    # spawn the palette.
     Then there should be 1 canvas tile
     When I double-click canvas tile 1
     Then the command palette should not be visible
     And there should be no page errors
 
-  # A maximized tile with a split is the shape that caught a regression: the
-  # page itself started scrolling vertically, because a wrapper on the shared
-  # layout chain had become a scroll container. The workspace's layers all size
-  # to the viewport — only the panes inside them scroll — so the document's own
-  # height is the invariant, and it is asserted in both postures.
   Scenario: Neither posture lets the page itself scroll
     Given I create a terminal
     Then the page should not scroll
@@ -415,12 +342,6 @@ Feature: Canvas workspace
     And the page should not scroll
     And there should be no page errors
 
-  # A trackpad pinch reaches a page as a Ctrl+wheel event. The canvas claims
-  # that event over itself — but a pinch over the dock, the right panel or the
-  # chrome bar used to reach nobody, so Chrome magnified the whole document
-  # (#2354): the shell kept the window's width, `visualViewport.height` shrank
-  # by 1/scale, and every terminal refit into a shorter grid. Nothing in kolu
-  # should ever magnify; the canvas has its own zoom.
   Scenario: A pinch outside the canvas never magnifies the page
     Given I create a terminal
     When I split terminal 1
@@ -432,9 +353,6 @@ Feature: Canvas workspace
     And there should be no page errors
 
   Scenario: A pinch over a maximized tile leaves the canvas underneath it alone
-    # The canvas still claims the gesture while a tile is maximized, and used
-    # to zoom the canvas nobody can see — the user only found out on restore,
-    # when the canvas came back at a different scale.
     Given I create a terminal
     When I double-click the title bar of canvas tile 1
     Then canvas tile 1 should be maximized
@@ -445,11 +363,6 @@ Feature: Canvas workspace
     And there should be no page errors
 
   Scenario: A pinch inside a sandboxed HTML preview never magnifies the page
-    # The preview frame is sandboxed at an opaque origin, and a wheel event
-    # inside it is dispatched to ITS document — the parent window's guard never
-    # sees it, so an unclaimed pinch there magnified the whole top-level page.
-    # The in-iframe artifact-sdk carries the same guard, the way it already
-    # carries the back/forward one.
     When I run "rm -rf /tmp/kolu-pinch-html && git init /tmp/kolu-pinch-html && cd /tmp/kolu-pinch-html"
     And I run "printf '<!doctype html><h1>preview</h1>\n' > page.html"
     And I run "git add . && git commit -m init"
@@ -462,9 +375,6 @@ Feature: Canvas workspace
     And there should be no page errors
 
   Scenario: A magnified page does not shrink the app or refit its terminals
-    # The other half of #2354: however the page got magnified, `--app-h` must
-    # stay the window's height in LAYOUT pixels. Reading `visualViewport.height`
-    # raw made a 1600×813 window into a 1600×625 shell and refit every terminal.
     When I snapshot the terminal grid
     And I force page magnification to 1.3
     Then the app root should fill the window
@@ -472,9 +382,6 @@ Feature: Canvas workspace
     And there should be no page errors
 
   Scenario: A small window does not make the page scroll in any posture
-    # The shape #2354 was first reported as: a window short enough that a
-    # layout minimum could exceed it. Every layer sizes to the viewport, so the
-    # document's own height stays the invariant at 853×480 too.
     Given I create a terminal
     When I resize the viewport to 853x480
     Then the page should not scroll
@@ -495,9 +402,6 @@ Feature: Canvas workspace
     And there should be no page errors
 
   Scenario: Chrome-bar maximize toggle switches between canvas and maximized mode
-    # The header toggle is the always-visible affordance for the posture
-    # switch (mirrors the dock/inspector toggles); drives the same
-    # `useViewPosture.toggle` as the tile double-click.
     Given I create a terminal
     Then there should be 2 canvas tiles
     When I click the chrome-bar maximize toggle
@@ -507,8 +411,6 @@ Feature: Canvas workspace
     And there should be no page errors
 
   Scenario: Keyboard shortcut toggles canvas maximize
-    # Mod+Shift+M drives the same useViewPosture.toggle as the chrome-bar
-    # button and the title-bar double-click — keyboard-first parity (#1242).
     Given I create a terminal
     Then there should be 2 canvas tiles
     When I press the maximize toggle shortcut
@@ -518,8 +420,6 @@ Feature: Canvas workspace
     And there should be no page errors
 
   Scenario: Command palette toggles canvas maximize with a state-reflecting label
-    # The palette command's label describes the action a select performs:
-    # "Maximize terminal" when tiled, "Restore canvas" when maximized (#1243).
     Given I create a terminal
     Then there should be 2 canvas tiles
     When I open the command palette
@@ -533,14 +433,6 @@ Feature: Canvas workspace
     And there should be no page errors
 
   Scenario: Switching the active terminal while maximized does not remount the xterm
-    # Regression for #988: switching active in maximized mode used to move
-    # the active tile between the tiled `<For>` and a separate `<Show keyed>`
-    # branch, forcing a full xterm.js remount (document.fonts.load wait,
-    # XTerm constructor, addon graph, stream re-attach, server screenState
-    # replay). Visible to users as ~200-500ms of blank/lag every switch.
-    # The fix moves all tiles to one render list with pan/zoom composed
-    # per-tile, so switching is a pure CSS class flip — the xterm DOM node
-    # and its xterm.js Terminal instance survive across switches.
     Given I create a terminal
     Then there should be 2 canvas tiles
     When I double-click the title bar of canvas tile 1
@@ -552,17 +444,6 @@ Feature: Canvas workspace
     And there should be no page errors
 
   Scenario: Covered tiles stay hidden in maximized mode
-    # Regression for the new-terminal canvas flash: a covered tile must hide
-    # itself (visibility:hidden), not rely on the active tile's z-40 cover
-    # painting over it. When activeId points at a tile not yet in the render
-    # list (e.g. a just-created terminal), no maximized z-40 tile exists, and
-    # a covered tile that only carries inert/aria-hidden paints at its canvas
-    # coords — the whole freeform canvas flashing for a frame (#989 dropped
-    # the pre-#988 visibility:hidden). This asserts the intrinsic-hide
-    # invariant that prevents the flash — and, since kolu#2362, that a covered
-    # tile is HELD at its own rect rather than stretched to the maximized
-    # tile's box, which is what keeps its program from being resized for a
-    # screen nobody is looking at.
     Given I create a terminal
     Then there should be 2 canvas tiles
     When I note every canvas tile's box
@@ -573,23 +454,6 @@ Feature: Canvas workspace
     And there should be no page errors
 
   Scenario: A tile parked off the canvas stops taking output until you look again
-    # kolu#2362: the desktop used to hold an attach stream open for EVERY tile
-    # of the host, including the ones nobody could see. A tile off the edge of
-    # the canvas now ends its feed, and coming back repaints it from a fresh
-    # snapshot — so what it printed meanwhile is on its screen the moment you
-    # can see it again, it just wasn't carried across the wire while nobody
-    # was looking.
-    #
-    # The GRACE comes first: a detach costs you your place in the output and
-    # makes the return slow, so a tile that has just left keeps its feed for
-    # an HOUR and a trip away costs nothing at all. The page's clock is taken
-    # over to jump past that, because the scenario cannot wait an hour and
-    # shortening the grace for tests would be the knob this feature refuses
-    # to have.
-    #
-    # Tile 2 is the one just created, so it holds the active selection — and
-    # the ACTIVE tile stays attached wherever it is parked (the keyboard
-    # reaches it). Tile 1 is the unwatched one.
     Given I create a terminal
     Then there should be 2 canvas tiles
     When I take over the page clock

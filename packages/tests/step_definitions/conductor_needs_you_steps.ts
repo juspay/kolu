@@ -1,14 +1,12 @@
-/** STEPS FOR WORKS AS PLACES AND SUBJECTS — `@` naming a work, the chat
- *  pointed at one work, a wake's reply folded to one line. The work itself is
- *  opened by `conductor_steps.ts`'s "I ask the conductor to open the work …",
- *  which leaves its id on the world (`workId`), so every step here is about
- *  the card the scenario opened. */
-
 import assert from "node:assert";
 import { Then, When } from "@cucumber/cucumber";
 import { pollFor } from "../support/poll.ts";
 import { type KoluWorld, POLL_TIMEOUT } from "../support/world.ts";
-import { letTheBellDecide, openWorkCard, workCard } from "./conductor_steps.ts";
+import {
+  waitForNeedsYouBellVerdict,
+  openWorkCard,
+  workCard,
+} from "./conductor_steps.ts";
 
 const INPUT = '[data-testid="conductor-input"]';
 const SEND = '[data-testid="conductor-send"]';
@@ -32,7 +30,6 @@ When(
     const input = this.page.locator(INPUT);
     await input.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
     await input.click();
-    // Typed, not filled: the menu reads the caret, which a keystroke moves.
     await input.pressSequentially(text);
   },
 );
@@ -48,7 +45,6 @@ Then(
 );
 
 When("I take the first mention", async function (this: KoluWorld) {
-  // Tab accepts the highlighted row — the top one — and can never send.
   await this.page.locator(INPUT).press("Tab");
 });
 
@@ -65,8 +61,6 @@ When("I send what is in the conductor's box", async function (this: KoluWorld) {
   await this.page.locator(SEND).click();
 });
 
-/** THE CHIP ON THE TURN a message of yours started — the work the message
- *  named, read back off the row kolu-server stored, not off the box. */
 Then(
   "my last message should carry the work's chip",
   async function (this: KoluWorld) {
@@ -76,8 +70,6 @@ Then(
         this.page.locator(USER_ROW).evaluateAll((rows, want) => {
           const last = rows.at(-1);
           if (last === undefined) return "no message of yours";
-          // The turn's chips are drawn right after the row, on the reply's
-          // side of the column.
           const chips = last.nextElementSibling;
           return chips?.getAttribute("data-testid") ===
             "conductor-turn-works" &&
@@ -113,7 +105,6 @@ Then("the chat should be about the work", async function (this: KoluWorld) {
     .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
 });
 
-/** A message of mine, by its words, and whether it is drawn. */
 const myMessage = (world: KoluWorld, text: string) =>
   world.page.locator(USER_ROW).filter({ hasText: text }).first();
 
@@ -153,14 +144,6 @@ When("I show the whole chat", async function (this: KoluWorld) {
     .waitFor({ state: "hidden", timeout: POLL_TIMEOUT });
 });
 
-/** THE QUESTION ON SCREEN IN ONE PLACE ONLY — drawn in the chat, in view,
- *  while its work's card stays shut, so the chat's copy is the one copy a
- *  person can be looking at.
- *
- *  AND THE BELL HAS DECIDED by the time this returns: the card standing in
- *  the "Needs you" group is the needs-you reading the bell hears, and
- *  {@link letTheBellDecide} waits out its decision — so a sound count read
- *  next is the bell's verdict rather than a read taken before it. */
 Then(
   "the work's question should be in the chat, its card shut",
   async function (this: KoluWorld) {
@@ -173,7 +156,7 @@ Then(
         `[data-testid="work-waiting"] [data-testid="work-card"][data-work="${workId(this)}"]`,
       )
       .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
-    await letTheBellDecide(this);
+    await waitForNeedsYouBellVerdict(this);
     assert.equal(
       await workCard(this).getAttribute("data-open"),
       null,
@@ -182,10 +165,6 @@ Then(
   },
 );
 
-/** THE NEWEST WAKE'S TURN, read as a person sees it: its line open or
- *  folded, and the reply that says `words` — on screen when the turn is open,
- *  off it when the turn is folded, where the line says the reply's first
- *  sentence instead. */
 async function newestWakeTurn(
   world: KoluWorld,
   open: boolean,
@@ -220,8 +199,6 @@ async function newestWakeTurn(
       line !== null &&
       line.open === open &&
       replyShown === open &&
-      // Folded, the line is the reply's first sentence; open, the reply is
-      // drawn under it and the line does not say it again.
       line.says.includes(words) === !open,
     timeoutMs: POLL_TIMEOUT,
     onTimeout: (seen, ms) =>

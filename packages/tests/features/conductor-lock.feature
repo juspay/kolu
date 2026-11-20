@@ -19,10 +19,6 @@ Feature: A terminal the Conductor drives is read-only until you take it over
     And the conductor is on a fresh conversation
 
   Scenario: A driven terminal takes no keys and no paste, and the card says why
-    # THE WHOLE POINT, at the two sites one keystroke can arrive through, and
-    # the two ways the card goes away: by hand (Esc) and by itself. The
-    # second card is evidence rather than the first one still being up
-    # precisely because the first was dismissed between them.
     Given a repo for the work
     When I ask the conductor to open the work "drive the parser"
     And I answer the work's question with "hand-over" in the chat
@@ -45,12 +41,6 @@ Feature: A terminal the Conductor drives is read-only until you take it over
     Then there should be no page errors
 
   Scenario: Take it over from the card, type, hand it back from the pill
-    # THE LOCK ENDS WHEN THE PERSON SAYS SO, and it comes back the same way.
-    # The keyboard is the evidence in both directions — the frame, the pill
-    # and the dock row say who is driving, the terminal's own screen says
-    # whether it was true — and the timeline keeps both acts, because a
-    # conversation picked up later has to know the terminal was out of its
-    # hands.
     Given a repo for the work
     When I ask the conductor to open the work "take the parser over"
     And I answer the work's question with "hand-over" in the chat
@@ -76,9 +66,6 @@ Feature: A terminal the Conductor drives is read-only until you take it over
     And there should be no page errors
 
   Scenario: The other browser is told who is driving
-    # THE LOCK IS THE PERSON'S, NOT THE TAB'S. It lives on the work's record,
-    # so a second browser on the same server reads it off the same collection
-    # — and moves when it moves, with no reload and no gesture of its own.
     Given a repo for the work
     When I ask the conductor to open the work "drive from two places"
     And I answer the work's question with "hand-over" in the chat
@@ -94,10 +81,6 @@ Feature: A terminal the Conductor drives is read-only until you take it over
 
   @mobile
   Scenario: The phone's key bar raises the same card
-    # A PHONE HAS NO TITLE BAR AND NO KEYBOARD OF ITS OWN — the key bar is
-    # where typing happens there, so a blocked tap raises the card over the
-    # terminal exactly as a blocked keystroke does on a desktop, and Take
-    # over is a thumb's width from the key that was blocked.
     Given a repo for the work
     When I ask the conductor to open the work "drive on a phone"
     And I answer the work's question with "hand-over" in the chat
@@ -106,9 +89,6 @@ Feature: A terminal the Conductor drives is read-only until you take it over
     And the work's terminal rows should each be one line
     When I go to the member terminal
     Then the member terminal should be framed as driven by the Conductor
-    # The phone is shown this terminal for the first time here — a tile
-    # nobody has seen takes no output — so the stand-in's own up marker is
-    # waited for before anything is measured against the screen.
     And the member terminal should have come up
     When I note the member terminal's screen
     And I tap the mobile key "slash"
@@ -123,10 +103,6 @@ Feature: A terminal the Conductor drives is read-only until you take it over
     And there should be no page errors
 
   Scenario: A watch is not a waterfall, so nothing is locked
-    # THE HUMAN'S OWN TERMINAL, which they asked kolu to keep an eye on. The
-    # Conductor does not drive it, so there is no frame to draw and no key to
-    # swallow — only the dock's mark, which says this terminal is in a piece
-    # of work.
     When I ask the conductor to watch the terminal
     Then the work column should list the terminal as a member
     When I go to the member terminal

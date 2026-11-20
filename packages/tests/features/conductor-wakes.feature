@@ -14,12 +14,6 @@ Feature: The Conductor never blocks
     And the conductor is on a fresh conversation
 
   Scenario: A watched terminal whose agent asks wakes the idle Conductor
-    # The wake is a MACHINE'S line: full width, one line saying who speaks,
-    # and the whole account behind a disclosure. The agent answers it, which
-    # is the proof the turn kolu started is a real turn.
-    # The terminal is made where it can be SEEN: a terminal made from behind
-    # the conversation is never shown, so an agent launched there would be
-    # typed at blind. The watch step steps back in.
     When I leave the conductor for the host tab
     And I create a terminal
     And a Claude Code session is mocked with state "thinking"
@@ -34,9 +28,6 @@ Feature: The Conductor never blocks
     And there should be no page errors
 
   Scenario: A wake-up names its piece of work, and the name takes you to it
-    # WHICH WORK RANG is the first thing a person needs from a wake: the line
-    # carries that work as a chip, read off the terminal the wake is about,
-    # and pressing the chip opens the work's card where it can be seen.
     When I leave the conductor for the host tab
     And I create a terminal
     And a Claude Code session is mocked with state "thinking"
@@ -50,14 +41,6 @@ Feature: The Conductor never blocks
     And there should be no page errors
 
   Scenario: A session the Conductor finds idle rings once as ready
-    # The INFERRED reading of ready, and the only case left for it: a session
-    # kolu did not watch come up — an adopted or resumed one, written here
-    # against a terminal's own shell pid — whose agent is idle and which this
-    # conversation has never spoken to. It rings READY rather than "stopped",
-    # because an agent nobody briefed has not stopped doing anything.
-    #
-    # The DIRECT reading — an agent padi watched come up, whose own state is
-    # `fresh` — is the scenario at the end of this file.
     When I leave the conductor for the host tab
     And I create a terminal
     And I note the terminal's shell pid
@@ -69,9 +52,6 @@ Feature: The Conductor never blocks
     And there should be no page errors
 
   Scenario: A wake that rings while the Conductor works waits for the turn to end
-    # HELD, never injected: the count on the status line says it is waiting,
-    # nothing lands in the transcript while the turn runs, and it arrives on
-    # its own the moment the turn ends.
     When I leave the conductor for the host tab
     And I create a terminal
     And a Claude Code session is mocked with state "thinking"
@@ -87,12 +67,6 @@ Feature: The Conductor never blocks
     And there should be no page errors
 
   Scenario: A work's terminals are listed, looked at, and pressed to go there
-    # The marker is COMPUTED by the shell so the command line's echo cannot
-    # satisfy the Look: only the terminal's own screen can.
-    #
-    # ... and the member's NAME is the way to the terminal itself: the same
-    # journey the create card's "open tile" makes — leave the conversation,
-    # land on that terminal's tile — because it is the same code path.
     When I leave the conductor for the host tab
     And I create a terminal
     And I run "echo kolu-watch-$((6*7))"
@@ -109,14 +83,6 @@ Feature: The Conductor never blocks
     And there should be no page errors
 
   Scenario: The tab's badge counts what is waiting on you, and is absent when nothing is
-    # ONE BADGE on the Conductor's tab, like an unread count — and the number
-    # is how many things are WAITING ON YOU, which is not how much is in
-    # flight. Work the agents are getting on with is not a demand on your
-    # attention: two pieces of work in progress and nothing asked show no
-    # badge at all. A question lights it, in the violet that means "you".
-    #
-    # The status line keeps the other number, because "how much is in
-    # progress" is still worth reading — it is simply not what a badge is for.
     When I create a terminal
     And I ask the conductor to watch the terminal I just created
     Then the conductor status should say 1 piece of work
@@ -133,8 +99,6 @@ Feature: The Conductor never blocks
     And there should be no page errors
 
   Scenario: Alt+Enter steers a message into the turn that is running
-    # Enter would queue it behind the turn; Alt+Enter puts it INTO the turn.
-    # The fixture says what it heard mid-turn, and the row is never queued.
     When I enter conductor mode
     And I send the conductor the prompt "work until steered"
     Then the conductor should offer to steer
@@ -152,15 +116,6 @@ Feature: The Conductor never blocks
     And there should be no page errors
 
   Scenario: Leaving the conversation and coming back finds it exactly as it was
-    # THE PANE IS MOUNTED ONCE AND RETAINED. A tab switch changes what is on
-    # screen, not what exists — so the work card is still open, the Look is
-    # still open with the terminal's own lines in it, and the half-typed
-    # message is still in the box. The marker is a property put on the DOM NODE
-    # by hand: a pane rebuilt from the same markup comes back without it, so
-    # this is element identity and not a look-alike.
-    #
-    # The Look's text is COMPUTED by the shell, so the command line's echo
-    # cannot satisfy it: only the terminal's own screen can.
     When I leave the conductor for the host tab
     And I create a terminal
     And I run "echo kolu-watch-$((6*7))"
@@ -183,22 +138,6 @@ Feature: The Conductor never blocks
 
   @omp-mock
   Scenario: An agent the Conductor starts rings ready once, and can be spoken to
-    # THE WHOLE LOOP, with nothing mocked between the conversation and the
-    # terminal: the Conductor opens a piece of work, calls `lifecycle_create`
-    # with that work, a role and a command to run, that command is a coding
-    # agent, and the agent comes up with no transcript of any kind. Its READY
-    # here is the DIRECT reading — padi watched the process arrive and its own
-    # state is `fresh` — not the inference the scenario near the top of this
-    # file makes about a session it merely found.
-    #
-    # It rings ONCE: coming up is one piece of news, not a condition to be
-    # reminded about.
-    #
-    # Then the Conductor SPEAKS to it, through the same fleet face, and the
-    # answer says the words were submitted rather than refused — a `fresh` agent
-    # is exactly the agent a conductor briefs. The proof they arrived is on the
-    # terminal's own screen: the stand-in echoes what it hears behind a marker it
-    # assembles at runtime, so nothing kolu typed can spell it.
     When I ask the conductor to run an agent in a new terminal
     Then the conductor status should say 1 piece of work
     And the conductor transcript should show a "ready" wake about the watched terminal

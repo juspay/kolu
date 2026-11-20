@@ -10,8 +10,6 @@ Feature: The Conductor on a phone
 
   @mobile
   Scenario: From the Conductor, the chrome sheet takes you back to a host
-    # The way out is the way in: the handle above the conversation opens the
-    # same sheet a host view opens, and a host chip leaves the conversation.
     Then the conductor pane should be visible
     When I tap the mobile pull handle
     Then the mobile chrome sheet should be visible
@@ -22,9 +20,6 @@ Feature: The Conductor on a phone
 
   @mobile
   Scenario: An agent line on a phone stays inside the screen
-    # A create card naming its terminal carries the longest title row in the
-    # chat. On a phone it drops the raw tool-name chip and wraps rather than
-    # clipping, so no element's right edge passes the window.
     When I ask the conductor to adopt the terminal
     Then the conductor transcript should show a "create" tool card
     And nothing on screen should reach past the window's right edge
@@ -32,9 +27,6 @@ Feature: The Conductor on a phone
 
   @mobile
   Scenario: On a phone a work chip in the chat brings out its card
-    # Below the two-column width the work listing is a band the status line
-    # opens. A chip on a turn opens that band and the work's card in it, so
-    # the way from a reply to its work is one tap on a phone too.
     Given a repo for the work
     When I ask the conductor to open the work "the phone's work"
     And I press the work's chip in the conversation

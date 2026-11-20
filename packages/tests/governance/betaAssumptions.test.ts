@@ -1,11 +1,3 @@
-/**
- * The beta-assumption registry's own gate. The registry is only worth anything
- * if a pin bump really does turn it red, so each test here is a way it could
- * fail to: a stale stamp read as current, a bump that never reaches the tag, a
- * marker emptied of its claim, and a site whose marker was deleted along with
- * the reasoning.
- */
-
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
@@ -31,8 +23,6 @@ const hit = (over: Partial<BetaAssumption> = {}): BetaAssumption => ({
 test("the tag is the pin's prerelease, so a bump moves it", () => {
   assert.equal(assumptionTag("4.0.0-beta.102"), "beta.102");
   assert.equal(assumptionTag("4.0.0-beta.103"), "beta.103");
-  // Leaving beta trips every marker too — the behavior needs re-measuring most
-  // of all at the release that stops being a beta.
   assert.equal(assumptionTag("4.0.0"), "4.0.0");
 });
 

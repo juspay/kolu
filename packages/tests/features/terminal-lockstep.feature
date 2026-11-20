@@ -15,18 +15,8 @@ Feature: What the terminal shows is what the program drew
     Given the terminal is ready
 
   Scenario: A pane keeps the program's screen while its box moves
-    # The program prints a scrolling log, keeps a status line at a fixed row
-    # addressed from the size it was told it has, and repaints relatively
-    # ("up N, erase below, draw again") when that size changes. A pane that
-    # took a size the program was never told about writes that status line
-    # onto a different line of history than the daemon does — and no later
-    # write ever goes back to repair it.
     Given a repainting program is running in the terminal
     Then the terminal shows exactly what the program drew
-    # At rest the terminal fills the pane's width and sits on its floor. Said
-    # here because the text being correct says nothing about where it is drawn,
-    # and the pane's scrollbar is a pixel's width away from being the only
-    # casualty nobody notices.
     And the terminal fills its pane horizontally, with its last row on the pane's floor
     When the program begins a burst of output
     And I create a sub-terminal via command palette

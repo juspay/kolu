@@ -30,11 +30,6 @@ async function dispatchSwipe(
   // which doesn't exist in the browser. page.evaluate ships the function
   // body as a string — the workaround is to ship plain JS source via
   // page.evaluate(string) so esbuild never touches it.
-  //
-  // touchstart/touchend dispatch on `target` and bubble, so the gesture
-  // originates from the chosen element. Pointing it at the key bar lets a
-  // test assert the bar's stopPropagation guard keeps the wrapper from
-  // cycling tiles when a finger drags across the keys.
   const src = `
     (() => {
       const target = document.querySelector(${JSON.stringify(selector)});
@@ -73,10 +68,6 @@ When("I swipe left on the mobile key bar", async function (this: KoluWorld) {
   await dispatchSwipe(this, -200, '[data-testid="mobile-key-bar"]');
 });
 
-// The active mobile tile is the one whose body is shown (`data-visible`).
-// Capturing its terminal id before/after a gesture is renderer-independent —
-// unlike reading xterm's canvas-backed `.xterm-screen` text — so it cleanly
-// proves whether a swipe cycled the tile.
 const ACTIVE_TILE = "[data-visible][data-terminal-id]";
 
 When("I remember the active mobile terminal", async function (this: KoluWorld) {
@@ -111,10 +102,6 @@ Then(
 Then(
   "the active terminal should not show {string}",
   async function (this: KoluWorld, text: string) {
-    // The .innerText() catch falls back to "" only when the locator can't
-    // resolve (e.g. xterm hasn't mounted yet) — equivalent to "no buffer
-    // exists, so it can't contain the text", which is what the assertion
-    // expects. Any actual page error would fail elsewhere with a hard error.
     const seen = await this.page
       .locator("[data-visible] .xterm-screen")
       .innerText()

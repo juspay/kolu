@@ -1,24 +1,15 @@
-/**
- * Helpers for reading the xterm.js buffer directly via the __xterm ref
- * exposed on terminal container elements.
- *
- * The actual buffer-read loop lives in `hooks.ts` as `window.__readXtermBuffer`
- * (injected via addInitScript) so it's defined once and shared across
- * readBufferText, waitForBufferContains, and getTerminalPid.
- */
-
 import type { Page } from "playwright";
 import { POLL_TIMEOUT } from "./world.ts";
 
-/** Default selector for the active (focused) terminal container.
- *  In canvas mode multiple xterms carry `data-visible` (every tile mounts
- *  its xterm); only one carries `data-focused` at any time. */
 export const ACTIVE_TERMINAL = "[data-focused][data-terminal-id]";
 
-/**
- * Read all lines from a terminal's xterm buffer (joined by newline).
- * @param index — when multiple terminals match the selector, pick the Nth (0-based). Default: 0.
- */
+const HOLDS_XTERM = "[data-font-size]";
+
+export const INNER_TERMINAL = `[data-terminal-id]${HOLDS_XTERM}`;
+
+export const innerTerminalFor = (terminalId: string): string =>
+  `[data-terminal-id="${terminalId}"]${HOLDS_XTERM}`;
+
 export function readBufferText(
   page: Page,
   selector = ACTIVE_TERMINAL,
@@ -30,76 +21,48 @@ export function readBufferText(
   );
 }
 
-/** Serializable discriminant for {@link readPerTerminal}: which per-terminal
- *  scalar to project off each inner xterm container. */
-type PerTerminalProbe = "cols" | "rows" | "fontSize";
+type TerminalProbe = "cols" | "rows" | "fontSize";
 
-/**
- * Enumerate the inner terminal containers — those carrying both
- * `data-terminal-id` and `data-font-size` — and project one per-terminal
- * scalar off each, keyed by id. The outer CanvasTile wrapper carries
- * `data-terminal-id` but no `data-font-size`, so it's filtered out (it also
- * never holds the `__xterm` ref). `cols` / `rows` read the live xterm grid via
- * the `__xterm` ref attached in Terminal.tsx's onMount; `fontSize` parses the
- * `data-font-size` attribute. The probe is a serializable discriminant rather
- * than a live closure because the body runs inside `page.evaluate`.
- */
 export function readPerTerminal(
   page: Page,
-  probe: PerTerminalProbe,
+  probe: TerminalProbe,
 ): Promise<Record<string, number>> {
-  return page.evaluate((p) => {
-    const out: Record<string, number> = {};
-    for (const n of document.querySelectorAll(
-      "[data-terminal-id][data-font-size]",
-    )) {
-      const id = n.getAttribute("data-terminal-id");
-      if (!id) continue;
-      if (p === "cols" || p === "rows") {
-        if (!(n instanceof HTMLDivElement)) continue;
-        const term = n.__xterm;
-        if (term) out[id] = p === "cols" ? term.cols : term.rows;
-      } else {
-        const fs = n.getAttribute("data-font-size");
-        if (fs) out[id] = Number.parseFloat(fs);
+  return page.evaluate(
+    ({ p, innerTerminal }) => {
+      const out: Record<string, number> = {};
+      for (const node of document.querySelectorAll(innerTerminal)) {
+        const id = node.getAttribute("data-terminal-id");
+        if (!id) continue;
+        if (p === "fontSize") {
+          const fontSize = node.getAttribute("data-font-size");
+          if (fontSize) out[id] = Number.parseFloat(fontSize);
+          continue;
+        }
+        const liveGrid =
+          node instanceof HTMLDivElement ? node.__xterm : undefined;
+        if (liveGrid) out[id] = p === "cols" ? liveGrid.cols : liveGrid.rows;
       }
-    }
-    return out;
-  }, probe);
+      return out;
+    },
+    { p: probe, innerTerminal: INNER_TERMINAL },
+  );
 }
 
-/**
- * Wait for the xterm buffer to contain the expected text.
- * Returns the full buffer content on match, or throws on timeout.
- *
- * Polls on a fixed timer interval (`builtins.setTimeout` inside the page),
- * NOT on `requestAnimationFrame` — Playwright's default `polling: 'raf'` would
- * re-evaluate the predicate on each frame, so a test that PARKS the page's
- * `window.requestAnimationFrame` (render_recovery models an occluded window's
- * frozen paint loop that way) would deadlock this wait: the buffer fills from
- * the PTY round-trip but the rAF poller never re-fires. xterm writes incoming
- * data into its buffer synchronously on receipt — paint, not buffer mutation,
- * is what rAF gates — so a buffer-content check has no reason to frame-align.
- * Timer polling decouples this helper from the page's rAF entirely.
- */
-export async function waitForBufferContains(
+interface ReadOptions {
+  selector?: string;
+  index?: number;
+  timeout?: number;
+}
+
+async function waitForXtermText(
   page: Page,
   expected: string,
   {
     selector = ACTIVE_TERMINAL,
     index = 0,
     timeout = POLL_TIMEOUT,
-    // Narrow the read to the rows the user can actually SEE, instead of the
-    // whole buffer. The distinction is load-bearing: a terminal can hold the
-    // right bytes while showing the wrong window onto them (scrolled off the
-    // live bottom), which is precisely how a split renders "broken" to a user —
-    // that defect delivers every byte correctly and then shows the wrong window,
-    // so a whole-buffer read passes on a screen the user sees as broken. A
-    // buffer read only answers "did it arrive"; only a viewport-scoped read
-    // answers "does the user SEE it". Pass `viewport: true` whenever that is the
-    // claim being asserted.
-    viewport = false,
-  } = {},
+  }: ReadOptions,
+  viewportOnly: boolean,
 ): Promise<string> {
   const handle = await page.waitForFunction(
     ({ sel, idx, exp, vp }) => {
@@ -107,26 +70,28 @@ export async function waitForBufferContains(
         window.__readXtermBuffer?.(sel, idx, { viewport: vp }) ?? "";
       return content.includes(exp) ? content : null;
     },
-    { sel: selector, idx: index, exp: expected, vp: viewport },
+    { sel: selector, idx: index, exp: expected, vp: viewportOnly },
     { timeout, polling: 50 },
   );
-  // The handle's predicate above returns either a non-null string (match)
-  // or `null`, and `waitForFunction` only resolves on a truthy value — so
-  // `jsonValue()` is structurally always a string by the time we read it.
-  // The `?? ""` fallback satisfies the type checker without a `!`.
   return (await handle.jsonValue()) ?? "";
 }
 
-/**
- * Wait until the focused terminal has drawn its first screen: its xterm buffer
- * is no longer blank. The stream delivers the first frame (its size, then a
- * reset, then its text) before any later output, so a non-blank buffer means
- * that frame has been parsed, whether the prompt arrived inside it or after it.
- *
- * `Given the terminal is ready` does not promise this: it returns once the tile
- * is visible and focused. Polls on a timer for the reason
- * {@link waitForBufferContains} gives.
- */
+export function waitForBufferContains(
+  page: Page,
+  expected: string,
+  options: ReadOptions = {},
+): Promise<string> {
+  return waitForXtermText(page, expected, options, false);
+}
+
+export function waitForVisibleRows(
+  page: Page,
+  expected: string,
+  options: ReadOptions = {},
+): Promise<string> {
+  return waitForXtermText(page, expected, options, true);
+}
+
 export async function waitForFirstScreen(page: Page): Promise<void> {
   await page.waitForFunction(
     (sel) => (window.__readXtermBuffer?.(sel, 0) ?? "").trim().length > 0,

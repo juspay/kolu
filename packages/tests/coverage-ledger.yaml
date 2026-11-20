@@ -1,5 +1,3 @@
-# CI checks that every removed immutable revision has a complete row and that every named test is collected.
-# reviewEvidence.note records the human equivalence audit; it is deliberately not an executable proof.
 schemaVersion: 2
 retirements:
   - id: retire-d83d64e74c664adbf0d3
@@ -3563,14 +3561,6 @@ retirements:
       file: packages/tests/features/conductor.feature
       symbol: "Scenario: A tool card names the host it acted on, and opens that tile"
       test: The fleet list and the peek pane this revision clicked through are DELETED with the one-conversation cutover — the view is chat only, and a terminal is reached by switching to the host tab it lives on. No coverage is orphaned, because the surviving scenario makes the same journey through the affordance that replaced them, pressing the tool card's "open tile" and asserting the conversation is left and that terminal's tile is the focused one.
-
-  # ── ORCHESTRATOR → CONDUCTOR (#2350) ──────────────────────────────────────
-  # The feature was renamed, so every scenario in this file was renamed with
-  # it: the steps name `conductor-*` test ids, `◆ Conductor` labels and the
-  # `/conductor` doc page. Not one PROMISE moved. Each row below retires the
-  # revision that spelled the old word and names the survivor that spells the
-  # new one, scenario for scenario — the body hash changed because the
-  # vocabulary did, and nothing else.
   - id: revise-a52d0ecace17458462d9
     revisionId: revision-a52d0ecace17458462d9
     action: revised
@@ -4130,13 +4120,6 @@ retirements:
       file: packages/tests/features/canvas.feature
       symbol: "Scenario: A tile parked off the canvas stops taking output until you look again"
       test: The same journey, with the grace period made observable. Letting go of a tile's feed costs the reader their place in its output, so the grace is now five minutes rather than five seconds — longer than a scenario may wait, and not something to shorten with a knob. The scenario takes over the PAGE's clock and jumps past it, and gains the assertion that the other half of the promise needs — the parked tile is STILL taking output before the jump. Everything after it (the marker printed to a tile nobody is looking at, its absence from that tile's screen, and its arrival when the tile is brought back) is asserted exactly as it was.
-  # THE MERGE'S OWN RETIREMENTS. Six conductor scenarios were revised on BOTH
-  # sides of this merge — this branch made the watched terminal a member of a
-  # stored piece of work, origin/master moved each arrangement onto the host
-  # tab because a tile nobody has seen takes no output — so each side's
-  # revision is retired by the merged one, which is both edits at once. The
-  # two rows after them are the merge's own repairs to a scenario each side
-  # wrote alone.
   - id: revise-eb2bc6d737f8e6dd329a
     revisionId: revision-eb2bc6d737f8e6dd329a
     action: revised
@@ -4319,14 +4302,6 @@ retirements:
       file: packages/tests/features/conductor-lock.feature
       symbol: "Scenario: The phone's key bar raises the same card"
       test: This branch's own lock scenario, retired by this merge. Master brought the rule that a tile nobody has seen takes no output, and the phone meets this terminal for the first time in this scenario — so the screen the two key-bar taps are measured against could be noted while it was still empty. The merged revision waits for the stand-in's own up marker before taking that baseline and asserts everything this one did.
-  # THE LOCK'S SECOND FACE. The banner-and-control in the tile's title area
-  # became a thin border around the terminal's own body, a card raised BY
-  # TYPING (Take over, dismissable by Esc and by itself) and a corner pill
-  # while the terminal is yours — so every lock scenario's readings moved
-  # from the header to the terminal, and four of the five titles with them.
-  # Not one claim was dropped: each scenario still proves the key did not
-  # reach the PTY, that the way out is offered, and that it reaches the PTY
-  # once taken over.
   - id: rename-1c2c5e97a43e98516a8f
     revisionId: revision-1c2c5e97a43e98516a8f
     action: renamed

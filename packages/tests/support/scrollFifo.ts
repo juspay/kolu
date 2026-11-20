@@ -14,7 +14,6 @@ import {
 
 export { SCROLL_FIFO_DIR_PREFIX };
 
-/** Kill leftover `cat` readers and remove the FIFO's private directory. */
 export async function retireScrollFifo(
   fifoPath: string,
 ): Promise<{ killed: number[]; removedDir: string }> {
@@ -24,7 +23,6 @@ export async function retireScrollFifo(
   return { killed, removedDir: dir };
 }
 
-/** Extract, clear, and retire a world's FIFO. Both the fire/After paths use this. */
 export async function retireWorldScrollFifo(world: {
   _scrollFifo?: string;
 }): Promise<void> {

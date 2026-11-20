@@ -12,8 +12,6 @@ Feature: Foreground process detection
     And there should be no page errors
 
   Scenario: Workspace switcher title updates to the running command
-    # Run a long-running command — our preexec hook should emit OSC 2
-    # with the command string, causing the workspace switcher title to update.
     When I run a long-running "sleep 5" command
     Then the workspace switcher process name should contain "sleep"
     And there should be no page errors

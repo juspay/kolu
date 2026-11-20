@@ -3,28 +3,20 @@ import { Then, When } from "@cucumber/cucumber";
 import { tapBackdropAtSafePoint } from "../support/drawer.ts";
 import { type KoluWorld, POLL_TIMEOUT } from "../support/world.ts";
 
-// ── Chrome (top pull-down) drawer ─────────────────────────────────────
 const PULL_HANDLE = '[data-testid="mobile-pull-handle"]';
 const CHROME_SHEET = '[data-testid="mobile-chrome-sheet"]';
 const CHROME_BACKDROP = '[data-testid="mobile-chrome-backdrop"]';
-// MobileChromeSheet reuses the same `palette-trigger` testid as the desktop
-// ChromeBar's palette button. Scope to the open sheet to disambiguate.
 const PALETTE_BTN = `${CHROME_SHEET} [data-testid="palette-trigger"]`;
 
-// ── Dock (left swipe) drawer ──────────────────────────────────────────
 const DOCK_HANDLE = '[data-testid="mobile-dock-handle"]';
 const DOCK_SHEET = '[data-testid="mobile-dock-sheet"]';
 const DOCK_BACKDROP = '[data-testid="mobile-dock-backdrop"]';
 const DOCK_ROW = '[data-testid="mobile-dock-row"]';
 
-// ── Chrome drawer steps ───────────────────────────────────────────────
-
 When("I tap the mobile pull handle", async function (this: KoluWorld) {
   await this.page.locator(PULL_HANDLE).tap();
 });
 
-// Mouse-click path companion — see `I click the mobile dock handle` below
-// for the rationale (Corvu touch vs. mouse open paths differ; #977).
 When("I click the mobile pull handle", async function (this: KoluWorld) {
   await this.page.locator(PULL_HANDLE).click();
 });
@@ -63,9 +55,6 @@ When("I drag down on the mobile pull handle", async function (this: KoluWorld) {
   assert.ok(box, "Pull handle has no bounding box");
   const x = box.x + box.width / 2;
   const startY = box.y + box.height / 2;
-  // Downward drag well past `PULL_OPEN_THRESHOLD` (24px). MobileTileView
-  // commits to opening as soon as `touchmove` crosses the threshold, so the
-  // single move below is enough; the trailing `touchend` just tidies state.
   const endY = startY + 60;
   // Ship plain-JS source string — tsx/esbuild instruments nested function
   // declarations with `__name` debug helpers that don't exist in the
@@ -167,8 +156,6 @@ When(
   },
 );
 
-// ── Dock drawer steps ─────────────────────────────────────────────────
-
 When("I tap the mobile dock handle", async function (this: KoluWorld) {
   await this.page.locator(DOCK_HANDLE).tap();
 });
@@ -196,9 +183,6 @@ When("I open the dock without moving focus", async function (this: KoluWorld) {
 });
 
 When("I tap the inactive mobile dock row", async function (this: KoluWorld) {
-  // The drawer always shows every terminal; one carries `data-active`. The
-  // other(s) are tap targets to switch. With the two-terminal background
-  // (one auto + one explicit create) there is exactly one inactive row.
   await this.page.locator(`${DOCK_ROW}:not([data-active])`).first().tap();
 });
 

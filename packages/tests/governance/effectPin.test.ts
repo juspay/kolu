@@ -1,12 +1,3 @@
-/**
- * The Effect pin gate's own gate. The gate is only worth anything if a NEW pin
- * site cannot slip past it, so each test here is a way a version could split:
- * a catalog that says two things, an override left behind at the old version, a
- * vendored manifest that switched to `catalog:` (unresolvable for drishti/odu),
- * a literal that crept into an ordinary member, and a family package that has
- * neither catalog nor override entry backing it.
- */
-
 import assert from "node:assert/strict";
 import { mkdtempSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -25,7 +16,6 @@ import {
 } from "./effectPin";
 import { vendoredManifests } from "./vendorEntries";
 
-/** `packages/tests/governance/` → the repo root. */
 const REPO_ROOT = resolve(
   fileURLToPath(new URL(".", import.meta.url)),
   "../../..",
@@ -70,11 +60,6 @@ const member: EffectPin = {
   spec: "catalog:",
 };
 
-/** The vendored set as DATA — what `vendoredManifests(repoRoot)` would have
- *  walked, stated here so these pins exercise the rule without reading the tree.
- *  A closure member (`@kolu/terminal-vocab`) is included deliberately: what
- *  vendoring costs is the whole `dependencies` closure of the copied directory,
- *  not just its root. */
 const VENDORED = new Set([
   "packages/surface/package.json",
   "packages/surface-daemon-supervisor/package.json",
@@ -82,19 +67,11 @@ const VENDORED = new Set([
   "packages/terminal-vocab/package.json",
 ]);
 
-/** The GRAFTED set as DATA too — what the emitted `nix/consumer-closure.json`
- *  answers with, stated here so these pins exercise the rule without reading the
- *  artifact. Both grafts are named on purpose: the gate answers for the SET
- *  (a caller that spells one manifest by hand is how the odu trio went
- *  unpoliced), which is also why neither parameter has a default. */
 const GRAFTED = new Set([
   "osfacts-client/package.json",
   "odu/service-client/package.json",
 ]);
 
-/** Every test below hands `validateEffectPins` the vendored AND grafted sets as
- *  DATA, so none of them touches the tree. This spares each call site from
- *  repeating the two constants. */
 const validate = (pins: readonly EffectPin[]): string =>
   validateEffectPins(pins, VENDORED, GRAFTED);
 
@@ -114,12 +91,6 @@ test("the family is `effect` plus the whole @effect scope, nothing else", () => 
 });
 
 test("the vendored set is an entry's whole dependency closure, walked off the real tree", () => {
-  // The claim is about the CLOSURE, so it is made against the live walk rather
-  // than a set literal: `@kolu/terminal-vocab` is nobody's vendored ENTRY — it is
-  // reached only through `@kolu/padi-client`'s manifest — and it owes a literal
-  // anyway, because a consumer installs it from its own workspace exactly as it
-  // installs the entry. `@kolu/padi` is the daemon the client was carved OUT of,
-  // and its absence is the whole point of the carve.
   const vendored = vendoredManifests(REPO_ROOT);
   assert.ok(vendored.has("packages/terminal-vocab/package.json"));
   assert.ok(!vendored.has("packages/padi/package.json"));
@@ -229,12 +200,6 @@ test("a vendored manifest that switched to `catalog:` fails — it does not reso
 });
 
 test("each literal-owing manifest gives its OWN reason, and a member gives none", () => {
-  // The two reasons are mirror images and must not be conflated: one manifest
-  // is vendored OUT of this workspace, the other is grafted IN from another.
-  // The graft sentence names the graft rather than one pin, because the set it
-  // is answering for comes from `nix/consumer-closure.json` — `osfacts-client`
-  // and the `@odu/*` trio get the same reason, and neither tells a reader to
-  // edit a manifest kolu does not own.
   assert.match(
     literalReason("packages/surface/package.json", VENDORED, GRAFTED) ?? "",
     /drishti\/odu, olai/,
@@ -254,9 +219,6 @@ test("each literal-owing manifest gives its OWN reason, and a member gives none"
 });
 
 test("the grafted osfacts-client manifest is policed, not skipped", () => {
-  // It used to be excluded outright — the client was zero-dependency, so there
-  // was nothing to disagree about. It declares `effect` now, and a graft on a
-  // different Effect than this workspace would put two copies in one process.
   assert.equal(validate(agreeing(grafted)), V);
   assert.throws(
     () => validate(agreeing({ ...grafted, spec: "4.0.0-beta.101" })),
@@ -265,9 +227,6 @@ test("the grafted osfacts-client manifest is policed, not skipped", () => {
 });
 
 test("the grafted manifest owes a LITERAL — `catalog:` does not resolve in ITS workspace", () => {
-  // The sentence names the GRAFT, not one pin: the set is read from
-  // `nix/consumer-closure.json`, so the odu trio gets the same reason as
-  // `osfacts-client` (and kolu is never told to edit a manifest it does not own).
   assert.throws(
     () => validate(agreeing({ ...grafted, spec: "catalog:" })),
     /osfacts-client\/package\.json.*grafted from an npins pin/s,
@@ -275,8 +234,6 @@ test("the grafted manifest owes a LITERAL — `catalog:` does not resolve in ITS
 });
 
 test("an ABSENT graft still passes — the vendored literals are the required ones", () => {
-  // A bare checkout has not materialised `osfacts-client/` yet, and osfacts is
-  // free to stop depending on Effect. Neither is a version split.
   assert.equal(validate(agreeing()), V);
 });
 
@@ -336,12 +293,6 @@ test("no catalog at all is a hard stop, not a pass", () => {
 });
 
 test("a symlinked tree is not walked — a nix out-link is not kolu's manifest", () => {
-  // `ci/flake-build --link` leaves `result-<flake>` out-links in the repo root
-  // for odu to glob and push, and `result-root-2` is `agent-flake-source`: a
-  // whole second copy of `packages/`, whose literal Effect versions are
-  // correct there and a violation here. Following it reddened `ci::fmt`'s
-  // neighbour `ci::e2e-governance` on every CI run. The walk now reads
-  // `lstatSync`, so the link is a file this gate does not open.
   const root = mkdtempSync(join(tmpdir(), "kolu-effect-pin-"));
   writeFileSync(
     join(root, "pnpm-workspace.yaml"),

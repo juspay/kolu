@@ -27,13 +27,17 @@ When(
     const input = this.page.locator(`${PALETTE_SELECTOR} input`);
     await input.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
     await input.fill(text);
-    // Wait for at least one result to appear (filter is synchronous in SolidJS)
     if (text.length > 0) {
-      await this.page
+      const firstOption = this.page
         .locator(`${PALETTE_SELECTOR} [role="option"]`)
+        .first();
+      const noMatches = this.page
+        .locator(PALETTE_SELECTOR)
+        .getByText("No matches");
+      await firstOption
+        .or(noMatches)
         .first()
-        .waitFor({ state: "visible", timeout: POLL_TIMEOUT })
-        .catch(() => {}); // Some filters may yield zero results
+        .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
     }
   },
 );
@@ -44,9 +48,6 @@ When("I clear the palette input", async function (this: KoluWorld) {
   await input.fill("");
 });
 
-/** Exact palette row by `data-palette-name` (rich rows lead with a glyph, so
- *  `^name` text anchors no longer match). Falls back to anchored hasText for
- *  any residual bare row without the attribute. */
 function paletteOption(
   palette: import("@playwright/test").Locator,
   text: string,
@@ -54,8 +55,6 @@ function paletteOption(
   const byName = palette.locator(
     `[role="option"][data-palette-name=${JSON.stringify(text)}]`,
   );
-  // Playwright locators are lazy — prefer the attribute when any such row
-  // exists; otherwise fall back. Callers await visibility themselves.
   return byName.or(
     palette
       .locator('[role="option"]')
@@ -72,8 +71,6 @@ When(
   },
 );
 
-// Deliberately hold across the fleet's one-second clock update: replacing a
-// row during the press cancels the browser's click synthesis.
 When(
   "I click {string} in the palette across a live refresh",
   async function (this: KoluWorld, text: string) {
@@ -117,8 +114,6 @@ Then(
       )
       .first();
     await first.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
-    // A row can mount before its async terminal metadata label is current.
-    // Visibility is setup; the label value is the condition under test.
     const actual = await pollFor({
       observe: () => first.getAttribute("data-palette-name"),
       isDone: (value) => value === name,
@@ -199,7 +194,6 @@ When(
     const breadcrumb = palette.locator("nav button", { hasText: text });
     await breadcrumb.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
     await breadcrumb.click();
-    // Wait for the palette items to refresh after navigating back
     await this.page
       .locator(`${PALETTE_SELECTOR} [role="option"]`)
       .first()
@@ -262,7 +256,6 @@ Then(
   async function (this: KoluWorld) {
     const input = this.page.locator(`${PALETTE_SELECTOR} input`);
     await input.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
-    // Focus arrives after a double-rAF; use waitForFunction instead of polling
     await this.page.waitForFunction(
       (sel) => {
         const el = document.querySelector(`${sel} input`);
@@ -296,7 +289,6 @@ Then(
       `${PALETTE_SELECTOR} input[data-value-input]`,
     );
     await input.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
-    // Prefill arrives async; poll until the value lands.
     await this.page.waitForFunction(
       (sel) => {
         const el = document.querySelector(`${sel} input[data-value-input]`);
@@ -410,8 +402,6 @@ Then(
 Then(
   "palette item {string} should show section tag {string}",
   async function (this: KoluWorld, itemName: string, tagLabel: string) {
-    // Unified switcher uses kind tags (term/host/cmd) at root search, not
-    // the old per-command-section pills. Map legacy section labels → kind.
     const kind =
       tagLabel === "cmd" || tagLabel === "host" || tagLabel === "term"
         ? tagLabel

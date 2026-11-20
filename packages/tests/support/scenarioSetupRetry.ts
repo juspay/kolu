@@ -35,10 +35,6 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-/** Retry transport failures during scenario setup. An {@link RpcCallFailed} is an
- * ANSWERED call (the wire carried the server's failure back), so its message can never
- * masquerade as a transport error — it breaks out immediately, exactly as a completed
- * HTTP response used to. */
 export async function retryTransient<T>(
   label: string,
   fn: () => Promise<T>,
@@ -64,8 +60,6 @@ export async function retryTransient<T>(
     : new Error(`${label} failed after retries: ${String(last)}${suffix}`);
 }
 
-/** Retry an idempotent whole-Padi scenario reset only when the re-serve says
- * its upstream link disappeared. Every other failure stays fail-fast. */
 export async function retryPadiScenarioReset(
   timeoutMs: number,
   attempt: (remainingMs: number) => Promise<void>,

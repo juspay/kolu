@@ -1,27 +1,3 @@
-/** Fixture builder for the Oh My Pi mock e2e tests.
- *
- *  Real `omp` records, for each terminal, WHICH session file it is writing —
- *  `<agent dir>/terminal-sessions/<tty id>` — and kolu finds the session by
- *  reading exactly that. So the mock has two halves, and both are pinned here to
- *  the real on-disk wire format (never imported from the producer: a wrong
- *  rename would then pass on both sides silently):
- *
- *   1. The **session transcript** — an append-only JSONL whose line 1 is omp's
- *      fixed 256-byte title slot and whose line 2 is the `session` header. It is
- *      written by the fake `omp` PROCESS, and only when that process is
- *      PROMPTED: real omp keeps a brand-new session in memory and materializes
- *      its JSONL at the first prompt, so a stand-in that wrote one at launch
- *      would be a terminal that can never be observed as an agent-with-no-
- *      transcript — the state presence exists to name. The bytes are STAGED by
- *      the scenario ({@link stageOmpPrompt}) and appended by the process when it
- *      reads a prompt line; transitions after that APPEND too (never rewrite —
- *      the append-robust watcher is the channel under test).
- *   2. The **breadcrumb** — written by the fake `omp` process ITSELF (see
- *      `ompMockPayload`), exactly as real omp writes it: omp derives the tty id
- *      from its own stdin, so the fixture must not guess it from the test
- *      process.
- */
-
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -35,19 +11,6 @@ export interface OmpFixture {
   sessionId: string;
 }
 
-/** Encode a cwd to omp's session-directory key (`computeDefaultSessionDir` /
- *  `getDefaultSessionDirName`): home-relative under `$HOME` (`-code-proj`),
- *  `-tmp-` + relative under the temp root, else the legacy absolute form.
- *  Canonicalized (symlinks resolved) the way omp does it — which is why the
- *  `-tmp-` arm is the one a fixture under `mkdtemp` lands in.
- *
- *  This is the fixture's own approximation of a key omp computes inside its
- *  OWN process (from that process's `$HOME`/`$TMPDIR`, which the test process
- *  cannot read); here it is derived from the test process's roots. Nothing
- *  asserts on it: kolu never computes this key — the breadcrumb carries the
- *  session's ABSOLUTE path, which is the whole point of omp's anchor — so the
- *  fixture's only requirement is that the file land somewhere a real omp could
- *  have put it. */
 export function ompSessionDirName(cwd: string): string {
   const canonical = (p: string): string => {
     try {
@@ -79,8 +42,6 @@ export function ompSessionDirName(cwd: string): string {
   return `--${canonicalCwd.replace(/^[/\\]/, "").replace(/[/\\:]/g, "-")}--`;
 }
 
-/** The transcript path a real `omp` launched in `cwd` would write, plus the
- *  session id its filename carries. Nothing is created. */
 export function ompTranscriptPath(opts: {
   ompDir: string;
   cwd: string;
@@ -95,9 +56,6 @@ export function ompTranscriptPath(opts: {
   };
 }
 
-/** omp's line-1 title slot: one JSON object whose `pad` fills the fixed-width
- *  slot, exactly what omp writes (and rewrites in place) at the head of every
- *  session file. */
 function titleSlot(title: string): string {
   const base = {
     type: "title",
@@ -115,8 +73,6 @@ function titleSlot(title: string): string {
   }
 }
 
-/** omp's `model_change` entry — note the field is `model` (pi's fork spells it
- *  `modelId`). */
 function modelChange(): object {
   return {
     type: "model_change",
@@ -175,7 +131,6 @@ function toolResultEntry(id: string): object {
   };
 }
 
-/** The entry sequence that STARTS a transcript already in `state`. */
 function initialLines(state: AgentLifecycleState): object[] {
   const header = {
     type: "session",
@@ -206,9 +161,6 @@ function initialLines(state: AgentLifecycleState): object[] {
         assistantEntry("a2", "stop"),
       ];
     case "awaiting_user":
-      // The dialog is on SCREEN, not in the transcript: while an approval gate
-      // or an `ask` question is up, omp's tail still reads the in-flight tool
-      // call. The screen-scrape step paints the dialog; the file stays here.
       return [
         header,
         modelChange(),
@@ -218,7 +170,6 @@ function initialLines(state: AgentLifecycleState): object[] {
   }
 }
 
-/** The appended entries moving a LIVE transcript INTO `state`. */
 function transitionLines(state: AgentLifecycleState, n: number): object[] {
   switch (state) {
     case "thinking":
@@ -232,14 +183,6 @@ function transitionLines(state: AgentLifecycleState, n: number): object[] {
   }
 }
 
-/** STAGE the session file the fake `omp` will write when it is next prompted:
- *  the exact bytes a real omp materializes for a session already in `state`
- *  (title slot + the entry sequence), parked at `stagePath` for the process to
- *  append.
- *
- *  The scenario composes the JSON and the PROCESS performs the write, which is
- *  the division the real agent makes: a transcript appears because somebody
- *  prompted the agent, never because a test wanted one on disk. */
 export function stageOmpPrompt(
   stagePath: string,
   state: AgentLifecycleState,
@@ -255,8 +198,6 @@ export function stageOmpPrompt(
 
 let transitionCounter = 0;
 
-/** Move the live transcript into a new state by APPENDING entries — the honest
- *  production channel: no rewrite, no mtime-only nudge. */
 export function updateOmpFixture(
   fixture: OmpFixture,
   state: AgentLifecycleState,
@@ -271,9 +212,6 @@ export function updateOmpFixture(
 
 let todoCounter = 0;
 
-/** Append a `todo` call and its result, as omp writes them: the result's
- *  `details.phases` carries the WHOLE list (one phase here, `done` tasks
- *  completed, the next one in progress), which is what kolu counts. */
 export function appendOmpTodoList(
   fixture: OmpFixture,
   total: number,
@@ -333,62 +271,14 @@ export function appendOmpTodoList(
   );
 }
 
-// The fake `omp` process's own output markers.
-//
-// None of them is ever typed or echoed: every caller writes the program to a
-// file and runs only `<bin> <file>` — typed by omp_steps.ts, left in the
-// fixture's relay by the conductor scenarios. So only the process's own
-// `printf` can satisfy a wait on a marker. A marker that the shell's echo could
-// satisfy is a start-guard that passes against a binary that never ran
-// (dev/skills/e2e-testing).
-/** Printed ONCE, after the crumb is on disk: the fake is up and resident. */
 export const OMP_UP_MARKER = "omp-stand-in-is-up";
-/** Printed with the words every time the fake is prompted — the proof a line
- *  typed by a person (or by `agent_say`) reached the agent's own stdin. */
 export const OMP_HEARD_MARKER = "omp-stand-in-heard";
-/** Printed as the loop breaks on `quit`, immediately before the process exits:
- *  the agent is leaving the foreground. A scenario that waits for it is waiting
- *  on the departure itself, not on a sleep. */
 export const OMP_GONE_MARKER = "omp-stand-in-is-gone";
 
-/** The fake `omp` process's program, which callers write to a file and run as
- *  `<bin> <file>`: write the breadcrumb the way omp writes it (from its OWN
- *  tty), then stay resident — painting an approval dialog, clearing the
- *  screen, or MATERIALIZING ITS SESSION FILE when it is prompted.
- *
- *  Three things make this faithful rather than convenient:
- *
- *   - The crumb's NAME comes from `tty` inside the process — the same source
- *     `omp`'s `getTerminalId()` reads — so kolu's `/proc/<pid>/fd/0` derivation
- *     is tested against the real thunk, not against a guess made in the test
- *     process. (The path arithmetic is bash parameter expansion rather than a
- *     `sed` pipe: this payload runs under the fake binary, a bash copy.)
- *   - The crumb is written `fresh`, as omp writes a brand-new session's crumb
- *     before its JSONL materializes — and the JSONL stays ABSENT until this
- *     process reads a prompt line, which is when real omp writes it. Between
- *     the two, the terminal is an agent with no transcript: the `starting` /
- *     `fresh` presence padi publishes off the foreground alone.
- *   - The transcript the prompt lands is the bytes the scenario STAGED
- *     ({@link stageOmpPrompt}), appended by this process. Nothing in the test
- *     process writes that file.
- *
- *  The resident `read` loop is what lets a scenario paint the approval dialog or
- *  clear it mid-scenario (omp's own dialogs appear while the process holds the
- *  terminal). Bash runs the program file itself, so `/proc/<pid>/comm` stays
- *  `omp`.
- *
- *  `bootPaint` gives the screen-still-being-drawn half of presence a WITNESS: a
- *  background painter writes a line a second until the scenario says `settle`,
- *  which holds padi's quiet window (EF2, ~5s) open — so `starting` is a state
- *  the scenario ENDS rather than one it races. The painter is a plain `&` job
- *  of this same non-interactive bash, so it shares the pty's foreground process
- *  group and `/proc/<pid>/comm` still reads `omp`. */
 export function ompMockPayload(opts: {
   breadcrumbDir: string;
   transcriptPath: string;
-  /** Where {@link stageOmpPrompt} parks the session file's bytes. */
   stagePath: string;
-  /** Paint until this flag file appears (the `settle` verb touches it). */
   bootPaintUntil?: string;
 }): string {
   const approval = [
@@ -402,14 +292,8 @@ export function ompMockPayload(opts: {
     .map((line) => `"${line}"`)
     .join(" ");
   const writeCrumb = String.raw`printf "%s\n%s\nfresh\n" "$PWD" "${opts.transcriptPath}" > "${opts.breadcrumbDir}/$t"`;
-  // omp's `getTerminalId()`: the tty path with `/dev/` stripped and `/` → `-`.
-  // Built by concatenation because the linter reads a literal `${` inside a
-  // template string as a mistaken placeholder.
   const stripDevPrefix = "t=$" + "{t#/dev/}";
   const slashesToDashes = "t=$" + String.raw`{t//\//-}`;
-  // THE FIRST PROMPT WRITES THE SESSION FILE, as omp's does — then the words
-  // are echoed with the heard marker, so a scenario that waits on the echo is
-  // waiting on a transcript that is already on disk.
   const onPrompt = [
     `if [ -f "${opts.stagePath}" ]`,
     `then cat "${opts.stagePath}" >> "${opts.transcriptPath}"`,
@@ -434,8 +318,6 @@ export function ompMockPayload(opts: {
     writeCrumb,
     String.raw`printf "\033]0;omp\007"`,
     String.raw`printf "%s\n" "${OMP_UP_MARKER}"`,
-    // read loop rides on the same element rather than after a `;` bash would
-    // refuse.
     `${
       boot === undefined
         ? ""

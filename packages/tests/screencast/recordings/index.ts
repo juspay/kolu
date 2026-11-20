@@ -1,6 +1,3 @@
-// Registry of all recordings, keyed by name (= scenario name = output stem).
-// Add a recording: drop a `<name>.recording.ts` file and list it here.
-
 import { recording as heroDemo } from "./hero-demo.recording";
 import type { Recording } from "./types";
 

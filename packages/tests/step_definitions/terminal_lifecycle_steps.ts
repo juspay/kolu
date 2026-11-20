@@ -1,6 +1,3 @@
-/** Shared terminal lifecycle + buffer assertion steps. Surface-agnostic —
- *  work for canvas tiles, mobile pager, and the workspace switcher. */
-
 import * as assert from "node:assert";
 import { Given, Then, When } from "@cucumber/cucumber";
 import { waitForBufferContains } from "../support/buffer.ts";
@@ -25,9 +22,6 @@ Then(
 Then(
   "the terminal should have keyboard focus",
   async function (this: KoluWorld) {
-    // Active terminal carries data-focused on its xterm wrapper. Poll because
-    // Corvu's focus-trap release after dialogs is async (waitForFrame can be
-    // insufficient on loaded CI).
     await this.page.waitForFunction(
       () => !!document.activeElement?.closest("[data-focused]"),
       { timeout: POLL_TIMEOUT },
@@ -40,11 +34,9 @@ When(
   async function (this: KoluWorld, index: number) {
     const id = this.createdTerminalIds[index - 1];
     assert.ok(id, `No terminal created at index ${index} in this scenario`);
-    // Click the workspace-switcher branch for this terminal.
     await this.page
       .locator(`${DOCK_ROW_SELECTOR}[data-terminal-id="${id}"]`)
       .click();
-    // Wait for the selected terminal to take focus.
     await this.page
       .locator(`[data-terminal-id="${id}"][data-focused]`)
       .waitFor({ state: "attached", timeout: POLL_TIMEOUT });
@@ -52,21 +44,6 @@ When(
   },
 );
 
-/** Click a terminal's dock row by its rendered position (1-based),
- *  regardless of `createdTerminalIds`. Complements
- *  `I select terminal {int} in the workspace switcher` (ID-based, waits on
- *  `data-focused`): this variant addresses dock rows by DOM position and
- *  waits on `data-visible`, which is what scenarios that don't track
- *  created IDs (or want to address pre-existing background terminals)
- *  need.
- *
- *  Positional order matches terminal-creation order only for plain-shell
- *  terminals — they all have `lastActivityAt === 0`, tie in
- *  `rankDockRows()`'s `b.ts - a.ts` sort, and the stable sort then
- *  preserves the `Map`'s insertion order. Agent-backed terminals carry
- *  real activity timestamps and may reshuffle the dock, so position-based
- *  addressing isn't safe for them; reach for the ID-based sibling step
- *  instead. */
 When(
   "I click dock row {int}",
   async function (this: KoluWorld, position: number) {
@@ -107,6 +84,3 @@ Then(
     );
   },
 );
-
-// "the workspace switcher should have N fewer terminal entries" already lives in
-// worktree_steps.ts — don't redeclare it here.

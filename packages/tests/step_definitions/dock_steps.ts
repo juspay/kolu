@@ -1,5 +1,3 @@
-/** Dock — step definitions. */
-
 import { Then, When } from "@cucumber/cucumber";
 import { dragFromCenter } from "../support/pointerDrag.ts";
 import { type KoluWorld, MOD_KEY, POLL_TIMEOUT } from "../support/world.ts";
@@ -7,28 +5,11 @@ import { type KoluWorld, MOD_KEY, POLL_TIMEOUT } from "../support/world.ts";
 const DOCK_SELECTOR = '[data-testid="dock"]';
 const RAIL_SELECTOR = '[data-testid="dock-rail"]';
 const MODE_TOGGLE_SELECTOR = '[data-testid="dock-mode-toggle"]';
-// Row bucket is the semantic state we assert against — the unified
-// DockRow component carries `data-bucket="awaiting|working|idle|none"`
-// instead of branching its testid by bucket.
-// Exported: the presence scenario counts the same two attention surfaces
-// INLINE, per agent, while each stand-in is up — so one quiet claim is read off
-// the selectors the dock's own steps assert against, never a second copy of
-// them.
 export const AWAITING_ROW_SELECTOR =
   '[data-testid="dock-row"][data-bucket="awaiting"]';
 const WORKING_ROW_SELECTOR = '[data-testid="dock-row"][data-bucket="working"]';
 const QUIET_FOREGROUND_SELECTOR = '[data-testid="dock-quiet-foreground"]';
-// Line 2's STATUS WORDS on an AGENT row. `data-dock-subline` is the shared
-// hook the row package sets on the agent line only (a quiet foreground line
-// does not speak needs-you), so this selector reads the desktop row and the
-// touch drawer alike without naming either surface's own test id.
 const AGENT_SUBLINE_SELECTOR = "[data-dock-row] [data-dock-subline]";
-// Line 2's trailing model tag — the shared hook the row component sets on it
-// (the same kind of hook `data-dock-subline` is), scoped by the row's OTHER
-// shared hook, `data-dock-row`, which `dockRowAttrs` stamps on EVERY row
-// surface. Both hooks come from the package, so this selector works on the
-// desktop row and the touch drawer alike — a surface's own `data-testid` is
-// deliberately not involved, since it differs per surface.
 const MODEL_TAG_SELECTOR = "[data-dock-row] [data-dock-model]";
 const CHROME_DOCK_TOGGLE_SELECTOR = '[data-testid="dock-toggle"]';
 const DOCK_WINDOW_TRIGGER_SELECTOR = '[data-testid="dock-window-trigger"]';
@@ -41,11 +22,6 @@ Then("the dock should be visible", async function (this: KoluWorld) {
     .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
 });
 
-// The dock defaults to "cards" mode now (#903 — primary navigator).
-// "Expanded" semantically means cards mode, so this step ensures the
-// dock is not in rail mode, clicking the header chevron to expand if
-// needed. Mega mode counts as "expanded enough" for assertions that
-// only check for the presence of cards/pills.
 When("the dock is expanded", async function (this: KoluWorld) {
   const dock = this.page.locator(DOCK_SELECTOR);
   await dock.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
@@ -69,10 +45,6 @@ Then("the dock should not be visible", async function (this: KoluWorld) {
 Then(
   "the dock should show {int} card(s)",
   async function (this: KoluWorld, expected: number) {
-    // "card" is the legacy name for an awaiting row — the bare dock no
-    // longer has a distinct full-card variant, but the feature file
-    // still reads "1 card" and that maps cleanly onto the awaiting
-    // bucket count.
     await this.page.waitForFunction(
       ({ selector, count }) =>
         document.querySelectorAll(selector).length === count,
@@ -148,10 +120,6 @@ When(
 );
 
 When("I press the dock toggle shortcut", async function (this: KoluWorld) {
-  // `Cmd+Shift+B` (or `Ctrl+Shift+B` on non-macOS) drives
-  // `toggleDock` — same behavior as the chrome-bar dock-toggle
-  // button and the in-header chevron. Ctrl+B without shift is
-  // reserved for the PTY (see prohibitedKeybinds.ts).
   await this.page.keyboard.press(`${MOD_KEY}+Shift+B`);
   await this.waitForFrame();
 });
@@ -165,18 +133,12 @@ When("I click the chrome-bar dock toggle", async function (this: KoluWorld) {
 
 const DOCK_RESIZE_HANDLE_SELECTOR = '[data-testid="dock-resize-handle"]';
 
-/** Rendered width of the outer dock aside, in CSS px. */
 async function dockWidth(world: KoluWorld): Promise<number> {
   const box = await world.page.locator(DOCK_SELECTOR).boundingBox();
   if (!box) throw new Error("dock has no bounding box (not visible?)");
   return box.width;
 }
 
-/** The persisted cards width, read and parsed EXACTLY as production does
- *  (`JSON.parse` + a strict `typeof === "number"` check) — a stored value the
- *  real parser would reject fails here too, instead of being coerced with
- *  `Number(...)`. Returns `null` when the key is absent, `NaN` when present but
- *  not a finite JSON number (Playwright's evaluate serialization preserves both). */
 async function storedDockWidth(world: KoluWorld): Promise<number | null> {
   return world.page.evaluate(() => {
     const raw = localStorage.getItem("kolu-dock-cards-width");
@@ -198,8 +160,6 @@ Then(
 Then(
   "the dock resize handle should not be present",
   async function (this: KoluWorld) {
-    // The handle is `<Show>`-gated to the maximized cards sidebar, so it is
-    // removed from the DOM in rail / tiled postures (not merely hidden).
     await this.page.waitForFunction(
       (selector) => document.querySelectorAll(selector).length === 0,
       DOCK_RESIZE_HANDLE_SELECTOR,
@@ -211,7 +171,6 @@ Then(
 When(
   "I drag the dock resize handle right by {int} pixels",
   async function (this: KoluWorld, dx: number) {
-    // Capture the pre-drag width so the follow-up can prove the drag widened it.
     this.savedDockWidth = await dockWidth(this);
     await dragFromCenter(this, DOCK_RESIZE_HANDLE_SELECTOR, dx, 0, {
       steps: 12,
@@ -233,8 +192,6 @@ Then("the dock should be wider than before", async function (this: KoluWorld) {
     { selector: DOCK_SELECTOR, prev: before },
     { timeout: POLL_TIMEOUT },
   );
-  // Remember the post-drag RENDERED width so the persistence step can prove the
-  // stored value matches what's on screen (not just "> default").
   this.savedDockWidth = await dockWidth(this);
 });
 
@@ -245,8 +202,6 @@ Then(
     if (rendered === undefined) {
       throw new Error("no post-drag dock width captured");
     }
-    // The canonical stored value a reload consumes must equal the width on
-    // screen (parsed strictly, as production does — see `storedDockWidth`).
     const stored = await storedDockWidth(this);
     if (stored === null || Number.isNaN(stored)) {
       throw new Error(
@@ -264,19 +219,8 @@ Then(
 When(
   "I start a dock resize drag and the browser cancels it",
   async function (this: KoluWorld) {
-    // Pre-drag rendered AND persisted width — the values the cancel must
-    // restore. A cancelled drag never writes to storage (the commit only
-    // happens on a completed drag), so `savedStoredDockWidth` may legitimately
-    // be `null` here (no earlier drag in this scenario has persisted a value
-    // yet) — the follow-up step compares against whatever this actually was,
-    // not a hardcoded non-null expectation.
     this.savedDockWidth = await dockWidth(this);
     this.savedStoredDockWidth = await storedDockWidth(this);
-    // Synthetic pointerdown → pointermove → pointercancel (same deterministic
-    // pattern as mobile_soft_keyboard_steps.ts). pointerdown starts the gesture
-    // on the handle; move/cancel go to `window`, where capturePointerGesture
-    // listens. A live cancel branch reverts to the pre-drag width; a broken one
-    // would leave the widened width.
     // No nested function declaration inside page.evaluate — swc injects
     // `__name(...)` for named function expressions, which is undefined in the
     // browser context (the same pitfall mobile_soft_keyboard_steps.ts avoids).
@@ -318,7 +262,6 @@ Then(
     if (before === undefined) {
       throw new Error("no pre-drag dock width captured");
     }
-    // Rendered width reverts...
     await this.page.waitForFunction(
       ({ selector, target }) => {
         const el = document.querySelector(selector);
@@ -328,10 +271,6 @@ Then(
       { selector: DOCK_SELECTOR, target: before },
       { timeout: POLL_TIMEOUT },
     );
-    // ...and the persisted value is UNTOUCHED — a cancelled drag never wrote
-    // to storage (only a completed drag commits, once, in onEnd), so this must
-    // equal whatever was stored (or absent) before the drag started, not a
-    // fresh write of the pre-drag width.
     const beforeStored = this.savedStoredDockWidth;
     if (beforeStored === undefined) {
       throw new Error("no pre-drag stored dock width captured");
@@ -355,8 +294,6 @@ Then(
 When(
   "I shrink the viewport to {int} pixels wide",
   async function (this: KoluWorld, width: number) {
-    // `resizeViewport` is the canonical helper — it waits TWO frames so the
-    // layout reflow AND the xterm.js fit settle before the assertion reads back.
     await this.resizeViewport(width, this.page.viewportSize()?.height ?? 720);
   },
 );
@@ -366,9 +303,6 @@ Then(
   async function (this: KoluWorld) {
     const viewport = this.page.viewportSize();
     if (!viewport) throw new Error("no viewport size");
-    // The whole point of the host cap: the handle at the dock's right edge must
-    // stay on-screen so the user can always drag / double-click it back. With
-    // the cap inert (the Round-2 ref bug) a wide drag overflows and this fails.
     await this.page.waitForFunction(
       ({ selector, vw }) => {
         const el = document.querySelector(selector);
@@ -405,7 +339,6 @@ When("I double-click the dock resize handle", async function (this: KoluWorld) {
 Then(
   "the dock should return to its default width",
   async function (this: KoluWorld) {
-    // Default cards width is 288px; allow a small tolerance for layout rounding.
     await this.page.waitForFunction(
       (selector) => {
         const el = document.querySelector(selector);
@@ -419,9 +352,6 @@ Then(
 );
 
 Then("the dock should be in maximized mode", async function (this: KoluWorld) {
-  // `data-maximized=""` is set on the outer aside when posture is
-  // maximized; the dock renders as a flex sibling of the canvas (real
-  // left panel) rather than a floating absolute overlay.
   await this.page.waitForFunction(
     (selector) =>
       document.querySelector(selector)?.hasAttribute("data-maximized"),
@@ -443,8 +373,6 @@ When("I release Mod", async function (this: KoluWorld) {
 When(
   "I press shortcut {string}",
   async function (this: KoluWorld, chord: string) {
-    // Translate the cucumber-friendly "Mod+..." into the platform-
-    // specific Cmd/Ctrl that Playwright understands.
     const resolved = chord.replace(/\bMod\b/g, MOD_KEY);
     await this.page.keyboard.press(resolved);
     await this.waitForFrame();
@@ -452,10 +380,6 @@ When(
 );
 
 const SHORTCUT_HINT_SELECTOR = '[data-testid="dock-row-shortcut-hint"]';
-// The active row is identified by the `data-active` attribute on the row
-// itself — the visual treatment (lifted-card geometry, accent flood,
-// pop-in animation) is painted by CSS keyed on that attribute. See the
-// "Active dock row" section in `packages/client/src/index.css`.
 const ACTIVE_INDICATOR_SELECTOR = '[data-testid="dock-row"][data-active]';
 
 Then(
@@ -469,18 +393,6 @@ Then(
   },
 );
 
-// Repo-identity treatment: the section element draws the spine from a
-// per-section `--repo-color` custom property (the single source the
-// header tint, monogram, and name colour also read). Assert the
-// structural facts via computed style, never a class name (e2e-testing
-// rule): a solid left border whose width matches `--dock-edge-stripe-w`
-// AND whose colour resolves to the same value as `--repo-color` — so a
-// regression to e.g. `border-left: 5px solid red` (a non-repo hue) fails
-// rather than slipping through. Width is read from the CSS token, not
-// hardcoded, so a deliberate stripe-width bump does not orphan this
-// assertion. `--repo-color` is an oklch() literal while `borderLeftColor`
-// resolves to the browser's rgb form, so we normalise both through a
-// throwaway probe element and compare the computed results.
 Then(
   "the dock section should carry a repo-colour spine",
   async function (this: KoluWorld) {
@@ -490,8 +402,6 @@ Then(
         if (!sec) return false;
         const cs = getComputedStyle(sec);
         const repoColor = cs.getPropertyValue("--repo-color").trim();
-        // Throw rather than returning false so a missing/empty --repo-color
-        // surfaces a clear diagnostic instead of a generic timeout.
         if (repoColor === "")
           throw new Error(
             `[data-testid="dock-section"] has no --repo-color custom property set`,
@@ -502,15 +412,10 @@ Then(
         if (cs.borderLeftStyle !== "solid" || cs.borderLeftWidth !== stripeW) {
           return false;
         }
-        // Validate before assigning: an invalid colour value is silently
-        // rejected by the browser, causing getComputedStyle to fall back to
-        // the inherited colour and producing a false positive/negative.
         if (!CSS.supports("color", repoColor))
           throw new Error(
             `--repo-color is not a valid CSS colour: "${repoColor}"`,
           );
-        // Resolve the raw `--repo-color` literal to the same computed
-        // colour form `borderLeftColor` already reports, then compare.
         const probe = document.createElement("span");
         probe.style.color = repoColor;
         document.body.appendChild(probe);
@@ -567,10 +472,6 @@ Then(
 Then(
   "the dock should show {int} foreground row containing {string}",
   async function (this: KoluWorld, expected: number, fragment: string) {
-    // Foreground process line lives on quiet (idle/parked/none) rows
-    // via `dock-quiet-foreground`. The text reads `meta.foreground.title
-    // || .name` — a long-running shell command like `sleep N` will
-    // populate it once the server publishes the new metadata.
     await this.page.waitForFunction(
       ({ selector, frag, count }) => {
         const nodes = Array.from(document.querySelectorAll(selector));
@@ -601,9 +502,6 @@ Then(
 Then(
   "the dock row should name the model {string}",
   async function (this: KoluWorld, model: string) {
-    // Line 2's trailing tag. Polled, not read once: the model arrives from the
-    // agent's own session file through the watcher, so it lands a beat after
-    // the row itself does.
     await this.page.waitForFunction(
       ({ sel, want }: { sel: string; want: string }) =>
         Array.from(document.querySelectorAll(sel)).some(
@@ -618,11 +516,6 @@ Then(
 Then(
   "the dock agent row should say {string}",
   async function (this: KoluWorld, words: string) {
-    // Line 2's STATUS WORDS, on an agent row (the quiet foreground line carries
-    // a process title and is a different hook). Polled for the same reason the
-    // model tag is: the words follow the agent record over the wire. The words
-    // themselves are the product's — `rowSubline`'s label for the state — so a
-    // scenario asserts what a person reads, not the state name kolu stores.
     await this.page.waitForFunction(
       ({ sel, want }: { sel: string; want: string }) =>
         Array.from(document.querySelectorAll(sel)).some(
@@ -667,10 +560,6 @@ When(
   },
 );
 
-// The footer tags itself `data-layout="rail"|"cards"`. The two layouts
-// are different DOM (compact centered chip vs. inline sentence), so the
-// attribute is the semantic signal that the reactive `<Show>` re-rendered
-// the right branch after a mode toggle — not a frozen create-time choice.
 Then(
   /^the dock hidden footer should use the "(rail|cards)" layout$/,
   async function (this: KoluWorld, expected: string) {

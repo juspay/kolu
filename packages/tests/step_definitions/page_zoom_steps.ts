@@ -29,14 +29,8 @@ const MAXIMIZED_TILE_SELECTOR =
 const APP_ROOT_SELECTOR = '[data-testid="app-root"]';
 const PREVIEW_IFRAME_SELECTOR = '[data-testid="browse-preview-iframe"]';
 
-/** How far a synthesized pinch spreads — matches the ~1.3 scale a real
- *  two-finger spread over the dock produced on master. */
 const PINCH_SCALE = 1.3;
 
-/** Let an input gesture or a forced scale change land: the browser's own
- *  magnification, the `visualViewport` resize event it fires, and whatever
- *  the app does in response (a `--app-h` write, an xterm refit) all cross
- *  process boundaries, so a bare rAF is too early to read. */
 async function settle(world: KoluWorld) {
   await world.waitForFrame();
   await world.page.waitForTimeout(200);
@@ -75,15 +69,6 @@ When("I pinch over the maximized tile", async function (this: KoluWorld) {
   await pinchOver(this, MAXIMIZED_TILE_SELECTOR);
 });
 
-/** A sandboxed preview frame gets the wheel event itself — the parent window
- *  never sees it — so this is the pinch that proves the in-iframe guard.
- *
- *  A visible `<iframe>` is not a booted SDK: the guard is installed by the
- *  injected script's `boot()`, which is still loading for a moment after the
- *  frame paints. `boot()` plants `#kolu-artifact-sdk-style` on its first line
- *  and attaches the guard a few lines later in the same tick, so that element
- *  is the proof the guard is in place — without it the pinch can land first
- *  and the scenario fails on a product that is fine. */
 When("I pinch over the file preview iframe", async function (this: KoluWorld) {
   await this.page
     .locator(PREVIEW_IFRAME_SELECTOR)
@@ -131,9 +116,6 @@ Then(
   },
 );
 
-/** Force magnification the way a browser would after a pinch it handled
- *  itself — the state the app has to survive, independent of which gesture
- *  reached that state. */
 When(
   "I force page magnification to {float}",
   async function (this: KoluWorld, factor: number) {
@@ -145,9 +127,6 @@ When(
     } finally {
       await cdp.detach();
     }
-    // Poll, don't sleep: the scale lands when the compositor says so, and a
-    // loaded box can take longer than any fixed settle. (The "should not"
-    // assertions keep the fixed settle — there is nothing to poll for there.)
     await this.page
       .waitForFunction(
         (want: number) =>
@@ -163,8 +142,6 @@ When(
           `page magnification never took: asked for ${factor}×, the page reports ${scale}×`,
         );
       });
-    // The app reacts to the scale change (a `--app-h` write, an xterm refit)
-    // one frame later; let that land before the assertions read it.
     await settle(this);
   },
 );
@@ -212,10 +189,6 @@ Then(
       before,
       "No grid snapshot — call 'I snapshot the terminal grid' first",
     );
-    // HELD for a round trip ({@link GRID_ROUND_TRIP_MS}), not sampled once: a
-    // single read right after the pinch would pass just as happily against a
-    // page that IS refitting its terminals and has not been answered yet.
-    // Fail on the first divergence.
     const deadline = Date.now() + GRID_ROUND_TRIP_MS;
     do {
       const [cols, rows] = await Promise.all([

@@ -11,7 +11,6 @@ import {
 } from "../support/scrollFifo.ts";
 import { type KoluWorld, POLL_TIMEOUT } from "../support/world.ts";
 
-/** The FIFO path created during this scenario's prepare step. */
 function scrollFifo(world: KoluWorld): string {
   if (!world._scrollFifo) throw new Error("output trigger was not prepared");
   return world._scrollFifo;
@@ -20,7 +19,6 @@ function scrollFifo(world: KoluWorld): string {
 When(
   "I generate {int} lines of output",
   async function (this: KoluWorld, count: number) {
-    // Ensure terminal has focus (may have been lost to settings popover, etc.)
     await this.canvas.click();
     await this.terminalRun(
       `for i in $(seq 1 ${count}); do echo scroll-test-$i; done`,
@@ -35,8 +33,6 @@ When(
     await this.terminalRun(
       `for i in $(seq 1 ${count}); do echo extra-line-$i; done`,
     );
-    // When scroll-locked, data is buffered (not written to xterm buffer).
-    // Detect lock state by checking scroll-to-bottom button visibility.
     const btn = this.page.locator('[data-testid="scroll-to-bottom"]');
     if (await btn.isVisible()) {
       await this.page
@@ -52,7 +48,6 @@ When("I scroll the terminal up", async function (this: KoluWorld) {
   const viewport = this.page.locator("[data-visible] .xterm-viewport");
   const box = await viewport.boundingBox();
   if (!box) throw new Error("Viewport not visible");
-  // Move mouse to viewport center and scroll up
   await this.page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
   await this.page.mouse.wheel(0, -500);
   await this.waitForFrame();
@@ -64,10 +59,7 @@ When("I note the scroll position", async function (this: KoluWorld) {
     .evaluate((el) => el.scrollTop);
 });
 
-/** Wait until the focused terminal's cursor row reads `expected` (or, with
- *  `null`, holds anything at all) and return it. At an idle shell that row is
- *  its prompt. */
-async function cursorRow(
+async function cursorRowMatching(
   world: KoluWorld,
   expected: string | null,
 ): Promise<string> {
@@ -87,34 +79,33 @@ async function cursorRow(
   return (await handle.jsonValue()) ?? "";
 }
 
+async function currentPromptRow(world: KoluWorld): Promise<string> {
+  return cursorRowMatching(world, null);
+}
+
+async function waitForPromptBack(
+  world: KoluWorld,
+  prompt: string,
+): Promise<void> {
+  await cursorRowMatching(world, prompt);
+}
+
 When("I prepare a output trigger", async function (this: KoluWorld) {
-  // Create a FIFO so we can inject output without typing (which would clear scroll lock).
-  // Put it in an atomically-created private directory: parallel workers cannot
-  // collide with or pre-create one another's FIFO. A background cat blocks on
-  // the FIFO until the test process writes to it.
   const fifoDir = await mkdtemp(join(tmpdir(), SCROLL_FIFO_DIR_PREFIX));
   const fifo = join(fifoDir, "trigger");
   await writeFile(join(fifoDir, "owner"), String(process.pid));
   this._scrollFifo = fifo;
   const quotedFifo = shellQuoteArg(fifo);
-  const prompt = await cursorRow(this, null);
+  const prompt = await currentPromptRow(this);
   await this.terminalRunAndWait(`mkfifo ${quotedFifo}`);
   await this.terminalRunAndWait(`cat ${quotedFifo} & true`);
-  // The shell's own reply to starting `cat` — its job line, then a fresh
-  // prompt — is output as well, and output on a scroll-locked terminal is
-  // activity. Wait until that prompt is back on the cursor row, so the only
-  // output still to come is the trigger's: the scenario's claim is "no
-  // activity until the trigger fires", not "the shell answers within a frame".
-  await cursorRow(this, prompt);
+  await waitForPromptBack(this, prompt);
 });
 
 When("I fire the output trigger", async function (this: KoluWorld) {
-  // Write to the FIFO from the test process — bypasses xterm keyboard input
-  // entirely, so scrollOnUserInput doesn't interfere with scroll lock state.
   const lines = Array.from({ length: 10 }, (_, i) => `triggered-${i + 1}`);
   await writeFile(scrollFifo(this), `${lines.join("\n")}\n`);
   await retireWorldScrollFifo(this);
-  // When scroll-locked, data is buffered — wait for the activity indicator
   await this.page
     .locator('[data-testid="scroll-to-bottom"][data-active]')
     .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
@@ -126,7 +117,6 @@ When(
     const lines = Array.from({ length: count }, (_, i) => `triggered-${i + 1}`);
     await writeFile(scrollFifo(this), `${lines.join("\n")}\n`);
     await retireWorldScrollFifo(this);
-    // When scroll-locked, data is buffered — wait for the activity indicator
     await this.page
       .locator('[data-testid="scroll-to-bottom"][data-active]')
       .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
@@ -136,9 +126,6 @@ When(
 When(
   "the terminal viewport is scrolled up programmatically",
   async function (this: KoluWorld) {
-    // Drive xterm's scroll API directly — no wheel/touch/key event reaches
-    // the page, so this models the #1272 bug class: a viewport scroll the
-    // user never initiated.
     await this.page.evaluate(() => {
       const container = document.querySelector<HTMLDivElement>(
         "[data-visible][data-terminal-id]",
@@ -154,8 +141,6 @@ When(
 When(
   "I fire the output trigger expecting live output",
   async function (this: KoluWorld) {
-    // Same FIFO injection as "I fire the output trigger", but asserting the
-    // un-buffered path: the lines must land in the client xterm buffer.
     const lines = Array.from({ length: 10 }, (_, i) => `triggered-${i + 1}`);
     await writeFile(scrollFifo(this), `${lines.join("\n")}\n`);
     await retireWorldScrollFifo(this);
@@ -192,10 +177,6 @@ When("the browser tab is backgrounded", async function (this: KoluWorld) {
 });
 
 When("the browser tab becomes visible again", async function (this: KoluWorld) {
-  // Flip the override back to visible, then fire visibilitychange — this runs
-  // the same return-to-tab handler (refitOnTabVisible → scrollLock.handleTabVisible)
-  // a real background→foreground transition fires. The handler's own
-  // `!document.hidden` guard needs the flip to land first.
   await this.page.evaluate(() => {
     (window as unknown as { __koluHidden?: boolean }).__koluHidden = false;
     document.dispatchEvent(new Event("visibilitychange"));
@@ -206,14 +187,10 @@ When("the browser tab becomes visible again", async function (this: KoluWorld) {
 Then(
   "the terminal buffer should contain {string}",
   async function (this: KoluWorld, expected: string) {
-    // Client-side xterm buffer assertion — proves held output actually
-    // flushed into xterm (the misleadingly-similar "the terminal should
-    // contain" step asserts post-refresh terminal COUNTS, not content).
     await waitForBufferContains(this.page, expected);
   },
 );
 
-/** Read the first visible row from the xterm buffer at the current viewport position. */
 function readFirstVisibleLine(world: KoluWorld) {
   return world.page.evaluate(() => {
     const container = document.querySelector<HTMLDivElement>(
@@ -321,7 +298,6 @@ Then(
     const current = await this.page
       .locator("[data-visible] .xterm-viewport")
       .evaluate((el) => el.scrollTop);
-    // Allow small tolerance (1px) for rounding
     assert.ok(
       Math.abs(current - saved) <= 1,
       `Scroll position changed: was ${saved}, now ${current}`,

@@ -1,24 +1,3 @@
-/**
- * Agents come with kolu — the choice (Settings → Agents and the welcome card's
- * first-run step), what the NEXT terminal gets, and what each MACHINE has
- * (its host details).
- *
- * The server runs with a fixture agent-distro bake (`support/agentDistroFixture.ts`):
- * agent-distro's ONE package as a floor, with a stub `claude` and a stub
- * `agent-distro` picker. It bakes no delivery, so kolu-server builds no
- * profile: an empty list serves the floor, and any profile in the list leaves
- * padi with no set for that stack (`undelivered`). The suite resets Agents to
- * NEVER CHOSEN (`null`, a fresh install) before every scenario; these steps
- * switch agents and edit the list, then read the result where a user would —
- * the welcome card's step, Settings' list and fleet line, a machine's host
- * details, the tile's pill and what runs in a terminal — and what padi itself
- * says it gives new terminals.
- *
- * The same chooser renders in Settings and in the welcome card's step, so every
- * lookup is SCOPED to the one it means. Every word a step expects comes from
- * `@kolu/agent-distro/status`, the very functions the UI words it with.
- */
-
 import assert from "node:assert";
 import fs from "node:fs";
 import os from "node:os";
@@ -58,51 +37,34 @@ import { waitForPadiCell } from "../support/padiCellWait.ts";
 import { escapeRegExp } from "../support/regexp.ts";
 import { type KoluWorld, POLL_TIMEOUT } from "../support/world.ts";
 
-/** The focused tile — the one a just-created terminal lands in. */
 const FOCUSED_TILE = '[data-testid="canvas-tile"]:has([data-focused])';
 
-/** Where the chooser renders: Settings, or the welcome card's first-run step
- *  (inline at zero terminals, or in the Tutorial dialog). */
 const IN_SETTINGS = '[data-testid="settings-popover"]';
 const FIRST_RUN = '[data-testid="welcome-moment-choose-agents"]';
 
-/** A profile row inside `scope`, by its reference. */
 const row = (reference: string, scope = IN_SETTINGS) =>
   `${scope} [data-testid="agents-profile-row"][data-reference="${reference}"]`;
 
-/** This machine's open host details, and the one line of its agents section
- *  that carries the state (the row holds its label too). */
 const HOST_DETAILS = '[data-testid="host-diagnostics-popover"]';
 const AGENTS_STATE = `${HOST_DETAILS} [data-testid="host-agents-state-text"]`;
 
-/** The host tab strip's agents mark (scoped to the real strip — its hidden
- *  measuring twin renders one too, without the test id). The e2e kolu has one
- *  host, this machine. */
 const HOST_AGENTS_MARK =
   '[data-testid="host-chip-row"] [data-testid="host-agents-mark"]';
 
-/** The local machine's name on every agents surface — its hostname, as the host
- *  tab shows it (the e2e server runs on this host). */
 const LOCAL_NAME = os.hostname();
 
-/** A stack as a step spells it: references separated by spaces (no reference
- *  holds one). */
 const stackOf = (text: string): string[] =>
   text.split(/\s+/).filter((r) => r !== "");
 
 const sameList = (a: readonly string[], b: readonly string[]) =>
   a.length === b.length && a.every((x, i) => x === b[i]);
 
-// ── The switch ─────────────────────────────────────────────────────────────
-
-/** Whether the Settings switch is on, once it shows. */
 async function switchOn(world: KoluWorld): Promise<boolean> {
   const sw = world.page.locator(`${IN_SETTINGS} [data-testid="agents-switch"]`);
   await sw.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
   return (await sw.getAttribute("aria-checked")) === "true";
 }
 
-/** The switch reads `on`, polled. */
 async function waitForSwitch(world: KoluWorld, on: boolean): Promise<void> {
   await world.page
     .locator(
@@ -111,28 +73,12 @@ async function waitForSwitch(world: KoluWorld, on: boolean): Promise<void> {
     .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
 }
 
-/** Flip the switch to `on`, if it is not already. */
 async function setSwitch(world: KoluWorld, on: boolean): Promise<void> {
   if ((await switchOn(world)) !== on)
     await world.page.click(`${IN_SETTINGS} [data-testid="agents-switch"]`);
   await waitForSwitch(world, on);
 }
 
-/** AGENTS ON FOR THIS MACHINE, and PROVED on — the arrangement any scenario
- *  needs before a harness can be chosen for a piece of work (kolu refuses to
- *  ask which harness runs a role on a host whose agents are not ready).
- *
- *  The same gestures the Agents scenarios make: Settings' own switch, then
- *  padi's own word that the floor is serving. The setting is a HOP (browser →
- *  kolu-server's preference → padi's cell), so the switch reading `on` is not
- *  the arrangement — `readyWithNoProfiles` is, and it is what makes a later
- *  `agents-not-ready` refusal a real failure rather than a race. Settings is
- *  left closed, as the scenario found it.
- *
- *  On a PHONE the settings button lives in the pull-down chrome sheet, so the
- *  handle is pulled first and the sheet is gone again before this returns —
- *  the same gestures a person makes (`enterConductor` reaches the
- *  conversation's tab the same way). */
 export async function turnAgentsOnReady(world: KoluWorld): Promise<void> {
   const handle = world.page.locator('[data-testid="mobile-pull-handle"]');
   const onPhone = await handle.isVisible();
@@ -145,10 +91,6 @@ export async function turnAgentsOnReady(world: KoluWorld): Promise<void> {
     .locator(IN_SETTINGS)
     .waitFor({ state: "hidden", timeout: POLL_TIMEOUT });
   if (!onPhone) return;
-  // The one Escape above closes the popover AND the sheet it was opened
-  // from; a sheet still standing gets its own. Either way this does not
-  // return until the canvas is clear, because the scenario's next gesture is
-  // on the canvas.
   const sheet = world.page.locator('[data-testid="mobile-chrome-sheet"]');
   if (await sheet.isVisible()) await world.page.keyboard.press("Escape");
   await sheet.waitFor({ state: "hidden", timeout: POLL_TIMEOUT });
@@ -175,8 +117,6 @@ Then("the Agents hint should explain Off", async function (this: KoluWorld) {
     .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
 });
 
-/** The chips under the row name the agents the fixture's package carries —
- *  its listing's own titles, never a hand-typed copy. */
 Then(
   "the Agents row should name the agents it would bring",
   async function (this: KoluWorld) {
@@ -189,10 +129,6 @@ Then(
   },
 );
 
-// ── Toasts ─────────────────────────────────────────────────────────────────
-
-/** A toast whose title is EXACTLY `text`. Exact, so one wording never passes
- *  for a longer one that starts with it. */
 async function toastSays(world: KoluWorld, text: string): Promise<void> {
   await world.page
     .locator("[data-sonner-toaster] [data-title]")
@@ -229,17 +165,12 @@ Then(
   },
 );
 
-// ── The profile list ───────────────────────────────────────────────────────
-
-/** Settings' list, once it shows (agents on). */
 async function settingsList(world: KoluWorld): Promise<void> {
   await world.page
     .locator(`${IN_SETTINGS} [data-testid="agents-profiles"]`)
     .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
 }
 
-/** The references of the rows in `scope`, in the order they show, once they
- *  read `expected` (polled: a write comes back through the preferences cell). */
 async function waitForRows(
   world: KoluWorld,
   scope: string,
@@ -280,8 +211,6 @@ Then(
   },
 );
 
-/** The last row is the repository's note: last of the list, with a docs
- *  link, and none of a profile's buttons — it is not an entry of the setting. */
 Then(
   "the Agents profile list should end with the repository row",
   async function (this: KoluWorld) {
@@ -313,8 +242,6 @@ Then(
   },
 );
 
-/** kolu-server has built none of them (it delivers nothing here), so each row
- *  says it is resolving — in the line's own words. */
 Then(
   "the {string} profile row should be resolving",
   async function (this: KoluWorld, reference: string) {
@@ -329,15 +256,11 @@ Then(
   },
 );
 
-/** The add field's Juspay suggestion, as focusing the field in `scope`
- *  opens its menu (portalled to the body, so found on the page). */
 async function focusField(world: KoluWorld, scope: string) {
   const input = world.page.locator(
     `${scope} [data-testid="agents-profile-input"]`,
   );
   await input.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
-  // A field that already has the focus (after a pick) gets no focus event:
-  // let it go first, so focusing opens the menu.
   await input.blur();
   await input.focus();
   return input;
@@ -352,7 +275,6 @@ async function juspayOffered(world: KoluWorld, offered: boolean) {
     state: offered ? "visible" : "detached",
     timeout: POLL_TIMEOUT,
   });
-  // Close the menu again, so a later Escape reaches Settings.
   await input.press("Escape");
 }
 
@@ -367,7 +289,6 @@ Then(
   },
 );
 
-/** Picked from the add field's suggestions — the one way kolu offers it. */
 async function addJuspay(world: KoluWorld, scope: string) {
   await focusField(world, scope);
   await world.page.click(JUSPAY_OPTION);
@@ -379,7 +300,6 @@ When("I add the Juspay profile", async function (this: KoluWorld) {
   await addJuspay(this, IN_SETTINGS);
 });
 
-/** Typed into the add field and Enter — the field takes any reference. */
 When(
   "I add the {string} profile",
   async function (this: KoluWorld, reference: string) {
@@ -414,10 +334,6 @@ When(
   },
 );
 
-// ── What padi holds and gives ──────────────────────────────────────────────
-
-/** What kolu-server pushed to padi — the stored preference through its one
- *  fold, which is what an edit writes. */
 async function storedIs(
   accept: (s: AgentDistroSetting) => boolean,
   what: string,
@@ -461,7 +377,6 @@ Then(
   },
 );
 
-/** padi's current value of an agent-distro cell, once `accept` holds. */
 async function padiValue<T>(
   memberVerb: string,
   accept: (v: T) => boolean,
@@ -482,9 +397,6 @@ async function padiValue<T>(
   return seen;
 }
 
-/** padi ITSELF ready with the floor and no profiles — the push is a hop
- *  (browser → kolu-server preference → padi cell), so the next create
- *  resolves against it. */
 async function readyWithNoProfiles(): Promise<
   Extract<AgentDistroStatus, { kind: "ready" }>
 > {
@@ -501,8 +413,6 @@ Then("padi should give new terminals the agents with no profiles", async () => {
   await readyWithNoProfiles();
 });
 
-/** A stack this kolu-server delivers nothing for: padi has no set for it, and
- *  says so — new terminals get no agents. */
 Then(
   "padi should give new terminals no agents for {string}",
   async (stack: string) => {
@@ -530,8 +440,6 @@ Then("padi should give new terminals no agents", async () => {
   });
 });
 
-// ── This machine: its tab mark, its host details, the fleet line ───────────
-
 Then(
   "the host tab's agents mark should be {string}",
   async function (this: KoluWorld, state: string) {
@@ -550,9 +458,6 @@ Then(
   },
 );
 
-/** Below `md` the host tabs are mounted but hidden — the mark is in the DOM
- *  and on no screen, which is exactly the width where the fleet line's name
- *  is the only way to that machine's details. */
 Then(
   "the host tab's agents mark should not be on screen",
   async function (this: KoluWorld) {
@@ -584,8 +489,6 @@ Then(
   },
 );
 
-/** The machine's name on Settings' fleet line opens that machine's details —
- *  at EVERY width, including ones where the host tabs are not mounted. */
 When(
   "I click this machine's name on the Agents fleet line",
   async function (this: KoluWorld) {
@@ -607,8 +510,6 @@ Then(
   },
 );
 
-/** The profiles row names the stack that serves — none — beside the short
- *  hash of the package padi says it serves. */
 Then(
   "the agents section should name no profiles with the build it serves",
   async function (this: KoluWorld) {
@@ -633,9 +534,6 @@ Then(
   },
 );
 
-/** The section itself says which machine it is about — its own `data-host`,
- *  not the popover's header (which names the host whether or not the agents
- *  section rendered at all). */
 Then(
   "the agents section names this machine by its hostname",
   async function (this: KoluWorld) {
@@ -647,15 +545,8 @@ Then(
   },
 );
 
-// ── A failed update, said where the machine is ─────────────────────────────
-
-/** Why the seeded update failed: long, with an unbroken store path, so the
- *  host details must wrap it rather than widen. Upstream's updater writes the
- *  line; kolu never does (its own failures stay in padi's memory). */
 const FAILED_UPDATE_WORDS = `nix build exited 1: /nix/store/${"q".repeat(32)}-agent-distro-claude-code-2.1.319-with-plugins.drv could not be realised — no space left on device`;
 
-/** The update log this scenario seeded, removed when it ends so a later
- *  scenario on this worker does not inherit a failed last run. */
 let seededHistoryLog: string | undefined;
 
 After(() => {
@@ -664,9 +555,6 @@ After(() => {
   seededHistoryLog = undefined;
 });
 
-/** Before Agents are turned on: padi re-reads the receipt when the setting
- *  changes. Written under this worker's own state home (`stateHomeDir`, the
- *  `XDG_STATE_HOME` its padi runs with), never the developer's. */
 Given(
   "this machine's agents update log records a failed update",
   function (this: KoluWorld) {
@@ -677,8 +565,6 @@ Given(
   },
 );
 
-/** This machine's agent facts, from padi's own status and receipt — once the
- *  receipt says the last run failed. */
 async function failedUpdateHost(): Promise<HostAgentStatus> {
   const status = await readyWithNoProfiles();
   const receipt = await padiValue<AgentDistroReceipt>(
@@ -691,13 +577,10 @@ async function failedUpdateHost(): Promise<HostAgentStatus> {
     status,
     checking: false,
     receipt,
-    // The phrase is the client's clock; the fold's words around it are what a
-    // step can pin.
     ago: () => "",
   };
 }
 
-/** This machine's details as the fold words them. */
 async function failedUpdateDetail(): Promise<AgentHostDetail> {
   const detail = agentHostDetail({
     host: await failedUpdateHost(),
@@ -731,8 +614,6 @@ Then(
   },
 );
 
-/** The cause in full — who said it and the whole of its words, never cut —
- *  and the details panel still does not scroll sideways around it. */
 Then(
   "the agents section should show that failure's cause in full",
   async function (this: KoluWorld) {
@@ -760,8 +641,6 @@ Then(
   },
 );
 
-/** The mark keeps its plain colour (its agents work) and gains the warning
- *  dot; its words add who said what. */
 Then(
   "the host tab's agents mark should warn that its last update failed",
   async function (this: KoluWorld) {
@@ -785,12 +664,8 @@ Then(
   },
 );
 
-// ── The tile's pill, and what runs in the terminal ─────────────────────────
-
 const PILL = `${FOCUSED_TILE} [data-testid="tile-agent-chip"]`;
 
-/** No profiles and no repository profile: the pill names no profile, only the
- *  short hash of the package padi serves. */
 Then(
   "the focused tile's agents chip should show only the build it serves",
   async function (this: KoluWorld) {
@@ -833,8 +708,6 @@ Then(
   },
 );
 
-/** The marker is built at runtime and the typed command carries only
- *  `${AI_PROFILE-…}`, so the shell's echo cannot satisfy it. */
 Then(
   "the terminal's AI_PROFILE should be unset",
   async function (this: KoluWorld) {
@@ -844,9 +717,6 @@ Then(
   },
 );
 
-/** Runs the terminal's `claude` and waits for the fixture's own words. The
- *  marker is never typed (the command is just `claude`), so the shell's echo
- *  cannot satisfy it. */
 Then(
   "the terminal's claude should be the fixture",
   async function (this: KoluWorld) {
@@ -855,8 +725,6 @@ Then(
   },
 );
 
-/** Runs `agent-distro` — the picker the package carries — and waits for its
- *  line. The marker is never typed, so the shell's echo cannot satisfy it. */
 Then(
   "the terminal's agent-distro should be the fixture picker",
   async function (this: KoluWorld) {
@@ -865,8 +733,6 @@ Then(
   },
 );
 
-/** Counts fixture dirs on the terminal's PATH that hold a `claude`. Built so the
- *  awaited marker (`fixture-agents=0`) never appears in the typed command. */
 Then(
   "the terminal should have no fixture agents on its PATH",
   async function (this: KoluWorld) {
@@ -877,10 +743,6 @@ Then(
   },
 );
 
-// ── A stale terminal, restarted in place ───────────────────────────────────
-
-/** The terminal id a scenario remembered, per world — to prove a restart kept
- *  the SAME tile rather than opening a new one. */
 const rememberedTile = new WeakMap<KoluWorld, string>();
 
 async function focusedTerminalId(world: KoluWorld): Promise<string> {
@@ -902,8 +764,6 @@ Then(
   },
 );
 
-/** Stale, but nothing to restart into yet: the host has no set for the new
- *  stack, so the pill carries no Restart. */
 Then(
   "the focused tile's agents chip should be stale without a Restart button",
   async function (this: KoluWorld) {
@@ -925,7 +785,6 @@ Then(
 Then(
   "the focused tile's agents chip should be stale with a Restart button",
   async function (this: KoluWorld) {
-    // ONE pill: stale, restartable, carrying its "↻ Restart" action.
     await this.page
       .locator(
         `${PILL}[data-stale][data-restart] [data-testid="tile-agent-restart"]`,
@@ -935,14 +794,9 @@ Then(
 );
 
 When("I click Restart on the focused tile", async function (this: KoluWorld) {
-  // The whole pill is the restart.
   await this.page.click(`${PILL}[data-restart]`);
 });
 
-/** The restarted tile PAINTS its new shell without a reload: the focused tile's
- *  OWN xterm buffer (read in the page, not the server's screen) is non-empty and
- *  no longer holds the old shell's text — so a fresh snapshot reached this
- *  pane's xterm, rather than the pane sitting blank on a dead attach. */
 Then(
   "the focused tile should paint a fresh screen without {string}",
   async function (this: KoluWorld, old: string) {
@@ -959,14 +813,11 @@ Then(
   },
 );
 
-// ── The first-run step: the welcome card asks until agents are on ──────────
-
 const TURN_ON = `${FIRST_RUN} [data-testid="welcome-agents-turn-on"]`;
 
 Then(
   "the welcome card's first row should ask which agents I want",
   async function (this: KoluWorld) {
-    // Polled: until preferences and the listing arrive, the first row is Pin it.
     await this.page.waitForFunction(
       () =>
         document
@@ -992,9 +843,6 @@ Then(
   },
 );
 
-/** The step's list starts empty — the agents as they ship — opening with
- *  Juspay's one-click row, and ending with the repository row and the add
- *  field. Offered, not chosen: nothing is listed. */
 Then(
   "the first-run step should start with an empty list and Juspay one click away",
   async function (this: KoluWorld) {
@@ -1010,8 +858,6 @@ Then(
   },
 );
 
-/** Whatever is stored — a list kept from before agents went off included —
- *  the step's list starts empty. */
 Then(
   "the first-run step's profile list should be empty",
   async function (this: KoluWorld) {
@@ -1022,8 +868,6 @@ Then(
   },
 );
 
-/** Its one-click row — the step's own visible offer. Pressing it takes the
- *  focused control away, so the page's Enter is the step's next. */
 When(
   "I add the Juspay profile in the first-run step",
   async function (this: KoluWorld) {
@@ -1063,9 +907,6 @@ Then(
   },
 );
 
-/** Agents were switched off: the row shows, but the keyboard does not jump to
- *  it. The button focuses itself a microtask after it mounts, so wait past
- *  that. */
 Then(
   "the first-run step should not have taken keyboard focus",
   async function (this: KoluWorld) {
@@ -1102,7 +943,6 @@ Then(
   },
 );
 
-/** The done line for agents on with no profiles, in the fold's own words. */
 Then(
   "the welcome card's done line should say agents are on",
   async function (this: KoluWorld) {
@@ -1120,8 +960,6 @@ Then(
   },
 );
 
-/** No agents entry in the done line: there is none while agents are off. The
- *  header itself may be absent (nothing else done). */
 Then(
   "the welcome card's done line should not mention agents",
   async function (this: KoluWorld) {
@@ -1155,16 +993,12 @@ Then(
     await this.page
       .locator('[data-testid="welcome-dialog"] [data-testid="welcome-moments"]')
       .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
-    // Polled: the browser's status cell may trail the padi read before this.
     await this.page
       .locator(`[data-testid="welcome-dialog"] ${FIRST_RUN}`)
       .waitFor({ state: "detached", timeout: POLL_TIMEOUT });
   },
 );
 
-/** Records, from the very first script on every later page load, whether the
- *  first-run step EVER mounts — so "it never showed" is a fact about the whole
- *  load, not about one instant after it. */
 When(
   "I start watching for the first-run step",
   async function (this: KoluWorld) {

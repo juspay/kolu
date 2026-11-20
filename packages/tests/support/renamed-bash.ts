@@ -18,10 +18,6 @@ import { execSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 
-/** Copy `bash` into `dir` once per name. Returns the absolute paths keyed by
- *  the name they were staged under. `bash` is resolved once per call; repeated
- *  names are simply copied again, so callers may pass a registry-derived list
- *  without de-duplicating it. */
 export function stageRenamedBash(
   dir: string,
   names: readonly string[],

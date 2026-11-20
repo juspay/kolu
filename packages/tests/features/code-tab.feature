@@ -13,8 +13,6 @@ Feature: Code tab (review + browse)
     When I press the toggle inspector shortcut
     Then the right panel should be visible
 
-  # ── Tab presence + chrome ──
-
   Scenario: Code tab is present and switchable
     When I click the Code tab
     Then the Code tab should be active
@@ -31,12 +29,6 @@ Feature: Code tab (review + browse)
     And I click the Code tab mode "local"
     Then the Code tab should show the empty-changes message for repo "/tmp/kolu-review-clean"
 
-  # ── Mode picker ──
-
-  # A fresh terminal seeds its per-terminal Code-tab state from
-  # DEFAULT_RIGHT_PANEL_PER_TERMINAL, which defaults the mode to "browse"
-  # (the All-files repo browser) so the Code tab lands on a populated tree
-  # rather than a diff that reads empty on a clean tree.
   Scenario: Mode toggle defaults to browse
     When I run "rm -rf /tmp/kolu-review-toggle && git init /tmp/kolu-review-toggle && cd /tmp/kolu-review-toggle"
     And I run "git commit --allow-empty -m init"
@@ -55,10 +47,6 @@ Feature: Code tab (review + browse)
     Then the right panel should be visible
     And the Code tab mode should be "browse"
 
-  # The scope switcher is a segmented control, so a mode's change count
-  # rides its segment as a badge — visible without switching into it.
-  # Here the default view is browse, yet the Local segment still
-  # advertises its two uncommitted files; browse itself is never badged.
   Scenario: A mode's change count shows on its segment without switching into it
     When I run "rm -rf /tmp/kolu-review-badge && git init /tmp/kolu-review-badge && cd /tmp/kolu-review-badge"
     And I run "git commit --allow-empty -m init"
@@ -71,29 +59,6 @@ Feature: Code tab (review + browse)
     When I click the Code tab mode "local"
     Then the Code tab "local" segment should show a change count of "2"
 
-  # ── Regression suites for #817/#818 ──
-  # Each invariant runs in all three Code-tab modes (local, branch,
-  # browse) via `Scenario Outline` + an `Examples` row per mode. The
-  # mode-parameterized harness lives in `code_tab_steps.ts` (search for
-  # "Mode-parameterized helpers"):
-  #
-  #   Given a Code tab in "<mode>" mode showing file "..." with content "..."
-  #   When  I open file "..." in the Code tab
-  #   Then  the selected file should show content "..."
-  #   Then  the Code tab should [not] show file "..."
-  #
-  # The shell setup, mode-chip click, and view-vs-diff dispatch are all
-  # hidden behind these polymorphic steps. Adding a fourth Code-tab
-  # regression test means writing one Outline plus three Examples rows;
-  # the per-mode coverage is automatic. Don't fall back to hand-written
-  # `[local]` / `[branch]` / `[browse]` scenarios — that's how the
-  # `view()` `"local"` fallback bug shipped past the first round of
-  # tests.
-
-  # Regression for #818: collapsing and reopening the right panel used
-  # to unmount RightPanel via `<Show when={!collapsed()}>`, discarding
-  # CodeTab's selectedPath signal. Resizable already shrinks the panel
-  # to zero width on collapse — keeping it mounted preserves selection.
   Scenario Outline: Selected file survives panel collapse and reopen [<mode>]
     Given a Code tab in "<mode>" mode showing file "a.txt" with content "aaa"
     When I open file "a.txt" in the Code tab
@@ -110,9 +75,6 @@ Feature: Code tab (review + browse)
       | branch |
       | browse |
 
-  # Regression for #818: switching to Inspector and back used to unmount
-  # CodeTab via `match(activeTab())`, discarding selectedPath. Both tabs
-  # are now always rendered with `display:none` toggling visibility.
   Scenario Outline: Selected file survives Inspector tab switch [<mode>]
     Given a Code tab in "<mode>" mode showing file "a.txt" with content "aaa"
     When I open file "a.txt" in the Code tab
@@ -127,12 +89,6 @@ Feature: Code tab (review + browse)
       | branch |
       | browse |
 
-  # Regression for #919's per-slot design under multi-terminal switching.
-  # Each terminal carries its own `repoRoot` via `props.meta?.git`; the
-  # `selectedFilesByKey` record is keyed by (repoRoot, view) and shared
-  # across terminals through localStorage, so switching the active
-  # terminal reactively rebinds `slotKey` and surfaces the right slot's
-  # pick without one terminal clobbering the other.
   Scenario Outline: Selected file survives switching to another terminal and back [<mode>]
     Given a Code tab in "<mode>" mode showing file "a.txt" with content "aaa"
     When I open file "a.txt" in the Code tab
@@ -148,12 +104,6 @@ Feature: Code tab (review + browse)
       | branch |
       | browse |
 
-  # Same-filename variant: both terminals are in valid git repos, and both
-  # have a file at the same relative path selected. The outer
-  # `<Show when={repoPath()}>` therefore stays in the truthy branch and
-  # cannot mask staleness via remount — the preview must follow
-  # `props.meta` reactively, so the displayed content has to flip between
-  # "from-A" and "from-B" as the active terminal changes.
   Scenario: Browse preview follows the active terminal when two repos pick the same filename
     Given a Code tab in "browse" mode showing file "shared.txt" with content "from-A"
     When I open file "shared.txt" in the Code tab
@@ -167,17 +117,6 @@ Feature: Code tab (review + browse)
     When I click dock row 2
     Then the selected file should show content "from-B"
 
-  # Regression: with two terminals in different repos and DIFFERENT
-  # filenames selected in browse mode, switching back and forth used to
-  # silently delete the original slot from `selectedFilesByKey`
-  # mid-transition. Root cause: the "selected file no longer in tree"
-  # effect read `treePaths()` from the shared `fsListAll` store before
-  # the slot change had propagated through `createReactiveSubscription`'s
-  # reset, so the new slot's selection was checked against the previous
-  # slot's paths. Same-filename selections accidentally masked the bug
-  # because the membership check still succeeded against the stale tree.
-  # The bug is a reactive race so the round-trip is exercised three times
-  # to make the test consistently red without the fix.
   Scenario: Browse preview survives terminal switch when filenames differ across repos
     Given a Code tab in "browse" mode showing file "file-a.txt" with content "AAAA"
     When I open file "file-a.txt" in the Code tab
@@ -197,17 +136,6 @@ Feature: Code tab (review + browse)
     When I click dock row 1
     Then the selected file should show content "AAAA"
 
-  # Regression: a manual tree-click after a terminal file-ref click is lost on a
-  # terminal round-trip. `openInCodeTab`'s `pendingOpen` is a module-level
-  # singleton — "latest request wins; callers don't clear it" — so the clicked
-  # `path:line` request lingers after the click is handled. The manual tree-click
-  # that moves the preview also resets `CodeTab`'s `handled` record to null
-  # (handleSelect, since the new path differs from the resolved click target),
-  # which removes the only guard stopping the resolution effect from re-firing.
-  # Switching to terminal B and back re-runs that effect (repoPath/treePaths
-  # change), and with `handled` cleared and the stale `pendingOpen` still
-  # pointing at the clicked file in A's repo, it re-applies the clicked file —
-  # clobbering the user's manual selection. The selected file is not persisted.
   Scenario: Manual selection survives a terminal round-trip after a file-ref click
     When I run "rm -rf /tmp/kolu-stale-pending-a && git init /tmp/kolu-stale-pending-a && cd /tmp/kolu-stale-pending-a"
     And I run "printf 'initial-A\n' > initial.txt && printf 'clicked-A\n' > clicked.txt && printf 'manual-A\n' > manual.txt"
@@ -216,7 +144,6 @@ Feature: Code tab (review + browse)
     And I click the Code tab mode "browse"
     When I click the file "initial.txt" in the file browser
     Then the selected file should show content "initial-A"
-    # A second terminal in a different repo with its own browse selection.
     When I create a terminal
     And I run "rm -rf /tmp/kolu-stale-pending-b && git init /tmp/kolu-stale-pending-b && cd /tmp/kolu-stale-pending-b"
     And I run "printf 'other-B\n' > other.txt && git add . && git commit -m init"
@@ -224,29 +151,17 @@ Feature: Code tab (review + browse)
     And I click the Code tab mode "browse"
     When I click the file "other.txt" in the file browser
     Then the selected file should show content "other-B"
-    # Back to terminal A: print a path, click it in the terminal — the preview
-    # now follows the front-door `pendingOpen` request to the clicked file.
     When I click dock row 1
     And I run "echo 'jump to clicked.txt:1 now'"
     And I trigger the terminal file-ref link "clicked.txt:1"
     Then the selected file should show content "clicked-A"
-    # Manually move the preview to a different file. This is the selection that
-    # must persist.
     When I click the file "manual.txt" in the file browser
     Then the selected file should show content "manual-A"
-    # Round-trip to B and back. The manual pick must still be showing — not the
-    # stale clicked file.
     When I click dock row 2
     Then the selected file should show content "other-B"
     When I click dock row 1
     Then the selected file should show content "manual-A"
 
-  # The symmetric half of the invariant: the file you previewed last persists
-  # across a terminal round-trip *regardless of how you previewed it*. Here the
-  # last preview came from a terminal file-ref click with no later manual pick,
-  # so the clicked file — not whatever the tree happens to default to — must be
-  # what's showing when you return to the terminal. (Guards against a "fix" that
-  # over-corrects by clearing the clicked selection on switch.)
   Scenario: A terminal-clicked file survives a terminal round-trip
     When I run "rm -rf /tmp/kolu-clicked-persist-a && git init /tmp/kolu-clicked-persist-a && cd /tmp/kolu-clicked-persist-a"
     And I run "printf 'initial-A\n' > initial.txt && printf 'clicked-A\n' > clicked.txt"
@@ -255,7 +170,6 @@ Feature: Code tab (review + browse)
     And I click the Code tab mode "browse"
     When I click the file "initial.txt" in the file browser
     Then the selected file should show content "initial-A"
-    # A second terminal in a different repo with its own browse selection.
     When I create a terminal
     And I run "rm -rf /tmp/kolu-clicked-persist-b && git init /tmp/kolu-clicked-persist-b && cd /tmp/kolu-clicked-persist-b"
     And I run "printf 'other-B\n' > other.txt && git add . && git commit -m init"
@@ -263,24 +177,15 @@ Feature: Code tab (review + browse)
     And I click the Code tab mode "browse"
     When I click the file "other.txt" in the file browser
     Then the selected file should show content "other-B"
-    # Back to terminal A: click a file-ref in the terminal. This is the last
-    # preview action — no manual tree pick follows it.
     When I click dock row 1
     And I run "echo 'jump to clicked.txt:1 now'"
     And I trigger the terminal file-ref link "clicked.txt:1"
     Then the selected file should show content "clicked-A"
-    # Round-trip to B and back. The clicked file must still be showing.
     When I click dock row 2
     Then the selected file should show content "other-B"
     When I click dock row 1
     Then the selected file should show content "clicked-A"
 
-  # Regression: opening a file in the Code tab and refreshing the browser
-  # used to lose the preview because `selectedPath` lived in a local
-  # `createSignal` that died with the component. Selection is now backed
-  # by `makePersisted` keyed per (repoRoot, view) so each slot's pick
-  # survives a full reload AND switching modes/repos surfaces the right
-  # slot without clobbering siblings.
   Scenario Outline: Selected file survives page refresh [<mode>]
     Given a Code tab in "<mode>" mode showing file "a.txt" with content "aaa"
     When I open file "a.txt" in the Code tab
@@ -297,8 +202,6 @@ Feature: Code tab (review + browse)
       | branch |
       | browse |
 
-  # ── Local mode: file list + diff rendering ──
-
   Scenario: Lists changed files and opens a diff on click
     When I run "rm -rf /tmp/kolu-review-dirty && git init /tmp/kolu-review-dirty && cd /tmp/kolu-review-dirty"
     And I run "git commit --allow-empty -m init"
@@ -309,14 +212,6 @@ Feature: Code tab (review + browse)
     When I click the changed file "note.txt" in the Code tab
     Then the Code tab should render a diff view
 
-  # Regression for #817: Pierre's row-click handler unconditionally calls
-  # `controller.closeSearch()` after firing selection (verified at
-  # @pierre/trees/dist/render/FileTreeView.js around the row-click plan,
-  # where `closeSearch: isSearchOpen` is hardcoded). The solid-pierre
-  # wrapper re-applies the host's `searchQuery` on the next microtask so
-  # the host-controlled filter survives clicks. Re-click step covers
-  # Pierre's selectionVersion gate that suppresses `onSelectionChange`
-  # but still runs `closeSearch()`.
   Scenario Outline: Filter survives clicking a filtered result [<mode>]
     Given a Code tab in "<mode>" mode showing files:
       | path      | content |
@@ -347,13 +242,6 @@ Feature: Code tab (review + browse)
       | branch |
       | browse |
 
-  # Regression: folder-chevron clicks did nothing while a filter was
-  # active because Pierre's `hide-non-matches` controller re-expands
-  # every match ancestor on each store event. Fix: filter on Kolu's side
-  # (`fileSearch.ts`) so Pierre never sees the query, and ask the
-  # wrapper to ensure match ancestors are expanded via `expandPaths`.
-  # The user can now collapse a folder freely, and the filter stays
-  # active until they explicitly change it.
   Scenario Outline: Folder collapse during active filter persists the filter [<mode>]
     Given a Code tab in "<mode>" mode showing files:
       | path              | content |
@@ -369,8 +257,6 @@ Feature: Code tab (review + browse)
     And the Code tab should not show file "src/alpha-two.txt"
     And the Code tab filter input should contain "alpha"
     And the Code tab should not show file "other.txt"
-    # A git-status update that leaves the filter's answer unchanged must not
-    # re-open the folder (it used to, whenever one landed after the click).
     When a file the filter does not match is added to the Code tab repo
     Then the Code tab should not show file "src/alpha-one.txt"
     And the Code tab should not show file "src/alpha-two.txt"
@@ -381,13 +267,6 @@ Feature: Code tab (review + browse)
       | branch |
       | browse |
 
-  # Regression: Pierre's `remove` promotes an emptied directory to an
-  # "explicit empty folder", so a directory whose files were all filtered
-  # out kept a hollow, result-less row in the tree. The fix
-  # (`directoryRemovalOps` in solid-pierre's `pathReconcile.ts`, applied in
-  # `FileTree.tsx`) prunes any directory that is no longer an ancestor of a
-  # matching file. After filtering, a directory that still contains a match
-  # stays; a directory whose only files were excluded disappears.
   Scenario Outline: Filter prunes directories with no matching files [<mode>]
     Given a Code tab in "<mode>" mode showing files:
       | path               | content |
@@ -418,8 +297,6 @@ Feature: Code tab (review + browse)
     Then the Code tab should list a changed file "tracked.txt"
     And the Code tab should list a changed file "untracked.txt"
 
-  # ── Pierre tree behaviour: directory grouping + collapse ──
-
   Scenario: Groups files into a directory tree
     When I run "rm -rf /tmp/kolu-review-tree && git init /tmp/kolu-review-tree && cd /tmp/kolu-review-tree"
     And I run "git commit --allow-empty -m init"
@@ -442,8 +319,6 @@ Feature: Code tab (review + browse)
     When I click the directory node "pkg" in the Code tab
     Then the Code tab should list a changed file "pkg/a.ts"
 
-  # ── Pierre tree right-click menu (Copy path) ──
-
   Scenario: Right-click on a changed file copies its path
     When I run "rm -rf /tmp/kolu-tree-ctx && git init /tmp/kolu-tree-ctx && cd /tmp/kolu-tree-ctx"
     And I run "git commit --allow-empty -m init"
@@ -455,10 +330,6 @@ Feature: Code tab (review + browse)
     And I click the context menu item "Copy path"
     Then the clipboard should contain "api/handler.ts"
 
-  # Download sits beside Copy path on a file row: it saves the row's bytes
-  # through the per-terminal file route, under the file's own base name (not
-  # the repo-relative path the tree row carries). The route serves ANY file
-  # type, so this holds for source files, not only previewable ones.
   Scenario: Right-click Download on a file saves it under its base name
     When I run "rm -rf /tmp/kolu-tree-download && git init /tmp/kolu-tree-download && cd /tmp/kolu-tree-download"
     And I run "git commit --allow-empty -m init"
@@ -470,8 +341,6 @@ Feature: Code tab (review + browse)
     And I download the context menu item "Download"
     Then the downloaded file should be named "handler.ts" containing "download-me"
 
-  # A directory row has no bytes of its own, so the entry is absent — not
-  # present-and-broken.
   Scenario: A directory row offers no Download
     When I run "rm -rf /tmp/kolu-tree-download-dir && git init /tmp/kolu-tree-download-dir && cd /tmp/kolu-tree-download-dir"
     And I run "git commit --allow-empty -m init"
@@ -482,8 +351,6 @@ Feature: Code tab (review + browse)
     When I right-click the directory node "pkg" in the Code tab
     Then the tree context menu should not offer "Download"
 
-  # The diff views list CHANGED files, so a deletion is a row with a path but
-  # nothing behind it — the entry is withheld rather than offered and failed.
   Scenario: A deleted file offers no Download
     When I run "rm -rf /tmp/kolu-tree-download-gone && git init /tmp/kolu-tree-download-gone && cd /tmp/kolu-tree-download-gone"
     And I run "printf 'bye\n' > gone.txt && git add . && git commit -m init"
@@ -493,15 +360,6 @@ Feature: Code tab (review + browse)
     Then the Code tab should list a changed file "gone.txt"
     When I right-click the changed file "gone.txt" in the Code tab
     Then the tree context menu should not offer "Download"
-
-  # ── Pierre tree right-click menu (view switching) ──
-  # The menu carries view-switch entries so a right-click on a file row jumps
-  # straight to that file in another view: All files → "Open Local diff" /
-  # "Open Branch diff"; a git-diff view → "Open in All files" returns to
-  # browse. The clicked file rides along as the destination view's selection,
-  # so the destination must actually render that file's diff — not just flip
-  # the mode chip. Browse lists the whole repo, so it offers BOTH git targets:
-  # Local (always available, includes untracked) and Branch (vs origin base).
 
   Scenario: Right-click in All files opens the Local diff of that file
     When I run "rm -rf /tmp/kolu-tree-tolocal && git init /tmp/kolu-tree-tolocal && cd /tmp/kolu-tree-tolocal"
@@ -539,8 +397,6 @@ Feature: Code tab (review + browse)
     Then the Code tab mode should be "browse"
     And the file "seed.txt" should be selected in the file browser
 
-  # ── Browse mode: file tree + content viewer ──
-
   Scenario: File browser shows the repo file tree
     When I run "rm -rf /tmp/kolu-browse-tree && git init /tmp/kolu-browse-tree && cd /tmp/kolu-browse-tree"
     And I run "mkdir -p src && printf 'a\n' > README.md && printf 'b\n' > src/index.ts"
@@ -560,11 +416,6 @@ Feature: Code tab (review + browse)
     When I click the file "greeting.txt" in the file browser
     Then the file content should contain "hello world"
 
-  # ── Back / forward navigation (phase 2: the Code tab is a browser) ──
-  # Selecting files records history in @kolu/solid-browser's createBrowser; the
-  # toolbar ◀ ▶ buttons retrace it across the files you've viewed. The buttons
-  # are disabled at the ends of the stack (canBack/canForward), proving the
-  # reactive enablement is wired through the controller.
   Scenario: Code tab back and forward retrace file navigation
     Given a Code tab in "browse" mode showing files:
       | path  | content |
@@ -589,15 +440,6 @@ Feature: Code tab (review + browse)
     Then the selected file should show content "ccc"
     And the Code tab "forward" button should be disabled
 
-  # History stores `mode` *inside* each entry, so back/forward cross the
-  # All/Local/Branch sub-views, not just files within one view. Walk browse
-  # twice, then jump to a file's Local diff via the tree's right-click "Open
-  # Local diff" — that context-menu jump is a navigation and MUST record, like
-  # every other selection. Back then has to unwind BOTH the mode (local →
-  # browse) and the file (beta → alpha), proving the stack is cross-modal and
-  # that the right-click front door funnels through history (regression: the
-  # menu used to set the view + selection directly, bypassing recordNavigation,
-  # so this jump left no trace and back skipped straight past it).
   Scenario: Code tab back/forward crosses modes and records right-click "Open in" jumps
     When I run "rm -rf /tmp/kolu-nav-cross && git init /tmp/kolu-nav-cross && cd /tmp/kolu-nav-cross"
     And I run "printf 'alpha-line\n' > alpha.txt && printf 'beta-line\n' > beta.txt"
@@ -611,26 +453,21 @@ Feature: Code tab (review + browse)
     And the Code tab "back" button should be disabled
     When I click the file "beta.txt" in the file browser
     Then the selected file should show content "beta-line"
-    # Cross-mode jump via the tree right-click menu — beta's Local diff.
     When I right-click the changed file "beta.txt" in the Code tab
     And I click the context menu item "Open Local diff"
     Then the Code tab mode should be "local"
     And the file "beta.txt" should be selected in the file browser
     And the Code tab should render a diff view
     And the Code tab "forward" button should be disabled
-    # First back unwinds the recorded right-click jump: back to browse/beta.
-    # (Pre-fix the jump recorded nothing, so this back landed on browse/alpha.)
     When I go back in the Code tab
     Then the Code tab mode should be "browse"
     And the file "beta.txt" should be selected in the file browser
     And the selected file should show content "beta-line"
-    # Second back keeps unwinding within browse.
     When I go back in the Code tab
     Then the Code tab mode should be "browse"
     And the file "alpha.txt" should be selected in the file browser
     And the selected file should show content "alpha-line"
     And the Code tab "back" button should be disabled
-    # Forward retraces the whole trail, mode switch and all.
     When I go forward in the Code tab
     Then the Code tab mode should be "browse"
     And the selected file should show content "beta-line"
@@ -640,11 +477,6 @@ Feature: Code tab (review + browse)
     And the Code tab should render a diff view
     And the Code tab "forward" button should be disabled
 
-  # The other direction of the same regression: a right-click "Open in All
-  # files" from a git-diff view is a navigation and must record. With only one
-  # prior entry on the stack, the decisive tell is the "back" button flipping
-  # to enabled the moment the jump lands — pre-fix it stayed disabled because
-  # the menu bypassed recordNavigation.
   Scenario: Right-click "Open in All files" from a diff records history
     When I run "rm -rf /tmp/kolu-nav-tobrowse && git init /tmp/kolu-nav-tobrowse && cd /tmp/kolu-nav-tobrowse"
     And I run "printf 'one\n' > seed.txt && git add . && git commit -m init"
@@ -655,13 +487,11 @@ Feature: Code tab (review + browse)
     And the Code tab should list a changed file "seed.txt"
     When I click the file "seed.txt" in the file browser
     Then the Code tab should render a diff view
-    # Sole entry (local/seed.txt) — nothing to go back to yet.
     And the Code tab "back" button should be disabled
     When I right-click the changed file "seed.txt" in the Code tab
     And I click the context menu item "Open in All files"
     Then the Code tab mode should be "browse"
     And the file "seed.txt" should be selected in the file browser
-    # The jump recorded browse/seed.txt — back is now live.
     And the Code tab "back" button should be enabled
     When I go back in the Code tab
     Then the Code tab mode should be "local"
@@ -670,11 +500,6 @@ Feature: Code tab (review + browse)
     Then the Code tab mode should be "browse"
     And the file "seed.txt" should be selected in the file browser
 
-  # Browser-fork semantics: navigating after a back drops the forward tail.
-  # Walk a→b→c, rewind to a, then pick c afresh — that fork must evict b, so a
-  # subsequent forward lands on c (the new branch), never the discarded b, and
-  # the forward button is dead at the new tip. Unit-tested in createBrowser, but
-  # never end-to-end through the real toolbar until now.
   Scenario: Code tab forward history is truncated when navigating after going back
     Given a Code tab in "browse" mode showing files:
       | path  | content |
@@ -691,25 +516,15 @@ Feature: Code tab (review + browse)
     Then the selected file should show content "bbb"
     When I go back in the Code tab
     Then the selected file should show content "aaa"
-    # New navigation from the middle forks the stack: the b/c tail is dropped.
     When I click the file "c.txt" in the file browser
     Then the selected file should show content "ccc"
     And the Code tab "forward" button should be disabled
     When I go back in the Code tab
     Then the selected file should show content "aaa"
-    # Forward now reaches the re-picked c directly — b was truncated, not revisited.
     When I go forward in the Code tab
     Then the selected file should show content "ccc"
     And the Code tab "forward" button should be disabled
 
-  # Regression: history records repo-relative `{ mode, path }` with no repo
-  # identity of its own, so it must be scoped to the repo it was captured in.
-  # When the SAME terminal `cd`s from one repo to another that happens to hold a
-  # same-named file, re-applying a stale entry would open the wrong file (the
-  # other repo's `shared.txt`). The history reset on `repoPath()` change makes
-  # back/forward scoped to the repo currently shown: after the `cd`, the fresh
-  # stack has only the new repo's selection, so "back" is disabled and the old
-  # repo's content is never reachable.
   Scenario: Code tab history is scoped per repo — back cannot cross a cd into another repo
     When I run "rm -rf /tmp/kolu-hist-a && git init /tmp/kolu-hist-a && cd /tmp/kolu-hist-a"
     And I run "printf 'from-repo-A\n' > shared.txt && printf 'only-in-A\n' > a-only.txt"
@@ -720,86 +535,45 @@ Feature: Code tab (review + browse)
     Then the selected file should show content "only-in-A"
     When I click the file "shared.txt" in the file browser
     Then the selected file should show content "from-repo-A"
-    # Two entries recorded in repo A — back is live here.
     And the Code tab "back" button should be enabled
     When I run "rm -rf /tmp/kolu-hist-b && git init /tmp/kolu-hist-b && cd /tmp/kolu-hist-b"
     And I run "printf 'from-repo-B\n' > shared.txt && git add . && git commit -m init"
     When I click the file "shared.txt" in the file browser
     Then the selected file should show content "from-repo-B"
-    # History was reset on the repo change: the B stack holds only this one
-    # entry, so back is disabled and can never surface repo A's "from-repo-A".
     And the Code tab "back" button should be disabled
 
-  # Regression: history is PER TERMINAL, and the per-repo reset must fire only
-  # when a terminal's OWN repo changes (a `cd`), never when the user merely
-  # switches the active terminal to one that sits in a different repo. CodeTab
-  # is a singleton over the active terminal, so `repoPath()` shifts on both
-  # events; an over-broad reset keyed on `repoPath()` alone would wipe the
-  # newly-activated terminal's history just by switching to it. Two terminals
-  # in two repos each build a back-stack; switching A→B→A must leave each
-  # terminal's "back" button live (its history intact), not reset.
   Scenario: Code tab history survives switching between terminals in different repos
     When I run "rm -rf /tmp/kolu-hist-term-a && git init /tmp/kolu-hist-term-a && cd /tmp/kolu-hist-term-a"
     And I run "printf 'one-A\n' > one.txt && printf 'two-A\n' > two.txt && printf 'a\n' > only-in-a.txt"
     And I run "git add . && git commit -m init"
     And I click the Code tab
     And I click the Code tab mode "browse"
-    # Wait for this terminal's git to settle to repoA before recording history.
-    # A new terminal inherits the active terminal's cwd, so the git sensor's
-    # re-resolve after the `cd` lags (slow on darwin) while the file viewer's
-    # faster path already shows the right content; building history before the
-    # settle lets the settle's per-repo history reset wipe it (a flake).
-    # `only-in-a.txt` exists ONLY in repoA, so its tree row proves repoPath
-    # (metadata.git) has settled to repoA.
     And the file browser should show a file "only-in-a.txt"
     When I click the file "one.txt" in the file browser
     Then the selected file should show content "one-A"
     When I click the file "two.txt" in the file browser
     Then the selected file should show content "two-A"
-    # Two entries in terminal A's repo — back is live.
     And the Code tab "back" button should be enabled
-    # Second terminal in a DIFFERENT repo, with its own back-stack. A new
-    # terminal defaults to the Code tab (DEFAULT_RIGHT_PANEL_PER_TERMINAL),
-    # but we click it explicitly so this stays robust to the default and to
-    # which tab the terminal-1 interactions left active.
     When I create a terminal
     And I run "rm -rf /tmp/kolu-hist-term-b && git init /tmp/kolu-hist-term-b && cd /tmp/kolu-hist-term-b"
     And I run "printf 'one-B\n' > one.txt && printf 'two-B\n' > two.txt && printf 'b\n' > only-in-b.txt"
     And I run "git add . && git commit -m init"
     And I click the Code tab
     And I click the Code tab mode "browse"
-    # Settle wait (see terminal A above): only-in-b.txt is unique to repoB, so
-    # its tree row proves B's git re-resolved to repoB after the `cd` — building
-    # history before the settle lets the per-repo reset wipe it (the darwin flake
-    # this scenario hit: B inherits A's cwd = repoA, then cd's to repoB).
     And the file browser should show a file "only-in-b.txt"
     When I click the file "one.txt" in the file browser
     Then the selected file should show content "one-B"
     When I click the file "two.txt" in the file browser
     Then the selected file should show content "two-B"
     And the Code tab "back" button should be enabled
-    # Switch back to terminal A: its history must be untouched by the switch —
-    # back is still live and retraces A's own stack, not wiped by the reset.
     When I click dock row 1
     Then the selected file should show content "two-A"
-    # Wait for A's repo view to RE-HYDRATE after the switch before checking the
-    # toolbar. The file viewer can paint A's *cached* content while repoPath() is
-    # still re-resolving (the toolbar not yet re-rendered); the tree row is gated
-    # on the repoPath-driven fsListAll, so it appears only once the view settles —
-    # the deterministic signal the back-button enablement actually needs. Without
-    # it, the bare POLL_TIMEOUT poll on :enabled is starved under darwin CI load.
-    # Key the wait on `only-in-a.txt` (unique to repoA): `two.txt` exists in BOTH
-    # repos, so a stale B tree would satisfy it immediately and the wait would not
-    # prove the fsListAll actually rebound to repoA.
     And the file browser should show a file "only-in-a.txt"
     And the Code tab "back" button should be enabled
     When I go back in the Code tab
     Then the selected file should show content "one-A"
-    # And terminal B's history is likewise intact when we return to it.
     When I click dock row 2
     Then the selected file should show content "two-B"
-    # Same re-hydration wait as above on the return to terminal B — key it on
-    # `only-in-b.txt` (unique to repoB) for the same reason.
     And the file browser should show a file "only-in-b.txt"
     And the Code tab "back" button should be enabled
     When I go back in the Code tab
@@ -815,14 +589,6 @@ Feature: Code tab (review + browse)
     Then the file content should contain "prefix-"
     And the file content should wrap long lines
 
-  # ── Browse mode: git-status decoration ──
-  # "All files" overlays local status (primary) on branch status (fallback),
-  # so a browsed file shows whether it's changed — the same signal Local and
-  # Branch modes give, now without leaving the whole-repo view. Pierre stamps
-  # `data-item-git-status="<word>"` on a decorated row; a clean committed file
-  # carries no such attribute. (This repo has no `origin/<default>`, so the
-  # branch layer resolves to nothing and the local layer alone decorates —
-  # exercising the best-effort fallback without an error toast.)
   Scenario: Browse mode decorates changed files with git status
     When I run "rm -rf /tmp/kolu-browse-gitstatus && git init /tmp/kolu-browse-gitstatus && cd /tmp/kolu-browse-gitstatus"
     And I run "printf 'tracked\n' > tracked.txt && printf 'stable\n' > stable.txt && git add . && git commit -m init"
@@ -835,39 +601,19 @@ Feature: Code tab (review + browse)
     And the Code tab file "fresh.txt" should have git status "untracked"
     And the Code tab file "stable.txt" should have no git status
 
-  # Pierre marks every ancestor of a changed file with
-  # `data-item-contains-git-change` but only paints a faint dot; kolu injects a
-  # shadow-root rule (FileTree.shadowCss) that tints the ancestor folder names
-  # in the modified color, so a changed subtree reads at a glance. A clean
-  # sibling directory stays unmarked and untinted. (`src` carries two children
-  # so single-child flattening doesn't fold it into `src/feature`.)
   Scenario: Browse mode tints ancestor folders that contain a change
     When I run "rm -rf /tmp/kolu-browse-foldertint && git init /tmp/kolu-browse-foldertint && cd /tmp/kolu-browse-foldertint"
     And I run "mkdir -p src/feature lib seed && printf 'a\n' > src/feature/a.txt && printf 'k\n' > src/keep.txt && printf 'b\n' > lib/b.txt && printf 'seed\n' > seed/dirty.txt && git add . && git commit -m init"
     And I run "printf 'seed-edited\n' > seed/dirty.txt"
     And I click the Code tab
     And I click the Code tab mode "browse"
-    # A positive initial dirty result settles the status snapshot before the
-    # live edit. `src` is therefore known clean at this boundary, rather than
-    # merely absent while the first status request is still in flight. Repeated
-    # no-op mtime touches recover a dropped watcher pulse under CI load.
     Then the Code tab directory "seed" should be marked as containing a change while nudging file "/tmp/kolu-browse-foldertint/seed/dirty.txt"
     And the Code tab directory "seed" name should be tinted differently from directory "lib"
     And the Code tab directory "src" should not be marked as containing a change
-    # Now prove the mounted tree reacts to the later status update and rolls it
-    # up to the newly changed ancestor while the clean sibling remains clean.
     When I run "printf 'edited\n' > src/feature/a.txt"
     Then the Code tab directory "src" should be marked as containing a change while nudging file "/tmp/kolu-browse-foldertint/src/feature/a.txt"
     And the Code tab directory "lib" should not be marked as containing a change
     And the Code tab directory "src" name should be tinted differently from directory "lib"
-
-  # ── Browse mode: route-served preview for .html / .svg / .pdf / images / video ──
-  # Files whose extension matches `isBinaryPreviewable` (see
-  # `kolu-common/preview`) render from the per-terminal file route instead of
-  # Pierre's syntax-highlighted `FileView`. The wire kind
-  # (`FsReadFileOutput.kind`) only says "binary"; the client then dispatches by
-  # extension (`binaryPreviewFamily`) to a plain `<img>`, a `<video controls>`
-  # element, the native browser PDF viewer, or the HTML/SVG sandboxed `<iframe>`.
 
   Scenario: HTML file renders in an iframe instead of as code
     When I run "rm -rf /tmp/kolu-iframe-html && git init /tmp/kolu-iframe-html && cd /tmp/kolu-iframe-html"
@@ -927,12 +673,6 @@ Feature: Code tab (review + browse)
     Then the file content should contain "hello"
     And the file preview iframe should not be visible
 
-  # ── Browse mode: Markdown renders client-side with a Source ⇄ Rendered toggle ──
-  # Unlike .html/.svg/.pdf (route-served, kind:"binary"), a .md file stays
-  # kind:"text" on the wire — the client renders it from `content` via
-  # `@kolu/solid-markdown`. Because it carries *both* a source and a rendered
-  # form, FileView shows the Source ⇄ Rendered toggle, defaulting to rendered.
-
   Scenario: Markdown renders as a document by default, with a Source/Rendered toggle
     When I run "rm -rf /tmp/kolu-md-doc && git init /tmp/kolu-md-doc && cd /tmp/kolu-md-doc"
     And I run "printf '# Hello Doc\n\nRendered body text.\n' > README.md"
@@ -945,9 +685,6 @@ Feature: Code tab (review + browse)
     And the file view toggle should be visible
     And the file preview iframe should not be visible
 
-  # Regression: .mdx was classified as plain text Source-only — no toggle, no
-  # document preview. MDX is Markdown + JSX; the Markdown half uses the same
-  # rendered appliance as .md (component tags are not executed).
   Scenario: MDX files preview as Markdown, not Source-only
     When I run "rm -rf /tmp/kolu-mdx-doc && git init /tmp/kolu-mdx-doc && cd /tmp/kolu-mdx-doc"
     And I run "printf '# Hello MDX\n\nRendered mdx body.\n' > note.mdx"
@@ -960,11 +697,6 @@ Feature: Code tab (review + browse)
     And the file view toggle should be visible
     And the file preview iframe should not be visible
 
-  # Regression: a >1 MB .md file is read back truncated (first 1 MB only). It
-  # still defaults to the rendered view, so the rendered appliance must carry
-  # the same "File truncated" banner the source view shows — otherwise a partial
-  # document renders silently with no warning. The marker + task item sit in the
-  # first bytes so they survive the 1 MB cut and prove content rendered.
   Scenario: Truncated Markdown warns and renders task checkboxes read-only
     When I run "rm -rf /tmp/kolu-md-trunc && git init /tmp/kolu-md-trunc && cd /tmp/kolu-md-trunc"
     And I run "printf '# Truncated Doc\n\nbody marker\n\n- [ ] guard me\n\n' > big.md && head -c 1100000 /dev/zero | tr '\0' 'x' >> big.md"
@@ -975,15 +707,8 @@ Feature: Code tab (review + browse)
     Then the markdown preview should be visible
     And the markdown preview should contain "Truncated Doc"
     And the markdown preview should show the truncation warning
-    # The preview is read-only: the task checkbox renders presentational
-    # (disabled, never interactive).
     And the markdown preview should render a "input[type=checkbox][disabled]" element
     And the markdown preview should not render a "input[data-md-task]" element
-
-  # ── Rendered Markdown: mermaid diagrams ──
-  # A finished ```mermaid fence is drawn in a sandboxed frame and shown as an
-  # image — never as SVG markup in the page. The painted-image step is the one
-  # check jsdom cannot make: that the browser decoded the drawing.
 
   Scenario: Markdown preview draws a mermaid block as a diagram
     When I run "rm -rf /tmp/kolu-md-mermaid && git init /tmp/kolu-md-mermaid && cd /tmp/kolu-md-mermaid"
@@ -1024,11 +749,6 @@ Feature: Code tab (review + browse)
     Then the file content should contain "# Heading One"
     And the markdown preview should not be visible
 
-  # Keep-alive: the rendered Markdown is mounted ONCE and hidden (not unmounted)
-  # while the Source view shows, so toggling back is a pure visibility flip — no
-  # re-parse / re-sanitize / re-tokenize of the whole doc. Proven structurally: a
-  # marker set on the rendered preview survives the Source ⇄ Rendered round-trip
-  # (a remount would mint a fresh, unmarked element).
   Scenario: Toggling Source and Rendered keeps the rendered preview alive
     When I run "rm -rf /tmp/kolu-md-keepalive && git init /tmp/kolu-md-keepalive && cd /tmp/kolu-md-keepalive"
     And I run "printf '# Keep Alive\n\nbody text\n' > notes.md"
@@ -1043,14 +763,6 @@ Feature: Code tab (review + browse)
     When I switch the file view to "rendered"
     Then the markdown preview should be visible
     And the rendered markdown preview should be the kept-alive element
-
-  # ── Rendered Markdown: GFM + inline HTML + sanitization ──
-  # The rendered view is a marked(GFM) → DOMPurify pipeline
-  # (@kolu/solid-markdown), so it must produce real GitHub-Flavored structure —
-  # headings, tables, task lists — plus the inline HTML a README leans on
-  # (<kbd>, alignment wrappers), while stripping anything script-capable. The
-  # `printf` fixtures avoid inner single quotes (the `I run` step has no escape
-  # for them); `<script>`/`align=center`/`javascript:` carry none.
 
   Scenario: Markdown preview renders GFM tables, task lists, and inline HTML
     When I run "rm -rf /tmp/kolu-md-gfm && git init /tmp/kolu-md-gfm && cd /tmp/kolu-md-gfm"
@@ -1144,10 +856,6 @@ Feature: Code tab (review + browse)
     And the markdown preview should render a "a[target=_blank]" element
     And the markdown preview should render a "a[rel~=noopener]" element
 
-  # The repro for #1161: clicking a repo-relative link opens the linked file IN
-  # the Code tab (GitHub-faithful), resolved against the previewed doc's own
-  # directory — it must NOT navigate the app origin in a new browser tab. The
-  # click step fails if a popup/new tab opens.
   Scenario: Markdown preview opens a repo-relative link in the Code tab
     When I run "rm -rf /tmp/kolu-md-rellink && git init /tmp/kolu-md-rellink && cd /tmp/kolu-md-rellink"
     And I run "mkdir -p docs && printf '# Guide Doc\n\nRelative target reached.\n' > docs/guide.md"
@@ -1162,12 +870,6 @@ Feature: Code tab (review + browse)
     Then the file "docs/guide.md" should be selected in the file browser
     And the markdown preview should contain "Relative target reached"
 
-  # Regression for the #1161 follow-up: a relative link must open its EXACT
-  # path or fail — never the terminal resolver's fuzzy unique-basename
-  # fallback (#898), which is right for compiler output but wrong for a
-  # GitHub-style link. Here the link points at a missing `docs/guide.md`
-  # while a same-basename `src/guide.md` exists uniquely; the click must
-  # surface a toast and leave `src/guide.md` unselected, not silently open it.
   Scenario: Markdown relative link to a missing path does not open a same-basename file
     When I run "rm -rf /tmp/kolu-md-relexact && git init /tmp/kolu-md-relexact && cd /tmp/kolu-md-relexact"
     And I run "mkdir -p src && printf '# Other Guide\n\nWrong file.\n' > src/guide.md"
@@ -1182,10 +884,6 @@ Feature: Code tab (review + browse)
     Then a toast should appear with text "File reference not found: docs/guide.md"
     And the file "src/guide.md" should not be selected in the file browser
 
-  # Obsidian-style wikilinks: `[[Note]]` renders as a distinct (data-md-wikilink)
-  # anchor and resolves PATHLESS across the whole repo — `[[Architecture]]` opens
-  # docs/Architecture.md wherever it lives, extension implied, with no directory
-  # hint. Resolution is lazy (on click), through the same Code-tab front door.
   Scenario: Markdown preview opens a wikilink to the unique matching file
     When I run "rm -rf /tmp/kolu-md-wiki && git init /tmp/kolu-md-wiki && cd /tmp/kolu-md-wiki"
     And I run "mkdir -p docs/deep && printf '# Architecture Doc\n\nArch target reached.\n' > docs/deep/Architecture.md"
@@ -1200,11 +898,6 @@ Feature: Code tab (review + browse)
     Then the file "docs/deep/Architecture.md" should be selected in the file browser
     And the markdown preview should contain "Arch target reached"
 
-  # The ambiguity affordance: when a wikilink's basename matches more than one
-  # file (two `Note.md`), the click surfaces a disambiguation menu anchored to the
-  # link rather than failing closed — the user picks the file they meant. Note the
-  # `.md`-only implication: a same-stemmed `Note.txt` is deliberately NOT a third
-  # candidate (only `Note` / `Note.md` resolve).
   Scenario: Ambiguous wikilink surfaces a disambiguation menu
     When I run "rm -rf /tmp/kolu-md-wikiamb && git init /tmp/kolu-md-wikiamb && cd /tmp/kolu-md-wikiamb"
     And I run "mkdir -p a b && printf 'alpha\n' > a/Note.md && printf 'beta\n' > b/Note.md && printf 'noise\n' > b/Note.txt"
@@ -1220,10 +913,6 @@ Feature: Code tab (review + browse)
     When I click the wikilink candidate "b/Note.md"
     Then the file "b/Note.md" should be selected in the file browser
 
-  # Regression: a bare `[[Note]]` implies ONLY the `.md` extension, never an
-  # arbitrary same-stem one. `[[lua-filters]]` beside both lua-filters.md and
-  # lua-filters.feature must open the .md straight away — NOT pop a (bogus)
-  # disambiguation menu listing the .feature as a rival match.
   Scenario: Wikilink implies only .md, not a same-stem sibling extension
     When I run "rm -rf /tmp/kolu-md-wikimd && git init /tmp/kolu-md-wikimd && cd /tmp/kolu-md-wikimd"
     And I run "mkdir -p docs/guide tests/features && printf '# Lua Filters\n\nFilters doc reached.\n' > docs/guide/lua-filters.md && printf 'Feature: lua filters\n' > tests/features/lua-filters.feature"
@@ -1237,8 +926,6 @@ Feature: Code tab (review + browse)
     Then the file "docs/guide/lua-filters.md" should be selected in the file browser
     And the markdown preview should contain "Filters doc reached"
 
-  # A wikilink to a name that matches nothing surfaces a toast (not a silent
-  # no-op), the same way a dead relative link does.
   Scenario: Wikilink with no matching file surfaces a toast
     When I run "rm -rf /tmp/kolu-md-wikimiss && git init /tmp/kolu-md-wikimiss && cd /tmp/kolu-md-wikimiss"
     And I run "printf '# Home\n\nsee [[Nonexistent]] here\n' > README.md"
@@ -1282,14 +969,6 @@ Feature: Code tab (review + browse)
     And the markdown preview should not render a "p br" element
     And the markdown preview should render a "input[type=checkbox][disabled]" element
 
-  # The footnote popover: clicking a `[n]` marker opens its definition in a
-  # dismissible card anchored to the marker (instead of scrolling to the bottom
-  # list). This exercises the whole interactive path the render tests can't
-  # reach — open, toggle-close, dismiss, the "see all" fallback, and the inner
-  # links (a relative link routes in-app; a nested footnote ref is inert; an
-  # in-page anchor must NOT navigate the app out of the preview). The `[^big]`
-  # body links to a sibling doc and cites a second footnote, so the popover
-  # holds a routable relative link AND an inert nested marker.
   Scenario: Markdown preview opens a footnote definition in a click popover
     When I run "rm -rf /tmp/kolu-md-fnpop && git init /tmp/kolu-md-fnpop && cd /tmp/kolu-md-fnpop"
     And I run "printf '# Guide Doc\n\nFootnote target reached.\n' > guide.md"
@@ -1299,42 +978,25 @@ Feature: Code tab (review + browse)
     And I click the Code tab mode "browse"
     When I click the file "README.md" in the file browser
     Then the markdown preview should be visible
-    # The bottom footnotes section still renders (the accessible record).
     And the markdown preview should render a "section" element
     And the markdown preview should render a "sup a[data-md-footnote]" element
-    # Open the first footnote's popover by clicking its marker.
     When I click footnote marker "1"
     Then the footnote popover should be visible
     And the footnote popover should contain "the guide"
-    # The body's relative link survives as an in-app `data-md-rel` anchor (not a
-    # bogus new-tab navigation), and the nested footnote ref is de-flagged —
-    # inert, no popover-on-popover.
     And the footnote popover should render a "a[data-md-rel]" element
     And the footnote popover should not render a "a[data-md-footnote]" element
-    # The back-ref ↩ is stripped from the clone.
     And the footnote popover should not render a "a[data-md-footnote-backref]" element
-    # Clicking the same marker again toggles it closed.
     When I click footnote marker "1"
     Then the footnote popover should not be visible
-    # Reopen, then the "see all ↓" footer scrolls to the bottom list and closes.
     When I click footnote marker "1"
     Then the footnote popover should be visible
     When I click the footnote popover see-all link
     Then the footnote popover should not be visible
-    # A relative link inside the popover body opens the file IN the app (the
-    # same front door the document body uses), never a new tab.
     When I click footnote marker "1"
     Then the footnote popover should be visible
     When I click the repo-relative link "guide.md" in the footnote popover
     Then the file "guide.md" should be selected in the file browser
     And the markdown preview should contain "Footnote target reached"
-
-  # ── Tree/content vertical split is draggable ──
-  # The tree pane used to be a fixed `h-[35%]`; it's now a Corvu Resizable
-  # panel keyed off `preferences.rightPanel.codeTabTreeSize`. The handle
-  # presence is the wiring proof — persistence rides on the same
-  # `updatePreferences` infra the horizontal split already covers in
-  # `right-panel.feature`.
 
   Scenario: Tree/content split has a draggable handle
     When I run "rm -rf /tmp/kolu-tree-resize && git init /tmp/kolu-tree-resize && cd /tmp/kolu-tree-resize"
@@ -1344,12 +1006,6 @@ Feature: Code tab (review + browse)
     And I click the Code tab mode "browse"
     Then the Code tab tree pane split handle should be visible
 
-  # Repro: preview a file, drag the split to grow the preview pane, open a
-  # second terminal (different, non-git cwd — the Code tab falls into its
-  # "Not in a git repository" fallback, unmounting the Resizable), then
-  # switch back. The split fraction rides the global
-  # `preferences.rightPanel.codeTabTreeSize`, so the remounted Resizable
-  # must restore the dragged size — not the 0.35 default.
   Scenario: Tree/content split survives switching to another terminal and back
     Given a Code tab in "browse" mode showing file "a.txt" with content "aaa"
     When I open file "a.txt" in the Code tab
@@ -1360,10 +1016,6 @@ Feature: Code tab (review + browse)
     When I note the Code tab preview pane height
     And I create a terminal
     And I run "rm -rf /tmp/kolu-split-otherdir && mkdir -p /tmp/kolu-split-otherdir && cd /tmp/kolu-split-otherdir"
-    # Wait for the non-git fallback to actually mount — this is what
-    # unmounts the inner Resizable and fires Corvu's unregister emission
-    # (the bug). Switching back before this races past the path the fix
-    # guards, so the regression could pass vacuously without it.
     Then the Code tab should indicate no git repository
     When I click dock row 1
     Then the selected file should show content "aaa"
@@ -1379,20 +1031,6 @@ Feature: Code tab (review + browse)
     When I click the directory "lib" in the file browser
     Then the file browser should show a file "lib/util.ts"
 
-  # Regression: a gitignored folder snapped shut the moment you opened a file
-  # inside it. The host hands the tree one props object that it rebuilds on
-  # every tick, so a selection re-notified `lazyEpoch` — the "forget which lazy
-  # directories are open" signal — with the same epoch. The already-open folder
-  # then read as a FRESH expansion on the next store tick and its level was
-  # re-read; that read superseded (aborted, hence rejected) the one before it,
-  # and the rejection collapsed the row. The user saw their file load and the
-  # folder fold away under it.
-  #
-  # `.git/info/exclude` rather than `.gitignore`, because that is where the
-  # report came from — and an excluded path is invisible to `git ls-files`
-  # exactly like a `.gitignore`d one, so it needs the eye toggle to appear.
-  # The tree learns of the exclude edit one watcher pulse later, so the
-  # scenario waits for the folder to leave the list before it acts on it.
   Scenario: A gitignored folder stays open when you open a file inside it
     When I run "rm -rf /tmp/kolu-ignored-stay && git init /tmp/kolu-ignored-stay && cd /tmp/kolu-ignored-stay"
     And I run "mkdir -p .waterfall && printf 'brief-marker\n' > .waterfall/brief.txt && printf 'notes\n' > .waterfall/notes.txt"
@@ -1414,13 +1052,6 @@ Feature: Code tab (review + browse)
     And the file content should contain "brief-marker"
     And there should be no page errors
 
-  # Regression: expanding several directories and then clicking a file to
-  # preview it used to collapse every directory that wasn't an ancestor of
-  # the clicked file. Selection drove a full `resetPaths` in the Pierre
-  # wrapper, rebuilding the tree with only the search-projected and
-  # selected-ancestor directories open — so manually-expanded siblings lost
-  # their state. Selection now expands the picked file's ancestors
-  # imperatively and leaves every other open directory untouched.
   Scenario: File browser preserves sibling expansion when previewing a file
     When I run "rm -rf /tmp/kolu-browse-keep && git init /tmp/kolu-browse-keep && cd /tmp/kolu-browse-keep"
     And I run "mkdir -p alpha beta && printf 'a1\n' > alpha/a1.txt && printf 'a2\n' > alpha/a2.txt && printf 'b1\n' > beta/b1.txt && printf 'b2\n' > beta/b2.txt"
@@ -1435,14 +1066,6 @@ Feature: Code tab (review + browse)
     Then the file "beta/b1.txt" should be selected in the file browser
     And the file browser should show a file "alpha/a1.txt"
 
-  # Regression: applying then clearing the filter rebuilds the tree via
-  # `resetPaths`, which reopens only the directories it's handed. Clearing the
-  # filter hands it no ancestors (the query is empty), so without carrying the
-  # prior expansion forward the rebuild collapses every folder the user opened
-  # by hand. The wrapper now snapshots the open directories before each rebuild
-  # and re-applies them, so a folder that stays in view across the filter dance
-  # keeps its expansion. (A folder filtered entirely out of view — `beta` here —
-  # legitimately folds away; Pierre drops it from the projection.)
   Scenario: File browser keeps a folder expanded across a filter and clear
     When I run "rm -rf /tmp/kolu-browse-filter && git init /tmp/kolu-browse-filter && cd /tmp/kolu-browse-filter"
     And I run "mkdir -p alpha beta && printf 'a1\n' > alpha/a1.txt && printf 'a2\n' > alpha/a2.txt && printf 'b1\n' > beta/b1.txt && printf 'b2\n' > beta/b2.txt"
@@ -1460,8 +1083,6 @@ Feature: Code tab (review + browse)
     Then the file browser should show a file "alpha/a1.txt"
     And the file browser should show a file "alpha/a2.txt"
 
-  # ── Pierre file/diff viewer right-click menu (Copy path:line) ──
-
   Scenario: Right-click on a file content line copies "path:line"
     When I run "rm -rf /tmp/kolu-browse-ctx && git init /tmp/kolu-browse-ctx && cd /tmp/kolu-browse-ctx"
     And I run "printf 'alpha\nbeta\ngamma\n' > letters.txt"
@@ -1474,17 +1095,6 @@ Feature: Code tab (review + browse)
     And I click the context menu item "Copy letters.txt:2"
     Then the clipboard should contain "letters.txt:2"
 
-  # Regression: switching diff files used to break the "Copy path:line"
-  # context-menu entry. Two interleaved causes — first, a `<Match>` callback
-  # in CodeTab captured `selectedPath()` to a `const`, freezing the path
-  # prop fed into `<PierreDiffView>`. Second, even after the path was made
-  # reactive, Pierre's `FileDiff.render(newFileDiff)` reuses the same
-  # instance and its line-selection handlers don't re-bind to the fresh
-  # gutter elements — so right-clicks on the second file's lines yielded a
-  # menu with no "Copy path:line" entry at all (range stayed null because
-  # no `onLineSelected` ever fired). Fix: key the diff/browse subtree on
-  # path so each file gets a fresh `FileDiff` and a clean
-  # `useLineSelection` range.
   Scenario: Switching diff files keeps the "Copy path:line" entry in sync
     When I run "rm -rf /tmp/kolu-diff-multifile && git init /tmp/kolu-diff-multifile && cd /tmp/kolu-diff-multifile"
     And I run "git commit --allow-empty -m init"
@@ -1507,11 +1117,6 @@ Feature: Code tab (review + browse)
     Then the clipboard should contain "file-b.txt:1"
     And the clipboard should not contain "file-a.txt"
 
-  # ── Right-click "Open" jumps from diff to full file (#881 phase 0) ──
-  # Reviewing a diff and wanting full-file context at the same line was
-  # previously two manual steps: copy `path:N`, switch to browse mode,
-  # paste-navigate. The "Open path:N" context-menu entry dispatches via
-  # the same `openInCodeTab` front door the terminal-link click uses.
   Scenario: Right-click "Open path:N" in diff view jumps to browse at that line
     When I run "rm -rf /tmp/kolu-open-from-diff && git init /tmp/kolu-open-from-diff && cd /tmp/kolu-open-from-diff"
     And I run "git commit --allow-empty -m init"
@@ -1528,27 +1133,6 @@ Feature: Code tab (review + browse)
     And line 2 should be selected in the file content
     And the file browser should show a file "docs/notes.txt"
     And the file "docs/notes.txt" should be selected in the file browser
-
-  # ── Live updates: filesystem changes propagate without manual refresh ──
-  # The Code view subscribes to a watcher that observes four axes (HEAD,
-  # reflog, index, working tree) and pushes snapshot updates whenever any
-  # changes. These two scenarios open the tab on a selected file, mutate
-  # the file from the shell, and assert the new content reaches the diff
-  # body and the browse body — no click on a refresh button (it's gone).
-  #
-  # The post-tab `I click the terminal canvas` is required: clicking the
-  # right-panel tab moves focus off the terminal, so subsequent keystrokes
-  # would land in the panel instead of the PTY.
-
-  # ── Binary file diffs (#810) ──
-  # git classifies a file as binary when it sees NUL bytes in the first
-  # ~8KB and emits `Binary files a/x and b/x differ` instead of @@ hunks.
-  # Without a placeholder the diff pane is empty and indistinguishable
-  # from "no file selected". The server now sets `binary: true` on the
-  # diff response so the client renders a "Binary file — not displayable"
-  # panel. Scenarios cover three distinct user-visible paths: binary
-  # file selected, text file selected, and the binary→text streaming
-  # flip from #786.
 
   Scenario: Binary file shows the "not displayable" placeholder
     When I run "rm -rf /tmp/kolu-binary-diff && git init /tmp/kolu-binary-diff && cd /tmp/kolu-binary-diff"
@@ -1571,12 +1155,6 @@ Feature: Code tab (review + browse)
     Then the Code tab should render a diff view
     And the Code tab should not show the binary placeholder
 
-  # Regression: binary + rename satisfies both predicates. Rationale for
-  # picking binary over rename lives at the `renamedDiff` memo guard.
-  # Needs an actual content edit on the renamed file — git only emits the
-  # `Binary files ... differ` marker when there's a content delta; a pure
-  # rename of binary content (similarity 100%) emits only the rename
-  # header, with nothing for the regex to match against.
   Scenario: Binary rename with content change shows the binary placeholder
     When I run "rm -rf /tmp/kolu-binary-rename && git init /tmp/kolu-binary-rename && cd /tmp/kolu-binary-rename"
     And I run "printf 'PNG\0fake\1\2\3\4\5\6\7\10\11\12\13\14\15\16\17' > old.png"
@@ -1589,11 +1167,6 @@ Feature: Code tab (review + browse)
     When I click the changed file "new.png" in the Code tab
     Then the Code tab should show the binary placeholder
 
-  # Regression for #810 + #786: classification must follow the current bytes
-  # when a binary file becomes text. `gitDiffOutputEqual` separately pins that
-  # the stream does not dedupe a binary-flag-only change, while the next
-  # scenario owns native-watcher live updates. Keeping those two contracts
-  # separate avoids making this renderer assertion depend on a second OS event.
   Scenario: Binary placeholder classification follows refreshed file contents
     When I run "rm -rf /tmp/kolu-binary-flip && git init /tmp/kolu-binary-flip && cd /tmp/kolu-binary-flip"
     And I run "git commit --allow-empty -m init"
@@ -1634,14 +1207,6 @@ Feature: Code tab (review + browse)
     And I run "printf 'second version\n' > letters.txt"
     Then the file content should contain "second version" while nudging "/tmp/kolu-live-browse/letters.txt"
 
-  # Live-update for the iframe-previewed kinds (.html/.svg): editing the
-  # previewed file must refresh the iframe with no manual reload. Unlike the
-  # text path above (the `subscribeFileChange` pulse requeries `fs.readFile` and
-  # re-feeds the fresh content to Pierre), the binary path carries only a `url`.
-  # The watcher-to-requery edge is covered deterministically in
-  # hostCodeTab.test.ts with a synthetic pulse. This browser scenario owns the
-  # other half: after a deterministic view refresh, changed bytes mint a new
-  # content-addressed preview URL and the iframe renders those bytes.
   Scenario: Refreshing browse view after an HTML edit reloads the iframe preview
     When I run "rm -rf /tmp/kolu-live-html && git init /tmp/kolu-live-html && cd /tmp/kolu-live-html"
     And I run "printf '<!doctype html><h1>preview version one</h1>\n' > page.html"
@@ -1658,14 +1223,6 @@ Feature: Code tab (review + browse)
     And I click the file "page.html" in the file browser
     Then the file preview iframe should contain "preview version two"
 
-  # In-iframe navigation must move the tree selection. The preview iframe is
-  # sandboxed at an opaque origin (`allow-scripts`, no `allow-same-origin`), so
-  # the parent can't read `contentWindow.location` after a same-frame link
-  # click — the new path has to be reported out by the in-iframe artifact-sdk
-  # (`ReadyMsg.pathname`, posted on every document boot). Without that report
-  # the page renders the linked file but the tree stays stuck on the first
-  # file, so the user loses their place. Unquoted `href` keeps the fixture
-  # free of inner quotes (the `I run "…"` step has no escape for them).
   Scenario: Clicking an in-page link moves the file tree selection
     When I run "rm -rf /tmp/kolu-html-nav && git init /tmp/kolu-html-nav && cd /tmp/kolu-html-nav"
     And I run "printf '<!doctype html><h1>first page</h1><a href=second.html>go to second</a>\n' > first.html"
@@ -1681,14 +1238,6 @@ Feature: Code tab (review + browse)
     Then the file preview iframe should contain "second page"
     And the file "second.html" should be selected in the file browser
 
-  # External links must escape the sandboxed preview. The frame runs
-  # `allow-scripts` only — no `allow-popups`, no `allow-top-navigation` — so a
-  # plain external `<a>` would replace the preview with the remote page in-pane
-  # and a `target=_blank` would be swallowed silently. The in-iframe artifact-sdk
-  # traps the click and forwards the absolute URL to the parent (top frame, not
-  # sandboxed), which opens it in a real browser tab and leaves the preview put.
-  # Unquoted `href` keeps the fixture free of inner quotes (the `I run "…"` step
-  # has no escape for them).
   Scenario: Clicking an external link opens a new browser tab and leaves the preview in place
     When I run "rm -rf /tmp/kolu-html-ext && git init /tmp/kolu-html-ext && cd /tmp/kolu-html-ext"
     And I run "printf '<!doctype html><h1>home page</h1><a href=https://example.com/docs>external docs</a>\n' > home.html"
@@ -1700,20 +1249,9 @@ Feature: Code tab (review + browse)
     And the file preview iframe should contain "home page"
     When I click the external link "external docs" in the file preview iframe
     Then a new browser tab should open to "https://example.com/docs"
-    # The preview did NOT navigate away in-pane — the click escaped to a tab and
-    # home.html is still the shown, selected file.
     And the file preview iframe should contain "home page"
     And the file "home.html" should be selected in the file browser
 
-  # Regression (CONFIRMED live on the Atlas docs): reaching a file via an
-  # IN-IFRAME LINK CLICK (not a tree click) desyncs the live-reload watch from
-  # the displayed file. Mirrors the real case: an index.html in a nested dist/
-  # dir links (relative href) to a sibling page; the inner document navigates
-  # browser-side and the tree highlight follows via `ReadyMsg.pathname`. After
-  # an edit, a deterministic view refresh must read the navigated-to path rather
-  # than resurrecting the original index path. The watcher subscription's
-  # matching re-key from index.html to second.html is pinned without native
-  # filesystem timing in hostCodeTab.test.ts.
   Scenario: Refreshing a file reached via an in-iframe link keeps the navigated path
     When I run "rm -rf /tmp/kolu-nav-edit && git init /tmp/kolu-nav-edit && cd /tmp/kolu-nav-edit"
     And I run "mkdir dist"
@@ -1757,30 +1295,15 @@ Feature: Code tab (review + browse)
     And I click the Code tab mode "browse"
     And I click the file "obsolete.txt" in the file browser
     Then the file content should contain "old content"
-    # The initial listAll snapshot can render before @parcel/watcher's async
-    # fs-events subscription is ready. Prove this repo's live watcher has
-    # delivered an event before measuring a later delete.
     When I click the terminal canvas
     And I run "printf 'watcher ready\n' > watcher-ready.txt"
     Then the file browser should show a file "watcher-ready.txt"
     When I click the terminal canvas
-    # `I run` submits terminal input but does not wait for shell completion.
-    # Split the marker in the typed command so only real command output can
-    # satisfy the following buffer assertion.
     And I run "rm obsolete.txt && test ! -e obsolete.txt && printf 'KOLU_DELETE_%s\n' SETTLED"
     And the screen state should contain "KOLU_DELETE_SETTLED"
     Then the file browser should not show a file "obsolete.txt"
     And the Code tab content should show the select hint "Select a file to view its content"
 
-  # Regression: creating a new file inside a hand-expanded folder in browse
-  # mode used to leave the tree stale — the new row never appeared until a
-  # mode switch or reload. The `fsListAll` value lands in a reconciled store
-  # whose `paths` array is mutated in place, so a `treePaths()` memo that
-  # returned the array proxy without reading its contents never re-ran on an
-  # in-place add, and even when it did the stable reference defeated the
-  # downstream reference-equality memos/effects feeding Pierre. Copying the
-  # paths out (`[...]`) tracks the contents and mints a fresh reference, so
-  # the in-place add propagates and Pierre's `batch` reveals the file.
   Scenario: New file in an expanded folder appears in the browse tree live
     When I run "rm -rf /tmp/kolu-browse-newfile && git init /tmp/kolu-browse-newfile && cd /tmp/kolu-browse-newfile"
     And I run "mkdir -p lib && printf 'x\n' > lib/util.ts"
@@ -1789,32 +1312,12 @@ Feature: Code tab (review + browse)
     And I click the Code tab mode "browse"
     And I click the directory "lib" in the file browser
     Then the file browser should show a file "lib/util.ts"
-    # The initial list can precede @parcel/watcher's async installation. Wait
-    # until a post-snapshot read reflects this sentinel before the measured
-    # create. If Parcel is already live, that read rode its event; if another
-    # pulse/reconnect won first, Parcel is still installing and its mandatory
-    # post-install reconciliation will include the measured create. Either
-    # ordering closes the otherwise-unobserved install window.
     When I click the terminal canvas
     And I run "printf 'ready\n' > watcher-ready.txt"
     Then the file browser should show a file "watcher-ready.txt"
     When I click the terminal canvas
     And I run "printf 'y\n' > lib/added.ts"
     Then the file browser should show a file "lib/added.ts"
-
-  # ── Comments on files (#881) ──
-  #
-  # End-to-end coverage of the select → pill → composer → tray → copy
-  # flow. Selection is driven by `dragSelectText` (code_tab_steps.ts):
-  # walk the container's DOM (descending Pierre's shadow root, or the
-  # light DOM of the Markdown preview) to find the target text node,
-  # compute its viewport rect, then drive a REAL `page.mouse` drag so
-  # the browser fires the same pointer + `selectionchange` events a
-  # user would, which the `useTextSelection` adapter listens to.
-  # Pure-logic coverage of the underlying anchoring + clipboard payload
-  # algorithms lives in `packages/artifact-sdk/src/core/findQuote.test.ts`,
-  # `packages/artifact-sdk/src/server/inject.test.ts`, and
-  # `packages/client/src/comments/formatMarkdown.test.ts`.
 
   Scenario: Comments tray is hidden when the queue is empty
     When I run "rm -rf /tmp/kolu-comments-empty && git init /tmp/kolu-comments-empty && cd /tmp/kolu-comments-empty"
@@ -1850,10 +1353,6 @@ Feature: Code tab (review + browse)
     And the comments tray should contain "agent should reword this"
     And the comments tray should have 1 comments
 
-  # The rendered Markdown preview is commentable too (#1162) — not just the
-  # source toggle. Selection there is plain light DOM, so the quote anchors
-  # against the preview's own host subtree (NOT the whole app page), and the
-  # same select → pill → composer → tray flow works straight on the document.
   Scenario: Commenting on the rendered Markdown preview
     When I run "rm -rf /tmp/kolu-comments-md-reopen && git init /tmp/kolu-comments-md-reopen && cd /tmp/kolu-comments-md-reopen"
     And I run "printf '# Doc Title\n\nmd-preview-marker in the body.\n' > README.md && git add . && git commit -m init"
@@ -1872,12 +1371,6 @@ Feature: Code tab (review + browse)
     And the comments tray should contain "rendered-preview comment"
     And the comments tray should have 1 comments
 
-  # Regression (#1162): a rendered-preview comment carries no source line, so
-  # the tray jump can't use Pierre's line selection — it must instead flip the
-  # Source ⇄ Rendered toggle back to Rendered. Here the user has since switched
-  # the SAME open file to Source (no remount, so the toggle is "stuck" on
-  # source); clicking the tray item must return them to the rendered preview,
-  # where the quote ("md-preview-marker") actually lives.
   Scenario: Tray jump returns to the rendered Markdown surface
     When I run "rm -rf /tmp/kolu-comments-md-jump && git init /tmp/kolu-comments-md-jump && cd /tmp/kolu-comments-md-jump"
     And I run "printf '# Doc Title\n\nmd-jump-marker in the body.\n' > README.md && git add . && git commit -m init"
@@ -1897,14 +1390,6 @@ Feature: Code tab (review + browse)
     Then the file view should be showing "rendered"
     And the markdown preview should be visible
 
-  # Regression (keep-alive): both Source ⇄ Rendered surfaces are now mounted at
-  # once, so a path-only comment filter would let the WRONG surface consume the
-  # tray-jump scroll request. The quote here ("# Heading Src") exists only in the
-  # source view — the rendered preview drops the `#` ("Heading Src") — so a prose
-  # overlay handling it would find nothing and clear the request before the
-  # source overlay scrolls. Surface-keyed comments + scroll gating route the jump
-  # to Source: the toggle flips back and the source quote highlights. (Mirror of
-  # the prose-jump scenario above, in the opposite direction.)
   Scenario: Tray jump returns to the Source Markdown surface
     When I run "rm -rf /tmp/kolu-comments-md-src-jump && git init /tmp/kolu-comments-md-src-jump && cd /tmp/kolu-comments-md-src-jump"
     And I run "printf '# Heading Src\n\nbody text\n' > README.md && git add . && git commit -m init"
@@ -1922,20 +1407,12 @@ Feature: Code tab (review + browse)
     When I type "source-only comment" into the comment composer
     And I click the composer "Save" button
     Then the comments tray should contain "source-only comment"
-    # Move to Rendered (no remount — the file stays open), so the jump must flip
-    # the toggle back to Source where the `#`-prefixed quote lives.
     When I switch the file view to "rendered"
     Then the file view should be showing "rendered"
     When I click the tray comment "source-only comment"
     Then the file view should be showing "source"
     And the comment highlight should be present
 
-  # Regression: a tray jump to a comment with NO source lineRange (a
-  # rendered-Markdown / prose comment) used to bypass the history front door —
-  # it set the browse view + selection directly without recording. Back/forward
-  # then skipped the jump even though it moved the visible file. The no-line
-  # branch now records the navigation, so after jumping to the comment's file
-  # from a different file, "back" is enabled and returns to where you were.
   Scenario: No-line comment tray jump records Code tab history
     When I run "rm -rf /tmp/kolu-comments-md-history && git init /tmp/kolu-comments-md-history && cd /tmp/kolu-comments-md-history"
     And I run "printf '# Doc Title\n\nmd-history-marker in the body.\n' > README.md && printf 'other-file-body\n' > other.txt && git add . && git commit -m init"
@@ -1950,22 +1427,14 @@ Feature: Code tab (review + browse)
     When I type "history-tray comment" into the comment composer
     And I click the composer "Save" button
     Then the comments tray should contain "history-tray comment"
-    # Move to another file so the tray jump back to README is a real transition.
     When I click the file "other.txt" in the file browser
     Then the selected file should show content "other-file-body"
-    # Jump via the tray to the no-line comment on README — this records history.
     When I click the tray comment "history-tray comment"
     Then the markdown preview should be visible
-    # The jump was recorded, so back retraces it to the file we left.
     And the Code tab "back" button should be enabled
     When I go back in the Code tab
     Then the selected file should show content "other-file-body"
 
-  # Regression (#1162): the rendered Markdown preview reassigns its innerHTML,
-  # swapping every text node. A comment highlight applied before that swap
-  # points at detached nodes and silently disappears. Drive that mutation
-  # explicitly instead of racing Shiki's lazy load, then prove the overlay
-  # re-anchors against the replacement subtree.
   Scenario: Rendered Markdown comment highlight survives a DOM re-render
     When I run "rm -rf /tmp/kolu-comments-md-shiki && git init /tmp/kolu-comments-md-shiki && cd /tmp/kolu-comments-md-shiki"
     And I run "printf '# Doc\n\nmd-shiki-marker paragraph.\n\n```js\nconst x = 1;\n```\n' > README.md && git add . && git commit -m init"
@@ -2079,11 +1548,6 @@ Feature: Code tab (review + browse)
     And I click the Code tab
     Then the comments tray should contain "should survive reload"
 
-  # A .md file opens rendered — and the rendered preview is itself commentable
-  # (see the "Commenting on the rendered Markdown preview" scenario above).
-  # This scenario covers the *other* surface: flipping the toggle to source
-  # brings back Pierre's shadow-rooted CommentTextSurface, where a comment
-  # anchors to a real source line (line-addressable, unlike the prose preview).
   Scenario: Comments on a Markdown file work in the source view
     When I run "rm -rf /tmp/kolu-comments-md && git init /tmp/kolu-comments-md && cd /tmp/kolu-comments-md"
     And I run "printf '# Doc\n\nmd-source-comment-marker line\n' > notes.md && git add . && git commit -m init"
@@ -2092,23 +1556,12 @@ Feature: Code tab (review + browse)
     And I click the file "notes.md" in the file browser
     Then the markdown preview should be visible
     When I switch the file view to "source"
-    # Wait for the source Pierre view to be the shown surface and to have rendered
-    # the line before selecting — with the keep-alive toggle the source view is
-    # mounted lazily on first switch, so a select fired the same tick lands before
-    # its shadow DOM is selection-ready (the rendered-mode marker text isn't a
-    # source line, so this also pins the drag to the source surface).
     Then the file view should be showing "source"
     And the file content should contain "md-source-comment-marker"
     And the file content should be syntax highlighted
     When I select text "md-source-comment-marker" in the file content
     Then the comment pill should be visible
 
-  # Regression for #1026: Pierre's virtualizer defaults its row-height metric
-  # to 20px, but Kolu renders rows at 16px (--diffs-line-height). The mismatch
-  # made the virtualizer's render window come up short, so the last few lines
-  # of any scrollable file/diff were unreachable — clipped at the bottom of
-  # the preview. Verified across the file viewer (browse) and the diff viewer
-  # (local), since both go through the same `<CodeView>` wrapper.
   Scenario: Browse preview can scroll all the way to the last line
     When I run "rm -rf /tmp/kolu-tail-browse && git init /tmp/kolu-tail-browse && cd /tmp/kolu-tail-browse"
     And I run "for i in $(seq 1 199); do echo \"const line_$i = $i;\"; done > long.ts && echo 'const LAST_LINE_MARKER = 200;' >> long.ts && git add . && git commit -m init"
@@ -2128,19 +1581,6 @@ Feature: Code tab (review + browse)
     And I scroll the file preview to the bottom until "LAST_LINE_MARKER" is rendered
     Then the diff view should contain "LAST_LINE_MARKER"
 
-  # ── Find-in-page: Cmd/Ctrl+F is confined to the terminal ──
-  #
-  # kolu's xterm search is the right Cmd/Ctrl+F target ONLY in the terminal,
-  # whose content is canvas-rendered and invisible to the browser's own find.
-  # So the chord opens kolu's find bar only while focus is in a terminal; in
-  # any other surface — here the Code tab, whose file viewer and sandboxed HTML
-  # preview xterm search can't reach — it defers to the browser's native
-  # find-in-page. This asserts all three: the terminal claims the chord, the
-  # Code tab does not open kolu's bar, AND the chord actually reaches the browser
-  # un-prevented (so native find-in-page can fire) — without that last check a
-  # regression that ate the chord without opening the bar would pass vacuously.
-  # The generic "outside any terminal → defer" predicate is unit-tested in
-  # keyboard.test.ts.
   Scenario: Cmd/Ctrl+F opens terminal search from the terminal but defers outside it
     Given a Code tab in "browse" mode showing file "notes.txt" with content "find-me-here"
     When I click the file "notes.txt" in the file browser
@@ -2187,13 +1627,6 @@ Feature: Code tab (review + browse)
     And the Pierre source renderer should be the kept-alive element
     And there should be no page errors
 
-  # ── A folder git cannot list ──
-
-  # The issue's layout: `proj/.git` is a bare repository and its worktrees sit
-  # beside it under `proj/.worktrees/`. There is no working tree at `proj`, so
-  # git cannot list it; the Code tab reads the folder from disk instead, one
-  # folder per click, and never fires the git calls that fail there ("must be
-  # run in a work tree").
   Scenario: A bare repository's folder is browsed from disk
     When I start recording error toasts
     And I run "rm -rf /tmp/kolu-bare-seed /tmp/kolu-bare && git init -q /tmp/kolu-bare-seed && printf 'readme-marker\n' > /tmp/kolu-bare-seed/README.md && git -C /tmp/kolu-bare-seed add . && git -C /tmp/kolu-bare-seed commit -qm init"
@@ -2217,9 +1650,6 @@ Feature: Code tab (review + browse)
     And no "Failed to encode" error toast should have been shown
     And there should be no page errors
 
-  # A repo with an `origin` whose default branch was never fetched has nothing
-  # to compare against. The Branch view says so, with the command that fixes
-  # it; the read behind the Branch badge stays quiet in every other view.
   Scenario: Branch view names the missing base branch and how to fetch it
     When I start recording error toasts
     And I run "rm -rf /tmp/kolu-nobase && git init /tmp/kolu-nobase && cd /tmp/kolu-nobase"

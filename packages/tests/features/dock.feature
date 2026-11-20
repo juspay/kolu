@@ -14,21 +14,12 @@ Feature: Dock
     And the dock should default to cards mode
 
   Scenario: Dock surfaces an awaiting-input Claude session as a full card
-    # `awaiting_user` is the agent actually BLOCKED on you — it floats to the
-    # awaiting row and gets the full card. (Contrast the just-finished `waiting`
-    # lull below, which now ranks idle since R-dock-unify shares the dock's
-    # needs-you ordering with `agentProjection`.)
     When a Claude Code session is mocked with state "awaiting_user"
     Then the dock should be visible
     When the dock is expanded
     Then the dock should show 1 card
 
   Scenario: Dock surfaces a just-finished (waiting) Claude session as a quiet row, not a card
-    # `waiting` is the post-turn lull — the agent finished its turn and yielded,
-    # it is NOT blocked on you. It ranks idle now (shared
-    # `agentProjection.agentUrgency`), so it is neither a full card (awaiting)
-    # nor a working pill — it drops to a quiet one-liner. Pins the R-dock-unify
-    # ranking change end-to-end.
     When a Claude Code session is mocked with state "waiting"
     Then the dock should be visible
     When the dock is expanded
@@ -49,97 +40,50 @@ Feature: Dock
     Then the dock should be in "cards" mode
 
   Scenario: Cmd+Shift+B toggles the dock between rail and cards
-    # The keyboard shortcut should drive the same rail ↔ cards state
-    # the in-header chevron drives. Cards is the default, so the first
-    # press collapses to rail; the second expands back.
     When I press the dock toggle shortcut
     Then the dock should be in "rail" mode
     When I press the dock toggle shortcut
     Then the dock should be in "cards" mode
 
   Scenario: Chrome-bar dock-toggle button toggles the dock
-    # The chrome bar carries a dock-toggle button mirroring the right-
-    # panel inspector toggle. Clicking it drives the same rail ↔ cards
-    # state as the keyboard shortcut.
     When I click the chrome-bar dock toggle
     Then the dock should be in "rail" mode
     When I click the chrome-bar dock toggle
     Then the dock should be in "cards" mode
 
   Scenario: Dock stays visible in maximized-tile mode as a sidebar
-    # When a tile is maximized, the dock renders as a flush left-panel
-    # flex sibling (`data-maximized=""`) rather than the floating
-    # absolute overlay it uses in tiled mode. The terminal naturally
-    # takes the remaining width.
     When I double-click the title bar of canvas tile 1
     Then canvas tile 1 should be maximized
     And the dock should be visible
     And the dock should be in maximized mode
 
   Scenario: Foreground process surfaces on non-agent dock rows
-    # Plain shells without an agent used to read as bare `repo · branch`
-    # — a `~ ~` home-dir shell was indistinguishable from any other.
-    # The quiet row now carries the foreground process title pulled
-    # from `meta.foreground.title || .name`.
     When I start "sleep 5"
     Then the dock should show 1 foreground row containing "sleep"
 
   Scenario: A dock row names the model its agent is running on
-    # The right panel has always named the model; the row you actually scan to
-    # ask "who needs me" said only *what* each agent was doing — *on what* cost
-    # a trip to the panel or the tile. Line 2 now carries it, read off the same
-    # agent record the status words beside it come from.
-    #
-    # `tool_use` rather than `thinking`: this mock's model lives on its
-    # assistant turn. A `thinking` tail is a lone user entry with no assistant
-    # entry behind it at all, so there is no model to name — see the scenario
-    # below for the mid-turn case, where there IS one.
     When a Claude Code session is mocked with state "tool_use"
     Then the dock should show 1 working pill
     And the dock row should name the model "claude-opus-4-6"
 
   Scenario: The model tag survives a turn the agent is still running
-    # A model is a SESSION fact, and the newest transcript entry for most of a
-    # working turn is a `user` one — a fresh prompt, or the tool result that
-    # follows every tool call — which carries no model. Reading the model off
-    # that newest entry blanked the tag for seconds at a time (measured on real
-    # transcripts: median 3.9s, p90 13.3s per tool round-trip), so the one
-    # column the tag exists to make scannable flickered while agents worked.
-    # Pre-fix this scenario fails: state reads `thinking` from the newer user
-    # entry and the model comes back `null`.
     When a Claude Code session is mocked with state "thinking_after_reply"
     Then the dock should show 1 working pill
     And the dock row should name the model "claude-opus-4-6"
 
   Scenario: A split's dock row is indented inside its parent's box
-    # The split renders the same row, stepped in. Two geometry promises, both
-    # measured in a browser before they were trusted: the split's RIGHT edge
-    # lands where its parent's does (recency and model keep the dock's one set
-    # of right-hand columns), and its LEFT edge sits further in. It has been
-    # wrong twice — a subgrid row padded on the left moves only its first cell,
-    # and a self-templated row carrying `w-full` comes out a gutter short with
-    # its background stopping inside the card.
     When I create a sub-terminal via command palette
     Then the dock should show 1 split sub-entry
     And the split's dock row should sit inside its parent row's box
     And there should be no page errors
 
   Scenario: Cmd+1 activates the first dock row (creation order)
-    # `Cmd+1..9` targets dock row order, which is creation order — the
-    # background terminal t0 is first because it was made first, and a
-    # newer terminal appends below it rather than displacing it.
     Given I run "echo first-dock-row"
     And I create a terminal
     When I press shortcut "Mod+1"
     Then the active terminal should show "first-dock-row"
 
   Scenario: A blocked agent joins the Needs-you strip without renumbering the dock
-    # The two halves of #2141 in one pass. A newer terminal goes
-    # `awaiting_user`, which under the old ordering floated it to the top of
-    # its section and quietly stole `Cmd+1` from the row that had held it all
-    # session. Now the blocked row is surfaced in the pinned strip and the list
-    # underneath does not move — so the shortcut still means what it meant a
-    # minute ago. Red before the change: Cmd+1 landed on the blocked terminal.
     Given I run "echo first-dock-row"
     And I create a terminal
     When a Claude Code session is mocked with state "awaiting_user"
@@ -157,42 +101,22 @@ Feature: Dock
     Then no dock-row shortcut hints should be visible
 
   Scenario: Repo sections carry a colour spine and a sticky tinted header
-    # Repo identity rides a card: a repo-coloured spine down the section's
-    # left edge (from the per-section `--repo-color` custom property, width
-    # from `--dock-edge-stripe-w`), a monogram + sticky header band so the
-    # repo label survives the scroll, and air between cards. Assert the
-    # structural facts via computed style, never a class selector
-    # (see dev/skills/e2e-testing/SKILL.md).
     Given I create a terminal
     When the dock is expanded
     Then the dock section should carry a repo-colour spine
     And the dock section header should be sticky
 
   Scenario: Dock activity-window selector defaults to All and shares with the minimap
-    # The dock header carries a compact `All ▾` chip mirroring the
-    # minimap's existing window picker. Both surfaces consume the same
-    # `kolu-activity-window` localStorage signal, so picking a window in
-    # one surface updates the other — one user truth, one persisted
-    # choice. Default `all` (from `DEFAULT_ACTIVITY_WINDOW` in
-    # `activityWindow.ts`).
     Then the dock window trigger should be visible
     And the dock window should be "all"
     And the minimap window should be "all"
     When I click the dock window trigger
     And I pick the dock window option "12h"
     Then the dock window should be "12h"
-    # Shared signal: same value lands on the minimap trigger without
-    # an additional click.
     And the minimap window should be "12h"
     And there should be no page errors
 
   Scenario: Activity-window footer switches layout reactively on collapse
-    # The footer is the same mounted component across a rail ↔ cards
-    # toggle (the parent never remounts it), so its layout choice must be
-    # reactive — a create-time `if (props.rail)` would freeze whichever
-    # layout it first rendered. Start in the default cards layout, collapse
-    # to rail, and the footer must re-render into the compact rail layout
-    # rather than keep clipping the cards sentence inside the 44 px rail.
     Then the dock hidden footer should use the "cards" layout
     When I collapse the dock to rail
     Then the dock should be in "rail" mode
@@ -202,17 +126,11 @@ Feature: Dock
     And there should be no page errors
 
   Scenario: The resize handle exists only in the maximized cards sidebar; drag widens and persists, double-click resets
-    # The handle is `<Show>`-gated to maximized + cards: absent in the tiled
-    # float and in rail mode, present in the maximized cards sidebar. Dragging
-    # widens the dock live and writes the width to per-device storage; a
-    # double-click on the edge resets it to the default.
     Given I create a terminal
-    # Tiled (default posture): no handle.
     Then the dock resize handle should not be present
     When I click the chrome-bar maximize toggle
     Then the dock should be in maximized mode
     And the dock resize handle should be visible
-    # Rail mode, even while maximized: still no handle.
     When I collapse the dock to rail
     Then the dock resize handle should not be present
     When the dock is expanded
@@ -225,10 +143,6 @@ Feature: Dock
     And there should be no page errors
 
   Scenario: The maximized dock reserves canvas room so its handle stays reachable
-    # The load-bearing recoverability contract: on a narrow host the rendered
-    # width is capped so a usable canvas — and the handle at the dock's right
-    # edge — always stay on-screen. A wide drag that ignored the host cap would
-    # push the handle off-screen (the inert-cap regression this pins).
     Given I create a terminal
     When I click the chrome-bar maximize toggle
     And I shrink the viewport to 760 pixels wide
@@ -239,9 +153,6 @@ Feature: Dock
     And there should be no page errors
 
   Scenario: A cancelled dock resize drag reverts to the pre-drag width
-    # pointercancel (a touch/pen the platform reclaims mid-drag) must revert,
-    # not commit — the dock's onCancel restores the pre-drag width in both the
-    # rendered aside and per-device storage.
     Given I create a terminal
     When I click the chrome-bar maximize toggle
     Then the dock should be in maximized mode

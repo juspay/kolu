@@ -9,7 +9,6 @@ import {
 
 const ACTIVE_TITLE_BRANCH_SELECTOR = `${ACTIVE_CANVAS_TILE_SELECTOR} [data-testid="terminal-meta-branch"]`;
 
-/** Wait for a data-testid element's text to include the given substring. */
 async function waitForTestIdText(
   world: KoluWorld,
   testId: string,
@@ -29,8 +28,6 @@ async function waitForTestIdText(
 When(
   "the branch is switched to {string} in {string}",
   async function (this: KoluWorld, branch: string, repoPath: string) {
-    // Switch branch externally (not through the terminal), bypassing OSC 7.
-    // This exercises the .git/HEAD file watcher path.
     execFileSync("git", ["checkout", "-b", branch], { cwd: repoPath });
   },
 );
@@ -38,9 +35,6 @@ When(
 When(
   "a git repo is initialized externally in {string}",
   async function (this: KoluWorld, repoPath: string) {
-    // Run `git init` from the test process, not the terminal's shell —
-    // no OSC 7 fires, so the provider only has the cwd-entry watcher to
-    // notice `.git`. Mirrors the user's bug in #813.
     execFileSync("git", ["init", repoPath], { stdio: "ignore" });
     // Belt-and-braces: the cwd-entry `fs.watch` can drop the single
     // `.git` create event under 4-worker parallel-test load (Linux
@@ -54,10 +48,6 @@ When(
   },
 );
 
-/** Active tile title-bar branch — the always-visible "header" annotation.
- *  Prefer this over `inspector-branch` for "header" steps: the inspector is
- *  only user-visible when the right panel is open, and e2e keeps it collapsed
- *  by default. Title bar tracks the active terminal without that gate. */
 async function waitForActiveTitleBranch(
   world: KoluWorld,
   includes?: string,
@@ -180,11 +170,6 @@ Then(
 Then(
   "the workspace switcher should not show git context",
   async function (this: KoluWorld) {
-    // Under the supplant rule the title-bar annotation slot shows the
-    // intent line-1 if set, else the branch, else an em-dash placeholder.
-    // "No git context" means no branch — the slot is either empty (old
-    // behavior, no longer reachable on non-git terminals) or shows the
-    // placeholder. Poll until the reactive update settles.
     await this.page.waitForFunction(
       () => {
         const text = (

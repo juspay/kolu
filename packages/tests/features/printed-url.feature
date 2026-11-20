@@ -9,8 +9,6 @@ Feature: Printed URL joins the scanner (PRT4)
     Given the terminal is ready
 
   Scenario: Clicking a printed loopback URL opens the page through the door
-    # Headline: a real PTY prints a real URL; the click lands the page's own
-    # body through the door, path preserved.
     When I start a path-aware listener on port 8130 bound to loopback only
     And I press the toggle inspector shortcut
     Then the right panel should be visible
@@ -24,8 +22,6 @@ Feature: Printed URL joins the scanner (PRT4)
     And there should be no page errors
 
   Scenario: An open card upgrades live when the listener appears
-    # The join is a live derivation, never frozen at click. Print first, open
-    # the card while nothing is listening, then bind — the card upgrades.
     When I print the URL "http://localhost:8131/soon"
     And I click the terminal web link "http://localhost:8131/soon"
     Then the printed-url card should be open without a known listener
@@ -34,11 +30,6 @@ Feature: Printed URL joins the scanner (PRT4)
     And there should be no page errors
 
   Scenario: A detached server's printed URL is found on the host
-    # `odu web-daemon` and anything under `setsid` leave the terminal's process
-    # tree and keep serving the URL the terminal printed. The card used to say
-    # "nothing is listening yet" about them; the host-wide scan finds the server,
-    # the terminal's Ports section claims it (marked detached), and the door the
-    # card opens is not reaped out from under it.
     When I start a detached path-aware listener on port 8133 bound to loopback only
     And I print the URL "http://localhost:8133/detached"
     And I click the terminal web link "http://localhost:8133/detached"
@@ -54,8 +45,6 @@ Feature: Printed URL joins the scanner (PRT4)
     And there should be no page errors
 
   Scenario: Cmd-click bypasses the card and opens the raw URL
-    # A live listener so the raw open is a real navigation, not chrome-error
-    # from a refused connection (nothing was bound on the prior cut).
     When I start a path-aware listener on port 8132 bound to loopback only
     And I print the URL "http://localhost:8132/"
     And I cmd-click the terminal web link "http://localhost:8132/"

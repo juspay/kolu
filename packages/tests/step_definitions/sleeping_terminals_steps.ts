@@ -1,27 +1,3 @@
-/**
- * Sleeping terminals — step definitions for the Sleep/Wake journey e2e.
- *
- * NEW vocabulary only — everything reusable (open app, ready terminal, mock
- * agent, refresh, kaval restart, restore card, dock) is reused from the
- * existing step library. These steps cover the genuinely new actions and
- * OUTCOME assertions:
- *
- *   - sleeping a terminal (click `tile-sleep`) and capturing its stable id;
- *   - asserting a tile is DORMANT (`dormant-tile-body` + `data-sleeping="true"`,
- *     and crucially NO live `.xterm-screen`) vs. LIVE (a live xterm present);
- *   - waking via the dormant body's `wake-button`;
- *   - proving the agent RESUMED — the woken PTY replays the resume-by-id
- *     invocation (`codex resume <session-id>`, juspay/kolu#1495) in the SAME cwd,
- *     which a blank fresh agent never would (the agent-resume hole);
- *   - dragging a dormant tile (via the canvas-layout RPC the drag handle drives)
- *     and asserting its persisted position survives a reload.
- *
- * A SLEEPING tile keeps its CanvasTile wrapper (`canvas-tile` + `data-terminal-id`
- * + inline `style.left/top`) but its inner live `Terminal` (the only carrier of
- * `data-visible` / `.xterm-screen`) is unmounted, so DORMANT tiles are addressed
- * by their wrapper, never by the live-terminal selectors.
- */
-
 import * as assert from "node:assert";
 import * as path from "node:path";
 import { Then, When } from "@cucumber/cucumber";
@@ -42,18 +18,9 @@ import { codexMockCwd } from "./codex_steps.ts";
 
 const CANVAS_SELECTOR = '[data-testid="canvas-container"]';
 
-/** The stable id of the terminal we slept (sleep flips IN PLACE on the same id),
- *  and — separately — the saved id of a sleeping record planted/restored. Kept on
- *  a module-scoped slot keyed by `world` so it survives across steps within one
- *  scenario without widening the shared `KoluWorld` type. */
 const sleptIdByWorld = new WeakMap<KoluWorld, string>();
-/** The split we remembered before sleeping a family — asserted back under the
- *  same parent tile after the wake. */
 const splitIdByWorld = new WeakMap<KoluWorld, string>();
 
-/** Resolve the id of the SINGLE active (live) canvas tile on screen. The slept
- *  terminal is the one the user was just interacting with; with one tile up
- *  that is unambiguous. */
 async function activeTileId(world: KoluWorld): Promise<string> {
   const id = await world.page.evaluate((activeTileSel) => {
     const tile = document.querySelector(activeTileSel);
@@ -63,9 +30,6 @@ async function activeTileId(world: KoluWorld): Promise<string> {
   return id;
 }
 
-/** Resolve the id of the SINGLE sleeping (dormant) canvas tile on screen —
- *  the wrapper that contains a `dormant-tile-body`. Used by the restore /
- *  malformed scenarios where the slept id isn't tracked from a sleep action. */
 async function sleepingTileId(world: KoluWorld): Promise<string> {
   const id = await pollFor({
     observe: () =>
@@ -86,10 +50,6 @@ async function sleepingTileId(world: KoluWorld): Promise<string> {
   return id;
 }
 
-/** Poll until the tile with `id` is DORMANT: its wrapper holds a
- *  `dormant-tile-body[data-sleeping="true"]` AND has NO live `.xterm-screen`
- *  (the second clause is load-bearing — a tile that still painted a live xterm
- *  alongside the dormant body would not be a real sleep). */
 async function waitForSleeping(world: KoluWorld, id: string): Promise<void> {
   await world.page.waitForFunction(
     ({ sel, tileId }) => {
@@ -97,19 +57,18 @@ async function waitForSleeping(world: KoluWorld, id: string): Promise<void> {
         `${sel}[data-terminal-id="${tileId}"]`,
       );
       if (!tile) return false;
-      const dormant = tile.querySelector(
-        '[data-testid="dormant-tile-body"][data-sleeping="true"]',
-      );
-      const liveXterm = tile.querySelector(".xterm-screen");
-      return dormant !== null && liveXterm === null;
+      const showsSleepingBody =
+        tile.querySelector(
+          '[data-testid="dormant-tile-body"][data-sleeping="true"]',
+        ) !== null;
+      const stillPaintsLiveXterm = tile.querySelector(".xterm-screen") !== null;
+      return showsSleepingBody && !stillPaintsLiveXterm;
     },
     { sel: CANVAS_TILE_SELECTOR, tileId: id },
     { timeout: POLL_TIMEOUT },
   );
 }
 
-/** Poll until the tile with `id` is LIVE again: a live `.xterm-screen` is
- *  present AND the dormant body is gone — the inverse of `waitForSleeping`. */
 async function waitForLive(world: KoluWorld, id: string): Promise<void> {
   await world.page.waitForFunction(
     ({ sel, tileId }) => {
@@ -117,18 +76,16 @@ async function waitForLive(world: KoluWorld, id: string): Promise<void> {
         `${sel}[data-terminal-id="${tileId}"]`,
       );
       if (!tile) return false;
-      const liveXterm = tile.querySelector(".xterm-screen");
-      const dormant = tile.querySelector('[data-testid="dormant-tile-body"]');
-      return liveXterm !== null && dormant === null;
+      const paintsLiveXterm = tile.querySelector(".xterm-screen") !== null;
+      const stillShowsDormantBody =
+        tile.querySelector('[data-testid="dormant-tile-body"]') !== null;
+      return paintsLiveXterm && !stillShowsDormantBody;
     },
     { sel: CANVAS_TILE_SELECTOR, tileId: id },
     { timeout: POLL_TIMEOUT },
   );
 }
 
-/** Click the dormant body's Wake button for the tile with `id`. Dispatch the
- *  DOM click directly (the kill_steps idiom): a real-mouse click on a stacked
- *  canvas tile can lose the hit-test to an overlapping sibling. */
 async function clickWakeButton(world: KoluWorld, id: string): Promise<void> {
   await world.page.evaluate(
     ({ sel, tileId }) => {
@@ -142,11 +99,6 @@ async function clickWakeButton(world: KoluWorld, id: string): Promise<void> {
   );
 }
 
-/** Drive `setCanvasLayout` for `id` — the same persisted RPC the drag handle
- *  fires — then wait for the dormant tile's wrapper to render at (x, y).
- *  Targets the `canvas-tile` WRAPPER (sleeping tiles have no `data-visible`
- *  inner terminal), so this reaches a dormant tile the live-terminal canvas
- *  steps cannot. */
 async function moveSleepingTile(
   world: KoluWorld,
   id: string,
@@ -158,7 +110,6 @@ async function moveSleepingTile(
   await waitForSleepingTileAt(world, id, x, y);
 }
 
-/** Poll until the dormant tile's wrapper sits at (x, y) in canvas space. */
 async function waitForSleepingTileAt(
   world: KoluWorld,
   id: string,
@@ -183,15 +134,11 @@ async function waitForSleepingTileAt(
   );
 }
 
-// ── Sleep / wake actions ──
-
 When(
   "I sleep the active terminal via the tile sleep button",
   async function (this: KoluWorld) {
     const id = await activeTileId(this);
     sleptIdByWorld.set(this, id);
-    // The ☾ Sleep button lives in the active tile's title bar. Dispatch the
-    // DOM click directly (kill_steps idiom) to skip the canvas hit-test.
     await this.page.evaluate(
       ({ sel, tileId }) => {
         const btn = document.querySelector(
@@ -215,9 +162,6 @@ When(
 );
 
 When("I remember the tile's split pane", async function (this: KoluWorld) {
-  // The split's own `data-terminal-id` inside the active tile's subtree — the
-  // id that must still be there (and parented to the tile) after a family
-  // wake. Read after the split has mounted.
   const tileId = await activeTileId(this);
   const subId = await pollFor({
     observe: () =>
@@ -243,8 +187,6 @@ When("I remember the tile's split pane", async function (this: KoluWorld) {
 When("I click the tile restart button", async function (this: KoluWorld) {
   const id = await activeTileId(this);
   sleptIdByWorld.set(this, id);
-  // Same raw-DOM click the sleep step uses: the canvas hit-test must not
-  // decide whether the test reached the title bar.
   await this.page.evaluate(
     ({ sel, tileId }) => {
       const btn = document.querySelector(
@@ -275,8 +217,6 @@ When(
   },
 );
 
-// ── Sleeping / live assertions ──
-
 Then("the slept terminal should be sleeping", async function (this: KoluWorld) {
   const id = sleptIdByWorld.get(this);
   assert.ok(id, "No slept terminal id captured — call the sleep step first");
@@ -286,9 +226,6 @@ Then("the slept terminal should be sleeping", async function (this: KoluWorld) {
 Then(
   "the dormant tile should show its saved working directory",
   async function (this: KoluWorld) {
-    // The dormant body surfaces the LAST-KNOWN metadata frozen at sleep — here
-    // the cwd the codex mock `cd`'d the terminal into. Assert the `dormant-cwd`
-    // line, scoped to THIS slept tile, reports that saved cwd (its unique leaf).
     const id = sleptIdByWorld.get(this);
     assert.ok(id, "No slept terminal id captured — call the sleep step first");
     const leaf = path.basename(codexMockCwd());
@@ -314,11 +251,6 @@ Then("the slept terminal should be live", async function (this: KoluWorld) {
 Then(
   "the tile and its {int} split pane(s) should be dormant",
   async function (this: KoluWorld, splitCount: number) {
-    // Sleeping a terminal freezes its whole FAMILY — the tile's own pane and
-    // every split's — so the tile holds one tile-sized dormant body and N
-    // compact ones, and NO live xterm anywhere inside it. An assert on the
-    // bodies alone could be satisfied by a tile that kept its xterm painting
-    // under the placeholder, hence the `.xterm-screen` clause.
     const id = sleptIdByWorld.get(this);
     assert.ok(id, "No slept terminal id captured — call the sleep step first");
     await this.page.waitForFunction(
@@ -333,11 +265,13 @@ Then(
           ),
         ];
         const sizes = bodies.map((b) => b.getAttribute("data-size"));
+        const stillPaintsLiveXterm =
+          tile.querySelector(".xterm-screen") !== null;
         return (
           bodies.length === count + 1 &&
           sizes.filter((s) => s === "tile").length === 1 &&
           sizes.filter((s) => s === "sub").length === count &&
-          tile.querySelector(".xterm-screen") === null
+          !stillPaintsLiveXterm
         );
       },
       { sel: CANVAS_TILE_SELECTOR, tileId: id, count: splitCount },
@@ -349,9 +283,6 @@ Then(
 Then(
   "the tile and its split should be live again",
   async function (this: KoluWorld) {
-    // The same tile id, the same split id under it, nothing dormant — the
-    // family came back whole rather than the split vanishing or being promoted
-    // to its own tile.
     const id = sleptIdByWorld.get(this);
     const splitId = splitIdByWorld.get(this);
     assert.ok(id, "No slept terminal id captured — call the sleep step first");
@@ -382,10 +313,6 @@ Then(
 Then(
   "no toast mentioning {string} should have been shown",
   async function (this: KoluWorld, needle: string) {
-    // Reads the durable recorder "I start recording error toasts" installs —
-    // it captures EVERY toast's text, so a warning that was already dismissed
-    // (the old "Sleeping closes N splits" one, which slept the splits instead
-    // of freezing them) cannot slip past a point-in-time query.
     const seen = await this.page.evaluate(
       () =>
         (window as unknown as { __errorToasts?: string[] }).__errorToasts ?? [],
@@ -402,10 +329,6 @@ Then(
 Then(
   "the terminal buffer should no longer contain {string}",
   async function (this: KoluWorld, text: string) {
-    // A restart unmounts the live terminal for its dormant middle, so a bare
-    // buffer read can satisfy "absent" against NOTHING at all (no element → an
-    // empty string). Wait for the tile to be live AND its buffer to have
-    // painted, then assert the marker is gone — a fresh PTY, not a blank pane.
     const id = sleptIdByWorld.get(this);
     assert.ok(id, "No terminal id captured — click the restart button first");
     await waitForLive(this, id);
@@ -426,10 +349,6 @@ Then(
 Then(
   "the restore card should mark a sleeping terminal as asleep",
   async function (this: KoluWorld) {
-    // The restore card must SHOW which saved records are asleep — a sleeping
-    // record restores DORMANT (never resuming an agent), so it carries a ☾
-    // marker (`restore-sleeping`) rather than a resume-command line. Scope to the
-    // restore card so a dormant canvas tile's ☾ can't satisfy it.
     await this.page.waitForFunction(
       () =>
         document.querySelector(
@@ -444,8 +363,6 @@ Then(
 Then(
   "the restored sleeping tile should be sleeping",
   async function (this: KoluWorld) {
-    // Identify the dormant tile that came back via the restore card (saved id),
-    // assert it's truly dormant, and stash its id for the subsequent wake.
     const id = await sleepingTileId(this);
     sleptIdByWorld.set(this, id);
     await waitForSleeping(this, id);
@@ -473,10 +390,6 @@ Then(
 Then(
   "there should be exactly {int} canvas tile(s)",
   async function (this: KoluWorld, expected: number) {
-    // Count CanvasTile WRAPPERS (present for sleeping AND live tiles) — the
-    // orphan-detection assertion: a restart that adopted a survivor PTY
-    // alongside the restored record, or a malformed record that wasn't
-    // dropped, would push this above 1.
     const fullSelector = `${CANVAS_SELECTOR} ${CANVAS_TILE_SELECTOR}`;
     await this.page.waitForFunction(
       ({ sel, count }) => document.querySelectorAll(sel).length === count,
@@ -495,14 +408,6 @@ Then(
 When(
   "I toggle the dock's sleeping-terminal filter",
   async function (this: KoluWorld) {
-    // The ☾ toggle in the desktop dock's footer hides / shows sleeping rows —
-    // an independent filter from the activity window. Scope the click to the
-    // desktop `dock-hidden-footer` so a mounted mobile drawer (its own
-    // `mobile-dock-sleeping-toggle`) can't be hit instead. Unlike the canvas
-    // tile buttons above (which need a raw DOM click to dodge WebGL tile
-    // hit-testing), this footer control is plain DOM, so drive it through
-    // Playwright's real interaction path — actionability checks included —
-    // proving a user could actually reach and click it.
     await this.page
       .locator(
         '[data-testid="dock-hidden-footer"] [data-testid="dock-sleeping-toggle"]',
@@ -514,9 +419,6 @@ When(
 When(
   "I click the dock's show-all filter reset",
   async function (this: KoluWorld) {
-    // The combined `N hidden · show all` reset in the desktop footer relaxes
-    // BOTH filters at once (activity window → all, sleeping → shown). Drive it
-    // through the real interaction path, scoped to the desktop footer.
     await this.page
       .locator(
         '[data-testid="dock-hidden-footer"] [data-testid="dock-hidden-show-all"]',
@@ -528,10 +430,6 @@ When(
 Then(
   "the dock should show {int} sleeping row(s)",
   async function (this: KoluWorld, expected: number) {
-    // The dock classifies a dormant terminal into its own `sleeping` bucket —
-    // `dock-row[data-bucket="sleeping"]` for a tile, `dock-sub-row` for a split
-    // under it. Counting BOTH is what proves a slept family is a first-class
-    // presence-surface citizen, one row per frozen member, not erased.
     await this.page.waitForFunction(
       ({ count }) =>
         document.querySelectorAll(
@@ -543,18 +441,9 @@ Then(
   },
 );
 
-// ── Resume-outcome assertions (the journey's payoff) ──
-
 Then(
   "the woken terminal should replay the agent resume invocation {string}",
   async function (this: KoluWorld, resumeInvocation: string) {
-    // The OUTCOME that proves the SAME conversation came back: on wake the
-    // server re-spawns the PTY on the SAME id and TYPES the agent's RESUME form
-    // into it (`proxy.write(resumeCommand)`). A fresh/blank terminal would type
-    // NOTHING — so finding the resume invocation in the re-spawned tile's live
-    // buffer is exactly what a fresh agent could never produce. Read the buffer
-    // of THIS woken tile (scoped by its stable id to its inner live terminal),
-    // not the focused one — the dormant-body Wake path doesn't refocus.
     const id = sleptIdByWorld.get(this);
     assert.ok(id, "No slept/woken terminal id captured");
     const scopedSelector = `${CANVAS_TILE_SELECTOR}[data-terminal-id="${id}"] [data-terminal-id][data-visible]`;
@@ -578,23 +467,10 @@ Then(
 Then(
   "the woken terminal should resume in the same working directory",
   async function (this: KoluWorld) {
-    // The re-spawned PTY must come back in the agent's SAVED cwd — the runtime
-    // cwd the live cwd-sensor tracked (the mock `cd`'d the terminal there before
-    // launching the agent), persisted on the sleeping arm and replayed by `wake`
-    // (`cwd: meta.cwd`). A resume into a default/wrong cwd is exactly the hole
-    // this guards. The codex MOCK can't reliably prove this via its indicator: its
-    // fake `codex` is reached by ABSOLUTE PATH while the replayed `codex resume
-    // <session-id>` resume form runs the bare-word `codex`, so `matchesAgent` can't
-    // depend on it re-lighting from the resume. So prove the cwd DIRECTLY
-    // and mock-independently — run `pwd` in the now-live woken terminal and
-    // assert it reports the saved cwd. Scope the buffer read to THIS tile's id.
     const id = sleptIdByWorld.get(this);
     assert.ok(id, "No slept/woken terminal id captured");
     await this.terminalRun("pwd");
     const scopedSelector = `${CANVAS_TILE_SELECTOR}[data-terminal-id="${id}"] [data-terminal-id][data-visible]`;
-    // Match the unique temp-dir leaf, not the full path: a long absolute path
-    // wraps across xterm rows (the buffer reader joins visual lines with "\n"),
-    // but the short mkdtemp leaf lands intact at the tail of the `pwd` output.
     const wantCwdLeaf = path.basename(codexMockCwd());
     try {
       await waitForBufferContains(this.page, wantCwdLeaf, {

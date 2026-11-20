@@ -15,9 +15,6 @@ Feature: Mobile dock drawer
 
   @mobile
   Scenario: Clicking the dock handle (mouse path) opens the drawer without errors
-    # Regression cover for #977 — Corvu @0.2.4 crashed on the mouse-click
-    # path because snapPoints defaults weren't applied in time. The tap-based
-    # scenario above exercises a different Corvu code path and so missed it.
     When I click the mobile dock handle
     Then the mobile dock sheet should be visible
     And there should be no page errors
@@ -52,13 +49,6 @@ Feature: Mobile dock drawer
 
   @mobile
   Scenario: Dismissing the dock via the backdrop does not summon the soft keyboard
-    # Corvu's Drawer restores focus on close by default — to the element that
-    # was active before the drawer opened — which pops the soft keyboard if
-    # that element was the terminal textarea. Reproduce the real-mobile setup:
-    # tap the terminal so its textarea holds focus (keyboard up), open the dock
-    # without moving focus (a real button tap would focus the button and mask
-    # the bug; mobile taps don't move focus off the textarea), then dismiss via
-    # the backdrop. With restoreFocus={false} the textarea must stay unfocused.
     When I tap the terminal canvas
     And I arm the soft-keyboard focus probe
     And I open the dock without moving focus

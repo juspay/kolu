@@ -46,9 +46,6 @@ Feature: Sub-terminals
     Then sub-panel tab 1 should be active
     And there should be no page errors
 
-  # Nested parentId (split of a split) — the canvas flattens every descendant
-  # into the root tile's tab strip (#2059). Without the flatten, the grandchild
-  # is fully alive in the roster and never paints.
   Scenario: A split of a split is visible on the canvas
     When I create a sub-terminal via command palette
     And I remember the sub-terminal's id
@@ -57,10 +54,6 @@ Feature: Sub-terminals
     And the active tile should show sub-terminal count 2
     And there should be no page errors
 
-  # The Dock keeps the TRUE tree. A grandchild is a real parent→child edge, so
-  # it must appear as a dock split sub-entry — not only as a canvas tab.
-  # Regression: after #2090 flattened the canvas, depth-2 still vanished from
-  # the Dock (rankDockRows only walks one hop under each top-level tile).
   Scenario: A split of a split has a row in the Dock
     When I create a sub-terminal via command palette
     And I remember the sub-terminal's id
@@ -69,10 +62,6 @@ Feature: Sub-terminals
     And the dock should show 2 split sub-entries
     And there should be no page errors
 
-  # Same focus-path issue as the worktree+sub-terminal scenarios — workspace-switcher
-   # selection followed by palette-driven sub-terminal create stalls. The
-   # plain "create sub-terminal in the active terminal" scenarios above all
-   # pass; only the "switch first, then split" sequence times out.
   @skip
   Scenario: Kill parent with splits shows confirmation and closes all
     When I open the app
@@ -144,13 +133,6 @@ Feature: Sub-terminals
     And the active tile should not show a sub-terminal count
     And there should be no page errors
 
-  # A split that is HIDDEN when the page loads has no measurable box, so xterm
-  # sits at the 80x24 grid its constructor invents. Painting the attach
-  # snapshot — which the host serialized at the REAL grid — into that invented
-  # grid wraps every wide line, and revealing the pane then REFLOWS the damage
-  # instead of repainting it: the split shows stale rows and hides its own live
-  # bottom. Nudging the divider used to be the only repair, because kaval
-  # no-ops a same-dimensions resize, so no SIGWINCH ever reaches the process.
   Scenario: A split hidden at page load shows its live output when revealed
     When I create a sub-terminal via command palette
     And I fill the sub-terminal with output wider than the default grid
@@ -169,8 +151,6 @@ Feature: Sub-terminals
     When I create a sub-terminal via command palette
     Then the sub pane should be the active pane
     And the main pane should be receded
-    # Fill both panes so the recede is visible on real output, then move focus
-    # back and forth — the inactive pane (with content) recedes each way.
     When I run "ls -la /" in the sub-terminal
     And I run "ls -la /usr"
     Then the main pane should be the active pane
@@ -211,10 +191,6 @@ Feature: Sub-terminals
     And there should be no page errors
 
   Scenario: A split's dock row names the model its agent is running on
-    # A split is where a different model most often hides — a second agent
-    # beside its parent's — so the single-line sub-entry wears the same trailing
-    # model tag the two-line row does. The mock attaches to whichever terminal
-    # has focus, which right after creation is the split.
     When I create a sub-terminal via command palette
     And a Claude Code session is mocked with state "tool_use"
     Then the dock should show 1 split sub-entry

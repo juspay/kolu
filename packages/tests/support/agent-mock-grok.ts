@@ -1,21 +1,9 @@
-/**
- * Fixture builders for Grok mock e2e tests.
- *
- * Real Grok Build writes `active_sessions.json` + per-session
- * `events.jsonl` / `summary.json` under `~/.grok` (or `KOLU_GROK_DIR`).
- * These helpers synthesize the same on-disk artefacts so e2e scenarios
- * can drive the Grok adapter without the real CLI.
- */
-
 import * as fs from "node:fs";
 import * as path from "node:path";
 import type { AgentLifecycleState } from "./agent-lifecycle.ts";
 
 const SESSION_ID = "00000000-0000-7000-8000-000000000001";
 
-/** Write `active_sessions.json` — Grok's live pid→session map. `[]` until the
- *  pid is known. Always overwrites (never existsSync→write): CodeQL
- *  js/file-system-race, and fixtures own this path exclusively. */
 function writeActiveSessions(
   grokDir: string,
   sessionId: string,
@@ -39,7 +27,6 @@ function writeActiveSessions(
   return activeSessionsPath;
 }
 
-/** Map lifecycle state → events.jsonl content. */
 export function buildGrokEvents(state: AgentLifecycleState): string {
   const lines: object[] = [
     {
@@ -66,8 +53,6 @@ export function buildGrokEvents(state: AgentLifecycleState): string {
       });
       break;
     case "awaiting_user":
-      // Real ask_user_question flow: tool opens under tool_execution after
-      // a flash permission auto-allow — not a stuck permission_prompt.
       lines.push({
         ts: "2026-07-09T15:00:01.000Z",
         type: "phase_changed",
@@ -125,7 +110,6 @@ export interface GrokFixture {
   activeSessionsPath: string;
 }
 
-/** Create a Grok session tree under `grokDir` for `cwd`. */
 export function writeGrokFixture(opts: {
   grokDir: string;
   cwd: string;
@@ -167,13 +151,11 @@ export function writeGrokFixture(opts: {
   };
 }
 
-/** Rewrite events.jsonl (and optionally active_sessions) for a state transition. */
 export function updateGrokFixture(
   fixture: GrokFixture,
   opts: { state: AgentLifecycleState; pid?: number },
 ): void {
   fs.writeFileSync(fixture.eventsPath, buildGrokEvents(opts.state));
-  // Touch summary so mtime-based fallbacks refresh.
   const summary = JSON.parse(fs.readFileSync(fixture.summaryPath, "utf8"));
   summary.updated_at = new Date().toISOString();
   fs.writeFileSync(fixture.summaryPath, JSON.stringify(summary));

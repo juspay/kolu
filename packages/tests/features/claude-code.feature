@@ -16,16 +16,6 @@ Feature: Claude Code status detection
     And there should be no page errors
 
   Scenario: Tile title leads with the dock's agent-state pip
-    # The dock surfaces agent state via a shape-distinct StatePip
-    # (spinning ring = working, violet dot = needs you). The same pip
-    # leads the canvas-tile title bar, reused verbatim, so the title and
-    # the dock speak one agent-state vocabulary and track state together.
-    #
-    # "awaiting" means BLOCKED ON YOU and nothing else. A turn that merely
-    # ended is "linger" — the dimmed just-finished cue. The two used to
-    # share the one name, which is exactly how a question waiting on a
-    # human came to be drawn at the same strength as an agent that had
-    # simply stopped.
     When a Claude Code session is mocked with state "thinking"
     Then the tile title state pip should be "working"
     When the Claude Code session state changes to "waiting"
@@ -73,15 +63,6 @@ Feature: Claude Code status detection
     And there should be no page errors
 
   Scenario: An agent that goes back to work clears its unread ping
-    # The other way the amber mark ends: not you opening the terminal, but its
-    # agent resuming. The engine's episode-end edge — a terminal leaving BOTH the
-    # asking and finished lists — clears the dock unread mark that episode raised.
-    #
-    # The episode is driven through `awaiting_user` because that class is UNGATED:
-    # a `waiting` agent only joins the finished list after the 5s effective-finish
-    # quiet window, which is longer than this scenario, so it would never have an
-    # episode to end. Both polled indicator checks are the propagation barriers —
-    # the mark is only read once the client has the state it follows.
     When a Claude Code session is mocked with state "awaiting_user"
     And I create a terminal
     Then the tile chrome should show an agent indicator with state "awaiting_user"
@@ -105,12 +86,6 @@ Feature: Claude Code status detection
     And there should be no page errors
 
   Scenario: An AskUserQuestion prompt on screen promotes thinking to awaiting (screen scrape, #905)
-    # A pending AskUserQuestion reads as `thinking` on disk — the user's prompt is
-    # the newest JSONL entry and the assistant's tool_use reply is buffered in the
-    # SDK, so the screen scrape MUST promote from `thinking`, not only `waiting`
-    # (gating to `waiting` left the dock stuck on "Thinking" with the prompt up).
-    # kolu recognizes its `↑/↓ to navigate` footer on the rendered screen and
-    # promotes to awaiting_user — the full pipeline from the real starting state.
     When a Claude Code session is mocked with state "thinking"
     Then the tile chrome should show an agent indicator with state "thinking"
     When the terminal renders a Claude AskUserQuestion prompt
@@ -118,10 +93,6 @@ Feature: Claude Code status detection
     And there should be no page errors
 
   Scenario: A tool-permission prompt on screen promotes tool_use to awaiting (screen scrape, #905)
-    # A permission gate (Write/Edit/Bash/WebFetch approval) is on screen while the
-    # tool call sits on disk, so the session reads as `tool_use`. kolu recognizes
-    # the gate's footer (`Tab to amend`) on the rendered screen and promotes to
-    # awaiting_user — same pipeline as AskUserQuestion, from the tool_use state.
     When a Claude Code session is mocked with state "tool_use"
     Then the tile chrome should show an agent indicator with state "tool_use"
     When the terminal renders a Claude permission prompt

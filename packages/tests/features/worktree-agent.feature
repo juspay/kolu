@@ -16,8 +16,6 @@ Feature: Agent-aware worktree creation
     Then the right panel should be visible
 
   Scenario: Agent sub-palette appears under a recent repo when agents exist
-    # A live fake Claude Code process: the MRU row comes from DETECTION (the
-    # agent's kind + the flags its process runs with), not from a command mark.
     When I set up a git repo at "/tmp/kolu-wt-agent-pick"
     And I run "cd /tmp/kolu-wt-agent-pick"
     And a fake Claude Code agent is running with the arguments "--dangerously-skip-permissions"
@@ -38,8 +36,6 @@ Feature: Agent-aware worktree creation
     And I select "claude --dangerously-skip-permissions" in the palette
     Then the header CWD should show ".worktrees/"
     And the workspace switcher should show a worktree indicator
-    # The new terminal is active; its buffer contains the agent command
-    # (echoed by the shell at the first prompt after rc init settles).
     And the screen state should contain "claude --dangerously-skip-permissions"
     And there should be no page errors
 

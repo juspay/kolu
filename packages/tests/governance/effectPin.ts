@@ -1,110 +1,23 @@
-/**
- * The Effect pin's agreement gate — review finding A2.
- *
- * One Effect version is spelled in three CATEGORIES of place, and they must all
- * say the same thing:
- *
- * 1. the pnpm catalog (`pnpm-workspace.yaml`) — what every workspace-local
- *    member resolves through;
- * 2. root `pnpm.overrides` (`package.json`) — what collapses transitive
- *    resolution to one copy;
- * 3. the LITERAL specs in the manifests that must resolve OUTSIDE this
- *    workspace — everything an external consumer vendors, and the grafted
- *    `osfacts-client`.
- *
- * **Why (3) exists at all.** `catalog:` is workspace-local, and two kinds of
- * manifest here are read somewhere kolu's catalog does not exist:
- *
- *   - **vendored OUT.** drishti and odu vendor the `packages/surface*`
- *     DIRECTORIES from a content-addressed pin, and olai vendors
- *     `packages/padi-client` (juspay/kolu#2216); each installs those
- *     directories' `dependencies` from its own workspace, so a `catalog:` spec
- *     there is unresolvable for the consumer that matters most.
- *   - **grafted IN.** `osfacts-client` is juspay/osfacts' `client-ts/`, copied
- *     into the tree from the npins pin (`nix/workspace.nix`, and the justfile's
- *     working-tree twin). Its manifest is authored in THAT repo's workspace,
- *     which has no kolu catalog to resolve against either — so it owes a
- *     literal for the mirror-image reason.
- *
- * The rest of the workspace must not spell one: a literal anywhere else is a
- * fourth place to forget. The gate enforces BOTH directions — a manifest that
- * owes a literal owes one equal to the catalog's, every other manifest owes
- * exactly `catalog:`.
- *
- * **Why the sites are DISCOVERED, not listed.** A hardcoded list of the nine
- * files is the enumeration-without-a-counter problem the finding named: a tenth
- * pin site appears, nobody edits the list, and the gate passes while the
- * versions have split. So the walk finds every `package.json` in the tree and
- * every effect-family dependency in it. A new manifest, a new `@effect/*`
- * package, a new dependency section — each joins the gate by existing.
- *
- * **The same rule applies to WHICH manifests owe a literal.** Vendoring is a
- * package-DIRECTORY act, but what it costs is the whole transitive
- * `dependencies` closure of that directory — so `@kolu/padi-client` arriving in
- * olai brought `@kolu/terminal-vocab`, `kolu-transcript-core` and the
- * integrations with it, none of which anyone would have thought to list. Which
- * directories are vendored, and what their closure costs, is `vendorEntries.ts`'s
- * subject, not this file's — this gate takes the answer as data (the `vendored`
- * set every function below is handed) and polices Effect versions against it.
- *
- * A package name that appears in a manifest but has no catalog AND override
- * entry fails too: those two are how a version stays single, and a family
- * member outside them resolves on its own.
- */
-
 import { lstatSync, readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
-// Effect's own YAML parser, not the `yaml` package: this file's inputs are
-// machine-generated (pnpm-workspace.yaml), the workspace already depends on
-// Effect here, and using it drops a dependency rather than adding one. Both
-// parsers were run over the real inputs before the swap — deep-equal, and
-// faster. `unstable/` is Effect's pre-1.0-stability namespace, which is the
-// same bet this whole repo already makes on `unstable/rpc` for its wire.
-//
-// NOT a general recommendation: `@kolu/solid-markdown` deliberately keeps the
-// `yaml` package, because its input is USER-authored front matter and this
-// parser diverges there (multi-line plain scalars, cyclic anchors, a ` #`
-// comment after an apostrophe). Machine-generated input only.
 import { Yaml } from "effect/encoding";
 
-/** A single spelling of an effect-family version. */
 export interface EffectPin {
-  /** Repo-relative path, POSIX separators. */
   readonly path: string;
-  /** Which block inside that file — `catalog`, `pnpm.overrides`, a dep section. */
   readonly where: string;
-  /** The effect-family package name. */
   readonly pkg: string;
-  /** The version spec exactly as written. */
   readonly spec: string;
 }
 
-/** `effect` and everything published alongside it under the `@effect` scope. */
 export function isEffectFamily(pkg: string): boolean {
   return pkg === "effect" || pkg.startsWith("@effect/");
 }
 
-/** Why a manifest owes a LITERAL version rather than `catalog:` — the phrase the
- *  gate's message uses, so a failure explains itself instead of naming a rule.
- *  `null` for the ordinary workspace member, which owes `catalog:`.
- *
- *  `grafted` holds the manifests kolu GRAFTED from an npins pin rather than
- *  authored here, by EXACT repo-relative path — the graft ROOT's own manifest,
- *  never one merely under it. Those are authored and installed in THEIR repo's
- *  workspace, where kolu's catalog does not exist, so they owe a literal for the
- *  same reason a vendored package's closure does — and kolu must not be told to
- *  edit a manifest it does not own. The set comes from the emitted
- *  `nix/consumer-closure.json` (Nix's own `pinnedPins`, which the consumer
- *  recipe is checked against), so a fourth graft joins by being pinned rather
- *  than by being remembered here. */
 export function literalReason(
   relPath: string,
   vendored: ReadonlySet<string>,
   grafted: ReadonlySet<string>,
 ): string | null {
-  // GRAFTED FIRST: a grafted member is also in the vendored closure, and the
-  // sentence for that case ("replace `catalog:` with a literal") would tell a
-  // reader to edit a manifest kolu does not own.
   if (grafted.has(relPath))
     return "a manifest grafted from an npins pin; it is authored in that repo's own workspace, where kolu's catalog does not exist";
   if (vendored.has(relPath))
@@ -132,7 +45,6 @@ function record(value: unknown): Record<string, string> {
   return out;
 }
 
-/** The effect-family specs a manifest declares, across every dep section. */
 export function manifestPins(relPath: string, manifest: Manifest): EffectPin[] {
   const out: EffectPin[] = [];
   for (const where of DEP_SECTIONS) {
@@ -143,8 +55,6 @@ export function manifestPins(relPath: string, manifest: Manifest): EffectPin[] {
   return out;
 }
 
-/** The effect-family entries of root `pnpm.overrides`. Scoped overrides
- *  (`a>b`) name a resolution PATH rather than a package and are left alone. */
 export function overridePins(relPath: string, manifest: Manifest): EffectPin[] {
   const overrides = record(
     (manifest as { pnpm?: { overrides?: unknown } }).pnpm?.overrides,
@@ -158,7 +68,6 @@ export function overridePins(relPath: string, manifest: Manifest): EffectPin[] {
   return out;
 }
 
-/** The effect-family entries of the pnpm catalog. */
 export function catalogPins(relPath: string, yamlText: string): EffectPin[] {
   const parsed = Yaml.parse(yamlText) as { catalog?: unknown };
   const out: EffectPin[] = [];
@@ -170,35 +79,33 @@ export function catalogPins(relPath: string, yamlText: string): EffectPin[] {
   return out;
 }
 
-/** Trees with no manifest of kolu's to police — build output, VCS and tool
- *  state. `osfacts-client` is deliberately NOT here any more: it is grafted from
- *  the `osfacts` pin rather than committed, but the client now DECLARES an
- *  effect dependency, and a graft whose Effect disagreed with this workspace's
- *  would put two copies in one process — exactly the split this gate exists to
- *  refuse. Not ours to author is not the same as not ours to check. */
 const SKIPPED = new Set(["node_modules", "dist", ".git", ".direnv", ".logs"]);
 
-/** `lstatSync`, never `statSync`: a symlink is a pointer at somebody else's
- *  tree, and following one makes this gate police manifests kolu does not
- *  author. The repo root holds `result-<flake>` out-links during a CI run
- *  (`ci/flake-build --link`, which is how odu finds what to push), and
- *  `result-root-2` is `agent-flake-source` — a whole second copy of
- *  `packages/`, whose literal Effect versions are correct THERE and a
- *  violation here. Grafted members (`osfacts-client/`, `odu/`, `juspay/`) are
- *  real directories, so they stay policed. */
-function walkManifests(dir: string, out: string[]): void {
-  for (const entry of readdirSync(dir)) {
-    if (SKIPPED.has(entry)) continue;
-    const full = path.join(dir, entry);
+interface DirEntry {
+  name: string;
+  path: string;
+  isDirectory: boolean;
+}
+
+function nonSymlinkEntries(dir: string): DirEntry[] {
+  const out: DirEntry[] = [];
+  for (const name of readdirSync(dir)) {
+    const full = path.join(dir, name);
     const stat = lstatSync(full);
     if (stat.isSymbolicLink()) continue;
-    if (stat.isDirectory()) walkManifests(full, out);
-    else if (entry === "package.json") out.push(full);
+    out.push({ name, path: full, isDirectory: stat.isDirectory() });
+  }
+  return out;
+}
+
+function walkManifests(dir: string, out: string[]): void {
+  for (const entry of nonSymlinkEntries(dir)) {
+    if (SKIPPED.has(entry.name)) continue;
+    if (entry.isDirectory) walkManifests(entry.path, out);
+    else if (entry.name === "package.json") out.push(entry.path);
   }
 }
 
-/** Every spelling of an effect-family version in the tree — catalog, overrides,
- *  and every `package.json` anywhere below the repo root. */
 export function collectEffectPins(repoRoot: string): EffectPin[] {
   const pins: EffectPin[] = [
     ...catalogPins(
@@ -223,13 +130,6 @@ function describe(pin: EffectPin): string {
   return `${pin.path} (${pin.where}) ${pin.pkg}: ${pin.spec}`;
 }
 
-/**
- * Throw unless every pin site agrees, and return the one version they agree on.
- *
- * The returned version is the repo's single answer to "which Effect is this?" —
- * `betaAssumptions` keys its marker tags off it, so a bump moves both gates at
- * once.
- */
 export function validateEffectPins(
   pins: readonly EffectPin[],
   vendored: ReadonlySet<string>,
@@ -302,12 +202,6 @@ export function validateEffectPins(
       );
     }
   }
-  // Only the VENDORED literals are required to exist: those files are committed
-  // here, so their disappearance is a kolu edit and a real regression. The
-  // grafted manifest is a copy of another repo's file that a bare checkout has
-  // not materialised yet, and osfacts is free to stop depending on Effect — so
-  // it is policed WHEN PRESENT rather than demanded. (A graft that failed to
-  // happen at all fails the `pnpm install` this gate runs after, loudly.)
   if (vendoredLiterals === 0) {
     problems.push(
       "  no vendored manifest spells a literal version — the external-consumer pins have vanished.",

@@ -1,16 +1,5 @@
-/** Shared helpers for Corvu Drawer interactions in mobile e2e tests.
- *  Lives in `support/` rather than a specific `*_steps.ts` file so any
- *  drawer step file can import it without crossing into a peer step
- *  module — peer-imports between step files conflate "shared helper"
- *  with "step-author who happened to need it first." */
-
 import { type KoluWorld, POLL_TIMEOUT } from "./world.ts";
 
-/** Tap a Corvu Drawer's overlay at a point where Drawer.Content can't
- *  occlude it. The overlay spans the full viewport but the drawer's
- *  content sits on top of it across the anchor side; tap the opposite
- *  edge — that's the only region where the backdrop is actually
- *  receiving touches. */
 export async function tapBackdropAtSafePoint(
   world: KoluWorld,
   selector: string,

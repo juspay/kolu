@@ -1,28 +1,13 @@
-// Shared kolu-domain helpers for authoring recordings. (Kolu domain — knows
-// about claude/terminals; depends on the World, never on the engine.)
 import { padiCall } from "../../support/rpcWire.ts";
 import {
   ACTIVE_CANVAS_TILE_SELECTOR,
   type KoluWorld,
 } from "../../support/world";
 
-/** Sleep `ms` — paces a recording at human speed. */
 export const pause = (world: KoluWorld, ms: number): Promise<void> =>
   world.page.waitForTimeout(ms);
 
-/**
- * Wait for any dock row to reach `bucket` ("working" | "awaiting" | "idle").
- * Qualified on `data-testid="dock-row"` so it never matches a canvas-minimap
- * rect (which also carries `data-bucket`). The high-level state is `data-bucket`;
- * `data-agent-state` is the raw state ("thinking"/"tool_use"/"waiting"), which is
- * NOT what we poll here.
- *
- * THROWS on timeout (no `.catch`): a dock transition that never happens means
- * the live agent didn't run/finish — that must FAIL the recording, not silently
- * film a clip where the dock never lights up. (This is the load-bearing
- * assertion the codex review made the dock waits carry.)
- */
-export function waitForDockBucket(
+export function requireDockBucket(
   world: KoluWorld,
   bucket: "working" | "awaiting" | "idle",
   timeout: number,
@@ -33,56 +18,33 @@ export function waitForDockBucket(
   );
 }
 
-// The theme the current recording pins (set by the dispatcher from
-// `Recording.theme`); `newTerminal` applies it to each terminal it creates.
 let activeTheme: string | undefined;
 export const setActiveTheme = (name?: string): void => {
   activeTheme = name;
 };
 
-/**
- * Clear the canvas to a clean empty state: wait for the app, kill any
- * auto-restored terminal (the app-mode session can carry one), wait for the
- * canvas to empty, then hold a short beat on it. Recordings open with this so
- * the clip starts on a deliberate empty canvas — then create terminals on
- * camera.
- */
 export async function clearCanvas(
   world: KoluWorld,
   beatMs = 800,
 ): Promise<void> {
   await world.waitForReady();
-  // Node-side, over the harness's own wire — no `page.evaluate` hop, so the map
-  // fold and the host key stay in the one place that owns them.
   await padiCall("lifecycle/killAll").catch(() => undefined);
-  // Count CANVAS TILES, not every [data-terminal-id] in the DOM — with a
-  // seeded host pool the fleet dock mirrors other hosts' terminals as rows,
-  // and killAll only clears the local padi.
   let survivors = 0;
   for (let i = 0; i < 20; i++) {
     survivors = await world.page.locator('[data-testid="canvas-tile"]').count();
     if (survivors === 0) break;
     await pause(world, 300);
   }
-  // A canvas that never empties must FAIL here, loudly — a survivor tile from
-  // a swallowed killAll error derailed three hero-demo attempts (the paste
-  // landed in a stray "~" shell) before this poll stopped giving up silently.
   if (survivors > 0) {
     throw new Error(
       `clearCanvas: ${survivors} terminal(s) survived lifecycle/killAll`,
     );
   }
-  await pause(world, beatMs); // a beat on the empty canvas
+  await pause(world, beatMs);
 }
 
-/**
- * The shared opening for a single-terminal demo: clear the canvas, create one
- * themed terminal, and nudge its tile clear of the (visible) dock so the dock
- * doesn't overlap the content. Returns the terminal id. Recordings then just
- * run their commands.
- */
 export async function setupSingleTerminal(world: KoluWorld): Promise<string> {
-  await clearCanvas(world, 3500); // wide beat for a clean trim (new-terminal-demo)
+  await clearCanvas(world, 3500);
   const id = await newTerminal(world);
   await pause(world, 600);
   await nudgeClearOfDock(world);
@@ -90,8 +52,6 @@ export async function setupSingleTerminal(world: KoluWorld): Promise<string> {
   return id;
 }
 
-/** Drag the active tile right just far enough that the dock no longer covers
- *  it (dock-width-aware, with a small margin). No-op if already clear. */
 export async function nudgeClearOfDock(world: KoluWorld): Promise<void> {
   const dock = await world.page
     .locator('[data-testid="dock"]')
@@ -102,7 +62,7 @@ export async function nudgeClearOfDock(world: KoluWorld): Promise<void> {
     .first();
   const tile = await bar.boundingBox().catch(() => null);
   if (!dock || !tile) return;
-  const delta = dock.x + dock.width + 24 - tile.x; // clear the dock + 24px
+  const delta = dock.x + dock.width + 24 - tile.x;
   if (delta <= 0) return;
   const sx = tile.x + tile.width / 2;
   const sy = tile.y + tile.height / 2;
@@ -113,9 +73,6 @@ export async function nudgeClearOfDock(world: KoluWorld): Promise<void> {
   await world.waitForFrame();
 }
 
-/** Pin a theme on a terminal via the `setTheme` RPC (invisible — no palette
- *  flash). Names come from packages/terminal-themes (e.g. "Vaughn",
- *  "Catppuccin Latte"). */
 export async function setTerminalThemeRpc(
   _world: KoluWorld,
   id: string,
@@ -124,9 +81,6 @@ export async function setTerminalThemeRpc(
   await padiCall("chrome/setTheme", { id, themeName }).catch(() => undefined);
 }
 
-/** Create a terminal (via the keyboard shortcut) and pin a theme on it —
- *  defaults to the recording's `activeTheme`, override per terminal. Use instead
- *  of `world.createTerminal()` in recordings so clips share a consistent look. */
 export async function newTerminal(
   world: KoluWorld,
   themeName = activeTheme,
@@ -139,10 +93,6 @@ export async function newTerminal(
   return id;
 }
 
-/** Like {@link newTerminal}, but created by *clicking the dock's "+" button* —
- *  a visible on-camera action (telegraphed with a coral arrow) instead of a
- *  hidden keyboard shortcut. Mirrors world.createTerminal's id-diff to learn the
- *  new terminal's id. Returns it. */
 export async function createTerminalByClick(
   world: KoluWorld,
   themeName = activeTheme,
@@ -150,8 +100,6 @@ export async function createTerminalByClick(
 ): Promise<string> {
   const before = await world.terminalIds();
   await clickWithArrow(world, '[data-testid="dock-new"]', arrowLabel, "left");
-  // Clicking "+" opens the new-terminal palette ("In current directory" is the
-  // default row); Enter confirms it → a plain shell in the current directory.
   await pause(world, 700);
   await world.page.keyboard.press("Enter");
   await world.page.waitForFunction(
@@ -174,14 +122,6 @@ export async function createTerminalByClick(
   return id;
 }
 
-/**
- * Open a SECOND terminal that slightly overlaps — and buries — the currently
- * active tile. The canvas already cascades a new tile on top at an offset; we
- * then drag it to a deterministic `(dx, dy)` offset over the base tile so the
- * overlap is reliable run-to-run (the base tile's content ends up hidden behind
- * it). Returns the new terminal id. Used to demo the dock surfacing an agent
- * that's hidden behind another tile.
- */
 export async function openOverlappingTerminal(
   world: KoluWorld,
   opts: { theme?: string; dx?: number; dy?: number } = {},
@@ -195,10 +135,7 @@ export async function openOverlappingTerminal(
       )
       .boundingBox()
       .catch(() => null);
-  // The base tile is the active one NOW — capture it before creating the new
-  // tile (after creation the active selector points at the NEW tile).
   const base = await activeBar();
-  // Created by clicking "+" (visible, arrowed), themed per opts.theme.
   const id = await createTerminalByClick(
     world,
     opts.theme,
@@ -207,9 +144,6 @@ export async function openOverlappingTerminal(
   await pause(world, 300);
   const fresh = await activeBar();
   if (base && fresh) {
-    // Drag the new tile so its titlebar sits at base + (dx, dy): grabbing the
-    // titlebar and moving the cursor by (targetTopLeft − currentTopLeft) shifts
-    // the tile by that delta.
     const sx = fresh.x + fresh.width / 2;
     const sy = fresh.y + fresh.height / 2;
     const ex = sx + (base.x + dx - fresh.x);
@@ -223,72 +157,40 @@ export async function openOverlappingTerminal(
   return id;
 }
 
-/** claude on the cheap model. `--dangerously-skip-permissions` drops per-tool
- *  prompts but NOT the folder-trust gate (accept it via `acceptTrustGate`).
- *  Shows the account banner (name/email/plan) — use {@link CODEX_AUTONOMOUS}
- *  for clips that must not surface personal identity. */
 export const CLAUDE_SONNET =
   "claude --dangerously-skip-permissions --model sonnet";
 
-/** codex, INTERACTIVE + autonomous: `--ask-for-approval never` (no per-command
- *  prompts) + `--sandbox read-only` (safe; enough to read + explain — and it
- *  avoids the `--dangerously-bypass…` danger-confirmation). Stays interactive so
- *  the dock reaches `awaiting` after it answers. Identity-neutral startup
- *  (provider/model/session-uuid — no name/email/plan), so it's the default. */
 export const CODEX_AUTONOMOUS =
   "codex --ask-for-approval never --sandbox read-only";
 
+const TRUST_GATE_APPEARS_MS = 2500;
+const AGENT_BOOT_MS = 2500;
+const DOCK_WORKING_DWELL_MS = 3000;
+const ANSWER_DWELL_MS = 2800;
+
 export interface LaunchAgentOptions {
-  /** Agent CLI + flags. Defaults to {@link CLAUDE_SONNET}. */
   command?: string;
-  /** The prompt, typed after the agent is up (skipped if absent). */
   prompt?: string;
-  /** Press Enter once to accept a first-run trust prompt (claude's folder-trust
-   *  gate, codex's directory-trust). Default true. */
   acceptTrustGate?: boolean;
-  /** ms to wait for the trust prompt / startup intro before pressing Enter. */
   trustMs?: number;
-  /** ms to wait for the agent to be ready for input before typing the prompt. */
   bootMs?: number;
-  /** ms to hold on the finished answer (dock glowing at awaiting). */
   dwellMs?: number;
 }
 
-/**
- * Launch an agent in the active terminal and (optionally) ask it something —
- * the reusable climax of a product demo. Keep the dock in shot: its row tracks
- * the agent live, and we wait for it to flip **working → awaiting** (i.e. the
- * agent actually answered) rather than dwelling a fixed time. Shared across
- * recordings (this one and future ones).
- *
- * Claude's first run in a folder shows a "trust this folder" gate; Enter
- * accepts the default ("Yes, I trust"). `--dangerously-skip-permissions` only
- * covers the per-tool prompts *during* the query, not this gate — so we accept
- * it explicitly before typing the prompt (otherwise the prompt lands in the
- * gate and mangles).
- */
 export async function launchAgentAndAsk(
   world: KoluWorld,
   opts: LaunchAgentOptions = {},
 ): Promise<void> {
   await world.terminalRun(opts.command ?? CLAUDE_SONNET);
   if (opts.acceptTrustGate ?? true) {
-    await pause(world, opts.trustMs ?? 2500); // folder-trust gate appears
-    await world.page.keyboard.press("Enter"); // accept "Yes, I trust this folder"
+    await pause(world, opts.trustMs ?? TRUST_GATE_APPEARS_MS);
+    await world.page.keyboard.press("Enter");
   }
-  await pause(world, opts.bootMs ?? 2500); // agent loads, ready for input
+  await pause(world, opts.bootMs ?? AGENT_BOOT_MS);
   if (!opts.prompt) return;
 
   await world.terminalRun(opts.prompt);
-  // Wait for the dock bucket to go working → awaiting (the answer is on screen
-  // and the row has stopped pulsing). These two waits are LOAD-BEARING — see
-  // waitForDockBucket: they prove the live agent ran and finished, the whole
-  // point of the clip, and THROW if the dock never lights up. (The annotations
-  // that follow are best-effort visual polish and stay caught.)
-  //
-  // Working: point at the agent's live state in two places — the title-bar
-  // badge (state + context tokens) and the dock row now tracking it.
-  await waitForDockBucket(world, "working", 20_000);
+  await requireDockBucket(world, "working", 20_000);
   await annotate(
     world,
     '[data-testid="agent-indicator"]',
@@ -301,10 +203,9 @@ export async function launchAgentAndAsk(
     "…mirrored on the dock",
     "up",
   );
-  await pause(world, 3000);
+  await pause(world, DOCK_WORKING_DWELL_MS);
 
-  // Done: the agent answered — the dock flips to awaiting ("your turn").
-  await waitForDockBucket(world, "awaiting", 90_000);
+  await requireDockBucket(world, "awaiting", 90_000);
   await clearAnnotations(world);
   await annotate(
     world,
@@ -312,17 +213,11 @@ export async function launchAgentAndAsk(
     "agent finished — your turn",
     "up",
   );
-  await pause(world, opts.dwellMs ?? 2800); // hold on the answer + annotation
+  await pause(world, opts.dwellMs ?? ANSWER_DWELL_MS);
 }
 
 type ArrowDir = "up" | "down" | "left" | "right";
 
-/**
- * Overlay a clearly-EXTERNAL coral arrow + label pointing at `selector` (the
- * arrow points toward the element from `dir`'s side). A drawn annotation reads
- * as "the clip is showing you this" — a CSS ring read as kolu's own UI. Tagged
- * so `clearAnnotations` can drop them between phases. Reusable across recordings.
- */
 export async function annotate(
   world: KoluWorld,
   selector: string,
@@ -348,7 +243,6 @@ export async function annotate(
         const wrap = document.createElement("div");
         wrap.className = "__demo_annotation";
         wrap.style.cssText = `position:fixed;z-index:2147483647;pointer-events:none;display:flex;${vert ? "flex-direction:column" : "flex-direction:row"};align-items:center;gap:3px;font-family:ui-sans-serif,system-ui,sans-serif`;
-        // arrow nearest the target: up/left → arrow first; down/right → pill first
         wrap.innerHTML =
           dir === "down" || dir === "right" ? pill + arrow : arrow + pill;
         document.body.appendChild(wrap);
@@ -376,7 +270,6 @@ export async function annotate(
   await world.waitForFrame();
 }
 
-/** Remove all annotation overlays (between phases). */
 export async function clearAnnotations(world: KoluWorld): Promise<void> {
   await world.page
     .evaluate(() => {
@@ -386,11 +279,6 @@ export async function clearAnnotations(world: KoluWorld): Promise<void> {
     .catch(() => undefined);
 }
 
-/**
- * Point a coral arrow at `selector`, hold briefly so the click reads on camera,
- * click it, then clear the arrow. Use for on-camera mouse clicks so the viewer
- * sees *what* is being clicked (the "+" button, a dock row, …).
- */
 export async function clickWithArrow(
   world: KoluWorld,
   selector: string,
@@ -405,12 +293,6 @@ export async function clickWithArrow(
   await clearAnnotations(world);
 }
 
-/**
- * Drive a REAL mouse drag to select the `target` text inside the element matched
- * by `containerSelector` (e.g. the Code-tab file view). Mirrors the e2e harness's
- * `dragSelectText` so a recording can demo the comment-on-any-file flow: the
- * selection wakes kolu's floating comment pill. Throws if the text isn't found.
- */
 export async function selectTextInView(
   world: KoluWorld,
   containerSelector: string,
@@ -495,12 +377,6 @@ export async function selectTextInView(
   await world.waitForFrame();
 }
 
-/**
- * Open a file in the Code tab's "All files" browser by typing `query` into the
- * file-filter search and clicking the row whose path is `filePath`. Faster +
- * more robust than expanding nested folders by hand. Pass `arrowLabel` to
- * telegraph the click with a coral arrow.
- */
 export async function openFileBySearch(
   world: KoluWorld,
   query: string,
@@ -519,16 +395,6 @@ export async function openFileBySearch(
   }
 }
 
-// ---------------------------------------------------------------------------
-// Canvas camera. The viewport singleton isn't reachable from page.evaluate,
-// and synthetic ctrl+wheel events on the container never moved the camera on
-// film (three recordings shipped at a stubborn 100%) — so the camera is
-// driven through the minimap zoom bar's REAL buttons, which call
-// viewport.zoomOut()/resetZoom() directly. Needs the minimap on screen
-// (tiled mode, not hidden by `display.hideMinimap`).
-// ---------------------------------------------------------------------------
-
-/** One zoom-out step about the viewport center, via the minimap button. */
 async function canvasZoomStep(world: KoluWorld): Promise<void> {
   await world.page
     .locator('[data-testid="minimap-zoombar"] button[title="Zoom out"]')
@@ -536,13 +402,6 @@ async function canvasZoomStep(world: KoluWorld): Promise<void> {
   await world.waitForFrame();
 }
 
-/**
- * Zoom the canvas out until every tile fits inside the viewport (with a
- * margin) — the "wide shot" of the whole fleet. Bounded: stops after
- * `maxSteps` or once `data-zoom` drops below `minZoom` (default 0.5 — below
- * that terminals stop being readable on film; a stray far-flung tile then
- * clips rather than shrinking the whole fleet to dots).
- */
 export async function zoomOutToFitTiles(
   world: KoluWorld,
   {
@@ -581,10 +440,6 @@ export async function zoomOutToFitTiles(
   }
 }
 
-/** Reset canvas zoom to 100% via the minimap zoom bar (about the viewport
- *  center — center the target tile first). Silent: no arrow; the zoom itself
- *  is the visible move. Requires the minimap on screen (tiled mode, not
- *  hidden by `display.hideMinimap`). */
 export async function resetCanvasZoom(world: KoluWorld): Promise<void> {
   await world.page
     .locator('[data-testid="minimap-zoombar"] button[title="Reset to 100%"]')
@@ -592,7 +447,6 @@ export async function resetCanvasZoom(world: KoluWorld): Promise<void> {
   await world.waitForFrame();
 }
 
-/** Zoom out (minimap button steps) until `data-zoom` <= `target`. Bounded. */
 export async function zoomOutToLevel(
   world: KoluWorld,
   target: number,
@@ -612,11 +466,6 @@ export async function zoomOutToLevel(
   }
 }
 
-/** Drag a tile (by terminal id) so its TITLEBAR CENTER lands at viewport
- *  (x, y) — real mouse, real steps. Drag the TOPMOST overlapping tile first:
- *  the pointer grabs whatever is on top at the start point. Verifies the
- *  landing and retries once; THROWS if the tile still isn't where it was
- *  put — a silently-missed drag films a stacked pile instead of islands. */
 export async function dragTileTo(
   world: KoluWorld,
   terminalId: string,
@@ -649,26 +498,10 @@ export async function dragTileTo(
   throw new Error(`dragTileTo: ${terminalId} refused to land at (${x}, ${y})`);
 }
 
-/**
- * Pan the canvas with the hand tool (shift + primary drag forces a canvas
- * pan even over tiles). `dx/dy` are the MOUSE travel — the canvas content
- * moves with the mouse, so at zoom z the camera crosses `dx/z` canvas px.
- *
- * SMOOTHNESS: one `mouse.move` per pixel-step would pay the harness's 250ms
- * slowMo on EVERY call — 36 calls filmed as 36 visible jerks. Instead the
- * travel is a few chained `mouse.move({steps})` calls: Playwright
- * interpolates the intermediate events inside one call with no slowMo
- * between them, so each chunk glides; chunk sizes are eased (small-big-small)
- * so the whole move reads as one accelerating/decelerating camera pan.
- */
 export async function handPan(
   world: KoluWorld,
   opts: { fromX: number; fromY: number; dx: number; dy: number },
 ): Promise<void> {
-  // Ease-in-out chunk weights; each chunk is one interpolated mouse.move.
-  // Three chunks, ~30 interpolation steps total: every chunk pays the
-  // harness's 250ms slowMo once, so more chunks/steps = a pan that crawls
-  // on film (the take-22 complaint), fewer = a brisk glide.
   const weights = [0.25, 0.5, 0.25];
   await world.page.keyboard.down("Shift");
   await world.page.mouse.move(opts.fromX, opts.fromY);
@@ -687,18 +520,6 @@ export async function handPan(
   await world.waitForFrame();
 }
 
-// ---------------------------------------------------------------------------
-// Hosts. Chips carry `data-host="<encoded key>"` whose encoding is an
-// implementation detail — resolve a chip to a concrete CSS selector by
-// scanning visible chip text (or by strip position), then drive that selector
-// like any other. Scoped to `host-chip-row` because a hidden measuring twin
-// of every chip is always mounted outside it.
-// ---------------------------------------------------------------------------
-
-/**
- * Resolve a host chip to an exact CSS selector, by visible `name` fragment or
- * by strip `index` (0 = the local host). Returns null if no chip matches.
- */
 export async function hostChipCss(
   world: KoluWorld,
   opts: { name?: string; index?: number },
@@ -718,12 +539,6 @@ export async function hostChipCss(
   }, opts);
 }
 
-/**
- * Switch the active host by clicking a chip's select button, then wait until
- * the chip reports active and the target host's canvas is usable (no
- * warming/connecting/down interstitial). THROWS on timeout: a host that never
- * becomes usable must fail the recording, not film a dead canvas.
- */
 export async function switchHost(
   world: KoluWorld,
   chipCss: string,
@@ -741,7 +556,7 @@ export async function switchHost(
     chipCss,
     { timeout: 10_000 },
   );
-  await pause(world, 600); // let an interstitial (warming/connecting) mount
+  await pause(world, 600);
   await world.page.waitForFunction(
     () =>
       !document.querySelector(

@@ -1,74 +1,39 @@
 const parallel = parseInt(process.env.CUCUMBER_PARALLEL || "1", 10);
 
-// Only set default paths if no feature files were passed as CLI args.
-// CLI positional args (e.g. features/worktree.feature) are ignored when
-// the profile hardcodes paths — so we omit paths to let CLI args win.
-// Match both `foo.feature` and `foo.feature:42[:56...]` line-targeted forms;
-// missing the line form would inject `paths` and silently broaden the run.
-const cliHasFeatureArgs = process.argv
+const FEATURE_PATH_WITH_OPTIONAL_LINES = /\.feature(?::\d+)*$/;
+const cliSpecifiesFeaturePaths = process.argv
   .slice(2)
-  .some((a) => /\.feature(?::\d+)*$/.test(a));
+  .some((a) => FEATURE_PATH_WITH_OPTIONAL_LINES.test(a));
 
-// Default tag filter: exclude @skip'd scenarios (regression harnesses for
-// known-broken behavior). `CUCUMBER_TAGS` fully replaces the default — e.g.
-// `CUCUMBER_TAGS='@skip'` runs only skipped scenarios for local development.
-//
-// `@recording` (the marketing screencasts in recordings.feature) is also
-// excluded by default: those scenarios launch the REAL claude/codex agents and
-// only make sense under X11 capture (`just record`, which sets KOLU_X11CAP).
-// In the plain `ci::e2e` lane they have no reason to resolve and flake (#1226),
-// so gate them behind KOLU_X11CAP — present only via `just record`.
-const X11CAP = !!process.env.KOLU_X11CAP;
-const baseTags =
+const excludeSkipped = "not @skip";
+const excludeRecordingsUnlessX11Capture = process.env.KOLU_X11CAP
+  ? []
+  : ["not @recording"];
+const excludeDarwinUnreliable =
+  process.platform === "darwin" ? ["not @skip-darwin"] : [];
+
+const requestedTags =
   process.env.CUCUMBER_TAGS ||
-  (X11CAP ? "not @skip" : "not @skip and not @recording");
+  [excludeSkipped, ...excludeRecordingsUnlessX11Capture].join(" and ");
+const tags = [`(${requestedTags})`, ...excludeDarwinUnreliable].join(" and ");
 
-// Platform-conditional skip. `@skip-darwin` scenarios run on Linux but are
-// excluded on aarch64-darwin, where macOS `fs.watch`/FSEvents makes some
-// filesystem-watch behaviours unreliable — notably detecting an *externally*
-// created `.git` in the cwd (git-context.feature:59): the server can't observe
-// the new `.git` until an FSEvent invalidates its dir cache, and `fs.watch`
-// delivers that event only intermittently there. The realistic in-shell `git
-// init` path (which re-emits OSC 7) is covered separately and runs everywhere.
-const tags =
-  process.platform === "darwin"
-    ? `(${baseTags}) and not @skip-darwin`
-    : baseTags;
+const cucumberScenarioRetries = parseInt(process.env.CUCUMBER_RETRY || "0", 10);
 
-// Scenario-level retry budget. Defaults to 0 (off) so local `just
-// test-quick` surfaces real failures on the first attempt — only CI sets
-// `CUCUMBER_RETRY=1` to absorb residual darwin-runner-load flakes after
-// the structural fixes in #955. Distinct volatility axis from
-// `support/hooks.ts::retryTransient`, which retries TCP-setup hiccups
-// only; the two coexist.
-const retry = parseInt(process.env.CUCUMBER_RETRY || "0", 10);
-
-// Odu hands each borrowed CI slot one slice of the same scenario list, and
-// Cucumber owns the split: its native sharder (`--shard <index>/<total>`,
-// one-based) distributes pickles itself, so an expanded Scenario Outline
-// counts as its examples and adding a scenario cannot quietly leave one slot
-// with the expensive half. `ci::e2e` derives this from odu's zero-based
-// `ODU_SHARD_INDEX`; `just test` / `just test-quick` leave it unset and run
-// every scenario.
 const shard = process.env.CUCUMBER_SHARD || "";
 
 export const ui = {
-  ...(!cliHasFeatureArgs && { paths: ["features/**/*.feature"] }),
+  ...(!cliSpecifiesFeaturePaths && { paths: ["features/**/*.feature"] }),
   import: ["step_definitions/**/*.ts", "support/**/*.ts"],
   tags,
-  // progress-bar (stdout): % completion; pretty (stderr): inline failures as they happen
   format: [
     "progress-bar",
     "pretty:/dev/stderr",
     "html:reports/report.html",
-    // The official Cucumber message stream is the single source for Wave 0
-    // attempt timing. governance/runE2e.ts reduces it after every run, even
-    // when Cucumber fails, so retries cannot disappear behind a final result.
     "message:reports/messages.ndjson",
   ],
   formatOptions: { snippetInterface: "async-await" },
   ...(parallel > 1 && { parallel }),
-  ...(retry > 0 && { retry }),
+  ...(cucumberScenarioRetries > 0 && { retry: cucumberScenarioRetries }),
   ...(shard !== "" && { shard }),
 };
 

@@ -4,9 +4,6 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { graftedMembers } from "@kolu/daemon-test-gate/runtimeDepEdges";
-// Effect's own YAML parser rather than the `yaml` package — see the note on the
-// same import in `effectPin.ts`. The input here (coverage-ledger.yaml) is
-// machine-generated too, and both parsers were checked deep-equal over it.
 import { Yaml } from "effect/encoding";
 import {
   collectAwaitedFaceCalls,
@@ -188,27 +185,12 @@ if (currentIds.size !== current.records.length) {
   throw new Error("current suite contains duplicate revision ids");
 }
 
-// The `Effect.run*` edge allowlist (PLAN D10/#25). Governance rather than a unit
-// test because it is a claim about the whole repo, not about one package — the
-// same reason the scenario inventory and the coverage ledger live here.
 const runEdges = collectRunEdges(repoRoot);
 validateRunEdges(runEdges, RUN_EDGE_ALLOWLIST);
 const runEdgeSites = [...runEdges.values()].reduce((sum, n) => sum + n, 0);
 
-// The `await`-on-a-member-face ban (B8a) — the run-edge budget's twin, and here
-// for the same reason. `await` on a non-thenable is legal TypeScript that
-// evaluates to the description, so a face call awaited instead of composed
-// compiles, type-checks, reads exactly like the code it replaced, and never
-// dispatches. Neither tsc nor biome can see it.
 validateAwaitedFaceCalls(collectAwaitedFaceCalls(repoRoot));
 
-// The `Schema.optional` tolerance allowlist (B3) — the third scan of the same
-// family. `optionalKey` is the migration's law; the four fields that break it
-// sit on forwarding paths where absence cannot be produced at the source. With
-// `exactOptionalPropertyTypes` off — re-measured after the osfacts client went
-// Effect-native: 922 errors across 36 of kolu's OWN packages (249 files), none
-// of them in the graft, which turns the flag on upstream — nothing else
-// distinguishes a deliberate shim from a fifth accident.
 const optionalShims = collectOptionalTolerance(repoRoot);
 validateOptionalTolerance(optionalShims, OPTIONAL_TOLERANCE_ALLOWLIST);
 const optionalShimSites = [...optionalShims.values()].reduce(
@@ -216,33 +198,14 @@ const optionalShimSites = [...optionalShims.values()].reduce(
   0,
 );
 
-// No two source modules whose import paths differ only by case (#2364). The
-// fourth whole-repo scan, and the one no Linux lane can catch any other way: a
-// case-insensitive disk folds the pair into one file, so the macOS build picks
-// the wrong module while every Linux build, test and typecheck stays green.
-// The file list is `git ls-files` — what is committed, as `.gitignore` scopes it.
 const trackedFiles = git("ls-files", "-z").split("\0").filter(Boolean);
 validateCaseCollisions(findCaseCollisions(trackedFiles));
 
-// Every workspace package has its own README (AGENTS.md, Documentation). The
-// fifth whole-tree scan, over the same committed file list: the package set is
-// the workspace's own globs resolved against it, so a package joins the rule by
-// existing and there is no allowlist to fall out of date. See
-// `packageReadmes.ts`.
 const packageReadmes = collectPackageReadmes(repoRoot, trackedFiles);
 validatePackageReadmes(packageReadmes.missing);
 
-// The manifest-closure walk exists in TS and in Nix, and neither can run the
-// other. This makes them answer the same question over the same entries, so a
-// drift fails here instead of downstream — as a daemon that ships new code under
-// an unchanged id, or as a vendored directory a consumer was never told to copy.
 const closureMembers = checkClosureWalksAgree(repoRoot);
 
-// The CONSUMER CLOSURE artifact, checked fresh. `nix/consumer-closure.json` is
-// what an out-of-repo consumer walks to turn a SEED list into the package set it
-// hydrates, and it is emitted from these very manifests — so a manifest edit
-// that does not reach it is a consumer copying yesterday's set, surfacing in
-// THAT repo's compiler rather than here. See `consumerClosure.ts`.
 const consumerClosureMembers = Object.keys(
   (
     JSON.parse(checkConsumerClosureFresh(repoRoot)) as {
@@ -251,22 +214,12 @@ const consumerClosureMembers = Object.keys(
   ).members,
 ).length;
 
-// …and the RECIPE that artifact is reached through, evaluated. The closure is
-// only half the promise: a consumer meets `nix/README.md`'s snippet first, and
-// that snippet shipped naming a variable its own `let` never bound. Prose is not
-// executed; this is.
 const consumerRecipeMembers = checkConsumerRecipeEvaluates(repoRoot);
 
-// The Effect pin's agreement gate (A2), then the beta-behavior assumption
-// registry (C3) it feeds. The two share one fact — the catalog's version — so a
-// bump has exactly one place to move and exactly one set of sites to re-verify.
 const effectPins = collectEffectPins(repoRoot);
 const effectVersion = validateEffectPins(
   effectPins,
   vendoredManifests(repoRoot),
-  // The grafted manifests, from the same artifact the consumer recipe is checked
-  // against — a manifest kolu does not own owes a literal, but must not be told
-  // to edit itself into one. One reader of that artifact: `graftedMembers`.
   new Set(
     [...graftedMembers(repoRoot).values()].map((dir) => `${dir}/package.json`),
   ),

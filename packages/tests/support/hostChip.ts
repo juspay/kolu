@@ -1,18 +1,8 @@
-/** Locators for the multi-host chrome identity chips (Kolu · Padi · Kaval).
- *
- *  Quiet strip: full Padi/Kaval marks live in the diagnostics popover. Open it
- *  via the connection-status pip (`host-diagnostics-open`). Local identity is
- *  a Home glyph; remotes show hostname. Kolu stays a single global mark on the
- *  identity rail.
- */
-
 export type IdentityChipTestid =
   | "kolu-identity-chip"
   | "padi-identity-chip"
   | "kaval-identity-chip";
 
-/** CSS selector for an identity mark. Kolu is global; Padi/Kaval are inside
- *  the open host diagnostics popover. */
 export function identityChipSelector(testid: IdentityChipTestid): string {
   if (testid === "kolu-identity-chip") return `[data-testid="${testid}"]`;
   return `[data-testid="host-diagnostics-popover"] [data-testid="${testid}"]`;
@@ -37,8 +27,6 @@ const ACTIVE_CHIP =
   '[data-testid="host-chip-row"] [data-testid="host-chip"][data-active]';
 const ACTIVE_STATUS_PIP = `${ACTIVE_CHIP} [data-testid="host-diagnostics-open"]`;
 
-/** Idempotently open the ACTIVE host's diagnostics popover via its status pip.
- *  Every host (including local healthy) has a pip. */
 export async function openActiveHostDiagnostics(page: PageLike): Promise<void> {
   const activeKey = await page.locator(ACTIVE_CHIP).getAttribute("data-host");
   if (!activeKey) {

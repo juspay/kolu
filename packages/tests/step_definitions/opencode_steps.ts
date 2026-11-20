@@ -1,17 +1,3 @@
-/**
- * OpenCode status detection — step definitions.
- *
- * Mocks an OpenCode session by writing rows into a synthetic SQLite
- * database at `KOLU_OPENCODE_DB`. The scenario `cd`s into the fixture's
- * `cwd` and launches the fake `opencode` binary (a renamed `sleep`
- * copy, seeded by `hooks.ts`) so `matchesAgent(state, "opencode")`
- * succeeds via the foreground-basename path.
- *
- * Unlike Codex, OpenCode has no `subscribeExternalChanges` — the
- * provider relies on title events alone to re-resolve. Typing the fake
- * binary fires a title event, which triggers the resolve cycle.
- */
-
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -49,8 +35,6 @@ async function cdTerminalInto(world: KoluWorld, cwd: string): Promise<void> {
 }
 
 async function startFakeAgent(world: KoluWorld): Promise<void> {
-  // See codex_steps.ts::startFakeAgent for rationale, including why we
-  // emit a second OSC 2 title event from inside the fake agent's body.
   const bin = process.env.KOLU_FAKE_OPENCODE_BIN;
   if (!bin) throw new Error("KOLU_FAKE_OPENCODE_BIN must be set");
   await world.page.keyboard.type(
@@ -60,10 +44,6 @@ async function startFakeAgent(world: KoluWorld): Promise<void> {
 }
 
 async function startShimmedAgent(world: KoluWorld): Promise<void> {
-  // See codex_steps.ts::startShimmedAgent for the full rationale: the typed
-  // line names the agent (the OSC 633;E hint), the foreground process is the
-  // fake `node` binary — an interpreter-shimmed CLI, the one case
-  // `matchesAgent` accepts a hint for.
   const node = process.env.KOLU_FAKE_NODE_BIN;
   if (!node) throw new Error("KOLU_FAKE_NODE_BIN must be set");
   await world.page.keyboard.type(
@@ -144,9 +124,6 @@ When(
   },
 );
 
-/** Mock-side WAL nudge for the opencode `session_v2` DB. See
- *  `codex_steps.ts::CODEX_NUDGE_SQL` for the BEGIN/COMMIT and
- *  `__kolu_nudge__` rationale. */
 const OPENCODE_NUDGE_SQL = `BEGIN; INSERT INTO session_v2 (id, title, directory, time_created, time_updated) VALUES ('__kolu_nudge__', '', '', 0, 0); DELETE FROM session_v2 WHERE id = '__kolu_nudge__'; COMMIT;`;
 
 const nudgeOpenCode = () => nudgeWal(getOpenCodeDb(), OPENCODE_NUDGE_SQL);

@@ -1,22 +1,3 @@
-/**
- * Steps for `features/mount-size-stability.feature`: what sizes is a program
- * told when nothing about its box changed?
- *
- * The instrument is `support/winsizeRecorder.ts` — a stand-in program in the
- * real PTY that writes down the size it has at start and on every SIGWINCH,
- * read back through the DAEMON's mirror so the measurement does not depend on
- * the pane it is measuring. These steps add the two things a measurement
- * needs beyond the record: a baseline taken only once every program has gone
- * QUIET, and a negative hold long enough that "no new size" is a fact about a
- * round trip rather than about how soon the assertion ran.
- *
- * A note on what a PASS means here. kaval refuses a resize to the size a PTY
- * already has (`ptyHost.ts`'s same-dims early return), so a repeated identical
- * size never reaches the program and never appears in the record. The record
- * therefore counts REAL size changes — every entry past the baseline is a box
- * that genuinely differed at the moment it was stated.
- */
-
 import * as assert from "node:assert";
 import { After, Given, Then, When } from "@cucumber/cucumber";
 import { paneSelector } from "../support/daemonScreen.ts";
@@ -37,88 +18,53 @@ import {
 } from "../support/winsizeRecorder.ts";
 import {
   CANVAS_TILE_SELECTOR,
+  GRID_ROUND_TRIP_MS,
   type KoluWorld,
   POLL_TIMEOUT,
 } from "../support/world.ts";
 
-/**
- * How long a program must be watched before "it was told no new size" means
- * anything.
- *
- * A pane no longer resizes itself when its box moves: it STATES the grid its
- * box can hold, and the size reaches the program through a round trip. The
- * spans on that trip:
- *
- *   · 250 ms — the publish settle (`GRID_SETTLE_MS`, `publishGrid.ts`),
- *     re-armed by every further change, so the last measurement of a moving
- *     box is published a quarter second after it stops moving;
- *   · 600 ms — kaval's resize window (`RESIZE_WINDOW_MS`, `ptyHost.ts`), the
- *     span in which the consequences of a resize are still in flight;
- *   · a round trip — browser → kolu-server → padi → kaval → the PTY, then the
- *     program's own write into kaval's mirror and this process's read of it.
- *
- * 3 s is that 850 ms plus better than two seconds of slack, which is what a
- * CI box carrying up to eight browser worlds needs (the harness's own
- * `GRID_ROUND_TRIP_MS` is 3 s for the same shape of claim). A hold is paid in
- * full on every PASSING run, so it is sized to be believable rather than
- * comfortable.
- */
-const QUIET_MS = 3_000;
-
-/** How long the arrange may take to stop moving before a baseline is taken. */
 const SETTLE_BUDGET_MS = POLL_TIMEOUT;
 
-/** How often the record is re-read while holding. Fast enough that a failure
- *  can say WHEN the new size landed, cheap enough to run for seconds. */
 const SAMPLE_MS = 250;
 
-/** The visible MAIN pane of a tile — the one `terminalRun` types into. */
 const MAIN_PANE = "[data-visible][data-font-size]:not([data-sub-terminal])";
 
-/** Every mounted pane: the inner terminal container carries both the id and
- *  `data-font-size` (`support/buffer.ts`). */
 const ANY_PANE = "[data-terminal-id][data-font-size]";
 
-/** One terminal under measurement. */
 interface Recorded {
-  /** How a failure names it. */
   label: string;
-  /** The record as it stood when the scenario last took a baseline. */
   baseline: Winsize[];
 }
 
-/** The terminals this scenario is recording, in the order they were started.
- *  Module scope is safe: cucumber runs one scenario's steps serially in one
- *  worker process (the same reasoning as `terminal_lockstep_steps.ts`). */
-const recorded = new Map<string, Recorded>();
-
-/** A pane this scenario has TAGGED, so a later step can say whether the very
- *  same element is still there — and how many attaches it had opened at the
- *  time. A remount is invisible to every other assertion here: a rebuilt pane
- *  comes back at the size it already had, tells its program nothing, and has
- *  thrown away the reader's scroll position, selection and focus on the way. */
 interface MarkedPane {
   id: string;
   label: string;
-  /** Minted at run time, so nothing the page's own source could set matches. */
   marker: string;
   attaches: number;
 }
 
-let marked: MarkedPane[] = [];
+interface MountSizeState {
+  recorded: Map<string, Recorded>;
+  marked: MarkedPane[];
+  coveredBefore?: { id: string; label: string };
+  lastMaximized?: string;
+}
 
-let coveredBefore: { id: string; label: string } | undefined;
-let lastMaximized: string | undefined;
+const stateByWorld = new WeakMap<KoluWorld, MountSizeState>();
+
+function mountSizeState(world: KoluWorld): MountSizeState {
+  let state = stateByWorld.get(world);
+  if (state === undefined) {
+    state = { recorded: new Map(), marked: [] };
+    stateByWorld.set(world, state);
+  }
+  return state;
+}
 
 After(() => {
-  recorded.clear();
-  marked = [];
-  coveredBefore = undefined;
-  lastMaximized = undefined;
   removeRecorderScript();
 });
 
-/** Every pane on screen, main panes first, with the label a failure uses. */
 async function panesOnScreen(
   world: KoluWorld,
 ): Promise<Array<{ id: string; label: string }>> {
@@ -139,17 +85,18 @@ async function panesOnScreen(
     }));
 }
 
-/** The record for every terminal under measurement, read once. */
-async function readAll(): Promise<Map<string, Winsize[]>> {
+async function readAll(world: KoluWorld): Promise<Map<string, Winsize[]>> {
   const now = new Map<string, Winsize[]>();
-  for (const id of recorded.keys()) now.set(id, await readWinsizes(id));
+  for (const id of mountSizeState(world).recorded.keys()) {
+    now.set(id, await readWinsizes(id));
+  }
   return now;
 }
 
-/** The ids under measurement — what the wire probe is filtered against. */
-const recordedIds = (): string[] => [...recorded.keys()];
+const recordedIds = (world: KoluWorld): string[] => [
+  ...mountSizeState(world).recorded.keys(),
+];
 
-/** One size a program was told during a watch, and how far into it. */
 interface Told {
   id: string;
   label: string;
@@ -157,19 +104,11 @@ interface Told {
   atMs: number;
 }
 
-/** Watch the named programs for the whole of `QUIET_MS` and answer every size
- *  they were told, in the order they were told.
- *
- *  The window is watched to its END rather than abandoned at the first size,
- *  because this phase is a MEASUREMENT: a mount that states the wrong box and
- *  then corrects itself tells its program two sizes, and "it was told 19 then
- *  27 then 19 again" is the finding. Stopping at the first would report half
- *  a bounce.
- *
- *  Every negative in this feature goes through here: a size that arrives at
- *  the far end of a round trip is not refuted by a read taken before it could
- *  have come back. */
-async function watchQuiet(only?: readonly string[]): Promise<Told[]> {
+async function watchQuiet(
+  world: KoluWorld,
+  only?: readonly string[],
+): Promise<Told[]> {
+  const { recorded } = mountSizeState(world);
   const watched = only ?? [...recorded.keys()];
   const started = Date.now();
   const seen = new Map(
@@ -177,7 +116,7 @@ async function watchQuiet(only?: readonly string[]): Promise<Told[]> {
   );
   const told: Told[] = [];
   for (;;) {
-    const now = await readAll();
+    const now = await readAll(world);
     const atMs = Date.now() - started;
     for (const id of watched) {
       const sizes = now.get(id) ?? [];
@@ -192,12 +131,11 @@ async function watchQuiet(only?: readonly string[]): Promise<Told[]> {
       }
       seen.set(id, sizes.length);
     }
-    if (atMs >= QUIET_MS) return told;
+    if (atMs >= GRID_ROUND_TRIP_MS) return told;
     await new Promise((resolve) => setTimeout(resolve, SAMPLE_MS));
   }
 }
 
-/** What a watch SAW, one line per size, for a report or a failure. */
 const describeTold = (told: readonly Told[]): string =>
   told
     .map(
@@ -206,38 +144,31 @@ const describeTold = (told: readonly Told[]): string =>
     )
     .join("\n");
 
-/** Move the named programs' baselines up to what they have been told now, so
- *  the NEXT watch of them reports only its own sizes.
- *
- *  SCOPED, because a watch is: a step that watched one tile must not move the
- *  baseline of a sibling it did not watch, or the sizes that sibling was told
- *  during the window vanish and the step that asks about them next can no
- *  longer fail. Scenario G is exactly that shape — one posture change, one
- *  claim per tile. */
-async function rebaseline(only?: readonly string[]): Promise<void> {
-  const watched = new Set(only ?? recorded.keys());
-  for (const [id, sizes] of await readAll()) {
+async function rebaseline(
+  world: KoluWorld,
+  only: readonly string[],
+): Promise<void> {
+  const watched = new Set(only);
+  const { recorded } = mountSizeState(world);
+  for (const [id, sizes] of await readAll(world)) {
     const entry = recorded.get(id);
     if (entry && watched.has(id)) entry.baseline = sizes;
   }
 }
 
-/** Watch, and fail if anything was told — the shape every negative step takes. */
 async function holdQuiet(
   world: KoluWorld,
   what: string,
   only?: readonly string[],
 ): Promise<void> {
-  const told = await watchQuiet(only);
+  const told = await watchQuiet(world, only);
   if (told.length === 0) return;
   throw new Error(
     `${what}: a program was told a new size with nothing about its box changed.\n` +
       `${describeTold(told)}\n` +
-      `${await quoteResizeWire(world.page, recordedIds())}`,
+      `${await quoteResizeWire(world.page, recordedIds(world))}`,
   );
 }
-
-// ── Arrange ──
 
 Given(
   "a size recorder is running in every pane on screen",
@@ -248,11 +179,11 @@ Given(
     assert.ok(panes.length > 0, "no mounted pane to record sizes in");
     for (const pane of panes) {
       const start = await startRecorder(pane.id);
-      recorded.set(pane.id, { label: pane.label, baseline: [start] });
+      mountSizeState(this).recorded.set(pane.id, {
+        label: pane.label,
+        baseline: [start],
+      });
     }
-    // The divider-drag step (`terminal_lockstep_steps.ts`) addresses the
-    // terminal a stand-in program is drawing in; the recorder IS one, so
-    // naming it here lets that step be reused rather than re-written.
     const main = await this.page.evaluate(
       (sel) => document.querySelector(sel)?.getAttribute("data-terminal-id"),
       MAIN_PANE,
@@ -265,15 +196,11 @@ Given(
   "I mark every recorded pane",
   { timeout: 120_000 },
   async function (this: KoluWorld) {
-    assert.ok(recorded.size > 0, "no terminal is being recorded");
-    const attaches = await readAttachCounts(this.page, recordedIds());
-    marked = [];
-    for (const [id, entry] of recorded) {
-      // A JS EXPANDO, not a `data-` attribute: an attribute is markup, and a
-      // pane rebuilt from the same JSX comes back wearing it. A property set
-      // on the node by hand exists only on THAT object, so finding it again is
-      // proof the element itself survived (the same technique
-      // `conductor_steps.ts` uses for the retained conversation pane).
+    const state = mountSizeState(this);
+    assert.ok(state.recorded.size > 0, "no terminal is being recorded");
+    const attaches = await readAttachCounts(this.page, recordedIds(this));
+    state.marked = [];
+    for (const [id, entry] of state.recorded) {
       const marker = `kolu-pane-${Date.now()}-${Math.random().toString(36).slice(2)}`;
       const tagged = await this.page.evaluate(
         ({ sel, value }) => {
@@ -286,7 +213,7 @@ Given(
         { sel: paneSelector(id), value: marker },
       );
       assert.ok(tagged, `no mounted pane to mark for ${entry.label}`);
-      marked.push({
+      state.marked.push({
         id,
         label: entry.label,
         marker,
@@ -300,22 +227,18 @@ Given(
   "every recorded program has settled",
   { timeout: 120_000 },
   async function (this: KoluWorld) {
-    // The baseline is taken only once nothing has moved for a full quiet
-    // window. Without this the arrange's own resize — a split opening, a
-    // divider landing — could still be in flight, and the first reload would
-    // be blamed for it.
     const deadline = Date.now() + SETTLE_BUDGET_MS;
     let stableSince = Date.now();
-    let last = await readAll();
+    let last = await readAll(this);
     for (;;) {
       await new Promise((resolve) => setTimeout(resolve, SAMPLE_MS));
-      const now = await readAll();
-      const moved = recordedIds().some(
+      const now = await readAll(this);
+      const moved = recordedIds(this).some(
         (id) => (now.get(id)?.length ?? 0) !== (last.get(id)?.length ?? 0),
       );
       if (moved) stableSince = Date.now();
       last = now;
-      if (Date.now() - stableSince >= QUIET_MS) break;
+      if (Date.now() - stableSince >= GRID_ROUND_TRIP_MS) break;
       if (Date.now() > deadline) {
         throw new Error(
           `the terminals never stopped being resized within ${SETTLE_BUDGET_MS}ms, ` +
@@ -323,50 +246,29 @@ Given(
             [...now]
               .map(
                 ([id, sizes]) =>
-                  `  ${recorded.get(id)?.label ?? id}: ${formatWinsizes(sizes)}`,
+                  `  ${mountSizeState(this).recorded.get(id)?.label ?? id}: ${formatWinsizes(sizes)}`,
               )
               .join("\n"),
         );
       }
     }
-    await rebaseline();
+    await rebaseline(this, recordedIds(this));
   },
 );
-
-// ── Act ──
 
 When(
   "I reload the page {int} times",
   { timeout: 900_000 },
   async function (this: KoluWorld, mounts: number) {
-    // EVERY mount is watched and reported, and the verdict is taken at the
-    // end. A loop that threw at the first bad mount would answer "mount 2"
-    // and leave the question this phase exists to answer — does it happen on
-    // every mount, or once in dozens? — unanswered for mounts 3..15. The
-    // baseline moves up after each mount so each line is that mount's own
-    // story.
     const perMount: string[] = [];
     let mountsThatTold = 0;
-    // A mount that WRITES the split's saved state is its own failure, and the
-    // probe's per-document stash is what makes it checkable here: whatever
-    // `chrome.setSubPanel` frames this document sent, this mount sent. Only a
-    // user's gesture may produce one, and a reload is not a gesture.
     const mountsThatWrote: string[] = [];
-    // Two mounts' wires are kept, and each reload is a new document so a
-    // probe's stash is that mount's own and no other's:
-    //
-    //  · the FIRST mount, because it is the only one that still meets the
-    //    state the arrange left behind — a mount that writes chrome back
-    //    changes what every later mount restores, and that write is only
-    //    visible here;
-    //  · the first mount that TOLD a size, because that is the one the
-    //    verdict is about.
     const wires: string[] = [];
     let toldWire = false;
     for (let mount = 1; mount <= mounts; mount++) {
       await this.page.reload();
       await this.waitForReady();
-      const told = await watchQuiet();
+      const told = await watchQuiet(this);
       const wrote = await readPanelWrites(this.page);
       if (told.length > 0) {
         mountsThatTold++;
@@ -382,11 +284,11 @@ When(
         wires.push(
           `  the wire at mount ${mount}:\n${await quoteResizeWire(
             this.page,
-            recordedIds(),
+            recordedIds(this),
           )}`,
         );
       }
-      await rebaseline();
+      await rebaseline(this, recordedIds(this));
     }
     const report = `[mount-size] ${mounts} mounts\n${perMount.join("\n")}\n${wires.join("\n")}`;
     console.log(report);
@@ -409,11 +311,6 @@ When(
   { timeout: 120_000 },
   async function (this: KoluWorld) {
     const before = new Set(await this.terminalIds());
-    // Created over the daemon's own `lifecycle.create` rather than through the
-    // keyboard: the recorder has to be started as early as possible, and the
-    // UI path's own waits (tile visible, keyboard landed) are all AFTER the
-    // mount whose resizes this scenario is counting. The tile still mounts
-    // from the record exactly as a keyboard-created one does.
     const created = await padiCall("lifecycle/create", {
       placement: { kind: "toplevel" },
     });
@@ -427,10 +324,11 @@ When(
     );
     assert.ok(!before.has(id), `lifecycle.create answered a known id: ${id}`);
     const start = await startRecorder(id);
-    recorded.set(id, { label: `the new terminal ${id}`, baseline: [start] });
+    mountSizeState(this).recorded.set(id, {
+      label: `the new terminal ${id}`,
+      baseline: [start],
+    });
     this.createdTerminalIds.push(id);
-    // The tile must actually mount, or the scenario would be asking its
-    // question of a terminal nobody ever showed.
     await this.page
       .locator(`${paneSelector(id)}`)
       .waitFor({ state: "attached", timeout: POLL_TIMEOUT });
@@ -441,16 +339,13 @@ When(
   "I create another terminal with the keyboard and start a size recorder in it",
   { timeout: 120_000 },
   async function (this: KoluWorld) {
-    // The PRODUCT's own create path (⌘⏎ → `handleCreate`), which the RPC
-    // create above deliberately skips. It is a different path for sizing: it
-    // arms the one-shot "inherit the active tile's size" slot
-    // (`usePendingLayouts.takeNextDefaultSize`), so the new tile opens at the
-    // size of the tile it was made from rather than the canvas default — the
-    // shape production had and the first measurement run did not.
     const id = await this.createTerminal();
     this.createdTerminalIds.push(id);
     const start = await startRecorder(id);
-    recorded.set(id, { label: `the new terminal ${id}`, baseline: [start] });
+    mountSizeState(this).recorded.set(id, {
+      label: `the new terminal ${id}`,
+      baseline: [start],
+    });
   },
 );
 
@@ -458,21 +353,13 @@ When(
   "I wait out the settle window",
   { timeout: 120_000 },
   async function (this: KoluWorld) {
-    await new Promise((resolve) => setTimeout(resolve, QUIET_MS));
+    await new Promise((resolve) => setTimeout(resolve, GRID_ROUND_TRIP_MS));
   },
 );
 When(
   "I narrow every recorded tile by {int} pixels",
   { timeout: 120_000 },
   async function (this: KoluWorld, px: number) {
-    // A tiled pane's box is its tile's own rect — the canvas's pan and zoom
-    // ride a CSS transform, which is why magnifying the canvas deliberately
-    // reflows nothing. So the way to move a tiled pane's box is to move the
-    // tile, and the product's own door for that is the terminal's
-    // `canvasLayout` (what a drag-resize persists, and what the record
-    // carries). Narrowing also takes the layout OFF the default tile size, so
-    // a mount that falls back to that default before the record arrives has
-    // somewhere visible to fall.
     const tiles = await this.page.evaluate(
       ({ sel, ids }) => {
         const found: Array<{
@@ -496,7 +383,7 @@ When(
         }
         return found;
       },
-      { sel: CANVAS_TILE_SELECTOR, ids: recordedIds() },
+      { sel: CANVAS_TILE_SELECTOR, ids: recordedIds(this) },
     );
     assert.ok(tiles.length > 0, "no recorded terminal owns a canvas tile");
     for (const tile of tiles) {
@@ -509,8 +396,6 @@ When(
         layout: { x: tile.x, y: tile.y, w: tile.w - px, h: tile.h },
       });
     }
-    // The tile must actually be narrower before the control is believed —
-    // this is also the proof that the record round-tripped.
     await this.page.waitForFunction(
       ({ sel, want }) => {
         for (const [id, width] of Object.entries(want)) {
@@ -532,23 +417,17 @@ When(
   },
 );
 
-// ── The positive control ──
-//
-// Every scenario makes one DELIBERATE box change while the recorders are
-// running and proves it was recorded, before it goes on to claim that
-// something else changed nothing. Without it a green says only "this
-// instrument reported nothing", which is also what a broken instrument says.
-
-/** Wait until every named program's record has grown past its baseline. */
 async function waitForGrowth(
+  world: KoluWorld,
   what: string,
   watched: readonly string[],
 ): Promise<void> {
+  const { recorded } = mountSizeState(world);
   const baselines = new Map(
     watched.map((id) => [id, recorded.get(id)?.baseline ?? []]),
   );
   await pollFor({
-    observe: readAll,
+    observe: () => readAll(world),
     isDone: (now) =>
       watched.every(
         (id) => (now.get(id)?.length ?? 0) > (baselines.get(id)?.length ?? 0),
@@ -576,8 +455,11 @@ Then(
   "every recorded program was told a new size",
   { timeout: 120_000 },
   async function (this: KoluWorld) {
-    assert.ok(recorded.size > 0, "no terminal is being recorded");
-    await waitForGrowth("the deliberate box change", recordedIds());
+    assert.ok(
+      mountSizeState(this).recorded.size > 0,
+      "no terminal is being recorded",
+    );
+    await waitForGrowth(this, "the deliberate box change", recordedIds(this));
   },
 );
 
@@ -590,19 +472,21 @@ Then(
       MAIN_PANE,
     );
     assert.ok(id, "no visible main pane");
-    assert.ok(recorded.has(id), `the main pane (${id}) is not being recorded`);
-    await waitForGrowth("the deliberate box change", [id]);
+    assert.ok(
+      mountSizeState(this).recorded.has(id),
+      `the main pane (${id}) is not being recorded`,
+    );
+    await waitForGrowth(this, "the deliberate box change", [id]);
   },
 );
-
-// ── Assert ──
 
 Then(
   "every marked pane should be the same element, with no second attach",
   { timeout: 120_000 },
   async function (this: KoluWorld) {
+    const { marked } = mountSizeState(this);
     assert.ok(marked.length > 0, "no pane was marked");
-    const attaches = await readAttachCounts(this.page, recordedIds());
+    const attaches = await readAttachCounts(this.page, recordedIds(this));
     const rebuilt: string[] = [];
     const reattached: string[] = [];
     for (const pane of marked) {
@@ -640,7 +524,6 @@ Then(
   },
 );
 
-/** The ids of the canvas's tiles, in the order they are rendered. */
 async function tileIds(world: KoluWorld): Promise<string[]> {
   return world.page.evaluate(
     (sel) =>
@@ -651,7 +534,6 @@ async function tileIds(world: KoluWorld): Promise<string[]> {
   );
 }
 
-/** The recorded program behind "canvas tile N" — the Nth tile as rendered. */
 async function recordedTileId(
   world: KoluWorld,
   position: number,
@@ -660,20 +542,22 @@ async function recordedTileId(
   const id = ids[position - 1];
   assert.ok(id, `there is no canvas tile ${position} (saw ${ids.length})`);
   assert.ok(
-    recorded.has(id),
+    mountSizeState(world).recorded.has(id),
     `canvas tile ${position} (${id}) is not being recorded`,
   );
   return id;
 }
 
-/** The recorded program behind "the main pane" — the visible non-split pane. */
 async function recordedMainPaneId(world: KoluWorld): Promise<string> {
   const id = await world.page.evaluate(
     (sel) => document.querySelector(sel)?.getAttribute("data-terminal-id"),
     MAIN_PANE,
   );
   assert.ok(id, "no visible main pane");
-  assert.ok(recorded.has(id), `the main pane (${id}) is not being recorded`);
+  assert.ok(
+    mountSizeState(world).recorded.has(id),
+    `the main pane (${id}) is not being recorded`,
+  );
   return id;
 }
 
@@ -681,7 +565,10 @@ Then(
   "no recorded program was told a new size",
   { timeout: 120_000 },
   async function (this: KoluWorld) {
-    assert.ok(recorded.size > 0, "no terminal is being recorded");
+    assert.ok(
+      mountSizeState(this).recorded.size > 0,
+      "no terminal is being recorded",
+    );
     await holdQuiet(this, "after the act");
   },
 );
@@ -703,12 +590,6 @@ Then(
   },
 );
 
-/** A tile BY ROLE, not by position.
- *
- *  Maximizing re-points which tile is which: the roles are what the posture
- *  scenarios actually claim about ("the one you are looking at", "the one
- *  behind it"), and a claim addressed by DOM position silently moves to the
- *  other tile the moment the posture changes. */
 async function tileByRole(
   world: KoluWorld,
   role: "maximized" | "covered",
@@ -730,8 +611,11 @@ async function tileByRole(
     { sel: CANVAS_TILE_SELECTOR, role },
   );
   assert.ok(id, `there is no single ${role} tile on screen`);
-  assert.ok(recorded.has(id), `the ${role} tile (${id}) is not being recorded`);
-  if (role === "maximized") lastMaximized = id;
+  assert.ok(
+    mountSizeState(world).recorded.has(id),
+    `the ${role} tile (${id}) is not being recorded`,
+  );
+  if (role === "maximized") mountSizeState(world).lastMaximized = id;
   return id;
 }
 
@@ -739,11 +623,8 @@ Then(
   "a different canvas tile should be maximized",
   { timeout: 120_000 },
   async function (this: KoluWorld) {
-    const was = lastMaximized;
+    const was = mountSizeState(this).lastMaximized;
     assert.ok(was, "no tile has been maximized in this scenario yet");
-    // The switch is the act this scenario is about, so prove it happened
-    // before asking what it cost: a gesture that selected the tile already
-    // maximized would make every claim after it vacuously true.
     await this.page.waitForFunction(
       ({ sel, was }) => {
         const max = [...document.querySelectorAll(sel)].find(
@@ -772,7 +653,10 @@ Then(
   { timeout: 120_000 },
   async function (this: KoluWorld) {
     const id = await tileByRole(this, "covered");
-    coveredBefore = { id, label: recorded.get(id)?.label ?? id };
+    mountSizeState(this).coveredBefore = {
+      id,
+      label: mountSizeState(this).recorded.get(id)?.label ?? id,
+    };
     await holdQuiet(this, "the covered tile", [id]);
   },
 );
@@ -781,10 +665,9 @@ Then(
   "the tile that was covered was told no new size",
   { timeout: 120_000 },
   async function (this: KoluWorld) {
-    assert.ok(coveredBefore, "no tile has been covered in this scenario yet");
-    await holdQuiet(this, `${coveredBefore.label} (covered earlier)`, [
-      coveredBefore.id,
-    ]);
+    const covered = mountSizeState(this).coveredBefore;
+    assert.ok(covered, "no tile has been covered in this scenario yet");
+    await holdQuiet(this, `${covered.label} (covered earlier)`, [covered.id]);
   },
 );
 
@@ -792,9 +675,10 @@ Then(
   "every recorded program was told exactly {int} new size",
   { timeout: 120_000 },
   async function (this: KoluWorld, count: number) {
+    const { recorded } = mountSizeState(this);
     assert.ok(recorded.size > 0, "no terminal is being recorded");
-    const ids = recordedIds();
-    const told = await watchQuiet(ids);
+    const ids = recordedIds(this);
+    const told = await watchQuiet(this, ids);
     const wrong = ids
       .map((id) => ({ id, n: told.filter((t) => t.id === id).length }))
       .filter((row) => row.n !== count)
@@ -809,29 +693,25 @@ Then(
         `${describeTold(told)}\n` +
         `${await quoteResizeWire(this.page, ids)}`,
     );
-    await rebaseline(ids);
+    await rebaseline(this, ids);
   },
 );
 
-/** Hold the window and require EXACTLY this many sizes — the positive form of
- *  the same claim. A box that really moved owes its program one new size: not
- *  none (the program would be laid out for a box it no longer has) and not two
- *  (the second is a correction of a size that should never have been stated). */
 async function expectTold(
   world: KoluWorld,
   what: string,
   watched: readonly string[],
   count: number,
 ): Promise<void> {
-  const told = await watchQuiet(watched);
+  const told = await watchQuiet(world, watched);
   assert.strictEqual(
     told.length,
     count,
     `${what}: expected exactly ${count} new size, saw ${told.length}.\n` +
       `${describeTold(told)}\n` +
-      `${await quoteResizeWire(world.page, recordedIds())}`,
+      `${await quoteResizeWire(world.page, recordedIds(world))}`,
   );
-  await rebaseline(watched);
+  await rebaseline(world, watched);
 }
 
 Then(
@@ -856,9 +736,6 @@ Then(
   "the split should still be collapsed",
   { timeout: 120_000 },
   async function (this: KoluWorld) {
-    // A collapsed split has no pane on screen. Read the DOM rather than the
-    // store: what the user is looking at is the claim, and the record is what
-    // the pane reads (`splitPanelState.ts`), so this is the round trip.
     const shown = await this.page
       .locator("[data-sub-terminal][data-visible]")
       .count();
@@ -887,7 +764,7 @@ Then(
   async function (this: KoluWorld) {
     const newest = this.createdTerminalIds.at(-1);
     assert.ok(newest, "no terminal was created in this scenario");
-    const earlier = recordedIds().filter((id) => id !== newest);
+    const earlier = recordedIds(this).filter((id) => id !== newest);
     assert.ok(earlier.length > 0, "nothing was recorded before the new one");
     await holdQuiet(this, "the terminals that were already there", earlier);
   },
@@ -899,7 +776,7 @@ Then(
   async function (this: KoluWorld) {
     const id = this.createdTerminalIds.at(-1);
     assert.ok(id, "no terminal was created in this scenario");
-    const entry = recorded.get(id);
+    const entry = mountSizeState(this).recorded.get(id);
     assert.ok(entry, `the new terminal (${id}) is not being recorded`);
     const sizes = await readWinsizes(id);
     const pane = await this.page.evaluate((sel) => {
@@ -910,10 +787,7 @@ Then(
     assert.ok(pane, `the new terminal (${id}) has no mounted xterm to compare`);
     const last = sizes.at(-1);
     assert.ok(last, "the new terminal's program printed nothing");
-    const wire = await quoteResizeWire(this.page, recordedIds());
-    // The record STARTS where the recorder could first be started — the spawn
-    // grid when the race was won, the settled grid when it was not — so the
-    // claim is about distinct sizes the program ever had, not about entries.
+    const wire = await quoteResizeWire(this.page, recordedIds(this));
     const distinct = new Set(sizes.map((s) => `${s.cols}x${s.rows}`));
     assert.ok(
       distinct.size <= 2,
@@ -932,12 +806,8 @@ Then(
 Then(
   "the size record should be reported as {string}",
   async function (this: KoluWorld, label: string) {
-    // The measurement's OUTPUT, not an assertion: every scenario ends by
-    // printing what each program was told, so a GREEN run still carries the
-    // numbers this phase exists to collect. `console.log` rather than an
-    // attachment: the lane's own log is what a CI reader has in hand.
     const lines: string[] = [];
-    for (const [id, entry] of recorded) {
+    for (const [id, entry] of mountSizeState(this).recorded) {
       lines.push(`  ${entry.label}: ${formatWinsizes(await readWinsizes(id))}`);
     }
     console.log(`[mount-size] ${label}\n${lines.join("\n")}`);

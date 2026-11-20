@@ -1,17 +1,3 @@
-/** The Conductor — step definitions.
- *
- *  Every step drives the real chain: the browser writes through
- *  `conductor.prompt` on the KOLU surface, kolu-server's one conversation
- *  writes a `session/prompt` down a pipe to the scripted adapter
- *  (`support/acp-fixture-agent.ts`), and the frames come back the same way.
- *  Nothing here stubs a store, so a step that passes is evidence about the
- *  wire and not about a value somebody put in a signal.
- *
- *  The conversation is reached from its own tab — the `◆ Conductor` tab, first
- *  in the chrome bar's tab row — never from the view-mode control, which
- *  carries `▦ canvas · ▢ maximized` for host tabs and nothing else.
- */
-
 import assert from "node:assert";
 import { execFileSync } from "node:child_process";
 import * as fs from "node:fs";
@@ -39,15 +25,8 @@ import { surfaceCall, surfaceFirstFrame } from "../support/rpcWire.ts";
 import { type KoluWorld, MOD_KEY, POLL_TIMEOUT } from "../support/world.ts";
 import { turnAgentsOnReady } from "./agents_steps.ts";
 
-/** How long a scenario leaves a landed wake alone before claiming it rang ONCE.
- *  Wider than the server's own re-report cadence, so a second ring has time to
- *  arrive and be counted rather than merely not having happened yet. */
 const REPEAT_WAKE_WINDOW_MS = 4_000;
 
-/** The scratch dir behind an agent the CONDUCTOR started (`I ask the conductor
- *  to run an agent in a new terminal`) — the session bytes it stages for its
- *  first prompt live inside it. The terminal itself is padi's to reap; this is
- *  the fixture's own leavings. */
 let conductorAgentCwd: string | null = null;
 
 After(() => {
@@ -55,24 +34,14 @@ After(() => {
     fs.rmSync(conductorAgentCwd, { recursive: true, force: true });
   }
   conductorAgentCwd = null;
-  // A stand-in left in the floor's relay is SPENT by the `claude` that runs
-  // it — but a scenario that died before kolu typed anything would leave one
-  // behind, and the next scenario's `claude` (an Agents one, say) would run
-  // it instead of printing its line. The relay belongs to the scenario that
-  // wrote it.
   fs.rmSync(fixtureClaudeRelay(), { force: true });
 });
 
 const PANE = '[data-testid="conductor-pane"]';
-/** The conversation's OWN tab, first in the tab row — not a host tab, and not
- *  a segment of the mode control (which no longer has one). */
 const TAB = '[data-testid="conductor-tab"]';
-/** The phone's pull handle — the way into its chrome sheet, the phone's tab
- *  row. */
 const MOBILE_HANDLE = '[data-testid="mobile-pull-handle"]';
 const MOBILE_SHEET = '[data-testid="mobile-chrome-sheet"]';
 const BADGE = `${TAB} [data-testid="conductor-badge"]`;
-/** The phase word on the status line above the composer. */
 const PHASE = '[data-testid="conductor-phase"]';
 const TRANSCRIPT = '[data-testid="conductor-transcript"]';
 const ROW = '[data-testid="conductor-row"]';
@@ -80,10 +49,6 @@ const TOOL_CARD = '[data-testid="conductor-tool-card"]';
 const INPUT = '[data-testid="conductor-input"]';
 const SEND = '[data-testid="conductor-send"]';
 const ASK = '[data-testid="conductor-ask"]';
-/** The `⋯` menu button, its portalled panel, and the two-press `New session`
- *  inside it: the button ARMS and the confirm commits. The old one-press
- *  `conductor-new-session` is gone — a wipe is not something a stray click
- *  should be able to do. */
 const MENU = '[data-testid="conductor-menu"]';
 const MENU_PANEL = '[data-testid="conductor-menu-panel"]';
 const MENU_NEW_SESSION = '[data-testid="conductor-menu-new-session"]';
@@ -93,22 +58,11 @@ const USER_MARK = '[data-testid="conductor-user-mark"]';
 const CHIP_ATTACHMENT = '[data-testid="conductor-attachment-chip"]';
 const ROW_ATTACHMENT = '[data-testid="conductor-row-attachment"]';
 const CHROME_BAR = '[data-testid="chrome-bar"]';
-/** The REAL host tabs. `host-chip` also matches the hidden measuring twin the
- *  strip keeps for its overflow computation, so every count of "the hosts"
- *  scopes under the visible row. */
 const HOST_TAB = '[data-testid="host-chip-row"] [data-testid="host-chip"]';
 const CANVAS_TILE = '[data-testid="canvas-tile"]';
 
-/** The mode's own chord, as `input/actions.ts` spells it: `modifier: "app"`,
- *  which is Meta on every platform — `cmdOrCtrl` would resolve to
- *  `Ctrl+Shift+O`, a chord `prohibitedKeybinds.ts` reserves for the agent
- *  running inside a PTY. Typing the reserved form here would pass against a
- *  build that had made exactly that mistake. */
 const CONDUCTOR_CHORD = "Meta+Shift+O";
 
-/** One waiting shape for every assertion in this file, so a failure says what
- *  was expected, what was actually there, and how long it waited — rather than
- *  Playwright's bare "locator not found". */
 async function waitForValue(
   what: string,
   observe: () => Promise<string>,
@@ -150,12 +104,6 @@ async function waitForAtLeastOne(
   });
 }
 
-/** IDEMPOTENT, because the selected tab is persisted per device: a reload comes
- *  back in the conversation, and a step that pressed the entry unconditionally
- *  would LEAVE it exactly in the scenario that reloads.
- *
- *  On a PHONE the tab lives in the pull-down chrome sheet, so the handle is
- *  pulled first — the same two taps a person makes. */
 export async function enterConductor(world: KoluWorld): Promise<void> {
   const pane = world.page.locator(PANE);
   if (await pane.isVisible()) return;
@@ -178,10 +126,6 @@ export async function sendPrompt(
   await world.page.locator(SEND).click();
 }
 
-/** WHAT THE TRANSCRIPT ACTUALLY HOLDS, for a failure message. Row kind, the
- *  mark if it wears one, and how many attachments it carries — the three facts
- *  that tell "no row was minted at all" apart from "a row is there and it
- *  carries nothing". */
 async function transcriptInventory(world: KoluWorld): Promise<string> {
   const rows = await world.page.locator(ROW).evaluateAll((all) =>
     all.map((row) => {
@@ -197,10 +141,6 @@ async function transcriptInventory(world: KoluWorld): Promise<string> {
   return rows.length === 0 ? "(no rows)" : rows.join(" | ");
 }
 
-/** Every toast on screen. A prompt refused BEFORE a row exists — an attachment
- *  this agent was never told it could take, a message over the cap — has no row
- *  to land on, and the toast is its only face. So a missing user row is only
- *  half an observation without this. */
 async function toastInventory(world: KoluWorld): Promise<string[]> {
   return world.page
     .locator("[data-sonner-toaster] li")
@@ -217,35 +157,17 @@ When("I enter conductor mode", async function (this: KoluWorld) {
   await enterConductor(this);
 });
 
-/** THE GESTURE, as the product spells it: the `⋯` menu, `New session`, and a
- *  second press to confirm — a wipe is not something a stray click may do. It
- *  wipes the CONVERSATION and nothing else, which is what the work-record
- *  scenario below is about, so the arrangement and the act are one function. */
 async function pressNewSession(world: KoluWorld): Promise<void> {
   await enterConductor(world);
   await world.page.locator(MENU).click();
-  // The panel is PORTALLED, so it is waited for rather than assumed: a click
-  // on an arming row that has not mounted yet is a click on nothing, and the
-  // confirm below would then time out three lines away from the cause.
   await waitForAtLeastOne(world, MENU_PANEL);
   await world.page.locator(MENU_NEW_SESSION).click();
   await world.page.locator(MENU_NEW_SESSION_CONFIRM).click();
 }
 
-/** How long one wipe is given to land before it is made again. */
 const WIPE_SETTLE_MS = 5_000;
 
 async function newConductorSession(world: KoluWorld): Promise<void> {
-  // AGAIN, IF THE FIRST ONE IS LANDED ON. A wipe ends the turn that was in
-  // flight, and an agent whose call was cancelled says so — a row that
-  // arrives AFTER the transcript was emptied, which is the conversation
-  // behaving correctly and an arrangement that is no longer fresh. kolu's own
-  // news does the same: a work stopped a moment ago wakes the conversation,
-  // and that wake can land on the fresh session rather than the old one —
-  // which is a transcript with a row in it and a phase of `working`. So the
-  // settle is BOTH facts, and a gesture that is landed on is simply made
-  // again; a conversation that still cannot be left quiet fails on the full
-  // wait below, saying what the transcript holds.
   for (let attempt = 1; attempt <= 3; attempt += 1) {
     await pressNewSession(world);
     const quiet = await pollFor({
@@ -266,15 +188,6 @@ async function newConductorSession(world: KoluWorld): Promise<void> {
     "idle",
   );
 }
-/** Back to the machine you came from — the other half of ⌘⇧O's round trip.
- *  A terminal is SET UP there, where you can see it. A terminal made from
- *  behind the conversation is never shown at all (kolu#2362: a tile nobody
- *  has seen has nothing to hold), so keystrokes meant for it go to the
- *  composer — or, worse, into whichever tile is still inside its grace
- *  period, which is a real terminal and the wrong one. What the Conductor is
- *  watching for — a session file appearing, an agent's state changing —
- *  still happens while you sit in the conversation, which is the thing these
- *  scenarios are about. */
 When(
   "I leave the conductor for the host tab",
   async function (this: KoluWorld) {
@@ -285,22 +198,7 @@ When(
   },
 );
 
-/** THE WORKS A PREVIOUS SCENARIO LEFT OPEN, stopped over the real wire.
- *
- *  A work no longer ends when its terminals go: only the forge and Stop end
- *  one, which is the product's whole point — so the worker's kolu, which one
- *  server serves to every scenario in turn, would otherwise carry every work
- *  the file has opened so far, and "1 piece of work" would read 7. The
- *  conversation is already reset per scenario; the record needs the same, and
- *  `conductor.stopWork` is the person's own way to end one (it never goes
- *  through the agent, so it works with the conversation down).
- *
- *  Each pass stops what it found and the next pass re-reads, so the loop ends
- *  only on a record with nothing open — the stop is a write, and the claim is
- *  about what the next scenario will see. ENDED works are left where they are:
- *  they are what the Finished section is for, nothing counts them as in
- *  progress, and no verb on the wire deletes a record. */
-async function stopEveryOpenWork(): Promise<void> {
+async function stopWorksLeftOpenByEarlierScenarios(): Promise<void> {
   await pollFor({
     observe: async () => {
       const ids = (await surfaceFirstFrame(
@@ -326,37 +224,14 @@ async function stopEveryOpenWork(): Promise<void> {
   });
 }
 
-/** How long the transcript must hold still before the news a stop queued
- *  counts as landed, and how long that is waited for at most. */
 const NEWS_SETTLE_MS = 1_500;
 const NEWS_DRAIN_MS = 10_000;
 
 Given(
   "the conductor is on a fresh conversation",
   async function (this: KoluWorld) {
-    // THE RECORD FIRST, THEN THE CHAT. Stopping a work is news, and kolu wakes
-    // the conversation with it — so the stop is made, the news is let LAND (a
-    // turn that arrives after the wipe is a row in a transcript this step
-    // promised was empty), and only then is the conversation wiped.
-    //
-    // Landing is read off the TRANSCRIPT alone: a conversation answering wakes
-    // passes through phases of its own, and what this needs to know is only
-    // whether rows are still arriving. Best-effort by design — if news is
-    // still coming after the drain, the wipe below simply repeats, and it is
-    // ITS assertions (an empty transcript, an idle phase) that decide whether
-    // this scenario may start.
-    //
-    // AND THE AGENTS ON, before anything is opened: a piece of work names the
-    // harness its planner and implementor run, and kolu refuses to ask that
-    // of a host whose coding agents are off — `agents-not-ready`, before the
-    // work exists. The suite starts every scenario never chosen (a fresh
-    // install), so this is where the conductor's machine gets them. The
-    // helper proves padi is serving the floor, not merely that a switch
-    // moved.
     await turnAgentsOnReady(this);
-    await stopEveryOpenWork();
-    // The conversation has to be ON SCREEN to be read — the wipe below opens
-    // it anyway, and this step is where a scenario asks for it.
+    await stopWorksLeftOpenByEarlierScenarios();
     await enterConductor(this);
     const rows = async (): Promise<number> =>
       this.page.locator(`${TRANSCRIPT} ${ROW}`).count();
@@ -393,11 +268,6 @@ When(
 When(
   "I ask the conductor to adopt the terminal",
   async function (this: KoluWorld) {
-    // The fixture answers its `lifecycle_create` with the id it was given —
-    // qualified by the host, as the fleet grammar requires — so the card names
-    // a terminal that really exists in padi's registry and "open tile" lands on
-    // a tile that is really there. A made-up id would prove nothing about the
-    // join.
     const ids = await this.terminalIds();
     assert.ok(
       ids[0],
@@ -411,10 +281,6 @@ When(
 When(
   "I ask the conductor to adopt the terminal I am in",
   async function (this: KoluWorld) {
-    // THE FOCUSED tile, read before the conversation covers the canvas — not
-    // the first id in the DOM, which is whichever terminal happens to be drawn
-    // first. A Look at the wrong terminal shows a real screen that is simply
-    // not the one the scenario typed into.
     const id = await this.page
       .locator(`${CANVAS_TILE}[data-active]`)
       .getAttribute("data-terminal-id", { timeout: POLL_TIMEOUT });
@@ -440,9 +306,6 @@ When(
 Then(
   "the answered question should read {string}",
   async function (this: KoluWorld, line: string) {
-    // THE RECORD, read off the settled card: the question and the answer, on
-    // one line. The form is gone by now, so this is the only place either of
-    // them can still be read — a card that collapsed to `answered` fails here.
     const ask = this.page.locator(ASK).last();
     await pollFor({
       observe: async () =>
@@ -479,27 +342,17 @@ Then(
 Then(
   "the conductor pane should fill the workspace",
   async function (this: KoluWorld) {
-    // CHAT ONLY, measured rather than asserted by the absence of a testid: the
-    // pane spans the full width and runs from the chrome bar to the bottom of
-    // the window. A dock column, a fleet list or a peek pane beside it would
-    // take width from this box, and this step would say by how much.
     const pane = await this.page.locator(PANE).boundingBox();
     const bar = await this.page.locator(CHROME_BAR).boundingBox();
     const viewport = this.page.viewportSize();
     assert.ok(pane, "the conductor pane has no box");
     assert.ok(bar, "the chrome bar has no box");
     assert.ok(viewport, "the page has no viewport size");
-    // HOW it is laid out, not only how big it came out: a pane that covers the
-    // workspace does it by being taken out of the flow, so a box that came up
-    // short says whether it is an overlay that was squeezed or an element that
-    // is in the flow beside the canvas — two different bugs with one symptom.
     const laidOut = await this.page.locator(PANE).evaluate((el) => {
       const style = getComputedStyle(el);
       const parent = el.parentElement;
       return `position: ${style.position}, parent ${parent?.className ?? "(none)"} is ${parent === null ? "?" : Math.round(parent.getBoundingClientRect().width)}px wide`;
     });
-    // A pixel of slack, because a fractional device-pixel ratio can land a
-    // full-bleed box a hair off an integer viewport.
     const near = (a: number, b: number): boolean => Math.abs(a - b) <= 1;
     assert.ok(
       near(pane.width, viewport.width),
@@ -550,10 +403,6 @@ Then(
 );
 
 Then("no host tab should be the conductor", async function (this: KoluWorld) {
-  // The conversation is NOT a host: it has no host key and no entry in the
-  // host map, so it must appear nowhere the UI enumerates hosts — not as a
-  // chip in the tab row, not as a row in the switcher the narrow layout
-  // mounts, not inside the host strip at all.
   const hosts = await this.page
     .locator(HOST_TAB)
     .evaluateAll((all) =>
@@ -566,8 +415,6 @@ Then("no host tab should be the conductor", async function (this: KoluWorld) {
   for (const host of hosts) {
     assert.ok(!/conductor/i.test(host), `a host tab is the conductor: ${host}`);
   }
-  // The entry lives BESIDE the strip, never inside it — the one structural
-  // fact a hue or a label change cannot quietly undo.
   assert.equal(
     await this.page
       .locator(`[data-testid="host-selector-strip"] ${TAB}`)
@@ -590,16 +437,7 @@ Then("no host tab should be the conductor", async function (this: KoluWorld) {
   }
 });
 
-/** How many host tabs are drawn as the CURRENT one — the lit class and the
- *  `aria-selected` a tab list reads out — across both layouts the strip can
- *  mount (the chip row, and the narrow range's one-tab switcher). The two must
- *  agree, so both are counted and the step fails if they do not. The strip's
- *  hidden measuring twins are `visibility: hidden`, which the visibility check
- *  is told to honour. */
 async function currentHostTabs(world: KoluWorld): Promise<number> {
-  // One query per fact, each its own browser-side evaluation: a NAMED helper
-  // inside the callback is rewritten by the step loader into a `__name` call
-  // the page has never heard of.
   const shown = (selector: string) =>
     world.page
       .locator(`[data-testid="host-selector-strip"] ${selector}`)
@@ -641,8 +479,6 @@ Then(
 Then(
   "the conductor tab should come first in the tab row",
   async function (this: KoluWorld) {
-    // By where it is DRAWN, not by markup order: the claim a person checks is
-    // that the tab sits before the hosts, on the same floor as them.
     const tab = await this.page.locator(TAB).boundingBox();
     const first = await this.page.locator(HOST_TAB).first().boundingBox();
     assert.ok(tab !== null && first !== null, "a tab is not on screen");
@@ -657,7 +493,6 @@ Then(
   },
 );
 
-/** The chrome-bar controls that describe a HOST's canvas. */
 const HOST_VIEW_CONTROLS = ["mode-control", "dock-toggle", "inspector-toggle"];
 
 async function shownHostViewControls(world: KoluWorld): Promise<string[]> {
@@ -709,17 +544,10 @@ Then(
 Then(
   "the conductor tab should show no badge",
   async function (this: KoluWorld) {
-    // ABSENT, not "0": a badge element that renders an empty count cannot be
-    // told from one that renders the wrong one.
     await waitForCount(this, BADGE, 0);
   },
 );
 
-/** The badge's COLOUR, read as the fact that drives it (`data-asking`) and
- *  never as a class name: what the tab promises is "this is the needs-you
- *  badge", and pinning a utility class would pin the paint instead — a
- *  rename of the token would fail here while the product was fine, and a
- *  badge that stopped turning violet would pass. */
 Then(
   "the conductor tab badge should be the needs-you one",
   async function (this: KoluWorld) {
@@ -749,10 +577,6 @@ Then(
 Then(
   "the conductor transcript should show a row of kind {string} saying {string}",
   async function (this: KoluWorld, kind: string, text: string) {
-    // PRESENCE, not a count: a turn can repeat a sentence within one
-    // conversation (a retry, a queued prompt answered twice), so a scenario
-    // asserting "exactly one agent row ever said this" would be asserting
-    // something about the shape of the turn rather than about the answer.
     await waitForAtLeastOne(
       this,
       `${TRANSCRIPT} ${ROW}[data-row-kind="${kind}"]:has-text(${JSON.stringify(text)})`,
@@ -760,7 +584,6 @@ Then(
   },
 );
 
-/** The latest agent row whose text includes `text`. */
 const agentRowSaying = (world: KoluWorld, text: string) =>
   world.page
     .locator(`${TRANSCRIPT} ${ROW}[data-row-kind="agent"]`)
@@ -787,9 +610,6 @@ Then(
   },
 );
 
-// The fold is a DOM pass over the prose, and a diagram landing rewrites that
-// DOM with the text unchanged — so a fold re-applied only on new text would be
-// silently gone here, every item on show and no control offering the rest.
 Then(
   "the conductor agent row saying {string} should still fold its long list",
   async function (this: KoluWorld, text: string) {
@@ -828,9 +648,6 @@ Then(
 Then(
   "that tool card should name the host {string}",
   async function (this: KoluWorld, host: string) {
-    // The card's own host mark, not the card's text: the terminal's name, its
-    // cwd and the folded JSON all pass a text match, and the point of this
-    // assertion is the column that says WHICH MACHINE.
     await waitForValue(
       "the create card's host mark",
       async () =>
@@ -883,10 +700,6 @@ Then(
 When(
   "I paste an image into the conductor composer",
   async function (this: KoluWorld) {
-    // Keep what the browser says from here on. A send that is refused before a
-    // row exists leaves nothing in the transcript to read, and the console is
-    // where the refusal's own sentence turns up — so the assertion downstream
-    // can say WHY nothing was minted rather than only that nothing was.
     const said: string[] = [];
     this.conductorConsole = said;
     this.page.on("console", (message) => {
@@ -896,10 +709,6 @@ When(
     const input = this.page.locator(INPUT);
     await input.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
     await input.click();
-    // A REAL clipboard image, written with the page's own permissions, so the
-    // paste the composer handles is a browser paste carrying a `File` — the
-    // same event a person's ⌘V produces. Only clipboard-write is needed: the
-    // paste event hands the data over without a read.
     await this.page.evaluate(async () => {
       const canvas = new OffscreenCanvas(1, 1);
       const ctx = canvas.getContext("2d");
@@ -918,9 +727,6 @@ When(
 Then(
   "the conductor composer should show a settled attachment chip",
   async function (this: KoluWorld) {
-    // SETTLED, not merely present: `data-uploading` comes off only when the
-    // bytes are on kolu-server under this attachment's own id. A chip that
-    // looks ready with nothing behind it is the failure this waits past.
     await waitForAtLeastOne(this, `${CHIP_ATTACHMENT}:not([data-uploading])`);
   },
 );
@@ -930,10 +736,6 @@ Then(
   async function (this: KoluWorld) {
     const want = `${TRANSCRIPT} ${ROW}[data-row-kind="user"] ${ROW_ATTACHMENT}[data-mime="image/png"]`;
     let rows = "(not observed)";
-    // Toasts are ACCUMULATED, not snapshotted. A refusal's toast lives about
-    // four seconds and the deadline here is twenty, so the last tick's reading
-    // would be an empty screen in exactly the failure this message exists to
-    // explain — "no toast" has to mean no toast ever, not none at the end.
     const toasts = new Set<string>();
     await pollFor({
       observe: () => this.page.locator(want).count(),
@@ -957,8 +759,6 @@ Then(
 Then(
   "the conductor status should read {string}",
   async function (this: KoluWorld, phase: string) {
-    // The phase word on the ONE status line above the composer — the header's
-    // chip that used to carry it is gone, so the state lives in one place.
     await waitForValue(
       "the conductor status line's phase",
       async () => (await this.page.locator(PHASE).textContent())?.trim() ?? "",
@@ -993,9 +793,6 @@ Then(
   "the conductor transcript should mark a user row {string}",
   async function (this: KoluWorld, mark: string) {
     let inventoryAtTimeout = "(not observed)";
-    // On timeout, quote what the transcript ACTUALLY holds — the row kinds and
-    // the marks that are there. "No row was marked refused" names a symptom;
-    // "the rows are user, notice and nothing is marked" names the cause.
     await pollFor({
       observe: () =>
         this.page.locator(`${USER_MARK}[data-mark="${mark}"]`).count(),
@@ -1022,20 +819,6 @@ Then(
 Then(
   "the conductor roster should show {string} as connected",
   async function (this: KoluWorld, server: string) {
-    // THE WHOLE FEATURE IN ONE ASSERTION. The conductor's hands are kolu's
-    // own MCP server — the FLEET face now, every terminal on every host — and
-    // the only way to know the agent actually has hold of them is the agent's
-    // own word about it, which arrives at the START OF A TURN, so this must
-    // follow one and never a bare bring-up. Before anything has been said the
-    // row reads `handed`, which is the honest "kolu gave this over and nobody
-    // has reported either way", and a conductor that silently fell back to
-    // running shell commands itself would sit at exactly that.
-    //
-    // THE ROSTER IS IN THE `⋯` NOW, not a strip above every conversation, so
-    // this opens the menu the way a person asking the question does. The
-    // panel is portalled and stays up while the poll runs; the second press
-    // puts it away so the scenario's next step meets the conversation and not
-    // a panel over it.
     const row = `${MENU_PANEL} [data-testid="conductor-server"][data-server="${server}"]`;
     await this.page.locator(MENU).click();
     await this.page
@@ -1053,18 +836,8 @@ Then(
   },
 );
 
-/** The folded body of a generic card — the `<pre>` the minified payload lands
- *  in. It is inside a `<details>`, so it has no layout at all until somebody
- *  opens it: a measurement taken while it is shut measures `display: none`
- *  and would pass against the very bug this file is here to catch. */
 const TOOL_DETAIL = '[data-testid="conductor-tool-detail"]';
 
-/** Every box from the payload up to the document, with its own width beside
- *  the width of what is inside it. A box whose `scrollWidth` exceeds its
- *  `clientWidth` is one that failed to contain its content; the FIRST such box
- *  walking up is the link that let the line out, and every box above it is a
- *  consequence. Reported on pass as well as on failure — the numbers are the
- *  evidence, not the verdict. */
 async function widthChain(world: KoluWorld): Promise<string> {
   return await world.page
     .locator(TOOL_DETAIL)
@@ -1092,8 +865,6 @@ When(
   "I open that tool card's folded payload",
   async function (this: KoluWorld) {
     const card = this.page.locator(TOOL_CARD).last();
-    // A settled call sits in its turn's Details: open that first, the way a
-    // reader does, so the card is measured where they meet it — in the fold.
     const fold = this.page.locator(FOLD).filter({ has: card });
     if ((await fold.count()) > 0) await fold.locator("> summary").click();
     await card.locator("summary").last().click();
@@ -1121,15 +892,10 @@ Then(
           column: column === null ? -1 : column.clientWidth,
         };
       });
-    // A pixel of slack for sub-pixel rounding on a fractional device ratio;
-    // the bug this guards is thousands of pixels wide, not one.
     assert.ok(
       box.scroll <= box.client + 1,
       `the card's content is ${box.scroll}px wide inside a ${box.client}px card — the payload escaped it\n${chain}`,
     );
-    // AND the card itself did not simply GROW to hold the line: a card as wide
-    // as its payload contains it perfectly and still pushes the transcript,
-    // the pane and the document — the failure the assertion above cannot see.
     assert.ok(
       box.column > 0 && box.offset <= box.column + 1,
       `the card is ${box.offset}px wide in a ${box.column}px transcript — the payload widened the card itself\n${chain}`,
@@ -1140,12 +906,6 @@ Then(
 Then(
   "that tool card's payload should be readable without scrolling sideways",
   async function (this: KoluWorld) {
-    // CONTAINED IS NOT ENOUGH. A block with `overflow-x: auto` holds a 5 KB
-    // unbroken line perfectly — 25 000 px of it, reachable only by dragging a
-    // scrollbar inside a 970 px card — and a block with `overflow: hidden`
-    // simply CUTS it, which loses what the agent read. Both pass the
-    // containment assertions above and neither is a readable payload, so this
-    // pins the third thing: the line WRAPPED, so every character is on screen.
     const blocks = await this.page
       .locator(`${TOOL_CARD} pre`)
       .evaluateAll((all) =>
@@ -1165,10 +925,6 @@ Then(
   },
 );
 
-/** WHAT IS STICKING OUT, by name. A document that scrolls sideways says only
- *  that something does; the fix needs the element, so this walks every box and
- *  reports the ones whose right edge is past the window — innermost first,
- *  which is where the line actually escaped. */
 async function pastTheWindow(world: KoluWorld): Promise<string> {
   return await world.page.evaluate(() => {
     const width = document.documentElement.clientWidth;
@@ -1203,15 +959,6 @@ Then(
   },
 );
 
-/** THE CHROME BAR'S OWN ARITHMETIC, measured. The row is a flex line whose
- *  only shrinkable member is the host strip; everything else — the identity
- *  rail, the `◆ Conductor alpha` tab ahead of the strip, the control cluster —
- *  is `shrink-0`. So two facts matter and this step pins both: the row FITS the
- *  window, and the strip's own measured width (the budget `computeVisibleHosts`
- *  folds tabs against) is exactly what is LEFT once the others have taken
- *  theirs. The second is the premise the fold rests on — a member that stopped
- *  being counted would make the strip claim room it does not have and the
- *  tabs would run into it instead of folding. */
 Then("the chrome bar should fit the window", async function (this: KoluWorld) {
   const bar = await this.page.locator(CHROME_BAR).evaluate((el) => {
     const style = getComputedStyle(el);
@@ -1219,9 +966,6 @@ Then("the chrome bar should fit the window", async function (this: KoluWorld) {
     return {
       client: el.clientWidth,
       scroll: el.scrollWidth,
-      // The row's own geometry, read off the element rather than copied
-      // from the markup: padding and the flex gap are what separate the
-      // members, and a step that assumed them would pass through a restyle.
       chrome:
         Number.parseFloat(style.paddingLeft) +
         Number.parseFloat(style.paddingRight) +
@@ -1240,9 +984,6 @@ Then("the chrome bar should fit the window", async function (this: KoluWorld) {
   const report = `chrome bar: client=${bar.client} scroll=${bar.scroll} chrome=${bar.chrome} parts=${bar.parts
     .map((part) => `${part.id}=${Math.round(part.width)}`)
     .join(" ")}`;
-  // A host tab's own rendered width, logged beside the budget: it is the
-  // number the fold arithmetic is fed, and the one a unit test asserting the
-  // five-host fold has to use if it is to mean anything.
   const chip = await this.page
     .locator(HOST_TAB)
     .first()
@@ -1259,18 +1000,10 @@ Then("the chrome bar should fit the window", async function (this: KoluWorld) {
   );
 });
 
-/** The terminal's own pill, reused by the conversation: "you are not
- *  following, here is the way back". Scoped under the pane — the same testid
- *  belongs to the scrollback's copy on a host tab. */
 const TO_BOTTOM = `${PANE} [data-testid="scroll-to-bottom"]`;
 
-/** The client's own `FOLLOW_SLACK_PX`, which is the number the rule under test
- *  uses. A transcript within a couple of lines of the end IS following; the
- *  failure this file is about leaves it hundreds of pixels short. */
 const FOLLOW_SLACK_PX = 48;
 
-/** How far the transcript's last pixel is below the bottom of its view. Zero
- *  (or a line or two) means it is following the conversation. */
 async function transcriptGap(world: KoluWorld): Promise<number> {
   return await world.page
     .locator(TRANSCRIPT)
@@ -1295,14 +1028,8 @@ Then(
 When("I scroll the conductor transcript up", async function (this: KoluWorld) {
   const box = await this.page.locator(TRANSCRIPT).boundingBox();
   assert.ok(box !== null, "the transcript has no box to scroll over");
-  // A REAL WHEEL over the column, not an assignment to `scrollTop`: the
-  // client reads the notch itself (to decide intent before the browser has
-  // moved anything), and a scripted scroll would skip that half.
   await this.page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
   await this.page.mouse.wheel(0, -600);
-  // Chromium animates the notch, so the view has not arrived when `wheel`
-  // resolves. Wait for it to be demonstrably off the end before anything
-  // asserts about where it stays.
   await pollFor({
     observe: () => transcriptGap(this),
     isDone: (gap) => gap > FOLLOW_SLACK_PX + 1,
@@ -1352,17 +1079,11 @@ When("I take the way back to the bottom", async function (this: KoluWorld) {
   await this.page.locator(TO_BOTTOM).click();
 });
 
-// ── Look: the agent line on a create card ──
-
-/** The newest create card's agent line — the status, the toggle and the tail
- *  all live under it. */
 const LOOK = `${TOOL_CARD}[data-tool-kind="create"] [data-testid="conductor-look"]`;
 
 Then(
   "that tool card should say how its terminal is doing",
   async function (this: KoluWorld) {
-    // `here` is the roster's own word: the terminal was found in the host's
-    // mirrored list, with its record — which is what the status line reads.
     await waitForValue(
       "the agent line's standing",
       async () =>
@@ -1394,9 +1115,6 @@ When("I look at that tool card's terminal", async function (this: KoluWorld) {
 Then(
   "the look should show {string}",
   async function (this: KoluWorld, text: string) {
-    // What the tail ACTUALLY says on timeout — "reading the screen…", a
-    // failed read's sentence, or lines without the marker are three different
-    // bugs, and a bare "nothing matched" names none of them.
     await pollFor({
       observe: async () =>
         (
@@ -1433,7 +1151,6 @@ Then(
         )?.trim() ?? "absent",
       "terminal gone",
     );
-    // Nothing to look at: the toggle, and with it every read, is gone too.
     await waitForCount(
       this,
       `${LOOK} [data-testid="conductor-look-toggle"]`,
@@ -1443,12 +1160,8 @@ Then(
   },
 );
 
-// ── The Details fold ──
-
 const FOLD = `${TRANSCRIPT} [data-testid="conductor-fold"]`;
 
-/** How many of the matches are actually on screen — a closed `<details>`
- *  keeps its rows in the DOM, so a count alone cannot tell folded from shown. */
 async function visibleCount(
   world: KoluWorld,
   selector: string,
@@ -1461,8 +1174,6 @@ async function visibleCount(
 Then(
   "the conductor transcript should fold {int} tool calls into one closed Details",
   async function (this: KoluWorld, count: number) {
-    // Waited for, not read once: the fold grows as calls settle, so it can be
-    // on screen at a smaller count first.
     await waitForCount(this, FOLD, 1);
     const fold = this.page.locator(FOLD);
     await waitForValue(
@@ -1479,8 +1190,6 @@ Then(
   },
 );
 
-/** The card status each phrase names — a failure is news, a running call keeps
- *  its clock in view; neither is ever folded away. */
 const IN_FLOW_STATUS: Record<string, string> = {
   failed: "failed",
   running: "in_progress",
@@ -1491,9 +1200,6 @@ Then(
   async function (this: KoluWorld, which: string) {
     const status = IN_FLOW_STATUS[which];
     assert.ok(status !== undefined, `no tool-call status is named "${which}"`);
-    // A row of the transcript that is NOT inside the Details fold: a reader
-    // must not have to open anything to see it. Asked by ancestry, not by
-    // being a direct child — the transcript wraps each item to fold a turn.
     await waitForValue(
       `${which} tool cards outside the fold`,
       async () =>
@@ -1526,8 +1232,6 @@ Then(
 Then(
   "the Details fold should still be open, holding {int} tool calls",
   async function (this: KoluWorld, count: number) {
-    // The same `<details>` element, not a fresh one: a fold re-created when a
-    // call joined it or prose closed it would be back to closed.
     const fold = this.page.locator(FOLD);
     await waitForValue(
       "the Details fold's count",
@@ -1542,13 +1246,9 @@ Then(
   },
 );
 
-// ── The Conductor on a phone ──
-
 Then(
   "the mobile chrome sheet should put the conductor first, lit, and no host lit",
   async function (this: KoluWorld) {
-    // The sheet IS the phone's tab row, so it keeps the row's rules: the
-    // conversation first, and exactly one place lit — the one you are in.
     const tab = this.page.locator(`${MOBILE_SHEET} ${TAB}`);
     await waitForValue(
       "the sheet's conductor entry lit",
@@ -1580,10 +1280,6 @@ Then(
 Then(
   "nothing on screen should reach past the window's right edge",
   async function (this: KoluWorld) {
-    // Stricter than "the page is no wider than the window": a span clipped by
-    // an `overflow: hidden` ancestor keeps the document narrow while its own
-    // box runs off the screen — exactly how a phone's agent line used to cut
-    // its title. Every element with a box is measured.
     const offenders = await this.page.evaluate(() =>
       [...document.querySelectorAll<HTMLElement>("body *")]
         .filter((el) => {
@@ -1608,32 +1304,15 @@ Then(
   },
 );
 
-// ── The Conductor never blocks: wakes, the work column, the status line ──
-//
-// A member terminal's agent state comes from the same mocked Claude Code
-// session files the agent-detection scenarios write, so a wake here travels
-// padi's urgency fold, kolu-server's watcher and the ACP wire to the scripted
-// adapter — nothing in the browser is told about it except by the cells and
-// the transcript, which is exactly what a person reads.
-
 const STATUS = '[data-testid="conductor-status"]';
-/** The status line's one readout about the work: `data-work` pieces of work in
- *  progress, `data-waiting` things waiting on you. Each attribute is ABSENT at
- *  zero and the whole element is absent when both are — nothing here reads 0.
- *  Below the two-column width it is also the control that opens the column. */
 const WORK_COUNT = '[data-testid="conductor-work-count"]';
 const HELD = '[data-testid="conductor-held"]';
-/** The column of work — the same component in both placements (the pane's
- *  second track on a wide window, the band the status line's control opens
- *  below that width). */
 const WORK_COLUMN = '[data-testid="work-column"]';
 const WORK_CARD = '[data-testid="work-card"]';
 const WORK_MEMBER = '[data-testid="work-member"]';
 const WAKE_ROW = `${ROW}[data-row-kind="wake"]`;
 const STEER_HINT = '[data-testid="conductor-steer-hint"]';
 
-/** The number in an element's text — `2 waiting` — or `absent` when the
- *  element is not on screen, so a failure says which. */
 async function countIn(world: KoluWorld, selector: string): Promise<string> {
   const node = world.page.locator(selector);
   if ((await node.count()) === 0) return "absent";
@@ -1641,26 +1320,18 @@ async function countIn(world: KoluWorld, selector: string): Promise<string> {
   return text.match(/\d+/)?.[0] ?? `no number in ${JSON.stringify(text)}`;
 }
 
-/** The terminal this scenario put into a work, or a failure saying it never
- *  did — every step below is about THAT terminal. */
 function watchedId(world: KoluWorld): string {
   const id = world.watchedTerminalId;
   assert.ok(id, "no terminal was joined to a work in this scenario");
   return id;
 }
 
-/** That terminal's member row on the column: a member's ref is `<host>/<id>`,
- *  and the id half is the one this scenario knows. */
 function memberRow(world: KoluWorld) {
   return world.page.locator(
     `${WORK_COLUMN} ${WORK_MEMBER}[data-ref$="/${watchedId(world)}"]`,
   );
 }
 
-/** A PLAIN WATCH the human asked for opens a piece of work of its own, titled
- *  `watch <id>` by the fixture. Noting that title is what keeps a scenario
- *  about ITS card: the suite's worker shares one server, and a work another
- *  scenario opened is still in the column. */
 function noteWatchWork(world: KoluWorld, id: string): void {
   world.watchedTerminalId = id;
   world.workTitle = `watch ${id}`;
@@ -1669,17 +1340,12 @@ function noteWatchWork(world: KoluWorld, id: string): void {
 When(
   "I ask the conductor to watch the terminal",
   async function (this: KoluWorld) {
-    // THE FOCUSED tile, read before the conversation covers the canvas — the
-    // same reading `adopt the terminal I am in` makes, for the same reason.
     const id = await this.page
       .locator(`${CANVAS_TILE}[data-active]`)
       .getAttribute("data-terminal-id", { timeout: POLL_TIMEOUT });
     assert.ok(id, "no tile is focused, so there is nothing to watch");
     noteWatchWork(this, id);
     await enterConductor(this);
-    // The fixture answers `watch <id>` with a REAL work opened in `watch` mode
-    // and a `work_adopt` of that terminal — so the column moves because the
-    // tools moved it.
     await sendPrompt(this, `watch ${id}`);
   },
 );
@@ -1687,8 +1353,6 @@ When(
 When(
   "I ask the conductor to watch the first terminal",
   async function (this: KoluWorld) {
-    // The PHONE's spelling: no canvas tile is focused there, so the terminal
-    // is read off the roster the same way `adopt the terminal` reads it.
     const ids = await this.terminalIds();
     const id = ids[0];
     assert.ok(id, "a terminal must exist before the conductor can watch one");
@@ -1701,9 +1365,6 @@ When(
 When(
   "I ask the conductor to watch the terminal I just created",
   async function (this: KoluWorld) {
-    // The id the CREATE answered with, not whichever tile the canvas has
-    // focused: a scenario that watches two terminals in a row is asking for
-    // two particular ones, and the focus is a different fact.
     const id = this.createdTerminalIds.at(-1);
     assert.ok(id, "no terminal was created in this scenario");
     noteWatchWork(this, id);
@@ -1712,12 +1373,6 @@ When(
   },
 );
 
-/** THE ONE READOUT the status line keeps about the work, read off its own
- *  data rather than out of its sentence: `data-work` is how many pieces of
- *  work are in progress, `data-waiting` how many things wait on you. Both are
- *  ABSENT at zero (nothing here reads `0`), and so is the element itself when
- *  neither has anything to say — which is why each reading answers `absent`
- *  rather than throwing on a missing node. */
 async function workReadout(
   world: KoluWorld,
   attribute: "data-work" | "data-waiting",
@@ -1752,8 +1407,6 @@ Then(
 Then(
   "the conductor status should say nothing is waiting on you",
   async function (this: KoluWorld) {
-    // ABSENT, never `0`: a part of the line that would read a quantity of
-    // nothing is not drawn at all.
     await waitForValue(
       "the status line's waiting-on-you count",
       () => workReadout(this, "data-waiting"),
@@ -1790,9 +1443,6 @@ Then(
 Then(
   "the conductor transcript should show no wake",
   async function (this: KoluWorld) {
-    // AN INSTANT, not a wait: the claim is about NOW — the turn is running and
-    // the wake is held — and a poll for zero would pass the moment before one
-    // was wrongly injected.
     assert.equal(
       await this.page.locator(WAKE_ROW).count(),
       0,
@@ -1805,9 +1455,6 @@ Then(
   "the conductor transcript should show a wake about the watched terminal",
   async function (this: KoluWorld) {
     const id = watchedId(this);
-    // The ACCOUNT names the terminal by its fleet ref; it is in the DOM even
-    // folded (the disclosure hides it, it does not withhold it) — so the
-    // wake is matched on the terminal it is about, not merely on existing.
     let inventoryAtTimeout = "(not observed)";
     await pollFor({
       observe: () =>
@@ -1832,9 +1479,6 @@ Then(
   },
 );
 
-/** THE WAKE NAMES ITS WORK — a chip on the line under it, for the work the
- *  watched terminal belongs to (`watch <id>`, the fixture's title for a plain
- *  watch), found by the work it says it is for rather than by its words. */
 function wakeChip(world: KoluWorld) {
   const title = world.workTitle;
   assert.ok(title, "this scenario never named the work it opened");
@@ -1857,7 +1501,6 @@ When("I press the wake's work chip", async function (this: KoluWorld) {
   await wakeChip(this).click();
 });
 
-/** A TURN'S CHIP for this scenario's work, pressed where the chat drew it. */
 When(
   "I press the work's chip in the conversation",
   async function (this: KoluWorld) {
@@ -1874,7 +1517,6 @@ When(
   },
 );
 
-/** ... and the press lands on that work's card: open, and on screen. */
 Then(
   "the watched work's card should be open",
   async function (this: KoluWorld) {
@@ -1904,9 +1546,6 @@ Then(
   async function (this: KoluWorld, level: string) {
     const id = watchedId(this);
     let inventoryAtTimeout = "(not observed)";
-    // The LEVEL is read off the wake's own `data-levels`, not its wording:
-    // which words the line uses is the panel's business, which fact rang is
-    // the server's.
     await pollFor({
       observe: () =>
         this.page
@@ -1945,31 +1584,9 @@ Then("the wake should be one line from kolu", async function (this: KoluWorld) {
     false,
     "the wake's whole account was open before anybody opened it",
   );
-  // The machine's line is NOT the human's bubble — a user mark (and the
-  // send-again that rides it) belongs to words a person typed.
   assert.equal(await wake.locator(USER_MARK).count(), 0);
 });
 
-/** THE CONVERSATION STARTS AN AGENT. The fixture's `run an agent in <dir>`
- *  opens a piece of work and makes a real `lifecycle_create` on the fleet
- *  face — and the tool watches what it created, so this one step produces a
- *  watched terminal whose agent comes up on its own.
- *
- *  KOLU TYPES THE COMMAND now (`claude --model …`, built from the work's
- *  setup), so the stand-in cannot travel in the prompt. It travels in the
- *  floor's RELAY instead: this step writes the command there, and the floor's
- *  `claude` execs it (once) in the terminal kolu made. The relay is where the
- *  command must be built because only the test process knows the stand-in's
- *  absolute path (the harness seeds a renamed bash per worker as
- *  `KOLU_FAKE_OMP_BIN`, so `/proc/<pid>/comm` reads `omp`), and the stand-in
- *  must be the LAZY one: it writes its breadcrumb at launch and its session
- *  file only when something prompts it. Between those two moments the
- *  terminal is an agent with no transcript, which is the whole subject of the
- *  scenario.
- *
- *  The terminal it answers with becomes this scenario's watched terminal, so
- *  every `… about the watched terminal` assertion below is about the one the
- *  conversation itself started. */
 When(
   "I ask the conductor to run an agent in a new terminal",
   async function (this: KoluWorld) {
@@ -1982,9 +1599,6 @@ When(
     );
     const fixture = ompTranscriptPath({ ompDir, cwd: conductorAgentCwd });
     const stagePath = path.join(conductorAgentCwd, "omp-session-pending.jsonl");
-    // What its FIRST prompt writes: a session already thinking, which is what
-    // a real omp's first prompt leaves on disk — so `agent_say`'s "did it
-    // take" question has a true answer to find.
     stageOmpPrompt(stagePath, "thinking");
     const program = path.join(conductorAgentCwd, "omp-stand-in.sh");
     fs.writeFileSync(
@@ -1995,14 +1609,9 @@ When(
         stagePath,
       }),
     );
-    // THE STAND-IN, LEFT WHERE KOLU'S `claude` WILL FIND IT — one run, then
-    // the relay is spent.
     fs.writeFileSync(fixtureClaudeRelay(), `${bin} ${program}`);
     await enterConductor(this);
     await sendPrompt(this, `run an agent in ${conductorAgentCwd}`);
-    // The create's own answer names the terminal — read off the row the agent
-    // said it in, so the scenario watches the terminal that really was made
-    // rather than whichever id the canvas happens to show.
     let inventoryAtTimeout = "(not observed)";
     const said = await pollFor({
       observe: async () => {
@@ -2030,10 +1639,6 @@ When(
   },
 );
 
-/** RINGS ONCE. The claim is about repetition, so it is read after the wake has
- *  landed AND the conversation has been left alone long enough for a second
- *  one to arrive: a bare count taken the instant the first lands would pass
- *  against a server that rings every tick. */
 Then(
   "the conductor transcript should show exactly one {string} wake about the watched terminal",
   async function (this: KoluWorld, level: string) {
@@ -2065,9 +1670,6 @@ Then(
           `no ${JSON.stringify(level)} wake about ${id} after ${ms}ms; the transcript holds ${inventoryAtTimeout}`,
         ),
     });
-    // Then LEAVE IT ALONE. A wake that repeats does so on the server's own
-    // re-report cadence, which is seconds wide, so a count taken the instant
-    // the first one lands would pass against a server that rings every tick.
     const quiet = Promise.withResolvers<void>();
     setTimeout(quiet.resolve, REPEAT_WAKE_WINDOW_MS);
     await quiet.promise;
@@ -2079,8 +1681,6 @@ Then(
   },
 );
 
-/** SPEAK TO IT — the fixture's `tell it <words>`, which is a real `agent_say`
- *  on the fleet face against the terminal the conversation started. */
 When(
   "I ask the conductor to tell the agent {string}",
   async function (this: KoluWorld, words: string) {
@@ -2089,8 +1689,6 @@ When(
   },
 );
 
-/** OPEN THE WAKE by its headline — the summary's own text, which opens the
- *  disclosure wherever the line wraps. */
 When("I open the wake", async function (this: KoluWorld) {
   await this.page
     .locator(WAKE_ROW)
@@ -2114,11 +1712,6 @@ Then(
   },
 );
 
-/** PUT THE COLUMN ON SCREEN, however this window holds it. On a window wide
- *  enough for two columns it is already beside the conversation and there is
- *  nothing to press — the status line carries a readout there, not a control.
- *  Below that width it is the band the control opens. Either way the step
- *  means the same thing: the work is readable now. */
 export async function showWorkColumn(world: KoluWorld): Promise<void> {
   if ((await world.page.locator(WORK_COLUMN).count()) === 0) {
     await world.page.locator(`${STATUS} ${WORK_COUNT}`).click();
@@ -2128,15 +1721,6 @@ export async function showWorkColumn(world: KoluWorld): Promise<void> {
     .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
 }
 
-/** THE CARD THIS SCENARIO IS ABOUT, by the narrowest thing it knows: the id
- *  it read off the card when it opened the work, else the title it gave it,
- *  else the column's one card.
- *
- *  The title fallback is not politeness. A WORK OUTLIVES THE CONVERSATION
- *  (that is the feature), and the suite's worker shares one server across
- *  every scenario in a file — so the column a later scenario meets can hold
- *  a card an earlier one opened, and `first()` would quietly be about that
- *  one instead. */
 export function workCard(world: KoluWorld) {
   const id = world.workId;
   if (id !== undefined)
@@ -2148,13 +1732,6 @@ export function workCard(world: KoluWorld) {
     : cards.filter({ hasText: title }).first();
 }
 
-/** Open that card, idempotently — a card already open is left alone, because
- *  pressing its head would SHUT it and every later step would read an empty
- *  card and blame the product.
- *
- *  A work that has ENDED is below the line in the collapsed `Finished`
- *  section: the SAME card, one disclosure further, so the step that opens a
- *  card means the same thing before and after the work finished. */
 export async function openWorkCard(world: KoluWorld): Promise<void> {
   await showWorkColumn(world);
   const card = workCard(world);
@@ -2184,9 +1761,6 @@ When("I open the work card", async function (this: KoluWorld) {
 });
 
 Then("the work column should show the work", async function (this: KoluWorld) {
-  // WHEREVER the column is standing — beside the conversation on a wide
-  // window, behind the status line's control below that width — the work is
-  // in it.
   await showWorkColumn(this);
   await workCard(this).waitFor({ state: "visible", timeout: POLL_TIMEOUT });
 });
@@ -2196,11 +1770,6 @@ Then(
   async function (this: KoluWorld) {
     await openWorkCard(this);
     const id = watchedId(this);
-    // WHAT THE CARD ACTUALLY HOLDS when it does not hold this terminal: the
-    // refs it does list and its last events. A member leaves by being
-    // REMOVED, so its absence and the `left` that explains it are two halves
-    // of one reading — a failure that quoted neither would send the reader to
-    // the column's rendering when the record is what moved.
     let held = "(not observed)";
     await pollFor({
       observe: () => memberRow(this).count(),
@@ -2212,10 +1781,6 @@ Then(
           .evaluateAll((all) =>
             all.map((row) => row.getAttribute("data-ref") ?? "?"),
           );
-        // AND WHICH TERMINALS ARE EVEN THERE. A member can be missing because
-        // the record dropped it, or because the terminal came back under a
-        // different id — two different stories, and only the second one is
-        // about identity.
         const terminals = await this.terminalIds();
         held = `${refs.length === 0 ? "no members" : refs.join(", ")}; terminals on screen ${terminals.length === 0 ? "none" : terminals.join(", ")}; timeline ${await timelineInventory(this)}`;
       },
@@ -2233,9 +1798,6 @@ When("I look at the member terminal", async function (this: KoluWorld) {
 });
 
 When("I press the member terminal's name", async function (this: KoluWorld) {
-  // THE MEMBER'S NAME IS THE WAY TO THE TERMINAL — the same journey the create
-  // card's *open tile* makes, which is why the assertion below is the one that
-  // step's scenario makes about the tile it lands on.
   await memberRow(this).locator('[data-testid="work-member-name"]').click();
 });
 
@@ -2278,14 +1840,6 @@ Then(
   },
 );
 
-// ── One reading column, and the side column beside it ──
-//
-// The work column has TWO placements and one implementation: a side column
-// that is always on screen on a window wide enough for both measures, and the
-// band the status line's control opens below that width. These steps say
-// which placement is live, because that is the thing a person sees change.
-
-/** The pane's second column — the always-on placement of the work column. */
 const SIDE = '[data-testid="conductor-side"]';
 
 Then(
@@ -2311,8 +1865,6 @@ Then(
 Then(
   "the work column should be behind the status line's control",
   async function (this: KoluWorld) {
-    // The narrow window's bargain: the work is not standing beside the
-    // conversation, and the way to it is the count on the status line.
     await waitForCount(this, WORK_COLUMN, 0);
     await this.page
       .locator(`${STATUS} ${WORK_COUNT}`)
@@ -2330,11 +1882,6 @@ Then(
 );
 
 Then("no count on screen should read zero", async function (this: KoluWorld) {
-  // Every readout the conversation keeps about its own work — the status
-  // line and the side column — read whole, and none of them may say `0`.
-  // A zero here is not a small cosmetic thing: it is the conversation
-  // reporting a quantity of nothing, which a reader has to parse before
-  // they can ignore it.
   const zeros = await this.page.evaluate(
     ([status, side]) =>
       [...document.querySelectorAll<HTMLElement>(`${status}, ${side}`)]
@@ -2385,8 +1932,6 @@ Then(
 Then(
   "the conductor header should carry no state chip",
   async function (this: KoluWorld) {
-    // The state lives in ONE place — the status line above the composer — so
-    // the only `conductor-phase` on screen is the status line's.
     const phases = this.page.locator(PHASE);
     assert.equal(await phases.count(), 1);
     assert.equal(await this.page.locator(`${STATUS} ${PHASE}`).count(), 1);
@@ -2394,13 +1939,6 @@ Then(
 );
 
 When("I mark the conductor pane", async function (this: KoluWorld) {
-  // A JS EXPANDO, not a `data-` attribute: an attribute is markup, and a pane
-  // rebuilt from the same JSX would come back wearing it. A property set on
-  // the node by hand exists only on THAT object, so finding it again is proof
-  // the element itself survived — the identity check `/solidjs` asks for.
-  //
-  // The value is built here, at run time, so it cannot be anything the page's
-  // own source could have put there.
   const marker = `kolu-pane-${Date.now()}-${Math.random().toString(36).slice(2)}`;
   this.conductorPaneMarker = marker;
   const pane = this.page.locator(PANE);
@@ -2451,13 +1989,6 @@ When(
   },
 );
 
-// ── The help: a column in the gutter, a sheet from the menu ──
-//
-// One set of words in two frames (`helpContent.ts`). These steps never read
-// the sentences themselves — a help text is meant to be reworded — they read
-// the SECTIONS it promises and which frame they arrived in, so a rewrite
-// passes and a section quietly dropped does not.
-
 const HELP = '[data-testid="conductor-help"]';
 const HELP_TOGGLE = '[data-testid="conductor-help-toggle"]';
 const HELP_CONTENT = '[data-testid="conductor-help-content"]';
@@ -2465,8 +1996,6 @@ const HELP_SECTION = '[data-testid="conductor-help-section"]';
 const HELP_SHEET = '[data-testid="conductor-help-sheet"]';
 const MENU_HELP = '[data-testid="conductor-menu-help"]';
 
-/** The sections the panel promises, in order — the id each section rides as
- *  data, not its heading, so rewording a heading is not a broken test. */
 const HELP_SECTIONS = [
   "ask",
   "waterfall",
@@ -2480,8 +2009,6 @@ const HELP_SECTIONS = [
   "asks",
 ];
 
-/** What one copy of the help is showing, as `id,id,…` — or why it is not
- *  readable, so a failure says which. */
 async function helpSectionsIn(
   world: KoluWorld,
   placement: "column" | "sheet",
@@ -2520,7 +2047,6 @@ Then(
         (await this.page.locator(HELP).getAttribute("data-open")) ?? "absent",
       "false",
     );
-    // Collapsed it carries its words no longer, and exactly one control.
     await waitForCount(this, `${HELP} ${HELP_CONTENT}`, 0);
     await waitForCount(this, `${HELP} ${HELP_TOGGLE}`, 1);
   },
@@ -2553,8 +2079,6 @@ When(
 Then(
   "the conductor menu should not offer How to use",
   async function (this: KoluWorld) {
-    // Where the help is already a column, the menu entry would be a second
-    // door to the words standing open beside it.
     await this.page.locator(MENU).click();
     await waitForAtLeastOne(this, MENU_PANEL);
     await waitForCount(this, MENU_HELP, 0);
@@ -2593,25 +2117,9 @@ Then("the help sheet should be open", async function (this: KoluWorld) {
     .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
 });
 
-// ── A piece of work: the repo it is done in, its members, its files, its PR ──
-//
-// Everything a scenario below states, it states WHERE KOLU READS IT: a file in
-// the worktree, the transcript the member's agent session really has, a pull
-// request the repo's own `gh` answers with. Nothing here writes to the work
-// record — the whole claim of these scenarios is that the timeline grows from
-// what kolu observed, so a step that poked the record would be asserting its
-// own write.
-
-/** The scratch repos this scenario made, and the session file of the agent in
- *  its member terminal. Module state rather than world state because the After
- *  hook that reaps them has no scenario-shaped work to do. */
 const workRepos: string[] = [];
 let memberFixture: { transcriptPath: string; sessionId: string } | null = null;
-/** How many times the repo's branch has been moved to hurry the PR sensor —
- *  each move needs a name no earlier one used. */
 let branchBumps = 0;
-/** The pull request the scenario has stated so far, so a step that changes one
- *  thing about it (its checks, its state) restates the rest unchanged. */
 let statedPr: PrFixture | null = null;
 
 After(() => {
@@ -2630,11 +2138,6 @@ function workRepo(world: KoluWorld): string {
   return dir;
 }
 
-/** WHAT THE PERSON TYPES TO OPEN A WORK — and the repository it is in, when
- *  the scenario made one. A work is a branch in a repository and kolu asks
- *  THAT repository about the branch's pull request, so a scenario with a forge
- *  must key its work by the repo it wrote the PR into; one without says only
- *  the title and keeps the fixture agent's placeholder path. */
 function openWords(world: KoluWorld, title: string): string {
   const dir = world.workRepoDir;
   return dir === undefined ? `open ${title}` : `open ${title} in ${dir}`;
@@ -2644,10 +2147,6 @@ function run(command: string, args: string[], cwd: string): void {
   execFileSync(command, args, { cwd, stdio: "ignore" });
 }
 
-/** A REAL REPOSITORY for the work: a branch to be on, a commit to be at, and
- *  an `origin` on `github.com` — which is the fact `detectForge` routes on, so
- *  the PR sensor reaches the gh adapter at all. The remote is never dialled:
- *  the suite's `gh` answers from the repo's own fixture file. */
 Given("a repo for the work", async function (this: KoluWorld) {
   const dir = fs.mkdtempSync(
     path.join(os.tmpdir(), `kolu-work-repo-${process.pid}-`),
@@ -2669,14 +2168,6 @@ Given("a repo for the work", async function (this: KoluWorld) {
   this.workRepoDir = dir;
 });
 
-/** OPEN THE WORK. The fixture's `open <title>` is a real `work_open` on the
- *  fleet face with the setup all given except what to do on green — so the
- *  card and its one open question appear at once, and the turn stays in flight
- *  until that question is answered (which is a step, here or on the card).
- *
- *  The id is read off the CARD rather than parsed out of the agent's prose:
- *  the card's `data-work` is the client's own reading of the record, so every
- *  later step is about the same work the person is looking at. */
 When(
   "I ask the conductor to open the work {string}",
   async function (this: KoluWorld, title: string) {
@@ -2684,8 +2175,6 @@ When(
   },
 );
 
-/** ... a TRIVIAL one, nothing asked, so an implementor can run in it at once —
- *  in the scenario's own repo, which is where its pull request is read. */
 When(
   "I ask the conductor to open the trivial work {string}",
   async function (this: KoluWorld, title: string) {
@@ -2697,9 +2186,6 @@ When(
   },
 );
 
-/** ... with the IMPLEMENTOR'S MODEL LEFT TO THE HUMAN: a trivial work whose
- *  every other answer the request gave, so the form is the one model
- *  question. */
 When(
   "I ask the conductor to open the work {string} with its model left to me",
   async function (this: KoluWorld, title: string) {
@@ -2712,8 +2198,6 @@ When(
   },
 );
 
-/** Send the fixture conductor `prompt`, and wait for the card titled `title`
- *  — the work every later step in the scenario is about. */
 async function openWorkSaying(
   world: KoluWorld,
   title: string,
@@ -2750,8 +2234,6 @@ async function openWorkSaying(
   world.workId = id;
 }
 
-/** THE WORK'S MODEL QUESTION, inside the opened card — the form a person
- *  answers it in. */
 async function modelQuestion(world: KoluWorld) {
   await openWorkCard(world);
   const ask = workCard(world).locator('[data-testid="work-question"]');
@@ -2759,7 +2241,6 @@ async function modelQuestion(world: KoluWorld) {
   return ask;
 }
 
-/** THE HOST'S OWN WORDS, on the question: it could not list, and says why. */
 Then(
   "the work's model question should say the host could not list its models",
   async function (this: KoluWorld) {
@@ -2773,8 +2254,6 @@ Then(
   },
 );
 
-/** ... and beside them, what a harness with no list gets: a model run before,
- *  already the answer, and a box to type another. */
 Then(
   "the work's model question should offer {string} from before, and a box",
   async function (this: KoluWorld, model: string) {
@@ -2803,8 +2282,6 @@ When(
   },
 );
 
-/** A LONG LIST AT REST: exactly these models drawn, in this order, the first
- *  one already the answer, and one line saying how many more there are. */
 Then(
   "the work's model question should show only {string}, and {int} more",
   async function (this: KoluWorld, models: string, more: number) {
@@ -2864,8 +2341,6 @@ Then(
   },
 );
 
-/** A MODEL THE REST STATE DID NOT DRAW, reached through the search and
- *  picked; then the box is cleared, as a person does once they have it. */
 When(
   "I pick {string} from the search of the work's model question",
   async function (this: KoluWorld, model: string) {
@@ -2882,8 +2357,6 @@ When("I send the work's model question", async function (this: KoluWorld) {
   await ask.locator('[data-testid="conductor-ask-submit"]').click();
 });
 
-/** WHAT KOLU TYPED to start the member — the `ran` its `lifecycle_create`
- *  answered with, as the conversation was told it. */
 Then(
   "the conductor should say it ran {string}",
   async function (this: KoluWorld, command: string) {
@@ -2907,15 +2380,9 @@ Then(
   },
 );
 
-/** THE SAME QUESTION, from the two places the human may answer it. Both faces
- *  draw the WORK'S OWN DECISION — one record, several faces — so these two
- *  steps differ only in which one they press. */
 When(
   "I answer the work's question with {string} on the card",
   async function (this: KoluWorld, value: string) {
-    // The question lives INSIDE the opened card — which is the gesture a
-    // person makes: the card is violet because something is waiting on them,
-    // and they open it to answer.
     await openWorkCard(this);
     const ask = workCard(this).locator('[data-testid="work-question"]');
     await ask.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
@@ -2929,8 +2396,6 @@ When(
 When(
   "I answer the work's question with {string} in the chat",
   async function (this: KoluWorld, value: string) {
-    // The chat's copy is the question drawn where it was asked: a row of the
-    // transcript, answering the same decision the card does.
     const ask = this.page
       .locator(`${TRANSCRIPT} [data-testid="work-question"][data-from="chat"]`)
       .last();
@@ -2946,15 +2411,6 @@ Then("the work should have no open question", async function (this: KoluWorld) {
   await waitForCount(this, `${WORK_COLUMN} [data-testid="work-question"]`, 0);
 });
 
-/** THE WORK GETS AN IMPLEMENTOR — a real `lifecycle_create` on the fleet face
- *  carrying the work and the role, in the work's own repo, running the lazy
- *  omp stand-in: an agent that is UP with no transcript at all, which is the
- *  `ready` kolu records for a member coming up.
- *
- *  kolu builds the implementor's command itself (`claude --model …`, from the
- *  work's setup) and types it, so the stand-in is left in the floor's RELAY
- *  for that `claude` to exec — built here because only the test process knows
- *  its absolute path (the harness seeds a renamed bash per worker). */
 When(
   "I ask the conductor to run the implementor in the work's repo",
   async function (this: KoluWorld) {
@@ -2965,9 +2421,6 @@ When(
     const repo = workRepo(this);
     const fixture = ompTranscriptPath({ ompDir, cwd: repo });
     memberFixture = fixture;
-    // The program only has to be somewhere the repo is not, so the worktree
-    // stays the work's own files: beside the relay, in the fixture's own
-    // private temp directory.
     const program = path.join(
       path.dirname(fixtureClaudeRelay()),
       "omp-stand-in.sh",
@@ -2977,9 +2430,6 @@ When(
       ompMockPayload({
         breadcrumbDir: path.join(ompDir, "terminal-sessions"),
         transcriptPath: fixture.transcriptPath,
-        // Never staged: this scenario moves the session itself, the way a
-        // session kolu merely FINDS moves. The path only has to be somewhere
-        // the repo is not.
         stagePath: path.join(os.tmpdir(), `kolu-work-stage-${process.pid}`),
       }),
     );
@@ -3010,7 +2460,6 @@ When(
     });
     if (said === null) throw new Error("no terminal ref was answered");
     this.memberTerminalId = said;
-    // Every `… the member terminal` assertion below is about this one.
     this.watchedTerminalId = said;
   },
 );
@@ -3020,24 +2469,14 @@ function memberSession(): { transcriptPath: string; sessionId: string } {
   return memberFixture;
 }
 
-/** THE AGENT TAKES A PROMPT. The session file appears with the entries a real
- *  omp materializes for a session already thinking — the same bytes the
- *  stand-in would append had a person typed into it, written here because the
- *  keyboard belongs to the conversation by now (the `found session` case the
- *  Claude scenarios write the same way). */
 When("the implementor's agent starts working", () => {
   stageOmpPrompt(memberSession().transcriptPath, "thinking");
 });
 
-/** ... and STOPS, by appending the entries that end a turn — the honest
- *  production channel: an append to the live transcript, no rewrite. */
 When("the implementor's agent stops", () => {
   updateOmpFixture(memberSession(), "waiting");
 });
 
-/** A FILE IN THE WORKTREE. `.waterfall/` is where a waterfall's plan lands,
- *  and kolu lists that directory after a member's state changes — so this is
- *  the whole of the arrangement: the file exists, and the next change rings. */
 When(
   "the implementor writes {string} into the work's repo",
   async function (this: KoluWorld, file: string) {
@@ -3050,11 +2489,6 @@ When(
   },
 );
 
-/** STATE THE PULL REQUEST, and hurry the sensor honestly. padi re-resolves a
- *  PR on a 30-second poll OR the moment the terminal's git context changes;
- *  waiting out the poll would cost half a minute per step, so each statement
- *  moves the branch — a real git change the repo's own watcher reports, after
- *  which gh is asked again and answers what the scenario just wrote. */
 function restatePullRequest(world: KoluWorld, pr: PrFixture): void {
   const repo = workRepo(world);
   statedPr = pr;
@@ -3075,9 +2509,6 @@ When(
   },
 );
 
-/** ... as a DRAFT: still being built, so not up for review. GitHub's merge
- *  state for it is the fixture's default `CLEAN`, which is what GitHub says
- *  for a draft nothing is in the way of. */
 When(
   "the work's pull request opens as draft #{int} {string}",
   async function (this: KoluWorld, number: number, title: string) {
@@ -3091,7 +2522,6 @@ When(
   },
 );
 
-/** Every check passes, and GitHub says nothing is in the way (`CLEAN`). */
 When(
   "the work's pull request passes its checks",
   async function (this: KoluWorld) {
@@ -3106,7 +2536,6 @@ When(
   },
 );
 
-/** The author marks the draft ready for review — the one thing that moves. */
 When(
   "the work's pull request is marked ready for review",
   async function (this: KoluWorld) {
@@ -3127,8 +2556,6 @@ When(
   },
 );
 
-/** GREEN CHECKS ARE NOT GREEN while GitHub would still refuse the merge —
- *  here because the branch's rules want a review nobody has given. */
 When(
   "the work's pull request goes green but GitHub still wants a review",
   async function (this: KoluWorld) {
@@ -3144,7 +2571,6 @@ When(
   },
 );
 
-/** ... and the review lands: GitHub would merge it now. */
 When(
   "GitHub lets the work's pull request merge",
   async function (this: KoluWorld) {
@@ -3156,10 +2582,6 @@ When(
   },
 );
 
-/** A PUSH — a new head commit, with its checks starting over. The one thing
- *  that makes a second `checks-running` real news rather than the same
- *  reading again: a work's timeline holds one check event per kind per
- *  commit, so without the new oid this would be silent. */
 When(
   "the work's pull request is pushed to a new commit",
   async function (this: KoluWorld) {
@@ -3178,8 +2600,6 @@ When("the work's pull request is merged", async function (this: KoluWorld) {
   restatePullRequest(this, { ...statedPullRequest(), state: "merged" });
 });
 
-/** THE CARD SAYS DRAFT in both places it names the PR: the line under its
- *  title and its Pull request section. */
 Then(
   "the work card should say its pull request is a draft",
   async function (this: KoluWorld) {
@@ -3222,31 +2642,19 @@ Then(
   },
 );
 
-/** LET THE CONDUCTOR'S BELL DECIDE, so a sound count read next is its
- *  verdict rather than a read taken before it. Call it only after waiting for
- *  something the same needs-you reading draws — a card in a group, a timeline
- *  row — so the bell has already HEARD the reading. What is left is the
- *  decision: in a window without focus the bell decides the moment it hears
- *  (nothing is in view to wait for), and the frames only let the reading reach
- *  it; in a focused window it decides once the page can say what is in view, a
- *  frame on and then the observers' first reports, which these frames cover. */
-export async function letTheBellDecide(world: KoluWorld): Promise<void> {
+export async function waitForNeedsYouBellVerdict(
+  world: KoluWorld,
+): Promise<void> {
   for (let frame = 0; frame < 6; frame += 1) await world.waitForFrame();
 }
 
 Then(
   "the Conductor's bell should have had its frames to decide",
   async function (this: KoluWorld) {
-    await letTheBellDecide(this);
+    await waitForNeedsYouBellVerdict(this);
   },
 );
 
-/** THE TIMELINE AS DRAWN on this scenario's card — every event's kind, who
- *  it is by, and its words. Quoted on a failure, because "no `merged` event"
- *  names a symptom while the list names the cause (nothing observed at all,
- *  or the wrong thing). Read off `workCard`, never the whole column: the
- *  worker's one server keeps every earlier scenario's works, and two of them
- *  can have written the same file. */
 async function timelineInventory(world: KoluWorld): Promise<string> {
   const events = await workCard(world)
     .locator('[data-testid="work-event"]')
@@ -3261,8 +2669,6 @@ async function timelineInventory(world: KoluWorld): Promise<string> {
   return events.length === 0 ? "(no events)" : events.join(" | ");
 }
 
-/** Events of one kind on this scenario's card whose text holds `contains`
- *  (empty matches them all). */
 function timelineEvents(
   world: KoluWorld,
   kind: string,
@@ -3277,15 +2683,9 @@ function timelineEvents(
     );
 }
 
-/** KEEP THE CARD OPEN, ITS WHOLE TIMELINE OUT, while something is waited
- *  for. A work that ENDS while a poll runs is re-drawn below the line, in the
- *  collapsed `Finished` section — so a card that was open a moment ago has no
- *  timeline on screen at all, and the wait would time out saying the event
- *  never arrived when what moved was the card. And an open card shows ONE
- *  stage of its timeline, so a step about the timeline unfolds the whole of
- *  it. Cheap and silent: nothing here waits, it only presses what is already
- *  there. */
-export async function keepWorkCardOpen(world: KoluWorld): Promise<void> {
+export async function reopenWorkCardAndUnfoldTimeline(
+  world: KoluWorld,
+): Promise<void> {
   const card = workCard(world);
   if (await card.isVisible().catch(() => false)) {
     if ((await card.getAttribute("data-open")) === null) {
@@ -3319,14 +2719,14 @@ async function waitForTimelineEvent(
   contains: string,
 ): Promise<void> {
   await openWorkCard(world);
-  await keepWorkCardOpen(world);
+  await reopenWorkCardAndUnfoldTimeline(world);
   let inventoryAtTimeout = "(not observed)";
   await pollFor({
     observe: () => timelineEvents(world, kind, contains),
     isDone: (seen) => seen > 0,
     timeoutMs: POLL_TIMEOUT,
     onTick: async () => {
-      await keepWorkCardOpen(world);
+      await reopenWorkCardAndUnfoldTimeline(world);
       inventoryAtTimeout = await timelineInventory(world);
     },
     onTimeout: (_last, ms) =>
@@ -3350,13 +2750,11 @@ Then(
   },
 );
 
-/** NOTHING BUT WHAT WAS OBSERVED. An instant, not a wait: the claim is that
- *  the event is not there NOW, before the thing it would report has happened. */
 Then(
   "the work's timeline should show no {string} event",
   async function (this: KoluWorld, kind: string) {
     await openWorkCard(this);
-    await keepWorkCardOpen(this);
+    await reopenWorkCardAndUnfoldTimeline(this);
     assert.equal(
       await timelineEvents(this, kind, ""),
       0,
@@ -3365,21 +2763,18 @@ Then(
   },
 );
 
-/** HOW MANY, which is the whole question a check event answers badly when
- *  two members read one pull request: the count must follow what HAPPENED
- *  (one run per commit), not how often kolu looked. */
 Then(
   "the work's timeline should show {int} {string} events",
   async function (this: KoluWorld, many: number, kind: string) {
     await openWorkCard(this);
-    await keepWorkCardOpen(this);
+    await reopenWorkCardAndUnfoldTimeline(this);
     let inventoryAtTimeout = "(not observed)";
     await pollFor({
       observe: () => timelineEvents(this, kind, ""),
       isDone: (seen) => seen >= many,
       timeoutMs: POLL_TIMEOUT,
       onTick: async () => {
-        await keepWorkCardOpen(this);
+        await reopenWorkCardAndUnfoldTimeline(this);
         inventoryAtTimeout = await timelineInventory(this);
       },
       onTimeout: (last, ms) =>
@@ -3419,9 +2814,6 @@ Then(
   },
 );
 
-/** GITHUB'S MERGE ANSWER, as the Pull request section carries it: the
- *  reason word on the line (`can`, `review`, `behind`, `unsettled`, …), never
- *  the sentence. */
 Then(
   "the work's pull request section should give GitHub's merge answer as {string}",
   async function (this: KoluWorld, reason: string) {
@@ -3442,7 +2834,6 @@ Then(
   },
 );
 
-/** ... and the timeline row for it, by the same reason word. */
 Then(
   "the work's timeline should show GitHub's merge answer as {string}",
   async function (this: KoluWorld, reason: string) {
@@ -3450,7 +2841,7 @@ Then(
     let inventoryAtTimeout = "(not observed)";
     await pollFor({
       observe: async () => {
-        await keepWorkCardOpen(this);
+        await reopenWorkCardAndUnfoldTimeline(this);
         return workCard(this)
           .locator(
             `[data-testid="work-event"][data-kind="merge-state"][data-merge="${reason}"]`,
@@ -3470,7 +2861,6 @@ Then(
   },
 );
 
-/** THE STRIP SAYS WHERE THE WORK IS: the cell outlined as `now`. */
 Then(
   "the work's stage strip should be at {string}",
   async function (this: KoluWorld, stage: string) {
@@ -3492,7 +2882,6 @@ Then(
   },
 );
 
-/** THE STRIP IS THE TIMELINE'S INDEX: a press on a cell shows that stage. */
 When(
   "I press the {string} stage on the work's strip",
   async function (this: KoluWorld, stage: string) {
@@ -3505,8 +2894,6 @@ When(
   },
 );
 
-/** ... and the open card shows that stage's events and no other's: fewer
- *  than the whole timeline, and the cell pressed. */
 Then(
   "the work card should show only its {string} events",
   async function (this: KoluWorld, stage: string) {
@@ -3537,7 +2924,6 @@ Then(
   },
 );
 
-/** THE PR NUMBER IS A LINK — to the URL kolu recorded when the PR opened. */
 Then(
   "the work card should link the pull request {string}",
   async function (this: KoluWorld, pr: string) {
@@ -3555,8 +2941,6 @@ Then(
   },
 );
 
-/** WHO THE WORK WAITS ON, as the card says it — its edge and its group —
- *  read off this scenario's card alone, never the column-wide count. */
 async function waitsOnYouNow(
   world: KoluWorld,
 ): Promise<{ who: string; inWaiting: boolean }> {
@@ -3586,7 +2970,6 @@ Then("the work should be waiting on you", async function (this: KoluWorld) {
   });
 });
 
-/** An instant, not a wait: the claim is about what the card says NOW. */
 Then("the work should not be waiting on you", async function (this: KoluWorld) {
   await showWorkColumn(this);
   const seen = await waitsOnYouNow(this);
@@ -3596,8 +2979,6 @@ Then("the work should not be waiting on you", async function (this: KoluWorld) {
   );
 });
 
-/** FINISHED work is below the line, collapsed: the card is reached by opening
- *  that section, and it carries the outcome kolu read off the PR. */
 async function openFinished(world: KoluWorld): Promise<void> {
   await showWorkColumn(world);
   const section = world.page.locator(
@@ -3630,10 +3011,6 @@ Then(
   },
 );
 
-/** IN PROGRESS — the other half of the state, and the one a restart must not
- *  change. Read off the card's own `data-state`, which is the client's
- *  reading of the record's state sum, and from WHERE the card is: a work in
- *  progress is above the line, not inside the collapsed `Finished` list. */
 Then("the work should be in progress", async function (this: KoluWorld) {
   const id = this.workId;
   assert.ok(id, "this scenario never opened a work");
@@ -3660,8 +3037,6 @@ Then("the work should be in progress", async function (this: KoluWorld) {
   );
 });
 
-/** STOP, WITH THE CONFIRM IN FRONT OF IT — the repo's one inline-confirm
- *  shell, so the first press opens the step and the second acts. */
 When("I stop the work from the card", async function (this: KoluWorld) {
   await openWorkCard(this);
   const card = workCard(this);
@@ -3693,10 +3068,6 @@ Then(
   },
 );
 
-/** A FINISHED CARD HAS NOWHERE TO PUT TERMINALS — ending removes a work's
- *  members in the same step, and the ended arm of the state carries none, so
- *  the card says "no terminals" rather than drawing a Hand back control on a
- *  work that is over (#2376: the human's screenshot had exactly that). */
 Then(
   "the work card should show no terminals",
   async function (this: KoluWorld) {
@@ -3723,10 +3094,6 @@ When("I reopen the work from the card", async function (this: KoluWorld) {
   await workCard(this).locator('[data-testid="work-reopen"]').click();
 });
 
-/** ASK FOR THE SAME WORK AGAIN. The fixture's `open <title>` is a real
- *  `work_open` whose branch is the title's own slug, so the second call names
- *  the SAME key — which is the whole claim: opening is idempotent, and the id
- *  it answers with is the id it answered the first time. */
 When(
   "I ask the conductor to open the work {string} again",
   async function (this: KoluWorld, title: string) {
@@ -3766,9 +3133,6 @@ Then(
   },
 );
 
-/** ONE CARD PER BRANCH, counted on screen: the id is the key, so a second
- *  work for one branch would be a second card — which is what the human saw
- *  three of. */
 Then(
   "the work column should hold exactly one card for the work",
   async function (this: KoluWorld) {
@@ -3798,9 +3162,6 @@ Then(
   },
 );
 
-/** "I'D RATHER NOT SAY" to the setup, on the card — the decline the record
- *  keeps, which for a work nothing has happened in is a decision not to start
- *  it at all. */
 When(
   "I decline the work's question on the card",
   async function (this: KoluWorld) {
@@ -3811,8 +3172,6 @@ When(
   },
 );
 
-/** ...AND THE WORK IS GONE. Not finished, not "Abandoned · 1m": a work that
- *  never had a member and never had a pull request leaves no card behind. */
 Then(
   "the work column should not show the work",
   async function (this: KoluWorld) {
@@ -3827,8 +3186,6 @@ Then(
   },
 );
 
-/** THE DECISIONS, with where each answer came from — the card or the chat —
- *  which is the half of the record the brief's addendum is about. */
 Then(
   "the work's decisions should include {string} answered from the {word}",
   async function (this: KoluWorld, text: string, from: string) {
@@ -3841,8 +3198,6 @@ Then(
   },
 );
 
-/** ... and one by its recorded answer alone: a role's harness and model are
- *  ONE line, and the line's source is the whole line's, not the model's. */
 Then(
   "the work's decisions should include {string}",
   async function (this: KoluWorld, text: string) {
@@ -3859,29 +3214,20 @@ async function waitForDecision(
   await openWorkCard(world);
   await pollFor({
     observe: async () => {
-      // A card shows its latest three decisions; the one asked about may be
-      // older, so the list is unfolded first.
       const unfold = workCard(world).locator(
         '[data-testid="work-decisions-all"][aria-expanded="false"]',
       );
       if ((await unfold.count()) > 0) await unfold.click().catch(() => {});
-      return (
-        world.page
-          // The setup's parts and the other decisions, each with what was
-          // recorded and where it came from.
-          .locator(
-            `${WORK_COLUMN} [data-testid="work-setup-part"]${narrowed}, ${WORK_COLUMN} [data-testid="work-decision"]${narrowed}`,
-          )
-          .evaluateAll((all) =>
-            all.map(
-              (one) =>
-                // THE ANSWER AS RECORDED, beside the row's own words: the row
-                // reads "On green — hand over" where the human answered
-                // "hand-over", and it is the answer this step is about.
-                `${one.getAttribute("data-answer") ?? ""} ${(one.textContent ?? "").replace(/\s+/g, " ").trim()}`,
-            ),
-          )
-      );
+      return world.page
+        .locator(
+          `${WORK_COLUMN} [data-testid="work-setup-part"]${narrowed}, ${WORK_COLUMN} [data-testid="work-decision"]${narrowed}`,
+        )
+        .evaluateAll((all) =>
+          all.map(
+            (one) =>
+              `${one.getAttribute("data-answer") ?? ""} ${(one.textContent ?? "").replace(/\s+/g, " ").trim()}`,
+          ),
+        );
     },
     isDone: (read) => read.some((one) => one.includes(text)),
     timeoutMs: POLL_TIMEOUT,
@@ -3892,10 +3238,6 @@ async function waitForDecision(
   });
 }
 
-/** ONE LINE EACH. The setup the human answered at the start is ONE line on
- *  the card, and no other decision is drawn as the paragraph its question
- *  was written in: a line that wrapped is a line whose label came from
- *  prose. */
 Then(
   "the work's decisions should be one line each",
   async function (this: KoluWorld) {
@@ -3924,8 +3266,6 @@ Then(
   },
 );
 
-/** ONE ROW PER TERMINAL, as one line however narrow the column: every part
- *  of the row sits on the same line, and nothing is pushed past its edge. */
 Then(
   "the work's terminal rows should each be one line",
   async function (this: KoluWorld) {
@@ -3960,10 +3300,6 @@ Then(
   },
 );
 
-/** A FILE ON THE CARD OPENS THE READER. The list is the live `.waterfall/` of
- *  the member's worktree (or, for finished work, what kolu kept) and pressing
- *  one row takes the large side of the screen with it — the card is a list,
- *  not a viewer (`reader/WorkReader.tsx`). */
 When(
   "I open the work's file {string}",
   async function (this: KoluWorld, file: string) {
@@ -3989,8 +3325,6 @@ Then(
 Then(
   "the work card should keep the file {string}",
   async function (this: KoluWorld, file: string) {
-    // KEPT, not merely listed: a finished work's worktree may be gone, so the
-    // row that is still there is a copy kolu took when the work ended.
     await openWorkCard(this);
     await this.page
       .locator(
@@ -4000,8 +3334,6 @@ Then(
   },
 );
 
-/** A FOLDER IS ONE CHIP, carrying how many files are beneath it at any depth
- *  — the count is the `data-count` the chip draws beside its name. */
 Then(
   "the work card should show the folder {string} holding {int} files",
   async function (this: KoluWorld, folder: string, count: number) {
@@ -4014,9 +3346,6 @@ Then(
   },
 );
 
-/** UNFOLD ONE LEVEL — and only if it is not unfolded already: the press is a
- *  toggle, and a step that folds an open folder would hide the very chip the
- *  next step looks for. */
 When(
   "I unfold the work's folder {string}",
   async function (this: KoluWorld, folder: string) {
@@ -4035,14 +3364,12 @@ When(
   },
 );
 
-/** THE TIMELINE SAYS A FOLDER ONCE: a run of files written into it is one
- *  row, `Wrote mockup/ · N files`, and never one row per file. */
 Then(
   "the work's timeline should show one row for the folder {string} with {int} files",
   async function (this: KoluWorld, folder: string, count: number) {
     await showWorkColumn(this);
     await openWorkCard(this);
-    await keepWorkCardOpen(this);
+    await reopenWorkCardAndUnfoldTimeline(this);
     const rows = workCard(this).locator(
       `[data-testid="work-event-folder"][data-path="${folder}"]`,
     );
@@ -4057,16 +3384,12 @@ Then(
   },
 );
 
-/** THE FOLDER ROW'S **more**, pressed — its own open state, not a file
- *  row's: what unfolds is the run of per-file rows under it. */
 When(
   "I unfold the work's timeline row for the folder {string}",
   async function (this: KoluWorld, folder: string) {
     await showWorkColumn(this);
     await openWorkCard(this);
-    await keepWorkCardOpen(this);
-    // The row's OWN control — a file row unfolded under it carries a "more"
-    // of its own, one level deeper.
+    await reopenWorkCardAndUnfoldTimeline(this);
     const more = workCard(this).locator(
       `[data-testid="work-event-folder"][data-path="${folder}"] > div > [data-testid="work-event-more"]`,
     );
@@ -4087,8 +3410,6 @@ Then(
   },
 );
 
-/** RENDERED, IN THE READER. The heading has to be a real heading — markdown
- *  shown as its own source passes a text match and is not what was promised. */
 Then(
   "the reader should render {string} as a heading",
   async function (this: KoluWorld, heading: string) {
@@ -4113,14 +3434,6 @@ Then(
   },
 );
 
-/** THE MARK EVERYWHERE ELSE. A terminal that belongs to a work carries the
- *  Conductor's mark and the part it plays beside its name in the dock — the
- *  cheapest place to prove the derivation reaches outside the pane.
- *
- *  The mark's FACE is "◆ <Role>" and nothing more: a work's title is a
- *  sentence, and a row whose name was pushed off by it is the bug the mark
- *  was shrunk to fix (#2376 review). The title is in its tooltip, which is
- *  where this reads it. */
 Then(
   "the dock row for the member terminal should carry the work's mark as the {string}",
   async function (this: KoluWorld, role: string) {
@@ -4147,9 +3460,6 @@ Then(
   },
 );
 
-/** THE SERVER GOES AWAY AND COMES BACK. Not a reload — the process itself is
- *  replaced, on a fresh port, with the same state directory — so what is on
- *  screen afterwards is what was WRITTEN, not what a tab happened to hold. */
 When(
   "the kolu server is restarted",
   { timeout: 180_000 },
@@ -4165,13 +3475,6 @@ When(
   },
 );
 
-/** ...AND IT COMES BACK OVER A STORE IT CANNOT READ. The `works` key is
- *  rewritten while the server is DOWN — the one window in which the file has
- *  no writer — into the shape a rolled-back binary or a rung that never ran
- *  leaves behind: a work whose title is a number.
- *
- *  This is the accident the whole recovery exists for, and the only way to
- *  stage it honestly is to put the bytes there before a boot reads them. */
 When(
   "the kolu server is restarted over works this build cannot read",
   { timeout: 180_000 },
@@ -4188,9 +3491,6 @@ When(
   },
 );
 
-/** The panel a person actually meets: the sentence, and what is offered under
- *  it. Both halves are asserted — the plain words, and the ABSENCE of the
- *  instruction the old sentence ended on. */
 Then(
   "the conductor should say it could not read the saved works",
   async function (this: KoluWorld) {
@@ -4205,15 +3505,10 @@ Then(
       !/fix the .works. key/i.test(said),
       `the refusal still asks for a hand-edit: ${JSON.stringify(said)}`,
     );
-    // There is no composer under a Conductor that never came up.
     assert.equal(await this.page.locator(INPUT).count(), 0);
   },
 );
 
-/** The first button: walk the ring newest first and take the newest snapshot
- *  that decodes. The newest one here is the corrupt store's own boot snapshot,
- *  so a recovery that merely took the top of the ring would come back with the
- *  same unreadable value. */
 When(
   "I restore the newest backup that reads",
   async function (this: KoluWorld) {
@@ -4228,14 +3523,9 @@ When(
   },
 );
 
-// ── signing in AGAIN ─────────────────────────────────────────────────────
-
 const IDENTITY = '[data-testid="conductor-identity"]';
 const SIGN_IN_ROW = '[data-testid="conductor-signin"]';
 
-/** The account the Conductor's agent says it is signed in as, off the
- *  header's chip — the agent's own `_auth/status_update`, read where a person
- *  reads it. */
 const accountShown = async (world: KoluWorld): Promise<string> =>
   ((await world.page.locator(IDENTITY).textContent()) ?? "").trim();
 
@@ -4255,7 +3545,6 @@ When(
     await this.page.locator(MENU).click();
     await waitForAtLeastOne(this, MENU_PANEL);
     const door = this.page.locator('[data-testid="conductor-menu-signin"]');
-    // SIGNED IN AND STILL A DOOR, named for it.
     assert.equal((await door.textContent())?.trim(), "Sign in again…");
     await door.click();
   },

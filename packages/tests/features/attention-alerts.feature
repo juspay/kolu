@@ -13,13 +13,6 @@ Feature: Attention Alerts
     And there should be no page errors
 
   Scenario: An agent awaiting you badges the PWA dock icon
-    # W5 cross-host attention: the app badge is now the count of agents AWAITING
-    # you across every bound host (padi's `urgency` projection), not the old
-    # active-host attention marks. A simulated attention alert (glow /
-    # notification) no longer badges — a REAL `awaiting_user` agent does, which is
-    # the done-criterion. Driven through the real agent-state pipeline (padi's
-    # urgency fold → the client's cross-host watcher), so the badge assertion
-    # polls for the wire round-trip.
     When I stub the Badging API
     And a Claude Code session is mocked with state "awaiting_user"
     And I create a terminal
@@ -35,16 +28,6 @@ Feature: Attention Alerts
     And I simulate an attention alert
     Then no workspace switcher branch should be notified
     And there should be no page errors
-
-  # After a restart. The harness starts the new server on a new port, so the
-  # page always reloads; these scenarios are the RELOAD case. A tab that stays
-  # open through the restart is covered by the attention engine's unit tests.
-  # Each waits for the agent's row to show padi's verdict before checking what
-  # did NOT happen, so the check runs after padi's first real word. The page
-  # comes back focused on the terminal padi saved as active, and a terminal you
-  # are looking at never carries a mark nor rings — so each scenario waits for
-  # padi to save the shell as active before the restart, and checks the shell
-  # is the active tile after it, before any "not unread" or "0 plays" check.
 
   Scenario: A finished agent you had opened reads as read after kolu restarts
     When I stub the notification sound
@@ -94,8 +77,6 @@ Feature: Attention Alerts
     And there should be no page errors
 
   Scenario: An agent asking you before kolu restarts is still asking after it comes back, and rings nothing
-    # Claude Code's question is never in its transcript: a permission prompt
-    # leaves it at `tool_use`, and kolu reads "asking" off the screen.
     When I stub the notification sound
     And I stub the Badging API
     And a Claude Code session is mocked with state "tool_use"

@@ -17,10 +17,6 @@ Feature: Terminal
     And there should be no page errors
 
   Scenario: Canvas fills its tile container
-    # Canvas tiles are fixed-size on the freeform 2D canvas; the xterm fills
-    # its tile, not the full viewport. The pre-#622 "shrink with viewport"
-    # scenarios are removed — tile resize is a per-tile gesture now (the
-    # eight resize handles), not a side-effect of window resize.
     Then the canvas should fill at least 90% of its container
     And there should be no page errors
 
@@ -62,11 +58,6 @@ Feature: Terminal
     And there should be no page errors
 
   Scenario: Clicking the tile title bar keeps terminal input focused
-    # Regression guard: clicking the tile's title bar (or any chrome
-    # around the xterm canvas) must not steal focus from xterm — the
-    # user should keep typing after aiming at the title bar. Fixed by
-    # preventDefault on mousedown in CanvasTile (prevents browser's
-    # default focus shift without interfering with drag/double-click).
     When I click the terminal canvas
     Then the terminal input should be focused
     When I click the terminal tile title bar
@@ -74,8 +65,6 @@ Feature: Terminal
     And there should be no page errors
 
   Scenario: Canvas refits its tile after tab visibility change
-    # Tab-hidden xterms can lose their grid measurement. The post-visible
-    # refit must re-fill the tile container regardless of viewport size.
     When I simulate a tab visibility change
     Then the canvas should fill at least 90% of its container
     And there should be no page errors
@@ -89,10 +78,6 @@ Feature: Terminal
     And there should be no page errors
 
   Scenario: Zoom only affects the focused canvas tile
-    # Regression for #1238: in canvas mode every tile is `visible`, so gating
-    # the zoom keydown listener on `visible` made Cmd/Ctrl +/- zoom every open
-    # terminal at once — two tiles could never be aligned to the same font
-    # size. Zoom must touch only the focused tile.
     When I create a terminal with keyboard shortcut
     Then there should be 2 canvas tiles
     And I wait for all terminals to settle

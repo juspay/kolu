@@ -11,10 +11,6 @@ Feature: Chrome bar memory detail
     And the identity rail details include padi memory usage
     And the identity rail details include client memory usage
     And the identity rail details include kaval memory usage
-    # Drive real growth: a burst of terminal output fills the browser's xterm
-    # buffer (client heap climbs) and the padi/kaval processes' RSS climb, so the
-    # readouts visibly move — the evidence clip captures the numbers changing, not a
-    # static snapshot.
     When I run "seq 1 100000"
     And I run "seq 1 100000"
     And I run "seq 1 100000"

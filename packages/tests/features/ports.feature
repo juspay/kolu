@@ -43,11 +43,6 @@ Feature: Ports section and forwards (PRT1 + PRT2)
     And there should be no page errors
 
   Scenario: Clicking a loopback port forwards it and loads the page
-    # PRT2's headline, on the one mechanism this harness can exercise for real:
-    # the relay. A loopback listener is invisible from any other machine, so the
-    # click has to open a door on 0.0.0.0 before there is anything to point a tab
-    # at — and the proof is the listener's OWN body arriving in that tab, through
-    # a port that is not the one the server bound.
     When I start a listener on port 8127 bound to loopback only
     And I press the toggle inspector shortcut
     Then the right panel should be visible
@@ -60,15 +55,6 @@ Feature: Ports section and forwards (PRT1 + PRT2)
     And there should be no page errors
 
   Scenario: A dev server on the v6 loopback forwards to the v6 loopback
-    # The production defect, end to end. `[::1]` and `127.0.0.1` are both
-    # loopback and are NOT the same address, and the first cut of PRT2 folded
-    # them into one `scope` and then dialled v4 for both. A `[::1]`-only dev
-    # server got a door that came up healthy and served nothing at all — the
-    # worst available failure, because every signal said it had worked.
-    #
-    # The proof is the same as the v4 case and has to be: the listener's OWN
-    # body, through a port it never bound. A chip merely appearing proves
-    # nothing here — it appeared before the fix too.
     When I start a listener on port 8129 bound to the v6 loopback only
     And I press the toggle inspector shortcut
     Then the right panel should be visible
@@ -87,17 +73,10 @@ Feature: Ports section and forwards (PRT1 + PRT2)
     Then the forwarded tab should load the listener's page
     When I cancel the forward for port 8128
     Then the ports section should no longer show port 8128 as forwarded
-    # The door is really shut, not just unlisted — the whole reason cancel exists.
     And the forwarded port should refuse connections
     And there should be no page errors
 
   Scenario: A dev server in a SPLIT shows up on the tile
-    # The case that made the feature invisible on a real deployment: people run
-    # dev servers in a split. Each pane is its own PTY with its own process
-    # subtree, so the scanner attributes the port to the SPLIT — and a section
-    # that read only the main pane showed nothing at all, which is the common
-    # case rather than an edge one. The Inspector reads the whole tile, exactly
-    # as the Attach section already does.
     When I create a sub-terminal via command palette
     And I start a listener on port 8126 in the split terminal
     And I press the toggle inspector shortcut
@@ -107,9 +86,6 @@ Feature: Ports section and forwards (PRT1 + PRT2)
     And there should be no page errors
 
   Scenario: A port leaves the section when its server dies
-    # The baseline tick's other job — port DEATH, which PRT2's auto-cancel rides
-    # on. Ctrl+C ends the listener; the next scan re-samples the whole set, so
-    # the chip goes away without anything having to publish a removal.
     When I start a listener on port 8125 bound to all interfaces
     And I press the toggle inspector shortcut
     Then the right panel should be visible

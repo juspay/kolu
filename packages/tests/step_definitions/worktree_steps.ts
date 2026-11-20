@@ -10,8 +10,6 @@ import {
 When(
   "I set up a git repo at {string}",
   async function (this: KoluWorld, repoPath: string) {
-    // Clean slate — remove then reinit. The worktree scenario creates
-    // subdirs like .worktrees/ that git init --force wouldn't clean.
     execFileSync("bash", [
       "-c",
       `rm -rf "${repoPath}" && git init "${repoPath}"`,
@@ -24,7 +22,6 @@ When(
       "-m",
       "init",
     ]);
-    // Set up a fake origin so `git fetch origin` works
     execFileSync("git", ["-C", repoPath, "remote", "add", "origin", repoPath]);
     execFileSync("git", ["-C", repoPath, "fetch", "origin"]);
   },
@@ -73,7 +70,6 @@ Then(
 Then(
   "the close confirmation should not be visible",
   async function (this: KoluWorld) {
-    // Give the dialog a moment to appear if it's going to — then assert hidden.
     await this.page.waitForTimeout(300);
     const confirm = this.page.locator('[data-testid="close-confirm"]');
     assert.strictEqual(
@@ -98,9 +94,6 @@ When("I confirm worktree removal", async function (this: KoluWorld) {
 Then(
   "the close confirmation should not offer worktree removal because {string}",
   async function (this: KoluWorld, blocker: string) {
-    // The dialog must be visible first — assert the remove button is absent
-    // while the dialog itself is open, so we don't accidentally pass because
-    // the whole dialog hasn't rendered yet.
     await this.page
       .locator('[data-testid="close-confirm"]')
       .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
@@ -126,7 +119,6 @@ When(
 );
 
 When("I dismiss the close confirmation", async function (this: KoluWorld) {
-  // Press Escape to close the dialog
   await this.page.keyboard.press("Escape");
   await this.page
     .locator('[data-testid="close-confirm"]')

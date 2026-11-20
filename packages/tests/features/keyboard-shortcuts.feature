@@ -31,7 +31,6 @@ Feature: Keyboard Shortcuts
     And I run "echo shortcut-second"
     And I create a terminal
     And I run "echo shortcut-third"
-    # Switch back to terminal 2 (first explicitly created one; terminal 1 is from Background)
     When I press the switch to terminal 2 shortcut
     Then the active terminal should show "shortcut-second"
     And there should be no page errors
@@ -42,10 +41,8 @@ Feature: Keyboard Shortcuts
     And I run "echo cycle-second"
     And I create a terminal
     And I run "echo cycle-third"
-    # We're on terminal 3 (last created). Prev should go to terminal 2.
     When I press the prev terminal shortcut
     Then the active terminal should show "cycle-second"
-    # Next should go back to terminal 3.
     When I press the next terminal shortcut
     Then the active terminal should show "cycle-third"
     And there should be no page errors
@@ -56,7 +53,6 @@ Feature: Keyboard Shortcuts
     And I run "echo tab-second"
     And I create a terminal
     And I run "echo tab-third"
-    # Active is terminal 3, previous-MRU is terminal 2.
     When I jump to the previous terminal
     Then the active terminal should show "tab-second"
     And there should be no page errors
@@ -69,8 +65,6 @@ Feature: Keyboard Shortcuts
     And I run "echo cycle-second"
     And I create a terminal
     And I run "echo cycle-third"
-    # MRU snapshot while Ctrl held: [cycle-third, cycle-second, cycle-first, background].
-    # Pressing Tab twice advances cursor to index 2 = cycle-first.
     When I cycle 2 terminals back by holding Ctrl+Tab
     Then the active terminal should show "cycle-first"
     And there should be no page errors
@@ -89,10 +83,6 @@ Feature: Keyboard Shortcuts
     Then no sendInput call should contain "/"
     And there should be no page errors
 
-  # The chords a terminal program is owed. kolu used to claim all three off
-  # macOS (the palette, find, and new terminal were plain Ctrl there), so the
-  # most-pressed editing keys in every shell inside kolu did nothing but open
-  # kolu's own chrome. They now live on Super, which no PTY can see.
   Scenario Outline: <chord> reaches the shell instead of opening kolu's chrome
     Given I intercept oRPC sendInput calls
     When I focus the terminal
@@ -103,7 +93,6 @@ Feature: Keyboard Shortcuts
     And there should be no page errors
 
     Examples:
-      # readline: kill-line, forward-char, transpose-chars
       | chord     | byte |
       | Control+k | 0x0b |
       | Control+f | 0x06 |

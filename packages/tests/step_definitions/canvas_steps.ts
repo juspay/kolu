@@ -15,11 +15,6 @@ const MINIMAP_SELECTOR = '[data-testid="canvas-minimap"]';
 const MINIMAP_MAP_SELECTOR = '[data-testid="minimap-map"]';
 const MINIMAP_VIEWPORT_RECT_SELECTOR = '[data-testid="minimap-viewport-rect"]';
 const MINIMAP_ZOOMBAR_SELECTOR = '[data-testid="minimap-zoombar"]';
-/** A canvas TILE — the `CanvasTile` shell, which exists for every tile on the
- *  canvas whatever its pane is doing. Identity, geometry and counting ask
- *  THIS. `[data-visible]` answers a different question — is this pane shown,
- *  and therefore taking live output — and since kolu#2362 a tile panned off
- *  the edge of the canvas has no such pane while nobody is looking at it. */
 const TILE_SELECTOR = `${CANVAS_SELECTOR} ${CANVAS_TILE_SELECTOR}`;
 
 async function waitForCanvas(world: KoluWorld) {
@@ -88,9 +83,6 @@ Then(
 When(
   "I click the close button on canvas tile {int}",
   async function (this: KoluWorld, index: number) {
-    // Canvas tiles each have a close button in the title bar.
-    // Find tile containers inside the canvas — each tile is an absolute-positioned
-    // div that wraps a [data-terminal-id][data-visible] element.
     const closeButtons = this.page.locator(
       `${CANVAS_SELECTOR} button[title="Close terminal"]`,
     );
@@ -137,7 +129,6 @@ Then(
         if (!tile) return false;
         const cRect = container.getBoundingClientRect();
         const tRect = tile.getBoundingClientRect();
-        // Tile should overlap with the visible container area (transformed canvas)
         return (
           tRect.right > cRect.left &&
           tRect.bottom > cRect.top &&
@@ -152,7 +143,6 @@ Then(
 );
 
 When("I zoom the canvas in", async function (this: KoluWorld) {
-  // Capture zoom before so we can assert it changed
   const before = await this.page.evaluate((sel: string) => {
     const el = document.querySelector(sel);
     return parseFloat(el?.getAttribute("data-zoom") ?? "1");
@@ -160,9 +150,6 @@ When("I zoom the canvas in", async function (this: KoluWorld) {
   this.zoomBefore = before;
   const container = this.page.locator(CANVAS_SELECTOR);
   await container.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
-  // Dispatch a ctrl+wheel event to trigger zoom (negative deltaY = zoom in).
-  // Playwright's mouse.wheel doesn't support modifier keys, so we dispatch
-  // the WheelEvent directly from the page context.
   await this.page.evaluate(
     ({ sel }: { sel: string }) => {
       const el = document.querySelector(sel);
@@ -200,10 +187,6 @@ Then(
   },
 );
 
-/** Poll until the picked tile's bounding-box center matches the canvas
- *  container's center within grid-snap tolerance. `pick` chooses which
- *  tile: "newest" = last in DOM order (waits for ≥2 to exist),
- *  "active" = the one carrying `data-active`. */
 async function waitForTileCenteredInViewport(
   world: KoluWorld,
   pick: "newest" | "active",
@@ -235,7 +218,7 @@ async function waitForTileCenteredInViewport(
       const tileCy = tRect.top + tRect.height / 2 - cRect.top;
       const viewCx = cRect.width / 2;
       const viewCy = cRect.height / 2;
-      const tolerance = 40; // grid snap (24px) + rounding
+      const tolerance = 40;
       return (
         Math.abs(tileCx - viewCx) < tolerance &&
         Math.abs(tileCy - viewCy) < tolerance
@@ -256,10 +239,6 @@ Then(
 When(
   "I create a terminal with keyboard shortcut",
   async function (this: KoluWorld) {
-    // APP_KEY, not MOD_KEY: `createTerminal` is an `"app"` chord (Cmd / Super),
-    // because Ctrl+T belongs to the PTY. This step held its OWN inlined copy of
-    // the platform rule and so kept pressing Ctrl+T after the action moved —
-    // creating nothing, which surfaced as "Expected at least 2 terminals".
     await this.page.keyboard.down(APP_KEY);
     await this.page.keyboard.press("t");
     await this.page.keyboard.up(APP_KEY);
@@ -278,7 +257,6 @@ Then(
         if (!tileA || !tileB) return false;
         const rA = tileA.getBoundingClientRect();
         const rB = tileB.getBoundingClientRect();
-        // Snapped top-left must differ on both axes (cascade is diagonal).
         return Math.abs(rA.left - rB.left) > 1 && Math.abs(rA.top - rB.top) > 1;
       },
       { sel: TILE_SELECTOR, i: a - 1, j: b - 1 },
@@ -375,8 +353,6 @@ Then("no two canvas tiles should overlap", async function (this: KoluWorld) {
           const a = tiles[i];
           const b = tiles[j];
           if (!a || !b) continue;
-          // 2 px tolerance: tiles touching at exact grid edges shouldn't
-          // count as overlapping.
           const overlapX = a.left < b.right - 2 && a.right - 2 > b.left;
           const overlapY = a.top < b.bottom - 2 && a.bottom - 2 > b.top;
           if (overlapX && overlapY) return false;
@@ -415,11 +391,6 @@ async function waitForSavedActiveTileStillActive(world: KoluWorld) {
       activeTileSel: string;
       savedId: string;
     }) => {
-      // The active tile's CanvasTile wrapper carries data-active.
-      // Its inner Terminal element carries data-terminal-id. Walk down
-      // from the active wrapper rather than checking every tile —
-      // that makes "did active flip to a different tile" the failure
-      // mode, not "is savedId still in the DOM" (it always is).
       const activeWrapper = document.querySelector(activeTileSel);
       if (!activeWrapper) return false;
       const inner = activeWrapper.querySelector("[data-terminal-id]");
@@ -440,25 +411,6 @@ Then(
   },
 );
 
-// Deterministic race-forcer. Installs a Playwright init script that runs
-// before every subsequent navigation and patches `window.WebSocket` so the
-// first stream frame for `surface/padi/session/get` is held for `ms` before
-// being dispatched. The padi `terminals` keys stream's first frame
-// reaches the surface client unblocked, so the canvas first-mount centering effect
-// (`TerminalCanvas.tsx:331`) always observes a null `activeId`, takes the
-// bbox-fallback branch, pans the viewport, and the `isDefaultViewport()`
-// guard latches the bug for the rest of the session — exactly the
-// production race described in `useSessionRestore.ts:178-182`, made
-// deterministic. 500ms is overkill for the race window but cheap.
-//
-// The frames it reads are **Effect RPC's ndjson protocol** (`RpcSerialization.
-// layerNdjson` under `websocketLink`), not the retired oRPC envelope: every
-// message is one newline-terminated JSON object, a client request is
-// `{_tag:"Request", id, tag, payload}` — `tag` being the flat wire tag — and a
-// stream frame is `{_tag:"Chunk", requestId, values}`. Matching on `tag` rather
-// than a URL path is what keeps this a real interceptor: the oRPC-shaped reader
-// it replaces matched nothing on this wire, so the delay never applied and the
-// scenario passed without ever forcing its race.
 Given(
   "session.get's first yield is delayed by {int} ms to force the active-id race",
   async function (this: KoluWorld, ms: number) {
@@ -471,7 +423,6 @@ Given(
       const Original = globalThis.WebSocket;
       const SESSION_TAG = "surface/padi/session/get";
       const DELAY_MS = ${ms};
-      // ndjson: one JSON value per line. A socket frame may carry several.
       function parseNdjson(text) {
         const out = [];
         for (const line of text.split("\\n")) {
@@ -494,8 +445,6 @@ Given(
         const seenFirstFrame = new Set();
         const origSend = ws.send.bind(ws);
         ws.send = (data) => {
-          // The request side is always a string under ndjson, but read it the
-          // same tolerant way as the receive side.
           if (typeof data === "string") {
             for (const msg of parseNdjson(data)) {
               if (msg && msg._tag === "Request" && msg.tag === SESSION_TAG) {
@@ -515,9 +464,6 @@ Given(
               const text = await frameText(event.data);
               if (text !== null) {
                 for (const msg of parseNdjson(text)) {
-                  // Only delay the FIRST frame per session subscription —
-                  // subsequent updates (session auto-save echoes) shouldn't be
-                  // slowed.
                   if (
                     msg && msg._tag === "Chunk" &&
                     sessionIds.has(msg.requestId) &&
@@ -542,15 +488,7 @@ Given(
   },
 );
 
-// ── Gesture ownership: two-finger scroll on terminal must not pan the canvas ──
-
-/** Read the canvas viewport transform string (`scale(z) translate(-pan…)`).
- *  Surfaced as `data-viewport` on the canvas-container element since #988
- *  retired the wrapper transform div in favour of per-tile composition —
- *  we still need a pan/zoom-only observable for tests (a tile's own
- *  `style.transform` also folds in layout coords + drag delta). Stable
- *  string identity is enough to prove pan/zoom did or didn't change. */
-async function readCanvasTransform(world: KoluWorld): Promise<string> {
+async function readCanvasViewportAttr(world: KoluWorld): Promise<string> {
   return await world.page.evaluate(() => {
     const container = document.querySelector(
       '[data-testid="canvas-container"]',
@@ -561,7 +499,7 @@ async function readCanvasTransform(world: KoluWorld): Promise<string> {
 
 When("I record the canvas transform", async function (this: KoluWorld) {
   (this as unknown as { __canvasTransform?: string }).__canvasTransform =
-    await readCanvasTransform(this);
+    await readCanvasViewportAttr(this);
 });
 
 When(
@@ -597,7 +535,6 @@ When(
       const container = document.querySelector(sel) as HTMLElement | null;
       if (!container) throw new Error("canvas-container not found");
       const rect = container.getBoundingClientRect();
-      // Dispatch at a corner of the container — outside any tile.
       container.dispatchEvent(
         new WheelEvent("wheel", {
           deltaX: 0,
@@ -618,10 +555,6 @@ When(
   async function (this: KoluWorld) {
     await waitForCanvas(this);
     await waitForXterm(this);
-    // Install a one-shot probe on the xterm element before dispatching. Canvas
-    // owns the gesture from the previous background scroll; stopPropagation at
-    // the canvas's capture-phase listener should prevent this event from ever
-    // reaching the xterm probe.
     await this.page.evaluate((sel: string) => {
       const container = document.querySelector(sel) as HTMLElement | null;
       const xterm = document.querySelector(
@@ -667,8 +600,6 @@ When(
     await this.waitForFrame();
   },
 );
-
-// ── Shift-to-pan modifier ──
 
 When(
   "I Shift+scroll the wheel over the terminal tile",
@@ -772,7 +703,7 @@ Then(
   async function (this: KoluWorld) {
     const before = (this as unknown as { __canvasTransform?: string })
       .__canvasTransform;
-    const after = await readCanvasTransform(this);
+    const after = await readCanvasViewportAttr(this);
     if (before !== after) {
       throw new Error(
         `Canvas transform changed unexpectedly: ${before} → ${after}`,
@@ -801,8 +732,6 @@ Then(
   },
 );
 
-// ── Minimap steps ──
-
 Then("the minimap should be visible", async function (this: KoluWorld) {
   await this.page.waitForFunction(
     (sel: string) => document.querySelector(sel) !== null,
@@ -819,7 +748,6 @@ Then("the minimap map should be visible", async function (this: KoluWorld) {
   );
 });
 
-// Terminal ids of every canvas tile, in DOM order.
 async function getTileIds(world: KoluWorld): Promise<string[]> {
   return world.page.evaluate(
     (sel: string) =>
@@ -830,21 +758,12 @@ async function getTileIds(world: KoluWorld): Promise<string[]> {
   );
 }
 
-// Stack every visible canvas tile in a single column with a large vertical
-// gap, so the tile bounding box becomes far taller than it is wide. That is
-// the shape that collapses the minimap's shrink-to-fit width (the height
-// constraint wins the scale), which used to drag the zoom bar below the
-// width its controls need.
 When(
   "I stack every canvas tile in a tall, narrow column",
   async function (this: KoluWorld) {
     const ids = await getTileIds(this);
     if (ids.length === 0) throw new Error("No canvas tiles to stack");
     const STACK_X = 200;
-    // >> tile width (700) so the stacked column's height/width ratio (~7x) far
-    // exceeds the minimap's MAP_W/MAP_H aspect (1.5), forcing the height term
-    // to win the scale and collapse the map to a sliver — the exact tall-narrow
-    // shape from the bug.
     const TALL_GAP_PX = 6000;
     for (const [i, id] of ids.entries()) {
       await setCanvasLayoutById(this, id, STACK_X, i * TALL_GAP_PX);
@@ -852,10 +771,6 @@ When(
   },
 );
 
-// The zoom bar lives below the map and packs fixed-width controls on one
-// `overflow-hidden` row. If the panel is forced narrower than that content,
-// the controls are clipped (scrollWidth exceeds clientWidth) — the bug. A
-// panel that floors at the bar's natural width never overflows.
 Then(
   "the minimap zoom bar should not clip its controls",
   async function (this: KoluWorld) {
@@ -863,8 +778,6 @@ Then(
       (sel: string) => {
         const bar = document.querySelector(sel) as HTMLElement | null;
         if (!bar) return false;
-        // Sub-pixel rounding can leave a 1px discrepancy even when nothing
-        // is actually clipped.
         return bar.scrollWidth <= bar.clientWidth + 1;
       },
       MINIMAP_ZOOMBAR_SELECTOR,
@@ -957,13 +870,6 @@ Then(
   },
 );
 
-/** Dispatch a mouse event on canvas tile `index`, hitting its PANE when the
- *  tile has a shown one (a live terminal owns the finer main-vs-split
- *  landing) and its shell otherwise — a tile panned off the canvas or covered
- *  by a maximized sibling has no shown pane (kolu#2362), and its chrome is
- *  what a press would land on anyway. Events are dispatched rather than
- *  clicked for real: Playwright's `.click()` stalls on xterm's
- *  event-intercepting machinery. */
 async function pressCanvasTile(
   world: KoluWorld,
   index: number,
@@ -997,7 +903,6 @@ async function pressCanvasTile(
 When(
   "I click canvas tile {int}",
   async function (this: KoluWorld, index: number) {
-    // `mousedown` is all CanvasTile needs to reach its onSelect handler.
     await pressCanvasTile(this, index, "mousedown");
   },
 );
@@ -1018,11 +923,6 @@ Then(
   },
 );
 
-// Per-tile renderer assertion. Indexes top-level (non-sub-terminal) visible
-// tiles in creation order — same ordering as "I click canvas tile {int}".
-// Excludes [data-sub-terminal] so an open split pane does not shift the index
-// of subsequent tiles. WebGL load/unload is async (effect + addon
-// construction), so poll rather than read once. `{word}` is `webgl` or `dom`.
 Then(
   "canvas tile {int} should use the {word} renderer",
   async function (this: KoluWorld, index: number, want: string) {
@@ -1042,10 +942,6 @@ Then(
   },
 );
 
-// Main pane vs. active split of the active tile — for the active-split-inherit
-// scenario, where both must end up on WebGL. The active tile carries
-// data-active; its main pane is the non-sub Terminal, its focused split
-// is the one visible [data-sub-terminal].
 Then(
   "the main terminal should use the {word} renderer",
   async function (this: KoluWorld, want: string) {
@@ -1081,9 +977,6 @@ Then(
 When(
   "I click minimap tile rect {int}",
   async function (this: KoluWorld, index: number) {
-    // Dispatch click directly on the rect element. Playwright's real-mouse
-    // click would land on the minimap viewport-rect overlay instead (it
-    // renders on top of tile rects so users can drag it to pan).
     await this.page.evaluate((i: number) => {
       const rect = document
         .querySelectorAll('[data-testid="minimap-tile-rect"]')
@@ -1108,9 +1001,6 @@ Then(
         activeTileSel: string;
         i: number;
       }) => {
-        // The active tile is the one with `data-active` on its CanvasTile
-        // shell — and the shell is also what the index counts, so a tile
-        // whose pane has stopped taking output still holds its place.
         const tile = document
           .querySelectorAll(sel)
           .item(i) as HTMLElement | null;
@@ -1127,11 +1017,6 @@ Then(
   },
 );
 
-// "the close confirmation should be visible" is defined in worktree_steps.ts
-
-// ── Canvas layout persistence ──
-
-/** Read the position (style.left/top) of the first canvas tile. */
 async function readFirstTilePosition(
   world: KoluWorld,
 ): Promise<{ id: string; left: number; top: number }> {
@@ -1262,12 +1147,6 @@ Then(
 When(
   "I move every canvas tile to a distinct scattered position",
   async function (this: KoluWorld) {
-    // Distinct, far-apart, off-grid coordinates — deliberately NOT
-    // anywhere an auto-layout would place tiles, so that ANY re-arrange on
-    // the next create would visibly snap a tile off its spot and fail the
-    // position-preservation assertion. Scattering is the whole point: tiles
-    // sitting in auto-grid positions could be "rearranged" right back onto
-    // themselves, masking the bug.
     const SCATTER = [
       { x: 220, y: 160 },
       { x: 2860, y: 360 },
@@ -1308,10 +1187,6 @@ Then(
     if (!recorded || Object.keys(recorded).length === 0) {
       throw new Error("No recorded canvas tile positions to compare against");
     }
-    // Positions are canvas-space (`style.left`/`top`) — pan/zoom rides the
-    // tile's `transform`, so this is immune to the create flow recentring
-    // the viewport. If creating a terminal re-arranged the island, an
-    // existing tile would land at a new left/top and this never settles.
     await this.page.waitForFunction(
       ({
         sel,
@@ -1345,8 +1220,6 @@ async function setCanvasLayoutById(
 ): Promise<void> {
   const layout = { x, y, w: 700, h: 500 };
   await padiCall("chrome/setCanvasLayout", { id, layout });
-  // Wait for the tile to render at the new position — proves the metadata
-  // subscription delivered the update (the mechanism that must survive refresh).
   await world.page.waitForFunction(
     ({
       sel,
@@ -1416,15 +1289,10 @@ Then(
   },
 );
 
-// ── Double-click to create ──
-
 When(
   "I double-click the empty canvas background",
   async function (this: KoluWorld) {
     await waitForCanvas(this);
-    // Dispatch the dblclick directly on the container so its `target` IS the
-    // container — that's the "bare surface" the create handler guards on
-    // (`target === currentTarget`). Mirrors the wheel-over-background step.
     await this.page.evaluate((sel: string) => {
       const container = document.querySelector(sel) as HTMLElement | null;
       if (!container) throw new Error("canvas-container not found");
@@ -1439,23 +1307,13 @@ When(
 When(
   "I double-click canvas tile {int}",
   async function (this: KoluWorld, index: number) {
-    // The dblclick lands inside the tile, so it bubbles to the canvas
-    // container with `target !== currentTarget` and the create guard must NOT
-    // fire — the negative case for the empty-surface affordance.
     await pressCanvasTile(this, index, "dblclick");
   },
 );
 
-// ── Tile maximize ──
-
 When(
   "I double-click the title bar of canvas tile {int}",
   async function (this: KoluWorld, index: number) {
-    // Synthesize a `dblclick` event directly on the title bar in page
-    // context — Playwright's real-mouse dblclick contends with the
-    // Workspace-switcher overlay and the parent tile's drag activator on a
-    // maximized tile (its position changes from absolute → fixed mid-
-    // sequence). Dispatching the event bypasses both.
     await this.page.evaluate((i) => {
       const bars = document.querySelectorAll(
         '[data-testid="canvas-tile-titlebar"]',
@@ -1473,10 +1331,6 @@ When(
 Then(
   "canvas tile {int} should be maximized",
   async function (this: KoluWorld, _index: number) {
-    // Since #988, all tiles render in one stable list and the maximized
-    // tile is CSS-promoted (`inset-0 z-40`) rather than rendered in a
-    // separate branch. `nth(index-1)` can still resolve to a non-
-    // maximized sibling of the same list, so match on `data-maximized="true"`.
     const maximizedTile = this.page.locator(
       `${CANVAS_TILE_SELECTOR}[data-maximized="true"]`,
     );
@@ -1502,14 +1356,6 @@ Then("no canvas tile should be maximized", async function (this: KoluWorld) {
 When(
   "I click the chrome-bar maximize toggle",
   async function (this: KoluWorld) {
-    // The lone maximize/restore BUTTON became one segment of the two-way
-    // `canvas · maximized` control (the conductor is its own entry in the
-    // tab row, never a view mode), and a segment is not a toggle: clicking
-    // `maximized` while
-    // already maximized is a no-op, which is right for a segmented control and
-    // wrong for a step whose scenario says "switches BETWEEN". So the step
-    // presses the OTHER segment — the gesture it always meant, now that the
-    // widget spells the two postures separately.
     const maximized = this.page.locator('[data-testid="mode-maximized"]');
     await maximized.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
     const already = (await maximized.getAttribute("data-active")) !== null;
@@ -1524,11 +1370,6 @@ When(
   },
 );
 
-// A covered tile (non-maximized, in maximized posture) must hide itself via
-// computed `visibility: hidden` — Playwright reports it as not visible. Before
-// the fix the covered tile shared `tiledStyle()` (computed visibility
-// "visible") and was only occluded by the maximized tile's z-40 cover, so this
-// assertion fails; it passes once covered tiles hide intrinsically.
 Then(
   "every non-maximized canvas tile should be hidden",
   async function (this: KoluWorld) {
@@ -1550,21 +1391,6 @@ Then(
   },
 );
 
-// A COVERED TILE IS LEFT WHERE IT WAS. Until kolu#2362 its box was the
-// maximized tile's, which made switching which tile is maximized free and made
-// ENTERING the posture cost one resize per covered tile — and another on the
-// way out, for a screen nobody saw. Now the canvas holds a covered tile at its
-// own rect and its panes measure nothing while it holds, so the trip costs the
-// tiles behind it nothing at all. Pin the box ACROSS the posture change: a
-// future edit that stretches a covered tile again re-introduces that cost with
-// a RED test rather than silently.
-//
-// `offsetWidth`/`offsetHeight`, not `getBoundingClientRect`: the tile's LAYOUT
-// box is the one its pane measures and the one that decides its program's
-// grid. Entering the posture moves the canvas viewport (the dock becomes a
-// flex sibling), so every tiled tile's SCREEN rect shifts under the camera
-// without its layout box moving at all — a fact about the camera, not about
-// the tile.
 const notedTileBoxes = new Map<string, { width: number; height: number }>();
 
 When("I note every canvas tile's box", async function (this: KoluWorld) {
@@ -1615,25 +1441,9 @@ Then(
   },
 );
 
-// ── Tile xterm-instance stability (regression for #988) ──
-//
-// Detect xterm.js remounts across an active-id switch in maximized mode.
-// The tag is a unique attribute set on the `.xterm` DOM node — it survives
-// iff the same DOM node survives. Today's broken behaviour replaces the
-// node on every switch; the fix promotes a tile to maximized via CSS only,
-// leaving the node intact.
-
 When(
   "I tag canvas tile {int}'s xterm element",
   async function (this: KoluWorld, index: number) {
-    // xterm.js's `onMount` awaits `document.fonts.load` before creating
-    // the `.xterm` DOM node, so on a slow host the element may not exist
-    // when this step first fires. Poll until it does, then tag it.
-    //
-    // Addressed by TILE SHELL, not by a shown pane: the scenario tags a tile
-    // that is COVERED by a maximized sibling, and a covered tile takes no
-    // live output (kolu#2362) — but its xterm node is exactly what must
-    // survive, so it is still there to tag.
     await this.page.waitForFunction(
       ({ sel, i }: { sel: string; i: number }) => {
         const tile = document
@@ -1674,11 +1484,6 @@ Then("some canvas tile should be maximized", async function (this: KoluWorld) {
 Then(
   "the tagged xterm element should still exist in the DOM",
   async function (this: KoluWorld) {
-    // The tag is unique per-test-run; finding any element with that
-    // attribute proves the originally-tagged `.xterm` node is still
-    // mounted. If the active-switch had remounted xterm.js (the #988
-    // bug), the tagged node would have been disposed and this query
-    // returns null — assertion fails as it would have pre-fix.
     await this.page.waitForFunction(
       () => {
         const tag = (window as unknown as { __xtermStabilityTag?: string })
@@ -1694,18 +1499,6 @@ Then(
   },
 );
 
-/** THE PAGE ITSELF NEVER SCROLLS.
- *
- *  kolu's root is `height: var(--app-h, 100dvh)` and every layer under it is a
- *  flex child that must size to the viewport; the workspace's own scrolling
- *  belongs to the panes INSIDE it (the dock's list, a transcript, a terminal's
- *  scrollback). A document that scrolls means some layer stopped floating at
- *  its content — a missing `min-h-0`, or a wrapper that became a scroll
- *  container because `overflow-x: hidden` beside an unset `overflow-y`
- *  computes to `overflow-y: auto`.
- *
- *  The offenders are reported, not just the number: "the page scrolls" is not
- *  actionable, and the element whose box runs past the viewport is. */
 Then("the page should not scroll", async function (this: KoluWorld) {
   const seen = await this.page.evaluate(() => {
     const root = document.documentElement;
@@ -1738,15 +1531,6 @@ Then("the page should not scroll", async function (this: KoluWorld) {
   );
 });
 
-// ── A tile nobody can see takes no live output (kolu#2362) ──
-//
-// The DOM fact underneath is `data-visible` on a pane: it is set exactly while
-// that pane holds an attach stream.
-
-/** The tile this scenario parked off-canvas: where it sat, and what was
- *  printed into it while nobody was looking. ONE record, so the steps that
- *  follow the parking never re-derive the tile positionally — it has just
- *  been moved 6000 px, and DOM order is not where it is. */
 const parked = new Map<
   KoluWorld,
   { id: string; left: number; top: number; marker?: string }
@@ -1758,15 +1542,9 @@ function parkedTile(world: KoluWorld) {
   return tile;
 }
 
-/** A tile's own terminal pane — the element that carries the xterm, present
- *  whether or not the pane is currently shown. */
 const paneOf = (id: string) =>
   `${CANVAS_TILE_SELECTOR}[data-terminal-id="${id}"] [data-terminal-id][data-font-size]:not([data-sub-terminal])`;
 
-/** A marker and the command that prints it. The shell ASSEMBLES it from two
- *  pieces, so the command line it echoes can never contain the marker — only
- *  `printf`'s own output can, and both land in the buffer once the tile is
- *  attached again. */
 const marker = (kind: string, stamp: number) => ({
   text: `kolu-e2e-${kind}-${stamp}`,
   input: `printf '%s%s\\n' 'kolu-e2e' '-${kind}-${stamp}'\r`,
@@ -1777,31 +1555,17 @@ When(
   async function (this: KoluWorld, index: number) {
     const pos = await readCanvasTilePosition(this, index);
     parked.set(this, pos);
-    // Far enough that neither the tile nor the 200 px margin around the
-    // viewport can still reach it.
     await setCanvasLayoutById(this, pos.id, pos.left + 6000, pos.top + 4000);
   },
 );
 
 When("I take over the page clock", async function (this: KoluWorld) {
-  // Fake timers from HERE on, so the grace period's own `setTimeout` — armed
-  // by the step that parks the tile, after this one — is a timer this test
-  // can advance. Installed as LATE as it can be: everything the app armed
-  // while it was coming up keeps running on real time, and the clock is
-  // taken over for the grace period and nothing else. Time still flows
-  // normally until something asks it to jump.
   await this.page.clock.install();
 });
 
-/** The client's `tileSeen.ts` hold, restated: the test package does not depend
- *  on `kolu-client`, so the number cannot be imported. Stated WITH its source
- *  so a change there is visibly a change here too. */
 const SEEN_HOLD_MS = 60 * 60_000;
 
 When("the grace period passes", async function (this: KoluWorld) {
-  // Past the hold above, with a minute to spare. `fastForward` is the
-  // laptop-lid jump: a due timer fires at most once, so a one-second
-  // interval does not fire three hundred times on the way.
   await this.page.clock.fastForward(SEEN_HOLD_MS + 60_000);
 });
 
@@ -1813,8 +1577,6 @@ When(
   },
 );
 
-/** The parked tile's pane is SHOWN — which is exactly when it holds an
- *  attach stream. */
 async function waitForParkedPaneShown(world: KoluWorld): Promise<void> {
   const { id } = parkedTile(world);
   await world.page
@@ -1864,10 +1626,6 @@ When(
       id: tile.id,
       data: printed.input,
     });
-    // FENCE, through a tile that IS still attached: once its own marker has
-    // made the whole round trip (PTY → attach stream → this browser), the one
-    // sent a moment earlier would have arrived too, had anything been
-    // listening for it.
     const fenceId = await this.page.evaluate((parkedId: string) => {
       const panes = document.querySelectorAll(
         "[data-terminal-id][data-font-size][data-visible]:not([data-sub-terminal])",

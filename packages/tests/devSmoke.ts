@@ -1,63 +1,49 @@
-/**
- * Dev-mode smoke: boot `just dev`, load Kolu in a real browser, fail on any
- * console error.
- *
- * WHY THIS EXISTS SEPARATELY FROM THE CUCUMBER SUITE
- *
- * Every other e2e check runs against a PRODUCTION bundle — `just test` against
- * the nix-built binary, `just test-quick` against `vite build` output. A
- * production bundle is tree-shaken, and tree-shaking is precisely what hides
- * this class of defect.
- *
- * kolu#2042 is the worked example. A barrel import (`@kolu/surface-daemon`,
- * whose index re-exports `daemonHome.ts` → `@kolu/surface/unix-socket` →
- * `node:fs`) reached `App.tsx`. In a production build Rollup dropped the unused
- * re-export and the bundle came out byte-identical — `nix build` green, the
- * whole cucumber suite green. In DEV, where Vite serves unbundled modules with
- * no tree-shaking, the browser fetched `daemonHome.ts`, ran its top-level
- * `import "node:fs"`, hit Vite's browser stub, and the app died at module load:
- *
- *     Uncaught Error: Module "node:fs" has been externalized for browser
- *     compatibility. Cannot access "node:fs.lstatSync" in client code.
- *
- * Nothing that inspects the production build can see that, so the check has to
- * be what a developer does: run the dev server, open the page, look at the
- * console. The defect is dev-only, so the check is dev-only.
- *
- * This deliberately does NOT enumerate forbidden imports. It asserts the
- * property that actually matters — Kolu loads clean — so it catches the next
- * module-load crash too, whatever its cause.
- */
-
 import { type ChildProcess, spawn } from "node:child_process";
 import { setTimeout as sleep } from "node:timers/promises";
 import getPort from "get-port";
-import { chromium, type ConsoleMessage } from "playwright";
+import { chromium, errors as playwrightErrors, type Page } from "playwright";
 
 const REPO_ROOT = new URL("../..", import.meta.url).pathname;
 
-/** How long the dev server gets to compile and start serving. Vite's cold
- *  dep-optimize on this workspace is the slow part; CI boxes are slower than a
- *  laptop, so this is generous. */
-const DEV_READY_TIMEOUT_MS = 180_000;
-/** How long the app gets to mount after navigation. */
-const APP_MOUNT_TIMEOUT_MS = 60_000;
-/** Quiet period after mount, to catch errors that arrive just after first paint. */
-const SETTLE_MS = 3_000;
+const DEV_SMOKE_BUDGET = {
+  viteColdStartMs: 180_000,
+  appMountMs: 60_000,
+  postMountSettleMs: 3_000,
+  httpProbeMs: 5_000,
+  httpProbeIntervalMs: 500,
+};
 
-/** Two free ports, held open until both are chosen so they cannot collide with
- *  each other. Random ports are mandatory, not tidiness: the canonical 7681/5173
- *  belong to the developer's own `kolu.service`, and binding them would either
- *  fail or, worse, proxy this check's browser at their production instance. */
-async function pickPorts(): Promise<{ server: number; client: number }> {
-  const server = await getPort();
-  const client = await getPort({ exclude: [server] });
+const PRODUCTION_PORT_SLOTS = {
+  server: 7681,
+  client: 5173,
+};
+
+const MOUNTED_APP_SHELL_SELECTOR = "[data-ws-status]";
+
+async function pickPortsAwayFromProductionSlots(): Promise<{
+  server: number;
+  client: number;
+}> {
+  const productionSlots = [
+    PRODUCTION_PORT_SLOTS.server,
+    PRODUCTION_PORT_SLOTS.client,
+  ];
+  const server = await getPort({ exclude: productionSlots });
+  const client = await getPort({ exclude: [...productionSlots, server] });
   return { server, client };
 }
 
-/** Resolve once the port accepts a TCP connection AND serves a 200 — Vite binds
- *  before it can serve, so a bare connect check races the first request. */
-async function waitForHttp(url: string, timeoutMs: number, proc: ChildProcess) {
+function isServerNotServingYet(error: unknown): boolean {
+  if (!(error instanceof Error)) return false;
+  if (error.name === "TimeoutError" || error.name === "AbortError") return true;
+  return error instanceof TypeError;
+}
+
+async function waitForHttpOk(
+  url: string,
+  timeoutMs: number,
+  proc: ChildProcess,
+) {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     if (proc.exitCode !== null) {
@@ -66,119 +52,115 @@ async function waitForHttp(url: string, timeoutMs: number, proc: ChildProcess) {
       );
     }
     try {
-      const res = await fetch(url, { signal: AbortSignal.timeout(5_000) });
+      const res = await fetch(url, {
+        signal: AbortSignal.timeout(DEV_SMOKE_BUDGET.httpProbeMs),
+      });
       if (res.ok) return;
-    } catch {
-      // Not up yet — the deadline above is the real bound.
+    } catch (error) {
+      if (!isServerNotServingYet(error)) throw error;
     }
-    await sleep(500);
+    await sleep(DEV_SMOKE_BUDGET.httpProbeIntervalMs);
   }
   throw new Error(`timed out after ${timeoutMs}ms waiting for ${url}`);
 }
 
-/** `_dev-parallel` is the server/client half of `just dev`, without its
- *  workspace-install dependency. The caller (`test-dev`, and CI's install
- *  funnel above it) already owns installation; starting another `pnpm install`
- *  here races every concurrent consumer of `node_modules/.bin`.
- *
- *  The recipe forks a server and a client in parallel, so the child is a
- *  process GROUP. `detached: true` + `kill(-pid)` is what reaches both halves;
- *  killing the `just` pid alone orphans a Vite that keeps holding the port. */
-function startDevServer(ports: { server: number; client: number }) {
+function bindDaemonsToThisProcessEnv(ports: {
+  server: number;
+  client: number;
+}): NodeJS.ProcessEnv {
+  return {
+    ...process.env,
+    KOLU_DEV_SERVER_PORT: String(ports.server),
+    KOLU_DEV_CLIENT_PORT: String(ports.client),
+    KOLU_DAEMON_BIND_PID: String(process.pid),
+  };
+}
+
+function spawnDevParallelGroup(ports: { server: number; client: number }) {
   return spawn("just", ["_dev-parallel"], {
     cwd: REPO_ROOT,
     detached: true,
     stdio: ["ignore", "pipe", "pipe"],
-    // `just dev` deliberately detaches padi (and padi detaches kaval) so a
-    // normal developer server can restart without killing terminal sessions.
-    // A one-shot smoke run has the opposite lifetime: bind both daemons to this
-    // process so its exit reaps the detached tree as well as the foreground
-    // process group stopped below.
-    env: {
-      ...process.env,
-      KOLU_DEV_SERVER_PORT: String(ports.server),
-      KOLU_DEV_CLIENT_PORT: String(ports.client),
-      KOLU_DAEMON_BIND_PID: String(process.pid),
-    },
+    env: bindDaemonsToThisProcessEnv(ports),
   });
 }
 
-function stopDevServer(proc: ChildProcess) {
+function isProcessGroupGone(error: unknown): boolean {
+  return (error as NodeJS.ErrnoException | null)?.code === "ESRCH";
+}
+
+function killProcessGroup(proc: ChildProcess) {
   if (proc.pid === undefined || proc.exitCode !== null) return;
   try {
     process.kill(-proc.pid, "SIGTERM");
-  } catch {
-    // Group already gone — nothing to reap.
+  } catch (error) {
+    if (!isProcessGroupGone(error)) throw error;
   }
 }
 
-/** A console message worth failing on. `error` is the module-load crash class
- *  this exists for. `warning` is deliberately NOT included: Vite dev emits
- *  routine warnings (pre-bundle reloads, HMR notices) that are not defects. */
-function isFailure(msg: ConsoleMessage): boolean {
-  return msg.type() === "error";
+async function appShellMounted(page: Page): Promise<boolean> {
+  try {
+    await page
+      .locator(MOUNTED_APP_SHELL_SELECTOR)
+      .first()
+      .waitFor({ state: "attached", timeout: DEV_SMOKE_BUDGET.appMountMs });
+    return true;
+  } catch (error) {
+    if (error instanceof playwrightErrors.TimeoutError) return false;
+    throw error;
+  }
+}
+
+async function collectBrowserLoadFailures(clientUrl: string) {
+  const failures: string[] = [];
+  const browser = await chromium.launch();
+  try {
+    const page = await browser.newPage();
+    page.on("console", (msg) => {
+      if (msg.type() === "error") failures.push(`console.error: ${msg.text()}`);
+    });
+    page.on("pageerror", (err) => failures.push(`uncaught: ${err.message}`));
+
+    await page.goto(clientUrl, { waitUntil: "domcontentloaded" });
+
+    if (await appShellMounted(page)) {
+      await sleep(DEV_SMOKE_BUDGET.postMountSettleMs);
+    } else {
+      failures.push(
+        `app never mounted: no ${MOUNTED_APP_SHELL_SELECTOR} within ${DEV_SMOKE_BUDGET.appMountMs}ms`,
+      );
+    }
+  } finally {
+    await browser.close();
+  }
+  return failures;
 }
 
 async function main() {
-  const ports = await pickPorts();
+  const ports = await pickPortsAwayFromProductionSlots();
   console.log(
-    `dev-smoke: server=${ports.server} client=${ports.client} (random, never the 7681/5173 production slot)`,
+    `dev-smoke: server=${ports.server} client=${ports.client} (random, never the ${PRODUCTION_PORT_SLOTS.server}/${PRODUCTION_PORT_SLOTS.client} production slot)`,
   );
 
-  const dev = startDevServer(ports);
+  const dev = spawnDevParallelGroup(ports);
   const devLog: string[] = [];
   dev.stdout?.on("data", (d) => devLog.push(String(d)));
   dev.stderr?.on("data", (d) => devLog.push(String(d)));
 
-  const failures: string[] = [];
-  let browser: Awaited<ReturnType<typeof chromium.launch>> | undefined;
+  let failures: string[] = [];
 
   try {
     const clientUrl = `http://localhost:${ports.client}/`;
     const serverHealthUrl = `http://localhost:${ports.server}/api/health`;
     await Promise.all([
-      waitForHttp(clientUrl, DEV_READY_TIMEOUT_MS, dev),
-      waitForHttp(serverHealthUrl, DEV_READY_TIMEOUT_MS, dev),
+      waitForHttpOk(clientUrl, DEV_SMOKE_BUDGET.viteColdStartMs, dev),
+      waitForHttpOk(serverHealthUrl, DEV_SMOKE_BUDGET.viteColdStartMs, dev),
     ]);
     console.log(
       `dev-smoke: dev stack serving ${clientUrl} (health ${serverHealthUrl})`,
     );
 
-    browser = await chromium.launch();
-    const page = await browser.newPage();
-
-    page.on("console", (msg) => {
-      if (isFailure(msg)) failures.push(`console.error: ${msg.text()}`);
-    });
-    // A module-load crash arrives as an uncaught exception, not a console call.
-    page.on("pageerror", (err) => failures.push(`uncaught: ${err.message}`));
-
-    await page.goto(clientUrl, { waitUntil: "domcontentloaded" });
-
-    // The app must MOUNT, not merely serve HTML: the #2042 crash left a served
-    // page with an empty body, which a status-code check would have called
-    // healthy. `[data-ws-status]` is the app shell's connection indicator — the
-    // same element the cucumber suite reads — so waiting on it proves Solid
-    // rendered, not just that Vite answered.
-    //
-    // A mount failure is recorded, NOT thrown. When the app dies at module load
-    // both things are true — the console has the crash and the mount never
-    // happens — and the console message is the one that names the cause. Letting
-    // the timeout propagate would report `TimeoutError` and discard the
-    // diagnosis the listeners above already captured.
-    try {
-      await page
-        .locator("[data-ws-status]")
-        .first()
-        .waitFor({ state: "attached", timeout: APP_MOUNT_TIMEOUT_MS });
-      // Only settle once mounted: a module-load crash in a lazily-imported chunk
-      // surfaces slightly after first paint, and this is what catches it.
-      await sleep(SETTLE_MS);
-    } catch {
-      failures.push(
-        `app never mounted: no [data-ws-status] within ${APP_MOUNT_TIMEOUT_MS}ms`,
-      );
-    }
+    failures = await collectBrowserLoadFailures(clientUrl);
   } catch (error) {
     console.error(
       "dev-smoke: dev server output before failure:\n",
@@ -186,8 +168,7 @@ async function main() {
     );
     throw error;
   } finally {
-    await browser?.close();
-    stopDevServer(dev);
+    killProcessGroup(dev);
   }
 
   if (failures.length > 0) {

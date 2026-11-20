@@ -1,69 +1,12 @@
-/**
- * The `Effect.run*` edge allowlist — PLAN D10 / review finding #25.
- *
- * The migration's rule is that an Effect is RUN only at a true process or UI
- * edge: a `main()`, a bridge into a non-Effect runtime (SolidJS, the reactor, an
- * SDK's Promise-shaped callback), or a documented synchronous decode. Everywhere
- * else, effects COMPOSE. That rule cannot be enforced by biome — its Promise
- * rules see a `Promise`, and an un-run `Effect` is not one — and it cannot be
- * enforced by review, because a new `Effect.runPromise` reads exactly like the
- * twenty-six that are legitimate.
- *
- * So it is enforced the same way the reactor's signals-engine ban is: by
- * enumeration. Every `Effect.run*(` / `Runtime.run*(` / `NodeRuntime.run*(` call
- * site in the scanned tree (see **Scope** below) is counted, and the result must
- * equal the committed list — path AND count, so a second run added to an
- * already-listed file is a failure too.
- *
- * **Adding a site is not the fix.** If a new call site is not a process/UI edge,
- * compose the effect into its caller instead. The list below is the argument for
- * each one that is; a new row must carry the same kind of argument.
- *
- * **Scope: every `.ts`/`.tsx` file under `packages/`.** Production `src` trees,
- * the `example` trees, the shared test libraries (`*.testlib.ts`) that live
- * inside those `src` trees, and the e2e harness in `packages/tests` alike. An
- * example is consumer code people COPY, and a testlib is a library compiled
- * alongside production source, so a run in either is a run that has to be argued
- * for — the rows below argue for each one.
- *
- * **Except `*.test.ts` / `*.test-d.ts`, and that exclusion is a claim.** A test
- * file IS a process edge: the runner calls it from a Promise, so it must run the
- * effect it is asserting about, and it may do so freely. There are ~600 such
- * runs across ~95 files; enumerating them would budget the HARNESS rather than
- * the product, and the list would rot on every new test. The discipline a test
- * still owes is the twin scan's, not this one's — `awaitedFace.ts` covers test
- * files precisely because a test that silently never dispatches is the bug that
- * hides the others.
- *
- * **The dodges this scan closes.** Counting a NAMESPACED call is honest only if
- * the namespace cannot be dropped, so two shapes fail outright rather than being
- * counted: a bare named import (`import { runPromise } from "effect/Effect"`),
- * and an UNCALLED reference (`const run = Effect.runPromise;`, `{ runFork } =
- * Effect`, `then(Effect.runPromise)`). Aliasing a run function is itself
- * bannable, which closes the alias dodge without needing dataflow.
- *
- * **Residual risk, stated so nobody mistakes this for a proof.** A namespace
- * import under another name (`import * as E from "effect/Effect"; E.runPromise(x)`)
- * reads as an ordinary call and is not seen; nor is a run reached through a
- * re-export of this repo's own making, or through `unsafe`/`Fiber` APIs that run
- * without a `run*` name. Each is an unusual import that review can see, and none
- * has an instance today. This scan raises the cost of a dodge; it does not make
- * one impossible.
- */
-
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
 
 export interface RunEdge {
-  /** Repo-relative path, POSIX separators. */
   readonly path: string;
-  /** How many run calls this file is allowed. */
   readonly sites: number;
-  /** WHY each one is a true edge — one line, the argument, not a restatement. */
   readonly why: string;
 }
 
-/** The sanctioned run edges. Sorted by path; keep it that way. */
 export const RUN_EDGE_ALLOWLIST: readonly RunEdge[] = [
   {
     path: "packages/acp-client/src/agent.ts",
@@ -432,61 +375,42 @@ export const RUN_EDGE_ALLOWLIST: readonly RunEdge[] = [
   },
 ];
 
-/** Directories with nothing to police — build output and vendored code. There is
- *  no `example` entry: an example tree is consumer code people COPY, so a run
- *  there is argued for on the list like any other. */
 const SKIPPED_DIRS = new Set(["node_modules", "dist", ".astro", ".vite"]);
 
 const RUN_CALL = /\b(?:Effect|Runtime|NodeRuntime)\.run[A-Z][A-Za-z]*\s*\(/g;
 
-/** A named import of a `run*` function straight off an effect module — one way a
- *  call site could dodge {@link RUN_CALL}'s namespaced shape. */
 const BARE_RUN_IMPORT =
   /import\s*\{[^}]*\brun[A-Z][A-Za-z]*\b[^}]*\}\s*from\s*["']effect[^"']*["']/;
 
-/** `Effect.runPromise` NOT followed by `(` — the alias dodge. `const run =
- *  Effect.runFork; run(program)` makes a run call that {@link RUN_CALL} cannot
- *  see, and so does handing the function to something else (`.then(Effect.runPromise)`).
- *  The `\b` before the lookahead matters: without it `runPromise` would match
- *  inside `runPromiseExit(` and report the call as an alias. */
 const UNCALLED_RUN_REFERENCE =
   /\b(?:Effect|Runtime|NodeRuntime)\s*\.\s*run[A-Z][A-Za-z]*\b(?!\s*\()/g;
 
-/** `const { runPromise } = Effect` — the same dodge spelled as a destructure,
- *  which leaves no `Namespace.run*` text for {@link UNCALLED_RUN_REFERENCE}. */
 const DESTRUCTURED_RUN =
   /\{[^{}]*\brun[A-Z][A-Za-z]*\b[^{}]*\}\s*=\s*(?:Effect|Runtime|NodeRuntime)\b/g;
 
-/** Blank out comments, and optionally string/template literals, so a `run*` call
- *  NAMED in prose (there are several — the edges are documented where they live)
- *  or quoted in a message is not counted as one.
- *
- *  A character scan rather than a regex: `//` inside a string literal and a
- *  quote inside a comment both defeat the regex version, and both occur in this
- *  repo. Replaced with spaces rather than deleted so any position the caller
- *  reports still lines up with the original source.
- *
- *  `keepStrings` exists for the import check, which has to READ a module
- *  specifier — the one question about this source that a string literal is the
- *  answer to rather than a hiding place. */
-function scan(source: string, keepStrings: boolean): string {
-  const out = source.split("");
+interface NonCodeSpan {
+  start: number;
+  end: number;
+  kind: "comment" | "string";
+}
+
+function nonCodeSpans(source: string): NonCodeSpan[] {
+  const spans: NonCodeSpan[] = [];
   let i = 0;
-  const blankTo = (end: number): void => {
-    for (let j = i; j < end && j < out.length; j++)
-      if (out[j] !== "\n") out[j] = " ";
-    i = end;
-  };
   while (i < source.length) {
     const two = source.slice(i, i + 2);
     if (two === "//") {
       const nl = source.indexOf("\n", i);
-      blankTo(nl === -1 ? source.length : nl);
+      const end = nl === -1 ? source.length : nl;
+      spans.push({ start: i, end, kind: "comment" });
+      i = end;
       continue;
     }
     if (two === "/*") {
-      const end = source.indexOf("*/", i + 2);
-      blankTo(end === -1 ? source.length : end + 2);
+      const close = source.indexOf("*/", i + 2);
+      const end = close === -1 ? source.length : close + 2;
+      spans.push({ start: i, end, kind: "comment" });
+      i = end;
       continue;
     }
     const ch = source[i];
@@ -503,52 +427,52 @@ function scan(source: string, keepStrings: boolean): string {
         }
         j += 1;
       }
-      // The quote characters themselves are ordinary code; only the contents go.
-      i += 1;
-      if (!keepStrings) blankTo(j - 1);
+      spans.push({ start: i + 1, end: j - 1, kind: "string" });
       i = j;
       continue;
     }
     i += 1;
   }
+  return spans;
+}
+
+function blank(source: string, spans: NonCodeSpan[]): string {
+  const out = source.split("");
+  for (const span of spans) {
+    for (let j = span.start; j < span.end && j < out.length; j++) {
+      if (out[j] !== "\n") out[j] = " ";
+    }
+  }
   return out.join("");
 }
 
-/** Comments and string literals blanked — what a `run*` CALL must survive. */
-export function blankNonCode(source: string): string {
-  return scan(source, false);
+export function blankCommentsAndStrings(source: string): string {
+  return blank(source, nonCodeSpans(source));
 }
 
-/** How many run calls `source` really makes. */
+export function blankCommentsOnly(source: string): string {
+  return blank(
+    source,
+    nonCodeSpans(source).filter((span) => span.kind === "comment"),
+  );
+}
+
 export function countRunCalls(source: string): number {
-  return (blankNonCode(source).match(RUN_CALL) ?? []).length;
+  return (blankCommentsAndStrings(source).match(RUN_CALL) ?? []).length;
 }
 
-/** True when `source` imports a `run*` helper by bare name off an effect module
- *  — the dodge the namespaced count cannot see. Comments are blanked (so naming
- *  the dodge in prose is not committing it) but string literals survive, because
- *  the module specifier IS the question. */
 export function hasBareRunImport(source: string): boolean {
-  return BARE_RUN_IMPORT.test(scan(source, true));
+  return BARE_RUN_IMPORT.test(blankCommentsOnly(source));
 }
 
-/** Every place `source` names a `run*` function WITHOUT calling it. Each is a
- *  violation in its own right rather than a counted edge: an alias travels, so
- *  there is no one file to hang a number on. Comments and string literals are
- *  blanked, so naming the dodge in prose (this file does, twice) is not
- *  committing it. */
 export function findRunAliases(source: string): string[] {
-  const code = blankNonCode(source);
+  const code = blankCommentsAndStrings(source);
   return [
     ...(code.match(UNCALLED_RUN_REFERENCE) ?? []),
     ...(code.match(DESTRUCTURED_RUN) ?? []),
   ].map((text) => text.replace(/\s+/g, " ").trim());
 }
 
-/** Files whose run calls are enumerated. `*.test.ts` / `*.test-d.ts` is out —
- *  the runner calls a test from a Promise, so a test IS the edge (the header
- *  states that exclusion and why it is the only one). `*.testlib.ts` is IN: it
- *  ships inside a production `src` tree and is compiled with it. */
 function isScannedSource(file: string): boolean {
   if (!/\.(ts|tsx)$/.test(file)) return false;
   return !/\.(test|test-d)\.(ts|tsx)$/.test(file);
@@ -563,9 +487,6 @@ function walk(dir: string, out: string[]): void {
   }
 }
 
-/** Every scanned source file under `packages/`, repo-relative and
- *  POSIX-separated. The whole tree rather than each package's `src`, because
- *  `packages/tests` has no `src` and an `example` tree lives beside one. */
 export function scannedSources(repoRoot: string): string[] {
   const files: string[] = [];
   walk(path.join(repoRoot, "packages"), files);
@@ -574,7 +495,6 @@ export function scannedSources(repoRoot: string): string[] {
     .sort();
 }
 
-/** Path → number of run calls, for every scanned file that has at least one. */
 export function collectRunEdges(repoRoot: string): Map<string, number> {
   const found = new Map<string, number>();
   for (const file of scannedSources(repoRoot)) {
@@ -596,7 +516,6 @@ export function collectRunEdges(repoRoot: string): Map<string, number> {
   return found;
 }
 
-/** Throw unless the found edges are EXACTLY the allowlisted ones. */
 export function validateRunEdges(
   found: ReadonlyMap<string, number>,
   allowlist: readonly RunEdge[] = RUN_EDGE_ALLOWLIST,

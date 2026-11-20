@@ -50,16 +50,6 @@ Feature: The works that need you come first, and the chat goes quiet
     And there should be no page errors
 
   Scenario: A question about a work rings unless it is in front of you
-    # THE BELL ON THE REAL PAGE. Three streams meet here: the works reading
-    # the bell hears, the transcript row that draws the question in the chat,
-    # and the observer that says that row is in view. The card stays SHUT, so
-    # the chat's copy is the only one on screen. Focus is declared, not raced.
-    #
-    # 1. Focused, the chat in view: the setup question lands in front of you
-    #    and the bell stays quiet.
-    # 2. Unfocused: a second work asks, and it rings.
-    # 3. Focused again but on a host tab, the Conductor off screen: a third
-    #    question, asked while the Conductor works through a long turn, rings.
     Given a repo for the work
     And I stub the notification sound
     And I simulate the Kolu window regaining focus

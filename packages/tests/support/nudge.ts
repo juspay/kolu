@@ -1,28 +1,7 @@
-/** Nudge helpers for fs.watch / inotify recovery under parallel load.
- *
- *  Under parallel-worker load the kernel inotify queue overflows and
- *  silently drops `fs.watch` events, leaving the server's watchers
- *  wedged on stale state. The recovery is to re-fire a detectable
- *  event on each poll iteration so detection retries are driven from
- *  the test side rather than relying on the kernel queue staying warm.
- *
- *  Three flavors: `nudgeWal` writes a WAL frame to a SQLite DB
- *  (agent-session mocks); `nudgeFiles` re-touches mtimes (transcript /
- *  session-JSONL mocks). Same volatility axis — they share a home so future
- *  additions don't fragment further.
- *
- *  SQLite errors that match the SQLITE_BUSY family are swallowed
- *  silently — those ARE the events we expect under contention.
- *  Anything else (schema drift, missing column, permissions) is logged
- *  once per dbPath so a regression doesn't silently re-flake the suite. */
-
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 
-/** Locked/busy errors are the expected failure mode under parallel
- *  contention — the surrounding poll loop will retry. Schema or
- *  permission errors are not, and must surface. */
 function isExpectedSqliteRace(err: unknown): boolean {
   if (!(err instanceof Error)) return false;
   return /database is (locked|busy)|SQLITE_BUSY/i.test(err.message);
@@ -30,47 +9,31 @@ function isExpectedSqliteRace(err: unknown): boolean {
 
 const warned = new Set<string>();
 
-/** Re-touch each existing file's mtime to re-fire its parent dir's
- *  `fs.watch`. Used by mock agent integrations whose session/transcript
- *  files are the trigger the server polls for. Undefined or
- *  non-existent paths are silently skipped — the caller's poll loop
- *  retries on the next tick. */
+const isMissing = (err: unknown): boolean =>
+  (err as { code?: unknown } | null)?.code === "ENOENT";
+
 export function nudgeFiles(paths: ReadonlyArray<string | undefined>): void {
   const now = new Date();
   for (const p of paths) {
     if (!p) continue;
     try {
       fs.utimesSync(p, now, now);
-    } catch {
-      // File may have been cleaned up between iterations — fine.
+    } catch (err) {
+      if (!isMissing(err)) throw err;
     }
   }
 }
 
-/** Re-fire a directory's `fs.watch` by creating then removing a throwaway
- *  sentinel entry inside it. `nudgeFiles` re-touches mtimes, which only
- *  recovers a dropped *write/create* event — it can do nothing for a
- *  dropped *deletion* (the file is gone, so there's nothing left to
- *  touch). A create+unlink of a sentinel inside `dir` produces fresh
- *  entry events, so a consumer that re-scans on any directory event (e.g.
- *  the Claude SESSIONS_DIR watcher, which re-reads `<pid>.json` and finds
- *  it absent) re-derives and notices the real entry has vanished. The
- *  sentinel name is deliberately not a `*.json` so no session enumerator
- *  ever parses it. Undefined / non-existent dir / racing cleanup is
- *  swallowed — the caller's poll loop retries on the next tick. */
 export function nudgeDir(dir: string | undefined): void {
   if (!dir) return;
   try {
     const probe = fs.mkdtempSync(path.join(dir, ".kolu-nudge-"));
     fs.rmSync(probe, { recursive: true });
-  } catch {
-    // Dir may not exist yet or be mid-cleanup — fine; poll loop retries.
+  } catch (err) {
+    if (!isMissing(err)) throw err;
   }
 }
 
-/** Execute `sql` against the SQLite DB at `dbPath` to force a WAL
- *  frame. No-ops if `dbPath` is undefined or the file doesn't exist
- *  (mock not yet set up — caller's poll loop will retry). */
 export function nudgeWal(dbPath: string | undefined, sql: string): void {
   if (!dbPath || !fs.existsSync(dbPath)) return;
   try {

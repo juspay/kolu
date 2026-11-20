@@ -26,9 +26,6 @@ Feature: Recent agents in command palette
     And there should be no page errors
 
   Scenario: Drilling into Recent agents keeps focus on palette input
-    # Same focus contract as Terminals / Theme: the drill-in
-    # must leave focus in the palette input so the user can immediately
-    # start typing to filter agents.
     When a fake Claude Code agent is running with the arguments "--dangerously-skip-permissions"
     And I open the command palette
     And I select "Recent agents" in the palette
@@ -37,8 +34,6 @@ Feature: Recent agents in command palette
     And there should be no page errors
 
   Scenario: Flags outside the allowlist are stripped from the row
-    # `-p` (prompt) is not a stable flag, so it and its value never reach the
-    # MRU — the row keeps only the allowlisted `--model` pair.
     When a fake Claude Code agent is running with the arguments "--model sonnet -p mysecret"
     And I open the command palette
     And I select "Recent agents" in the palette
@@ -52,10 +47,6 @@ Feature: Recent agents in command palette
     And there should be no page errors
 
   Scenario: A quoted flag value survives intact in the list (#1407)
-    # The row is rendered from the process's EXACT argv token, so a value
-    # carrying JSON/spaces stays one token; the palette re-quotes it for the
-    # shell, or re-running the recent agent would word-split it (the original
-    # symptom was `Error: Settings file not found: {ultracode:`).
     When a fake Claude Code agent is running with the arguments "--dangerously-skip-permissions --settings '{\"ultracode\": true}'"
     And I open the command palette
     And I select "Recent agents" in the palette

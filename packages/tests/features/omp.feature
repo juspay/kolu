@@ -25,9 +25,6 @@ Feature: Oh My Pi status detection
     Then the tile chrome should follow the Oh My Pi state change to "waiting" without nudging
     And there should be no page errors
 
-  # omp's `todo` result carries the whole list; kolu counts it and the tile
-  # chrome's progress bar and the inspector's agent card draw the count —
-  # the same surfaces Claude Code's tasks reach, with nothing omp-specific.
   Scenario: Tile chrome and the inspector show how far through its todo list Oh My Pi is
     When an Oh My Pi session is mocked with state "tool_use"
     Then the tile chrome should show an Oh My Pi indicator with state "tool_use"
@@ -38,11 +35,6 @@ Feature: Oh My Pi status detection
     And the inspector agent card should contain "3/5 tasks"
     And there should be no page errors
 
-  # Real omp writes its breadcrumb at launch — marked `fresh` while the session
-  # is still memory-only — so the preexec hint fires while the crumb's target
-  # does not exist yet. Detection binds the session from the crumb alone, and
-  # the append watcher's absent→present floor is then the only thing that can
-  # light the tile when the file lands, long after the reconcile ladder stopped.
   Scenario: Tile chrome lights up when the session file lands after the reconcile ladder
     When an Oh My Pi process is running with no session file yet
     And 1500 ms elapse past the command-run reconcile window
@@ -51,11 +43,6 @@ Feature: Oh My Pi status detection
     And there should be no page errors
 
   Scenario: An approval dialog on screen promotes tool use to awaiting (screen scrape)
-    # The approval gate is omp's own dialog (`Allow tool: …`), painted while the
-    # tool call sits on disk — so the transcript reads `tool_use` throughout the
-    # wait. kolu recognizes the dialog's box title on the rendered screen and
-    # promotes to awaiting_user; when it clears, the dock drops back to the
-    # transcript's own state with no file change.
     When an Oh My Pi session is mocked with state "tool_use"
     Then the tile chrome should show an Oh My Pi indicator with state "tool_use"
     When Oh My Pi renders a tool approval prompt

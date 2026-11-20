@@ -51,7 +51,6 @@ When("I press the create terminal shortcut", async function (this: KoluWorld) {
     .locator('[data-testid="canvas-tile"][data-terminal-id]')
     .count();
   await this.page.keyboard.press(`${APP_KEY}+t`);
-  // Wait for a new canvas tile to appear
   await this.page
     .locator('[data-testid="canvas-tile"][data-terminal-id]')
     .nth(countBefore)
@@ -76,15 +75,6 @@ When("I press the find shortcut", async function (this: KoluWorld) {
   await this.waitForFrame();
 });
 
-// Press Cmd/Super+F and record whether the app claimed it. A bubble-phase
-// window listener reads the event's final `defaultPrevented` AFTER the app's
-// capture-phase shortcut listener has run (capture fires before bubble), so it
-// sees the app's verdict. `defaultPrevented === false` means the dispatcher
-// declined and the browser's native find-in-page would fire — the core promise
-// of the focus-scoped chord. We can't observe the browser find UI itself (it's
-// chrome, outside the page), so proving the app did NOT eat the chord is the
-// load-bearing assertion. Stashed on `window` for the matching Then to read.
-//
 // The listener is NOT `{ once: true }`: Playwright presses `Meta` down before
 // `f`, so a one-shot listener would be consumed by the modifier's
 // own keydown and never see the `f` event. Instead it stays installed and only
@@ -119,9 +109,6 @@ Then(
         (window as unknown as { __findDefaultPrevented?: boolean })
           .__findDefaultPrevented,
     );
-    // The listener must have fired (defined) and the app must not have
-    // prevented the default (false) — so the browser's native find-in-page
-    // takes over.
     if (prevented !== false) {
       throw new Error(
         `expected Cmd/Super+F to reach the browser (defaultPrevented false), got ${String(prevented)}`,
@@ -131,10 +118,6 @@ Then(
 );
 
 When("I focus the terminal", async function (this: KoluWorld) {
-  // Clicking the active terminal's screen lands keyboard focus in xterm — the
-  // same gesture the typing helpers use so input reaches the PTY. From here
-  // the find shortcut opens kolu's terminal search (focus is inside the
-  // terminal's `data-kolu-terminal-search` subtree).
   await this.canvas.click();
   await this.waitForFrame();
 });
@@ -153,8 +136,6 @@ Then(
 Then(
   "the terminal search bar should not be visible",
   async function (this: KoluWorld) {
-    // The bar lives inside `<Show when={open}>`, so "closed" means detached;
-    // `hidden` covers both detached and not-visible.
     await this.page
       .locator(TERMINAL_SEARCH)
       .waitFor({ state: "hidden", timeout: POLL_TIMEOUT });
@@ -198,7 +179,6 @@ Then(
           img.naturalHeight,
         ).data;
         const unique = new Set<string>();
-        // Stride-2 scan of every pixel — catches glyphs at any row/column.
         for (let i = 0; i < full.length; i += 8) {
           unique.add(`${full[i]},${full[i + 1]},${full[i + 2]},${full[i + 3]}`);
           if (unique.size > 16) break;
@@ -223,11 +203,6 @@ Then(
 Then(
   "the clipboard image should match the terminal viewport size",
   async function (this: KoluWorld) {
-    // Regression guard: the screenshot must capture only the visible viewport
-    // (xterm.rows), not the entire scrollback buffer. A 200-line scrollback
-    // rendered at cellH ≈ 17 gives ~3400px of terminal body; a 24-row
-    // viewport gives ~408px. The threshold below catches that gap regardless
-    // of font size or dpr variations.
     const result = await this.page.evaluate(async (sel) => {
       const container = document.querySelector(sel) as
         | (HTMLElement & {
@@ -270,9 +245,6 @@ Then(
           `capture from scrollback capture`,
       );
     }
-    // Per-row upper bound of 30 logical px covers any realistic font size
-    // (default cellH ≈ 17). Chrome is 66px (TITLE_H 34 + PAD*2 32); +100 gives
-    // additional slack.
     const viewportMax = result.rows * 30 + 100;
     if (result.logicalHeight > viewportMax) {
       throw new Error(

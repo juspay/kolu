@@ -22,33 +22,63 @@ import {
   POLL_TIMEOUT,
 } from "../support/world.ts";
 
-/** The id the Nth fixture terminal is planted under.
- *
- *  A saved record's `id` is a `TerminalId` BY SCHEMA (`SavedTerminalIdSchema`),
- *  and restore re-spawns each terminal UNDER ITS SAVED ID — so a fixture id is
- *  a real registry key and a real PTY id on kaval, not a label. The ordinals
- *  these fixtures used to plant ("0", "1") failed that decode once the field
- *  was tightened; before it was, they reached kaval as unrepresentable PTY ids
- *  and rode padi's roster census, which took the daemon's whole surface down
- *  (#2376).
- *
- *  DERIVED FROM THE INDEX, never minted: the self-heal re-POSTs below rebuild
- *  the terminal list from `savedSessionTerminalCount`, and a fresh
- *  `randomUUID()` per POST would re-plant a DIFFERENT session each tick —
- *  orphaning the stashed `activeTerminalId` and whatever the assertions
- *  matched on. */
 const fixtureTerminalId = (index: number): string =>
   `00000000-0000-4000-8000-${String(index).padStart(12, "0")}`;
 
-/** Post the saved-session payload to the server. Used both at scenario
- *  setup (Given) and as a self-heal in the assertion. Idempotent. */
+class SavedSessionFixture {
+  readonly #savedAt = Date.now();
+  #terminals: SavedTerminal[] = [];
+  #activeTerminalId: string | undefined;
+
+  get terminals(): readonly SavedTerminal[] {
+    return this.#terminals;
+  }
+
+  async post(
+    terminals: SavedTerminal[],
+    activeTerminalId?: string,
+  ): Promise<void> {
+    this.#terminals = terminals;
+    if (activeTerminalId !== undefined) {
+      this.#activeTerminalId = activeTerminalId;
+    }
+    await this.repost();
+  }
+
+  async repost(): Promise<void> {
+    if (this.#terminals.length === 0) return;
+    await padiCall("session/test__set", {
+      terminals: this.#terminals.map((t) => ({
+        location: LOCAL_LOCATION,
+        state: "active",
+        pr: { kind: "absent" },
+        ...t,
+      })),
+      savedAt: this.#savedAt,
+      ...(this.#activeTerminalId === undefined
+        ? {}
+        : { activeTerminalId: this.#activeTerminalId }),
+    });
+  }
+}
+
+const fixtureByWorld = new WeakMap<KoluWorld, SavedSessionFixture>();
+
+function savedSession(world: KoluWorld): SavedSessionFixture {
+  let fixture = fixtureByWorld.get(world);
+  if (fixture === undefined) {
+    fixture = new SavedSessionFixture();
+    fixtureByWorld.set(world, fixture);
+  }
+  return fixture;
+}
+
 async function postSavedSession(
   world: KoluWorld,
   count: number,
 ): Promise<void> {
   const dirs = [os.homedir(), os.tmpdir(), "/"].slice(0, count);
-  await postSavedSessionPayload(
-    world,
+  await savedSession(world).post(
     dirs.map((cwd, i) => ({
       id: fixtureTerminalId(i),
       cwd,
@@ -57,62 +87,24 @@ async function postSavedSession(
   );
 }
 
-/** Post an arbitrary saved-session terminal list. The `savedAt`
- *  timestamp is captured on the first POST per scenario and replayed
- *  verbatim on subsequent self-heal re-POSTs — so the test always
- *  asserts that the *originally persisted* session restores, never a
- *  fresh-savedAt one a regression might require.
- *
- *  `activeTerminalId` is stashed and replayed the SAME way, and must be: the
- *  self-heal re-POSTs below pass only the terminal list, `test__set` writes the
- *  WHOLE blob, and an omitted `activeTerminalId` key decodes to `null`. A
- *  re-POST that dropped it therefore ERASED the active marker — leaving an
- *  assertion on the restored active tile unable to pass however long it polled. */
-async function postSavedSessionPayload(
+async function waitForRestoreCard<T>(
   world: KoluWorld,
-  terminals: SavedTerminal[],
-  activeTerminalId?: string,
+  observe: () => Promise<T>,
+  isDone: (seen: T) => boolean,
+  onTimeout: (last: T | undefined, elapsedMs: number) => Error,
 ): Promise<void> {
-  if (world.savedSessionSavedAt === undefined) {
-    world.savedSessionSavedAt = Date.now();
-  }
-  if (activeTerminalId !== undefined) {
-    world.savedSessionActiveId = activeTerminalId;
-  }
-  const payload: {
-    terminals: SavedTerminal[];
-    savedAt: number;
-    activeTerminalId?: string;
-  } = {
-    // Stamp the now-required `location` (local), `state` (active) discriminant, and
-    // `pr` here so the call sites stay focused on what they test
-    // (cwd/themeName/restoreTarget) and never re-spell them. Unlike
-    // `lastActivityAt` — which the server backfills from its Zod `.default(0)` when
-    // it validates this payload — none of `location`, the `state` discriminant, or
-    // `pr` has a schema default (a required host / a discriminant / a restore-relevant
-    // `PrResult` have no honest one), so the helper must supply them; this package is
-    // transpiled-not-typechecked, so this runtime stamp, not the compiler, is what
-    // enforces it. `pr: { kind: "absent" }` mirrors a real saved record (the live PR
-    // sensor re-resolves on restore). A terminal that sets its own
-    // `location`/`state`/`pr` (a future remote or sleeping case) wins via the spread.
-    terminals: terminals.map((t) => ({
-      location: LOCAL_LOCATION,
-      state: "active",
-      pr: { kind: "absent" },
-      ...t,
-    })),
-    savedAt: world.savedSessionSavedAt,
-  };
-  if (world.savedSessionActiveId !== undefined)
-    payload.activeTerminalId = world.savedSessionActiveId;
-  await padiCall("session/test__set", payload);
+  await pollFor({
+    observe,
+    isDone,
+    onTick: () => savedSession(world).repost(),
+    onTimeout,
+    timeoutMs: POLL_TIMEOUT,
+  });
 }
 
 Given(
   "a saved session with {int} terminals",
   async function (this: KoluWorld, count: number) {
-    // Stash count for the assertion-side self-heal.
-    this.savedSessionTerminalCount = count;
     await postSavedSession(this, count);
   },
 );
@@ -120,68 +112,37 @@ Given(
 Then(
   "the session restore card should be visible",
   async function (this: KoluWorld) {
-    // The flake we're working around: useSessionRestore.ts has a once-only
-    // `hydrated` flag that gates `setSavedSession(state.session)` on the
-    // first non-undefined value of the state subscription. Under
-    // parallel-worker contention, the subscription occasionally hydrates
-    // BEFORE the server's snapshot reflects our test__set POST — savedSession
-    // gets set to null and the card never appears.
-    //
-    // The companion createEffect (gated on terminals.length===0 + hydrated)
-    // re-runs whenever `serverState.savedSession()` changes, so re-POSTing
-    // the session AFTER hydration drives the card into view via that path.
-    //
-    // Strategy:
-    //   1. Wait for empty-state to mount (proves WS is up + hydrated has run).
-    //   2. Re-POST the session — guaranteed to be processed AFTER hydration.
-    //   3. Wait for the card with the remaining budget.
     await this.page
       .locator('[data-testid="empty-state"]')
       .waitFor({ state: "visible", timeout: HYDRATION_TIMEOUT });
     const card = this.page.locator('[data-testid="session-restore"]');
-    // Fast path: card already visible (happy-hydration run). `.catch(() => false)`
-    // because Playwright's isVisible() can throw on transient DOM states during
-    // mount — treating those as "not visible" just routes to the self-heal below.
-    if (await card.isVisible().catch(() => false)) return;
-    if (this.savedSessionTerminals) {
-      await postSavedSessionPayload(this, this.savedSessionTerminals);
-    } else if (this.savedSessionTerminalCount !== undefined) {
-      await postSavedSession(this, this.savedSessionTerminalCount);
-    }
-    await card.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    await waitForRestoreCard(
+      this,
+      () => card.isVisible().catch(() => false),
+      (visible) => visible,
+      (_, ms) =>
+        new Error(`The session restore card never appeared within ${ms}ms`),
+    );
   },
 );
 
 Then(
   "the restore button should mention {string}",
   async function (this: KoluWorld, text: string) {
-    // Same hydration race the visibility + agent-command steps already guard:
-    // the EmptyState's `<Show when={props.savedSession}>{(session) => …}` is
-    // the keyed form, so each new SavedSession reference unmount/remounts the
-    // restore card (including this button). The preceding "restore card
-    // should show agent command" step re-POSTs on every poll tick to drive
-    // recovery; the last few POSTs can still be in flight when we land here,
-    // so the button can appear, vanish during a remount, and reappear with
-    // an outdated text in a brief window. Mirror the same self-heal pattern.
-    await pollFor({
-      observe: () =>
+    await waitForRestoreCard(
+      this,
+      () =>
         this.page.evaluate(
           () =>
             document.querySelector('[data-testid="restore-session"]')
               ?.textContent ?? null,
         ),
-      isDone: (content) => content?.includes(text) ?? false,
-      onTick: async () => {
-        if (this.savedSessionTerminals) {
-          await postSavedSessionPayload(this, this.savedSessionTerminals);
-        }
-      },
-      onTimeout: (last, ms) =>
+      (content) => content?.includes(text) ?? false,
+      (last, ms) =>
         new Error(
           `Restore button never mentioned "${text}" within ${ms}ms (last="${last}")`,
         ),
-      timeoutMs: POLL_TIMEOUT,
-    });
+    );
   },
 );
 
@@ -191,9 +152,6 @@ When(
   async function (this: KoluWorld) {
     const btn = this.page.locator('[data-testid="restore-session"]');
     await btn.click();
-    // Wait for at least one terminal to appear — under parallel macOS CI load,
-    // server can be slow to spawn restored PTYs. Use waitForFunction for a
-    // reactive DOM check instead of locator.waitFor.
     await this.page.waitForFunction(
       (sel) => document.querySelectorAll(sel).length > 0,
       DOCK_ROW_SELECTOR,
@@ -205,12 +163,6 @@ When(
 Then(
   "a restored terminal should replay the agent resume invocation {string}",
   async function (this: KoluWorld, resumeInvocation: string) {
-    // The scenario never noted which terminal the split was, so this scans
-    // every live xterm buffer for the resume form the host typed into the PTY
-    // — proof a split's agent actually resumed (a bare shell would show
-    // nothing of the kind). Not an id question: `session.restore` brings each
-    // terminal back under its OWN id, and scanning them all is a superset of
-    // scoping to one.
     try {
       await this.page.waitForFunction(
         (exp) => {
@@ -263,49 +215,37 @@ Then(
   },
 );
 
-// --- Theme restore scenario ---
-
 Given(
   "a saved session with theme {string}",
   async function (this: KoluWorld, themeName: string) {
-    this.savedSessionTerminalCount = 1;
-    const terminals = [
+    await savedSession(this).post([
       {
         id: fixtureTerminalId(0),
         cwd: os.homedir(),
         git: { kind: "none" },
         themeName,
       },
-    ];
-    this.savedSessionTerminals = terminals;
-    await postSavedSessionPayload(this, terminals);
+    ]);
   },
 );
-
-// --- Canvas layout restore scenario ---
 
 Given(
   "a saved session with canvas layout at x={int} y={int} w={int} h={int}",
   async function (this: KoluWorld, x: number, y: number, w: number, h: number) {
-    this.savedSessionTerminalCount = 1;
-    const terminals = [
+    await savedSession(this).post([
       {
         id: fixtureTerminalId(0),
         cwd: os.homedir(),
         git: { kind: "none" },
         canvasLayout: { x, y, w, h },
       },
-    ];
-    this.savedSessionTerminals = terminals;
-    await postSavedSessionPayload(this, terminals);
+    ]);
   },
 );
 
 Then(
   "the canvas tile should be at x={int} y={int} w={int} h={int}",
   async function (this: KoluWorld, x: number, y: number, w: number, h: number) {
-    // Poll — the tile's inline style may briefly reflect a pending layout
-    // while the server's metadata echo is in flight on first paint.
     await this.page.waitForFunction(
       (expected) => {
         const tile = document.querySelector<HTMLElement>(
@@ -326,42 +266,32 @@ Then(
   },
 );
 
-// --- Multi-tile restore preserves active + centers viewport ---
-
 Given(
   "a saved session with 2 tiles and the second tile marked active",
   async function (this: KoluWorld) {
-    // Two tiles at far-apart canvas coordinates so the test of
-    // viewport-centering on the persisted active id is unambiguous
-    // (the bbox center of both tiles is not the centre of either tile).
-    this.savedSessionTerminalCount = 2;
-    const terminals = [
-      {
-        id: fixtureTerminalId(0),
-        cwd: os.homedir(),
-        git: { kind: "none" },
-        canvasLayout: { x: -1200, y: -800, w: 480, h: 320 },
-      },
-      {
-        id: fixtureTerminalId(1),
-        cwd: os.tmpdir(),
-        git: { kind: "none" },
-        canvasLayout: { x: 1200, y: 800, w: 480, h: 320 },
-      },
-    ];
-    this.savedSessionTerminals = terminals;
-    await postSavedSessionPayload(this, terminals, fixtureTerminalId(1));
+    await savedSession(this).post(
+      [
+        {
+          id: fixtureTerminalId(0),
+          cwd: os.homedir(),
+          git: { kind: "none" },
+          canvasLayout: { x: -1200, y: -800, w: 480, h: 320 },
+        },
+        {
+          id: fixtureTerminalId(1),
+          cwd: os.tmpdir(),
+          git: { kind: "none" },
+          canvasLayout: { x: 1200, y: 800, w: 480, h: 320 },
+        },
+      ],
+      fixtureTerminalId(1),
+    );
   },
 );
 
 Then(
   "the active canvas tile should match the saved-session second tile",
   async function (this: KoluWorld) {
-    // The active tile IS the saved one, by id: restore re-spawns each terminal
-    // under the id it was saved with, so the second saved record's id is what
-    // the active tile must carry. (It used to be matched by its saved canvas
-    // coordinates, because restore minted a fresh id for every record and the
-    // saved id named nothing on screen.)
     await this.page.waitForFunction(
       ({ activeTileSel, id }) => {
         const tiles = document.querySelectorAll<HTMLElement>(activeTileSel);
@@ -379,33 +309,10 @@ Then(
   },
 );
 
-// --- Refresh preserves the active terminal ---
-
-/** The server leading-edge-throttles session-TRACE auto-save by 500 ms after the
- *  last change (the AutosaveGate). Tests that refresh after a change to a
- *  terminal's own state (canvas layout, right-panel mode, …) must wait for that
- *  save to land, or the server's persisted session is stale and hydrate picks the
- *  pre-change value.
- *
- *  NOT for focus: since #2286 selecting a terminal pulses nothing and rides its
- *  own ≥5 s active-id debounce, which no fixed sleep should encode — use "the
- *  saved session should record the active terminal", which waits for the write
- *  itself. */
 When("I wait for the session auto-save", async function (this: KoluWorld) {
   await new Promise((r) => setTimeout(r, 800));
 });
 
-/** Wait until padi's PERSISTED session names the tile the scenario stashed with
- *  "I save the active canvas tile id".
- *
- *  The focus marker reaches disk on the AutosaveGate's own ≥5 s trailing debounce
- *  (#2286: a focus change must not re-serialise every terminal's record), so the
- *  800 ms sleep the auto-save step offers is no longer the thing that happens
- *  here. Polling the blob is both honest and faster in the common case: it returns
- *  the instant the write lands rather than after a sleep long enough to cover the
- *  whole window, and a regression that stops persisting focus fails HERE — with
- *  the marker the file actually holds — instead of as a confusing post-reload
- *  assertion about which tile is active. */
 Then(
   "the saved session should record the active terminal",
   async function (this: KoluWorld) {
@@ -431,28 +338,6 @@ Then(
   },
 );
 
-/** Wait until padi's PERSISTED session actually offers N resumable agents.
- *
- *  The restore card is built from the blob on disk, and once the daemon is
- *  killed that blob is FROZEN — so a scenario that kills kaval before the save
- *  has caught up asserts against a session that can never improve, however long
- *  the assertion polls. (That is exactly how this scenario failed on
- *  aarch64-darwin: "Restore 2 terminals", no resume suffix, for the full 20 s.)
- *
- *  A sleep cannot express this precondition honestly. Two independent latencies
- *  sit between "the agent was launched" and "the session on disk is
- *  restorable": padi must OBSERVE the agent (a title event whose reconcile
- *  ladder runs out to 1000 ms — `sensors.ts` COMMAND_RUN_RECONCILE_DELAYS_MS)
- *  and the autosave must then fire (500 ms debounce). On this repo's Linux box
- *  the pair lands 300-670 ms after the mock step returns; there is no fixed wait
- *  that is both honest and fast on a loaded macOS runner.
- *
- *  Reading the blob is the ONLY ground truth available: while live terminals
- *  exist nothing renders the saved session, and a split's agent reaches no
- *  client chrome at all (see the scenario comment in session-restore.feature).
- *  It is parsed with padi's OWN schema and counted with padi's OWN fold
- *  (`resumableTerminalIds`), so this step cannot drift from what the host will
- *  serve as `session.resumableIds`. */
 Then(
   "the saved session should list {int} resumable agents",
   async function (this: KoluWorld, expected: number) {
@@ -463,10 +348,6 @@ Then(
         session?: unknown;
       };
       const raw = persisted.session ?? null;
-      // Parsed with padi's OWN schema (`Schema.decodeUnknownSync` — the Effect
-      // successor of the zod `.nullable().parse()` this used to spell), so a blob
-      // that has drifted from the contract fails LOUDLY here rather than being
-      // counted as zero resumable agents.
       const session =
         raw === null ? null : Schema.decodeUnknownSync(SavedSessionSchema)(raw);
       const terminals = session?.terminals ?? [];
@@ -513,14 +394,6 @@ Then(
   },
 );
 
-// --- Agent-resume scenarios ---
-
-/** The structured resume facts behind each label these scenarios plant — the
- *  SAME shape the fold derives from an OS-detected agent (identity + the live
- *  process's allowlisted argv). Written as a table because the scenario names the
- *  DISPLAY line, and a restore target can never be rebuilt by re-parsing text:
- *  that parse is exactly what the forgery fix removed. An unknown label fails
- *  loudly rather than fabricating a target. */
 const RESUME_TARGETS: Record<string, RestoreTarget> = {
   "claude --model sonnet": {
     kind: "exact",
@@ -545,10 +418,6 @@ const RESUME_TARGETS: Record<string, RestoreTarget> = {
 Given(
   "terminal {int} has a resumable agent {string}",
   async function (this: KoluWorld, index: number, label: string) {
-    // Idempotent edit to the saved session's restore target for the matching
-    // terminal. The card counts and renders from `restoreTarget` (the fold-derived
-    // structured value), so planting one is what makes the terminal resumable —
-    // there is no remembered launch line to plant.
     const id = fixtureTerminalId(index);
     const restoreTarget = RESUME_TARGETS[label];
     if (restoreTarget === undefined) {
@@ -556,34 +425,19 @@ Given(
         `no structured restore target for "${label}" — add one to RESUME_TARGETS`,
       );
     }
-    const terminals =
-      this.savedSessionTerminals ??
-      [...Array(this.savedSessionTerminalCount ?? 0)].map((_, i) => ({
-        id: fixtureTerminalId(i),
-        cwd: [os.homedir(), os.tmpdir(), "/"][i] ?? "/",
-        git: { kind: "none" },
-      }));
-    const updated: SavedTerminal[] = terminals.map((t) =>
+    const updated: SavedTerminal[] = savedSession(this).terminals.map((t) =>
       t.id === id ? { ...t, restoreTarget } : t,
     );
-    this.savedSessionTerminals = updated;
-    await postSavedSessionPayload(this, updated);
+    await savedSession(this).post(updated);
   },
 );
 
 Then(
   "the restore card should show the agent line {string}",
   async function (this: KoluWorld, command: string) {
-    // Same race as the visibility step: under parallel-worker load the
-    // client can hydrate `savedSession` before the server snapshot
-    // includes the most recent restore target POST. Re-POSTing on
-    // each poll iteration drives a `serverState.savedSession()` change
-    // that re-fires `useSessionRestore`'s recovery effect — so the
-    // commands eventually land in the rendered card. The replayed POST
-    // reuses the original `savedAt` (see `postSavedSessionPayload`) so
-    // the assertion still exercises the originally-persisted session.
-    await pollFor({
-      observe: () =>
+    await waitForRestoreCard(
+      this,
+      () =>
         this.page.evaluate(
           (cmd) =>
             Array.from(
@@ -591,18 +445,12 @@ Then(
             ).some((n) => n.textContent?.trim() === cmd),
           command,
         ),
-      isDone: (visible) => visible,
-      onTick: async () => {
-        if (this.savedSessionTerminals) {
-          await postSavedSessionPayload(this, this.savedSessionTerminals);
-        }
-      },
-      onTimeout: (_, ms) =>
+      (visible) => visible,
+      (_, ms) =>
         new Error(
           `Restore card never showed the agent line "${command}" within ${ms}ms`,
         ),
-      timeoutMs: POLL_TIMEOUT,
-    });
+    );
   },
 );
 
@@ -628,8 +476,6 @@ When("I turn off the resume-agents toggle", async function (this: KoluWorld) {
 Then(
   "the restore card should not show the agent line {string}",
   async function (this: KoluWorld, command: string) {
-    // Wait for the command row to disappear. Uses waitForFunction so we poll
-    // the reactive DOM rather than race the toggle's state flush.
     await this.page.waitForFunction(
       (cmd) => {
         const nodes = document.querySelectorAll(
@@ -643,17 +489,12 @@ Then(
   },
 );
 
-// --- #714 regression: heading is basename, not full cwd ---
-
 Given(
   "a saved session at cwd {string}",
   async function (this: KoluWorld, cwd: string) {
-    this.savedSessionTerminalCount = 1;
-    const terminals: SavedTerminal[] = [
+    await savedSession(this).post([
       { id: fixtureTerminalId(0), cwd, git: { kind: "none" } },
-    ];
-    this.savedSessionTerminals = terminals;
-    await postSavedSessionPayload(this, terminals);
+    ]);
   },
 );
 
@@ -674,9 +515,6 @@ Then(
 Then(
   "the restore card heading should not contain {string}",
   async function (this: KoluWorld, forbidden: string) {
-    // Poll instead of reading once: the prior step settled the heading, but a
-    // bare textContent() + assert races SolidJS reactivity flushes on slow
-    // machines (e2e-poll-async-state rule).
     await this.page.waitForFunction(
       (f) => {
         const heading = document.querySelector('[data-testid="repo-heading"]');

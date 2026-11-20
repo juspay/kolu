@@ -1,11 +1,3 @@
-/**
- * The `await`-on-a-member-face ban's own gate. The ban is only worth anything if
- * the SCANNER is honest in BOTH directions, so each test here is a way it could
- * lie: a violation it might miss, and — just as important — a legitimate
- * spelling it might condemn. A scanner that flagged `await Effect.runPromise(…)`
- * would be turned off within a week, and then the real ones ride back in.
- */
-
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
@@ -32,8 +24,6 @@ test("catches it through an arbitrarily deep reference path", () => {
 });
 
 test("catches it through a CALL in the reference path", () => {
-  // `client.entry(A).procedures.…` is how the map's per-entry face is reached,
-  // and a path grammar that admitted only dots could not see it.
   assert.equal(
     hits("await client.entry(A).procedures.session.ping({});").length,
     1,
@@ -99,8 +89,6 @@ test("catches the destructured spellings, including the face by its own name", (
 });
 
 test("does NOT flag a stored description that is RUN rather than awaited", () => {
-  // The legitimate shape the stored-description rule must not condemn: hold the
-  // description, then hand it to a sanctioned edge.
   assert.equal(
     hits(
       [
@@ -110,7 +98,6 @@ test("does NOT flag a stored description that is RUN rather than awaited", () =>
     ).length,
     0,
   );
-  // An alias that is CALLED and composed — a narrowed member reference that is CALLED, kolu's `unaryMember` shape.
   assert.equal(
     hits(
       [
@@ -123,8 +110,6 @@ test("does NOT flag a stored description that is RUN rather than awaited", () =>
 });
 
 test("does NOT mark a name whose initializer merely CONTAINS a face call", () => {
-  // `Effect.runPromise(...)` nests its parens, so the path grammar cannot read
-  // it as a reference path — the value is a Promise, and awaiting it is correct.
   assert.equal(
     hits(
       [

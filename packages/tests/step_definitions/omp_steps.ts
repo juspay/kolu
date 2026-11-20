@@ -1,22 +1,3 @@
-/**
- * Oh My Pi status detection — step definitions.
- *
- *  Mocks an `omp` session the way real omp presents one: a fake `omp` binary
- *  (a bash copy seeded by hooks.ts, kept resident with comm="omp") writes its
- *  own **breadcrumb** — `<KOLU_OMP_DIR>/terminal-sessions/<tty>`, derived from
- *  its own stdin, exactly as omp's `getTerminalId()` does — and writes the
- *  session JSONL that crumb points at WHEN IT IS PROMPTED, from bytes the
- *  scenario staged for it. Detection is tty-anchored (kolu reads the foreground
- *  process's stdin), so no pid plumbing is needed; what the crumb is named after
- *  is the same pty either way.
- *
- *  The lazy transcript is the point, not a detail: between the launch and the
- *  first prompt a real omp is an agent with NO session to read, which is the
- *  terminal padi publishes as `starting` (its screen is still being drawn) and
- *  then `fresh`. A stand-in that wrote its JSONL up front could never stand in
- *  for that terminal.
- */
-
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -41,13 +22,8 @@ const getOmpDir = () => process.env.KOLU_OMP_DIR;
 
 let mockCwd: string | null = null;
 let mockFixture: OmpFixture | null = null;
-/** Where the next prompt's session-file bytes wait for the fake to write them,
- *  and the flag that ends a bring-up paint. Both live under `mockCwd`, so the
- *  scenario's own cleanup removes them. */
 let mockStagePath: string | null = null;
 let mockQuietFlag: string | null = null;
-/** Distinguishes one scenario's prompts from another's in the heard echo — a
- *  wait on a bare marker would be satisfied by an EARLIER prompt's line. */
 let promptCounter = 0;
 
 function cleanup() {
@@ -60,9 +36,6 @@ function cleanup() {
   mockQuietFlag = null;
   const ompDir = getOmpDir();
   if (ompDir) {
-    // Wipe the session tree AND the breadcrumbs between scenarios: a crumb for
-    // a pty id that gets reused would otherwise point at a previous scenario's
-    // file.
     for (const sub of ["sessions", "terminal-sessions"]) {
       const dir = path.join(ompDir, sub);
       if (fs.existsSync(dir)) {
@@ -83,21 +56,10 @@ async function cdTerminalInto(world: KoluWorld, cwd: string): Promise<void> {
   await waitForBufferContains(world.page, marker);
 }
 
-/** Launch the fake `omp` with the crumb-write + resident-loop payload, and WAIT
- *  for the process's own "I am up" line before returning. The wait is the
- *  arrangement: the program is a file and only `<bin> <file>` is typed, so the
- *  shell's echo of the command cannot satisfy it and a launch that never ran (a
- *  missing binary, an rc still initializing) fails HERE, quoting the terminal,
- *  instead of surfacing three steps later as an indicator that never lit.
- *
- *  The program is a file, not typed: every typed key is a round trip through
- *  the server, padi, kaval and the shell's echo, and on a busy host typing the
- *  ~1,900-character program failed this step — at its 70 s limit, or with the
- *  shell still echoing the program when the wait for "up" ended. */
 async function startFakeAgent(
   world: KoluWorld,
   fixture: OmpFixture,
-  opts: { bootPaint: boolean } = { bootPaint: false },
+  opts: { holdStarting: boolean } = { holdStarting: false },
 ): Promise<void> {
   const bin = process.env.KOLU_FAKE_OMP_BIN;
   if (!bin) throw new Error("KOLU_FAKE_OMP_BIN must be set");
@@ -106,7 +68,7 @@ async function startFakeAgent(
   if (!mockCwd || !mockStagePath) {
     throw new Error("No omp mock directory — call the mock step first");
   }
-  mockQuietFlag = opts.bootPaint ? path.join(mockCwd, "omp-settled") : null;
+  mockQuietFlag = opts.holdStarting ? path.join(mockCwd, "omp-settled") : null;
   const program = path.join(mockCwd, "omp-stand-in.sh");
   fs.writeFileSync(
     program,
@@ -129,10 +91,6 @@ async function startFakeAgent(
   }
 }
 
-/** PROMPT the running fake, the way a person does: type a line, and wait for the
- *  process to echo it back with its heard marker. Anything staged by
- *  {@link stageOmpPrompt} is written to the session file BEFORE that echo, so a
- *  caller that saw the echo is looking at a transcript already on disk. */
 async function promptFakeAgent(world: KoluWorld): Promise<void> {
   promptCounter += 1;
   const words = `fix the parser ${promptCounter}`;
@@ -141,18 +99,10 @@ async function promptFakeAgent(world: KoluWorld): Promise<void> {
   await waitForBufferContains(world.page, `${OMP_HEARD_MARKER} ${words}`);
 }
 
-/** Mock an omp session in the terminal: a temp cwd, the fake process that writes
- *  its own breadcrumb, and — when `state` is given — a PROMPT that makes that
- *  process materialize its session file in `state`.
- *
- *  `state` OMITTED is a real production state, not a convenience default: it is
- *  omp's lazy session, whose crumb is written `fresh` before any JSONL exists —
- *  the race the "no session file yet" scenario exercises, and the terminal the
- *  presence states describe. */
 async function mockOmpSession(
   world: KoluWorld,
   state?: AgentLifecycleState,
-  opts: { bootPaint: boolean } = { bootPaint: false },
+  opts: { holdStarting: boolean } = { holdStarting: false },
 ): Promise<void> {
   const ompDir = getOmpDir();
   if (!ompDir) throw new Error("KOLU_OMP_DIR must be set");
@@ -175,11 +125,6 @@ When(
   },
 );
 
-/** Start fake `omp` with NO session file on disk — the production race: omp has
- *  already written its `fresh` breadcrumb (the session is still memory-only)
- *  while the foreground is `omp`, so detection binds the session from the crumb
- *  alone. The command-run reconcile ladder will already have stopped by the
- *  time the file lands. */
 When(
   "an Oh My Pi process is running with no session file yet",
   async function (this: KoluWorld) {
@@ -187,20 +132,13 @@ When(
   },
 );
 
-/** The same bring-up, held in its FIRST moment: the fake paints a line a second
- *  until the scenario tells it to settle, which is what keeps padi's quiet
- *  window open and the agent `starting`. Without the paint the window closes on
- *  its own a few seconds in, and `starting` becomes a state a scenario races
- *  rather than one it ends. */
 When(
   "an Oh My Pi agent is coming up with its screen still being drawn",
   async function (this: KoluWorld) {
-    await mockOmpSession(this, undefined, { bootPaint: true });
+    await mockOmpSession(this, undefined, { holdStarting: true });
   },
 );
 
-/** Stop the bring-up paint: the screen goes quiet, padi's quiet window closes,
- *  and the agent is `fresh` — up, and never prompted. */
 When("Oh My Pi's screen goes quiet", async function (this: KoluWorld) {
   if (!mockQuietFlag) {
     throw new Error("No Oh My Pi bring-up paint to settle — start one first");
@@ -216,18 +154,12 @@ When("Oh My Pi's screen goes quiet", async function (this: KoluWorld) {
   });
 });
 
-/** THE AGENT LEAVES. Presence is a process fact, so the way it ends is the
- *  process ending: the fake is told to quit and prints its farewell as the loop
- *  breaks, immediately before it exits — so the next step is reading a terminal
- *  whose foreground is the shell again, not one that is about to be. */
 When("Oh My Pi leaves the foreground", async function (this: KoluWorld) {
   await this.page.keyboard.type("quit");
   await this.page.keyboard.press("Enter");
   await waitForBufferContains(this.page, OMP_GONE_MARKER);
 });
 
-/** The session file lands LATE — written by the running process at its first
- *  prompt, which is when a real omp writes one. */
 When(
   "a session file is written for the running Oh My Pi process with state {string}",
   async function (this: KoluWorld, state: string) {
@@ -258,7 +190,6 @@ When(
   },
 );
 
-/** Ask the resident fake to paint omp's tool-approval dialog. */
 When(
   "Oh My Pi renders a tool approval prompt",
   async function (this: KoluWorld) {
@@ -267,8 +198,6 @@ When(
   },
 );
 
-/** Ask it to paint enough output that the dialog scrolls out of the screen
- *  tail — the "the prompt is gone now" state. */
 When(
   "Oh My Pi clears its prompt from the screen",
   async function (this: KoluWorld) {
@@ -307,16 +236,12 @@ Then(
   },
 );
 
-/** Assert a live state change purely on the strength of the appended entries
- *  (or the screen clearing) — if only a manual nudge lit the tile, production
- *  is broken the same way. */
 Then(
   "the tile chrome should follow the Oh My Pi state change to {string} without nudging",
   async function (this: KoluWorld, expectedState: string) {
     await pollFor({
       observe: () => observeOmpIndicator(this),
       isDone: (o) => o.state === expectedState && o.kind === "omp",
-      // No onTick nudge — the append / screen change alone must rewake.
       onTimeout: (last, ms) =>
         new Error(
           `Expected live Oh My Pi state "${expectedState}" without nudge (kind=omp), got state="${last?.state ?? null}" kind="${last?.kind ?? null}" after ${ms}ms`,

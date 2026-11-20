@@ -1,11 +1,3 @@
-/**
- * The tolerance allowlist's own gate. The list is only worth anything if the
- * SCANNER is honest, so each test here is a way the count could lie: the strict
- * spelling mistaken for the tolerant one, a shim named in prose, an alias
- * import, a second field added to an already-listed file, a row left behind
- * after its field was tightened, and the bare-import dodge.
- */
-
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
@@ -58,9 +50,6 @@ test("a bare named import of `optional` is caught, a namespaced one is not", () 
 });
 
 test("the dodge quoted in a literal is not the dodge committed", () => {
-  // This scan covers test files, and THIS file quotes the import above in order
-  // to prove it is caught — so a string-literal match would fail the repo scan
-  // on its own gate. It did, once.
   assert.ok(
     !hasBareOptionalImport(
       "assert.ok(check('import { optional } from \"effect/Schema\";'));",

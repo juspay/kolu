@@ -1,5 +1,3 @@
-/** Cross-agent filesystem helpers for mock step definitions. */
-
 import * as fs from "node:fs";
 import { DatabaseSync } from "node:sqlite";
 

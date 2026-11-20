@@ -18,10 +18,6 @@ Feature: The Conductor reads as a conversation
     And the conductor is on a fresh conversation
 
   Scenario: The work stands beside the conversation, and folds into the status line on a narrow window
-    # ONE COLUMN, TWO PLACEMENTS. The side column is not a second list — the
-    # same component is drawn in the pane's second track on a wide window and
-    # in a band above the status line on a narrow one, so there is exactly one
-    # answer to "what is it working on" at any width.
     When I create a terminal
     And I ask the conductor to watch the terminal
     Then the conductor status should say 1 piece of work
@@ -34,13 +30,6 @@ Feature: The Conductor reads as a conversation
     And there should be no page errors
 
   Scenario: A Look stays open across the width where the two columns fold
-    # The Look is the peek at a member terminal's own screen, and what it has
-    # open is a thing a person chose. A resize is a window changing size, not a
-    # reason to close what they were reading — so the column moving between its
-    # two placements carries the open Look with it, both ways.
-    #
-    # The marker is COMPUTED by the shell so the command line's echo cannot
-    # satisfy the Look: only the terminal's own screen can.
     When I leave the conductor for the host tab
     And I create a terminal
     And I run "echo kolu-watch-$((6*7))"
@@ -59,11 +48,6 @@ Feature: The Conductor reads as a conversation
     And there should be no page errors
 
   Scenario: With nothing in progress the column says so, and no readout says zero
-    # `watching 0` and `0 pieces of work` were readouts of nothing. The count
-    # is absent, the control that would have opened an empty column is absent,
-    # and the column — which stays on screen so the conversation does not jump
-    # sideways when the first piece of work appears — says what it is in one
-    # quiet line instead.
     When I enter conductor mode
     Then the conductor status should say nothing is in progress
     And the work column should say nothing is in progress
@@ -72,9 +56,6 @@ Feature: The Conductor reads as a conversation
 
   @mobile
   Scenario: The phone keeps one column, and nothing reaches past its right edge
-    # A phone is below the two-column width by definition, so the work is
-    # behind the count — and every part of the conversation stays inside the
-    # 390px window.
     When I ask the conductor to watch the first terminal
     Then the conductor status should say 1 piece of work
     And the conductor should have no side column
@@ -85,17 +66,6 @@ Feature: The Conductor reads as a conversation
     And there should be no page errors
 
   Scenario: The help is the third track, and what you shut stays shut
-    # The conversation teaches itself: a third column at the head of the
-    # frame, open the first time you arrive. Shut it and it is a rail with
-    # one way back in — and it is still shut after a reload, because whether
-    # it is open rides the same persisted preference every other remembered
-    # panel in this app does. Where it IS a column the `⋯` menu does not
-    # offer the same words a second time; where it is not, that entry is the
-    # only way to them.
-    #
-    # At 1440px, which is over the three-column width and under an ordinary
-    # laptop's: the frame is the thing this scenario is about, not the
-    # roomiest window it could have been given.
     When I resize the viewport to 1440x900
     Then the conductor help column should be open
     And the help column should teach the conversation, docs and all
@@ -116,9 +86,6 @@ Feature: The Conductor reads as a conversation
 
   @mobile
   Scenario: The phone reaches the same words from the menu, inside its 390px
-    # No column on a phone — there is no room for a third track — so the one
-    # entry in the `⋯` menu opens the SAME words as a sheet, and the sheet
-    # stays inside the window like everything else in the conversation.
     Then the conductor should have no help column
     When I open How to use from the conductor menu
     Then the help sheet should be open

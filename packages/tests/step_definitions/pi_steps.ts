@@ -1,14 +1,3 @@
-/**
- * Pi status detection — step definitions.
- *
- * Mocks a pi session by writing its JSONL transcript under
- * `<KOLU_PI_DIR>/sessions/--<cwd>--/`, then launches the fake `pi` binary
- * (a bash copy seeded by hooks.ts, kept resident with comm="pi") so
- * `matchesAgent(state, "pi")` succeeds via the foreground-basename check.
- * Detection is directory-keyed — the scenario's mkdtemp cwd doubles as the
- * fixture's session directory, so no pid plumbing is needed.
- */
-
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -38,8 +27,6 @@ function cleanup() {
   if (piDir) {
     const sessions = path.join(piDir, "sessions");
     if (fs.existsSync(sessions)) {
-      // Wipe the session tree between scenarios so leftover directories
-      // don't poison the next match.
       fs.rmSync(sessions, { recursive: true, force: true });
     }
   }
@@ -92,11 +79,6 @@ When(
   },
 );
 
-/** Start fake pi with NO session file on disk — the production race: the TUI
- *  is already foreground (the preexec hint fired) but pi hasn't flushed its
- *  session header yet. Detection then depends entirely on the sessions-tree
- *  externalChanges watcher — the command-run reconcile ladder will already
- *  have stopped by the time the file lands. */
 When(
   "a Pi process is running with no session file yet",
   async function (this: KoluWorld) {
@@ -163,16 +145,12 @@ Then(
   },
 );
 
-/** Assert a live state change purely on the strength of the appended entries
- *  — if only a manual nudge lit the tile, production (append-only JSONL) is
- *  broken the same way. */
 Then(
   "the tile chrome should follow the Pi state change to {string} without nudging",
   async function (this: KoluWorld, expectedState: string) {
     await pollFor({
       observe: () => observePiIndicator(this),
       isDone: (o) => o.state === expectedState && o.kind === "pi",
-      // No onTick nudge — content append alone must rewake.
       onTimeout: (last, ms) =>
         new Error(
           `Expected live Pi state "${expectedState}" without nudge (kind=pi), got state="${last?.state ?? null}" kind="${last?.kind ?? null}" after ${ms}ms`,

@@ -1,18 +1,3 @@
-/**
- * Codex status detection — step definitions.
- *
- * Mocks a Codex session by writing a `threads` row into a synthetic
- * SQLite DB and a matching rollout JSONL, both under the per-worker
- * `KOLU_CODEX_DIR`. The scenario then `cd`s into the mock cwd and
- * launches the fake `codex` binary (a renamed copy of `sleep`, seeded
- * by `hooks.ts`) so that `matchesAgent(state, "codex")` succeeds via
- * the foreground-basename lookup.
- *
- * The Codex provider matches purely on `state.cwd`, so the scenario's
- * mock cwd doubles as the `threads.cwd` column — no PID fiddling
- * required, unlike the claude-code mock.
- */
-
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -34,13 +19,6 @@ const getCodexDir = () => process.env.KOLU_CODEX_DIR;
 let mockCwd: string | null = null;
 let mockFixture: CodexFixture | null = null;
 
-/** The directory the active Codex mock `cd`'d the terminal into — the cwd the
- *  threads-DB fixture is keyed on. Exposed so the sleeping-terminals journey can
- *  assert a WOKEN terminal re-spawned in this SAVED cwd (its fake `codex` binary
- *  is reached by absolute path and the bare `codex resume --last` resume form
- *  carries no title-printf, so the mock can't re-light its indicator from the
- *  resume — the woken shell's own `pwd` is the cwd proof instead). Throws if no
- *  mock is active, so a misordered step fails loudly rather than matching null. */
 export function codexMockCwd(): string {
   if (!mockCwd)
     throw new Error("No Codex mock active — call the mock step first");
@@ -71,62 +49,24 @@ async function cdTerminalInto(world: KoluWorld, cwd: string): Promise<void> {
   await waitForBufferContains(world.page, marker);
 }
 
+function staysResidentAsForegroundCommand(bin: string): string {
+  return `${bin} -c "printf '\\033]0;codex\\007'; sleep 99999 ; :"`;
+}
+
 async function startFakeAgent(world: KoluWorld, prefix = ""): Promise<void> {
-  // Long-lived foreground process — the bash copy at
-  // $KOLU_FAKE_CODEX_BIN runs as the pty's foreground while its `sleep`
-  // child holds. Invoked by absolute path, not via PATH: ~/.bashrc on
-  // some setups prepends directories that shadow our whitelisted PATH
-  // and resolve `codex` to a real install on the host.
-  //
-  // The trailing `:` is load-bearing: with a single simple command,
-  // bash's `-c` optimization execve-replaces itself with the target
-  // (comm→"sleep"), breaking the foreground-basename check. A compound
-  // command forces bash to stay resident so comm stays "codex".
-  //
-  // Emit one OSC 2 from inside the subshell body (after the kernel has
-  // moved the foreground process group to the subshell) so the title
-  // event reconcile in `agent.ts` reads a settled foregroundPid and
-  // `readForegroundBasename() === "codex"`. The trailing `:` keeps bash
-  // resident as the foreground after the body's last command — without
-  // it, bash's `-c` optimisation execve-replaces itself with the final
-  // simple command and the kernel basename flips to `sleep`, breaking
-  // the foreground-basename check.
-  //
-  // The complementary server-side bootstrap is `agent.ts`'s
-  // `commandRun` retry chain at [0, 75, 300, 1000] ms — that's the
-  // load-bearing piece for the npm-shimmed-CLI race where the kernel
-  // basename is `node` and detection rides entirely on
-  // `lastAgentCommandName`. The body OSC 2 here is the simpler
-  // foreground-basename path, which production agents would emit too.
-  //
-  // `terminal/killAll` in hooks.ts:Before tears the pty down between
-  // scenarios, which SIGKILLs the whole tree.
   const bin = process.env.KOLU_FAKE_CODEX_BIN;
   if (!bin) throw new Error("KOLU_FAKE_CODEX_BIN must be set");
-  // `prefix` is typed in front of the binary verbatim — an env-assignment
-  // prefix (`FOO=bar codex …`) the SHIM HINT must see through (it never reaches
-  // an executed line: the resume target is built from the live process).
   await world.page.keyboard.type(
-    `${prefix === "" ? "" : `${prefix} `}${bin} -c "printf '\\033]0;codex\\007'; sleep 99999 ; :"`,
+    `${prefix === "" ? "" : `${prefix} `}${staysResidentAsForegroundCommand(bin)}`,
   );
   await world.page.keyboard.press("Enter");
 }
 
 async function startShimmedAgent(world: KoluWorld): Promise<void> {
-  // Exercise the preexec-hint branch of `matchesAgent` for the ONE case it is
-  // allowed: an interpreter-shimmed CLI. The typed line is `codex` (so the
-  // shell's OSC 633;E hint names `codex`), while the foreground process is the
-  // fake `node` binary — exactly what an npm-installed codex looks like.
-  //
-  // The function body emits a second OSC 2 from inside the subshell — the
-  // reconcile triggered by the preexec OSC 2 fires BEFORE the subshell is in the
-  // foreground (shellIdle=true at that instant clears lastAgentCommandName), so
-  // a second title event with the subshell already running is what lets
-  // matchesAgent succeed via the hint.
   const node = process.env.KOLU_FAKE_NODE_BIN;
   if (!node) throw new Error("KOLU_FAKE_NODE_BIN must be set");
   await world.page.keyboard.type(
-    `codex() { ${node} -c "printf '\\033]0;codex\\007'; sleep 99999 ; :"; }`,
+    `codex() { ${staysResidentAsForegroundCommand(node)}; }`,
   );
   await world.page.keyboard.press("Enter");
   await world.page.keyboard.type("codex");
@@ -229,17 +169,12 @@ When(
   },
 );
 
-/** Mock-side WAL nudge for the codex `threads` DB. The INSERT/DELETE
- *  is wrapped in BEGIN/COMMIT so it produces exactly one WAL commit
- *  frame — without the explicit transaction, individual statements
- *  could be coalesced or split into different frames depending on
- *  SQLite's autocommit/journal state. The transient `__kolu_nudge__`
- *  row is namespaced so production code (which never inserts ids
- *  starting with `__kolu_`) can't mistake it for a real session row
- *  if a concurrent reader sees it inside the WAL window. */
-const CODEX_NUDGE_SQL = `BEGIN; INSERT INTO threads (id, rollout_path, cwd, source, archived, updated_at_ms) VALUES ('__kolu_nudge__', '', '', 'cli', 0, 0); DELETE FROM threads WHERE id = '__kolu_nudge__'; COMMIT;`;
+const KOLU_NAMESPACED_NUDGE_THREAD_ID = "__kolu_nudge__";
 
-const nudgeCodex = () => nudgeWal(mockFixture?.dbPath, CODEX_NUDGE_SQL);
+const CODEX_ONE_WAL_COMMIT_NUDGE_SQL = `BEGIN; INSERT INTO threads (id, rollout_path, cwd, source, archived, updated_at_ms) VALUES ('${KOLU_NAMESPACED_NUDGE_THREAD_ID}', '', '', 'cli', 0, 0); DELETE FROM threads WHERE id = '${KOLU_NAMESPACED_NUDGE_THREAD_ID}'; COMMIT;`;
+
+const nudgeCodex = () =>
+  nudgeWal(mockFixture?.dbPath, CODEX_ONE_WAL_COMMIT_NUDGE_SQL);
 
 Then(
   "the tile chrome should show a Codex indicator with state {string}",
@@ -247,9 +182,6 @@ Then(
     await pollFor({
       observe: () =>
         this.page.evaluate(() => {
-          // Prefer a focused split's indicator (sub-terminal agents live there),
-          // then the main tile titlebar. Without the sub-terminal arm a split
-          // agent is invisible to this step even when detection is healthy.
           const el = document.querySelector(
             '[data-sub-terminal] [data-testid="agent-indicator"], [data-testid="canvas-tile"] [data-testid="agent-indicator"], [data-testid="mobile-tile-titlebar"] [data-testid="agent-indicator"]',
           );

@@ -1,6 +1,5 @@
 import type { Page } from "playwright";
 
-/** Poll until a condition is met, returning the last value on timeout. */
 export async function pollUntil<T>(
   _page: Page,
   fn: () => Promise<T>,
@@ -15,17 +14,6 @@ export async function pollUntil<T>(
   return val;
 }
 
-/** Deadline-based polling loop with a side-effect tick.
- *
- *  Resolves successfully as soon as `isDone(observe())` returns true.
- *  Throws (via `onTimeout`) if the deadline expires without success —
- *  the error message includes the actual elapsed time and the last
- *  observation, so `POLL_TIMEOUT + (one tick cost)` doesn't masquerade
- *  as exactly `POLL_TIMEOUT`.
- *
- *  `onTick` runs before each `observe()` call. Use it for WAL nudges
- *  (`nudgeWal`), self-heal re-POSTs, or `fs.utimesSync` re-touches —
- *  any side-effect that drives detection retries while the loop polls. */
 export async function pollFor<T>(opts: {
   observe: () => Promise<T>;
   isDone: (v: T) => boolean;

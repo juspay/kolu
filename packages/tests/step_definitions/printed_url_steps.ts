@@ -1,11 +1,3 @@
-/**
- * Steps for PRT4 — printed loopback URLs join the scanner.
- *
- * Coordinate-click the xterm web link (same public-API geometry as file-ref
- * clicks). The footnote permits driving the activate path directly if that
- * proves flaky — take that only with a report.
- */
-
 import * as assert from "node:assert";
 import { After, Then, When } from "@cucumber/cucumber";
 import {
@@ -16,7 +8,6 @@ import {
 import { pollFor } from "../support/poll.ts";
 import { type KoluWorld, MOD_KEY, POLL_TIMEOUT } from "../support/world.ts";
 
-/** Two 5 s scan ticks plus room for the surface round trip. */
 const PORT_SCAN_TIMEOUT = 25_000;
 const FORWARD_TIMEOUT = 15_000;
 const LISTENER_START_TIMEOUT = 20_000;
@@ -24,10 +15,6 @@ const LISTENER_START_TIMEOUT = 20_000;
 const LISTENING = "kolu-e2e-listening";
 const LISTENING_EXPR = '"kolu-e2e"+"-listening"';
 
-/** Path-aware listener: body is `ok:<url>` so the door can prove the path rode
- *  through. Marker is built at runtime so the shell echo cannot satisfy it.
- *  `printPid` appends ` pid=<n>` to the marker — for a detached listener, whose
- *  pid is the only handle left to stop it with. */
 function pathAwareListenerCommand(
   port: number,
   host: string,
@@ -54,10 +41,6 @@ async function waitForListening(world: KoluWorld, port: number): Promise<void> {
   }
 }
 
-/** Pids of detached listeners this worker started. They left the terminal's
- *  process tree on purpose, so closing the terminal does not take them with it:
- *  each scenario that starts one kills it here, or a retry of the same scenario
- *  would meet its own leftover as an `EADDRINUSE`. */
 const detachedPids: number[] = [];
 
 After(() => {
@@ -65,14 +48,11 @@ After(() => {
     try {
       process.kill(pid, "SIGKILL");
     } catch (err) {
-      // Already gone is the one expected outcome; anything else is loud.
       if ((err as NodeJS.ErrnoException).code !== "ESRCH") throw err;
     }
   }
 });
 
-/** How long an auto forward must outlive its first reap pass to prove the reaper
- *  saw its listener: two reap intervals (5 s each) plus a scan's slack. */
 const REAP_SURVIVAL_MS = 12_000;
 
 type ClickPoint = { x: number; y: number } | null;
@@ -109,7 +89,6 @@ async function findWebLinkPoint(
         const rect = screen.getBoundingClientRect();
         const cellW = rect.width / term.cols;
         const cellH = rect.height / term.rows;
-        // Aim near the middle of the URL span so the link hit-test lands.
         const mid = col + Math.min(target.length, 12) / 2;
         return {
           x: rect.left + mid * cellW,
@@ -173,8 +152,6 @@ When(
 );
 
 When("I print the URL {string}", async function (this: KoluWorld, url: string) {
-  // Echo only — the shell prints the line, WebLinksAddon linkifies it.
-  // Use printf so the URL is not re-expanded by the shell.
   await this.terminalRun(`printf '%s\\n' '${url}'`);
   await waitForBufferContains(this.page, url);
 });
@@ -199,10 +176,6 @@ When(
     const popup = this.context.waitForEvent("page", {
       timeout: FORWARD_TIMEOUT,
     });
-    // MOD_KEY (Cmd / Ctrl), and the shared constant rather than an inlined copy
-    // of the rule: this is the BROWSER's open-in-new-tab convention, which
-    // `handleWebLink` reads as `metaKey || ctrlKey` — not one of kolu's own
-    // chords, so it does not follow `createTerminal` onto Super.
     await this.page.keyboard.down(MOD_KEY);
     await this.page.mouse.click(point.x, point.y);
     await this.page.keyboard.up(MOD_KEY);
@@ -257,7 +230,6 @@ Then(
 Then(
   "the printed-url card should upgrade to join state {string}",
   async function (this: KoluWorld, state: string) {
-    // Same assertion as open-with-state, sized for a scan tick after bind.
     await pollFor({
       observe: async () => {
         return this.page.evaluate(() => {
@@ -341,7 +313,6 @@ Then(
   async function (this: KoluWorld, expected: string) {
     const popup = this.externalPopup;
     assert.ok(popup, "no raw popup was captured");
-    // URL may normalize trailing slash; compare origin+path loosely.
     await pollFor({
       observe: () => popup.url(),
       isDone: (u) => {
@@ -366,8 +337,6 @@ Then(
 Then(
   "the printed-url card should mark the server detached",
   async function (this: KoluWorld) {
-    // Detached means no terminal's process subtree holds the listener — the card
-    // says so rather than naming a terminal, and shows the owner's command line.
     const owner = this.page.locator('[data-testid="printed-url-owner"]');
     await owner.waitFor({ state: "visible", timeout: PORT_SCAN_TIMEOUT });
     await this.page
@@ -384,8 +353,6 @@ Then(
 Then(
   "the inspector should show port {int} as a detached server of this terminal",
   async function (this: KoluWorld, port: number) {
-    // In the FROM-THIS-TERMINAL group, though no subtree of this terminal holds
-    // it: the terminal printed its URL and the host's scan holds the listener.
     const row = await pollFor({
       observe: () =>
         this.page.evaluate((p) => {
@@ -414,10 +381,6 @@ Then(
 Then(
   "the forward for port {int} should survive the reaper",
   async function (this: KoluWorld, port: number) {
-    // The reaper closes an `auto` door once the host's scan no longer holds its
-    // listener. When its evidence was only the terminals' own ports, a door onto
-    // a detached server died within one reap interval. Held continuously across
-    // two intervals, the door proves the reaper sees the host.
     const began = Date.now();
     while (Date.now() - began < REAP_SURVIVAL_MS) {
       const forwarded = await this.page.evaluate(
