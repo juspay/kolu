@@ -25,6 +25,7 @@
  */
 
 import type { Leg } from "./leg.ts";
+import type { Usage } from "./wire.ts";
 
 export * from "./leg.ts";
 
@@ -217,6 +218,10 @@ export interface Registering {
   /** Which channel this engine's standing prompt rides —
    *  {@link PromptChannel}. */
   readonly prompt: PromptChannel;
+  /** Whether this engine will compact its conversation before it reads the
+   *  next message, given the last usage it reported. Absent for an engine
+   *  whose compaction kolu does not set. */
+  readonly compacts?: (usage: Usage) => boolean;
 }
 
 /**
