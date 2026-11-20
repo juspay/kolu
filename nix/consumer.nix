@@ -25,26 +25,28 @@ let
     let stripped = pkgs.lib.removePrefix "@kolu/" name;
     in if stripped == name then name else "kolu-${stripped}";
 
+  requirePinnedSource = name: member:
+    if builtins.hasAttr name pinnedSources then
+      (builtins.getAttr name pinnedSources).src
+    else
+      throw ''
+        kolu/nix/consumer.nix: '${name}' is a PINNED member — gitignored in kolu and
+        absent from the source archive you fetched, so this entry point cannot copy it
+        out of `src`. Graft it from `${member.pin.name}` at ${member.pin.revision}
+        (subdirectory `${member.pin.subdir}`) and pass it in:
+
+          pinnedSources."${name}" = {
+            src = yourGraftedSrc;
+            revision = (import ./npins).${member.pin.name}.revision;
+          };
+
+        The revision is checked against kolu's, so the pin you add and the pin kolu
+        was built against cannot drift apart unnoticed.
+      '';
+
   sourceFor = name:
     let member = memberOf name; in
-    if member ? pin then
-      (if builtins.hasAttr name pinnedSources then
-        (builtins.getAttr name pinnedSources).src
-      else
-        throw ''
-          kolu/nix/consumer.nix: '${name}' is a PINNED member — gitignored in kolu and
-          absent from the source archive you fetched, so this entry point cannot copy it
-          out of `src`. Graft it from `${member.pin.name}` at ${member.pin.revision}
-          (subdirectory `${member.pin.subdir}`) and pass it in:
-
-            pinnedSources."${name}" = {
-              src = yourGraftedSrc;
-              revision = (import ./npins).${member.pin.name}.revision;
-            };
-
-          The revision is checked against kolu's, so the pin you add and the pin kolu
-          was built against cannot drift apart unnoticed.
-        '')
+    if member ? pin then requirePinnedSource name member
     else "${src}/${member.dir}";
 
   pinnedInClosure = builtins.filter (name: (memberOf name) ? pin) names;
@@ -79,7 +81,7 @@ let
       else [ ])
     (builtins.attrNames pinnedSources);
 
-  _pinnedOk =
+  assertPinnedRevisionsMatch =
     if pinnedProblems == [ ] then true
     else
       throw ''
@@ -146,7 +148,7 @@ let
 in
 assert _seedsOk;
 assert _vendoredOk;
-assert _pinnedOk;
+assert assertPinnedRevisionsMatch;
 assert _catalogOk; {
   inherit names;
 

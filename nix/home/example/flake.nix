@@ -89,12 +89,9 @@
             # Use machinectl shell to get a proper user session with
             # DBUS_SESSION_BUS_ADDRESS and XDG_RUNTIME_DIR set.
             # Plain `su` doesn't set these, so systemctl --user fails.
-            # `</dev/null` (+ bounded `timeout`) is load-bearing on EVERY
-            # machinectl call: the driver's stdin pipe never EOFs, so without
-            # the redirect a session can hang even after the inner command
-            # exits. machinectl also masks the inner exit status, so this is a
-            # liveness probe only — the real service assertion is the HTTP
-            # listener poll below.
+            # machinectl masks the inner exit status, so this is a liveness
+            # probe only — the real service assertion is the HTTP listener
+            # poll below.
             machine.succeed(
                 "timeout 30 machinectl -q shell alice@.host /run/current-system/sw/bin/systemctl --user is-active kolu.service </dev/null"
             )

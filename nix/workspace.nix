@@ -26,8 +26,6 @@ let
     in
     if scoped == null then member else "${builtins.elemAt scoped 0}/${builtins.elemAt scoped 1}";
 
-  # INVARIANT: every workspace package with a `typecheck` script must be here.
-  # packages/tests is intentionally absent: it has none (and no `name` either).
   rawMembers = {
     "@kolu/acp" = ../packages/acp;
     "@kolu/acp-harness" = ../packages/acp-harness;
@@ -155,7 +153,7 @@ let
       graftedMembers
   );
 
-  depsFileset = lib.fileset.unions ([
+  manifestOnlyFileset = lib.fileset.unions ([
     ../package.json
     ../pnpm-workspace.yaml
     ../pnpm-lock.yaml
@@ -164,7 +162,7 @@ let
     treeMembers);
   depsTreeSrc = lib.fileset.toSource {
     root = ../.;
-    fileset = depsFileset;
+    fileset = manifestOnlyFileset;
   };
   depsSrc = pkgs.runCommand "kolu-deps-source" { } (
     ''

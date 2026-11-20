@@ -26,7 +26,7 @@ let
 
   envAttrs =
     {
-      KOLU_BAKED_AGENT_CLOSURES = "${agentClosures}";
+      KOLU_AGENT_CLOSURE_GC_ROOT = "${agentClosures}";
     }
     // lib.optionalAttrs (cfg.diagnostics.dir != null) {
       KOLU_DIAG_DIR = cfg.diagnostics.dir;

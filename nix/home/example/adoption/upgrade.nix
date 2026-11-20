@@ -1,7 +1,7 @@
 { pkgs, port, kavalTui, kavalBin, lib, ... }:
 let
   inherit (lib)
-    jq rpc survivalVmNode runAsAlice assertResult systemctlUser waitForListener;
+    jq rpc mapCall survivalVmNode runAsAlice assertResult systemctlUser waitForListener;
   pkgsLib = pkgs.lib;
 
   seedResultFile = "/tmp/upgrade-seed-result";
@@ -158,7 +158,7 @@ let
          && [ "$parklogs" -ge 1 ] && [ "$saved_n" -ge 1 ]; then
         ${rpc {
           tag = "surface/padi/session/restore";
-          payload = ''{"mapKey":"local","input":{}}'';
+          payload = mapCall { mapKey = "local"; input = { }; };
           timeoutMs = 60000;
         }} >/dev/null || { sleep 1; continue; }
         DIGEST_SOCK=$(ls -d "$XDG_RUNTIME_DIR"/kaval-*/pty-host.sock 2>/dev/null | grep -v "/kaval-${port}/" | head -1)
@@ -186,7 +186,7 @@ let
 
   recycleKaval = rpc {
     tag = "surface/padi/lifecycle/recycleKaval";
-    payload = ''{"mapKey":"local"}'';
+    payload = mapCall { mapKey = "local"; };
     timeoutMs = 90000;
     python = true;
   };

@@ -37,7 +37,7 @@ let
     source").
 
     The carrier is `services.kolu.agentPackages` in nix/home/module.nix,
-    anchored on the service definition as `KOLU_BAKED_AGENT_CLOSURES`. Either
+    anchored on the service definition as `KOLU_AGENT_CLOSURE_GC_ROOT`. Either
     that reference was removed, or the flake wrapper's default no longer maps
     over nix/agent-packages.json's `expose`.
   '';

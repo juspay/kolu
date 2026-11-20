@@ -43,10 +43,14 @@ let
 
   daemonRestart = rpc { tag = "daemon/restart"; };
 
+  mapCall = { mapKey, input ? null }:
+    builtins.toJSON
+      ({ inherit mapKey; } // pkgs.lib.optionalAttrs (input != null) { inherit input; });
+
   openTerminal = ''
     id=""; rpcerr="(no attempt made)"
     for _ in $(seq 1 30); do
-      out=$(${rpc { tag = "surface/padi/lifecycle/create"; payload = ''{"mapKey":"local","input":{"placement":{"kind":"toplevel"}}}''; }} 2>&1) \
+      out=$(${rpc { tag = "surface/padi/lifecycle/create"; payload = mapCall { mapKey = "local"; input = { placement = { kind = "toplevel"; }; }; }; }} 2>&1) \
         && id=$(printf '%s' "$out" | ${jq} -r '.id') \
         && [ -n "$id" ] && [ "$id" != null ] && break
       rpcerr=$out; id=""
@@ -56,9 +60,6 @@ let
       || fail "lifecycle.create never landed in 30 tries; last error: $(printf '%s' "$rpcerr" | tr '\n' ' ' | tail -c 400)"
   '';
 
-  # The default KillMode (control-group) is left as-is on purpose —
-  # it is exactly the hazard `systemd-run` escapes; do not add one.
-  #
   # MEMORY IS PART OF THE FIXTURE, not a tuning knob: nixpkgs' VM default is
   # 1024 MB and these guests boot with `panic_on_oom`, so a guest that runs out
   # does not fail an assertion — the kernel panics, the driver's shell pipe
@@ -69,10 +70,11 @@ let
       home-manager.nixosModules.home-manager
       nixosModule
       { virtualisation.memorySize = pkgs.lib.mkDefault 4096; }
+      nodeExtra
     ];
     services.getty.autologinUser = "alice";
     users.users.alice.linger = true;
-  } // nodeExtra;
+  };
 
   # IMPORTANT — `machinectl shell` does NOT propagate the run command's exit
   # status: it returns 0 once the session opens, whatever the command did. So the
@@ -81,7 +83,6 @@ let
   # ROOT (whose exit status the driver DOES see). Without this, every assertion
   # would be silently ignored and the test could never fail.
   #
-  # `runAsAlice script` runs `script` (a path to a writeShellScript) as alice.
   # `</dev/null` is load-bearing — machinectl forwards stdin to the session PTY and
   # the driver's pipe never EOFs, so without it a hung attempt hangs the whole
   # lane; the in-guest `timeout 180` is the belt to that suspender.
@@ -94,13 +95,15 @@ let
   systemctlUser = args:
     ''machine.succeed("machinectl -q shell alice@.host /run/current-system/sw/bin/systemctl --user ${args} </dev/null")'';
 
+  listenerBudgetSeconds = 360;
+
   # Poll until kolu's HTTP listener binds. systemd reports kolu "active" before
   # the port is open.
   waitForListener = ''
     try:
         machine.wait_until_succeeds(
             "curl --fail --silent http://127.0.0.1:${port}/ > /dev/null",
-            timeout=360,
+            timeout=${toString listenerBudgetSeconds},
         )
     except Exception:
         machine.log("kolu's HTTP listener never bound — dumping alice's user journal")
@@ -121,7 +124,7 @@ let
     ${waitForListener}'';
 in
 {
-  inherit jq gateHelpers configFile openTerminal daemonRestart rpc;
+  inherit jq gateHelpers configFile openTerminal daemonRestart rpc mapCall;
 
   mkAdoptionTest =
     { name

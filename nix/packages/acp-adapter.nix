@@ -4,12 +4,12 @@ let
 
   adapter = import ../../packages/acp-claude/adapter;
 
-  claude = "${agent-distro}/bin/claude";
+  claudeLauncher = "${agent-distro}/bin/claude";
 in
 npmAdapter (adapter // {
   name = "kolu-acp-claude";
   env = [
-    ''--set CLAUDE_CODE_EXECUTABLE "${claude}"''
+    ''--set CLAUDE_CODE_EXECUTABLE "${claudeLauncher}"''
     "--set DISABLE_AUTOUPDATER 1"
     "--set DISABLE_INSTALLATION_CHECKS 1"
     "--set USE_BUILTIN_RIPGREP 0"

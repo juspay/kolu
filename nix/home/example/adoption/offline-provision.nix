@@ -10,11 +10,6 @@ let
   target = "root@agenthost";
   mapKey = "remote:${target}";
 
-  # The two narration lines the incident is MADE OF, verbatim from
-  # packages/surface-remote/src/nixCopy.ts. Spelled once, asserted absent below.
-  # If either is ever reworded this test must be reworded with it — a silently
-  # renamed incident string would make the absence assertion pass by matching
-  # nothing.
   incidentLines = [
     "no declared cache had the agent closure — realising from source instead"
     "no local copy of the agent to ship — the host will realise it from source"
@@ -46,14 +41,15 @@ pkgs.testers.nixosTest {
   name = "kolu-offline-provision";
 
   nodes = {
-    machine = lib.survivalVmNode (offlineNix // {
+    machine = lib.survivalVmNode {
+      imports = [ offlineNix ];
       virtualisation = {
         memorySize = 6144;
         cores = 4;
         writableStore = true;
         additionalPaths = evalInputs;
       };
-    });
+    };
 
     agenthost = { ... }: {
       imports = [ offlineNix ];
@@ -142,7 +138,10 @@ pkgs.testers.nixosTest {
     machine.wait_until_succeeds(
         "${lib.rpc {
           tag = "surface/padi/lifecycle/create";
-          payload = ''{"mapKey":"${mapKey}","input":{"placement":{"kind":"toplevel"}}}'';
+          payload = lib.mapCall {
+            inherit mapKey;
+            input = { placement = { kind = "toplevel"; }; };
+          };
           python = true;
         }}",
         timeout=300,
