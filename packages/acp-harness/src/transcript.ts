@@ -1,58 +1,3 @@
-/**
- * The conversation, as rows — ONE class for both products that draw one.
- *
- * A product says what its rows look like (kolu's conductor and olai's chat
- * plugin each spread `@kolu/acp/wire`'s row fields into their own schema and add
- * what is theirs) and hands the union to this class. What the class owns is the
- * part that is nobody's product: a keyed, ordered set; one open paragraph at a
- * time; the marks that say a message is waiting, refused or unanswered; and what
- * a turn leaves behind when it ends. Everything product-shaped rides in an
- * `extra` object the caller passes, which this class copies onto the row and
- * never reads.
- *
- * THREE of the rules here are about an agent repeating itself, and they are here
- * rather than in the protocol layer because they are about what a READER can
- * follow rather than about what the wire may carry. A message's chunks
- * accumulate whoever said them. A call's NAME is picked at the first frame that
- * carries a title and no later one moves it, because a title is a display string
- * an agent may rewrite mid-call. And a frame that says nothing the row does not
- * already say changes nothing at all — no upsert, and no mark taken back off.
- *
- * It is a keyed, ordered set rather than a list, because that is what the wire
- * member is: a collection served snapshot-then-deltas, so a row that changes is
- * one upsert on its own key and a late-joining tab gets the whole thing in one
- * frame. The `seq` on each row keeps the ORDER independent of the delivery.
- *
- * ONE thing is open at a time, and {@link Transcript.say}'s `#open` is the whole
- * of that fact: a row's `streaming` flag is DERIVED from it on every write
- * rather than set beside it. The two kept in step by hand is the bug this shape
- * makes unrepresentable — an agent that spoke, then called a tool, left a
- * paragraph marked as still growing until the end of the turn.
- *
- * WHAT A TURN LEAVES BEHIND is recorded the same way, for a sharper version of
- * the same reason: a call the wire still calls running when its turn ends will
- * never be reported on, and `stranded` is derived off a set this class keeps
- * rather than written onto the row — a claim that gets LOUDER the longer it is
- * wrong, because the face it feeds is a clock.
- *
- * Everything here is synchronous and in memory. The agent's own session is the
- * persistence; a second copy would be a second thing to be wrong.
- *
- * ## The two products' differences, as NAMED OPTIONS
- *
- * Both products' suites run against this one class, so where they genuinely
- * differ the difference is a value the caller passes rather than a branch on
- * whose row it is ({@link TranscriptOptions}):
- *
- *   - the first `seq` — a resumed conversation's rows are somebody else's, and
- *     nothing minted here may sort above them (`from`);
- *   - the caller's last restored row is already a break (`endsWithDivider`);
- *   - the wipe keeps the counters running (kolu writes `seq` into a store;
- *     olai clears a panel) — `countersSurviveClear`;
- *   - which kinds a turn can be the delivery of (kolu's own wake rows are one;
- *     olai has only `user` rows) — `deliverable`.
- */
-
 import type {
   Armed,
   AskField,
@@ -111,10 +56,6 @@ export const movesRows = <Row>(change: Change<Row>): boolean =>
 
 const EMPTY: Change<never> = { upserts: [], removes: [], appends: [] };
 
-/** Two changes as one. Closing the open row and writing the next one are two
- *  upserts a subscriber should see in the same frame — and a caller that
- *  composes two of its own (a plan row removed beside the paragraph it closed)
- *  needs the same rule rather than a second three-field merge of its own. */
 export const plus = <Row>(
   first: Change<Row>,
   second: Change<Row>,
@@ -128,9 +69,6 @@ type DistributiveOmit<T, K extends PropertyKey> = T extends unknown
   ? Omit<T, K>
   : never;
 
-/** The fields {@link Transcript} DERIVES, named once — the list is spelled in
- *  several casts and a public type below, and several spellings of one list is
- *  one of them being missed the day a sixth is derived. */
 type Derived = "id" | "seq" | "since" | "streaming" | "stranded" | "resumed";
 
 /**
@@ -153,8 +91,6 @@ export type RowPatch<Row extends AnyRow, K extends Row["kind"]> = Partial<
   Extract<RowContent<Row>, { kind: K }>
 >;
 
-/** A product's row without the fields this class derives — the argument every
- *  door below takes, so a caller's patch cannot set them. */
 const contentOf = <Row extends AnyRow>(row: Row): RowContent<Row> => {
   const {
     id: _id,
@@ -169,9 +105,6 @@ const contentOf = <Row extends AnyRow>(row: Row): RowContent<Row> => {
   return content as unknown as RowContent<Row>;
 };
 
-/** The writer's derived fields, applied onto already-kind-correct content — a
- *  function rather than a spread in `#write`, so `streaming` cannot land on a
- *  tool row and `stranded` cannot land on a user row. */
 const minted = <Row extends AnyRow>(
   content: RowContent<Row>,
   derived: {
@@ -200,12 +133,6 @@ const minted = <Row extends AnyRow>(
   return { ...content, ...derived, ...marks_ } as Row;
 };
 
-/** A row's text, read off the generic row.
- *
- *  The one field EVERY drawn row has and the type cannot say so: a product's
- *  union includes rows with no `text` of their own (kolu's `plan` carries steps,
- *  olai's width rows carry none), so this class reads it through one named
- *  accessor rather than casting at each site. */
 const textOf = (row: unknown): string =>
   (row as { readonly text?: string }).text ?? "";
 
@@ -263,15 +190,6 @@ export const isTaskOut = (row: {
 }): boolean =>
   row.armed !== undefined && row.armed.ended === null && isStillRunning(row);
 
-/**
- * WHAT A DEATH SAYS when the harness sent no sentence with it.
- *
- * The harness's own summary is what a reader is owed — it names the task and
- * carries a background shell's exit code — and this is the honest thing to say
- * when the ending arrived without one. Never a word of ours where there is one
- * to use: `stopped` and `failed` are the harness's own, and a monitor somebody
- * stopped did not fail.
- */
 const endedSaid = (what: string, name: string, ended: string): string =>
   `the ${what} “${name}” ended (${ended})`;
 
@@ -285,22 +203,11 @@ export const STRANDED = "never reported back";
  *  row it names as the agent that made it are the same kind of key. */
 export const toolKey = (id: string): string => `tool:${id}`;
 
-/** What a spawned call was SENT TO DO, for the sentence about its death. The
- *  adapter titles a subagent call with the TOOL's name, so a fan-out that fell
- *  over reported four identical lines reading *the agent "Task" ended* — a
- *  bottom row that tells a reader something went wrong and refuses to say which
- *  of the four it was. */
 const sentToDo = (spawned: Spawned, title: string): string =>
   spawned.said ?? title;
 
-/** A task as a NEW outing finds it: everything said about it, except how the
- *  LAST outing ended and what it reported — because this outing has not ended,
- *  and has not reported, and those two fields are read as live facts. */
 const withoutOuting = (armed: Armed): Armed => {
   const { ended: _ended, report: _report, ...before } = armed;
-  // The two fields dropped ARE what a new outing has not done yet, so the value
-  // this answers is an `Armed` whose ending and report are "not yet" — the shape
-  // every reader of `armed` already understands.
   return { ...before, ended: null, report: null };
 };
 
@@ -394,47 +301,13 @@ export class Transcript<Row extends AnyRow> {
   #rows = new Map<string, Row>();
   #seq = 0;
   #minted = 0;
-  /** The row currently being streamed into — the ONE place "still growing" is
-   *  recorded. Chunks accumulate into it rather than each becoming a row: what a
-   *  reader wants is one paragraph growing, not forty. */
   #open: string | null = null;
-  /** The calls a TURN left behind, by key — set beside the rows rather than
-   *  written onto them, because half a dozen paths re-publish a row by spreading
-   *  it as it stands and a hand-set field would ride straight past the decision
-   *  that is supposed to make it. */
   #stranded = new Set<string>();
-  /** The calls whose NAME has been picked, so a later frame's title cannot move
-   *  it. What is kept here is only WHETHER the question has been answered; the
-   *  answer itself stays in `text` where a reader of the row can see it. */
   #named = new Set<string>();
-  /** Each call's arguments as last reported, by key — kept beside the rows
-   *  rather than on them: the adapter sends the input on the arming frame and
-   *  the answer on the settling one, and a failed call's disclosure needs the
-   *  first after the second has replaced it. */
   #asked = new Map<string, string>();
-  /** Which row said something DIED, by the key of the row it happened to — so
-   *  the sentence that arrives a beat after an ending REFINES that notice rather
-   *  than minting a second one. BY THE ROW rather than by the task's own id,
-   *  because a call that armed a task and a call that sent an agent out are two
-   *  ways of ending, and keyed by task id the two guards would be in two key
-   *  spaces. */
   #ended = new Map<string, string>();
-  /** What it would take to send a REFUSED row again, by that row's key. Here,
-   *  beside the rows, because it is half of one fact and the other half is a
-   *  field on the row: a row offering a retry with no prompt behind it draws a
-   *  button that refuses, and a prompt with no row is a message nobody can see.
-   *  ONLY refused rows are in here — a row whose delivery went `unanswered` is
-   *  one the agent may already have, so there is no honest retry to offer. */
   #undelivered = new Map<string, string>();
-  /** The product keys the LAST refusal wrote on each row — kolu's `signIn`,
-   *  olai's `auth` — so the next mark can take them off again. Here rather than
-   *  on the row for `stranded`'s reason: a key that is present is a claim, and
-   *  the claim has to be withdrawn by the line that knows it stopped being
-   *  true ({@link #mark}). */
   #refusalMarks = new Map<string, ReadonlyArray<string>>();
-  /** The calls that have been round MORE THAN ONCE, and when the current outing
-   *  began — the one place a resume is written down, with `resumed` derived from
-   *  it on every write, exactly as `stranded` and `streaming` are. */
   #outings = new Map<string, string>();
   readonly #now: () => number;
   readonly #deliverable: (row: Row) => boolean;
@@ -444,7 +317,6 @@ export class Transcript<Row extends AnyRow> {
   readonly #retitle:
     | ((row: Row, move: ToolMove<Row>) => string | undefined)
     | undefined;
-  /** Whether the row the CALLER holds last for this conversation is a break. */
   #endsWithDivider: boolean;
 
   constructor(options: TranscriptOptions<Row> = {}) {
@@ -476,6 +348,19 @@ export class Transcript<Row extends AnyRow> {
     return last === undefined
       ? this.#endsWithDivider
       : last.kind === this.#breakKind;
+  }
+
+  writeBreak(text: string): {
+    readonly key: string | null;
+    readonly change: Change<Row>;
+  } {
+    if (this.#breakKind === undefined || this.endsWithBreak()) {
+      return { key: null, change: EMPTY as Change<Row> };
+    }
+    return this.write({
+      kind: this.#breakKind,
+      text,
+    } as unknown as RowContent<Row>);
   }
 
   rows(): ReadonlyArray<Row> {
@@ -524,9 +409,6 @@ export class Transcript<Row extends AnyRow> {
     this.#open = null;
     this.#endsWithDivider = true;
     if (!this.#countersSurviveClear) {
-      // ... back to the origin the caller asked for: the first row of a fresh
-      // conversation is 0 for a product that counts from nothing, and 1 for one
-      // whose `from` is somebody else's highest number.
       this.#seq = this.#firstSeq === "zero" ? -1 : 0;
       this.#minted = 0;
     }
@@ -667,9 +549,6 @@ export class Transcript<Row extends AnyRow> {
     if (current === undefined || !this.#deliverable(current)) {
       return EMPTY as Change<Row>;
     }
-    // ALREADY SO IS NOT NEWS: {@link taken} lands mostly on rows that were never
-    // waiting, and a frame per turn saying nothing is a conversation
-    // republishing itself.
     if (waiting === ((current as { queued?: true }).queued === true)) {
       return EMPTY as Change<Row>;
     }
@@ -698,9 +577,6 @@ export class Transcript<Row extends AnyRow> {
    */
   refused(key: string, extra: Partial<Row> = {}, retry?: string): Change<Row> {
     const change = this.#mark(key, "refused", extra);
-    // THE PROMPT IS KEPT ONLY IF THE MARK LANDED: a row a replaced session took
-    // away has nothing to offer a retry for, and keeping its words would leave
-    // a button on a row nobody can see.
     if (retry !== undefined && says(change)) this.#undelivered.set(key, retry);
     return change;
   }
@@ -710,8 +586,6 @@ export class Transcript<Row extends AnyRow> {
    *  already, so sending it again is a duplicate offered to somebody with no way
    *  to tell. */
   unanswered(key: string): Change<Row> {
-    // A prompt kept from an EARLIER failure of the same row goes with it: the
-    // offer lives in that map.
     this.#undelivered.delete(key);
     return this.#mark(key, "unanswered");
   }
@@ -729,25 +603,6 @@ export class Transcript<Row extends AnyRow> {
     return this.#undelivered.get(key) ?? null;
   }
 
-  /**
-   * THE ONE LINE THAT DECIDES A ROW'S DELIVERY MARK, and therefore the one line
-   * that knows what the PREVIOUS decision wrote.
-   *
-   * `delivery` comes off along with the derived fields: a spread of the old row
-   * would carry the previous answer past this decision. THE PRODUCT'S MARK GOES
-   * WITH IT — kolu's `signIn`, olai's `auth` — and that is what
-   * {@link #refusalMarks} is for: the keys the last refusal wrote are taken off
-   * again on every later mark, so a message that was refused for want of a
-   * signature and then WENT stops advertising the door it no longer needs. A
-   * mark that outlives its failure is the row telling a person to sign in about
-   * a message the agent already has.
-   *
-   * NOTHING IS MARKED ON A ROW THAT CANNOT CARRY A MARK: a refusal is about a
-   * message a turn is the delivery of ({@link TranscriptOptions.deliverable}),
-   * and writing `delivery` onto a notice — or kolu's `signIn` onto a wake, whose
-   * schema has no such field — is a field a product's row type does not declare,
-   * which its encoder then drops or refuses.
-   */
   #mark(
     key: string,
     delivery: "refused" | "unanswered" | null,
@@ -762,7 +617,6 @@ export class Transcript<Row extends AnyRow> {
     ) as unknown as {
       delivery?: string;
     } & Record<string, unknown>;
-    // ... and every key the LAST refusal wrote, whichever way this mark goes.
     const product: Record<string, unknown> = { ...content };
     for (const name of this.#refusalMarks.get(key) ?? []) delete product[name];
     for (const name of Object.keys(extra)) delete product[name];
@@ -801,21 +655,10 @@ export class Transcript<Row extends AnyRow> {
     return this.#grow("user", text);
   }
 
-  /**
-   * One chunk into the row already open, or into a new one.
-   *
-   * ONE function for the two kinds that arrive in pieces, and the KIND is what
-   * decides whether the open row is the right one to grow: a tool frame closes
-   * whatever was open, but nothing closes a paragraph between a person's words
-   * and the agent's answer to them, so an agent chunk appended to an open user
-   * row would put the answer inside the question.
-   */
   #grow(kind: "agent" | "user", text: string): Change<Row> {
     const open = this.#open;
     const current = open === null ? undefined : this.#rows.get(open);
     if (open !== null && current !== undefined && current.kind === kind) {
-      // THE PIECE GOES OUT; THE WHOLE IS KEPT. The row here grows by the chunk
-      // and what is REPORTED is the chunk and where it belongs.
       const at = textOf(current).length;
       this.#write(open, {
         ...contentOf(current),
@@ -823,8 +666,6 @@ export class Transcript<Row extends AnyRow> {
       } as unknown as RowContent<Row>);
       return { ...(EMPTY as Change<Row>), appends: [{ of: open, at, text }] };
     }
-    // A row that is not there yet is WRITTEN, whole and with its first chunk in
-    // it: there is nothing on the far end to append to.
     const closed = this.#close();
     this.#open = this.#next(kind);
     return plus(
@@ -874,21 +715,6 @@ export class Transcript<Row extends AnyRow> {
     return this.#close();
   }
 
-  /**
-   * Mark every call this turn is leaving behind.
-   *
-   * Its STATUS is left exactly as it came — `pending` is the agent's own word
-   * and the row is the record of what it said — and what is added is this end's
-   * own observation about its own conversation, which is the only part of this
-   * anybody here is entitled to.
-   *
-   * ... AND AN AGENT LEFT BEHIND IS A ROW AT THE BOTTOM, which a task left
-   * behind is not: a subagent's own calls are filed under the agent that made
-   * them, so a fan-out whose agents never report leaves a reader with nothing on
-   * screen that changed. Only at a turn's end, never when the whole agent has
-   * gone (`alsoArmed`) — a dead agent owes a reader ONE sentence about itself,
-   * and six would bury it in its own consequences.
-   */
   #strand(alsoArmed: boolean): Change<Row> {
     let change: Change<Row> = EMPTY as Change<Row>;
     for (const [key, row] of this.#rows) {
@@ -946,9 +772,6 @@ export class Transcript<Row extends AnyRow> {
             armed?: Armed;
           })
         : undefined;
-    // A REPORT WITH NO ROW TO FILE IT UNDER: a background task's own report
-    // names the call that armed it, and if that call was never announced here,
-    // inventing a row for the report would be a call nobody made.
     if (
       held === undefined &&
       move.title === undefined &&
@@ -958,22 +781,12 @@ export class Transcript<Row extends AnyRow> {
       move.spawned === undefined &&
       move.extra === undefined &&
       move.armed?.report != null &&
-      // NOTHING SAID, however a reporter spells it. `Armed` is a value on a
-      // wire where `undefined` is not one of the words, so a frame that only
-      // reports carries `null` for the two it says nothing about — and a
-      // guard that read only `undefined` would mint a row for the one frame
-      // it exists to refuse.
       (move.armed.ended ?? null) === null &&
       (move.armed.description ?? null) === null
     ) {
       return EMPTY as Change<Row>;
     }
     const status = move.status ?? held?.status ?? "pending";
-    // A CALL THAT WAS OVER AND IS RUNNING AGAIN — a call going round a SECOND
-    // time, which is the one transition here that is about the row's LIFE rather
-    // than about its content, and the reason it is decided before any of the
-    // merges below: the four facts below are scoped to an OUTING, and each is a
-    // face that lies if it survives into the next one.
     const reopened =
       held !== undefined &&
       !isRunningStatus(held.status) &&
@@ -984,10 +797,6 @@ export class Transcript<Row extends AnyRow> {
     }
     if (move.asked !== undefined) this.#asked.set(key, move.asked);
     const progress = move.progress ?? held?.progress;
-    // A FAILED CALL SAYS WHY ONCE. Its content (`progress`) is the reason the
-    // card shows; the JSON under it is then what was ASKED, and never the answer
-    // again. A failure that said nothing in its content keeps its answer here,
-    // because that is the only place the error is.
     const detail =
       status === "failed" && progress !== undefined && this.#asked.has(key)
         ? this.#asked.get(key)
@@ -1003,16 +812,6 @@ export class Transcript<Row extends AnyRow> {
     if (move.title !== undefined && move.provisional !== true) {
       this.#named.add(key);
     }
-    // What this call STARTED, spread one word deeper rather than replaced: the
-    // fact arrives split across frames because the ARGUMENTS do, and a later
-    // report that said only "this is a spawn" would take back a kind an earlier
-    // frame already gave.
-    // ... and what it STARTED, spread one word deeper rather than replaced: the
-    // fact arrives split across frames because the ARGUMENTS do, and a later
-    // report that said only "this is a spawn" would take back a kind an earlier
-    // frame already gave. The fields a frame did not mention are `null` — the
-    // shared encoding spells both of them — so a row can never carry half a
-    // `Spawned` and fail to encode on its way to a browser.
     const spawned =
       move.spawned === undefined
         ? held?.spawned
@@ -1020,13 +819,6 @@ export class Transcript<Row extends AnyRow> {
             kind: move.spawned.kind ?? held?.spawned?.kind ?? null,
             said: move.spawned.said ?? held?.spawned?.said ?? null,
           };
-    // ... and what it ARMED, ACCUMULATED across the frames that each know one
-    // piece: the frame that ARMS it names the description, the frame that
-    // SETTLES it names how it ended, and the report arrives later still. A
-    // caller answers about the frame in front of it and never accumulates, so
-    // holding the task together is this class's job — and the fields a frame
-    // did not mention are `null` (not absent), because "still out" is a fact
-    // this row states and every reader of it asks {@link isTaskOut}.
     const merged =
       move.armed === undefined
         ? held?.armed
@@ -1039,16 +831,9 @@ export class Transcript<Row extends AnyRow> {
               ended: move.armed.ended ?? held?.armed?.ended ?? null,
               report: move.armed.report ?? held?.armed?.report ?? null,
             };
-    // ... and a REOPENED call's task has not ended and has not reported,
-    // whatever the last outing said.
     const armed =
       reopened && merged !== undefined ? withoutOuting(merged) : merged;
     const startedAt = (held as { startedAt?: string } | undefined)?.startedAt;
-    // FROM WHAT THE ROW ALREADY CARRIES, so a product's own fields survive a
-    // frame that says nothing about them — the class copies them and never
-    // reads them, and "absent means unchanged" has to be true of them too. The
-    // shared fields this frame DOES decide are written after, so none of them
-    // rides past the decision.
     const before = (held === undefined
       ? {}
       : contentOf(held)) as unknown as Record<string, unknown>;
@@ -1080,23 +865,8 @@ export class Transcript<Row extends AnyRow> {
       ...present(move.extra),
       ...untilNamed(move.untilNamed, named),
     } as unknown as RowContent<Row>;
-    // A TOOL FRAME ENDS THE OPEN PARAGRAPH — the agent said something, then it
-    // did something, and the next thing it says is a new paragraph. The one
-    // exception is a frame that is only the LIFE of a task we already knew
-    // about: the call was made three hours ago, the frame is the harness
-    // reporting its end, and nothing about the conversation has stopped.
     const lifecycle = held?.armed !== undefined && move.armed !== undefined;
     const closed = lifecycle ? (EMPTY as Change<Row>) : this.#close();
-    // THE DEATH OF A TASK IS ALSO A ROW AT THE BOTTOM, computed before the
-    // repeat guard so a frame that brings the harness's sentence — which says
-    // nothing new about the CALL and everything about the line at the bottom —
-    // still lands.
-    // A SPAWN THAT FAILED is a death nothing else will report — a synchronous
-    // subagent arms no task, so its own call's status is the whole of what
-    // happened. Once: a row already saying `failed` has had its line.
-    // ... AND IT IS THE ROW'S OWN GUARD THAT KEEPS IT TO ONE LINE: every failed
-    // frame comes through here, and {@link #dies} mints once and then refines the
-    // line it already wrote with the sentence that lands a beat later.
     const failed = spawned !== undefined && status === "failed";
     const died =
       armed?.ended !== undefined && armed.ended !== null
@@ -1117,13 +887,9 @@ export class Transcript<Row extends AnyRow> {
               move.progress,
             )
           : (EMPTY as Change<Row>);
-    // A REPEAT IS NOT A SECOND REPORT, compared BEFORE the open paragraph is
-    // closed only in the sense that the close happens either way and only the
-    // row is spared.
     if (held !== undefined && same(contentOf(held), content)) {
       return plus(closed, died);
     }
-    // A call reported on again is a call its turn has NOT walked away from.
     this.#stranded.delete(key);
     return plus(plus(closed, this.#put(key, content)), died);
   }
@@ -1172,19 +938,12 @@ export class Transcript<Row extends AnyRow> {
       };
     };
     if (held.ask.outcome !== null) return EMPTY as Change<Row>;
-    // THE ROW AS IT STANDS, with the outcome written into it — rather than
-    // three of its fields named again here, so a field a product added to an
-    // ask row is carried rather than dropped at the moment it becomes the
-    // record of a decision.
     return this.#put(id, {
       ...contentOf(current),
       ask: { fields: held.ask.fields, link: held.ask.link, outcome },
     } as unknown as RowContent<Row>);
   }
 
-  /** A death, as a NOTICE at the bottom of the transcript — once per row,
-   *  whichever of the two endings got there first, and REFINED by the sentence
-   *  that arrives a beat later. */
   #dies(
     key: string,
     what: string,
@@ -1194,9 +953,6 @@ export class Transcript<Row extends AnyRow> {
   ): Change<Row> {
     const already = this.#ended.get(key);
     if (already === undefined) {
-      // NOT CLOSING what is open. The death arrives whenever the harness says
-      // so — which may be in the middle of somebody else's answer — and the
-      // answer goes on being one paragraph with this line under it.
       const { key: notice, change } = this.write(
         {
           kind: "notice",
@@ -1210,8 +966,6 @@ export class Transcript<Row extends AnyRow> {
       this.#ended.set(key, notice);
       return change;
     }
-    // The summary, arriving after the ending it belongs to. Nothing to say until
-    // it does, and nothing to say twice once it has.
     if (said === undefined || said === "") return EMPTY as Change<Row>;
     const held = this.#rows.get(already) as { text?: string } | undefined;
     if (held === undefined || held.text === said) return EMPTY as Change<Row>;
@@ -1229,10 +983,6 @@ export class Transcript<Row extends AnyRow> {
     return `${kind}:${++this.#minted}`;
   }
 
-  /** Mint a row that is FINISHED the moment it is written, and answer with both
-   *  its key and the change. `closing` is the one thing a caller may say about
-   *  the row ABOVE it: writing a row normally ends the open paragraph, and the
-   *  one caller that says no is a death ({@link #dies}). */
   #row<K extends Row["kind"]>(
     kind: K,
     text: string,
@@ -1241,9 +991,6 @@ export class Transcript<Row extends AnyRow> {
     return this.write({ kind, text, ...extra } as unknown as RowContent<Row>);
   }
 
-  /** Whatever was streaming has stopped. The row is re-published because
-   *  `streaming` is derived on every write, so the flag comes off by the row
-   *  being written again rather than by anybody clearing a field. */
   #close(): Change<Row> {
     const open = this.#open;
     if (open === null) return EMPTY as Change<Row>;
@@ -1253,22 +1000,16 @@ export class Transcript<Row extends AnyRow> {
     return this.#put(open, contentOf(current));
   }
 
-  /** Write a row and report it. */
   #put(key: string, content: RowContent<Row>): Change<Row> {
     return { ...(EMPTY as Change<Row>), upserts: [this.#write(key, content)] };
   }
 
-  /** ... and write it WITHOUT reporting it, for the one caller that reports a
-   *  piece instead of the whole ({@link #grow}). */
   #write(key: string, content: RowContent<Row>): Row {
     const current = this.#rows.get(key);
     const row = minted<Row>(
       content,
       {
         id: key,
-        // `seq` is taken off the row that is already there and minted only for
-        // one that is not: a call reports itself several times, and re-numbering
-        // would reorder the conversation under a reader.
         seq: current?.seq ?? ++this.#seq,
         since: current?.since ?? this.#stamp(),
       },
@@ -1283,14 +1024,6 @@ export class Transcript<Row extends AnyRow> {
   }
 }
 
-/** A product's extra fields as a spread, with `undefined` taken as "nothing
- *  said" — which is what every other optional field of a row means.
- *
- *  NOT COSMETIC: a row holding `{ asksThroughForm: undefined }` ENCODES AS AN
- *  ERROR on kolu's wire (an optional-key field that is present must be the
- *  field's type), so the whole frame is dropped and every card in it vanishes.
- *  The caller writes `{ server: call?.server }` without thinking about whether
- *  there was a call; this is where that answers "absent". */
 const present = (
   extra: Record<string, unknown> | undefined,
 ): Record<string, unknown> => {
@@ -1301,17 +1034,10 @@ const present = (
   return kept;
 };
 
-/** A product's UNTIL-NAMED fields: taken on the frame that names the row, and
- *  never again once it has a name. That is olai's rule for an engine's own
- *  spelling of a call — a title arriving later is the row's name and must not
- *  drag a second spelling with it. */
 const untilNamed = (
   untilNamed: Record<string, unknown> | undefined,
   named: boolean,
 ): Record<string, unknown> => (named ? {} : present(untilNamed));
 
-/** Whether a frame said anything the row does not already say. Structural, over
- *  the content alone — the derived fields are the writer's and comparing them
- *  would make every frame news. */
 const same = (left: unknown, right: unknown): boolean =>
   JSON.stringify(left) === JSON.stringify(right);

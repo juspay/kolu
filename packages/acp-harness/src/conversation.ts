@@ -1,52 +1,3 @@
-/**
- * THE CONVERSATION: one session at a time, its turns, its rows and its state.
- *
- * The protocol is `@kolu/acp-client`'s: it owns the process, the handshake,
- * which session is open, the questions on the wire, the sign-in attempt and
- * the reading of every frame, and it says what the agent said through one
- * closed union of events. What is HERE is everything a conversation is made of
- * on top of that — which session is opened or resumed and what the transcript
- * does about it, the turns in flight, the steering latch, the rows a person
- * reads, and the state a panel is a view of. A caller gets something it can
- * prompt, cancel, answer, sign in and stop, plus the rows and the state
- * through the one callback it gave at construction.
- *
- * NO PRODUCT IS NAMED HERE, and that is the whole shape of this door. Two
- * products run this file — kolu's Conductor and olai's chat panel — and every
- * fact that is one of theirs rather than the protocol's arrives as an option
- * or as the row content a verb is handed: what a tool call is READ as, what a
- * person's message carries, what a turn this end starts is drawn as, and the
- * three rules below. A product's word in this file is the defect.
- *
- * The three rules that are the PRODUCT'S rather than the protocol's, each a
- * named policy with both arms implemented here:
- *
- *   - **what a new session does to the transcript** ({@link
- *     HarnessOptions.whenNewSession}): a break drawn across one transcript, or
- *     the rows wiped.
- *   - **what a conversation the agent cannot come back to does** ({@link
- *     HarnessOptions.whenLoadRefused}): open a fresh one and say so, or report
- *     the refusal and open nothing. The client refuses the load either way;
- *     what it COSTS is a transcript the product owns, so the product decides.
- *   - **what a replay's frames do** ({@link HarnessOptions.whenReplayed}):
- *     `session/load` re-emits every message of the conversation before it
- *     answers, and a product that already holds those rows in a richer form
- *     drops them. A product that holds nothing keeps them. What the same
- *     stream says about the session AS IT STANDS is kept either way, because
- *     nobody else knows it.
- *
- * ... and **an attachment is a content block, with the caps**, which is not a
- * policy because both products agree: what a file becomes on the wire, what
- * the agent said it can take, and the two sentences that refuse one that is
- * too big are decisions about a person's message and are made here.
- *
- * WHAT IS DELIBERATELY NOT HERE: a client-side prompt queue. Every send is a
- * plain prompt, busy or idle, and the agent holds a busy one behind the turn
- * it is working on — the queue is the AGENT'S and nothing is held on this
- * side. The row's own *queued* mark is this conversation's fact about itself
- * ({@link ./turns.ts}) and not a second queue.
- */
-
 import { readFile } from "node:fs/promises";
 import {
   type Agent,
@@ -95,12 +46,7 @@ import {
 } from "./transcript.ts";
 import { type Turn, Turns } from "./turns.ts";
 
-/** This conversation keeps nothing in a turn's payload: its turns are `async`
- *  functions, and a cancel reaches them through the agent rather than through
- *  a handle here. */
 type NoPayload = undefined;
-
-// ── what a caller hands over, and what it gets back ────────────────────
 
 /**
  * NOTHING WAS ASKED OF ANYTHING, or nothing came back. `why` is a whole
@@ -746,24 +692,9 @@ export type { Memory, Probe };
  *  re-offered here because {@link Harness.stop} takes it. */
 export type { StopReason };
 
-// ── the constants this conversation is ─────────────────────────────────
-
-/** THE MOST ONE ATTACHMENT MAY WEIGH, and the most a prompt may carry in all.
- *  Both are refused with a sentence naming the limit rather than trimmed or
- *  dropped: an image that silently did not travel is a person asking about a
- *  picture the model never saw, and the only honest versions of "too big" are
- *  a number and a no. The bytes counted are the ones the row declares, which
- *  is the number the panel drew beside the chip. */
 const ATTACHMENT_CAP = 10 * 1024 * 1024;
 const PROMPT_CAP = 20 * 1024 * 1024;
 
-/** What a message steered into a turn SOMEBODY STOPPED is told.
- *
- *  The agent's answer is *nothing to steer*, which it also gives for a turn
- *  that simply finished — and those two want opposite things done. A turn that
- *  ended on its own makes these words an ordinary prompt; a turn a person
- *  cancelled makes starting a fresh one with them this end un-cancelling on
- *  their behalf. So the words stay on the row, theirs to send again. */
 const CANCELLED_UNDER_IT =
   "the turn these words were steered into was cancelled, so they were not sent";
 
@@ -793,21 +724,6 @@ export const startHarness = async <Row extends AnyRow>(
 ): Promise<Harness<Row>> => {
   const { leg, adapter, log } = options;
 
-  // ── the one place an Effect is run ───────────────────────────────────
-
-  /**
-   * THE CLIENT'S LOG LINES, forwarded to the one log this caller handed in.
-   *
-   * The client is written in Effect and says what it has to say through
-   * `Effect.log*`, with the agent, the session and whatever else the line is
-   * about as annotations — which is exactly the shape this caller's logger
-   * takes (an object, then a message). So the layer is the translation and
-   * nothing else.
-   *
-   * DEBUG IS NOT PRODUCED AT ALL rather than mapped onto `info`: the client
-   * writes every line of the agent's stderr at DEBUG, and a door with three
-   * levels has nowhere to put those but the operator's journal.
-   */
   const logging = Logger.layer([
     Logger.make<unknown, void>(({ message, logLevel, fiber }) => {
       const about = fiber.getRef(References.CurrentLogAnnotations);
@@ -820,27 +736,6 @@ export const startHarness = async <Row extends AnyRow>(
     }),
   ]);
 
-  /**
-   * HOW THE CLIENT'S REFUSALS REACH A CALLER OF THIS ONE.
-   *
-   * `refused` is the agent's own no — it answered, so the verb failed and the
-   * conversation did not — and everything else is this end's nothing-happened
-   * ({@link HarnessUnavailable}). The two extra things the client reads off a
-   * rejection ride the refusal as the one mark a row can carry: ACP's `-32000`
-   * is `signed-out`, and the agent's own data saying the ACCOUNT cannot run it
-   * is `account`.
-   *
-   * An answer that did not FIT the question it was for is the other refusal
-   * the client can give, and it is this end's own no: nothing went on the wire,
-   * and the question is still up.
-   *
-   * ... AND WHETHER THE CONVERSATION ASKED FOR IS SIMPLY NOT THERE rides the
-   * same refusal ({@link HarnessRefused.missing}), read off the protocol's own
-   * `-32002` by the client and never off the agent's prose. It is the one
-   * refusal with a DIFFERENT way out — retrying a conversation the store does
-   * not have is refused for ever — so a face that offers *try again* for
-   * everything else offers *start a new one* for this.
-   */
   const refusalOf = (cause: unknown): Error => {
     if (cause instanceof AnswerRefused) {
       return new HarnessRefused(
@@ -866,16 +761,6 @@ export const startHarness = async <Row extends AnyRow>(
     );
   };
 
-  /**
-   * THE BOUNDARY, and the only one: the client's verbs are Effects and this
-   * package's door is promises, so every one of them crosses here — with the
-   * logger layer that carries its lines to the caller's log, and with its
-   * failure turned into the refusal a caller of this package reads.
-   *
-   * ONE helper rather than a run per verb, which is what keeps the edge
-   * countable (`packages/tests/governance/runEdges.ts`): a second site would
-   * be a second place the layer could be forgotten.
-   */
   const run = async <A, E>(effect: Effect.Effect<A, E>): Promise<A> => {
     const outcome = await Effect.runPromise(
       Effect.provide(
@@ -891,91 +776,22 @@ export const startHarness = async <Row extends AnyRow>(
     return outcome.success;
   };
 
-  // ── the state this conversation is ───────────────────────────────────
-
-  /** THE ROW KIND A BREAK IS MINTED UNDER, for a product whose new session
-   *  DIVIDES ({@link HarnessOptions.whenNewSession}). A product that clears
-   *  never sees one, and need declare no such row. */
   const BREAK_KIND = "divider";
 
-  /** The rows a turn this END started were drawn as, by key
-   *  ({@link Harness.hostTurn}). Kept because such a row takes every delivery
-   *  mark a person's message does, and its KIND is a word of the caller's that
-   *  this file cannot recognise. */
   const hostRows = new Set<string>();
 
-  /** The rows, minted PAST what is already persisted elsewhere: the caller
-   *  hands in the highest `seq` it holds, so nothing this process mints can
-   *  collide with a restored row's id or sort above it — and whether the last
-   *  of those rows is a break, which is the one thing a fresh transcript
-   *  cannot see about the conversation it is continuing. */
   const transcript = new Transcript<Row>({
     from: options.resumedSeq ?? 0,
     now: Date.now,
     endsWithDivider: options.resumedEndsWithDivider ?? false,
-    // TWO KINDS A TURN IS THE DELIVERY OF here: what a person typed, and a
-    // turn this end started — both can wait behind another turn, be refused,
-    // or go unanswered, and both carry the marks that say so.
     deliverable: (row) => row.kind === "user" || hostRows.has(row.id),
-    // HOW THE NUMBERS RUN is the product's ({@link HarnessOptions.numbering}):
-    // one that writes its rows to a store needs them monotonic for the life of
-    // the process, and one whose panel is the only copy reads a row's `seq` as
-    // the count of the rows older than it.
     countersSurviveClear: options.numbering === "continues",
     firstSeq: options.numbering === "continues" ? "afterFrom" : "zero",
     ...(options.retitle === undefined ? {} : { retitle: options.retitle }),
-    breakKind: BREAK_KIND,
+    ...(options.whenNewSession === "clear" ? {} : { breakKind: BREAK_KIND }),
   });
-  /**
-   * THE BREAK BETWEEN TWO CONVERSATIONS — the row that says the agent's memory
-   * was reset, and says nothing else.
-   *
-   * Answers with its key because the break is minted BEFORE the next
-   * conversation is open — so that the new one's own rows sort under it — and an
-   * open that then fails has reset nothing a reader needs told: the caller takes
-   * the row back out again ({@link Transcript.remove}).
-   *
-   * A SECOND BREAK WITH NOTHING BETWEEN IS NOT MINTED. Two of them in a row say
-   * exactly what one says, and the stack of them is what a caller retrying a
-   * refused open leaves behind: four `— NEW SESSION —` lines with no
-   * conversation between them.
-   *
-   * AND A PRODUCT THAT CLEARS MINTS NONE AT ALL ({@link
-   * HarnessOptions.whenNewSession}): a break drawn across a transcript that is
-   * about to be empty says nothing, and the row kind is one such a product
-   * never declared.
-   */
-  const divider = (
-    text: string,
-  ): { readonly key: string | null; readonly change: Change<Row> } =>
-    options.whenNewSession === "clear" || transcript.endsWithBreak()
-      ? { key: null, change: { upserts: [], removes: [], appends: [] } }
-      : // The product that DIVIDES is the product that declares a `divider`
-        // row; the compiler cannot see that through a `Row` this package is
-        // only generic over, so the content is cast at this one site.
-        transcript.write({
-          kind: BREAK_KIND,
-          text,
-        } as unknown as RowContent<Row>);
-
-  /** The one key a plan row lives at, for the life of a session. */
   const PLAN_KEY = "plan";
 
-  /**
-   * THE REFUSAL MARK A ROW CAN CARRY, and none where it cannot.
-   *
-   * `signIn` is the one product field this file writes itself, because it is
-   * the client's own reading of the refusal (`@kolu/acp/wire`'s
-   * {@link SignInReason}) rather than anything a product composed — and it
-   * belongs to words a PERSON typed. A turn this end started is nobody's
-   * message to send again, and a product's row for one may declare no `signIn`
-   * at all: passing one would write a field the contract does not declare,
-   * which the encoder then refuses — the whole frame dropped, every row in it
-   * gone.
-   *
-   * A product whose `user` row declares it is what the mark is cast against:
-   * the compiler cannot see through a `Row` this package is only generic over.
-   */
   const refusalMark = (
     key: string,
     signIn: SignInReason | "no",
@@ -984,15 +800,9 @@ export const startHarness = async <Row extends AnyRow>(
       ? {}
       : ({ signIn } as unknown as Partial<Row>);
 
-  /**
-   * THE AGENT'S PLAN — one row at one key for the life of a session, because
-   * each `plan` update REPLACES the whole thing and an empty update removes it.
-   *
-   * ITS OWN ROW KIND rather than a method on the shared transcript: a product
-   * that draws no plan declares no such row, and a method for one in the class
-   * would be a kind nobody can write in a class that writes only what both
-   * products have.
-   */
+  const sameSteps = (held: unknown, steps: ReadonlyArray<PlanStep>): boolean =>
+    JSON.stringify(held) === JSON.stringify(steps);
+
   const plan = (steps: ReadonlyArray<PlanStep>): Change<Row> => {
     const closed = transcript.stopSaying();
     if (steps.length === 0) {
@@ -1001,13 +811,10 @@ export const startHarness = async <Row extends AnyRow>(
       return plus(closed, transcript.remove(PLAN_KEY));
     }
     const held = transcript.entries().get(PLAN_KEY);
-    // A REPEAT IS NOT A SECOND REPORT, the same rule every other row obeys: the
-    // plan is the one row a frame replaces whole, so its content is the whole of
-    // what a frame says.
     if (
       held?.kind === "plan" &&
       "steps" in held &&
-      JSON.stringify(held.steps) === JSON.stringify(steps)
+      sameSteps(held.steps, steps)
     ) {
       return closed;
     }
@@ -1021,24 +828,8 @@ export const startHarness = async <Row extends AnyRow>(
   };
 
   const turns = new Turns<undefined>();
-  /** The product's reading of each call still in this conversation, by call id
-   *  — what {@link HarnessOptions.readCall} was last handed and last said.
-   *  Cleared with the conversation, for the reason the client's own registry
-   *  is: a call id is only ever looked up inside the session that minted it,
-   *  and a daemon meant to run for weeks must not keep every call it ever
-   *  saw. */
   const readings = new Map<string, RowPatch<Row, "tool">>();
 
-  /**
-   * WHAT THIS AGENT SAID ABOUT TAKING A MESSAGE MID-TURN, read at the
-   * handshake and never again — `steering.advertised` and `queues`, which are
-   * questions about the agent rather than about a request, and a control has
-   * to be drawn (or not drawn) before anybody presses it.
-   *
-   * Both start FALSE, which is the honest state of an agent that has not
-   * spoken yet: a composer offering an interruption an agent never claimed is
-   * a person pressing a button that will be refused.
-   */
   let advertisedSteering = false;
   let queuesWhenBusy = false;
   /**
@@ -1051,46 +842,16 @@ export const startHarness = async <Row extends AnyRow>(
    * held a queued one — the steered words run and stream, and only a cancel
    * ends the turn. Measured on the wire by olai, which is where the latch and
    * its measurement come from (`packages/acp-claude/adapter/patches/README.md`).
-   *
-   * WHAT IT COSTS is said out loud because it is not small: after one message
-   * sent while a turn was running, this conversation offers no steer for the
-   * rest of its life. It is the SESSION the adapter poisons, so a new one
-   * clears it ({@link leaving}) — and a turn kolu's own wake started is a turn
-   * like any other, which means a person typing behind one spends the latch
-   * exactly as they would behind anybody else's.
    */
   let queuedHere = false;
-  /** When the turns in flight went from none to some — the instant every
-   *  reader's "working · 2m" counts from, and `null` while nothing runs. Kept
-   *  rather than derived because it is a CLOCK reading: the oldest ticket
-   *  knows which row it is for and not when it started. */
   let busyAt: number | null = null;
-  /** Whether THIS press of cancel has been said yet: one press stops every
-   *  turn in flight, and each of them answering `cancelled` is still one
-   *  thing a person did. */
   let cancelSaid = false;
 
   let stopped = false;
-  /** Whether the subprocess has gone. The client reports it once, and the
-   *  verbs below read it rather than asking the client to start another: a
-   *  conversation whose agent died is REPLACED by the caller, with the rows it
-   *  is holding and the session it was in — a harness that quietly spawned a
-   *  second process would be deciding that for it. */
   let dead = false;
-  /** Whether the standing prompt has gone out under a message of the session
-   *  this conversation is in — seeded with what the caller remembered for the
-   *  session it asked to resume. */
   let taught = options.taught;
-  /** The conversation this harness is in now, as the client last said. */
   let sessionId: string | null = null;
-  /** ... and the agent's OWN NAME for it, once it has given one. */
   let title: string | null = null;
-  /**
-   * HOW MANY TIMES THE AGENT HAS SAID ANYTHING, ever — prose, a tool call, a
-   * plan, a question. A counter rather than a flag because what a turn needs
-   * to know is whether the number MOVED while it ran ({@link runTurn}), and a
-   * flag would have to be reset by somebody, at a moment nobody owns.
-   */
   let heard = 0;
   let model: Model | null = null;
   let usage: Usage | null = null;
@@ -1098,97 +859,39 @@ export const startHarness = async <Row extends AnyRow>(
   let refusal: string | null = null;
   let commands: ReadonlyArray<Command> = [];
   let settings: ReadonlyArray<Setting> = [];
-  /** The picker as value → label, for the reading the header draws its name
-   *  and its context size from ({@link modelOf}). */
   let labels: ReadonlyMap<string, string> = new Map();
-  /** Every question still waiting, in the order it was asked — what the
-   *  state's `openAsks` is, kept here because the row a question is drawn as
-   *  is this half's. */
   let openAsks: ReadonlyArray<string> = [];
-  /** Whether the client is replaying a conversation at us, and how many frames
-   *  of it have been dropped ({@link dropped}). */
   let replaying = false;
   let replayed = 0;
 
-  /** A REPLAYED FRAME THIS CONVERSATION WILL NOT FOLD IN, counted on its way
-   *  past so the one line a replay gets can say how many there were. `false`
-   *  for every live frame, and for every frame of a replay a product KEEPS
-   *  ({@link HarnessOptions.whenReplayed}) — which is the one place that
-   *  policy is read. */
-  const dropped = (): boolean => {
+  const countDroppedReplayFrame = (): boolean => {
     if (!replaying || options.whenReplayed === "keep") return false;
     replayed += 1;
     return true;
   };
 
-  /**
-   * WHAT THIS AGENT SAID IT CAN BE SENT, beyond the text every agent takes —
-   * read off `initialize` and nothing else.
-   *
-   * ACP makes an image block and an embedded resource OPT-IN at the agent's
-   * end: an adapter that never advertised `image` is one an image is not legal
-   * to send to, and sending one anyway is a turn that fails somewhere inside
-   * the agent with a sentence nobody wrote for a person. So an attachment the
-   * agent cannot take is refused HERE, naming the capability
-   * ({@link blocksOf}), and both start FALSE because nothing is advertised
-   * before the handshake.
-   */
   let carries = { image: false, embeddedContext: false };
-  /**
-   * THE ROSTER: what this conversation was handed, and what has been said
-   * about it since — the client's own answer, composed off the very list it
-   * put on the wire and refined by whatever the agent then said about each
-   * row. Empty until the first open, which is when a session is handed
-   * anything at all.
-   */
   let servers: ReadonlyArray<Server> = [];
 
-  // ── the sign-in row, composed from three sources ─────────────────────
-
-  /**
-   * THE SIGN-IN, as a panel draws it: WHY it is on screen, what is on offer,
-   * and the attempt in flight.
-   *
-   * THREE SOURCES AND ONE ROW. The methods are the handshake's; the attempt is
-   * the client's, which is the half holding a process and a question; the
-   * CAUSE is this end's own — a refusal it met, or a person who pressed the
-   * button. The client's `signIn` event and this state are two layers on
-   * purpose and are not merged: one is what the agent is doing, the other is
-   * what this panel is asking about.
-   */
   let onOffer: ReadonlyArray<AuthMethod> = [];
-  /** What the agent calls itself, for the dead end's own sentence. */
   let agentSaid: string | null = null;
   let cause: SigningIn["cause"] | null = null;
   let attempt: SigningIn["attempt"] = null;
-  /** Whether the attempt in flight is one a PERSON asked to stop — read where
-   *  the attempt ENDS, so a cancel is not reported as a failure. */
   let cancelling = false;
 
-  /** Where this host keeps the signature, in every sentence that names it. */
   const storedAt = `the signature is read from ${options.configDir}`;
 
-  /**
-   * ... AND WHAT A SIGN-IN WITH NOTHING TO PRESS HAS TO SAY FOR ITSELF.
-   *
-   * An agent that will not work and advertises no way to fix it is a dead
-   * end, and the only useful thing left is the whole of what was asked and
-   * what came back: which adapter was spawned, what it calls itself, what the
-   * handshake asked for, and the store it reads.
-   */
   const nothingOffered = (): string =>
     `${agentSaid ?? "the agent"} offered no way to sign in: the handshake` +
     ' asked for terminal auth (`auth.terminal` and `_meta["terminal-auth"]`)' +
     " and the reply carried no `authMethods`. The adapter is" +
     ` \`${adapter.command}\`, and ${storedAt}`;
 
-  /** What a person is told when THEY ask to sign in. */
   const askedFor = (): SigningIn["cause"] => ({
     kind: "person",
     said: `${onOffer.length === 0 ? nothingOffered() : storedAt}.`,
   });
 
-  /** THE ROW, composed: or `null` when there is nothing to draw. */
   const signInRow = (): SigningIn | null =>
     cause === null && attempt === null
       ? null
@@ -1198,8 +901,6 @@ export const startHarness = async <Row extends AnyRow>(
           attempt,
         };
 
-  /** THE AGENT'S OWN ACCOUNT puts the offer up, unless an attempt is already
-   *  running: that row belongs to the attempt. */
   const offerSignIn = (why: string): void => {
     if (attempt !== null) return;
     cause = {
@@ -1208,64 +909,36 @@ export const startHarness = async <Row extends AnyRow>(
     };
   };
 
-  /** THE OFFER COMES DOWN, whoever put it up, unless an attempt is running: an
-   *  agent that now names an account has answered the question the row was
-   *  asking, whether the agent or a person asked it. */
   const withdrawSignIn = (): void => {
     if (attempt !== null) return;
     cause = null;
   };
 
-  // ── saying what moved ────────────────────────────────────────────────
-
-  /**
-   * THE DOOR THE CLIENT REPORTS THROUGH.
-   *
-   * Everything that arrives from the agent — a notification, a question it is
-   * waiting on, the session it opened, the process's own exit — reaches this
-   * half as one member of the client's closed union, and this has one case for
-   * each member. What is inside each case is what a conversation does about it.
-   *
-   * SYNCHRONOUS on purpose: a row is still reported before state is published,
-   * and nothing puts a promise hop between a message arriving and the work its
-   * arrival does.
-   */
   const emit = (event: AgentEvent): void => {
     switch (event._tag) {
       case "said": {
-        if (dropped()) return;
+        if (countDroppedReplayFrame()) return;
         if (event.text === "") return;
         heard += 1;
         report(transcript.say(event.text));
         return;
       }
       case "userSaid":
-        // A PERSON'S WORDS COME BACK ONLY IN A REPLAY. A product that keeps a
-        // replay has no other record of them; one that drops it already holds
-        // them in a richer form. They arrive in CHUNKS, which is why this is
-        // the transcript's accumulating door and not a row per frame.
-        if (dropped()) return;
+        if (countDroppedReplayFrame()) return;
         report(transcript.userSaid(event.text));
         return;
       case "tool":
-        if (dropped()) return;
+        if (countDroppedReplayFrame()) return;
         heard += 1;
         writeTool(event);
         return;
       case "plan":
-        if (dropped()) return;
+        if (countDroppedReplayFrame()) return;
         heard += 1;
         report(plan(event.entries));
         return;
       case "toolTerminals": {
-        // THE PANES AN AGENT'S OWN TERMINAL CALLS ARE RUNNING IN, which arrive
-        // on frames of their own: they go to the product's reader like
-        // everything else known about a call ({@link HarnessOptions.readCall}),
-        // because what a card DRAWS is the product's and a frame dropped here
-        // is a terminal a panel can never show. A reader with nothing to say
-        // about them answers `undefined` and nothing moves — which is every
-        // product that draws no pane.
-        if (dropped()) return;
+        if (countDroppedReplayFrame()) return;
         const panes = options.readCall(
           {
             mcp: [],
@@ -1297,9 +970,6 @@ export const startHarness = async <Row extends AnyRow>(
         labels = new Map(event.choices.map((one) => [one.value, one.name]));
         return;
       case "model":
-        // THE READING IS THE PANEL'S: the client says which id the agent named
-        // and what its picker calls it, and the size comes out of the same
-        // rows ({@link modelOf}).
         model = event.id === null ? null : modelOf(event.id, event.name);
         publish();
         return;
@@ -1319,10 +989,6 @@ export const startHarness = async <Row extends AnyRow>(
         publish();
         return;
       case "advertised":
-        // Read once, at the handshake. The two mid-turn claims and what a
-        // message may carry are assigned without a publish — the open that
-        // follows publishes the state that carries them — and the methods are
-        // what a sign-in row is drawn from, which no refusal has composed yet.
         advertisedSteering = event.steers;
         queuesWhenBusy = event.queues;
         carries = {
@@ -1341,8 +1007,6 @@ export const startHarness = async <Row extends AnyRow>(
             event.message,
             event.fields,
             event.link,
-            // The ROW of the agent that asked, which is what a lane is
-            // drawn by: the wire names the call by its own id.
             event.parent === undefined ? null : toolKey(event.parent),
           ),
         );
@@ -1354,22 +1018,14 @@ export const startHarness = async <Row extends AnyRow>(
         publish();
         return;
       case "session":
-        // A conversation that already has a name — one picked from the
-        // agent's own list — carries it here, and the panel says it at once.
         title = event.title;
         enter(event.id);
         return;
       case "sessionTitled":
-        // THE AGENT'S OWN NAME for the conversation. Published rather than
-        // dropped: a product that draws a title has no other source for one,
-        // and the title belongs to the session — {@link leaving} takes it
-        // away with the conversation it named.
         title = event.title;
         publish();
         return;
       case "opening":
-        // Which conversation is being opened, said before the request that can
-        // be refused. This half asked for it, so it already knows.
         return;
       case "sessionOver":
         leaving();
@@ -1380,9 +1036,6 @@ export const startHarness = async <Row extends AnyRow>(
         return;
       case "replayEnded":
         replaying = false;
-        // ONE LINE FOR THE WHOLE REPLAY, and it is a count rather than a
-        // transcript: a conversation of six hundred frames logging each of
-        // them is how a resume becomes the longest thing in the file.
         if (replayed > 0) {
           log.info(
             { session: sessionId, frames: replayed },
@@ -1393,8 +1046,6 @@ export const startHarness = async <Row extends AnyRow>(
         return;
       case "gone": {
         dead = true;
-        // Before anything else: a form left live on a dead wire is a control
-        // that does nothing, and pressing it is how a person finds out.
         leaving();
         identity = null;
         report(transcript.abandon());
@@ -1403,30 +1054,13 @@ export const startHarness = async <Row extends AnyRow>(
         return;
       }
       case "trouble":
-        // SOMETHING FAILED WHERE NOBODY WAS WAITING — a permission mode the
-        // agent would not take, a model it would not go back to, a question
-        // this panel cannot draw. Already logged by the client; this is the
-        // sentence a person reads, and a notice is where it is said.
         notice(event.message);
         return;
     }
-    // A MEMBER ADDED WITHOUT A CASE FAILS HERE, which is what keeps this door
-    // and the union one fact rather than two.
     event satisfies never;
   };
 
-  /** ... and the row a tool frame becomes, which is the conversation's. */
   const writeTool = (event: Extract<AgentEvent, { _tag: "tool" }>): void => {
-    // THE PRODUCT'S HALF OF THE ROW, and the only thing this end knows about
-    // what a call MEANS. A call the client could not positively name — the leg
-    // matched this agent's own spelling against no server we handed over —
-    // reaches the reader with an EMPTY list, so a reading is minted for one of
-    // the product's own tools and for nothing that merely looks like one.
-    //
-    // The transcript copies what comes back and reads none of it, and a frame
-    // the reader says nothing about passes `undefined` — which is what lets a
-    // background task's own report stay a report rather than minting a row for
-    // a call nobody made.
     const said = options.readCall(
       {
         mcp: event.mcp,
@@ -1461,8 +1095,6 @@ export const startHarness = async <Row extends AnyRow>(
     publish();
   };
 
-  /** The agent's own word about who it is, and what it does to the sign-in
-   *  row. */
   const writeIdentity = (next: AuthStatus | null): void => {
     identity = next;
     // THE AGENT'S OWN WORD IS WHAT OFFERS THE SIGN-IN. `kind: "none"` is a
@@ -1475,13 +1107,6 @@ export const startHarness = async <Row extends AnyRow>(
     // refused OPEN therefore never appeared at all on the one pair this
     // build pins: the panel drew a composer over an agent that could not
     // answer, and the sign-in button said the agent had offered nothing.
-    //
-    // AND IT IS WHAT WITHDRAWS IT: an agent that now names an account has
-    // answered the question the row was asking, and a sign-in row over a
-    // signed-in agent is a lie a person would press.
-    //
-    // A PROCESS THAT HAS STOPPED REPORTING says nothing either way: `null` is
-    // an agent that has not spoken, which is not a claim about a signature.
     if (next === null) {
       publish();
       return;
@@ -1491,52 +1116,32 @@ export const startHarness = async <Row extends AnyRow>(
     publish();
   };
 
-  /**
-   * THE ATTEMPT IN FLIGHT, as the row draws it — out of the client's own
-   * account of what the sign-in is doing.
-   *
-   * A TERMINAL method is a process whose output IS the row, so the row says
-   * what it has printed and whether it is still running; exit 0 is the whole
-   * of "it worked" for every one of these CLIs. An AGENT method has no
-   * process: what this end runs is the wait, so it is `running` until the
-   * agent answers, and a page it sent somebody to rides the row.
-   */
+  const agentAttempt = (
+    said: Extract<SignIn, { kind: "agent" }>,
+  ): SigningIn["attempt"] => ({
+    method: said.method,
+    state: said.why === null ? "running" : "failed",
+    output: said.why ?? "",
+    code: null,
+    link: said.link,
+  });
+
+  const terminalAttempt = (
+    said: Exclude<SignIn, { kind: "agent" | "choosing" }>,
+  ): SigningIn["attempt"] => ({
+    method: said.method,
+    state: said.running ? "running" : said.code === 0 ? "succeeded" : "failed",
+    output: said.why === null ? said.output : `${said.output}${said.why}\n`,
+    code: said.running ? null : said.code,
+    link: null,
+  });
+
   const attemptOf = (said: SignIn | null): SigningIn["attempt"] => {
-    if (said === null) return null;
-    // A CHOOSER IS NOT AN ATTEMPT: nothing has been pressed, so nothing is
-    // running. That state is the row's own CAUSE — a person asked to sign in
-    // — and the methods beside it are what they are choosing from.
-    if (said.kind === "choosing") return null;
-    if (said.kind === "agent") {
-      return {
-        method: said.method,
-        state: said.why === null ? "running" : "failed",
-        output: said.why ?? "",
-        code: null,
-        link: said.link,
-      };
-    }
-    return {
-      method: said.method,
-      state: said.running
-        ? "running"
-        : said.code === 0
-          ? "succeeded"
-          : "failed",
-      // A COMMAND THAT NEVER RAN printed nothing, and the reason it did not is
-      // the only output there is.
-      output: said.why === null ? said.output : `${said.output}${said.why}\n`,
-      code: said.running ? null : said.code,
-      link: null,
-    };
+    if (said === null || said.kind === "choosing") return null;
+    return said.kind === "agent" ? agentAttempt(said) : terminalAttempt(said);
   };
 
   const report = (change: Change<Row>): void => {
-    // NOTHING IS SAID AFTER A STOP. A turn still on the wire when the daemon
-    // let go ends a moment later — settling its paragraph, withdrawing its
-    // questions, writing a notice — and every one of those rows is one the
-    // caller writes to disk for a conversation it has already finished with.
-    // {@link stop} sends the single frame a shutdown owes a reader by hand.
     if (stopped || !says(change)) return;
     options.onChange({
       kind: "rows",
@@ -1547,10 +1152,6 @@ export const startHarness = async <Row extends AnyRow>(
   };
 
   const state = (): HarnessState => ({
-    // PHASE IS DERIVED, never kept: every fact it reports is already written
-    // down somewhere else, and a flag beside them is a second answer free to
-    // drift from the first. A refused open is OFFLINE with the process still
-    // up, which is the one case `alive` alone gets wrong.
     phase:
       !alive() || refusal !== null
         ? "offline"
@@ -1570,15 +1171,10 @@ export const startHarness = async <Row extends AnyRow>(
     watching: transcript.watching(),
     openAsks,
     signIn: signInRow(),
-    // THE STANDING FACT, not the row: what the handshake advertised, whether
-    // or not there is anything on screen about signing in.
     methods: onOffer,
     identity,
     refusal,
     title,
-    // BOTH HALVES IN ONE BIT, so a composer derives nothing: the agent's leg
-    // advertised steering at the handshake, AND this conversation has never
-    // held a message behind a running turn ({@link queuedHere}).
     steers: advertisedSteering && !queuedHere,
     queues: queuesWhenBusy,
     busySince: busyAt === null ? null : new Date(busyAt).toISOString(),
@@ -1594,100 +1190,34 @@ export const startHarness = async <Row extends AnyRow>(
     report(transcript.add("notice", text));
   };
 
-  /** Whether there is still a subprocess to talk to. */
   const alive = (): boolean => !dead && !stopped;
 
-  /** The model row, under whichever id has just named one — the picker's
-   *  confirmed value, or the live id the agent's own channel reported. ONE
-   *  reader for both, because they are the same question asked at two moments
-   *  — and a header that took the NAME from one and the SIZE from the other
-   *  would be describing two conversations. */
   const modelOf = (id: string, name: string | null): Model => ({
     id,
     name: name ?? id,
-    // A `window` of `null` is a REFUSAL rather than a failure: a leg's table
-    // answers for the models its picker names and for nothing else, and naming
-    // one five times the real size in the line you would read to decide
-    // whether to compact is worse than naming nothing. A leg that declares no
-    // `windowIn` at all reads the same way — `@kolu/acp` is shared vocabulary
-    // and the member is optional precisely so a leg written before it existed
-    // stays legal.
     window: leg.models?.windowIn?.(labels, id) ?? null,
   });
 
-  // ── bringing it up ───────────────────────────────────────────────────
-
-  /** The conversation is over — replaced, reloaded, or dead. Everything this
-   *  half keeps about it goes; the client has already let go of its own. */
   const leaving = (): void => {
-    // NOTHING TO LEAVE BEFORE THE FIRST OPEN. A bring-up's own `session/load`
-    // says the last conversation is over before it opens one, and this harness
-    // was in none — so acting on it here would be this conversation reporting
-    // the end of one it was never in.
     if (sessionId === null) return;
     sessionId = null;
-    // ... and the agent's name for it goes with it: a title standing over the
-    // next conversation names a chat nobody is in.
     title = null;
     readings.clear();
     hostRows.clear();
     openAsks = [];
-    // ... AND THE NEXT CONVERSATION IS TAUGHT AGAIN. The standing prompt is
-    // what an agent with no memory of this one needs first, and a new session
-    // is exactly an agent with no memory of it.
     taught = false;
-    // ... AND THE INTERRUPTION COMES BACK. The latch is about a SESSION the
-    // adapter poisoned, not about the agent: a conversation that is over
-    // cannot be hung by a steer into it, and the next one starts clean.
     queuedHere = false;
     usage = null;
     commands = [];
   };
 
-  /** The harness is in this conversation now. */
   const enter = (id: string): void => {
     sessionId = id;
     refusal = null;
-    // ... and there is nothing left to sign into — UNLESS the agent says there
-    // is. This used to be unconditional, on the reasoning that a sign-in row
-    // exists because an OPEN was refused: MEASURED, that is false for the pair
-    // kolu ships, whose signed-out `session/new` succeeds. An open is no
-    // longer evidence of a signature, so the offer stands until the agent's
-    // own `_auth/status_update` stops saying `none`.
     if (identity?.kind !== "none") withdrawSignIn();
     publish();
   };
 
-  /**
-   * COME BACK TO A CONVERSATION — or, when the agent says there is no such
-   * conversation, do what {@link HarnessOptions.whenLoadRefused} says.
-   *
-   * TWO UNLIKE THINGS ARE SPELLED THE SAME WAY on this wire, and reading them
-   * alike is what killed the adapter. "The agent is broken" is a conversation
-   * the agent cannot open at all; "the id is unknown to this CLI" is a fact
-   * about a string the product wrote down, in its own file, for a store the
-   * agent has since forgotten (its config dir moved, its history was pruned, a
-   * different CLI answered). The agent REFUSED, which is the protocol's own
-   * proof that it is there and talking. Killing it over a stale id and
-   * spawning a replacement to read the same id again is a loop with a dead
-   * panel at the end of it — four `the agent exited (code 0)` lines and no
-   * conversation, which is where this came from.
-   *
-   * So a REFUSAL that is not an auth refusal reaches the policy, once, and
-   * nothing is retried. An AUTH refusal does NOT: `-32000` says the agent will
-   * not open ANY conversation for want of a signature, and a fresh session
-   * asked for in the same breath is the same refusal again — that one keeps
-   * its offer of a sign-in ({@link refusedOpen}). Anything that is not a
-   * refusal at all — a load that never answered, a pipe that died — is the
-   * broken agent, and it goes out of here the way it always did.
-   *
-   * WHAT `"fresh"` KEEPS is the transcript: it is the product's record of the
-   * conversation, not the CLI's, and the rows in it are the product's whatever
-   * the agent remembers. What it adds is the one thing a reader cannot see
-   * otherwise — the break where the resumed conversation could not be
-   * ({@link divider}, the same mark a `newSession` mints and under the same
-   * rules), and a line carrying the agent's own sentence for why.
-   */
   const load = async (id: string): Promise<void> => {
     try {
       await run(agent.loadSession(id));
@@ -1696,13 +1226,7 @@ export const startHarness = async <Row extends AnyRow>(
       if (!(lost instanceof HarnessRefused) || lost.signIn === "signed-out") {
         throw lost;
       }
-      // ... AND A PRODUCT THAT REPORTS IT GETS THE REFUSAL AS IT STANDS. The
-      // conversation it asked for is the only one it has, and a different one
-      // opened quietly in its place is a panel that looks resumed and is not.
       if (options.whenLoadRefused === "report") throw lost;
-      // NOTHING LEFT TO COME BACK TO: the id is spent, and the open this
-      // harness was asked for is over — a later re-entry is the CALLER's
-      // restart, with a fresh process and a fresh `resume`.
       log.warn(
         { session: id, why: lost.why },
         "the remembered conversation is not one this agent has; opening a new one",
@@ -1711,16 +1235,8 @@ export const startHarness = async <Row extends AnyRow>(
     }
   };
 
-  /** The new conversation a lost one leaves behind, with the break and the
-   *  sentence that account for it.
-   *
-   *  The mark comes BACK OUT if the fresh session will not open either, for
-   *  {@link newSession}'s reason: a break that broke nothing is a rule drawn
-   *  across a transcript where nothing happened, and a retry stacks them. The
-   *  NOTICE stays — the conversation really was not resumed, and that is true
-   *  whatever happens next. */
   const freshInstead = async (why: string): Promise<void> => {
-    const mark = divider("new session");
+    const mark = transcript.writeBreak("new session");
     report(mark.change);
     notice(
       `the previous conversation could not be resumed, so this is a new one: ${why}`,
@@ -1733,21 +1249,11 @@ export const startHarness = async <Row extends AnyRow>(
     }
   };
 
-  /** THE CONVERSATION THIS HARNESS WAS ASKED FOR ({@link
-   *  HarnessOptions.opens}) — the one the caller named, a fresh one, or the
-   *  one the agent's own store and the product's memory agree on. The
-   *  BRING-UP's only: switching conversations after that is a verb
-   *  ({@link Harness.loadSession}), and a second door here — the one a sign-in
-   *  used to open — is how a signature taken in a conversation the person had
-   *  moved on from put them back in the one they left. */
   const openConversation = async (): Promise<void> => {
     if (options.opens.kind === "resume") {
       await load(options.opens.id);
       return;
     }
-    // ADOPTING IS THE CLIENT'S OWN OPEN: it is the half that can ask which
-    // conversations this engine has stored, and the memory handed over is
-    // what decides between the remembered one and the newest.
     if (options.opens.kind === "adopt") {
       await run(agent.boot);
       return;
@@ -1755,18 +1261,6 @@ export const startHarness = async <Row extends AnyRow>(
     await run(agent.newSession);
   };
 
-  /**
-   * WHAT A REFUSED OPEN LEAVES BEHIND, and whether anything is left to act on.
-   *
-   * Published rather than only thrown: a caller's error reaches a log, and the
-   * panel a person is looking at would otherwise be an idle-looking composer
-   * with no account of why nothing happens.
-   *
-   * `true` is the ONE refusal that keeps the subprocess: nobody is signed in,
-   * which is ACP's own `-32000`, and the agent that refused is the agent the
-   * sign-in has to run against. Killing it here is how the only remedy a
-   * person is offered becomes unreachable.
-   */
   const refusedOpen = (cause: unknown): boolean => {
     refusal = cause instanceof Error ? cause.message : String(cause);
     if (cause instanceof HarnessRefused && cause.signIn === "signed-out") {
@@ -1778,29 +1272,10 @@ export const startHarness = async <Row extends AnyRow>(
     return false;
   };
 
-  /**
-   * WHAT THIS HARNESS REMEMBERS, as the client's two memories.
-   *
-   * The CONVERSATION's memory is the product's and arrives with the policy
-   * that reads it ({@link Opening}): a caller that is TOLD which conversation
-   * to open hands over none, and this end answers the honest nothing it had
-   * always answered; a caller that ADOPTS hands over the port it keeps between
-   * one serve of a directory and the next.
-   *
-   * The MODEL port is this end's either way: it answers the pin the caller
-   * handed over — for the session being resumed and for any session this
-   * harness opens after it, because the pin is the person's answer to "what
-   * should this conversation run on" and the agent re-asserts its own default
-   * over every open.
-   */
   const memory: Memory =
     options.opens.kind === "adopt"
       ? options.opens.memory
       : { recall: Effect.succeed(null), remember: () => Effect.void };
-  /** The model a PERSON chose, as the id they chose it under — handed in by
-   *  the caller that remembered it, and kept current by the client's own write
-   *  so that a conversation opened after a switch opens on the switch rather
-   *  than on what was remembered at boot. */
   let wanted: string | null = options.model ?? null;
   const models: Models = options.models ?? {
     read: () => Effect.succeed(wanted),
@@ -1810,15 +1285,6 @@ export const startHarness = async <Row extends AnyRow>(
       }),
   };
 
-  // THE AGENT, and then the conversation. The client is built first and held,
-  // so that the `try` below can stop it: the handshake and the open are one
-  // sequence, a caller holds nothing until both end, and a refusal or a
-  // deadline anywhere in it must not leave an adapter (and whatever it
-  // spawned) running for every retry.
-  //
-  // The spawn and the handshake are the client's, and they happen on the first
-  // verb that needs a process — which is the open below. OPENING the
-  // conversation is this half's, because the rows a resume mints are ours.
   const agent: Agent = await run(
     make({
       id: options.agent,
@@ -1835,12 +1301,7 @@ export const startHarness = async <Row extends AnyRow>(
       onEvent: emit,
     }),
   );
-  // THE BRING-UP CAN BE ABANDONED: once the caller's signal aborts, the
-  // process is stopped, which ends the handshake or the open in flight, and
-  // no conversation is opened for a caller that has gone.
   const abandon = options.abandonWhen;
-  /** Asked afresh each time: the signal is the caller's and aborts on its own
-   *  clock, between any two of the awaits below. */
   const abandoned = (): boolean => abandon?.signal.aborted === true;
   const stopAbandoned = (): void => {
     if (abandon === undefined) return;
@@ -1848,7 +1309,6 @@ export const startHarness = async <Row extends AnyRow>(
       log.warn({ cause }, "an abandoned bring-up did not stop cleanly");
     });
   };
-  /** Stop the process for the caller that left, and say so to it. */
   const leaveAbandoned = async (): Promise<never> => {
     if (abandon !== undefined) await run(agent.stopWithReason(abandon.reason));
     throw new HarnessUnavailable("the conversation was abandoned");
@@ -1859,9 +1319,6 @@ export const startHarness = async <Row extends AnyRow>(
     await openConversation();
   } catch (cause) {
     if (abandoned()) await leaveAbandoned();
-    // Everything except the signature goes with the subprocess: a conversation
-    // the agent would not open is a failure a caller cannot work around, and a
-    // child left running with nothing to talk to is the leak.
     if (!refusedOpen(cause)) {
       await run(agent.stop);
       throw cause;
@@ -1869,27 +1326,11 @@ export const startHarness = async <Row extends AnyRow>(
   } finally {
     abandon?.signal.removeEventListener("abort", stopAbandoned);
   }
-  // ... AND ONE THAT LANDED AFTER ALL is still abandoned: the open beat the
-  // stop to the wire, and the caller that left is owed no conversation.
   if (abandoned()) await leaveAbandoned();
 
-  // ── the verbs ────────────────────────────────────────────────────────
-
-  /**
-   * WHAT ACTUALLY GOES ON THE WIRE under a message: the standing prompt the
-   * first time this session is spoken to, and then the body.
-   *
-   * The body is the CALLER'S, whole — what a person typed with whatever the
-   * product puts above it. The teaching is this end's because WHEN it rides is
-   * a fact about the session, which is the thing this file owns; the WORDS are
-   * the caller's too ({@link HarnessOptions.teaching}).
-   */
   const bodyOf = (body: string): string => {
     if (taught) return body;
     taught = true;
-    // A PRODUCT WITH NOTHING TO TEACH hands over no words, and its first
-    // message then goes out exactly as it composed it: a blank line above it
-    // is a first line an agent reads.
     return options.teaching === "" ? body : `${options.teaching}\n\n${body}`;
   };
 
@@ -1898,10 +1339,6 @@ export const startHarness = async <Row extends AnyRow>(
     body: string,
     blocks: ReadonlyArray<ContentBlock>,
   ): Promise<void> => {
-    // WHAT THE AGENT HAD SAID WHEN THIS TURN BEGAN. A turn that ends with the
-    // number where it was is one the agent answered with nothing at all, which
-    // is a thing a product may want to say out loud and cannot work out
-    // afterwards: rows minted meanwhile may belong to another turn entirely.
     const quietAt = heard;
     let outcome: TurnEnded["outcome"] = "ended";
     let why: string | null = null;
@@ -1910,8 +1347,6 @@ export const startHarness = async <Row extends AnyRow>(
       report(transcript.sent(ticket.key));
       if (stopReason === "cancelled") {
         outcome = "cancelled";
-        // ONE PRESS, ONE LINE: a cancel nobody asked for is always news, and
-        // the turns a press stopped all say the one thing it did.
         if (!ticket.stopped || !cancelSaid) {
           cancelSaid = ticket.stopped;
           notice("the turn was cancelled");
@@ -1922,8 +1357,6 @@ export const startHarness = async <Row extends AnyRow>(
       if (cause instanceof HarnessRefused) {
         outcome = "refused";
         why = cause.why;
-        // THE WORDS STAY THE PERSON'S, with what it would take to send them
-        // again kept beside the row ({@link Harness.sendAgain}).
         report(
           transcript.refused(
             ticket.key,
@@ -1931,46 +1364,23 @@ export const startHarness = async <Row extends AnyRow>(
             body,
           ),
         );
-        // A TURN REFUSED FOR WANT OF A SIGNATURE IS THE OTHER DOOR onto the
-        // sign-in, and on the pinned pair it is the FIRST one a person reaches:
-        // the conversation opened, the composer was there, and `-32000` is what
-        // came back from the turn. Without this the only remedy stayed off the
-        // screen for the whole life of a process that had already said exactly
-        // what was wrong.
         if (cause.signIn === "signed-out") {
           offerSignIn(cause.why);
           publish();
         }
       } else {
-        // NOTHING CAME BACK: the agent may have the message already, so no
-        // retry is offered — an offered duplicate is worse than none.
         outcome = "unanswered";
-        // ... AND A TURN THAT SPOKE DID ARRIVE: offering to send words again
-        // that the agent visibly worked on is the duplicate this mark exists
-        // to prevent.
         if (heard === quietAt) report(transcript.unanswered(ticket.key));
       }
       notice(`the turn could not be run: ${why}`);
     } finally {
       const last = turns.leave(ticket);
-      // ... and the clock stops with the last of them: an idle conversation
-      // counting up from a turn that ended is a panel saying work is going on.
       if (last) busyAt = null;
-      // A turn that ends while ANOTHER is still running has nothing true left
-      // to say about the conversation, and saying it anyway marks a working
-      // panel idle. Its paragraph is still finished, which is what puts every
-      // answer in a paragraph of its own.
       report(last ? transcript.settle() : transcript.stopSaying());
-      // THE ENDING TURN'S OWN ROW stops waiting too: one marked as queued
-      // behind another that ends while a third still runs never becomes the
-      // head, and would say it is waiting for ever.
       report(transcript.taken(ticket.key));
       const head = turns.head;
       if (head !== null) report(transcript.taken(head.key));
       publish();
-      // SAID LAST, and once: every row this turn moved is already out, so a
-      // caller acting on the ending acts on a transcript that has finished
-      // moving. Nothing is said after a stop, for {@link report}'s reason.
       if (!stopped) {
         options.onChange({
           kind: "turn",
@@ -1983,35 +1393,17 @@ export const startHarness = async <Row extends AnyRow>(
     }
   };
 
-  /** A turn is STARTING, and the clock every reader counts "working · 2m"
-   *  from starts with the FIRST of them: a message sent behind a running turn
-   *  does not restart the stopwatch on work that has been going for a minute. */
   const openTurn = (key: string): Turn<NoPayload> => {
     if (!turns.busy) busyAt = Date.now();
     return turns.open(key);
   };
 
-  /**
-   * Run one prompt as a turn, for a row that is already on screen.
-   *
-   * The ORDINARY LANE, whoever's words they are: a plain prompt, which starts
-   * a turn this file owns whether or not another is already running. What the
-   * agent does with a second one is the agent's own business — it holds it
-   * behind the first and runs it next, in order.
-   */
   const send = (
     key: string,
     body: string,
     blocks: ReadonlyArray<ContentBlock>,
   ): void => {
-    // AT THE AGENT, NEXT IN LINE — this end sent a prompt while a turn of its
-    // own was still in flight. A fact about this conversation, not a queue:
-    // the message goes out now, on the wire, exactly as it would have.
     const waiting = turns.busy;
-    // ... AND THE INTERRUPTION IS WITHDRAWN FROM THIS CONVERSATION from this
-    // moment on ({@link queuedHere}): the pinned adapter cannot settle a turn
-    // it steers once a session has queued, and a control that hangs the
-    // conversation is not one to draw.
     if (waiting) queuedHere = true;
     if (waiting) report(transcript.queued(key));
     report(transcript.begins());
@@ -2020,42 +1412,25 @@ export const startHarness = async <Row extends AnyRow>(
     void runTurn(ticket, body, blocks);
   };
 
-  /**
-   * Put the words INTO the turn that is running, and say what became of them.
-   *
-   * `handled` means they are accounted for — in the running turn, or marked on
-   * their own row as not delivered — and `prompt` means send them the ordinary
-   * way, which is the safe direction and the only one this fails in.
-   *
-   * THE ONE ANSWER THAT NEEDS THE TICKET is *nothing to steer*. A turn that
-   * simply finished under the steer makes these words an ordinary prompt; a
-   * turn a person STOPPED makes starting a fresh one with them this end
-   * un-cancelling on their behalf. The two are the same answer on the wire and
-   * only the ticket the steer was aimed at tells them apart
-   * ({@link Turn.stopped}).
-   */
+  type SteerOutcome = "absorbed" | "send-as-prompt";
+
   const steerInto = async (
     key: string,
     body: string,
     aimed: Turn<NoPayload>,
-  ): Promise<"handled" | "prompt"> => {
-    // Belt to the brace of `state.steers`: an agent with no steering is never
-    // asked, and a caller that got it wrong loses nothing at all.
-    if (leg.steering === null) return "prompt";
+  ): Promise<SteerOutcome> => {
+    if (leg.steering === null) return "send-as-prompt";
     try {
       const went = await run(agent.steer(body));
-      if (went === "taken") return "handled";
+      if (went === "taken") return "absorbed";
       if (aimed.stopped) {
         report(transcript.refused(key));
         notice(CANCELLED_UNDER_IT);
         publish();
-        return "handled";
+        return "absorbed";
       }
-      return "prompt";
+      return "send-as-prompt";
     } catch (cause) {
-      // WHICH failure it was is the wire's reading, not ours — it is what
-      // knows whether anything answered — and it is the one fact the row's two
-      // faces are drawn out of.
       if (cause instanceof HarnessRefused) {
         report(transcript.refused(key, refusalMark(key, cause.signIn), body));
         if (cause.signIn === "signed-out") offerSignIn(cause.why);
@@ -2068,13 +1443,10 @@ export const startHarness = async <Row extends AnyRow>(
         }`,
       );
       publish();
-      return "handled";
+      return "absorbed";
     }
   };
 
-  /** THE AGENT IS THERE AND IN A CONVERSATION, or there is nothing to send to.
-   *  A dead agent is the CALLER's to replace — with the rows it holds and the
-   *  session it was in — so nothing here quietly starts a second process. */
   const inConversation = (): void => {
     if (!alive() || sessionId === null) {
       throw new HarnessUnavailable("the agent has no session open");
@@ -2082,32 +1454,10 @@ export const startHarness = async <Row extends AnyRow>(
   };
 
   /**
-   * SEND IT, with whatever was attached to it.
-   *
-   * THE BLOCKS ARE BUILT BEFORE THE ROW IS MINTED, which is the whole of the
-   * refusal rule: an attachment this agent cannot be sent, or one over the
-   * cap, throws before anything is drawn — so a person sees their own message
-   * still theirs to send with a sentence saying why, rather than a sent row
-   * whose picture the model never got.
-   *
-   * THE ROW CARRIES WHAT IT WAS HANDED ({@link PersonSaid.extra}) — the same
-   * row whether it was minted a moment ago or restored from the caller's
-   * store, which is why "send again" on an old message works: the files are
-   * read off their paths either way. A browser keeps its own thumbnail for the
-   * rows it minted this session; no picture rides this wire.
-   *
-   * STEERING IS THE ASKED-FOR EXCEPTION, and every condition on it is a
-   * condition on the ASK: somebody made the gesture, the agent advertised that
-   * it takes one, this conversation has not spent its latch, and there is a
-   * turn in flight to put the words in. Any of those missing and this is a
-   * plain prompt. An agent that advertises steering but promises NO queue
-   * takes a busy send through steering whether it was asked for or not — a
-   * second ordinary prompt can overwrite such an agent's pending turn, leaving
-   * the first request unanswered forever (olai measured it on opencode).
-   *
-   * AND A MESSAGE WITH FILES ON IT IS NEVER STEERED, whoever asked: the steer
-   * carries one text block, so steering it would deliver the words and drop
-   * the files. The words and the files go together the ordinary way instead.
+   * An agent that advertises steering but promises NO queue takes a busy send
+   * through steering whether it was asked for or not — a second ordinary
+   * prompt can overwrite such an agent's pending turn, leaving the first
+   * request unanswered forever (olai measured it on opencode).
    */
   const prompt = async (
     said: PersonSaid<Row>,
@@ -2117,10 +1467,6 @@ export const startHarness = async <Row extends AnyRow>(
     const attached = await blocksOf(said.files, carries);
     const { key, change } = transcript.user(said.text, said.extra);
     report(change);
-    // WHICH turn a steer is aimed at, read and KEPT: by the time it answers,
-    // that turn may be over. The one the agent is working on, which is the
-    // oldest — the ones behind it have not started, and interrupting a turn
-    // that has not started is nothing at all.
     const aimed = turns.head;
     const body = bodyOf(said.body);
     if (
@@ -2137,33 +1483,20 @@ export const startHarness = async <Row extends AnyRow>(
       // queues rather than vanishes.
       attached.length === 0
     ) {
-      // The row is on screen before the round trip: a steer takes a deadline,
-      // and a person's words must not wait on it to be drawn.
       publish();
       const went = await steerInto(key, body, aimed);
-      // A steer that LANDED starts nothing here — the words are in a turn this
-      // file already owns — so no ticket and no queued mark.
-      if (went === "handled") return { rowId: key };
+      if (went === "absorbed") return { rowId: key };
     }
     send(key, body, [{ type: "text", text: body }, ...attached]);
     return { rowId: key };
   };
 
-  /** A TURN THIS END STARTS — nobody typed it. A prompt in every way that
-   *  matters: the standing prompt rides it if it is the first message of the
-   *  conversation, it waits behind whatever is running, and its row takes
-   *  every delivery mark a person's does. It is never steered: such words are
-   *  ABOUT a world that has moved, and a turn that is still working will be
-   *  told when it ends. */
   const hostTurn = async (
     row: RowContent<Row>,
     text: string,
   ): Promise<{ rowId: string }> => {
     inConversation();
     const { key, change } = transcript.write(row);
-    // ... and the class is told that THIS row takes a turn's delivery marks,
-    // which is the one thing it cannot read off a row whose kind is the
-    // caller's own word.
     hostRows.add(key);
     report(change);
     const body = bodyOf(text);
@@ -2171,23 +1504,6 @@ export const startHarness = async <Row extends AnyRow>(
     return { rowId: key };
   };
 
-  /**
-   * THAT ROW, SENT AGAIN — the gesture a refused message offers.
-   *
-   * The row is the one already on screen: it is marked waiting, taken, sent or
-   * refused again exactly as a fresh prompt's row would be, and nothing new is
-   * minted. What goes on the wire is the caller's again, because a product
-   * that wrote something above the words the first time writes it again, and
-   * the files are named afresh for the same reason — a path the row carries
-   * may be gone, and the bytes are read at this moment rather than the last
-   * one.
-   *
-   * THE GATE IS THE TRANSCRIPT'S OWN BOOKKEEPING: a row is re-sendable only
-   * while it is holding an undelivered prompt ({@link Transcript.undelivered}),
-   * which is exactly a row the agent REFUSED and has not since taken. A row
-   * that went, a row nothing ever answered about, and a row this conversation
-   * never minted are all refused by name.
-   */
   const sendAgain = async (
     rowId: string,
     body: string,
@@ -2201,19 +1517,11 @@ export const startHarness = async <Row extends AnyRow>(
         false,
       );
     }
-    // THE BLOCKS BEFORE THE ROW MOVES, which is the refusal rule every send
-    // keeps: a file that cannot travel refuses here, and the row stays exactly
-    // as it was — still the person's, still offering the same gesture.
     const attached = await blocksOf(files, carries);
-    // THE PRESS IS ANSWERED AT ONCE: the row stops saying it was not sent
-    // the moment it goes again, rather than when the turn it starts ends.
     report(transcript.sent(rowId));
     send(rowId, body, [{ type: "text", text: body }, ...attached]);
   };
 
-  /** THE CONVERSATIONS THIS ENGINE HAS STORED, asked of the process already
-   *  running. Refused rather than spawned for: a second adapter is a second
-   *  handshake and a second credential read for a list this one can answer. */
   const sessions = async (): Promise<ReadonlyArray<Stored>> => {
     if (!alive()) throw new HarnessUnavailable("the agent is not running");
     return await run(agent.sessions);
@@ -2221,10 +1529,6 @@ export const startHarness = async <Row extends AnyRow>(
 
   const cancel = async (): Promise<void> => {
     if (!alive() || sessionId === null) return;
-    // ... and every ticket in flight remembers being stopped, which is what a
-    // steer still on the wire is read against ({@link steerInto}). The
-    // questions the turn was holding go back unanswered at the client, which
-    // is where the promise each of them is lives.
     turns.stopping();
     cancelSaid = false;
     try {
@@ -2246,68 +1550,23 @@ export const startHarness = async <Row extends AnyRow>(
   };
 
   const newSession = async (): Promise<void> => {
-    // A LIVE AGENT, NOT AN OPEN CONVERSATION: after a bring-up the agent
-    // refused for want of a signature the process is kept and no conversation
-    // is open, and asking for a new one is how a product opens the first.
     if (!alive()) throw new HarnessUnavailable("the agent is not running");
-    // THE ROWS GO INSTEAD OF A BREAK, for a product that clears: a new session
-    // and the wipe beside it are then the same movement, and the wipe is the
-    // one that already holds every rule about the order it happens in
-    // ({@link clearSession}). Nothing of the caller's own is held, because a
-    // product that clears keeps no rows this instance did not mint.
     if (options.whenNewSession === "clear") {
       await clearSession([]);
       return;
     }
-    // THE HISTORY STAYS — which is the whole of what separates this verb from
-    // the wipe beside it. A conversation ends and another begins in ONE
-    // transcript, with the divider between them; that is the product. The
-    // counters are monotonic for the life of the process, so the divider and
-    // everything after it sorts below what is already there.
-    const mark = divider("new session");
+    const mark = transcript.writeBreak("new session");
     report(mark.change);
     try {
-      // The conversation just left is ENDED at the agent before the next one is
-      // opened, rather than left running beside it: the client closes it.
       await run(agent.newSession);
     } catch (cause) {
-      // A BREAK THAT BROKE NOTHING COMES BACK OUT. The divider says one thing
-      // — the agent's memory was reset — and a conversation that would not
-      // open has reset nothing a reader needs told about. Left standing, it is
-      // also what a retry stacks on: the owner's screenshot was four
-      // `— NEW SESSION —` lines with no conversation between them, one per
-      // attempt, over a host whose adapter would not open a session.
       if (mark.key !== null) report(transcript.remove(mark.key));
-      // SAID BEFORE IT IS THROWN: a conversation that would not open leaves a
-      // panel with a composer and nothing to explain it, and the caller's own
-      // error reaches a log rather than this screen.
       refusedOpen(cause);
       throw cause;
     }
     publish();
   };
 
-  /**
-   * ... AND THE WIPE BESIDE IT: the agent's memory is reset AND the
-   * conversation is deleted. Two verbs rather than one with a flag, because
-   * what a person loses is the whole difference between them.
-   *
-   * IT LIVES HERE, not at the caller, because the rows are this harness's and
-   * so is everything kept beside them — which call has been named, what each
-   * was armed with, which deaths have been announced, which calls a turn
-   * walked away from. A caller that emptied its own mirror of the rows left
-   * that standing, and the next conversation's first tool call (an agent
-   * numbers them from one again) landed on a row still held here, said
-   * nothing new, and reached nobody.
-   *
-   * NO DIVIDER IS MINTED: a break is drawn between two conversations a reader
-   * can see, and this one leaves nothing above it to divide.
-   *
-   * THE ROWS GO LAST, once the next conversation is open — an open that is
-   * refused has reset nothing, and a wipe that ran anyway would have traded a
-   * transcript for a failure. `held` is the ids the caller holds that this
-   * instance never minted ({@link Transcript.clear}).
-   */
   const clearSession = async (held: ReadonlyArray<string>): Promise<void> => {
     if (!alive()) throw new HarnessUnavailable("the agent is not running");
     try {
@@ -2320,36 +1579,10 @@ export const startHarness = async <Row extends AnyRow>(
     publish();
   };
 
-  /**
-   * MOVE TO ANOTHER CONVERSATION WITHOUT LEAVING THIS PROCESS.
-   *
-   * The agent is already running, already signed in and already holding its
-   * hands; a product that switched by stopping this harness and starting
-   * another would pay for a spawn, a handshake and a credential read to read a
-   * conversation the process on the other end of the pipe can simply load.
-   *
-   * WHAT IT DOES TO THE TRANSCRIPT is what a new session does
-   * ({@link HarnessOptions.whenNewSession}): a product that DIVIDES gets the
-   * break between the two — the one that would not open takes its mark back
-   * out, the same rule {@link newSession} keeps — and one that CLEARS gets the
-   * rows of the conversation it left taken away once the next one is open. The
-   * replay the agent then sends is {@link HarnessOptions.whenReplayed}'s, and
-   * a conversation this agent does not have is
-   * {@link HarnessOptions.whenLoadRefused}'s, exactly as at the bring-up.
-   */
   const loadSession = async (id: string): Promise<void> => {
     if (!alive()) throw new HarnessUnavailable("the agent is not running");
-    // THE ROWS GO FIRST for a product that CLEARS, which is the one place the
-    // order differs from the wipe beside it ({@link clearSession}): the
-    // conversation being loaded REPLAYS itself as it opens, and a wipe that
-    // ran afterwards would take that replay — the only copy such a product
-    // has of the chat it has just moved to — away with the one it left. What
-    // it costs is a panel left empty by a load that is then refused, and that
-    // refusal is something the product is told about
-    // ({@link HarnessOptions.whenLoadRefused}) rather than a transcript
-    // nobody can see.
     if (options.whenNewSession === "clear") report(transcript.clear([]));
-    const mark = divider("new session");
+    const mark = transcript.writeBreak("new session");
     report(mark.change);
     try {
       await load(id);
@@ -2366,11 +1599,6 @@ export const startHarness = async <Row extends AnyRow>(
    * one: a select's value is the row's own id and a BOOLEAN is a boolean — the
    * pinned Claude adapter refuses the string `"true"` for its FAST MODE toggle
    * outright (`Invalid value for config option fast`).
-   *
-   * The string stays padi's whole vocabulary: a wire that carried two value
-   * types would be a second thing for every layer above to get right, and the
-   * one end that knows which settings are booleans is this one — it read the
-   * advertisement.
    */
   const settingValueOf = (id: string, value: string): string | boolean => {
     const option = settings.find((one) => one.id === id);
@@ -2385,19 +1613,10 @@ export const startHarness = async <Row extends AnyRow>(
     return value === "true";
   };
 
-  /** RUN ONE OF THE ADVERTISED METHODS, and take the whole offer down if it
-   *  worked: exit 0 is the whole of "it worked" for every one of these CLIs,
-   *  and a chooser left standing over an agent somebody has just signed into
-   *  is a row that invites a second login. */
   const signIn = async (method: string): Promise<SignedIn> => {
     if (!alive()) throw new HarnessUnavailable("the agent is not running");
     cancelling = false;
     const ended = await run(agent.signIn(method));
-    // A CANCEL THAT LOST THE RACE IS NOT AN ENDING. The login command exited
-    // 0, which means the credential store has already been written: calling
-    // that `cancelled` tells the caller there is nothing to restart for, and
-    // the running agent then keeps the signature it started with for ever
-    // while the store holds a different one.
     const said = cancelling && ended !== "signed-in" ? "cancelled" : ended;
     cancelling = false;
     if (ended === "signed-in") cause = null;
@@ -2405,15 +1624,7 @@ export const startHarness = async <Row extends AnyRow>(
     return said;
   };
 
-  /** ... and stopping it — or, for a row a PERSON asked for, closing it: a
-   *  sign-in somebody asked for and then thought better of leaves everything
-   *  as it was. The agent's own offer stays, with its methods, because the
-   *  refusal behind it still stands. The boolean is whether there was anything
-   *  to stop: a cancel with nothing behind it is a stale tab, not a failure. */
   const signInCancel = async (): Promise<boolean> => {
-    // Set BEFORE the stop, because the verb above reads it on its way out:
-    // which of the two endings an attempt had depends on whether a PERSON
-    // asked, and this is the only moment that is known.
     cancelling = true;
     const stopping = await run(agent.signInCancel);
     if (cause?.kind === "person") {
@@ -2426,15 +1637,7 @@ export const startHarness = async <Row extends AnyRow>(
   };
 
   const stop = async (reason: StopReason): Promise<void> => {
-    // NOTHING MORE IS PUBLISHED FROM HERE, which is what `stopped` buys on its
-    // way through {@link report} and {@link publish}: a turn still on the wire
-    // ends somewhere inside the awaits below, its questions go back
-    // withdrawn, and every one of those rows would be a row padi writes to
-    // disk for a conversation the daemon has already let go. The one frame a
-    // shutdown owes a reader is the last line of this function, sent by hand.
     stopped = true;
-    // Leaving is the agent's first — its questions go back unanswered and the
-    // session is closed AT the agent — and then the rows this half owns.
     await run(agent.stopWithReason(reason));
     leaving();
     identity = null;
@@ -2456,8 +1659,6 @@ export const startHarness = async <Row extends AnyRow>(
     cancel,
     answer,
     signIn,
-    /** A person asks, signed in or not. An offer already on screen — the
-     *  agent's own, or a running attempt — is left exactly as it is. */
     askSignIn: () => {
       if (stopped || signInRow() !== null) return;
       cause = askedFor();
@@ -2475,22 +1676,6 @@ export const startHarness = async <Row extends AnyRow>(
   };
 };
 
-/**
- * WHAT A MESSAGE'S FILES GO ON THE WIRE AS — one ACP content block each,
- * chosen by what the file IS and refused when this agent cannot take it.
- *
- * Three kinds, because ACP has three and each is opt-in differently: an image
- * travels as base64 beside its mime type and needs the agent's
- * `promptCapabilities.image`; a text-like file travels as a `resource` with
- * its text embedded and needs `embeddedContext`; anything else travels as a
- * `resource_link` naming the absolute path the product wrote it to, which
- * every agent must accept and which an agent with a shell can go and read.
- *
- * REFUSED, NEVER DROPPED. An attachment the agent did not advertise for is a
- * sentence naming the capability, and the caps are sentences naming the limit:
- * a picture that silently did not travel is a person asking a model about an
- * image it was never shown, and no answer to that is worth one.
- */
 const blocksOf = async (
   attachments: ReadonlyArray<PromptFile>,
   carries: { readonly image: boolean; readonly embeddedContext: boolean },
@@ -2515,15 +1700,11 @@ const blocksOf = async (
         false,
       );
     }
-    // ONE AT A TIME rather than in parallel: the blocks ride the prompt in
-    // the order a person attached them, and a refusal further down the list
-    // should not have started reads nobody will use.
     blocks.push(await blockOf(one, carries));
   }
   return blocks;
 };
 
-/** One attachment as the block it belongs in. */
 const blockOf = async (
   one: PromptFile,
   carries: { readonly image: boolean; readonly embeddedContext: boolean },
@@ -2571,36 +1752,15 @@ const blockOf = async (
   };
 };
 
-/** The mime types that are TEXT without saying `text/` — the three a person
- *  really drops on a chat window. Everything else keeps its bytes and travels
- *  as a link: a PDF embedded as "text" is mojibake with a filename on it. */
 const TEXT_LIKE: Readonly<Record<string, true>> = {
   "application/json": true,
   "application/xml": true,
   "application/javascript": true,
 };
 
-/** The type WITHOUT its parameters — a browser hands over
- *  `text/plain;charset=utf-8`, and a rule that compared the whole string would
- *  send the commonest text file there is as an opaque link. */
 const essenceOf = (mimeType: string): string =>
   (mimeType.split(";")[0] ?? mimeType).trim().toLowerCase();
 
-/**
- * THE BYTES, read off the file the product wrote.
- *
- * THE FILE IS THE ONLY SOURCE, and that is the point rather than an economy:
- * the base64 cannot ride the `prompt` frame — an oversized frame does not
- * fail the call, it closes the tab's socket — so a browser uploads in
- * chunks and hands this end a path. It is also what makes a RESTORED row
- * sendable: a row read back out of a store has a path and nothing else, and a
- * harness that wanted a `data:` URL refused every "send again" on an old
- * message.
- *
- * A file that is not there is a REFUSAL naming it, not a throw inside a
- * protocol callback: the attachment was swept, or the state root moved, and a
- * person who is told which file is missing can attach it again.
- */
 const bytesOf = async (one: PromptFile): Promise<Buffer> => {
   try {
     return await readFile(one.path);
@@ -2614,12 +1774,7 @@ const bytesOf = async (one: PromptFile): Promise<Buffer> => {
   }
 };
 
-/** Where the agent can go and find it. A `resource` and a `resource_link` both
- *  NAME the file — the protocol has no block for either without a uri — and
- *  the name is the product's own copy of it, which is the only path that
- *  exists on the host the agent is running on. */
 const uriOf = (one: PromptFile): string => `file://${one.path}`;
 
-/** A size a person reads, for the two refusals that name one. */
 const sized = (bytes: number): string =>
   `${(bytes / (1024 * 1024)).toFixed(1).replace(/\.0$/, "")} MiB`;

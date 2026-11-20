@@ -1,30 +1,12 @@
-/**
- * THE HELD LIST, over values — the rules both products lean on, in one suite.
- *
- * Nothing here needs an agent, a socket or a panel: the list is a bounded,
- * coalescing set with an identity-based take, and every rule is reachable by
- * calling it. What the product suites add is the ARRIVAL of bodies from a real
- * turn; what this adds is what the list does with them.
- *
- * TWO PRODUCT SHAPES, deliberately, because they are the reason this file is
- * one file: kolu holds one body per watched terminal for ONE conversation with
- * no caps at all, and olai holds any number of bodies per plugin for any number
- * of conversations and bounds both axes. Both are configured here.
- */
-
 import { describe, expect, it } from "vitest";
 import { type Held, holding, joined, type Slot } from "./holding.ts";
 
-/** kolu's shape: one conversation, one slot per sender, no caps. kolu names the
- *  SENDER as its own coalescing key — one slot per watched terminal, newest news
- *  only — which is what a doorbell that re-derives its sentence wants. */
 const one = <T>(): Held<string, T> =>
   holding<string, T>({ keyOf: () => "the conversation" });
 
 const holdOne = <T>(held: Held<string, T>, ref: string, value: T): void =>
   held.hold(HERE, ref, value, ref);
 
-/** olai's shape: a conversation per agent and session, both caps named. */
 const many = (): Held<{ agent: string; session: string }, string> =>
   holding<{ agent: string; session: string }, string>({
     keyOf: (to) => `${to.agent}\0${to.session}`,
@@ -46,9 +28,6 @@ describe("where a body goes in the list", () => {
   });
 
   it("REPLACES IN PLACE: the newest under one key sits where the first one sat", () => {
-    // A terminal that stopped and then went away is ONE subject with newer news.
-    // Appending would walk it to the back of a queue it has been at the front of
-    // since the start, and a body would be read after one that arrived later.
     const held = one<string>();
     holdOne(held, "t1", "stopped");
     holdOne(held, "t2", "needs you");
@@ -89,9 +68,6 @@ describe("taking what was handed over", () => {
   });
 
   it("takes BY IDENTITY, so a replace that overtook the flush survives", () => {
-    // The body that was on the wire is the one that landed. The one that
-    // replaced it in that position while the flush was out was never seen by
-    // anybody, and taking it would drop words nobody read.
     const held = one<string>();
     held.hold(HERE, "t1", "one", undefined);
     const flushed = held.waiting(HERE);
@@ -108,16 +84,12 @@ describe("taking what was handed over", () => {
     held.hold(to, "p", "one", undefined);
     held.took(to, held.waiting(to));
     expect(held.waiting(to)).toEqual([]);
-    // ... which is what keeps an emptied conversation from occupying one of the
-    // conversations the cap allows.
     expect(held.refs(to)).toEqual([]);
   });
 });
 
 describe("the four verbs a single-conversation caller asks for", () => {
   it("knows whether a sender has anything waiting", () => {
-    // Read by a caller putting back a body whose delivery failed: newer news
-    // must win over the retry.
     const held = one<string>();
     expect(held.has(HERE, "t1")).toBe(false);
     held.hold(HERE, "t1", "stopped", undefined);
@@ -139,8 +111,6 @@ describe("the four verbs a single-conversation caller asks for", () => {
   });
 
   it("WITHDRAWS one sender's body and says whether anything went", () => {
-    // The one verb a caller reaches for on its own initiative: a terminal that
-    // went back to working has stopped standing the way its news described.
     const held = one<string>();
     held.hold(HERE, "t1", "stopped", undefined);
     expect(held.withdraw(HERE, "t1")).toBe(true);
@@ -211,7 +181,6 @@ describe("the caps, which are counts and not policies", () => {
     const third = { agent: "c", session: "s" };
     held.hold(first, "p", "one", undefined);
     held.hold(second, "p", "two", undefined);
-    // touching the first again makes the SECOND the oldest
     held.hold(first, "p", "one again", "again");
     held.hold(third, "p", "three", undefined);
     expect(held.waiting(second)).toEqual([]);
@@ -238,8 +207,6 @@ describe("the bodies as one message", () => {
   });
 
   it("leaves out a body that lost its subject, and says nothing when all did", () => {
-    // Asked at the moment the row is written: a body that waited through a turn
-    // is about a world that has had a turn to move.
     const slots: ReadonlyArray<Slot<string | null>> = [
       { from: "p", value: null, under: undefined },
       { from: "q", value: "", under: undefined },

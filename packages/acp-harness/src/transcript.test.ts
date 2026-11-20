@@ -1,21 +1,7 @@
-/**
- * A FAILED CALL SAYS WHY ONCE.
- *
- * The adapter reports a call twice: the arming frame carries its arguments, the
- * settling frame its answer — and for a failed call that answer is the error,
- * which the call's content already carries as the reason the card shows. So
- * the folded JSON under a failed call is what was ASKED, never the error again.
- */
-
 import { describe, expect, it } from "vitest";
-import { type FixtureRow, published } from "./rows.testlib.ts";
+import { decodedAsServer, type FixtureRow } from "./rows.testlib.ts";
 import { isTaskOut, Transcript } from "./transcript";
 
-/** A CONVERSATION LIKE KOLU'S CONDUCTOR'S, spelled in the fixture product's
- *  own rows ({@link ./rows.testlib.ts}): a turn the host started is a delivery
- *  like a person's, the break between two conversations is a row, and a wipe
- *  lets the counters run on because this product's `seq` is written to a
- *  store. */
 const conversation = (from = 0): Transcript<FixtureRow> =>
   new Transcript<FixtureRow>({
     from,
@@ -32,13 +18,10 @@ const detailOf = (rows: ReadonlyArray<FixtureRow>): string | undefined => {
   return row?.kind === "tool" ? row.detail : undefined;
 };
 
-/** What the class minted, decoded the way a server decodes it — strictly, so
- *  a field the contract does not declare is red here (`./rows.testlib.ts`). */
 const rowsOf = (
   transcript: Transcript<FixtureRow>,
-): ReadonlyArray<FixtureRow> => transcript.rows().map(published);
+): ReadonlyArray<FixtureRow> => transcript.rows().map(decodedAsServer);
 
-/** One call, armed with its input, then settled with `status` and its answer. */
 const settle = (
   status: "completed" | "failed",
   progress: string | undefined,
@@ -64,7 +47,6 @@ describe("the folded JSON of a call", () => {
   });
 
   it("keeps the answer for a failure that said nothing else", () => {
-    // Its answer is then the only place the error is.
     expect(detailOf(settle("failed", undefined))).toBe(ANSWER);
   });
 
@@ -74,9 +56,6 @@ describe("the folded JSON of a call", () => {
 });
 
 describe("the wipe", () => {
-  /** One call, reported exactly as it was reported before — which is what an
-   *  agent does in its NEXT conversation: call ids are numbered inside a
-   *  session and the next session starts at one again. */
   const armed = {
     title: "Bash",
     status: "completed",
@@ -89,20 +68,11 @@ describe("the wipe", () => {
     transcript.tool("c1", armed);
     const wiped = transcript.clear(["user:1"]);
 
-    // The caller's `user:1` is a row this instance never minted — read back
-    // out of a store at boot, or minted by the harness this one replaced —
-    // and one wipe has to empty both ends of one conversation.
     expect(wiped.removes).toEqual(["tool:c1", "user:1"]);
     expect(rowsOf(transcript)).toEqual([]);
   });
 
   it("forgets the calls, so the next conversation's are reported again", () => {
-    // THE DEFECT THIS PINS. The rows were emptied at the CALLER and
-    // everything kept beside them here — the picked name, the arguments, the
-    // deaths announced, the calls a turn walked away from — stood. So the
-    // next conversation's first call was "a repeat" of a row nobody was
-    // holding any more: no upsert, and a panel a person had just emptied
-    // stayed empty through a turn that really ran.
     const transcript = conversation();
     transcript.tool("c1", armed);
     transcript.clear([]);
@@ -114,8 +84,6 @@ describe("the wipe", () => {
   });
 
   it("mints PAST the conversation it deleted", () => {
-    // The counters do not go back: a row minted after the wipe must not sort
-    // above — or collide with — one a reader is still holding.
     const transcript = conversation();
     transcript.tool("c1", armed);
     const before = rowsOf(transcript)[0]?.seq ?? 0;
@@ -125,30 +93,18 @@ describe("the wipe", () => {
   });
 
   it("leaves nothing for a break to divide", () => {
-    // A `— NEW SESSION —` over an empty transcript is a rule drawn between
-    // nothing and nothing, whether the emptiness is a fresh conversation's or
-    // a wiped one's.
     const transcript = conversation();
     transcript.tool("c1", armed);
     transcript.clear([]);
-    // The class answers the QUESTION the guard is made of; that no divider is
-    // minted over an empty transcript is pinned by `harness.test.ts`'s
-    // "a break minted for a fresh session that will not open comes back out" and
-    // its neighbours, which drive the conversation-side helper that asks this.
     expect(transcript.endsWithBreak()).toBe(true);
   });
 });
 
 describe("a refusal's mark, and how it comes off", () => {
-  /** The refusal mark a person's own words can carry: which sign-in would fix
-   *  it. */
   const signInOf = (row: FixtureRow | undefined): string | undefined =>
     row?.kind === "user" ? row.signIn : undefined;
 
   it("comes off when the message goes after all", () => {
-    // THE DOOR A REFUSED MESSAGE OFFERS MUST NOT OUTLIVE THE REFUSAL: a row
-    // that says "sign in to send this" about a message the agent already has
-    // is the panel asking for something nobody needs.
     const transcript = conversation();
     const { key } = transcript.user("hello", {});
     transcript.refused(key, { signIn: "signed-out" });
@@ -156,7 +112,6 @@ describe("a refusal's mark, and how it comes off", () => {
 
     transcript.sent(key);
     expect(signInOf(rowsOf(transcript)[0])).toBeUndefined();
-    // ... and the delivery mark itself goes with it.
     expect(rowsOf(transcript)[0]).not.toHaveProperty("delivery");
   });
 
@@ -169,8 +124,6 @@ describe("a refusal's mark, and how it comes off", () => {
   });
 
   it("comes off when a later refusal has no reason of its own", () => {
-    // The SECOND refusal knows only that the agent said no. Whatever reason the
-    // first one had has stopped being the truth.
     const transcript = conversation();
     const { key } = transcript.user("hello", {});
     transcript.refused(key, { signIn: "signed-out" });
@@ -179,8 +132,6 @@ describe("a refusal's mark, and how it comes off", () => {
   });
 
   it("is not written onto a row that cannot carry one", () => {
-    // A notice is not the delivery of a turn, so it has no `delivery` and no
-    // sign-in door. Marking it would be a field no product's schema declares.
     const transcript = conversation();
     const { key } = transcript.write({
       kind: "notice",
@@ -193,20 +144,8 @@ describe("a refusal's mark, and how it comes off", () => {
   });
 });
 
-/**
- * SIX THINGS A CHAT LIKE KOLU'S DOES DIFFERENTLY NOW, each pinned here.
- *
- * The class took olai's behaviour wherever the two originals differed without a
- * reason to keep both, and every difference below is a change a person can see.
- * They are asserted against a row union with kolu's own SHAPE (via
- * {@link published}), so the behaviour is the class's to keep — not a side
- * effect of olai's row type.
- */
 describe("what changed for a chat like kolu's", () => {
   it("says a failed subagent ended, when nothing else would say it", () => {
-    // A SYNCHRONOUS subagent arms no task, so its own status is the whole of
-    // what happened — and its calls are filed under it, so the row that failed
-    // is the only trace. One line at the bottom, and the row keeps its ending.
     const transcript = conversation();
     transcript.tool("call-1", {
       title: "survey the package",
@@ -224,9 +163,6 @@ describe("what changed for a chat like kolu's", () => {
   });
 
   it("says a death in the harness's own words, and lets a later sentence replace them", () => {
-    // A background shell's exit code arrives on the frame AFTER the one that
-    // ends the task, and it is the sentence a person needs. The first line is
-    // refined rather than a second row minted.
     const transcript = conversation();
     transcript.tool("call-1", {
       title: "watch the build",
@@ -263,9 +199,6 @@ describe("what changed for a chat like kolu's", () => {
   });
 
   it("names an undescribed subagent by its row's title", () => {
-    // The adapter titles a subagent call with the TOOL's name, so four of them
-    // read *the agent "Task" ended* — a line that says something went wrong and
-    // refuses to say which. The row's own title is the name a reader knows.
     const transcript = conversation();
     transcript.tool("a", {
       title: "count the markdown files",
@@ -279,9 +212,6 @@ describe("what changed for a chat like kolu's", () => {
   });
 
   it("does not end the paragraph for a frame that only reports a known task's life", () => {
-    // The call was made an hour ago; this frame is the harness reporting its
-    // end. Cutting the answer in half around a notice is one paragraph drawn as
-    // two, with the notice wedged between.
     const transcript = conversation();
     transcript.tool("call-1", {
       title: "watch the build",
@@ -313,8 +243,6 @@ describe("what changed for a chat like kolu's", () => {
   });
 
   it("shows a call's id when the agent never named it", () => {
-    // A row with no title at all was a nameless card; the id at least says
-    // WHICH call it is.
     const transcript = conversation();
     transcript.tool("toolu_01", { status: "in_progress" });
     expect(rowsOf(transcript)[0]).toMatchObject({
@@ -324,8 +252,6 @@ describe("what changed for a chat like kolu's", () => {
   });
 
   it("keeps a failed call's answer as its detail when no arguments were recorded", () => {
-    // The answer is then the only place the error is. With the arguments
-    // recorded (the case at the top of this file) the detail is what was ASKED.
     const transcript = conversation();
     transcript.tool("call-1", { status: "in_progress", detail: ANSWER });
     transcript.tool("call-1", { status: "failed", progress: "it broke" });
@@ -333,13 +259,6 @@ describe("what changed for a chat like kolu's", () => {
   });
 });
 
-/**
- * A CALL THE AGENT WALKED AWAY FROM, on this chat's own rows. The mark is the
- * one thing a reader cannot see for itself — the status stays whatever the
- * agent last said — and it has to survive the strict decode of a product that
- * is not olai: a field the harness writes and the product's contract does not
- * declare is a card the browser never draws.
- */
 describe("a call still out when the turn ends", () => {
   it("is marked, with the status the agent left on it", () => {
     const transcript = conversation();
@@ -366,11 +285,6 @@ describe("a call still out when the turn ends", () => {
   });
 });
 
-/**
- * THE ONE RULE BOTH PRODUCTS ASK — exported beside the class because each of
- * them was spelling it, and a rail that goes out under a clock that goes on
- * counting is what two spellings look like on a screen.
- */
 describe("whether a background task is still out", () => {
   const row = (over: {
     armed?: {
@@ -412,15 +326,11 @@ describe("whether a background task is still out", () => {
   });
 
   it("is not out once the CALL is over, whatever the task said", () => {
-    // A cancelled turn resolves what it left outstanding, and a task whose
-    // call is over is not a task anybody will hear about again.
     expect(isTaskOut(row({ status: "completed" }))).toBe(false);
     expect(isTaskOut(row({ status: "failed" }))).toBe(false);
   });
 
   it("is not out on a row the turn walked away from", () => {
-    // The mark says nothing is ever going to report on this call, which is
-    // the same thing as the task no longer being out.
     expect(isTaskOut(row({ stranded: true }))).toBe(false);
   });
 
