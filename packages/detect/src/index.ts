@@ -1,37 +1,4 @@
 /**
- * Is there a USABLE kolu on this host — and if not, why not?
- *
- * An app that wants to hand its coding agent kolu's terminals spawns
- * `kolu mcp` as an MCP server. The question it has to answer first is not "is
- * `kolu` installed"; it is "will the kolu that a spawn from HERE resolves to
- * actually serve a live workspace". Those come apart in ways that all look
- * identical from outside, and each of them shipped as a real incident:
- *
- *   - **A path is not evidence.** A kolu terminal prepends its own bundled
- *     copy to `PATH`, and one of those was an older build reporting the same
- *     version string while missing most of the verbs
- *     ([#2146](https://github.com/juspay/kolu/issues/2146), fixed by #2147).
- *     The lesson outlives the fix, because the wrong build still SPAWNS.
- *   - **A handshake is not evidence either.** `kolu mcp` completes
- *     `initialize`, lists every tool and lists its resources with NO daemon
- *     behind it at all ([#2148](https://github.com/juspay/kolu/issues/2148)).
- *     Only READING a cell the daemon owns separates a live workspace from a
- *     process that will fail every call it just advertised.
- *   - **The PATH that matters is the spawner's.** A server started as a
- *     systemd user service does not inherit the PATH its user types at, so a
- *     kolu that is plainly installed can be invisible to the process that
- *     needs it — the whole shape of one long mystery.
- *
- * So {@link detect} resolves the executable, STARTS it, handshakes, and asks
- * it to read {@link IDENTITY_RESOURCE} — padi's own identity (the commit it
- * runs, when it booted), which a kolu that reached no daemon cannot produce.
- * An answer is evidence of both halves at once: this binary speaks the
- * protocol, and a padi is behind it. The probe is never a client — it is
- * killed either way, and the caller spawns its own server afterwards, at the
- * ABSOLUTE PATH that answered rather than the bare word (handing over the word
- * would let the caller resolve it against a different PATH and get a different
- * build than the one that passed).
- *
  * ## What this module does NOT decide
  *
  * It reports; it does not editorialize. Every no is a VALUE naming which no it
@@ -179,10 +146,6 @@ export async function detect(options: DetectOptions = {}): Promise<Detected> {
   };
 }
 
-/** The first executable file by that name on `path`, or `null`. The PATH is a
- *  PARAMETER rather than read here: the caller's live one is the fact that
- *  matters (see the module doc), and a test needs to replace it wholesale
- *  rather than prepend to a developer machine's own. */
 async function onPath(name: string, path: string): Promise<string | null> {
   for (const dir of path.split(delimiter)) {
     if (dir === "") continue;
@@ -200,9 +163,6 @@ async function onPath(name: string, path: string): Promise<string | null> {
   return null;
 }
 
-/** Start it and ask, killing it either way. Separate from {@link probe}
- *  because a file that will not EXEC fails on a different axis than a
- *  conversation does — see the race below. */
 async function probeCommand(
   command: string,
   env: Readonly<Record<string, string>>,
@@ -243,16 +203,11 @@ async function probeCommand(
   return await Promise.race([unstartable(child), probe(child, deadlineMs)]);
 }
 
-/** This process's environment MINUS the one variable a probe must never pick
- *  up by accident — see the spawn above for why. Everything else is inherited
- *  unchanged: a `kolu` needs a real environment to run in, and this module has
- *  no opinion about the rest of it. */
 function ambientEnv(): NodeJS.ProcessEnv {
   const { [PADI_SOCKET_ENV]: _inherited, ...rest } = process.env;
   return rest;
 }
 
-/** Why this child never ran — a promise that settles ONLY if it did not. */
 const unstartable = (child: ChildProcess): Promise<ProbeFailure> =>
   new Promise((resolve) => {
     child.once("error", (cause) =>
@@ -286,8 +241,6 @@ export async function probe(
     };
   }
 
-  /** Whether the deadline is what ended this, so the closed pipe below reads
-   *  as the timeout it is rather than as a server that hung up. */
   let expired = false;
   const deadline = setTimeout(() => {
     expired = true;
@@ -306,8 +259,6 @@ export async function probe(
     let buffered = "";
     for await (const chunk of stdout) {
       buffered += String(chunk);
-      // Line-delimited JSON. The trailing element is a partial line (or "")
-      // and stays in the buffer until its newline arrives.
       const lines = buffered.split("\n");
       buffered = lines.pop() ?? "";
       for (const line of lines) {
@@ -324,7 +275,6 @@ export async function probe(
   }
 }
 
-/** The handshake plus the one question. */
 const conversation = (): ReadonlyArray<unknown> => [
   {
     jsonrpc: "2.0",
@@ -345,15 +295,6 @@ const conversation = (): ReadonlyArray<unknown> => [
   },
 ];
 
-/** What one output line decides, or `null` when it decides nothing (a
- *  notification, a reply to the handshake, a line that isn't JSON at all —
- *  a binary that is not kolu produces those, and the deadline is what ends
- *  the wait for an answer that never comes).
- *
- *  A message under {@link PROBE_ID} is OURS whether it succeeded or refused,
- *  and a refusal is a verdict rather than noise: it is what a kolu that
- *  reached no daemon sends, which is the case this whole module exists to
- *  tell apart from a working one. */
 function verdictIn(line: string): Probe | null {
   if (line.trim() === "") return null;
   let message: unknown;
@@ -378,7 +319,5 @@ function verdictIn(line: string): Probe | null {
   };
 }
 
-/** The sentence inside an unknown throw, without deciding how to word the
- *  failure it belongs to — that is the caller's. */
 const reasonOf = (cause: unknown): string =>
   cause instanceof Error ? cause.message : String(cause);

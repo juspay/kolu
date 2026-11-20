@@ -1,18 +1,3 @@
-/**
- * What counts as "a usable kolu is on this host", against real subprocesses.
- *
- * The detection is a probe, so the fixtures are EXECUTABLES: a `kolu` written
- * into a directory this test hands to `detect` as its PATH, answering the way
- * a real one would. Nothing here talks to a padi daemon — what is asserted is
- * the RULE, and the rule is that only an answered identity read counts.
- *
- * The middle case is the one that matters most, and the reason this package
- * exists rather than a version check: a `kolu` that speaks the protocol
- * perfectly and reaches no daemon is exactly what a stale bundled build looks
- * like (juspay/kolu#2146, and #2148 for why the handshake alone proves
- * nothing), and it must not become an app's MCP server.
- */
-
 import { spawn } from "node:child_process";
 import {
   chmodSync,
@@ -26,7 +11,6 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { detect, probe, PROBE_ID } from "./index.ts";
 
-/** Every directory this test made, removed after each case. */
 const made: string[] = [];
 afterEach(() => {
   for (const dir of made.splice(0)) {
@@ -34,19 +18,10 @@ afterEach(() => {
   }
 });
 
-/** A `kolu` in a directory of its own, running the given script under the
- *  interpreter this test is itself running under — so the fixture needs
- *  nothing on PATH, which is the one thing these cases are arranging. Returns
- *  the absolute path and the PATH to hand `detect`, which is that directory
- *  ALONE: a machine that really is running kolu (the ordinary one to develop
- *  this on) must not get to decide half of these cases. */
 function koluOnPath(body: string): { bin: string; path: string } {
   return fileOnPath(`#!${process.execPath}\n${body}`);
 }
 
-/** The same, for cases about the FILE rather than what it says — a program
- *  this host cannot run is one of the ways a `kolu` on PATH fails, and it
- *  cannot be written as a script this interpreter would accept. */
 function fileOnPath(contents: string): { bin: string; path: string } {
   const dir = mkdtempSync(join(tmpdir(), "kolu-detect-"));
   made.push(dir);
@@ -69,12 +44,6 @@ function fileOnPath(contents: string): { bin: string; path: string } {
 const ASKS = "resources/read";
 const ABOUT = "surface://cells/identity";
 
-/** A fixture answering the identity read the way the flag says: with what a
- *  live padi has, or with the error a kolu that reached no daemon sends. It
- *  answers NOTHING else, so a probe that stopped asking for the daemon's own
- *  cell fails these cases rather than passing them. It watches the bytes for
- *  those two strings rather than parsing frames — a substring watch is not a
- *  second framing implementation, and it is enough to say what was asked. */
 const script = (reachable: boolean): string => `
 const ANSWER = ${JSON.stringify(
   reachable
@@ -103,7 +72,6 @@ describe("detect — a usable kolu is a kolu that ANSWERED", () => {
     ).toEqual({
       _tag: "reachable",
       server: {
-        // The path that ANSWERED, absolute — not the word we looked up.
         command: bin,
         args: ["mcp"],
         env: { PADI_SOCKET: "/run/user/1000/padi-abc/padi.sock" },
@@ -118,10 +86,6 @@ describe("detect — a usable kolu is a kolu that ANSWERED", () => {
     expect(found._tag === "reachable" && found.server.env).toEqual({});
   });
 
-  // The case this package exists for: a kolu that speaks the protocol
-  // perfectly and reaches no daemon. It must be told apart from a working one,
-  // and it must carry the server's OWN words — the caller words the sentence,
-  // so the reason has to survive as data.
   it("a kolu that reached no padi is unreachable, carrying its own refusal", async () => {
     const { bin, path } = koluOnPath(script(false));
 
@@ -137,8 +101,6 @@ describe("detect — a usable kolu is a kolu that ANSWERED", () => {
       `process.stdout.write("hello from something else\\n")\nprocess.stdin.on("data", () => {})\n`,
     );
 
-    // A tenth of a second rather than the five-second default: the only way to
-    // exercise a deadline is to spend it, so the deadline is a parameter.
     const found = await detect({ path, deadlineMs: 150 });
     expect(found).toEqual({
       _tag: "unreachable",
@@ -172,7 +134,6 @@ describe("detect — a usable kolu is a kolu that ANSWERED", () => {
     expect(found._tag === "unreachable" && found.why._tag).toBe(
       "couldNotStart",
     );
-    // …and NOT the sentence about our own end of the pipe.
     expect(JSON.stringify(found)).not.toContain("EPIPE");
     expect(JSON.stringify(found)).not.toContain("write after end");
   });
@@ -191,8 +152,6 @@ describe("detect — a usable kolu is a kolu that ANSWERED", () => {
     writeFileSync(
       bin,
       `#!${process.execPath}\n` +
-        // Record what the child ACTUALLY inherited, then answer normally so
-        // this case also proves the strip does not break a working probe.
         `require("node:fs").writeFileSync(${JSON.stringify(sidecar)}, process.env.PADI_SOCKET ?? "<unset>")\n` +
         script(true),
     );
@@ -203,12 +162,10 @@ describe("detect — a usable kolu is a kolu that ANSWERED", () => {
     try {
       const found = await detect({ path: dir });
 
-      // The recipe says no socket travels…
       expect(found).toEqual({
         _tag: "reachable",
         server: { command: bin, args: ["mcp"], env: {} },
       });
-      // …so the child that produced that evidence must have seen none either.
       expect(readFileSync(sidecar, "utf8")).toBe("<unset>");
     } finally {
       if (before === undefined) delete process.env.PADI_SOCKET;
@@ -255,8 +212,6 @@ describe("detect — a usable kolu is a kolu that ANSWERED", () => {
     const dir = mkdtempSync(join(tmpdir(), "kolu-detect-"));
     made.push(dir);
 
-    // Whether an absence is worth reporting depends on facts kolu cannot see,
-    // so this arm carries no reason and no path: it is the caller's to judge.
     expect(await detect({ path: dir })).toEqual({ _tag: "notOnPath" });
   });
 
@@ -330,15 +285,10 @@ process.stdin.on("data", () => {
 `);
     const child = spawn(bin, ["mcp"], { stdio: ["pipe", "pipe", "ignore"] });
 
-    // `said: null` rather than an invented sentence — the caller decides what
-    // to say when the server said nothing.
     expect(await probe(child, 2_000)).toEqual({ _tag: "refused", said: null });
   });
 
   it("ignores everything that is not the answer to ITS request", async () => {
-    // Handshake replies, notifications and outright noise all arrive on the
-    // same pipe. Only the message under the probe's own id decides anything —
-    // an answer under a different id is not an answer.
     const { bin } = koluOnPath(`
 let heard = ""
 process.stdin.on("data", (chunk) => {
@@ -357,10 +307,6 @@ process.stdin.on("data", (chunk) => {
   });
 
   it("reads an answer split across chunk boundaries", async () => {
-    // ndjson framing: a line can arrive in pieces, and a chunk can carry more
-    // than one line. Writing the answer a byte at a time is the sharpest probe
-    // of the buffering, and a reader that treated each chunk as a whole line
-    // fails it.
     const { bin } = koluOnPath(`
 const ANSWER = JSON.stringify({ jsonrpc: "2.0", id: ${PROBE_ID}, result: { contents: [] } }) + "\\n"
 let heard = ""
