@@ -1,3 +1,4 @@
+import { createWindowSize } from "@solid-primitives/resize-observer";
 import Dialog from "@corvu/dialog";
 import { decodeHostKey } from "kolu-common/hostKey";
 import { fleetTerminalRef } from "kolu-mcp/fleetRef";
@@ -15,19 +16,28 @@ import { hostLabel } from "../../host/hostChipTone";
 import { fleetTerminalStanding } from "../../palette/fleetTerminals";
 import ModalDialog from "../../ui/ModalDialog";
 import { useShown } from "../../ui/shown";
+import { layoutMode } from "../../useMobile";
 import { useMemberName } from "../memberNames";
 import { useOpenTile } from "../useOpenTile";
 import { ROLE_WORD } from "../workReadings";
 import { useWorkMembers } from "../useWorks";
 import { liveArm, STATUS_DOT, terminalStatus } from "../terminalStatus";
 import PeekTerminal, { type PeekTerminalHandle } from "./PeekTerminal";
-import { type PeekCell, type PeekPad, peekNatural } from "./peekSize";
+import {
+  type PeekCell,
+  type PeekPad,
+  fitFontSize,
+  peekNatural,
+  peekPans,
+} from "./peekSize";
 import {
   closePeek,
   openPeek,
+  peekFit,
   peekTabs,
   peekTarget,
   peekTyping,
+  togglePeekFit,
   type PeekTarget,
 } from "./usePeek";
 
@@ -76,6 +86,7 @@ const PeekWindow: Component<{ target: PeekTarget }> = (props) => {
     liveArm(standing())?.grid ?? null,
   );
   const [cell, setCell] = createSignal<PeekCell | null>(null);
+  const [baseCell, setBaseCell] = createSignal<PeekCell | null>(null);
   const [pad, setPad] = createSignal<PeekPad | null>(null);
   const [phase, setPhase] = createSignal<"reading" | "live" | "reconnecting">(
     "reading",
@@ -83,6 +94,9 @@ const PeekWindow: Component<{ target: PeekTarget }> = (props) => {
   const [held, setHeld] = createSignal(false);
   const [, setFocused] = createSignal(false);
   const [, setHandle] = createSignal<PeekTerminalHandle | undefined>(undefined);
+  const win = createWindowSize();
+  const availWidth = () =>
+    layoutMode() === "phone" ? win.width : win.width - 66;
 
   const natural = createMemo(() => {
     const g = grid();
@@ -90,6 +104,30 @@ const PeekWindow: Component<{ target: PeekTarget }> = (props) => {
     const p = pad();
     return g && c && p ? peekNatural(g, c, p) : null;
   });
+  const baseNatural = () => {
+    const g = grid();
+    const c = baseCell();
+    const p = pad();
+    return g && c && p ? peekNatural(g, c, p) : null;
+  };
+  const pans = () => {
+    const n = baseNatural();
+    return n !== null && peekPans(n.width, availWidth());
+  };
+  const fontSize = () => {
+    const g = grid();
+    const c = baseCell();
+    const p = pad();
+    return peekFit() && g && c && p
+      ? fitFontSize({
+          cols: g.cols,
+          cellWidth: c.width,
+          fontSize: DEFAULT_FONT_SIZE,
+          availWidth: availWidth(),
+          padX: p.x,
+        })
+      : DEFAULT_FONT_SIZE;
+  };
   const bodyStyle = () => {
     const n = natural();
     return n === null
@@ -152,6 +190,21 @@ const PeekWindow: Component<{ target: PeekTarget }> = (props) => {
               )}
             </For>
           </div>
+        </Show>
+        <Show when={pans() || peekFit()}>
+          <button
+            type="button"
+            data-testid="peek-fit"
+            aria-pressed={peekFit()}
+            class={
+              peekFit()
+                ? "shrink-0 cursor-pointer rounded-md border border-accent/50 bg-accent/15 px-2 py-0.5 text-[0.7rem] text-accent"
+                : "shrink-0 cursor-pointer rounded-md border border-edge-bright bg-surface-0 px-2 py-0.5 text-[0.7rem] text-fg-2 hover:text-fg"
+            }
+            onClick={() => togglePeekFit()}
+          >
+            Fit width
+          </button>
         </Show>
         <button
           type="button"
@@ -247,21 +300,35 @@ const PeekWindow: Component<{ target: PeekTarget }> = (props) => {
             </div>
           }
         >
-          <PeekTerminal
-            host={props.target.host}
-            id={props.target.id}
-            fontSize={DEFAULT_FONT_SIZE}
-            mayType={() => false}
-            onGrid={setGrid}
-            onCell={(c, p) => {
-              setCell(c);
-              setPad(p);
-            }}
-            onPhase={setPhase}
-            onHeld={setHeld}
-            onFocus={setFocused}
-            onHandle={setHandle}
-          />
+          <div
+            data-testid="peek-scroller"
+            class="h-full w-full overflow-x-auto overflow-y-hidden"
+          >
+            <div
+              class="h-full"
+              style={{
+                width: natural() === null ? "100%" : `${natural()?.width}px`,
+                "min-width": "100%",
+              }}
+            >
+              <PeekTerminal
+                host={props.target.host}
+                id={props.target.id}
+                fontSize={fontSize()}
+                mayType={() => false}
+                onGrid={setGrid}
+                onCell={(c, p) => {
+                  setCell(c);
+                  setPad(p);
+                  if (fontSize() === DEFAULT_FONT_SIZE) setBaseCell(c);
+                }}
+                onPhase={setPhase}
+                onHeld={setHeld}
+                onFocus={setFocused}
+                onHandle={setHandle}
+              />
+            </div>
+          </div>
         </Show>
       </div>
     </Dialog.Content>

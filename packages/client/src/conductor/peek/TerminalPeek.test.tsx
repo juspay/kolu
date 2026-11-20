@@ -43,6 +43,13 @@ vi.mock("../../palette/fleetTerminals", () => ({
 vi.mock("../useOpenTile", () => ({
   useOpenTile: () => (at: unknown) => seam.opened.push(at),
 }));
+vi.mock("@solid-primitives/resize-observer", () => ({
+  createWindowSize: () => ({ width: 1440, height: 900 }),
+}));
+vi.mock("../../useMobile", () => ({
+  layoutMode: () => "desktop",
+  isTouch: () => false,
+}));
 vi.mock("../useWorks", () => ({
   useWorkMembers: () => () => seam.members,
   useMembership: () => () => new Map(),
@@ -209,5 +216,44 @@ describe("TerminalPeek", () => {
       ?.click();
     expect(seam.opened).toEqual([{ host: "remote:nix@example", id: ID }]);
     expect(peekTarget()).toBeNull();
+  });
+
+  it("leaves a terminal that fits at the default font size alone", () => {
+    openPeek({ host: "remote:nix@example", id: ID });
+    mount();
+    const onGrid = seam.props?.onGrid as (g: {
+      cols: number;
+      rows: number;
+    }) => void;
+    const onCell = seam.props?.onCell as (
+      c: { width: number; height: number },
+      p: { x: number; y: number },
+    ) => void;
+    onGrid({ cols: 110, rows: 34 });
+    onCell({ width: 8.4, height: 17 }, { x: 26, y: 12 });
+    expect(document.querySelector('[data-testid="peek-fit"]')).toBeNull();
+    expect(seam.props?.fontSize).toBe(14);
+  });
+
+  it("offers Fit width on a wide terminal and shrinks its font", () => {
+    openPeek({ host: "remote:nix@example", id: ID });
+    mount();
+    const onGrid = seam.props?.onGrid as (g: {
+      cols: number;
+      rows: number;
+    }) => void;
+    const onCell = seam.props?.onCell as (
+      c: { width: number; height: number },
+      p: { x: number; y: number },
+    ) => void;
+    onGrid({ cols: 212, rows: 52 });
+    onCell({ width: 8.4, height: 17 }, { x: 26, y: 12 });
+    const fit = document.querySelector<HTMLButtonElement>(
+      '[data-testid="peek-fit"]',
+    );
+    expect(fit).not.toBeNull();
+    fit?.click();
+    expect(fit?.getAttribute("aria-pressed")).toBe("true");
+    expect(seam.props?.fontSize).toBe(10.5);
   });
 });
