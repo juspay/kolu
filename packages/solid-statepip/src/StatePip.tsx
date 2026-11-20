@@ -1,15 +1,3 @@
-/** The shared status indicator — identity glyph + state paint + motion + alert.
- *
- *  Axes (Option C + motion-as-activity):
- *    - `glyph` — identity (who is driving)
- *    - `variant` — paint (agent state colour)
- *    - `motion` — activity channel (spin / glow / none)
- *    - `bytesLive` — raw PTY meaningful output (a11y only)
- *    - `shellLive` — binder-computed: busy-orange shell paint (leaf trusts it)
- *    - `alert` — unread obligation badge (amber)
- *
- *  Callers should use `useStatePip` / `bindStatePip` so surfaces cannot drift. */
-
 import { type Component, createMemo, For, Show } from "solid-js";
 import {
   ALERT_BADGE_CLASS,
@@ -26,7 +14,6 @@ import {
   pipGlyph,
 } from "./pipVariant.ts";
 
-/** Render a pip identity mark — filled brand path or stroked shell prompt. */
 const GlyphSvg: Component<{ def: PipGlyphDef }> = (props) => {
   const stroked = () => props.def.paint === "stroke";
   return (

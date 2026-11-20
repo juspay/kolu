@@ -21,9 +21,6 @@ import {
   pipGlyph,
 } from "./pipVariant.ts";
 
-// The shared agent-paint → pip fold both kolu's Dock and the pulam-web fleet
-// dashboard route through, so the pip a given agent paint class renders is
-// defined ONCE here and cannot drift between the two surfaces.
 const paintCases: Array<[AgentPaintClass, PipVariant]> = [
   ["working", "working"],
   ["awaiting", "awaiting"],
@@ -39,13 +36,6 @@ describe("pipForPaintClass", () => {
   }
 });
 
-// The cross-surface contract, stated as a test: a given agent STATE renders the
-// same pip on every surface, because all fold the state through the SAME
-// `agentPaintClass` → `pipForPaintClass` path. `awaiting_user` paints the
-// FULL-strength `awaiting` (needs-you); `waiting` paints `linger` (the dim
-// "just finished" cue), not `idle` — order≠colour, the dock-fleet-mirror
-// contract, now with the two violet states split so needs-you can never again
-// render at linger strength (fucknotif).
 const stateCases: Array<[Parameters<typeof agentPaintClass>[0], PipVariant]> = [
   ["thinking", "working"],
   ["tool_use", "working"],
@@ -62,9 +52,6 @@ describe("agent state → pip (shared Dock ≡ pulam-web path)", () => {
   }
 });
 
-// Paint and motion are separate so a post-turn `waiting` agent can keep the
-// lingering violet paint (agentPaintClass → linger) while holding still.
-// Needs-you is FULL `text-alert` — the 55% alpha belongs to linger alone.
 const bodyCases: Array<[PipVariant, string[]]> = [
   ["awaiting", ["text-alert"]],
   ["linger", ["text-alert/55"]],
@@ -81,7 +68,6 @@ describe("PIP_BODY — paint only per variant", () => {
       for (const token of tokens) {
         expect(body?.class.split(/\s+/)).toContain(token);
       }
-      // Motion is not mixed into paint.
       expect(body?.class).not.toMatch(/statepip-anim-/);
     });
   }
@@ -114,9 +100,6 @@ describe("PIP_MOTION_CLASS — activity channel tokens", () => {
   });
 });
 
-// Identity glyph record — fenced over AgentKind. A new kind without a mark is a
-// compile error in agentGlyph; this test pins that every current kind has a
-// non-empty path and that shell is the stroked prompt.
 const AGENT_KINDS: AgentKind[] = [
   "claude-code",
   "codex",
@@ -139,9 +122,7 @@ describe("pipGlyph / agentGlyph — identity marks", () => {
   it("shell is a filled # prompt (spin-friendly, distinct from OpenCode frame)", () => {
     const g = pipGlyph("shell");
     expect(g.paint).toBe("fill");
-    // Two verticals + two horizontals.
     expect(g.paths).toHaveLength(4);
-    // Not a rectangular window frame (OpenCode's shape family).
     expect(g.paths.join("")).not.toMatch(/a2 2 0 0 1/);
   });
 
@@ -152,14 +133,11 @@ describe("pipGlyph / agentGlyph — identity marks", () => {
   });
 });
 
-// Outer-axis overlay: unread ALERT badge (amber corner dot).
 describe("the indicator wrapper + outer-axis overlays", () => {
   it("the leaf wrapper is a content-sized relative box (anchors the absolute badge), no surface geometry", () => {
     const cls = INDICATOR_BASE.split(/\s+/);
-    expect(cls).toContain("relative"); // positioning context for the badge
-    expect(cls).toContain("flex-none"); // never stretch/shrink beside flexed siblings
-    // The leaf owns NO fixed box — a surface that reserves a column passes the
-    // box in via `DOCK_ROW_PIP_BOX`, so an inline caller sizes to its own text.
+    expect(cls).toContain("relative");
+    expect(cls).toContain("flex-none");
     expect(cls).not.toContain("w-[20px]");
     expect(cls).not.toContain("border-2");
   });
@@ -192,8 +170,6 @@ describe("the indicator wrapper + outer-axis overlays", () => {
   it("UNSEEN_COUNT_CLASS is SOLID amber attention — never a half-alpha dot", () => {
     const cls = UNSEEN_COUNT_CLASS.split(/\s+/);
     expect(cls).toContain("bg-attention");
-    // The mark that summons you must not be fainter than the connection dot
-    // beside it — that was the #1990 defect. Any `/nn` alpha suffix regresses it.
     expect(cls.some((c) => c.startsWith("bg-attention/"))).toBe(false);
     expect(cls).toContain("tabular-nums");
   });

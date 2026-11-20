@@ -31,19 +31,16 @@
   }
 }
 
-/* active → continuous spin on the identity glyph (working, live shell, …) */
 .statepip-anim-spin {
   animation: statepip-spin var(--motion-spin-duration, 2.8s) linear infinite;
   transform-origin: center;
 }
 
-/* awaiting → glow on the identity glyph */
 .statepip-anim-glow {
   animation: statepip-glow var(--motion-glow-duration, 2.2s) ease-in-out
     infinite;
 }
 
-/* Unread amber corner badge (Dock `unread`); not a ring, not the host pill. */
 .statepip-alert-badge {
   position: absolute;
   top: -2px;
@@ -63,8 +60,6 @@
   .statepip-alert-badge {
     animation: none;
   }
-  /* Awaiting state under reduced motion: violet hollow ring outline so state
-   * is not colour-only once motion (the second state channel) is gone. */
   .statepip-awaiting-core {
     border-radius: 9999px;
     box-shadow: 0 0 0 1.5px
