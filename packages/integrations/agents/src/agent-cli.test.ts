@@ -1,12 +1,3 @@
-/** Unit tests for the CLI facts kolu still keeps: the sensor's name hint, the
- *  live-process stable-flag filter, and the ONE renderer from a restore target
- *  to a shell line.
- *
- *  The old suite pinned a text-splicing pipeline (`parseAgentCommand` →
- *  `resumeAgentCommand`), which is exactly the behaviour this change deletes:
- *  captured PTY text no longer becomes a command. There is deliberately no test
- *  here for turning a command STRING into a launch — that door is gone. */
-
 import { describe, expect, it } from "vitest";
 import type { RestoreTarget } from "anyagent/schemas";
 import {
@@ -54,10 +45,6 @@ describe("agentNameHint — the only reader of a raw PTY command mark", () => {
 });
 
 describe("stableFlagTokens — the live process's argv, filtered by the allowlist", () => {
-  /** The REAL argv shapes observed through `/proc` on a Linux host, one per
-   *  registered agent. Wrapper-injected flags, loaders, paths, positionals and
-   *  resume markers are all dropped by the allowlist; only flags the agent
-   *  grammar declares stable survive. */
   it.each<[string, string[], string[]]>([
     [
       "claude-code",

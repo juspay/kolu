@@ -1,19 +1,3 @@
-/** The agent REGISTRY — the ONE place that lists kolu's agents.
- *
- *  Each `kolu-<agent>` package declares its own `AgentVocab` (the browser-safe
- *  facts) and `AgentPlugin` (adapter + fetcher + env keys). This module folds
- *  the vocabs into the closed `AgentKind`/`AgentInfo` wire vocabulary and the
- *  kind-keyed CLI registry, and re-binds every CLI function to that registry so
- *  call sites keep their names.
- *
- *  Browser-safe: imports only `kolu-<agent>/schemas` (vocab) and `anyagent`. The node
- *  half — `AGENT_PLUGINS`, `AGENT_DIR_ENV_KEYS` — lives in `./index.ts`.
- *
- *  WHY A SEPARATE PACKAGE (and not `anyagent`): `anyagent` is the receptacle and
- *  must name no agent (the anyforge note). This package names kolu's agents by
- *  design — it fails the electricity test ① (domain-agnostic), so it is
- *  `kolu-agents` under `packages/integrations/`, not `@kolu/*`. */
-
 import {
   type AgentCliGrammar,
   type AgentCliRegistry,
@@ -89,8 +73,6 @@ type AgentInfoSchemaTuple = readonly [
   ...(typeof AGENT_VOCABS)[AgentKind]["infoSchema"][],
 ];
 
-/** The SESSION-BACKED `AgentInfo` union, composed from every vocab's schema —
- *  what an agent's own watcher derives from its transcript. */
 const SessionAgentInfoSchema = Schema.Union(
   Object.values(AGENT_VOCABS).map(
     (v) => v.infoSchema,
@@ -98,11 +80,11 @@ const SessionAgentInfoSchema = Schema.Union(
 );
 
 /** THE TWO STATE SETS ARE DISJOINT — the one fact {@link isAgentPresence} and
- *  the wire decode both rest on. Seven agent schemas rev their own transcript
- *  states as their CLIs change; one that ever names a presence state would make
- *  that agent's real session narrow as a presence everywhere the predicate
- *  guards (no restore target, no transcript, no resume), silently. So a
- *  colliding literal fails to compile HERE, where the union is composed. */
+ *  the wire decode both rest on. A transcript state that ever names a presence
+ *  state would make that agent's real session narrow as a presence everywhere
+ *  the predicate guards (no restore target, no transcript, no resume),
+ *  silently. So a colliding literal fails to compile HERE, where the union is
+ *  composed. */
 type TranscriptPresenceCollision = Extract<
   typeof SessionAgentInfoSchema.Type.state,
   AgentPresenceState
@@ -282,9 +264,6 @@ export const AGENT_CLI: AgentCliRegistry = buildCliRegistry(
   Object.values(AGENT_VOCABS),
 );
 
-// ── The CLI functions, pre-bound to `AGENT_CLI` and re-exported under the same
-//    names anyagent uses, so a call site changes only its import path. ──
-
 /** Render a restore target into the resume form a fresh shell is typed. */
 export const resumeFormFor = (
   target: RestoreTarget | undefined,
@@ -331,9 +310,6 @@ export {
   stableFlagTokens,
 } from "anyagent";
 
-// The per-agent info types, re-exported so consumers that used to import them
-// from `@kolu/terminal-vocab/schema` (which no longer depends on the agent
-// packages) resolve them through the registry door.
 export type { ClaudeCodeInfo } from "kolu-claude-code/schemas";
 export type { CodexInfo } from "kolu-codex/schemas";
 export type { GrokInfo } from "kolu-grok/schemas";

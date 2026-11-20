@@ -1,11 +1,3 @@
-/** The agent registry — node half.
- *
- *  `./vocab.ts` is the browser-safe vocabulary (kinds · schemas · CLI/resume,
- *  re-bound to the registry). This entry adds the pieces only a host runs: each
- *  agent's `AgentPlugin` (adapter + transcript fetcher + env keys), the keyed
- *  record padi folds, and the flattened env-key list `padiBinding` forwards
- *  server→padi. */
-
 import type { AgentPlugin } from "anyagent";
 import type { Fetcher } from "kolu-transcript-core";
 import { claudeCodePlugin } from "kolu-claude-code";

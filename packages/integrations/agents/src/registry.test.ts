@@ -1,8 +1,3 @@
-/** Registry invariants — the ONE list of agents, and the facts that must hold
- *  across its halves (vocab ↔ plugin ↔ CLI registry). These are what make
- *  "adding an agent is one package plus one row" safe: a mis-wired row fails
- *  here rather than in the field. */
-
 import { Result, Schema } from "effect";
 import { buildCliRegistry } from "anyagent";
 import type { OmpInfo } from "kolu-omp/schemas";
@@ -28,8 +23,6 @@ const KINDS = Object.keys(AGENT_VOCABS) as AgentKind[];
 describe("AGENT_VOCABS ↔ AGENT_PLUGINS", () => {
   it("every kind has a plugin whose vocab IS the vocab (reference equality)", () => {
     for (const kind of KINDS) {
-      // Reference equality, not deep — so a plugin cannot be built from
-      // hand-copied vocab fields that then drift.
       expect(AGENT_PLUGINS[kind].vocab).toBe(AGENT_VOCABS[kind]);
     }
   });
@@ -75,13 +68,10 @@ describe("AgentInfoSchema — a closed discriminated union", () => {
   });
 
   it("narrows on `kind` per member (kind ↔ Info correlation survives)", () => {
-    // Compile-time pin: the `pi` arm of the union IS `PiInfo`. If the registry
-    // ever widened to a bare `Schema<AgentInfo>`, this stops compiling.
     const check: Extract<AgentInfo, { kind: "pi" }> extends PiInfo
       ? true
       : false = true;
     expect(check).toBe(true);
-    // …and the `omp` arm IS `OmpInfo`.
     const ompCheck: Extract<AgentInfo, { kind: "omp" }> extends OmpInfo
       ? true
       : false = true;
@@ -148,7 +138,6 @@ describe("AGENT_DIR_ENV_KEYS", () => {
     for (const key of keys) expect(key.startsWith("KOLU_")).toBe(true);
     for (const kind of KINDS) {
       const pluginKeys = AGENT_PLUGINS[kind].envKeys;
-      // Every agent contributes at least one detection dir/db override.
       expect(pluginKeys.length).toBeGreaterThan(0);
       for (const key of pluginKeys) expect(keys).toContain(key);
     }
