@@ -8,6 +8,8 @@ import {
   createMemo,
   createSignal,
   For,
+  on,
+  onCleanup,
   Show,
 } from "solid-js";
 import { DEFAULT_FONT_SIZE } from "terminal-themes";
@@ -16,11 +18,14 @@ import { hostLabel } from "../../host/hostChipTone";
 import { fleetTerminalStanding } from "../../palette/fleetTerminals";
 import ModalDialog from "../../ui/ModalDialog";
 import { useShown } from "../../ui/shown";
-import { layoutMode } from "../../useMobile";
+import { layoutMode, isTouch } from "../../useMobile";
 import { useMemberName } from "../memberNames";
 import { useOpenTile } from "../useOpenTile";
+import { inputAllowedAt } from "../personInput";
+import { useConductor } from "../useConductor";
+import WorkLock from "../WorkLock";
 import { ROLE_WORD } from "../workReadings";
-import { useWorkMembers } from "../useWorks";
+import { useMembership, useWorkMembers } from "../useWorks";
 import { liveArm, STATUS_DOT, terminalStatus } from "../terminalStatus";
 import PeekTerminal, { type PeekTerminalHandle } from "./PeekTerminal";
 import {
@@ -37,6 +42,8 @@ import {
   peekTabs,
   peekTarget,
   peekTyping,
+  peekFootWords,
+  setPeekTyping,
   togglePeekFit,
   type PeekTarget,
 } from "./usePeek";
@@ -92,8 +99,23 @@ const PeekWindow: Component<{ target: PeekTarget }> = (props) => {
     "reading",
   );
   const [held, setHeld] = createSignal(false);
-  const [, setFocused] = createSignal(false);
-  const [, setHandle] = createSignal<PeekTerminalHandle | undefined>(undefined);
+  const [focused, setFocused] = createSignal(false);
+  const [handle, setHandle] = createSignal<PeekTerminalHandle | undefined>(
+    undefined,
+  );
+  const membership = useMembership();
+  const conductor = useConductor();
+  const driver = () => membership().get(ref)?.driver ?? "nobody";
+  const mayType = () => inputAllowedAt(ref);
+  const typing = () => focused() && mayType();
+  createEffect(() => setPeekTyping(typing()));
+  onCleanup(() => setPeekTyping(false));
+  createEffect(
+    on(driver, (now, before) => {
+      if (now === "you" && before === "conductor") handle()?.focus();
+    }),
+  );
+  const blurTerminal = () => handle()?.blur();
   const win = createWindowSize();
   const availWidth = () =>
     layoutMode() === "phone" ? win.width : win.width - 66;
@@ -145,6 +167,7 @@ const PeekWindow: Component<{ target: PeekTarget }> = (props) => {
       <div
         data-testid="peek-head"
         class="flex min-w-0 shrink-0 items-center gap-3 border-b border-edge px-3 py-2"
+        onPointerDown={blurTerminal}
       >
         <Show
           when={tabs().length > 0}
@@ -219,6 +242,14 @@ const PeekWindow: Component<{ target: PeekTarget }> = (props) => {
         >
           Open tile ↗
         </button>
+        <Show when={!typing()}>
+          <span
+            data-testid="peek-esc-hint"
+            class="shrink-0 rounded-md border border-edge-bright border-b-2 bg-surface-2 px-1.5 py-0.5 font-mono text-[0.7rem] leading-none text-fg-2"
+          >
+            esc
+          </span>
+        </Show>
         <button
           type="button"
           data-testid="peek-close"
@@ -232,6 +263,7 @@ const PeekWindow: Component<{ target: PeekTarget }> = (props) => {
       <div
         data-testid="peek-statusline"
         class="flex min-w-0 shrink-0 items-center gap-2 bg-surface-0 px-3 py-1.5 text-[0.7rem]"
+        onPointerDown={blurTerminal}
       >
         <span class="shrink-0 font-mono text-[0.6rem] uppercase tracking-[0.1em] text-accent">
           {hostLabel(decodeHostKey(props.target.host))}
@@ -256,6 +288,44 @@ const PeekWindow: Component<{ target: PeekTarget }> = (props) => {
           </Show>
           <Show when={status().doing}>{(doing) => <> · {doing()}</>}</Show>
         </span>
+        <Show when={lookable() && driver() !== "nobody"}>
+          <span
+            data-testid="peek-lock"
+            data-driver={driver()}
+            class="flex shrink-0 items-center gap-1.5"
+          >
+            <Show
+              when={driver() === "conductor"}
+              fallback={
+                <>
+                  <span class="rounded-sm bg-alert/15 px-1.5 font-mono text-[0.56rem] font-semibold uppercase tracking-[0.06em] text-alert">
+                    You’re driving
+                  </span>
+                  <button
+                    type="button"
+                    data-testid="peek-hand-back"
+                    class="shrink-0 cursor-pointer rounded-sm bg-alert/20 px-2 py-[0.2rem] font-mono text-[0.62rem] font-semibold uppercase tracking-[0.06em] text-alert transition-colors hover:bg-alert/30"
+                    onClick={() => conductor.handBack(ref)}
+                  >
+                    Hand back
+                  </button>
+                </>
+              }
+            >
+              <span class="rounded-sm bg-conductor/15 px-1.5 font-mono text-[0.56rem] font-semibold uppercase tracking-[0.06em] text-conductor">
+                Conductor is driving · read-only
+              </span>
+              <button
+                type="button"
+                data-testid="peek-take-over"
+                class="shrink-0 cursor-pointer rounded-sm bg-conductor/20 px-2 py-[0.2rem] font-mono text-[0.62rem] font-semibold uppercase tracking-[0.06em] text-conductor transition-colors hover:bg-conductor/30"
+                onClick={() => conductor.takeOver(ref)}
+              >
+                Take over
+              </button>
+            </Show>
+          </span>
+        </Show>
         <Show when={lookable() && grid()}>
           {(g) => (
             <span
@@ -315,7 +385,7 @@ const PeekWindow: Component<{ target: PeekTarget }> = (props) => {
                 host={props.target.host}
                 id={props.target.id}
                 fontSize={fontSize()}
-                mayType={() => false}
+                mayType={mayType}
                 onGrid={setGrid}
                 onCell={(c, p) => {
                   setCell(c);
@@ -329,8 +399,23 @@ const PeekWindow: Component<{ target: PeekTarget }> = (props) => {
               />
             </div>
           </div>
+          <WorkLock terminal={ref} pill={false} />
         </Show>
       </div>
+      <Show when={lookable()}>
+        <p
+          data-testid="peek-foot"
+          onPointerDown={blurTerminal}
+          class="m-0 shrink-0 border-t border-edge bg-surface-0 px-3 py-1 text-[0.62rem] text-fg-3"
+        >
+          {peekFootWords({
+            driver: driver(),
+            typing: typing(),
+            name: name(ref),
+            touch: isTouch(),
+          })}
+        </p>
+      </Show>
     </Dialog.Content>
   );
 };

@@ -57,6 +57,7 @@ const WorkLock: Component<{
   /** The fleet ref (`<encodedHostKey>/<terminalId>`) of the terminal this
    *  frame is about. */
   terminal: string;
+  pill?: boolean;
 }> = (props) => {
   const membership = useMembership();
   const conductor = useConductor();
@@ -134,7 +135,7 @@ const WorkLock: Component<{
           {/* THE PILL — only while the person has it, in a corner of the
               BODY. Bottom left: the scroll-to-bottom control owns the other
               corner, and the top of the body is where search opens. */}
-          <Show when={at().driver === "you"}>
+          <Show when={at().driver === "you" && props.pill !== false}>
             <button
               type="button"
               data-testid="work-hand-back"

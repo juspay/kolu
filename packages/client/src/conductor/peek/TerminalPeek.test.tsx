@@ -5,7 +5,7 @@ import { render } from "solid-js/web";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { FleetTerminalStanding } from "../../palette/fleetTerminals";
 import { Shown } from "../../ui/shown";
-import { closePeek, openPeek, peekTarget } from "./usePeek";
+import { closePeek, openPeek, peekTarget, peekTyping } from "./usePeek";
 
 const ID = "11111111-1111-4111-8111-111111111111" as TerminalId;
 
@@ -13,6 +13,9 @@ const seam = vi.hoisted(() => ({
   props: undefined as Record<string, unknown> | undefined,
   members: new Map<string, unknown>(),
   opened: [] as unknown[],
+  took: [] as unknown[],
+  gave: [] as unknown[],
+  allowed: true,
 }));
 
 const live = (): FleetTerminalStanding => ({
@@ -30,6 +33,9 @@ const live = (): FleetTerminalStanding => ({
 });
 
 const [standing, setStanding] = createSignal<FleetTerminalStanding>(live());
+const [membership, setMembership] = createSignal<ReadonlyMap<string, unknown>>(
+  new Map(),
+);
 
 vi.mock("./PeekTerminal", () => ({
   default: (props: Record<string, unknown>) => {
@@ -52,7 +58,21 @@ vi.mock("../../useMobile", () => ({
 }));
 vi.mock("../useWorks", () => ({
   useWorkMembers: () => () => seam.members,
-  useMembership: () => () => new Map(),
+  useMembership: () => () => membership(),
+}));
+vi.mock("../WorkLock", () => ({
+  default: (props: { pill?: boolean }) => (
+    <div data-testid="work-lock-stub" data-pill={String(props.pill)} />
+  ),
+}));
+vi.mock("../useConductor", () => ({
+  useConductor: () => ({
+    takeOver: (ref: string) => seam.took.push(ref),
+    handBack: (ref: string) => seam.gave.push(ref),
+  }),
+}));
+vi.mock("../personInput", () => ({
+  inputAllowedAt: () => seam.allowed,
 }));
 vi.mock("../memberNames", () => ({
   useMemberName: () => (ref: string) => `name:${ref}`,
@@ -108,6 +128,10 @@ afterEach(() => {
   seam.props = undefined;
   seam.members = new Map();
   seam.opened = [];
+  seam.took = [];
+  seam.gave = [];
+  seam.allowed = true;
+  setMembership(new Map());
 });
 
 describe("TerminalPeek", () => {
@@ -255,5 +279,66 @@ describe("TerminalPeek", () => {
     fit?.click();
     expect(fit?.getAttribute("aria-pressed")).toBe("true");
     expect(seam.props?.fontSize).toBe(10.5);
+  });
+
+  it("offers Take over while the Conductor drives, and is read-only", () => {
+    const ref = `remote:nix@example/${ID}`;
+    seam.allowed = false;
+    setMembership(
+      new Map([
+        [ref, { work: "w", title: "w", role: "planner", driver: "conductor" }],
+      ]),
+    );
+    openPeek({ host: "remote:nix@example", id: ID });
+    mount();
+    expect(
+      document
+        .querySelector('[data-testid="peek-lock"]')
+        ?.getAttribute("data-driver"),
+    ).toBe("conductor");
+    document
+      .querySelector<HTMLButtonElement>('[data-testid="peek-take-over"]')
+      ?.click();
+    expect(seam.took).toEqual([ref]);
+    const mayType = seam.props?.mayType as () => boolean;
+    expect(mayType()).toBe(false);
+    expect(
+      document
+        .querySelector('[data-testid="work-lock-stub"]')
+        ?.getAttribute("data-pill"),
+    ).toBe("false");
+  });
+
+  it("offers Hand back once the terminal is yours", () => {
+    const ref = `remote:nix@example/${ID}`;
+    setMembership(
+      new Map([
+        [ref, { work: "w", title: "w", role: "planner", driver: "you" }],
+      ]),
+    );
+    openPeek({ host: "remote:nix@example", id: ID });
+    mount();
+    document
+      .querySelector<HTMLButtonElement>('[data-testid="peek-hand-back"]')
+      ?.click();
+    expect(seam.gave).toEqual([ref]);
+  });
+
+  it("draws no lock for a terminal nobody drives", () => {
+    openPeek({ host: "remote:nix@example", id: ID });
+    mount();
+    expect(document.querySelector('[data-testid="peek-lock"]')).toBeNull();
+  });
+
+  it("counts as typing only when the terminal has focus and the gate allows", () => {
+    seam.allowed = true;
+    openPeek({ host: "remote:nix@example", id: ID });
+    mount();
+    const onFocus = seam.props?.onFocus as (focused: boolean) => void;
+    onFocus(true);
+    expect(peekTyping()).toBe(true);
+    expect(document.querySelector('[data-testid="peek-esc-hint"]')).toBeNull();
+    onFocus(false);
+    expect(peekTyping()).toBe(false);
   });
 });
