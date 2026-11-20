@@ -65,17 +65,25 @@ function raiseLockCard(terminal: string): void {
   }, CARD_MS);
 }
 
+/** May this person's input go to the terminal at `terminal`, a fleet ref? */
+export function personInputAt(terminal: string): boolean {
+  if (inputAllowedAt(terminal)) return true;
+  raiseLockCard(terminal);
+  return false;
+}
+
+/** The same gate without the nudge: may a key go to this fleet ref? */
+export function inputAllowedAt(terminal: string): boolean {
+  return inputAllowed(Option.fromUndefinedOr(useMembership()().get(terminal)));
+}
+
 /** MAY THIS PERSON'S INPUT GO to `id`? Answers true and lets the caller send;
  *  answers false and raises the card that offers Take over.
  *
  *  Reads the ONE membership derivation every mark reads, so what the frame
  *  around the terminal says and what the keyboard does are the same fact. */
 export function personInput(id: TerminalId): boolean {
-  const terminal = activeTerminalRef(id);
-  if (inputAllowed(Option.fromUndefinedOr(useMembership()().get(terminal))))
-    return true;
-  raiseLockCard(terminal);
-  return false;
+  return personInputAt(activeTerminalRef(id));
 }
 
 /** Is the card up over this terminal? The frame draws it from this. */

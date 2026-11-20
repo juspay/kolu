@@ -33,7 +33,6 @@
 
 import { activeArm } from "@kolu/padi-client/surface";
 import { dualPhrase } from "@kolu/terminal-vocab/duration";
-import { fleetTerminalRef } from "kolu-mcp/fleetRef";
 import { Option } from "effect";
 import {
   lifetime,
@@ -54,10 +53,7 @@ import {
   onMount,
   Show,
 } from "solid-js";
-import {
-  fleetTerminalStanding,
-  useFleetTerminalIndex,
-} from "../palette/fleetTerminals";
+import { fleetTerminalStanding } from "../palette/fleetTerminals";
 import { elapsedSince } from "../time/duration";
 import { agentName } from "../ui/agentDisplay";
 import InlineConfirmButton from "../ui/InlineConfirmButton";
@@ -67,8 +63,8 @@ import ConductorLook from "./ConductorLook";
 import WorkCardActions from "./WorkCardActions";
 import WorkQuestion from "./WorkQuestion";
 import { cardOnScreenKey, trackOnScreen } from "./onScreen";
+import { useMemberName } from "./memberNames";
 import { splitMemberRef } from "./memberRef";
-import { fleetMentionCandidates } from "./mentionCandidates";
 import { useConductor } from "./useConductor";
 import { useOpenTile } from "./useOpenTile";
 import { useMembership, useSeen, useWorkMembers } from "./useWorks";
@@ -233,23 +229,7 @@ const WorkCard: Component<{
     }),
   );
 
-  /** WHAT EACH MEMBER IS CALLED — the name the `@` menu would offer for that
-   *  terminal, so the words a person reads here are the words they would type
-   *  into the composer. A terminal the fleet index has not got (its host is
-   *  away) falls back to the short form of its id, which is still something a
-   *  person can match against a tile. */
-  const fleet = useFleetTerminalIndex();
-  const names = createMemo(() => {
-    const byRef = new Map<string, string>();
-    for (const candidate of fleetMentionCandidates(fleet(), membership()))
-      byRef.set(
-        fleetTerminalRef(candidate.host, candidate.terminalId),
-        candidate.name,
-      );
-    return byRef;
-  });
-  const name = (ref: string): string =>
-    names().get(ref) ?? splitMemberRef(ref)?.id.slice(0, 8) ?? ref;
+  const name = useMemberName();
 
   const livePr = createMemo(() => livePrOf(members()));
   const checks = createMemo(() => checksTally(Option.fromNullishOr(livePr())));
@@ -582,7 +562,6 @@ const WorkCard: Component<{
                               >
                                 {(split) => (
                                   <ConductorLook
-                                    rowId={`work:${one.terminal}`}
                                     host={split().host}
                                     id={split().id}
                                     toggleTestId="work-member-look"

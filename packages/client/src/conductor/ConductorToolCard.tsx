@@ -280,9 +280,7 @@ const ConductorToolCard: Component<{ row: ConductorToolRow }> = (props) => {
           conversation said an agent was started, so it says how that agent is
           doing and offers a Look at its screen. */}
       <Show when={agentLineSubject(props.row)}>
-        {(at) => (
-          <ConductorLook rowId={props.row.id} host={at().host} id={at().id} />
-        )}
+        {(at) => <ConductorLook host={at().host} id={at().id} />}
       </Show>
       {/* A background task reports its launch and then LIVES — the row stays
           live past the turn that made it, and its ending word (`completed`,

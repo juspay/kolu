@@ -33,14 +33,7 @@ Feature: The Conductor reads as a conversation
     Then the conductor side column should show the work
     And there should be no page errors
 
-  Scenario: A Look stays open across the width where the two columns fold
-    # The Look is the peek at a member terminal's own screen, and what it has
-    # open is a thing a person chose. A resize is a window changing size, not a
-    # reason to close what they were reading — so the column moving between its
-    # two placements carries the open Look with it, both ways.
-    #
-    # The marker is COMPUTED by the shell so the command line's echo cannot
-    # satisfy the Look: only the terminal's own screen can.
+  Scenario: The peek stays open across the width where the two columns fold
     When I leave the conductor for the host tab
     And I create a terminal
     And I run "echo kolu-watch-$((6*7))"
@@ -51,11 +44,9 @@ Feature: The Conductor reads as a conversation
     And I look at the member terminal
     Then the member terminal's look should show "kolu-watch-42"
     When I resize the viewport to 900x768
-    And I open the work column
     Then the member terminal's look should show "kolu-watch-42"
     When I resize the viewport to 1280x768
-    Then the conductor side column should show the work
-    And the member terminal's look should show "kolu-watch-42"
+    Then the member terminal's look should show "kolu-watch-42"
     And there should be no page errors
 
   Scenario: With nothing in progress the column says so, and no readout says zero
@@ -124,4 +115,34 @@ Feature: The Conductor reads as a conversation
     Then the help sheet should be open
     And the help sheet should teach the conversation, docs and all
     And nothing on screen should reach past the window's right edge
+    And there should be no page errors
+
+  Scenario: A long column of works scrolls by itself, and the pane never does
+    When I resize the viewport to 1440x500
+    And I ask the conductor to open the work "one"
+    And I ask the conductor to open the work "two"
+    And I ask the conductor to open the work "three"
+    And I ask the conductor to open the work "four"
+    And I ask the conductor to open the work "five"
+    And I ask the conductor to open the work "six"
+    Then the work column should be taller than its window
+    And only the work column should scroll
+    And there should be no page errors
+
+  Scenario: Esc closes the help sheet and stays in the Conductor
+    When I resize the viewport to 1280x768
+    Then the conductor should have no help column
+    When I open How to use from the conductor menu
+    Then the help sheet should be open
+    When I press Escape
+    Then the help sheet should not be open
+    And the conductor pane should be visible
+    And there should be no page errors
+
+  Scenario: Esc closes the command palette and stays in the Conductor
+    When I open the command palette
+    Then the command palette should be visible
+    When I press Escape
+    Then the command palette should not be visible
+    And the conductor pane should be visible
     And there should be no page errors

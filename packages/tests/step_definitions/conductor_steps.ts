@@ -28,6 +28,7 @@ import {
   FIXTURE_LIST_FAILS,
   fixtureClaudeRelay,
 } from "../support/agentDistroFixture.ts";
+import { readBufferText } from "../support/buffer.ts";
 import { type PrFixture, statePullRequest } from "../support/fake-gh.ts";
 import {
   expectNoDiagramError,
@@ -422,6 +423,45 @@ When(
     this.adoptedTerminalId = id;
     await enterConductor(this);
     await sendPrompt(this, `adopt ${id}`);
+  },
+);
+
+When(
+  "I ask the conductor to join the terminal I am in to the work as its {word}",
+  async function (this: KoluWorld, role: string) {
+    const id = await this.page
+      .locator(`${CANVAS_TILE}[data-active]`)
+      .getAttribute("data-terminal-id", { timeout: POLL_TIMEOUT });
+    assert.ok(
+      id,
+      "no tile is focused, so there is nothing to join to the work",
+    );
+    await enterConductor(this);
+    await sendPrompt(this, `join ${id} as ${role}`);
+    let inventoryAtTimeout = "(not observed)";
+    const said = await pollFor({
+      observe: async () => {
+        const rows = await this.page
+          .locator(`${TRANSCRIPT} ${ROW}[data-row-kind="agent"]`)
+          .evaluateAll((all) => all.map((row) => row.textContent ?? ""));
+        return rows.find((text) => text.includes("joined:")) ?? null;
+      },
+      isDone: (text) => text !== null,
+      timeoutMs: POLL_TIMEOUT,
+      onTick: async () => {
+        inventoryAtTimeout = await transcriptInventory(this);
+      },
+      onTimeout: (_last, ms) =>
+        new Error(
+          `the conductor never answered the join of ${id} after ${ms}ms; the transcript holds ${inventoryAtTimeout}`,
+        ),
+    });
+    assert.ok(
+      said !== null &&
+        !said.includes("refused") &&
+        said.includes(`local/${id}`),
+      `the work did not take ${id} as its ${role}: ${JSON.stringify(said)}`,
+    );
   },
 );
 
@@ -1399,20 +1439,14 @@ Then(
     // bugs, and a bare "nothing matched" names none of them.
     await pollFor({
       observe: async () =>
-        (
-          (await this.page
-            .locator(`${LOOK} [data-testid="conductor-look-tail"]`)
-            .last()
-            .textContent({ timeout: 1_000 })
-            .catch(() => null)) ?? "(no tail)"
-        )
+        (await readBufferText(this.page, '[data-testid="peek-screen"]'))
           .replace(/\s+/g, " ")
           .trim(),
       isDone: (seen) => seen.includes(text),
       timeoutMs: POLL_TIMEOUT,
       onTimeout: (last, elapsedMs) =>
         new Error(
-          `the look never showed ${JSON.stringify(text)}; after ${elapsedMs}ms it said ${JSON.stringify(last)}`,
+          `the peek never showed ${JSON.stringify(text)}; after ${elapsedMs}ms it said ${JSON.stringify(last)}`,
         ),
     });
   },
@@ -1439,7 +1473,6 @@ Then(
       `${LOOK} [data-testid="conductor-look-toggle"]`,
       0,
     );
-    await waitForCount(this, `${LOOK} [data-testid="conductor-look-tail"]`, 0);
   },
 );
 
@@ -2240,6 +2273,56 @@ When("I press the member terminal's name", async function (this: KoluWorld) {
 });
 
 Then(
+  "the work column should be taller than its window",
+  async function (this: KoluWorld) {
+    await pollFor({
+      observe: () =>
+        this.page.evaluate(() => {
+          const side = document.querySelector('[data-testid="conductor-side"]');
+          if (side === null) return null;
+          return side.scrollHeight - side.clientHeight;
+        }),
+      isDone: (seen) => seen !== null && seen > 50,
+      timeoutMs: POLL_TIMEOUT,
+      onTimeout: (last, ms) =>
+        new Error(
+          `the work column overflowed by ${JSON.stringify(last)}px after ${ms}ms, so this scenario proves nothing`,
+        ),
+    });
+  },
+);
+
+Then("only the work column should scroll", async function (this: KoluWorld) {
+  const readings = await this.page.evaluate(() => {
+    const pane = document.querySelector('[data-testid="conductor-pane"]');
+    const composer = document.querySelector(
+      '[data-testid="conductor-composer"]',
+    );
+    return {
+      paneScroll: pane?.scrollHeight ?? null,
+      paneClient: pane?.clientHeight ?? null,
+      docScroll: document.documentElement.scrollHeight,
+      docClient: window.innerHeight,
+      composerBottom: composer?.getBoundingClientRect().bottom ?? null,
+    };
+  });
+  assert.strictEqual(
+    readings.paneScroll,
+    readings.paneClient,
+    `the pane scrolls: scrollHeight ${readings.paneScroll}, clientHeight ${readings.paneClient}`,
+  );
+  assert.ok(
+    readings.docScroll <= readings.docClient,
+    `the document scrolls: scrollHeight ${readings.docScroll}, innerHeight ${readings.docClient}`,
+  );
+  assert.ok(
+    readings.composerBottom !== null &&
+      Math.abs(readings.composerBottom - readings.docClient) <= 1,
+    `the composer's bottom is ${readings.composerBottom}, the window is ${readings.docClient} tall`,
+  );
+});
+
+Then(
   "the member terminal should be the focused tile",
   async function (this: KoluWorld) {
     const id = watchedId(this);
@@ -2259,20 +2342,14 @@ Then(
   async function (this: KoluWorld, text: string) {
     await pollFor({
       observe: async () =>
-        (
-          (await this.page
-            .locator(`${WORK_COLUMN} [data-testid="conductor-look-tail"]`)
-            .last()
-            .textContent({ timeout: 1_000 })
-            .catch(() => null)) ?? "(no tail)"
-        )
+        (await readBufferText(this.page, '[data-testid="peek-screen"]'))
           .replace(/\s+/g, " ")
           .trim(),
       isDone: (seen) => seen.includes(text),
       timeoutMs: POLL_TIMEOUT,
       onTimeout: (last, elapsedMs) =>
         new Error(
-          `the member's look never showed ${JSON.stringify(text)}; after ${elapsedMs}ms it said ${JSON.stringify(last)}`,
+          `the member's peek never showed ${JSON.stringify(text)}; after ${elapsedMs}ms it said ${JSON.stringify(last)}`,
         ),
     });
   },
@@ -2591,6 +2668,12 @@ Then("the help sheet should be open", async function (this: KoluWorld) {
   await this.page
     .locator(HELP_SHEET)
     .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+});
+
+Then("the help sheet should not be open", async function (this: KoluWorld) {
+  await this.page
+    .locator(HELP_SHEET)
+    .waitFor({ state: "hidden", timeout: POLL_TIMEOUT });
 });
 
 // ── A piece of work: the repo it is done in, its members, its files, its PR ──

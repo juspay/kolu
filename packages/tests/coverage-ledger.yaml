@@ -3865,7 +3865,7 @@ retirements:
     defectSurface: [conductor, user-journey]
     destinationLayer: L5
     replacements: []
-    survivorRevisionIds: [revision-d08ff2970698a548470d]
+    survivorRevisionIds: [revision-7443df2983586a51efb7]
     sameCodePathEvidence:
       file: packages/tests/features/conductor-wakes.feature
       symbol: "Scenario: The watched terminals are listed and looked at"
@@ -3878,7 +3878,7 @@ retirements:
     defectSurface: [conductor, user-journey]
     destinationLayer: L5
     replacements: []
-    survivorRevisionIds: [revision-d08ff2970698a548470d]
+    survivorRevisionIds: [revision-7443df2983586a51efb7]
     sameCodePathEvidence:
       file: packages/tests/features/conductor-wakes.feature
       symbol: "Scenario: The watched terminals are listed and looked at"
@@ -3891,7 +3891,7 @@ retirements:
     defectSurface: [conductor, user-journey]
     destinationLayer: L5
     replacements: []
-    survivorRevisionIds: [revision-d08ff2970698a548470d]
+    survivorRevisionIds: [revision-7443df2983586a51efb7]
     sameCodePathEvidence:
       file: packages/tests/features/conductor-wakes.feature
       symbol: "Scenario: The watched terminals are listed, looked at, and pressed to go there"
@@ -3969,7 +3969,7 @@ retirements:
     defectSurface: [conductor, user-journey]
     destinationLayer: L5
     replacements: []
-    survivorRevisionIds: [revision-d08ff2970698a548470d]
+    survivorRevisionIds: [revision-7443df2983586a51efb7]
     sameCodePathEvidence:
       file: packages/tests/features/conductor-wakes.feature
       symbol: "Scenario: A work's terminals are listed, looked at, and pressed to go there"
@@ -3995,7 +3995,7 @@ retirements:
     defectSurface: [conductor, user-journey]
     destinationLayer: L5
     replacements: []
-    survivorRevisionIds: [revision-7f8803aff90bdc7d78df]
+    survivorRevisionIds: [revision-bc0d8fa3bc7c440ff1ad]
     sameCodePathEvidence:
       file: packages/tests/features/conductor-wakes.feature
       symbol: "Scenario: Leaving the conversation and coming back finds it exactly as it was"
@@ -4060,7 +4060,7 @@ retirements:
     defectSurface: [conductor, user-journey]
     destinationLayer: L5
     replacements: []
-    survivorRevisionIds: [revision-de532dddb922eee37ac6]
+    survivorRevisionIds: [revision-fdddfdbead2ca9eb2d48]
     sameCodePathEvidence:
       file: packages/tests/features/conductor.feature
       symbol: "Scenario: Look reads the agent's screen from inside the chat"
@@ -4073,7 +4073,7 @@ retirements:
     defectSurface: [conductor, user-journey]
     destinationLayer: L5
     replacements: []
-    survivorRevisionIds: [revision-cf5f30c9e5fbc328bf2a]
+    survivorRevisionIds: [revision-d71c45a951c81f0b0577]
     sameCodePathEvidence:
       file: packages/tests/features/conductor-layout.feature
       symbol: "Scenario: A Look stays open across the width where the two columns fold"
@@ -4171,7 +4171,7 @@ retirements:
     defectSurface: [conductor, user-journey]
     destinationLayer: L5
     replacements: []
-    survivorRevisionIds: [revision-d08ff2970698a548470d]
+    survivorRevisionIds: [revision-7443df2983586a51efb7]
     sameCodePathEvidence:
       file: packages/tests/features/conductor-wakes.feature
       symbol: "Scenario: A work's terminals are listed, looked at, and pressed to go there"
@@ -4184,7 +4184,7 @@ retirements:
     defectSurface: [conductor, user-journey]
     destinationLayer: L5
     replacements: []
-    survivorRevisionIds: [revision-d08ff2970698a548470d]
+    survivorRevisionIds: [revision-7443df2983586a51efb7]
     sameCodePathEvidence:
       file: packages/tests/features/conductor-wakes.feature
       symbol: "Scenario: A work's terminals are listed, looked at, and pressed to go there"
@@ -4249,7 +4249,7 @@ retirements:
     defectSurface: [conductor, user-journey]
     destinationLayer: L5
     replacements: []
-    survivorRevisionIds: [revision-7f8803aff90bdc7d78df]
+    survivorRevisionIds: [revision-bc0d8fa3bc7c440ff1ad]
     sameCodePathEvidence:
       file: packages/tests/features/conductor-wakes.feature
       symbol: "Scenario: Leaving the conversation and coming back finds it exactly as it was"
@@ -4262,7 +4262,7 @@ retirements:
     defectSurface: [conductor, user-journey]
     destinationLayer: L5
     replacements: []
-    survivorRevisionIds: [revision-7f8803aff90bdc7d78df]
+    survivorRevisionIds: [revision-bc0d8fa3bc7c440ff1ad]
     sameCodePathEvidence:
       file: packages/tests/features/conductor-wakes.feature
       symbol: "Scenario: Leaving the conversation and coming back finds it exactly as it was"
@@ -4275,7 +4275,7 @@ retirements:
     defectSurface: [conductor, user-journey]
     destinationLayer: L5
     replacements: []
-    survivorRevisionIds: [revision-cf5f30c9e5fbc328bf2a]
+    survivorRevisionIds: [revision-d71c45a951c81f0b0577]
     sameCodePathEvidence:
       file: packages/tests/features/conductor-layout.feature
       symbol: "Scenario: A Look stays open across the width where the two columns fold"
@@ -4288,7 +4288,7 @@ retirements:
     defectSurface: [conductor, user-journey]
     destinationLayer: L5
     replacements: []
-    survivorRevisionIds: [revision-cf5f30c9e5fbc328bf2a]
+    survivorRevisionIds: [revision-d71c45a951c81f0b0577]
     sameCodePathEvidence:
       file: packages/tests/features/conductor-layout.feature
       symbol: "Scenario: A Look stays open across the width where the two columns fold"
@@ -4782,3 +4782,56 @@ retirements:
       file: packages/tests/features/attention-alerts.feature
       symbol: "Scenario: An agent that finishes while kolu is down is unread when it comes back, without a chime"
       test: Every step of this revision is still asserted on the same journey. The survivor adds one check after the restart, that the shell is the active tile, before the checks that depend on the agent's terminal being in the background.
+
+  - id: revise-7f8803aff90bdc7d78df
+    revisionId: revision-7f8803aff90bdc7d78df
+    action: revised
+    status: landed
+    promise: Leaving the conversation and coming back finds it exactly as it was
+    defectSurface: [conductor, user-journey]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-bc0d8fa3bc7c440ff1ad]
+    sameCodePathEvidence:
+      file: packages/tests/features/conductor-wakes.feature
+      symbol: "Scenario: Leaving the conversation and coming back finds it exactly as it was"
+      test: The same journey, re-run against the same steps; this revision changed only how the peek is opened and closed, and what stays open across a round trip.
+  - id: revise-cf5f30c9e5fbc328bf2a
+    revisionId: revision-cf5f30c9e5fbc328bf2a
+    action: revised
+    status: landed
+    promise: A Look stays open across the width where the two columns fold
+    defectSurface: [conductor, user-journey]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-d71c45a951c81f0b0577]
+    sameCodePathEvidence:
+      file: packages/tests/features/conductor-layout.feature
+      symbol: "Scenario: A Look stays open across the width where the two columns fold"
+      test: The same journey, re-run against the same steps; this revision changed only how the peek is opened and closed, and what stays open across a round trip.
+  - id: revise-d08ff2970698a548470d
+    revisionId: revision-d08ff2970698a548470d
+    action: revised
+    status: landed
+    promise: A work's terminals are listed, looked at, and pressed to go there
+    defectSurface: [conductor, user-journey]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-7443df2983586a51efb7]
+    sameCodePathEvidence:
+      file: packages/tests/features/conductor-wakes.feature
+      symbol: "Scenario: A work's terminals are listed, looked at, and pressed to go there"
+      test: The same journey, re-run against the same steps; this revision changed only how the peek is opened and closed, and what stays open across a round trip.
+  - id: revise-de532dddb922eee37ac6
+    revisionId: revision-de532dddb922eee37ac6
+    action: revised
+    status: landed
+    promise: Look reads the agent's screen from inside the chat
+    defectSurface: [conductor, user-journey]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-fdddfdbead2ca9eb2d48]
+    sameCodePathEvidence:
+      file: packages/tests/features/conductor.feature
+      symbol: "Scenario: Look reads the agent's screen from inside the chat"
+      test: The same journey, re-run against the same steps; this revision changed only how the peek is opened and closed, and what stays open across a round trip.
