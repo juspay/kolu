@@ -2,8 +2,6 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { canBindLocally } from "./freePort.ts";
 import { openPreferringPort, PortUnavailableError } from "./portChoice.ts";
 
-// The kernel questions are the ones this module now OWNS, so they are what the
-// test drives: "is the preferred number free here?" and "give me any free one".
 vi.mock("./freePort.ts", () => ({
   canBindLocally: vi.fn(async () => true),
   pickFreePort: vi.fn(async () => 61000),
@@ -22,8 +20,6 @@ describe("openPreferringPort", () => {
     expect(await openPreferringPort({ preferred: 4123, open })).toBe(
       "opened 4123",
     );
-    // No second attempt: the preferred number worked, so the kernel is never
-    // asked to pick.
     expect(open).toHaveBeenCalledTimes(1);
     expect(open).toHaveBeenCalledWith(4123);
   });
@@ -71,9 +67,6 @@ describe("openPreferringPort", () => {
   });
 
   it("does NOT retry a failure that has nothing to do with the port", async () => {
-    // Retrying a refused host on a different local port would fail identically
-    // and then blame the port — the user would go hunting for a port conflict
-    // that never existed.
     const open = vi.fn<(port: number) => Promise<never>>(async () => {
       throw new Error("ssh exited 255: Host key verification failed");
     });

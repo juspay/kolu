@@ -9,12 +9,8 @@ import type { ForwardReport, OpenedForward } from "./mechanism.ts";
 import { pickFreePort } from "./freePort.ts";
 import { openRelay } from "./relay.ts";
 
-/** A report that records nothing — for the cases that only care about bytes. */
 const silent = () => ({ lost: () => {}, fault: () => {} });
 
-/** The relay as production builds it: node's own listener, which is what
- *  `nativeMechanisms` hands it. The cases that inject a fake listener call
- *  `openRelay` directly. */
 const relayTo = (port: number, report: ForwardReport) =>
   openRelay({
     port,
@@ -88,13 +84,6 @@ describe("the local TCP relay", () => {
   });
 
   it("serves a server bound to the V6 loopback — the production defect", async () => {
-    // `[::1]:5173` is what vite and several Node versions bind by default, and
-    // the relay used to dial `127.0.0.1` unconditionally. The door came up
-    // reporting success and refused every connection through it, which is the
-    // worst available failure: nothing in the UI said anything was wrong.
-    //
-    // This test is the reason the family is a REQUIRED field rather than an
-    // optional one — an optional field is exactly how the v4 assumption got in.
     const origin = await serveOnLoopback("hello from ::1", "::1");
     cleanups.push(origin.stop);
     const relay = await openRelay({
@@ -115,10 +104,6 @@ describe("the local TCP relay", () => {
     cleanups.push(origin.stop);
     const relay = await relayTo(origin.port, silent());
 
-    // A served request leaves a pooled keep-alive socket on the relay; close()
-    // must destroy it rather than wait politely for it to end on its own —
-    // otherwise close() would hang and the "cancelled" forward would still be
-    // carrying bytes.
     await (await fetch(`http://127.0.0.1:${relay.localPort}/`)).text();
     await relay.close();
 
@@ -139,10 +124,6 @@ describe("the local TCP relay", () => {
   });
 
   it("never binds the port it relays to, even when that number is free", async () => {
-    // Both ends are on this machine: a listener on `0.0.0.0:<port>` relaying to
-    // `127.0.0.1:<port>` is pointed at ITSELF. Measured when this was open, one
-    // connection opened ~29,000 file descriptors in 1.5s before anything else
-    // noticed.
     const free = await pickFreePort();
     const relay = await relayTo(free, silent());
     cleanups.push(relay.close);
@@ -151,9 +132,6 @@ describe("the local TCP relay", () => {
   });
 
   it("does not loop when its target never answers", async () => {
-    // The self-relay's signature was unbounded accept-then-dial. A connection
-    // to a relay whose target is dead must end, and must cost a bounded number
-    // of sockets.
     const free = await pickFreePort();
     const relay = await relayTo(free, silent());
     cleanups.push(relay.close);
@@ -187,9 +165,6 @@ describe("pickFreePort", () => {
 });
 
 describe("a relay that fails after it was up", () => {
-  /** Open a relay while keeping a handle on its listener, so the test can fail
-   *  it the way the kernel would — there is no way to provoke that through a
-   *  real socket. */
   async function relayWithHandle(
     port: number,
     report: { lost: (r: string) => void; fault: (r: string) => void },
@@ -218,18 +193,14 @@ describe("a relay that fails after it was up", () => {
       fault: () => {},
     });
 
-    // Hold a live pair open, then fail the listener the way the kernel would.
     await (await fetch(`http://127.0.0.1:${relay.localPort}/`)).text();
     server.emit("error", new Error("listener exploded"));
     server.emit("error", new Error("and again"));
     await new Promise((done) => setTimeout(done, 50));
 
-    // Reporting without tearing down was the defect: the row disappears while
-    // the door is still open.
     await expect(
       fetch(`http://127.0.0.1:${relay.localPort}/`),
     ).rejects.toThrow();
-    // And a second notification could delete a REPLACEMENT that reused the key.
     expect(losses).toHaveLength(1);
     expect(losses[0]).toContain("listener exploded");
   });
@@ -250,9 +221,6 @@ describe("a relay that fails after it was up", () => {
   });
 
   it("makes a concurrent close JOIN the teardown already under way", async () => {
-    // "Already closing" must not answer "done" while the server is still
-    // closing: a caller that believed it could then reuse the key, and the
-    // late loss would land on the replacement.
     const origin = await serveOnLoopback("bye");
     cleanups.push(origin.stop);
     const losses: string[] = [];
@@ -264,7 +232,6 @@ describe("a relay that fails after it was up", () => {
     server.emit("error", new Error("listener exploded"));
     await relay.close();
 
-    // By the time close() resolves the door really is shut.
     await expect(
       fetch(`http://127.0.0.1:${relay.localPort}/`),
     ).rejects.toThrow();
@@ -272,8 +239,6 @@ describe("a relay that fails after it was up", () => {
   });
 
   it("does not report a loss when the teardown itself failed", async () => {
-    // `onLost` makes the owner drop its only handle. After a FAILED teardown
-    // the relay may still be reachable, so claiming it is gone would strand it.
     const origin = await serveOnLoopback("stuck");
     cleanups.push(origin.stop);
     const losses: string[] = [];
@@ -308,7 +273,6 @@ describe("a relay that fails after it was up", () => {
 
     expect(losses).toEqual([]);
 
-    // Still owned, and a retry once the mechanism recovers really retries.
     refuse = false;
     await expect(relay.close()).resolves.toBeUndefined();
   });
@@ -324,10 +288,6 @@ describe("a relay that fails after it was up", () => {
 
   describe("the remembered local port", () => {
     it("comes back on the same number after a restart", async () => {
-      // The property links and bookmarks rest on. A relay has no target-number
-      // preference to fall back on (that number is the one it may never take), so
-      // without this every restart moved the door and silently broke every URL
-      // the user had.
       const origin = await serveOnLoopback("one");
       cleanups.push(origin.stop);
       const first = await relayTo(origin.port, silent());
@@ -346,8 +306,6 @@ describe("a relay that fails after it was up", () => {
     });
 
     it("takes a free port when the remembered one is gone", async () => {
-      // A forward is never refused over a busy number — the same rule the ssh
-      // mechanism follows, and the reason there is no knob for either.
       const origin = await serveOnLoopback("two");
       cleanups.push(origin.stop);
       // The squatter has to hold the address the RELAY will bind — the wildcard
@@ -372,26 +330,10 @@ describe("a relay that fails after it was up", () => {
     });
 
     it("refuses a KERNEL-CHOSEN port that lands on the target too", async () => {
-      // The guard above is on the number the caller REMEMBERED, but the runaway
-      // is a property of the number actually BOUND. When the remembered port is
-      // taken, `openPreferringPort` falls back to `pickFreePort()` — a concrete
-      // kernel-chosen number that never passed that check.
-      //
-      // So the same self-relay is reachable without anyone asking for it: a
-      // loopback target whose listener is already dead (nothing holds the
-      // number), a target port inside the ephemeral range, and the kernel hands
-      // back exactly it. Then the relay binds `0.0.0.0:<port>` and dials
-      // `127.0.0.1:<port>` — itself. That is the shape that opened ~29,000 file
-      // descriptors in 1.5 seconds.
-      //
-      // The listener seam is how the case is provoked deterministically: the
-      // kernel cannot be told which free port to pick, so a fake reports the
-      // collision instead.
       const target = await pickFreePort();
       let closed = false;
       const collidingListen = (): Server => {
         const server = createNetServer();
-        // The bind reports the very port we are dialling.
         server.address = () => ({
           address: "0.0.0.0",
           family: "IPv4",
@@ -414,16 +356,10 @@ describe("a relay that fails after it was up", () => {
           loopback: "v4",
         }),
       ).rejects.toThrow(/relay into itself/);
-      // …and the listener it had already opened is taken back down, rather than
-      // left holding the very socket that would loop.
       expect(closed).toBe(true);
     });
 
     it("refuses the one number that would point the relay at itself", async () => {
-      // Unreachable through the map (a relay can never have HAD this number), so
-      // this is a guard on the consequence rather than on a live path: binding
-      // `0.0.0.0:<port>` while dialling `127.0.0.1:<port>` opened ~29,000 file
-      // descriptors in 1.5 seconds the one time it happened.
       const origin = await serveOnLoopback("three");
       cleanups.push(origin.stop);
       expect(() =>

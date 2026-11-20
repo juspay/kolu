@@ -39,18 +39,11 @@ describe("parseTarget", () => {
   });
 
   it("reads ::1 as a V6 loopback target, because that is what it says", () => {
-    // The spelling names the family outright, and getting it wrong is not a
-    // cosmetic miss: every mechanism dials the loopback it is told, so a `::1`
-    // target dialled at `127.0.0.1` opens a door onto nothing at all. That is
-    // the production defect this field exists to close.
     expect(parseTarget("::1:5173")).toEqual({
       kind: "local",
       port: 5173,
       loopback: "v6",
     });
-    // `localhost` is deliberately NOT read as v6 even though it often resolves
-    // there first: a resolver's preference is not an observation, and this field
-    // carries observations.
     expect(parseTarget("localhost:5173").loopback).toBe("v4");
   });
 
@@ -88,8 +81,6 @@ describe("targetKey", () => {
   });
 
   it('does not collide with an ssh host literally called "local"', () => {
-    // `local` is a legal ssh alias. Without the kind in the key both of these
-    // would be "local:5173" and the map would hand out whichever came first.
     expect(targetKey({ kind: "local", port: 5173, loopback: "v4" })).not.toBe(
       targetKey({ kind: "remote", host: "local", port: 5173, loopback: "v4" }),
     );

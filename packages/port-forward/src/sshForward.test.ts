@@ -14,13 +14,10 @@ import {
   type SpawnSsh,
 } from "./sshForward.ts";
 
-/** A stand-in for the real options prefix, so these stay about the argv. */
 const base = ["-o", "BatchMode=yes", "-o", "ControlPath=none"] as const;
 
 describe("forwardSpec", () => {
   it("binds the local end on ALL interfaces", () => {
-    // `*:` is the whole reason a browser on another machine can reach this;
-    // a loopback bind here would make the forward useless.
     expect(
       forwardSpec({ localPort: 4123, remotePort: 4123, loopback: "v4" }),
     ).toBe("*:4123:127.0.0.1:4123");
@@ -33,14 +30,6 @@ describe("forwardSpec", () => {
   });
 
   it("dials the V6 loopback when that is what the far end is bound on", () => {
-    // The production defect: a dev server on `[::1]:5173` was forwarded to
-    // `127.0.0.1:5173`, where nothing was listening. The tunnel came up clean
-    // and served nothing at all — the worst available failure, because every
-    // signal said healthy.
-    //
-    // BRACKETED, which is ssh's own syntax for an IPv6 address inside a forward
-    // spec: unbracketed, its colons would be read as the spec's own separators
-    // and ssh would reject the argument outright.
     expect(
       forwardSpec({ localPort: 61000, remotePort: 5173, loopback: "v6" }),
     ).toBe("*:61000:[::1]:5173");
@@ -121,9 +110,6 @@ describe("reportsBindFailure", () => {
   });
 });
 
-/** A stand-in for the ssh child, so the decisions BRAIDED around one — the
- *  readiness token, the bind-failure line, exit-before-ready vs after — can be
- *  driven from a test instead of from a live sshd. */
 class FakeSsh extends EventEmitter {
   readonly stdout = new PassThrough();
   readonly stderr = new PassThrough();
@@ -136,7 +122,6 @@ class FakeSsh extends EventEmitter {
     return true;
   }
 
-  /** ssh ending, however it ended. */
   exit(code: number | null, signal: NodeJS.Signals | null = null): void {
     this.exitCode = code;
     this.signalCode = signal;
@@ -154,7 +139,6 @@ class FakeSsh extends EventEmitter {
   }
 }
 
-/** Let the stream's `data` handlers run. */
 function flush(): Promise<void> {
   return new Promise((done) => setImmediate(done));
 }
@@ -185,10 +169,6 @@ describe("one ssh forward attempt", () => {
   });
 
   it("remembers a bind failure the far end tried to flood out of view", async () => {
-    // The diagnostic buffer keeps only a tail. The far end writes to this same
-    // stream, so it could otherwise push the bind line past the window with a
-    // few kilobytes of noise and have the ready token resolve a half-bound
-    // forward. The FACT is latched; only the text is truncated.
     const fake = new FakeSsh();
     // The expectation is attached BEFORE the input that settles the attempt, as
     // in every test here that feeds more than one chunk: each `await` between
@@ -205,9 +185,6 @@ describe("one ssh forward attempt", () => {
   });
 
   it("comes up even when the far end floods its own announcement out of the tail", async () => {
-    // The mirror of the bind-failure latch: a chunk carrying the token and
-    // then more than the tail budget would otherwise evict the announcement,
-    // and a forward that is genuinely up would hang until the deadline.
     const fake = new FakeSsh();
     const opening = attempt(fake);
     await fake.says(
@@ -218,13 +195,6 @@ describe("one ssh forward attempt", () => {
   });
 
   it("reports a HALF bind that ssh only complained about after it was up", async () => {
-    // stdout and stderr are separate pipes, so which chunk this process reads
-    // first is the kernel's choice, not ours: the bind line can perfectly well
-    // land after the ready token it contradicts. The forward is up by then and
-    // taking another port is no longer on the table, so the half bind has to
-    // surface as trouble on a row that stays — never be latched into a boolean
-    // nothing reads again, which is what "the far end announced first" used to
-    // mean.
     const fault = vi.fn<(reason: string) => void>();
     const fake = new FakeSsh();
     const opening = attempt(fake, { lost: () => {}, fault });
@@ -281,8 +251,6 @@ describe("one ssh forward attempt", () => {
   });
 
   it("does NOT call onLost for a forward we closed ourselves", async () => {
-    // `close()` is already telling the caller the forward is gone; reporting it
-    // again as a LOSS would put an error on screen for a cancel that worked.
     const onLost = vi.fn<(reason: string) => void>();
     const fake = new FakeSsh();
     const opening = attempt(fake, { lost: onLost, fault: () => {} });

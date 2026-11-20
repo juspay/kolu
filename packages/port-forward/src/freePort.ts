@@ -1,19 +1,3 @@
-/**
- * Picking the local port a forward will answer on.
- *
- * The kernel picks it: bind to port 0 on all interfaces, read what we got,
- * release it. Binding `0.0.0.0` (not loopback) is deliberate — the port must be
- * free on the interface the forward will actually listen on.
- *
- * There is an unavoidable window between releasing the port and ssh binding it,
- * so the pick is a *hint*, not a reservation. That is fine because the bind
- * that follows fails loudly if it lost the race (ssh reports the bind error and
- * `create` rejects with it) — the one thing this must never do is quietly hand
- * back a port somebody else now owns. The TCP relay skips this entirely: it
- * binds port 0 itself and reads the port off its own listener, so it has no
- * window at all.
- */
-
 import { createServer } from "node:net";
 
 /** Is this port number free of local listeners — can we bind it ourselves?
@@ -33,10 +17,6 @@ export function canBindLocally(port: number): Promise<boolean> {
   return new Promise((resolve, reject) => {
     const server = createServer();
     server.once("error", (err: NodeJS.ErrnoException) => {
-      // Only "this port is not available to us" is an ANSWER. Anything else —
-      // EMFILE, ENFILE, a broken network stack — is a real failure of this
-      // process, and relabelling it "something is listening there" would send
-      // the caller to a fallback port that is about to fail the same way.
       if (PORT_UNAVAILABLE_CODES.has(err.code ?? "")) resolve(false);
       else reject(err);
     });
@@ -52,12 +32,8 @@ export function canBindLocally(port: number): Promise<boolean> {
  *  the ADDRESS is unavailable, which another port number cannot repair — so it
  *  travels as the failure it is instead of sending the caller to a fallback
  *  that will fail identically. */
-const PORT_UNAVAILABLE_CODES = new Set([
-  "EADDRINUSE",
-  "EACCES", // a privileged port, from an unprivileged process
-]);
+const PORT_UNAVAILABLE_CODES = new Set(["EADDRINUSE", "EACCES"]);
 
-/** A free TCP port on all interfaces, as the kernel hands it out. */
 export function pickFreePort(): Promise<number> {
   return new Promise((resolve, reject) => {
     const server = createServer();

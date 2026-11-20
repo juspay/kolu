@@ -4,19 +4,12 @@ import { makeForwardManager } from "./manager.ts";
 import type { ForwardMechanisms } from "./mechanism.ts";
 import { type ForwardTarget, targetKey } from "./target.ts";
 
-/** A mechanism that opens instantly and records what it was asked for, so the
- *  map's own semantics are what's under test. */
 function fakeMechanisms(): {
   mechanisms: ForwardMechanisms;
   opens: ForwardTarget[];
   closes: number[];
-  /** Kill the forward opened for `key` the way a dropped ssh master would. */
   killFromOutside: (key: string, reason: string) => void;
-  /** Fire the loss callback of the FIRST forward ever opened — a report that
-   *  arrives after that forward has been cancelled and replaced. */
   killFirstOpening: (reason: string) => void;
-  /** The `lastLocalPort` the map handed each `open`, in call order — the map's
-   *  restart-stability bookkeeping, observed at the seam it acts through. */
   remembered: Array<number | undefined>;
 } {
   const opens: ForwardTarget[] = [];
@@ -43,9 +36,6 @@ function fakeMechanisms(): {
       async open({ target, report, lastLocalPort }) {
         opens.push(target);
         remembered.push(lastLocalPort);
-        // A real mechanism PREFERS the remembered number; the fake takes it
-        // outright, so a test can assert the port a re-opened target lands on
-        // rather than only what the map passed down.
         const localPort = lastLocalPort ?? nextPort++;
         losers.set(targetKey(target), report.lost);
         everyOpening.push(report.lost);
@@ -149,9 +139,6 @@ describe("the forward map", () => {
   });
 
   it("refuses a target it cannot forward, before it reaches a mechanism", async () => {
-    // The map is the door every consumer knocks on, so it — not whichever
-    // mechanism happens to be plugged in — is what rejects an impossible
-    // target, and nothing is registered for it.
     const fake = fakeMechanisms();
     const forwards = makeForwardManager({ ...fake, onLost: () => {} });
 
@@ -171,8 +158,6 @@ describe("the forward map", () => {
   });
 
   it("cancels a forward that is still opening", async () => {
-    // A key the map is demonstrably creating right now is not an unknown key.
-    // The listener comes up after the cancel is issued, and must still go down.
     let arrive: (() => void) | undefined;
     const closed: number[] = [];
     const slow: ForwardMechanisms = {
@@ -216,7 +201,6 @@ describe("the forward map", () => {
 
     await expect(forwards.create(PU)).rejects.toThrow(/Host key/);
     expect(forwards.list()).toEqual([]);
-    // The failed flight must not be cached as in-flight forever.
     await expect(forwards.create(PU)).rejects.toThrow(/Host key/);
   });
 
@@ -244,12 +228,6 @@ describe("the forward map", () => {
     fake.killFromOutside(first.key, "host dropped");
     const second = await forwards.create(PU);
 
-    // A genuinely FRESH open, not the dead forward handed back: two calls to the
-    // mechanism, and a record stamped the second time. Deliberately not "a
-    // different local port" — that was only ever true of the old fake's counter,
-    // and the map now aims for the SAME number on purpose (see the remembered-port
-    // cases below), so asserting difference here would pin the opposite of the
-    // intended behaviour.
     expect(fake.opens).toEqual([PU, PU]);
     expect(second).not.toBe(first);
     expect(forwards.list()).toEqual([second]);
@@ -268,10 +246,6 @@ describe("the forward map", () => {
   });
 
   it("closes a forward that was still opening when dispose ran", async () => {
-    // Quitting while an add is in flight: the listener comes up AFTER dispose
-    // was called, so nothing in the map ever sees it. It must still go down —
-    // otherwise "quit tears everything down" is false exactly when the user is
-    // least able to notice.
     let arrive: (() => void) | undefined;
     const closed: number[] = [];
     const slow: ForwardMechanisms = {
@@ -303,9 +277,6 @@ describe("the forward map", () => {
   });
 
   it("reports a teardown that failed while the forward was still opening", async () => {
-    // dispose's whole job is "nothing survives me". A flight that finishes
-    // after dispose closes its own listener — and if THAT close fails, the
-    // listener may still be live, so dispose must not return success.
     let arrive: (() => void) | undefined;
     const stubborn: ForwardMechanisms = {
       open: async () => {
@@ -329,19 +300,12 @@ describe("the forward map", () => {
     const disposing = forwards.dispose();
     arrive?.();
 
-    // The create learns the REAL reason it has nothing: not "you were
-    // disposed" (the clean case) but the teardown that refused.
     await expect(creating).rejects.toThrow(/refused to close/);
     await expect(disposing).rejects.toThrow(AggregateError);
-    // And it is still REPRESENTED: the listener may be live, so it must be
-    // visible and retryable rather than merely reported.
     expect(forwards.list().map((f) => f.key)).toEqual(["remote:pu-dev:5173"]);
   });
 
   it("never hands a create the forward that is closing under it", async () => {
-    // The window the `closing` state exists for: cancel has asked the
-    // mechanism to close and is awaiting it; a create for the same target in
-    // that window must not be resolved with the forward on its way out.
     let release: (() => void) | undefined;
     let opens = 0;
     const slow: ForwardMechanisms = {
@@ -365,7 +329,6 @@ describe("the forward map", () => {
     const cancelling = forwards.cancel(first.key);
     await Promise.resolve();
     const recreating = forwards.create(PU);
-    // It is not live while it is closing.
     expect(forwards.list()).toEqual([]);
 
     release?.();
@@ -377,9 +340,6 @@ describe("the forward map", () => {
   });
 
   it("a late loss cannot delete the REPLACEMENT that reused its key", async () => {
-    // The mechanism can report a loss after we have already closed that
-    // forward and opened another on the same key. Without a per-opening
-    // identity the map would delete the newcomer.
     const fake = fakeMechanisms();
     const forwards = makeForwardManager({ ...fake, onLost: () => {} });
     const first = await forwards.create(PU);
@@ -392,8 +352,6 @@ describe("the forward map", () => {
   });
 
   it("works when its methods are pulled off the object", async () => {
-    // A consumer may hand `create` to a callback as a bare function; nothing in the
-    // type says it needs its receiver, so nothing may.
     const fake = fakeMechanisms();
     const forwards = makeForwardManager({ ...fake, onLost: () => {} });
     const { create, cancel } = forwards;
@@ -402,16 +360,11 @@ describe("the forward map", () => {
     await cancel(forward.key);
     const again = await create(PU);
 
-    // Both calls really ran (a receiver-dependent one would have thrown), and the
-    // second really re-opened rather than returning the cancelled forward.
     expect(fake.opens).toEqual([PU, PU]);
     expect(again).not.toBe(forward);
   });
 
   it("attempts one teardown per forward in a dispose, even when the first fails", async () => {
-    // The mid-open restore and the later pass are the SAME forward: closing it
-    // twice would count one failure twice, or delete a forward this dispose is
-    // about to report as still there.
     let closes = 0;
     let arrive: (() => void) | undefined;
     const once: ForwardMechanisms = {
@@ -439,13 +392,10 @@ describe("the forward map", () => {
     expect(err).toBeInstanceOf(AggregateError);
     expect((err as AggregateError).errors).toHaveLength(1);
     expect(closes).toBe(1);
-    // And it is still represented, exactly as the error says.
     expect(forwards.list()).toHaveLength(1);
   });
 
   it("lets a joining dispose see the failure of the close it joined", async () => {
-    // A dispose that joins a cancel's teardown must observe the REAL outcome;
-    // a swallowed one would let dispose report success over a live listener.
     let release: ((err?: Error) => void) | undefined;
     const slow: ForwardMechanisms = {
       open: async () => ({
@@ -469,8 +419,6 @@ describe("the forward map", () => {
   });
 
   it("does not publish a forward the mechanism killed before it arrived", async () => {
-    // The loss can land before `open()` resolves. Publishing it would put a
-    // corpse in the map.
     const early: ForwardMechanisms = {
       open: async ({ report }) => {
         report.lost("the ssh connection ended before it was up");
@@ -487,9 +435,6 @@ describe("the forward map", () => {
   });
 
   it("does not restore a listener the mechanism already called dead", async () => {
-    // Early loss, THEN dispose, THEN a close that rejects. The disposed branch
-    // used to restore the slot without consulting the loss, publishing a
-    // listener the mechanism had definitively reported gone.
     let arrive: (() => void) | undefined;
     const doomed: ForwardMechanisms = {
       open: async ({ report }) => {
@@ -514,16 +459,12 @@ describe("the forward map", () => {
     const disposing = forwards.dispose();
     arrive?.();
 
-    // Under a dispose the create ends with the clean mid-open signal — there
-    // is nothing left un-torn-down to report — and the map is empty either way.
     await expect(creating).rejects.toThrow(/disposed while this forward/);
     await disposing;
     expect(forwards.list()).toEqual([]);
   });
 
   it("keeps a forward whose listener broke but could not be closed", async () => {
-    // A fault is not a loss: the listener may still be reachable, so the row
-    // stays — visible and retryable — and the trouble is still reported.
     const reports: ForwardLoss[] = [];
     let fault: ((reason: string) => void) | undefined;
     const flaky: ForwardMechanisms = {
@@ -555,9 +496,6 @@ describe("the forward map", () => {
   });
 
   it("keeps a forward whose teardown was REFUSED, and still tears down the rest", async () => {
-    // A rejecting close means the listener may still be reachable. Forgetting
-    // it would make list() lie and leave nothing to retry — the error must
-    // surface AND the forward must stay represented.
     const closed: number[] = [];
     let port = 100;
     const flaky: ForwardMechanisms = {
@@ -604,7 +542,6 @@ describe("the forward map", () => {
     const forward = await forwards.create(PU);
 
     await expect(forwards.cancel(forward.key)).rejects.toThrow(/255/);
-    // Still there, because it may still be listening.
     expect(forwards.list()).toEqual([forward]);
 
     refuse = false;
@@ -627,9 +564,6 @@ describe("the local port a target comes back on", () => {
   });
 
   it("is remembered across a LOSS, which runs no teardown of ours", async () => {
-    // The route that matters most in production — the dev server died, so its
-    // ssh child died with it — and the one a "record it when we close it"
-    // bookkeeping would miss entirely.
     const fake = fakeMechanisms();
     const forwards = makeForwardManager({ ...fake, onLost: () => {} });
 

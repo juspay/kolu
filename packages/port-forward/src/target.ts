@@ -1,17 +1,3 @@
-/**
- * What a forward points AT, and the `host:port` text both apps accept for it.
- *
- * Two kinds, because they need genuinely different mechanisms (see the plan's
- * "three cases" table): a `remote` target is one ssh hop away and rides an
- * `ssh -L` tunnel; a `local` target is a loopback listener on THIS machine
- * that simply isn't reachable from anywhere else, and needs only a TCP relay.
- * A server already bound to `0.0.0.0` here needs no forward at all and is
- * deliberately not modelled — that is the caller's "nothing to do" case.
- */
-
-/** The lowest TCP port a target may name. Port 0 means "any" to the kernel,
- *  never a server you can point at, so it is rejected rather than silently
- *  turned into an ephemeral bind. */
 const MIN_PORT = 1;
 const MAX_PORT = 65535;
 
@@ -81,10 +67,6 @@ export type ForwardTarget =
  *  targets (`local:5173` vs `localhost:5173`), so anything a user reads must
  *  come from `formatTarget`. */
 export function targetKey(target: ForwardTarget): string {
-  // Every encoding carries the KIND, because the two namespaces genuinely
-  // overlap: `local` is a legal ssh alias, so a bare `local:5173` would name
-  // both the loopback relay on 5173 and a tunnel to a host called `local` —
-  // and the map would hand out whichever of them was created first.
   return target.kind === "local"
     ? `local:${target.port}`
     : `remote:${target.host}:${target.port}`;
@@ -108,9 +90,6 @@ export function assertPort(port: number, what: string): void {
   }
 }
 
-/** Every character an ssh destination may NOT contain: whitespace and control
- *  characters (`\p{Cc}`). Neither names a real host, and both would reach an
- *  ssh argv verbatim. */
 const FORBIDDEN_IN_HOST = /[\s\p{Cc}]/u;
 
 /** Reject an ssh destination that can't be one. A leading `-` would be read by
@@ -131,8 +110,6 @@ export function assertHost(host: string): void {
       `port-forward: the ssh host "${host}" contains whitespace or control characters.`,
     );
   }
-  // `[::1]` is URL syntax, not ssh syntax — ssh takes a bare address. Reject it
-  // rather than pass brackets through to an ssh that will not understand them.
   if (host.includes("[") || host.includes("]")) {
     throw new Error(
       `port-forward: the ssh host "${host}" is written as a bracketed IPv6 literal; ssh wants a bare address, hostname, or alias.`,
@@ -171,8 +148,6 @@ export type HostPortSplit =
 
 export function splitHostPort(text: string): HostPortSplit {
   const trimmed = text.trim();
-  // The LAST colon, so a colon-bearing ssh destination (`user@box:2222`) cannot
-  // swallow its own port.
   const colon = trimmed.lastIndexOf(":");
   const portText = colon === -1 ? trimmed : trimmed.slice(colon + 1);
   if (!/^\d+$/.test(portText)) return { ok: false, reason: "no-port" };
@@ -205,11 +180,6 @@ export function splitHostPort(text: string): HostPortSplit {
  *  an ssh argv that cannot use them. */
 export function parseTarget(text: string): ForwardTarget {
   const split = splitHostPort(text);
-  // A text with no colon at all names neither half — that is a different
-  // mistake from `pu-dev:http`, and it gets its own sentence. A bare `5173`
-  // lands here too: the `:port` spelling is how a user says "this machine",
-  // and it is deliberately explicit, because a target is a (machine, port) pair
-  // and half of one is not a target.
   if (!text.includes(":") || (split.ok && split.host === undefined)) {
     throw new Error(
       `port-forward: "${text}" is not a target — write host:port (e.g. pu-dev:5173) or :port for a local one.`,
@@ -228,19 +198,12 @@ export function parseTarget(text: string): ForwardTarget {
     );
   }
   const { host, port } = split;
-  // Every spelling of "this machine" — the same set `@kolu/common`'s
-  // `LOOPBACK_SELF_SPELLINGS` documents as canonical (restated, not imported:
-  // this package stays dependency-free). Without `::1`, `::1:5173` parsed as an
-  // ssh hop to a host named `::1` instead of a local relay.
   if (
     host === "" ||
     host === "localhost" ||
     host === "127.0.0.1" ||
     host === "::1"
   ) {
-    // `::1` is the one spelling that names v6 outright. `localhost` is NOT
-    // treated as v6 even though it often resolves there first: this field exists
-    // to carry an observed fact, and a resolver's preference is not one.
     return {
       kind: "local",
       port,
