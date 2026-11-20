@@ -14,7 +14,6 @@ function mk(name: string, background: string): NamedTheme {
 
 type NonEmptyThemes = [NamedTheme, ...NamedTheme[]];
 
-// Fixed-sequence rand — useful for making tiebreakers deterministic.
 function seqRand(...values: number[]): () => number {
   let i = 0;
   return () => values[i++ % values.length] ?? 0;
@@ -87,7 +86,6 @@ describe("pickTheme – spread mode", () => {
   });
 
   it("never picks a candidate whose bg matches a peer bg exactly", () => {
-    // Identical bg scores 0 distance; any other parseable candidate wins.
     const candidates: NonEmptyThemes = [
       mk("Same", "#282a36"),
       mk("Other", "#ffffff"),
@@ -98,8 +96,6 @@ describe("pickTheme – spread mode", () => {
   });
 
   it("maximises distance across multiple peers", () => {
-    // Peers cluster in blue-ish dark territory; green-tinted candidate is
-    // farthest and should be picked regardless of rand.
     const candidates: NonEmptyThemes = [
       mk("Blueish", "#222244"),
       mk("PurpleDark", "#332244"),
@@ -112,8 +108,6 @@ describe("pickTheme – spread mode", () => {
   });
 
   it("rejects candidates whose bg chroma exceeds the garish cap", () => {
-    // Without a chroma cap the picker would gleefully pick neon bgs —
-    // they're the farthest points in colour space.
     const candidates: NonEmptyThemes = [
       mk("Tasteful", "#1d1f21"),
       mk("BrightYellow", "#ffff00"),
@@ -159,8 +153,6 @@ describe("pickTheme – spread mode", () => {
 });
 
 describe("pickTheme – shuffle mode", () => {
-  // Regression: argmax-style picking ping-pongs between two themes
-  // (A's farthest is B, B's farthest is A). Shuffle mode must not do that.
   it("does not ping-pong when looped — random, not deterministic argmax", () => {
     const themes: NonEmptyThemes = [
       mk("A", "#000000"),
@@ -246,7 +238,6 @@ describe("themeMode", () => {
   it("classifies by background luminance", () => {
     expect(themeMode(mk("Black", "#000000"))).toBe("dark");
     expect(themeMode(mk("White", "#ffffff"))).toBe("light");
-    // A typical dark scheme bg (Dracula) and a typical light one (Solarized).
     expect(themeMode(mk("Dracula", "#282a36"))).toBe("dark");
     expect(themeMode(mk("SolarizedLight", "#fdf6e3"))).toBe("light");
   });
@@ -264,8 +255,6 @@ describe("themeMode", () => {
       if (m === "dark") dark++;
       else if (m === "light") light++;
     }
-    // Both families must be usably populated — a threshold that lumped
-    // everything into one bucket (or misclassified wholesale) would trip this.
     expect(dark).toBeGreaterThan(10);
     expect(light).toBeGreaterThan(10);
   });
@@ -315,15 +304,12 @@ describe("pickTheme – mode restriction", () => {
 
   it("falls back to the full pool when the requested family is empty", () => {
     const allDark: NonEmptyThemes = [mk("D1", "#111111"), mk("D2", "#222222")];
-    // No light candidates — rather than fail, the picker falls back so a tile
-    // still gets a theme (non-emptiness is a type guarantee).
     expect(["D1", "D2"]).toContain(
       pickTheme(allDark, { spread: true, peerBgs: [], mode: "light" }),
     );
   });
 
   it("colourful mode picks only saturated (non-grey) backgrounds", () => {
-    // Pure greys have ~0 chroma; a deep blue bg is colourful under the floor.
     const mixed: NonEmptyThemes = [
       mk("Grey", "#222222"),
       mk("Blue", "#102040"),
@@ -342,8 +328,6 @@ describe("pickTheme – mode restriction", () => {
   });
 
   it("colourful pool is a non-trivial pickable subset of the real catalogue", () => {
-    // Pick path is quality ∩ colourful: floor from themeColourful, ceiling from
-    // the garish quality gate (MAX). Count that mid-band, not floor-only.
     let pickableColourful = 0;
     let grey = 0;
     for (const t of availableThemes) {
@@ -356,17 +340,12 @@ describe("pickTheme – mode restriction", () => {
     }
     expect(pickableColourful).toBeGreaterThan(20);
     expect(grey).toBeGreaterThan(10);
-    // Floor-only export may include garish; real picks still quality-gate them.
     expect(
       availableThemes.filter((t) => themeColourful(t)).length,
     ).toBeGreaterThanOrEqual(pickableColourful);
   });
 
   it("relaxes only the family — never quality or distinctness — when a family is empty", () => {
-    // No light theme exists, so mode:"light" can't be honored. The fallback
-    // must drop ONLY the family constraint: it must still reject the garish
-    // (high-chroma) candidate and still honor excludeBgs, rather than dumping
-    // the whole raw list back in.
     const candidates: NonEmptyThemes = [
       mk("DarkA", "#111111"),
       mk("DarkB", "#222222"),
@@ -376,14 +355,12 @@ describe("pickTheme – mode restriction", () => {
     for (const r of [0, 0.34, 0.67, 0.99]) {
       results.add(
         pickTheme(candidates, {
-          excludeBgs: ["#111111"], // exclude DarkA
+          excludeBgs: ["#111111"],
           mode: "light",
           rand: () => r,
         }),
       );
     }
-    // Only DarkB survives quality ∧ not-excluded; Garish (fails quality) and
-    // DarkA (excluded) must never be picked despite the impossible family.
     expect([...results]).toEqual(["DarkB"]);
   });
 });

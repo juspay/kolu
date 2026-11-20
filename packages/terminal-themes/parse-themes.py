@@ -8,7 +8,6 @@ import json
 import sys
 from pathlib import Path
 
-# Ghostty palette indices → ITheme field names
 PALETTE_MAP = {
     0: "black", 1: "red", 2: "green", 3: "yellow",
     4: "blue", 5: "magenta", 6: "cyan", 7: "white",
@@ -16,7 +15,6 @@ PALETTE_MAP = {
     12: "brightBlue", 13: "brightMagenta", 14: "brightCyan", 15: "brightWhite",
 }
 
-# Ghostty config key → ITheme field name
 KEY_MAP = {
     "background": "background",
     "foreground": "foreground",
@@ -60,7 +58,7 @@ def main():
             result.append({"name": path.name, "theme": theme})
 
     json.dump(result, sys.stdout, indent=2)
-    print()  # trailing newline
+    print()
 
 
 if __name__ == "__main__":

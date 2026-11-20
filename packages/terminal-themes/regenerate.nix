@@ -1,5 +1,3 @@
-# Regenerate themes.json from iTerm2-Color-Schemes.
-# Usage: just regenerate  (from this directory)
 { pkgs ? import ../../nix/nixpkgs.nix { }
 , iTerm2-Color-Schemes
 }:

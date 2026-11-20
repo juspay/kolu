@@ -1,9 +1,3 @@
-/** RGB color parsing — single owner of "string → {r,g,b}" conversion.
- *
- *  Returns `Result<RGB, ColorParseError>` so callers must handle the
- *  bad-input case explicitly. Supports `#rrggbb`, `#rgb`, and
- *  `rgb(r, g, b)` — anything else is an error, not a silent zero. */
-
 import { err, ok, type Result } from "neverthrow";
 
 export interface RGB {
@@ -18,9 +12,6 @@ export type ColorParseError = { kind: "bad-color"; input: string };
 export function parseHexColor(input: string): Result<RGB, ColorParseError> {
   const m = input.trim().match(/^#?([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/);
   if (!m) return err({ kind: "bad-color", input });
-  // Group 1 is required by the alternation. The destructure with explicit
-  // tuple type is the one localized cast — every consumer reads `hex` as
-  // `string` without nullability.
   const [, hex] = m as unknown as [string, string];
   const full = hex.length === 3 ? [...hex].map((c) => c + c).join("") : hex;
   const n = Number.parseInt(full, 16);
