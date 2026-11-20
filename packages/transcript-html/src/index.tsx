@@ -1,15 +1,3 @@
-/** Render a `Transcript` to a small, self-contained HTML document.
- *
- *  The export has two modes:
- *  - `chat`: just the visible conversation, for reading and sharing
- *  - `full`: the same conversation plus collapsed audit details
- *
- *  Both modes deliberately avoid custom elements and syntax-highlighting
- *  payloads. Hidden export content is still file weight, so the lightweight
- *  chat mode omits non-conversation payloads instead of hiding them with CSS.
- *  The only runtime script is a tiny prompt-jump helper when a transcript has
- *  multiple human messages. */
-
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -374,8 +362,6 @@ export async function transcriptToHtml(
   const title = deriveDisplayTitle(prepared);
   const humanTotal = humanMessageCount(prepared.events);
   const events = await renderEvents(prepared.events, options.mode, humanTotal);
-  // The prompt-jump nav and its script are one feature, gated on the same
-  // threshold — more than one human message to jump between.
   const hasPromptJump = humanTotal >= 2;
   const promptJump = hasPromptJump ? promptJumpHtml() : "";
   const script = hasPromptJump ? `<script>${SCRIPT}</script>` : "";
