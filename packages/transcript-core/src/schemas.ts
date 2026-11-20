@@ -1,5 +1,10 @@
 import { Schema } from "effect";
 
+/** A vendor payload whose shape this IR does not model: whatever the
+ *  agent emitted, carried through verbatim. */
+export const UnmodelledPayloadSchema = Schema.Unknown;
+export type UnmodelledPayload = typeof UnmodelledPayloadSchema.Type;
+
 /** Tool-call inputs, decoded into a typed union at parse time.
  *
  *  Each loader is responsible for mapping its vendor's tool-name +
@@ -172,15 +177,12 @@ export const ToolInputSchema = Schema.Union([
     kind: Schema.Literal("tool_search"),
     query: Schema.String,
   }),
-  /** Tools we haven't modelled. The renderer surfaces these honestly
-   *  as "Unknown" so the reader isn't lied to — it's not a Bash or a
-   *  Read or anything else we recognise. The `toolName` is repeated
-   *  here so the unknown branch is self-describing (the parent
-   *  `tool_call` event also carries it). */
+  /** A tool this IR does not model. `toolName` is the vendor's own name,
+   *  `raw` its argument object verbatim. */
   Schema.Struct({
     kind: Schema.Literal("unknown"),
     toolName: Schema.String,
-    raw: Schema.Unknown,
+    raw: UnmodelledPayloadSchema,
   }),
 ]);
 
@@ -217,14 +219,11 @@ export const TranscriptEventSchema = Schema.Union([
     inputs: ToolInputSchema,
     ts: Schema.NullOr(Schema.Number),
   }),
-  /** Result of a previous tool call. `output` stays `unknown` because
-   *  vendors emit wildly varying shapes (file contents, command stdout,
-   *  structured payloads, error objects); the renderer pretty-prints
-   *  whatever it gets. */
+  /** Result of a previous tool call. */
   Schema.Struct({
     kind: Schema.Literal("tool_result"),
     id: Schema.NullOr(Schema.String),
-    output: Schema.Unknown,
+    output: UnmodelledPayloadSchema,
     isError: Schema.Boolean,
     ts: Schema.NullOr(Schema.Number),
   }),

@@ -2,10 +2,7 @@ import type { Logger } from "@kolu/log";
 import type { Transcript, TranscriptPr } from "./schemas.ts";
 
 /** Common shape every loader takes. Vendors that don't carry a value for
- *  a field receive `null`; the loader decides what to do (e.g. claude-code
- *  needs a non-null cwd to encode the projects-dir path and returns null
- *  when cwd is missing, mirroring the "transcript not yet written"
- *  branch). */
+ *  a field receive `null`; the loader decides what a missing one means. */
 export interface FetcherInput {
   sessionId: string;
   title: string | null;

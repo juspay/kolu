@@ -1,9 +1,7 @@
 /** Pull plain text out of an agent JSONL `content` field shaped as a bare
  *  string or an array of blocks (`[{type:"text", text:"…"}, …]`). Grok's
  *  chat history, pi's session JSONL, and omp's fork of pi's layout all use
- *  this exact envelope, which is why the reader lives here rather than in
- *  three copies. An agent with a typed or richer block model (xyne splits
- *  `{text, thinking}`) keeps its own reader. */
+ *  this exact envelope. */
 export function contentToText(content: unknown): string {
   if (typeof content === "string") return content;
   if (!Array.isArray(content)) return "";
