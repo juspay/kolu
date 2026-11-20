@@ -1,11 +1,3 @@
-/** Markdown rendered-appliance: a file's source rendered as a reading
- *  document via `@kolu/solid-markdown`. Unlike the image/iframe appliances,
- *  the rendered form comes from the file's *source text* (Markdown renders
- *  client-side), not a server URL — so this takes the content directly
- *  rather than a `url`. Generic and Kolu-free; the host frames it (the
- *  scroll container + centered reading column live here, the surrounding
- *  toggle chrome in `FileView`). */
-
 import { Markdown } from "@kolu/solid-markdown";
 import type { Component } from "solid-js";
 

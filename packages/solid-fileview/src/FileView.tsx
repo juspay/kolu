@@ -1,18 +1,3 @@
-/** `FileView` — the toggle host of `@kolu/solid-fileview`. Pure mechanism:
- *  it owns the Source ⇄ Rendered toggle, decides which modes a file offers,
- *  and picks the matching rendered appliance. It has *no* rendering
- *  dependencies — the source view and every rendered form are injected
- *  renderers (see `./types`), so the host knows nothing of syntax
- *  highlighting, images, iframes, oRPC, git, or comments.
- *
- *  Mode availability is read straight off the file's shape and the renderer
- *  list:
- *    - source available   ⇔ a `source` renderer was supplied,
- *    - rendered available  ⇔ some `rendered` renderer's `match(path)` is true.
- *  The toggle appears exactly when both are available; otherwise the single
- *  available mode renders with no chrome (today's behaviour for code, images,
- *  and documents alike). */
-
 import {
   type Accessor,
   type Component,
@@ -63,17 +48,8 @@ export function FileView<TFile extends FileData = FileData>(
   const hasRendered = () => matchedRendered() != null;
   const both = () => hasSource() && hasRendered();
 
-  // The user's explicit pick for this mount; null until they touch the
-  // toggle, so the resolved mode tracks `defaultMode` reactively until then.
   const [chosen, setChosen] = createSignal<FileViewMode | null>(null);
 
-  // A controlled `mode` assertion adopts the same `chosen` slot the toggle
-  // writes — so the host forces the surface, yet the user can still toggle
-  // away afterward (their click overwrites `chosen` in turn). A null value is
-  // a no-op (the component stays self-controlled on `defaultMode` + toggle);
-  // only a non-null value moves the surface, and it fires on the initial run
-  // too so a fresh mount whose host already names a surface (a tray jump that
-  // remounted this view) lands on it instead of falling back to `defaultMode`.
   createEffect(
     on(
       () => props.mode,
@@ -87,11 +63,9 @@ export function FileView<TFile extends FileData = FileData>(
     const picked = chosen();
     if (picked) return picked;
     if (both()) return props.defaultMode ?? "rendered";
-    // Only one form exists — show it regardless of any stale default.
     return hasRendered() ? "rendered" : "source";
   });
 
-  // Renderer identity owns the appliance; saves update its file accessor.
   const activeRenderer = createMemo(() =>
     mode() === "rendered" ? matchedRendered() : props.source,
   );
@@ -107,13 +81,6 @@ export function FileView<TFile extends FileData = FileData>(
         <FileViewToggle mode={mode()} onChange={setChosen} />
       </Show>
       <div class="relative min-h-0 flex-1">
-        {/* When a file offers BOTH forms (Markdown's Source ⇄ Rendered), keep
-            each mode alive across toggles: mounting the inactive one off-screen
-            instead of unmounting it means flipping back doesn't rebuild and
-            re-render the appliance (no Markdown re-parse / re-sanitize / re-
-            tokenize, no Pierre re-init). Single-form files have nothing to
-            toggle to, so they stay on the plain `active()` path — no second
-            appliance is ever mounted. */}
         <Show when={both()} fallback={active()}>
           <KeepAliveMode
             show={mode() === "rendered"}
@@ -131,23 +98,17 @@ export function FileView<TFile extends FileData = FileData>(
   );
 }
 
-/** Lazily mounts a mode once. Its file accessor adopts edits on reveal, so
- *  source/rendered toggles and saves preserve the appliance's DOM and state. */
 function KeepAliveMode<TFile extends FileData>(props: {
   show: boolean;
   file: TFile;
   render: (file: Accessor<TFile>) => JSX.Element;
 }): JSX.Element {
-  // A one-way latch: stays false until the slot is first shown, then sticks
-  // true (so the appliance mounts lazily on first view and is kept alive after).
   const visited = createMemo<boolean>((was) => was || props.show, false);
   const heldFile = createMemo<TFile>((prev) =>
     props.show || prev === undefined ? props.file : prev,
   );
   return (
     <Show when={visited()}>
-      {/* Retain the pane's geometry while excluding its hidden contents from
-          painting, focus, and the accessibility tree. */}
       <div
         class="h-full w-full"
         style={{
@@ -164,9 +125,6 @@ function KeepAliveMode<TFile extends FileData>(props: {
   );
 }
 
-/** Segmented Source / Rendered control. Theme-agnostic: it paints with
- *  `currentColor` so it inherits the host's foreground, like the rest of the
- *  package's appliances. */
 const FileViewToggle: Component<{
   mode: FileViewMode;
   onChange: (mode: FileViewMode) => void;

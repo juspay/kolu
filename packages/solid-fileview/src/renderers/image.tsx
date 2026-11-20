@@ -1,8 +1,3 @@
-/** Image rendered-appliance: a plain `<img>` centered in a scroll
- *  container. No iframe — image bytes can't execute, so there's no sandbox
- *  to set up. Generic and Kolu-free; the host supplies any backdrop (e.g. a
- *  checkerboard so transparency reads) via `class`. */
-
 import type { Component } from "solid-js";
 
 export type ImageRendererProps = {

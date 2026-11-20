@@ -1,8 +1,3 @@
-/** The contract for `@kolu/solid-fileview` — the "outlet" the Code-browser
- *  preview plan describes (`docs/atlas/src/content/atlas/solid-fileview.mdx`).
- *  Pure data + function shapes, no rendering: every concrete renderer is an
- *  appliance the consumer plugs in. */
-
 import type { Accessor, JSX } from "solid-js";
 
 /** What a renderer draws from. A file may have a `source` (UTF-8 text on
