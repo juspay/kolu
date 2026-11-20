@@ -12286,6 +12286,18 @@
       "exampleRows": [],
       "executions": 1,
       "firstSeenSha": "fed1b01dd13216f08c7f50cea4579733b6bd6c8d"
+    },
+    {
+      "revisionId": "revision-06d01858e2d07868c643",
+      "scenarioKey": "scenario-b586b6bf4df10c93e1bc",
+      "feature": "features/conductor-work.feature",
+      "scenario": "A work that needs you is answered on its card without opening it",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "e6ad6f0e49a68a63507baf1b4c5bed470b9bd815ec7bc89a29b0a08fa52eba07",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "f1580398e94c80e21c58d224e08fec7d802fff9d"
     }
   ]
 }

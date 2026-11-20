@@ -3029,6 +3029,43 @@ Then("the work should have no open question", async function (this: KoluWorld) {
   await waitForCount(this, `${WORK_COLUMN} [data-testid="work-question"]`, 0);
 });
 
+/** The card is SHUT — no press on its head has opened it — and the work's
+ *  question is on it, as the form a person answers. */
+async function shutCardQuestion(world: KoluWorld) {
+  await showWorkColumn(world);
+  const card = workCard(world);
+  await card.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+  assert.equal(
+    await card.getAttribute("data-open"),
+    null,
+    "the work's card is open, so this is not the shut card's question",
+  );
+  const ask = card.locator('[data-testid="work-question"][data-from="card"]');
+  await ask.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+  return ask;
+}
+
+Then(
+  "the shut work card should show the work's question",
+  async function (this: KoluWorld) {
+    await shutCardQuestion(this);
+  },
+);
+
+/** ANSWERED WHERE IT STANDS: the shut card's own form, pressed without
+ *  opening the card first — which is the whole of what this step adds over
+ *  "on the card". */
+When(
+  "I answer the work's question with {string} on the shut card",
+  async function (this: KoluWorld, value: string) {
+    const ask = await shutCardQuestion(this);
+    await ask
+      .locator(`[data-testid="conductor-ask-option"][data-value="${value}"]`)
+      .click();
+    await ask.locator('[data-testid="conductor-ask-submit"]').click();
+  },
+);
+
 /** THE WORK GETS AN IMPLEMENTOR — a real `lifecycle_create` on the fleet face
  *  carrying the work and the role, in the work's own repo, running the lazy
  *  omp stand-in: an agent that is UP with no transcript at all, which is the

@@ -403,3 +403,13 @@ Feature: A piece of work is a stored thing
     Then the work's stage strip should be at "build"
     And the work's stage line should name "Build" and no other stage
     And there should be no page errors
+
+  Scenario: A work that needs you is answered on its card without opening it
+    Given a repo for the work
+    When I ask the conductor to open the work "answer it shut"
+    Then the work's question should be in the chat, its card shut
+    And the shut work card should show the work's question
+    When I answer the work's question with "merge" on the shut card
+    Then the work should have no open question
+    And the work's decisions should include "merge" answered from the card
+    And there should be no page errors

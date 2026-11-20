@@ -3,16 +3,19 @@
  *  SHUT, it is a few lines and answers the only question a person has while
  *  something is running: what is this, who is it waiting on, and for how long.
  *  The stage strip under those lines is where the time has gone, stage by
- *  stage, and which stage the work is in now.
+ *  stage, and which stage the work is in now. A question waiting on you is on
+ *  the shut card too, as the SAME form as in the chat (answering either
+ *  settles the one question), so a work that needs you is answered without
+ *  opening it. It is drawn once, on this face, whether the card is open or
+ *  not.
  *
- *  OPEN, IT STAYS SHORT however long the work runs: it answers "what needs
- *  me, and where is it", and the whole history is one press further. The
- *  questions waiting on you (the SAME form as in the chat — answering either
- *  settles the one question); one row per terminal; the files; the pull
- *  request; the setup as one line and the latest three decisions; and the
- *  timeline of ONE stage — the strip is its index: pressing a cell shows that
- *  stage's events, and "whole timeline" unfolds all of it in place. Then
- *  **Stop**, one of the two ways a piece of work is ended on purpose.
+ *  OPEN, IT STAYS SHORT however long the work runs: it answers "where is it",
+ *  and the whole history is one press further. One row per terminal; the
+ *  files; the pull request; the setup as one line and the latest three
+ *  decisions; and the timeline of ONE stage — the strip is its index:
+ *  pressing a segment shows that stage's events, and "whole timeline" unfolds
+ *  all of it in place. Then **Stop**, one of the two ways a piece of work is
+ *  ended on purpose.
  *
  *  A CARD IS DRAWN FROM THE STATE SUM, and the two faces are built from
  *  different values ({@link CardFace}). An ENDED work says how it ended, what
@@ -379,35 +382,41 @@ const WorkCard: Component<{
         <WorkCardActions id={props.id} work={props.work} />
       </div>
 
-      <Show when={isOpen()}>
-        {/* WHAT CHANGES MOST, FIRST. A person opens a card to answer the
-            question, see who is running and what they wrote; the decisions
-            and the timeline are the record behind that, and they are rows
-            of one line each so the whole of an ordinary work fits a laptop
-            screen without scrolling. */}
-        <div class="border-t border-edge px-2.5 py-2">
-          <Show when={live()}>
-            {(asking) => (
-              <>
-                {/* THE QUESTIONS, FIRST — a person who opened this card while
-                    it was violet opened it to answer something. EVERY open
-                    ask, not the oldest: a Conductor that asks about a failing
-                    check while a plan approval is still open has put two
-                    things to the human, and a face that draws one of them
-                    makes the second answerable nowhere. */}
-                <For each={asking().asks}>
-                  {(ask) => (
-                    <AskSlot ask={ask} boxes={askBoxes}>
-                      <WorkQuestion
-                        work={props.work}
-                        id={props.id}
-                        ask={ask}
-                        from="card"
-                      />
-                    </AskSlot>
-                  )}
-                </For>
+      {/* THE QUESTIONS, ON THE SHUT FACE — a work that needs you is answered
+          where it stands, without opening it. EVERY open ask, not the
+          oldest: a Conductor that asks about a failing check while a plan
+          approval is still open has put two things to the human, and a face
+          that draws one of them makes the second answerable nowhere. Drawn
+          here once, so an open card does not carry a second copy. */}
+      <Show when={live()}>
+        {(asking) => (
+          <Show when={asking().asks.length > 0}>
+            <div data-testid="work-asks" class="px-2.5 pb-2">
+              <For each={asking().asks}>
+                {(ask) => (
+                  <AskSlot ask={ask} boxes={askBoxes}>
+                    <WorkQuestion
+                      work={props.work}
+                      id={props.id}
+                      ask={ask}
+                      from="card"
+                    />
+                  </AskSlot>
+                )}
+              </For>
+            </div>
+          </Show>
+        )}
+      </Show>
 
+      <Show when={isOpen()}>
+        {/* WHAT CHANGES MOST, FIRST. A person opens a card to see who is
+            running and what they wrote; the decisions and the timeline are
+            the record behind that, and they are rows of one line each so the
+            whole of an ordinary work fits a laptop screen without
+            scrolling. */}
+        <div class="border-t border-edge px-2.5 py-2">
+          <Show when={live() !== undefined}>
                 <Show
                   when={members().length > 0}
                   fallback={
@@ -594,8 +603,6 @@ const WorkCard: Component<{
                     </ul>
                   </section>
                 </Show>
-              </>
-            )}
           </Show>
 
           {/* HOW IT ENDED, on the card of a work that is over: the outcome in
