@@ -9,15 +9,7 @@ if (!rhaiGrammarPath) {
 }
 
 export default defineConfig({
-  // The Solid JSX transform — so the `.test.tsx` render harness compiles its JSX
-  // to real DOM. Harmless for the `.test.ts` files (no JSX); the per-file
-  // `// @vitest-environment happy-dom` docblock opts ONLY the render tests into a
-  // DOM, leaving the pure-logic tests (pathReconcile) on the node default.
   plugins: [solid()],
-  // solid-js' package.json picks `dist/server.cjs` (the SSR build) under Node's
-  // `"node"` export condition, where `createEffect` is a no-op. The render test
-  // exercises real reactive effects (onMount), so pin every solid import to the
-  // browser bundle directly — mirrors `packages/surface/vitest.config.ts`.
   resolve: {
     alias: {
       "kolu-rhai-grammar": rhaiGrammarPath,
@@ -37,9 +29,6 @@ export default defineConfig({
   },
   test: {
     include: ["src/**/*.test.ts", "src/**/*.test.tsx"],
-    // `vite-plugin-solid` defaults the env to `jsdom`; pin it back to `node` so the
-    // pure-logic `.test.ts` files run plain, and let ONLY the render `.test.tsx`
-    // opt into a DOM via its `// @vitest-environment happy-dom` docblock.
     environment: "node",
     server: { deps: { inline: [/solid-js/] } },
   },

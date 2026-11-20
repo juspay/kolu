@@ -46,15 +46,14 @@ export type FileTreeProps = {
    *  scrolling the row into view), and the #1841 provenance gate normally
    *  suppresses their echo so they don't round-trip back through `onSelect`.
    *  The host is the source of this value, so it already knows what it wrote.
-   *  (Not an absolute guarantee — see the gate's documented adjacency limit in
-   *  the body, where a non-selecting gesture can let a single echo through.) */
+   *  (Not an absolute guarantee: a non-selecting gesture can let a single
+   *  adjacent echo through.) */
   selectedPath?: string | null;
   /** Fires for a selection a real user gesture (click/keydown on the tree)
    *  caused — treat it as "the user picked a file," not a mirror of every
    *  selection. A programmatic write to `selectedPath` is normally suppressed
-   *  by the one-shot gesture gate rather than echoed here, with one bounded
-   *  exception documented on the gate (a non-selecting gesture can let a single
-   *  adjacent echo through — never a loop). */
+   *  by the one-shot gesture gate rather than echoed here; a non-selecting
+   *  gesture can let a single adjacent echo through — never a loop. */
   onSelect?: (path: string | null) => void;
   /** Enable Pierre's built-in header search affordance. Default `true`.
    *  Set to `false` when the host renders its own search input and
@@ -66,8 +65,8 @@ export type FileTreeProps = {
    *  the rebuild; expansion never falls out of sync with a path swap. The one
    *  exception is `lazyDirectories`: a load REPLACES the collapsed key,
    *  destroying the node that carried its expansion, so the wrapper keeps that
-   *  one set of keys itself (`openLazyDirs`) and re-opens them after each
-   *  rebuild. */
+   *  one set of keys itself (its `LazyExpansionRecord`) and re-opens them
+   *  after each rebuild. */
   expandPaths?: readonly string[];
   /** A **standing** request to reveal a directory: open it and its ancestors
    *  so the row exists and its children show, then scroll it into view. Unlike
@@ -202,17 +201,134 @@ function revealDirectory(tree: FileTreeClass, dirKey: string): void {
   tree.scrollToPath(dirKey, { offset: "center" });
 }
 
+type GestureProvenance = { consume: () => boolean };
+
+const createGestureProvenance = (container: HTMLElement): GestureProvenance => {
+  let armed = false;
+  createEventListener(
+    container,
+    ["click", "keydown"],
+    () => {
+      armed = true;
+      requestAnimationFrame(() => {
+        armed = false;
+      });
+    },
+    { capture: true },
+  );
+  return {
+    consume: () => {
+      if (!armed) return false;
+      armed = false;
+      return true;
+    },
+  };
+};
+
+type LazyLoadTicket = { readonly key: string };
+
+type LazyExpansionRecord = {
+  openKeys: () => Iterable<string>;
+  collapsed: (key: string) => void;
+  openIfNew: (key: string) => LazyLoadTicket | null;
+  settle: (ticket: LazyLoadTicket) => void;
+  rollBack: (ticket: LazyLoadTicket) => boolean;
+  retainOnly: (declared: Iterable<string>) => void;
+  clear: () => void;
+};
+
+const createLazyExpansionRecord = (): LazyExpansionRecord => {
+  const open = new Set<string>();
+  const newestLoad = new Map<string, LazyLoadTicket>();
+  const owns = (ticket: LazyLoadTicket): boolean =>
+    newestLoad.get(ticket.key) === ticket;
+  return {
+    openKeys: () => open,
+    collapsed: (key) => {
+      open.delete(key);
+    },
+    openIfNew: (key) => {
+      if (open.has(key)) return null;
+      open.add(key);
+      const ticket: LazyLoadTicket = { key };
+      newestLoad.set(key, ticket);
+      return ticket;
+    },
+    settle: (ticket) => {
+      if (owns(ticket)) newestLoad.delete(ticket.key);
+    },
+    rollBack: (ticket) => {
+      if (!owns(ticket)) return false;
+      newestLoad.delete(ticket.key);
+      open.delete(ticket.key);
+      return true;
+    },
+    retainOnly: (declared) => {
+      const keep = new Set(declared);
+      for (const key of open) if (!keep.has(key)) open.delete(key);
+    },
+    clear: () => {
+      open.clear();
+    },
+  };
+};
+
+type PathReconciler = {
+  adopt: (paths: readonly string[]) => void;
+  apply: (
+    tree: FileTreeClass,
+    next: readonly string[],
+    expand: readonly string[],
+  ) => void;
+  recover: (
+    tree: FileTreeClass,
+    next: readonly string[],
+    expand: readonly string[],
+  ) => void;
+};
+
+const createPathReconciler = (): PathReconciler => {
+  let applied: readonly string[] = [];
+  return {
+    adopt: (paths) => {
+      applied = dropRedundantDirKeys(paths);
+    },
+    apply: (tree, rawNext, expand) => {
+      const prev = applied;
+      const next = dropRedundantDirKeys(rawNext);
+      const pathOps = pathDiffOperations(prev, next).filter(
+        (op) =>
+          !(
+            op.type === "add" &&
+            isDirectoryPath(op.path) &&
+            tree.getItem(op.path)
+          ),
+      );
+      if (pathOps.length > 0) tree.batch(pathOps);
+      const dirOps: FileTreeRemoveOperation[] = [];
+      for (const op of directoryRemovalOps(prev, next)) {
+        if (tree.getItem(op.path)) dirOps.push(op);
+      }
+      if (dirOps.length > 0) tree.batch(dirOps);
+      applied = next;
+      expandDirs(tree, expand);
+    },
+    recover: (tree, rawNext, expand) => {
+      const next = dropRedundantDirKeys(rawNext);
+      tree.resetPaths(next, { initialExpandedPaths: [...expand] });
+      applied = next;
+      expandDirs(tree, expand);
+    },
+  };
+};
+
 export const FileTree: Component<FileTreeProps> = (props) => {
   let container!: HTMLDivElement;
   let tree: FileTreeClass | undefined;
   let hostSheet: CSSStyleSheet | undefined | null;
-  let appliedPaths: readonly string[] = [];
 
-  let userGesture = false;
-
-  const openLazyDirs = new Set<string>();
-
-  const newestLoad = new Map<string, object>();
+  const pathState = createPathReconciler();
+  const lazy = createLazyExpansionRecord();
 
   const propValue = {
     paths: createMemo(() => props.paths),
@@ -231,30 +347,32 @@ export const FileTree: Component<FileTreeProps> = (props) => {
     return files;
   });
 
-  let rebuilding = false;
+  let rebuildDepth = 0;
+  const withRebuild = (fn: () => void): void => {
+    rebuildDepth++;
+    try {
+      fn();
+    } finally {
+      rebuildDepth--;
+    }
+  };
 
   const reportLazyExpansions = (): void => {
     const t = tree;
-    if (!t || rebuilding) return;
+    if (!t || rebuildDepth > 0) return;
     for (const key of propValue.lazyDirectories() ?? []) {
       const item = t.getItem(key);
       if (!item || !("isExpanded" in item)) continue;
       if (!item.isExpanded()) {
-        openLazyDirs.delete(key);
+        lazy.collapsed(key);
         continue;
       }
-      if (openLazyDirs.has(key)) continue;
-      openLazyDirs.add(key);
-      const token = {};
-      newestLoad.set(key, token);
+      const ticket = lazy.openIfNew(key);
+      if (!ticket) continue;
       void Promise.resolve(props.onExpandLazyDirectory?.(key)).then(
+        () => lazy.settle(ticket),
         () => {
-          if (newestLoad.get(key) === token) newestLoad.delete(key);
-        },
-        () => {
-          if (newestLoad.get(key) !== token) return;
-          newestLoad.delete(key);
-          openLazyDirs.delete(key);
+          if (!lazy.rollBack(ticket)) return;
           safeApply(() => {
             const row = t.getItem(key);
             if (row && "collapse" in row) row.collapse();
@@ -273,19 +391,11 @@ export const FileTree: Component<FileTreeProps> = (props) => {
           props.revealRequest.path,
         ]
       : []),
-    ...openLazyDirs,
+    ...lazy.openKeys(),
   ];
 
   onMount(() => {
-    const armGesture = () => {
-      userGesture = true;
-      requestAnimationFrame(() => {
-        userGesture = false;
-      });
-    };
-    createEventListener(container, ["click", "keydown"], armGesture, {
-      capture: true,
-    });
+    const gesture = createGestureProvenance(container);
 
     const reveal = props.revealRequest;
     safeApply(() => {
@@ -304,8 +414,7 @@ export const FileTree: Component<FileTreeProps> = (props) => {
           ? { contextMenu: props.contextMenu }
           : undefined,
         onSelectionChange: (paths) => {
-          if (!userGesture) return;
-          userGesture = false;
+          if (!gesture.consume()) return;
           const p = paths[0] ?? null;
           if (p !== null && !fileSet().has(p)) return;
           props.onSelect?.(p);
@@ -314,21 +423,13 @@ export const FileTree: Component<FileTreeProps> = (props) => {
       tree.render({ containerWrapper: container });
       if (props.selectedPath) tree.scrollToPath(props.selectedPath);
       if (reveal) tree.scrollToPath(reveal.path, { offset: "center" });
-      appliedPaths = dropRedundantDirKeys(props.paths);
-      // Adopted empty; the (non-deferred) shadow-CSS effect below runs right
-      // after this one in creation order and is what writes the content — one
-      // call site for the rule, so the mount case can't drift from the change
-      // case.
+      pathState.adopt(props.paths);
       hostSheet = adoptShadowSheet(container);
       onCleanup(
         tree.subscribe(() => safeApply(reportLazyExpansions, props.onError)),
       );
       reportLazyExpansions();
     }, props.onError);
-    // Deliberately do NOT clear the request here: it stays standing so this
-    // exact application repeats on every remount (the host clears it on a real
-    // navigation). That re-application is what keeps the reveal alive across an
-    // fsListAll-driven unmount/remount under load.
   });
 
   createEffect(
@@ -338,51 +439,27 @@ export const FileTree: Component<FileTreeProps> = (props) => {
         const t = tree;
         if (!t) return;
         const toOpen = desiredExpandedPaths();
-        const prev = dropRedundantDirKeys(appliedPaths);
-        const next = dropRedundantDirKeys(paths);
-        rebuilding = true;
-        try {
-          const pathOps = pathDiffOperations(prev, next).filter((op) => {
-            if (
-              op.type === "add" &&
-              isDirectoryPath(op.path) &&
-              t.getItem(op.path)
-            ) {
-              return false;
-            }
-            return true;
-          });
-          if (pathOps.length > 0) t.batch(pathOps);
-          const dirOps: FileTreeRemoveOperation[] = [];
-          for (const op of directoryRemovalOps(prev, next)) {
-            if (t.getItem(op.path)) dirOps.push(op);
-          }
-          if (dirOps.length > 0) t.batch(dirOps);
-          appliedPaths = next;
-          expandDirs(t, toOpen);
-        } catch (err) {
+        withRebuild(() => {
           try {
-            t.resetPaths(next, { initialExpandedPaths: toOpen });
-            appliedPaths = next;
-            expandDirs(t, toOpen);
-            console.error(
-              "FileTree paths batch failed; recovered via resetPaths:",
-              err,
-            );
-            return;
-          } catch (recoverErr) {
-            const recovered = toError(recoverErr);
-            props.onError(
-              recovered.cause == null
-                ? new Error(recovered.message, { cause: err })
-                : recovered,
-            );
-            return;
+            pathState.apply(t, paths, toOpen);
+          } catch (err) {
+            try {
+              pathState.recover(t, paths, toOpen);
+              console.error(
+                "FileTree paths batch failed; recovered via resetPaths:",
+                err,
+              );
+            } catch (recoverErr) {
+              const recovered = toError(recoverErr);
+              props.onError(
+                recovered.cause == null
+                  ? new Error(recovered.message, { cause: err })
+                  : recovered,
+              );
+            }
           }
-        } finally {
-          rebuilding = false;
-          safeApply(reportLazyExpansions, props.onError);
-        }
+        });
+        safeApply(reportLazyExpansions, props.onError);
       },
       { defer: true },
     ),
@@ -391,11 +468,8 @@ export const FileTree: Component<FileTreeProps> = (props) => {
   createEffect(
     on(
       propValue.lazyDirectories,
-      (lazy) => {
-        const declared = new Set(lazy ?? []);
-        for (const key of openLazyDirs) {
-          if (!declared.has(key)) openLazyDirs.delete(key);
-        }
+      (declared) => {
+        lazy.retainOnly(declared ?? []);
         safeApply(reportLazyExpansions, props.onError);
       },
       { defer: true },
@@ -406,7 +480,7 @@ export const FileTree: Component<FileTreeProps> = (props) => {
     on(
       propValue.lazyEpoch,
       () => {
-        openLazyDirs.clear();
+        lazy.clear();
       },
       { defer: true },
     ),
@@ -422,12 +496,6 @@ export const FileTree: Component<FileTreeProps> = (props) => {
     ),
   );
 
-  // The host's CSS is pure styling — rewriting the one adopted sheet touches no
-  // Pierre state, so a change never disturbs expansion, scroll, or the
-  // git-change roll-up. NOT deferred: this effect is created after `onMount`
-  // above, so Solid runs it later in the same flush, with the sheet already
-  // adopted — its first run IS the mount-time application, and there is no
-  // second call site to keep in sync.
   createEffect(
     on(propValue.shadowCss, (css) => {
       safeApply(() => hostSheet?.replaceSync(css ?? ""), props.onError);

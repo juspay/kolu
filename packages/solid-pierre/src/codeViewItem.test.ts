@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { contentCacheKey, diffItems, fileItem } from "./codeViewItem";
+import { contentIdentityHash, diffItems, fileItem } from "./codeViewItem";
 
 const newFileDiff = (body: string): string =>
   `diff --git a/note.txt b/note.txt
@@ -11,11 +11,11 @@ index 0000000..aaaaaaaa
 +${body}
 `;
 
-describe("contentCacheKey", () => {
+describe("contentIdentityHash", () => {
   it("changes when the payload changes, stays put when it doesn't", () => {
-    const a = contentCacheKey("note.txt", "before\n");
-    const b = contentCacheKey("note.txt", "after\n");
-    const again = contentCacheKey("note.txt", "before\n");
+    const a = contentIdentityHash("note.txt", "before\n");
+    const b = contentIdentityHash("note.txt", "after\n");
+    const again = contentIdentityHash("note.txt", "before\n");
     expect(a).not.toBe(b);
     expect(a).toBe(again);
     expect(a.startsWith("note.txt:")).toBe(true);

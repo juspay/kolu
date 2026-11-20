@@ -13,7 +13,7 @@ import {
 } from "solid-js";
 import type { CodeViewItem } from "./codeViewItem";
 import { safeApply } from "./safeApply";
-import { getCodeViewWorkerPool, HIGHLIGHTER_CONTRACT } from "./workerPool";
+import { codeViewWorkerPool, HIGHLIGHTER_CONTRACT } from "./workerPool";
 
 export type CodeViewProps = {
   /** The items to render — files, diffs, or a mix. Pierre virtualizes across
@@ -70,23 +70,30 @@ const contentRefOf = (item: CodeViewItem): unknown =>
     ? (item.fileDiff.cacheKey ?? item.fileDiff)
     : (item.file.cacheKey ?? item.file);
 
-const applyVersions = (
-  raw: readonly CodeViewItem[],
-  current: ReadonlyMap<string, VersionEntry>,
-): { items: CodeViewItem[]; next: Map<string, VersionEntry> } => {
-  const next = new Map<string, VersionEntry>();
-  const items = raw.map((item): CodeViewItem => {
-    const ref = contentRefOf(item);
-    const prev = current.get(item.id);
-    const version = !prev
-      ? 1
-      : prev.ref === ref
-        ? prev.version
-        : prev.version + 1;
-    next.set(item.id, { ref, version });
-    return { ...item, version };
-  });
-  return { items, next };
+type ItemVersionLedger = {
+  stamp(raw: readonly CodeViewItem[]): CodeViewItem[];
+};
+
+const createItemVersionLedger = (): ItemVersionLedger => {
+  let entries = new Map<string, VersionEntry>();
+  return {
+    stamp(raw) {
+      const next = new Map<string, VersionEntry>();
+      const items = raw.map((item): CodeViewItem => {
+        const ref = contentRefOf(item);
+        const prev = entries.get(item.id);
+        const version = !prev
+          ? 1
+          : prev.ref === ref
+            ? prev.version
+            : prev.version + 1;
+        next.set(item.id, { ref, version });
+        return { ...item, version };
+      });
+      entries = next;
+      return items;
+    },
+  };
 };
 
 export const itemIdOnPath = (
@@ -120,13 +127,7 @@ export const codeViewItemIdAt = (node: Node): string | undefined => {
 export const CodeView: Component<CodeViewProps> = (props) => {
   let root!: HTMLDivElement;
   let instance: CodeViewClass | undefined;
-  let versions: ReadonlyMap<string, VersionEntry> = new Map();
-
-  const versionedItems = (raw: readonly CodeViewItem[]): CodeViewItem[] => {
-    const result = applyVersions(raw, versions);
-    versions = result.next;
-    return result.items;
-  };
+  const itemVersions = createItemVersionLedger();
 
   const scrollToSelection = (
     selection: CodeViewLineSelection | null | undefined,
@@ -156,10 +157,10 @@ export const CodeView: Component<CodeViewProps> = (props) => {
 
   onMount(() => {
     safeApply(() => {
-      instance = new CodeViewClass(buildOptions(), getCodeViewWorkerPool());
+      instance = new CodeViewClass(buildOptions(), codeViewWorkerPool());
       instance.setup(root);
       mountedViews.set(root, instance);
-      instance.setItems(versionedItems(props.items));
+      instance.setItems(itemVersions.stamp(props.items));
       if (props.selectedLines !== undefined) {
         instance.setSelectedLines(props.selectedLines);
       }
@@ -174,7 +175,7 @@ export const CodeView: Component<CodeViewProps> = (props) => {
       (items) =>
         safeApply(() => {
           if (!instance) return;
-          instance.setItems(versionedItems(items));
+          instance.setItems(itemVersions.stamp(items));
           instance.setOptions(buildOptions());
         }, props.onError),
       { defer: true },
