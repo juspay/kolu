@@ -1,12 +1,5 @@
 export type { ITheme } from "@xterm/xterm";
-export {
-  hexToOkLab,
-  okLabDistance,
-  pickTheme,
-  themeColourful,
-  themeMode,
-  type ThemePickMode,
-} from "./picker.ts";
+export { pickTheme, themeMode, type ThemePickMode } from "./picker.ts";
 export {
   availableThemes,
   DEFAULT_FONT_SIZE,

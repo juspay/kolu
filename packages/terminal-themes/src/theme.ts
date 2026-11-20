@@ -1,4 +1,5 @@
 import type { ITheme } from "@xterm/xterm";
+import { type NonEmpty, nonEmpty } from "nonempty";
 import availableThemesJson from "../themes.json" with { type: "json" };
 
 export interface NamedTheme {
@@ -12,12 +13,15 @@ export const FONT_FAMILY = '"FiraCode Nerd Font", monospace';
  *  otherwise, in px. */
 export const DEFAULT_FONT_SIZE = 14;
 
-/** All available themes from the checked-in JSON. The cast asserts
- *  non-empty at the import boundary. */
-export const availableThemes = availableThemesJson as [
-  NamedTheme,
-  ...NamedTheme[],
-];
+const themes = nonEmpty(availableThemesJson satisfies NamedTheme[]);
+if (!themes) {
+  throw new Error(
+    "themes.json is empty — regenerate it with `just regenerate`",
+  );
+}
+
+/** All available themes from the checked-in JSON. */
+export const availableThemes: NonEmpty<NamedTheme> = themes;
 
 export const DEFAULT_THEME_NAME = "Tomorrow Night";
 export const DEFAULT_THEME: ITheme =

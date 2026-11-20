@@ -10,9 +10,8 @@ export type ColorParseError = { kind: "bad-color"; input: string };
 
 /** Parse `#rgb` or `#rrggbb` (case-insensitive, optional `#`). */
 export function parseHexColor(input: string): Result<RGB, ColorParseError> {
-  const m = input.trim().match(/^#?([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/);
-  if (!m) return err({ kind: "bad-color", input });
-  const [, hex] = m as unknown as [string, string];
+  const hex = input.trim().match(/^#?([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/)?.[1];
+  if (hex === undefined) return err({ kind: "bad-color", input });
   const full = hex.length === 3 ? [...hex].map((c) => c + c).join("") : hex;
   const n = Number.parseInt(full, 16);
   return ok({
@@ -24,9 +23,10 @@ export function parseHexColor(input: string): Result<RGB, ColorParseError> {
 
 /** Parse `rgb(r, g, b)` with whitespace-tolerant separators. */
 export function parseRgbColor(input: string): Result<RGB, ColorParseError> {
-  const m = input.match(/^rgb\((\d+),\s*(\d+),\s*(\d+)\)$/);
-  if (!m) return err({ kind: "bad-color", input });
-  const [, r, g, b] = m as unknown as [string, string, string, string];
+  const [, r, g, b] = input.match(/^rgb\((\d+),\s*(\d+),\s*(\d+)\)$/) ?? [];
+  if (r === undefined || g === undefined || b === undefined) {
+    return err({ kind: "bad-color", input });
+  }
   return ok({ r: +r, g: +g, b: +b });
 }
 

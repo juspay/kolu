@@ -1,4 +1,5 @@
 import { type NonEmpty, nonEmpty } from "nonempty";
+import { parseHexColor } from "./color.ts";
 import type { NamedTheme } from "./theme.ts";
 
 interface OkLab {
@@ -11,17 +12,12 @@ function srgbToLinear(c: number): number {
   return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
 }
 
-/** Parse `#rgb` / `#rrggbb` into OkLab. Returns `undefined` for any other
- *  input (hex with alpha, named colours, etc.) — the caller treats an
- *  unparseable bg as "not a candidate for distance comparisons". */
 export function hexToOkLab(hex: string): OkLab | undefined {
-  const m = hex.trim().match(/^#?([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/);
-  if (!m) return undefined;
-  const [, s] = m as unknown as [string, string];
-  const full = s.length === 3 ? [...s].map((c) => c + c).join("") : s;
-  const r = parseInt(full.slice(0, 2), 16) / 255;
-  const g = parseInt(full.slice(2, 4), 16) / 255;
-  const b = parseInt(full.slice(4, 6), 16) / 255;
+  const rgb = parseHexColor(hex);
+  if (rgb.isErr()) return undefined;
+  const r = rgb.value.r / 255;
+  const g = rgb.value.g / 255;
+  const b = rgb.value.b / 255;
   const rl = srgbToLinear(r);
   const gl = srgbToLinear(g);
   const bl = srgbToLinear(b);
@@ -58,7 +54,7 @@ function labFamily(lab: OkLab): "light" | "dark" {
 /** Classify a theme as `"light"` / `"dark"` by its background luminance, or
  *  `undefined` when the background is missing / unparseable. Used to restrict
  *  the picker's candidate pool to one luminance family (see `pickTheme`'s
- *  `mode` option). Exported for the test suite. */
+ *  `mode` option). */
 export function themeMode(t: NamedTheme): "light" | "dark" | undefined {
   const bg = t.theme.background;
   const lab = bg ? getLab(bg) : undefined;
@@ -75,9 +71,6 @@ function chroma(lab: OkLab): number {
   return Math.sqrt(lab.a * lab.a + lab.b * lab.b);
 }
 
-/** True when the theme's background has enough chroma to count as "colourful"
- *  (not grey). Garish ceilings stay on the quality gate only — this is the
- *  floor. Exported for the test suite. */
 export function themeColourful(t: NamedTheme): boolean {
   const bg = t.theme.background;
   const lab = bg ? getLab(bg) : undefined;
@@ -88,8 +81,6 @@ export function themeColourful(t: NamedTheme): boolean {
 /** Pool filter passed to {@link pickTheme}. */
 export type ThemePickMode = "light" | "dark" | "colourful";
 
-/** Anisotropic OkLab distance — luminance is scaled down so the picker
- *  prefers hue spread over luminance swaps. Exported for the test suite. */
 export function okLabDistance(x: OkLab, y: OkLab): number {
   const dL = (x.L - y.L) / L_DOWNWEIGHT;
   const da = x.a - y.a;
@@ -97,29 +88,18 @@ export function okLabDistance(x: OkLab, y: OkLab): number {
   return Math.sqrt(dL * dL + da * da + db * db);
 }
 
-/** Choose the candidate pool, relaxing constraints in priority order so an
- *  exhausted request never silently reintroduces a *worse* theme than the one
- *  constraint it couldn't satisfy. The quality gate (parseable, in-gamut — not
- *  garish) is ALWAYS required; distinctness (`excludeBgs`) is kept longer than
- *  the pool `mode` (light/dark/colourful), which is dropped first. So a
- *  `mode: "dark"` request that runs out of dark themes yields a *light* theme
- *  (family relaxed) before it would ever yield a garish or duplicate one —
- *  never all constraints at once. Only a degenerate catalogue with no
- *  in-gamut theme falls through to the raw list, preserving the non-emptiness
- *  type guarantee. The `??` chain short-circuits, so the common (non-empty)
- *  case runs just the first filter. */
+function meetsQuality(t: NamedTheme): boolean {
+  const bg = t.theme.background;
+  if (!bg) return false;
+  const lab = getLab(bg);
+  return lab !== undefined && chroma(lab) <= MAX_CANDIDATE_CHROMA;
+}
+
 function filterEligible(
   candidates: NonEmpty<NamedTheme>,
   excludeBgs?: Set<string>,
   mode?: ThemePickMode,
 ): NonEmpty<NamedTheme> {
-  // Quality gate — never relaxed except in a degenerate catalogue.
-  const quality = candidates.filter((t) => {
-    const bg = t.theme.background;
-    if (!bg) return false;
-    const lab = getLab(bg);
-    return lab !== undefined && chroma(lab) <= MAX_CANDIDATE_CHROMA;
-  });
   const inMode = (t: NamedTheme): boolean => {
     if (!mode) return true;
     switch (mode) {
@@ -136,12 +116,17 @@ function filterEligible(
   };
   const notExcluded = (t: NamedTheme): boolean =>
     !excludeBgs?.has(t.theme.background ?? "");
-  return (
-    nonEmpty(quality.filter((t) => notExcluded(t) && inMode(t))) ??
-    nonEmpty(quality.filter(notExcluded)) ??
-    nonEmpty(quality) ??
-    candidates
-  );
+  const quality = candidates.filter(meetsQuality);
+  const relaxations: ReadonlyArray<(t: NamedTheme) => boolean> = [
+    (t) => notExcluded(t) && inMode(t),
+    notExcluded,
+    () => true,
+  ];
+  for (const accepts of relaxations) {
+    const pool = nonEmpty(quality.filter(accepts));
+    if (pool) return pool;
+  }
+  return candidates;
 }
 
 const SCORE_TOLERANCE = 0.02;
