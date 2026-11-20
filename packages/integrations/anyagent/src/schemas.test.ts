@@ -1,22 +1,3 @@
-/** Byte-level fixtures for anyagent's PERSISTED vocabulary.
- *
- *  `RestoreTargetSchema` (and the `AgentIdentitySchema` nested inside its
- *  `exact` arm) rides to DISK on padi's authored terminal record — a slept or
- *  cold-restored terminal resumes THAT conversation by reading these exact
- *  bytes back (juspay/kolu#1495). `TaskProgressSchema` rides the wire inside
- *  every agent integration's info payload.
- *
- *  So the assertions below pin the ENCODED JSON STRING, not merely
- *  decode-equality: a key rename, a key REORDER, a newly-emitted key, or a
- *  dropped one would all survive a round-trip check while breaking every
- *  record already on a user's disk. The fixture strings are the bytes the
- *  pre-Effect (zod) schemas produced, transcribed verbatim.
- *
- *  The decode direction pins the READER's tolerance policy: an on-disk record
- *  written by a NEWER kolu carrying a field this build doesn't know is read by
- *  dropping the unknown field, never by rejecting the whole record — the
- *  rolling-deploy / downgrade path. That is policy, not a fallback. */
-
 import { Result, Schema } from "effect";
 import { describe, expect, it } from "vitest";
 import {

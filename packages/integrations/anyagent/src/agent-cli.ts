@@ -1,30 +1,7 @@
-/**
- * Agent CLI facts — the stable-flag allowlist, the sensor's name hint, and the
- * ONE renderer from a restore target to a shell line.
- *
- * ## The invariant
- *
- * **PTY output is a sensor. Nothing that executes may read a value whose
- * provenance is PTY bytes.** A shell's `OSC 633 ; E ; <text>` mark is
- * attacker-controlled — anyone whose text the user displays (`cat`, curl, an
- * ssh banner) can emit one — so it may never become a command kolu types.
- *
- * Everything that EXECUTES is rendered here from structured facts kolu owns:
- * the agent's registry vocab (which binary, how to spell "resume"), the
- * OS-derived `AgentIdentity` (which conversation), and the LIVE PROCESS's
- * argv filtered through {@link stableFlagTokens} (which flags). The raw mark
- * survives only as {@link agentNameHint} — a basename compared against
- * adapter names to name a foreground process that is otherwise a shim.
- *
- * The registry is passed EXPLICITLY as the first argument: no closure, no
- * module init order, no cycle (a registry-bound factory inside anyagent would
- * need the registry, which needs anyagent). `kolu-agents` binds it.
- */
-
 import { shellJoin } from "@kolu/shell-quote";
 import { parseArgsStringToArgv } from "string-argv";
 import type { RestoreTarget } from "./schemas.ts";
-import type { AnyAgentVocab, AgentCliGrammar } from "./vocab.ts";
+import type { AnyAgentVocab, AgentCliGrammar, FlagArity } from "./vocab.ts";
 
 /** The CLI registry: every known agent, keyed by `kind`. There is no
  *  basename-keyed PARSER any more — a basename read off PTY text can only be
@@ -37,9 +14,6 @@ export interface AgentCliRegistry {
   byKind(kind: string): AnyAgentVocab | undefined;
 }
 
-/** Build the kind index. Throws on a duplicate kind — the compile fence the
- *  old `BASENAME_TO_KIND` record had becomes a LOAD-TIME fence (crash loudly,
- *  AGENTS.md). */
 export function buildCliRegistry(
   vocabs: readonly AnyAgentVocab[],
 ): AgentCliRegistry {
@@ -111,24 +85,29 @@ export function stableFlagTokens(
   grammar: AgentCliGrammar,
   argv: readonly string[],
 ): string[] {
-  const kept: string[] = [];
+  const allowlistedTokens: string[] = [];
   for (let i = 0; i < argv.length; i++) {
-    const t = argv[i];
-    if (t === undefined) break;
-    if (t === "--") break;
-    if (!t.startsWith("-")) continue;
+    const token = argv[i];
+    if (token === undefined) break;
+    if (token === "--") break;
+    const arity = allowlistedFlag(grammar, token);
+    if (arity === null) continue;
+    allowlistedTokens.push(token);
     const next = argv[i + 1];
-    const arity = grammar.stableFlags.get(t);
-    if (arity === undefined) {
-      continue;
-    }
-    kept.push(t);
     if (arity === "value" && next !== undefined && !next.startsWith("-")) {
-      kept.push(next);
+      allowlistedTokens.push(next);
       i++;
     }
   }
-  return kept;
+  return allowlistedTokens;
+}
+
+function allowlistedFlag(
+  grammar: AgentCliGrammar,
+  token: string,
+): FlagArity | null {
+  if (!token.startsWith("-")) return null;
+  return grammar.stableFlags.get(token) ?? null;
 }
 
 /**
@@ -146,11 +125,6 @@ export function agentLaunchLine(
   return vocab === undefined ? null : renderLine(vocab, null, argv);
 }
 
-/** THE renderer of a launch/resume line: the vocab's binary, an optional resume
- *  marker (`byId`'s spelling), and the allowlisted flags. Re-filtered at RENDER,
- *  not only at capture: `stableFlags` revs with an agent release, so a target
- *  written by an older padi (a wider allowlist) must not bypass today's. The
- *  allowlist is the single live authority; filtering is idempotent. */
 function renderLine(
   vocab: AnyAgentVocab,
   marker: string | null,
