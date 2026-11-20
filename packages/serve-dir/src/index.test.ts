@@ -13,25 +13,15 @@ import {
   serveFile as serveFileEffect,
 } from "./index";
 
-// The one run edge for this file — a test IS a process edge (the allowlist's own
-// policy). Held here once so every assertion below reads as the plain
-// (input → ServeResult) table it is.
 function serveFile(...args: Parameters<typeof serveFileEffect>) {
   return Effect.runPromise(serveFileEffect(...args));
 }
 
-// Ranged 206 bodies are a `ReadableStream` (bytes flow from a bounded file
-// handle, never the whole file through the heap), so assertions read them to a
-// string instead of `.toString()`-ing the body directly.
 async function readBody(body: string | ReadableStream) {
   if (typeof body === "string") return body;
   return new Response(body).text();
 }
 
-// A realpath-based escape guard, written locally so this package's tests stay
-// agnostic (no kolu-git). It exercises the *injection mechanism*; the kolu
-// consumer wires its own `assertRealpathUnder` and verifies that wiring in the
-// kolu-server integration test.
 function realpathGuardUnder(root: string): RealpathGuard {
   return (abs) =>
     Effect.promise(async () => {
@@ -43,7 +33,7 @@ function realpathGuardUnder(root: string): RealpathGuard {
         const rel = path.relative(realRoot, real);
         return rel === "" || (!rel.startsWith("..") && !path.isAbsolute(rel));
       } catch {
-        return true; // fail-open on a missing path; serveFile then 404s
+        return true;
       }
     });
 }
@@ -58,8 +48,6 @@ describe("contentTypeForPath", () => {
 
   it("maps common HTML-asset siblings so relative <link>/<script> resolve", () => {
     expect(contentTypeForPath("style.css")).toBe("text/css; charset=utf-8");
-    // mrmime's modern default is `text/javascript` (the WHATWG-recommended JS
-    // type); serve-dir adds the charset.
     expect(contentTypeForPath("app.js")).toBe("text/javascript; charset=utf-8");
     expect(contentTypeForPath("icon.png")).toBe("image/png");
   });
@@ -77,9 +65,6 @@ describe("contentTypeForPath", () => {
   });
 
   it("is COMPLETE, not a curated preview subset — types files no consumer previews", () => {
-    // The point of backing this with mrmime: a consumer adding a format to its
-    // OWN classifier needs no edit here. These extensions are nothing kolu
-    // previews, yet they get real types — proof the table isn't a kolu mirror.
     expect(contentTypeForPath("mod.wasm")).toBe("application/wasm");
     expect(contentTypeForPath("notes.txt")).toBe("text/plain; charset=utf-8");
     expect(contentTypeForPath("data.csv")).toBe("text/csv; charset=utf-8");
@@ -118,7 +103,6 @@ describe("resolvePathUnder", () => {
   });
 
   it("rejects encoded-slash smuggling (foo%2f..%2fpasswd)", () => {
-    // splitting BEFORE decoding would let this through as one segment.
     const res = resolvePathUnder(root, "foo%2f..%2fpasswd");
     expect(res.ok).toBe(false);
     if (res.ok) return;
@@ -155,7 +139,6 @@ describe("resolvePathUnder", () => {
 
   it("rejects an absolute child path", () => {
     const res = resolvePathUnder(root, "/etc/passwd");
-    // Leading slash → empty first segment, caught by the empty-segment check.
     expect(res.ok).toBe(false);
     if (res.ok) return;
     expect(res.status).toBe(400);
@@ -201,16 +184,11 @@ describe("rawPathname", () => {
   });
 
   it("preserves dot segments WITHOUT normalizing — the whole point vs new URL", () => {
-    // `new URL("http://x/a/../secret").pathname` collapses to `/secret`,
-    // defeating the lexical guard. rawPathname must leave `..` intact for
-    // resolvePathUnder's per-segment check to reject it.
     expect(rawPathname("http://x/a/../secret")).toBe("/a/../secret");
     expect(rawPathname("/a/%2e%2e/secret")).toBe("/a/%2e%2e/secret");
   });
 
   it("preserves %2f without decoding it to a slash", () => {
-    // A pre-decode here would erase the segment boundary resolvePathUnder relies
-    // on; the raw bytes must survive to its single internal decode.
     expect(rawPathname("/files/abc/foo%2f..%2fpasswd")).toBe(
       "/files/abc/foo%2f..%2fpasswd",
     );
@@ -239,7 +217,6 @@ describe("parseByteRange", () => {
 
   it("resolves a suffix range to the last N bytes", () => {
     expect(parseByteRange("bytes=-20", 100)).toEqual({ start: 80, end: 99 });
-    // Suffix larger than the file → whole file (range-parser would 416 here).
     expect(parseByteRange("bytes=-500", 100)).toEqual({ start: 0, end: 99 });
   });
 
@@ -280,7 +257,6 @@ describe("serveFile", () => {
     expect(res.status).toBe(200);
     expect(res.headers["Content-Type"]).toBe("text/html; charset=utf-8");
     expect(res.headers["X-Content-Type-Options"]).toBe("nosniff");
-    // Advertised on every successful response so the <video> player can seek.
     expect(res.headers["Accept-Ranges"]).toBe("bytes");
     expect(await readBody(res.body)).toBe("<!doctype html><h1>hi</h1>");
   });
@@ -309,18 +285,17 @@ describe("serveFile", () => {
   it("emits a strong ETag (size-mtimeNs-ino) on 200 and 206, stable across reads of the unchanged file", async () => {
     const full = await serveFile(tmpRoot, "clip.mp4");
     const ranged = await serveFile(tmpRoot, "clip.mp4", "bytes=2-5");
-    // Quoted (strong) validator of three hex fields — size, NANOSECOND mtime, inode.
     expect(full.headers.ETag).toMatch(/^"[0-9a-f]+-[0-9a-f]+-[0-9a-f]+"$/);
-    expect(ranged.headers.ETag).toBe(full.headers.ETag); // one file → one token
+    expect(ranged.headers.ETag).toBe(full.headers.ETag);
     const again = await serveFile(tmpRoot, "clip.mp4");
-    expect(again.headers.ETag).toBe(full.headers.ETag); // stable across reads
+    expect(again.headers.ETag).toBe(full.headers.ETag);
   });
 
   it("bumps the ETag when the file content changes", async () => {
     const p = path.join(tmpRoot, "etag-change.bin");
     fs.writeFileSync(p, "aaaa");
     const e1 = (await serveFile(tmpRoot, "etag-change.bin")).headers.ETag;
-    fs.writeFileSync(p, "bbbbbb"); // different bytes AND size → different token
+    fs.writeFileSync(p, "bbbbbb");
     const e2 = (await serveFile(tmpRoot, "etag-change.bin")).headers.ETag;
     expect(e1).toBeDefined();
     expect(e2).not.toBe(e1);
@@ -342,8 +317,6 @@ describe("serveFile", () => {
   });
 
   it("serves the full 200 when If-Range is STALE — never a 206 stitched onto changed bytes", async () => {
-    // RFC 9110 §13.1.3: a non-matching If-Range means the client's cached copy is
-    // stale, so the Range must be ignored and the whole representation served.
     const res = await serveFile(
       tmpRoot,
       "clip.mp4",
@@ -370,12 +343,6 @@ describe("serveFile", () => {
   });
 
   it("streams a 206 body consistent with its headers when the path is atomically replaced mid-flight", async () => {
-    // The ranged path opens one file handle, stats *that handle*, and streams
-    // from *that handle* — so `Content-Range`/`Content-Length` and the bytes
-    // come from one open file description, not two separate observations of a
-    // path. An atomic replace (write-temp-then-rename) swaps in a new inode; the
-    // open handle stays pinned to the original, so the already-sized headers and
-    // the streamed slice still describe one consistent file state.
     const swapPath = path.join(tmpRoot, "swap.mp4");
     fs.writeFileSync(swapPath, "0123456789");
     const res = await serveFile(tmpRoot, "swap.mp4", "bytes=2-5");
@@ -396,9 +363,6 @@ describe("serveFile", () => {
   });
 
   it("streams the full 200 body (no Range) so a large file never lands in the heap", async () => {
-    // The full 200 path uses `createReadStream` (a `ReadableStream`), not a
-    // buffered `readFile`. A client that omits a Range header — or a plain
-    // download — must not force the whole file through the server heap.
     const res = await serveFile(tmpRoot, "clip.mp4");
     expect(res.status).toBe(200);
     expect(res.body).toBeInstanceOf(ReadableStream);
@@ -406,8 +370,6 @@ describe("serveFile", () => {
   });
 
   it("collapses a multi-range header to a streamed full 200", async () => {
-    // Multi-range is deliberately not honored (falls back to a spec-valid full
-    // 200); that fallback must stream too, not buffer.
     const res = await serveFile(tmpRoot, "clip.mp4", "bytes=0-1,4-5");
     expect(res.status).toBe(200);
     expect(res.body).toBeInstanceOf(ReadableStream);
@@ -419,9 +381,6 @@ describe("serveFile", () => {
     expect(res.status).toBe(416);
     expect(res.headers["Content-Range"]).toBe("bytes */10");
     expect(res.headers["Accept-Ranges"]).toBe("bytes");
-    // The 416 body is plain-text error copy, so it must be typed `text/plain`
-    // — NOT the target's `video/mp4`. Under `nosniff`, advertising the media
-    // type would tell clients the error text is an MP4.
     expect(res.headers["Content-Type"]).toBe("text/plain; charset=utf-8");
     expect(res.headers["X-Content-Type-Options"]).toBe("nosniff");
   });
@@ -448,18 +407,12 @@ describe("serveFile", () => {
   });
 
   it("403s a symlink escaping the root when an injected realpath guard is supplied (no content leaks)", async () => {
-    // A planted `leak -> outside/secret` symlink passes the lexical guard (the
-    // link name is a clean in-root segment); only resolving the symlink reveals
-    // it escapes. An injected realpath guard rejects it with 403 BEFORE any byte
-    // is read — the stage `resolvePathUnder` (lexical only) cannot cover.
     const outside = fs.mkdtempSync(
       path.join(os.tmpdir(), "kolu-serve-dir-outside-"),
     );
     try {
       const secret = path.join(outside, "secret.html");
       fs.writeFileSync(secret, "<!doctype html><h1>SECRET</h1>");
-      // Unique link name per symlink test so they can't collide in the shared
-      // tmpRoot regardless of run order.
       fs.symlinkSync(secret, path.join(tmpRoot, "leak-guarded.html"));
       const res = await serveFile(
         tmpRoot,
@@ -476,9 +429,6 @@ describe("serveFile", () => {
   });
 
   it("follows a symlink when NO realpath guard is injected (the package stays lexical-only by default)", async () => {
-    // The guard is the caller's choice: a consumer with no symlink concern omits
-    // it and gets pure lexical safety. Documents that the package does not
-    // silently impose a filesystem-authority check.
     const outside = fs.mkdtempSync(
       path.join(os.tmpdir(), "kolu-serve-dir-outside-"),
     );

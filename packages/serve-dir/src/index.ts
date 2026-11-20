@@ -1,47 +1,3 @@
-/** `@kolu/serve-dir` — agnostic, fetch-native directory file server: given an
- *  ABSOLUTE root, answer a request for a file under it with a streaming
- *  byte-range `ServeResult`. The whole package is `(root, relPath, range) ->
- *  Effect<ServeResult>` — it knows nothing about terminals, git, or kolu (zero
- *  *workspace* deps — `node:fs`/`node:path`/`node:stream`, the focused `mrmime`
- *  MIME table, and `effect` for the I/O half's lifetime and error vocabulary),
- *  so any app serving files from a dynamic absolute root can plug in.
- *  The consumer keeps its own glue:
- *    - WHICH root (e.g. a terminal's repo root / `$PWD`) is injected by the
- *      caller, never decided here;
- *    - which HTTP runtime the `ServeResult` becomes (a Fetch `Response`, an
- *      `HttpServerResponse`, a base64 wire frame) is the CALLER's — this
- *      package deliberately stops at `{status, headers, body}` with a
- *      `ReadableStream` body, the one shape all three accept;
- *    - any response transform (e.g. kolu's artifact-sdk `<script>` injection)
- *      is an orthogonal *downstream* middleware that rewrites the HTML body —
- *      it composes for free precisely because the body is a stream and full
- *      200s omit `Content-Length` (see the 200 branch);
- *    - any URL contract (e.g. kolu's `?v=<tag>` cache key) lives in the
- *      consumer.
- *
- *  Why this isn't an off-the-shelf static server: the shape needed here is a
- *  function that RETURNS a response value. Every static-serve package
- *  (`send`/`serve-static`/`@fastify/static`/`@hono/node-server` serveStatic/…)
- *  is the inverse — a middleware bound to a fixed root that writes straight to a
- *  Node socket, so it can neither take a per-request absolute root nor compose
- *  with a downstream body transform. A 20-agent prior-art survey
- *  (`docs/atlas/src/content/atlas/electricity.mdx`) confirmed none fit; this
- *  ~`createReadStream({start,end}) -> Readable.toWeb -> {status,headers,body}`
- *  shape is the only one that does (what Deno `@std/http` and SvelteKit/Vite
- *  converge on).
- *
- *  Path safety is two-stage by volatility. Stage 1 is LEXICAL and lives here:
- *  decode-then-split rejects `..`/empty/absolute segments (defense against
- *  URL-encoded `..` and `%2f` smuggling), then a `path.relative` containment
- *  check — pure and universal, so it's built in. Stage 2 is the
- *  realpath/symlink-escape check: it touches the filesystem and encodes the
- *  consumer's threat model, so it is NOT hard-coded here — it's an INJECTED
- *  `realpathGuard` the caller passes (e.g. kolu wires its git
- *  `assertRealpathUnder`), keeping this package agnostic. When supplied, the
- *  guard runs *before* any `open`/`stat`/`readFile`, so a planted symlink
- *  pointing outside the root (`leak.html -> /etc/passwd`) is rejected with 403
- *  before a single byte is read; omitting it keeps lexical-only behavior. */
-
 import type { BigIntStats, promises as fsPromises } from "node:fs";
 import { open } from "node:fs/promises";
 import path from "node:path";
@@ -52,21 +8,7 @@ import { lookup } from "mrmime";
 const TEXT_PLAIN = { "Content-Type": "text/plain; charset=utf-8" };
 const RE_BYTE_RANGE = /^bytes=(\d*)-(\d*)$/;
 
-/** Content-Type for a path. Backed by `mrmime`'s complete IANA-derived table
- *  (the same one Vite/sirv use), so this is "any file → its real MIME", NOT a
- *  curated subset of any consumer's previewable set: for every format mrmime
- *  knows, a consumer adding it to *its* classifier needs no edit here — mrmime
- *  already types it, so the ext↔MIME coupling is dissolved. A file with no known
- *  type serves as `application/octet-stream` (the browser downloads rather than
- *  renders).
- *
- *  serve-dir's deviations from mrmime's defaults: (1) a tiny `OVERRIDES` map for
- *  generic extensions mrmime happens to omit (`.m4v`, `.ico`) — these are
- *  universal formats any file server should type, NOT a consumer's preview list;
- *  (2) append an explicit `; charset=utf-8` to text-bearing types (any
- *  `text/...`, plus the `javascript`/`json` subtypes) so non-ASCII renders.
- *
- *  The mrmime gap set (`.m4v`/`.ico`, and any future classifier entry mrmime
+/** The mrmime gap set (`.m4v`/`.ico`, and any future classifier entry mrmime
  *  doesn't know) is the one case the coupling is NOT dissolved but
  *  contained-by-test: the MIME lives here, the consumer's classifier asserts the
  *  appliance, and the two must co-vary. Drop an `OVERRIDES` row and the
@@ -109,8 +51,6 @@ export function contentTypeForPath(filePath: string): string {
  *  decode-then-split to be the sole, authoritative normalization. */
 export function rawPathname(rawUrl: string): string {
   const afterAuthority = rawUrl.replace(/^[a-zA-Z][\w+.-]*:\/\/[^/]*/, "");
-  // `search` is -1 when neither `?` nor `#` is present, so `slice(0, -1)` would
-  // be wrong — guard it explicitly.
   const search = afterAuthority.search(/[?#]/);
   return search === -1 ? afterAuthority : afterAuthority.slice(0, search);
 }
@@ -204,8 +144,6 @@ export function parseByteRange(
   size: number,
 ): { start: number; end: number } | "invalid" | null {
   if (!header) return null;
-  // Single range only: `bytes=start-end`, `bytes=start-`, or `bytes=-suffix`.
-  // A comma (multi-range) won't match, so we serve the whole file instead.
   const m = RE_BYTE_RANGE.exec(header.trim());
   if (!m) return null;
   const [, rawStart, rawEnd] = m;
@@ -215,7 +153,6 @@ export function parseByteRange(
   let start: number;
   let end: number;
   if (rawStart === "") {
-    // Suffix range: the last N bytes.
     const suffix = Number(rawEnd);
     if (suffix === 0) return "invalid";
     start = Math.max(0, size - suffix);
@@ -274,42 +211,16 @@ export function getHeaderCI(
   return undefined;
 }
 
-/** A strong content validator (`ETag`) for an open file's CURRENT bytes, derived
- *  from the same `stat` that sizes the response: size + **nanosecond** mtime + inode.
- *  Two reads of the SAME unchanged file yield the SAME token; ANY change bumps it —
- *  an in-place write or an atomic same-size replace both move `mtimeNs`, and a
- *  replace also swaps the `inode`. Nanosecond mtime (not millisecond) is what makes
- *  it a genuinely STRONG validator: a same-size in-place rewrite within the same
- *  millisecond still changes `mtimeNs`, so it is caught — a millisecond-rounded token
- *  would miss that sub-ms window. serve-dir honors `If-Range` against this token (see
- *  `serveFile`) but never returns 304. Its other purpose: a re-serving arm that
- *  reassembles ONE response from MULTIPLE reads — kolu's remote-bound preview, which
- *  dials `preview.read` in bounded chunks — proves every chunk came from a single
- *  file snapshot and fails LOUD otherwise. It is the cross-read analogue of the
- *  single-open-handle invariant a local `serveFile` gets for free (one handle pins
- *  one inode for the whole body); across an RPC boundary the handle can't be shared,
- *  so the validator carries the identity in its place. */
 function fileETag(s: { size: bigint; mtimeNs: bigint; ino: bigint }): string {
   return `"${s.size.toString(16)}-${s.mtimeNs.toString(16)}-${s.ino.toString(16)}"`;
 }
 
-/** A file handle plus WHO owns it once the body below is done with it. The
- *  streaming exits hand the handle to `Readable.toWeb` (whose `createReadStream`
- *  owns the lifecycle — `autoClose` defaults on); every other exit leaves it to
- *  the finalizer. Ownership is carried by the exit VALUE rather than by a
- *  boolean over time, so there is no window in which the two disagree — and
- *  because the finalizer is the one that closes, an INTERRUPT (a browser
- *  abandoning a seek between the open and the first byte) closes it too, which
- *  the hand-unwound version could not do. */
 interface Served {
   readonly result: ServeResult;
-  /** True when `result.body` is a stream that has taken the handle over. */
   readonly streams: boolean;
 }
 
 /** Read the resolved file and assemble the HTTP response (the I/O half).
- *  Separated from `resolvePathUnder` so the guard is testable without fixtures
- *  and the I/O failure modes are testable without crafting URLs.
  *
  *  The error channel is `never` on purpose: an HTTP status IS this function's
  *  success value, so a missing file (404) and an unreadable one (500) are
@@ -330,16 +241,6 @@ export function serveFile(
       body: res.reason,
     });
   }
-  // Every successful response — 200 and 206 alike — streams from a single open
-  // file handle: `open` → `handle.stat()` (the size that drives range math AND
-  // the headers) → `handle.createReadStream`. Deriving the size and the bytes
-  // from the *same* open file description — rather than a `stat(path)` then a
-  // separate `createReadStream(path)` — tightens the stat/read race on a
-  // live-reloading root: the handle pins one inode, so an *atomic* replace
-  // (write-temp-then-rename) leaves the already-sized headers and the streamed
-  // body describing one consistent file. Open/stat failures fail this effect and
-  // map to 404/500 below, *before* any 200/206 is returned.
-  //
   // Streaming the full 200 (not just the ranged 206) is the load-bearing reason
   // a multi-GB video never lands in the server heap: a client that omits a Range
   // header — or sends a multi-range one we collapse to 200 — would otherwise
@@ -358,9 +259,6 @@ export function serveFile(
       if (realpathGuard && !(yield* realpathGuard(res.abs))) {
         return null;
       }
-      // `catch: (e) => e` keeps the raw node error — the ENOENT/EACCES `code`
-      // below is what picks 404 from 500, and the default `UnknownError`
-      // wrapper would erase it.
       return yield* Effect.tryPromise({
         try: () => open(res.abs, "r"),
         catch: (e: unknown) => e,
@@ -374,11 +272,6 @@ export function serveFile(
           })
         : serveOpenFile(handle, res.mime, rangeHeader, ifRangeHeader),
     (handle, exit) =>
-      // The handle closes here on EVERY exit that did not hand it to a stream:
-      // the 404/416 answers, a failure, and — new under Effect — an interrupt.
-      // A close that itself fails still fails this effect (and lands as a 500
-      // below), exactly as the hand-unwound `await handle.close()` did on the
-      // non-streaming branches.
       handle === null || (Exit.isSuccess(exit) && exit.value.streams)
         ? Effect.void
         : Effect.tryPromise({
@@ -398,8 +291,6 @@ export function serveFile(
           body: "not found",
         });
       }
-      // Unexpected I/O error (EACCES, EIO, …) — surface as 500 so it doesn't
-      // masquerade as a missing file.
       return Effect.succeed<ServeResult>({
         status: 500,
         headers: TEXT_PLAIN,
@@ -409,11 +300,6 @@ export function serveFile(
   );
 }
 
-/** The response for an ALREADY-OPEN handle: stat it, shape the headers, decide
- *  the byte source. Split out so `serveFile` above reads as the resource
- *  lifetime it is, and so every exit here says in its `streams` flag whether it
- *  handed the descriptor to a stream — the ownership question the caller's
- *  finalizer asks. */
 function serveOpenFile(
   handle: fsPromises.FileHandle,
   mime: string,
@@ -421,8 +307,6 @@ function serveOpenFile(
   ifRangeHeader: string | null | undefined,
 ): Effect.Effect<Served, unknown> {
   return Effect.gen(function* () {
-    // `Accept-Ranges: bytes` advertises that this route can range-serve, which
-    // is what lets a `<video>` element seek.
     const baseHeaders: Record<string, string> = {
       "Content-Type": mime,
       "X-Content-Type-Options": "nosniff",
@@ -430,9 +314,6 @@ function serveOpenFile(
       "Accept-Ranges": "bytes",
     };
 
-    // `bigint: true` gives NANOSECOND `mtimeNs` for a genuinely strong `ETag`
-    // (see `fileETag`); `size`/`ino` come back as bigint too, so derive a Number
-    // `size` for the range math (files are never near 2^53 bytes).
     const s: BigIntStats = yield* Effect.tryPromise({
       try: () => handle.stat({ bigint: true }),
       catch: (e: unknown) => e,
@@ -444,10 +325,6 @@ function serveOpenFile(
       };
     }
     const size = Number(s.size);
-    // The strong validator rides EVERY streamed 200/206 (both share `baseHeaders`),
-    // so a re-serving remote arm can prove a multi-read reassembly stayed on one
-    // file snapshot (see `fileETag`). Derived from the SAME `stat` as the size, so
-    // headers and body agree on one file description.
     baseHeaders.ETag = fileETag(s);
 
     const streamBody = (start?: number, end?: number): ReadableStream => {
@@ -457,25 +334,12 @@ function serveOpenFile(
       return Readable.toWeb(stream) as ReadableStream;
     };
 
-    // `If-Range` (RFC 9110 §13.1.3): honor the `Range` ONLY when the client's
-    // validator still matches this file's CURRENT strong `ETag`; if the file has
-    // changed since the client last saw it, serve the WHOLE representation (200)
-    // rather than a 206 slice it would stitch onto stale bytes. We emit only a
-    // strong ETag, so any non-matching `If-Range` (a mismatched tag, or a date form
-    // we don't mint) conservatively collapses to the full 200. No `If-Range`, or a
-    // matching one, honors the range as before.
     const honorRange =
       !ifRangeHeader || ifRangeHeader.trim() === baseHeaders.ETag;
     const effectiveRange = honorRange ? rangeHeader : null;
 
     const range = effectiveRange ? parseByteRange(effectiveRange, size) : null;
     if (range === "invalid") {
-      // The body is a plain-text error, so type it `text/plain` — NOT the
-      // target file's `mime` from `baseHeaders`. Under `nosniff`, reusing
-      // `video/mp4`/`text/html` here would tell clients/debuggers the error
-      // text is media/HTML; an HTML 416 would also dodge the artifact
-      // middleware while still advertising `text/html`. Keep the range-specific
-      // `Accept-Ranges`/`Content-Range`/`nosniff` headers, just not the mime.
       return {
         result: {
           status: 416,
