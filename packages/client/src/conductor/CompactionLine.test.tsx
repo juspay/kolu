@@ -79,7 +79,7 @@ describe("the compaction line", () => {
     );
   });
 
-  it("failed: open, with the agent's reason", () => {
+  it("failed: the agent's reason under the line, with nothing to unfold", () => {
     const seen = drawn(
       row({
         state: "failed",
@@ -89,7 +89,6 @@ describe("the compaction line", () => {
       }),
     );
     expect(seen.toggle()).toContain("could not compact");
-    expect(seen.open()).toBe(true);
     expect(seen.sentence()).toBe(
       "Claude Code tried to compact this conversation and could not: the summary request was refused (overloaded).",
     );
