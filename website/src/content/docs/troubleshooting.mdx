@@ -138,8 +138,8 @@ Restoring a padi snapshot re-spawns its terminals beside your current ones,
 agents resumed and nothing killed. Restoring the server store applies live,
 with no restart. Your preferences, your host pool and [the
 Conductor](/conductor#what-a-backup-of-kolu-holds)'s pieces of work and memory
-come back at once, and the running Conductor takes the restored ones rather
-than writing over them. Every restore snapshots the current state first, so a
+come back at once, and the running Conductor takes them rather than writing
+over them. Every restore snapshots the current state first, so a
 restore is itself undoable.
 
 A backup does not hold two things. The Conductor's **conversation** is not in

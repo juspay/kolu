@@ -1412,9 +1412,10 @@ export const koluSurface = defineSurfaceWithPolicy<ToastOnlyPolicy>()({
       },
       /** Start a fresh conversation AND EMPTY IT: the rows, the record, the
        *  files those rows named and the fleet the conversation remembered all
-       *  go. The header menu's `New session` is the gesture, behind its one
-       *  confirm; being explicit is why it leaves no divider behind — there
-       *  is nothing above the break to divide from. */
+       *  go, while the works and the memory stay. The header menu's `New
+       *  session` is the gesture, behind its one confirm; being explicit is
+       *  why it leaves no divider behind — there is nothing above the break
+       *  to divide from. */
       clearSession: {
         input: ConductorEmptySchema,
         error: Schema.Union([ConductorUnavailable, ConductorRefused]),

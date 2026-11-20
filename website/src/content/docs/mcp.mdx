@@ -148,28 +148,24 @@ loopback HTTP listener.
 | naming a terminal | `3f29…` | `local/3f29…`, `remote:nix@prod/9a1b…`: the host, then the id, read apart at the last `/` |
 | `lifecycle_create` | opens one here | takes the host to open on, answers a fleet reference, and is refused without a `work` and a `role`; kolu writes a planner's or implementor's command |
 | the repo tools — `git_getStatus` · `git_getDiff` · `fs_listAll` · `fs_readFile` | a repo path | a repo path and the host it is on |
-| the waits and the watch | `wait_outputSettled` · `wait_agentState` · `watch_open` · `watch_next` · `watch_close`, all as below | `wait_outputSettled`, hard-capped at a few seconds, plus the work and memory tools below. The rest are not served |
+| the waits and the watch | `wait_outputSettled` · `wait_agentState` · `watch_open` · `watch_next` · `watch_close`, all as below | `wait_outputSettled`, hard-capped at a few seconds, plus the tools below. The rest are not served |
 | `diagnostics_read` | served | not served |
 | live views | `terminals` · `urgency` · `daemonStatus` · `status` · `identity` | `terminals` · `urgency` · `hosts` · `works` · `memory` |
 
 </div>
 
-A turn of the Conductor's stuck in a wait is a person stuck behind it. It opens
-a piece of work, ends its turn, and kolu-server starts the next one. The capped
-`wait_outputSettled` survives for the pause between typing and submitting.
+The Conductor never sits in a wait: it opens a piece of work and ends its turn,
+and kolu-server starts the next one. The capped `wait_outputSettled` covers the
+pause between typing and submitting.
 
-`hosts` is the live roster: which machines kolu knows, what each is called, and
-whether it is warming, connected or failed. A call naming a host that is not
-connected is refused by name, never with an empty list.
+`hosts` is the live roster: each machine kolu knows, its name, and whether it
+is warming, connected or failed. A call naming an unconnected host is refused
+by name, never with an empty list.
 
-`works` is the Conductor reading the pieces of work kolu stores: their members,
-where each stands, and any question open with you. The view subscribes, so an
-answer given from the card arrives without a call. One terminal's record is
-read at `surface://collections/terminals/<host>/<id>`.
-
-`memory` is what the Conductor [remembers](/conductor-memory): every note you
-approved, the titles of its proposals still waiting on you, and how much room
-is used.
+`works` holds the pieces of work kolu stores: their members, where each stands,
+and any question open with you. The view subscribes, so an answer from the
+card arrives without a call. One terminal's record is read at
+`surface://collections/terminals/<host>/<id>`.
 
 ## What your agent can do
 
@@ -299,14 +295,11 @@ kolu-server stores: it is woken rather than waiting.
 | `work_leave` | Take a terminal out of its work. One that closes leaves by itself. |
 | `work_stop` | End a work: its terminals stop being members and its open questions go. The record stays, and the card offers **Reopen**. |
 | `work_note` | Put a line of plain text on a work's timeline. |
+| `memory_propose` | Propose a note to add, replace or forget. Nothing is [remembered](/conductor-memory) until you approve it. |
 
 A new Conductor turn starts when a member terminal's agent comes up, stops,
 asks, goes or sleeps, when you answer, and when a work loses its last terminal.
 [The Conductor](/conductor) has the rest.
-
-| Memory tool | What it does |
-| --- | --- |
-| `memory_propose` | Propose to add, replace or forget a note, with an optional reason. It answers at once with the proposal's id. Nothing is remembered until you approve it, and a refused proposal fails with the reason. |
 
 ### Read the screen and the code
 
