@@ -1,14 +1,3 @@
-/**
- * The exit-code matrix, pinned.
- *
- * These five codes are what a driving loop branches on — "the agent I was
- * waiting for died" (3) is a different decision from "it never settled" (2),
- * which is a different decision from "my command was wrong" (1). Nothing pinned
- * them before the Effect conversion, which meant the whole contract lived in
- * five scattered `process.exit(n)` calls and a reviewer's memory. It lives in
- * `exit.ts` now, and this is the test that says so.
- */
-
 import { Effect, Exit } from "effect";
 import { describe, expect, it } from "vitest";
 import {
@@ -43,8 +32,6 @@ describe("the exit-code matrix", () => {
   });
 
   it("an unexpected failure still exits NON-ZERO", () => {
-    // The one thing that must never happen: a program that failed looking, to a
-    // script, exactly like one that worked.
     expect(exitCodeOf(new Error("something nobody anticipated"))).toBe(1);
     expect(exitCodeOf("a thrown string")).toBe(1);
     expect(exitCodeOf(undefined)).toBe(1);
@@ -58,15 +45,10 @@ describe("what the run edge prints", () => {
         new WaitInterrupted({ stderr: "— interrupted; ab left waiting\n" }),
       ),
     ).toBe("— interrupted; ab left waiting\n");
-    // Note the ABSENCE of a `padi-tui:` prefix above — the interrupted trailer
-    // is a status line, not a diagnostic, and prefixing it would change bytes a
-    // user reads.
     expect(reportOf(failure("no command"))).toBe("padi-tui: no command\n");
   });
 
   it("an unexpected failure is still REPORTED, in the CLI's shape", () => {
-    // caught-error-must-not-collapse-to-empty: a defect that printed nothing
-    // would leave a non-zero exit with no explanation at all.
     expect(reportOf(new Error("socket hung up"))).toBe(
       "padi-tui: socket hung up\n",
     );
